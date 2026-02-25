@@ -1,0 +1,69 @@
+import { Group } from 'three';
+import { EdgeMeshOptions, MeshRenderOptions, SceneObjectRender } from '../../types';
+import { EdgeMesh } from '../shape-meshes/edge-mesh';
+import { FaceMesh } from '../shape-meshes/face-mesh';
+import { SolidMesh } from '../shape-meshes/solid-mesh';
+import { MetaEdgeMesh } from '../shape-meshes/meta-edge-mesh';
+
+const STANDALONE_EDGE_STYLE: EdgeMeshOptions = { color: '#2297ff', lineWidth: 2 };
+
+/**
+ * Builds the Three.js geometry for a leaf scene object — one that has no
+ * children and whose `sceneShapes` contain the actual vertex / index data.
+ *
+ * Each shape part is dispatched to the appropriate low-level mesh class
+ * based on its `shapeType`.
+ */
+export class ShapeGroup extends Group {
+  constructor(
+    sceneObject: SceneObjectRender,
+    options?: MeshRenderOptions,
+  ) {
+    super();
+
+    if (!sceneObject.sceneShapes) {
+      return;
+    }
+
+    // Check if this object contains only wire/edge shapes (no face or solid).
+    const isStandaloneWireEdge = sceneObject.sceneShapes.every(
+      s => s.isMetaShape || s.shapeType === 'wire' || s.shapeType === 'edge',
+    );
+
+    for (const shape of sceneObject.sceneShapes) {
+      if (shape.isMetaShape) {
+        switch (shape.shapeType) {
+          case 'wire':
+          case 'edge':
+            this.add(new MetaEdgeMesh(shape));
+            break;
+        }
+        continue;
+      }
+
+      let mesh: Group | undefined;
+      switch (shape.shapeType) {
+        case 'wire':
+        case 'edge': {
+          const edgeOpts = options?.edge
+            ?? (isStandaloneWireEdge ? STANDALONE_EDGE_STYLE : undefined);
+          mesh = new EdgeMesh(shape, edgeOpts);
+          break;
+        }
+        case 'face':
+          mesh = new FaceMesh(shape, options?.face);
+          break;
+        case 'solid':
+          mesh = new SolidMesh(shape, options);
+          break;
+      }
+
+      if (mesh) {
+        if (shape.shapeId) {
+          mesh.userData.shapeId = shape.shapeId;
+        }
+        this.add(mesh);
+      }
+    }
+  }
+}

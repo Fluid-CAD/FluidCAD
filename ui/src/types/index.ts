@@ -1,0 +1,132 @@
+// ---------------------------------------------------------------------------
+// Vector / Plane data coming from the FluidCAD backend
+// ---------------------------------------------------------------------------
+
+export type Vec3Data = { x: number; y: number; z: number };
+
+export type PlaneData = {
+  origin: Vec3Data;
+  center: Vec3Data;
+  normal: Vec3Data;
+  xDirection: Vec3Data;
+  yDirection: Vec3Data;
+};
+
+// ---------------------------------------------------------------------------
+// Object types — every FluidCAD feature / construction element the backend emits
+// ---------------------------------------------------------------------------
+
+export type ObjectType =
+  // Construction geometry
+  | 'sketch'
+  | 'plane'
+  | 'axis'
+  // Selection overlay
+  | 'select'
+  // Primitives
+  | 'box'
+  | 'cylinder'
+  | 'sphere'
+  | 'cone'
+  | 'torus'
+  | 'wedge'
+  // Feature operations
+  | 'extrude'
+  | 'revolve'
+  | 'loft'
+  | 'pipe'
+  | 'helix'
+  // Modification operations
+  | 'fillet'
+  | 'chamfer'
+  | 'draft'
+  | 'thickness'
+  | 'mirror'
+  | 'linear-pattern'
+  | 'boolean'
+  // Direct solid reference
+  | 'solid';
+
+// ---------------------------------------------------------------------------
+// Shape types — the geometric representation of a scene object
+// ---------------------------------------------------------------------------
+
+export type ShapeType = 'solid' | 'face' | 'wire' | 'edge';
+
+// ---------------------------------------------------------------------------
+// Mesh render options
+// ---------------------------------------------------------------------------
+
+export type FaceMeshOptions = {
+  color?: string;
+  opacity?: number;
+};
+
+export type EdgeMeshOptions = {
+  color?: string;
+  lineWidth?: number;
+  opacity?: number;
+  depthWrite?: boolean;
+};
+
+export type MeshRenderOptions = {
+  face?: FaceMeshOptions;
+  edge?: EdgeMeshOptions;
+};
+
+// ---------------------------------------------------------------------------
+// Scene object data transferred from the backend
+// ---------------------------------------------------------------------------
+
+export type SceneObjectMesh = {
+  label?: string;
+  vertices: number[];
+  normals: number[];
+  indices: number[];
+  color?: string;
+};
+
+export type SceneObjectPart = {
+  shapeId?: string;
+  meshes: SceneObjectMesh[];
+  shapeType?: ShapeType;
+  isMetaShape?: boolean;
+};
+
+export type SceneObjectRender = {
+  id?: string;
+  parentId?: string | null;
+  object?: any;
+  sceneShapes: SceneObjectPart[];
+  ownShapes: SceneObjectPart[];
+  visible?: boolean;
+  type?: ObjectType;
+  fromCache?: boolean;
+  hasError?: boolean;
+};
+
+// ---------------------------------------------------------------------------
+// Application state types (unrelated to 3D rendering)
+// ---------------------------------------------------------------------------
+
+export interface Viewer3dState {
+  content: string;
+  loading: boolean;
+  error: string | null;
+}
+
+export interface CodeEditorState {
+  currentFile: string | null;
+  content: string;
+  loading: boolean;
+  error: string | null;
+  isDirty: boolean;
+}
+
+export interface FileItem {
+  name: string;
+  isDirectory: boolean;
+  path: string;
+  children?: FileItem[];
+  expanded?: boolean;
+}

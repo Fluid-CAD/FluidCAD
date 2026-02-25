@@ -1,0 +1,129 @@
+import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
+import { ExtrudeThroughAll } from "./infinite-extrude.js";
+import { Shape, Solid } from "../common/shapes.js";
+import { ExtrudeOptions } from "./extrude-options.js";
+import { Sketch } from "./2d/sketch.js";
+import { FaceMaker } from "../core/2d/face-maker.js";
+import { Extruder } from "./simple-extruder.js";
+import { BooleanOps } from "../oc/boolean-ops.js";
+import { ShapeOps } from "../oc/shape-ops.js";
+import { Extrudable } from "../helpers/types.js";
+
+export interface CutOptions extends ExtrudeOptions { }
+
+export type CutDirection = 'normal' | 'reversed' | 'symmetric';
+export type CutRotation = { x?: number, y?: number };
+
+export class Cut extends SceneObject {
+
+  isThroughAll = false;
+
+  constructor(private extrudable: Extrudable,
+    public distance: number,
+    public options: CutOptions = {}) {
+    super();
+
+    this.isThroughAll = this.distance === 0;
+  }
+
+  build(context: BuildSceneObjectContext) {
+    let sceneObjects: Map<SceneObject, Shape[]>;
+
+    sceneObjects = new Map<SceneObject, Shape[]>();
+    for (const obj of context.getSceneObjects()) {
+      const shapes = obj.getShapes(false, 'solid');
+      if (shapes.length === 0) {
+        continue;
+      }
+
+      sceneObjects.set(obj, shapes);
+    }
+
+    console.log('Cut: Scene objects for cut:', Array.from(sceneObjects.keys()).map(o => o.getType()));
+
+    let distance = this.distance === 0 ? 0 : -this.distance;
+
+    let extrusionShapes: Shape[] = [];
+    if (this.isThroughAll) {
+      const extrudeThroughAll = new ExtrudeThroughAll(this.extrudable, false, true);
+      extrusionShapes = extrudeThroughAll.build();
+    }
+    else {
+      const wires = this.extrudable.getGeometries();
+      const faces = FaceMaker.getFaces(wires, this.extrudable.getPlane());
+      const plane = this.extrudable.getPlane();
+      const extruder = new Extruder(faces, plane, distance, this.options)
+      extrusionShapes = extruder.extrude();
+    }
+
+    this.extrudable.removeShapes(this);
+
+    const shapeObjectMap = new Map<Shape, SceneObject>();
+    for (const [obj, shapes] of sceneObjects) {
+      for (const shape of shapes) {
+        shapeObjectMap.set(shape, obj);
+      }
+    }
+
+    const stock = Array.from(shapeObjectMap.keys());
+    console.log('Cut: Stock shapes count:', stock.length);
+    const toBeRemoved = extrusionShapes;
+
+    console.log('Cut: Stock shapes count:', stock.length);
+    console.log('Cut: To be removed shapes count:', toBeRemoved.length);
+
+    const cutResult = BooleanOps.cutMultiShape(stock, toBeRemoved);
+
+    for (const shape of stock) {
+      const list = cutResult.modified(shape);
+      console.log('Cut: Modified shapes for shape:', list.length);
+      if (list.length) {
+        for (const newShape of list) {
+          const s = ShapeOps.cleanShape(newShape) as Solid;
+          console.log('Cut: Adding modified shape:', s);
+          this.addShape(s);
+        }
+
+        const obj = shapeObjectMap.get(shape);
+        obj.removeShape(shape, this);
+      }
+      console.log('Cut: Shape modified count:', list.length);
+    }
+  }
+
+  override clone(): SceneObject[] {
+    const extrudableClone = this.extrudable.clone();
+    const extrudable = extrudableClone.find(c => c instanceof Sketch) as Sketch;
+    const cutClone = new Cut(extrudable, this.distance, this.options);
+    return [...extrudableClone, cutClone];
+  }
+
+  compareTo(other: Cut): boolean {
+    if (!(other instanceof Cut)) {
+      return false;
+    }
+
+    if (this.distance !== other.distance) {
+      return false;
+    }
+
+    if (JSON.stringify(this.options || {}) !== JSON.stringify(other.options || {})) {
+      return false;
+    }
+
+    return true;
+  }
+
+  getType(): string {
+    return "cut";
+  }
+
+  serialize() {
+    return {
+      extrudable: this.extrudable.serialize(),
+      distance: this.distance,
+      isThroughAll: this.isThroughAll,
+      options: this.options
+    }
+  }
+}

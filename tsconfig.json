@@ -1,0 +1,8 @@
+{
+  "files": [],
+  "references": [
+    { "path": "lib" },
+    { "path": "server" },
+    { "path": "ui" }
+  ]
+}

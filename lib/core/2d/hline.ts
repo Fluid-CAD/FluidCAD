@@ -1,0 +1,52 @@
+import { Point2DLike, isPoint2DLike } from "../../math/point.js";
+import { Move } from "../../features/2d/move.js";
+import { HorizontalLine } from "../../features/2d/hline.js";
+import { normalizePoint2D } from "../../helpers/normalize.js";
+import { registerBuilder, SceneParserContext } from "../../index.js";
+import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
+import { isPlaneLike, PlaneLike } from "../../math/plane.js";
+import { SceneObject } from "../../common/scene-object.js";
+import { resolvePlane } from "../../helpers/resolve.js";
+
+interface HLineFunction {
+  (distance: number, centered?: boolean): HorizontalLine;
+  (start: Point2DLike, distance: number, centered?: boolean): HorizontalLine;
+  (distance: number, targetPlane: PlaneLike | SceneObject): HorizontalLine;
+  (distance: number, centered: boolean, targetPlane: PlaneLike | SceneObject): HorizontalLine;
+}
+
+function build(context: SceneParserContext): HLineFunction {
+  return function line() {
+    let planeObj: PlaneObjectBase | null = null;
+    let argCount = arguments.length;
+
+    // Detect plane as last argument
+    if (argCount > 0) {
+      const lastArg = arguments[argCount - 1];
+      if (isPlaneLike(lastArg) || (lastArg instanceof SceneObject && !isPoint2DLike(lastArg))) {
+        planeObj = resolvePlane(lastArg, context);
+        argCount--;
+      }
+    }
+
+    if (typeof arguments[0] !== 'number') {
+      // hline(start, distance) or hline(start, distance, centered)
+      const start = normalizePoint2D(arguments[0]);
+      const distance: number = arguments[1];
+      const centered = argCount >= 3 ? (arguments[2] as boolean) : false;
+      const hline = new HorizontalLine(distance, centered, planeObj);
+      context.addSceneObjects([new Move(start), hline]);
+      return hline;
+    }
+
+    const distance: number = arguments[0];
+    const centered = argCount >= 2 ? (arguments[1] as boolean) : false;
+
+    const hline = new HorizontalLine(distance, centered, planeObj);
+    context.addSceneObject(hline);
+
+    return hline;
+  } as HLineFunction
+}
+
+export default registerBuilder(build);

@@ -1,0 +1,138 @@
+import { SceneObject } from "../common/scene-object.js";
+import { PlaneRenderableOptions } from "../core/plane.js";
+import { PlaneObjectBase } from "./plane-renderable-base.js";
+import { FaceOps } from "../oc/face-ops.js";
+import { ShapeOps } from "../oc/shape-ops.js";
+import { SelectSceneObject } from "./select.js";
+import { Face } from "../common/face.js";
+import { Point } from "../math/point.js";
+import { Plane } from "../math/plane.js";
+
+export class PlaneFromObject extends PlaneObjectBase {
+
+  constructor(public sourceObject: SceneObject, public options?: PlaneRenderableOptions) {
+    super();
+  }
+
+  build() {
+    let plane: Plane;
+    let sourceFace: Face;
+    let center: Point | undefined;
+
+    if (this.sourceObject instanceof PlaneObjectBase) {
+      plane = this.getFromPlaneObject(this.sourceObject);
+      center = (this.sourceObject as PlaneObjectBase).getPlaneCenter();
+    } else {
+      const extract = this.getFromSceneObject(this.sourceObject);
+
+      plane = extract.plane;
+      sourceFace = extract.sourceFace;
+    }
+
+    if (this.sourceObject instanceof SelectSceneObject) {
+      this.sourceObject.removeShapes(this);
+    }
+
+    if (this.options) {
+      plane = plane.transform(this.options);
+    }
+
+    if (sourceFace) {
+      const bbox = ShapeOps.getBoundingBox(sourceFace.getShape());
+      center = new Point(bbox.centerX, bbox.centerY, bbox.centerZ);
+    }
+
+    if (center) {
+      this.setState('plane-center', center);
+    }
+
+    const transform = this.getTransform();
+    if (transform) {
+      plane = plane.applyMatrix(transform);
+
+      if (center) {
+        center = center.transform(transform);
+        this.setState('plane-center', center);
+      }
+    }
+
+    this.setState('plane', plane);
+
+    const face = FaceOps.planeToFace(plane, center);
+
+    face.markAsMetaShape();
+    this.addShape(face);
+  }
+
+  getFromSceneObject(sceneObject: SceneObject) {
+    const shapes = sceneObject.getShapes();
+
+    console.log(`Plane: Retrieved ${shapes.length} shapes from selection`, shapes);
+
+    if (shapes.length === 0) {
+      throw new Error("Plane: Selected object has no shapes to extract plane from");
+    }
+
+    if (shapes.length > 1) {
+      throw new Error("Plane: Selected object has multiple shapes; cannot determine plane");
+    }
+
+    let sourceFace: Face = shapes[0] as Face;
+
+    if (!sourceFace.isFace()) {
+      throw new Error("Plane: Selected shape is not a face; cannot extract plane: " + sourceFace.getType());
+    }
+
+    let plane = sourceFace.getPlane();
+    console.log('Plane: Extracted plane from face', plane.normal);
+
+    return { plane, sourceFace };
+  }
+
+  getFromPlaneObject(sceneObject: PlaneObjectBase) {
+    let plane = sceneObject.getPlane();
+
+    return plane;
+  }
+
+  override clone(): SceneObject[] {
+    const planeObj = new PlaneFromObject(this);
+    return [planeObj];
+  }
+
+  compareTo(other: PlaneFromObject): boolean {
+    if (!(other instanceof PlaneFromObject)) {
+      return false;
+    }
+
+    if (!this.sourceObject.compareTo(other.sourceObject)) {
+      return false;
+    }
+
+    if (JSON.stringify(this.options) !== JSON.stringify(other.options)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  isTransformable(): boolean {
+    return true;
+  }
+
+  getUniqueType(): string {
+    return 'plane-from-face';
+  }
+
+  serialize() {
+    const plane = this.getPlane()
+    return {
+      origin: plane.origin,
+      xDirection: plane.xDirection,
+      yDirection: plane.yDirection,
+      normal: plane.normal,
+      options: this.options,
+      center: this.getState('plane-center') || plane.origin,
+    }
+  }
+}

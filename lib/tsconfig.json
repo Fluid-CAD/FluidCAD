@@ -1,0 +1,23 @@
+{
+  "include": [
+    "."
+  ],
+  "exclude": [
+    "./dist/**/*"
+  ],
+  "compilerOptions": {
+    "outDir": "dist",
+    "composite": true,
+    "moduleResolution": "nodenext",
+    "module": "nodenext",
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "strictNullChecks": false,
+    "skipLibCheck": true
+  },
+  "esbuild": {
+    "drop": [
+      "console"
+    ]
+  }
+}

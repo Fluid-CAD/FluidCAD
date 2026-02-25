@@ -6,7 +6,6 @@ const meshBuilder = new MeshBuilder();
 
 function renderSceneObject(obj: SceneObject, scene: Scene) {
   let hasError = false;
-  console.log("Rendering object:", obj.getUniqueType());
 
   const sceneShapes = obj.getOwnShapes(false);
   const renderedSceneShapes: RenderedShape[] = [];
@@ -69,7 +68,7 @@ export function renderSceneRollback(scene: Scene, rollbackIndex: number) {
 
   scene.clearRenderedObjects();
 
-  for (const obj of scene) {
+  for (const obj of allObjects) {
     const inScope = scope.has(obj);
 
     if (inScope) {
@@ -138,9 +137,10 @@ export function renderSceneRollback(scene: Scene, rollbackIndex: number) {
 }
 
 export function renderScene(scene: Scene) {
-  console.log("============ Rendering ==============", scene.length);
+  const sceneObjects = scene.getAllSceneObjects();
+  console.log("============ Rendering ==============", sceneObjects.length);
 
-  for (const object of scene) {
+  for (const object of sceneObjects) {
     console.log("Rendering object:", object.getUniqueType());
 
     const isCached = scene.isCached(object);
@@ -159,7 +159,7 @@ export function renderScene(scene: Scene) {
     }
   }
 
-  for (const object of scene) {
+  for (const object of sceneObjects) {
     renderSceneObject(object, scene);
   }
 

@@ -49,7 +49,8 @@ export class Offset extends ExtrudableGeometryBase {
 
   clone(): SceneObject[] {
     const targetPlane = this.targetPlane ? this.targetPlane.clone()[0] as PlaneObjectBase : null;
-    return [new Offset(this.distance, this.removeOriginal, this.sourceGeometries, targetPlane)];
+    const geometriesClone = this.sourceGeometries ? this.sourceGeometries.map(obj => obj.clone()).flat() : null;
+    return [new Offset(this.distance, this.removeOriginal, geometriesClone, targetPlane)];
   }
 
   compareTo(other: Offset): boolean {
@@ -60,8 +61,27 @@ export class Offset extends ExtrudableGeometryBase {
     if (this.targetPlane?.constructor !== other.targetPlane?.constructor) {
       return false;
     }
+
     if (this.targetPlane && other.targetPlane && !this.targetPlane.compareTo(other.targetPlane)) {
       return false;
+    }
+
+    if ((this.sourceGeometries === null) !== (other.sourceGeometries === null)) {
+      return false;
+    }
+
+    if (this.sourceGeometries && other.sourceGeometries) {
+      if (this.sourceGeometries.length !== other.sourceGeometries.length) {
+        return false;
+      }
+
+      for (let i = 0; i < this.sourceGeometries.length; i++) {
+        const obj1 = this.sourceGeometries[i];
+        const obj2 = other.sourceGeometries[i];
+        if (!obj1.compareTo(obj2)) {
+          return false;
+        }
+      }
     }
 
     return this.distance === other.distance && this.removeOriginal === other.removeOriginal;

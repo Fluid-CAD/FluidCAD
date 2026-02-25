@@ -57,7 +57,7 @@ export class Sketch extends SceneObject implements Extrudable {
   }
 
   getLastPosition(): Point2D {
-    const children = this.getChildren() as GeometrySceneObject[];
+    const children = this.getChildren().slice() as GeometrySceneObject[];
     if (children.length === 0) {
       return this.getStartPoint();
     }
@@ -138,7 +138,12 @@ export class Sketch extends SceneObject implements Extrudable {
     const thisChildren = this.getChildren();
     const otherChildren = other.getChildren();
 
+    // This will probably lead to geometries getting compared twice during the renering process
+    // TODO: consider using a compare cache to avoid redundant comparisons
     if (thisChildren.length !== otherChildren.length) {
+      console.log(`Sketch::compareTo children length mismatch: ${thisChildren.length} vs ${otherChildren.length}`);
+      console.log("This children:", thisChildren);
+      console.log("Other children:", otherChildren);
       return false;
     }
 
@@ -147,6 +152,7 @@ export class Sketch extends SceneObject implements Extrudable {
       const otherChild = otherChildren[i];
 
       if (!thisChild.compareTo(otherChild)) {
+        console.log(`Sketch::compareTo children at index ${i} do not match:`, thisChild, otherChild);
         return false;
       }
     }

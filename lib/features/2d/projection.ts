@@ -1,4 +1,3 @@
-import { GeometrySceneObject } from "./geometry.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Face } from "../../common/face.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
@@ -7,7 +6,6 @@ import { ProjectionOps } from "../../oc/intersection.js";
 import { Wire } from "../../common/wire.js";
 import { SelectSceneObject } from "../select.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
-import { Plane } from "../../math/plane.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
 
 export class Projection extends ExtrudableGeometryBase {
@@ -57,29 +55,6 @@ export class Projection extends ExtrudableGeometryBase {
     if (this.sketch) {
       this.setCurrentPosition(this.getCurrentPosition());
     }
-  }
-
-  getGeometries(): (Wire | Edge)[] {
-    return this.getShapes() as Wire[];
-  }
-
-  getGeometriesWithOwner(): Map<Wire | Edge, GeometrySceneObject> {
-    const shapes = this.getShapes() as Wire[];
-    const result: Map<Wire | Edge, GeometrySceneObject> = new Map();
-
-    for (const shape of shapes) {
-      result.set(shape, this);
-    }
-
-    return result;
-  }
-
-  getPlane(): Plane {
-    return this.targetPlane?.getPlane() || this.sketch.getPlane();
-  }
-
-  isExtrudable(): boolean {
-    return true;
   }
 
   clone(): SceneObject[] {

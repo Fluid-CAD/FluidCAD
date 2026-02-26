@@ -7,30 +7,24 @@ export class SceneCompare {
 
     const map = new Map<SceneObject, SceneObject>();
 
-    for (const obj of newScene) {
-      const index = newScene.indexOf(obj);
+    for (let i = 0; i < newScene.getSceneObjects().length; i++) {
+      const newObj = newScene.getSceneObjectAt(i);
+      const oldObj = oldScene.getSceneObjectAt(i);
 
-      console.log('Checking object:', obj?.getUniqueType());
+      console.log('Checking:', newObj?.getUniqueType());
 
       let oldMatch: SceneObject = null;
-      const oldObj = oldScene.getSceneObjectAt(index);
 
-      if (oldObj && oldObj.getUniqueType() === obj.getUniqueType()) {
-        console.log('Comparing', oldObj.getUniqueType(), 'to', obj.getUniqueType());
-        if (oldObj.compareTo(obj)) {
-          console.log('MATCHED:', oldObj.getUniqueType());
-          oldMatch = oldObj;
+      if (!oldObj || oldObj.getUniqueType() !== newObj.getUniqueType() || !oldObj.compareTo(newObj)) {
+        console.log('NO MATCH:', newObj.getUniqueType());
+        break;
+      }
 
-          newScene.markCached(obj);
-          map.set(oldMatch, obj);
-        }
-        else {
-          break;
-        }
-      }
-      else {
-        console.log('NO MATCH:', obj.getUniqueType());
-      }
+      console.log('MATCHED:', oldObj.getUniqueType());
+      oldMatch = oldObj;
+
+      newScene.markCached(newObj);
+      map.set(oldMatch, newObj);
     }
 
     // copy state from old to new

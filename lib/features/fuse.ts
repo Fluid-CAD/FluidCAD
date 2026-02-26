@@ -1,34 +1,67 @@
-import { SceneObject } from "../common/scene-object.js";
+import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
+import { Shape } from "../common/shape.js";
+import { BooleanOps } from "../oc/boolean-ops.js";
+import { ShapeOps } from "../oc/shape-ops.js";
 
 export class Fuse extends SceneObject {
   constructor(private sceneObjects: SceneObject[]) {
     super();
-
   }
 
-  build() {
-    // const shapeObjectMap = new Map<Shape, SceneObject>();
-    // for (const obj of this.sceneObjects) {
-    //   const shapes = obj.getShapes();
-    //   for (const shape of shapes) {
-    //     shapeObjectMap.set(shape, obj);
-    //   }
-    // }
-    //
-    // const items = Array.from(shapeObjectMap.keys());
-    // const { newShapes, modifiedShapes } = Extruder.fuseWithSceneObjects(items);
-    // console.log("Final fused solids count:", newShapes.length);
-    //
-    // for (const shape of modifiedShapes) {
-    //   const obj = shapeObjectMap.get(shape);
-    //   obj.removeShape(shape, this);
-    // }
-    //
-    // this.addShapes(newShapes);
+  build(context: BuildSceneObjectContext) {
+    let sceneObjects = this.sceneObjects;
+
+    if (sceneObjects?.length === 0) {
+      sceneObjects = context.getSceneObjects();
+    }
+
+    const objShapeMap = new Map<Shape, SceneObject>();
+    for (const obj of sceneObjects) {
+      for (const shape of obj.getShapes(false, 'solid')) {
+        objShapeMap.set(shape, obj);
+      }
+    }
+
+    const allShapes = Array.from(objShapeMap.keys());
+    if (allShapes.length < 2) {
+      return;
+    }
+
+    const args = allShapes.slice(0, 1);
+    const tools = allShapes.slice(1);
+
+    const fuseResult = BooleanOps.fuseMultiShape(args, tools, allShapes);
+
+    if (fuseResult.solids.length === allShapes.length) {
+      return;
+    }
+
+    if (!fuseResult.modifiedShapes.length) {
+      return;
+    }
+
+    const newShapes: Shape[] = [];
+    for (const solid of fuseResult.solids) {
+      const existsInOriginal = allShapes.some(s => s.getShape().IsPartner(solid.getShape()));
+      if (!existsInOriginal) {
+        newShapes.push(ShapeOps.cleanShape(solid));
+      }
+    }
+
+    for (const shape of fuseResult.modifiedShapes) {
+      const obj = objShapeMap.get(shape);
+      obj.removeShape(shape, this);
+    }
+
+    this.addShapes(newShapes);
   }
 
   compareTo(other: Fuse): boolean {
     if (!(other instanceof Fuse)) {
+      return false;
+    }
+
+    if (this.sceneObjects.length !== other.sceneObjects.length) {
       return false;
     }
 
@@ -47,7 +80,6 @@ export class Fuse extends SceneObject {
 
   serialize() {
     return {
-      objects: this.sceneObjects.map(s => s.serialize()),
     }
   }
 }

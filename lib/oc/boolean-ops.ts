@@ -113,9 +113,9 @@ export class BooleanOps {
     return { result: wrappedResult, modified };
   }
 
-  static fuseMultiShape(args: Shape[], tools: Shape[]): {
+  static fuseMultiShape(args: Shape[], tools: Shape[], checkDeleted: Shape[] = []): {
     result: Shape;
-    isDeleted(shape: Shape): boolean;
+    modifiedShapes: Shape[];
     solids: Solid[];
   } {
     const oc = getOC();
@@ -145,9 +145,20 @@ export class BooleanOps {
     const resultShape = fuseMaker.Shape();
     const rawSolids = Explorer.findShapes(resultShape, Explorer.getOcShapeType("solid"));
     const solids = rawSolids.map(s => Solid.fromTopoDSSolid(Explorer.toSolid(s)));
-    const isDeleted = (shape: Shape) => fuseMaker.IsDeleted(shape.getShape());
 
-    return { result: solids[0], isDeleted, solids };
+    const modifiedShapes: Shape[] = [];
+    for (const shape of checkDeleted) {
+      if (fuseMaker.IsDeleted(shape.getShape())) {
+        modifiedShapes.push(shape);
+      }
+    }
+
+    fuseMaker.delete();
+    toolsList.delete();
+    argumentsList.delete();
+    progress.delete();
+
+    return { result: solids[0], modifiedShapes, solids };
   }
 
   static splitShape(shape: Shape, tool: Shape): Shape[] {
@@ -185,7 +196,7 @@ export class BooleanOps {
     console.log('Fuse: Arguments count:', args.length);
     console.log('Fuse: Tools count:', tools.length);
 
-    const fuseResult = BooleanOps.fuseMultiShape(args, tools);
+    const fuseResult = BooleanOps.fuseMultiShape(args, tools, args);
 
     const resultShape = fuseResult.result;
     console.log('Fuse: Result shape type:', Explorer.getShapeType(resultShape.getShape()));
@@ -199,18 +210,9 @@ export class BooleanOps {
       }
     }
 
-    const modifiedShapes: Set<Shape> = new Set();
+    const modifiedShapes = fuseResult.modifiedShapes;
 
-    for (const shape of args) {
-      const isDeleted = fuseResult.isDeleted(shape);
-      console.log(`Fuse: Is Deleted: ${isDeleted}`);
-
-      if (isDeleted) {
-        modifiedShapes.add(shape);
-      }
-    }
-
-    if (!modifiedShapes.size) {
+    if (!modifiedShapes.length) {
       return {
         newShapes: tools,
         modifiedShapes: []

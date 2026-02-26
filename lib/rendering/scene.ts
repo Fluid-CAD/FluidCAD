@@ -31,28 +31,17 @@ export type SceneObjectRender = {
   hasError: boolean;
 }
 
-export class Scene implements Iterable<SceneObject> {
+export class Scene {
 
   private sceneObjects: SceneObject[] = [];
   private renderedObjects: Map<SceneObject, SceneObjectRender> = new Map();
   private cached: Set<SceneObject> = new Set();
-
 
   private progressiveContainers: SceneObject[] = [];
 
   private idMap: Map<string, SceneObject> = new Map();
 
   constructor() {
-  }
-
-  *[Symbol.iterator]() {
-    for (let i = 0; i < this.sceneObjects.length; i++) {
-      yield this.sceneObjects[i];
-    }
-  }
-
-  get length() {
-    return this.sceneObjects.length;
   }
 
   addSceneObject(obj: SceneObject): void {

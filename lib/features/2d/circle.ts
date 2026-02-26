@@ -48,6 +48,7 @@ export class Circle extends ExtrudableGeometryBase {
     if (this.targetPlane?.constructor !== other.targetPlane?.constructor) {
       return false;
     }
+
     if (this.targetPlane && other.targetPlane && !this.targetPlane.compareTo(other.targetPlane)) {
       return false;
     }

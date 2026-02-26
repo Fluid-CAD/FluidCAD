@@ -14,6 +14,9 @@ function connectWebSocket() {
         const isRollback = msg.rollbackStop != null && msg.rollbackStop < msg.result.length - 1;
         viewer.toggleSketchMode(true);
         viewer.updateView(msg.result, isRollback);
+        if (msg.absPath) {
+          viewer.setFileName(msg.absPath);
+        }
         break;
       }
       case 'highlight-shape':

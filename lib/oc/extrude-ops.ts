@@ -7,6 +7,7 @@ import { Axis } from "../math/axis.js";
 import { Explorer } from "./explorer.js";
 import { Shape } from "../common/shape.js";
 import { ShapeFactory } from "../common/shape-factory.js";
+import { ShapeOps } from "./shape-ops.js";
 
 export class ExtrudeOps {
   static makePrism(shape: Shape, direction: Vector3d, distance: number): Shape {
@@ -72,7 +73,10 @@ export class ExtrudeOps {
     const result = revol.Shape();
     revol.delete();
     disposeAx1();
-    return ShapeFactory.fromShape(result);
+
+    const clean = ShapeOps.cleanShapeRaw(result);
+
+    return ShapeFactory.fromShape(clean);
   }
 
   static applyDraftOnSideFaces(

@@ -8,6 +8,26 @@ import { SettingsPanel } from './ui/settings-panel';
 const HIGHLIGHT_FACE_COLOR = '#ffc578';
 const HIGHLIGHT_EDGE_COLOR = '#ffc578';
 
+const FILENAME_PILL_STYLES = `
+.filename-pill {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  z-index: 100;
+  background: rgba(30, 30, 30, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 9999px;
+  padding: 4px 14px;
+  color: #bbb;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 12px;
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+}
+`;
+
 /**
  *  - SceneContext      — scene, camera, renderer, controls
  *  - SceneModeManager  — default / sketch mode transitions
@@ -21,6 +41,7 @@ export class Viewer {
   private highlightedShapeId: string | null = null;
   private hasRendered = false;
   private lastFitBox: Box3 | null = null;
+  private fileNamePill: HTMLDivElement;
 
   constructor(containerId: string) {
     const container = document.getElementById(containerId)!;
@@ -28,10 +49,28 @@ export class Viewer {
     this.modeManager = new SceneModeManager(this.ctx);
     this.settingsPanel = new SettingsPanel(container, (mode) => this.ctx.switchCamera(mode));
     this.settingsPanel.setFitHandler(() => this.fitViewToScene());
+
+    if (!document.getElementById('filename-pill-styles')) {
+      const style = document.createElement('style');
+      style.id = 'filename-pill-styles';
+      style.textContent = FILENAME_PILL_STYLES;
+      document.head.appendChild(style);
+    }
+
+    this.fileNamePill = document.createElement('div');
+    this.fileNamePill.className = 'filename-pill';
+    this.fileNamePill.style.display = 'none';
+    container.appendChild(this.fileNamePill);
   }
 
   toggleSketchMode(enable: boolean): void {
     this.modeManager.sketchEnabled = enable;
+  }
+
+  setFileName(absPath: string): void {
+    const name = absPath.split('/').pop() ?? absPath;
+    this.fileNamePill.textContent = name;
+    this.fileNamePill.style.display = '';
   }
 
   updateView(sceneObjects: SceneObjectRender[], isRollback = false): void {

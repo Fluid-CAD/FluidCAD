@@ -2,7 +2,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { Fuse } from "../features/fuse.js";
 
-function build() {
+function build(context: SceneParserContext) {
   return function fuse(...args: (SceneObject[])): Fuse {
     let solids: SceneObject[];
 
@@ -13,6 +13,7 @@ function build() {
     }
 
     const fuse = new Fuse(solids);
+    context.addSceneObject(fuse);
 
     return fuse;
   }

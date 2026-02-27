@@ -19,6 +19,10 @@ export class LoadFile extends SceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (this.fileName !== other.fileName) {
       return false;
     }

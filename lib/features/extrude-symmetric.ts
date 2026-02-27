@@ -189,6 +189,10 @@ export class ExtrudeSymmetric extends ExtrudeBase {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (this.distance !== other.distance) {
       return false;
     }

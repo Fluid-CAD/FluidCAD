@@ -91,6 +91,7 @@ export type SceneObjectPart = {
   meshes: SceneObjectMesh[];
   shapeType?: ShapeType;
   isMetaShape?: boolean;
+  isGuide?: boolean;
 };
 
 export type SceneObjectRender = {

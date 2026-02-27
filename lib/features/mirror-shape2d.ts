@@ -51,6 +51,10 @@ export class MirrorShape2D extends GeometrySceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (!this.axis.compareTo(other.axis)) {
       return false;
     }

@@ -70,6 +70,10 @@ export class Revolve extends SceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (this.angle !== other.angle) {
       return false;
     }

@@ -52,6 +52,10 @@ export class PlaneObject extends PlaneObjectBase {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (!this.plane.compareTo(other.plane)) {
       return false;
     }

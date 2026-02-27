@@ -43,6 +43,10 @@ export class TangentLine extends GeometrySceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     return this.distance === other.distance;
   }
 

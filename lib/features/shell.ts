@@ -65,6 +65,10 @@ export class Shell extends SceneObject  {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (this.thickness !== other.thickness) {
       return false;
     }

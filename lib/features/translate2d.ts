@@ -44,6 +44,10 @@ export class Translate2D extends SceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (!this.amount.compareTo(other.amount)) {
       return false;
     }

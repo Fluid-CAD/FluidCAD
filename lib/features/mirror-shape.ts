@@ -77,6 +77,10 @@ export class MirrorShape extends SceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (!this.plane.compareTo(other.plane)) {
       return false;
     }

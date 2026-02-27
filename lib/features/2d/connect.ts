@@ -108,6 +108,10 @@ export class Connect extends GeometrySceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     return this.mode === other.mode;
   }
 

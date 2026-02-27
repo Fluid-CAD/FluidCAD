@@ -16,6 +16,7 @@ export type RenderedShape = {
   meshes: SceneObjectMesh[];
   shapeType: string;
   isMetaShape?: boolean;
+  isGuide?: boolean;
 }
 
 export type SceneObjectRender = {

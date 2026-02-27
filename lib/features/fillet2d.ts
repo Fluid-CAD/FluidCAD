@@ -50,6 +50,10 @@ export class Fillet2D extends GeometrySceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (this.radius !== other.radius) {
       return false;
     }

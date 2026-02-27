@@ -17,6 +17,10 @@ export class Cylinder extends SceneObject  {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     return this.radius === other.radius && this.height === other.height;
   }
 

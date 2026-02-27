@@ -141,6 +141,10 @@ export class Slot extends ExtrudableGeometryBase {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (this.targetPlane?.constructor !== other.targetPlane?.constructor) {
       return false;
     }

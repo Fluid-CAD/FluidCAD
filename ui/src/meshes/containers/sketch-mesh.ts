@@ -37,7 +37,7 @@ export class SketchMesh extends Group {
       }
 
       for (const shape of obj.sceneShapes) {
-        if (shape.isMetaShape) {
+        if (shape.isMetaShape || shape.isGuide) {
           if (shape.shapeType === 'wire' || shape.shapeType === 'edge') {
             this.add(new MetaEdgeMesh(shape));
           }

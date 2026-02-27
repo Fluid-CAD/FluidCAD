@@ -2,10 +2,10 @@ import type { TopoDS_Shape } from "occjs-wrapper";
 import { ShapeType } from "./shape-type.js";
 import { SceneObjectMesh } from "../rendering/scene.js";
 import { randomUUID } from "crypto";
-import { ShapeOps } from "../oc/shape-ops.js";
 
 export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   isMetaShapeFlag = false;
+  isGuideFlag = false;
   id: string;
 
   colorMap: Array<{ shape: TopoDS_Shape; color: string }> = [];
@@ -76,8 +76,16 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
     this.isMetaShapeFlag = true;
   }
 
+  markAsGuide() {
+    this.isGuideFlag = true;
+  }
+
   isMetaShape(): boolean {
     return this.isMetaShapeFlag;
+  }
+
+  isGuideShape(): boolean {
+    return this.isGuideFlag;
   }
 
   getMeshes(): SceneObjectMesh[] {

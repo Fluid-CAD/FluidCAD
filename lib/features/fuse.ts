@@ -61,6 +61,10 @@ export class Fuse extends SceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (this.sceneObjects.length !== other.sceneObjects.length) {
       return false;
     }

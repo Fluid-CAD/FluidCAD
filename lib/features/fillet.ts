@@ -120,6 +120,10 @@ export class Fillet extends SceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (this.radius !== other.radius) {
       return false;
     }

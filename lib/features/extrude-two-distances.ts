@@ -112,6 +112,10 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (this.distance1 !== other.distance1 || this.distance2 !== other.distance2) {
       return false;
     }

@@ -33,6 +33,10 @@ export class PlaneMiddleRenderable extends PlaneObjectBase {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (!this.p1.compareTo(other.p1)) {
       return false;
     }

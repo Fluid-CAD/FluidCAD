@@ -27,6 +27,10 @@ export class VMove extends GeometrySceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     return this.distance === other.distance;
   }
 

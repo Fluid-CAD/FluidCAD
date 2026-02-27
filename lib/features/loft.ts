@@ -99,6 +99,10 @@ export class Loft extends SceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (this.faces.length !== other.faces.length) {
       return false;
     }

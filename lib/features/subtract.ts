@@ -40,6 +40,10 @@ export class Subtract extends SceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (this.solid1.constructor !== other.solid1.constructor
       || this.solid2.constructor !== other.solid2.constructor) {
       return false;

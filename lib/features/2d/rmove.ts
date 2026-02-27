@@ -28,6 +28,10 @@ export class RMove extends GeometrySceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     return this.pivot.compareTo(other.pivot) && this.angle === other.angle;
   }
 

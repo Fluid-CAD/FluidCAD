@@ -75,6 +75,10 @@ export class AxisFromEdge extends AxisObjectBase {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (!this.sourceObject.compareTo(other.sourceObject)) {
       return false;
     }

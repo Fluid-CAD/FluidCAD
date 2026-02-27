@@ -51,7 +51,7 @@ export class LazyVertex extends SceneObject {
   }
 
   compareTo(other: LazyVertex): boolean {
-    return this.uniqueName === other.uniqueName;
+    return super.compareTo(other) && this.uniqueName === other.uniqueName;
   }
 
   getType(): string {

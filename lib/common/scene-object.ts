@@ -28,6 +28,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _parent: SceneObject | null = null;
   private _alwaysVisible: boolean = false;
   private _name: string = '';
+  private _guide: boolean = false;
 
   constructor() {
     this.state = new Map();
@@ -125,8 +126,11 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   abstract serialize(): any;
   abstract getType(): string;
-  abstract compareTo(other: this): boolean;
   abstract build(context?: BuildSceneObjectContext): void;
+
+  compareTo(other: SceneObject): boolean {
+    return this._guide === other._guide;
+  }
 
   clone(): SceneObject[] {
     throw new Error("Clone method not implemented.");
@@ -172,6 +176,10 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   }
 
   addShape(shape: Shape) {
+    if (this._guide) {
+      shape.markAsGuide();
+    }
+
     this.addedShapes.push(shape);
   }
 
@@ -217,7 +225,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     );
 
     if (exludeMetaShapes) {
-      return shapes.filter(s => !s.isMetaShape());
+      return shapes.filter(s => !s.isMetaShape() && !s.isGuideShape());
     }
 
     return shapes;
@@ -287,4 +295,8 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     this._name = value;
   }
 
+  guide() {
+    this._guide = true;
+    return this;
+  }
 }

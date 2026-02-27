@@ -74,6 +74,10 @@ export class TangentArc extends GeometrySceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     return this.radius === other.radius &&
       this.endAngle === other.endAngle;
   }

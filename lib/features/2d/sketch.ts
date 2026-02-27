@@ -141,9 +141,6 @@ export class Sketch extends SceneObject implements Extrudable {
     // This will probably lead to geometries getting compared twice during the renering process
     // TODO: consider using a compare cache to avoid redundant comparisons
     if (thisChildren.length !== otherChildren.length) {
-      console.log(`Sketch::compareTo children length mismatch: ${thisChildren.length} vs ${otherChildren.length}`);
-      console.log("This children:", thisChildren);
-      console.log("Other children:", otherChildren);
       return false;
     }
 

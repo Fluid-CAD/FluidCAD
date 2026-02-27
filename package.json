@@ -11,7 +11,8 @@
   "exports": {
     ".": "./lib/dist/index.js",
     "./core": "./lib/dist/core/index.js",
-    "./filters": "./lib/dist/filters/index.js"
+    "./filters": "./lib/dist/filters/index.js",
+    "./constraints": "./lib/dist/features/2d/constraints/geometry-qualifier.js"
   },
   "scripts": {
     "build:lib": "tsc -p lib/tsconfig.json",

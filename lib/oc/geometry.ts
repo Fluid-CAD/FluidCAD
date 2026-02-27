@@ -1,9 +1,11 @@
-import type { Geom_Circle, Geom_TrimmedCurve, TopoDS_Edge } from "occjs-wrapper";
+import type { GccEnt_Position, GccEnt_QualifiedCirc, GccEnt_QualifiedLin, Geom_Circle, Geom_TrimmedCurve, gp_Circ, gp_Lin, gp_Pln, gp_Pnt, TopoDS_Edge } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Point, Point2D } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Edge } from "../common/edge.js";
+import { ConstraintQualifier, QualifiedGeometry } from "../features/2d/constraints/qualified-geometry.js";
+import { Plane } from "../math/plane.js";
 
 export class Geometry {
   static makeSegment(p1: Point, p2: Point): Geom_TrimmedCurve {
@@ -242,6 +244,113 @@ export class Geometry {
   static getCircleCenter(point: Point2D, radius: number, angle: number): Point2D {
     const x = point.x - radius * Math.cos(angle);
     const y = point.y - radius * Math.sin(angle);
+
     return new Point2D(x, y);
+  }
+
+  static get2dLineRaw(plane: gp_Pln, geometry: gp_Lin) {
+    const oc = getOC()
+    const geom = oc.ProjLib.Project(plane, geometry);
+    return geom;
+  }
+
+  static get2dCircleRaw(plane: gp_Pln, geometry: gp_Circ) {
+    const oc = getOC()
+    const geom = oc.ProjLib.Project(plane, geometry);
+    return geom;
+  }
+
+  static getCircleTangentLines(plane: Plane, qualifiedC1: QualifiedGeometry,
+    qualifiedC2: QualifiedGeometry) {
+
+    const oc = getOC();
+    const tolerance = oc.Precision.Angular();
+
+    const [pln, disposePln] = Convert.toGpPln(plane);
+
+    const c1 = this.getQualified(pln, qualifiedC1) as GccEnt_QualifiedCirc;
+    const c2 = this.getQualified(pln, qualifiedC2) as GccEnt_QualifiedCirc;
+
+    const solver = new oc.GccAna_Lin2d2Tan(c1, c2, tolerance);
+
+    disposePln();
+
+    const edges: Edge[] = [];
+
+    if (solver.IsDone()) {
+      const nSolutions = solver.NbSolutions();
+      console.log(`Found ${nSolutions} tangent lines`);
+
+      for (let i = 1; i <= nSolutions; i++) {
+        const line2d = solver.ThisSolution(i);
+
+        const loc = line2d.Location();
+        const dir = line2d.Direction();
+        console.log(`Solution ${i}: point(${loc.X()}, ${loc.Y()}), dir(${dir.X()}, ${dir.Y()})`);
+
+        const pnt1 = new oc.gp_Pnt2d();
+        const pnt2 = new oc.gp_Pnt2d();
+        solver.Tangency1(i, 0, 0, pnt1);
+        solver.Tangency2(i, 0, 0, pnt2);
+
+        const worldPnt1 = plane.localToWorld(Convert.toPoint2D(pnt1, true));
+        const worldPnt2 = plane.localToWorld(Convert.toPoint2D(pnt2, true));
+
+        const line = Geometry.makeSegment(worldPnt1, worldPnt2);
+        const edge = Geometry.makeEdge(line);
+
+        edges.push(edge);
+      }
+    }
+
+    return edges;
+  }
+
+  static getQualified(plane: gp_Pln, qualifiedGeometry: QualifiedGeometry): GccEnt_QualifiedCirc | GccEnt_QualifiedLin {
+    const oc = getOC();
+    const shape = qualifiedGeometry.object.getShapes()[0];
+    const adaptor = new oc.BRepAdaptor_Curve(shape.getShape());
+    const type = adaptor.GetType()
+
+    if (type === oc.GeomAbs_CurveType.GeomAbs_Circle) {
+      const circle = adaptor.Circle();
+      adaptor.delete();
+
+      const c1 = Geometry.get2dCircleRaw(plane, circle);
+      circle.delete();
+
+      const qualifier = Geometry.getQualifier(qualifiedGeometry.qualifier);
+      const qualified = new oc.GccEnt_QualifiedCirc(c1, qualifier);
+
+      return qualified;
+    }
+    else if (type === oc.GeomAbs_CurveType.GeomAbs_Line) {
+      const line = adaptor.Line();
+      adaptor.delete();
+
+      const l1 = Geometry.get2dLineRaw(plane, line);
+      line.delete();
+
+      const qualifier = this.getQualifier(qualifiedGeometry.qualifier);
+      const qualified = new oc.GccEnt_QualifiedLin(l1, qualifier);
+
+      return qualified;
+    }
+
+    throw new Error('Unsupported shape type for constraint: ' + type);
+  }
+
+  static getQualifier(qualifier: ConstraintQualifier): GccEnt_Position {
+    const oc = getOC();
+    switch (qualifier) {
+      case 'unqualified':
+        return oc.GccEnt_Position.GccEnt_unqualified;
+      case 'enclosed':
+        return oc.GccEnt_Position.GccEnt_enclosed;
+      case 'enclosing':
+        return oc.GccEnt_Position.GccEnt_enclosing;
+      case 'outside':
+        return oc.GccEnt_Position.GccEnt_outside;
+    }
   }
 }

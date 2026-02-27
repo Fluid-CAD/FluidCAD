@@ -27,6 +27,10 @@ export class AxisObject extends AxisObjectBase {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (!this.axis.equals(other.axis)) {
       return false;
     }

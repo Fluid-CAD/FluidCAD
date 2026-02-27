@@ -40,6 +40,10 @@ export class AxisMiddle extends AxisObjectBase {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (!this.axis1.compareTo(other.axis1)) {
       return false;
     }

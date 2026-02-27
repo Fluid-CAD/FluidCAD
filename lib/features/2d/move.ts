@@ -26,6 +26,10 @@ export class Move extends GeometrySceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     return this.targetPosition.compareTo(other.targetPosition);
   }
 

@@ -12,7 +12,7 @@ export class TwoCirclesTangentLine extends GeometrySceneObject {
 
   build() {
     const plane = this.sketch.getPlane();
-    const edges = Geometry.getCircleTangentLines(plane, this.c1, this.c2);
+    const edges = Geometry.getTangentLines(plane, this.c1, this.c2);
     this.addShapes(edges);
   }
 

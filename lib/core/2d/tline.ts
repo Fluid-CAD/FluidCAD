@@ -1,6 +1,6 @@
 import { SceneObject } from "../../common/scene-object.js";
 import { QualifiedGeometry } from "../../features/2d/constraints/qualified-geometry.js";
-import { TwoCirclesTangentLine, ConstraintQualifier } from "../../features/2d/tline-constrained.js";
+import { TwoCirclesTangentLine } from "../../features/2d/tline-constrained.js";
 import { TangentLine } from "../../features/2d/tline.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
 

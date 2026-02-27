@@ -2,8 +2,6 @@ import { GeometrySceneObject } from "./geometry.js";
 import { QualifiedGeometry } from "./constraints/qualified-geometry.js";
 import { Geometry } from "../../oc/geometry.js";
 
-export type ConstraintQualifier = 'all' | 'internal' | 'external' | 'enclosing';
-
 export class TwoCirclesTangentLine extends GeometrySceneObject {
 
   constructor(public c1: QualifiedGeometry, public c2: QualifiedGeometry) {

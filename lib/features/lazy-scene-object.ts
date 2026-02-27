@@ -33,7 +33,7 @@ export class LazySceneObject extends SceneObject {
   }
 
   compareTo(other: LazySceneObject): boolean {
-    return this.uniqueName === other.uniqueName;
+    return super.compareTo(other) && this.uniqueName === other.uniqueName;
   }
 
   getType(): string {

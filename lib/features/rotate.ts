@@ -70,6 +70,10 @@ export class Rotate extends SceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (this.copy !== other.copy) {
       return false;
     }

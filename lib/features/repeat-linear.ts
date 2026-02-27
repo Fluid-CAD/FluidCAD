@@ -30,6 +30,10 @@ export class RepeatLinear extends SceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (this.axes.length !== other.axes.length) {
       return false;
     }

@@ -30,6 +30,10 @@ export class RepeatCircular extends SceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (!this.axis.equals(other.axis)) {
       return false;
     }

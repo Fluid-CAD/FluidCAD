@@ -40,6 +40,10 @@ export class ShapeOps {
       transformed.markAsMetaShape();
     }
 
+    if (shape.isGuideShape()) {
+      transformed.markAsGuide();
+    }
+
     transformer.delete();
     disposeTrsf();
 

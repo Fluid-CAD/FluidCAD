@@ -135,6 +135,10 @@ export class Sketch extends SceneObject implements Extrudable {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     const thisChildren = this.getChildren();
     const otherChildren = other.getChildren();
 

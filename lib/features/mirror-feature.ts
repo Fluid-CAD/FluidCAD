@@ -20,6 +20,10 @@ export class MirrorFeature extends SceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     return true;
   }
 

@@ -14,7 +14,7 @@ export class StaticSceneObject extends SceneObject {
   }
 
   compareTo(other: StaticSceneObject): boolean {
-    return true;
+    return super.compareTo(other);
   }
 
   getType(): string {

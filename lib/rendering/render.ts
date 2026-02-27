@@ -27,6 +27,7 @@ function renderSceneObject(obj: SceneObject, scene: Scene) {
         meshes,
         shapeType,
         isMetaShape: shape.isMetaShape() || undefined,
+        isGuide: shape.isGuideShape() || undefined,
       })
     }
   }
@@ -87,6 +88,7 @@ export function renderSceneRollback(scene: Scene, rollbackIndex: number) {
           meshes,
           shapeType: shape.getType(),
           isMetaShape: shape.isMetaShape() || undefined,
+          isGuide: shape.isGuideShape() || undefined,
         });
       }
 

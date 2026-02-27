@@ -70,6 +70,10 @@ export class Color extends SceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (this.color !== other.color) {
       return false;
     }

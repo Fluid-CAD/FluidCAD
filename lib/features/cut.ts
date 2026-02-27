@@ -103,6 +103,10 @@ export class Cut extends SceneObject {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (this.distance !== other.distance) {
       return false;
     }

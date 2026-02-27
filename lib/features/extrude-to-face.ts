@@ -198,6 +198,10 @@ export class ExtrudeToFace extends ExtrudeBase {
       return false;
     }
 
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
     if (!this.extrudable.compareTo(other.extrudable)) {
       return false;
     }

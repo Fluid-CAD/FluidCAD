@@ -1,4 +1,4 @@
-import type { GccEnt_Position, GccEnt_QualifiedCirc, GccEnt_QualifiedLin, Geom_Circle, Geom_TrimmedCurve, gp_Circ, gp_Lin, gp_Pln, gp_Pnt, TopoDS_Edge } from "occjs-wrapper";
+import type { GccAna_Lin2d2Tan, GccEnt_Position, GccEnt_QualifiedCirc, GccEnt_QualifiedLin, Geom2dGcc_Lin2d2Tan, Geom2dGcc_QualifiedCurve, Geom_Circle, Geom_Curve, Geom_TrimmedCurve, gp_Circ, gp_Lin, gp_Pln, gp_Pnt, Handle_Geom_Curve, TopoDS_Edge } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Point, Point2D } from "../math/point.js";
@@ -260,7 +260,14 @@ export class Geometry {
     return geom;
   }
 
-  static getCircleTangentLines(plane: Plane, qualifiedC1: QualifiedGeometry,
+  static get2dCurveRaw(plane: gp_Pln, curveHandle: Handle_Geom_Curve) {
+    const oc = getOC()
+    const converted = oc.GeomAPI.To2d(curveHandle, plane);
+    return converted;
+  }
+
+
+  static getTangentLines(plane: Plane, qualifiedC1: QualifiedGeometry,
     qualifiedC2: QualifiedGeometry) {
 
     const oc = getOC();
@@ -268,10 +275,17 @@ export class Geometry {
 
     const [pln, disposePln] = Convert.toGpPln(plane);
 
-    const c1 = this.getQualified(pln, qualifiedC1) as GccEnt_QualifiedCirc;
-    const c2 = this.getQualified(pln, qualifiedC2) as GccEnt_QualifiedCirc;
+    const c1 = this.getQualified(pln, qualifiedC1);
+    const c2 = this.getQualified(pln, qualifiedC2);
 
-    const solver = new oc.GccAna_Lin2d2Tan(c1, c2, tolerance);
+    let solver: GccAna_Lin2d2Tan | Geom2dGcc_Lin2d2Tan;
+    if (c1.type === 'circle' && c2.type === 'circle') {
+      solver = new oc.GccAna_Lin2d2Tan(c1.qualified as any, c2.qualified as any, tolerance);
+    }
+    else if (c1.type === 'curve' || c2.type === 'curve') {
+      solver = new oc.Geom2dGcc_Lin2d2Tan(c1.qualified as any, c2.qualified as any, tolerance);
+    }
+
 
     disposePln();
 
@@ -306,23 +320,42 @@ export class Geometry {
     return edges;
   }
 
-  static getQualified(plane: gp_Pln, qualifiedGeometry: QualifiedGeometry): GccEnt_QualifiedCirc | GccEnt_QualifiedLin {
+  static getQualified(plane: gp_Pln, qualifiedGeometry: QualifiedGeometry) {
     const oc = getOC();
     const shape = qualifiedGeometry.object.getShapes()[0];
     const adaptor = new oc.BRepAdaptor_Curve(shape.getShape());
     const type = adaptor.GetType()
 
     if (type === oc.GeomAbs_CurveType.GeomAbs_Circle) {
-      const circle = adaptor.Circle();
-      adaptor.delete();
+      // full circle
+      if (adaptor.FirstParameter() === adaptor.LastParameter()) {
+        const circle = adaptor.Circle();
+        adaptor.delete();
 
-      const c1 = Geometry.get2dCircleRaw(plane, circle);
-      circle.delete();
+        const c1 = Geometry.get2dCircleRaw(plane, circle);
+        circle.delete();
 
-      const qualifier = Geometry.getQualifier(qualifiedGeometry.qualifier);
-      const qualified = new oc.GccEnt_QualifiedCirc(c1, qualifier);
+        const qualifier = Geometry.getQualifier(qualifiedGeometry.qualifier);
+        const qualified = new oc.GccEnt_QualifiedCirc(c1, qualifier);
 
-      return qualified;
+        return { qualified, type: 'circle' };
+      }
+      else {
+        // curve
+        const curveAdaptor = adaptor.Curve();
+        const curve = curveAdaptor.Curve();
+        curveAdaptor.delete();
+        adaptor.delete();
+
+        const c1 = Geometry.get2dCurveRaw(plane, curve);
+
+        const adaptorCurve = new oc.Geom2dAdaptor_Curve(c1);
+
+        const qualifier = Geometry.getQualifier(qualifiedGeometry.qualifier);
+        const qualified = new oc.Geom2dGcc_QualifiedCurve(adaptorCurve, qualifier);
+
+        return { qualified, type: 'curve' };
+      }
     }
     else if (type === oc.GeomAbs_CurveType.GeomAbs_Line) {
       const line = adaptor.Line();
@@ -334,7 +367,7 @@ export class Geometry {
       const qualifier = this.getQualifier(qualifiedGeometry.qualifier);
       const qualified = new oc.GccEnt_QualifiedLin(l1, qualifier);
 
-      return qualified;
+      return { qualified, type: 'line' };
     }
 
     throw new Error('Unsupported shape type for constraint: ' + type);

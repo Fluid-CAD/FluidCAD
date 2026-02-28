@@ -3,23 +3,21 @@ import { Point2D } from "../../math/point.js";
 import { GeometrySceneObject } from "./geometry.js";
 import { LazyVertex } from "../lazy-vertex.js";
 
-export class TangentArcToPoint extends GeometrySceneObject {
+export class TangentArcToPointTangent extends GeometrySceneObject {
 
   constructor(
-    public endPoint: LazyVertex) {
+    public endPoint: LazyVertex,
+    public startTangent: LazyVertex) {
     super();
   }
 
   build(): void {
-    const tangent = this.sketch.getTangentAt(this);
-    if (!tangent) {
-      throw new Error('TangentArcToPoint requires a previous sibling with a tangent');
-    }
     const plane = this.sketch.getPlane();
     const startPoint = this.getCurrentPosition();
     const targetPoint = this.endPoint.asPoint2D();
+    const tangent = this.startTangent.asPoint2D();
 
-    // Normal to tangent (perpendicular, pointing left for CCW)
+    // Normal to start tangent (perpendicular, pointing left for CCW)
     const norm = tangent.normalize();
     const perpendicular = new Point2D(-norm.y, norm.x);
 
@@ -30,7 +28,7 @@ export class TangentArcToPoint extends GeometrySceneObject {
 
     const dDotN = d.x * perpendicular.x + d.y * perpendicular.y;
     if (Math.abs(dDotN) < 1e-10) {
-      throw new Error('TangentArcToPoint: endpoint is collinear with tangent direction');
+      throw new Error('TangentArcToPointTangent: endpoint is collinear with tangent direction');
     }
 
     // Signed parameter: positive = CCW, negative = CW
@@ -71,8 +69,8 @@ export class TangentArcToPoint extends GeometrySceneObject {
     this.setCurrentPosition(targetPoint);
   }
 
-  compareTo(other: TangentArcToPoint): boolean {
-    if (!(other instanceof TangentArcToPoint)) {
+  compareTo(other: TangentArcToPointTangent): boolean {
+    if (!(other instanceof TangentArcToPointTangent)) {
       return false;
     }
 
@@ -80,7 +78,7 @@ export class TangentArcToPoint extends GeometrySceneObject {
       return false;
     }
 
-    return this.endPoint.compareTo(other.endPoint);
+    return this.endPoint.compareTo(other.endPoint) && this.startTangent.compareTo(other.startTangent);
   }
 
   getType(): string {
@@ -88,12 +86,13 @@ export class TangentArcToPoint extends GeometrySceneObject {
   }
 
   getUniqueType(): string {
-    return 'tarc-to-point';
+    return 'tarc-to-point-tangent';
   }
 
   serialize() {
     return {
-      endPoint: this.endPoint.serialize()
+      endPoint: this.endPoint.serialize(),
+      startTangent: this.startTangent.serialize()
     }
   }
 }

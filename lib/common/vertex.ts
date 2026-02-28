@@ -26,6 +26,10 @@ export class Vertex extends Shape<TopoDS_Vertex> {
     return new Point2D(p.x, p.y);
   }
 
+  reverse(): Vertex {
+    return VertexOps.reverse(this);
+  }
+
   getSubShapes(): Shape[] {
     return [];
   }

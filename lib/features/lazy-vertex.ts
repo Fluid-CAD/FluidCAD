@@ -44,6 +44,13 @@ export class LazyVertex extends SceneObject {
     return vertex.toPoint2D();
   }
 
+  reverse() {
+    return new LazyVertex(this.generateUniqueName('reversed'), () =>  {
+      const v = this.getShapes(false, 'vertex')[0] as Vertex;
+      return [v.reverse()];
+    });
+  }
+
   static fromVertex(vertex: Vertex) {
     const point = vertex.toPoint();
     const uniqueName = `lazy-vertex-${point.x}-${point.y}-${point.z}`;

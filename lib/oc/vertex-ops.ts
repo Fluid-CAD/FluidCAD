@@ -14,6 +14,18 @@ export class VertexOps {
     return Vertex.fromTopoDSVertex(VertexOps.fromPointRaw(point));
   }
 
+  static reverse(vertex: Vertex): Vertex {
+    const reversedVertex = VertexOps.reverseRaw(vertex.getShape() as TopoDS_Vertex);
+    return Vertex.fromTopoDSVertex(reversedVertex);
+  }
+
+  static reverseRaw(vertex: TopoDS_Vertex): TopoDS_Vertex {
+    const oc = getOC();
+    const reversed = oc.TopoDS.Vertex(vertex.Reversed());
+    vertex.delete();
+    return reversed;
+  }
+
   // Raw methods (for oc-internal and common/ use)
   static toPointRaw(vertex: TopoDS_Vertex): Point {
     const oc = getOC();

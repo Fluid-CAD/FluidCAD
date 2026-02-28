@@ -3,14 +3,11 @@ import { rad } from "../../helpers/math-helpers.js";
 import { Point2D } from "../../math/point.js";
 import { GeometrySceneObject } from "./geometry.js";
 
-export type TArcOptions = {};
-
 export class TangentArc extends GeometrySceneObject {
 
   constructor(
     public radius: number,
-    public endAngle: number,
-    private options: TArcOptions = null) {
+    public endAngle: number) {
     super();
   }
 
@@ -83,8 +80,7 @@ export class TangentArc extends GeometrySceneObject {
   serialize() {
     return {
       radius: this.radius,
-      endAngle: this.endAngle,
-      options: this.options
+      endAngle: this.endAngle
     }
   }
 }

@@ -1,4 +1,5 @@
 import { Edge } from "../../common/edge.js";
+import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { Point2D } from "../../math/point.js";
 import { GeometrySceneObject } from "./geometry.js";
@@ -86,14 +87,26 @@ export class TangentArcToPointTangent extends GeometrySceneObject {
   start(): LazyVertex {
     return new LazyVertex(this.generateUniqueName('start-vertex'), () => {
       const edge = this.getState('edge') as Edge;
-      return edge ? [edge.getFirstVertex()] : [];
+      if (!edge) {
+        return [];
+      }
+      const plane = this.sketch.getPlane();
+      const firstVertex = edge.getFirstVertex();
+      const localPos = plane.worldToLocal(firstVertex.toPoint());
+      return [Vertex.fromPoint2D(localPos)];
     });
   }
 
   end(): LazyVertex {
     return new LazyVertex(this.generateUniqueName('end-vertex'), () => {
       const edge = this.getState('edge') as Edge;
-      return edge ? [edge.getLastVertex()] : [];
+      if (!edge) {
+        return [];
+      }
+      const plane = this.sketch.getPlane();
+      const lastVertex = edge.getLastVertex();
+      const localPos = plane.worldToLocal(lastVertex.toPoint());
+      return [Vertex.fromPoint2D(localPos)];
     });
   }
 

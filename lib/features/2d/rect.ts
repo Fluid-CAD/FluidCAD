@@ -4,6 +4,7 @@ import { WireOps } from "../../oc/wire-ops.js";
 import { Geometry } from "../../oc/geometry.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
+import { Vertex } from "../../common/vertex.js";
 import { GeometrySceneObject } from "./geometry.js";
 import { LazySceneObject } from "../lazy-scene-object.js";
 import { LazyVertex } from "../lazy-vertex.js";
@@ -290,28 +291,52 @@ export class Rect extends ExtrudableGeometryBase {
   topLeft(): LazyVertex {
     return new LazyVertex(this.generateUniqueName('top-left-vertex'), () => {
       const edge = this.getState('topEdge') as Edge;
-      return edge ? [edge.getLastVertex()] : [];
+      if (!edge) {
+        return [];
+      }
+      const plane = this.sketch.getPlane();
+      const vertex = edge.getLastVertex();
+      const localPos = plane.worldToLocal(vertex.toPoint());
+      return [Vertex.fromPoint2D(localPos)];
     });
   }
 
   topRight(): LazyVertex {
     return new LazyVertex(this.generateUniqueName('top-right-vertex'), () => {
       const edge = this.getState('topEdge') as Edge;
-      return edge ? [edge.getFirstVertex()] : [];
+      if (!edge) {
+        return [];
+      }
+      const plane = this.sketch.getPlane();
+      const vertex = edge.getFirstVertex();
+      const localPos = plane.worldToLocal(vertex.toPoint());
+      return [Vertex.fromPoint2D(localPos)];
     });
   }
 
   bottomLeft(): LazyVertex {
     return new LazyVertex(this.generateUniqueName('bottom-left-vertex'), () => {
       const edge = this.getState('bottomEdge') as Edge;
-      return edge ? [edge.getFirstVertex()] : [];
+      if (!edge) {
+        return [];
+      }
+      const plane = this.sketch.getPlane();
+      const vertex = edge.getFirstVertex();
+      const localPos = plane.worldToLocal(vertex.toPoint());
+      return [Vertex.fromPoint2D(localPos)];
     });
   }
 
   bottomRight(): LazyVertex {
     return new LazyVertex(this.generateUniqueName('bottom-right-vertex'), () => {
       const edge = this.getState('bottomEdge') as Edge;
-      return edge ? [edge.getLastVertex()] : [];
+      if (!edge) {
+        return [];
+      }
+      const plane = this.sketch.getPlane();
+      const vertex = edge.getLastVertex();
+      const localPos = plane.worldToLocal(vertex.toPoint());
+      return [Vertex.fromPoint2D(localPos)];
     });
   }
 

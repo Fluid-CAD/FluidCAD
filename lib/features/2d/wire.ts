@@ -12,13 +12,7 @@ export class WireObject extends ExtrudableGeometryBase {
   }
 
   build() {
-    let sources: SceneObject[];
-
-    if (this.targetPlane) {
-      sources = this.geometries;
-    } else {
-      sources = this.sketch.getPreviousSiblings(this);
-    }
+    let sources = this.geometries;
 
     const map = new Map<SceneObject, Edge[]>();
     for (const obj of sources) {

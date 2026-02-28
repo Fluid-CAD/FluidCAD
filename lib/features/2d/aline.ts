@@ -13,12 +13,7 @@ export class AngledLine extends GeometrySceneObject {
   build() {
     const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
 
-    const previousSibling = this.sketch?.getPreviousSibling(this);
-    let tangent = new Point2D(1, 0);
-
-    if (previousSibling && previousSibling instanceof GeometrySceneObject) {
-      tangent = previousSibling.getTangent();
-    }
+    let tangent = this.sketch?.getTangentAt(this) || new Point2D(1, 0);
 
     tangent = tangent.normalize();
 

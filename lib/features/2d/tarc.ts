@@ -15,16 +15,10 @@ export class TangentArc extends GeometrySceneObject {
   }
 
   build(): void {
-    const previousSibling = this.sketch.getPreviousSibling(this);
-    if (!previousSibling) {
-      throw new Error('TangentArc must have a previous sibling');
+    const tangent = this.sketch.getTangentAt(this);
+    if (!tangent) {
+      throw new Error('TangentArc requires a previous sibling with a tangent');
     }
-
-    if (!(previousSibling instanceof GeometrySceneObject)) {
-      throw new Error('TangentArc previous sibling must be a Curve');
-    }
-
-    const tangent = previousSibling.getTangent();
 
     const plane = this.sketch.getPlane();
     const radius = this.radius;

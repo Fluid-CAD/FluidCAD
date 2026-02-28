@@ -29,7 +29,8 @@ export class TwoCirclesTangentLine extends GeometrySceneObject {
       const localStart = plane.worldToLocal(firstVertex.toPoint());
       const localEnd = plane.worldToLocal(lastVertex.toPoint());
 
-      this.setTangent(localStart.subtract(localEnd).normalize());
+      this.setTangent(localEnd.subtract(localStart).normalize());
+      this.setCurrentPosition(localEnd);
     }
   }
 

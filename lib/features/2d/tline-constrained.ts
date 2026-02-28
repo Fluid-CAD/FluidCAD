@@ -3,6 +3,7 @@ import { QualifiedGeometry } from "./constraints/qualified-geometry.js";
 import { Geometry } from "../../oc/geometry.js";
 import { Edge } from "../../common/edge.js";
 import { LazyVertex } from "../lazy-vertex.js";
+import { Vertex } from "../../common/vertex.js";
 
 export class TwoCirclesTangentLine extends GeometrySceneObject {
 
@@ -22,23 +23,39 @@ export class TwoCirclesTangentLine extends GeometrySceneObject {
 
     if (edges.length > 0) {
       const lastEdge = edges[edges.length - 1];
-      const start = lastEdge.getFirstVertex().toPoint2D();
-      const end = lastEdge.getLastVertex().toPoint2D();
-      this.setTangent(end.subtract(start).normalize());
+      const firstVertex = lastEdge.getFirstVertex();
+      const lastVertex = lastEdge.getLastVertex();
+
+      const localStart = plane.worldToLocal(firstVertex.toPoint());
+      const localEnd = plane.worldToLocal(lastVertex.toPoint());
+
+      this.setTangent(localStart.subtract(localEnd).normalize());
     }
   }
 
   start(index: number = 0): LazyVertex {
     return new LazyVertex(this.generateUniqueName(`start-vertex-${index}`), () => {
       const edge = this.getState(`edge-${index}`) as Edge;
-      return edge ? [edge.getFirstVertex()] : [];
+      if (!edge) {
+        return [];
+      }
+      const plane = this.sketch.getPlane();
+      const firstVertex = edge.getFirstVertex();
+      const localPos = plane.worldToLocal(firstVertex.toPoint());
+      return [Vertex.fromPoint2D(localPos)];
     });
   }
 
   end(index: number = 0): LazyVertex {
     return new LazyVertex(this.generateUniqueName(`end-vertex-${index}`), () => {
       const edge = this.getState(`edge-${index}`) as Edge;
-      return edge ? [edge.getLastVertex()] : [];
+      if (!edge) {
+        return [];
+      }
+      const plane = this.sketch.getPlane();
+      const lastVertex = edge.getLastVertex();
+      const localPos = plane.worldToLocal(lastVertex.toPoint());
+      return [Vertex.fromPoint2D(localPos)];
     });
   }
 

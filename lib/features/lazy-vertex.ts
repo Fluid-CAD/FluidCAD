@@ -1,6 +1,7 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
 import { Vertex } from "../common/vertex.js";
+import { Plane } from "../math/plane.js";
 
 export class LazyVertex extends SceneObject {
 
@@ -45,16 +46,13 @@ export class LazyVertex extends SceneObject {
   }
 
   reverse() {
-    return new LazyVertex(this.generateUniqueName('reversed'), () =>  {
-      const v = this.getShapes(false, 'vertex')[0] as Vertex;
-      return [v.reverse()];
+    return new LazyVertex(`${this.uniqueName}-reversed`, () => {
+      const vertex = this.getShapes(false, 'vertex')[0] as Vertex;
+      const point = vertex.toPoint();
+      const reversedPoint = point.negate()
+      const reversedVertex = Vertex.fromPoint(reversedPoint);
+      return [reversedVertex];
     });
-  }
-
-  static fromVertex(vertex: Vertex) {
-    const point = vertex.toPoint();
-    const uniqueName = `lazy-vertex-${point.x}-${point.y}-${point.z}`;
-    return new LazyVertex(uniqueName, () => [vertex]);
   }
 
   compareTo(other: LazyVertex): boolean {
@@ -68,5 +66,11 @@ export class LazyVertex extends SceneObject {
   serialize() {
     return {
     }
+  }
+
+  static fromVertex(vertex: Vertex) {
+    const point = vertex.toPoint();
+    const uniqueName = `lazy-vertex-${point.x}-${point.y}-${point.z}`;
+    return new LazyVertex(uniqueName, () => [vertex]);
   }
 }

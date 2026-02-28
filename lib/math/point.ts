@@ -100,6 +100,10 @@ export class Point {
     return new Point(this.x, this.y, this.z);
   }
 
+  negate(): Point {
+    return new Point(-this.x, -this.y, -this.z);
+  }
+
   toArray(): [number, number, number] {
     return [this.x, this.y, this.z];
   }
@@ -222,6 +226,10 @@ export class Point2D {
 
   clone(): Point2D {
     return new Point2D(this.x, this.y);
+  }
+
+  negate(): Point2D {
+    return new Point2D(-this.x, -this.y);
   }
 
   toArray(): [number, number] {

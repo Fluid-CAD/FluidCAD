@@ -14,9 +14,9 @@ export class TangentArcToPointTangent extends GeometrySceneObject {
 
   build(): void {
     const plane = this.sketch.getPlane();
-    const startPoint = this.getCurrentPosition();
-    const targetPoint = this.endPoint.asPoint2D();
-    const tangent = this.startTangent.asPoint2D();
+    let startPoint = this.getCurrentPosition();
+    let targetPoint = this.endPoint.asPoint2D();
+    let tangent = this.startTangent.asPoint2D();
 
     // Normal to start tangent (perpendicular, pointing left for CCW)
     const norm = tangent.normalize();

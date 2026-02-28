@@ -114,10 +114,6 @@ export class Polygon extends ExtrudableGeometryBase {
     });
   }
 
-  private generateUniqueName(suffix: string) {
-    return `${this.getOrder()}-${this.getUniqueType()}-${suffix}`;
-  }
-
   serialize() {
     return {
       numberOfSides: this.numberOfSides,

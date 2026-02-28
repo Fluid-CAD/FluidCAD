@@ -315,10 +315,6 @@ export class Rect extends ExtrudableGeometryBase {
     });
   }
 
-  private generateUniqueName(suffix: string) {
-    return `${this.getOrder()}-${this.getUniqueType()}-${suffix}`;
-  }
-
   serialize() {
     return {
       width: this.width,

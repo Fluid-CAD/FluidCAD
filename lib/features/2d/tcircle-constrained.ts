@@ -19,7 +19,8 @@ export class TangentCircle2Tan extends GeometrySceneObject {
       return false;
     }
 
-    return this.c1.compareTo(other.c1) && this.c2.compareTo(other.c2) && this.radius === other.radius;
+
+    return super.compareTo(other) && this.c1.compareTo(other.c1) && this.c2.compareTo(other.c2) && this.radius === other.radius;
   }
 
   getType(): string {

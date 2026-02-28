@@ -43,10 +43,6 @@ export class TwoCirclesTangentLine extends GeometrySceneObject {
     });
   }
 
-  private generateUniqueName(suffix: string) {
-    return `${this.getOrder()}-${this.getUniqueType()}-${suffix}`;
-  }
-
   compareTo(other: TwoCirclesTangentLine): boolean {
     if (!(other instanceof TwoCirclesTangentLine)) {
       return false;

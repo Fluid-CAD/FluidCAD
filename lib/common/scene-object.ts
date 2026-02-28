@@ -185,7 +185,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   addShapes(shapes: Shape[]) {
     for (const shape of shapes) {
-      this.addedShapes.push(shape);
+      this.addShape(shape);
     }
   }
 
@@ -299,5 +299,9 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   guide() {
     this._guide = true;
     return this;
+  }
+
+  protected generateUniqueName(suffix: string) {
+    return `${this.getOrder()}-${this.getUniqueType()}-${suffix}`;
   }
 }

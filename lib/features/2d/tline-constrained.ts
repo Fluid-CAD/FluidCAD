@@ -17,7 +17,6 @@ export class TwoCirclesTangentLine extends GeometrySceneObject {
     for (let i = 0; i < edges.length; i++) {
       this.setState(`edge-${i}`, edges[i]);
     }
-    this.setState('edgeCount', edges.length);
 
     this.addShapes(edges);
 
@@ -29,14 +28,14 @@ export class TwoCirclesTangentLine extends GeometrySceneObject {
     }
   }
 
-  startVertex(index: number = 0): LazyVertex {
+  start(index: number = 0): LazyVertex {
     return new LazyVertex(this.generateUniqueName(`start-vertex-${index}`), () => {
       const edge = this.getState(`edge-${index}`) as Edge;
       return edge ? [edge.getFirstVertex()] : [];
     });
   }
 
-  endVertex(index: number = 0): LazyVertex {
+  end(index: number = 0): LazyVertex {
     return new LazyVertex(this.generateUniqueName(`end-vertex-${index}`), () => {
       const edge = this.getState(`edge-${index}`) as Edge;
       return edge ? [edge.getLastVertex()] : [];

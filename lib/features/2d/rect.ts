@@ -287,28 +287,28 @@ export class Rect extends ExtrudableGeometryBase {
     return new LazySceneObject(this.generateUniqueName('bottom-right-arc'), () => [this.getState('bottomRightArcEdge')]);
   }
 
-  topLeftVertex(): LazyVertex {
+  topLeft(): LazyVertex {
     return new LazyVertex(this.generateUniqueName('top-left-vertex'), () => {
       const edge = this.getState('topEdge') as Edge;
       return edge ? [edge.getLastVertex()] : [];
     });
   }
 
-  topRightVertex(): LazyVertex {
+  topRight(): LazyVertex {
     return new LazyVertex(this.generateUniqueName('top-right-vertex'), () => {
       const edge = this.getState('topEdge') as Edge;
       return edge ? [edge.getFirstVertex()] : [];
     });
   }
 
-  bottomLeftVertex(): LazyVertex {
+  bottomLeft(): LazyVertex {
     return new LazyVertex(this.generateUniqueName('bottom-left-vertex'), () => {
       const edge = this.getState('bottomEdge') as Edge;
       return edge ? [edge.getFirstVertex()] : [];
     });
   }
 
-  bottomRightVertex(): LazyVertex {
+  bottomRight(): LazyVertex {
     return new LazyVertex(this.generateUniqueName('bottom-right-vertex'), () => {
       const edge = this.getState('bottomEdge') as Edge;
       return edge ? [edge.getLastVertex()] : [];

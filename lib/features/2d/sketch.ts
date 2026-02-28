@@ -6,6 +6,7 @@ import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
 import { Wire } from "../../common/wire.js";
 import { Extrudable } from "../../helpers/types.js";
+import { Geometry } from "../../oc/geometry.js";
 
 export class Sketch extends SceneObject implements Extrudable {
 
@@ -186,6 +187,12 @@ export class Sketch extends SceneObject implements Extrudable {
 
     let last = children[children.length - 1];
     while (last) {
+      if (!(last instanceof GeometrySceneObject)) {
+        children.pop();
+        last = children[children.length - 1];
+        continue;
+      }
+
       const tangent = last.getTangent();
       if (tangent) {
         console.log("Sketch::getTangent found tangent from child:", last.getName(), tangent);

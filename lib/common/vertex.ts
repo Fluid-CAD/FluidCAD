@@ -3,6 +3,7 @@ import { ShapeType } from "./shape-type.js";
 import { Shape } from "./shape.js";
 import { Point, Point2D } from "../math/point.js";
 import { VertexOps } from "../oc/vertex-ops.js";
+import { Plane } from "../math/plane.js";
 
 export class Vertex extends Shape<TopoDS_Vertex> {
   constructor(vertex: TopoDS_Vertex) {
@@ -22,13 +23,8 @@ export class Vertex extends Shape<TopoDS_Vertex> {
   }
 
   toPoint2D(): Point2D {
-    const p = this.toPoint();
-    return new Point2D(p.x, p.y);
-  }
-
-  reverse(): Vertex {
-    const p = this.toPoint2D();
-    return Vertex.fromPoint2D(new Point2D(-p.x, -p.y));
+    const pnt = this.toPoint();
+    return new Point2D(pnt.x, pnt.y);
   }
 
   getSubShapes(): Shape[] {

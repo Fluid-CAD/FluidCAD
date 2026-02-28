@@ -20,6 +20,13 @@ export class TwoCirclesTangentLine extends GeometrySceneObject {
     this.setState('edgeCount', edges.length);
 
     this.addShapes(edges);
+
+    if (edges.length > 0) {
+      const lastEdge = edges[edges.length - 1];
+      const start = lastEdge.getFirstVertex().toPoint2D();
+      const end = lastEdge.getLastVertex().toPoint2D();
+      this.setTangent(end.subtract(start).normalize());
+    }
   }
 
   startVertex(index: number = 0): LazyVertex {

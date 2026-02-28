@@ -8,16 +8,10 @@ export class TangentLine extends GeometrySceneObject {
   }
 
   build() {
-    const previousSibiling = this.sketch.getPreviousSibling(this);
-    if (!previousSibiling) {
-      throw new Error('TangentLine must have a previous sibling');
+    const tangent = this.sketch.getTangentAt(this);
+    if (!tangent) {
+      throw new Error('TangentLine requires a previous sibling with a tangent');
     }
-
-    if (!(previousSibiling instanceof GeometrySceneObject)) {
-      throw new Error('TangentLine previous sibling must be a Curve');
-    }
-
-    const tangent = previousSibiling.getTangent();
 
     const plane = this.sketch.getPlane();
 

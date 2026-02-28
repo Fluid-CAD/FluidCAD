@@ -1,4 +1,6 @@
+import { Edge } from "../../common/edge.js";
 import { Geometry } from "../../oc/geometry.js";
+import { LazyVertex } from "../lazy-vertex.js";
 import { GeometrySceneObject } from "./geometry.js";
 
 export class TangentLine extends GeometrySceneObject {
@@ -26,6 +28,7 @@ export class TangentLine extends GeometrySceneObject {
 
     const edge = Geometry.makeEdge(segment);
 
+    this.setState('edge', edge);
     this.addShape(edge);
 
     this.setTangent(tangent.normalize());
@@ -42,6 +45,20 @@ export class TangentLine extends GeometrySceneObject {
     }
 
     return this.distance === other.distance;
+  }
+
+  start(): LazyVertex {
+    return new LazyVertex(this.generateUniqueName('start-vertex'), () => {
+      const edge = this.getState('edge') as Edge;
+      return edge ? [edge.getFirstVertex()] : [];
+    });
+  }
+
+  end(): LazyVertex {
+    return new LazyVertex(this.generateUniqueName('end-vertex'), () => {
+      const edge = this.getState('edge') as Edge;
+      return edge ? [edge.getLastVertex()] : [];
+    });
   }
 
   getType(): string {

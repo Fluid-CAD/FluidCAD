@@ -1,3 +1,4 @@
+import { Edge } from "../../common/edge.js";
 import { Geometry } from "../../oc/geometry.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
@@ -5,14 +6,14 @@ import { GeometrySceneObject } from "./geometry.js";
 
 export class LineTo extends GeometrySceneObject {
 
-  constructor(public end: LazyVertex, private targetPlane: PlaneObjectBase = null) {
+  constructor(public endPoint: LazyVertex, private targetPlane: PlaneObjectBase = null) {
     super();
   }
 
   build() {
     const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
 
-    const targetPoint = this.end.asPoint2D();
+    const targetPoint = this.endPoint.asPoint2D();
 
     const currentPos = this.targetPlane
       ? plane.worldToLocal(this.targetPlane.getPlaneCenter())
@@ -25,6 +26,7 @@ export class LineTo extends GeometrySceneObject {
 
     const edge = Geometry.makeEdge(segment);
 
+    this.setState('edge', edge);
     this.addShape(edge);
 
     this.setTangent(targetPoint.subtract(currentPos).normalize());
@@ -51,7 +53,21 @@ export class LineTo extends GeometrySceneObject {
       return false;
     }
 
-    return this.end.compareTo(other.end);
+    return this.endPoint.compareTo(other.endPoint);
+  }
+
+  start(): LazyVertex {
+    return new LazyVertex(this.generateUniqueName('start-vertex'), () => {
+      const edge = this.getState('edge') as Edge;
+      return edge ? [edge.getFirstVertex()] : [];
+    });
+  }
+
+  end(): LazyVertex {
+    return new LazyVertex(this.generateUniqueName('end-vertex'), () => {
+      const edge = this.getState('edge') as Edge;
+      return edge ? [edge.getLastVertex()] : [];
+    });
   }
 
   getType(): string {
@@ -64,7 +80,7 @@ export class LineTo extends GeometrySceneObject {
 
   serialize() {
     return {
-      end: this.end
+      end: this.endPoint
     }
   }
 }

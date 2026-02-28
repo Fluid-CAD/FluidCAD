@@ -1,6 +1,8 @@
+import { Edge } from "../../common/edge.js";
 import { Geometry } from "../../oc/geometry.js";
 import { rad } from "../../helpers/math-helpers.js";
 import { Point2D } from "../../math/point.js";
+import { LazyVertex } from "../lazy-vertex.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { GeometrySceneObject } from "./geometry.js";
 
@@ -46,6 +48,8 @@ export class ArcFromTwoAngles extends GeometrySceneObject {
 
     const edge = Geometry.makeEdgeFromCurve(arc);
 
+    this.setState('edge', edge);
+
     // get tangent as unit Point2D
     // CCW: (-sin θ, cos θ), CW: (sin θ, -cos θ)
     const origEndAngleRad = rad(absEndAngle);
@@ -59,6 +63,20 @@ export class ArcFromTwoAngles extends GeometrySceneObject {
     if (this.sketch) this.setCurrentPosition(endPoint);
 
     if (this.targetPlane) this.targetPlane.removeShapes(this);
+  }
+
+  start(): LazyVertex {
+    return new LazyVertex(this.generateUniqueName('start-vertex'), () => {
+      const edge = this.getState('edge') as Edge;
+      return edge ? [edge.getFirstVertex()] : [];
+    });
+  }
+
+  end(): LazyVertex {
+    return new LazyVertex(this.generateUniqueName('end-vertex'), () => {
+      const edge = this.getState('edge') as Edge;
+      return edge ? [edge.getLastVertex()] : [];
+    });
   }
 
   getType(): string {

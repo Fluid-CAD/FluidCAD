@@ -1,5 +1,7 @@
+import { Edge } from "../../common/edge.js";
 import { Geometry } from "../../oc/geometry.js";
 import { Point2D } from "../../math/point.js";
+import { LazyVertex } from "../lazy-vertex.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { GeometrySceneObject } from "./geometry.js";
 
@@ -27,6 +29,7 @@ export class VerticalLine extends GeometrySceneObject {
 
     const edge = Geometry.makeEdge(segment);
 
+    this.setState('edge', edge);
     this.addShape(edge);
 
     const sign = Math.sign(this.distance) || 1;
@@ -53,6 +56,20 @@ export class VerticalLine extends GeometrySceneObject {
     }
 
     return this.distance === other.distance && this.centered === other.centered;
+  }
+
+  start(): LazyVertex {
+    return new LazyVertex(this.generateUniqueName('start-vertex'), () => {
+      const edge = this.getState('edge') as Edge;
+      return edge ? [edge.getFirstVertex()] : [];
+    });
+  }
+
+  end(): LazyVertex {
+    return new LazyVertex(this.generateUniqueName('end-vertex'), () => {
+      const edge = this.getState('edge') as Edge;
+      return edge ? [edge.getLastVertex()] : [];
+    });
   }
 
   getType(): string {

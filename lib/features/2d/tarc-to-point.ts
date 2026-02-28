@@ -1,3 +1,4 @@
+import { Edge } from "../../common/edge.js";
 import { Geometry } from "../../oc/geometry.js";
 import { Point2D } from "../../math/point.js";
 import { GeometrySceneObject } from "./geometry.js";
@@ -67,6 +68,7 @@ export class TangentArcToPoint extends GeometrySceneObject {
     const endTy = sign * Math.cos(endAngle);
 
     this.setTangent(new Point2D(endTx, endTy));
+    this.setState('edge', edge);
     this.addShape(edge);
     this.setCurrentPosition(targetPoint);
   }
@@ -81,6 +83,20 @@ export class TangentArcToPoint extends GeometrySceneObject {
     }
 
     return this.endPoint.compareTo(other.endPoint);
+  }
+
+  start(): LazyVertex {
+    return new LazyVertex(this.generateUniqueName('start-vertex'), () => {
+      const edge = this.getState('edge') as Edge;
+      return edge ? [edge.getFirstVertex()] : [];
+    });
+  }
+
+  end(): LazyVertex {
+    return new LazyVertex(this.generateUniqueName('end-vertex'), () => {
+      const edge = this.getState('edge') as Edge;
+      return edge ? [edge.getLastVertex()] : [];
+    });
   }
 
   getType(): string {

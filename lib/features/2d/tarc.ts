@@ -1,6 +1,8 @@
+import { Edge } from "../../common/edge.js";
 import { Geometry } from "../../oc/geometry.js";
 import { rad } from "../../helpers/math-helpers.js";
 import { Point2D } from "../../math/point.js";
+import { LazyVertex } from "../lazy-vertex.js";
 import { GeometrySceneObject } from "./geometry.js";
 
 export class TangentArc extends GeometrySceneObject {
@@ -48,6 +50,8 @@ export class TangentArc extends GeometrySceneObject {
 
     const edge = Geometry.makeEdgeFromCurve(arc);
 
+    this.setState('edge', edge);
+
     // get tangent vector at the end angle
     // CCW: (-sin θ, cos θ), CW: (sin θ, -cos θ)
     const sign = cw ? -1 : 1;
@@ -71,6 +75,20 @@ export class TangentArc extends GeometrySceneObject {
 
     return this.radius === other.radius &&
       this.endAngle === other.endAngle;
+  }
+
+  start(): LazyVertex {
+    return new LazyVertex(this.generateUniqueName('start-vertex'), () => {
+      const edge = this.getState('edge') as Edge;
+      return edge ? [edge.getFirstVertex()] : [];
+    });
+  }
+
+  end(): LazyVertex {
+    return new LazyVertex(this.generateUniqueName('end-vertex'), () => {
+      const edge = this.getState('edge') as Edge;
+      return edge ? [edge.getLastVertex()] : [];
+    });
   }
 
   getType(): string {

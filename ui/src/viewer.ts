@@ -1,5 +1,5 @@
 import { Box3, LineSegments, Mesh, Object3D, Vector3 } from 'three';
-import { SceneContext } from './scene/scene-context';
+import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { SceneModeManager } from './scene/scene-mode';
 import { buildSceneMesh } from './meshes/mesh-factory';
 import { SceneObjectPart, SceneObjectRender } from './types';
@@ -100,7 +100,7 @@ export class Viewer {
     // Auto-fit on first render or in sketch mode (skip if viewport barely changed)
     if (!this.hasRendered || (this.modeManager.isSketchMode && !isRollback)) {
       const box = new Box3().setFromObject(mesh);
-      if (!box.isEmpty() && !this.isBoxSimilar(box)) {
+      if (!box.isEmpty() && !this.isBoxContained(box)) {
         this.ctx.fitToBox(box, true);
         this.lastFitBox = box.clone();
         this.hasRendered = true;
@@ -198,23 +198,23 @@ export class Viewer {
     return undefined;
   }
 
-  /** Check if a new bounding box is close enough to the last fitted box to skip re-fitting. */
-  private isBoxSimilar(box: Box3): boolean {
+  /** Check if a new bounding box is still fully visible within the last fitted (padded) sphere.
+   *  Returns true when the new box's circumscribed sphere fits inside the old padded sphere,
+   *  meaning we can safely skip re-fitting. */
+  private isBoxContained(newBox: Box3): boolean {
     if (!this.lastFitBox) return false;
 
-    const oldSize = this.lastFitBox.getSize(new Vector3());
-    const oldDiag = oldSize.length();
-    if (oldDiag === 0) return false;
-
     const oldCenter = this.lastFitBox.getCenter(new Vector3());
-    const newCenter = box.getCenter(new Vector3());
-    const newSize = box.getSize(new Vector3());
-    const newDiag = newSize.length();
+    const oldPaddedRadius =
+      this.lastFitBox.getSize(new Vector3()).length() / 2 * FIT_PADDING;
+    if (oldPaddedRadius === 0) return false;
 
-    // Skip fit if center shifted less than 30% and size changed less than 30%
-    const centerShift = oldCenter.distanceTo(newCenter) / oldDiag;
-    const sizeChange = Math.abs(newDiag - oldDiag) / oldDiag;
-    return centerShift < 0.3 && sizeChange < 0.3;
+    const newCenter = newBox.getCenter(new Vector3());
+    const newRadius = newBox.getSize(new Vector3()).length() / 2;
+
+    // The new box is contained when its circumscribed sphere fits within
+    // the padded sphere we last fitted to.
+    return oldCenter.distanceTo(newCenter) + newRadius <= oldPaddedRadius;
   }
 
   /** Remove the previous compiled mesh tree and dispose its GPU resources. */

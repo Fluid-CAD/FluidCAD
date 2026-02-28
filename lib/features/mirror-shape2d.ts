@@ -35,7 +35,7 @@ export class MirrorShape2D extends GeometrySceneObject {
     const transformedShapes: Shape[] = [];
 
     for (const obj of targetObjects) {
-      const shapes = obj.getShapes();
+      const shapes = obj.getShapes(false);
       for (const shape of shapes) {
         const matrix = Matrix4.mirrorAxis(axis.origin, axis.direction);
         const transformed = ShapeOps.transform(shape, matrix);

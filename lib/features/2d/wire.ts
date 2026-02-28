@@ -31,7 +31,9 @@ export class WireObject extends ExtrudableGeometryBase {
     const wire = WireOps.makeWireFromEdges(allEdges);
     this.addShape(wire);
 
-    if (this.targetPlane) this.targetPlane.removeShapes(this);
+    if (this.targetPlane) {
+      this.targetPlane.removeShapes(this);
+    }
   }
 
   compareTo(other: WireObject): boolean {

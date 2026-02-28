@@ -178,14 +178,37 @@ export class Sketch extends SceneObject implements Extrudable {
     return true;
   }
 
+  getTangent(): Point2D | null {
+    let children = this.getChildren()?.slice() as GeometrySceneObject[];
+    if (children.length === 0) {
+      return null;
+    }
+
+    let last = children[children.length - 1];
+    while (last) {
+      const tangent = last.getTangent();
+      if (tangent) {
+        console.log("Sketch::getTangent found tangent from child:", last.getName(), tangent);
+        return tangent;
+      }
+
+      children.pop();
+      last = children[children.length - 1];
+    }
+
+    return null;
+  }
+
   getType(): string {
     return "sketch";
   }
 
   serialize() {
     const plane = this.getPlane();
+    const tangent = this.getTangent();
     return {
       currentPosition: plane.localToWorld(this.getLastPosition()),
+      currentTangent: tangent ? plane.localToWorld(tangent) : null,
       plane: this.planeObj.serialize(),
     }
   }

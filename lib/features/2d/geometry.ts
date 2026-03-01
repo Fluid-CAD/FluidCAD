@@ -42,6 +42,26 @@ export abstract class GeometrySceneObject extends SceneObject {
     return this.getState('tangent');
   }
 
+  start(): LazyVertex {
+    return new LazyVertex(this.generateUniqueName('start-vertex'), () => {
+      const start = this.getState('start');
+      if (start) {
+        return [Vertex.fromPoint2D(start)];
+      }
+      return [];
+    });
+  }
+
+  end(): LazyVertex {
+    return new LazyVertex(this.generateUniqueName('end-vertex'), () => {
+      const end = this.getState('end');
+      if (end) {
+        return [Vertex.fromPoint2D(end)];
+      }
+      return [];
+    });
+  }
+
   tangent(): LazyVertex {
     return new LazyVertex(this.generateUniqueName('tangent'), () => {
       const tangent = this.getTangent();

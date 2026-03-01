@@ -1,4 +1,3 @@
-import { Edge } from "../../common/edge.js";
 import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { Point2D } from "../../math/point.js";
@@ -30,7 +29,8 @@ export class VerticalLine extends GeometrySceneObject {
 
     const edge = Geometry.makeEdge(segment);
 
-    this.setState('edge', edge);
+    this.setState('start', Vertex.fromPoint2D(startPoint));
+    this.setState('end', Vertex.fromPoint2D(endPoint));
     this.addShape(edge);
 
     const sign = Math.sign(this.distance) || 1;
@@ -57,32 +57,6 @@ export class VerticalLine extends GeometrySceneObject {
     }
 
     return this.distance === other.distance && this.centered === other.centered;
-  }
-
-  start(): LazyVertex {
-    return new LazyVertex(this.generateUniqueName('start-vertex'), () => {
-      const edge = this.getState('edge') as Edge;
-      if (!edge) {
-        return [];
-      }
-      const plane = this.sketch.getPlane();
-      const firstVertex = edge.getFirstVertex();
-      const localPos = plane.worldToLocal(firstVertex.toPoint());
-      return [Vertex.fromPoint2D(localPos)];
-    });
-  }
-
-  end(): LazyVertex {
-    return new LazyVertex(this.generateUniqueName('end-vertex'), () => {
-      const edge = this.getState('edge') as Edge;
-      if (!edge) {
-        return [];
-      }
-      const plane = this.sketch.getPlane();
-      const lastVertex = edge.getLastVertex();
-      const localPos = plane.worldToLocal(lastVertex.toPoint());
-      return [Vertex.fromPoint2D(localPos)];
-    });
   }
 
   getType(): string {

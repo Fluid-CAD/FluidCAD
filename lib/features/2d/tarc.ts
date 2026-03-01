@@ -1,4 +1,3 @@
-import { Edge } from "../../common/edge.js";
 import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { rad } from "../../helpers/math-helpers.js";
@@ -51,7 +50,8 @@ export class TangentArc extends GeometrySceneObject {
 
     const edge = Geometry.makeEdgeFromCurve(arc);
 
-    this.setState('edge', edge);
+    this.setState('start', Vertex.fromPoint2D(startPoint));
+    this.setState('end', Vertex.fromPoint2D(endPoint));
 
     // get tangent vector at the end angle
     // CCW: (-sin θ, cos θ), CW: (sin θ, -cos θ)
@@ -76,32 +76,6 @@ export class TangentArc extends GeometrySceneObject {
 
     return this.radius === other.radius &&
       this.endAngle === other.endAngle;
-  }
-
-  start(): LazyVertex {
-    return new LazyVertex(this.generateUniqueName('start-vertex'), () => {
-      const edge = this.getState('edge') as Edge;
-      if (!edge) {
-        return [];
-      }
-      const plane = this.sketch.getPlane();
-      const firstVertex = edge.getFirstVertex();
-      const localPos = plane.worldToLocal(firstVertex.toPoint());
-      return [Vertex.fromPoint2D(localPos)];
-    });
-  }
-
-  end(): LazyVertex {
-    return new LazyVertex(this.generateUniqueName('end-vertex'), () => {
-      const edge = this.getState('edge') as Edge;
-      if (!edge) {
-        return [];
-      }
-      const plane = this.sketch.getPlane();
-      const lastVertex = edge.getLastVertex();
-      const localPos = plane.worldToLocal(lastVertex.toPoint());
-      return [Vertex.fromPoint2D(localPos)];
-    });
   }
 
   getType(): string {

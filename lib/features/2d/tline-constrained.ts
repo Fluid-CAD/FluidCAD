@@ -1,12 +1,10 @@
 import { GeometrySceneObject } from "./geometry.js";
 import { QualifiedGeometry } from "./constraints/qualified-geometry.js";
 import { Geometry } from "../../oc/geometry.js";
-import { Edge } from "../../common/edge.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { Vertex } from "../../common/vertex.js";
 
 export class TwoCirclesTangentLine extends GeometrySceneObject {
-
   constructor(public c1: QualifiedGeometry, public c2: QualifiedGeometry) {
     super();
   }
@@ -19,8 +17,6 @@ export class TwoCirclesTangentLine extends GeometrySceneObject {
       this.setState(`edge-${i}`, edges[i]);
     }
 
-    this.addShapes(edges);
-
     if (edges.length > 0) {
       const lastEdge = edges[edges.length - 1];
       const firstVertex = lastEdge.getFirstVertex();
@@ -29,35 +25,22 @@ export class TwoCirclesTangentLine extends GeometrySceneObject {
       const localStart = plane.worldToLocal(firstVertex.toPoint());
       const localEnd = plane.worldToLocal(lastVertex.toPoint());
 
+      this.setState('start', Vertex.fromPoint2D(localStart));
+      this.setState('end', Vertex.fromPoint2D(localEnd));
+
       this.setTangent(localEnd.subtract(localStart).normalize());
       this.setCurrentPosition(localEnd);
     }
+
+    this.addShapes(edges);
   }
 
   start(index: number = 0): LazyVertex {
-    return new LazyVertex(this.generateUniqueName(`start-vertex-${index}`), () => {
-      const edge = this.getState(`edge-${index}`) as Edge;
-      if (!edge) {
-        return [];
-      }
-      const plane = this.sketch.getPlane();
-      const firstVertex = edge.getFirstVertex();
-      const localPos = plane.worldToLocal(firstVertex.toPoint());
-      return [Vertex.fromPoint2D(localPos)];
-    });
+    return new LazyVertex(this.generateUniqueName(`start-vertex-${index}`), () => [this.getState('start')]);
   }
 
   end(index: number = 0): LazyVertex {
-    return new LazyVertex(this.generateUniqueName(`end-vertex-${index}`), () => {
-      const edge = this.getState(`edge-${index}`) as Edge;
-      if (!edge) {
-        return [];
-      }
-      const plane = this.sketch.getPlane();
-      const lastVertex = edge.getLastVertex();
-      const localPos = plane.worldToLocal(lastVertex.toPoint());
-      return [Vertex.fromPoint2D(localPos)];
-    });
+    return new LazyVertex(this.generateUniqueName(`end-vertex-${index}`), () => [this.getState('end')]);
   }
 
   compareTo(other: TwoCirclesTangentLine): boolean {

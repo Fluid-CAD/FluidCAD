@@ -1,4 +1,3 @@
-import { Edge } from "../../common/edge.js";
 import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { LazyVertex } from "../lazy-vertex.js";
@@ -29,11 +28,13 @@ export class TangentLine extends GeometrySceneObject {
 
     const edge = Geometry.makeEdge(segment);
 
-    this.setState('edge', edge);
-    this.addShape(edge);
+    this.setState('start', Vertex.fromPoint2D(startPoint));
+    this.setState('end', Vertex.fromPoint2D(endPoint));
 
     this.setTangent(tangent.normalize());
     this.setCurrentPosition(endPoint);
+
+    this.addShape(edge);
   }
 
   compareTo(other: TangentLine): boolean {
@@ -46,32 +47,6 @@ export class TangentLine extends GeometrySceneObject {
     }
 
     return this.distance === other.distance;
-  }
-
-  start(): LazyVertex {
-    return new LazyVertex(this.generateUniqueName('start-vertex'), () => {
-      const edge = this.getState('edge') as Edge;
-      if (!edge) {
-        return [];
-      }
-      const plane = this.sketch.getPlane();
-      const firstVertex = edge.getFirstVertex();
-      const localPos = plane.worldToLocal(firstVertex.toPoint());
-      return [Vertex.fromPoint2D(localPos)];
-    });
-  }
-
-  end(): LazyVertex {
-    return new LazyVertex(this.generateUniqueName('end-vertex'), () => {
-      const edge = this.getState('edge') as Edge;
-      if (!edge) {
-        return [];
-      }
-      const plane = this.sketch.getPlane();
-      const lastVertex = edge.getLastVertex();
-      const localPos = plane.worldToLocal(lastVertex.toPoint());
-      return [Vertex.fromPoint2D(localPos)];
-    });
   }
 
   getType(): string {

@@ -220,6 +220,11 @@ export class Point2D {
     return pivot.multiplyScalar(2).subtract(this);
   }
 
+  transform(matrix: Matrix4): Point2D {
+    const p = matrix.transformPoint(this.toPoint());
+    return new Point2D(p.x, p.y);
+  }
+
   toPoint(z: number = 0): Point {
     return new Point(this.x, this.y, z);
   }

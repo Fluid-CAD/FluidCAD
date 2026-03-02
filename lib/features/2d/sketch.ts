@@ -6,6 +6,7 @@ import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
 import { Wire } from "../../common/wire.js";
 import { Extrudable } from "../../helpers/types.js";
+import { Shape } from "../../common/shape.js";
 
 export class Sketch extends SceneObject implements Extrudable {
 
@@ -162,6 +163,30 @@ export class Sketch extends SceneObject implements Extrudable {
     }
 
     return true;
+  }
+
+  override removeShapes(removedBy: SceneObject): void {
+    const keep = this.getState('keep') as boolean;
+    if (keep) {
+      return;
+    }
+
+    super.removeShapes(removedBy);
+  }
+
+  override removeShape(shape: Shape, removedBy: SceneObject): void {
+    const keep = this.getState('keep') as boolean;
+    console.log(`Sketch::removeShape called with shape:`, keep);
+    if (keep) {
+      return;
+    }
+
+    super.removeShape(shape, removedBy);
+  }
+
+  keep() {
+    this.setState('keep', true)
+    return this;
   }
 
   getType(): string {

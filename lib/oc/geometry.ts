@@ -509,8 +509,34 @@ export class Geometry {
         const worldCenter = plane.localToWorld(center2d);
         const r = circ2d.Radius();
 
-        const circle = Geometry.makeCircle(worldCenter, r, plane.normal);
-        const edge = Geometry.makeEdgeFromCircle(circle);
+        const pnt1 = new oc.gp_Pnt2d();
+        const pnt2 = new oc.gp_Pnt2d();
+        solver.Tangency1(i, 0, 0, pnt1);
+        solver.Tangency2(i, 0, 0, pnt2);
+
+        const worldPnt1 = plane.localToWorld(Convert.toPoint2D(pnt1, false));
+        const worldPnt2 = plane.localToWorld(Convert.toPoint2D(pnt2, false));
+
+        // Compute shorter-arc midpoint in 2D plane coords to unambiguously pick the fillet arc
+        const angle1 = Math.atan2(pnt1.Y() - center2d.y, pnt1.X() - center2d.x);
+        const angle2 = Math.atan2(pnt2.Y() - center2d.y, pnt2.X() - center2d.x);
+
+        pnt1.delete();
+        pnt2.delete();
+
+        let diff = angle2 - angle1;
+        if (diff > Math.PI) { diff -= 2 * Math.PI; }
+        if (diff < -Math.PI) { diff += 2 * Math.PI; }
+
+        const midAngle = angle1 + diff / 2;
+        const mid2d = new Point2D(
+          center2d.x + r * Math.cos(midAngle),
+          center2d.y + r * Math.sin(midAngle)
+        );
+        const worldMid = plane.localToWorld(mid2d);
+
+        const arc = Geometry.makeArcThreePoints(worldPnt1, worldMid, worldPnt2);
+        const edge = Geometry.makeEdgeFromCurve(arc);
         edges.push(edge);
       }
     }

@@ -7,6 +7,7 @@ import { registerBuilder, SceneParserContext } from "../../index.js";
 interface TLineFunction {
   (distance: number): TangentLine;
   (c1: SceneObject | QualifiedGeometry, c2: SceneObject | QualifiedGeometry): TwoCirclesTangentLine;
+  (c1: SceneObject | QualifiedGeometry): TwoCirclesTangentLine;
 }
 
 function build(context: SceneParserContext): TLineFunction {

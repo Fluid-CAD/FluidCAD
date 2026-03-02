@@ -1,4 +1,4 @@
-import type { GccAna_Circ2d2TanRad, GccAna_Circ2d3Tan, GccAna_Lin2d2Tan, GccEnt_Position, GccEnt_QualifiedCirc, GccEnt_QualifiedLin, Geom2dGcc_Circ2d2TanRad, Geom2dGcc_Circ2d3Tan, Geom2dGcc_Lin2d2Tan, Geom2dGcc_QualifiedCurve, Geom_Circle, Geom_Curve, Geom_TrimmedCurve, gp_Circ, gp_Lin, gp_Pln, gp_Pnt, Handle_Geom_Curve, TopoDS_Edge } from "occjs-wrapper";
+import type { GccAna_Circ2d2TanRad, GccAna_Circ2d3Tan, GccAna_Lin2d2Tan, GccEnt_Position, GccEnt_QualifiedCirc, GccEnt_QualifiedLin, Geom2dGcc_Circ2d2TanRad, Geom2dGcc_Circ2d3Tan, Geom2dGcc_Lin2d2Tan, Geom2dGcc_QualifiedCurve, Geom_Circle, Geom_Curve, Geom_TrimmedCurve, gp_Circ, gp_Lin, gp_Pln, gp_Pnt, Handle_Geom_Curve, TopoDS_Edge, TopoDS_Vertex } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Point, Point2D } from "../math/point.js";
@@ -6,6 +6,9 @@ import { Vector3d } from "../math/vector3d.js";
 import { Edge } from "../common/edge.js";
 import { ConstraintQualifier, QualifiedGeometry } from "../features/2d/constraints/qualified-geometry.js";
 import { Plane } from "../math/plane.js";
+import { Shape } from "../common/shape.js";
+import { Vertex } from "../common/vertex.js";
+import { VertexOps } from "./vertex-ops.js";
 
 export class Geometry {
   static makeSegment(p1: Point, p2: Point): Geom_TrimmedCurve {
@@ -266,7 +269,6 @@ export class Geometry {
     return converted;
   }
 
-
   static getTangentLines(plane: Plane, qualifiedC1: QualifiedGeometry,
     qualifiedC2: QualifiedGeometry) {
 
@@ -282,12 +284,17 @@ export class Geometry {
     if (c1.type === 'circle' && c2.type === 'circle') {
       solver = new oc.GccAna_Lin2d2Tan(c1.qualified as any, c2.qualified as any, tolerance);
     }
+    else if (c1.type === 'circle' && c2.type === 'vertex') {
+      const localPoint = plane.worldToLocal(Convert.toPoint(c2.qualified as gp_Pnt));
+      const [gpPnt, disposeGpPnt] = Convert.toGpPnt2d(localPoint);
+      solver = new oc.GccAna_Lin2d2Tan(c1.qualified as any, gpPnt, tolerance);
+      disposeGpPnt();
+    }
     else {
       const qc1 = this.getQualifiedAsCurve(pln, qualifiedC1);
       const qc2 = this.getQualifiedAsCurve(pln, qualifiedC2);
-      solver = new oc.Geom2dGcc_Lin2d2Tan(qc1 as any, qc2 as any, tolerance);
+      solver = new oc.Geom2dGcc_Lin2d2Tan(qc1, qc2, tolerance);
     }
-
 
     disposePln();
 
@@ -322,9 +329,8 @@ export class Geometry {
     return edges;
   }
 
-  static getQualified(plane: gp_Pln, qualifiedGeometry: QualifiedGeometry) {
+  static getQualifiedCurve(plane: gp_Pln, shape: Shape, qualifiedGeometry: QualifiedGeometry) {
     const oc = getOC();
-    const shape = qualifiedGeometry.object.getShapes(false)[0];
     const adaptor = new oc.BRepAdaptor_Curve(shape.getShape());
     const type = adaptor.GetType()
 
@@ -371,8 +377,25 @@ export class Geometry {
 
       return { qualified, type: 'line' };
     }
+  }
 
-    throw new Error('Unsupported shape type for constraint: ' + type);
+  static getQualified(plane: gp_Pln, qualifiedGeometry: QualifiedGeometry) {
+    const shape = qualifiedGeometry.object.getShapes(false)[0];
+
+    if (shape.getType() === 'wire' || shape.getType() === 'edge') {
+      return this.getQualifiedCurve(plane, shape, qualifiedGeometry);
+    }
+    else if (shape.getType() === 'vertex') {
+      const oc = getOC();
+      const vertex = shape.getShape() as TopoDS_Vertex;
+      const pnt = oc.BRep_Tool.Pnt(vertex);
+      return {
+        qualified: pnt,
+        type: 'point'
+      }
+    }
+
+    throw new Error('Unsupported shape type for constraint');
   }
 
   static getQualifier(qualifier: ConstraintQualifier): GccEnt_Position {

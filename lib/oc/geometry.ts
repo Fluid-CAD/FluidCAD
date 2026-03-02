@@ -509,6 +509,54 @@ export class Geometry {
         const worldCenter = plane.localToWorld(center2d);
         const r = circ2d.Radius();
 
+        const circle = Geometry.makeCircle(worldCenter, r, plane.normal);
+        const edge = Geometry.makeEdgeFromCircle(circle);
+        edges.push(edge);
+      }
+    }
+
+    return edges;
+  }
+
+  static getTangentArcs(plane: Plane, qualifiedC1: QualifiedGeometry,
+    qualifiedC2: QualifiedGeometry, radius: number) {
+
+    const oc = getOC();
+    const tolerance = oc.Precision.Confusion();
+    const [pln, disposePln] = Convert.toGpPln(plane);
+
+    const c1 = this.getQualified(pln, qualifiedC1);
+    const c2 = this.getQualified(pln, qualifiedC2);
+
+    let solver: GccAna_Circ2d2TanRad | Geom2dGcc_Circ2d2TanRad;
+    if (c1.type === 'circle' && c2.type === 'circle') {
+      solver = new oc.GccAna_Circ2d2TanRad(c1.qualified as GccEnt_QualifiedCirc, c2.qualified as GccEnt_QualifiedCirc, radius, tolerance);
+    } else if (c1.type === 'circle' && c2.type === 'line') {
+      solver = new oc.GccAna_Circ2d2TanRad(c1.qualified as GccEnt_QualifiedCirc, c2.qualified as GccEnt_QualifiedLin, radius, tolerance);
+    } else if (c1.type === 'line' && c2.type === 'circle') {
+      solver = new oc.GccAna_Circ2d2TanRad(c2.qualified as GccEnt_QualifiedCirc, c1.qualified as GccEnt_QualifiedLin, radius, tolerance);
+    } else if (c1.type === 'line' && c2.type === 'line') {
+      solver = new oc.GccAna_Circ2d2TanRad(c1.qualified as GccEnt_QualifiedLin, c2.qualified as GccEnt_QualifiedLin, radius, tolerance);
+    } else {
+      const qc1 = this.getQualifiedAsCurve(pln, qualifiedC1);
+      const qc2 = this.getQualifiedAsCurve(pln, qualifiedC2);
+      solver = new oc.Geom2dGcc_Circ2d2TanRad(qc1, qc2, radius, tolerance);
+    }
+
+    disposePln();
+
+    const results: { edge: Edge, endTangent: Point2D }[] = [];
+
+    if (solver.IsDone()) {
+      const nSolutions = solver.NbSolutions();
+      console.log(`Found ${nSolutions} tangent arcs (2tan+rad)`);
+
+      for (let i = 1; i <= nSolutions; i++) {
+        const circ2d = solver.ThisSolution(i);
+        const center2d = Convert.toPoint2D(circ2d.Location());
+        const worldCenter = plane.localToWorld(center2d);
+        const r = circ2d.Radius();
+
         const pnt1 = new oc.gp_Pnt2d();
         const pnt2 = new oc.gp_Pnt2d();
         solver.Tangency1(i, 0, 0, pnt1);
@@ -537,11 +585,19 @@ export class Geometry {
 
         const arc = Geometry.makeArcThreePoints(worldPnt1, worldMid, worldPnt2);
         const edge = Geometry.makeEdgeFromCurve(arc);
-        edges.push(edge);
+
+        // Tangent at arc end: perpendicular to radius at pnt2, signed by sweep direction
+        const sign = diff > 0 ? 1 : -1;
+        const endTangent = new Point2D(
+          sign * (-Math.sin(angle2)),
+          sign * Math.cos(angle2)
+        );
+
+        results.push({ edge, endTangent });
       }
     }
 
-    return edges;
+    return results;
   }
 
   static getTangentCircles3Tan(plane: Plane, qualifiedC1: QualifiedGeometry,

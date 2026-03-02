@@ -2,19 +2,40 @@ import { Point2DLike, isPoint2DLike } from "../../math/point.js";
 import { TangentArc } from "../../features/2d/tarc.js";
 import { TangentArcToPoint } from "../../features/2d/tarc-to-point.js";
 import { TangentArcToPointTangent } from "../../features/2d/tarc-to-point-tangent.js";
+import { TangentArcTwoCircles } from "../../features/2d/tarc-two-circles.js";
 import { Move } from "../../features/2d/move.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
+import { SceneObject } from "../../common/scene-object.js";
+import { QualifiedGeometry } from "../../features/2d/constraints/qualified-geometry.js";
 
 interface TArcFunction {
   (radius?: number, endAngle?: number): TangentArc;
   (endPoint: Point2DLike): TangentArcToPoint;
   (endPoint: Point2DLike, tangent: Point2DLike): TangentArcToPointTangent;
   (startPoint: Point2DLike, endPoint: Point2DLike, tangent: Point2DLike): TangentArcToPointTangent;
+  (c1: SceneObject | QualifiedGeometry, c2: SceneObject | QualifiedGeometry, radius: number): TangentArcTwoCircles;
+}
+
+function toQualified(arg: SceneObject | QualifiedGeometry): QualifiedGeometry {
+  if (arg instanceof QualifiedGeometry) {
+    return arg;
+  }
+  return new QualifiedGeometry(arg, 'unqualified');
 }
 
 function build(context: SceneParserContext): TArcFunction {
   return function tarc() {
+    // tarc(c1, c2, radius): fillet arc tangent to two circles
+    if (arguments.length === 3 && !isPoint2DLike(arguments[0]) && typeof arguments[2] === 'number') {
+      const c1 = toQualified(arguments[0]);
+      const c2 = toQualified(arguments[1]);
+      const radius = arguments[2] as number;
+      const arc = new TangentArcTwoCircles(c1, c2, radius);
+      context.addSceneObject(arc);
+      return arc;
+    }
+
     if (arguments.length > 0 && isPoint2DLike(arguments[0])) {
       // 3 Point2DLike args: tArc(startPoint, endPoint, tangent)
       if (arguments.length > 2 && isPoint2DLike(arguments[1]) && isPoint2DLike(arguments[2])) {

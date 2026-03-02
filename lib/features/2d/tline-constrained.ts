@@ -4,6 +4,74 @@ import { Geometry } from "../../oc/geometry.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { Vertex } from "../../common/vertex.js";
 
+export class OneCircleTangentLine extends GeometrySceneObject {
+  constructor(public c1: QualifiedGeometry) {
+    super();
+  }
+
+  build() {
+    const plane = this.sketch.getPlane();
+    const currentPos = this.getCurrentPosition();
+
+    const posVertex = new LazyVertex(
+      this.generateUniqueName('current-pos-vertex'),
+      () => [Vertex.fromPoint2D(currentPos)]
+    );
+
+    const qualifiedVertex = new QualifiedGeometry(posVertex, 'unqualified');
+    const edges = Geometry.getTangentLines(plane, this.c1, qualifiedVertex);
+
+    for (let i = 0; i < edges.length; i++) {
+      this.setState(`edge-${i}`, edges[i]);
+    }
+
+    if (edges.length > 0) {
+      const lastEdge = edges[edges.length - 1];
+      const firstVertex = lastEdge.getFirstVertex();
+      const lastVertex = lastEdge.getLastVertex();
+
+      const localStart = plane.worldToLocal(firstVertex.toPoint());
+      const localEnd = plane.worldToLocal(lastVertex.toPoint());
+
+      this.setState('start', Vertex.fromPoint2D(localStart));
+      this.setState('end', Vertex.fromPoint2D(localEnd));
+
+      this.setTangent(localEnd.subtract(localStart).normalize());
+      this.setCurrentPosition(localEnd);
+    }
+
+    this.addShapes(edges);
+  }
+
+  start(index: number = 0): LazyVertex {
+    return new LazyVertex(this.generateUniqueName(`start-vertex-${index}`), () => [this.getState('start')]);
+  }
+
+  end(index: number = 0): LazyVertex {
+    return new LazyVertex(this.generateUniqueName(`end-vertex-${index}`), () => [this.getState('end')]);
+  }
+
+  compareTo(other: OneCircleTangentLine): boolean {
+    if (!(other instanceof OneCircleTangentLine)) {
+      return false;
+    }
+
+    return this.c1.compareTo(other.c1);
+  }
+
+  getType(): string {
+    return 'line';
+  }
+
+  getUniqueType(): string {
+    return 'one-circle-tline';
+  }
+
+  serialize() {
+    return {};
+  }
+}
+
 export class TwoCirclesTangentLine extends GeometrySceneObject {
   constructor(public c1: QualifiedGeometry, public c2: QualifiedGeometry) {
     super();

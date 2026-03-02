@@ -281,12 +281,18 @@ export class Geometry {
     const c2 = this.getQualified(pln, qualifiedC2);
 
     let solver: GccAna_Lin2d2Tan | Geom2dGcc_Lin2d2Tan;
+
+    console.log(`Finding tangent lines between: c1 type=${c1.type}, c2 type=${c2.type}`);
+
     if (c1.type === 'circle' && c2.type === 'circle') {
       solver = new oc.GccAna_Lin2d2Tan(c1.qualified as any, c2.qualified as any, tolerance);
     }
-    else if (c1.type === 'circle' && c2.type === 'vertex') {
+    else if (c1.type === 'circle' && c2.type === 'point') {
       const localPoint = plane.worldToLocal(Convert.toPoint(c2.qualified as gp_Pnt));
+      console.log(`Projected point for tangency: (${localPoint.x}, ${localPoint.y})`);
+
       const [gpPnt, disposeGpPnt] = Convert.toGpPnt2d(localPoint);
+      console.log(`Qualified curve type: ${c1.qualified}`);
       solver = new oc.GccAna_Lin2d2Tan(c1.qualified as any, gpPnt, tolerance);
       disposeGpPnt();
     }
@@ -335,8 +341,10 @@ export class Geometry {
     const type = adaptor.GetType()
 
     if (type === oc.GeomAbs_CurveType.GeomAbs_Circle) {
+      console.log('Qualified geometry is a circle');
       // full circle
-      if (adaptor.FirstParameter() === adaptor.LastParameter()) {
+      console.log('Adaptor is closed:', adaptor.IsClosed());
+      if (adaptor.IsClosed()) {
         const circle = adaptor.Circle();
         adaptor.delete();
 

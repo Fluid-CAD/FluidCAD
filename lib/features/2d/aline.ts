@@ -1,6 +1,8 @@
+import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { rad } from "../../helpers/math-helpers.js";
 import { Point2D } from "../../math/point.js";
+import { LazyVertex } from "../lazy-vertex.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { GeometrySceneObject } from "./geometry.js";
 
@@ -13,12 +15,7 @@ export class AngledLine extends GeometrySceneObject {
   build() {
     const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
 
-    const previousSibling = this.sketch?.getPreviousSibling(this);
-    let tangent = new Point2D(1, 0);
-
-    if (previousSibling && previousSibling instanceof GeometrySceneObject) {
-      tangent = previousSibling.getTangent();
-    }
+    let tangent = this.sketch?.getTangentAt(this) || new Point2D(1, 0);
 
     tangent = tangent.normalize();
 
@@ -47,6 +44,8 @@ export class AngledLine extends GeometrySceneObject {
 
     const edge = Geometry.makeEdge(segment);
 
+    this.setState('start', Vertex.fromPoint2D(startPoint));
+    this.setState('end', Vertex.fromPoint2D(endPoint));
     this.addShape(edge);
 
     this.setTangent(direction.normalize());

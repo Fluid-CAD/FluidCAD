@@ -5,8 +5,9 @@ import { rad } from "../helpers/math-helpers.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { Sketch } from "./2d/sketch.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
+import { GeometrySceneObject } from "./2d/geometry.js";
 
-export class Rotate extends SceneObject {
+export class Rotate extends GeometrySceneObject {
 
   constructor(
     public axis: AxisObjectBase,
@@ -52,15 +53,25 @@ export class Rotate extends SceneObject {
       axis = this.axis.getAxis();
     }
 
+    const matrix = Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, rad(this.angle));
+
     for (const obj of targetObjects) {
       const shapes = obj.getShapes();
       for (const shape of shapes) {
-        const matrix = Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, rad(this.angle));
         const transformed = ShapeOps.transform(shape, matrix);
         this.addShape(transformed);
         if (!this.copy) {
           obj.removeShape(shape, this);
         }
+      }
+    }
+
+    const lastObj = targetObjects[targetObjects.length - 1] as GeometrySceneObject;
+    if (lastObj) {
+      const lastTangent = lastObj.getTangent();
+      if (lastTangent) {
+        const transformedTangent = lastTangent.transform(matrix);
+        this.setTangent(transformedTangent);
       }
     }
   }

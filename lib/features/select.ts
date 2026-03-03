@@ -93,6 +93,10 @@ export class SelectSceneObject extends SceneObject {
   }
 
   compareTo(other: SelectSceneObject): boolean {
+    if (!(other instanceof SelectSceneObject)) {
+      return false;
+    }
+
     if (!super.compareTo(other)) {
       return false;
     }

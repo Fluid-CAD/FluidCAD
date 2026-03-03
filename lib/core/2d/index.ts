@@ -8,6 +8,7 @@ export { default as rMove } from './rmove.js';
 export { default as hLine } from './hline.js';
 export { default as vLine } from './vline.js';
 export { default as tLine } from './tline.js';
+export { default as tCircle } from './tcircle.js';
 export { default as tArc } from './tarc.js';
 export { default as arc } from './arc.js';
 export { default as move } from './move.js';

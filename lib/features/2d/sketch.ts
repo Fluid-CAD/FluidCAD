@@ -6,7 +6,7 @@ import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
 import { Wire } from "../../common/wire.js";
 import { Extrudable } from "../../helpers/types.js";
-import { Shape } from "../../common/shape.js";
+import { Geometry } from "../../oc/geometry.js";
 
 export class Sketch extends SceneObject implements Extrudable {
 
@@ -34,6 +34,23 @@ export class Sketch extends SceneObject implements Extrudable {
     }
 
     return new Point2D(0, 0);
+  }
+
+  getTangentAt(currentObj: GeometrySceneObject): Point2D | null {
+    const children = this.getChildren() as GeometrySceneObject[];
+    const previous = children.slice(0, children.indexOf(currentObj));
+    let last = previous[previous.length - 1];
+    while (last) {
+      const tangent = last.getTangent();
+      if (tangent) {
+        return tangent;
+      }
+
+      previous.pop();
+      last = previous[previous.length - 1];
+    }
+
+    return null;
   }
 
   getPositionAt(currentObj: GeometrySceneObject): Point2D {
@@ -146,9 +163,6 @@ export class Sketch extends SceneObject implements Extrudable {
     // This will probably lead to geometries getting compared twice during the renering process
     // TODO: consider using a compare cache to avoid redundant comparisons
     if (thisChildren.length !== otherChildren.length) {
-      console.log(`Sketch::compareTo children length mismatch: ${thisChildren.length} vs ${otherChildren.length}`);
-      console.log("This children:", thisChildren);
-      console.log("Other children:", otherChildren);
       return false;
     }
 
@@ -165,14 +179,43 @@ export class Sketch extends SceneObject implements Extrudable {
     return true;
   }
 
+  getTangent(): Point2D | null {
+    let children = this.getChildren()?.slice() as GeometrySceneObject[];
+    if (children.length === 0) {
+      return null;
+    }
+
+    let last = children[children.length - 1];
+    while (last) {
+      if (!(last instanceof GeometrySceneObject)) {
+        children.pop();
+        last = children[children.length - 1];
+        continue;
+      }
+
+      const tangent = last.getTangent();
+      if (tangent) {
+        console.log("Sketch::getTangent found tangent from child:", last.getName(), tangent);
+        return tangent;
+      }
+
+      children.pop();
+      last = children[children.length - 1];
+    }
+
+    return null;
+  }
+
   getType(): string {
     return "sketch";
   }
 
   serialize() {
     const plane = this.getPlane();
+    const tangent = this.getTangent();
     return {
       currentPosition: plane.localToWorld(this.getLastPosition()),
+      currentTangent: tangent ? plane.localToWorld(tangent) : null,
       plane: this.planeObj.serialize(),
     }
   }

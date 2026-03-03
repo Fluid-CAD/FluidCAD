@@ -1,5 +1,7 @@
+import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { Point2D } from "../../math/point.js";
+import { LazyVertex } from "../lazy-vertex.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { GeometrySceneObject } from "./geometry.js";
 
@@ -27,11 +29,15 @@ export class HorizontalLine extends GeometrySceneObject {
 
     const edge = Geometry.makeEdge(segment);
 
+    this.setState('start', Vertex.fromPoint2D(startPoint));
+    this.setState('end', Vertex.fromPoint2D(endPoint));
     this.addShape(edge);
 
     const sign = Math.sign(this.distance) || 1;
     this.setTangent(new Point2D(sign, 0));
-    if (this.sketch) this.setCurrentPosition(endPoint);
+    if (this.sketch) {
+      this.setCurrentPosition(endPoint);
+    }
 
     if (this.targetPlane) this.targetPlane.removeShapes(this);
   }

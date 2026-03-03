@@ -1,11 +1,16 @@
-import type { Geom_Circle, Geom_TrimmedCurve, TopoDS_Edge } from "occjs-wrapper";
+import type { Geom_Circle, Geom_TrimmedCurve, Handle_Geom_Curve, TopoDS_Edge } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Point, Point2D } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Edge } from "../common/edge.js";
+import { QualifiedGeometry } from "../features/2d/constraints/qualified-geometry.js";
+import { Plane } from "../math/plane.js";
+import { TangentSolver } from "./tangent-solver.js";
 
 export class Geometry {
+  // ── Shape factories ────────────────────────────────────────────────────────
+
   static makeSegment(p1: Point, p2: Point): Geom_TrimmedCurve {
     const oc = getOC();
     const [transformedP1, disposeP1] = Convert.toGpPnt(p1);
@@ -77,8 +82,7 @@ export class Geometry {
     arcMaker.delete();
 
     if (!curve) {
-      const status = arcMaker.Status();
-      throw new Error('Failed to create arc edge from center: ' + status);
+      throw new Error('Failed to create arc edge from center');
     }
 
     return curve;
@@ -169,7 +173,8 @@ export class Geometry {
     throw new Error('Failed to create circle edge: ' + status);
   }
 
-  // Wrapper methods returning Edge (public API for external callers)
+  // ── Edge factories ─────────────────────────────────────────────────────────
+
   static makeEdge(geometry: Geom_TrimmedCurve): Edge {
     return Edge.fromTopoDSEdge(Geometry.makeEdgeRaw(geometry));
   }
@@ -182,7 +187,6 @@ export class Geometry {
     return Edge.fromTopoDSEdge(Geometry.makeEdgeFromCircleRaw(circle));
   }
 
-  // Raw methods returning TopoDS_Edge (for oc-internal use)
   static makeEdgeRaw(geometry: Geom_TrimmedCurve): TopoDS_Edge {
     const oc = getOC();
     const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(geometry.StartPoint(), geometry.EndPoint());
@@ -203,6 +207,7 @@ export class Geometry {
     const oc = getOC();
     const handle = new oc.Handle_Geom_Curve(curve);
     const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(handle, curve.StartPoint(), curve.EndPoint());
+
     if (edgeMaker.IsDone()) {
       const edge = edgeMaker.Edge();
       edgeMaker.delete();
@@ -233,15 +238,38 @@ export class Geometry {
     throw new Error('Failed to create edge from circle: ' + status);
   }
 
+  // ── 2D math helpers ────────────────────────────────────────────────────────
+
   static getPointOnCircle(center: Point2D, radius: number, angle: number): Point2D {
-    const x = center.x + radius * Math.cos(angle);
-    const y = center.y + radius * Math.sin(angle);
-    return new Point2D(x, y);
+    return new Point2D(
+      center.x + radius * Math.cos(angle),
+      center.y + radius * Math.sin(angle)
+    );
   }
 
   static getCircleCenter(point: Point2D, radius: number, angle: number): Point2D {
-    const x = point.x - radius * Math.cos(angle);
-    const y = point.y - radius * Math.sin(angle);
-    return new Point2D(x, y);
+    return new Point2D(
+      point.x - radius * Math.cos(angle),
+      point.y - radius * Math.sin(angle)
+    );
+  }
+
+  // ── Tangent solver delegates ───────────────────────────────────────────────
+  // These delegate to TangentSolver and are kept here for backward compatibility.
+
+  static getTangentLines(plane: Plane, qualifiedC1: QualifiedGeometry, qualifiedC2: QualifiedGeometry): Edge[] {
+    return TangentSolver.getTangentLines(plane, qualifiedC1, qualifiedC2);
+  }
+
+  static getTangentCircles(plane: Plane, qualifiedC1: QualifiedGeometry, qualifiedC2: QualifiedGeometry, radius: number): Edge[] {
+    return TangentSolver.getTangentCircles(plane, qualifiedC1, qualifiedC2, radius);
+  }
+
+  static getTangentArcs(plane: Plane, qualifiedC1: QualifiedGeometry, qualifiedC2: QualifiedGeometry, radius: number): { edge: Edge; endTangent: Point2D }[] {
+    return TangentSolver.getTangentArcs(plane, qualifiedC1, qualifiedC2, radius);
+  }
+
+  static getTangentCircles3Tan(plane: Plane, qualifiedC1: QualifiedGeometry, qualifiedC2: QualifiedGeometry, qualifiedC3: QualifiedGeometry): Edge[] {
+    return TangentSolver.getTangentCircles3Tan(plane, qualifiedC1, qualifiedC2, qualifiedC3);
   }
 }

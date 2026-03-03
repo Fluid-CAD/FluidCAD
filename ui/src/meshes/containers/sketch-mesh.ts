@@ -1,11 +1,14 @@
 import {
   CircleGeometry,
+  ConeGeometry,
+  CylinderGeometry,
   DoubleSide,
   Group,
   Mesh,
   MeshBasicMaterial,
   OrthographicCamera,
   PerspectiveCamera,
+  Quaternion,
   Vector3,
 } from 'three';
 import { SceneObjectRender } from '../../types';
@@ -16,6 +19,12 @@ const SKETCH_EDGE_COLOR = '#2297ff';
 const CURSOR_COLOR = 0xf3724f;
 const CURSOR_SEGMENTS = 64;
 const CURSOR_RADIUS = 3;
+const TANGENT_ARROW_COLOR = 0xf3724f;
+const TANGENT_ARROW_OPACITY = 0.35;
+const TANGENT_SHAFT_RADIUS = 0.6;
+const TANGENT_SHAFT_LENGTH = 18;
+const TANGENT_HEAD_LENGTH = 5;
+const TANGENT_HEAD_WIDTH = 2.5;
 
 /**
  * Renders a sketch: all child edges in blue, plus an optional cursor circle
@@ -27,6 +36,7 @@ export class SketchMesh extends Group {
     this.buildEdges(sceneObject, allObjects);
     if (isSketchMode && sceneObject.visible) {
       this.buildCursor(sceneObject);
+      this.buildTangentArrow(sceneObject);
     }
   }
 
@@ -99,5 +109,63 @@ export class SketchMesh extends Group {
     };
 
     this.add(cursorGroup);
+  }
+
+  private buildTangentArrow(sceneObject: SceneObjectRender): void {
+    const currentPosition = sceneObject.object?.currentPosition;
+    const currentTangent = sceneObject.object?.currentTangent;
+    const planeOrigin = sceneObject.object?.plane?.origin;
+    if (!currentPosition || !currentTangent || !planeOrigin) {
+      return;
+    }
+
+    // currentTangent is localToWorld(tangent_dir), so the world direction is currentTangent - planeOrigin
+    const dir = new Vector3(
+      currentTangent.x - planeOrigin.x,
+      currentTangent.y - planeOrigin.y,
+      currentTangent.z - planeOrigin.z,
+    ).normalize();
+
+    const material = new MeshBasicMaterial({
+      color: TANGENT_ARROW_COLOR,
+      transparent: true,
+      opacity: TANGENT_ARROW_OPACITY,
+      depthTest: false,
+    });
+
+    const shaftGeometry = new CylinderGeometry(TANGENT_SHAFT_RADIUS, TANGENT_SHAFT_RADIUS, TANGENT_SHAFT_LENGTH, 8);
+    shaftGeometry.translate(0, TANGENT_SHAFT_LENGTH / 2, 0);
+    const shaft = new Mesh(shaftGeometry, material);
+
+    const headGeometry = new ConeGeometry(TANGENT_HEAD_WIDTH, TANGENT_HEAD_LENGTH, 8);
+    headGeometry.translate(0, TANGENT_SHAFT_LENGTH + TANGENT_HEAD_LENGTH / 2, 0);
+    const head = new Mesh(headGeometry, material);
+
+    const arrowGroup = new Group();
+    arrowGroup.renderOrder = 1;
+    arrowGroup.add(shaft);
+    arrowGroup.add(head);
+
+    // Rotate from default Y-up to the tangent direction
+    const up = new Vector3(0, 1, 0);
+    const quaternion = new Quaternion().setFromUnitVectors(up, dir);
+    arrowGroup.quaternion.copy(quaternion);
+    arrowGroup.position.set(currentPosition.x, currentPosition.y, currentPosition.z);
+
+    // Keep consistent screen size regardless of zoom level
+    shaft.onBeforeRender = (_renderer, _scene, camera) => {
+      if (camera instanceof OrthographicCamera) {
+        const viewHeight = (camera.top - camera.bottom) / camera.zoom;
+        arrowGroup.scale.setScalar(viewHeight * 0.003);
+      } else if (camera instanceof PerspectiveCamera) {
+        const dist = camera.position.distanceTo(arrowGroup.position);
+        const vFov = camera.fov * Math.PI / 180;
+        const viewHeight = 2 * dist * Math.tan(vFov / 2);
+        arrowGroup.scale.setScalar(viewHeight * 0.003);
+      }
+      arrowGroup.updateMatrixWorld(true);
+    };
+
+    this.add(arrowGroup);
   }
 }

@@ -1,6 +1,8 @@
+import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { rad } from "../../helpers/math-helpers.js";
 import { Point2D } from "../../math/point.js";
+import { LazyVertex } from "../lazy-vertex.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { GeometrySceneObject } from "./geometry.js";
 
@@ -45,6 +47,9 @@ export class ArcFromTwoAngles extends GeometrySceneObject {
     const arc = Geometry.makeArc(center, radius, normal, start, end)
 
     const edge = Geometry.makeEdgeFromCurve(arc);
+
+    this.setState('start', Vertex.fromPoint2D(startPoint));
+    this.setState('end', Vertex.fromPoint2D(endPoint));
 
     // get tangent as unit Point2D
     // CCW: (-sin θ, cos θ), CW: (sin θ, -cos θ)

@@ -6,6 +6,9 @@ import { Matrix4 } from "../math/matrix4.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
+import { Edge } from "../common/edge.js";
+import { Wire } from "../common/wire.js";
+import { LazyVertex } from "./lazy-vertex.js";
 
 export class MirrorShape2D extends GeometrySceneObject {
 
@@ -34,16 +37,56 @@ export class MirrorShape2D extends GeometrySceneObject {
 
     const transformedShapes: Shape[] = [];
 
+    const matrix = Matrix4.mirrorAxis(axis.origin, axis.direction);
+
     for (const obj of targetObjects) {
-      const shapes = obj.getShapes();
+      const shapes = obj.getShapes(false);
       for (const shape of shapes) {
-        const matrix = Matrix4.mirrorAxis(axis.origin, axis.direction);
         const transformed = ShapeOps.transform(shape, matrix);
         transformedShapes.push(transformed);
       }
     }
 
+    const firstShape = transformedShapes[0] as Edge | Wire;
+    const lastShape = transformedShapes[transformedShapes.length - 1] as Edge | Wire;
+
+    const plane = sketch.getPlane();
+    if (firstShape) {
+      const start = firstShape.getFirstVertex();
+      if (start) {
+        const localStart = plane.worldToLocal(start.toPoint());
+        this.setState('start', localStart);
+        this.setCurrentPosition(localStart);
+      }
+    }
+
+    if (lastShape) {
+      const end = lastShape.getLastVertex();
+      if (end) {
+        const localEnd = plane.worldToLocal(end.toPoint());
+        this.setState('end', localEnd);
+        this.setCurrentPosition(localEnd);
+      }
+    }
+
+    const lastObj = targetObjects[targetObjects.length - 1] as GeometrySceneObject;
+    if (lastObj) {
+      const lastTangent = lastObj.getTangent();
+      if (lastTangent) {
+        const transformedTangent = lastTangent.transform(matrix)
+        this.setTangent(transformedTangent);
+      }
+    }
+
     this.addShapes(transformedShapes);
+  }
+
+  start(): LazyVertex {
+    return new LazyVertex(this.generateUniqueName('start-vertex'), () => [this.getState('start')]);
+  }
+
+  end(): LazyVertex {
+    return new LazyVertex(this.generateUniqueName('end-vertex'), () => [this.getState('end')]);
   }
 
   compareTo(other: MirrorShape2D): boolean {

@@ -43,6 +43,9 @@ CameraControls.install({
 
 const Z_UP = new Vector3(0, 0, 1);
 const VIEW_SIZE = 120;
+
+/** Factor applied to the bounding sphere radius when fitting to add breathing room. */
+export const FIT_PADDING = 1.1;
 const BACKGROUND_COLOR = '#181818';
 
 /**
@@ -170,7 +173,7 @@ export class SceneContext {
     const radius = box.getSize(new Vector3()).length() / 2;
     if (radius === 0) return;
 
-    const sphere = new Sphere(center, radius);
+    const sphere = new Sphere(center, radius * FIT_PADDING);
     this._cc.fitToSphere(sphere, enableTransition);
   }
 

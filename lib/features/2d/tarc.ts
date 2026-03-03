@@ -1,30 +1,23 @@
+import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { rad } from "../../helpers/math-helpers.js";
 import { Point2D } from "../../math/point.js";
+import { LazyVertex } from "../lazy-vertex.js";
 import { GeometrySceneObject } from "./geometry.js";
-
-export type TArcOptions = {};
 
 export class TangentArc extends GeometrySceneObject {
 
   constructor(
     public radius: number,
-    public endAngle: number,
-    private options: TArcOptions = null) {
+    public endAngle: number) {
     super();
   }
 
   build(): void {
-    const previousSibling = this.sketch.getPreviousSibling(this);
-    if (!previousSibling) {
-      throw new Error('TangentArc must have a previous sibling');
+    const tangent = this.sketch.getTangentAt(this);
+    if (!tangent) {
+      throw new Error('TangentArc requires a previous sibling with a tangent');
     }
-
-    if (!(previousSibling instanceof GeometrySceneObject)) {
-      throw new Error('TangentArc previous sibling must be a Curve');
-    }
-
-    const tangent = previousSibling.getTangent();
 
     const plane = this.sketch.getPlane();
     const radius = this.radius;
@@ -56,6 +49,9 @@ export class TangentArc extends GeometrySceneObject {
     const arc = Geometry.makeArc(center, radius, normal, start, end);
 
     const edge = Geometry.makeEdgeFromCurve(arc);
+
+    this.setState('start', Vertex.fromPoint2D(startPoint));
+    this.setState('end', Vertex.fromPoint2D(endPoint));
 
     // get tangent vector at the end angle
     // CCW: (-sin θ, cos θ), CW: (sin θ, -cos θ)
@@ -89,8 +85,7 @@ export class TangentArc extends GeometrySceneObject {
   serialize() {
     return {
       radius: this.radius,
-      endAngle: this.endAngle,
-      options: this.options
+      endAngle: this.endAngle
     }
   }
 }

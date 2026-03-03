@@ -6,6 +6,7 @@ import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
 import { Wire } from "../../common/wire.js";
 import { Extrudable } from "../../helpers/types.js";
+import { Shape } from "../../common/shape.js";
 
 export class Sketch extends SceneObject implements Extrudable {
 

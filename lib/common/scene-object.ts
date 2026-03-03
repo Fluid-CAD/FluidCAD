@@ -190,6 +190,11 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   }
 
   removeShape(shape: Shape, removedBy: SceneObject) {
+    const keep = this.getState('keep');
+    if (keep) {
+      return;
+    }
+
     if (this.isContainer()) {
       for (const child of this.children) {
         const childShapes = child.getShapes();
@@ -207,6 +212,11 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   }
 
   removeShapes(removedBy: SceneObject) {
+    const keep = this.getState('keep');
+    if (keep) {
+      return;
+    }
+
     if (this.isContainer()) {
       for (const child of this.children) {
         child.removeShapes(removedBy);
@@ -217,6 +227,11 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     for (const shape of this.addedShapes) {
       this.removeShape(shape, removedBy);
     }
+  }
+
+  keep() {
+    this.setState('keep', true)
+    return this;
   }
 
   getOwnShapes(exludeMetaShapes = true, scope?: Set<SceneObject>): Shape[] {

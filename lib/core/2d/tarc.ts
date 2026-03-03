@@ -3,6 +3,7 @@ import { TangentArc } from "../../features/2d/tarc.js";
 import { TangentArcToPoint } from "../../features/2d/tarc-to-point.js";
 import { TangentArcToPointTangent } from "../../features/2d/tarc-to-point-tangent.js";
 import { TangentArcTwoCircles } from "../../features/2d/tarc-two-circles.js";
+import { TangentArcWithTangent } from "../../features/2d/tarc-with-tangent.js";
 import { Move } from "../../features/2d/move.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
@@ -11,6 +12,7 @@ import { QualifiedGeometry } from "../../features/2d/constraints/qualified-geome
 
 interface TArcFunction {
   (radius?: number, endAngle?: number): TangentArc;
+  (radius: number, angle: number, tangent: Point2DLike): TangentArcWithTangent;
   (endPoint: Point2DLike): TangentArcToPoint;
   (endPoint: Point2DLike, tangent: Point2DLike): TangentArcToPointTangent;
   (startPoint: Point2DLike, endPoint: Point2DLike, tangent: Point2DLike): TangentArcToPointTangent;
@@ -59,6 +61,14 @@ function build(context: SceneParserContext): TArcFunction {
 
     const radius = arguments[0] as number || 100;
     const endAngle = arguments[1] as number || 90;
+
+    // tArc(radius, angle, tangent): explicit start tangent instead of reading from previous sibling
+    if (arguments.length === 3 && isPoint2DLike(arguments[2])) {
+      const tangent = normalizePoint2D(arguments[2] as Point2DLike);
+      const arc = new TangentArcWithTangent(radius, endAngle, tangent);
+      context.addSceneObject(arc);
+      return arc;
+    }
 
     const arc = new TangentArc(radius, endAngle);
     context.addSceneObject(arc);

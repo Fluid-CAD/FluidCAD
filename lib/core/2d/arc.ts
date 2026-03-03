@@ -1,5 +1,6 @@
 import { isPoint2DLike, Point2DLike } from "../../math/point.js";
 import { ArcFromTwoAngles, ArcOptions } from "../../features/2d/arc.js";
+import { ArcFromCenterAndAngle } from "../../features/2d/arc-from-center.js";
 import { Move } from "../../features/2d/move.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
@@ -11,8 +12,9 @@ import { resolvePlane } from "../../helpers/resolve.js";
 
 interface ArcFunction {
   (radius?: number, startAngle?: number, endAngle?: number, options?: ArcOptions): ArcFromTwoAngles;
-  (center: Point2DLike, radius?: number, startAngle?: number, endAngle?: number, options?: ArcOptions): ArcFromTwoAngles;
+  (startPoint: Point2DLike, radius?: number, startAngle?: number, endAngle?: number, options?: ArcOptions): ArcFromTwoAngles;
   (radius: number, startAngle: number, endAngle: number, targetPlane: PlaneLike | SceneObject): ArcFromTwoAngles;
+  (center: Point2DLike, angle: number, centered?: boolean): ArcFromCenterAndAngle;
 }
 
 function build(context: SceneParserContext): ArcFunction {
@@ -37,13 +39,23 @@ function build(context: SceneParserContext): ArcFunction {
 
     if (isPoint2DLike(arguments[0])) {
       center = normalizePoint2D(arguments[0] as Point2DLike);
+
+      // arc(center, angle, centered?) - sweep around center by angle degrees
+      if (argCount === 2 || (argCount === 3 && typeof arguments[2] === 'boolean')) {
+        const angle = arguments[1] as number;
+        const centered = argCount === 3 ? arguments[2] as boolean : false;
+        const arcFromCenter = new ArcFromCenterAndAngle(center, angle, centered);
+        context.addSceneObject(arcFromCenter);
+        return arcFromCenter;
+      }
+
       radius = arguments[1] as number || 100;
       startAngle = arguments[2] as number || 0;
       endAngle = arguments[3] as number || 90;
       options = argCount >= 5 ? arguments[4] as ArcOptions || {} : {};
 
       arc = new ArcFromTwoAngles(radius, startAngle, endAngle, options, planeObj);
-      context.addSceneObjects([new Move(center), arc]);
+      context.addSceneObjects([arc]);
     } else {
       radius = arguments[0] as number || 100;
       startAngle = arguments[1] as number || 0;

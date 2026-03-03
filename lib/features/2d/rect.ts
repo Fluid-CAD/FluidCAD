@@ -294,10 +294,7 @@ export class Rect extends ExtrudableGeometryBase {
       if (!edge) {
         return [];
       }
-      const plane = this.sketch.getPlane();
-      const vertex = edge.getLastVertex();
-      const localPos = plane.worldToLocal(vertex.toPoint());
-      return [Vertex.fromPoint2D(localPos)];
+      return [edge.getLastVertex()];
     });
   }
 
@@ -307,10 +304,7 @@ export class Rect extends ExtrudableGeometryBase {
       if (!edge) {
         return [];
       }
-      const plane = this.sketch.getPlane();
-      const vertex = edge.getFirstVertex();
-      const localPos = plane.worldToLocal(vertex.toPoint());
-      return [Vertex.fromPoint2D(localPos)];
+      return [edge.getFirstVertex()];
     });
   }
 
@@ -320,10 +314,7 @@ export class Rect extends ExtrudableGeometryBase {
       if (!edge) {
         return [];
       }
-      const plane = this.sketch.getPlane();
-      const vertex = edge.getFirstVertex();
-      const localPos = plane.worldToLocal(vertex.toPoint());
-      return [Vertex.fromPoint2D(localPos)];
+      return [edge.getFirstVertex()];
     });
   }
 
@@ -333,10 +324,7 @@ export class Rect extends ExtrudableGeometryBase {
       if (!edge) {
         return [];
       }
-      const plane = this.sketch.getPlane();
-      const vertex = edge.getLastVertex();
-      const localPos = plane.worldToLocal(vertex.toPoint());
-      return [Vertex.fromPoint2D(localPos)];
+      return [edge.getLastVertex()];
     });
   }
 

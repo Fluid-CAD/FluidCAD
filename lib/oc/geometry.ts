@@ -480,6 +480,8 @@ export class Geometry {
     const c1 = this.getQualified(pln, qualifiedC1);
     const c2 = this.getQualified(pln, qualifiedC2);
 
+    console.log(`Finding tangent circles between: c1 type=${c1.type}, c2 type=${c2.type}, radius=${radius}`);
+
     let solver: GccAna_Circ2d2TanRad | Geom2dGcc_Circ2d2TanRad;
     if (c1.type === 'circle' && c2.type === 'circle') {
       solver = new oc.GccAna_Circ2d2TanRad(c1.qualified as GccEnt_QualifiedCirc, c2.qualified as GccEnt_QualifiedCirc, radius, tolerance);
@@ -489,7 +491,17 @@ export class Geometry {
       solver = new oc.GccAna_Circ2d2TanRad(c2.qualified as GccEnt_QualifiedCirc, c1.qualified as GccEnt_QualifiedLin, radius, tolerance);
     } else if (c1.type === 'line' && c2.type === 'line') {
       solver = new oc.GccAna_Circ2d2TanRad(c1.qualified as GccEnt_QualifiedLin, c2.qualified as GccEnt_QualifiedLin, radius, tolerance);
-    } else {
+    }
+    else if (c1.type === 'point' && c2.type === 'point') {
+      const localPoint1 = plane.worldToLocal(Convert.toPoint(c1.qualified as gp_Pnt));
+      const localPoint2 = plane.worldToLocal(Convert.toPoint(c2.qualified as gp_Pnt));
+      const [gpPnt1, disposeGpPnt1] = Convert.toGpPnt2d(localPoint1);
+      const [gpPnt2, disposeGpPnt2] = Convert.toGpPnt2d(localPoint2);
+      solver = new oc.GccAna_Circ2d2TanRad(gpPnt1, gpPnt2, radius, tolerance);
+      disposeGpPnt1();
+      disposeGpPnt2();
+    }
+    else {
       const qc1 = this.getQualifiedAsCurve(pln, qualifiedC1);
       const qc2 = this.getQualifiedAsCurve(pln, qualifiedC2);
       solver = new oc.Geom2dGcc_Circ2d2TanRad(qc1, qc2, radius, tolerance);
@@ -528,6 +540,7 @@ export class Geometry {
     const c1 = this.getQualified(pln, qualifiedC1);
     const c2 = this.getQualified(pln, qualifiedC2);
 
+    console.log(`Finding tangent arcs between: c1 type=${c1.type}, c2 type=${c2.type}, radius=${radius}`);
     let solver: GccAna_Circ2d2TanRad | Geom2dGcc_Circ2d2TanRad;
     if (c1.type === 'circle' && c2.type === 'circle') {
       solver = new oc.GccAna_Circ2d2TanRad(c1.qualified as GccEnt_QualifiedCirc, c2.qualified as GccEnt_QualifiedCirc, radius, tolerance);
@@ -537,6 +550,14 @@ export class Geometry {
       solver = new oc.GccAna_Circ2d2TanRad(c2.qualified as GccEnt_QualifiedCirc, c1.qualified as GccEnt_QualifiedLin, radius, tolerance);
     } else if (c1.type === 'line' && c2.type === 'line') {
       solver = new oc.GccAna_Circ2d2TanRad(c1.qualified as GccEnt_QualifiedLin, c2.qualified as GccEnt_QualifiedLin, radius, tolerance);
+    } else if (c1.type === 'point' && c2.type === 'point') {
+      const localPoint1 = plane.worldToLocal(Convert.toPoint(c1.qualified as gp_Pnt));
+      const localPoint2 = plane.worldToLocal(Convert.toPoint(c2.qualified as gp_Pnt));
+      const [gpPnt1, disposeGpPnt1] = Convert.toGpPnt2d(localPoint1);
+      const [gpPnt2, disposeGpPnt2] = Convert.toGpPnt2d(localPoint2);
+      solver = new oc.GccAna_Circ2d2TanRad(gpPnt1, gpPnt2, radius, tolerance);
+      disposeGpPnt1();
+      disposeGpPnt2();
     } else {
       const qc1 = this.getQualifiedAsCurve(pln, qualifiedC1);
       const qc2 = this.getQualifiedAsCurve(pln, qualifiedC2);

@@ -26,8 +26,10 @@ function toQualified(arg: SceneObject | QualifiedGeometry): QualifiedGeometry {
 
 function build(context: SceneParserContext): TArcFunction {
   return function tarc() {
-    // tarc(c1, c2, radius): fillet arc tangent to two circles
-    if (arguments.length === 3 && !isPoint2DLike(arguments[0]) && typeof arguments[2] === 'number') {
+    // tarc(c1, c2, radius): fillet arc tangent to two circles/points
+    if (arguments.length === 3 &&
+      (arguments[0] instanceof SceneObject || arguments[0] instanceof QualifiedGeometry) &&
+      typeof arguments[2] === 'number') {
       const c1 = toQualified(arguments[0]);
       const c2 = toQualified(arguments[1]);
       const radius = arguments[2] as number;

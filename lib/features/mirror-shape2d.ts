@@ -9,7 +9,6 @@ import { AxisObjectBase } from "./axis-renderable-base.js";
 import { Edge } from "../common/edge.js";
 import { Wire } from "../common/wire.js";
 import { LazyVertex } from "./lazy-vertex.js";
-import { Point } from "../math/point.js";
 
 export class MirrorShape2D extends GeometrySceneObject {
 

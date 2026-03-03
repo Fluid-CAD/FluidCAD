@@ -18,7 +18,7 @@ export class SlotFromEdge extends ExtrudableGeometryBase {
   }
 
   build(): void {
-    const shapes = this.sourceGeometry.getShapes();
+    const shapes = this.sourceGeometry.getShapes(false);
 
     if (shapes.length === 0) {
       throw new Error("SlotFromEdge: source geometry has no edges or wires");

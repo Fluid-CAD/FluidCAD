@@ -29,6 +29,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _alwaysVisible: boolean = false;
   private _name: string = '';
   private _guide: boolean = false;
+  private _keep: boolean = false;
 
   constructor() {
     this.state = new Map();
@@ -129,7 +130,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   abstract build(context?: BuildSceneObjectContext): void;
 
   compareTo(other: SceneObject): boolean {
-    return this._guide === other._guide;
+    return this._guide === other._guide && this._keep === other._keep;
   }
 
   clone(): SceneObject[] {
@@ -190,8 +191,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   }
 
   removeShape(shape: Shape, removedBy: SceneObject) {
-    const keep = this.getState('keep');
-    if (keep) {
+    if (this._keep) {
       return;
     }
 
@@ -212,8 +212,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   }
 
   removeShapes(removedBy: SceneObject) {
-    const keep = this.getState('keep');
-    if (keep) {
+    if (this._keep) {
       return;
     }
 
@@ -230,7 +229,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   }
 
   keep() {
-    this.setState('keep', true)
+    this._keep = true;
     return this;
   }
 

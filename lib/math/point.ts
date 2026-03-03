@@ -100,6 +100,10 @@ export class Point {
     return new Point(this.x, this.y, this.z);
   }
 
+  negate(): Point {
+    return new Point(-this.x, -this.y, -this.z);
+  }
+
   toArray(): [number, number, number] {
     return [this.x, this.y, this.z];
   }
@@ -216,12 +220,21 @@ export class Point2D {
     return pivot.multiplyScalar(2).subtract(this);
   }
 
+  transform(matrix: Matrix4): Point2D {
+    const p = matrix.transformPoint(this.toPoint());
+    return new Point2D(p.x, p.y);
+  }
+
   toPoint(z: number = 0): Point {
     return new Point(this.x, this.y, z);
   }
 
   clone(): Point2D {
     return new Point2D(this.x, this.y);
+  }
+
+  negate(): Point2D {
+    return new Point2D(-this.x, -this.y);
   }
 
   toArray(): [number, number] {

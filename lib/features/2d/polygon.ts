@@ -4,6 +4,7 @@ import { WireOps } from "../../oc/wire-ops.js";
 import { Geometry } from "../../oc/geometry.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
+import { Vertex } from "../../common/vertex.js";
 import { LazySceneObject } from "../lazy-scene-object.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
@@ -110,12 +111,14 @@ export class Polygon extends ExtrudableGeometryBase {
   getVertex(index: number): LazyVertex {
     return new LazyVertex(this.generateUniqueName(`vertex-${index}`), () => {
       const edge = this.getState(`edge-${index}`) as Edge;
-      return edge ? [edge.getFirstVertex()] : [];
+      if (!edge) {
+        return [];
+      }
+      const plane = this.sketch.getPlane();
+      const vertex = edge.getFirstVertex();
+      const localPos = plane.worldToLocal(vertex.toPoint());
+      return [Vertex.fromPoint2D(localPos)];
     });
-  }
-
-  private generateUniqueName(suffix: string) {
-    return `${this.getOrder()}-${this.getUniqueType()}-${suffix}`;
   }
 
   serialize() {

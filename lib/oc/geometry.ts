@@ -1,16 +1,16 @@
-import type { GccAna_Circ2d2TanRad, GccAna_Circ2d3Tan, GccAna_Lin2d2Tan, GccEnt_Position, GccEnt_QualifiedCirc, GccEnt_QualifiedLin, Geom2dGcc_Circ2d2TanRad, Geom2dGcc_Circ2d3Tan, Geom2dGcc_Lin2d2Tan, Geom2dGcc_QualifiedCurve, Geom_Circle, Geom_Curve, Geom_TrimmedCurve, gp_Circ, gp_Lin, gp_Pln, gp_Pnt, Handle_Geom_Curve, TopoDS_Edge, TopoDS_Vertex } from "occjs-wrapper";
+import type { Geom_Circle, Geom_TrimmedCurve, Handle_Geom_Curve, TopoDS_Edge } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Point, Point2D } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Edge } from "../common/edge.js";
-import { ConstraintQualifier, QualifiedGeometry } from "../features/2d/constraints/qualified-geometry.js";
+import { QualifiedGeometry } from "../features/2d/constraints/qualified-geometry.js";
 import { Plane } from "../math/plane.js";
-import { Shape } from "../common/shape.js";
-import { Vertex } from "../common/vertex.js";
-import { VertexOps } from "./vertex-ops.js";
+import { TangentSolver } from "./tangent-solver.js";
 
 export class Geometry {
+  // ── Shape factories ────────────────────────────────────────────────────────
+
   static makeSegment(p1: Point, p2: Point): Geom_TrimmedCurve {
     const oc = getOC();
     const [transformedP1, disposeP1] = Convert.toGpPnt(p1);
@@ -82,8 +82,7 @@ export class Geometry {
     arcMaker.delete();
 
     if (!curve) {
-      const status = arcMaker.Status();
-      throw new Error('Failed to create arc edge from center: ' + status);
+      throw new Error('Failed to create arc edge from center');
     }
 
     return curve;
@@ -174,7 +173,8 @@ export class Geometry {
     throw new Error('Failed to create circle edge: ' + status);
   }
 
-  // Wrapper methods returning Edge (public API for external callers)
+  // ── Edge factories ─────────────────────────────────────────────────────────
+
   static makeEdge(geometry: Geom_TrimmedCurve): Edge {
     return Edge.fromTopoDSEdge(Geometry.makeEdgeRaw(geometry));
   }
@@ -187,7 +187,6 @@ export class Geometry {
     return Edge.fromTopoDSEdge(Geometry.makeEdgeFromCircleRaw(circle));
   }
 
-  // Raw methods returning TopoDS_Edge (for oc-internal use)
   static makeEdgeRaw(geometry: Geom_TrimmedCurve): TopoDS_Edge {
     const oc = getOC();
     const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(geometry.StartPoint(), geometry.EndPoint());
@@ -208,6 +207,7 @@ export class Geometry {
     const oc = getOC();
     const handle = new oc.Handle_Geom_Curve(curve);
     const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(handle, curve.StartPoint(), curve.EndPoint());
+
     if (edgeMaker.IsDone()) {
       const edge = edgeMaker.Edge();
       edgeMaker.delete();
@@ -238,466 +238,38 @@ export class Geometry {
     throw new Error('Failed to create edge from circle: ' + status);
   }
 
+  // ── 2D math helpers ────────────────────────────────────────────────────────
+
   static getPointOnCircle(center: Point2D, radius: number, angle: number): Point2D {
-    const x = center.x + radius * Math.cos(angle);
-    const y = center.y + radius * Math.sin(angle);
-    return new Point2D(x, y);
+    return new Point2D(
+      center.x + radius * Math.cos(angle),
+      center.y + radius * Math.sin(angle)
+    );
   }
 
   static getCircleCenter(point: Point2D, radius: number, angle: number): Point2D {
-    const x = point.x - radius * Math.cos(angle);
-    const y = point.y - radius * Math.sin(angle);
-
-    return new Point2D(x, y);
+    return new Point2D(
+      point.x - radius * Math.cos(angle),
+      point.y - radius * Math.sin(angle)
+    );
   }
 
-  static get2dLineRaw(plane: gp_Pln, geometry: gp_Lin) {
-    const oc = getOC()
-    const geom = oc.ProjLib.Project(plane, geometry);
-    return geom;
+  // ── Tangent solver delegates ───────────────────────────────────────────────
+  // These delegate to TangentSolver and are kept here for backward compatibility.
+
+  static getTangentLines(plane: Plane, qualifiedC1: QualifiedGeometry, qualifiedC2: QualifiedGeometry): Edge[] {
+    return TangentSolver.getTangentLines(plane, qualifiedC1, qualifiedC2);
   }
 
-  static get2dCircleRaw(plane: gp_Pln, geometry: gp_Circ) {
-    const oc = getOC()
-    const geom = oc.ProjLib.Project(plane, geometry);
-    return geom;
+  static getTangentCircles(plane: Plane, qualifiedC1: QualifiedGeometry, qualifiedC2: QualifiedGeometry, radius: number): Edge[] {
+    return TangentSolver.getTangentCircles(plane, qualifiedC1, qualifiedC2, radius);
   }
 
-  static get2dCurveRaw(plane: gp_Pln, curveHandle: Handle_Geom_Curve) {
-    const oc = getOC()
-    const converted = oc.GeomAPI.To2d(curveHandle, plane);
-    return converted;
+  static getTangentArcs(plane: Plane, qualifiedC1: QualifiedGeometry, qualifiedC2: QualifiedGeometry, radius: number): { edge: Edge; endTangent: Point2D }[] {
+    return TangentSolver.getTangentArcs(plane, qualifiedC1, qualifiedC2, radius);
   }
 
-  static getTangentLines(plane: Plane, qualifiedC1: QualifiedGeometry,
-    qualifiedC2: QualifiedGeometry) {
-
-    const oc = getOC();
-    const tolerance = oc.Precision.Angular();
-
-    const [pln, disposePln] = Convert.toGpPln(plane);
-
-    const c1 = this.getQualified(pln, qualifiedC1);
-    const c2 = this.getQualified(pln, qualifiedC2);
-
-    let solver: GccAna_Lin2d2Tan | Geom2dGcc_Lin2d2Tan;
-
-    console.log(`Finding tangent lines between: c1 type=${c1.type}, c2 type=${c2.type}`);
-
-    if (c1.type === 'circle' && c2.type === 'circle') {
-      solver = new oc.GccAna_Lin2d2Tan(c1.qualified as any, c2.qualified as any, tolerance);
-    }
-    else if (c1.type === 'circle' && c2.type === 'point') {
-      const localPoint = plane.worldToLocal(Convert.toPoint(c2.qualified as gp_Pnt));
-      console.log(`Projected point for tangency: (${localPoint.x}, ${localPoint.y})`);
-
-      const [gpPnt, disposeGpPnt] = Convert.toGpPnt2d(localPoint);
-      console.log(`Qualified curve type: ${c1.qualified}`);
-      solver = new oc.GccAna_Lin2d2Tan(c1.qualified as any, gpPnt, tolerance);
-      disposeGpPnt();
-    }
-    else {
-      const qc1 = this.getQualifiedAsCurve(pln, qualifiedC1);
-      const qc2 = this.getQualifiedAsCurve(pln, qualifiedC2);
-      solver = new oc.Geom2dGcc_Lin2d2Tan(qc1, qc2, tolerance);
-    }
-
-    disposePln();
-
-    const edges: Edge[] = [];
-
-    if (solver.IsDone()) {
-      const nSolutions = solver.NbSolutions();
-      console.log(`Found ${nSolutions} tangent lines`);
-
-      for (let i = 1; i <= nSolutions; i++) {
-        const line2d = solver.ThisSolution(i);
-
-        const loc = line2d.Location();
-        const dir = line2d.Direction();
-        console.log(`Solution ${i}: point(${loc.X()}, ${loc.Y()}), dir(${dir.X()}, ${dir.Y()})`);
-
-        const pnt1 = new oc.gp_Pnt2d();
-        const pnt2 = new oc.gp_Pnt2d();
-        solver.Tangency1(i, 0, 0, pnt1);
-        solver.Tangency2(i, 0, 0, pnt2);
-
-        const worldPnt1 = plane.localToWorld(Convert.toPoint2D(pnt1, true));
-        const worldPnt2 = plane.localToWorld(Convert.toPoint2D(pnt2, true));
-
-        const line = Geometry.makeSegment(worldPnt1, worldPnt2);
-        const edge = Geometry.makeEdge(line);
-
-        edges.push(edge);
-      }
-    }
-
-    return edges;
-  }
-
-  static getQualifiedCurve(plane: gp_Pln, shape: Shape, qualifiedGeometry: QualifiedGeometry) {
-    const oc = getOC();
-    const adaptor = new oc.BRepAdaptor_Curve(shape.getShape());
-    const type = adaptor.GetType()
-
-    if (type === oc.GeomAbs_CurveType.GeomAbs_Circle) {
-      console.log('Qualified geometry is a circle');
-      // full circle
-      console.log('Adaptor is closed:', adaptor.IsClosed());
-      if (adaptor.IsClosed()) {
-        const circle = adaptor.Circle();
-        adaptor.delete();
-
-        const c1 = Geometry.get2dCircleRaw(plane, circle);
-        circle.delete();
-
-        const qualifier = Geometry.getQualifier(qualifiedGeometry.qualifier);
-        const qualified = new oc.GccEnt_QualifiedCirc(c1, qualifier);
-
-        return { qualified, type: 'circle' };
-      }
-      else {
-        // curve
-        const curveAdaptor = adaptor.Curve();
-        const curve = curveAdaptor.Curve();
-        curveAdaptor.delete();
-        adaptor.delete();
-
-        const c1 = Geometry.get2dCurveRaw(plane, curve);
-
-        const adaptorCurve = new oc.Geom2dAdaptor_Curve(c1);
-
-        const qualifier = Geometry.getQualifier(qualifiedGeometry.qualifier);
-        const qualified = new oc.Geom2dGcc_QualifiedCurve(adaptorCurve, qualifier);
-
-        return { qualified, type: 'curve' };
-      }
-    }
-    else if (type === oc.GeomAbs_CurveType.GeomAbs_Line) {
-      const line = adaptor.Line();
-      adaptor.delete();
-
-      const l1 = Geometry.get2dLineRaw(plane, line);
-      line.delete();
-
-      const qualifier = this.getQualifier(qualifiedGeometry.qualifier);
-      const qualified = new oc.GccEnt_QualifiedLin(l1, qualifier);
-
-      return { qualified, type: 'line' };
-    }
-  }
-
-  static getQualified(plane: gp_Pln, qualifiedGeometry: QualifiedGeometry) {
-    const shape = qualifiedGeometry.object.getShapes(false)[0];
-
-    if (shape.getType() === 'wire' || shape.getType() === 'edge') {
-      return this.getQualifiedCurve(plane, shape, qualifiedGeometry);
-    }
-    else if (shape.getType() === 'vertex') {
-      const oc = getOC();
-      const vertex = shape.getShape() as TopoDS_Vertex;
-      const pnt = oc.BRep_Tool.Pnt(vertex);
-      return {
-        qualified: pnt,
-        type: 'point'
-      }
-    }
-
-    throw new Error('Unsupported shape type for constraint');
-  }
-
-  static getQualifier(qualifier: ConstraintQualifier): GccEnt_Position {
-    const oc = getOC();
-    switch (qualifier) {
-      case 'unqualified':
-        return oc.GccEnt_Position.GccEnt_unqualified;
-      case 'enclosed':
-        return oc.GccEnt_Position.GccEnt_enclosed;
-      case 'enclosing':
-        return oc.GccEnt_Position.GccEnt_enclosing;
-      case 'outside':
-        return oc.GccEnt_Position.GccEnt_outside;
-    }
-  }
-
-  private static getQualifiedAsCurve(plane: gp_Pln, qualifiedGeometry: QualifiedGeometry): Geom2dGcc_QualifiedCurve {
-    const oc = getOC();
-    const shape = qualifiedGeometry.object.getShapes(false)[0];
-    const adaptor = new oc.BRepAdaptor_Curve(shape.getShape());
-    const type = adaptor.GetType();
-    const qualifier = Geometry.getQualifier(qualifiedGeometry.qualifier);
-
-    if (type === oc.GeomAbs_CurveType.GeomAbs_Circle) {
-      if (adaptor.FirstParameter() === adaptor.LastParameter()) {
-        // full circle → Geom2d_Circle → Geom2dAdaptor_Curve → QualifiedCurve
-        const circle = adaptor.Circle();
-        adaptor.delete();
-        const circ2d = Geometry.get2dCircleRaw(plane, circle);
-        circle.delete();
-        const geom2dCircle = new oc.Geom2d_Circle(circ2d);
-        const handle = new oc.Handle_Geom2d_Curve(geom2dCircle);
-        const adaptorCurve = new oc.Geom2dAdaptor_Curve(handle);
-        return new oc.Geom2dGcc_QualifiedCurve(adaptorCurve, qualifier);
-      } else {
-        // arc → use existing curve conversion
-        const curveAdaptor = adaptor.Curve();
-        const curve = curveAdaptor.Curve();
-        curveAdaptor.delete();
-        adaptor.delete();
-        const c2d = Geometry.get2dCurveRaw(plane, curve);
-        const adaptorCurve = new oc.Geom2dAdaptor_Curve(c2d);
-        return new oc.Geom2dGcc_QualifiedCurve(adaptorCurve, qualifier);
-      }
-    } else if (type === oc.GeomAbs_CurveType.GeomAbs_Line) {
-      // line → Geom2d_Line → Geom2dAdaptor_Curve → QualifiedCurve
-      const line = adaptor.Line();
-      adaptor.delete();
-      const lin2d = Geometry.get2dLineRaw(plane, line);
-      line.delete();
-      const geom2dLine = new oc.Geom2d_Line(lin2d);
-      const handle = new oc.Handle_Geom2d_Curve(geom2dLine);
-      const adaptorCurve = new oc.Geom2dAdaptor_Curve(handle);
-      return new oc.Geom2dGcc_QualifiedCurve(adaptorCurve, qualifier);
-    } else {
-      // generic curve
-      const curveAdaptor = adaptor.Curve();
-      const curve = curveAdaptor.Curve();
-      curveAdaptor.delete();
-      adaptor.delete();
-      const c2d = Geometry.get2dCurveRaw(plane, curve);
-      const adaptorCurve = new oc.Geom2dAdaptor_Curve(c2d);
-      return new oc.Geom2dGcc_QualifiedCurve(adaptorCurve, qualifier);
-    }
-  }
-
-  static getTangentCircles(plane: Plane, qualifiedC1: QualifiedGeometry,
-    qualifiedC2: QualifiedGeometry, radius: number) {
-
-    const oc = getOC();
-    const tolerance = oc.Precision.Confusion();
-    const [pln, disposePln] = Convert.toGpPln(plane);
-
-    const c1 = this.getQualified(pln, qualifiedC1);
-    const c2 = this.getQualified(pln, qualifiedC2);
-
-    console.log(`Finding tangent circles between: c1 type=${c1.type}, c2 type=${c2.type}, radius=${radius}`);
-
-    let solver: GccAna_Circ2d2TanRad | Geom2dGcc_Circ2d2TanRad;
-    if (c1.type === 'circle' && c2.type === 'circle') {
-      solver = new oc.GccAna_Circ2d2TanRad(c1.qualified as GccEnt_QualifiedCirc, c2.qualified as GccEnt_QualifiedCirc, radius, tolerance);
-    } else if (c1.type === 'circle' && c2.type === 'line') {
-      solver = new oc.GccAna_Circ2d2TanRad(c1.qualified as GccEnt_QualifiedCirc, c2.qualified as GccEnt_QualifiedLin, radius, tolerance);
-    } else if (c1.type === 'line' && c2.type === 'circle') {
-      solver = new oc.GccAna_Circ2d2TanRad(c2.qualified as GccEnt_QualifiedCirc, c1.qualified as GccEnt_QualifiedLin, radius, tolerance);
-    } else if (c1.type === 'line' && c2.type === 'line') {
-      solver = new oc.GccAna_Circ2d2TanRad(c1.qualified as GccEnt_QualifiedLin, c2.qualified as GccEnt_QualifiedLin, radius, tolerance);
-    }
-    else if (c1.type === 'point' && c2.type === 'point') {
-      const localPoint1 = plane.worldToLocal(Convert.toPoint(c1.qualified as gp_Pnt));
-      const localPoint2 = plane.worldToLocal(Convert.toPoint(c2.qualified as gp_Pnt));
-      const [gpPnt1, disposeGpPnt1] = Convert.toGpPnt2d(localPoint1);
-      const [gpPnt2, disposeGpPnt2] = Convert.toGpPnt2d(localPoint2);
-      solver = new oc.GccAna_Circ2d2TanRad(gpPnt1, gpPnt2, radius, tolerance);
-      disposeGpPnt1();
-      disposeGpPnt2();
-    }
-    else {
-      const qc1 = this.getQualifiedAsCurve(pln, qualifiedC1);
-      const qc2 = this.getQualifiedAsCurve(pln, qualifiedC2);
-      solver = new oc.Geom2dGcc_Circ2d2TanRad(qc1, qc2, radius, tolerance);
-    }
-
-    disposePln();
-
-    const edges: Edge[] = [];
-
-    if (solver.IsDone()) {
-      const nSolutions = solver.NbSolutions();
-      console.log(`Found ${nSolutions} tangent circles (2tan+rad)`);
-
-      for (let i = 1; i <= nSolutions; i++) {
-        const circ2d = solver.ThisSolution(i);
-        const center2d = Convert.toPoint2D(circ2d.Location());
-        const worldCenter = plane.localToWorld(center2d);
-        const r = circ2d.Radius();
-
-        const circle = Geometry.makeCircle(worldCenter, r, plane.normal);
-        const edge = Geometry.makeEdgeFromCircle(circle);
-        edges.push(edge);
-      }
-    }
-
-    return edges;
-  }
-
-  static getTangentArcs(plane: Plane, qualifiedC1: QualifiedGeometry,
-    qualifiedC2: QualifiedGeometry, radius: number) {
-
-    const oc = getOC();
-    const tolerance = oc.Precision.Confusion();
-    const [pln, disposePln] = Convert.toGpPln(plane);
-
-    const c1 = this.getQualified(pln, qualifiedC1);
-    const c2 = this.getQualified(pln, qualifiedC2);
-
-    console.log(`Finding tangent arcs between: c1 type=${c1.type}, c2 type=${c2.type}, radius=${radius}`);
-    let solver: GccAna_Circ2d2TanRad | Geom2dGcc_Circ2d2TanRad;
-    if (c1.type === 'circle' && c2.type === 'circle') {
-      solver = new oc.GccAna_Circ2d2TanRad(c1.qualified as GccEnt_QualifiedCirc, c2.qualified as GccEnt_QualifiedCirc, radius, tolerance);
-    } else if (c1.type === 'circle' && c2.type === 'line') {
-      solver = new oc.GccAna_Circ2d2TanRad(c1.qualified as GccEnt_QualifiedCirc, c2.qualified as GccEnt_QualifiedLin, radius, tolerance);
-    } else if (c1.type === 'line' && c2.type === 'circle') {
-      solver = new oc.GccAna_Circ2d2TanRad(c2.qualified as GccEnt_QualifiedCirc, c1.qualified as GccEnt_QualifiedLin, radius, tolerance);
-    } else if (c1.type === 'line' && c2.type === 'line') {
-      solver = new oc.GccAna_Circ2d2TanRad(c1.qualified as GccEnt_QualifiedLin, c2.qualified as GccEnt_QualifiedLin, radius, tolerance);
-    } else if (c1.type === 'point' && c2.type === 'point') {
-      const localPoint1 = plane.worldToLocal(Convert.toPoint(c1.qualified as gp_Pnt));
-      const localPoint2 = plane.worldToLocal(Convert.toPoint(c2.qualified as gp_Pnt));
-      const [gpPnt1, disposeGpPnt1] = Convert.toGpPnt2d(localPoint1);
-      const [gpPnt2, disposeGpPnt2] = Convert.toGpPnt2d(localPoint2);
-      solver = new oc.GccAna_Circ2d2TanRad(gpPnt1, gpPnt2, radius, tolerance);
-      disposeGpPnt1();
-      disposeGpPnt2();
-    } else {
-      const qc1 = this.getQualifiedAsCurve(pln, qualifiedC1);
-      const qc2 = this.getQualifiedAsCurve(pln, qualifiedC2);
-      solver = new oc.Geom2dGcc_Circ2d2TanRad(qc1, qc2, radius, tolerance);
-    }
-
-    disposePln();
-
-    const results: { edge: Edge, endTangent: Point2D }[] = [];
-
-    if (solver.IsDone()) {
-      const nSolutions = solver.NbSolutions();
-      console.log(`Found ${nSolutions} tangent arcs (2tan+rad)`);
-
-      for (let i = 1; i <= nSolutions; i++) {
-        const circ2d = solver.ThisSolution(i);
-        const center2d = Convert.toPoint2D(circ2d.Location());
-        const worldCenter = plane.localToWorld(center2d);
-        const r = circ2d.Radius();
-
-        const pnt1 = new oc.gp_Pnt2d();
-        const pnt2 = new oc.gp_Pnt2d();
-        solver.Tangency1(i, 0, 0, pnt1);
-        solver.Tangency2(i, 0, 0, pnt2);
-
-        const worldPnt1 = plane.localToWorld(Convert.toPoint2D(pnt1, false));
-        const worldPnt2 = plane.localToWorld(Convert.toPoint2D(pnt2, false));
-
-        // Compute shorter-arc midpoint in 2D plane coords to unambiguously pick the fillet arc
-        const angle1 = Math.atan2(pnt1.Y() - center2d.y, pnt1.X() - center2d.x);
-        const angle2 = Math.atan2(pnt2.Y() - center2d.y, pnt2.X() - center2d.x);
-
-        pnt1.delete();
-        pnt2.delete();
-
-        let diff = angle2 - angle1;
-        if (diff > Math.PI) { diff -= 2 * Math.PI; }
-        if (diff < -Math.PI) { diff += 2 * Math.PI; }
-
-        const midAngle = angle1 + diff / 2;
-        const mid2d = new Point2D(
-          center2d.x + r * Math.cos(midAngle),
-          center2d.y + r * Math.sin(midAngle)
-        );
-        const worldMid = plane.localToWorld(mid2d);
-
-        const arc = Geometry.makeArcThreePoints(worldPnt1, worldMid, worldPnt2);
-        const edge = Geometry.makeEdgeFromCurve(arc);
-
-        // Tangent at arc end: perpendicular to radius at pnt2, signed by sweep direction
-        const sign = diff > 0 ? 1 : -1;
-        const endTangent = new Point2D(
-          sign * (-Math.sin(angle2)),
-          sign * Math.cos(angle2)
-        );
-
-        results.push({ edge, endTangent });
-      }
-    }
-
-    return results;
-  }
-
-  static getTangentCircles3Tan(plane: Plane, qualifiedC1: QualifiedGeometry,
-    qualifiedC2: QualifiedGeometry, qualifiedC3: QualifiedGeometry) {
-
-    const oc = getOC();
-    const tolerance = oc.Precision.Confusion();
-    const [pln, disposePln] = Convert.toGpPln(plane);
-
-    const inputs = [
-      { q: qualifiedC1, r: this.getQualified(pln, qualifiedC1) },
-      { q: qualifiedC2, r: this.getQualified(pln, qualifiedC2) },
-      { q: qualifiedC3, r: this.getQualified(pln, qualifiedC3) },
-    ];
-
-    // Sort: circles first, then lines
-    const circles = inputs.filter(i => i.r.type === 'circle');
-    const lines = inputs.filter(i => i.r.type === 'line');
-    const curves = inputs.filter(i => i.r.type === 'curve');
-
-    let solver: GccAna_Circ2d3Tan | Geom2dGcc_Circ2d3Tan;
-
-    if (curves.length > 0) {
-      // Fallback to Geom2dGcc for any curve type
-      const qc1 = this.getQualifiedAsCurve(pln, qualifiedC1);
-      const qc2 = this.getQualifiedAsCurve(pln, qualifiedC2);
-      const qc3 = this.getQualifiedAsCurve(pln, qualifiedC3);
-      solver = new oc.Geom2dGcc_Circ2d3Tan(qc1, qc2, qc3, tolerance, 0, 0, 0);
-    } else if (circles.length === 3) {
-      solver = new oc.GccAna_Circ2d3Tan(
-        circles[0].r.qualified as GccEnt_QualifiedCirc,
-        circles[1].r.qualified as GccEnt_QualifiedCirc,
-        circles[2].r.qualified as GccEnt_QualifiedCirc,
-        tolerance
-      );
-    } else if (circles.length === 2 && lines.length === 1) {
-      solver = new oc.GccAna_Circ2d3Tan(
-        circles[0].r.qualified as GccEnt_QualifiedCirc,
-        circles[1].r.qualified as GccEnt_QualifiedCirc,
-        lines[0].r.qualified as GccEnt_QualifiedLin,
-        tolerance
-      );
-    } else if (circles.length === 1 && lines.length === 2) {
-      solver = new oc.GccAna_Circ2d3Tan(
-        circles[0].r.qualified as GccEnt_QualifiedCirc,
-        lines[0].r.qualified as GccEnt_QualifiedLin,
-        lines[1].r.qualified as GccEnt_QualifiedLin,
-        tolerance
-      );
-    } else {
-      // 3 lines
-      solver = new oc.GccAna_Circ2d3Tan(
-        lines[0].r.qualified as GccEnt_QualifiedLin,
-        lines[1].r.qualified as GccEnt_QualifiedLin,
-        lines[2].r.qualified as GccEnt_QualifiedLin,
-        tolerance
-      );
-    }
-
-    disposePln();
-
-    const edges: Edge[] = [];
-
-    if (solver.IsDone()) {
-      const nSolutions = solver.NbSolutions();
-      console.log(`Found ${nSolutions} tangent circles (3tan)`);
-
-      for (let i = 1; i <= nSolutions; i++) {
-        const circ2d = solver.ThisSolution(i);
-        const center2d = Convert.toPoint2D(circ2d.Location());
-        const worldCenter = plane.localToWorld(center2d);
-        const r = circ2d.Radius();
-
-        const circle = Geometry.makeCircle(worldCenter, r, plane.normal);
-        const edge = Geometry.makeEdgeFromCircle(circle);
-        edges.push(edge);
-      }
-    }
-
-    return edges;
+  static getTangentCircles3Tan(plane: Plane, qualifiedC1: QualifiedGeometry, qualifiedC2: QualifiedGeometry, qualifiedC3: QualifiedGeometry): Edge[] {
+    return TangentSolver.getTangentCircles3Tan(plane, qualifiedC1, qualifiedC2, qualifiedC3);
   }
 }

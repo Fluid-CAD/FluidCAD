@@ -19,37 +19,15 @@ function build(context: SceneParserContext): TLineFunction {
       return hline;
     }
     else if (arguments.length === 1) {
-      let c1: QualifiedGeometry;
-      if (arguments[0] instanceof QualifiedGeometry) {
-        c1 = arguments[0];
-      }
-      else {
-        c1 = new QualifiedGeometry(arguments[0], 'unqualified');
-      }
-
-      const constrainedLine = new OneCircleTangentLine(c1);
+      const constrainedLine = new OneCircleTangentLine(QualifiedGeometry.from(arguments[0]));
       context.addSceneObject(constrainedLine);
       return constrainedLine;
     }
     else if (arguments.length === 2 || arguments.length === 3) {
-      let c1: QualifiedGeometry;
-      let c2: QualifiedGeometry;
-
-      if (arguments[0] instanceof QualifiedGeometry) {
-        c1 = arguments[0];
-      }
-      else {
-        c1 = new QualifiedGeometry(arguments[0], 'unqualified');
-      }
-
-      if (arguments[1] instanceof QualifiedGeometry) {
-        c2 = arguments[1];
-      }
-      else {
-        c2 = new QualifiedGeometry(arguments[1], 'unqualified');
-      }
-
-      const constrainedLine = new TwoCirclesTangentLine(c1, c2);
+      const constrainedLine = new TwoCirclesTangentLine(
+        QualifiedGeometry.from(arguments[0]),
+        QualifiedGeometry.from(arguments[1])
+      );
       context.addSceneObject(constrainedLine);
       return constrainedLine;
     }

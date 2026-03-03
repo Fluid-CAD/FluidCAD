@@ -1,6 +1,6 @@
 import { GeometrySceneObject } from "./geometry.js";
 import { QualifiedGeometry } from "./constraints/qualified-geometry.js";
-import { Geometry } from "../../oc/geometry.js";
+import { TangentSolver } from "../../oc/tangent-solver.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { Vertex } from "../../common/vertex.js";
 
@@ -19,28 +19,8 @@ export class OneCircleTangentLine extends GeometrySceneObject {
     );
 
     const qualifiedVertex = new QualifiedGeometry(posVertex, 'unqualified');
-    const edges = Geometry.getTangentLines(plane, this.c1, qualifiedVertex);
-
-    for (let i = 0; i < edges.length; i++) {
-      this.setState(`edge-${i}`, edges[i]);
-    }
-
-    if (edges.length > 0) {
-      const lastEdge = edges[edges.length - 1];
-      const firstVertex = lastEdge.getFirstVertex();
-      const lastVertex = lastEdge.getLastVertex();
-
-      const localStart = plane.worldToLocal(firstVertex.toPoint());
-      const localEnd = plane.worldToLocal(lastVertex.toPoint());
-
-      this.setState('start', Vertex.fromPoint2D(localStart));
-      this.setState('end', Vertex.fromPoint2D(localEnd));
-
-      this.setTangent(localEnd.subtract(localStart).normalize());
-      this.setCurrentPosition(localEnd);
-    }
-
-    this.addShapes(edges);
+    const edges = TangentSolver.getTangentLines(plane, this.c1, qualifiedVertex);
+    this.applyEdgeResults(plane, edges);
   }
 
   start(index: number = 0): LazyVertex {
@@ -55,7 +35,6 @@ export class OneCircleTangentLine extends GeometrySceneObject {
     if (!(other instanceof OneCircleTangentLine)) {
       return false;
     }
-
     return this.c1.compareTo(other.c1);
   }
 
@@ -79,28 +58,8 @@ export class TwoCirclesTangentLine extends GeometrySceneObject {
 
   build() {
     const plane = this.sketch.getPlane();
-    const edges = Geometry.getTangentLines(plane, this.c1, this.c2);
-
-    for (let i = 0; i < edges.length; i++) {
-      this.setState(`edge-${i}`, edges[i]);
-    }
-
-    if (edges.length > 0) {
-      const lastEdge = edges[edges.length - 1];
-      const firstVertex = lastEdge.getFirstVertex();
-      const lastVertex = lastEdge.getLastVertex();
-
-      const localStart = plane.worldToLocal(firstVertex.toPoint());
-      const localEnd = plane.worldToLocal(lastVertex.toPoint());
-
-      this.setState('start', Vertex.fromPoint2D(localStart));
-      this.setState('end', Vertex.fromPoint2D(localEnd));
-
-      this.setTangent(localEnd.subtract(localStart).normalize());
-      this.setCurrentPosition(localEnd);
-    }
-
-    this.addShapes(edges);
+    const edges = TangentSolver.getTangentLines(plane, this.c1, this.c2);
+    this.applyEdgeResults(plane, edges);
   }
 
   start(index: number = 0): LazyVertex {
@@ -115,12 +74,11 @@ export class TwoCirclesTangentLine extends GeometrySceneObject {
     if (!(other instanceof TwoCirclesTangentLine)) {
       return false;
     }
-
     return this.c1.compareTo(other.c1) && this.c2.compareTo(other.c2);
   }
 
   getType(): string {
-    return 'line'
+    return 'line';
   }
 
   getUniqueType(): string {
@@ -128,7 +86,6 @@ export class TwoCirclesTangentLine extends GeometrySceneObject {
   }
 
   serialize() {
-    return {
-    }
+    return {};
   }
 }

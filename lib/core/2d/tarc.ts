@@ -17,21 +17,14 @@ interface TArcFunction {
   (c1: SceneObject | QualifiedGeometry, c2: SceneObject | QualifiedGeometry, radius: number): TangentArcTwoCircles;
 }
 
-function toQualified(arg: SceneObject | QualifiedGeometry): QualifiedGeometry {
-  if (arg instanceof QualifiedGeometry) {
-    return arg;
-  }
-  return new QualifiedGeometry(arg, 'unqualified');
-}
-
 function build(context: SceneParserContext): TArcFunction {
   return function tarc() {
     // tarc(c1, c2, radius): fillet arc tangent to two circles/points
     if (arguments.length === 3 &&
       (arguments[0] instanceof SceneObject || arguments[0] instanceof QualifiedGeometry) &&
       typeof arguments[2] === 'number') {
-      const c1 = toQualified(arguments[0]);
-      const c2 = toQualified(arguments[1]);
+      const c1 = QualifiedGeometry.from(arguments[0]);
+      const c2 = QualifiedGeometry.from(arguments[1]);
       const radius = arguments[2] as number;
       const arc = new TangentArcTwoCircles(c1, c2, radius);
       context.addSceneObject(arc);

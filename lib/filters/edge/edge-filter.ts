@@ -16,12 +16,13 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
     super();
   }
 
-  onPlane(plane: PlaneLike | PlaneObjectBase, offset = 0) {
+  onPlane(plane: PlaneLike | PlaneObjectBase, offset = 0, bothDirections = false) {
     if (!plane) {
       throw new Error('Plane is required');
     }
 
     let planeObj: PlaneObjectBase;
+    let planeObj2: PlaneObjectBase | undefined;
 
     if (plane instanceof PlaneObjectBase) {
       planeObj = plane;
@@ -30,23 +31,28 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
       let normalized = normalizePlane(plane);
 
       if (offset) {
-        normalized = normalized.offset(offset);
+        planeObj = new PlaneObject(normalized.offset(offset));
+        if (bothDirections) {
+          planeObj2 = new PlaneObject(normalized.offset(-offset));
+        }
       }
-
-      planeObj = new PlaneObject(normalized);
+      else {
+        planeObj = new PlaneObject(normalized);
+      }
     }
 
-    const filter = new OnPlaneFilter(planeObj);
+    const filter = new OnPlaneFilter(planeObj, planeObj2);
     this.filters.push(filter);
     return this;
   }
 
-  notOnPlane(plane: PlaneLike | PlaneObjectBase, offset = 0) {
+  notOnPlane(plane: PlaneLike | PlaneObjectBase, offset = 0, bothDirections = false) {
     if (!plane) {
       throw new Error('Plane is required');
     }
 
     let planeObj: PlaneObjectBase;
+    let planeObj2: PlaneObjectBase | undefined;
 
     if (plane instanceof PlaneObjectBase) {
       planeObj = plane;
@@ -55,13 +61,17 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
       let normalized = normalizePlane(plane);
 
       if (offset) {
-        normalized = normalized.offset(offset);
+        planeObj = new PlaneObject(normalized.offset(offset));
+        if (bothDirections) {
+          planeObj2 = new PlaneObject(normalized.offset(-offset));
+        }
       }
-
-      planeObj = new PlaneObject(normalized);
+      else {
+        planeObj = new PlaneObject(normalized);
+      }
     }
 
-    const filter = new NotOnPlaneFilter(planeObj);
+    const filter = new NotOnPlaneFilter(planeObj, planeObj2);
     this.filters.push(filter);
     return this;
   }

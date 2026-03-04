@@ -8,6 +8,8 @@ import { Extruder } from "./simple-extruder.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { Extrudable } from "../helpers/types.js";
+import { LazySceneObject } from "./lazy-scene-object.js";
+import { Edge } from "../common/edge.js";
 
 export interface CutOptions extends ExtrudeOptions { }
 
@@ -89,6 +91,8 @@ export class Cut extends SceneObject {
       }
       console.log('Cut: Shape modified count:', list.length);
     }
+
+    this.setState('section-edges', cutResult.sectionEdges)
   }
 
   override clone(): SceneObject[] {
@@ -116,6 +120,16 @@ export class Cut extends SceneObject {
     }
 
     return true;
+  }
+
+  edges(...indices: number[]): SceneObject {
+    const suffix = indices.length > 0 ? `section-edges-${indices.join('-')}` : 'section-edges';
+    return new LazySceneObject(`${this.getOrder()}-cut-${suffix}`,
+      () => {
+        const edges = this.getState('section-edges') as Edge[] || [];
+        if (indices.length === 0) { return edges; }
+        return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
+      });
   }
 
   getType(): string {

@@ -6,6 +6,7 @@ import { FaceOps } from "./face-ops.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
 import { ShapeFactory } from "../common/shape-factory.js";
+import { Edge } from "../common/edge.js";
 
 export class BooleanOps {
   static fuseShapes(shape1: Shape, shape2: Shape): Shape {
@@ -82,13 +83,17 @@ export class BooleanOps {
     return result;
   }
 
-  static cutMultiShape(stocks: Shape[], tools: Shape[]): { result: Shape; modified(shape: Shape): Shape[] } {
+  static cutMultiShape(stocks: Shape[], tools: Shape[]) {
     const oc = getOC();
     const stockList = new oc.TopTools_ListOfShape();
-    for (const s of stocks) stockList.Append(s.getShape());
+    for (const s of stocks) {
+      stockList.Append(s.getShape());
+    }
 
     const toolList = new oc.TopTools_ListOfShape();
-    for (const t of tools) toolList.Append(t.getShape());
+    for (const t of tools) {
+      toolList.Append(t.getShape());
+    }
 
     const progress = new oc.Message_ProgressRange();
     const cutMaker = new oc.BRepAlgoAPI_Cut();
@@ -106,11 +111,34 @@ export class BooleanOps {
       ShapeOps.shapeListToArray(cutMaker.Modified(shape.getShape()))
         .map(s => ShapeFactory.fromShape(s));
 
+    // Build a map of all edges that came from the original stocks (unchanged or modified).
+    // Any result edge not in this map is a new edge created by the cut (both opening and floor edges).
+    const stockEdgeMap = new oc.TopTools_MapOfShape();
+    for (const stock of stocks) {
+      const rawEdges = Explorer.findShapes(stock.getShape(), Explorer.getOcShapeType("edge"));
+      for (const rawEdge of rawEdges) {
+        stockEdgeMap.Add(rawEdge);
+        // Also track modified versions of this edge so we don't misidentify them as new.
+        const modifiedList = cutMaker.Modified(rawEdge);
+        while (modifiedList.Size() > 0) {
+          stockEdgeMap.Add(modifiedList.First());
+          modifiedList.RemoveFirst();
+        }
+        modifiedList.delete();
+      }
+    }
+
+    const resultRawEdges = Explorer.findShapes(result, Explorer.getOcShapeType("edge"));
+    const sectionEdges = resultRawEdges
+      .filter(re => !stockEdgeMap.Contains(re))
+      .map(re => Edge.fromTopoDSEdge(Explorer.toEdge(re)));
+
+    stockEdgeMap.delete();
     progress.delete();
     stockList.delete();
     toolList.delete();
 
-    return { result: wrappedResult, modified };
+    return { result: wrappedResult, modified, sectionEdges };
   }
 
   static fuseMultiShape(args: Shape[], tools: Shape[], checkDeleted: Shape[] = []): {
@@ -226,7 +254,7 @@ export class BooleanOps {
 
       console.log('Fuse: Solid exists in args:', existsInArgs);
 
-      if (!existsInArgs ) {
+      if (!existsInArgs) {
         newShapes.push(ShapeOps.cleanShape(s));
       }
     }

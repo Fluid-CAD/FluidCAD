@@ -74,7 +74,7 @@ export class Cut extends SceneObject {
     console.log('Cut: Stock shapes count:', stock.length);
     console.log('Cut: To be removed shapes count:', toBeRemoved.length);
 
-    const cutResult = BooleanOps.cutMultiShape(stock, toBeRemoved);
+    const cutResult = BooleanOps.cutMultiShape(stock, toBeRemoved, this.extrudable.getPlane(), this.distance);
 
     for (const shape of stock) {
       const list = cutResult.modified(shape);
@@ -92,7 +92,10 @@ export class Cut extends SceneObject {
       console.log('Cut: Shape modified count:', list.length);
     }
 
-    this.setState('section-edges', cutResult.sectionEdges)
+    this.setState('section-edges', cutResult.sectionEdges);
+    this.setState('start-edges', cutResult.startEdges);
+    this.setState('end-edges', cutResult.endEdges);
+    this.setState('internal-edges', cutResult.internalEdges);
   }
 
   override clone(): SceneObject[] {
@@ -127,6 +130,36 @@ export class Cut extends SceneObject {
     return new LazySceneObject(`${this.getOrder()}-cut-${suffix}`,
       () => {
         const edges = this.getState('section-edges') as Edge[] || [];
+        if (indices.length === 0) { return edges; }
+        return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
+      });
+  }
+
+  startEdges(...indices: number[]): SceneObject {
+    const suffix = indices.length > 0 ? `start-edges-${indices.join('-')}` : 'start-edges';
+    return new LazySceneObject(`${this.getOrder()}-cut-${suffix}`,
+      () => {
+        const edges = this.getState('start-edges') as Edge[] || [];
+        if (indices.length === 0) { return edges; }
+        return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
+      });
+  }
+
+  endEdges(...indices: number[]): SceneObject {
+    const suffix = indices.length > 0 ? `end-edges-${indices.join('-')}` : 'end-edges';
+    return new LazySceneObject(`${this.getOrder()}-cut-${suffix}`,
+      () => {
+        const edges = this.getState('end-edges') as Edge[] || [];
+        if (indices.length === 0) { return edges; }
+        return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
+      });
+  }
+
+  internalEdges(...indices: number[]): SceneObject {
+    const suffix = indices.length > 0 ? `internal-edges-${indices.join('-')}` : 'internal-edges';
+    return new LazySceneObject(`${this.getOrder()}-cut-${suffix}`,
+      () => {
+        const edges = this.getState('internal-edges') as Edge[] || [];
         if (indices.length === 0) { return edges; }
         return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
       });

@@ -5,6 +5,21 @@ import { buildSceneMesh } from './meshes/mesh-factory';
 import { SceneObjectPart, SceneObjectRender } from './types';
 import { SettingsPanel } from './ui/settings-panel';
 
+/** Recursively expand `box` to include `object`, skipping meta-shape subtrees. */
+function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
+  if (object.userData.isMetaShape) return;
+  const o = object as any;
+  if ((o.isMesh || o.isLine || o.isPoints) && o.geometry) {
+    o.geometry.computeBoundingBox();
+    if (o.geometry.boundingBox) {
+      box.union(o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld));
+    }
+  }
+  for (const child of object.children) {
+    expandBoxExcludingMeta(box, child);
+  }
+}
+
 const HIGHLIGHT_FACE_COLOR = '#ffc578';
 const HIGHLIGHT_EDGE_COLOR = '#ffc578';
 
@@ -99,7 +114,8 @@ export class Viewer {
 
     // Auto-fit on first render or in sketch mode (skip if viewport barely changed)
     if (!this.hasRendered || (this.modeManager.isSketchMode && !isRollback)) {
-      const box = new Box3().setFromObject(mesh);
+      const box = new Box3();
+      expandBoxExcludingMeta(box, mesh);
       if (!box.isEmpty() && !this.isBoxContained(box)) {
         this.ctx.fitToBox(box, true);
         this.lastFitBox = box.clone();
@@ -159,11 +175,12 @@ export class Viewer {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  /** Fit the camera to all scene geometry. */
+  /** Fit the camera to all scene geometry, excluding meta shapes. */
   private fitViewToScene(): void {
     const compiled = this.ctx.scene.getObjectByName('compiledMesh');
     if (!compiled) return;
-    const box = new Box3().setFromObject(compiled);
+    const box = new Box3();
+    expandBoxExcludingMeta(box, compiled);
     if (!box.isEmpty()) {
       this.ctx.fitToBox(box, true);
     }

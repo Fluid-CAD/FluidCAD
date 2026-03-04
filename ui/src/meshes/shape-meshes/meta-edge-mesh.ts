@@ -63,6 +63,7 @@ const fragmentShader = /* glsl */ `
 export class MetaEdgeMesh extends Group {
   constructor(shape: SceneObjectPart) {
     super();
+    this.userData.isMetaShape = true;
 
     for (const meshData of shape.meshes) {
       const srcVerts = meshData.vertices;

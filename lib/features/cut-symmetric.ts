@@ -1,6 +1,5 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Shape, Solid } from "../common/shapes.js";
-import { CutOptions } from "./cut.js";
 import { Sketch } from "./2d/sketch.js";
 import { FaceMaker } from "../core/2d/face-maker.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
@@ -10,17 +9,14 @@ import { ExtrudeThroughAll } from "./infinite-extrude.js";
 import { Extrudable } from "../helpers/types.js";
 import { LazySceneObject } from "./lazy-scene-object.js";
 import { Edge } from "../common/edge.js";
+import { CutBase } from "./cut-base.js";
 
-export class CutSymmetric extends SceneObject {
-
-  isThroughAll: boolean;
+export class CutSymmetric extends CutBase {
 
   constructor(
     private extrudable: Extrudable,
-    public distance: number,
-    public options: CutOptions = {}) {
+    public distance: number) {
     super();
-    this.isThroughAll = this.distance === 0;
   }
 
   build(context: BuildSceneObjectContext) {
@@ -36,7 +32,9 @@ export class CutSymmetric extends SceneObject {
     const plane = this.extrudable.getPlane();
     let toolShapes: Shape[];
 
-    if (this.isThroughAll) {
+    const isThroughAll = this.distance === 0;
+
+    if (isThroughAll) {
       const extrudeThroughAll = new ExtrudeThroughAll(this.extrudable, true, false);
       toolShapes = extrudeThroughAll.build();
     }
@@ -89,7 +87,7 @@ export class CutSymmetric extends SceneObject {
   override clone(): SceneObject[] {
     const extrudableClone = this.extrudable.clone();
     const extrudable = extrudableClone.find(c => c instanceof Sketch) as Sketch;
-    const clone = new CutSymmetric(extrudable, this.distance, this.options);
+    const clone = new CutSymmetric(extrudable, this.distance).syncWith(this);
     return [...extrudableClone, clone];
   }
 
@@ -103,10 +101,6 @@ export class CutSymmetric extends SceneObject {
     }
 
     if (this.distance !== other.distance) {
-      return false;
-    }
-
-    if (JSON.stringify(this.options || {}) !== JSON.stringify(other.options || {})) {
       return false;
     }
 
@@ -161,9 +155,10 @@ export class CutSymmetric extends SceneObject {
     return {
       extrudable: this.extrudable.serialize(),
       distance: this.distance,
-      isThroughAll: this.isThroughAll,
       symmetric: true,
-      options: this.options
+      draft: this.getDraft(),
+      endOffset: this.getEndOffset(),
+      fusionScope: this.getFusionScope(),
     }
   }
 }

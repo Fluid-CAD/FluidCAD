@@ -54,7 +54,7 @@ export class FluidCadServer {
 
     try {
       let scene = this.sceneManager.startScene();
-      this.viteManager.invalidateModule(filePath);
+      this.viteManager.invalidateModule();
       await this.viteManager.loadModule(filePath);
 
       if (this.previousScenes.has(normalizedFileName)) {
@@ -78,7 +78,7 @@ export class FluidCadServer {
       };
     }
     catch (error) {
-      this.viteManager.invalidateModule(filePath);
+      this.viteManager.invalidateModule();
       console.log('Error processing file:', error);
       return null;
     }

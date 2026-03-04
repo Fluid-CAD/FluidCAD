@@ -22,11 +22,7 @@ export class Extrude extends ExtrudeBase {
       sceneObjects.filter(so => so.id !== this.parentId);
     }
 
-    console.log("Extrude:: all scene objects for fusion:", sceneObjects);
-
     const plane = this.extrudable.getPlane();
-
-    console.log("Extrude:: wires to extrude:", sketchShapes);
 
     const faces = FaceMaker.getFaces(sketchShapes, this.extrudable.getPlane());
     console.log("Extruding faces::", faces);

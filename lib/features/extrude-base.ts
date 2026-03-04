@@ -122,6 +122,8 @@ export abstract class ExtrudeBase extends SceneObject {
     if (thisDraft[0] !== otherDraft[0] || thisDraft[1] !== otherDraft[1]) {
       return false;
     }
+
+    return true;
   }
 
   getType(): string {

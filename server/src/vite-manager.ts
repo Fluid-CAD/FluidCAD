@@ -2,9 +2,11 @@ import { type ViteDevServer, createServer } from 'vite';
 
 export class ViteManager {
   server: ViteDevServer;
+  private rootPath: string = '';
   private buffers: Map<string, string> = new Map();
 
   async init(rootPath: string) {
+    this.rootPath = rootPath;
     const that = this;
     this.server = await createServer({
       root: rootPath,
@@ -54,10 +56,11 @@ export class ViteManager {
     return this.server.ssrLoadModule(filePath);
   }
 
-  invalidateModule(filePath: string) {
-    const cachedModule = this.server.moduleGraph.getModuleById(filePath);
-    if (cachedModule) {
-      this.server.moduleGraph.invalidateModule(cachedModule);
+  invalidateModule() {
+    for (const [id, mod] of this.server.moduleGraph.idToModuleMap) {
+      if (id.startsWith(this.rootPath)) {
+        this.server.moduleGraph.invalidateModule(mod);
+      }
     }
   }
 }

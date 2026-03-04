@@ -179,7 +179,7 @@ function build(context: SceneParserContext): MirrorFunction {
       else {
         const mirrorTree: SceneObject[] = [];
         const matrix = Matrix4.mirrorPlane(normalizedPlane.normal, normalizedPlane.origin);
-        const mirror = new MirrorFeature();
+        const mirror = new MirrorFeature(planeObj);
 
         for (const obj of targetObjects) {
           const dependenciesTree = obj.clone();

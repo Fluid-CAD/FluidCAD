@@ -1,8 +1,9 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
+import { PlaneObjectBase } from "./plane-renderable-base.js";
 
 export class MirrorFeature extends SceneObject {
 
-  constructor() {
+  constructor(private plane: PlaneObjectBase) {
     super();
     this.setAlwaysVisible()
   }
@@ -12,6 +13,7 @@ export class MirrorFeature extends SceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
+    this.plane.removeShapes(this)
     this.saveShapesSnapshot(context)
   }
 

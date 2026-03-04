@@ -6,17 +6,21 @@ import { FaceMaker } from "../core/2d/face-maker.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
+import { ExtrudeThroughAll } from "./infinite-extrude.js";
 import { Extrudable } from "../helpers/types.js";
 import { LazySceneObject } from "./lazy-scene-object.js";
 import { Edge } from "../common/edge.js";
 
 export class CutSymmetric extends SceneObject {
 
+  isThroughAll: boolean;
+
   constructor(
     private extrudable: Extrudable,
     public distance: number,
     public options: CutOptions = {}) {
     super();
+    this.isThroughAll = this.distance === 0;
   }
 
   build(context: BuildSceneObjectContext) {
@@ -29,18 +33,26 @@ export class CutSymmetric extends SceneObject {
       sceneObjects.set(obj, shapes);
     }
 
-    const wires = this.extrudable.getGeometries();
-    const faces = FaceMaker.getFaces(wires, this.extrudable.getPlane());
     const plane = this.extrudable.getPlane();
+    let toolShapes: Shape[];
 
-    const vec = plane.normal.multiply(this.distance);
-    const translateVec = vec.multiply(-0.5);
+    if (this.isThroughAll) {
+      const extrudeThroughAll = new ExtrudeThroughAll(this.extrudable, true, false);
+      toolShapes = extrudeThroughAll.build();
+    }
+    else {
+      const wires = this.extrudable.getGeometries();
+      const faces = FaceMaker.getFaces(wires, plane);
 
-    const toolShapes: Shape[] = [];
-    for (const face of faces) {
-      const { solid: rawSolid } = ExtrudeOps.makePrismFromVec(face, vec);
-      const solid = ShapeOps.translateShape(ShapeOps.cleanShape(rawSolid), translateVec);
-      toolShapes.push(solid);
+      const vec = plane.normal.multiply(this.distance);
+      const translateVec = vec.multiply(-0.5);
+
+      toolShapes = [];
+      for (const face of faces) {
+        const { solid: rawSolid } = ExtrudeOps.makePrismFromVec(face, vec);
+        const solid = ShapeOps.translateShape(ShapeOps.cleanShape(rawSolid), translateVec);
+        toolShapes.push(solid);
+      }
     }
 
     this.extrudable.removeShapes(this);
@@ -149,6 +161,7 @@ export class CutSymmetric extends SceneObject {
     return {
       extrudable: this.extrudable.serialize(),
       distance: this.distance,
+      isThroughAll: this.isThroughAll,
       symmetric: true,
       options: this.options
     }

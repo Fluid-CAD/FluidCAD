@@ -17,6 +17,7 @@ interface CutFunction {
   (extrudable: Sketch, face: SceneObject | 'first-face' | 'last-face', options: CutOptions): Cut;
   (extrudable: Sketch, distance: number, symmetric?: true): Cut;
   (extrudable: Sketch, distance: number, symmetric?: boolean, options?: CutOptions): Cut;
+  (extrudable: Sketch, symmetric: true): Cut;
 
   (distance?: number): Cut;
   (distance: number, options: CutOptions): Cut;
@@ -26,6 +27,7 @@ interface CutFunction {
   (face: SceneObject | 'first-face' | 'last-face', options: CutOptions): Cut;
   (distance: number, symmetric?: true): Cut;
   (distance: number, symmetric?: boolean, options?: CutOptions): Cut;
+  (symmetric: true): Cut;
 }
 
 function build(context: SceneParserContext): CutFunction {
@@ -43,6 +45,10 @@ function build(context: SceneParserContext): CutFunction {
       // - extrude by one distance: number
       if (typeof params[0] === 'number') {
         return new Cut(extrudable, params[0], defaultOptions);
+      }
+      // - through all symmetric cut: true
+      else if (params[0] === true) {
+        return new CutSymmetric(extrudable, 0);
       }
       // - extrude to first face: 'first-face'
       else if (params[0] === 'first-face') {

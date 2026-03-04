@@ -30,7 +30,7 @@ export class Mesh {
 
     let inc;
     try {
-      inc = new oc.BRepMesh_IncrementalMesh(face, 0.1, false, 0.5, false);
+      inc = new oc.BRepMesh_IncrementalMesh(face, 0.01, false, 0.1, false);
     } catch (e) {
       console.error("Face mesh failed", e);
       return null;

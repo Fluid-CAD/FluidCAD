@@ -1,7 +1,7 @@
 import { SceneObject } from "../common/scene-object.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { Cut, CutOptions } from "../features/cut.js";
-import { ExtrudeSymmetric } from "../features/extrude-symmetric.js";
+import { CutSymmetric } from "../features/cut-symmetric.js";
 import { ExtrudeToFace } from "../features/extrude-to-face.js";
 import { ExtrudeTwoDistances } from "../features/extrude-two-distances.js";
 import { ExtrudeOptions } from "../features/extrude-options.js";
@@ -30,7 +30,7 @@ interface CutFunction {
 
 function build(context: SceneParserContext): CutFunction {
 
-  function doCut(extrudable: Extrudable, sceneObjects: SceneObject[], params: any[]): Cut | ExtrudeTwoDistances | ExtrudeToFace | ExtrudeSymmetric {
+  function doCut(extrudable: Extrudable, sceneObjects: SceneObject[], params: any[]): Cut | ExtrudeTwoDistances | ExtrudeToFace | CutSymmetric {
     const defaultOptions: CutOptions = {
     }
 
@@ -71,9 +71,9 @@ function build(context: SceneParserContext): CutFunction {
         const options: CutOptions = params[1];
         return new Cut(extrudable, params[0], options);
       }
-      // - extrude symmetric: number, boolean
+      // - cut symmetric: number, boolean
       else if (typeof params[0] === 'number' && typeof params[1] === 'boolean') {
-        return new ExtrudeSymmetric(extrudable, params[0]);
+        return new CutSymmetric(extrudable, params[0]);
       }
       // - extrude to first face + options: 'first-face', {}
       else if (params[0] === 'first-face' && typeof params[1] === 'object') {
@@ -96,10 +96,10 @@ function build(context: SceneParserContext): CutFunction {
         const options: ExtrudeOptions = params[2];
         return new ExtrudeTwoDistances(extrudable, params[0], params[1], options);
       }
-      // - extrude symmetric + options: number, boolean, {}
+      // - cut symmetric + options: number, boolean, {}
       else if (typeof params[0] === 'number' && typeof params[1] === 'boolean' && typeof params[2] === 'object') {
-        const options: ExtrudeOptions = params[2];
-        return new ExtrudeSymmetric(extrudable, params[0], options);
+        const options: CutOptions = params[2];
+        return new CutSymmetric(extrudable, params[0], options);
       }
     }
 

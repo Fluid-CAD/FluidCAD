@@ -10,22 +10,13 @@ import { ShapeOps } from "../oc/shape-ops.js";
 import { Extrudable } from "../helpers/types.js";
 import { LazySceneObject } from "./lazy-scene-object.js";
 import { Edge } from "../common/edge.js";
+import { CutBase } from "./cut-base.js";
 
-export interface CutOptions extends ExtrudeOptions { }
-
-export type CutDirection = 'normal' | 'reversed' | 'symmetric';
-export type CutRotation = { x?: number, y?: number };
-
-export class Cut extends SceneObject {
-
-  isThroughAll = false;
+export class Cut extends CutBase {
 
   constructor(private extrudable: Extrudable,
-    public distance: number,
-    public options: CutOptions = {}) {
+    public distance: number) {
     super();
-
-    this.isThroughAll = this.distance === 0;
   }
 
   build(context: BuildSceneObjectContext) {
@@ -46,7 +37,9 @@ export class Cut extends SceneObject {
     let distance = this.distance === 0 ? 0 : -this.distance;
 
     let extrusionShapes: Shape[] = [];
-    if (this.isThroughAll) {
+    const isThroughAll = this.distance === 0;
+
+    if (isThroughAll) {
       const extrudeThroughAll = new ExtrudeThroughAll(this.extrudable, false, true);
       extrusionShapes = extrudeThroughAll.build();
     }
@@ -54,7 +47,7 @@ export class Cut extends SceneObject {
       const wires = this.extrudable.getGeometries();
       const faces = FaceMaker.getFaces(wires, this.extrudable.getPlane());
       const plane = this.extrudable.getPlane();
-      const extruder = new Extruder(faces, plane, distance, this.options)
+      const extruder = new Extruder(faces, plane, distance, this.getDraft(), this.getEndOffset());
       extrusionShapes = extruder.extrude();
     }
 
@@ -101,7 +94,7 @@ export class Cut extends SceneObject {
   override clone(): SceneObject[] {
     const extrudableClone = this.extrudable.clone();
     const extrudable = extrudableClone.find(c => c instanceof Sketch) as Sketch;
-    const cutClone = new Cut(extrudable, this.distance, this.options);
+    const cutClone = new Cut(extrudable, this.distance).syncWith(this);
     return [...extrudableClone, cutClone];
   }
 
@@ -115,10 +108,6 @@ export class Cut extends SceneObject {
     }
 
     if (this.distance !== other.distance) {
-      return false;
-    }
-
-    if (JSON.stringify(this.options || {}) !== JSON.stringify(other.options || {})) {
       return false;
     }
 
@@ -165,16 +154,13 @@ export class Cut extends SceneObject {
       });
   }
 
-  getType(): string {
-    return "cut";
-  }
-
   serialize() {
     return {
       extrudable: this.extrudable.serialize(),
       distance: this.distance,
-      isThroughAll: this.isThroughAll,
-      options: this.options
+      draft: this.getDraft(),
+      endOffset: this.getEndOffset(),
+      fusionScope: this.getFusionScope(),
     }
   }
 }

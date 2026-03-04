@@ -18,10 +18,9 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
   constructor(
     public extrudable: Extrudable,
     public distance1: number,
-    public distance2: number,
-    public options: ExtrudeOptions = {}) {
+    public distance2: number) {
 
-    super(options);
+    super();
   }
 
   build(context: BuildSceneObjectContext) {
@@ -34,9 +33,9 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
     console.log("Extruding faces:", faces);
 
     const plane = this.extrudable.getPlane();
-    const hasDraft = !!this.options?.draft;
+    const draft = this.getDraft();
 
-    if (hasDraft) {
+    if (draft) {
       let upVec = plane.normal.multiply(this.distance1);
       let downVec = plane.normal.multiply(-this.distance2);
 
@@ -49,7 +48,7 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
         let { solid: downSolid, firstFace: downFirstFace, lastFace: downLastFace } = this.doExtrude(face, downVec);
         console.log("Down solid:", downSolid);
 
-        let [angle1, angle2] = this.options.draft instanceof Array ? this.options.draft : [this.options.draft, this.options.draft];
+        let [angle1, angle2] = draft;
         console.log("Draft angles:", angle1, angle2);
 
         upSolid = this.applyDraft(angle1, upSolid, upFirstFace, upLastFace, plane);
@@ -80,7 +79,7 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
 
     this.extrudable.removeShapes(this);
 
-    if (this.options?.mergeScope !== 'none' && solids.length > 0 && sceneObjects?.length > 0) {
+    if (this.getFusionScope() !== 'none' && solids.length > 0 && sceneObjects?.length > 0) {
       const fusionResult = fuseWithSceneObjects(sceneObjects, solids);
       solids = fusionResult.extrusions;
 
@@ -120,10 +119,6 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       return false;
     }
 
-    if (JSON.stringify(this.options) !== JSON.stringify(other.options)) {
-      return false;
-    }
-
     if (!this.extrudable.compareTo(other.extrudable)) {
       return false;
     }
@@ -139,8 +134,7 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
     return {
       extrudable: this.extrudable.serialize(),
       distance1: this.distance1,
-      distance2: this.distance2,
-      options: this.options
+      distance2: this.distance2
     }
   }
 }

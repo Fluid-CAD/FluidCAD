@@ -1,6 +1,5 @@
 import { BuildSceneObjectContext } from "../common/scene-object.js";
 import { Shape, Solid } from "../common/shapes.js";
-import { ExtrudeOptions } from "./extrude-options.js";
 import { rad } from "../helpers/math-helpers.js";
 import { Plane } from "../math/plane.js";
 import { ExtrudeBase } from "./extrude-base.js";
@@ -20,10 +19,9 @@ export class ExtrudeSymmetric extends ExtrudeBase {
 
   constructor(
     public extrudable: Extrudable,
-    public distance?: number,
-    public options: ExtrudeOptions = {}) {
+    public distance?: number) {
 
-    super(options);
+    super();
   }
 
   build(context: BuildSceneObjectContext) {
@@ -35,13 +33,13 @@ export class ExtrudeSymmetric extends ExtrudeBase {
     console.log("Extruding faces:", faces);
 
     const plane = this.extrudable.getPlane();
-    const hasDraft = !!this.options?.draft;
+    const draft = this.getDraft();
 
     let startFaces: Face[] = [];
     let endFaces: Face[] = [];
     let sideFaces: Face[] = [];
 
-    if (hasDraft) {
+    if (draft) {
       let vec = plane.normal.multiply(this.distance / 2);
 
       for (const face of faces) {
@@ -99,7 +97,7 @@ export class ExtrudeSymmetric extends ExtrudeBase {
 
     this.extrudable.removeShapes(this);
 
-    if (this.options?.mergeScope === 'none' || solids.length === 0 || sceneObjects?.length === 0) {
+    if (this.getFusionScope() === 'none' || solids.length === 0 || sceneObjects?.length === 0) {
       const fusionResult = fuseWithSceneObjects(sceneObjects, solids);
       solids = fusionResult.extrusions;
 
@@ -112,12 +110,7 @@ export class ExtrudeSymmetric extends ExtrudeBase {
   }
 
   private applyDraft(solid: Shape, firstFace: Shape, lastFace: Shape, plane: Plane): Shape {
-    if (this.options.draft instanceof Array) {
-      throw new Error("Draft with two angles for start and end faces is supported only for extrusions with two distances");
-    }
-
-    const angle: number = this.options.draft as number;
-
+    const angle: number = this.getDraft()[0]
     return ExtrudeOps.applyDraftOnSideFaces(solid, firstFace, lastFace, plane, rad(angle));
   }
 
@@ -197,10 +190,6 @@ export class ExtrudeSymmetric extends ExtrudeBase {
       return false;
     }
 
-    if (JSON.stringify(this.options || {}) !== JSON.stringify(other.options || {})) {
-      return false;
-    }
-
     if (!this.extrudable.compareTo(other.extrudable)) {
       return false;
     }
@@ -217,7 +206,8 @@ export class ExtrudeSymmetric extends ExtrudeBase {
       extrudables: this.extrudable.serialize(),
       distance: this.distance,
       symmetric: true,
-      options: this.options
+      draft: this.getDraft(),
+      endOffset: this.getEndOffset(),
     }
   }
 }

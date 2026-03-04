@@ -1,9 +1,9 @@
 import { SceneObject } from "../common/scene-object.js";
 
-export type MergeScope = 'all' | 'none' | SceneObject | SceneObject[];
+export type FusionScope = 'all' | 'none' | SceneObject | SceneObject[];
 export type ExtrudeOptions = {
     draft?: number | [number, number];
     endOffset?: number;
-    mergeScope?: MergeScope;
+    mergeScope?: FusionScope;
 };
 

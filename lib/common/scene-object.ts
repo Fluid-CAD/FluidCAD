@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { Shape } from "./shape.js";
-import { MergeScope } from "../features/extrude-options.js";
+import { FusionScope } from "../features/extrude-options.js";
 import { Matrix4 } from "../math/matrix4.js";
 
 export interface Comparable<T> {
@@ -143,10 +143,6 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   getTransform(): Matrix4 | null {
     return this._transform;
-  }
-
-  getFusionScope(): MergeScope {
-    return 'none';
   }
 
   isExtrudable(): boolean {

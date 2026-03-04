@@ -17,10 +17,9 @@ export class ExtrudeToFace extends ExtrudeBase {
   constructor(
     public extrudable: Extrudable,
     public face: SceneObject | 'first-face' | 'last-face',
-    public sceneObjects: SceneObject[],
-    public options: ExtrudeOptions = {}) {
+    public sceneObjects: SceneObject[]) {
 
-    super(options);
+    super();
   }
 
   build() {
@@ -59,7 +58,7 @@ export class ExtrudeToFace extends ExtrudeBase {
       this.face.removeShapes(this);
     }
 
-    if (this.options.mergeScope === 'none' || this.sceneObjects.length === 0) {
+    if (this.getFusionScope() === 'none' || this.sceneObjects.length === 0) {
       this.addShapes(solids);
       return;
     }
@@ -86,7 +85,7 @@ export class ExtrudeToFace extends ExtrudeBase {
     }
 
     const sourceConvertedPlane = FaceOps.getPlane(sourceFace);
-    const extruder = new Extruder([sourceFace], sourceConvertedPlane, distance, { ...this.options, endOffset: 0 });
+    const extruder = new Extruder([sourceFace], sourceConvertedPlane, distance, this.getDraft(), 0);
     const extrusions = extruder.extrude();
 
     let splitTargetFace: Face;
@@ -107,16 +106,17 @@ export class ExtrudeToFace extends ExtrudeBase {
   }
 
   private resizePlanarFace(targetFace: Face): Face {
-    if (this.options?.endOffset) {
+    const endOffset = this.getEndOffset();
+    if (endOffset) {
       const dir = this.extrudable.getPlane().normal.reverse();
-      return FaceQuery.makeInfinitePlanarFace(targetFace, this.options.endOffset, dir);
+      return FaceQuery.makeInfinitePlanarFace(targetFace, endOffset, dir);
     }
 
     return FaceQuery.makeInfinitePlanarFace(targetFace);
   }
 
   private resizeCylindricalFace(targetFace: Face): Face {
-    return FaceQuery.makeInfiniteCylindricalFace(targetFace, this.options?.endOffset);
+    return FaceQuery.makeInfiniteCylindricalFace(targetFace, this.getEndOffset());
   }
 
   private splitShapesByFace(extrusions: Shape[], targetFace: Face): Shape[] {
@@ -153,7 +153,7 @@ export class ExtrudeToFace extends ExtrudeBase {
   private createSimpleExtrude(startFace: Face, targetFace: Face): Shape[] {
     const distance = FaceQuery.getSignedPlaneDistance(startFace, targetFace);
     const plane = FaceQuery.getSurfacePlane(startFace);
-    const extruder = new Extruder([startFace], plane, distance, this.options);
+    const extruder = new Extruder([startFace], plane, distance, this.getDraft(), this.getEndOffset());
     return extruder.extrude();
   }
 
@@ -210,10 +210,6 @@ export class ExtrudeToFace extends ExtrudeBase {
       return false;
     }
 
-    if (JSON.stringify(this.options) !== JSON.stringify(other.options)) {
-      return false;
-    }
-
     return true;
   }
 
@@ -225,6 +221,8 @@ export class ExtrudeToFace extends ExtrudeBase {
     return {
       sheptType: 'wire',
       extrudable: this.extrudable.serialize(),
+      draft: this.getDraft(),
+      endOffset: this.getEndOffset(),
       face: typeof (this.face) === 'string' ? this.face : 'selection'
     }
   }

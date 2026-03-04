@@ -44,8 +44,12 @@ export class Point {
     return new Point(this.x - other.x, this.y - other.y, this.z - other.z);
   }
 
-  multiply(scalar: number): Point {
+  multiplyScalar(scalar: number): Point {
     return new Point(this.x * scalar, this.y * scalar, this.z * scalar);
+  }
+
+  multiply(other: Vector3d | Point): Point {
+    return new Point(this.x * other.x, this.y * other.y, this.z * other.z);
   }
 
   translate(dx: number, dy: number, dz: number = 0): Point {

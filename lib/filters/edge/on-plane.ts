@@ -5,6 +5,8 @@ import { FilterBase } from "../filter-base.js";
 import { EdgeQuery } from "../../oc/edge-query.js";
 import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { PlaneObject } from "../../features/plane.js";
+import { ShapeOps } from "../../oc/shape-ops.js";
+import { Explorer } from "../../oc/explorer.js";
 
 export class OnPlaneFilter extends FilterBase<Edge> {
   constructor(private plane: PlaneObjectBase) {
@@ -13,6 +15,7 @@ export class OnPlaneFilter extends FilterBase<Edge> {
 
   match(shape: Edge): boolean {
     const plane = this.plane.getPlane();
+    console.log('******** Edge type:', Explorer.getShapeType(shape.getShape()));
     return EdgeQuery.isEdgeOnPlane(shape, plane);
   }
 
@@ -22,7 +25,9 @@ export class OnPlaneFilter extends FilterBase<Edge> {
 
   transform(matrix: Matrix4): OnPlaneFilter {
     const plane = this.plane.getPlane();
-    const planeObj = new PlaneObject(plane.applyMatrix(matrix));
+    const transformedPlane = plane.applyMatrix(matrix);
+    console.log('Plane', plane.normal, 'Origin:', plane.origin, ' Transformed plane:', transformedPlane.normal, ' Origin:', transformedPlane.origin);
+    const planeObj = new PlaneObject(transformedPlane);
     return new OnPlaneFilter(planeObj);
   }
 }

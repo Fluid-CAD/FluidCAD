@@ -70,8 +70,6 @@ export class Fillet extends SceneObject {
 
     for (const shape of allTargetSceneShapes) {
       const solid = shape as Solid;
-      const owner = sceneShapeObjectMap.get(shape);
-      console.log('Fillet: Processing shape:', solid, Explorer.getShapeTypeFromWrapper(solid), 'owner:', owner.getType());
       const targetEdges = edges.filter(e => solid.hasEdge(e.getShape()));
       console.log('Fillet: Target edges count:', targetEdges.length);
       if (!targetEdges.length) {

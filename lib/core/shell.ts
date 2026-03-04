@@ -3,8 +3,8 @@ import { registerBuilder, SceneParserContext } from "../index.js";
 
 function build(context: SceneParserContext) {
   return function shell(thickness: number = 2.5) {
-    const selections = context.getLastSelections();
-    const shell = new Shell(selections, thickness);
+    const selection = context.getLastSelection();
+    const shell = new Shell(selection, thickness);
     context.addSceneObject(shell);
     return shell;
   }

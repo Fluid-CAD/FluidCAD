@@ -3,11 +3,11 @@ import { ShellOps } from "../oc/shell-ops.js";
 import { SelectSceneObject } from "./select.js";
 import { Face, Shape, Solid } from "../common/shapes.js";
 
-export class Shell extends SceneObject  {
+export class Shell extends SceneObject {
 
   dependencies: SceneObject[] = [];
 
-  constructor(public faceSelections: SelectSceneObject[], private thickness: number) {
+  constructor(public faceSelection: SelectSceneObject, private thickness: number) {
     super();
   }
 
@@ -28,7 +28,7 @@ export class Shell extends SceneObject  {
       return;
     }
 
-    const allFaceShapes = this.faceSelections.flatMap(f => f.getShapes());
+    const allFaceShapes = this.faceSelection.getShapes();
     const faces = allFaceShapes as Face[];
 
     const newShapes: Shape[] = [];
@@ -53,9 +53,7 @@ export class Shell extends SceneObject  {
       }
     }
 
-    for (const selection of this.faceSelections) {
-      selection.removeShapes(this);
-    }
+    this.faceSelection.removeShapes(this);
 
     this.addShapes(newShapes);
   }
@@ -73,17 +71,18 @@ export class Shell extends SceneObject  {
       return false;
     }
 
-    if (this.faceSelections.length !== other.faceSelections.length) {
+    if (!this.faceSelection.compareTo(other.faceSelection)) {
       return false;
     }
 
-    for (let i = 0; i < this.faceSelections.length; i++) {
-      if (!this.faceSelections[i].compareTo(other.faceSelections[i])) {
-        return false;
-      }
-    }
-
     return true;
+  }
+
+  override clone(): SceneObject[] {
+    const selectionClone = this.faceSelection.clone();
+    const selection = selectionClone[selectionClone.length - 1] as SelectSceneObject;
+    const shell = new Shell(selection, this.thickness);
+    return [...selectionClone, shell];
   }
 
   getType(): string {
@@ -92,7 +91,6 @@ export class Shell extends SceneObject  {
 
   serialize() {
     return {
-      faces: this.faceSelections.map(f => f.serialize()),
       thickness: this.thickness
     }
   }

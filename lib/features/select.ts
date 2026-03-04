@@ -36,9 +36,12 @@ export class SelectSceneObject extends SceneObject {
 
     if (transform) {
       filters = filters.map(f => f.transform(transform));
+      console.log('SelectSceneObject: transform applied to selection filters.', filters);
       if (parent) {
         excludedObjects = parent.getSnapshot()
+        console.log('SelectSceneObject: snapshot of parent for exclusion:', excludedObjects.size);
         sceneObjects = context.getSceneObjectsFromTo(parent, this)
+        console.log('SelectSceneObject: scene objects from parent to self:', sceneObjects.length);
       }
     }
 
@@ -50,8 +53,8 @@ export class SelectSceneObject extends SceneObject {
     let actualShapes: Shape[] = [];
     let actualExcludedShapes: Shape[] = [];
 
-    const sceneShapes = sceneObjects.flatMap(o => o.getShapes(false, 'solid'));
-    const excludedShapes = Array.from(excludedObjects.values()).flat()
+    let sceneShapes = sceneObjects.flatMap(o => o.getShapes(false, 'solid'));
+    let excludedShapes = Array.from(excludedObjects.values()).flat()
 
     for (const shape of sceneShapes) {
       actualShapes.push(...shape.getSubShapes(this.type));
@@ -66,6 +69,10 @@ export class SelectSceneObject extends SceneObject {
     }
 
     console.log('======= Shapes after exclusion:', actualShapes.length);
+
+    if (actualShapes.length === 0) {
+      actualShapes = actualExcludedShapes;
+    }
 
     console.log('======= Shapes before filtering:', actualShapes.length);
 

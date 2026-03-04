@@ -87,7 +87,7 @@ describe("Point", () => {
   describe("multiply", () => {
     it("multiplies point by scalar", () => {
       const p = new Point(1, 2, 3);
-      const result = p.multiply(2);
+      const result = p.multiplyScalar(2);
       expect(result.x).toBe(2);
       expect(result.y).toBe(4);
       expect(result.z).toBe(6);

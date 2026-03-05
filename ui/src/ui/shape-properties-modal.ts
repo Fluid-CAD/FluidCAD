@@ -204,6 +204,70 @@ const STYLES = `
 
 type RawProps = { volumeMm3: number; surfaceAreaMm2: number; centroid: { x: number; y: number; z: number } };
 
+/**
+ * Convert density from g/cm³ (canonical) to [massUnit]/[lengthUnit]³ for display.
+ *
+ * Derivation: density [massUnit/lengthUnit³] = density [g/cm³]
+ *   × (cm³ per lengthUnit³)   — volume factor
+ *   ÷ (g per massUnit)        — mass factor
+ */
+/** cm³ contained in one cube of the given length unit. */
+function cm3PerUnit(lengthUnit: string): number {
+  switch (lengthUnit) {
+    case 'inch': return 16.387064;       // 1 in³ = 16.387064 cm³
+    case 'foot': return 28316.846592;    // 1 ft³ = 28316.847 cm³
+    case 'yard': return 764554.857984;   // 1 yd³ = 764554.858 cm³
+    case 'meter': return 1_000_000;      // 1 m³  = 1 000 000 cm³
+    default: return 0.001;               // 1 mm³ = 0.001 cm³
+  }
+}
+
+function lengthSuffix(lengthUnit: string): string {
+  switch (lengthUnit) {
+    case 'inch': return 'in';
+    case 'foot': return 'ft';
+    case 'yard': return 'yd';
+    case 'meter': return 'm';
+    default: return 'mm';
+  }
+}
+
+function toDisplayDensity(gcm3: number, massUnit: string, lengthUnit: string): number {
+  const gPerMassUnit = massUnit === 'kg' ? 1000 : massUnit === 'lbs' ? 453.592 : 1;
+  return gcm3 * cm3PerUnit(lengthUnit) / gPerMassUnit;
+}
+
+/** Inverse of toDisplayDensity: convert [massUnit]/[lengthUnit]³ back to g/cm³. */
+function toCanonicalDensity(display: number, massUnit: string, lengthUnit: string): number {
+  const gPerMassUnit = massUnit === 'kg' ? 1000 : massUnit === 'lbs' ? 453.592 : 1;
+  return display * gPerMassUnit / cm3PerUnit(lengthUnit);
+}
+
+/** Convert density from its native material unit to canonical g/cm³. */
+function densityToGcm3(value: number, unit: string): number {
+  switch (unit) {
+    case 'kg/m³':  return value * 0.001;
+    case 'g/mm³':  return value * 1000;
+    case 'lbs/in³': return value * 27.6799;
+    default:       return value; // g/cm³
+  }
+}
+
+/** Convert canonical g/cm³ back to a material's native unit for display. */
+function densityFromGcm3(gcm3: number, unit: string): number {
+  switch (unit) {
+    case 'kg/m³':  return gcm3 / 0.001;
+    case 'g/mm³':  return gcm3 / 1000;
+    case 'lbs/in³': return gcm3 / 27.6799;
+    default:       return gcm3; // g/cm³
+  }
+}
+
+function formatDensity(value: number): string {
+  if (value === 0) { return '0'; }
+  return parseFloat(value.toPrecision(6)).toString();
+}
+
 export class ShapePropertiesModal {
   private btn: HTMLButtonElement;
   private panel: HTMLDivElement;
@@ -211,6 +275,7 @@ export class ShapePropertiesModal {
   private formEl!: HTMLDivElement;
   private selectEl!: HTMLSelectElement;
   private densityEl!: HTMLInputElement;
+  private densityUnitSelectEl!: HTMLSelectElement;
   private lengthUnitEl!: HTMLSelectElement;
   private massUnitEl!: HTMLSelectElement;
   private calcBtn!: HTMLButtonElement;
@@ -222,6 +287,10 @@ export class ShapePropertiesModal {
 
   private selectedShapeId: string | null = null;
   private rawProps: RawProps | null = null;
+  /** Density stored in canonical g/cm³; derived from material or user input. */
+  private canonicalDensityGcm3: number | null = null;
+  /** The density unit as declared by the selected material (e.g. 'g/cm³', 'kg/m³'). */
+  private currentDensityUnit: string = 'g/cm³';
 
   constructor(container: HTMLElement) {
     if (!document.getElementById('spm-styles')) {
@@ -255,20 +324,15 @@ export class ShapePropertiesModal {
       </div>
       <div class="spm-placeholder" data-ref="placeholder">Select a shape to view its properties</div>
       <div data-ref="form" style="display:none">
-        <div class="spm-field">
-          <label class="spm-label">Material</label>
-          <select class="spm-select" data-ref="material"></select>
-        </div>
-        <div class="spm-field">
-          <label class="spm-label">Density (g/cm³)</label>
-          <input type="number" class="spm-input" data-ref="density" step="0.01" min="0" />
-        </div>
         <div class="spm-row">
           <div class="spm-field">
             <label class="spm-label">Length Unit</label>
             <select class="spm-select" data-ref="length-unit">
               <option value="mm">mm</option>
               <option value="inch">inch</option>
+              <option value="foot">foot</option>
+              <option value="yard">yard</option>
+              <option value="meter">meter</option>
             </select>
           </div>
           <div class="spm-field">
@@ -277,6 +341,22 @@ export class ShapePropertiesModal {
               <option value="g">g</option>
               <option value="kg">kg</option>
               <option value="lbs">lbs</option>
+            </select>
+          </div>
+        </div>
+        <div class="spm-field">
+          <label class="spm-label">Material</label>
+          <select class="spm-select" data-ref="material"></select>
+        </div>
+        <div class="spm-field">
+          <label class="spm-label">Density</label>
+          <div class="spm-row" style="margin:0">
+            <input type="number" class="spm-input" data-ref="density" step="any" min="0" style="flex:1" />
+            <select class="spm-select" data-ref="density-unit" style="flex:0 0 90px">
+              <option value="g/cm³">g/cm³</option>
+              <option value="kg/m³">kg/m³</option>
+              <option value="g/mm³">g/mm³</option>
+              <option value="lbs/in³">lbs/in³</option>
             </select>
           </div>
         </div>
@@ -305,6 +385,7 @@ export class ShapePropertiesModal {
     this.formEl = this.panel.querySelector<HTMLDivElement>('[data-ref="form"]')!;
     this.selectEl = this.panel.querySelector<HTMLSelectElement>('[data-ref="material"]')!;
     this.densityEl = this.panel.querySelector<HTMLInputElement>('[data-ref="density"]')!;
+    this.densityUnitSelectEl = this.panel.querySelector<HTMLSelectElement>('[data-ref="density-unit"]')!;
     this.lengthUnitEl = this.panel.querySelector<HTMLSelectElement>('[data-ref="length-unit"]')!;
     this.massUnitEl = this.panel.querySelector<HTMLSelectElement>('[data-ref="mass-unit"]')!;
     this.calcBtn = this.panel.querySelector<HTMLButtonElement>('[data-action="calculate"]')!;
@@ -323,13 +404,48 @@ export class ShapePropertiesModal {
     this.selectEl.addEventListener('change', () => {
       const opt = this.selectEl.options[this.selectEl.selectedIndex];
       if (opt?.dataset.density) {
-        this.densityEl.value = opt.dataset.density;
+        this.currentDensityUnit = opt.dataset.densityUnit || 'g/cm³';
+        this.canonicalDensityGcm3 = densityToGcm3(parseFloat(opt.dataset.density), this.currentDensityUnit);
+        this.updateDensityUnitSelect();
+        this.updateDensityDisplay();
       }
     });
 
-    this.calcBtn.addEventListener('click', () => this.calculate());
+    this.densityEl.addEventListener('input', () => {
+      const display = parseFloat(this.densityEl.value);
+      if (!isNaN(display)) {
+        this.canonicalDensityGcm3 = densityToGcm3(display, this.currentDensityUnit);
+      }
+    });
+
+    this.densityUnitSelectEl.addEventListener('change', () => {
+      this.currentDensityUnit = this.densityUnitSelectEl.value;
+      this.updateDensityDisplay();
+    });
+
     this.lengthUnitEl.addEventListener('change', () => this.renderResults());
     this.massUnitEl.addEventListener('change', () => this.renderResults());
+
+    this.calcBtn.addEventListener('click', () => this.calculate());
+  }
+
+  private updateDensityUnitSelect(): void {
+    const opt = Array.from(this.densityUnitSelectEl.options).find(o => o.value === this.currentDensityUnit);
+    if (opt) {
+      this.densityUnitSelectEl.value = this.currentDensityUnit;
+    } else {
+      // Unit from material not in the list — add it temporarily
+      const extra = document.createElement('option');
+      extra.value = this.currentDensityUnit;
+      extra.textContent = this.currentDensityUnit;
+      this.densityUnitSelectEl.appendChild(extra);
+      this.densityUnitSelectEl.value = this.currentDensityUnit;
+    }
+  }
+
+  private updateDensityDisplay(): void {
+    if (this.canonicalDensityGcm3 === null) { return; }
+    this.densityEl.value = formatDensity(densityFromGcm3(this.canonicalDensityGcm3, this.currentDensityUnit));
   }
 
   private toggle(): void {
@@ -353,20 +469,23 @@ export class ShapePropertiesModal {
   private async loadMaterials(): Promise<void> {
     try {
       const res = await fetch('/api/materials');
-      if (!res.ok) {
-        return;
-      }
-      const materials: { name: string; density: number }[] = await res.json();
+      if (!res.ok) { return; }
+      const materials: { name: string; density: number; densityUnit: string }[] = await res.json();
       this.selectEl.innerHTML = '';
       for (const mat of materials) {
         const opt = document.createElement('option');
         opt.textContent = mat.name;
+        // Always store canonical density in g/cm³ in the data attribute
         opt.dataset.density = String(mat.density);
+        opt.dataset.densityUnit = mat.densityUnit;
         this.selectEl.appendChild(opt);
       }
       const first = this.selectEl.options[0];
-      if (first) {
-        this.densityEl.value = first.dataset.density || '';
+      if (first?.dataset.density) {
+        this.currentDensityUnit = first.dataset.densityUnit || 'g/cm³';
+        this.canonicalDensityGcm3 = densityToGcm3(parseFloat(first.dataset.density), this.currentDensityUnit);
+        this.updateDensityUnitSelect();
+        this.updateDensityDisplay();
       }
     } catch {
       // silently ignore if materials endpoint not available
@@ -374,9 +493,7 @@ export class ShapePropertiesModal {
   }
 
   private async calculate(): Promise<void> {
-    if (!this.selectedShapeId) {
-      return;
-    }
+    if (!this.selectedShapeId) { return; }
     this.calcBtn.disabled = true;
     this.errorEl.classList.remove('visible');
     this.resultsEl.classList.remove('visible');
@@ -401,26 +518,21 @@ export class ShapePropertiesModal {
   }
 
   private renderResults(): void {
-    if (!this.rawProps) {
-      return;
-    }
+    if (!this.rawProps) { return; }
 
     const lengthUnit = this.lengthUnitEl.value;
     const massUnit = this.massUnitEl.value;
-    const density = parseFloat(this.densityEl.value) || 0;
 
-    let vol: string;
-    let area: string;
+    // Raw values from the server are in whatever unit the model was authored in.
+    // The length unit dropdown declares that unit — no conversion needed, just label.
+    const suffix = lengthSuffix(lengthUnit);
+    const vol = `${this.rawProps.volumeMm3.toFixed(4)} ${suffix}³`;
+    const area = `${this.rawProps.surfaceAreaMm2.toFixed(4)} ${suffix}²`;
 
-    if (lengthUnit === 'inch') {
-      vol = `${(this.rawProps.volumeMm3 / 16387.064).toFixed(4)} in³`;
-      area = `${(this.rawProps.surfaceAreaMm2 / 645.16).toFixed(4)} in²`;
-    } else {
-      vol = `${this.rawProps.volumeMm3.toFixed(4)} mm³`;
-      area = `${this.rawProps.surfaceAreaMm2.toFixed(4)} mm²`;
-    }
-
-    const massG = (this.rawProps.volumeMm3 / 1000) * density;
+    // mass = rawVolume [lengthUnit³] × density [g/lengthUnit³] → grams, then convert
+    const densityGcm3 = this.canonicalDensityGcm3 ?? 0;
+    const densityGPerVol = toDisplayDensity(densityGcm3, 'g', lengthUnit); // g per model-unit³
+    const massG = this.rawProps.volumeMm3 * densityGPerVol;
     let mass: string;
     if (massUnit === 'kg') {
       mass = `${(massG / 1000).toFixed(4)} kg`;
@@ -442,11 +554,8 @@ export class ShapePropertiesModal {
   }
 
   setSelectedShape(shapeId: string | null): void {
-    if (shapeId === this.selectedShapeId) {
-      return;
-    }
+    if (shapeId === this.selectedShapeId) { return; }
 
-    // Clear results when switching to a different shape or deselecting
     this.rawProps = null;
     this.resultsEl.classList.remove('visible');
     this.errorEl.classList.remove('visible');

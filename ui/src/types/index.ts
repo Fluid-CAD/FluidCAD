@@ -85,7 +85,13 @@ export type SceneObjectMesh = {
   indices: number[];
   color?: string;
   faceMapping?: number[];
+  edgeIndex?: number;
 };
+
+export type SubSelection =
+  | { type: 'face'; index: number }
+  | { type: 'edge'; index: number }
+  | null;
 
 export type SceneObjectPart = {
   shapeId?: string;

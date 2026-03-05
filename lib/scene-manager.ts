@@ -6,6 +6,8 @@ import { ShapeProps } from "./oc/props.js";
 import type { ShapeProperties } from "./oc/props.js";
 import { FaceProps } from "./oc/face-props.js";
 import type { FaceProperties } from "./oc/face-props.js";
+import { EdgeProps } from "./oc/edge-props.js";
+import type { EdgeProperties } from "./oc/edge-props.js";
 import { Explorer } from "./oc/explorer.js";
 
 class SceneManager {
@@ -56,6 +58,21 @@ class SceneManager {
             return null;
           }
           return FaceProps.getProperties(faces[faceIndex].getShape());
+        }
+      }
+    }
+    return null;
+  }
+
+  getEdgeProperties(scene: Scene, shapeId: string, edgeIndex: number): EdgeProperties | null {
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getAddedShapes()) {
+        if (shape.id === shapeId) {
+          const edges = Explorer.findEdgesWrapped(shape);
+          if (edgeIndex < 0 || edgeIndex >= edges.length) {
+            return null;
+          }
+          return EdgeProps.getProperties(edges[edgeIndex].getShape());
         }
       }
     }

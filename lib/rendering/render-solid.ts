@@ -16,10 +16,11 @@ function getEdgesMesh(shapeObj: Shape) {
 
   const edges = Explorer.findEdgesWrapped(shapeObj);
 
-  for (const edge of edges) {
-    const edgeResult = renderEdge(edge);
+  for (let edgeIdx = 0; edgeIdx < edges.length; edgeIdx++) {
+    const edgeResult = renderEdge(edges[edgeIdx]);
     if (edgeResult) {
       edgeResult.label = 'solid-edges';
+      edgeResult.edgeIndex = edgeIdx;
       result.push(edgeResult);
     }
   }

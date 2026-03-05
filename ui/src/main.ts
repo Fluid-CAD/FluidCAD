@@ -1,11 +1,11 @@
 import { Viewer } from './viewer';
 import { ShapePropertiesModal } from './ui/shape-properties-modal';
-import { FaceInfoOverlay } from './ui/face-info-overlay';
+import { SelectionInfoOverlay } from './ui/selection-info-overlay';
 
 const container = document.getElementById('fluidcad-viewer') || document.body;
 const viewer = new Viewer('fluidcad-viewer');
 const shapePropertiesModal = new ShapePropertiesModal(container);
-const faceInfoOverlay = new FaceInfoOverlay(container);
+const selectionInfoOverlay = new SelectionInfoOverlay(container);
 
 shapePropertiesModal.setCentroidHandler((centroid) => {
   if (centroid) {
@@ -15,21 +15,27 @@ shapePropertiesModal.setCentroidHandler((centroid) => {
   }
 });
 
-viewer.setSelectionHandler((shapeId, faceIndex) => {
+viewer.setSelectionHandler((shapeId, sub) => {
   if (shapeId) {
-    if (shapePropertiesModal.isOpen || faceIndex === null) {
+    if (shapePropertiesModal.isOpen || sub === null) {
       viewer.highlightShape(shapeId);
+    } else if (sub.type === 'face') {
+      viewer.highlightFace(shapeId, sub.index);
     } else {
-      viewer.highlightFace(shapeId, faceIndex);
+      viewer.highlightEdge(shapeId, sub.index);
     }
   } else {
     viewer.clearHighlight();
   }
   shapePropertiesModal.setSelectedShape(shapeId);
-  if (shapeId !== null && faceIndex !== null) {
-    faceInfoOverlay.showForFace(shapeId, faceIndex);
+  if (shapeId !== null && sub !== null) {
+    if (sub.type === 'face') {
+      selectionInfoOverlay.showForFace(shapeId, sub.index);
+    } else {
+      selectionInfoOverlay.showForEdge(shapeId, sub.index);
+    }
   } else {
-    faceInfoOverlay.hide();
+    selectionInfoOverlay.hide();
   }
 });
 
@@ -57,7 +63,7 @@ function connectWebSocket() {
       case 'clear-highlight':
         viewer.clearHighlight();
         shapePropertiesModal.setSelectedShape(null);
-        faceInfoOverlay.hide();
+        selectionInfoOverlay.hide();
         break;
       case 'show-shape-properties':
         shapePropertiesModal.show(msg.shapeId);

@@ -2,7 +2,7 @@ import { Box3, BufferAttribute, BufferGeometry, Color, LineSegments, Mesh, MeshB
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { SceneModeManager } from './scene/scene-mode';
 import { buildSceneMesh } from './meshes/mesh-factory';
-import { SceneObjectPart, SceneObjectRender } from './types';
+import { SceneObjectPart, SceneObjectRender, SubSelection } from './types';
 import { SettingsPanel } from './ui/settings-panel';
 import { CentroidIndicator } from './scene/centroid-indicator';
 
@@ -59,7 +59,7 @@ export class Viewer {
   private hasRendered = false;
   private lastFitBox: Box3 | null = null;
   private fileNamePill: HTMLDivElement;
-  private selectionHandler: ((shapeId: string | null, faceIndex: number | null) => void) | null = null;
+  private selectionHandler: ((shapeId: string | null, sub: SubSelection) => void) | null = null;
   private pickTarget: WebGLRenderTarget | null = null;
   private centroidIndicator = new CentroidIndicator();
 
@@ -85,7 +85,7 @@ export class Viewer {
     this.initClickDetection();
   }
 
-  setSelectionHandler(fn: (shapeId: string | null, faceIndex: number | null) => void): void {
+  setSelectionHandler(fn: (shapeId: string | null, sub: SubSelection) => void): void {
     this.selectionHandler = fn;
   }
 
@@ -114,8 +114,8 @@ export class Viewer {
         this.selectionHandler(null, null);
         return;
       }
-      const faceIndex = this.pickFaceAt(e.clientX, e.clientY, shapeId);
-      this.selectionHandler(shapeId, faceIndex);
+      const sub = this.pickSubAt(e.clientX, e.clientY, shapeId);
+      this.selectionHandler(shapeId, sub);
     });
   }
 
@@ -217,10 +217,10 @@ export class Viewer {
   }
 
   /**
-   * Raycaster face-picking: given a shapeId already identified by GPU picking,
-   * find which OCC face index was hit by casting a ray against that shape's meshes.
+   * Raycaster sub-selection picking: given a shapeId already identified by GPU picking,
+   * find which OCC face or edge was hit. Whichever intersection has a smaller distance wins.
    */
-  private pickFaceAt(clientX: number, clientY: number, shapeId: string): number | null {
+  private pickSubAt(clientX: number, clientY: number, shapeId: string): SubSelection {
     const renderer = this.ctx.renderer;
     const camera = this.ctx.camera;
     const rect = renderer.domElement.getBoundingClientRect();
@@ -229,40 +229,60 @@ export class Viewer {
 
     const raycaster = new Raycaster();
     raycaster.setFromCamera(new Vector2(ndcX, ndcY), camera);
+    raycaster.params.Line = { threshold: this.computeEdgePickThreshold() };
 
-    const candidates: Mesh[] = [];
+    const faceCandidates: Mesh[] = [];
+    const edgeCandidates: LineSegments[] = [];
+
     this.ctx.scene.traverse((obj) => {
-      if (!(obj as Mesh).isMesh) {
-        return;
-      }
-      if (!obj.userData.faceMapping) {
-        return;
-      }
+      let belongsToShape = false;
       let cur: Object3D | null = obj;
       while (cur) {
         if (cur.userData.shapeId === shapeId && !cur.userData.isMetaShape) {
-          candidates.push(obj as Mesh);
-          return;
+          belongsToShape = true;
+          break;
         }
         cur = cur.parent;
       }
+      if (!belongsToShape) {
+        return;
+      }
+
+      if ((obj as Mesh).isMesh && obj.userData.faceMapping) {
+        faceCandidates.push(obj as Mesh);
+      } else if ((obj as LineSegments).isLine && obj.userData.edgeIndex !== undefined) {
+        edgeCandidates.push(obj as LineSegments);
+      }
     });
 
-    if (candidates.length === 0) {
+    const faceHits = faceCandidates.length > 0 ? raycaster.intersectObjects(faceCandidates, false) : [];
+    const edgeHits = edgeCandidates.length > 0 ? raycaster.intersectObjects(edgeCandidates, false) : [];
+
+    const bestFace = faceHits[0];
+    const bestEdge = edgeHits[0];
+
+    if (!bestFace && !bestEdge) {
       return null;
     }
 
-    const hits = raycaster.intersectObjects(candidates, false);
-    if (hits.length === 0) {
-      return null;
+    if (bestEdge && (!bestFace || bestEdge.distance <= bestFace.distance)) {
+      const edgeIndex = bestEdge.object.userData.edgeIndex as number;
+      return { type: 'edge', index: edgeIndex };
     }
 
-    const hit = hits[0];
-    const mapping: number[] | undefined = hit.object.userData.faceMapping;
-    if (!mapping || hit.faceIndex == null) {
-      return null;
+    if (bestFace) {
+      const mapping: number[] | undefined = bestFace.object.userData.faceMapping;
+      if (!mapping || bestFace.faceIndex == null) {
+        return null;
+      }
+      const faceIndex = mapping[bestFace.faceIndex];
+      if (faceIndex == null) {
+        return null;
+      }
+      return { type: 'face', index: faceIndex };
     }
-    return mapping[hit.faceIndex] ?? null;
+
+    return null;
   }
 
   toggleSketchMode(enable: boolean): void {
@@ -433,6 +453,38 @@ export class Viewer {
     this.ctx.render();
   }
 
+  highlightEdge(shapeId: string, edgeIndex: number): void {
+    this.clearHighlight();
+
+    this.ctx.scene.traverse((obj) => {
+      if (!(obj as LineSegments).isLine) {
+        return;
+      }
+      if (obj.userData.edgeIndex !== edgeIndex) {
+        return;
+      }
+
+      let belongsToShape = false;
+      let cur: Object3D | null = obj;
+      while (cur) {
+        if (cur.userData.shapeId === shapeId && !cur.userData.isMetaShape) {
+          belongsToShape = true;
+          break;
+        }
+        cur = cur.parent;
+      }
+      if (!belongsToShape) {
+        return;
+      }
+
+      obj.userData.originalColor = (obj as any).material.color.getHex();
+      (obj as any).material.color.set(HIGHLIGHT_EDGE_COLOR);
+    });
+
+    this.highlightedShapeId = shapeId;
+    this.ctx.render();
+  }
+
   showCentroid(pos: { x: number; y: number; z: number }): void {
     const radius = this.computeCentroidRadius();
     this.centroidIndicator.show(this.ctx.scene, pos, radius);
@@ -451,6 +503,31 @@ export class Viewer {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * Compute an edge pick threshold in world units equivalent to ~8 screen pixels,
+   * so edge selection scales correctly regardless of model size or zoom level.
+   */
+  private computeEdgePickThreshold(): number {
+    const camera = this.ctx.camera;
+    const rect = this.ctx.renderer.domElement.getBoundingClientRect();
+    const canvasHeight = rect.height || 1;
+    const EDGE_PICK_PIXELS = 8;
+
+    let worldHeight: number;
+    const cam = camera as any;
+    if (cam.isOrthographicCamera) {
+      worldHeight = (cam.top - cam.bottom) / (cam.zoom || 1);
+    } else {
+      const target = new Vector3();
+      this.ctx.cameraControls.getTarget(target);
+      const d = camera.position.distanceTo(target);
+      const fovRad = (cam.fov * Math.PI) / 180;
+      worldHeight = 2 * d * Math.tan(fovRad / 2);
+    }
+
+    return (worldHeight / canvasHeight) * EDGE_PICK_PIXELS;
+  }
 
   /** Compute centroid sphere radius as ~1.5 % of the scene diagonal, with a fallback. */
   private computeCentroidRadius(): number {

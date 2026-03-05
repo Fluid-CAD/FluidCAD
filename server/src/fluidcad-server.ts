@@ -11,6 +11,13 @@ type SceneManager = {
   getShapeProperties(scene: any, shapeId: string): any;
   getFaceProperties(scene: any, shapeId: string, faceIndex: number): any;
   getEdgeProperties(scene: any, shapeId: string, edgeIndex: number): any;
+  hitTest(
+    scene: any,
+    shapeId: string,
+    rayOrigin: [number, number, number],
+    rayDir: [number, number, number],
+    edgeThreshold: number,
+  ): any;
 };
 
 export type SceneRenderedData = {
@@ -157,5 +164,21 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.getEdgeProperties(scene, shapeId, edgeIndex);
+  }
+
+  hitTest(
+    shapeId: string,
+    rayOrigin: [number, number, number],
+    rayDir: [number, number, number],
+    edgeThreshold: number,
+  ): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.hitTest(scene, shapeId, rayOrigin, rayDir, edgeThreshold);
   }
 }

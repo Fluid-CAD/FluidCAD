@@ -99,7 +99,7 @@ export class Viewer {
       downY = e.clientY;
     });
 
-    canvas.addEventListener('mouseup', (e) => {
+    canvas.addEventListener('mouseup', async (e) => {
       if (!this.selectionHandler) {
         return;
       }
@@ -114,9 +114,47 @@ export class Viewer {
         this.selectionHandler(null, null);
         return;
       }
-      const sub = this.pickSubAt(e.clientX, e.clientY, shapeId);
+      const sub = await this.pickSubAtServer(e.clientX, e.clientY, shapeId);
       this.selectionHandler(shapeId, sub);
     });
+
+  }
+
+  private computeWorldRay(clientX: number, clientY: number): { origin: [number, number, number]; dir: [number, number, number] } {
+    const renderer = this.ctx.renderer;
+    const camera = this.ctx.camera;
+    const rect = renderer.domElement.getBoundingClientRect();
+    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+    const raycaster = new Raycaster();
+    raycaster.setFromCamera(new Vector2(ndcX, ndcY), camera);
+
+    const o = raycaster.ray.origin;
+    const d = raycaster.ray.direction;
+    return {
+      origin: [o.x, o.y, o.z],
+      dir: [d.x, d.y, d.z],
+    };
+  }
+
+  private async pickSubAtServer(clientX: number, clientY: number, shapeId: string): Promise<SubSelection> {
+    const { origin, dir } = this.computeWorldRay(clientX, clientY);
+    const edgeThreshold = this.computeEdgePickThreshold();
+    try {
+      const response = await fetch('/api/hit-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shapeId, rayOrigin: origin, rayDir: dir, edgeThreshold }),
+      });
+      if (!response.ok) {
+        return null;
+      }
+      const result = await response.json();
+      return result ?? null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -194,7 +232,6 @@ export class Viewer {
       (mesh.material as MeshBasicMaterial).dispose();
       mesh.material = mat;
     }
-    this.ctx.requestRender();
 
     // Read pixel (WebGL Y is bottom-up).
     const rect = renderer.domElement.getBoundingClientRect();
@@ -258,12 +295,18 @@ export class Viewer {
     const faceHits = faceCandidates.length > 0 ? raycaster.intersectObjects(faceCandidates, false) : [];
     const edgeHits = edgeCandidates.length > 0 ? raycaster.intersectObjects(edgeCandidates, false) : [];
 
+    if (faceHits.length === 0 && edgeHits.length === 0) {
+      return null;
+    }
+
     // For faces: pick the closest hit whose triangle normal actually faces the camera.
     // This guards against back-face or opposite-side hits that can occur on concave or
     // complex boolean shapes even with FrontSide material (e.g. mis-wound normals).
+    // Do NOT fall back to faceHits[0] if no front-facing hit is found — a back-face
+    // fallback would give a large faceDepth that lets back edges pass the depth check.
     const viewDir = new Vector3();
     camera.getWorldDirection(viewDir);
-    let bestFace = faceHits[0];
+    let bestFace: (typeof faceHits)[number] | undefined;
     for (const hit of faceHits) {
       if (!hit.face) {
         bestFace = hit;
@@ -276,24 +319,47 @@ export class Viewer {
       }
     }
 
-    const bestEdge = edgeHits[0];
-
-    if (!bestFace && !bestEdge) {
-      return null;
-    }
-
-    // Edge wins when it got a hit AND its surface point is not significantly deeper than
-    // the face surface.  We compare view-direction depth of hit.point (the closest point
-    // ON THE EDGE GEOMETRY to the ray) rather than hit.distance (closest point on the RAY),
-    // because at oblique angles those two differ and cause false failures for boundary edges.
-    if (bestEdge) {
-      const edgeDepth = viewDir.dot(bestEdge.point);
-      const faceDepth = bestFace ? viewDir.dot(bestFace.point) : -Infinity;
-      // 0.1 world-unit tolerance handles OCC tessellation mismatch for boundary edges
-      // while reliably rejecting edges on the opposite side (model must be <0.1mm thick
-      // for a back edge to slip through, which is not a practical CAD scenario).
-      if (edgeDepth <= faceDepth + 0.1) {
-        const edgeIndex = bestEdge.object.userData.edgeIndex as number;
+    // Edge depth test.
+    //
+    // Key insight: Three.js sets hit.point for lines to the closest point ON THE RAY, not
+    // on the segment.  At oblique angles this is far from the actual edge surface, so any
+    // depth comparison using hit.point is unreliable.  We use ray.distanceSqToSegment to
+    // recover the actual closest point on the segment (segPt).
+    //
+    // Depth metric: project segPt onto the pick ray and compare with bestFace.distance.
+    // Both values are scalars along the same ray, so they are directly comparable at any
+    // viewing angle and for both orthographic and perspective cameras.  viewDir.dot() was
+    // wrong here because for off-centre pixels the per-pixel ray direction ≠ viewDir,
+    // which caused diagonal back edges to pass the check by having the same viewDir
+    // projection as the front face despite being physically behind it.
+    //
+    // When there is no face hit (tessellation seam gap) faceDist = Infinity so any edge
+    // candidate wins.  We iterate all hits (sorted closest-first) so a back edge that
+    // happens to rank first does not block a valid front edge later in the list.
+    const faceDist = bestFace != null ? bestFace.distance : Infinity;
+    const rayOrigin = raycaster.ray.origin;
+    const rayDir = raycaster.ray.direction; // normalised by setFromCamera
+    const segPt = new Vector3();
+    const toSeg = new Vector3();
+    for (const edgeHit of edgeHits) {
+      // Recover actual closest point on the edge segment.
+      const geo = edgeHit.object.geometry;
+      const pos = geo.getAttribute('position') as BufferAttribute;
+      const idx = geo.getIndex();
+      if (idx !== null && edgeHit.faceIndex != null) {
+        const a = idx.getX(edgeHit.faceIndex * 2);
+        const b = idx.getX(edgeHit.faceIndex * 2 + 1);
+        const v0 = new Vector3().fromBufferAttribute(pos, a).applyMatrix4(edgeHit.object.matrixWorld);
+        const v1 = new Vector3().fromBufferAttribute(pos, b).applyMatrix4(edgeHit.object.matrixWorld);
+        raycaster.ray.distanceSqToSegment(v0, v1, undefined, segPt);
+      } else {
+        segPt.copy(edgeHit.point);
+      }
+      // Depth of the edge along the pick ray (comparable to bestFace.distance).
+      const edgeDist = rayDir.dot(toSeg.copy(segPt).sub(rayOrigin));
+      // Tiny seam tolerance (1e-3 world units) for OCC boundary tessellation gaps.
+      if (edgeDist <= faceDist + 1e-3) {
+        const edgeIndex = edgeHit.object.userData.edgeIndex as number;
         return { type: 'edge', index: edgeIndex };
       }
     }

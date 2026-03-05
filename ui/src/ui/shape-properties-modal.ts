@@ -293,6 +293,7 @@ export class ShapePropertiesModal {
   /** The density unit as declared by the selected material (e.g. 'g/cm³', 'kg/m³'). */
   private currentDensityUnit: string = 'g/cm³';
   private centroidHandler: ((centroid: { x: number; y: number; z: number } | null) => void) | null = null;
+  private openHandler: (() => void) | null = null;
 
   constructor(container: HTMLElement) {
     if (!document.getElementById('spm-styles')) {
@@ -411,6 +412,10 @@ export class ShapePropertiesModal {
     this.centroidHandler = fn;
   }
 
+  setOpenHandler(fn: () => void): void {
+    this.openHandler = fn;
+  }
+
   private bindEvents(): void {
     this.btn.addEventListener('click', () => this.toggle());
 
@@ -472,6 +477,7 @@ export class ShapePropertiesModal {
   }
 
   private open(): void {
+    this.openHandler?.();
     this.panel.classList.add('open');
     this.btn.classList.add('active');
   }

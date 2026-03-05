@@ -95,6 +95,39 @@ const httpServer = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && url.pathname === '/api/hit-test') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk.toString(); });
+    req.on('end', () => {
+      try {
+        const parsed = JSON.parse(body);
+        const { shapeId, rayOrigin, rayDir, edgeThreshold } = parsed;
+        if (
+          typeof shapeId !== 'string' ||
+          !Array.isArray(rayOrigin) || rayOrigin.length !== 3 ||
+          !Array.isArray(rayDir) || rayDir.length !== 3 ||
+          typeof edgeThreshold !== 'number'
+        ) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid request body' }));
+          return;
+        }
+        const result = fluidCadServer.hitTest(
+          shapeId,
+          rayOrigin as [number, number, number],
+          rayDir as [number, number, number],
+          edgeThreshold,
+        );
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+      }
+    });
+    return;
+  }
+
   let filePath = path.join(UI_DIST, req.url === '/' ? 'index.html' : req.url!);
 
   // Prevent directory traversal

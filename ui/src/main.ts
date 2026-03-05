@@ -7,6 +7,11 @@ const viewer = new Viewer('fluidcad-viewer');
 const shapePropertiesModal = new ShapePropertiesModal(container);
 const selectionInfoOverlay = new SelectionInfoOverlay(container);
 
+shapePropertiesModal.setOpenHandler(() => {
+  viewer.clearHighlight();
+  selectionInfoOverlay.hide();
+});
+
 shapePropertiesModal.setCentroidHandler((centroid) => {
   if (centroid) {
     viewer.showCentroid(centroid);
@@ -68,6 +73,8 @@ function connectWebSocket() {
         selectionInfoOverlay.hide();
         break;
       case 'show-shape-properties':
+        viewer.clearHighlight();
+        selectionInfoOverlay.hide();
         shapePropertiesModal.show(msg.shapeId);
         break;
     }

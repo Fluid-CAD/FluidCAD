@@ -9,6 +9,8 @@ import type { FaceProperties } from "./oc/face-props.js";
 import { EdgeProps } from "./oc/edge-props.js";
 import type { EdgeProperties } from "./oc/edge-props.js";
 import { Explorer } from "./oc/explorer.js";
+import { OccHitTest } from "./oc/hit-test.js";
+import type { HitTestResult } from "./oc/hit-test.js";
 
 class SceneManager {
   currentScene: Scene = new Scene();
@@ -73,6 +75,23 @@ class SceneManager {
             return null;
           }
           return EdgeProps.getProperties(edges[edgeIndex].getShape());
+        }
+      }
+    }
+    return null;
+  }
+
+  hitTest(
+    scene: Scene,
+    shapeId: string,
+    rayOrigin: [number, number, number],
+    rayDir: [number, number, number],
+    edgeThreshold: number,
+  ): HitTestResult {
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getAddedShapes()) {
+        if (shape.id === shapeId) {
+          return OccHitTest.hitTest(shape.getShape(), rayOrigin, rayDir, edgeThreshold);
         }
       }
     }

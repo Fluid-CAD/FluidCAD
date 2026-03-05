@@ -1,8 +1,11 @@
 import { Viewer } from './viewer';
 import { ShapePropertiesModal } from './ui/shape-properties-modal';
+import { FaceInfoOverlay } from './ui/face-info-overlay';
 
+const container = document.getElementById('fluidcad-viewer') || document.body;
 const viewer = new Viewer('fluidcad-viewer');
-const shapePropertiesModal = new ShapePropertiesModal(document.getElementById('fluidcad-viewer') || document.body);
+const shapePropertiesModal = new ShapePropertiesModal(container);
+const faceInfoOverlay = new FaceInfoOverlay(container);
 
 shapePropertiesModal.setCentroidHandler((centroid) => {
   if (centroid) {
@@ -12,13 +15,22 @@ shapePropertiesModal.setCentroidHandler((centroid) => {
   }
 });
 
-viewer.setShapeClickHandler((shapeId) => {
+viewer.setSelectionHandler((shapeId, faceIndex) => {
   if (shapeId) {
-    viewer.highlightShape(shapeId);
+    if (shapePropertiesModal.isOpen || faceIndex === null) {
+      viewer.highlightShape(shapeId);
+    } else {
+      viewer.highlightFace(shapeId, faceIndex);
+    }
   } else {
     viewer.clearHighlight();
   }
   shapePropertiesModal.setSelectedShape(shapeId);
+  if (shapeId !== null && faceIndex !== null) {
+    faceInfoOverlay.showForFace(shapeId, faceIndex);
+  } else {
+    faceInfoOverlay.hide();
+  }
 });
 
 function connectWebSocket() {
@@ -45,6 +57,7 @@ function connectWebSocket() {
       case 'clear-highlight':
         viewer.clearHighlight();
         shapePropertiesModal.setSelectedShape(null);
+        faceInfoOverlay.hide();
         break;
       case 'show-shape-properties':
         shapePropertiesModal.show(msg.shapeId);

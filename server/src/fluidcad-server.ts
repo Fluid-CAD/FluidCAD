@@ -9,6 +9,7 @@ type SceneManager = {
   compare(previousScene: any, currentScene: any): any;
   importFile(workspacePath: string, fileName: string, data: Uint8Array): any;
   getShapeProperties(scene: any, shapeId: string): any;
+  getFaceProperties(scene: any, shapeId: string, faceIndex: number): any;
 };
 
 export type SceneRenderedData = {
@@ -133,5 +134,16 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.getShapeProperties(scene, shapeId);
+  }
+
+  getFaceProperties(shapeId: string, faceIndex: number): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.getFaceProperties(scene, shapeId, faceIndex);
   }
 }

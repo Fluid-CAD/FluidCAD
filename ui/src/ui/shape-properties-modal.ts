@@ -403,6 +403,10 @@ export class ShapePropertiesModal {
     this.centroidVal = this.panel.querySelector<HTMLSpanElement>('[data-ref="centroid"]')!;
   }
 
+  get isOpen(): boolean {
+    return this.panel.classList.contains('open');
+  }
+
   setCentroidHandler(fn: (centroid: { x: number; y: number; z: number } | null) => void): void {
     this.centroidHandler = fn;
   }

@@ -38,7 +38,11 @@ export class FaceMesh extends Group {
         polygonOffsetUnits: 1,
       });
 
-      this.add(new Mesh(geometry, material));
+      const mesh = new Mesh(geometry, material);
+      if (meshData.faceMapping) {
+        mesh.userData.faceMapping = meshData.faceMapping;
+      }
+      this.add(mesh);
     }
   }
 }

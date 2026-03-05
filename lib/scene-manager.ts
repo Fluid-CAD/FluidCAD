@@ -4,6 +4,9 @@ import { SceneCompare } from "./rendering/scene-compare.js";
 import { FileImport } from "./io/file-import.js";
 import { ShapeProps } from "./oc/props.js";
 import type { ShapeProperties } from "./oc/props.js";
+import { FaceProps } from "./oc/face-props.js";
+import type { FaceProperties } from "./oc/face-props.js";
+import { Explorer } from "./oc/explorer.js";
 
 class SceneManager {
   currentScene: Scene = new Scene();
@@ -38,6 +41,21 @@ class SceneManager {
       for (const shape of obj.getAddedShapes()) {
         if (shape.id === shapeId) {
           return ShapeProps.getProperties(shape.getShape());
+        }
+      }
+    }
+    return null;
+  }
+
+  getFaceProperties(scene: Scene, shapeId: string, faceIndex: number): FaceProperties | null {
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getAddedShapes()) {
+        if (shape.id === shapeId) {
+          const faces = Explorer.findFacesWrapped(shape);
+          if (faceIndex < 0 || faceIndex >= faces.length) {
+            return null;
+          }
+          return FaceProps.getProperties(faces[faceIndex].getShape());
         }
       }
     }

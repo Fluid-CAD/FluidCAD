@@ -57,6 +57,25 @@ const httpServer = http.createServer((req, res) => {
     return;
   }
 
+  if (url.pathname === '/api/face-properties') {
+    const shapeId = url.searchParams.get('shapeId') || '';
+    const faceIndex = parseInt(url.searchParams.get('faceIndex') || '', 10);
+    if (!shapeId || isNaN(faceIndex) || faceIndex < 0) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing or invalid shapeId / faceIndex' }));
+      return;
+    }
+    const props = fluidCadServer.getFaceProperties(shapeId, faceIndex);
+    if (!props) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Face not found' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(props));
+    return;
+  }
+
   let filePath = path.join(UI_DIST, req.url === '/' ? 'index.html' : req.url!);
 
   // Prevent directory traversal

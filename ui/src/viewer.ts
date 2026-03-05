@@ -258,22 +258,41 @@ export class Viewer {
     const faceHits = faceCandidates.length > 0 ? raycaster.intersectObjects(faceCandidates, false) : [];
     const edgeHits = edgeCandidates.length > 0 ? raycaster.intersectObjects(edgeCandidates, false) : [];
 
-    const bestFace = faceHits[0];
+    // For faces: pick the closest hit whose triangle normal actually faces the camera.
+    // This guards against back-face or opposite-side hits that can occur on concave or
+    // complex boolean shapes even with FrontSide material (e.g. mis-wound normals).
+    const viewDir = new Vector3();
+    camera.getWorldDirection(viewDir);
+    let bestFace = faceHits[0];
+    for (const hit of faceHits) {
+      if (!hit.face) {
+        bestFace = hit;
+        break;
+      }
+      const worldNormal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+      if (worldNormal.dot(viewDir) < 0) {
+        bestFace = hit;
+        break;
+      }
+    }
+
     const bestEdge = edgeHits[0];
 
     if (!bestFace && !bestEdge) {
       return null;
     }
 
-    // Edge wins when it got a hit AND is not significantly deeper than the face surface.
-    // We give a tolerance equal to the pick threshold because Three.js ray–line distance
-    // is computed differently from ray–triangle distance: for a boundary edge lying on a
-    // face, the line distance can be slightly larger than the face distance even when the
-    // click is exactly on the edge.
+    // Edge wins when it got a hit AND its surface point is not significantly deeper than
+    // the face surface.  We compare view-direction depth of hit.point (the closest point
+    // ON THE EDGE GEOMETRY to the ray) rather than hit.distance (closest point on the RAY),
+    // because at oblique angles those two differ and cause false failures for boundary edges.
     if (bestEdge) {
-      const faceDistance = bestFace?.distance ?? Infinity;
-      const threshold = this.computeEdgePickThreshold();
-      if (bestEdge.distance <= faceDistance + threshold) {
+      const edgeDepth = viewDir.dot(bestEdge.point);
+      const faceDepth = bestFace ? viewDir.dot(bestFace.point) : -Infinity;
+      // 0.1 world-unit tolerance handles OCC tessellation mismatch for boundary edges
+      // while reliably rejecting edges on the opposite side (model must be <0.1mm thick
+      // for a back edge to slip through, which is not a practical CAD scenario).
+      if (edgeDepth <= faceDepth + 0.1) {
         const edgeIndex = bestEdge.object.userData.edgeIndex as number;
         return { type: 'edge', index: edgeIndex };
       }

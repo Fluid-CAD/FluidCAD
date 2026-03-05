@@ -1,8 +1,8 @@
 const STYLES = `
 .fio-overlay {
   position: absolute;
-  bottom: 68px;
-  right: 24px;
+  bottom: 22px;
+  right: 64px;
   width: 200px;
   background: rgba(30, 30, 30, 0.92);
   backdrop-filter: blur(12px);

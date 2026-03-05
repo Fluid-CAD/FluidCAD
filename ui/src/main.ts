@@ -17,12 +17,14 @@ shapePropertiesModal.setCentroidHandler((centroid) => {
 
 viewer.setSelectionHandler((shapeId, sub) => {
   if (shapeId) {
-    if (shapePropertiesModal.isOpen || sub === null) {
+    if (shapePropertiesModal.isOpen) {
       viewer.highlightShape(shapeId);
-    } else if (sub.type === 'face') {
+    } else if (sub?.type === 'face') {
       viewer.highlightFace(shapeId, sub.index);
-    } else {
+    } else if (sub?.type === 'edge') {
       viewer.highlightEdge(shapeId, sub.index);
+    } else {
+      viewer.clearHighlight();
     }
   } else {
     viewer.clearHighlight();

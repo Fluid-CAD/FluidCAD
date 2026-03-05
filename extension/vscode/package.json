@@ -44,6 +44,11 @@
         "command": "fluidcad.import_file",
         "title": "Import STEP File",
         "icon": "$(file-add)"
+      },
+      {
+        "command": "fluidcad.shape_properties",
+        "title": "Shape Properties",
+        "icon": "$(info)"
       }
     ],
     "menus": {
@@ -58,6 +63,18 @@
         {
           "command": "fluidcad.import_file",
           "when": "view == fluidcad.scene_history",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "fluidcad.shape_properties",
+          "when": "view == fluidcad.scene_shapes && viewItem == shape",
+          "group": "inline"
+        },
+        {
+          "command": "fluidcad.shape_properties",
+          "when": "view == fluidcad.scene_shapes && viewItem == shape",
           "group": "navigation"
         }
       ]

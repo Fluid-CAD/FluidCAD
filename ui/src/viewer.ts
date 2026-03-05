@@ -1,4 +1,4 @@
-import { Box3, LineSegments, Mesh, Object3D, Vector3 } from 'three';
+import { Box3, Color, LineSegments, Mesh, MeshBasicMaterial, Object3D, Vector3, WebGLRenderTarget } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { SceneModeManager } from './scene/scene-mode';
 import { buildSceneMesh } from './meshes/mesh-factory';
@@ -57,6 +57,8 @@ export class Viewer {
   private hasRendered = false;
   private lastFitBox: Box3 | null = null;
   private fileNamePill: HTMLDivElement;
+  private shapeClickHandler: ((shapeId: string | null) => void) | null = null;
+  private pickTarget: WebGLRenderTarget | null = null;
 
   constructor(containerId: string) {
     const container = document.getElementById(containerId)!;
@@ -76,6 +78,134 @@ export class Viewer {
     this.fileNamePill.className = 'filename-pill';
     this.fileNamePill.style.display = 'none';
     container.appendChild(this.fileNamePill);
+
+    this.initClickDetection();
+  }
+
+  setShapeClickHandler(fn: (shapeId: string | null) => void): void {
+    this.shapeClickHandler = fn;
+  }
+
+  private initClickDetection(): void {
+    const canvas = this.ctx.renderer.domElement;
+    let downX = 0;
+    let downY = 0;
+
+    canvas.addEventListener('mousedown', (e) => {
+      downX = e.clientX;
+      downY = e.clientY;
+    });
+
+    canvas.addEventListener('mouseup', (e) => {
+      if (!this.shapeClickHandler) {
+        return;
+      }
+      const dx = e.clientX - downX;
+      const dy = e.clientY - downY;
+      if (dx * dx + dy * dy > 64) {
+        return; // was a drag (> 8px)
+      }
+
+      const shapeId = this.pickShapeAt(e.clientX, e.clientY);
+      this.shapeClickHandler(shapeId);
+    });
+  }
+
+  /**
+   * GPU colour-picking: renders every shape with a unique flat colour into an
+   * off-screen buffer, then reads the single pixel under the cursor.
+   * Pixel-perfect regardless of zoom level, camera angle, or surface curvature.
+   */
+  private pickShapeAt(clientX: number, clientY: number): string | null {
+    const renderer = this.ctx.renderer;
+    const camera = this.ctx.camera;
+    const canvasW = renderer.domElement.width;
+    const canvasH = renderer.domElement.height;
+
+    if (!this.pickTarget || this.pickTarget.width !== canvasW || this.pickTarget.height !== canvasH) {
+      this.pickTarget?.dispose();
+      this.pickTarget = new WebGLRenderTarget(canvasW, canvasH);
+    }
+
+    const shapeToColor = new Map<string, number>();
+    const colorToShape = new Map<number, string>();
+    let colorIndex = 1;
+    const meshesToRestore: { mesh: Mesh; mat: any }[] = [];
+
+    // For each leaf Mesh, walk up to find its shapeId and assign a unique colour.
+    this.ctx.scene.traverse((obj) => {
+      if (!(obj as Mesh).isMesh) {
+        return;
+      }
+      let shapeId: string | undefined;
+      let cur: Object3D | null = obj;
+      while (cur) {
+        if (cur.userData.shapeId && !cur.userData.isMetaShape) {
+          shapeId = cur.userData.shapeId as string;
+          break;
+        }
+        cur = cur.parent;
+      }
+      if (!shapeId) {
+        return;
+      }
+
+      if (!shapeToColor.has(shapeId)) {
+        const c = colorIndex++;
+        shapeToColor.set(shapeId, c);
+        colorToShape.set(c, shapeId);
+      }
+      const c = shapeToColor.get(shapeId)!;
+
+      const mesh = obj as Mesh;
+      meshesToRestore.push({ mesh, mat: mesh.material });
+      mesh.material = new MeshBasicMaterial({
+        color: new Color(
+          ((c >> 16) & 0xff) / 255,
+          ((c >> 8) & 0xff) / 255,
+          (c & 0xff) / 255,
+        ),
+      });
+    });
+
+    // Render picking scene to off-screen target.
+    const prevTarget = renderer.getRenderTarget();
+    const prevClearColor = new Color();
+    const prevClearAlpha = renderer.getClearAlpha();
+    renderer.getClearColor(prevClearColor);
+
+    renderer.setRenderTarget(this.pickTarget);
+    renderer.setClearColor(0x000000, 1);
+    renderer.clear();
+    renderer.render(this.ctx.scene, camera);
+    renderer.setRenderTarget(prevTarget);
+    renderer.setClearColor(prevClearColor, prevClearAlpha);
+
+    // Restore original materials.
+    for (const { mesh, mat } of meshesToRestore) {
+      (mesh.material as MeshBasicMaterial).dispose();
+      mesh.material = mat;
+    }
+    this.ctx.requestRender();
+
+    // Read pixel (WebGL Y is bottom-up).
+    const rect = renderer.domElement.getBoundingClientRect();
+    const dpr = renderer.getPixelRatio();
+    const px = Math.floor((clientX - rect.left) * dpr);
+    const py = Math.floor((rect.height - (clientY - rect.top)) * dpr);
+
+    if (px < 0 || px >= canvasW || py < 0 || py >= canvasH) {
+      return null;
+    }
+
+    const pixel = new Uint8Array(4);
+    renderer.readRenderTargetPixels(this.pickTarget, px, py, 1, 1, pixel);
+
+    const encoded = (pixel[0] << 16) | (pixel[1] << 8) | pixel[2];
+    if (encoded === 0) {
+      return null;
+    }
+    return colorToShape.get(encoded) ?? null;
   }
 
   toggleSketchMode(enable: boolean): void {

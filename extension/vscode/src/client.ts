@@ -54,6 +54,13 @@ export class Client {
       }
     ));
 
+    this.context.subscriptions.push(vscode.commands.registerCommand(
+      'fluidcad.shape_properties',
+      (item: any) => {
+        this.sendToServer({ type: 'show-shape-properties', shapeId: item.shapeId });
+      }
+    ));
+
     vscode.window.registerFileDecorationProvider({
       provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
         if (uri.scheme === 'fluidcad') {

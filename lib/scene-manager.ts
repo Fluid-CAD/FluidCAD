@@ -2,6 +2,8 @@ import { Scene } from "./rendering/scene.js";
 import { renderScene, renderSceneRollback } from "./rendering/render.js";
 import { SceneCompare } from "./rendering/scene-compare.js";
 import { FileImport } from "./io/file-import.js";
+import { ShapeProps } from "./oc/props.js";
+import type { ShapeProperties } from "./oc/props.js";
 
 class SceneManager {
   currentScene: Scene = new Scene();
@@ -29,6 +31,17 @@ class SceneManager {
 
   importFile(workspacePath: string, fileName: string, data: Uint8Array) {
     FileImport.importFile(workspacePath, fileName, data);
+  }
+
+  getShapeProperties(scene: Scene, shapeId: string): ShapeProperties | null {
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getAddedShapes()) {
+        if (shape.id === shapeId) {
+          return ShapeProps.getProperties(shape.getShape());
+        }
+      }
+    }
+    return null;
   }
 }
 

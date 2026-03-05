@@ -35,13 +35,19 @@ export type ClearHighlightMessage = {
   type: 'clear-highlight';
 };
 
+export type ShowShapePropertiesMessage = {
+  type: 'show-shape-properties';
+  shapeId: string;
+};
+
 export type ExtensionMessage =
   | ProcessFileMessage
   | LiveUpdateMessage
   | RollbackMessage
   | ImportFileMessage
   | HighlightShapeMessage
-  | ClearHighlightMessage;
+  | ClearHighlightMessage
+  | ShowShapePropertiesMessage;
 
 // ---------------------------------------------------------------------------
 // IPC: Server → Extension messages
@@ -103,7 +109,13 @@ export type UIClearHighlightMessage = {
   type: 'clear-highlight';
 };
 
+export type UIShowShapePropertiesMessage = {
+  type: 'show-shape-properties';
+  shapeId: string;
+};
+
 export type ServerToUIMessage =
   | UISceneRenderedMessage
   | UIHighlightShapeMessage
-  | UIClearHighlightMessage;
+  | UIClearHighlightMessage
+  | UIShowShapePropertiesMessage;

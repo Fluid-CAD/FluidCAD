@@ -1,6 +1,17 @@
 import { Viewer } from './viewer';
+import { ShapePropertiesModal } from './ui/shape-properties-modal';
 
 const viewer = new Viewer('fluidcad-viewer');
+const shapePropertiesModal = new ShapePropertiesModal(document.getElementById('fluidcad-viewer') || document.body);
+
+viewer.setShapeClickHandler((shapeId) => {
+  if (shapeId) {
+    viewer.highlightShape(shapeId);
+  } else {
+    viewer.clearHighlight();
+  }
+  shapePropertiesModal.setSelectedShape(shapeId);
+});
 
 function connectWebSocket() {
   const wsUrl = `ws://${window.location.host}`;
@@ -21,9 +32,14 @@ function connectWebSocket() {
       }
       case 'highlight-shape':
         viewer.highlightShape(msg.shapeId);
+        shapePropertiesModal.setSelectedShape(msg.shapeId);
         break;
       case 'clear-highlight':
         viewer.clearHighlight();
+        shapePropertiesModal.setSelectedShape(null);
+        break;
+      case 'show-shape-properties':
+        shapePropertiesModal.show(msg.shapeId);
         break;
     }
   });

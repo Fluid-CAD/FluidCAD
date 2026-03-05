@@ -8,6 +8,7 @@ type SceneManager = {
   rollbackScene(scene: any, rollbackIndex: number): any;
   compare(previousScene: any, currentScene: any): any;
   importFile(workspacePath: string, fileName: string, data: Uint8Array): any;
+  getShapeProperties(scene: any, shapeId: string): any;
 };
 
 export type SceneRenderedData = {
@@ -121,5 +122,16 @@ export class FluidCadServer {
 
     const binaryData = Buffer.from(data, 'base64');
     await this.sceneManager.importFile(workspacePath, fileName, binaryData);
+  }
+
+  getShapeProperties(shapeId: string): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.getShapeProperties(scene, shapeId);
   }
 }

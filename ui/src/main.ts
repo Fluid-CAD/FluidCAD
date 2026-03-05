@@ -4,6 +4,14 @@ import { ShapePropertiesModal } from './ui/shape-properties-modal';
 const viewer = new Viewer('fluidcad-viewer');
 const shapePropertiesModal = new ShapePropertiesModal(document.getElementById('fluidcad-viewer') || document.body);
 
+shapePropertiesModal.setCentroidHandler((centroid) => {
+  if (centroid) {
+    viewer.showCentroid(centroid);
+  } else {
+    viewer.clearCentroid();
+  }
+});
+
 viewer.setShapeClickHandler((shapeId) => {
   if (shapeId) {
     viewer.highlightShape(shapeId);

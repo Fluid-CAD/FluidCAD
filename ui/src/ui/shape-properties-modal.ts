@@ -284,6 +284,7 @@ export class ShapePropertiesModal {
   private volVal!: HTMLSpanElement;
   private areaVal!: HTMLSpanElement;
   private massVal!: HTMLSpanElement;
+  private centroidVal!: HTMLSpanElement;
 
   private selectedShapeId: string | null = null;
   private rawProps: RawProps | null = null;
@@ -291,6 +292,7 @@ export class ShapePropertiesModal {
   private canonicalDensityGcm3: number | null = null;
   /** The density unit as declared by the selected material (e.g. 'g/cm³', 'kg/m³'). */
   private currentDensityUnit: string = 'g/cm³';
+  private centroidHandler: ((centroid: { x: number; y: number; z: number } | null) => void) | null = null;
 
   constructor(container: HTMLElement) {
     if (!document.getElementById('spm-styles')) {
@@ -376,6 +378,10 @@ export class ShapePropertiesModal {
           <span class="spm-result-label">Mass</span>
           <span class="spm-result-value" data-ref="mass">—</span>
         </div>
+        <div class="spm-result-row" style="margin-top:6px">
+          <span class="spm-result-label">Center of Mass</span>
+          <span class="spm-result-value" data-ref="centroid">—</span>
+        </div>
       </div>
     `;
   }
@@ -394,6 +400,11 @@ export class ShapePropertiesModal {
     this.volVal = this.panel.querySelector<HTMLSpanElement>('[data-ref="vol"]')!;
     this.areaVal = this.panel.querySelector<HTMLSpanElement>('[data-ref="area"]')!;
     this.massVal = this.panel.querySelector<HTMLSpanElement>('[data-ref="mass"]')!;
+    this.centroidVal = this.panel.querySelector<HTMLSpanElement>('[data-ref="centroid"]')!;
+  }
+
+  setCentroidHandler(fn: (centroid: { x: number; y: number; z: number } | null) => void): void {
+    this.centroidHandler = fn;
   }
 
   private bindEvents(): void {
@@ -542,10 +553,16 @@ export class ShapePropertiesModal {
       mass = `${massG.toFixed(4)} g`;
     }
 
+    const { centroid } = this.rawProps;
+    const f = (v: number) => v.toFixed(4);
+    const centroidText = `(${f(centroid.x)}, ${f(centroid.y)}, ${f(centroid.z)}) ${suffix}`;
+
     this.volVal.textContent = vol;
     this.areaVal.textContent = area;
     this.massVal.textContent = mass;
+    this.centroidVal.textContent = centroidText;
     this.resultsEl.classList.add('visible');
+    this.centroidHandler?.(centroid);
   }
 
   private showError(msg: string): void {
@@ -559,6 +576,7 @@ export class ShapePropertiesModal {
     this.rawProps = null;
     this.resultsEl.classList.remove('visible');
     this.errorEl.classList.remove('visible');
+    this.centroidHandler?.(null);
 
     this.selectedShapeId = shapeId;
 

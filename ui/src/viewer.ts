@@ -4,6 +4,7 @@ import { SceneModeManager } from './scene/scene-mode';
 import { buildSceneMesh } from './meshes/mesh-factory';
 import { SceneObjectPart, SceneObjectRender } from './types';
 import { SettingsPanel } from './ui/settings-panel';
+import { CentroidIndicator } from './scene/centroid-indicator';
 
 /** Recursively expand `box` to include `object`, skipping meta-shape subtrees. */
 function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
@@ -59,6 +60,7 @@ export class Viewer {
   private fileNamePill: HTMLDivElement;
   private shapeClickHandler: ((shapeId: string | null) => void) | null = null;
   private pickTarget: WebGLRenderTarget | null = null;
+  private centroidIndicator = new CentroidIndicator();
 
   constructor(containerId: string) {
     const container = document.getElementById(containerId)!;
@@ -297,6 +299,17 @@ export class Viewer {
     this.ctx.render();
   }
 
+  showCentroid(pos: { x: number; y: number; z: number }): void {
+    const radius = this.computeCentroidRadius();
+    this.centroidIndicator.show(this.ctx.scene, pos, radius);
+    this.ctx.requestRender();
+  }
+
+  clearCentroid(): void {
+    this.centroidIndicator.clear(this.ctx.scene);
+    this.ctx.requestRender();
+  }
+
   dispose(): void {
     this.ctx.dispose();
   }
@@ -304,6 +317,19 @@ export class Viewer {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /** Compute centroid sphere radius as ~1.5 % of the scene diagonal, with a fallback. */
+  private computeCentroidRadius(): number {
+    const compiled = this.ctx.scene.getObjectByName('compiledMesh');
+    if (compiled) {
+      const box = new Box3();
+      expandBoxExcludingMeta(box, compiled);
+      if (!box.isEmpty()) {
+        return box.getSize(new Vector3()).length() * 0.015;
+      }
+    }
+    return 2;
+  }
 
   /** Fit the camera to all scene geometry, excluding meta shapes. */
   private fitViewToScene(): void {

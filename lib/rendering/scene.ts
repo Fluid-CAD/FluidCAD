@@ -9,6 +9,7 @@ export type SceneObjectMesh = {
   normals: number[];
   indices: number[];
   color?: string;
+  faceMapping?: number[];  // faceMapping[triangleIdx] = OCC face index (solid-faces meshes only)
 }
 
 export type RenderedShape = {

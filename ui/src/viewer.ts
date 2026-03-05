@@ -1,4 +1,4 @@
-import { Box3, Color, LineSegments, Mesh, MeshBasicMaterial, Object3D, Vector3, WebGLRenderTarget } from 'three';
+import { Box3, BufferAttribute, BufferGeometry, Color, LineSegments, Mesh, MeshBasicMaterial, MeshPhongMaterial, Object3D, Raycaster, Vector2, Vector3, WebGLRenderTarget } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { SceneModeManager } from './scene/scene-mode';
 import { buildSceneMesh } from './meshes/mesh-factory';
@@ -55,10 +55,11 @@ export class Viewer {
   private settingsPanel: SettingsPanel;
   private sceneObjects: SceneObjectRender[] = [];
   private highlightedShapeId: string | null = null;
+  private faceHighlightMeshes: Mesh[] = [];
   private hasRendered = false;
   private lastFitBox: Box3 | null = null;
   private fileNamePill: HTMLDivElement;
-  private shapeClickHandler: ((shapeId: string | null) => void) | null = null;
+  private selectionHandler: ((shapeId: string | null, faceIndex: number | null) => void) | null = null;
   private pickTarget: WebGLRenderTarget | null = null;
   private centroidIndicator = new CentroidIndicator();
 
@@ -84,8 +85,8 @@ export class Viewer {
     this.initClickDetection();
   }
 
-  setShapeClickHandler(fn: (shapeId: string | null) => void): void {
-    this.shapeClickHandler = fn;
+  setSelectionHandler(fn: (shapeId: string | null, faceIndex: number | null) => void): void {
+    this.selectionHandler = fn;
   }
 
   private initClickDetection(): void {
@@ -99,7 +100,7 @@ export class Viewer {
     });
 
     canvas.addEventListener('mouseup', (e) => {
-      if (!this.shapeClickHandler) {
+      if (!this.selectionHandler) {
         return;
       }
       const dx = e.clientX - downX;
@@ -109,7 +110,12 @@ export class Viewer {
       }
 
       const shapeId = this.pickShapeAt(e.clientX, e.clientY);
-      this.shapeClickHandler(shapeId);
+      if (!shapeId) {
+        this.selectionHandler(null, null);
+        return;
+      }
+      const faceIndex = this.pickFaceAt(e.clientX, e.clientY, shapeId);
+      this.selectionHandler(shapeId, faceIndex);
     });
   }
 
@@ -210,6 +216,55 @@ export class Viewer {
     return colorToShape.get(encoded) ?? null;
   }
 
+  /**
+   * Raycaster face-picking: given a shapeId already identified by GPU picking,
+   * find which OCC face index was hit by casting a ray against that shape's meshes.
+   */
+  private pickFaceAt(clientX: number, clientY: number, shapeId: string): number | null {
+    const renderer = this.ctx.renderer;
+    const camera = this.ctx.camera;
+    const rect = renderer.domElement.getBoundingClientRect();
+    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+    const raycaster = new Raycaster();
+    raycaster.setFromCamera(new Vector2(ndcX, ndcY), camera);
+
+    const candidates: Mesh[] = [];
+    this.ctx.scene.traverse((obj) => {
+      if (!(obj as Mesh).isMesh) {
+        return;
+      }
+      if (!obj.userData.faceMapping) {
+        return;
+      }
+      let cur: Object3D | null = obj;
+      while (cur) {
+        if (cur.userData.shapeId === shapeId && !cur.userData.isMetaShape) {
+          candidates.push(obj as Mesh);
+          return;
+        }
+        cur = cur.parent;
+      }
+    });
+
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const hits = raycaster.intersectObjects(candidates, false);
+    if (hits.length === 0) {
+      return null;
+    }
+
+    const hit = hits[0];
+    const mapping: number[] | undefined = hit.object.userData.faceMapping;
+    if (!mapping || hit.faceIndex == null) {
+      return null;
+    }
+    return mapping[hit.faceIndex] ?? null;
+  }
+
   toggleSketchMode(enable: boolean): void {
     this.modeManager.sketchEnabled = enable;
   }
@@ -286,7 +341,9 @@ export class Viewer {
   }
 
   clearHighlight(): void {
-    if (!this.highlightedShapeId) return;
+    if (!this.highlightedShapeId && this.faceHighlightMeshes.length === 0) {
+      return;
+    }
 
     this.ctx.scene.traverse((child) => {
       if (child.userData.originalColor !== undefined) {
@@ -295,7 +352,84 @@ export class Viewer {
       }
     });
 
+    for (const m of this.faceHighlightMeshes) {
+      m.parent?.remove(m);
+      m.geometry.dispose();
+      (m.material as MeshPhongMaterial).dispose();
+    }
+    this.faceHighlightMeshes = [];
+
     this.highlightedShapeId = null;
+    this.ctx.render();
+  }
+
+  highlightFace(shapeId: string, faceIndex: number): void {
+    this.clearHighlight();
+
+    this.ctx.scene.traverse((obj) => {
+      if (!(obj as Mesh).isMesh) {
+        return;
+      }
+      const mapping: number[] | undefined = obj.userData.faceMapping;
+      if (!mapping) {
+        return;
+      }
+
+      let belongsToShape = false;
+      let cur: Object3D | null = obj;
+      while (cur) {
+        if (cur.userData.shapeId === shapeId && !cur.userData.isMetaShape) {
+          belongsToShape = true;
+          break;
+        }
+        cur = cur.parent;
+      }
+      if (!belongsToShape) {
+        return;
+      }
+
+      const mesh = obj as Mesh;
+      const geo = mesh.geometry as BufferGeometry;
+      const indexAttr = geo.index;
+      if (!indexAttr) {
+        return;
+      }
+
+      const indices = indexAttr.array;
+      const positions = (geo.getAttribute('position').array) as Float32Array;
+      const newPositions: number[] = [];
+
+      for (let tri = 0; tri < mapping.length; tri++) {
+        if (mapping[tri] === faceIndex) {
+          const i0 = (indices[tri * 3] as number) * 3;
+          const i1 = (indices[tri * 3 + 1] as number) * 3;
+          const i2 = (indices[tri * 3 + 2] as number) * 3;
+          newPositions.push(positions[i0], positions[i0 + 1], positions[i0 + 2]);
+          newPositions.push(positions[i1], positions[i1 + 1], positions[i1 + 2]);
+          newPositions.push(positions[i2], positions[i2 + 1], positions[i2 + 2]);
+        }
+      }
+
+      if (newPositions.length === 0) {
+        return;
+      }
+
+      const overlayGeo = new BufferGeometry();
+      overlayGeo.setAttribute('position', new BufferAttribute(new Float32Array(newPositions), 3));
+
+      const overlayMat = new MeshPhongMaterial({
+        color: HIGHLIGHT_FACE_COLOR,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -1,
+      });
+
+      const overlayMesh = new Mesh(overlayGeo, overlayMat);
+      (mesh.parent ?? this.ctx.scene).add(overlayMesh);
+      this.faceHighlightMeshes.push(overlayMesh);
+    });
+
+    this.highlightedShapeId = shapeId;
     this.ctx.render();
   }
 

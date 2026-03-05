@@ -84,6 +84,7 @@ export type SceneObjectMesh = {
   normals: number[];
   indices: number[];
   color?: string;
+  faceMapping?: number[];
 };
 
 export type SceneObjectPart = {

@@ -72,6 +72,14 @@ type FaceProperties = {
   halfAngleDeg?: number;
 };
 
+type EdgeProperties = {
+  curveType: 'line' | 'circle' | 'arc' | 'ellipse' | 'other';
+  length?: number;
+  radius?: number;
+  majorRadius?: number;
+  minorRadius?: number;
+};
+
 const SURFACE_LABELS: Record<FaceProperties['surfaceType'], string> = {
   plane: 'Plane',
   circle: 'Circle',
@@ -82,7 +90,15 @@ const SURFACE_LABELS: Record<FaceProperties['surfaceType'], string> = {
   other: 'Surface',
 };
 
-export class FaceInfoOverlay {
+const CURVE_LABELS: Record<EdgeProperties['curveType'], string> = {
+  line: 'Line',
+  circle: 'Circle',
+  arc: 'Arc',
+  ellipse: 'Ellipse',
+  other: 'Curve',
+};
+
+export class SelectionInfoOverlay {
   private el: HTMLDivElement;
   private abortController: AbortController | null = null;
 
@@ -100,7 +116,6 @@ export class FaceInfoOverlay {
   }
 
   async showForFace(shapeId: string, faceIndex: number): Promise<void> {
-    // Cancel any in-flight request
     if (this.abortController) {
       this.abortController.abort();
     }
@@ -119,7 +134,34 @@ export class FaceInfoOverlay {
         return;
       }
       const props: FaceProperties = await res.json();
-      this.render(props);
+      this.renderFace(props);
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        this.el.classList.remove('visible');
+      }
+    }
+  }
+
+  async showForEdge(shapeId: string, edgeIndex: number): Promise<void> {
+    if (this.abortController) {
+      this.abortController.abort();
+    }
+    this.abortController = new AbortController();
+
+    this.el.innerHTML = '<div class="fio-loading">Loading…</div>';
+    this.el.classList.add('visible');
+
+    try {
+      const res = await fetch(
+        `/api/edge-properties?shapeId=${encodeURIComponent(shapeId)}&edgeIndex=${edgeIndex}`,
+        { signal: this.abortController.signal },
+      );
+      if (!res.ok) {
+        this.el.classList.remove('visible');
+        return;
+      }
+      const props: EdgeProperties = await res.json();
+      this.renderEdge(props);
     } catch (err: any) {
       if (err?.name !== 'AbortError') {
         this.el.classList.remove('visible');
@@ -135,7 +177,7 @@ export class FaceInfoOverlay {
     this.el.classList.remove('visible');
   }
 
-  private render(props: FaceProperties): void {
+  private renderFace(props: FaceProperties): void {
     const badge = SURFACE_LABELS[props.surfaceType] ?? 'Surface';
     const rows: { label: string; value: string }[] = [];
 
@@ -160,6 +202,45 @@ export class FaceInfoOverlay {
       rows.push({ label: 'Area', value: `${props.areaMm2.toFixed(4)} mm²` });
     }
 
+    this.renderPanel(badge, rows);
+  }
+
+  private renderEdge(props: EdgeProperties): void {
+    const badge = CURVE_LABELS[props.curveType] ?? 'Curve';
+    const rows: { label: string; value: string }[] = [];
+
+    if (props.curveType === 'line') {
+      if (props.length != null) {
+        rows.push({ label: 'Length', value: `${props.length.toFixed(4)} mm` });
+      }
+    } else if (props.curveType === 'circle') {
+      if (props.radius != null) {
+        rows.push({ label: 'Radius', value: `${props.radius.toFixed(4)} mm` });
+      }
+    } else if (props.curveType === 'arc') {
+      if (props.radius != null) {
+        rows.push({ label: 'Radius', value: `${props.radius.toFixed(4)} mm` });
+      }
+      if (props.length != null) {
+        rows.push({ label: 'Length', value: `${props.length.toFixed(4)} mm` });
+      }
+    } else if (props.curveType === 'ellipse') {
+      if (props.majorRadius != null) {
+        rows.push({ label: 'Major R', value: `${props.majorRadius.toFixed(4)} mm` });
+      }
+      if (props.minorRadius != null) {
+        rows.push({ label: 'Minor R', value: `${props.minorRadius.toFixed(4)} mm` });
+      }
+    } else {
+      if (props.length != null) {
+        rows.push({ label: 'Length', value: `${props.length.toFixed(4)} mm` });
+      }
+    }
+
+    this.renderPanel(badge, rows);
+  }
+
+  private renderPanel(badge: string, rows: { label: string; value: string }[]): void {
     const rowsHtml = rows
       .map(r => `<div class="fio-row"><span class="fio-label">${r.label}</span><span class="fio-value">${r.value}</span></div>`)
       .join('');

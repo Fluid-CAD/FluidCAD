@@ -40,7 +40,11 @@ export class EdgeMesh extends Group {
         depthTest: opts.depthWrite,
       });
 
-      this.add(new LineSegments(geometry, material));
+      const ls = new LineSegments(geometry, material);
+      if (meshData.edgeIndex !== undefined) {
+        ls.userData.edgeIndex = meshData.edgeIndex;
+      }
+      this.add(ls);
     }
   }
 }

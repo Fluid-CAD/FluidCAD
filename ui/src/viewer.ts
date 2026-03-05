@@ -265,9 +265,18 @@ export class Viewer {
       return null;
     }
 
-    if (bestEdge && (!bestFace || bestEdge.distance <= bestFace.distance)) {
-      const edgeIndex = bestEdge.object.userData.edgeIndex as number;
-      return { type: 'edge', index: edgeIndex };
+    // Edge wins when it got a hit AND is not significantly deeper than the face surface.
+    // We give a tolerance equal to the pick threshold because Three.js ray–line distance
+    // is computed differently from ray–triangle distance: for a boundary edge lying on a
+    // face, the line distance can be slightly larger than the face distance even when the
+    // click is exactly on the edge.
+    if (bestEdge) {
+      const faceDistance = bestFace?.distance ?? Infinity;
+      const threshold = this.computeEdgePickThreshold();
+      if (bestEdge.distance <= faceDistance + threshold) {
+        const edgeIndex = bestEdge.object.userData.edgeIndex as number;
+        return { type: 'edge', index: edgeIndex };
+      }
     }
 
     if (bestFace) {

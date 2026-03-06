@@ -2,7 +2,6 @@ import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { rad } from "../../helpers/math-helpers.js";
 import { Point2D } from "../../math/point.js";
-import { LazyVertex } from "../lazy-vertex.js";
 import { GeometrySceneObject } from "./geometry.js";
 
 export class TangentArc extends GeometrySceneObject {

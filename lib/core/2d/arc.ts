@@ -1,5 +1,5 @@
 import { isPoint2DLike, Point2DLike } from "../../math/point.js";
-import { ArcFromTwoAngles, ArcOptions } from "../../features/2d/arc.js";
+import { ArcFromTwoAngles } from "../../features/2d/arc.js";
 import { ArcFromCenterAndAngle } from "../../features/2d/arc-from-center.js";
 import { Move } from "../../features/2d/move.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
@@ -11,8 +11,8 @@ import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
 
 interface ArcFunction {
-  (radius?: number, startAngle?: number, endAngle?: number, options?: ArcOptions): ArcFromTwoAngles;
-  (startPoint: Point2DLike, radius?: number, startAngle?: number, endAngle?: number, options?: ArcOptions): ArcFromTwoAngles;
+  (radius?: number, startAngle?: number, endAngle?: number): ArcFromTwoAngles;
+  (startPoint: Point2DLike, radius?: number, startAngle?: number, endAngle?: number): ArcFromTwoAngles;
   (radius: number, startAngle: number, endAngle: number, targetPlane: PlaneLike | SceneObject): ArcFromTwoAngles;
   (center: Point2DLike, angle: number, centered?: boolean): ArcFromCenterAndAngle;
 }
@@ -22,7 +22,6 @@ function build(context: SceneParserContext): ArcFunction {
     let radius: number;
     let startAngle: number;
     let endAngle: number;
-    let options: ArcOptions;
     let center: LazyVertex;
     let arc: ArcFromTwoAngles;
     let planeObj: PlaneObjectBase | null = null;
@@ -52,17 +51,15 @@ function build(context: SceneParserContext): ArcFunction {
       radius = arguments[1] as number || 100;
       startAngle = arguments[2] as number || 0;
       endAngle = arguments[3] as number || 90;
-      options = argCount >= 5 ? arguments[4] as ArcOptions || {} : {};
 
-      arc = new ArcFromTwoAngles(radius, startAngle, endAngle, options, planeObj);
+      arc = new ArcFromTwoAngles(radius, startAngle, endAngle, planeObj);
       context.addSceneObjects([arc]);
     } else {
       radius = arguments[0] as number || 100;
       startAngle = arguments[1] as number || 0;
       endAngle = arguments[2] as number || 90;
-      options = argCount >= 4 ? arguments[3] as ArcOptions || {} : {};
 
-      arc = new ArcFromTwoAngles(radius, startAngle, endAngle, options, planeObj);
+      arc = new ArcFromTwoAngles(radius, startAngle, endAngle, planeObj);
       context.addSceneObject(arc);
     }
 

@@ -1,4 +1,4 @@
-import type { GccAna_Circ2d2TanRad, GccAna_Circ2d3Tan, GccAna_Lin2d2Tan, GccEnt_QualifiedCirc, GccEnt_QualifiedLin, Geom2dGcc_Circ2d2TanRad, Geom2dGcc_Circ2d3Tan, Geom2dGcc_Lin2d2Tan, gp_Pnt } from "occjs-wrapper";
+import type { GccAna_Circ2d2TanRad, GccAna_Circ2d3Tan, GccAna_Lin2d2Tan, GccEnt_QualifiedCirc, GccEnt_QualifiedLin, Geom2dGcc_Circ2d2TanRad, Geom2dGcc_Circ2d3Tan, Geom2dGcc_Lin2d2Tan, Geom2dGcc_QualifiedCurve, gp_Pnt } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Point2D } from "../math/point.js";
@@ -6,7 +6,9 @@ import { Edge } from "../common/edge.js";
 import { QualifiedGeometry } from "../features/2d/constraints/qualified-geometry.js";
 import { Plane } from "../math/plane.js";
 import { Geometry } from "./geometry.js";
-import { ConstraintResolver } from "./constraint-resolver.js";
+import { ConstraintResolver, ResolvedGeometry } from "./constraint-resolver.js";
+import { Wire } from "../common/wire.js";
+import { Vertex } from "../common/vertex.js";
 
 export class TangentSolver {
   static getTangentLines(
@@ -18,22 +20,50 @@ export class TangentSolver {
     const tolerance = oc.Precision.Angular();
     const [pln, disposePln] = Convert.toGpPln(plane);
 
-    const c1 = ConstraintResolver.getQualified(pln, qualifiedC1);
-    const c2 = ConstraintResolver.getQualified(pln, qualifiedC2);
+    let shape1 = qualifiedC1.object.getShapes(false)[0];
+    let shape2 = qualifiedC2.object.getShapes(false)[0];
+
+    if (shape1 instanceof Wire) {
+      shape1 = shape1.getEdges()[0];
+    }
+
+    if (shape2 instanceof Wire) {
+      shape2 = shape2.getEdges()[0];
+    }
+
+    let qc1: ResolvedGeometry;
+    let qc2: ResolvedGeometry;
+
+    if (shape1 instanceof Vertex || shape2 instanceof Vertex) {
+      // const oc = getOC();
+      // const vertex = shape.getShape() as TopoDS_Vertex;
+      // const pnt = oc.BRep_Tool.Pnt(vertex);
+
+      //       const localPoint = plane.worldToLocal(Convert.toPoint(c2.qualified as gp_Pnt));
+      // const [gpPnt, disposeGpPnt] = Convert.toGpPnt2d(localPoint);
+      // solver = new oc.GccAna_Lin2d2Tan(c1.qualified as any, gpPnt, tolerance);
+      // disposeGpPnt();
+
+      throw new Error('TODO');
+    }
+
+    const adaptor1 = new oc.BRepAdaptor_Curve(shape1.getShape());
+    const adaptor2 = new oc.BRepAdaptor_Curve(shape2.getShape());
+
+    const type1 = adaptor1.GetType();
+    const type2 = adaptor2.GetType();
 
     let solver: GccAna_Lin2d2Tan | Geom2dGcc_Lin2d2Tan;
 
-    if (c1.type === 'circle' && c2.type === 'circle') {
+    if (type1 === oc.GeomAbs_CurveType.GeomAbs_Circle && type2 === oc.GeomAbs_CurveType.GeomAbs_Circle && adaptor1.IsClosed() && adaptor2.IsClosed()) {
+      const c1 = ConstraintResolver.getQualified(pln, qualifiedC1);
+      const c2 = ConstraintResolver.getQualified(pln, qualifiedC2);
       solver = new oc.GccAna_Lin2d2Tan(c1.qualified as any, c2.qualified as any, tolerance);
-    } else if (c1.type === 'circle' && c2.type === 'point') {
-      const localPoint = plane.worldToLocal(Convert.toPoint(c2.qualified as gp_Pnt));
-      const [gpPnt, disposeGpPnt] = Convert.toGpPnt2d(localPoint);
-      solver = new oc.GccAna_Lin2d2Tan(c1.qualified as any, gpPnt, tolerance);
-      disposeGpPnt();
-    } else {
-      const qc1 = ConstraintResolver.getQualifiedAsCurve(pln, qualifiedC1);
-      const qc2 = ConstraintResolver.getQualifiedAsCurve(pln, qualifiedC2);
-      solver = new oc.Geom2dGcc_Lin2d2Tan(qc1, qc2, tolerance);
+    }
+    else {
+      const c1 = ConstraintResolver.getQualifiedAsCurve(pln, adaptor1,ConstraintResolver.getQualifier(qualifiedC1.qualifier));
+      const c2 = ConstraintResolver.getQualifiedAsCurve(pln, adaptor2, ConstraintResolver.getQualifier(qualifiedC2.qualifier));
+      solver = new oc.Geom2dGcc_Lin2d2Tan(c1, c2, tolerance);
     }
 
     disposePln();

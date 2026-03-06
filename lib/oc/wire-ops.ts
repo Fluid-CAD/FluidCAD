@@ -1,9 +1,11 @@
-import type { TopoDS_Edge, TopoDS_Wire, TopAbs_ShapeEnum, TopoDS_Vertex } from "occjs-wrapper";
+import type { TopoDS_Edge, TopoDS_Wire, TopAbs_ShapeEnum, TopoDS_Vertex, TopoDS_Face } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Wire } from "../common/wire.js";
 import { Edge } from "../common/edge.js";
 import { Explorer } from "./explorer.js";
+import { Convert } from "./convert.js";
+import { Plane } from "../math/plane.js";
 
 export class WireOps {
   static isCW(wire: Wire, normal: Vector3d): boolean {
@@ -27,7 +29,6 @@ export class WireOps {
     return Wire.fromTopoDSWire(WireOps.offsetWireRaw(wire.getShape() as TopoDS_Wire, distance, isOpen));
   }
 
-  // Raw methods (for oc-internal and common/ use)
   static isCWRaw(wire: TopoDS_Wire, normal: Vector3d): boolean {
     const oc = getOC();
     const adaptor = new oc.BRepAdaptor_CompCurve(wire, false);
@@ -74,7 +75,14 @@ export class WireOps {
 
   static reverseWireRaw(wire: TopoDS_Wire): TopoDS_Wire {
     const oc = getOC();
-    return oc.TopoDS.Wire(wire.Reversed());
+     const wd = new oc.ShapeExtend_WireData(wire, true, true);
+    wd.Reverse();
+    const result = wd.Wire();
+    wd.delete();
+    return result;
+
+    // const oc = getOC();
+    // return oc.TopoDS.Wire(wire.Reversed());
   }
 
   static buildWireRaw(edges: TopoDS_Edge[]): TopoDS_Wire {
@@ -93,6 +101,38 @@ export class WireOps {
     const wire = wireMaker.Wire();
     wireMaker.delete();
     return wire;
+  }
+
+  static fixWire(wire: Wire, plane: Plane): Wire {
+    const oc = getOC();
+    const [pln, disposePlane] = Convert.toGpPln(plane);
+    const faceMaker = new oc.BRepBuilderAPI_MakeFace(pln)
+    if (!faceMaker.IsDone()) {
+      faceMaker.delete();
+      disposePlane();
+      throw new Error("Failed to create face for wire fixing");
+    }
+
+    const face = faceMaker.Face();
+    faceMaker.delete();
+    const fixedWire = WireOps.fixWireRaw(wire.getShape() as TopoDS_Wire, face);
+    disposePlane();
+    return Wire.fromTopoDSWire(fixedWire);
+  }
+
+  static fixWireRaw(wire: TopoDS_Wire, face: TopoDS_Face): TopoDS_Wire {
+    const oc = getOC();
+    const fixer = new oc.ShapeFix_Wire(wire, face, oc.Precision.Confusion());
+    fixer.FixDegenerated();
+    fixer.FixGaps2d();
+    fixer.FixEdgeCurves();
+    fixer.FixConnected(oc.Precision.Confusion());
+    fixer.FixReorder();
+
+    fixer.Perform()
+    const fixed = fixer.Wire();
+    fixer.delete();
+    return oc.TopoDS.Wire(fixed);
   }
 
   static offsetWireRaw(wire: TopoDS_Wire, distance: number, isOpen: boolean): TopoDS_Wire {

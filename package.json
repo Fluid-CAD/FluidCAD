@@ -29,7 +29,6 @@
     "@types/rbush": "^4.0.0",
     "camera-controls": "^3.1.2",
     "lodash": "^4.17.21",
-    "occjs-wrapper": "^2.0.0-beta.b5ff984-19",
     "three": "^0.180.0",
     "three-viewport-gizmo": "^2.2.0",
     "tsx": "^4.20.1",

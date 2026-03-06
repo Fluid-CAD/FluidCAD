@@ -10,9 +10,10 @@ import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { Plane } from "../../math/plane.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
 
+type CenteringOptions = boolean | 'horizontal' | 'vertical';
 export class Rect extends ExtrudableGeometryBase {
   private _radius?: number | number[];
-  private _center: boolean | 'horizontal' | 'vertical' = false;
+  private _center: CenteringOptions = false;
 
   constructor(
     public width: number,
@@ -351,7 +352,7 @@ export class Rect extends ExtrudableGeometryBase {
     return this;
   }
 
-  center(value: boolean | 'horizontal' | 'vertical' = true): this {
+  center(value: CenteringOptions = true): this {
     this._center = value;
     return this;
   }

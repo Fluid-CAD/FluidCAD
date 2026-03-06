@@ -160,6 +160,10 @@ export class Plane {
     return Math.abs(v.dot(this.normal));
   }
 
+  distanceToPlane(other: Plane): number {
+    return Math.abs(this.signedDistanceToPoint(other.origin));
+  }
+
   signedDistanceToPoint(point: Point): number {
     const v = this.origin.vectorTo(point);
     return v.dot(this.normal);

@@ -37,7 +37,9 @@ export class MirrorShape2D extends GeometrySceneObject {
 
     const transformedShapes: Shape[] = [];
 
-    const matrix = Matrix4.mirrorAxis(axis.origin, axis.direction);
+    const plane = sketch.getPlane();
+    const mirrorPlaneNormal = axis.direction.cross(plane.normal);
+    const matrix = Matrix4.mirrorPlane(mirrorPlaneNormal, axis.origin);
 
     for (const obj of targetObjects) {
       const shapes = obj.getShapes(false);
@@ -49,8 +51,6 @@ export class MirrorShape2D extends GeometrySceneObject {
 
     const firstShape = transformedShapes[0] as Edge | Wire;
     const lastShape = transformedShapes[transformedShapes.length - 1] as Edge | Wire;
-
-    const plane = sketch.getPlane();
     if (firstShape) {
       const start = firstShape.getFirstVertex();
       if (start) {

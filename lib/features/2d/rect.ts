@@ -348,7 +348,6 @@ export class Rect extends ExtrudableGeometryBase {
       this._radius = r;
     }
 
-    this._radius = r;
     return this;
   }
 

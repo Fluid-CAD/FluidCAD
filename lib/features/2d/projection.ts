@@ -29,7 +29,8 @@ export class Projection extends ExtrudableGeometryBase {
         projection.push(...wires);
       }
       else if (shape instanceof Wire) {
-        const wires = ProjectionOps.projectWireOntoPlane(plane, shape);
+        const firstEdge = shape.getEdges()[0];
+        const wires = ProjectionOps.projectEdgeOntoPlane(plane, firstEdge);
         projection.push(...wires);
       }
       else if (shape instanceof Edge) {

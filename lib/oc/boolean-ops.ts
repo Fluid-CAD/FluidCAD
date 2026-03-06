@@ -21,6 +21,7 @@ export class BooleanOps {
     try {
       const fuseProgress = new oc.Message_ProgressRange();
       const fuser = new oc.BRepAlgoAPI_Fuse(shape1, shape2, fuseProgress);
+      fuser.SetCheckInverted(true);
       fuser.Build(fuseProgress);
 
       if (!fuser.IsDone()) {
@@ -31,6 +32,7 @@ export class BooleanOps {
       fuseProgress.delete();
 
       const fusedResult = fuser.Shape();
+      fuser.delete();
       return fusedResult;
     } catch (error) {
       throw new Error(`Error in fuseShapes: ${error}`);
@@ -191,6 +193,7 @@ export class BooleanOps {
     fuseMaker.SetArguments(argumentsList);
     fuseMaker.SetTools(toolsList);
     fuseMaker.SetNonDestructive(true);
+    fuseMaker.SetCheckInverted(true);
     fuseMaker.Build(progress);
 
     if (!fuseMaker.IsDone()) {
@@ -201,7 +204,8 @@ export class BooleanOps {
       throw new Error('Fuse operation failed');
     }
 
-    const resultShape = fuseMaker.Shape();
+    console.log('Fuse:: Has Warnings', fuseMaker.HasWarnings());
+    let resultShape = fuseMaker.Shape();
     const rawSolids = Explorer.findShapes(resultShape, Explorer.getOcShapeType("solid"));
     const solids = rawSolids.map(s => Solid.fromTopoDSSolid(Explorer.toSolid(s)));
 

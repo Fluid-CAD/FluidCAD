@@ -1,4 +1,5 @@
 import type {
+    gp_Pln,
   TopoDS_Face,
   TopoDS_Wire,
 } from "occjs-wrapper";
@@ -26,14 +27,24 @@ export class ProjectionOps {
   }
 
   static projectWireOntoPlane(targetPlane: Plane, wire: Wire): Wire[] {
-    const vertices = wire.getVertices();
-    const coplanar = vertices.every(vertex => targetPlane.containsPoint(vertex.toPoint()));
-    console.log('Wire is coplanar with plane:', coplanar);
+    const oc = getOC();
+    const topDSWire  = wire.getShape() as TopoDS_Wire;
+    const wirePlaneFinder = new oc.BRepBuilderAPI_FindPlane(topDSWire, oc.Precision.Confusion());
 
-    if (coplanar) {
-      const point = vertices[0].toPoint();
-      const signedDist = targetPlane.signedDistanceToPoint(point);
-      const translation = targetPlane.normal.multiply(-signedDist);
+    let wirePlane: Plane;
+    if (wirePlaneFinder.Found()) {
+      const handle = wirePlaneFinder.Plane();
+      const geomPln = handle.get();
+      const pln = geomPln.Pln();
+      wirePlane = Convert.toPlane(pln);
+      // geomPln.delete();
+      // handle.delete();
+    }
+
+    if (wirePlane && wirePlane.isParallelTo(targetPlane)) {
+      const distance = wirePlane.distanceToPlane(targetPlane);
+      console.log('Wire is coplanar with plane, applying translation if necessary');
+      const translation = targetPlane.normal.multiply(-distance);
       const matrix = Matrix4.fromTranslation(translation.x, translation.y, translation.z);
       const transformed = ShapeOps.transform(wire, matrix) as Wire;
       return [transformed];

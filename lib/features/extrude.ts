@@ -38,6 +38,7 @@ export class Extrude extends ExtrudeBase {
 
     console.log('Extrude: Generated extrusions count:', extrusions.length);
 
+    console.log('Extrude: Fusion scope:', this.getFusionScope());
     if (this.getFusionScope() === 'none' || extrusions.length === 0 || sceneObjects?.length === 0) {
       this.addShapes(extrusions);
       return;
@@ -62,10 +63,6 @@ export class Extrude extends ExtrudeBase {
     const r = [...extrudableClones, extrude];
     console.log("Extrude::clone created:", r);
     return r;
-  }
-
-  getType(): string {
-    return 'extrude';
   }
 
   compareTo(other: Extrude): boolean {

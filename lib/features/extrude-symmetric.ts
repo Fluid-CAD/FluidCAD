@@ -98,12 +98,15 @@ export class ExtrudeSymmetric extends ExtrudeBase {
     this.extrudable.removeShapes(this);
 
     if (this.getFusionScope() === 'none' || solids.length === 0 || sceneObjects?.length === 0) {
-      const fusionResult = fuseWithSceneObjects(sceneObjects, solids);
-      solids = fusionResult.extrusions;
+      this.addShapes(solids);
+      return;
+    }
 
-      for (const modifiedShape of fusionResult.modifiedShapes) {
-        modifiedShape.object.removeShape(modifiedShape.shape, this);
-      }
+    const fusionResult = fuseWithSceneObjects(sceneObjects, solids);
+    solids = fusionResult.extrusions;
+
+    for (const modifiedShape of fusionResult.modifiedShapes) {
+      modifiedShape.object.removeShape(modifiedShape.shape, this);
     }
 
     this.addShapes(solids);

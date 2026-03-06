@@ -6,7 +6,7 @@ import { LazySceneObject } from "./lazy-scene-object.js";
 export abstract class ExtrudeBase extends SceneObject {
   protected _draft?: number | [number, number];
   protected _endOffset?: number;
-  protected _fusionScope?: FusionScope;
+  protected _fusionScope?: FusionScope = 'all';
 
   constructor() {
     super();

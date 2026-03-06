@@ -54,9 +54,13 @@ export class Rect extends ExtrudableGeometryBase {
     let wire = WireOps.makeWireFromEdges(edges);
 
     this.addShape(wire);
-    if (this.sketch) this.setCurrentPosition(end);
+    if (this.sketch) {
+      this.setCurrentPosition(end);
+    }
 
-    if (this.targetPlane) this.targetPlane.removeShapes(this);
+    if (this.targetPlane) {
+      this.targetPlane.removeShapes(this);
+    }
   }
 
   buildSimpleRect(start: Point2D, plane: Plane) {

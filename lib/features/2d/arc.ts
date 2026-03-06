@@ -2,18 +2,14 @@ import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { rad } from "../../helpers/math-helpers.js";
 import { Point2D } from "../../math/point.js";
-import { LazyVertex } from "../lazy-vertex.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { GeometrySceneObject } from "./geometry.js";
-
-export type ArcOptions = {};
 
 export class ArcFromTwoAngles extends GeometrySceneObject {
   constructor(
     public radius: number,
     public startAngle: number,
     public endAngle: number,
-    private options: ArcOptions = null,
     private targetPlane: PlaneObjectBase = null) {
     super();
   }
@@ -96,7 +92,6 @@ export class ArcFromTwoAngles extends GeometrySceneObject {
       radius: this.radius,
       startAngle: this.startAngle,
       endAngle: this.endAngle,
-      options: this.options
     }
   }
 }

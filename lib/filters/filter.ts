@@ -23,7 +23,7 @@ export class ShapeFilter {
             return f.match(shape)
           }
           catch (e) {
-            console.error('Error applying filter:', e, f, shape);
+            console.error('Error applying filter:', e, f);
             return false;
           }
         })) {

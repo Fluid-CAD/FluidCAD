@@ -4,6 +4,7 @@ import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { FluidCadServer } from './fluidcad-server.ts';
 import type { ServerToUIMessage } from './ws-protocol.ts';
+import { getMaterials } from '../../lib/common/materials.ts';
 
 const PORT = parseInt(process.env.FLUIDCAD_SERVER_PORT || '3100', 10);
 const WORKSPACE_PATH = process.env.FLUIDCAD_WORKSPACE_PATH || '';
@@ -35,6 +36,98 @@ function sendToExtension(msg: any) {
 // ---------------------------------------------------------------------------
 
 const httpServer = http.createServer((req, res) => {
+  const url = new URL(req.url!, `http://localhost`);
+
+  if (url.pathname === '/api/materials') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(getMaterials()));
+    return;
+  }
+
+  if (url.pathname === '/api/shape-properties') {
+    const shapeId = url.searchParams.get('shapeId') || '';
+    const props = fluidCadServer.getShapeProperties(shapeId);
+    if (!props) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Shape not found' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(props));
+    return;
+  }
+
+  if (url.pathname === '/api/face-properties') {
+    const shapeId = url.searchParams.get('shapeId') || '';
+    const faceIndex = parseInt(url.searchParams.get('faceIndex') || '', 10);
+    if (!shapeId || isNaN(faceIndex) || faceIndex < 0) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing or invalid shapeId / faceIndex' }));
+      return;
+    }
+    const props = fluidCadServer.getFaceProperties(shapeId, faceIndex);
+    if (!props) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Face not found' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(props));
+    return;
+  }
+
+  if (url.pathname === '/api/edge-properties') {
+    const shapeId = url.searchParams.get('shapeId') || '';
+    const edgeIndex = parseInt(url.searchParams.get('edgeIndex') || '', 10);
+    if (!shapeId || isNaN(edgeIndex) || edgeIndex < 0) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing or invalid shapeId / edgeIndex' }));
+      return;
+    }
+    const props = fluidCadServer.getEdgeProperties(shapeId, edgeIndex);
+    if (!props) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Edge not found' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(props));
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/hit-test') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk.toString(); });
+    req.on('end', () => {
+      try {
+        const parsed = JSON.parse(body);
+        const { shapeId, rayOrigin, rayDir, edgeThreshold } = parsed;
+        if (
+          typeof shapeId !== 'string' ||
+          !Array.isArray(rayOrigin) || rayOrigin.length !== 3 ||
+          !Array.isArray(rayDir) || rayDir.length !== 3 ||
+          typeof edgeThreshold !== 'number'
+        ) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid request body' }));
+          return;
+        }
+        const result = fluidCadServer.hitTest(
+          shapeId,
+          rayOrigin as [number, number, number],
+          rayDir as [number, number, number],
+          edgeThreshold,
+        );
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+      }
+    });
+    return;
+  }
+
   let filePath = path.join(UI_DIST, req.url === '/' ? 'index.html' : req.url!);
 
   // Prevent directory traversal
@@ -181,6 +274,11 @@ async function handleExtensionMessage(msg: any) {
 
       case 'clear-highlight': {
         broadcastToUI({ type: 'clear-highlight' });
+        break;
+      }
+
+      case 'show-shape-properties': {
+        broadcastToUI({ type: 'show-shape-properties', shapeId: msg.shapeId });
         break;
       }
     }

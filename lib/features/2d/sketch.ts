@@ -157,23 +157,8 @@ export class Sketch extends SceneObject implements Extrudable {
       return false;
     }
 
-    const thisChildren = this.getChildren();
-    const otherChildren = other.getChildren();
-
-    // This will probably lead to geometries getting compared twice during the renering process
-    // TODO: consider using a compare cache to avoid redundant comparisons
-    if (thisChildren.length !== otherChildren.length) {
+    if (this.getOrder() !== other.getOrder()) {
       return false;
-    }
-
-    for (let i = 0; i < thisChildren.length; i++) {
-      const thisChild = thisChildren[i];
-      const otherChild = otherChildren[i];
-
-      if (!thisChild.compareTo(otherChild)) {
-        console.log(`Sketch::compareTo children at index ${i} do not match:`, thisChild, otherChild);
-        return false;
-      }
     }
 
     return true;

@@ -16,7 +16,8 @@ export class Extruder {
     private faces: Face[],
     private plane: Plane,
     public distance: number,
-    public options: ExtrudeOptions = {}) {
+    public draft?: [number, number],
+    public endOffset?: number) {
   }
 
   getStartFaces() {
@@ -38,8 +39,8 @@ export class Extruder {
 
     let distance = this.distance;
 
-    if (this.options?.endOffset) {
-      distance -= Math.sign(distance) * this.options.endOffset;
+    if (this.endOffset) {
+      distance -= Math.sign(distance) * this.endOffset;
     }
 
     const vec = this.plane.normal.multiply(distance);
@@ -53,7 +54,7 @@ export class Extruder {
 
       solid = ShapeOps.cleanShape(solid);
 
-      if (this.options?.draft) {
+      if (this.draft) {
         solid = this.applyDraft(solid, firstFace, lastFace, this.plane)
       }
 
@@ -81,11 +82,7 @@ export class Extruder {
   }
 
   private applyDraft(solid: Shape, firstFace: Shape, lastFace: Shape, plane: Plane): Shape {
-    if (this.options.draft instanceof Array) {
-      throw new Error("Draft with two angles for start and end faces is supported only for extrusions with two distances");
-    }
-
-    let angle: number = this.options.draft as number;
+    let angle: number = this.draft[0];
 
     if (this.distance > 0) {
       angle = -angle;

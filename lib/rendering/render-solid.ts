@@ -16,10 +16,11 @@ function getEdgesMesh(shapeObj: Shape) {
 
   const edges = Explorer.findEdgesWrapped(shapeObj);
 
-  for (const edge of edges) {
-    const edgeResult = renderEdge(edge);
+  for (let edgeIdx = 0; edgeIdx < edges.length; edgeIdx++) {
+    const edgeResult = renderEdge(edges[edgeIdx]);
     if (edgeResult) {
       edgeResult.label = 'solid-edges';
+      edgeResult.edgeIndex = edgeIdx;
       result.push(edgeResult);
     }
   }
@@ -30,18 +31,24 @@ function getEdgesMesh(shapeObj: Shape) {
 function getFacesMesh(shapeObj: Shape): SceneObjectMesh[] {
   const faces = Explorer.findFacesWrapped(shapeObj);
 
-  const groups = new Map<string | undefined, { vertices: number[]; normals: number[]; indices: number[]; vertexOffset: number }>();
+  const groups = new Map<string | undefined, { vertices: number[]; normals: number[]; indices: number[]; faceMapping: number[]; vertexOffset: number }>();
 
-  for (const face of faces) {
+  for (let faceIdx = 0; faceIdx < faces.length; faceIdx++) {
+    const face = faces[faceIdx];
     const color = shapeObj.getColor(face.getShape());
 
     const faceResult = renderFace(face, 0);
 
     if (faceResult) {
       if (!groups.has(color)) {
-        groups.set(color, { vertices: [], normals: [], indices: [], vertexOffset: 0 });
+        groups.set(color, { vertices: [], normals: [], indices: [], faceMapping: [], vertexOffset: 0 });
       }
       const group = groups.get(color)!;
+
+      const triangleCount = faceResult.indices.length / 3;
+      for (let t = 0; t < triangleCount; t++) {
+        group.faceMapping.push(faceIdx);
+      }
 
       group.vertices.push(...faceResult.vertices);
       group.normals.push(...faceResult.normals);
@@ -58,6 +65,7 @@ function getFacesMesh(shapeObj: Shape): SceneObjectMesh[] {
       vertices: group.vertices,
       normals: group.normals,
       indices: group.indices,
+      faceMapping: group.faceMapping,
       label: "solid-faces",
     };
 

@@ -1,54 +1,56 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
-import { ExtrudeThroughAll } from "./infinite-extrude.js";
 import { Shape, Solid } from "../common/shapes.js";
-import { ExtrudeOptions } from "./extrude-options.js";
 import { Sketch } from "./2d/sketch.js";
 import { FaceMaker } from "../core/2d/face-maker.js";
-import { Extruder } from "./simple-extruder.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { ShapeOps } from "../oc/shape-ops.js";
+import { ExtrudeOps } from "../oc/extrude-ops.js";
+import { ExtrudeThroughAll } from "./infinite-extrude.js";
 import { Extrudable } from "../helpers/types.js";
 import { LazySceneObject } from "./lazy-scene-object.js";
 import { Edge } from "../common/edge.js";
 import { CutBase } from "./cut-base.js";
 
-export class Cut extends CutBase {
+export class CutSymmetric extends CutBase {
 
-  constructor(private extrudable: Extrudable,
+  constructor(
+    private extrudable: Extrudable,
     public distance: number) {
     super();
   }
 
   build(context: BuildSceneObjectContext) {
-    let sceneObjects: Map<SceneObject, Shape[]>;
-
-    sceneObjects = new Map<SceneObject, Shape[]>();
+    const sceneObjects = new Map<SceneObject, Shape[]>();
     for (const obj of context.getSceneObjects()) {
       const shapes = obj.getShapes(false, 'solid');
       if (shapes.length === 0) {
         continue;
       }
-
       sceneObjects.set(obj, shapes);
     }
 
-    console.log('Cut: Scene objects for cut:', Array.from(sceneObjects.keys()).map(o => o.getType()));
+    const plane = this.extrudable.getPlane();
+    let toolShapes: Shape[];
 
-    let distance = this.distance === 0 ? 0 : -this.distance;
-
-    let extrusionShapes: Shape[] = [];
     const isThroughAll = this.distance === 0;
 
     if (isThroughAll) {
-      const extrudeThroughAll = new ExtrudeThroughAll(this.extrudable, false, true);
-      extrusionShapes = extrudeThroughAll.build();
+      const extrudeThroughAll = new ExtrudeThroughAll(this.extrudable, true, false);
+      toolShapes = extrudeThroughAll.build();
     }
     else {
       const wires = this.extrudable.getGeometries();
-      const faces = FaceMaker.getFaces(wires, this.extrudable.getPlane());
-      const plane = this.extrudable.getPlane();
-      const extruder = new Extruder(faces, plane, distance, this.getDraft(), this.getEndOffset());
-      extrusionShapes = extruder.extrude();
+      const faces = FaceMaker.getFaces(wires, plane);
+
+      const vec = plane.normal.multiply(this.distance);
+      const translateVec = vec.multiply(-0.5);
+
+      toolShapes = [];
+      for (const face of faces) {
+        const { solid: rawSolid } = ExtrudeOps.makePrismFromVec(face, vec);
+        const solid = ShapeOps.translateShape(ShapeOps.cleanShape(rawSolid), translateVec);
+        toolShapes.push(solid);
+      }
     }
 
     this.extrudable.removeShapes(this);
@@ -61,28 +63,19 @@ export class Cut extends CutBase {
     }
 
     const stock = Array.from(shapeObjectMap.keys());
-    console.log('Cut: Stock shapes count:', stock.length);
-    const toBeRemoved = extrusionShapes;
-
-    console.log('Cut: Stock shapes count:', stock.length);
-    console.log('Cut: To be removed shapes count:', toBeRemoved.length);
-
-    const cutResult = BooleanOps.cutMultiShape(stock, toBeRemoved, this.extrudable.getPlane(), this.distance);
+    const cutResult = BooleanOps.cutMultiShape(stock, toolShapes, plane, this.distance);
 
     for (const shape of stock) {
       const list = cutResult.modified(shape);
-      console.log('Cut: Modified shapes for shape:', list.length);
       if (list.length) {
         for (const newShape of list) {
           const s = ShapeOps.cleanShape(newShape) as Solid;
-          console.log('Cut: Adding modified shape:', s);
           this.addShape(s);
         }
 
         const obj = shapeObjectMap.get(shape);
         obj.removeShape(shape, this);
       }
-      console.log('Cut: Shape modified count:', list.length);
     }
 
     this.setState('section-edges', cutResult.sectionEdges);
@@ -94,12 +87,12 @@ export class Cut extends CutBase {
   override clone(): SceneObject[] {
     const extrudableClone = this.extrudable.clone();
     const extrudable = extrudableClone.find(c => c instanceof Sketch) as Sketch;
-    const cutClone = new Cut(extrudable, this.distance).syncWith(this);
-    return [...extrudableClone, cutClone];
+    const clone = new CutSymmetric(extrudable, this.distance).syncWith(this);
+    return [...extrudableClone, clone];
   }
 
-  compareTo(other: Cut): boolean {
-    if (!(other instanceof Cut)) {
+  compareTo(other: CutSymmetric): boolean {
+    if (!(other instanceof CutSymmetric)) {
       return false;
     }
 
@@ -116,7 +109,7 @@ export class Cut extends CutBase {
 
   edges(...indices: number[]): SceneObject {
     const suffix = indices.length > 0 ? `section-edges-${indices.join('-')}` : 'section-edges';
-    return new LazySceneObject(`${this.getOrder()}-cut-${suffix}`,
+    return new LazySceneObject(`${this.getOrder()}-cut-symmetric-${suffix}`,
       () => {
         const edges = this.getState('section-edges') as Edge[] || [];
         if (indices.length === 0) { return edges; }
@@ -126,7 +119,7 @@ export class Cut extends CutBase {
 
   startEdges(...indices: number[]): SceneObject {
     const suffix = indices.length > 0 ? `start-edges-${indices.join('-')}` : 'start-edges';
-    return new LazySceneObject(`${this.getOrder()}-cut-${suffix}`,
+    return new LazySceneObject(`${this.getOrder()}-cut-symmetric-${suffix}`,
       () => {
         const edges = this.getState('start-edges') as Edge[] || [];
         if (indices.length === 0) { return edges; }
@@ -136,7 +129,7 @@ export class Cut extends CutBase {
 
   endEdges(...indices: number[]): SceneObject {
     const suffix = indices.length > 0 ? `end-edges-${indices.join('-')}` : 'end-edges';
-    return new LazySceneObject(`${this.getOrder()}-cut-${suffix}`,
+    return new LazySceneObject(`${this.getOrder()}-cut-symmetric-${suffix}`,
       () => {
         const edges = this.getState('end-edges') as Edge[] || [];
         if (indices.length === 0) { return edges; }
@@ -146,7 +139,7 @@ export class Cut extends CutBase {
 
   internalEdges(...indices: number[]): SceneObject {
     const suffix = indices.length > 0 ? `internal-edges-${indices.join('-')}` : 'internal-edges';
-    return new LazySceneObject(`${this.getOrder()}-cut-${suffix}`,
+    return new LazySceneObject(`${this.getOrder()}-cut-symmetric-${suffix}`,
       () => {
         const edges = this.getState('internal-edges') as Edge[] || [];
         if (indices.length === 0) { return edges; }
@@ -154,10 +147,15 @@ export class Cut extends CutBase {
       });
   }
 
+  getType(): string {
+    return "cut-symmetric";
+  }
+
   serialize() {
     return {
       extrudable: this.extrudable.serialize(),
       distance: this.distance,
+      symmetric: true,
       draft: this.getDraft(),
       endOffset: this.getEndOffset(),
       fusionScope: this.getFusionScope(),

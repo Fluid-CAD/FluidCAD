@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { Shape } from "./shape.js";
-import { MergeScope } from "../features/extrude-options.js";
+import { FusionScope } from "../features/extrude-options.js";
 import { Matrix4 } from "../math/matrix4.js";
 
 export interface Comparable<T> {
@@ -29,6 +29,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _alwaysVisible: boolean = false;
   private _name: string = '';
   private _guide: boolean = false;
+  private _keep: boolean = false;
 
   constructor() {
     this.state = new Map();
@@ -129,7 +130,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   abstract build(context?: BuildSceneObjectContext): void;
 
   compareTo(other: SceneObject): boolean {
-    return this._guide === other._guide;
+    return this._guide === other._guide && this._keep === other._keep;
   }
 
   clone(): SceneObject[] {
@@ -142,10 +143,6 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   getTransform(): Matrix4 | null {
     return this._transform;
-  }
-
-  getFusionScope(): MergeScope {
-    return 'none';
   }
 
   isExtrudable(): boolean {
@@ -190,8 +187,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   }
 
   removeShape(shape: Shape, removedBy: SceneObject) {
-    const keep = this.getState('keep');
-    if (keep) {
+    if (this._keep) {
       return;
     }
 
@@ -212,8 +208,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   }
 
   removeShapes(removedBy: SceneObject) {
-    const keep = this.getState('keep');
-    if (keep) {
+    if (this._keep) {
       return;
     }
 
@@ -230,7 +225,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   }
 
   keep() {
-    this.setState('keep', true)
+    this._keep = true;
     return this;
   }
 

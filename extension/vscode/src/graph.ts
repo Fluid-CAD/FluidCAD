@@ -74,6 +74,7 @@ class SceneShapeTreeItem extends vscode.TreeItem {
   ) {
     super(`${obj.shapeType} ${index + 1}`, vscode.TreeItemCollapsibleState.None);
     this.iconPath = this.context.asAbsolutePath(`resources/icons/${obj.shapeType}.png`);
+    this.contextValue = 'shape';
     this.command = {
       command: 'fluidcad.highlight_shape',
       title: 'Highlight Shape',

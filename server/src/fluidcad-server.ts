@@ -8,6 +8,16 @@ type SceneManager = {
   rollbackScene(scene: any, rollbackIndex: number): any;
   compare(previousScene: any, currentScene: any): any;
   importFile(workspacePath: string, fileName: string, data: Uint8Array): any;
+  getShapeProperties(scene: any, shapeId: string): any;
+  getFaceProperties(scene: any, shapeId: string, faceIndex: number): any;
+  getEdgeProperties(scene: any, shapeId: string, edgeIndex: number): any;
+  hitTest(
+    scene: any,
+    shapeId: string,
+    rayOrigin: [number, number, number],
+    rayDir: [number, number, number],
+    edgeThreshold: number,
+  ): any;
 };
 
 export type SceneRenderedData = {
@@ -54,7 +64,7 @@ export class FluidCadServer {
 
     try {
       let scene = this.sceneManager.startScene();
-      this.viteManager.invalidateModule(filePath);
+      this.viteManager.invalidateModule();
       await this.viteManager.loadModule(filePath);
 
       if (this.previousScenes.has(normalizedFileName)) {
@@ -78,7 +88,7 @@ export class FluidCadServer {
       };
     }
     catch (error) {
-      this.viteManager.invalidateModule(filePath);
+      this.viteManager.invalidateModule();
       console.log('Error processing file:', error);
       return null;
     }
@@ -121,5 +131,54 @@ export class FluidCadServer {
 
     const binaryData = Buffer.from(data, 'base64');
     await this.sceneManager.importFile(workspacePath, fileName, binaryData);
+  }
+
+  getShapeProperties(shapeId: string): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.getShapeProperties(scene, shapeId);
+  }
+
+  getFaceProperties(shapeId: string, faceIndex: number): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.getFaceProperties(scene, shapeId, faceIndex);
+  }
+
+  getEdgeProperties(shapeId: string, edgeIndex: number): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.getEdgeProperties(scene, shapeId, edgeIndex);
+  }
+
+  hitTest(
+    shapeId: string,
+    rayOrigin: [number, number, number],
+    rayDir: [number, number, number],
+    edgeThreshold: number,
+  ): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.hitTest(scene, shapeId, rayOrigin, rayDir, edgeThreshold);
   }
 }

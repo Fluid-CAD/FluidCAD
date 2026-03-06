@@ -2,6 +2,15 @@ import { Scene } from "./rendering/scene.js";
 import { renderScene, renderSceneRollback } from "./rendering/render.js";
 import { SceneCompare } from "./rendering/scene-compare.js";
 import { FileImport } from "./io/file-import.js";
+import { ShapeProps } from "./oc/props.js";
+import type { ShapeProperties } from "./oc/props.js";
+import { FaceProps } from "./oc/face-props.js";
+import type { FaceProperties } from "./oc/face-props.js";
+import { EdgeProps } from "./oc/edge-props.js";
+import type { EdgeProperties } from "./oc/edge-props.js";
+import { Explorer } from "./oc/explorer.js";
+import { OccHitTest } from "./oc/hit-test.js";
+import type { HitTestResult } from "./oc/hit-test.js";
 
 class SceneManager {
   currentScene: Scene = new Scene();
@@ -29,6 +38,64 @@ class SceneManager {
 
   importFile(workspacePath: string, fileName: string, data: Uint8Array) {
     FileImport.importFile(workspacePath, fileName, data);
+  }
+
+  getShapeProperties(scene: Scene, shapeId: string): ShapeProperties | null {
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getAddedShapes()) {
+        if (shape.id === shapeId) {
+          return ShapeProps.getProperties(shape.getShape());
+        }
+      }
+    }
+    return null;
+  }
+
+  getFaceProperties(scene: Scene, shapeId: string, faceIndex: number): FaceProperties | null {
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getAddedShapes()) {
+        if (shape.id === shapeId) {
+          const faces = Explorer.findFacesWrapped(shape);
+          if (faceIndex < 0 || faceIndex >= faces.length) {
+            return null;
+          }
+          return FaceProps.getProperties(faces[faceIndex].getShape());
+        }
+      }
+    }
+    return null;
+  }
+
+  getEdgeProperties(scene: Scene, shapeId: string, edgeIndex: number): EdgeProperties | null {
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getAddedShapes()) {
+        if (shape.id === shapeId) {
+          const edges = Explorer.findEdgesWrapped(shape);
+          if (edgeIndex < 0 || edgeIndex >= edges.length) {
+            return null;
+          }
+          return EdgeProps.getProperties(edges[edgeIndex].getShape());
+        }
+      }
+    }
+    return null;
+  }
+
+  hitTest(
+    scene: Scene,
+    shapeId: string,
+    rayOrigin: [number, number, number],
+    rayDir: [number, number, number],
+    edgeThreshold: number,
+  ): HitTestResult {
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getAddedShapes()) {
+        if (shape.id === shapeId) {
+          return OccHitTest.hitTest(shape.getShape(), rayOrigin, rayDir, edgeThreshold);
+        }
+      }
+    }
+    return null;
   }
 }
 

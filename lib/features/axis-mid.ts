@@ -21,7 +21,7 @@ export class AxisMiddle extends AxisObjectBase {
       throw new Error("AxisMiddleRenderable: The two axes are not parallel; cannot define a middle axis");
     }
 
-    const middlePoint = axis1.origin.add(axis2.origin).multiply(0.5);
+    const middlePoint = axis1.origin.add(axis2.origin).multiplyScalar(0.5);
     let middleAxis = new Axis(middlePoint, axis1.direction);
 
     if (this.options) {

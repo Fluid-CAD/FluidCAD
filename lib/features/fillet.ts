@@ -1,7 +1,7 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Edge, Shape, Solid } from "../common/shapes.js";
 import { SelectSceneObject } from "./select.js";
-import { MergeScope } from "./extrude-options.js";
+import { FusionScope } from "./extrude-options.js";
 import { FilletOps } from "../oc/fillet-ops.js";
 import { Explorer } from "../oc/explorer.js";
 
@@ -70,8 +70,6 @@ export class Fillet extends SceneObject {
 
     for (const shape of allTargetSceneShapes) {
       const solid = shape as Solid;
-      const owner = sceneShapeObjectMap.get(shape);
-      console.log('Fillet: Processing shape:', solid, Explorer.getShapeTypeFromWrapper(solid), 'owner:', owner.getType());
       const targetEdges = edges.filter(e => solid.hasEdge(e.getShape()));
       console.log('Fillet: Target edges count:', targetEdges.length);
       if (!targetEdges.length) {
@@ -109,10 +107,6 @@ export class Fillet extends SceneObject {
     const selection = selectionClone[selectionClone.length - 1] as SelectSceneObject;
     const fillet = new Fillet(selection, this.radius);
     return [...selectionClone, fillet];
-  }
-
-  getFusionScope(): MergeScope {
-    return 'all';
   }
 
   compareTo(other: Fillet): boolean {

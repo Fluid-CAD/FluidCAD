@@ -15,7 +15,7 @@ export class PlaneMiddleRenderable extends PlaneObjectBase {
     const plane1 = this.p1.getPlane();
     const plane2 = this.p2.getPlane();
 
-    const midpoint = plane1.origin.add(plane2.origin).multiply(0.5);
+    const midpoint = plane1.origin.add(plane2.origin).multiplyScalar(0.5);
 
     const xDirection = plane1.xDirection;
     const normal = plane1.normal;

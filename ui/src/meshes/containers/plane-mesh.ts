@@ -35,6 +35,8 @@ export class PlaneMesh extends Group {
       return;
     }
 
+    this.userData.isMetaShape = true;
+
     const normal = sceneObject.object.normal; // { x: number, y: number, z: number }
     const center = sceneObject.object.center; // { x: number, y: number, z: number }
 

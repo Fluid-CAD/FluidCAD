@@ -58,7 +58,7 @@ export class ViteManager {
 
   invalidateModule() {
     for (const [id, mod] of this.server.moduleGraph.idToModuleMap) {
-      if (id.startsWith(this.rootPath)) {
+      if (id.startsWith(this.rootPath) || id.startsWith('virtual:live-render')) {
         this.server.moduleGraph.invalidateModule(mod);
       }
     }

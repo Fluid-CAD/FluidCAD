@@ -6,11 +6,12 @@ import { SceneObject } from "../common/scene-object.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisObject } from "../features/axis.js";
+import { Rotate2D } from "../features/rotate2d.js";
 
 interface RotateFunction {
   // 2D rotation inside a sketch
-  (angle: number, copy?: boolean): Rotate;
-  (objects: SceneObject[], angle: number, copy?: boolean): Rotate;
+  (angle: number, copy?: boolean): Rotate2D;
+  (objects: SceneObject[], angle: number, copy?: boolean): Rotate2D;
 
   (axis: AxisLike, angle: number, copy?: boolean): Rotate;
   (objects: SceneObject[], axis: AxisLike, angle: number, copy?: boolean): Rotate;
@@ -25,7 +26,7 @@ function build(context: SceneParserContext): RotateFunction {
     // rotate(angle) — 2D rotation inside a sketch
     if (args.length === 1 && activeSketch) {
       const angle = args[0] as number;
-      const rotate = new Rotate(null, null, angle, copy);
+      const rotate = new Rotate2D(null, angle, copy);
       context.addSceneObject(rotate);
       return rotate;
     }
@@ -35,7 +36,7 @@ function build(context: SceneParserContext): RotateFunction {
       if (Array.isArray(args[0]) && activeSketch) {
         const objects = args[0] as GeometrySceneObject[];
         const angle = args[1] as number;
-        const rotate = new Rotate(null, objects, angle, copy);
+        const rotate = new Rotate2D(objects, angle, copy);
         context.addSceneObject(rotate);
         return rotate;
       }

@@ -1,7 +1,6 @@
 export { default as line } from './line.js';
 export { default as circle } from './circle.js';
 export { default as rect } from './rect.js';
-export { default as cRect } from './crect.js';
 export { default as hMove } from './hmove.js';
 export { default as vMove } from './vmove.js';
 export { default as rMove } from './rmove.js';
@@ -15,7 +14,6 @@ export { default as move } from './move.js';
 export { default as aLine } from './aline.js';
 export { default as wire } from './wire.js';
 export { default as slot } from './slot.js';
-export { default as aSlot } from './aslot.js';
 export { default as connect } from './connect.js';
 export { default as polygon } from './polygon.js';
 export { default as offset } from './offset.js';

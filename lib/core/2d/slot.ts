@@ -11,11 +11,10 @@ import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { resolvePlane } from "../../helpers/resolve.js";
 
 interface SlotFunction {
-  (distance: number, radius: number, centered?: boolean): Slot;
+  (distance: number, radius: number): Slot;
+  (distance: number, radius: number, targetPlane: PlaneLike | SceneObject): Slot;
   (start: Point2DLike, distance: number, radius: number): Slot;
   (geometry: SceneObject, radius: number, deleteSource?: boolean): SlotFromEdge;
-  (distance: number, radius: number, targetPlane: PlaneLike | SceneObject): Slot;
-  (distance: number, radius: number, centered: boolean, targetPlane: PlaneLike | SceneObject): Slot;
   (geometry: SceneObject, radius: number, targetPlane: PlaneLike | SceneObject): SlotFromEdge;
   (geometry: SceneObject, radius: number, deleteSource: boolean, targetPlane: PlaneLike | SceneObject): SlotFromEdge;
 }
@@ -65,30 +64,19 @@ function build(context: SceneParserContext): SlotFunction {
     if (argCount === 2 && typeof arguments[0] === 'number') {
       const distance = arguments[0] as number;
       const radius = arguments[1] as number;
-      const s = new Slot(distance, radius, false, 0, planeObj);
+      const s = new Slot(distance, radius, planeObj);
       context.addSceneObject(s);
       return s;
     }
 
-    // slot(distance, radius, centered) or slot(start, distance, radius)
+    // slot(start, distance, radius)
     if (argCount === 3) {
-      if (typeof arguments[0] === 'number') {
-        // slot(distance, radius, centered)
-        const distance = arguments[0] as number;
-        const radius = arguments[1] as number;
-        const centered = arguments[2] as boolean;
-        const s = new Slot(distance, radius, centered, 0, planeObj);
-        context.addSceneObject(s);
-        return s;
-      } else {
-        // slot(start, distance, radius)
-        const start = normalizePoint2D(arguments[0]);
-        const distance = arguments[1] as number;
-        const radius = arguments[2] as number;
-        const s = new Slot(distance, radius, false, 0, planeObj);
-        context.addSceneObjects([new Move(start), s]);
-        return s;
-      }
+      const start = normalizePoint2D(arguments[0]);
+      const distance = arguments[1] as number;
+      const radius = arguments[2] as number;
+      const s = new Slot(distance, radius, planeObj);
+      context.addSceneObjects([new Move(start), s]);
+      return s;
     }
 
     throw new Error("Invalid arguments for slot()");

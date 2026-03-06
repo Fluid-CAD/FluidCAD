@@ -9,15 +9,25 @@ import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
 
 export class Slot extends ExtrudableGeometryBase {
+  private _center: boolean = false;
+  private _angle: number = 0;
 
   constructor(
     public distance: number,
     public radius: number,
-    public centered: boolean,
-    public angle: number = 0,
     targetPlane: PlaneObjectBase = null,
   ) {
     super(targetPlane);
+  }
+
+  center(value: boolean = true): this {
+    this._center = value;
+    return this;
+  }
+
+  rotate(angle: number): this {
+    this._angle = angle;
+    return this;
   }
 
   build(): void {
@@ -32,8 +42,8 @@ export class Slot extends ExtrudableGeometryBase {
       ? plane.worldToLocal(this.targetPlane.getPlaneCenter())
       : this.getCurrentPosition();
 
-    if (this.centered) {
-      const angleRad = rad(this.angle);
+    if (this._center) {
+      const angleRad = rad(this._angle);
       const cos = Math.cos(angleRad);
       const sin = Math.sin(angleRad);
       leftCenter = leftCenter.translate(
@@ -42,7 +52,7 @@ export class Slot extends ExtrudableGeometryBase {
       );
     }
 
-    const angleRad = rad(this.angle);
+    const angleRad = rad(this._angle);
     const cos = Math.cos(angleRad);
     const sin = Math.sin(angleRad);
 
@@ -117,7 +127,7 @@ export class Slot extends ExtrudableGeometryBase {
     this.addShape(wire);
 
     if (this.sketch) {
-      if (this.centered) {
+      if (this._center) {
         this.setCurrentPosition(this.getCurrentPosition());
       } else {
         this.setCurrentPosition(leftCenter);
@@ -133,7 +143,10 @@ export class Slot extends ExtrudableGeometryBase {
 
   override clone(): SceneObject[] {
     const targetPlane = this.targetPlane ? this.targetPlane.clone()[0] as PlaneObjectBase : null;
-    return [new Slot(this.distance, this.radius, this.centered, this.angle, targetPlane)];
+    const s = new Slot(this.distance, this.radius, targetPlane);
+    s.center(this._center);
+    s.rotate(this._angle);
+    return [s];
   }
 
   compareTo(other: Slot): boolean {
@@ -148,22 +161,23 @@ export class Slot extends ExtrudableGeometryBase {
     if (this.targetPlane?.constructor !== other.targetPlane?.constructor) {
       return false;
     }
+
     if (this.targetPlane && other.targetPlane && !this.targetPlane.compareTo(other.targetPlane)) {
       return false;
     }
 
     return this.distance === other.distance &&
       this.radius === other.radius &&
-      this.centered === other.centered &&
-      this.angle === other.angle;
+      this._center === other._center &&
+      this._angle === other._angle;
   }
 
   serialize() {
     return {
       distance: this.distance,
       radius: this.radius,
-      centered: this.centered,
-      angle: this.angle,
+      center: this._center,
+      angle: this._angle,
     };
   }
 }

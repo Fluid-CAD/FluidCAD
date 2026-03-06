@@ -4,25 +4,19 @@ import { WireOps } from "../../oc/wire-ops.js";
 import { Geometry } from "../../oc/geometry.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
-import { Vertex } from "../../common/vertex.js";
-import { GeometrySceneObject } from "./geometry.js";
 import { LazySceneObject } from "../lazy-scene-object.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { Plane } from "../../math/plane.js";
-import { Wire } from "../../common/wire.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
 
-export type RectOptions = {
-  radius?: number | number[];
-};
-
 export class Rect extends ExtrudableGeometryBase {
+  private _radius?: number | number[];
+  private _center: boolean | 'horizontal' | 'vertical' = false;
+
   constructor(
     public width: number,
     public height: number,
-    public centered: boolean,
-    public options: RectOptions = null,
     targetPlane: PlaneObjectBase = null,
     ) {
     super(targetPlane);
@@ -36,13 +30,21 @@ export class Rect extends ExtrudableGeometryBase {
     console.log("Rect::build start:", start);
     let end = new Point2D(start.x + this.width, start.y + this.height);
 
-    if (this.centered) {
+    if (this._center === true) {
       end = start;
       start = start.translate(-this.width / 2, -this.height / 2);
     }
+    else if (this._center === 'horizontal') {
+      end = start;
+      start = start.translate(-this.width / 2, 0);
+    }
+    else if (this._center === 'vertical') {
+      end = start;
+      start = start.translate(0, -this.height / 2);
+    }
 
     let edges: Edge[] = [];
-    if (this.options?.radius) {
+    if (this._radius) {
       edges = this.buildRoundedRect(start, plane);
     }
     else {
@@ -52,9 +54,13 @@ export class Rect extends ExtrudableGeometryBase {
     let wire = WireOps.makeWireFromEdges(edges);
 
     this.addShape(wire);
-    if (this.sketch) this.setCurrentPosition(end);
+    if (this.sketch) {
+      this.setCurrentPosition(end);
+    }
 
-    if (this.targetPlane) this.targetPlane.removeShapes(this);
+    if (this.targetPlane) {
+      this.targetPlane.removeShapes(this);
+    }
   }
 
   buildSimpleRect(start: Point2D, plane: Plane) {
@@ -88,11 +94,11 @@ export class Rect extends ExtrudableGeometryBase {
   }
 
   buildRoundedRect(start: Point2D, plane: Plane) {
-    const radius = Array.isArray(this.options?.radius) ? this.options.radius :
-      [this.options.radius,
-      this.options.radius || 0,
-      this.options.radius || 0,
-      this.options.radius || 0];
+    const radius = Array.isArray(this._radius) ? this._radius :
+      [this._radius,
+      this._radius || 0,
+      this._radius || 0,
+      this._radius || 0];
 
     const [bottomLeftRadius, bottomRightRadius, topRightRadius, topLeftRadius] = radius;
 
@@ -219,7 +225,13 @@ export class Rect extends ExtrudableGeometryBase {
 
   override clone(): SceneObject[] {
     const targetPlane = this.targetPlane ? this.targetPlane.clone()[0] as PlaneObjectBase : null;
-    const rect = new Rect(this.width, this.height, this.centered, this.options, targetPlane);
+    const rect = new Rect(this.width, this.height, targetPlane);
+    if (this._radius) {
+      rect.radius(...(Array.isArray(this._radius) ? this._radius : [this._radius]));
+    }
+
+    rect.center(this._center);
+
     return [rect];
   }
 
@@ -239,19 +251,19 @@ export class Rect extends ExtrudableGeometryBase {
       return false;
     }
 
-    if (this.width !== other.width || this.height !== other.height || this.centered !== other.centered) {
+    if (this.width !== other.width || this.height !== other.height || this._center !== other._center) {
       return false;
     }
 
-    const thisRadius = Array.isArray(this.options?.radius) ? this.options.radius : [this.options?.radius || 0,
-    this.options?.radius || 0,
-    this.options?.radius || 0,
-    this.options?.radius || 0];
+    const thisRadius = Array.isArray(this._radius) ? this._radius : [this._radius || 0,
+    this._radius || 0,
+    this._radius || 0,
+    this._radius || 0];
 
-    const otherRadius = Array.isArray(other.options?.radius) ? other.options.radius : [other.options?.radius || 0,
-    other.options?.radius || 0,
-    other.options?.radius || 0,
-    other.options?.radius || 0];
+    const otherRadius = Array.isArray(other._radius) ? other._radius : [other._radius || 0,
+    other._radius || 0,
+    other._radius || 0,
+    other._radius || 0];
 
     return thisRadius.every((r, i) => r === otherRadius[i]);
   }
@@ -328,11 +340,29 @@ export class Rect extends ExtrudableGeometryBase {
     });
   }
 
+  radius(...r: number[]): this {
+    if (r.length === 1) {
+      this._radius = r[0]
+    }
+    else {
+      this._radius = r;
+    }
+
+    this._radius = r;
+    return this;
+  }
+
+  center(value: boolean | 'horizontal' | 'vertical' = true): this {
+    this._center = value;
+    return this;
+  }
+
   serialize() {
     return {
       width: this.width,
       height: this.height,
-      options: this.options
+      radius: this._radius,
+      center: this._center
     };
   }
 }

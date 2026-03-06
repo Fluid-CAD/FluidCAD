@@ -1,13 +1,14 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
+import { Axis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { rad } from "../helpers/math-helpers.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
+import { GeometrySceneObject } from "./2d/geometry.js";
 
-export class Rotate extends SceneObject {
+export class Rotate2D extends GeometrySceneObject {
 
   constructor(
-    public axis: AxisObjectBase,
     public targetObjects: SceneObject[],
     public angle: number,
     private copy: boolean = false) {
@@ -17,15 +18,9 @@ export class Rotate extends SceneObject {
   build(context: BuildSceneObjectContext) {
     let objects: SceneObject[];
     let targetObjects = this.targetObjects;
-    let parent: SceneObject | null = null;
+    let axis: Axis;
 
-    if (this.parentId) {
-      parent = this.getParent();
-      objects = parent.getPreviousSiblings(this);
-    }
-    else {
-      objects = context.getSceneObjects();
-    }
+    objects = this.sketch.getPreviousSiblings(this);
 
     if (this.targetObjects && this.targetObjects.length > 0) {
       targetObjects = objects.filter(obj => this.targetObjects.includes(obj));
@@ -34,9 +29,10 @@ export class Rotate extends SceneObject {
       targetObjects = objects;
     }
 
-    this.axis.removeShapes(this)
+    const plane = this.sketch.getPlane();
+    const currentPosition = plane.localToWorld(this.sketch.getPositionAt(this as any));
+    axis = new Axis(currentPosition, plane.zAxis.direction);
 
-    const axis = this.axis.getAxis();
     const matrix = Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, rad(this.angle));
 
     for (const obj of targetObjects) {
@@ -49,10 +45,16 @@ export class Rotate extends SceneObject {
         }
       }
     }
+
+    const lastTangent = this.sketch.getTangentAt(this);
+    if (lastTangent) {
+      const transformedTangent = lastTangent.transform(matrix);
+      this.setTangent(transformedTangent);
+    }
   }
 
-  compareTo(other: Rotate): boolean {
-    if (!(other instanceof Rotate)) {
+  compareTo(other: Rotate2D): boolean {
+    if (!(other instanceof Rotate2D)) {
       return false;
     }
 
@@ -66,12 +68,6 @@ export class Rotate extends SceneObject {
 
     if (this.angle !== other.angle) {
       return false;
-    }
-
-    if (this.axis) {
-      if (!this.axis.compareTo(other.axis)) {
-        return false;
-      }
     }
 
     const thisTargetObjects = this.targetObjects || [];

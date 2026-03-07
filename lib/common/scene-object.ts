@@ -1,6 +1,5 @@
 import { randomUUID } from "crypto";
 import { Shape } from "./shape.js";
-import { FusionScope } from "../features/extrude-options.js";
 import { Matrix4 } from "../math/matrix4.js";
 
 export interface Comparable<T> {
@@ -30,6 +29,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _name: string = '';
   private _guide: boolean = false;
   private _keep: boolean = false;
+  private _forceRemoveShapes: boolean = false;
 
   constructor() {
     this.state = new Map();
@@ -130,7 +130,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   abstract build(context?: BuildSceneObjectContext): void;
 
   compareTo(other: SceneObject): boolean {
-    return this._guide === other._guide && this._keep === other._keep;
+    return this._guide === other._guide && this._keep === other._keep && this._forceRemoveShapes === other._forceRemoveShapes;
   }
 
   clone(): SceneObject[] {
@@ -186,8 +186,13 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     }
   }
 
-  removeShape(shape: Shape, removedBy: SceneObject) {
-    if (this._keep) {
+  forceRemove() {
+    this._forceRemoveShapes = true;
+    return this;
+  }
+
+  removeShape(shape: Shape, removedBy: SceneObject, force: boolean = false) {
+    if (this._keep && !(force || removedBy._forceRemoveShapes)) {
       return;
     }
 
@@ -195,7 +200,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
       for (const child of this.children) {
         const childShapes = child.getShapes();
         if (childShapes.some(s => s === shape)) {
-          child.removeShape(shape, removedBy);
+          child.removeShape(shape, removedBy, force);
         }
       }
       return;
@@ -207,20 +212,20 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     })
   }
 
-  removeShapes(removedBy: SceneObject) {
-    if (this._keep) {
+  removeShapes(removedBy: SceneObject, force: boolean = false) {
+    if (this._keep && !(force || removedBy._forceRemoveShapes)) {
       return;
     }
 
     if (this.isContainer()) {
       for (const child of this.children) {
-        child.removeShapes(removedBy);
+        child.removeShapes(removedBy, force);
       }
       return;
     }
 
     for (const shape of this.addedShapes) {
-      this.removeShape(shape, removedBy);
+      this.removeShape(shape, removedBy, force);
     }
   }
 

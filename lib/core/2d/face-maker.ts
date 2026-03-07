@@ -8,9 +8,21 @@ import { Explorer } from "../../oc/explorer.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { Edge } from "../../common/edge.js";
 import { WireOps } from "../../oc/wire-ops.js";
+import { BooleanOps } from "../../oc/boolean-ops.js";
 
 export class FaceMaker {
-  static getFaces(shapes: Array<Wire | Edge>, plane: Plane) {
+  static getFaces(shapes: Array<Wire | Edge>, plane: Plane, drill: boolean = true) {
+    if (drill) {
+      return this.makeDrilledFaces(shapes, plane);
+    }
+    else {
+      const wires = this.unifyWires(shapes);
+      let faces = this.createFacesFromWires(wires, plane);
+      return faces;
+    }
+  }
+
+  static makeDrilledFaces(shapes: Array<Wire | Edge>, plane: Plane): Face[] {
     const wires = this.unifyWires(shapes);
     let faces = this.createFacesFromWires(wires, plane);
 
@@ -43,15 +55,21 @@ export class FaceMaker {
     return wires;
   }
 
-  private static createFacesFromWires(wires: Wire[], plane: Plane): Face[] {
-    if (wires.length === 0) return [];
+  private static createFacesFromWires(wires: Wire[], plane: Plane, fixOrientation = true): Face[] {
+    if (wires.length === 0) {
+      return [];
+    }
 
     console.log("Creating faces from wires:", wires.length);
     const faces: Face[] = [];
     for (let wire of wires) {
-      const face = FaceOps.makeFaceOnPlaneWrapped(wire, plane);
-      const fixedFace = FaceOps.fixFaceOrientation(face);
-      faces.push(fixedFace);
+      let face = FaceOps.makeFaceOnPlaneWrapped(wire, plane);
+
+      if (fixOrientation) {
+        face = FaceOps.fixFaceOrientation(face);
+      }
+
+      faces.push(face);
     }
 
     return faces;

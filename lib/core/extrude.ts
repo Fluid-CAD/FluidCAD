@@ -15,7 +15,7 @@ interface ExtrudeFunction {
 
   (distance?: number): Extrude;
   (distance1: number, distance2: number): ExtrudeTwoDistances;
-  (distance: number, symmetric?: true): ExtrudeSymmetric;
+  (distance: number, symmetric: true): ExtrudeSymmetric;
   (face: SceneObject | 'first-face' | 'last-face'): ExtrudeToFace;
 }
 

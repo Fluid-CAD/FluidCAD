@@ -114,7 +114,7 @@ export class Sketch extends SceneObject implements Extrudable {
     let wires: Array<Wire | Edge> = [];
 
     for (const child of children) {
-      console.log("Sketch::getWires child:", child.getType(), child.parentId, this.id);
+      console.log("Sketch::getGeometries child:", child.getType(), child.parentId, this.id);
       if (child.parentId && child.parentId !== this.id) {
         continue;
       }

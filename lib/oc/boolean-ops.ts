@@ -9,6 +9,7 @@ import { ShapeFactory } from "../common/shape-factory.js";
 import { Edge } from "../common/edge.js";
 import { EdgeOps } from "./edge-ops.js";
 import { Plane } from "../math/plane.js";
+import { mod, sub } from "three/tsl";
 
 export class BooleanOps {
   static fuseShapes(shape1: Shape, shape2: Shape): Shape {
@@ -186,7 +187,9 @@ export class BooleanOps {
     argumentsList.Append(argsCompound);
 
     const toolsList = new oc.TopTools_ListOfShape();
-    for (const tool of tools) toolsList.Append(tool.getShape());
+    for (const tool of tools) {
+      toolsList.Append(tool.getShape());
+    }
 
     const progress = new oc.Message_ProgressRange();
     const fuseMaker = new oc.BRepAlgoAPI_Fuse();
@@ -204,7 +207,6 @@ export class BooleanOps {
       throw new Error('Fuse operation failed');
     }
 
-    console.log('Fuse:: Has Warnings', fuseMaker.HasWarnings());
     let resultShape = fuseMaker.Shape();
     const rawSolids = Explorer.findShapes(resultShape, Explorer.getOcShapeType("solid"));
     const solids = rawSolids.map(s => Solid.fromTopoDSSolid(Explorer.toSolid(s)));

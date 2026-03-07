@@ -7,6 +7,7 @@ export abstract class ExtrudeBase extends SceneObject {
   protected _draft?: number | [number, number];
   protected _endOffset?: number;
   protected _fusionScope?: FusionScope = 'all';
+  protected _drill?: boolean = true;
 
   constructor() {
     super();
@@ -79,6 +80,11 @@ export abstract class ExtrudeBase extends SceneObject {
     return this;
   }
 
+  drill(value: boolean = true): this {
+    this._drill = value;
+    return this;
+  }
+
   getDraft(): [number, number] {
     const draft = this._draft;
     if (!draft) {
@@ -96,6 +102,10 @@ export abstract class ExtrudeBase extends SceneObject {
     return this._fusionScope || 'all';
   }
 
+  getDrill(): boolean {
+    return this._drill;
+  }
+
   protected syncWith(other: ExtrudeBase) {
     this._draft = other._draft;
     this._endOffset = other._endOffset;
@@ -109,7 +119,8 @@ export abstract class ExtrudeBase extends SceneObject {
     }
 
     if (this._fusionScope !== other._fusionScope
-      || this._endOffset !== other._endOffset) {
+      || this._endOffset !== other._endOffset
+       || this._drill !== other._drill) {
       return false;
     }
 

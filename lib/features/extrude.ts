@@ -5,6 +5,7 @@ import { Sketch } from "./2d/sketch.js";
 import { FaceMaker } from "../core/2d/face-maker.js";
 import { Extrudable } from "../helpers/types.js";
 import { ExtrudeBase } from "./extrude-base.js";
+import { mod } from "three/tsl";
 
 export class Extrude extends ExtrudeBase {
   constructor(
@@ -24,7 +25,7 @@ export class Extrude extends ExtrudeBase {
 
     const plane = this.extrudable.getPlane();
 
-    const faces = FaceMaker.getFaces(sketchShapes, this.extrudable.getPlane());
+    const faces = FaceMaker.getFaces(sketchShapes, this.extrudable.getPlane(), this.getDrill());
     console.log("Extruding faces::", faces);
 
     const extruder = new Extruder(faces, plane, this.distance, this.getDraft(), this.getEndOffset());
@@ -49,6 +50,10 @@ export class Extrude extends ExtrudeBase {
     const fusionResult = fuseWithSceneObjects(sceneObjects, extrusions);
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
+      if (!modifiedShape.object) {
+        continue;
+      }
+
       modifiedShape.object.removeShape(modifiedShape.shape, this)
     }
 

@@ -44,7 +44,7 @@ export class MirrorShape extends SceneObject {
 
     const shapesMap: Map<Shape, SceneObject> = new Map();
     for (const obj of allSceneObjects) {
-      const shapes = obj.getShapes();
+      const shapes = obj.getShapes(false, 'solid');
       for (const shape of shapes) {
         shapesMap.set(shape, obj);
       }
@@ -53,7 +53,7 @@ export class MirrorShape extends SceneObject {
     const transformedShapes: Shape[] = [];
 
     for (const obj of targetObjects) {
-      const shapes = obj.getShapes();
+      const shapes = obj.getShapes(false, 'solid');
       for (const shape of shapes) {
         const matrix = Matrix4.mirrorPlane(plane.normal, plane.origin);
         const transformed = ShapeOps.transform(shape, matrix);

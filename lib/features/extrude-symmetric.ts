@@ -29,7 +29,7 @@ export class ExtrudeSymmetric extends ExtrudeBase {
     const sceneObjects = context.getSceneObjects();
 
     const wires = this.extrudable.getGeometries();
-    const faces = FaceMaker.getFaces(wires, this.extrudable.getPlane());
+    const faces = FaceMaker.getFaces(wires, this.extrudable.getPlane(), this.getDrill());
     console.log("Extruding faces:", faces);
 
     const plane = this.extrudable.getPlane();
@@ -106,6 +106,10 @@ export class ExtrudeSymmetric extends ExtrudeBase {
     solids = fusionResult.extrusions;
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
+      if (!modifiedShape.object) {
+        continue;
+      }
+
       modifiedShape.object.removeShape(modifiedShape.shape, this);
     }
 

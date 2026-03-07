@@ -267,7 +267,7 @@ export class FaceOps {
 
   static getFreeBoundsWire(compound: any): TopoDS_Wire | null {
     const oc = getOC();
-    const freeBounds = new oc.ShapeAnalysis_FreeBounds(compound, oc.Precision.Confusion(), true, false);
+    const freeBounds = new oc.ShapeAnalysis_FreeBounds(compound, oc.Precision.Confusion(), true, true);
     const closedWiresCompound = freeBounds.GetClosedWires();
 
     const explorer = new oc.TopExp_Explorer(closedWiresCompound, oc.TopAbs_ShapeEnum.TopAbs_WIRE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
@@ -297,15 +297,25 @@ export class FaceOps {
     progress.delete();
     fuseMaker.delete();
 
-    if (newShape.IsNull()) return null;
-    if (newShape.ShapeType() !== oc.TopAbs_ShapeEnum.TopAbs_COMPOUND) return null;
+    if (newShape.IsNull())  {
+      return null;
+    }
+
+    if (newShape.ShapeType() !== oc.TopAbs_ShapeEnum.TopAbs_COMPOUND)   {
+      return null;
+    }
 
     const faces = Explorer.findShapes(newShape, oc.TopAbs_ShapeEnum.TopAbs_FACE);
-    if (faces.length <= 2) return null;
+    if (faces.length <= 2) {
+      return null;
+    }
 
     // Unify faces compound
     const wire = FaceOps.getFreeBoundsWire(newShape);
-    if (!wire) return null;
+
+    if (!wire) {
+      return null;
+    }
 
     return Face.fromTopoDSFace(FaceOps.makeFace(wire));
   }

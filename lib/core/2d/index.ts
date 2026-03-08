@@ -11,6 +11,7 @@ export { default as tCircle } from './tcircle.js';
 export { default as tArc } from './tarc.js';
 export { default as arc } from './arc.js';
 export { default as move } from './move.js';
+export { default as pMove } from './pmove.js';
 export { default as aLine } from './aline.js';
 export { default as wire } from './wire.js';
 export { default as slot } from './slot.js';

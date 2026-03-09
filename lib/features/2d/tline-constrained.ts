@@ -3,6 +3,7 @@ import { QualifiedGeometry } from "./constraints/qualified-geometry.js";
 import { TangentSolver } from "../../oc/tangent-solver.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { Vertex } from "../../common/vertex.js";
+import { TangentLineSolver } from "../../oc/tangent-line-solver.js";
 
 export class OneCircleTangentLine extends GeometrySceneObject {
   constructor(public c1: QualifiedGeometry) {
@@ -13,13 +14,23 @@ export class OneCircleTangentLine extends GeometrySceneObject {
     const plane = this.sketch.getPlane();
     const currentPos = this.getCurrentPosition();
 
-    const posVertex = new LazyVertex(
-      this.generateUniqueName('current-pos-vertex'),
-      () => [Vertex.fromPoint2D(currentPos)]
-    );
+    const shape = this.c1.object.getShapes()[0]
 
-    const qualifiedVertex = new QualifiedGeometry(posVertex, 'unqualified');
-    const edges = TangentSolver.getTangentLines(plane, this.c1, qualifiedVertex);
+    if (!shape) {
+      throw new Error('At least one shape is required for the tangent line constraint');
+    }
+
+    const currentPosVertex = Vertex.fromPoint2D(currentPos);
+    const edges = TangentLineSolver.getTangentLines(plane,
+      {
+        shape: currentPosVertex,
+        qualifier: 'unqualified'
+      },
+      {
+        shape: shape,
+        qualifier: this.c1.qualifier
+      }
+    );
     this.applyEdgeResults(plane, edges);
   }
 
@@ -35,6 +46,7 @@ export class OneCircleTangentLine extends GeometrySceneObject {
     if (!(other instanceof OneCircleTangentLine)) {
       return false;
     }
+
     return this.c1.compareTo(other.c1);
   }
 

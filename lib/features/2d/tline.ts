@@ -1,6 +1,5 @@
 import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
-import { LazyVertex } from "../lazy-vertex.js";
 import { GeometrySceneObject } from "./geometry.js";
 
 export class TangentLine extends GeometrySceneObject {

@@ -14,7 +14,7 @@ export class OneCircleTangentLine extends GeometrySceneObject {
     const plane = this.sketch.getPlane();
     const currentPos = this.getCurrentPosition();
 
-    const shape = this.c1.object.getShapes()[0]
+    const shape = this.c1.object.getShapes(false)[0]
 
     if (!shape) {
       throw new Error('At least one shape is required for the tangent line constraint');
@@ -70,7 +70,28 @@ export class TwoCirclesTangentLine extends GeometrySceneObject {
 
   build() {
     const plane = this.sketch.getPlane();
-    const edges = TangentSolver.getTangentLines(plane, this.c1, this.c2);
+
+    const shape1 = this.c1.object.getShapes(false)[0]
+
+    if (!shape1) {
+      throw new Error('At least one shape is required for the tangent line constraint');
+    }
+
+    const shape2 = this.c2.object.getShapes(false)[0]
+
+    if (!shape2) {
+      throw new Error('At least one shape is required for the tangent line constraint');
+    }
+
+    const edges = TangentLineSolver.getTangentLines(plane,
+      {
+        shape: shape1,
+        qualifier: this.c1.qualifier
+      }, {
+      shape: shape2,
+      qualifier: this.c2.qualifier
+    });
+
     this.applyEdgeResults(plane, edges);
   }
 

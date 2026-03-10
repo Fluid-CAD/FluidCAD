@@ -4,7 +4,7 @@ import { Shape } from "../../../common/shape.js";
 import { Vertex } from "../../../common/vertex.js";
 import { ConstraintQualifier, QualifiedShape } from "../../../features/2d/constraints/qualified-geometry.js";
 import { Plane } from "../../../math/plane.js";
-import { getQualified } from "../constraint-helpers.js";
+import { getQualifiedGeometry } from "../constraint-helpers.js";
 import { Convert } from "../../convert.js";
 import { getOC } from "../../init.js";
 import { Geometry } from "../../geometry.js";
@@ -43,7 +43,7 @@ export class GeometricTangentLineSolver implements TangentLineSolver {
     const [pln, disposePln] = Convert.toGpPln(plane);
     const [pnt, disposePnt] = Convert.toGpPnt2d(vertex.toPoint2D());
     const geometry = this.getShapeGeometry(circleShape.shape);
-    const qualifiedGeometry = getQualified(pln, geometry, circleShape.qualifier);
+    const qualifiedGeometry = getQualifiedGeometry(pln, geometry, circleShape.qualifier);
 
     const solver = new oc.GccAna_Lin2d2Tan(qualifiedGeometry as GccEnt_QualifiedCirc, pnt, tolerance);
     disposePnt();
@@ -63,8 +63,8 @@ export class GeometricTangentLineSolver implements TangentLineSolver {
     const [pln, disposePln] = Convert.toGpPln(plane);
     const geometry1 = this.getShapeGeometry(shape1.shape);
     const geometry2 = this.getShapeGeometry(shape2.shape);
-    const qualifiedGeometry1 = getQualified(pln, geometry1, shape1.qualifier);
-    const qualifiedGeometry2 = getQualified(pln, geometry2, shape2.qualifier);
+    const qualifiedGeometry1 = getQualifiedGeometry(pln, geometry1, shape1.qualifier);
+    const qualifiedGeometry2 = getQualifiedGeometry(pln, geometry2, shape2.qualifier);
 
     const solver = new oc.GccAna_Lin2d2Tan(qualifiedGeometry1 as GccEnt_QualifiedCirc, qualifiedGeometry2 as GccEnt_QualifiedCirc, tolerance);
 

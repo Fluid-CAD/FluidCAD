@@ -12,6 +12,7 @@ export class QualifiedSceneObject implements Comparable<QualifiedSceneObject> {
     if (arg instanceof QualifiedSceneObject) {
       return arg;
     }
+
     return new QualifiedSceneObject(arg, 'unqualified');
   }
 

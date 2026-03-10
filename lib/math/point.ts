@@ -266,6 +266,7 @@ export type PointLike =
 export type Point2DLike =
   | Point2D
   | [number, number]
+  | number[]
   | { x: number; y: number }
   | LazyVertex;
 

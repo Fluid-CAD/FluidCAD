@@ -27,10 +27,7 @@ export class OneObjectTangentLine extends GeometrySceneObject {
         shape: currentPosVertex,
         qualifier: 'unqualified'
       },
-      {
-        shape: shape,
-        qualifier: this.object.qualifier
-      }
+      this.object.toQualifiedShape()
     );
     this.applyEdgeResults(plane, edges);
   }

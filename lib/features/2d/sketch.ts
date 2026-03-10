@@ -82,6 +82,10 @@ export class Sketch extends SceneObject implements Extrudable {
 
     while (true) {
       const last = children[children.length - 1];
+      if (!last) {
+        return this.getStartPoint();
+      }
+
       const pos = last.getState('current-position') as Point2D;
       if (pos) {
         return pos;

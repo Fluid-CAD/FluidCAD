@@ -10,11 +10,27 @@ export interface TangentLineSolver {
   ): Edge[];
 }
 
-export abstract class ConstraintSolver implements TangentLineSolver {
+export interface TangentCircleSolver {
+  getTangentCircles(
+    plane: Plane,
+    shape1: QualifiedShape,
+    shape2: QualifiedShape,
+    radius: number
+  ): Edge[];
+}
+
+export abstract class ConstraintSolver implements TangentLineSolver, TangentCircleSolver {
   abstract getTangentLines(
     plane: Plane,
     shape1: QualifiedShape,
     shape2: QualifiedShape,
+  ): Edge[];
+
+  abstract getTangentCircles(
+    plane: Plane,
+    shape1: QualifiedShape,
+    shape2: QualifiedShape,
+    radius: number
   ): Edge[];
 }
 

@@ -1,4 +1,4 @@
-import type { GccEnt_Position, gp_Circ, gp_Circ2d, gp_Lin, gp_Lin2d, gp_Pln, gp_Pnt, gp_Pnt2d, Handle_Geom_Curve, TopoDS_Shape, TopoDS_Vertex } from "occjs-wrapper";
+import type { GccEnt_Position, gp_Circ, gp_Circ2d, gp_Lin, gp_Lin2d, gp_Pln, gp_Pnt, gp_Pnt2d, Handle_Geom_Curve } from "occjs-wrapper";
 import { getOC } from "../init.js";
 import { ConstraintQualifier } from "../../features/2d/constraints/qualified-geometry.js";
 
@@ -33,7 +33,7 @@ export function getQualifiedCurve(plane: gp_Pln, curve: Handle_Geom_Curve, quali
   return new oc.Geom2dGcc_QualifiedCurve(handle, getQualifier(qualifier));
 }
 
-export function getQualified(plane: gp_Pln, geometry: gp_Circ | gp_Lin, qualifier: ConstraintQualifier) {
+export function getQualifiedGeometry(plane: gp_Pln, geometry: gp_Circ | gp_Lin, qualifier: ConstraintQualifier) {
   const oc = getOC();
 
   const geom = get2dGeometry<typeof geometry>(plane, geometry);

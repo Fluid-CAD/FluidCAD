@@ -1,20 +1,21 @@
 import { GeometrySceneObject } from "./geometry.js";
-import { TangentSolver } from "../../oc/tangent-solver.js";
 import { QualifiedSceneObject } from "./constraints/qualified-geometry.js";
+import { createConstraintSolver } from "../../oc/constraints/create-solver.js";
 
-export class TangentCircle2Tan extends GeometrySceneObject {
+export class TwoObjectsTangentCircle extends GeometrySceneObject {
   constructor(public c1: QualifiedSceneObject, public c2: QualifiedSceneObject, public radius: number) {
     super();
   }
 
   build() {
     const plane = this.sketch.getPlane();
-    const edges = TangentSolver.getTangentCircles(plane, this.c1, this.c2, this.radius);
+    const solver = createConstraintSolver();
+    const edges = solver.getTangentCircles(plane, this.c1.toQualifiedShape(), this.c2.toQualifiedShape(), this.radius);
     this.addShapes(edges);
   }
 
-  compareTo(other: TangentCircle2Tan): boolean {
-    if (!(other instanceof TangentCircle2Tan)) {
+  compareTo(other: TwoObjectsTangentCircle): boolean {
+    if (!(other instanceof TwoObjectsTangentCircle)) {
       return false;
     }
     return super.compareTo(other) && this.c1.compareTo(other.c1) && this.c2.compareTo(other.c2) && this.radius === other.radius;
@@ -25,7 +26,7 @@ export class TangentCircle2Tan extends GeometrySceneObject {
   }
 
   getUniqueType(): string {
-    return 'tcircle-2tan';
+    return 'two-objects-tcircle';
   }
 
   serialize() {

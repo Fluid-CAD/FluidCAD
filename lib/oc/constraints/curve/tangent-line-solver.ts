@@ -4,7 +4,7 @@ import { Shape } from "../../../common/shape.js";
 import { Vertex } from "../../../common/vertex.js";
 import { ConstraintQualifier } from "../../../features/2d/constraints/qualified-geometry.js";
 import { Plane } from "../../../math/plane.js";
-import { getQualified, getQualifiedCurve } from "../constraint-helpers.js";
+import { getQualifiedGeometry, getQualifiedCurve } from "../constraint-helpers.js";
 import { Convert } from "../../convert.js";
 import { getOC } from "../../init.js";
 import { Geometry } from "../../geometry.js";

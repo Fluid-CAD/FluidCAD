@@ -18,24 +18,23 @@ export class ConstraintSolverAdaptor extends ConstraintSolver {
     shape1: QualifiedShape,
     shape2: QualifiedShape,
   ): Edge[] {
-    const types: string[] = [];
-    if (!(shape1.shape instanceof Vertex)) {
-      const type1 = this.getShapeGeometry(shape1.shape);
-      types.push(type1);
-    }
-
-    if (!(shape2.shape instanceof Vertex)) {
-      const type2 = this.getShapeGeometry(shape2.shape);
-      types.push(type2);
-    }
-
-    console.log('Shape types for tangent line solver:', types);
-
-    if (types.some(type => type === 'curve')) {
+    if (this.isCurve(shape1.shape) || this.isCurve(shape2.shape)) {
       return this.curveSolver.getTangentLines(plane, shape1, shape2);
     }
 
     return this.geometricSolver.getTangentLines(plane, shape1, shape2);
+  }
+
+  getTangentCircles(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number): Edge[] {
+    if (this.isCurve(shape1.shape) || this.isCurve(shape2.shape)) {
+      return this.curveSolver.getTangentCircles(plane, shape1, shape2, radius);
+    }
+
+    return this.geometricSolver.getTangentCircles(plane, shape1, shape2, radius);
+  }
+
+  isCurve(shape: Shape): boolean {
+    return !(shape instanceof Vertex) && this.getShapeGeometry(shape) === 'curve';
   }
 
   private getShapeGeometry(shape: Shape) {

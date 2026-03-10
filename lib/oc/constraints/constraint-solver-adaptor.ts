@@ -27,9 +27,11 @@ export class ConstraintSolverAdaptor extends ConstraintSolver {
 
   getTangentCircles(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number): Edge[] {
     if (this.isCurve(shape1.shape) || this.isCurve(shape2.shape)) {
+      console.log('Using curve solver for tangent circles');
       return this.curveSolver.getTangentCircles(plane, shape1, shape2, radius);
     }
 
+    console.log('Using geometric solver for tangent circles');
     return this.geometricSolver.getTangentCircles(plane, shape1, shape2, radius);
   }
 
@@ -48,6 +50,8 @@ export class ConstraintSolverAdaptor extends ConstraintSolver {
     }
     else if (type === oc.GeomAbs_CurveType.GeomAbs_Circle) {
       if (adaptor.IsClosed()) {
+        console.log('Shape is a closed circle');
+        adaptor.delete();
         return 'circle';
       }
 

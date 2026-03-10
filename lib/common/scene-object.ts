@@ -10,6 +10,11 @@ export interface Serializable {
   serialize(): any;
 }
 
+interface ShapeFilter {
+  excludeMeta?: boolean;
+  excludeGuide?: boolean;
+}
+
 export type BuildSceneObjectContext = {
   getSceneObjects(): SceneObject[];
   getActiveSceneObjects(): SceneObject[];
@@ -234,34 +239,53 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this;
   }
 
-  getOwnShapes(exludeMetaShapes = true, scope?: Set<SceneObject>): Shape[] {
+  getOwnShapes(filter?: ShapeFilter, scope?: Set<SceneObject>): Shape[] {
+    filter = {
+      excludeMeta: filter.excludeMeta ?? true,
+      excludeGuide: filter.excludeGuide ?? true,
+    }
     const shapes = this.addedShapes.filter(s =>
       !this.removedShapes.find(r => r.shape === s && (!scope || scope.has(r.removedBy)))
     );
 
-    if (exludeMetaShapes) {
-      return shapes.filter(s => !s.isMetaShape() && !s.isGuideShape());
+    let filteredShapes = shapes;
+    if (filter?.excludeMeta) {
+      filteredShapes = shapes.filter(s => !s.isMetaShape());
+    }
+
+    if (filter?.excludeGuide) {
+      filteredShapes = filteredShapes.filter(s => !s.isGuideShape());
     }
 
     return shapes;
   }
 
-  getChildShapes(excludeMeta?: boolean, type?: string): Shape[] {
+  getChildShapes(filter?: ShapeFilter, type?: string): Shape[] {
     let shapes: Shape[] = [];
 
+    filter = {
+      excludeMeta: filter.excludeMeta ?? true,
+      excludeGuide: filter.excludeGuide ?? true,
+    }
+
     for (const child of this.children) {
-      shapes = shapes.concat(child.getShapes(excludeMeta, type));
+      shapes = shapes.concat(child.getShapes(filter, type));
     }
 
     return shapes;
   }
 
-  getShapes(excludeMeta: boolean = true, type?: string): Shape[] {
-    if (this.isContainer()) {
-      return this.getChildShapes(excludeMeta, type);
+  getShapes(filter?: ShapeFilter, type?: string): Shape[] {
+    filter = {
+      excludeMeta: filter.excludeMeta ?? true,
+      excludeGuide: filter.excludeGuide ?? true,
     }
 
-    const ownShapes = this.getOwnShapes(excludeMeta);
+    if (this.isContainer()) {
+      return this.getChildShapes(filter, type);
+    }
+
+    const ownShapes = this.getOwnShapes(filter);
 
     if (type) {
       return ownShapes.filter(s => s.getType() === type);

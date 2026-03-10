@@ -106,5 +106,4 @@ export class CurveTangentLineSolver implements TangentLineSolver {
     adaptor.delete();
     return handle;
   }
-
 }

@@ -43,11 +43,11 @@ export class ArcFromTwoAngles extends GeometrySceneObject {
     const arc = Geometry.makeArc(center, radius, normal, start, end)
     const edge = Geometry.makeEdgeFromCurve(arc);
 
-    const circle = Geometry.makeCircle(center, radius, normal);
-    const circleEdge = Geometry.makeEdgeFromCircle(circle);
-    circleEdge.markAsMetaShape();
+    // const circle = Geometry.makeCircle(center, radius, normal);
+    // const circleEdge = Geometry.makeEdgeFromCircle(circle);
+    // circleEdge.markAsMetaShape();
 
-    this.addShape(circleEdge);
+    // this.addShape(circleEdge);
 
     this.setState('start', Vertex.fromPoint2D(startPoint));
     this.setState('end', Vertex.fromPoint2D(endPoint));

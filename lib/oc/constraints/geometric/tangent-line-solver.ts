@@ -1,16 +1,17 @@
-import type { GccAna_Lin2d2Tan, GccEnt_QualifiedCirc,  gp_Circ, gp_Lin } from "occjs-wrapper";
-import { getOC } from "./init.js";
-import { Convert } from "./convert.js";
-import { Edge } from "../common/edge.js";
-import { ConstraintQualifier, } from "../features/2d/constraints/qualified-geometry.js";
-import { Plane } from "../math/plane.js";
-import { Geometry } from "./geometry.js";
-import { ConstraintResolver } from "./constraint-resolver.js";
-import { Vertex } from "../common/vertex.js";
-import { Shape } from "../common/shape.js";
+import { GccAna_Lin2d2Tan, GccEnt_QualifiedCirc, gp_Circ, gp_Lin } from "occjs-wrapper";
+import { Edge } from "../../../common/edge.js";
+import { Shape } from "../../../common/shape.js";
+import { Vertex } from "../../../common/vertex.js";
+import { ConstraintQualifier, QualifiedShape } from "../../../features/2d/constraints/qualified-geometry.js";
+import { Plane } from "../../../math/plane.js";
+import { getQualified } from "../constraint-helpers.js";
+import { Convert } from "../../convert.js";
+import { getOC } from "../../init.js";
+import { Geometry } from "../../geometry.js";
+import { TangentLineSolver } from "../constraint-solver.js";
 
-export class TangentLineSolver {
-  static getTangentLines(
+export class GeometricTangentLineSolver implements TangentLineSolver {
+  getTangentLines(
     plane: Plane,
     shape1: { shape: Shape, qualifier: ConstraintQualifier },
     shape2: { shape: Shape, qualifier: ConstraintQualifier },
@@ -31,17 +32,18 @@ export class TangentLineSolver {
     }
   }
 
-  private static getPointCircleTangent(
+  private getPointCircleTangent(
     plane: Plane,
     vertex: Vertex,
-    circleShape: { shape: Shape, qualifier: ConstraintQualifier },
+    circleShape: QualifiedShape
   ): Edge[] {
+    console.log('Getting point-circle tangent');
     const oc = getOC();
     const tolerance = oc.Precision.Angular();
     const [pln, disposePln] = Convert.toGpPln(plane);
     const [pnt, disposePnt] = Convert.toGpPnt2d(vertex.toPoint2D());
     const geometry = this.getShapeGeometry(circleShape.shape);
-    const qualifiedGeometry = ConstraintResolver.getQualified(pln, geometry, circleShape.qualifier);
+    const qualifiedGeometry = getQualified(pln, geometry, circleShape.qualifier);
 
     const solver = new oc.GccAna_Lin2d2Tan(qualifiedGeometry as GccEnt_QualifiedCirc, pnt, tolerance);
     disposePnt();
@@ -51,18 +53,18 @@ export class TangentLineSolver {
     return edges;
   }
 
-  private static getCircleCircleTangent(
+  private getCircleCircleTangent(
     plane: Plane,
-    shape1: { shape: Shape, qualifier: ConstraintQualifier },
-    shape2: { shape: Shape, qualifier: ConstraintQualifier },
+    shape1: QualifiedShape,
+    shape2: QualifiedShape
   ): Edge[] {
     const oc = getOC();
     const tolerance = oc.Precision.Angular();
     const [pln, disposePln] = Convert.toGpPln(plane);
     const geometry1 = this.getShapeGeometry(shape1.shape);
     const geometry2 = this.getShapeGeometry(shape2.shape);
-    const qualifiedGeometry1 = ConstraintResolver.getQualified(pln, geometry1, shape1.qualifier);
-    const qualifiedGeometry2 = ConstraintResolver.getQualified(pln, geometry2, shape2.qualifier);
+    const qualifiedGeometry1 = getQualified(pln, geometry1, shape1.qualifier);
+    const qualifiedGeometry2 = getQualified(pln, geometry2, shape2.qualifier);
 
     const solver = new oc.GccAna_Lin2d2Tan(qualifiedGeometry1 as GccEnt_QualifiedCirc, qualifiedGeometry2 as GccEnt_QualifiedCirc, tolerance);
 
@@ -71,7 +73,7 @@ export class TangentLineSolver {
     return edges;
   }
 
-  private static collectSolverEdges(solver: GccAna_Lin2d2Tan, plane: Plane): Edge[] {
+  private collectSolverEdges(solver: GccAna_Lin2d2Tan, plane: Plane): Edge[] {
     const oc = getOC();
     const edges: Edge[] = [];
 
@@ -95,18 +97,17 @@ export class TangentLineSolver {
     return edges;
   }
 
-  private static getShapeGeometry(shape: Shape) {
+  private getShapeGeometry(shape: Shape) {
     const oc = getOC();
     const adaptor = new oc.BRepAdaptor_Curve(shape.getShape());
     const type = adaptor.GetType();
     let geometry: gp_Circ | gp_Lin;
 
     if (type === oc.GeomAbs_CurveType.GeomAbs_Line) {
-
       geometry = adaptor.Line()
     }
-    else if (type === oc.GeomAbs_CurveType.GeomAbs_Circle && adaptor.IsClosed()) {
-       geometry = adaptor.Circle();
+    else if (type === oc.GeomAbs_CurveType.GeomAbs_Circle) {
+      geometry = adaptor.Circle();
     }
     else {
       adaptor.delete();

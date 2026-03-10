@@ -1,9 +1,9 @@
 import { GeometrySceneObject } from "./geometry.js";
-import { QualifiedGeometry } from "./constraints/qualified-geometry.js";
 import { TangentSolver } from "../../oc/tangent-solver.js";
+import { QualifiedSceneObject } from "./constraints/qualified-geometry.js";
 
 export class TangentCircle2Tan extends GeometrySceneObject {
-  constructor(public c1: QualifiedGeometry, public c2: QualifiedGeometry, public radius: number) {
+  constructor(public c1: QualifiedSceneObject, public c2: QualifiedSceneObject, public radius: number) {
     super();
   }
 

@@ -4,7 +4,6 @@ import { Convert } from "./convert.js";
 import { Point, Point2D } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Edge } from "../common/edge.js";
-import { QualifiedGeometry } from "../features/2d/constraints/qualified-geometry.js";
 import { Plane } from "../math/plane.js";
 import { TangentSolver } from "./tangent-solver.js";
 
@@ -252,24 +251,5 @@ export class Geometry {
       point.x - radius * Math.cos(angle),
       point.y - radius * Math.sin(angle)
     );
-  }
-
-  // ── Tangent solver delegates ───────────────────────────────────────────────
-  // These delegate to TangentSolver and are kept here for backward compatibility.
-
-  static getTangentLines(plane: Plane, qualifiedC1: QualifiedGeometry, qualifiedC2: QualifiedGeometry): Edge[] {
-    return TangentSolver.getTangentLines(plane, qualifiedC1, qualifiedC2);
-  }
-
-  static getTangentCircles(plane: Plane, qualifiedC1: QualifiedGeometry, qualifiedC2: QualifiedGeometry, radius: number): Edge[] {
-    return TangentSolver.getTangentCircles(plane, qualifiedC1, qualifiedC2, radius);
-  }
-
-  static getTangentArcs(plane: Plane, qualifiedC1: QualifiedGeometry, qualifiedC2: QualifiedGeometry, radius: number): { edge: Edge; endTangent: Point2D }[] {
-    return TangentSolver.getTangentArcs(plane, qualifiedC1, qualifiedC2, radius);
-  }
-
-  static getTangentCircles3Tan(plane: Plane, qualifiedC1: QualifiedGeometry, qualifiedC2: QualifiedGeometry, qualifiedC3: QualifiedGeometry): Edge[] {
-    return TangentSolver.getTangentCircles3Tan(plane, qualifiedC1, qualifiedC2, qualifiedC3);
   }
 }

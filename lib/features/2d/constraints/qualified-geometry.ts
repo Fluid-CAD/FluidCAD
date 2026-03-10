@@ -1,6 +1,7 @@
 import { Comparable, SceneObject } from "../../../common/scene-object.js";
 import { Shape } from "../../../common/shape.js";
 import { Vertex } from "../../../common/vertex.js";
+import { Wire } from "../../../common/wire.js";
 
 export type ConstraintQualifier = 'unqualified' | 'outside' | 'enclosed' | 'enclosing';
 
@@ -21,10 +22,14 @@ export class QualifiedSceneObject implements Comparable<QualifiedSceneObject> {
   }
 
   toQualifiedShape(): QualifiedShape {
-    const shape = this.object.getShapes(false)[0]
+    let shape = this.object.getShapes({ excludeGuide: false })[0]
 
     if (!shape) {
       throw new Error('At least one shape is required for the tangent line constraint');
+    }
+
+    if (shape instanceof Wire) {
+      shape = shape.getEdges()[0];
     }
 
     return new QualifiedShape(shape, this.qualifier);

@@ -17,7 +17,7 @@ export class Fuse extends SceneObject {
 
     const objShapeMap = new Map<Shape, SceneObject>();
     for (const obj of sceneObjects) {
-      for (const shape of obj.getShapes(false, 'solid')) {
+      for (const shape of obj.getShapes({ excludeMeta: false }, 'solid')) {
         objShapeMap.set(shape, obj);
       }
     }

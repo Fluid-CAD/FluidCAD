@@ -21,7 +21,7 @@ export class Translate2D extends SceneObject {
     const worldOffset = p.xDirection.multiply(local.x).add(p.yDirection.multiply(local.y));
 
     for (const obj of objects) {
-      const shapes = obj.getShapes(false);
+      const shapes = obj.getShapes({ excludeMeta: false });
       for (const shape of shapes) {
         const transformed = ShapeOps.transform(shape, Matrix4.fromTranslation(worldOffset.x, worldOffset.y, worldOffset.z));
 

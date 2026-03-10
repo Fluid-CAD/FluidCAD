@@ -15,7 +15,7 @@ export class Color extends SceneObject {
 
     const objShapeMap = new Map<Solid, SceneObject>();
     for (const obj of sceneObjects) {
-      const shapes = obj.getShapes(false, 'solid');
+      const shapes = obj.getShapes({ excludeMeta: false }, 'solid');
       for (const shape of shapes) {
         objShapeMap.set(shape as Solid, obj);
       }

@@ -41,7 +41,7 @@ export class Loft extends SceneObject {
   }
 
   private getWiresFromSceneObject(obj: SceneObject): Wire[] {
-    const shapes = obj.getShapes(false);
+    const shapes = obj.getShapes({ excludeMeta: false });
 
     // If shapes are faces, extract their outer wires
     const faceShapes = shapes.filter(s => s.isFace()) as Face[];

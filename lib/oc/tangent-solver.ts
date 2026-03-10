@@ -20,8 +20,8 @@ export class TangentSolver {
     const tolerance = oc.Precision.Angular();
     const [pln, disposePln] = Convert.toGpPln(plane);
 
-    let shape1 = qualifiedC1.object.getShapes(false)[0];
-    let shape2 = qualifiedC2.object.getShapes(false)[0];
+    let shape1 = qualifiedC1.object.getShapes({ excludeMeta: false })[0];
+    let shape2 = qualifiedC2.object.getShapes({ excludeMeta: false })[0];
 
     if (shape1 instanceof Wire) {
       shape1 = shape1.getEdges()[0];

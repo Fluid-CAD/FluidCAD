@@ -1,5 +1,5 @@
 import { SceneObject } from "../common/scene-object.js";
-import { Shape } from "../common/shape.js";
+import { Shape, ShapeFilter } from "../common/shape.js";
 import { Vertex } from "../common/vertex.js";
 import { Plane } from "../math/plane.js";
 
@@ -24,30 +24,30 @@ export class LazyVertex extends SceneObject {
     this.addShapes(shapes);
   }
 
-  override getShapes(excludeMetaShape?: boolean, type?: string): Shape[] {
+  override getShapes(filter?: ShapeFilter, type?: string): Shape[] {
     if (this._isBuilt) {
-      return super.getShapes(excludeMetaShape, type);
+      return super.getShapes(filter, type);
     }
 
     this.build();
     this._isBuilt = true;
-    const shapes = super.getShapes(excludeMetaShape, type);
+    const shapes = super.getShapes(filter, type);
     return shapes;
   }
 
   asPoint() {
-    const vertex = this.getShapes(false, 'vertex')[0] as Vertex;
+    const vertex = this.getShapes({ excludeMeta: false }, 'vertex')[0] as Vertex;
     return vertex.toPoint();
   }
 
   asPoint2D() {
-    const vertex = this.getShapes(false, 'vertex')[0] as Vertex;
+    const vertex = this.getShapes({ excludeMeta: false }, 'vertex')[0] as Vertex;
     return vertex.toPoint2D();
   }
 
   reverse() {
     return new LazyVertex(`${this.uniqueName}-reversed`, () => {
-      const vertex = this.getShapes(false, 'vertex')[0] as Vertex;
+      const vertex = this.getShapes({ excludeMeta: false }, 'vertex')[0] as Vertex;
       const point = vertex.toPoint();
       const reversedPoint = point.negate()
       const reversedVertex = Vertex.fromPoint(reversedPoint);

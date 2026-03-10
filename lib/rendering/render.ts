@@ -7,7 +7,7 @@ const meshBuilder = new MeshBuilder();
 function renderSceneObject(obj: SceneObject, scene: Scene) {
   let hasError = false;
 
-  const sceneShapes = obj.getOwnShapes(false);
+  const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false });
   const renderedSceneShapes: RenderedShape[] = [];
 
   if (sceneShapes.length) {
@@ -73,7 +73,7 @@ export function renderSceneRollback(scene: Scene, rollbackIndex: number) {
     const inScope = scope.has(obj);
 
     if (inScope) {
-      const sceneShapes = obj.getOwnShapes(false, scope);
+      const sceneShapes = obj.getOwnShapes({ excludeMeta: false }, scope);
       const renderedSceneShapes: RenderedShape[] = [];
 
       for (const shape of sceneShapes) {
@@ -99,7 +99,7 @@ export function renderSceneRollback(scene: Scene, rollbackIndex: number) {
         const children = scene.getChildren(obj);
         isVisible = children.some(child => {
           if (!scope.has(child)) return false;
-          const shapes = child.getOwnShapes(true, scope);
+          const shapes = child.getOwnShapes({ excludeMeta: true }, scope);
           return shapes.length > 0;
         });
       }

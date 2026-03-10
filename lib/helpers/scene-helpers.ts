@@ -7,7 +7,7 @@ export function fuseWithSceneObjects(sceneObjects: SceneObject[], extrusions: Sh
 
   const objShapeMap = new Map<Shape<any>, SceneObject>();
   for (const obj of sceneObjects) {
-    const shapes = obj.getShapes(false, 'solid');
+    const shapes = obj.getShapes({ excludeMeta: false }, 'solid');
     for (const shape of shapes) {
       objShapeMap.set(shape, obj);
     }

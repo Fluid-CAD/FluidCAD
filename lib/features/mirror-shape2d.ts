@@ -42,7 +42,7 @@ export class MirrorShape2D extends GeometrySceneObject {
     const matrix = Matrix4.mirrorPlane(mirrorPlaneNormal, axis.origin);
 
     for (const obj of targetObjects) {
-      const shapes = obj.getShapes(false);
+      const shapes = obj.getShapes({ excludeMeta: false, excludeGuide: false });
       for (const shape of shapes) {
         const transformed = ShapeOps.transform(shape, matrix);
         transformedShapes.push(transformed);

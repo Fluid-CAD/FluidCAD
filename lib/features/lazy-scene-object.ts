@@ -1,5 +1,5 @@
 import { SceneObject } from "../common/scene-object.js";
-import { Shape } from "../common/shape.js";
+import { Shape, ShapeFilter } from "../common/shape.js";
 
 export class LazySceneObject extends SceneObject {
 
@@ -20,9 +20,9 @@ export class LazySceneObject extends SceneObject {
     this._isBuilt = true;
   }
 
-  override getShapes(excludeMetaShape?: boolean, type?: string): Shape[] {
+  override getShapes(filter?: ShapeFilter, type?: string): Shape[] {
     this.build();
-    const shapes = super.getShapes(excludeMetaShape, type);
+    const shapes = super.getShapes(filter, type);
     console.log("LazySceneObject::getShapes built shapes:", shapes);
     return shapes;
   }

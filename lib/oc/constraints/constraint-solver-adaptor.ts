@@ -18,10 +18,13 @@ export class ConstraintSolverAdaptor extends ConstraintSolver {
     shape1: QualifiedShape,
     shape2: QualifiedShape,
   ): Edge[] {
+    console.log('Determining which solver to use for tangent lines', shape1, shape2);
     if (this.isCurve(shape1.shape) || this.isCurve(shape2.shape)) {
+      console.log('Using curve solver for tangent shapes');
       return this.curveSolver.getTangentLines(plane, shape1, shape2);
     }
 
+    console.log('Using geometric solver for tangent shapes');
     return this.geometricSolver.getTangentLines(plane, shape1, shape2);
   }
 

@@ -32,5 +32,12 @@ export abstract class ConstraintSolver implements TangentLineSolver, TangentCirc
     shape2: QualifiedShape,
     radius: number
   ): Edge[];
+
+  abstract getTangentArcs(
+    plane: Plane,
+    shape1: QualifiedShape,
+    shape2: QualifiedShape,
+    radius: number
+  ): Edge[];
 }
 

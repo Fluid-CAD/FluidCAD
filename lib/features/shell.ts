@@ -18,7 +18,7 @@ export class Shell extends SceneObject {
         continue;
       }
 
-      const shapes = obj.getShapes(false, 'solid');
+      const shapes = obj.getShapes({ excludeMeta: false }, 'solid');
       for (const shape of shapes) {
         shapeObjMap.set(shape, obj);
       }

@@ -3,6 +3,11 @@ import { ShapeType } from "./shape-type.js";
 import { SceneObjectMesh } from "../rendering/scene.js";
 import { randomUUID } from "crypto";
 
+export interface ShapeFilter {
+  excludeMeta?: boolean;
+  excludeGuide?: boolean;
+}
+
 export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   isMetaShapeFlag = false;
   isGuideFlag = false;

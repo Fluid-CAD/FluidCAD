@@ -53,7 +53,7 @@ export class SelectSceneObject extends SceneObject {
     let actualShapes: Shape[] = [];
     let actualExcludedShapes: Shape[] = [];
 
-    let sceneShapes = sceneObjects.flatMap(o => o.getShapes(false, 'solid'));
+    let sceneShapes = sceneObjects.flatMap(o => o.getShapes({ excludeMeta: false }, 'solid'));
     let excludedShapes = Array.from(excludedObjects.values()).flat()
 
     for (const shape of sceneShapes) {

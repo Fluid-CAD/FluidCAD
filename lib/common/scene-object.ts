@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { Shape } from "./shape.js";
+import { Shape, ShapeFilter } from "./shape.js";
 import { Matrix4 } from "../math/matrix4.js";
 
 export interface Comparable<T> {
@@ -8,11 +8,6 @@ export interface Comparable<T> {
 
 export interface Serializable {
   serialize(): any;
-}
-
-interface ShapeFilter {
-  excludeMeta?: boolean;
-  excludeGuide?: boolean;
 }
 
 export type BuildSceneObjectContext = {
@@ -241,31 +236,33 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   getOwnShapes(filter?: ShapeFilter, scope?: Set<SceneObject>): Shape[] {
     filter = {
-      excludeMeta: filter.excludeMeta ?? true,
-      excludeGuide: filter.excludeGuide ?? true,
+      excludeMeta: filter?.excludeMeta ?? true,
+      excludeGuide: filter?.excludeGuide ?? true,
     }
+
     const shapes = this.addedShapes.filter(s =>
       !this.removedShapes.find(r => r.shape === s && (!scope || scope.has(r.removedBy)))
     );
 
     let filteredShapes = shapes;
+
     if (filter?.excludeMeta) {
-      filteredShapes = shapes.filter(s => !s.isMetaShape());
+      filteredShapes = filteredShapes.filter(s => !s.isMetaShape());
     }
 
     if (filter?.excludeGuide) {
       filteredShapes = filteredShapes.filter(s => !s.isGuideShape());
     }
 
-    return shapes;
+    return filteredShapes;
   }
 
   getChildShapes(filter?: ShapeFilter, type?: string): Shape[] {
     let shapes: Shape[] = [];
 
     filter = {
-      excludeMeta: filter.excludeMeta ?? true,
-      excludeGuide: filter.excludeGuide ?? true,
+      excludeMeta: filter?.excludeMeta ?? true,
+      excludeGuide: filter?.excludeGuide ?? true,
     }
 
     for (const child of this.children) {
@@ -277,8 +274,8 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   getShapes(filter?: ShapeFilter, type?: string): Shape[] {
     filter = {
-      excludeMeta: filter.excludeMeta ?? true,
-      excludeGuide: filter.excludeGuide ?? true,
+      excludeMeta: filter?.excludeMeta ?? true,
+      excludeGuide: filter?.excludeGuide ?? true,
     }
 
     if (this.isContainer()) {

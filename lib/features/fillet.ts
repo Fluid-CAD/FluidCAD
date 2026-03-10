@@ -18,7 +18,7 @@ export class Fillet extends SceneObject {
 
     sceneObjects = new Map<SceneObject, Shape[]>();
     for (const obj of context.getSceneObjects()) {
-      const shapes = obj.getShapes(false, 'solid');
+      const shapes = obj.getShapes({ excludeMeta: false }, 'solid');
       if (shapes.length === 0) {
         continue;
       }

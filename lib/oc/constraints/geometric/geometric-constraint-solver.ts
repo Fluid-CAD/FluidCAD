@@ -15,4 +15,9 @@ export class GeometricConstraintSolver extends ConstraintSolver {
     const tangentCircleSolver = new GeometricTangentCircleSolver();
     return tangentCircleSolver.getTangentCircles(plane, shape1, shape2, radius);
   }
+
+  getTangentArcs(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number): Edge[] {
+    const solver = new GeometricTangentCircleSolver();
+    return solver.getTangentArcs(plane, shape1, shape2, radius);
+  }
 }

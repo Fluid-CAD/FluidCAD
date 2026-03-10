@@ -1,12 +1,11 @@
 import { GeometrySceneObject } from "./geometry.js";
-import { QualifiedGeometry } from "./constraints/qualified-geometry.js";
-import { TangentSolver } from "../../oc/tangent-solver.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { Vertex } from "../../common/vertex.js";
-import { TangentLineSolver } from "../../oc/tangent-line-solver.js";
+import { QualifiedSceneObject } from "./constraints/qualified-geometry.js";
+import { createConstraintSolver } from "../../oc/constraints/create-solver.js";
 
-export class OneCircleTangentLine extends GeometrySceneObject {
-  constructor(public c1: QualifiedGeometry) {
+export class OneObjectTangentLine extends GeometrySceneObject {
+  constructor(public object: QualifiedSceneObject) {
     super();
   }
 
@@ -14,21 +13,23 @@ export class OneCircleTangentLine extends GeometrySceneObject {
     const plane = this.sketch.getPlane();
     const currentPos = this.getCurrentPosition();
 
-    const shape = this.c1.object.getShapes(false)[0]
+    const shape = this.object.object.getShapes(false)[0]
 
     if (!shape) {
       throw new Error('At least one shape is required for the tangent line constraint');
     }
 
     const currentPosVertex = Vertex.fromPoint2D(currentPos);
-    const edges = TangentLineSolver.getTangentLines(plane,
+    const solver = createConstraintSolver()
+    console.log('Solver created');
+    const edges = solver.getTangentLines(plane,
       {
         shape: currentPosVertex,
         qualifier: 'unqualified'
       },
       {
         shape: shape,
-        qualifier: this.c1.qualifier
+        qualifier: this.object.qualifier
       }
     );
     this.applyEdgeResults(plane, edges);
@@ -42,12 +43,12 @@ export class OneCircleTangentLine extends GeometrySceneObject {
     return new LazyVertex(this.generateUniqueName(`end-vertex-${index}`), () => [this.getState('end')]);
   }
 
-  compareTo(other: OneCircleTangentLine): boolean {
-    if (!(other instanceof OneCircleTangentLine)) {
+  compareTo(other: OneObjectTangentLine): boolean {
+    if (!(other instanceof OneObjectTangentLine)) {
       return false;
     }
 
-    return this.c1.compareTo(other.c1);
+    return this.object.compareTo(other.object);
   }
 
   getType(): string {
@@ -55,7 +56,7 @@ export class OneCircleTangentLine extends GeometrySceneObject {
   }
 
   getUniqueType(): string {
-    return 'one-circle-tline';
+    return 'one-object-tline';
   }
 
   serialize() {
@@ -63,33 +64,34 @@ export class OneCircleTangentLine extends GeometrySceneObject {
   }
 }
 
-export class TwoCirclesTangentLine extends GeometrySceneObject {
-  constructor(public c1: QualifiedGeometry, public c2: QualifiedGeometry) {
+export class TwoObjectsTangentLine extends GeometrySceneObject {
+  constructor(public object1: QualifiedSceneObject, public object2: QualifiedSceneObject) {
     super();
   }
 
   build() {
     const plane = this.sketch.getPlane();
 
-    const shape1 = this.c1.object.getShapes(false)[0]
+    const shape1 = this.object1.object.getShapes(false)[0]
 
     if (!shape1) {
       throw new Error('At least one shape is required for the tangent line constraint');
     }
 
-    const shape2 = this.c2.object.getShapes(false)[0]
+    const shape2 = this.object2.object.getShapes(false)[0]
 
     if (!shape2) {
       throw new Error('At least one shape is required for the tangent line constraint');
     }
 
-    const edges = TangentLineSolver.getTangentLines(plane,
+    const solver = createConstraintSolver()
+    const edges = solver.getTangentLines(plane,
       {
         shape: shape1,
-        qualifier: this.c1.qualifier
+        qualifier: this.object1.qualifier
       }, {
       shape: shape2,
-      qualifier: this.c2.qualifier
+      qualifier: this.object2.qualifier
     });
 
     this.applyEdgeResults(plane, edges);
@@ -103,11 +105,11 @@ export class TwoCirclesTangentLine extends GeometrySceneObject {
     return new LazyVertex(this.generateUniqueName(`end-vertex-${index}`), () => [this.getState('end')]);
   }
 
-  compareTo(other: TwoCirclesTangentLine): boolean {
-    if (!(other instanceof TwoCirclesTangentLine)) {
+  compareTo(other: TwoObjectsTangentLine): boolean {
+    if (!(other instanceof TwoObjectsTangentLine)) {
       return false;
     }
-    return this.c1.compareTo(other.c1) && this.c2.compareTo(other.c2);
+    return this.object1.compareTo(other.object1) && this.object2.compareTo(other.object2);
   }
 
   getType(): string {
@@ -115,7 +117,7 @@ export class TwoCirclesTangentLine extends GeometrySceneObject {
   }
 
   getUniqueType(): string {
-    return 'two-circles-tline';
+    return 'two-objects-tline';
   }
 
   serialize() {

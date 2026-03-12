@@ -78,7 +78,26 @@ export function calculateTangent(solutions: {
   if (diff > Math.PI) { diff -= 2 * Math.PI; }
   if (diff < -Math.PI) { diff += 2 * Math.PI; }
 
-  const sign = diff > 0 ? 1 : -1;
+  // Determine whether the actual arc takes the short or long path, using the
+  // same heuristic as toArcEdges: pick the arc whose midpoint is closest to
+  // the midpoint of the original (raw) tangent points on the input geometries.
+  const rawMidX = (lastSolution.tangentPoint1.X() + lastSolution.tangentPoint2.X()) / 2;
+  const rawMidY = (lastSolution.tangentPoint1.Y() + lastSolution.tangentPoint2.Y()) / 2;
+
+  const midAngleShort = angle1 + diff / 2;
+  const midAngleLong = midAngleShort + Math.PI;
+
+  const shortMidX = cx + radius * Math.cos(midAngleShort);
+  const shortMidY = cy + radius * Math.sin(midAngleShort);
+  const longMidX = cx + radius * Math.cos(midAngleLong);
+  const longMidY = cy + radius * Math.sin(midAngleLong);
+
+  const distShort = Math.hypot(shortMidX - rawMidX, shortMidY - rawMidY);
+  const distLong = Math.hypot(longMidX - rawMidX, longMidY - rawMidY);
+
+  // If the long arc is chosen, the traversal direction is opposite to what
+  // the short-arc diff implies, so flip the sign.
+  const sign = (distShort <= distLong ? diff : -diff) > 0 ? 1 : -1;
   return new Point2D(
     sign * (-Math.sin(angle2)),
     sign * Math.cos(angle2)

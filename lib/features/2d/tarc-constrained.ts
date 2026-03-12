@@ -1,5 +1,4 @@
 import { GeometrySceneObject } from "./geometry.js";
-import { Geometry } from "../../oc/geometry.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { Vertex } from "../../common/vertex.js";
 import { QualifiedSceneObject } from "./constraints/qualified-geometry.js";
@@ -66,7 +65,7 @@ export class TangentArcTwoObjects extends GeometrySceneObject {
   }
 
   getUniqueType(): string {
-    return 'two-circles-tarc';
+    return 'two-objects-tarc';
   }
 
   serialize() {

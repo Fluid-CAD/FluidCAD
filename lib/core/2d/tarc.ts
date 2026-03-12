@@ -2,13 +2,13 @@ import { Point2DLike, isPoint2DLike } from "../../math/point.js";
 import { TangentArc } from "../../features/2d/tarc.js";
 import { TangentArcToPoint } from "../../features/2d/tarc-to-point.js";
 import { TangentArcToPointTangent } from "../../features/2d/tarc-to-point-tangent.js";
-import { TangentArcTwoObjects } from "../../features/2d/tarc-two-circles.js";
 import { TangentArcWithTangent } from "../../features/2d/tarc-with-tangent.js";
 import { Move } from "../../features/2d/move.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { QualifiedSceneObject } from "../../features/2d/constraints/qualified-geometry.js";
+import { TangentArcTwoObjects } from "../../features/2d/tarc-constrained.js";
 
 interface TArcFunction {
   (radius?: number, endAngle?: number): TangentArc;
@@ -22,9 +22,7 @@ interface TArcFunction {
 function build(context: SceneParserContext): TArcFunction {
   return function tarc() {
     // tarc(c1, c2, radius): fillet arc tangent to two circles/points
-    if (arguments.length === 3 &&
-      (arguments[0] instanceof SceneObject || arguments[0] instanceof QualifiedSceneObject) &&
-      typeof arguments[2] === 'number') {
+    if (arguments.length === 3 && typeof arguments[2] === 'number') {
       const o1 = isPoint2DLike(arguments[0]) ? normalizePoint2D(arguments[0] as Point2DLike) : arguments[0]
       const o2 = isPoint2DLike(arguments[1]) ? normalizePoint2D(arguments[1] as Point2DLike) : arguments[1]
       const c1 = QualifiedSceneObject.from(o1);

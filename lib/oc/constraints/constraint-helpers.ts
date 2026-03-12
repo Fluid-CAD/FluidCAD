@@ -191,19 +191,20 @@ export function filterSolutionsByFiniteExtent<T extends {
   shape2: Shape,
   plane: Plane
 ): T[] {
-  const lines = getFiniteLineExtents([shape1, shape2], plane);
-  if (lines.length === 0) {
+  const edges = getFiniteEdgeExtents([shape1, shape2], plane);
+  if (edges.length === 0) {
     return solutions;
   }
 
   return solutions.filter(solution => {
     const tp1 = new Point2D(solution.tangentPoint1.X(), solution.tangentPoint1.Y());
     const tp2 = new Point2D(solution.tangentPoint2.X(), solution.tangentPoint2.Y());
-    return isWithinFiniteLines(tp1, lines) && isWithinFiniteLines(tp2, lines);
+    return isWithinFiniteEdges(tp1, edges) && isWithinFiniteEdges(tp2, edges);
   });
 }
 
 interface LineExtent {
+  type: 'line';
   start: Point2D;
   end: Point2D;
   dx: number;
@@ -212,9 +213,20 @@ interface LineExtent {
   len: number;
 }
 
-function getFiniteLineExtents(shapes: Shape[], plane: Plane): LineExtent[] {
+interface ArcExtent {
+  type: 'arc';
+  center: Point2D;
+  radius: number;
+  startAngle: number;
+  midAngle: number;
+  endAngle: number;
+}
+
+type EdgeExtent = LineExtent | ArcExtent;
+
+function getFiniteEdgeExtents(shapes: Shape[], plane: Plane): EdgeExtent[] {
   const oc = getOC();
-  const result: LineExtent[] = [];
+  const result: EdgeExtent[] = [];
 
   for (const shape of shapes) {
     if (!(shape instanceof Edge)) {
@@ -222,49 +234,115 @@ function getFiniteLineExtents(shapes: Shape[], plane: Plane): LineExtent[] {
     }
 
     const adaptor = new oc.BRepAdaptor_Curve(shape.getShape());
-    const isLine = adaptor.GetType() === oc.GeomAbs_CurveType.GeomAbs_Line;
-    adaptor.delete();
+    const curveType = adaptor.GetType();
 
-    if (!isLine) {
-      continue;
+    if (curveType === oc.GeomAbs_CurveType.GeomAbs_Line) {
+      adaptor.delete();
+
+      const start = plane.worldToLocal(shape.getFirstVertex().toPoint());
+      const end = plane.worldToLocal(shape.getLastVertex().toPoint());
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const len2 = dx * dx + dy * dy;
+
+      if (len2 < oc.Precision.SquareConfusion()) {
+        continue;
+      }
+
+      result.push({ type: 'line', start, end, dx, dy, len2, len: Math.sqrt(len2) });
+    } else if (curveType === oc.GeomAbs_CurveType.GeomAbs_Circle) {
+      if (shape.isClosed()) {
+        adaptor.delete();
+        continue; // Full circle, no filtering needed
+      }
+
+      const circle = adaptor.Circle();
+      const centerGp = circle.Location();
+      const center = plane.worldToLocal(Convert.toPoint(centerGp));
+      const radius = circle.Radius();
+
+      // Evaluate at midpoint parameter to determine arc direction
+      const firstParam = adaptor.FirstParameter();
+      const lastParam = adaptor.LastParameter();
+      const midParam = (firstParam + lastParam) / 2;
+      const midGp = adaptor.Value(midParam);
+      const mid = plane.worldToLocal(Convert.toPoint(midGp));
+
+      adaptor.delete();
+
+      const start = plane.worldToLocal(shape.getFirstVertex().toPoint());
+      const end = plane.worldToLocal(shape.getLastVertex().toPoint());
+
+      result.push({
+        type: 'arc',
+        center,
+        radius,
+        startAngle: Math.atan2(start.y - center.y, start.x - center.x),
+        midAngle: Math.atan2(mid.y - center.y, mid.x - center.x),
+        endAngle: Math.atan2(end.y - center.y, end.x - center.x),
+      });
+    } else {
+      adaptor.delete();
     }
-
-    const start = plane.worldToLocal(shape.getFirstVertex().toPoint());
-    const end = plane.worldToLocal(shape.getLastVertex().toPoint());
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const len2 = dx * dx + dy * dy;
-
-    if (len2 < 1e-10) {
-      continue;
-    }
-
-    result.push({ start, end, dx, dy, len2, len: Math.sqrt(len2) });
   }
 
   return result;
 }
 
-// Returns false if the point lies on a line's infinite extension but outside
-// its finite segment. Points not on any line pass through (they belong to
-// a circle, arc, or vertex which we don't clip).
-function isWithinFiniteLines(point: Point2D, lines: LineExtent[]): boolean {
-  for (const line of lines) {
-    const perpDist = Math.abs(
-      (point.x - line.start.x) * (-line.dy / line.len) +
-      (point.y - line.start.y) * (line.dx / line.len)
-    );
+// Returns false if the point lies on a curve's infinite extension but outside
+// its finite extent. Points not on any edge's geometry pass through.
+function isWithinFiniteEdges(point: Point2D, edges: EdgeExtent[]): boolean {
+  const oc = getOC();
+  for (const edge of edges) {
+    if (edge.type === 'line') {
+      const perpDist = Math.abs(
+        (point.x - edge.start.x) * (-edge.dy / edge.len) +
+        (point.y - edge.start.y) * (edge.dx / edge.len)
+      );
 
-    if (perpDist > 1e-4) {
-      continue; // Point is not on this line's geometry
-    }
+      if (perpDist > oc.Precision.Approximation()) {
+        continue; // Point is not on this line's geometry
+      }
 
-    // Point is on this line: check if within the finite segment
-    const t = ((point.x - line.start.x) * line.dx + (point.y - line.start.y) * line.dy) / line.len2;
-    if (t < -1e-6 || t > 1 + 1e-6) {
-      return false;
+      const t = ((point.x - edge.start.x) * edge.dx + (point.y - edge.start.y) * edge.dy) / edge.len2;
+      if (t < -oc.Precision.PConfusion() || t > 1 + oc.Precision.PConfusion()) {
+        return false;
+      }
+    } else if (edge.type === 'arc') {
+      const dist = Math.hypot(point.x - edge.center.x, point.y - edge.center.y);
+
+      if (Math.abs(dist - edge.radius) > oc.Precision.Confusion()) {
+        continue; // Point is not on this circle's geometry
+      }
+
+      const angle = Math.atan2(point.y - edge.center.y, point.x - edge.center.x);
+      if (!isAngleOnArc(angle, edge.startAngle, edge.midAngle, edge.endAngle)) {
+        return false;
+      }
     }
   }
 
   return true;
+}
+
+function isAngleOnArc(angle: number, startAngle: number, midAngle: number, endAngle: number): boolean {
+  const oc = getOC();
+
+  function normAngle(a: number): number {
+    let r = a % (2 * Math.PI);
+    if (r < 0) { r += 2 * Math.PI; }
+    return r;
+  }
+
+  const normMid = normAngle(midAngle - startAngle);
+  const normEnd = normAngle(endAngle - startAngle);
+  const normPoint = normAngle(angle - startAngle);
+
+  // The arc sweeps from 0 (start) through normMid to normEnd.
+  // Total sweep = startToMid + midToEnd (both measured CCW).
+  const startToMid = normMid;
+  const midToEnd = normAngle(endAngle - midAngle);
+  const totalSweep = startToMid + midToEnd;
+
+  return normPoint <= totalSweep + oc.Precision.Angular();
 }

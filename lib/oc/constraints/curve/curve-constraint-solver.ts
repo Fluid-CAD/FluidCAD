@@ -7,20 +7,19 @@ import { CurveTangentCircleSolver } from "./tangent-circle-solver.js";
 import { CurveTangentLineSolver } from "./tangent-line-solver.js";
 
 export class CurveConstraintSolver extends ConstraintSolver {
-  getTangentCircles(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number): Edge[] {
+  getTangentCircles(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number, mustTouch: boolean): Edge[] {
     const solver = new CurveTangentCircleSolver();
     console.log('Getting tangent circles');
-    return solver.getTangentCircles(plane, shape1, shape2, radius);
+    return solver.getTangentCircles(plane, shape1, shape2, radius, mustTouch);
   }
 
-  getTangentLines(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, finiteLine: boolean = true): Edge[] {
+  getTangentLines(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, mustTouch: boolean): Edge[] {
     const solver = new CurveTangentLineSolver();
-    return solver.getTangentLines(plane, shape1, shape2, finiteLine);
+    return solver.getTangentLines(plane, shape1, shape2, mustTouch);
   }
 
-  getTangentArcs(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number) {
+  getTangentArcs(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number, mustTouch: boolean) {
     const solver = new CurveTangentCircleSolver();
-    return solver.getTangentArcs(plane, shape1, shape2, radius);
+    return solver.getTangentArcs(plane, shape1, shape2, radius, mustTouch);
   }
 }
-

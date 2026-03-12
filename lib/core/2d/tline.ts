@@ -6,8 +6,8 @@ import { registerBuilder, SceneParserContext } from "../../index.js";
 
 interface TLineFunction {
   (distance: number): TangentLine;
-  (c1: SceneObject | QualifiedSceneObject, c2: SceneObject | QualifiedSceneObject): TwoObjectsTangentLine;
-  (c1: SceneObject | QualifiedSceneObject): OneObjectTangentLine;
+  (c1: SceneObject | QualifiedSceneObject, c2: SceneObject | QualifiedSceneObject, mustTouch?: boolean): TwoObjectsTangentLine;
+  (c1: SceneObject | QualifiedSceneObject, mustTouch?: boolean): OneObjectTangentLine;
 }
 
 function build(context: SceneParserContext): TLineFunction {
@@ -18,15 +18,18 @@ function build(context: SceneParserContext): TLineFunction {
       context.addSceneObject(hline);
       return hline;
     }
-    else if (arguments.length === 1) {
-      const constrainedLine = new OneObjectTangentLine(QualifiedSceneObject.from(arguments[0]));
+    else if (arguments.length === 1 || (arguments.length === 2 && typeof arguments[1] === 'boolean')) {
+      const mustTouch = typeof arguments[1] === 'boolean' ? arguments[1] : false;
+      const constrainedLine = new OneObjectTangentLine(QualifiedSceneObject.from(arguments[0]), mustTouch);
       context.addSceneObject(constrainedLine);
       return constrainedLine;
     }
-    else if (arguments.length === 2 || arguments.length === 3) {
+    else if (arguments.length >= 2) {
+      const mustTouch = typeof arguments[2] === 'boolean' ? arguments[2] : false;
       const constrainedLine = new TwoObjectsTangentLine(
         QualifiedSceneObject.from(arguments[0]),
-        QualifiedSceneObject.from(arguments[1])
+        QualifiedSceneObject.from(arguments[1]),
+        mustTouch
       );
       context.addSceneObject(constrainedLine);
       return constrainedLine;

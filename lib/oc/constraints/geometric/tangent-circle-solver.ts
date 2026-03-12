@@ -16,7 +16,7 @@ export class GeometricTangentCircleSolver implements TangentCircleSolver {
     shape1: QualifiedShape,
     shape2: QualifiedShape,
     radius: number,
-    finiteLine: boolean = true
+    mustTouch: boolean
   ) {
     const isVertex1 = shape1.shape instanceof Vertex;
     const isVertex2 = shape2.shape instanceof Vertex;
@@ -59,7 +59,7 @@ export class GeometricTangentCircleSolver implements TangentCircleSolver {
 
     }
 
-    if (finiteLine) {
+    if (mustTouch) {
       solutions = filterSolutionsByFiniteExtent(solutions, shape1.shape, shape2.shape, plane);
     }
     const edges = toCircleEdges(solutions, plane);
@@ -78,7 +78,7 @@ export class GeometricTangentCircleSolver implements TangentCircleSolver {
     shape1: QualifiedShape,
     shape2: QualifiedShape,
     radius: number,
-    finiteLine: boolean = true
+    mustTouch: boolean
   ): {
     edges: Edge[];
     endTangent: Point2D | null;
@@ -123,7 +123,7 @@ export class GeometricTangentCircleSolver implements TangentCircleSolver {
       }
     }
 
-    if (finiteLine) {
+    if (mustTouch) {
       solutions = filterSolutionsByFiniteExtent(solutions, shape1.shape, shape2.shape, plane);
     }
     const edges = toArcEdges(solutions, plane);

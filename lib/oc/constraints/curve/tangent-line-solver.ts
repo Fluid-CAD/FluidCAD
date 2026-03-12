@@ -15,7 +15,7 @@ export class CurveTangentLineSolver implements TangentLineSolver {
     plane: Plane,
     shape1: { shape: Shape, qualifier: ConstraintQualifier },
     shape2: { shape: Shape, qualifier: ConstraintQualifier },
-    finiteLine: boolean = true
+    mustTouch: boolean
   ): Edge[] {
     let solutions: { tangentPoint1: gp_Pnt2d; tangentPoint2: gp_Pnt2d }[];
 
@@ -33,7 +33,7 @@ export class CurveTangentLineSolver implements TangentLineSolver {
       solutions = this.getCurveCurveTangent(plane, shape1, shape2);
     }
 
-    if (finiteLine) {
+    if (mustTouch) {
       solutions = filterSolutionsByFiniteExtent(solutions, shape1.shape, shape2.shape, plane);
     }
 

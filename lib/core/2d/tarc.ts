@@ -16,20 +16,21 @@ interface TArcFunction {
   (endPoint: Point2DLike): TangentArcToPoint;
   (endPoint: Point2DLike, tangent: Point2DLike): TangentArcToPointTangent;
   (startPoint: Point2DLike, endPoint: Point2DLike, tangent: Point2DLike): TangentArcToPointTangent;
-  (c1: SceneObject | QualifiedSceneObject | Point2DLike, c2: SceneObject | QualifiedSceneObject | Point2DLike, radius: number): TangentArcTwoObjects;
+  (c1: SceneObject | QualifiedSceneObject | Point2DLike, c2: SceneObject | QualifiedSceneObject | Point2DLike, radius: number, mustTouch?: boolean): TangentArcTwoObjects;
 }
 
 function build(context: SceneParserContext): TArcFunction {
   return function tarc() {
     // tarc(c1, c2, radius): fillet arc tangent to two circles/points
-    if (arguments.length === 3 && typeof arguments[2] === 'number') {
+    if ((arguments.length === 3 || arguments.length === 4) && typeof arguments[2] === 'number') {
       const o1 = isPoint2DLike(arguments[0]) ? normalizePoint2D(arguments[0] as Point2DLike) : arguments[0]
       const o2 = isPoint2DLike(arguments[1]) ? normalizePoint2D(arguments[1] as Point2DLike) : arguments[1]
       const c1 = QualifiedSceneObject.from(o1);
       const c2 = QualifiedSceneObject.from(o2);
 
       const radius = arguments[2] as number;
-      const arc = new TangentArcTwoObjects(c1, c2, radius);
+      const mustTouch = typeof arguments[3] === 'boolean' ? arguments[3] : false;
+      const arc = new TangentArcTwoObjects(c1, c2, radius, mustTouch);
       context.addSceneObject(arc);
       return arc;
     }

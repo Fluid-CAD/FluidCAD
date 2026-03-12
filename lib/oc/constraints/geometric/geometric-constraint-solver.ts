@@ -6,18 +6,18 @@ import { GeometricTangentCircleSolver } from "./tangent-circle-solver.js";
 import { GeometricTangentLineSolver } from "./tangent-line-solver.js";
 
 export class GeometricConstraintSolver extends ConstraintSolver {
-  getTangentLines(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, finiteLine: boolean = true): Edge[] {
+  getTangentLines(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, mustTouch: boolean): Edge[] {
     const tangentLineSolver = new GeometricTangentLineSolver();
-    return tangentLineSolver.getTangentLines(plane, shape1, shape2, finiteLine);
+    return tangentLineSolver.getTangentLines(plane, shape1, shape2, mustTouch);
   }
 
-  getTangentCircles(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number): Edge[] {
+  getTangentCircles(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number, mustTouch: boolean): Edge[] {
     const tangentCircleSolver = new GeometricTangentCircleSolver();
-    return tangentCircleSolver.getTangentCircles(plane, shape1, shape2, radius);
+    return tangentCircleSolver.getTangentCircles(plane, shape1, shape2, radius, mustTouch);
   }
 
-  getTangentArcs(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number) {
+  getTangentArcs(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number, mustTouch: boolean) {
     const solver = new GeometricTangentCircleSolver();
-    return solver.getTangentArcs(plane, shape1, shape2, radius);
+    return solver.getTangentArcs(plane, shape1, shape2, radius, mustTouch);
   }
 }

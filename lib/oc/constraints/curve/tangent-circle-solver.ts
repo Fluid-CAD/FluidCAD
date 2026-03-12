@@ -17,7 +17,7 @@ export class CurveTangentCircleSolver implements TangentCircleSolver {
     shape1: QualifiedShape,
     shape2: QualifiedShape,
     radius: number,
-    finiteLine: boolean = true
+    mustTouch: boolean
   ): Edge[] {
     const isVertex1 = shape1.shape instanceof Vertex;
     const isVertex2 = shape2.shape instanceof Vertex;
@@ -26,14 +26,14 @@ export class CurveTangentCircleSolver implements TangentCircleSolver {
       const vertex = isVertex1 ? shape1 : shape2;
       const other = isVertex1 ? shape2 : shape1;
       let solutions = this.getCurvePointTangent(plane, vertex.shape as Vertex, other, radius);
-      if (finiteLine) {
+      if (mustTouch) {
         solutions = filterSolutionsByFiniteExtent(solutions, shape1.shape, shape2.shape, plane);
       }
       return toCircleEdges(solutions, plane);
     }
 
     let solutions = this.getCurveCurveTangent(plane, shape1, shape2, radius);
-    if (finiteLine) {
+    if (mustTouch) {
       solutions = filterSolutionsByFiniteExtent(solutions, shape1.shape, shape2.shape, plane);
     }
     return toCircleEdges(solutions, plane);
@@ -44,7 +44,7 @@ export class CurveTangentCircleSolver implements TangentCircleSolver {
     shape1: QualifiedShape,
     shape2: QualifiedShape,
     radius: number,
-    finiteLine: boolean = true
+    mustTouch: boolean
   ): {
     edges: Edge[];
     endTangent: Point2D | null;
@@ -56,7 +56,7 @@ export class CurveTangentCircleSolver implements TangentCircleSolver {
       const vertex = isVertex1 ? shape1 : shape2;
       const other = isVertex1 ? shape2 : shape1;
       let solutions = this.getCurvePointTangent(plane, vertex.shape as Vertex, other, radius);
-      if (finiteLine) {
+      if (mustTouch) {
         solutions = filterSolutionsByFiniteExtent(solutions, shape1.shape, shape2.shape, plane);
       }
 
@@ -70,7 +70,7 @@ export class CurveTangentCircleSolver implements TangentCircleSolver {
     }
 
     let solutions = this.getCurveCurveTangent(plane, shape1, shape2, radius);
-    if (finiteLine) {
+    if (mustTouch) {
       solutions = filterSolutionsByFiniteExtent(solutions, shape1.shape, shape2.shape, plane);
     }
 

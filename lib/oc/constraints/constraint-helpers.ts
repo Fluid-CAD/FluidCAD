@@ -3,6 +3,8 @@ import { getOC } from "../init.js";
 import { ConstraintQualifier } from "../../features/2d/constraints/qualified-geometry.js";
 import { Point2D } from "../../math/point.js";
 import { Edge } from "../../common/edge.js";
+import { Shape } from "../../common/shape.js";
+import { Vertex } from "../../common/vertex.js";
 import { Plane } from "../../math/plane.js";
 import { Convert } from "../convert.js";
 import { Geometry } from "../geometry.js";
@@ -178,4 +180,91 @@ export function toArcEdges(solutions: {
     const arc = Geometry.makeArcThreePoints(worldPnt1, worldMid, worldPnt2);
     return Geometry.makeEdgeFromCurve(arc);
   });
+}
+
+export function filterSolutionsByFiniteExtent<T extends {
+  tangentPoint1: gp_Pnt2d;
+  tangentPoint2: gp_Pnt2d;
+}>(
+  solutions: T[],
+  shape1: Shape,
+  shape2: Shape,
+  plane: Plane
+): T[] {
+  const lines = getFiniteLineExtents([shape1, shape2], plane);
+  if (lines.length === 0) {
+    return solutions;
+  }
+
+  return solutions.filter(solution => {
+    const tp1 = new Point2D(solution.tangentPoint1.X(), solution.tangentPoint1.Y());
+    const tp2 = new Point2D(solution.tangentPoint2.X(), solution.tangentPoint2.Y());
+    return isWithinFiniteLines(tp1, lines) && isWithinFiniteLines(tp2, lines);
+  });
+}
+
+interface LineExtent {
+  start: Point2D;
+  end: Point2D;
+  dx: number;
+  dy: number;
+  len2: number;
+  len: number;
+}
+
+function getFiniteLineExtents(shapes: Shape[], plane: Plane): LineExtent[] {
+  const oc = getOC();
+  const result: LineExtent[] = [];
+
+  for (const shape of shapes) {
+    if (!(shape instanceof Edge)) {
+      continue;
+    }
+
+    const adaptor = new oc.BRepAdaptor_Curve(shape.getShape());
+    const isLine = adaptor.GetType() === oc.GeomAbs_CurveType.GeomAbs_Line;
+    adaptor.delete();
+
+    if (!isLine) {
+      continue;
+    }
+
+    const start = plane.worldToLocal(shape.getFirstVertex().toPoint());
+    const end = plane.worldToLocal(shape.getLastVertex().toPoint());
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const len2 = dx * dx + dy * dy;
+
+    if (len2 < 1e-10) {
+      continue;
+    }
+
+    result.push({ start, end, dx, dy, len2, len: Math.sqrt(len2) });
+  }
+
+  return result;
+}
+
+// Returns false if the point lies on a line's infinite extension but outside
+// its finite segment. Points not on any line pass through (they belong to
+// a circle, arc, or vertex which we don't clip).
+function isWithinFiniteLines(point: Point2D, lines: LineExtent[]): boolean {
+  for (const line of lines) {
+    const perpDist = Math.abs(
+      (point.x - line.start.x) * (-line.dy / line.len) +
+      (point.y - line.start.y) * (line.dx / line.len)
+    );
+
+    if (perpDist > 1e-4) {
+      continue; // Point is not on this line's geometry
+    }
+
+    // Point is on this line: check if within the finite segment
+    const t = ((point.x - line.start.x) * line.dx + (point.y - line.start.y) * line.dy) / line.len2;
+    if (t < -1e-6 || t > 1 + 1e-6) {
+      return false;
+    }
+  }
+
+  return true;
 }

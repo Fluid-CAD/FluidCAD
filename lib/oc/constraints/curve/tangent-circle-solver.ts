@@ -4,7 +4,7 @@ import { Shape } from "../../../common/shape.js";
 import { Vertex } from "../../../common/vertex.js";
 import { QualifiedShape } from "../../../features/2d/constraints/qualified-geometry.js";
 import { Plane } from "../../../math/plane.js";
-import { calculateTangent, getQualifiedCurve, toArcEdges, toCircleEdges } from "../constraint-helpers.js";
+import { calculateTangent, filterSolutionsByFiniteExtent, getQualifiedCurve, toArcEdges, toCircleEdges } from "../constraint-helpers.js";
 import { Convert } from "../../convert.js";
 import { getOC } from "../../init.js";
 import { Geometry } from "../../geometry.js";
@@ -24,11 +24,13 @@ export class CurveTangentCircleSolver implements TangentCircleSolver {
     if (isVertex1 || isVertex2) {
       const vertex = isVertex1 ? shape1 : shape2;
       const other = isVertex1 ? shape2 : shape1;
-      const solutions = this.getCurvePointTangent(plane, vertex.shape as Vertex, other, radius);
+      let solutions = this.getCurvePointTangent(plane, vertex.shape as Vertex, other, radius);
+      solutions = filterSolutionsByFiniteExtent(solutions, shape1.shape, shape2.shape, plane);
       return toCircleEdges(solutions, plane);
     }
 
-    const solutions = this.getCurveCurveTangent(plane, shape1, shape2, radius);
+    let solutions = this.getCurveCurveTangent(plane, shape1, shape2, radius);
+    solutions = filterSolutionsByFiniteExtent(solutions, shape1.shape, shape2.shape, plane);
     return toCircleEdges(solutions, plane);
   }
 
@@ -47,7 +49,8 @@ export class CurveTangentCircleSolver implements TangentCircleSolver {
     if (isVertex1 || isVertex2) {
       const vertex = isVertex1 ? shape1 : shape2;
       const other = isVertex1 ? shape2 : shape1;
-      const solutions = this.getCurvePointTangent(plane, vertex.shape as Vertex, other, radius);
+      let solutions = this.getCurvePointTangent(plane, vertex.shape as Vertex, other, radius);
+      solutions = filterSolutionsByFiniteExtent(solutions, shape1.shape, shape2.shape, plane);
 
       const edges = toArcEdges(solutions, plane);
       const endTangent = calculateTangent(solutions);
@@ -58,7 +61,8 @@ export class CurveTangentCircleSolver implements TangentCircleSolver {
       };
     }
 
-    const solutions = this.getCurveCurveTangent(plane, shape1, shape2, radius);
+    let solutions = this.getCurveCurveTangent(plane, shape1, shape2, radius);
+    solutions = filterSolutionsByFiniteExtent(solutions, shape1.shape, shape2.shape, plane);
 
     const edges = toArcEdges(solutions, plane);
     const endTangent = calculateTangent(solutions);

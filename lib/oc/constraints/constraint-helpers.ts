@@ -62,8 +62,17 @@ export function calculateTangent(solutions: {
   }
 
   const lastSolution = solutions[solutions.length - 1];
-  const angle1 = Math.atan2(lastSolution.tangentPoint1.Y() - lastSolution.center.Y(), lastSolution.tangentPoint1.X() - lastSolution.center.X());
-  const angle2 = Math.atan2(lastSolution.tangentPoint2.Y() - lastSolution.center.Y(), lastSolution.tangentPoint2.X() - lastSolution.center.X());
+  const cx = lastSolution.center.X();
+  const cy = lastSolution.center.Y();
+  const radius = lastSolution.radius;
+
+  let angle1 = Math.atan2(lastSolution.tangentPoint1.Y() - cy, lastSolution.tangentPoint1.X() - cx);
+  let angle2 = Math.atan2(lastSolution.tangentPoint2.Y() - cy, lastSolution.tangentPoint2.X() - cx);
+
+  const dist1 = Math.hypot(lastSolution.tangentPoint1.X() - cx, lastSolution.tangentPoint1.Y() - cy);
+  const dist2 = Math.hypot(lastSolution.tangentPoint2.X() - cx, lastSolution.tangentPoint2.Y() - cy);
+  if (dist1 < radius) { angle1 += Math.PI; }
+  if (dist2 < radius) { angle2 += Math.PI; }
 
   let diff = angle2 - angle1;
   if (diff > Math.PI) { diff -= 2 * Math.PI; }
@@ -102,17 +111,46 @@ export function toArcEdges(solutions: {
     const center = Convert.toPoint2D(solution.center);
     const radius = solution.radius;
 
-    const worldPnt1 = plane.localToWorld(pnt1);
-    const worldPnt2 = plane.localToWorld(pnt2);
+    let angle1 = Math.atan2(pnt1.y - center.y, pnt1.x - center.x);
+    let angle2 = Math.atan2(pnt2.y - center.y, pnt2.x - center.x);
 
-    const angle1 = Math.atan2(pnt1.y - center.y, pnt1.x - center.x);
-    const angle2 = Math.atan2(pnt2.y - center.y, pnt2.x - center.x);
+    // Solver tangent points lie on the input geometries, not on the solution
+    // circle. When a tangent point falls inside the solution circle (internal
+    // tangency), its direction from the center is opposite to the actual
+    // tangent point on the solution circle — correct by flipping the angle.
+    if (pnt1.distanceTo(center) < radius) { angle1 += Math.PI; }
+    if (pnt2.distanceTo(center) < radius) { angle2 += Math.PI; }
+
+    const worldPnt1 = plane.localToWorld(new Point2D(
+      center.x + radius * Math.cos(angle1),
+      center.y + radius * Math.sin(angle1)
+    ));
+    const worldPnt2 = plane.localToWorld(new Point2D(
+      center.x + radius * Math.cos(angle2),
+      center.y + radius * Math.sin(angle2)
+    ));
 
     let diff = angle2 - angle1;
     if (diff > Math.PI) { diff -= 2 * Math.PI; }
     if (diff < -Math.PI) { diff += 2 * Math.PI; }
 
-    const midAngle = angle1 + diff / 2;
+    const midAngleShort = angle1 + diff / 2;
+    const midAngleLong = midAngleShort + Math.PI;
+
+    // Pick the arc whose midpoint is closest to the midpoint of the original
+    // tangent points (on the input geometries), so the arc bridges between them.
+    const rawMidX = (pnt1.x + pnt2.x) / 2;
+    const rawMidY = (pnt1.y + pnt2.y) / 2;
+
+    const shortMidX = center.x + radius * Math.cos(midAngleShort);
+    const shortMidY = center.y + radius * Math.sin(midAngleShort);
+    const longMidX = center.x + radius * Math.cos(midAngleLong);
+    const longMidY = center.y + radius * Math.sin(midAngleLong);
+
+    const distShort = Math.hypot(shortMidX - rawMidX, shortMidY - rawMidY);
+    const distLong = Math.hypot(longMidX - rawMidX, longMidY - rawMidY);
+
+    const midAngle = distShort <= distLong ? midAngleShort : midAngleLong;
     const worldMid = plane.localToWorld(new Point2D(
       center.x + radius * Math.cos(midAngle),
       center.y + radius * Math.sin(midAngle)

@@ -147,7 +147,6 @@ export class GeometricTangentCircleSolver implements TangentCircleSolver {
     lineShape2: QualifiedShape,
     radius: number
   ) {
-    console.log('Getting line-line tangent');
     const oc = getOC();
     const tolerance = oc.Precision.Angular();
     const [pln, disposePln] = Convert.toGpPln(plane);
@@ -169,7 +168,6 @@ export class GeometricTangentCircleSolver implements TangentCircleSolver {
     circleShape: QualifiedShape,
     radius: number
   ) {
-    console.log('Getting line-circle tangent');
     const oc = getOC();
     const tolerance = oc.Precision.Angular();
     const [pln, disposePln] = Convert.toGpPln(plane);
@@ -191,9 +189,6 @@ export class GeometricTangentCircleSolver implements TangentCircleSolver {
     lineShape: QualifiedShape,
     radius: number
   ) {
-    console.log('Getting point-line tangent!');
-    console.log('Vertex:', vertex);
-    console.log('Line shape:', lineShape);
     const oc = getOC();
     const tolerance = oc.Precision.Angular();
     const [pln, disposePln] = Convert.toGpPln(plane);
@@ -215,20 +210,16 @@ export class GeometricTangentCircleSolver implements TangentCircleSolver {
     vertex2: Vertex,
     radius: number
   ) {
-    console.log('Getting point-point-circle tangent');
     const oc = getOC();
     const tolerance = oc.Precision.Angular();
     const [pnt1, disposePnt1] = Convert.toGpPnt2d(vertex1.toPoint2D());
     const [pnt2, disposePnt2] = Convert.toGpPnt2d(vertex2.toPoint2D());
 
-    console.log('Point 1:', pnt1.X(), pnt1.Y());
-    console.log('Point 2:', pnt2.X(), pnt2.Y());
     const solver = new oc.GccAna_Circ2d2TanRad(pnt1, pnt2, radius, tolerance);
     disposePnt1();
     disposePnt2();
 
     const solutions = this.getSolutions(solver, plane);
-    console.log('Found edges:', solutions.length);
     return solutions;
   }
 
@@ -238,8 +229,6 @@ export class GeometricTangentCircleSolver implements TangentCircleSolver {
     circleShape: QualifiedShape,
     radius: number
   ) {
-    console.log('Getting point-circle tangent');
-
     const oc = getOC();
     const tolerance = oc.Precision.Angular();
     const [pln, disposePln] = Convert.toGpPln(plane);
@@ -261,7 +250,6 @@ export class GeometricTangentCircleSolver implements TangentCircleSolver {
     shape2: QualifiedShape,
     radius: number
   ) {
-    console.log('Getting circle-circle tangent', shape1, shape2);
     const oc = getOC();
     const tolerance = oc.Precision.Angular();
     const [pln, disposePln] = Convert.toGpPln(plane);
@@ -291,29 +279,14 @@ export class GeometricTangentCircleSolver implements TangentCircleSolver {
 
     if (solver.IsDone()) {
       for (let i = 1; i <= solver.NbSolutions(); i++) {
-        console.log(`Processing solution ${i} of ${solver.NbSolutions()}`);
         const circ2d = solver.ThisSolution(i);
         const radius = circ2d.Radius();
-
-        console.log('Circle center:', circ2d.Location().X(), circ2d.Location().Y());
-        console.log('Circle radius:', radius);
 
         const pnt1 = new oc.gp_Pnt2d();
         const pnt2 = new oc.gp_Pnt2d();
 
-        try {
-          solver.Tangency1(i, 0, 0, pnt1);
-        }
-        catch (_e) {
-          console.warn('Error computing tangency points for solution', i, _e);
-        }
-
-        try {
-          solver.Tangency2(i, 0, 0, pnt2);
-        }
-        catch (_e) {
-          console.warn('Error computing tangency points for solution', i, _e);
-        }
+        solver.Tangency1(i, 0, 0, pnt1);
+        solver.Tangency2(i, 0, 0, pnt2);
 
         solutions.push({
           center: circ2d.Location(),

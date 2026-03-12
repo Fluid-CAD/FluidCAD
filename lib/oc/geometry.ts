@@ -4,8 +4,6 @@ import { Convert } from "./convert.js";
 import { Point, Point2D } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Edge } from "../common/edge.js";
-import { Plane } from "../math/plane.js";
-import { TangentSolver } from "./tangent-solver.js";
 
 export class Geometry {
   // ── Shape factories ────────────────────────────────────────────────────────

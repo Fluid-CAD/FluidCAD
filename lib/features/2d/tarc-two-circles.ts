@@ -1,13 +1,14 @@
 import { GeometrySceneObject } from "./geometry.js";
-import { QualifiedGeometry } from "./constraints/qualified-geometry.js";
 import { Geometry } from "../../oc/geometry.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { Vertex } from "../../common/vertex.js";
+import { QualifiedSceneObject } from "./constraints/qualified-geometry.js";
+import { createConstraintSolver } from "../../oc/constraints/create-solver.js";
 
-export class TangentArcTwoCircles extends GeometrySceneObject {
+export class TangentArcTwoObjects extends GeometrySceneObject {
   constructor(
-    public c1: QualifiedGeometry,
-    public c2: QualifiedGeometry,
+    public c1: QualifiedSceneObject,
+    public c2: QualifiedSceneObject,
     public radius: number
   ) {
     super();
@@ -15,14 +16,17 @@ export class TangentArcTwoCircles extends GeometrySceneObject {
 
   build() {
     const plane = this.sketch.getPlane();
-    const results = Geometry.getTangentArcs(plane, this.c1, this.c2, this.radius);
+    const solver = createConstraintSolver();
+    const results = solver.getTangentArcs(plane, this.c1.toQualifiedShape(), this.c2.toQualifiedShape(), this.radius);
 
-    for (let i = 0; i < results.length; i++) {
-      this.setState(`edge-${i}`, results[i].edge);
+    for (let i = 0; i < results.edges.length; i++) {
+      this.setState(`edge-${i}`, results.edges[i]);
     }
 
-    if (results.length > 0) {
-      const { edge: lastEdge, endTangent } = results[results.length - 1];
+    if (results.edges.length > 0) {
+      const lastEdge = results.edges[results.edges.length - 1];
+      const endTangent = results.endTangent;
+
       const firstVertex = lastEdge.getFirstVertex();
       const lastVertex = lastEdge.getLastVertex();
 
@@ -36,7 +40,7 @@ export class TangentArcTwoCircles extends GeometrySceneObject {
       this.setCurrentPosition(localEnd);
     }
 
-    this.addShapes(results.map(r => r.edge));
+    this.addShapes(results.edges);
   }
 
   start(index: number = 0): LazyVertex {
@@ -47,8 +51,8 @@ export class TangentArcTwoCircles extends GeometrySceneObject {
     return new LazyVertex(this.generateUniqueName(`end-vertex-${index}`), () => [this.getState('end')]);
   }
 
-  compareTo(other: TangentArcTwoCircles): boolean {
-    if (!(other instanceof TangentArcTwoCircles)) {
+  compareTo(other: TangentArcTwoObjects): boolean {
+    if (!(other instanceof TangentArcTwoObjects)) {
       return false;
     }
 

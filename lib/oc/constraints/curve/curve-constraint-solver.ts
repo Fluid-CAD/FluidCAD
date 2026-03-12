@@ -1,6 +1,7 @@
 import { Edge } from "../../../common/edge.js";
 import { QualifiedShape } from "../../../features/2d/constraints/qualified-geometry.js";
 import { Plane } from "../../../math/plane.js";
+import { Point2D } from "../../../math/point.js";
 import { ConstraintSolver } from "../constraint-solver.js";
 import { CurveTangentCircleSolver } from "./tangent-circle-solver.js";
 import { CurveTangentLineSolver } from "./tangent-line-solver.js";
@@ -17,7 +18,7 @@ export class CurveConstraintSolver extends ConstraintSolver {
     return solver.getTangentLines(plane, shape1, shape2);
   }
 
-  getTangentArcs(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number): Edge[] {
+  getTangentArcs(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number) {
     const solver = new CurveTangentCircleSolver();
     return solver.getTangentArcs(plane, shape1, shape2, radius);
   }

@@ -1,6 +1,7 @@
 import { Edge } from "../../common/edge.js";
 import { QualifiedShape } from "../../features/2d/constraints/qualified-geometry.js";
 import { Plane } from "../../math/plane.js";
+import { Point2D } from "../../math/point.js";
 
 export interface TangentLineSolver {
   getTangentLines(
@@ -38,6 +39,9 @@ export abstract class ConstraintSolver implements TangentLineSolver, TangentCirc
     shape1: QualifiedShape,
     shape2: QualifiedShape,
     radius: number
-  ): Edge[];
+  ): {
+    edges: Edge[];
+    endTangent: Point2D
+  };
 }
 

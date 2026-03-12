@@ -4,7 +4,7 @@ import { Shape } from "../../../common/shape.js";
 import { Vertex } from "../../../common/vertex.js";
 import { QualifiedShape } from "../../../features/2d/constraints/qualified-geometry.js";
 import { Plane } from "../../../math/plane.js";
-import { getQualifiedCurve } from "../constraint-helpers.js";
+import { calculateTangent, getQualifiedCurve, toArcEdges, toCircleEdges } from "../constraint-helpers.js";
 import { Convert } from "../../convert.js";
 import { getOC } from "../../init.js";
 import { Geometry } from "../../geometry.js";
@@ -25,11 +25,11 @@ export class CurveTangentCircleSolver implements TangentCircleSolver {
       const vertex = isVertex1 ? shape1 : shape2;
       const other = isVertex1 ? shape2 : shape1;
       const solutions = this.getCurvePointTangent(plane, vertex.shape as Vertex, other, radius);
-      return this.toCircleEdges(solutions, plane);
+      return toCircleEdges(solutions, plane);
     }
 
     const solutions = this.getCurveCurveTangent(plane, shape1, shape2, radius);
-    return this.toCircleEdges(solutions, plane);
+    return toCircleEdges(solutions, plane);
   }
 
   getTangentArcs(
@@ -37,7 +37,10 @@ export class CurveTangentCircleSolver implements TangentCircleSolver {
     shape1: QualifiedShape,
     shape2: QualifiedShape,
     radius: number
-  ): Edge[] {
+  ): {
+    edges: Edge[];
+    endTangent: Point2D | null;
+  } {
     const isVertex1 = shape1.shape instanceof Vertex;
     const isVertex2 = shape2.shape instanceof Vertex;
 
@@ -45,11 +48,25 @@ export class CurveTangentCircleSolver implements TangentCircleSolver {
       const vertex = isVertex1 ? shape1 : shape2;
       const other = isVertex1 ? shape2 : shape1;
       const solutions = this.getCurvePointTangent(plane, vertex.shape as Vertex, other, radius);
-      return this.toArcEdges(solutions, plane);
+
+      const edges = toArcEdges(solutions, plane);
+      const endTangent = calculateTangent(solutions);
+
+      return {
+        edges,
+        endTangent
+      };
     }
 
     const solutions = this.getCurveCurveTangent(plane, shape1, shape2, radius);
-    return this.toArcEdges(solutions, plane);
+
+    const edges = toArcEdges(solutions, plane);
+    const endTangent = calculateTangent(solutions);
+
+    return {
+      edges,
+      endTangent
+    };
   }
 
   private getCurveCurveTangent(
@@ -88,14 +105,18 @@ export class CurveTangentCircleSolver implements TangentCircleSolver {
     const [pln, disposePln] = Convert.toGpPln(plane);
     const [pnt, disposePnt] = Convert.toGpPnt2d(vertex.toPoint2D());
     const geom2dPnt = new oc.Geom2d_CartesianPoint(pnt);
+    const handle = new oc.Handle_Geom2d_Point(geom2dPnt);
     disposePnt();
     const curve = this.getCurve(lineShape.shape);
     const qualifiedCurve = getQualifiedCurve(pln, curve, lineShape.qualifier);
 
-    const solver = new oc.Geom2dGcc_Circ2d2TanRad(qualifiedCurve, geom2dPnt as any, radius, tolerance);
+    const solver = new oc.Geom2dGcc_Circ2d2TanRad(qualifiedCurve, handle, radius, tolerance);
 
     const solutions = this.getSolutions(solver, plane);
+
     disposePln();
+    handle.delete();
+
     return solutions;
   }
 
@@ -132,53 +153,6 @@ export class CurveTangentCircleSolver implements TangentCircleSolver {
     return result;
   }
 
-  private toCircleEdges(solutions: {
-    center: gp_Pnt2d;
-    radius: number;
-    tangentPoint1: gp_Pnt2d;
-    tangentPoint2: gp_Pnt2d;
-  }[], plane: Plane): Edge[] {
-    return solutions.map(solution => {
-      const center2d = Convert.toPoint2D(solution.center);
-      const worldCenter = plane.localToWorld(center2d);
-      const circle = Geometry.makeCircle(worldCenter, solution.radius, plane.normal);
-      return Geometry.makeEdgeFromCircle(circle);
-    });
-  }
-
-  private toArcEdges(solutions: {
-    center: gp_Pnt2d;
-    radius: number;
-    tangentPoint1: gp_Pnt2d;
-    tangentPoint2: gp_Pnt2d;
-  }[], plane: Plane): Edge[] {
-    const oc = getOC();
-    return solutions.map(solution => {
-      const pnt1 = Convert.toPoint2D(solution.tangentPoint1, true);
-      const pnt2 = Convert.toPoint2D(solution.tangentPoint2, true);
-      const center = Convert.toPoint2D(solution.center, true);
-      const radius = solution.radius;
-
-      const worldPnt1 = plane.localToWorld(pnt1);
-      const worldPnt2 = plane.localToWorld(pnt2);
-
-      const angle1 = Math.atan2(pnt1.y - center.y, pnt1.x - center.x);
-      const angle2 = Math.atan2(pnt2.y - center.y, pnt2.x - center.x);
-
-      let diff = angle2 - angle1;
-      if (diff > Math.PI) { diff -= 2 * Math.PI; }
-      if (diff < -Math.PI) { diff += 2 * Math.PI; }
-
-      const midAngle = angle1 + diff / 2;
-      const worldMid = plane.localToWorld(new Point2D(
-        center.x + radius * Math.cos(midAngle),
-        center.y + radius * Math.sin(midAngle)
-      ));
-
-      const arc = Geometry.makeArcThreePoints(worldPnt1, worldMid, worldPnt2);
-      return Geometry.makeEdgeFromCurve(arc);
-    });
-  }
 
   private getCurve(shape: Shape) {
     const oc = getOC();

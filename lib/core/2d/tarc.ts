@@ -2,7 +2,7 @@ import { Point2DLike, isPoint2DLike } from "../../math/point.js";
 import { TangentArc } from "../../features/2d/tarc.js";
 import { TangentArcToPoint } from "../../features/2d/tarc-to-point.js";
 import { TangentArcToPointTangent } from "../../features/2d/tarc-to-point-tangent.js";
-import { TangentArcTwoCircles } from "../../features/2d/tarc-two-circles.js";
+import { TangentArcTwoObjects } from "../../features/2d/tarc-two-circles.js";
 import { TangentArcWithTangent } from "../../features/2d/tarc-with-tangent.js";
 import { Move } from "../../features/2d/move.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
@@ -16,7 +16,7 @@ interface TArcFunction {
   (endPoint: Point2DLike): TangentArcToPoint;
   (endPoint: Point2DLike, tangent: Point2DLike): TangentArcToPointTangent;
   (startPoint: Point2DLike, endPoint: Point2DLike, tangent: Point2DLike): TangentArcToPointTangent;
-  (c1: SceneObject | QualifiedSceneObject, c2: SceneObject | QualifiedSceneObject, radius: number): TangentArcTwoCircles;
+  (c1: SceneObject | QualifiedSceneObject | Point2DLike, c2: SceneObject | QualifiedSceneObject | Point2DLike, radius: number): TangentArcTwoObjects;
 }
 
 function build(context: SceneParserContext): TArcFunction {
@@ -25,10 +25,13 @@ function build(context: SceneParserContext): TArcFunction {
     if (arguments.length === 3 &&
       (arguments[0] instanceof SceneObject || arguments[0] instanceof QualifiedSceneObject) &&
       typeof arguments[2] === 'number') {
-      const c1 = QualifiedSceneObject.from(arguments[0]);
-      const c2 = QualifiedSceneObject.from(arguments[1]);
+      const o1 = isPoint2DLike(arguments[0]) ? normalizePoint2D(arguments[0] as Point2DLike) : arguments[0]
+      const o2 = isPoint2DLike(arguments[1]) ? normalizePoint2D(arguments[1] as Point2DLike) : arguments[1]
+      const c1 = QualifiedSceneObject.from(o1);
+      const c2 = QualifiedSceneObject.from(o2);
+
       const radius = arguments[2] as number;
-      const arc = new TangentArcTwoCircles(c1, c2, radius);
+      const arc = new TangentArcTwoObjects(c1, c2, radius);
       context.addSceneObject(arc);
       return arc;
     }

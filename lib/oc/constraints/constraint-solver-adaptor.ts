@@ -7,6 +7,7 @@ import { getOC } from "../init.js";
 import { GeometricConstraintSolver } from "./geometric/geometric-constraint-solver.js";
 import { CurveConstraintSolver } from "./curve/curve-constraint-solver.js";
 import { Vertex } from "../../common/vertex.js";
+import { Point2D } from "../../math/point.js";
 
 export class ConstraintSolverAdaptor extends ConstraintSolver {
   constructor(private geometricSolver: GeometricConstraintSolver, private curveSolver: CurveConstraintSolver) {
@@ -36,6 +37,16 @@ export class ConstraintSolverAdaptor extends ConstraintSolver {
 
     console.log('Using geometric solver for tangent circles');
     return this.geometricSolver.getTangentCircles(plane, shape1, shape2, radius);
+  }
+
+  getTangentArcs(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number) {
+    if (this.isCurve(shape1.shape) || this.isCurve(shape2.shape)) {
+      console.log('Using curve solver for tangent arcs');
+      return this.curveSolver.getTangentArcs(plane, shape1, shape2, radius);
+    }
+
+    console.log('Using geometric solver for tangent circles');
+    return this.geometricSolver.getTangentArcs(plane, shape1, shape2, radius);
   }
 
   isCurve(shape: Shape): boolean {

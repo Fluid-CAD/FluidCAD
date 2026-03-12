@@ -1,10 +1,10 @@
-import { GccAna_Lin2d2Tan, GccEnt_QualifiedCirc, gp_Circ, gp_Lin } from "occjs-wrapper";
+import { GccAna_Lin2d2Tan, GccEnt_QualifiedCirc, gp_Circ, gp_Lin, gp_Pnt2d } from "occjs-wrapper";
 import { Edge } from "../../../common/edge.js";
 import { Shape } from "../../../common/shape.js";
 import { Vertex } from "../../../common/vertex.js";
 import { ConstraintQualifier, QualifiedShape } from "../../../features/2d/constraints/qualified-geometry.js";
 import { Plane } from "../../../math/plane.js";
-import { getQualifiedGeometry } from "../constraint-helpers.js";
+import { filterSolutionsByFiniteExtent, getQualifiedGeometry } from "../constraint-helpers.js";
 import { Convert } from "../../convert.js";
 import { getOC } from "../../init.js";
 import { Geometry } from "../../geometry.js";
@@ -15,7 +15,10 @@ export class GeometricTangentLineSolver implements TangentLineSolver {
     plane: Plane,
     shape1: { shape: Shape, qualifier: ConstraintQualifier },
     shape2: { shape: Shape, qualifier: ConstraintQualifier },
+    finiteLine: boolean = true
   ): Edge[] {
+    let solutions: { tangentPoint1: gp_Pnt2d; tangentPoint2: gp_Pnt2d }[];
+
     if (shape1.shape instanceof Vertex || shape2.shape instanceof Vertex) {
       const [vertex] = [shape1, shape2].filter(s => s.shape instanceof Vertex);
       const [otherShape] = [shape1, shape2].filter(s => s !== vertex);
@@ -25,19 +28,23 @@ export class GeometricTangentLineSolver implements TangentLineSolver {
         return [];
       }
 
-      return this.getPointCircleTangent(plane, vertex.shape as Vertex, otherShape);
+      solutions = this.getPointCircleTangent(plane, vertex.shape as Vertex, otherShape);
+    } else {
+      solutions = this.getCircleCircleTangent(plane, shape1, shape2);
     }
-    else {
-      return this.getCircleCircleTangent(plane, shape1, shape2);
+
+    if (finiteLine) {
+      solutions = filterSolutionsByFiniteExtent(solutions, shape1.shape, shape2.shape, plane);
     }
+
+    return this.solutionsToEdges(solutions, plane);
   }
 
   private getPointCircleTangent(
     plane: Plane,
     vertex: Vertex,
     circleShape: QualifiedShape
-  ): Edge[] {
-    console.log('Getting point-circle tangent');
+  ) {
     const oc = getOC();
     const tolerance = oc.Precision.Angular();
     const [pln, disposePln] = Convert.toGpPln(plane);
@@ -48,16 +55,16 @@ export class GeometricTangentLineSolver implements TangentLineSolver {
     const solver = new oc.GccAna_Lin2d2Tan(qualifiedGeometry as GccEnt_QualifiedCirc, pnt, tolerance);
     disposePnt();
 
-    const edges = this.collectSolverEdges(solver, plane);
+    const solutions = this.getSolutions(solver);
     disposePln();
-    return edges;
+    return solutions;
   }
 
   private getCircleCircleTangent(
     plane: Plane,
     shape1: QualifiedShape,
     shape2: QualifiedShape
-  ): Edge[] {
+  ) {
     const oc = getOC();
     const tolerance = oc.Precision.Angular();
     const [pln, disposePln] = Convert.toGpPln(plane);
@@ -68,33 +75,37 @@ export class GeometricTangentLineSolver implements TangentLineSolver {
 
     const solver = new oc.GccAna_Lin2d2Tan(qualifiedGeometry1 as GccEnt_QualifiedCirc, qualifiedGeometry2 as GccEnt_QualifiedCirc, tolerance);
 
-    const edges = this.collectSolverEdges(solver, plane);
+    const solutions = this.getSolutions(solver);
     disposePln();
-    return edges;
+    return solutions;
   }
 
-  private collectSolverEdges(solver: GccAna_Lin2d2Tan, plane: Plane): Edge[] {
+  private getSolutions(solver: GccAna_Lin2d2Tan) {
     const oc = getOC();
-    const edges: Edge[] = [];
+    const solutions: { tangentPoint1: gp_Pnt2d; tangentPoint2: gp_Pnt2d }[] = [];
 
     if (solver.IsDone()) {
-      const nSolutions = solver.NbSolutions();
-
-      for (let i = 1; i <= nSolutions; i++) {
+      for (let i = 1; i <= solver.NbSolutions(); i++) {
         const pnt1 = new oc.gp_Pnt2d();
         const pnt2 = new oc.gp_Pnt2d();
         solver.Tangency1(i, 0, 0, pnt1);
         solver.Tangency2(i, 0, 0, pnt2);
 
-        const worldPnt1 = plane.localToWorld(Convert.toPoint2D(pnt1, true));
-        const worldPnt2 = plane.localToWorld(Convert.toPoint2D(pnt2, true));
-
-        const line = Geometry.makeSegment(worldPnt1, worldPnt2);
-        edges.push(Geometry.makeEdge(line));
+        solutions.push({ tangentPoint1: pnt1, tangentPoint2: pnt2 });
       }
     }
 
-    return edges;
+    return solutions;
+  }
+
+  private solutionsToEdges(solutions: { tangentPoint1: gp_Pnt2d; tangentPoint2: gp_Pnt2d }[], plane: Plane): Edge[] {
+    return solutions.map(solution => {
+      const worldPnt1 = plane.localToWorld(Convert.toPoint2D(solution.tangentPoint1, true));
+      const worldPnt2 = plane.localToWorld(Convert.toPoint2D(solution.tangentPoint2, true));
+
+      const line = Geometry.makeSegment(worldPnt1, worldPnt2);
+      return Geometry.makeEdge(line);
+    });
   }
 
   private getShapeGeometry(shape: Shape) {

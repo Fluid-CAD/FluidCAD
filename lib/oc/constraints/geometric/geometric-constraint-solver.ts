@@ -6,9 +6,9 @@ import { GeometricTangentCircleSolver } from "./tangent-circle-solver.js";
 import { GeometricTangentLineSolver } from "./tangent-line-solver.js";
 
 export class GeometricConstraintSolver extends ConstraintSolver {
-  getTangentLines(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape): Edge[] {
+  getTangentLines(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, finiteLine: boolean = true): Edge[] {
     const tangentLineSolver = new GeometricTangentLineSolver();
-    return tangentLineSolver.getTangentLines(plane, shape1, shape2);
+    return tangentLineSolver.getTangentLines(plane, shape1, shape2, finiteLine);
   }
 
   getTangentCircles(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number): Edge[] {

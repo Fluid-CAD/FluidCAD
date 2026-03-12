@@ -8,6 +8,7 @@ export interface TangentLineSolver {
     plane: Plane,
     shape1: QualifiedShape,
     shape2: QualifiedShape,
+    finiteLine?: boolean
   ): Edge[];
 }
 
@@ -26,6 +27,7 @@ export abstract class ConstraintSolver implements TangentLineSolver, TangentCirc
     plane: Plane,
     shape1: QualifiedShape,
     shape2: QualifiedShape,
+    finiteLine?: boolean
   ): Edge[];
 
   abstract getTangentCircles(

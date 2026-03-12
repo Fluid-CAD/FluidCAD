@@ -73,8 +73,8 @@ export function calculateTangent(solutions: {
 
   const dist1 = Math.hypot(lastSolution.tangentPoint1.X() - cx, lastSolution.tangentPoint1.Y() - cy);
   const dist2 = Math.hypot(lastSolution.tangentPoint2.X() - cx, lastSolution.tangentPoint2.Y() - cy);
-  if (dist1 < radius) { angle1 += Math.PI; }
-  if (dist2 < radius) { angle2 += Math.PI; }
+  if (dist1 < radius * 0.9) { angle1 += Math.PI; }
+  if (dist2 < radius * 0.9) { angle2 += Math.PI; }
 
   let diff = angle2 - angle1;
   if (diff > Math.PI) { diff -= 2 * Math.PI; }
@@ -139,8 +139,8 @@ export function toArcEdges(solutions: {
     // circle. When a tangent point falls inside the solution circle (internal
     // tangency), its direction from the center is opposite to the actual
     // tangent point on the solution circle — correct by flipping the angle.
-    if (pnt1.distanceTo(center) < radius) { angle1 += Math.PI; }
-    if (pnt2.distanceTo(center) < radius) { angle2 += Math.PI; }
+    if (pnt1.distanceTo(center) < radius * 0.9) { angle1 += Math.PI; }
+    if (pnt2.distanceTo(center) < radius * 0.9) { angle2 += Math.PI; }
 
     const worldPnt1 = plane.localToWorld(new Point2D(
       center.x + radius * Math.cos(angle1),

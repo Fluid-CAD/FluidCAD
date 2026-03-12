@@ -16,7 +16,8 @@ export interface TangentCircleSolver {
     plane: Plane,
     shape1: QualifiedShape,
     shape2: QualifiedShape,
-    radius: number
+    radius: number,
+    finiteLine?: boolean
   ): Edge[];
 }
 
@@ -31,14 +32,16 @@ export abstract class ConstraintSolver implements TangentLineSolver, TangentCirc
     plane: Plane,
     shape1: QualifiedShape,
     shape2: QualifiedShape,
-    radius: number
+    radius: number,
+    finiteLine?: boolean
   ): Edge[];
 
   abstract getTangentArcs(
     plane: Plane,
     shape1: QualifiedShape,
     shape2: QualifiedShape,
-    radius: number
+    radius: number,
+    finiteLine?: boolean
   ): {
     edges: Edge[];
     endTangent: Point2D

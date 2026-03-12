@@ -7,7 +7,7 @@ import { ShapeOps } from "../oc/shape-ops.js";
 
 export class Chamfer extends SceneObject {
 
-  constructor(public selection: SelectSceneObject, private distance: number, private distance2: number) {
+  constructor(public selection: SelectSceneObject, private distance: number, private distance2: number, private isAngle: boolean = false) {
     super();
   }
 
@@ -70,7 +70,7 @@ export class Chamfer extends SceneObject {
             commonFaces.push(firstCommonFace);
           }
 
-          newShape = FilletOps.makeChamferTwoDistances(solid, targetEdges, this.distance, this.distance2, commonFaces);
+          newShape = FilletOps.makeChamferTwoDistances(solid, targetEdges, this.distance, this.distance2, commonFaces, this.isAngle);
         }
 
         const obj = shapeObjectMap.get(shape);
@@ -94,7 +94,7 @@ export class Chamfer extends SceneObject {
   override clone(): SceneObject[] {
     const selectionClone = this.selection.clone();
     const selection = selectionClone[selectionClone.length - 1] as SelectSceneObject;
-    const fillet = new Chamfer(selection, this.distance, this.distance2);
+    const fillet = new Chamfer(selection, this.distance, this.distance2, this.isAngle);
     return [...selectionClone, fillet];
   }
 
@@ -115,6 +115,10 @@ export class Chamfer extends SceneObject {
       return false;
     }
 
+    if (this.isAngle !== other.isAngle) {
+      return false;
+    }
+
     if (!this.selection.compareTo(other.selection)) {
       return false;
     }
@@ -130,7 +134,8 @@ export class Chamfer extends SceneObject {
     return {
       edges: this.selection.serialize(),
       distance: this.distance,
-      distance2: this.distance2
+      distance2: this.distance2,
+      isAngle: this.isAngle
     }
   }
 }

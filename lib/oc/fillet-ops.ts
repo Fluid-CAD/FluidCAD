@@ -8,6 +8,7 @@ import { Wire } from "../common/wire.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { Plane } from "../math/plane.js";
 import { WireOps } from "./wire-ops.js";
+import { rad } from "../helpers/math-helpers.js";
 
 export class FilletOps {
   static makeFillet(solid: Shape, edges: Edge[], radius: number): Shape {
@@ -54,7 +55,7 @@ export class FilletOps {
     return ShapeFactory.fromShape(result);
   }
 
-  static makeChamferTwoDistances(solid: Shape, edges: Edge[], distance1: number, distance2: number, faces: Face[]): Shape {
+  static makeChamferTwoDistances(solid: Shape, edges: Edge[], distance1: number, distance2: number, faces: Face[], isAngle: boolean = false): Shape {
     const oc = getOC();
     const maker = new oc.BRepFilletAPI_MakeChamfer(solid.getShape());
 
@@ -63,7 +64,12 @@ export class FilletOps {
       if (!face) {
         throw new Error("Chamfer: Failed to find common face for chamfer.");
       }
-      maker.Add(distance1, distance2, oc.TopoDS.Edge(edges[i].getShape()), oc.TopoDS.Face(face.getShape()));
+
+      if (isAngle) {
+        maker.AddDA(distance1, rad(distance2), oc.TopoDS.Edge(edges[i].getShape()), oc.TopoDS.Face(face.getShape()));
+      } else {
+        maker.Add(distance1, distance2, oc.TopoDS.Edge(edges[i].getShape()), oc.TopoDS.Face(face.getShape()));
+      }
     }
 
     const progress = new oc.Message_ProgressRange();

@@ -13,9 +13,9 @@ export class CurveConstraintSolver extends ConstraintSolver {
     return solver.getTangentCircles(plane, shape1, shape2, radius);
   }
 
-  getTangentLines(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape): Edge[] {
+  getTangentLines(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, finiteLine: boolean = true): Edge[] {
     const solver = new CurveTangentLineSolver();
-    return solver.getTangentLines(plane, shape1, shape2);
+    return solver.getTangentLines(plane, shape1, shape2, finiteLine);
   }
 
   getTangentArcs(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number) {

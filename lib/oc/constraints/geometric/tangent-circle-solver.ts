@@ -4,7 +4,7 @@ import { Shape } from "../../../common/shape.js";
 import { Vertex } from "../../../common/vertex.js";
 import { QualifiedShape } from "../../../features/2d/constraints/qualified-geometry.js";
 import { Plane } from "../../../math/plane.js";
-import { calculateTangent, getQualifiedGeometry, toArcEdges, toCircleEdges } from "../constraint-helpers.js";
+import { calculateTangent, filterSolutionsByFiniteExtent, getQualifiedGeometry, toArcEdges, toCircleEdges } from "../constraint-helpers.js";
 import { Convert } from "../../convert.js";
 import { getOC } from "../../init.js";
 import { TangentCircleSolver } from "../constraint-solver.js";
@@ -58,6 +58,7 @@ export class GeometricTangentCircleSolver implements TangentCircleSolver {
 
     }
 
+    solutions = filterSolutionsByFiniteExtent(solutions, shape1.shape, shape2.shape, plane);
     const edges = toCircleEdges(solutions, plane);
 
     for (const solution of solutions) {
@@ -118,6 +119,7 @@ export class GeometricTangentCircleSolver implements TangentCircleSolver {
       }
     }
 
+    solutions = filterSolutionsByFiniteExtent(solutions, shape1.shape, shape2.shape, plane);
     const edges = toArcEdges(solutions, plane);
     const endTangent = calculateTangent(solutions);
 

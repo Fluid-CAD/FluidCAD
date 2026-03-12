@@ -75,7 +75,6 @@ export class CurveTangentCircleSolver implements TangentCircleSolver {
     lineShape2: QualifiedShape,
     radius: number
   ) {
-    console.log('Getting curve-curve tangent');
     const oc = getOC();
     const tolerance = oc.Precision.Angular();
     const [pln, disposePln] = Convert.toGpPln(plane);
@@ -99,7 +98,6 @@ export class CurveTangentCircleSolver implements TangentCircleSolver {
     lineShape: QualifiedShape,
     radius: number
   ) {
-    console.log('Getting point-line tangent');
     const oc = getOC();
     const tolerance = oc.Precision.Angular();
     const [pln, disposePln] = Convert.toGpPln(plane);

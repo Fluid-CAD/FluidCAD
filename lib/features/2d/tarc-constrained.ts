@@ -8,14 +8,15 @@ export class TangentArcTwoObjects extends GeometrySceneObject {
   constructor(
     public c1: QualifiedSceneObject,
     public c2: QualifiedSceneObject,
-    public radius: number
+    public radius: number,
+    public mustTouch: boolean
   ) {
     super();
   }
 
   build() {
     const plane = this.sketch.getPlane();
-    const solver = createConstraintSolver();
+    const solver = createConstraintSolver(this.mustTouch);
     const results = solver.getTangentArcs(plane, this.c1.toQualifiedShape(), this.c2.toQualifiedShape(), this.radius);
 
     for (let i = 0; i < results.edges.length; i++) {
@@ -57,7 +58,8 @@ export class TangentArcTwoObjects extends GeometrySceneObject {
 
     return this.c1.compareTo(other.c1) &&
       this.c2.compareTo(other.c2) &&
-      this.radius === other.radius;
+      this.radius === other.radius &&
+      this.mustTouch === other.mustTouch;
   }
 
   getType(): string {

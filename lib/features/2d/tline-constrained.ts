@@ -5,7 +5,7 @@ import { QualifiedSceneObject } from "./constraints/qualified-geometry.js";
 import { createConstraintSolver } from "../../oc/constraints/create-solver.js";
 
 export class OneObjectTangentLine extends GeometrySceneObject {
-  constructor(public object: QualifiedSceneObject) {
+  constructor(public object: QualifiedSceneObject, public mustTouch: boolean) {
     super();
   }
 
@@ -20,7 +20,7 @@ export class OneObjectTangentLine extends GeometrySceneObject {
     }
 
     const currentPosVertex = Vertex.fromPoint2D(currentPos);
-    const solver = createConstraintSolver()
+    const solver = createConstraintSolver(this.mustTouch)
     console.log('Solver created');
     const edges = solver.getTangentLines(plane,
       {
@@ -45,7 +45,7 @@ export class OneObjectTangentLine extends GeometrySceneObject {
       return false;
     }
 
-    return this.object.compareTo(other.object);
+    return this.object.compareTo(other.object) && this.mustTouch === other.mustTouch;
   }
 
   getType(): string {
@@ -62,14 +62,14 @@ export class OneObjectTangentLine extends GeometrySceneObject {
 }
 
 export class TwoObjectsTangentLine extends GeometrySceneObject {
-  constructor(public object1: QualifiedSceneObject, public object2: QualifiedSceneObject) {
+  constructor(public object1: QualifiedSceneObject, public object2: QualifiedSceneObject, public mustTouch: boolean) {
     super();
   }
 
   build() {
     const plane = this.sketch.getPlane();
 
-    const solver = createConstraintSolver()
+    const solver = createConstraintSolver(this.mustTouch)
     const edges = solver.getTangentLines(plane,
       this.object1.toQualifiedShape(), this.object2.toQualifiedShape());
 
@@ -88,7 +88,7 @@ export class TwoObjectsTangentLine extends GeometrySceneObject {
     if (!(other instanceof TwoObjectsTangentLine)) {
       return false;
     }
-    return this.object1.compareTo(other.object1) && this.object2.compareTo(other.object2);
+    return this.object1.compareTo(other.object1) && this.object2.compareTo(other.object2) && this.mustTouch === other.mustTouch;
   }
 
   getType(): string {

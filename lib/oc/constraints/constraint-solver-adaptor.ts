@@ -10,7 +10,11 @@ import { Vertex } from "../../common/vertex.js";
 import { Point2D } from "../../math/point.js";
 
 export class ConstraintSolverAdaptor extends ConstraintSolver {
-  constructor(private geometricSolver: GeometricConstraintSolver, private curveSolver: CurveConstraintSolver) {
+  constructor(
+    private geometricSolver: GeometricConstraintSolver,
+    private curveSolver: CurveConstraintSolver,
+    private mustTouch: boolean
+  ) {
     super();
   }
 
@@ -18,36 +22,35 @@ export class ConstraintSolverAdaptor extends ConstraintSolver {
     plane: Plane,
     shape1: QualifiedShape,
     shape2: QualifiedShape,
-    finiteLine: boolean = true
   ): Edge[] {
     console.log('Determining which solver to use for tangent lines', shape1, shape2);
     if (this.isCurve(shape1.shape) || this.isCurve(shape2.shape)) {
       console.log('Using curve solver for tangent shapes');
-      return this.curveSolver.getTangentLines(plane, shape1, shape2, finiteLine);
+      return this.curveSolver.getTangentLines(plane, shape1, shape2, this.mustTouch);
     }
 
     console.log('Using geometric solver for tangent shapes');
-    return this.geometricSolver.getTangentLines(plane, shape1, shape2, finiteLine);
+    return this.geometricSolver.getTangentLines(plane, shape1, shape2, this.mustTouch);
   }
 
   getTangentCircles(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number): Edge[] {
     if (this.isCurve(shape1.shape) || this.isCurve(shape2.shape)) {
       console.log('Using curve solver for tangent circles');
-      return this.curveSolver.getTangentCircles(plane, shape1, shape2, radius);
+      return this.curveSolver.getTangentCircles(plane, shape1, shape2, radius, this.mustTouch);
     }
 
     console.log('Using geometric solver for tangent circles');
-    return this.geometricSolver.getTangentCircles(plane, shape1, shape2, radius);
+    return this.geometricSolver.getTangentCircles(plane, shape1, shape2, radius, this.mustTouch);
   }
 
   getTangentArcs(plane: Plane, shape1: QualifiedShape, shape2: QualifiedShape, radius: number) {
     if (this.isCurve(shape1.shape) || this.isCurve(shape2.shape)) {
       console.log('Using curve solver for tangent arcs');
-      return this.curveSolver.getTangentArcs(plane, shape1, shape2, radius);
+      return this.curveSolver.getTangentArcs(plane, shape1, shape2, radius, this.mustTouch);
     }
 
     console.log('Using geometric solver for tangent circles');
-    return this.geometricSolver.getTangentArcs(plane, shape1, shape2, radius);
+    return this.geometricSolver.getTangentArcs(plane, shape1, shape2, radius, this.mustTouch);
   }
 
   isCurve(shape: Shape): boolean {

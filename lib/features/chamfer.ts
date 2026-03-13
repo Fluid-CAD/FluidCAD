@@ -7,7 +7,7 @@ import { ShapeOps } from "../oc/shape-ops.js";
 
 export class Chamfer extends SceneObject {
 
-  constructor(public selection: SelectSceneObject, private distance: number, private distance2: number, private isAngle: boolean = false) {
+  constructor(public selection: SceneObject, private distance: number, private distance2: number, private isAngle: boolean = false) {
     super();
   }
 

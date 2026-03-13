@@ -158,7 +158,7 @@ export class ExtrudeSymmetric extends ExtrudeBase {
       () => {
         const faces = this.getState('start-faces') as Face[] || [];
         const edges = faces.flatMap(f => f.getEdges());
-        if (indices.length === 0) return edges.length > 0 ? [edges[0]] : [];
+        if (indices.length === 0) return edges;
         return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
       });
   }
@@ -169,7 +169,7 @@ export class ExtrudeSymmetric extends ExtrudeBase {
       () => {
         const faces = this.getState('end-faces') as Face[] || [];
         const edges = faces.flatMap(f => f.getEdges());
-        if (indices.length === 0) return edges.length > 0 ? [edges[0]] : [];
+        if (indices.length === 0) return edges;
         return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
       });
   }

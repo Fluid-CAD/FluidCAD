@@ -5,7 +5,6 @@ import { Sketch } from "./2d/sketch.js";
 import { FaceMaker } from "../core/2d/face-maker.js";
 import { Extrudable } from "../helpers/types.js";
 import { ExtrudeBase } from "./extrude-base.js";
-import { mod } from "three/tsl";
 
 export class Extrude extends ExtrudeBase {
   constructor(

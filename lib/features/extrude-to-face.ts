@@ -1,4 +1,4 @@
-import { SceneObject } from "../common/scene-object.js";
+import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Face, Shape } from "../common/shapes.js";
 import { ExtrudeOptions } from "./extrude-options.js";
 import { ExtrudeBase } from "./extrude-base.js";
@@ -16,25 +16,21 @@ import { Extrudable } from "../helpers/types.js";
 export class ExtrudeToFace extends ExtrudeBase {
   constructor(
     public extrudable: Extrudable,
-    public face: SceneObject | 'first-face' | 'last-face',
-    public sceneObjects: SceneObject[]) {
+    public face: SceneObject | 'first-face' | 'last-face') {
 
     super();
   }
 
-  build() {
+  build(context: BuildSceneObjectContext) {
+    const sceneObjects = context.getSceneObjects();
     const targetFace = this.getFace();
     const isPlanar = FaceQuery.isPlanarFace(targetFace);
-
-    console.log("Target face:", targetFace);
 
     let solids: Shape[] = [];
 
     const wires = this.extrudable.getGeometries();
     const plane = this.extrudable.getPlane();
     const faces = FaceMaker.getFaces(wires, plane);
-
-    console.log("Extruding faces:", faces);
 
     for (const startFace of faces) {
       if (isPlanar && FaceQuery.areFacePlanesParallel(startFace, targetFace)) {
@@ -44,6 +40,7 @@ export class ExtrudeToFace extends ExtrudeBase {
         }
       }
       else {
+        console.log("Creating advanced extrude for face:");
         const shapes = this.createAdvancedExtrude(startFace, targetFace, isPlanar);
 
         for (const shape of shapes) {
@@ -58,13 +55,13 @@ export class ExtrudeToFace extends ExtrudeBase {
       this.face.removeShapes(this);
     }
 
-    if (this.getFusionScope() === 'none' || this.sceneObjects.length === 0) {
+    if (this.getFusionScope() === 'none' || sceneObjects.length === 0) {
       this.addShapes(solids);
       return;
     }
 
     if (solids.length > 0) {
-      const fusionResult = fuseWithSceneObjects(this.sceneObjects, solids);
+      const fusionResult = fuseWithSceneObjects(sceneObjects, solids);
       solids = fusionResult.extrusions;
 
       for (const modifiedShape of fusionResult.modifiedShapes) {
@@ -84,12 +81,13 @@ export class ExtrudeToFace extends ExtrudeBase {
       distance *= 1.5;
     }
 
-    const sourceConvertedPlane = FaceOps.getPlane(sourceFace);
-    const extruder = new Extruder([sourceFace], sourceConvertedPlane, distance, this.getDraft(), 0);
+    const sourcePlane = FaceOps.getPlane(sourceFace);
+    const extruder = new Extruder([sourceFace], sourcePlane, distance, this.getDraft(), 0);
     const extrusions = extruder.extrude();
 
     let splitTargetFace: Face;
     if (isPlanar) {
+      console.log("Resizing planar target face for splitting");
       splitTargetFace = this.resizePlanarFace(targetFace);
     } else {
       const surfaceType = FaceQuery.getSurfaceType(targetFace);
@@ -158,7 +156,7 @@ export class ExtrudeToFace extends ExtrudeBase {
   }
 
   private getFace(): Face {
-    if (this.face instanceof SelectSceneObject) {
+    if (this.face instanceof SceneObject) {
       const selection = this.face.getShapes();
       if (selection.length === 0) {
         throw new Error("Selection is empty");

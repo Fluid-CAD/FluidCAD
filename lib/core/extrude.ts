@@ -24,7 +24,6 @@ function build(context: SceneParserContext): ExtrudeFunction {
   function doExtrude(extrudable: Extrudable, params: any[]): Extrude | ExtrudeTwoDistances | ExtrudeToFace | ExtrudeSymmetric {
     const defaultDistance = 25;
 
-    console.log("Extrude called with params :", params);
     if (params.length === 0) {
       return new Extrude(extrudable, defaultDistance);
     }
@@ -36,15 +35,15 @@ function build(context: SceneParserContext): ExtrudeFunction {
       }
       // - extrude to first face: 'first-face'
       else if (params[0] === 'first-face') {
-        return new ExtrudeToFace(extrudable, 'first-face', []);
+        return new ExtrudeToFace(extrudable, 'first-face');
       }
       // - extrude to last face: 'last-face'
       else if (params[0] === 'last-face') {
-        return new ExtrudeToFace(extrudable, 'last-face', []);
+        return new ExtrudeToFace(extrudable, 'last-face');
       }
       // - extrude to face: face
       else if (params[0] instanceof SceneObject) {
-        return new ExtrudeToFace(extrudable, params[0] as SelectSceneObject, []);
+        return new ExtrudeToFace(extrudable, params[0] as SelectSceneObject);
       }
       else {
         throw new Error("Invalid parameter for extrude function.");

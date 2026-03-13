@@ -40,15 +40,15 @@ function build(context: SceneParserContext): CutFunction {
       }
       // - extrude to first face: 'first-face'
       else if (params[0] === 'first-face') {
-        return new ExtrudeToFace(extrudable, 'first-face', sceneObjects);
+        return new ExtrudeToFace(extrudable, 'first-face');
       }
       // - extrude to last face: 'last-face'
       else if (params[0] === 'last-face') {
-        return new ExtrudeToFace(extrudable, 'last-face', sceneObjects);
+        return new ExtrudeToFace(extrudable, 'last-face');
       }
       // - extrude to face: face
       else if (params[0] instanceof SceneObject) {
-        return new ExtrudeToFace(extrudable, params[0] as SceneObject, sceneObjects);
+        return new ExtrudeToFace(extrudable, params[0] as SceneObject);
       }
       else {
         throw new Error("Invalid parameter for extrude function.");

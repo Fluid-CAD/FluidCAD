@@ -47,10 +47,23 @@ export class Offset extends ExtrudableGeometryBase {
     }
   }
 
-  clone(): SceneObject[] {
-    const targetPlane = this.targetPlane ? this.targetPlane.clone()[0] as PlaneObjectBase : null;
-    const geometriesClone = this.sourceGeometries ? this.sourceGeometries.map(obj => obj.clone()).flat() : null;
-    return [new Offset(this.distance, this.removeOriginal, geometriesClone, targetPlane)];
+  override getDependencies(): SceneObject[] {
+    const deps: SceneObject[] = [];
+    if (this.targetPlane) {
+      deps.push(this.targetPlane);
+    }
+    if (this.sourceGeometries) {
+      deps.push(...this.sourceGeometries);
+    }
+    return deps;
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
+    const geometriesClone = this.sourceGeometries
+      ? this.sourceGeometries.map(obj => remap.get(obj) || obj)
+      : null;
+    return new Offset(this.distance, this.removeOriginal, geometriesClone, targetPlane);
   }
 
   compareTo(other: Offset): boolean {

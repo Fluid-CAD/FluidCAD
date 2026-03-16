@@ -1,4 +1,4 @@
-import { SceneObject } from "../../common/scene-object.js";
+import { BuildSceneObjectContext, SceneObject } from "../../common/scene-object.js";
 import { Face } from "../../common/face.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { Edge } from "../../common/edge.js";
@@ -14,10 +14,10 @@ export class Projection extends ExtrudableGeometryBase {
     super(targetPlane);
   }
 
-  build() {
+  build(context?: BuildSceneObjectContext) {
     const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
     const shapes = this.sourceObjects.flatMap(obj => obj.getShapes());
-    const transform = this.getTransform();
+    const transform = context?.getTransform() ?? null;
     let projection: Wire[] = [];
     for (let shape of shapes) {
       if (transform) {
@@ -58,14 +58,18 @@ export class Projection extends ExtrudableGeometryBase {
     }
   }
 
-  clone(): SceneObject[] {
-    const objects = this.sourceObjects.map(obj => obj.clone()).flat();
-    const targetPlane = this.targetPlane ? this.targetPlane.clone()[0] as PlaneObjectBase : null;
-    return [new Projection(objects, targetPlane)];
+  override getDependencies(): SceneObject[] {
+    const deps: SceneObject[] = [...this.sourceObjects];
+    if (this.targetPlane) {
+      deps.push(this.targetPlane);
+    }
+    return deps;
   }
 
-  isTransformable(): boolean {
-    return true;
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const objects = this.sourceObjects.map(obj => remap.get(obj) || obj);
+    const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
+    return new Projection(objects, targetPlane);
   }
 
   compareTo(other: Projection): boolean {

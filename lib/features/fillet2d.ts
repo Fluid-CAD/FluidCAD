@@ -41,8 +41,15 @@ export class Fillet2D extends GeometrySceneObject {
     this.addShapes(result);
   }
 
-  override clone(): SceneObject[] {
-    return []
+  override getDependencies(): SceneObject[] {
+    return this.targetObjects ? [...this.targetObjects] : [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const targets = this.targetObjects
+      ? this.targetObjects.map(t => (remap.get(t) as GeometrySceneObject) || t)
+      : null;
+    return new Fillet2D(targets, this.radius);
   }
 
   compareTo(other: Fillet2D): boolean {

@@ -224,16 +224,18 @@ export class Rect extends ExtrudableGeometryBase {
     return 'rect';
   }
 
-  override clone(): SceneObject[] {
-    const targetPlane = this.targetPlane ? this.targetPlane.clone()[0] as PlaneObjectBase : null;
+  override getDependencies(): SceneObject[] {
+    return this.targetPlane ? [this.targetPlane] : [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
     const rect = new Rect(this.width, this.height, targetPlane);
     if (this._radius) {
       rect.radius(...(Array.isArray(this._radius) ? this._radius : [this._radius]));
     }
-
     rect.center(this._center);
-
-    return [rect];
+    return rect;
   }
 
   override compareTo(other: Rect): boolean {

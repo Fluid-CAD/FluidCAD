@@ -20,9 +20,12 @@ export class PolarMove extends GeometrySceneObject {
     this.setCurrentPosition(newPos);
   }
 
-  clone(): SceneObject[] {
-    const move = new PolarMove(this.radius, this.angle);
-    return [move];
+  override getDependencies(): SceneObject[] {
+    return [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    return new PolarMove(this.radius, this.angle);
   }
 
   compareTo(other: this): boolean {

@@ -6,7 +6,7 @@ import { Matrix4 } from "../math/matrix4.js";
 import { degree, rad } from "../helpers/math-helpers.js";
 import { LinearRepeatOptions, RepeatLinear } from "../features/repeat-linear.js";
 import { CircularRepeatOptions, RepeatCircular } from "../features/repeat-circular.js";
-import { LazySceneObject } from "../features/lazy-scene-object.js";
+import { cloneWithTransform } from "../helpers/clone-transform.js";
 
 export type RepeatType = 'linear' | 'circular';
 
@@ -64,12 +64,16 @@ function build(context: SceneParserContext): RepeatFunction {
 
       for (const indices of indexCombinations) {
         // Skip the origin instance (all zeros)
-        if (indices.every(i => i === 0)) continue;
+        if (indices.every(i => i === 0)) {
+          continue;
+        }
 
         // Skip if in the skip list
         if (options.skip?.some(s =>
           s.length === indices.length && s.every((v, i) => v === indices[i])
-        )) continue;
+        )) {
+          continue;
+        }
 
         // Compose translation from all axes
         let dx = 0, dy = 0, dz = 0;
@@ -86,24 +90,8 @@ function build(context: SceneParserContext): RepeatFunction {
         const transform = Matrix4.fromTranslation(dx, dy, dz);
         console.log('Translating by', { dx, dy, dz }, 'for indices', indices);
 
-        for (const obj of objects) {
-          const clonedTree = obj.clone();
-          for (const cloned of clonedTree) {
-            if (cloned instanceof LazySceneObject) {
-              continue;
-            }
-
-            if (cloned.isTransformable()) {
-              cloned.setTransform(transform);
-            }
-
-            transformedObjects.push(cloned);
-
-            if (!cloned.parentId) {
-              repeat.addChildObject(cloned);
-            }
-          }
-        }
+        const cloned = cloneWithTransform(objects, transform, repeat);
+        transformedObjects.push(...cloned);
       }
 
       context.addSceneObject(repeat);
@@ -130,29 +118,15 @@ function build(context: SceneParserContext): RepeatFunction {
       const transformedObjects: SceneObject[] = [];
 
       for (let i = 1; i < count; i++) {
-        if (skip?.includes(i)) continue;
+        if (skip?.includes(i)) {
+          continue;
+        }
 
         const angle = startOffset + offset * i;
         const matrix = Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, rad(angle));
 
-        for (const obj of objects) {
-          const clonedTree = obj.clone();
-          for (const cloned of clonedTree) {
-            if (cloned instanceof LazySceneObject) {
-              continue;
-            }
-
-            if (cloned.isTransformable()) {
-              cloned.setTransform(matrix);
-            }
-
-            transformedObjects.push(cloned);
-
-            if (!cloned.parentId) {
-              repeat.addChildObject(cloned);
-            }
-          }
-        }
+        const cloned = cloneWithTransform(objects, matrix, repeat);
+        transformedObjects.push(...cloned);
       }
 
       context.addSceneObject(repeat);

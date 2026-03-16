@@ -17,9 +17,12 @@ export class HMove extends GeometrySceneObject {
     this.setCurrentPosition(newPos);
   }
 
-  clone(): SceneObject[] {
-    const move = new HMove(this.distance);
-    return [move];
+  override getDependencies(): SceneObject[] {
+    return [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    return new HMove(this.distance);
   }
 
   compareTo(other: this): boolean {

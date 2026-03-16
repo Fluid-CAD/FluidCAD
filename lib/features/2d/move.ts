@@ -16,9 +16,12 @@ export class Move extends GeometrySceneObject {
     this.setCurrentPosition(point);
   }
 
-  clone(): SceneObject[] {
-    const move = new Move(this.targetPosition);
-    return [move];
+  override getDependencies(): SceneObject[] {
+    return [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    return new Move(this.targetPosition);
   }
 
   compareTo(other: this): boolean {

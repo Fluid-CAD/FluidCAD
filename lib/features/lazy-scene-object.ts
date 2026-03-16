@@ -27,9 +27,12 @@ export class LazySceneObject extends SceneObject {
     return shapes;
   }
 
-  clone(): SceneObject[] {
-    const clone = new LazySceneObject(this.uniqueName, this.getShapesFn);
-    return [clone];
+  override getDependencies(): SceneObject[] {
+    return [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    return new LazySceneObject(this.uniqueName, this.getShapesFn);
   }
 
   compareTo(other: LazySceneObject): boolean {

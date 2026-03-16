@@ -91,11 +91,13 @@ export class Chamfer extends SceneObject {
     this.addShapes(newShapes);
   }
 
-  override clone(): SceneObject[] {
-    const selectionClone = this.selection.clone();
-    const selection = selectionClone[selectionClone.length - 1] as SelectSceneObject;
-    const fillet = new Chamfer(selection, this.distance, this.distance2, this.isAngle);
-    return [...selectionClone, fillet];
+  override getDependencies(): SceneObject[] {
+    return [this.selection];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const selection = remap.get(this.selection) || this.selection;
+    return new Chamfer(selection, this.distance, this.distance2, this.isAngle);
   }
 
   compareTo(other: SceneObject): boolean {

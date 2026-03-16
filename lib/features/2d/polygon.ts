@@ -74,9 +74,13 @@ export class Polygon extends ExtrudableGeometryBase {
     if (this.targetPlane) this.targetPlane.removeShapes(this);
   }
 
-  override clone(): SceneObject[] {
-    const targetPlane = this.targetPlane ? this.targetPlane.clone()[0] as PlaneObjectBase : null;
-    return [new Polygon(this.numberOfSides, this.radius, this.mode, targetPlane)];
+  override getDependencies(): SceneObject[] {
+    return this.targetPlane ? [this.targetPlane] : [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
+    return new Polygon(this.numberOfSides, this.radius, this.mode, targetPlane);
   }
 
   compareTo(other: this): boolean {

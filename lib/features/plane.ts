@@ -1,4 +1,4 @@
-import { SceneObject } from "../common/scene-object.js";
+import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Plane } from "../math/plane.js";
 import { PlaneRenderableOptions } from "../core/plane.js";
 import { PlaneObjectBase } from "./plane-renderable-base.js";
@@ -18,11 +18,11 @@ export class PlaneObject extends PlaneObjectBase {
     this.setState('plane', p);
   }
 
-  build() {
+  build(context?: BuildSceneObjectContext) {
     let plane = this.getPlane();
     let center = this.getPlaneCenter();
 
-    const transform = this.getTransform();
+    const transform = context?.getTransform() ?? null;
     if (transform) {
       plane = plane.applyMatrix(transform);
       this.setState('plane', plane);
@@ -38,13 +38,12 @@ export class PlaneObject extends PlaneObjectBase {
     this.addShape(face);
   }
 
-  override clone(): SceneObject[] {
-    const planeRenderable = new PlaneObject(this.plane, this.options);
-    return [planeRenderable];
+  override getDependencies(): SceneObject[] {
+    return [];
   }
 
-  isTransformable(): boolean {
-      return true;
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    return new PlaneObject(this.plane, this.options);
   }
 
   compareTo(other: PlaneObject): boolean {

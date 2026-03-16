@@ -30,10 +30,13 @@ export class Translate extends SceneObject {
     }
   }
 
-  clone(): SceneObject[] {
-    const targetObjects = this.targetObjects.map(obj => obj.clone()).flat();
-    const translate = new Translate(targetObjects, this.amount, this.copy);
-    return [translate];
+  override getDependencies(): SceneObject[] {
+    return [...this.targetObjects];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const targetObjects = this.targetObjects.map(obj => remap.get(obj) || obj);
+    return new Translate(targetObjects, this.amount, this.copy);
   }
 
   compareTo(other: Translate): boolean {

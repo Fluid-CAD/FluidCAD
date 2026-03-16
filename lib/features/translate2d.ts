@@ -33,10 +33,15 @@ export class Translate2D extends SceneObject {
     this.plane.removeShapes(this);
   }
 
-  clone(): SceneObject[] {
-    const targetObjects = this.targetObjects.map(obj => obj.clone()).flat();
-    const plane = this.plane.clone()[0] as PlaneObjectBase;
-    return [new Translate2D(targetObjects, this.amount, plane)];
+  override getDependencies(): SceneObject[] {
+    const deps: SceneObject[] = [...this.targetObjects, this.plane];
+    return deps;
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const targetObjects = this.targetObjects.map(obj => remap.get(obj) || obj);
+    const plane = (remap.get(this.plane) as PlaneObjectBase) || this.plane;
+    return new Translate2D(targetObjects, this.amount, plane);
   }
 
   compareTo(other: Translate2D): boolean {

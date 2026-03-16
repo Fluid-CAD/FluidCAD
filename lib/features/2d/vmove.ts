@@ -17,9 +17,12 @@ export class VMove extends GeometrySceneObject {
     this.setCurrentPosition(newPos);
   }
 
-  clone(): SceneObject[] {
-    const move = new VMove(this.distance);
-    return [move];
+  override getDependencies(): SceneObject[] {
+    return [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    return new VMove(this.distance);
   }
 
   compareTo(other: this): boolean {

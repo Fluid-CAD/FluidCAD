@@ -34,10 +34,13 @@ export class Circle extends ExtrudableGeometryBase {
     }
   }
 
-  override clone(): SceneObject[] {
-    const targetPlane = this.targetPlane ? this.targetPlane.clone()[0] as PlaneObjectBase : null;
-    const circle = new Circle(this.radius, this.options, targetPlane);
-    return [circle];
+  override getDependencies(): SceneObject[] {
+    return this.targetPlane ? [this.targetPlane] : [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
+    return new Circle(this.radius, this.options, targetPlane);
   }
 
   compareTo(other: this): boolean {

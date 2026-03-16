@@ -13,7 +13,7 @@ import { MirrorShape2D } from "../features/mirror-shape2d.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisObject } from "../features/axis.js";
 import { AxisFromEdge } from "../features/axis-from-edge.js";
-import { LazySceneObject } from "../features/lazy-scene-object.js";
+import { cloneWithTransform } from "../helpers/clone-transform.js";
 
 interface MirrorFunction {
 
@@ -177,29 +177,9 @@ function build(context: SceneParserContext): MirrorFunction {
         return mirror;
       }
       else {
-        const mirrorTree: SceneObject[] = [];
         const matrix = Matrix4.mirrorPlane(normalizedPlane.normal, normalizedPlane.origin);
-        const mirror = new MirrorFeature(planeObj);
-
-        for (const obj of targetObjects) {
-          const dependenciesTree = obj.clone();
-
-          for (const dependency of dependenciesTree) {
-            if (dependency instanceof LazySceneObject) {
-              continue;
-            }
-
-            if (dependency.isTransformable()) {
-              dependency.setTransform(matrix);
-            }
-
-            mirrorTree.push(dependency);
-
-            if (!dependency.parentId) {
-              mirror.addChildObject(dependency);
-            }
-          }
-        }
+        const mirror = new MirrorFeature(planeObj, matrix);
+        const mirrorTree = cloneWithTransform(targetObjects, matrix, mirror);
 
         console.log('Mirror: Transformed objects:', mirrorTree.map(o => o.getType()));
 

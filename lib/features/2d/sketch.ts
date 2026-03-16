@@ -137,19 +137,13 @@ export class Sketch extends SceneObject implements Extrudable {
     return wires;
   }
 
-  override clone(): SceneObject[] {
-    const planeClone = this.planeObj.clone();
-    const sketch = new Sketch(planeClone[planeClone.length - 1] as PlaneObjectBase);
+  override getDependencies(): SceneObject[] {
+    return [this.planeObj];
+  }
 
-    const children = this.getChildren();
-    const clonedChildren: GeometrySceneObject[] = [];
-    for (const child of children) {
-      const childCloneArr = child.clone();
-      sketch.addChildObject(childCloneArr[childCloneArr.length - 1] as GeometrySceneObject);
-      clonedChildren.push(...childCloneArr as GeometrySceneObject[]);
-    }
-
-    return [...planeClone, sketch, ...clonedChildren];
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const planeObj = (remap.get(this.planeObj) as PlaneObjectBase) || this.planeObj;
+    return new Sketch(planeObj);
   }
 
   compareTo(other: Sketch): boolean {

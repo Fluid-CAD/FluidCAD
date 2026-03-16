@@ -14,6 +14,7 @@ export type BuildSceneObjectContext = {
   getSceneObjects(): SceneObject[];
   getActiveSceneObjects(): SceneObject[];
   getSceneObjectsFromTo(obj: SceneObject, to: SceneObject, type?: string): SceneObject[];
+  getTransform(): Matrix4 | null;
 }
 
 export abstract class SceneObject implements Comparable<SceneObject>, Serializable {
@@ -133,8 +134,52 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this._guide === other._guide && this._keep === other._keep && this._forceRemoveShapes === other._forceRemoveShapes;
   }
 
+  getDependencies(): SceneObject[] {
+    return [];
+  }
+
+  createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    throw new Error("createCopy() not implemented for " + this.getType());
+  }
+
   clone(): SceneObject[] {
-    throw new Error("Clone method not implemented.");
+    const visited = new Set<SceneObject>();
+    const ordered: SceneObject[] = [];
+
+    const collect = (obj: SceneObject) => {
+      if (visited.has(obj)) {
+        return;
+      }
+      visited.add(obj);
+
+      for (const dep of obj.getDependencies()) {
+        collect(dep);
+      }
+
+      ordered.push(obj);
+
+      for (const child of obj.getChildren()) {
+        collect(child);
+      }
+    };
+
+    collect(this);
+
+    const remap = new Map<SceneObject, SceneObject>();
+    const result: SceneObject[] = [];
+
+    for (const obj of ordered) {
+      const copy = obj.createCopy(remap);
+      remap.set(obj, copy);
+      result.push(copy);
+
+      const parent = obj.getParent();
+      if (parent && remap.has(parent)) {
+        remap.get(parent)!.addChildObject(copy);
+      }
+    }
+
+    return result;
   }
 
   setTransform(matrix: Matrix4): void {
@@ -143,6 +188,10 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   getTransform(): Matrix4 | null {
     return this._transform;
+  }
+
+  getTransformMatrix(): Matrix4 | null {
+    return null;
   }
 
   isExtrudable(): boolean {
@@ -317,10 +366,6 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   getOrder(): number {
     return this._order;
-  }
-
-  isTransformable() {
-    return false;
   }
 
   getName(): string {

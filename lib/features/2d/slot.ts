@@ -141,12 +141,16 @@ export class Slot extends ExtrudableGeometryBase {
     return 'slot';
   }
 
-  override clone(): SceneObject[] {
-    const targetPlane = this.targetPlane ? this.targetPlane.clone()[0] as PlaneObjectBase : null;
+  override getDependencies(): SceneObject[] {
+    return this.targetPlane ? [this.targetPlane] : [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
     const s = new Slot(this.distance, this.radius, targetPlane);
     s.center(this._center);
     s.rotate(this._angle);
-    return [s];
+    return s;
   }
 
   compareTo(other: Slot): boolean {

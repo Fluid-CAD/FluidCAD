@@ -102,11 +102,13 @@ export class Fillet extends SceneObject {
     return { addedShapes, removedShapes };
   }
 
-  override clone(): SceneObject[] {
-    const selectionClone = this.targetEdges.clone();
-    const selection = selectionClone[selectionClone.length - 1] as SelectSceneObject;
-    const fillet = new Fillet(selection, this.radius);
-    return [...selectionClone, fillet];
+  override getDependencies(): SceneObject[] {
+    return [this.targetEdges];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const targetEdges = remap.get(this.targetEdges) || this.targetEdges;
+    return new Fillet(targetEdges, this.radius);
   }
 
   compareTo(other: Fillet): boolean {

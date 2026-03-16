@@ -78,11 +78,13 @@ export class Shell extends SceneObject {
     return true;
   }
 
-  override clone(): SceneObject[] {
-    const selectionClone = this.faceSelection.clone();
-    const selection = selectionClone[selectionClone.length - 1] as SelectSceneObject;
-    const shell = new Shell(selection, this.thickness);
-    return [...selectionClone, shell];
+  override getDependencies(): SceneObject[] {
+    return [this.faceSelection];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const selection = (remap.get(this.faceSelection) || this.faceSelection) as SelectSceneObject;
+    return new Shell(selection, this.thickness);
   }
 
   getType(): string {

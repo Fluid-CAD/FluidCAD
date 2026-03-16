@@ -48,9 +48,13 @@ export class SlotFromEdge extends ExtrudableGeometryBase {
     return 'slot-from-edge';
   }
 
-  override clone(): SceneObject[] {
-    const targetPlane = this.targetPlane ? this.targetPlane.clone()[0] as PlaneObjectBase : null;
-    return [new SlotFromEdge(this.sourceGeometry, this.radius, this.deleteSource, targetPlane)];
+  override getDependencies(): SceneObject[] {
+    return this.targetPlane ? [this.targetPlane] : [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
+    return new SlotFromEdge(this.sourceGeometry, this.radius, this.deleteSource, targetPlane);
   }
 
   compareTo(other: SlotFromEdge): boolean {

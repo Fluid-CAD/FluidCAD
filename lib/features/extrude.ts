@@ -1,7 +1,6 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Extruder } from "./simple-extruder.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
-import { Sketch } from "./2d/sketch.js";
 import { FaceMaker } from "../core/2d/face-maker.js";
 import { Extrudable } from "../helpers/types.js";
 import { ExtrudeBase } from "./extrude-base.js";
@@ -59,14 +58,13 @@ export class Extrude extends ExtrudeBase {
     this.addShapes(fusionResult.newShapes);
   }
 
-  override clone(): SceneObject[] {
-    const extrudableClones = this.extrudable.clone();
-    const extrudable = extrudableClones.find(c => c instanceof Sketch) as Sketch;
-    console.log("Extrude::clone extrudable clone:", extrudable);
-    const extrude = new Extrude(extrudable, this.distance).syncWith(this);
-    const r = [...extrudableClones, extrude];
-    console.log("Extrude::clone created:", r);
-    return r;
+  override getDependencies(): SceneObject[] {
+    return [this.extrudable];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const extrudable = (remap.get(this.extrudable) || this.extrudable) as Extrudable;
+    return new Extrude(extrudable, this.distance).syncWith(this);
   }
 
   compareTo(other: Extrude): boolean {

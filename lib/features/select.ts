@@ -28,7 +28,7 @@ export class SelectSceneObject extends SceneObject {
 
   build(context: BuildSceneObjectContext) {
     const parent = this.getParent();
-    const transform = this.getTransform();
+    const transform = context.getTransform();
     let filters = this.filters;
 
     let sceneObjects = context.getSceneObjects();
@@ -83,9 +83,12 @@ export class SelectSceneObject extends SceneObject {
     return actualShapes;
   }
 
-  override clone(): SceneObject[] {
-    const cloned = new SelectSceneObject(this.filters);
-    return [cloned];
+  override getDependencies(): SceneObject[] {
+    return [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    return new SelectSceneObject(this.filters);
   }
 
   transform(matrix: Matrix4) {
@@ -131,10 +134,6 @@ export class SelectSceneObject extends SceneObject {
 
   getType(): string {
     return "select";
-  }
-
-  isTransformable(): boolean {
-    return true;
   }
 
   serialize() {

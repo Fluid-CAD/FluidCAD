@@ -84,11 +84,13 @@ export class CutSymmetric extends CutBase {
     this.setState('internal-edges', cutResult.internalEdges);
   }
 
-  override clone(): SceneObject[] {
-    const extrudableClone = this.extrudable.clone();
-    const extrudable = extrudableClone.find(c => c instanceof Sketch) as Sketch;
-    const clone = new CutSymmetric(extrudable, this.distance).syncWith(this);
-    return [...extrudableClone, clone];
+  override getDependencies(): SceneObject[] {
+    return [this.extrudable];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const extrudable = (remap.get(this.extrudable) || this.extrudable) as Extrudable;
+    return new CutSymmetric(extrudable, this.distance).syncWith(this);
   }
 
   compareTo(other: CutSymmetric): boolean {

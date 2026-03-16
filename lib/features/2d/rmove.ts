@@ -18,9 +18,12 @@ export class RMove extends GeometrySceneObject {
     this.setCurrentPosition(newPos);
   }
 
-  clone(): SceneObject[] {
-    const move = new RMove(this.pivot, this.angle);
-    return [move];
+  override getDependencies(): SceneObject[] {
+    return [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    return new RMove(this.pivot, this.angle);
   }
 
   compareTo(other: this): boolean {

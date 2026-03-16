@@ -1,4 +1,4 @@
-import { SceneObject } from "../common/scene-object.js";
+import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { PlaneRenderableOptions } from "../core/plane.js";
 import { PlaneObjectBase } from "./plane-renderable-base.js";
 import { FaceOps } from "../oc/face-ops.js";
@@ -14,7 +14,7 @@ export class PlaneFromObject extends PlaneObjectBase {
     super();
   }
 
-  build() {
+  build(context?: BuildSceneObjectContext) {
     let plane: Plane;
     let sourceFace: Face;
     let center: Point | undefined;
@@ -46,7 +46,7 @@ export class PlaneFromObject extends PlaneObjectBase {
       this.setState('plane-center', center);
     }
 
-    const transform = this.getTransform();
+    const transform = context?.getTransform() ?? null;
     if (transform) {
       plane = plane.applyMatrix(transform);
 
@@ -95,9 +95,12 @@ export class PlaneFromObject extends PlaneObjectBase {
     return plane;
   }
 
-  override clone(): SceneObject[] {
-    const planeObj = new PlaneFromObject(this);
-    return [planeObj];
+  override getDependencies(): SceneObject[] {
+    return [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    return new PlaneFromObject(this, this.options);
   }
 
   compareTo(other: PlaneFromObject): boolean {
@@ -117,10 +120,6 @@ export class PlaneFromObject extends PlaneObjectBase {
       return false;
     }
 
-    return true;
-  }
-
-  isTransformable(): boolean {
     return true;
   }
 

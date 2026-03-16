@@ -157,6 +157,9 @@ export function renderScene(scene: Scene) {
         getSceneObjectsFromTo(from: SceneObject, to: SceneObject) {
           return scene.getSceneObjectsFromTo(from, to);
         },
+        getTransform() {
+          return object.getTransform();
+        },
       });
     }
   }

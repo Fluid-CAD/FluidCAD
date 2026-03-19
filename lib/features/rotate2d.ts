@@ -67,10 +67,6 @@ export class Rotate2D extends GeometrySceneObject {
       return false;
     }
 
-    if (!super.compareTo(other)) {
-      return false;
-    }
-
     if (this.copy !== other.copy) {
       return false;
     }
@@ -87,9 +83,13 @@ export class Rotate2D extends GeometrySceneObject {
     }
 
     for (let i = 0; i < thisTargetObjects.length; i++) {
-      if (thisTargetObjects[i] !== otherTargetObjects[i]) {
+      if (!thisTargetObjects[i].compareTo(otherTargetObjects[i])) {
         return false;
       }
+    }
+
+    if (!super.compareTo(other)) {
+      return false;
     }
 
     return true;

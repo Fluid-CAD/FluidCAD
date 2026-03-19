@@ -1,8 +1,6 @@
-import { SceneObject } from "../common/scene-object.js";
 import { PlaneRenderableOptions } from "../core/plane.js";
 import { PlaneObjectBase } from "./plane-renderable-base.js";
 import { FaceOps } from "../oc/face-ops.js";
-import { Point } from "../math/point.js";
 import { Plane } from "../math/plane.js";
 
 export class PlaneMiddleRenderable extends PlaneObjectBase {

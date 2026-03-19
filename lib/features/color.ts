@@ -5,9 +5,19 @@ import { Solid } from "../common/solid.js";
 import { SelectSceneObject } from "./select.js";
 
 export class Color extends SceneObject {
+  private _selection: SceneObject | null = null;
 
-  constructor(private selection: SceneObject, private color: string) {
+  constructor(private color: string) {
     super();
+  }
+
+  target(selection: SceneObject): this {
+    this._selection = selection;
+    return this;
+  }
+
+  get selection(): SceneObject {
+    return this._selection;
   }
 
   build(context: BuildSceneObjectContext) {

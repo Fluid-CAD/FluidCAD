@@ -5,13 +5,22 @@ import { ShapeOps } from "../oc/shape-ops.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
 
 export class Rotate extends SceneObject {
+  private _targetObjects: SceneObject[] | null = null;
 
   constructor(
     public axis: AxisObjectBase,
-    public targetObjects: SceneObject[],
     public angle: number,
     private copy: boolean = false) {
     super();
+  }
+
+  target(...objects: SceneObject[]): this {
+    this._targetObjects = objects;
+    return this;
+  }
+
+  get targetObjects(): SceneObject[] {
+    return this._targetObjects;
   }
 
   build(context: BuildSceneObjectContext) {

@@ -20,7 +20,8 @@ function build(context: SceneParserContext): LoftFunction {
       throw new Error("Loft requires at least two profiles.");
     }
 
-    const result = new Loft(faces);
+    const result = new Loft();
+    result.target(...faces);
     context.addSceneObject(result);
     return result;
   }

@@ -4,8 +4,19 @@ import { BooleanOps } from "../oc/boolean-ops.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 
 export class Fuse extends SceneObject {
-  constructor(private sceneObjects: SceneObject[]) {
+  private _sceneObjects: SceneObject[] = [];
+
+  constructor() {
     super();
+  }
+
+  target(...objects: SceneObject[]): this {
+    this._sceneObjects = objects;
+    return this;
+  }
+
+  get sceneObjects(): SceneObject[] {
+    return this._sceneObjects;
   }
 
   build(context: BuildSceneObjectContext) {

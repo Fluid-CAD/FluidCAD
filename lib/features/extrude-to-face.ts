@@ -15,7 +15,6 @@ import { Extrudable } from "../helpers/types.js";
 
 export class ExtrudeToFace extends ExtrudeBase {
   constructor(
-    public extrudable: Extrudable,
     public face: SceneObject | 'first-face' | 'last-face') {
 
     super();
@@ -189,6 +188,28 @@ export class ExtrudeToFace extends ExtrudeBase {
 
   getFirstFace(): Face {
     throw new Error("Method not implemented.");
+  }
+
+  override getDependencies(): SceneObject[] {
+    const deps: SceneObject[] = [];
+    if (this.extrudable) {
+      deps.push(this.extrudable);
+    }
+    if (this.face instanceof SceneObject) {
+      deps.push(this.face);
+    }
+    return deps;
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const newFace = this.face instanceof SceneObject
+      ? (remap.get(this.face) || this.face)
+      : this.face;
+    const copy = new ExtrudeToFace(newFace).syncWith(this) as ExtrudeToFace;
+    if (this.extrudable) {
+      copy.target((remap.get(this.extrudable) || this.extrudable) as Extrudable);
+    }
+    return copy;
   }
 
   compareTo(other: ExtrudeToFace): boolean {

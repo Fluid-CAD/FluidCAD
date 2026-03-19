@@ -44,13 +44,19 @@ function build(context: SceneParserContext): CopyFunction {
     }
 
     if (type === 'linear') {
-      const copy = new CopyLinear(axes, objects, options as LinearCopyOptions);
+      const copy = new CopyLinear(axes, options as LinearCopyOptions);
+      if (objects) {
+        copy.target(...objects);
+      }
       context.addSceneObject(copy);
       return copy;
     }
 
     if (type === 'circular') {
-      const copy = new CopyCircular(axes[0], objects, options as CircularCopyOptions);
+      const copy = new CopyCircular(axes[0], options as CircularCopyOptions);
+      if (objects) {
+        copy.target(...objects);
+      }
       context.addSceneObject(copy);
       return copy;
     }

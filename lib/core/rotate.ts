@@ -1,5 +1,5 @@
 import { registerBuilder, SceneParserContext } from "../index.js";
-import { normalizeAxis, normalizeAxisSafe } from "../helpers/normalize.js";
+import { normalizeAxis } from "../helpers/normalize.js";
 import { Rotate } from "../features/rotate.js";
 import { AxisLike } from "../math/axis.js";
 import { SceneObject } from "../common/scene-object.js";
@@ -26,7 +26,7 @@ function build(context: SceneParserContext): RotateFunction {
     // rotate(angle) — 2D rotation inside a sketch
     if (args.length === 1 && activeSketch) {
       const angle = args[0] as number;
-      const rotate = new Rotate2D(null, angle, copy);
+      const rotate = new Rotate2D(angle, copy);
       context.addSceneObject(rotate);
       return rotate;
     }
@@ -36,7 +36,8 @@ function build(context: SceneParserContext): RotateFunction {
       if (Array.isArray(args[0]) && activeSketch) {
         const objects = args[0] as GeometrySceneObject[];
         const angle = args[1] as number;
-        const rotate = new Rotate2D(objects, angle, copy);
+        const rotate = new Rotate2D(angle, copy);
+        rotate.target(...objects);
         context.addSceneObject(rotate);
         return rotate;
       }
@@ -57,7 +58,7 @@ function build(context: SceneParserContext): RotateFunction {
       }
 
       const angle = args[1] as number;
-      const rotate = new Rotate(axis, null, angle, copy);
+      const rotate = new Rotate(axis, angle, copy);
       context.addSceneObject(rotate);
       return rotate;
     }
@@ -67,8 +68,9 @@ function build(context: SceneParserContext): RotateFunction {
       if (Array.isArray(args[0]) && activeSketch) {
         const objects = args[0] as GeometrySceneObject[];
         const angle = args[1] as number;
-        const copy = args[2] as boolean;
-        const rotate = new Rotate(null, objects, angle, copy);
+        const copyArg = args[2] as boolean;
+        const rotate = new Rotate(null, angle, copyArg);
+        rotate.target(...objects);
         context.addSceneObject(rotate);
         return rotate;
       }
@@ -81,17 +83,18 @@ function build(context: SceneParserContext): RotateFunction {
       const objects = args[0] as SceneObject[];
 
       let axis: AxisObjectBase = null;
-      if (args[0] instanceof AxisObjectBase) {
-        axis = args[0] as AxisObjectBase;
+      if (args[1] instanceof AxisObjectBase) {
+        axis = args[1] as AxisObjectBase;
       }
       else {
-        const a = normalizeAxis(args[0]);
+        const a = normalizeAxis(args[1]);
         axis = new AxisObject(a);
         context.addSceneObject(axis);
       }
 
       const angle = args[2] as number;
-      const rotate = new Rotate(axis, objects, angle, copy);
+      const rotate = new Rotate(axis, angle, copy);
+      rotate.target(...objects);
       context.addSceneObject(rotate);
       return rotate;
     }

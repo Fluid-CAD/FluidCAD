@@ -37,7 +37,8 @@ function build(context: SceneParserContext): RepeatFunction {
 
     if (type === 'linear') {
       const counts = Array.isArray(options.count) ? options.count : [options.count];
-      const repeat = new RepeatLinear(axes, objects, options);
+      const repeat = new RepeatLinear(axes, options);
+      repeat.target(...objects);
 
       const transformedObjects: SceneObject[] = [];
 
@@ -104,7 +105,8 @@ function build(context: SceneParserContext): RepeatFunction {
       const circularOptions = options as unknown as CircularRepeatOptions;
       const { count, centered, skip } = circularOptions;
 
-      const repeat = new RepeatCircular(axis, objects, circularOptions);
+      const repeat = new RepeatCircular(axis, circularOptions);
+      repeat.target(...objects);
 
       let offset: number;
       if ('offset' in circularOptions && circularOptions.offset !== undefined) {

@@ -5,10 +5,19 @@ import { Face, Shape, Solid } from "../common/shapes.js";
 
 export class Shell extends SceneObject {
 
-  dependencies: SceneObject[] = [];
+  private _faceSelection: SelectSceneObject | null = null;
 
-  constructor(public faceSelection: SelectSceneObject, private thickness: number) {
+  constructor(private thickness: number) {
     super();
+  }
+
+  target(faceSelection: SelectSceneObject): this {
+    this._faceSelection = faceSelection;
+    return this;
+  }
+
+  get faceSelection(): SelectSceneObject {
+    return this._faceSelection;
   }
 
   build(context: BuildSceneObjectContext): void {
@@ -79,12 +88,15 @@ export class Shell extends SceneObject {
   }
 
   override getDependencies(): SceneObject[] {
-    return [this.faceSelection];
+    return this.faceSelection ? [this.faceSelection] : [];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const selection = (remap.get(this.faceSelection) || this.faceSelection) as SelectSceneObject;
-    return new Shell(selection, this.thickness);
+    const copy = new Shell(this.thickness);
+    if (this.faceSelection) {
+      copy.target((remap.get(this.faceSelection) || this.faceSelection) as SelectSceneObject);
+    }
+    return copy;
   }
 
   getType(): string {

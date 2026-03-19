@@ -5,13 +5,22 @@ import { LazyVertex } from "./lazy-vertex.js";
 import { PlaneObjectBase } from "./plane-renderable-base.js";
 
 export class Translate2D extends SceneObject {
+  private _targetObjects: SceneObject[] | null = null;
 
   constructor(
-    private targetObjects: SceneObject[],
     private amount: LazyVertex,
     private plane: PlaneObjectBase,
   ) {
     super();
+  }
+
+  target(...objects: SceneObject[]): this {
+    this._targetObjects = objects;
+    return this;
+  }
+
+  get targetObjects(): SceneObject[] | null {
+    return this._targetObjects;
   }
 
   build(context: BuildSceneObjectContext) {
@@ -34,14 +43,18 @@ export class Translate2D extends SceneObject {
   }
 
   override getDependencies(): SceneObject[] {
-    const deps: SceneObject[] = [...this.targetObjects, this.plane];
+    const deps: SceneObject[] = this.targetObjects ? [...this.targetObjects] : [];
+    deps.push(this.plane);
     return deps;
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const targetObjects = this.targetObjects.map(obj => remap.get(obj) || obj);
     const plane = (remap.get(this.plane) as PlaneObjectBase) || this.plane;
-    return new Translate2D(targetObjects, this.amount, plane);
+    const copy = new Translate2D(this.amount, plane);
+    if (this.targetObjects) {
+      copy.target(...this.targetObjects.map(obj => remap.get(obj) || obj));
+    }
+    return copy;
   }
 
   compareTo(other: Translate2D): boolean {

@@ -11,14 +11,23 @@ export type CircularRepeatOptions = {
 );
 
 export class RepeatCircular extends SceneObject {
+  private _targetObjects: SceneObject[] | null = null;
 
   constructor(
     public axis: Axis,
-    public targetObjects: SceneObject[] | null,
     public options: CircularRepeatOptions
     ) {
     super();
     this.setAlwaysVisible()
+  }
+
+  target(...objects: SceneObject[]): this {
+    this._targetObjects = objects;
+    return this;
+  }
+
+  get targetObjects(): SceneObject[] | null {
+    return this._targetObjects;
   }
 
   build(context: BuildSceneObjectContext) {

@@ -7,9 +7,19 @@ import { FaceMaker } from "../core/2d/face-maker.js";
 import { Extrudable } from "../helpers/types.js";
 
 export class Loft extends SceneObject {
+  private _faces: SceneObject[] = [];
 
-  constructor(public faces: SceneObject[]) {
+  constructor() {
     super();
+  }
+
+  target(...profiles: SceneObject[]): this {
+    this._faces = profiles;
+    return this;
+  }
+
+  get faces(): SceneObject[] {
+    return this._faces;
   }
 
   build(context: BuildSceneObjectContext) {

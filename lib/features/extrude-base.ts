@@ -2,8 +2,10 @@ import { Face } from "../common/face.js";
 import { SceneObject } from "../common/scene-object.js";
 import { FusionScope } from "./extrude-options.js";
 import { LazySceneObject } from "./lazy-scene-object.js";
+import { Extrudable } from "../helpers/types.js";
 
 export abstract class ExtrudeBase extends SceneObject {
+  protected _extrudable: Extrudable | null = null;
   protected _draft?: number | [number, number];
   protected _endOffset?: number;
   protected _fusionScope?: FusionScope = 'all';
@@ -11,6 +13,15 @@ export abstract class ExtrudeBase extends SceneObject {
 
   constructor() {
     super();
+  }
+
+  target(extrudable: Extrudable): this {
+    this._extrudable = extrudable;
+    return this;
+  }
+
+  get extrudable(): Extrudable {
+    return this._extrudable;
   }
 
   startFace(...indices: number[]): SceneObject {

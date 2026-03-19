@@ -7,11 +7,19 @@ import { PlaneObjectBase } from "./plane-renderable-base.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
 
 export class MirrorShape extends SceneObject {
+  private _targetObjects: SceneObject[] | null = null;
 
-  constructor(
-    private plane: PlaneObjectBase,
-    private targetObjects: SceneObject[] = null) {
+  constructor(private plane: PlaneObjectBase) {
     super();
+  }
+
+  target(...objects: SceneObject[]): this {
+    this._targetObjects = objects;
+    return this;
+  }
+
+  get targetObjects(): SceneObject[] | null {
+    return this._targetObjects;
   }
 
   build(context: BuildSceneObjectContext) {

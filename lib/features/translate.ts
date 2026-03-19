@@ -4,9 +4,19 @@ import { ShapeOps } from "../oc/shape-ops.js";
 import { LazyVertex } from "./lazy-vertex.js";
 
 export class Translate extends SceneObject {
+  private _targetObjects: SceneObject[] | null = null;
 
-  constructor(private targetObjects: SceneObject[], private amount: LazyVertex, private copy: boolean = false) {
+  constructor(private amount: LazyVertex, private copy: boolean = false) {
     super();
+  }
+
+  target(...objects: SceneObject[]): this {
+    this._targetObjects = objects;
+    return this;
+  }
+
+  get targetObjects(): SceneObject[] {
+    return this._targetObjects;
   }
 
   build(context: BuildSceneObjectContext) {
@@ -31,12 +41,15 @@ export class Translate extends SceneObject {
   }
 
   override getDependencies(): SceneObject[] {
-    return [...this.targetObjects];
+    return this.targetObjects ? [...this.targetObjects] : [];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const targetObjects = this.targetObjects.map(obj => remap.get(obj) || obj);
-    return new Translate(targetObjects, this.amount, this.copy);
+    const copy = new Translate(this.amount, this.copy);
+    if (this.targetObjects) {
+      copy.target(...this.targetObjects.map(obj => remap.get(obj) || obj));
+    }
+    return copy;
   }
 
   compareTo(other: Translate): boolean {

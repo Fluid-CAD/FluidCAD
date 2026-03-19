@@ -148,7 +148,8 @@ function build(context: SceneParserContext): MirrorFunction {
         planeObj = normalizedPlane;
       }
 
-      const mirror = new MirrorShape(planeObj, targetObjects);
+      const mirror = new MirrorShape(planeObj);
+      mirror.target(...targetObjects);
       context.addSceneObject(mirror);
       return mirror;
     }
@@ -172,7 +173,8 @@ function build(context: SceneParserContext): MirrorFunction {
 
       const type = arguments[2] as 'feature' | 'shape';
       if (type === 'shape') {
-        const mirror = new MirrorShape(planeObj, targetObjects);
+        const mirror = new MirrorShape(planeObj);
+        mirror.target(...targetObjects);
         context.addSceneObject(mirror);
         return mirror;
       }

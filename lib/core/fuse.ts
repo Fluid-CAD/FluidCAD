@@ -12,7 +12,10 @@ function build(context: SceneParserContext) {
       solids = args;
     }
 
-    const fuse = new Fuse(solids);
+    const fuse = new Fuse();
+    if (solids.length > 0) {
+      fuse.target(...solids);
+    }
     context.addSceneObject(fuse);
 
     return fuse;

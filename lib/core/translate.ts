@@ -31,7 +31,7 @@ function build(context: SceneParserContext): TranslateFunction {
       const z = (args[2] as number) ?? 0;
       const vertex = Vertex.fromPoint(new Point(x, y, z));
       const lazyVertex = LazyVertex.fromVertex(vertex);
-      const translate = new Translate(null, lazyVertex, copy);
+      const translate = new Translate(lazyVertex, copy);
       context.addSceneObject(translate);
       return translate;
     }
@@ -44,12 +44,14 @@ function build(context: SceneParserContext): TranslateFunction {
         if (isPoint2DLike(args[1]) && args.length === 3) {
           const point2D = normalizePoint2D(args[1]);
           const plane = resolvePlane(args[2], context);
-          const translate = new Translate2D(objects, point2D, plane);
+          const translate = new Translate2D(point2D, plane);
+          translate.target(...objects);
           context.addSceneObject(translate);
           return translate;
         }
         const normalizedDistance = normalizePoint(args[1]);
-        const translate = new Translate(objects, normalizedDistance, copy);
+        const translate = new Translate(normalizedDistance, copy);
+        translate.target(...objects);
         context.addSceneObject(translate);
         return translate;
       }
@@ -59,7 +61,7 @@ function build(context: SceneParserContext): TranslateFunction {
     if (args.length === 2 && isPoint2DLike(args[0])) {
       const point2D = normalizePoint2D(args[0]);
       const plane = resolvePlane(args[1], context);
-      const translate = new Translate2D(null, point2D, plane);
+      const translate = new Translate2D(point2D, plane);
       context.addSceneObject(translate);
       return translate;
     }
@@ -67,7 +69,7 @@ function build(context: SceneParserContext): TranslateFunction {
     // translate(distance: PointLike)
     if (args.length === 1) {
       const normalizedDistance = normalizePoint(args[0]);
-      const translate = new Translate(null, normalizedDistance, copy);
+      const translate = new Translate(normalizedDistance, copy);
       context.addSceneObject(translate);
       return translate;
     }

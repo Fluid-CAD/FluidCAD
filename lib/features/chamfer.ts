@@ -6,9 +6,19 @@ import { Explorer } from "../oc/explorer.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 
 export class Chamfer extends SceneObject {
+  private _selection: SceneObject | null = null;
 
-  constructor(public selection: SceneObject, private distance: number, private distance2: number, private isAngle: boolean = false) {
+  constructor(private distance: number, private distance2: number, private isAngle: boolean = false) {
     super();
+  }
+
+  target(selection: SceneObject): this {
+    this._selection = selection;
+    return this;
+  }
+
+  get selection(): SceneObject {
+    return this._selection;
   }
 
   build(context: BuildSceneObjectContext): void {
@@ -92,12 +102,15 @@ export class Chamfer extends SceneObject {
   }
 
   override getDependencies(): SceneObject[] {
-    return [this.selection];
+    return this.selection ? [this.selection] : [];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const selection = remap.get(this.selection) || this.selection;
-    return new Chamfer(selection, this.distance, this.distance2, this.isAngle);
+    const copy = new Chamfer(this.distance, this.distance2, this.isAngle);
+    if (this.selection) {
+      copy.target(remap.get(this.selection) || this.selection);
+    }
+    return copy;
   }
 
   compareTo(other: SceneObject): boolean {

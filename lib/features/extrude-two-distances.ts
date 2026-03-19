@@ -1,4 +1,4 @@
-import { BuildSceneObjectContext } from "../common/scene-object.js";
+import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Shape, Solid } from "../common/shapes.js";
 import { ExtrudeOptions } from "./extrude-options.js";
 import { rad } from "../helpers/math-helpers.js";
@@ -16,7 +16,6 @@ import { Extrudable } from "../helpers/types.js";
 export class ExtrudeTwoDistances extends ExtrudeBase {
 
   constructor(
-    public extrudable: Extrudable,
     public distance1: number,
     public distance2: number) {
 
@@ -104,6 +103,18 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       firstFace,
       lastFace
     };
+  }
+
+  override getDependencies(): SceneObject[] {
+    return this.extrudable ? [this.extrudable] : [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const copy = new ExtrudeTwoDistances(this.distance1, this.distance2).syncWith(this) as ExtrudeTwoDistances;
+    if (this.extrudable) {
+      copy.target((remap.get(this.extrudable) || this.extrudable) as Extrudable);
+    }
+    return copy;
   }
 
   compareTo(other: ExtrudeTwoDistances): boolean {

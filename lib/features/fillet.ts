@@ -6,9 +6,19 @@ import { FilletOps } from "../oc/fillet-ops.js";
 import { Explorer } from "../oc/explorer.js";
 
 export class Fillet extends SceneObject {
+  private _targetEdges: SceneObject | null = null;
 
-  constructor(public targetEdges: SceneObject, private radius: number) {
+  constructor(private radius: number) {
     super();
+  }
+
+  target(selection: SceneObject): this {
+    this._targetEdges = selection;
+    return this;
+  }
+
+  get targetEdges(): SceneObject {
+    return this._targetEdges;
   }
 
   build(context: BuildSceneObjectContext) {
@@ -103,12 +113,15 @@ export class Fillet extends SceneObject {
   }
 
   override getDependencies(): SceneObject[] {
-    return [this.targetEdges];
+    return this.targetEdges ? [this.targetEdges] : [];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const targetEdges = remap.get(this.targetEdges) || this.targetEdges;
-    return new Fillet(targetEdges, this.radius);
+    const copy = new Fillet(this.radius);
+    if (this.targetEdges) {
+      copy.target(remap.get(this.targetEdges) || this.targetEdges);
+    }
+    return copy;
   }
 
   compareTo(other: Fillet): boolean {

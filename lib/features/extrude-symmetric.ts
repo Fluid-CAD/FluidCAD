@@ -17,10 +17,7 @@ import { Extrudable } from "../helpers/types.js";
 
 export class ExtrudeSymmetric extends ExtrudeBase {
 
-  constructor(
-    public extrudable: Extrudable,
-    public distance?: number) {
-
+  constructor(public distance?: number) {
     super();
   }
 
@@ -182,6 +179,18 @@ export class ExtrudeSymmetric extends ExtrudeBase {
         if (indices.length === 0) return faces.length > 0 ? [faces[0]] : [];
         return indices.filter(i => i >= 0 && i < faces.length).map(i => faces[i]);
       });
+  }
+
+  override getDependencies(): SceneObject[] {
+    return this.extrudable ? [this.extrudable] : [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const copy = new ExtrudeSymmetric(this.distance).syncWith(this) as ExtrudeSymmetric;
+    if (this.extrudable) {
+      copy.target((remap.get(this.extrudable) || this.extrudable) as Extrudable);
+    }
+    return copy;
   }
 
   compareTo(other: ExtrudeSymmetric): boolean {

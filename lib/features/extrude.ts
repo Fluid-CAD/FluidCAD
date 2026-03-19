@@ -6,9 +6,7 @@ import { Extrudable } from "../helpers/types.js";
 import { ExtrudeBase } from "./extrude-base.js";
 
 export class Extrude extends ExtrudeBase {
-  constructor(
-    private extrudable: Extrudable,
-    public distance: number) {
+  constructor(public distance: number) {
     super();
   }
 
@@ -59,12 +57,15 @@ export class Extrude extends ExtrudeBase {
   }
 
   override getDependencies(): SceneObject[] {
-    return [this.extrudable];
+    return this.extrudable ? [this.extrudable] : [];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const extrudable = (remap.get(this.extrudable) || this.extrudable) as Extrudable;
-    return new Extrude(extrudable, this.distance).syncWith(this);
+    const copy = new Extrude(this.distance).syncWith(this) as Extrude;
+    if (this.extrudable) {
+      copy.target((remap.get(this.extrudable) || this.extrudable) as Extrudable);
+    }
+    return copy;
   }
 
   compareTo(other: Extrude): boolean {

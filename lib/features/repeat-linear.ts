@@ -11,14 +11,23 @@ export type LinearRepeatOptions = {
 );
 
 export class RepeatLinear extends SceneObject {
+  private _targetObjects: SceneObject[] | null = null;
 
   constructor(
     public axes: Axis[],
-    public targetObjects: SceneObject[] | null,
     public options: LinearRepeatOptions
     ) {
     super();
     this.setAlwaysVisible()
+  }
+
+  target(...objects: SceneObject[]): this {
+    this._targetObjects = objects;
+    return this;
+  }
+
+  get targetObjects(): SceneObject[] | null {
+    return this._targetObjects;
   }
 
   build(context: BuildSceneObjectContext) {

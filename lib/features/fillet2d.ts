@@ -5,9 +5,19 @@ import { FilletOps } from "../oc/fillet-ops.js";
 import { Edge } from "../common/edge.js";
 
 export class Fillet2D extends GeometrySceneObject {
+  private _targetObjects: GeometrySceneObject[] | null = null;
 
-  constructor(private targetObjects: GeometrySceneObject[], private radius: number) {
+  constructor(private radius: number) {
     super();
+  }
+
+  target(...objects: SceneObject[]): this {
+    this._targetObjects = objects as GeometrySceneObject[];
+    return this;
+  }
+
+  get targetObjects(): GeometrySceneObject[] | null {
+    return this._targetObjects;
   }
 
   build(context: BuildSceneObjectContext) {
@@ -46,10 +56,11 @@ export class Fillet2D extends GeometrySceneObject {
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const targets = this.targetObjects
-      ? this.targetObjects.map(t => (remap.get(t) as GeometrySceneObject) || t)
-      : null;
-    return new Fillet2D(targets, this.radius);
+    const copy = new Fillet2D(this.radius);
+    if (this.targetObjects) {
+      copy.target(...this.targetObjects.map(t => (remap.get(t) as GeometrySceneObject) || t));
+    }
+    return copy;
   }
 
   compareTo(other: Fillet2D): boolean {

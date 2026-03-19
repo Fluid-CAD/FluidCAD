@@ -3,12 +3,18 @@ import { SceneObject } from "../common/scene-object.js";
 import { Color } from "../features/color.js";
 
 interface ColorFunction {
-  (face: SceneObject, color: string): Color;
+  (color: string): Color;
 }
 
 function build(context: SceneParserContext): ColorFunction {
   return function color() {
-    const obj = new Color(arguments[0], arguments[1]);
+    const obj = new Color(arguments[0]);
+
+    const selection = context.getLastSelection();
+    if (selection) {
+      obj.target(selection);
+    }
+
     context.addSceneObject(obj);
     return obj;
   }

@@ -7,12 +7,21 @@ import { AxisObjectBase } from "./axis-renderable-base.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
 
 export class Rotate2D extends GeometrySceneObject {
+  private _targetObjects: SceneObject[] | null = null;
 
   constructor(
-    public targetObjects: SceneObject[],
     public angle: number,
     private copy: boolean = false) {
     super();
+  }
+
+  target(...objects: SceneObject[]): this {
+    this._targetObjects = objects;
+    return this;
+  }
+
+  get targetObjects(): SceneObject[] | null {
+    return this._targetObjects;
   }
 
   build(context: BuildSceneObjectContext) {

@@ -14,12 +14,22 @@ import { Edge } from "../common/edge.js";
 export interface CutOptions extends ExtrudeOptions { }
 
 export abstract class CutBase extends SceneObject {
+  protected _extrudable: Extrudable | null = null;
   protected _draft?: number | [number, number];
   protected _endOffset?: number;
   protected _fusionScope?: FusionScope;
 
   constructor() {
     super();
+  }
+
+  target(extrudable: Extrudable): this {
+    this._extrudable = extrudable;
+    return this;
+  }
+
+  get extrudable(): Extrudable {
+    return this._extrudable;
   }
 
   draft(value: number | [number, number]): this {

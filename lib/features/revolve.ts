@@ -13,13 +13,22 @@ import { Extrudable } from "../helpers/types.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
 
 export class Revolve extends SceneObject {
+  private _extrudable: Extrudable | null = null;
 
   constructor(
-    public extrudable: Extrudable,
     public axis: AxisObjectBase,
     public angle: number,
     public options: RevolveOptions) {
     super();
+  }
+
+  target(extrudable: Extrudable): this {
+    this._extrudable = extrudable;
+    return this;
+  }
+
+  get extrudable(): Extrudable {
+    return this._extrudable;
   }
 
   build(context: BuildSceneObjectContext) {

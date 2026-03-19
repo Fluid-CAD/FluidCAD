@@ -2,17 +2,10 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Axis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { ShapeOps } from "../oc/shape-ops.js";
+import { GeometrySceneObject } from "./2d/geometry.js";
+import { LinearCopyOptions } from "./copy-linear.js";
 
-export type LinearCopyOptions = {
-  count: number | number[];
-  centered?: boolean;
-  skip?: number[][]
-} & (
-    | { offset: number; length?: never }
-    | { length: number; offset?: never }
-);
-
-export class CopyLinear extends SceneObject {
+export class CopyLinear2D extends GeometrySceneObject {
   private _targetObjects: SceneObject[] | null = null;
 
   constructor(
@@ -32,10 +25,13 @@ export class CopyLinear extends SceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
-    let objects = this.targetObjects;
+    let objects: SceneObject[];
+    const allSiblings = this.sketch.getPreviousSiblings(this);
 
-    if (!this.targetObjects) {
-      objects = context.getActiveSceneObjects();
+    if (this.targetObjects && this.targetObjects.length > 0) {
+      objects = allSiblings.filter(obj => this.targetObjects.includes(obj));
+    } else {
+      objects = allSiblings;
     }
 
     let length = this.options.length || 1;
@@ -89,8 +85,8 @@ export class CopyLinear extends SceneObject {
     }
   }
 
-  compareTo(other: CopyLinear): boolean {
-    if (!(other instanceof CopyLinear)) {
+  compareTo(other: CopyLinear2D): boolean {
+    if (!(other instanceof CopyLinear2D)) {
       return false;
     }
 
@@ -130,6 +126,10 @@ export class CopyLinear extends SceneObject {
 
   getType(): string {
     return "copy-linear";
+  }
+
+  getUniqueType(): string {
+    return "copy-linear-2d";
   }
 
   serialize() {

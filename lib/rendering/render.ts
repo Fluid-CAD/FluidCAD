@@ -57,6 +57,7 @@ function renderSceneObject(obj: SceneObject, scene: Scene) {
     visible: isVisible,
     isContainer: obj.isContainer(),
     hasError,
+    sourceLocation: obj.getSourceLocation() || undefined,
   });
 }
 
@@ -117,6 +118,7 @@ export function renderSceneRollback(scene: Scene, rollbackIndex: number) {
         visible: isVisible,
         isContainer: obj.isContainer(),
         hasError: false,
+        sourceLocation: obj.getSourceLocation() || undefined,
       });
     } else {
       scene.addRenderedObject(obj, {
@@ -130,6 +132,7 @@ export function renderSceneRollback(scene: Scene, rollbackIndex: number) {
         visible: false,
         isContainer: obj.isContainer(),
         hasError: false,
+        sourceLocation: obj.getSourceLocation() || undefined,
       });
     }
   }

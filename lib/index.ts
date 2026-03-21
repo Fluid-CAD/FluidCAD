@@ -1,10 +1,35 @@
 import { Scene } from "./rendering/scene.js";
 import { loadOC } from "./load.js";
 import { createManager, getCurrentScene } from "./scene-manager.js";
-import { SceneObject } from "./common/scene-object.js";
+import { SceneObject, SourceLocation } from "./common/scene-object.js";
 import { SelectSceneObject } from "./features/select.js";
 import { Sketch } from "./features/2d/sketch.js";
 import { Extrudable } from "./helpers/types.js";
+
+function captureSourceLocation(): SourceLocation | null {
+  const stack = new Error().stack;
+  if (!stack) {
+    return null;
+  }
+  const lines = stack.split('\n');
+  for (let i = 2; i < lines.length; i++) {
+    const frame = lines[i];
+    if (frame.includes('/lib/') || frame.includes('node_modules')) {
+      continue;
+    }
+    // Vite SSR frames look like: "at eval (/path/to/file.js:line:col)"
+    // Standard frames look like: "at funcName (/path/to/file.js:line:col)" or "at /path/to/file.js:line:col"
+    const match = frame.match(/\((?:eval\s+\()?(\/[^:]+):(\d+):(\d+)\)?/) || frame.match(/at\s+(\/[^:]+):(\d+):(\d+)/);
+    if (match) {
+      return {
+        filePath: match[1],
+        line: parseInt(match[2], 10),
+        column: parseInt(match[3], 10),
+      };
+    }
+  }
+  return null;
+}
 
 export type SceneParserContext = {
   addSceneObject(obj: SceneObject): void;
@@ -23,13 +48,20 @@ export function registerBuilder<T extends Function>(builder: (context: ScenePars
   const fn: Function = function() {
 
     let scene = getCurrentScene();
+    const sourceLocation = captureSourceLocation();
 
     const context: SceneParserContext = {
       addSceneObject(obj: SceneObject) {
+        if (sourceLocation) {
+          obj.setSourceLocation(sourceLocation);
+        }
         scene.addSceneObject(obj);
       },
       addSceneObjects(objs: SceneObject[]) {
         for (const obj of objs) {
+          if (sourceLocation) {
+            obj.setSourceLocation(sourceLocation);
+          }
           scene.addSceneObject(obj);
         }
       },
@@ -43,6 +75,9 @@ export function registerBuilder<T extends Function>(builder: (context: ScenePars
         return scene.getLastSelections();
       },
       startProgressiveContainer(obj: SceneObject) {
+        if (sourceLocation) {
+          obj.setSourceLocation(sourceLocation);
+        }
         scene.startProgressiveContainer(obj);
       },
       endProgressiveContainer() {

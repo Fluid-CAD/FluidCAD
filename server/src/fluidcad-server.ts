@@ -77,6 +77,12 @@ export class FluidCadServer {
       this.sceneManager.renderScene(scene);
       const result = scene.getRenderedObjects();
 
+      for (const obj of result) {
+        if (obj.sourceLocation) {
+          obj.sourceLocation.filePath = obj.sourceLocation.filePath.replace('virtual:live-render:', '');
+        }
+      }
+
       if (!filePath.startsWith('virtual:live-render')) {
         this.renderingCache.set(normalizedFileName, result);
       }

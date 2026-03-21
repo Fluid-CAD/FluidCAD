@@ -2,6 +2,12 @@ import { randomUUID } from "crypto";
 import { Shape, ShapeFilter } from "./shape.js";
 import { Matrix4 } from "../math/matrix4.js";
 
+export type SourceLocation = {
+  filePath: string;
+  line: number;
+  column: number;
+};
+
 export interface Comparable<T> {
   compareTo(other: T): boolean;
 }
@@ -32,6 +38,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _guide: boolean = false;
   private _keep: boolean = false;
   private _forceRemoveShapes: boolean = false;
+  private _sourceLocation: SourceLocation | null = null;
 
   constructor() {
     this.state = new Map();
@@ -381,6 +388,14 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   guide() {
     this._guide = true;
     return this;
+  }
+
+  setSourceLocation(loc: SourceLocation) {
+    this._sourceLocation = loc;
+  }
+
+  getSourceLocation(): SourceLocation | null {
+    return this._sourceLocation;
   }
 
   protected generateUniqueName(suffix: string) {

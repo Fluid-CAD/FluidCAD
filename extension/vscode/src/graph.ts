@@ -12,6 +12,7 @@ type SceneObject = {
   fromCache: boolean;
   isShape: boolean;
   hasError: boolean;
+  sourceLocation?: { filePath: string; line: number; column: number };
 }
 
 type ShapeTreeItem = ShapeTypeGroupTreeItem | SceneShapeTreeItem;

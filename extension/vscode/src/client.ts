@@ -26,6 +26,10 @@ export class Client {
       async (obj) => {
         const index = this.currentSceneObjects.indexOf(obj);
         await this.rollback(index);
+
+        if (obj.sourceLocation) {
+          this.revealSourceLocation(obj.sourceLocation);
+        }
       }
     ));
 
@@ -318,6 +322,20 @@ export class Client {
   clearHighlight() {
     this.sendToServer({
       type: 'clear-highlight',
+    });
+  }
+
+  private async revealSourceLocation(loc: { filePath: string; line: number; column: number }) {
+    const uri = vscode.Uri.file(loc.filePath);
+    const line = Math.max(0, loc.line - 1);
+    const col = Math.max(0, loc.column - 1);
+    const position = new vscode.Position(line, col);
+    const range = new vscode.Range(position, position);
+
+    await vscode.window.showTextDocument(uri, {
+      viewColumn: vscode.ViewColumn.One,
+      preserveFocus: false,
+      selection: range,
     });
   }
 

@@ -23,6 +23,7 @@ export class MirrorShape2D extends GeometrySceneObject {
     let sketch: Sketch  = this.sketch;
     let axis: Axis;
     const objects = sketch.getPreviousSiblings(this);
+    const lastObj = context.getLastObject() as GeometrySceneObject;
 
     if (this.targetObjects && this.targetObjects.length > 0) {
       targetObjects = objects.filter(obj => this.targetObjects.includes(obj));
@@ -56,7 +57,6 @@ export class MirrorShape2D extends GeometrySceneObject {
       if (start) {
         const localStart = plane.worldToLocal(start.toPoint());
         this.setState('start', localStart);
-        this.setCurrentPosition(localStart);
       }
     }
 
@@ -65,17 +65,23 @@ export class MirrorShape2D extends GeometrySceneObject {
       if (end) {
         const localEnd = plane.worldToLocal(end.toPoint());
         this.setState('end', localEnd);
-        this.setCurrentPosition(localEnd);
       }
     }
 
-    const lastObj = targetObjects[targetObjects.length - 1] as GeometrySceneObject;
     if (lastObj) {
       const lastTangent = lastObj.getTangent();
       if (lastTangent) {
         const transformedTangent = lastTangent.transform(matrix)
         this.setTangent(transformedTangent);
       }
+    }
+
+    const currentPos = this.getCurrentPosition();
+    if (currentPos) {
+      const worldPos = plane.localToWorld(currentPos);
+      const mirroredWorldPos = matrix.transformPoint(worldPos);
+      const mirroredLocalPos = plane.worldToLocal(mirroredWorldPos);
+      this.setCurrentPosition(mirroredLocalPos);
     }
 
     this.addShapes(transformedShapes);

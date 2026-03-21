@@ -2,6 +2,7 @@ import { registerBuilder, SceneParserContext } from "../index.js";
 import { normalizeAxis, normalizePoint2D } from "../helpers/normalize.js";
 import { AxisLike } from "../math/axis.js";
 import { Point2DLike } from "../math/point.js";
+import { SceneObject } from "../common/scene-object.js";
 import { CopyLinear, LinearCopyOptions } from "../features/copy-linear.js";
 import { CopyCircular, CircularCopyOptions } from "../features/copy-circular.js";
 import { CopyLinear2D } from "../features/copy-linear2d.js";
@@ -11,18 +12,18 @@ export type CopyType = 'linear' | 'circular';
 
 interface CopyFunction {
   // 2D linear (inside sketch)
-  (type: 'linear', axis: AxisLike, options: LinearCopyOptions): CopyLinear2D;
-  (type: 'linear', axis: AxisLike[], options: LinearCopyOptions): CopyLinear2D;
+  (type: 'linear', axis: AxisLike, options: LinearCopyOptions, ...objects: SceneObject[]): CopyLinear2D;
+  (type: 'linear', axis: AxisLike[], options: LinearCopyOptions, ...objects: SceneObject[]): CopyLinear2D;
 
   // 3D linear
-  (type: 'linear', axis: AxisLike, options: LinearCopyOptions): CopyLinear;
-  (type: 'linear', axis: AxisLike[], options: LinearCopyOptions): CopyLinear;
+  (type: 'linear', axis: AxisLike, options: LinearCopyOptions, ...objects: SceneObject[]): CopyLinear;
+  (type: 'linear', axis: AxisLike[], options: LinearCopyOptions, ...objects: SceneObject[]): CopyLinear;
 
   // 2D circular (Point2DLike center, inside sketch)
-  (type: 'circular', center: Point2DLike, options: CircularCopyOptions): CopyCircular2D;
+  (type: 'circular', center: Point2DLike, options: CircularCopyOptions, ...objects: SceneObject[]): CopyCircular2D;
 
   // 3D circular
-  (type: 'circular', axis: AxisLike, options: CircularCopyOptions): CopyCircular;
+  (type: 'circular', axis: AxisLike, options: CircularCopyOptions, ...objects: SceneObject[]): CopyCircular;
 }
 
 function build(context: SceneParserContext): CopyFunction {
@@ -36,6 +37,10 @@ function build(context: SceneParserContext): CopyFunction {
     const type = args[0] as CopyType;
     const activeSketch = context.getActiveSketch();
     const options = args[2] as LinearCopyOptions | CircularCopyOptions;
+    const restObjects = args.slice(3) as SceneObject[];
+    const objects = restObjects.length > 0
+      ? restObjects
+      : [context.getSceneObjects().at(-1)!];
 
     if (type === 'linear') {
       const axisArg = args[1] as AxisLike | AxisLike[];
@@ -45,11 +50,15 @@ function build(context: SceneParserContext): CopyFunction {
 
       if (activeSketch) {
         const copy = new CopyLinear2D(axes, options as LinearCopyOptions);
+        if (restObjects.length > 0) {
+          copy.target(...restObjects);
+        }
         context.addSceneObject(copy);
         return copy;
       }
 
       const copy = new CopyLinear(axes, options as LinearCopyOptions);
+      copy.target(...objects);
       context.addSceneObject(copy);
       return copy;
     }
@@ -58,12 +67,16 @@ function build(context: SceneParserContext): CopyFunction {
       if (activeSketch) {
         const center = normalizePoint2D(args[1] as Point2DLike);
         const copy = new CopyCircular2D(center, options as CircularCopyOptions);
+        if (restObjects.length > 0) {
+          copy.target(...restObjects);
+        }
         context.addSceneObject(copy);
         return copy;
       }
 
       const axis = normalizeAxis(args[1] as AxisLike);
       const copy = new CopyCircular(axis, options as CircularCopyOptions);
+      copy.target(...objects);
       context.addSceneObject(copy);
       return copy;
     }

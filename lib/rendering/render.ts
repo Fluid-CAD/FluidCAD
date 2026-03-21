@@ -1,6 +1,8 @@
 import { RenderedShape, Scene, SceneObjectRender } from "./scene.js";
 import { MeshBuilder } from "./mesh-builder.js";
 import { SceneObject } from "../common/scene-object.js";
+import { PlaneObjectBase } from "../features/plane-renderable-base.js";
+import { AxisObjectBase } from "../features/axis-renderable-base.js";
 
 const meshBuilder = new MeshBuilder();
 
@@ -159,6 +161,16 @@ export function renderScene(scene: Scene) {
         },
         getTransform() {
           return object.getTransform();
+        },
+        getLastObject() {
+          const objects = scene.getSceneObjectsUpTo(object);
+          for (let i = objects.length - 1; i >= 0; i--) {
+            const obj = objects[i];
+            if (!(obj instanceof PlaneObjectBase) && !(obj instanceof AxisObjectBase)) {
+              return obj;
+            }
+          }
+          return null;
         },
       });
     }

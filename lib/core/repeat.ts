@@ -11,10 +11,10 @@ import { cloneWithTransform } from "../helpers/clone-transform.js";
 export type RepeatType = 'linear' | 'circular';
 
 interface RepeatFunction {
-  (type: 'linear', axis: AxisLike, objects: SceneObject[], options: LinearRepeatOptions): RepeatLinear;
-  (type: 'linear', axis: AxisLike[], objects: SceneObject[], options: LinearRepeatOptions): RepeatLinear;
+  (type: 'linear', axis: AxisLike, options: LinearRepeatOptions, ...objects: SceneObject[]): RepeatLinear;
+  (type: 'linear', axis: AxisLike[], options: LinearRepeatOptions, ...objects: SceneObject[]): RepeatLinear;
 
-  (type: 'circular', axis: AxisLike, objects: SceneObject[], options: CircularRepeatOptions): RepeatCircular;
+  (type: 'circular', axis: AxisLike, options: CircularRepeatOptions, ...objects: SceneObject[]): RepeatCircular;
 }
 
 function build(context: SceneParserContext): RepeatFunction {
@@ -22,7 +22,12 @@ function build(context: SceneParserContext): RepeatFunction {
     const args = Array.from(arguments);
 
     if (args.length < 3) {
-      throw new Error("Invalid arguments for copy function: expected at least (type, axis, options)");
+      throw new Error("Invalid arguments for repeat function: expected at least (type, axis, options)");
+    }
+
+    const sketch = context.getActiveSketch();
+    if (sketch) {
+      throw new Error("Cannot call repeat() inside a sketch. Use copy() instead.")
     }
 
     const type = args[0] as RepeatType;
@@ -32,8 +37,11 @@ function build(context: SceneParserContext): RepeatFunction {
       ? axisArg.map(a => normalizeAxis(a))
       : [normalizeAxis(axisArg)];
 
-    const objects = args[2] as SceneObject[];
-    const options = args[3] as LinearRepeatOptions;
+    const options = args[2] as LinearRepeatOptions;
+    const restObjects = args.slice(3) as SceneObject[];
+    const objects = restObjects.length > 0
+      ? restObjects
+      : [context.getSceneObjects().at(-1)!];
 
     if (type === 'linear') {
       const counts = Array.isArray(options.count) ? options.count : [options.count];

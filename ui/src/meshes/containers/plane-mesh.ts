@@ -1,6 +1,7 @@
 import {
   BufferAttribute,
   BufferGeometry,
+  Camera,
   ConeGeometry,
   CylinderGeometry,
   DoubleSide,
@@ -17,6 +18,19 @@ import {
 } from 'three';
 import { SceneObjectRender } from '../../types';
 
+function computeViewScale(camera: Camera, position: Vector3, factor: number): number {
+  if (camera instanceof OrthographicCamera) {
+    const viewHeight = (camera.top - camera.bottom) / camera.zoom;
+    return viewHeight * factor;
+  } else if (camera instanceof PerspectiveCamera) {
+    const dist = camera.position.distanceTo(position);
+    const vFov = camera.fov * Math.PI / 180;
+    const viewHeight = 2 * dist * Math.tan(vFov / 2);
+    return viewHeight * factor;
+  }
+  return 1;
+}
+
 const PLANE_COLOR = '#ffc26c';
 const EDGE_COLOR = '#c88f40';
 const ARROW_COLOR = '#c88f40';
@@ -27,7 +41,7 @@ const ARROW_HEAD_WIDTH = 1.5;
 const ARROW_SHAFT_RADIUS = 0.4;
 
 export class PlaneMesh extends Group {
-  constructor(sceneObject: SceneObjectRender) {
+  constructor(sceneObject: SceneObjectRender, camera: Camera) {
     super();
 
     const meshData = sceneObject.sceneShapes[0]?.meshes[0];
@@ -93,19 +107,14 @@ export class PlaneMesh extends Group {
     arrowGroup.quaternion.copy(quaternion);
     arrowGroup.position.copy(originPos);
 
+    // Set initial scale so the arrow is correctly sized on the first frame
+    arrowGroup.scale.setScalar(computeViewScale(camera, arrowGroup.position, 0.006));
+
     // Keep consistent screen size regardless of zoom level.
     // Attach to the shaft (opaque) so the scale is applied before the arrow renders,
     // not on the face (transparent) which renders after opaque objects.
-    shaft.onBeforeRender = (_renderer, _scene, camera) => {
-      if (camera instanceof OrthographicCamera) {
-        const viewHeight = (camera.top - camera.bottom) / camera.zoom;
-        arrowGroup.scale.setScalar(viewHeight * 0.006);
-      } else if (camera instanceof PerspectiveCamera) {
-        const dist = camera.position.distanceTo(arrowGroup.position);
-        const vFov = camera.fov * Math.PI / 180;
-        const viewHeight = 2 * dist * Math.tan(vFov / 2);
-        arrowGroup.scale.setScalar(viewHeight * 0.006);
-      }
+    shaft.onBeforeRender = (_renderer, _scene, cam) => {
+      arrowGroup.scale.setScalar(computeViewScale(cam, arrowGroup.position, 0.006));
       arrowGroup.updateMatrixWorld(true);
     };
 

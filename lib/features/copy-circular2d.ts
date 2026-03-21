@@ -8,22 +8,12 @@ import { LazyVertex } from "./lazy-vertex.js";
 import { CircularCopyOptions } from "./copy-circular.js";
 
 export class CopyCircular2D extends GeometrySceneObject {
-  private _targetObjects: SceneObject[] | null = null;
-
   constructor(
     public center: LazyVertex,
-    public options: CircularCopyOptions
+    public options: CircularCopyOptions,
+    public targetObjects: SceneObject[] | null = null
     ) {
     super();
-  }
-
-  target(...objects: SceneObject[]): this {
-    this._targetObjects = objects;
-    return this;
-  }
-
-  get targetObjects(): SceneObject[] | null {
-    return this._targetObjects;
   }
 
   build(context: BuildSceneObjectContext) {

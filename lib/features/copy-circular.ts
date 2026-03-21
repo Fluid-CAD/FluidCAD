@@ -15,22 +15,12 @@ export type CircularCopyOptions = {
 );
 
 export class CopyCircular extends SceneObject {
-  private _targetObjects: SceneObject[] | null = null;
-
   constructor(
     public axis: Axis,
-    public options: CircularCopyOptions
+    public options: CircularCopyOptions,
+    public targetObjects: SceneObject[] | null = null
     ) {
     super();
-  }
-
-  target(...objects: SceneObject[]): this {
-    this._targetObjects = objects;
-    return this;
-  }
-
-  get targetObjects(): SceneObject[] | null {
-    return this._targetObjects;
   }
 
   build(context: BuildSceneObjectContext) {

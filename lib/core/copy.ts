@@ -49,16 +49,12 @@ function build(context: SceneParserContext): CopyFunction {
         : [normalizeAxis(axisArg)];
 
       if (activeSketch) {
-        const copy = new CopyLinear2D(axes, options as LinearCopyOptions);
-        if (restObjects.length > 0) {
-          copy.target(...restObjects);
-        }
+        const copy = new CopyLinear2D(axes, options as LinearCopyOptions, restObjects.length > 0 ? restObjects : null);
         context.addSceneObject(copy);
         return copy;
       }
 
-      const copy = new CopyLinear(axes, options as LinearCopyOptions);
-      copy.target(...objects);
+      const copy = new CopyLinear(axes, options as LinearCopyOptions, objects);
       context.addSceneObject(copy);
       return copy;
     }
@@ -66,17 +62,13 @@ function build(context: SceneParserContext): CopyFunction {
     if (type === 'circular') {
       if (activeSketch) {
         const center = normalizePoint2D(args[1] as Point2DLike);
-        const copy = new CopyCircular2D(center, options as CircularCopyOptions);
-        if (restObjects.length > 0) {
-          copy.target(...restObjects);
-        }
+        const copy = new CopyCircular2D(center, options as CircularCopyOptions, restObjects.length > 0 ? restObjects : null);
         context.addSceneObject(copy);
         return copy;
       }
 
       const axis = normalizeAxis(args[1] as AxisLike);
-      const copy = new CopyCircular(axis, options as CircularCopyOptions);
-      copy.target(...objects);
+      const copy = new CopyCircular(axis, options as CircularCopyOptions, objects);
       context.addSceneObject(copy);
       return copy;
     }

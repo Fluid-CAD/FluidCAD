@@ -3,7 +3,7 @@ import { normalizeAxis } from "../helpers/normalize.js";
 import { AxisLike } from "../math/axis.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Matrix4 } from "../math/matrix4.js";
-import { degree, rad } from "../helpers/math-helpers.js";
+import { rad } from "../helpers/math-helpers.js";
 import { LinearRepeatOptions, RepeatLinear } from "../features/repeat-linear.js";
 import { CircularRepeatOptions, RepeatCircular } from "../features/repeat-circular.js";
 import { cloneWithTransform } from "../helpers/clone-transform.js";
@@ -45,8 +45,7 @@ function build(context: SceneParserContext): RepeatFunction {
 
     if (type === 'linear') {
       const counts = Array.isArray(options.count) ? options.count : [options.count];
-      const repeat = new RepeatLinear(axes, options);
-      repeat.target(...objects);
+      const repeat = new RepeatLinear(axes, options, objects);
 
       const transformedObjects: SceneObject[] = [];
 
@@ -113,8 +112,7 @@ function build(context: SceneParserContext): RepeatFunction {
       const circularOptions = options as unknown as CircularRepeatOptions;
       const { count, centered, skip } = circularOptions;
 
-      const repeat = new RepeatCircular(axis, circularOptions);
-      repeat.target(...objects);
+      const repeat = new RepeatCircular(axis, circularOptions, objects);
 
       let offset: number;
       if ('offset' in circularOptions && circularOptions.offset !== undefined) {

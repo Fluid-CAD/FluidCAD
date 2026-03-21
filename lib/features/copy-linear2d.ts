@@ -6,22 +6,12 @@ import { GeometrySceneObject } from "./2d/geometry.js";
 import { LinearCopyOptions } from "./copy-linear.js";
 
 export class CopyLinear2D extends GeometrySceneObject {
-  private _targetObjects: SceneObject[] | null = null;
-
   constructor(
     public axes: Axis[],
-    public options: LinearCopyOptions
+    public options: LinearCopyOptions,
+    public targetObjects: SceneObject[] | null = null
     ) {
     super();
-  }
-
-  target(...objects: SceneObject[]): this {
-    this._targetObjects = objects;
-    return this;
-  }
-
-  get targetObjects(): SceneObject[] | null {
-    return this._targetObjects;
   }
 
   build(context: BuildSceneObjectContext) {

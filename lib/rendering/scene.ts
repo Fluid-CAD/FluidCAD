@@ -32,6 +32,7 @@ export type SceneObjectRender = {
   type: string;
   fromCache: boolean;
   hasError: boolean;
+  errorMessage?: string;
   sourceLocation?: { filePath: string; line: number; column: number };
 }
 

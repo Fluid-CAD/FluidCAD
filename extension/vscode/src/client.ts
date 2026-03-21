@@ -8,12 +8,15 @@ export class Client {
 
   private serverProcess: ChildProcess | undefined;
   private serverUrl: string = '';
+  private diagnosticCollection: vscode.DiagnosticCollection;
 
   currentSceneObjects: any[] = [];
   rollbackStop = -1;
   private currentFileName: string = '';
 
   constructor(private context: vscode.ExtensionContext, private logger: vscode.OutputChannel) {
+    this.diagnosticCollection = vscode.languages.createDiagnosticCollection('fluidcad');
+    context.subscriptions.push(this.diagnosticCollection);
   }
 
   async init() {
@@ -227,6 +230,7 @@ export class Client {
         this.currentSceneObjects = msg.result;
         this.rollbackStop = msg.rollbackStop;
         this.renderSceneGraph();
+        this.updateDiagnostics();
         this.logger.appendLine(`Scene rendered: ${msg.absPath}`);
         break;
       }
@@ -337,6 +341,38 @@ export class Client {
       preserveFocus: false,
       selection: range,
     });
+  }
+
+  private updateDiagnostics() {
+    this.diagnosticCollection.clear();
+
+    const diagnosticsByFile = new Map<string, vscode.Diagnostic[]>();
+
+    for (const obj of this.currentSceneObjects) {
+      if (obj.hasError && obj.errorMessage && obj.sourceLocation) {
+        const loc = obj.sourceLocation;
+        const line = Math.max(0, loc.line - 1);
+        const col = Math.max(0, loc.column - 1);
+        const range = new vscode.Range(line, col, line, Number.MAX_SAFE_INTEGER);
+
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          obj.errorMessage,
+          vscode.DiagnosticSeverity.Error,
+        );
+        diagnostic.source = 'FluidCAD';
+
+        const filePath = loc.filePath;
+        if (!diagnosticsByFile.has(filePath)) {
+          diagnosticsByFile.set(filePath, []);
+        }
+        diagnosticsByFile.get(filePath)!.push(diagnostic);
+      }
+    }
+
+    for (const [filePath, diagnostics] of diagnosticsByFile) {
+      this.diagnosticCollection.set(vscode.Uri.file(filePath), diagnostics);
+    }
   }
 
   // ---------------------------------------------------------------------------

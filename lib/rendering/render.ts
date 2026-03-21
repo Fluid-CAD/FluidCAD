@@ -7,7 +7,7 @@ import { AxisObjectBase } from "../features/axis-renderable-base.js";
 const meshBuilder = new MeshBuilder();
 
 function renderSceneObject(obj: SceneObject, scene: Scene) {
-  let hasError = false;
+  const hasError = !!obj.getError();
 
   const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false });
   const renderedSceneShapes: RenderedShape[] = [];
@@ -57,6 +57,7 @@ function renderSceneObject(obj: SceneObject, scene: Scene) {
     visible: isVisible,
     isContainer: obj.isContainer(),
     hasError,
+    errorMessage: obj.getError() || undefined,
     sourceLocation: obj.getSourceLocation() || undefined,
   });
 }
@@ -152,30 +153,37 @@ export function renderScene(scene: Scene) {
 
     const isCached = scene.isCached(object);
     if (!isCached) {
-      object.build({
-        getSceneObjects() {
-          return scene.getSceneObjectsUpTo(object);
-        },
-        getActiveSceneObjects() {
-          return scene.getActiveSceneObjectsUpTo(object);
-        },
-        getSceneObjectsFromTo(from: SceneObject, to: SceneObject) {
-          return scene.getSceneObjectsFromTo(from, to);
-        },
-        getTransform() {
-          return object.getTransform();
-        },
-        getLastObject() {
-          const objects = scene.getSceneObjectsUpTo(object);
-          for (let i = objects.length - 1; i >= 0; i--) {
-            const obj = objects[i];
-            if (!(obj instanceof PlaneObjectBase) && !(obj instanceof AxisObjectBase)) {
-              return obj;
+      object.clearError();
+      try {
+        object.build({
+          getSceneObjects() {
+            return scene.getSceneObjectsUpTo(object);
+          },
+          getActiveSceneObjects() {
+            return scene.getActiveSceneObjectsUpTo(object);
+          },
+          getSceneObjectsFromTo(from: SceneObject, to: SceneObject) {
+            return scene.getSceneObjectsFromTo(from, to);
+          },
+          getTransform() {
+            return object.getTransform();
+          },
+          getLastObject() {
+            const objects = scene.getSceneObjectsUpTo(object);
+            for (let i = objects.length - 1; i >= 0; i--) {
+              const obj = objects[i];
+              if (!(obj instanceof PlaneObjectBase) && !(obj instanceof AxisObjectBase)) {
+                return obj;
+              }
             }
-          }
-          return null;
-        },
-      });
+            return null;
+          },
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Error building object ${object.getUniqueType()}:`, message);
+        object.setError(message);
+      }
     }
   }
 

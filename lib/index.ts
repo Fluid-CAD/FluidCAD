@@ -12,14 +12,8 @@ function captureSourceLocation(): SourceLocation | null {
     return null;
   }
   const lines = stack.split('\n');
-  for (let i = 2; i < lines.length; i++) {
-    const frame = lines[i];
-    if (frame.includes('/lib/') || frame.includes('node_modules')) {
-      continue;
-    }
-    // Vite SSR frames look like: "at eval (/path/to/file.js:line:col)"
-    // Standard frames look like: "at funcName (/path/to/file.js:line:col)" or "at /path/to/file.js:line:col"
-    const match = frame.match(/\((?:eval\s+\()?(\/[^:]+):(\d+):(\d+)\)?/) || frame.match(/at\s+(\/[^:]+):(\d+):(\d+)/);
+  for (const frame of lines) {
+    const match = frame.match(/(\/[^:]+\.fluid\.js):(\d+):(\d+)/);
     if (match) {
       return {
         filePath: match[1],

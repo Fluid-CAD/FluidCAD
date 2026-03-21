@@ -47,6 +47,11 @@ export class SceneCompare {
       oldSttate.set('removedShapes', newRemovedShapes);
 
       newObj.restoreState(oldSttate);
+
+      const oldError = oldObj.getError();
+      if (oldError) {
+        newObj.setError(oldError);
+      }
     }
 
     return newScene;

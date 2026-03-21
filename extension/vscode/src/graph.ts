@@ -12,6 +12,7 @@ type SceneObject = {
   fromCache: boolean;
   isShape: boolean;
   hasError: boolean;
+  errorMessage?: string;
   sourceLocation?: { filePath: string; line: number; column: number };
 }
 

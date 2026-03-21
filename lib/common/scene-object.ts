@@ -39,6 +39,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _keep: boolean = false;
   private _forceRemoveShapes: boolean = false;
   private _sourceLocation: SourceLocation | null = null;
+  private _error: string | null = null;
 
   constructor() {
     this.state = new Map();
@@ -396,6 +397,18 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   getSourceLocation(): SourceLocation | null {
     return this._sourceLocation;
+  }
+
+  setError(message: string) {
+    this._error = message;
+  }
+
+  clearError() {
+    this._error = null;
+  }
+
+  getError(): string | null {
+    return this._error;
   }
 
   protected generateUniqueName(suffix: string) {

@@ -1,4 +1,5 @@
 import {
+  Camera,
   CircleGeometry,
   ConeGeometry,
   CylinderGeometry,
@@ -14,6 +15,19 @@ import {
 import { SceneObjectRender } from '../../types';
 import { EdgeMesh } from '../shape-meshes/edge-mesh';
 import { MetaEdgeMesh } from '../shape-meshes/meta-edge-mesh';
+
+function computeViewScale(camera: Camera, position: Vector3, factor: number): number {
+  if (camera instanceof OrthographicCamera) {
+    const viewHeight = (camera.top - camera.bottom) / camera.zoom;
+    return viewHeight * factor;
+  } else if (camera instanceof PerspectiveCamera) {
+    const dist = camera.position.distanceTo(position);
+    const vFov = camera.fov * Math.PI / 180;
+    const viewHeight = 2 * dist * Math.tan(vFov / 2);
+    return viewHeight * factor;
+  }
+  return 1;
+}
 
 const SKETCH_EDGE_COLOR = '#2297ff';
 const CURSOR_COLOR = 0xf3724f;
@@ -31,12 +45,12 @@ const TANGENT_HEAD_WIDTH = 2.5;
  * at the current drawing position.
  */
 export class SketchMesh extends Group {
-  constructor(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], isSketchMode: boolean) {
+  constructor(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], isSketchMode: boolean, camera: Camera) {
     super();
     this.buildEdges(sceneObject, allObjects);
     if (isSketchMode && sceneObject.visible) {
-      this.buildCursor(sceneObject);
-      this.buildTangentArrow(sceneObject);
+      this.buildCursor(sceneObject, camera);
+      this.buildTangentArrow(sceneObject, camera);
     }
   }
 
@@ -62,7 +76,7 @@ export class SketchMesh extends Group {
     }
   }
 
-  private buildCursor(sceneObject: SceneObjectRender): void {
+  private buildCursor(sceneObject: SceneObjectRender, camera: Camera): void {
     const currentPosition = sceneObject.object?.currentPosition;
     if (!currentPosition) {
       return;
@@ -95,23 +109,19 @@ export class SketchMesh extends Group {
       cursorGroup.lookAt(target);
     }
 
+    // Set initial scale so the cursor is correctly sized on the first frame
+    cursorGroup.scale.setScalar(computeViewScale(camera, cursorGroup.position, 0.003));
+
     // Keep consistent screen size regardless of zoom level
-    dot.onBeforeRender = (_renderer, _scene, camera) => {
-      if (camera instanceof OrthographicCamera) {
-        const viewHeight = (camera.top - camera.bottom) / camera.zoom;
-        cursorGroup.scale.setScalar(viewHeight * 0.003);
-      } else if (camera instanceof PerspectiveCamera) {
-        const dist = camera.position.distanceTo(cursorGroup.position);
-        const vFov = camera.fov * Math.PI / 180;
-        const viewHeight = 2 * dist * Math.tan(vFov / 2);
-        cursorGroup.scale.setScalar(viewHeight * 0.003);
-      }
+    dot.onBeforeRender = (_renderer, _scene, cam) => {
+      cursorGroup.scale.setScalar(computeViewScale(cam, cursorGroup.position, 0.003));
+      cursorGroup.updateMatrixWorld(true);
     };
 
     this.add(cursorGroup);
   }
 
-  private buildTangentArrow(sceneObject: SceneObjectRender): void {
+  private buildTangentArrow(sceneObject: SceneObjectRender, camera: Camera): void {
     const currentPosition = sceneObject.object?.currentPosition;
     const currentTangent = sceneObject.object?.currentTangent;
     const planeOrigin = sceneObject.object?.plane?.origin;
@@ -152,17 +162,12 @@ export class SketchMesh extends Group {
     arrowGroup.quaternion.copy(quaternion);
     arrowGroup.position.set(currentPosition.x, currentPosition.y, currentPosition.z);
 
+    // Set initial scale so the arrow is correctly sized on the first frame
+    arrowGroup.scale.setScalar(computeViewScale(camera, arrowGroup.position, 0.003));
+
     // Keep consistent screen size regardless of zoom level
-    shaft.onBeforeRender = (_renderer, _scene, camera) => {
-      if (camera instanceof OrthographicCamera) {
-        const viewHeight = (camera.top - camera.bottom) / camera.zoom;
-        arrowGroup.scale.setScalar(viewHeight * 0.003);
-      } else if (camera instanceof PerspectiveCamera) {
-        const dist = camera.position.distanceTo(arrowGroup.position);
-        const vFov = camera.fov * Math.PI / 180;
-        const viewHeight = 2 * dist * Math.tan(vFov / 2);
-        arrowGroup.scale.setScalar(viewHeight * 0.003);
-      }
+    shaft.onBeforeRender = (_renderer, _scene, cam) => {
+      arrowGroup.scale.setScalar(computeViewScale(cam, arrowGroup.position, 0.003));
       arrowGroup.updateMatrixWorld(true);
     };
 

@@ -410,7 +410,7 @@ export class Viewer {
       }
     }
 
-    const mesh = buildSceneMesh(sceneObjects, this.modeManager.isSketchMode);
+    const mesh = buildSceneMesh(sceneObjects, this.modeManager.isSketchMode, this.ctx.camera);
     this.ctx.scene.add(mesh);
 
     // Auto-fit on first render or in sketch mode (skip if viewport barely changed)

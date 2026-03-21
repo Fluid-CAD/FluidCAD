@@ -1,4 +1,4 @@
-import { Group, Object3D } from 'three';
+import { Camera, Group, Object3D } from 'three';
 import { MeshRenderOptions, SceneObjectRender } from '../types';
 import { SketchMesh } from './containers/sketch-mesh';
 import { PlaneMesh } from './containers/plane-mesh';
@@ -58,14 +58,15 @@ export function buildObjectMesh(
   obj: SceneObjectRender,
   allObjects: SceneObjectRender[],
   isSketchMode: boolean,
+  camera: Camera,
   inherited?: MeshRenderOptions,
 ): Object3D {
   // --- dedicated mesh classes for construction geometry ---
   switch (obj.type) {
     case 'sketch':
-      return new SketchMesh(obj, allObjects, isSketchMode);
+      return new SketchMesh(obj, allObjects, isSketchMode, camera);
     case 'plane':
-      return new PlaneMesh(obj);
+      return new PlaneMesh(obj, camera);
     case 'axis':
       return new AxisMesh(obj);
   }
@@ -80,7 +81,7 @@ export function buildObjectMesh(
   if (children.length > 0) {
     const group = new Group();
     for (const child of children) {
-      group.add(buildObjectMesh(child, allObjects, isSketchMode, options));
+      group.add(buildObjectMesh(child, allObjects, isSketchMode, camera, options));
     }
     result = group;
   } else {
@@ -102,6 +103,7 @@ export function buildObjectMesh(
 export function buildSceneMesh(
   sceneObjects: SceneObjectRender[],
   isSketchMode: boolean,
+  camera: Camera,
 ): Object3D {
   const container = new Group();
   container.name = 'compiledMesh';
@@ -109,7 +111,7 @@ export function buildSceneMesh(
   for (const obj of sceneObjects) {
     if (obj.parentId) continue;
     if (!obj.visible && !(isSketchMode && obj.type === 'sketch')) continue;
-    container.add(buildObjectMesh(obj, sceneObjects, isSketchMode));
+    container.add(buildObjectMesh(obj, sceneObjects, isSketchMode, camera));
   }
 
   return container;

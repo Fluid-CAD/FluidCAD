@@ -34,14 +34,14 @@ interface MirrorFunction {
   * @param line The line to mirror across
   * @param geometries The geometries to mirror
   */
-  (line: SceneObject, geometries: SceneObject[]): MirrorShape2D;
+  (line: SceneObject, ...geometries: SceneObject[]): MirrorShape2D;
 
   /**
   * [2D] Mirror given sketch geometries across a given axis.
   * @param axis The axis to mirror across
   * @param geometries The geometries to mirror
   */
-  (axis: AxisLike, geometries: SceneObject[]): MirrorShape2D;
+  (axis: AxisLike, ...geometries: SceneObject[]): MirrorShape2D;
 
   /**
   * [3D] Mirror all scene shapes across a given plane.
@@ -50,18 +50,19 @@ interface MirrorFunction {
   (plane: PlaneLike): MirrorShape;
 
   /**
-  * [3D] Mirror (re-apply) given features across a given plane.
-  * @param plane The plane to mirror across
-  * @param objects The features to mirror
-  */
-  (plane: PlaneLike, objects: SceneObject[], type?: 'feature'): MirrorFeature;
-
-  /**
   * [3D] Mirror given shapes across a given plane.
   * @param plane The plane to mirror across
   * @param objects The shapes to mirror
   */
-  (plane: PlaneLike, objects: SceneObject[], type?: 'shape'): MirrorShape;
+  (plane: PlaneLike, ...objects: SceneObject[]): MirrorShape;
+
+  /**
+  * [3D] Mirror (re-apply) given features across a given plane.
+  * @param plane The plane to mirror across
+  * @param type Must be 'feature'
+  * @param objects The features to mirror
+  */
+  (plane: PlaneLike, type: 'feature', ...objects: SceneObject[]): MirrorFeature;
 }
 
 function build(context: SceneParserContext): MirrorFunction {
@@ -106,28 +107,30 @@ function build(context: SceneParserContext): MirrorFunction {
       }
     }
 
-    if (arguments.length === 2) {
+    if (arguments.length >= 2) {
+      const args = Array.from(arguments);
 
-      if (isAxisLike(arguments[0]) || arguments[0] instanceof SceneObject) {
+      // 2D mirror with target objects: mirror(axis/line, geometries[])
+      if (isAxisLike(args[0]) || args[0] instanceof SceneObject) {
         let axis: AxisObjectBase = null;
-        if (arguments[0] instanceof AxisObjectBase) {
-          axis = arguments[0] as AxisObjectBase;
+        if (args[0] instanceof AxisObjectBase) {
+          axis = args[0] as AxisObjectBase;
         }
-        else if (arguments[0] instanceof SceneObject) {
-          const line = arguments[0] as SceneObject;
+        else if (args[0] instanceof SceneObject) {
+          const line = args[0] as SceneObject;
           axis = new AxisFromEdge(line);
           context.addSceneObject(axis);
         }
         else {
-          const a = normalizeAxis(arguments[0]);
+          const a = normalizeAxis(args[0]);
           axis = new AxisObject(a);
           context.addSceneObject(axis);
         }
 
-        const targetObjects = arguments[1] as GeometrySceneObject[];
+        const targetObjects = args.slice(1) as GeometrySceneObject[];
         const mirror = new MirrorShape2D(axis, targetObjects);
 
-        if (!(arguments[0] instanceof AxisObjectBase) && !(arguments[0] instanceof SceneObject)) {
+        if (!(args[0] instanceof AxisObjectBase) && !(args[0] instanceof SceneObject)) {
           context.addSceneObject(axis);
         }
 
@@ -135,50 +138,24 @@ function build(context: SceneParserContext): MirrorFunction {
         return mirror;
       }
 
-      // default to shape mirror
-      const normalizedPlane = normalizePlane(arguments[0]);
-      const targetObjects = arguments[1] as SceneObject[];
+      // 3D feature mirror: mirror(plane, 'feature', ...objects)
+      if (args[1] === 'feature') {
+        const targetObjects = args.slice(2) as SceneObject[];
 
-      let planeObj: PlaneObjectBase;
-      if (!(normalizedPlane instanceof PlaneObjectBase)) {
-        planeObj = new PlaneObject(normalizedPlane);
-        context.addSceneObject(planeObj);
-      }
-      else {
-        planeObj = normalizedPlane;
-      }
+        let planeObj: PlaneObjectBase;
+        let normalizedPlane: Plane;
+        if (args[0] instanceof PlaneObjectBase) {
+          planeObj = args[0] as PlaneObjectBase;
+          planeObj.build();
+          normalizedPlane = planeObj.getPlane();
+        }
+        else {
+          normalizedPlane = normalizePlane(args[0]);
+          planeObj = new PlaneObject(normalizedPlane);
+          planeObj.build();
+          context.addSceneObject(planeObj);
+        }
 
-      const mirror = new MirrorShape(planeObj);
-      mirror.target(...targetObjects);
-      context.addSceneObject(mirror);
-      return mirror;
-    }
-    else if (arguments.length === 3) {
-
-      let planeObj: PlaneObjectBase
-      let normalizedPlane: Plane;
-      if (arguments[0] instanceof PlaneObjectBase) {
-        planeObj = arguments[0] as PlaneObjectBase;
-        planeObj.build();
-        normalizedPlane = planeObj.getPlane();
-      }
-      else {
-        normalizedPlane = normalizePlane(arguments[0]);
-        planeObj = new PlaneObject(normalizedPlane);
-        planeObj.build()
-        context.addSceneObject(planeObj);
-      }
-
-      const targetObjects = arguments[1] as SceneObject[];
-
-      const type = arguments[2] as 'feature' | 'shape';
-      if (type === 'shape') {
-        const mirror = new MirrorShape(planeObj);
-        mirror.target(...targetObjects);
-        context.addSceneObject(mirror);
-        return mirror;
-      }
-      else {
         const matrix = Matrix4.mirrorPlane(normalizedPlane.normal, normalizedPlane.origin);
         const mirror = new MirrorFeature(planeObj, matrix);
         const mirrorTree = cloneWithTransform(targetObjects, matrix, mirror);
@@ -189,9 +166,26 @@ function build(context: SceneParserContext): MirrorFunction {
         context.addSceneObjects(mirrorTree);
         return mirror;
       }
+
+      // 3D shape mirror: mirror(plane, ...objects)
+      const targetObjects = args.slice(1) as SceneObject[];
+
+      let planeObj: PlaneObjectBase;
+      if (!(args[0] instanceof PlaneObjectBase)) {
+        const normalizedPlane = normalizePlane(args[0]);
+        planeObj = new PlaneObject(normalizedPlane);
+        context.addSceneObject(planeObj);
+      }
+      else {
+        planeObj = args[0] as PlaneObjectBase;
+      }
+
+      const mirror = new MirrorShape(planeObj, targetObjects);
+      context.addSceneObject(mirror);
+      return mirror;
     }
 
-    throw new Error("Invalid arguments for axis function");
+    throw new Error("Invalid arguments for mirror function");
   }
 }
 

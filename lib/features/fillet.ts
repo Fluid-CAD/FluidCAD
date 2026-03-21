@@ -129,17 +129,18 @@ export class Fillet extends SceneObject {
       return false;
     }
 
-    if (!super.compareTo(other)) {
-      return false;
-    }
-
     if (this.radius !== other.radius) {
       return false;
     }
 
-    if (!this.targetEdges.compareTo(other.targetEdges)) {
+    if (!this.targetEdges?.compareTo(other.targetEdges)) {
       return false;
     }
+
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
 
     return true;
   }

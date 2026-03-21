@@ -15,6 +15,7 @@ export type BuildSceneObjectContext = {
   getActiveSceneObjects(): SceneObject[];
   getSceneObjectsFromTo(obj: SceneObject, to: SceneObject, type?: string): SceneObject[];
   getTransform(): Matrix4 | null;
+  getLastObject(): SceneObject | null;
 }
 
 export abstract class SceneObject implements Comparable<SceneObject>, Serializable {

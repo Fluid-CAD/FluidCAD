@@ -29,6 +29,8 @@ export class MirrorShape extends SceneObject {
     let plane: Plane;
 
     const allSceneObjects = context.getSceneObjects();
+    const lastObj = context.getLastObject();
+
     if (this.parentId) {
       parent = this.getParent();
       objects = parent.getPreviousSiblings(this);
@@ -41,7 +43,7 @@ export class MirrorShape extends SceneObject {
       targetObjects = objects.filter(obj => this.targetObjects.includes(obj));
     }
     else {
-      targetObjects = objects;
+      targetObjects = lastObj ? [lastObj] : objects;
     }
 
     if (this.plane) {

@@ -188,6 +188,18 @@ export class SceneContext {
     this._cc.getTarget(tgt);
     const up = this.camera.up.clone();
 
+    // When switching from orthographic to perspective, adjust the camera
+    // distance so the visible area matches. Orthographic zoom is controlled
+    // by the camera's zoom property, not distance, so the raw position
+    // would produce a too-zoomed-in perspective view on the first switch.
+    if (this.activeCamera === 'orthographic' && mode === 'perspective') {
+      const orthoHeight = (this.orthoCamera.top - this.orthoCamera.bottom) / this.orthoCamera.zoom;
+      const halfFovRad = MathUtils.DEG2RAD * this.perspCamera.fov * 0.5;
+      const targetDist = (orthoHeight * 0.5) / Math.tan(halfFovRad);
+      const dir = pos.clone().sub(tgt).normalize();
+      pos.copy(tgt).add(dir.multiplyScalar(targetDist));
+    }
+
     // Switch active camera
     this.activeCamera = mode;
     const newCam = this.camera;

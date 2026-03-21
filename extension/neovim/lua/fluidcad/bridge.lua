@@ -8,6 +8,8 @@ local config = {}
 local log_lines = {}
 local log_subscribers = {}
 
+local ns = vim.api.nvim_create_namespace('fluidcad')
+
 function M.setup(cfg)
   config = cfg
 end
@@ -120,6 +122,8 @@ function M.handle_message(msg)
         local first_line = full:match('%S[^\n]*') or 'unknown error'
         vim.api.nvim_echo({{ '[fluidcad] Init failed: ' .. first_line .. '  (:FluidCadLog for details)', 'ErrorMsg' }}, true, {})
       end
+    elseif msg.type == 'scene-rendered' then
+      M.update_diagnostics(msg.result)
     elseif msg.type == 'error' then
       local full = msg.message or 'unknown'
       table.insert(log_lines, '[error] ' .. full)
@@ -131,6 +135,36 @@ function M.handle_message(msg)
       end
     end
   end)
+end
+
+function M.update_diagnostics(result)
+  local by_file = {}
+
+  for _, obj in ipairs(result) do
+    if obj.hasError and obj.errorMessage and obj.sourceLocation then
+      local fp = obj.sourceLocation.filePath
+      if not by_file[fp] then
+        by_file[fp] = {}
+      end
+      table.insert(by_file[fp], {
+        lnum = math.max(0, obj.sourceLocation.line - 1),
+        col = math.max(0, obj.sourceLocation.column - 1),
+        message = obj.errorMessage,
+        severity = vim.diagnostic.severity.ERROR,
+        source = 'FluidCAD',
+      })
+    end
+  end
+
+  -- clear diagnostics for all buffers in this namespace
+  vim.diagnostic.reset(ns)
+
+  for fp, diagnostics in pairs(by_file) do
+    local bufnr = vim.fn.bufnr(fp)
+    if bufnr ~= -1 then
+      vim.diagnostic.set(ns, bufnr, diagnostics)
+    end
+  end
 end
 
 function M.when_ready(callback)

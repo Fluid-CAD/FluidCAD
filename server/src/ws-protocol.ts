@@ -114,7 +114,19 @@ export type UIShowShapePropertiesMessage = {
   shapeId: string;
 };
 
+export type UIInitCompleteMessage = {
+  type: 'init-complete';
+  success: boolean;
+  error?: string;
+};
+
+export type UIProcessingFileMessage = {
+  type: 'processing-file';
+};
+
 export type ServerToUIMessage =
+  | UIInitCompleteMessage
+  | UIProcessingFileMessage
   | UISceneRenderedMessage
   | UIHighlightShapeMessage
   | UIClearHighlightMessage

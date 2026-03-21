@@ -3,6 +3,69 @@ import { ShapePropertiesModal } from './ui/shape-properties-modal';
 import { SelectionInfoOverlay } from './ui/selection-info-overlay';
 
 const container = document.getElementById('fluidcad-viewer') || document.body;
+
+// ---------------------------------------------------------------------------
+// Loading overlay — shown until the server kernel finishes initializing
+// ---------------------------------------------------------------------------
+
+const loadingOverlay = document.createElement('div');
+loadingOverlay.id = 'fluidcad-loading';
+loadingOverlay.innerHTML = `
+  <style>
+    #fluidcad-loading {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      pointer-events: none;
+    }
+    #fluidcad-loading .loading-pill {
+      background: rgba(30, 30, 30, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-radius: 8px;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: #bbb;
+      font: 13px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      user-select: none;
+    }
+    #fluidcad-loading .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.15);
+      border-top-color: #888;
+      border-radius: 50%;
+      animation: fc-spin 0.8s linear infinite;
+    }
+    @keyframes fc-spin {
+      to { transform: rotate(360deg); }
+    }
+    #fluidcad-loading.hidden {
+      display: none;
+    }
+  </style>
+  <div class="loading-pill">
+    <div class="spinner"></div>
+    <span class="loading-text">Loading FluidCAD...</span>
+  </div>
+`;
+container.appendChild(loadingOverlay);
+
+const loadingText = loadingOverlay.querySelector('.loading-text')!;
+
+function showLoading(text: string) {
+  loadingText.textContent = text;
+  loadingOverlay.classList.remove('hidden');
+}
+
+function hideLoading() {
+  loadingOverlay.classList.add('hidden');
+}
+
 const viewer = new Viewer('fluidcad-viewer');
 const shapePropertiesModal = new ShapePropertiesModal(container);
 const selectionInfoOverlay = new SelectionInfoOverlay(container);
@@ -54,7 +117,14 @@ function connectWebSocket() {
     const msg = JSON.parse(event.data);
 
     switch (msg.type) {
+      case 'init-complete':
+        showLoading('Loading model...');
+        break;
+      case 'processing-file':
+        showLoading('Loading model...');
+        break;
       case 'scene-rendered': {
+        hideLoading();
         const isRollback = msg.rollbackStop != null && msg.rollbackStop < msg.result.length - 1;
         viewer.toggleSketchMode(true);
         viewer.updateView(msg.result, isRollback);

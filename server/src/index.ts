@@ -198,11 +198,14 @@ wss.on('connection', (ws) => {
 // ---------------------------------------------------------------------------
 
 const fluidCadServer = new FluidCadServer();
+let currentFile: string | null = null;
 
 async function handleExtensionMessage(msg: any) {
   try {
     switch (msg.type) {
       case 'process-file': {
+        broadcastToUI({ type: 'processing-file' });
+        currentFile = msg.filePath;
         const data = await fluidCadServer.processFile(msg.filePath);
         if (data) {
           sendToExtension({
@@ -221,6 +224,10 @@ async function handleExtensionMessage(msg: any) {
       }
 
       case 'live-update': {
+        if (msg.fileName !== currentFile) {
+          broadcastToUI({ type: 'processing-file' });
+          currentFile = msg.fileName;
+        }
         const data = await fluidCadServer.updateLiveCode(msg.fileName, msg.code);
         if (data) {
           sendToExtension({
@@ -309,7 +316,10 @@ httpServer.listen(PORT, () => {
   // Initialize FluidCAD server in the background
   fluidCadServer.init(WORKSPACE_PATH).then(() => {
     sendToExtension({ type: 'init-complete', success: true });
+    broadcastToUI({ type: 'init-complete', success: true });
   }).catch((err: any) => {
-    sendToExtension({ type: 'init-complete', success: false, error: err.stack || err.message || String(err) });
+    const error = err.stack || err.message || String(err);
+    sendToExtension({ type: 'init-complete', success: false, error });
+    broadcastToUI({ type: 'init-complete', success: false, error });
   });
 });

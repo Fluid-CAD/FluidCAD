@@ -95,21 +95,21 @@ function M.handle_message(msg)
   vim.schedule(function()
     if msg.type == 'ready' then
       server_url = msg.url
+      if config.open_browser and server_url then
+        local cmd
+        if vim.fn.has('mac') == 1 then
+          cmd = { 'open', server_url }
+        elseif vim.fn.has('wsl') == 1 then
+          cmd = { 'cmd.exe', '/c', 'start', server_url }
+        else
+          cmd = { 'xdg-open', server_url }
+        end
+        vim.fn.jobstart(cmd, { detach = true })
+      end
     elseif msg.type == 'init-complete' then
       if msg.success then
         ready = true
         vim.print('[fluidcad] Server ready at ' .. (server_url or '?'))
-        if config.open_browser and server_url then
-          local cmd
-          if vim.fn.has('mac') == 1 then
-            cmd = { 'open', server_url }
-          elseif vim.fn.has('wsl') == 1 then
-            cmd = { 'cmd.exe', '/c', 'start', server_url }
-          else
-            cmd = { 'xdg-open', server_url }
-          end
-          vim.fn.jobstart(cmd, { detach = true })
-        end
         for _, cb in ipairs(pending_callbacks) do
           cb()
         end

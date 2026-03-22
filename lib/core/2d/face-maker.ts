@@ -22,6 +22,18 @@ export class FaceMaker {
     }
   }
 
+  static fuseWires(shapes: Array<Wire | Edge>, plane: Plane): Wire[] {
+    const wires = this.unifyWires(shapes);
+    let faces = this.createFacesFromWires(wires, plane);
+
+    console.log("====== Faces before fuse:", faces.length);
+    faces = this.fuseIntersectingFaces(faces);
+    console.log("====== Faces after fuse:", faces.length);
+
+    const newWires = this.getWiresFromFaces(faces);
+    return newWires;
+  }
+
   static makeDrilledFaces(shapes: Array<Wire | Edge>, plane: Plane): Face[] {
     const wires = this.unifyWires(shapes);
     let faces = this.createFacesFromWires(wires, plane);
@@ -76,8 +88,13 @@ export class FaceMaker {
   }
 
   private static fuseIntersectingFaces(faces: Face[]): Face[] {
-    if (faces.length === 0) return [];
-    if (faces.length === 1) return faces;
+    if (faces.length === 0) {
+      return [];
+    }
+
+    if (faces.length === 1) {
+      return faces;
+    }
 
     // Pre-compute bounding boxes for all faces
     const faceBoxes = faces.map((face, index) => ({

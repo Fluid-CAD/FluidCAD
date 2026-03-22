@@ -1,0 +1,97 @@
+import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
+import { Wire } from "../common/wire.js";
+import { Edge } from "../common/edge.js";
+import { Face } from "../common/face.js";
+import { GeometrySceneObject } from "./2d/geometry.js";
+import { FaceOps } from "../oc/face-ops.js";
+import { Explorer } from "../oc/explorer.js";
+import { ShapeOps } from "../oc/shape-ops.js";
+import { FaceMaker } from "../core/2d/face-maker.js";
+
+export class Fuse2D extends GeometrySceneObject {
+  private _targetObjects: GeometrySceneObject[] | null = null;
+
+  constructor() {
+    super();
+  }
+
+  target(...objects: GeometrySceneObject[]): this {
+    this._targetObjects = objects;
+    return this;
+  }
+
+  get targetObjects(): GeometrySceneObject[] | null {
+    return this._targetObjects;
+  }
+
+  build(context: BuildSceneObjectContext) {
+    const plane = this.sketch.getPlane();
+    let sourceWires: Map<Wire | Edge, SceneObject>;
+
+    if (this._targetObjects === null) {
+      sourceWires = this.sketch.getGeometriesWithOwner();
+    } else {
+      sourceWires = new Map<Wire | Edge, SceneObject>();
+      for (const obj of this._targetObjects) {
+        for (const shape of obj.getShapes()) {
+          if (shape instanceof Wire || shape instanceof Edge) {
+            sourceWires.set(shape, obj);
+          }
+        }
+      }
+    }
+
+    const fusedWires = FaceMaker.fuseWires(Array.from(sourceWires.keys()), plane);
+
+    for (const [wire, owner] of sourceWires) {
+      owner.removeShape(wire, this);
+    }
+
+    this.addShapes(fusedWires);
+  }
+
+  override getDependencies(): SceneObject[] {
+    return this._targetObjects ? [...this._targetObjects] : [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const copy = new Fuse2D();
+    if (this._targetObjects) {
+      copy.target(...this._targetObjects.map(t => (remap.get(t) as GeometrySceneObject) || t));
+    }
+    return copy;
+  }
+
+  compareTo(other: Fuse2D): boolean {
+    if (!(other instanceof Fuse2D)) {
+      return false;
+    }
+
+    if (!super.compareTo(other)) {
+      return false;
+    }
+
+    const thisTargets = this._targetObjects || [];
+    const otherTargets = other._targetObjects || [];
+
+    if (thisTargets.length !== otherTargets.length) {
+      return false;
+    }
+
+    for (let i = 0; i < thisTargets.length; i++) {
+      if (!thisTargets[i].compareTo(otherTargets[i])) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  getType(): string {
+    return "fuse2d";
+  }
+
+  serialize() {
+    return {};
+  }
+}

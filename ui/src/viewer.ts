@@ -85,6 +85,14 @@ export class Viewer {
     this.initClickDetection();
   }
 
+  get sceneContext(): SceneContext {
+    return this.ctx;
+  }
+
+  get currentSceneObjects(): SceneObjectRender[] {
+    return this.sceneObjects;
+  }
+
   setSelectionHandler(fn: (shapeId: string | null, sub: SubSelection) => void): void {
     this.selectionHandler = fn;
   }

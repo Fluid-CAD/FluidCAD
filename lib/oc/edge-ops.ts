@@ -312,4 +312,43 @@ export class EdgeOps {
 
     return result;
   }
+
+  static findNearestEdgeIndex(edges: Edge[], point: Point, tolerance: number = -1): number {
+    const oc = getOC();
+
+    const gpPnt = new oc.gp_Pnt(point.x, point.y, point.z);
+    const vertexMaker = new oc.BRepBuilderAPI_MakeVertex(gpPnt);
+    const vertexShape = vertexMaker.Shape();
+    gpPnt.delete();
+
+    let minDist = Infinity;
+    let minIndex = -1;
+
+    const progress = new oc.Message_ProgressRange();
+    for (let i = 0; i < edges.length; i++) {
+      const distCalc = new oc.BRepExtrema_DistShapeShape(
+        vertexShape,
+        edges[i].getShape(),
+        oc.Extrema_ExtFlag.Extrema_ExtFlag_MIN,
+        oc.Extrema_ExtAlgo.Extrema_ExtAlgo_Grad,
+        progress,
+      );
+      if (distCalc.IsDone()) {
+        const d = distCalc.Value();
+        if (d < minDist) {
+          minDist = d;
+          minIndex = i;
+        }
+      }
+      distCalc.delete();
+    }
+    progress.delete();
+    vertexMaker.delete();
+
+    if (tolerance >= 0 && minDist > tolerance) {
+      return -1;
+    }
+
+    return minIndex;
+  }
 }

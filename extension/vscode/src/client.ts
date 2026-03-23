@@ -245,6 +245,36 @@ export class Client {
         }
         break;
       }
+      case 'insert-point': {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+          break;
+        }
+        const { point, sourceLocation } = msg;
+        const line = sourceLocation.line - 1;
+        if (line < 0 || line >= editor.document.lineCount) {
+          break;
+        }
+        const lineText = editor.document.lineAt(line).text;
+        const pointText = `[${point[0]}, ${point[1]}]`;
+
+        const closeParen = lineText.lastIndexOf(')');
+        if (closeParen < 0) {
+          break;
+        }
+
+        const openParen = lineText.lastIndexOf('(', closeParen);
+        if (openParen < 0) {
+          break;
+        }
+
+        const between = lineText.substring(openParen + 1, closeParen).trim();
+        const prefix = between.length > 0 ? ', ' : '';
+
+        const pos = new vscode.Position(line, closeParen);
+        editor.edit(b => b.insert(pos, `${prefix}${pointText}`));
+        break;
+      }
     }
   }
 

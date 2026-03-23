@@ -133,6 +133,48 @@ function M.handle_message(msg)
       if msg.success then
         vim.print('[fluidcad] File imported successfully')
       end
+    elseif msg.type == 'insert-point' then
+      local line_idx = msg.sourceLocation.line - 1
+      local buf = vim.api.nvim_get_current_buf()
+      local line_count = vim.api.nvim_buf_line_count(buf)
+      if line_idx < 0 or line_idx >= line_count then
+        return
+      end
+      local line_text = vim.api.nvim_buf_get_lines(buf, line_idx, line_idx + 1, false)[1]
+      local point_text = string.format('[%s, %s]', msg.point[1], msg.point[2])
+
+      -- Find last ')' on this line
+      local close_paren = nil
+      for i = #line_text, 1, -1 do
+        if line_text:sub(i, i) == ')' then
+          close_paren = i
+          break
+        end
+      end
+      if not close_paren then
+        return
+      end
+
+      -- Find matching '(' before it
+      local open_paren = nil
+      for i = close_paren - 1, 1, -1 do
+        if line_text:sub(i, i) == '(' then
+          open_paren = i
+          break
+        end
+      end
+      if not open_paren then
+        return
+      end
+
+      local between = line_text:sub(open_paren + 1, close_paren - 1)
+      local prefix = ''
+      if between:match('%S') then
+        prefix = ', '
+      end
+
+      -- Insert before the closing paren (0-indexed col for nvim_buf_set_text)
+      vim.api.nvim_buf_set_text(buf, line_idx, close_paren - 1, line_idx, close_paren - 1, { prefix .. point_text })
     end
   end)
 end

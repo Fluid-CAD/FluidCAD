@@ -54,17 +54,78 @@ export class FaceMaker {
 
   static unifyWires(shapes: (Wire | Edge)[]) {
     const wires: Wire[] = [];
+    const looseEdges: Edge[] = [];
 
-    for (let shape of shapes) {
+    for (const shape of shapes) {
       if (shape instanceof Wire) {
         wires.push(shape);
       } else if (shape instanceof Edge) {
-        const wire = WireOps.makeWireFromEdges([shape]);
-        wires.push(wire);
+        if (shape.isClosed()) {
+          // Closed edges (e.g. circles) become wires directly
+          wires.push(WireOps.makeWireFromEdges([shape]));
+        } else {
+          looseEdges.push(shape);
+        }
       }
     }
 
-    return wires;
+    // Prune edges at dead-end vertices — they can never form closed wires
+    const prunedEdges = FaceMaker.pruneDeadEndEdges(looseEdges);
+
+    // Group connected edges and build wires
+    const groups = WireOps.groupConnectedEdges(prunedEdges);
+    for (const group of groups) {
+      try {
+        const wire = WireOps.makeWireFromEdges(group);
+        wires.push(wire);
+      } catch {
+        // Silently ignore edge groups that can't form a valid wire
+      }
+    }
+
+    // Only closed wires can form faces — silently drop open ones
+    return wires.filter(w => w.isClosed());
+  }
+
+  private static pruneDeadEndEdges(edges: Edge[]): Edge[] {
+    if (edges.length === 0) {
+      return [];
+    }
+
+    const vertexKey = (e: Edge, first: boolean): string => {
+      const p = first ? e.getFirstVertex().toPoint() : e.getLastVertex().toPoint();
+      const f = 1e7;
+      return `${Math.round(p.x * f)},${Math.round(p.y * f)},${Math.round(p.z * f)}`;
+    };
+
+    const edgeKeys = edges.map(e => ({
+      first: vertexKey(e, true),
+      last: vertexKey(e, false),
+    }));
+
+    const degrees = new Map<string, number>();
+    for (const { first, last } of edgeKeys) {
+      degrees.set(first, (degrees.get(first) || 0) + 1);
+      degrees.set(last, (degrees.get(last) || 0) + 1);
+    }
+
+    // Repeatedly remove edges touching a degree-1 vertex
+    const active = new Set(edges.map((_, i) => i));
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const idx of active) {
+        const { first, last } = edgeKeys[idx];
+        if ((degrees.get(first) || 0) <= 1 || (degrees.get(last) || 0) <= 1) {
+          active.delete(idx);
+          degrees.set(first, (degrees.get(first) || 0) - 1);
+          degrees.set(last, (degrees.get(last) || 0) - 1);
+          changed = true;
+        }
+      }
+    }
+
+    return [...active].map(i => edges[i]);
   }
 
   private static createFacesFromWires(wires: Wire[], plane: Plane, fixOrientation = true): Face[] {
@@ -74,14 +135,18 @@ export class FaceMaker {
 
     console.log("Creating faces from wires:", wires.length);
     const faces: Face[] = [];
-    for (let wire of wires) {
-      let face = FaceOps.makeFaceOnPlaneWrapped(wire, plane);
+    for (const wire of wires) {
+      try {
+        let face = FaceOps.makeFaceOnPlaneWrapped(wire, plane);
 
-      if (fixOrientation) {
-        face = FaceOps.fixFaceOrientation(face);
+        if (fixOrientation) {
+          face = FaceOps.fixFaceOrientation(face);
+        }
+
+        faces.push(face);
+      } catch {
+        // Silently ignore wires that can't form faces (e.g. open wires)
       }
-
-      faces.push(face);
     }
 
     return faces;

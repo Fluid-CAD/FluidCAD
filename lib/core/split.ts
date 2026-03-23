@@ -1,0 +1,32 @@
+import { SceneObject } from "../common/scene-object.js";
+import { GeometrySceneObject } from "../features/2d/geometry.js";
+import { registerBuilder, SceneParserContext } from "../index.js";
+import { Split2D } from "../features/split2d.js";
+
+function build(context: SceneParserContext) {
+  return function split(...args: (SceneObject[])): Split2D {
+    const activeSketch = context.getActiveSketch();
+
+    if (activeSketch) {
+      const split2d = new Split2D();
+      if (args.length > 0) {
+        let objects: SceneObject[];
+
+        if (args.length === 1 && Array.isArray(args[0])) {
+          objects = args[0];
+        } else {
+          objects = args;
+        }
+
+        split2d.target(...(objects as GeometrySceneObject[]));
+      }
+
+      context.addSceneObject(split2d);
+      return split2d;
+    }
+
+    throw new Error("Split can only be used within a sketch");
+  }
+}
+
+export default registerBuilder(build);

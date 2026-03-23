@@ -6,6 +6,8 @@ import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Edge } from "../common/edge.js";
 import { Vertex } from "../common/vertex.js";
+import { ShapeOps } from "./shape-ops.js";
+import { Explorer } from "./explorer.js";
 
 export class EdgeOps {
   // Wrapper methods (public API for external callers)
@@ -186,5 +188,128 @@ export class EdgeOps {
     edgeMaker.delete();
     handle.delete();
     return edge;
+  }
+
+  static splitEdges(edges: Edge[]) {
+    const oc = getOC();
+    const tol = 1e-7;
+
+    // Extract individual edges (expand wires passed at runtime)
+    const allEdges: TopoDS_Edge[] = [];
+    for (const e of edges) {
+      const shape = e.getShape();
+      if (shape.ShapeType() === oc.TopAbs_ShapeEnum.TopAbs_WIRE) {
+        const wireEdges = Explorer.findShapes<TopoDS_Edge>(
+          shape, oc.TopAbs_ShapeEnum.TopAbs_EDGE
+        );
+        allEdges.push(...wireEdges);
+      } else {
+        allEdges.push(shape as TopoDS_Edge);
+      }
+    }
+
+    // Gather split parameters for each edge via IntTools_EdgeEdge
+    const splitParams: number[][] = allEdges.map(() => []);
+
+    for (let i = 0; i < allEdges.length; i++) {
+      for (let j = i + 1; j < allEdges.length; j++) {
+        const tool = new oc.IntTools_EdgeEdge(allEdges[i], allEdges[j]);
+        tool.Perform();
+
+        if (tool.IsDone()) {
+          const parts = tool.CommonParts();
+          for (let k = 1; k <= parts.Length(); k++) {
+            const cp = parts.Value(k);
+            if (cp.Type() === oc.TopAbs_ShapeEnum.TopAbs_VERTEX) {
+              splitParams[i].push(cp.VertexParameter1());
+              splitParams[j].push(cp.VertexParameter2());
+            }
+          }
+        }
+
+        tool.delete();
+      }
+    }
+
+    // Split each edge at its collected intersection parameters
+    const result: Edge[] = [];
+    for (let i = 0; i < allEdges.length; i++) {
+      const edge = allEdges[i];
+      const params = splitParams[i];
+
+      if (params.length === 0) {
+        result.push(Edge.fromTopoDSEdge(edge));
+        continue;
+      }
+
+      const adaptor = new oc.BRepAdaptor_Curve(edge);
+      const first = adaptor.FirstParameter();
+      const last = adaptor.LastParameter();
+      const isClosed = adaptor.IsClosed();
+      adaptor.delete();
+
+      // Deduplicate and sort
+      const sorted = [...params].sort((a, b) => a - b);
+      const unique: number[] = [];
+      for (const p of sorted) {
+        if (unique.length === 0 || Math.abs(p - unique[unique.length - 1]) > tol) {
+          unique.push(p);
+        }
+      }
+
+      // For closed curves, deduplicate wrap-around (e.g. params near 0 and 2π are the same point)
+      if (isClosed && unique.length >= 2) {
+        const period = last - first;
+        if (Math.abs(unique[unique.length - 1] - unique[0] - period) < tol) {
+          unique.pop();
+        }
+      }
+
+      // Filter out params at edge boundaries (skip for closed curves — their boundaries are the seam, not real endpoints)
+      const interior = isClosed
+        ? unique
+        : unique.filter(p => p > first + tol && p < last - tol);
+
+      if (interior.length === 0) {
+        result.push(Edge.fromTopoDSEdge(edge));
+        continue;
+      }
+
+      // Get the underlying curve for creating sub-edges
+      const curveHandle = oc.BRep_Tool.Curve(edge, 0, 1);
+      const curve = curveHandle.get();
+      const handle = new oc.Handle_Geom_Curve(curve);
+
+      if (isClosed && interior.length >= 2) {
+        // Closed curve: N split points → N arcs (no seam split)
+        const period = last - first;
+        for (let k = 0; k < interior.length; k++) {
+          const u1 = interior[k];
+          const u2 = k < interior.length - 1 ? interior[k + 1] : interior[0] + period;
+          const maker = new oc.BRepBuilderAPI_MakeEdge(handle, u1, u2);
+          if (maker.IsDone()) {
+            result.push(Edge.fromTopoDSEdge(maker.Edge()));
+          }
+          maker.delete();
+        }
+      } else if (!isClosed) {
+        // Open curve: include edge endpoints as boundaries
+        const allParams = [first, ...interior, last];
+        for (let k = 0; k < allParams.length - 1; k++) {
+          const maker = new oc.BRepBuilderAPI_MakeEdge(handle, allParams[k], allParams[k + 1]);
+          if (maker.IsDone()) {
+            result.push(Edge.fromTopoDSEdge(maker.Edge()));
+          }
+          maker.delete();
+        }
+      } else {
+        // Closed curve with < 2 split points: return as-is
+        result.push(Edge.fromTopoDSEdge(edge));
+      }
+
+      handle.delete();
+    }
+
+    return result;
   }
 }

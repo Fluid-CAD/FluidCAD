@@ -30,6 +30,10 @@ function computeViewScale(camera: Camera, position: Vector3, factor: number): nu
 }
 
 const SKETCH_EDGE_COLOR = '#2297ff';
+const VERTEX_RADIUS = 2;
+const VERTEX_SEGMENTS = 16;
+const VERTEX_SCALE_FACTOR = 0.003;
+const VERTEX_MAX_SCALE = 1.5;
 const CURSOR_COLOR = 0xf3724f;
 const CURSOR_SEGMENTS = 64;
 const CURSOR_RADIUS = 3;
@@ -48,6 +52,7 @@ export class SketchMesh extends Group {
   constructor(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], isSketchMode: boolean, camera: Camera) {
     super();
     this.buildEdges(sceneObject, allObjects);
+    this.buildVertices(sceneObject, allObjects, camera);
     if (isSketchMode && sceneObject.visible) {
       this.buildCursor(sceneObject, camera);
       this.buildTangentArrow(sceneObject, camera);
@@ -73,6 +78,89 @@ export class SketchMesh extends Group {
         }
         this.add(edgeMesh);
       }
+    }
+  }
+
+  private buildVertices(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], camera: Camera): void {
+    const normal = sceneObject.object?.plane?.normal;
+    const endpoints: Vector3[] = [];
+
+    for (const obj of allObjects) {
+      if (obj.parentId !== sceneObject.id || !obj.sceneShapes.length) {
+        continue;
+      }
+
+      for (const shape of obj.sceneShapes) {
+        if (shape.isMetaShape || shape.isGuide) {
+          continue;
+        }
+
+        for (const meshData of shape.meshes) {
+          if (!meshData.indices.length) {
+            continue;
+          }
+
+          // Count how many times each vertex index appears in the line-segment pairs.
+          // Vertices that appear exactly once are topological endpoints.
+          const count = new Map<number, number>();
+          for (const idx of meshData.indices) {
+            count.set(idx, (count.get(idx) || 0) + 1);
+          }
+
+          for (const [idx, c] of count) {
+            if (c === 1) {
+              endpoints.push(new Vector3(
+                meshData.vertices[idx * 3],
+                meshData.vertices[idx * 3 + 1],
+                meshData.vertices[idx * 3 + 2],
+              ));
+            }
+          }
+        }
+      }
+    }
+
+    // Deduplicate coincident points
+    const EPSILON_SQ = 1e-12;
+    const unique: Vector3[] = [];
+    for (const p of endpoints) {
+      if (!unique.some(u => u.distanceToSquared(p) < EPSILON_SQ)) {
+        unique.push(p);
+      }
+    }
+
+    const geometry = new CircleGeometry(VERTEX_RADIUS, VERTEX_SEGMENTS);
+    const material = new MeshBasicMaterial({
+      color: SKETCH_EDGE_COLOR,
+      side: DoubleSide,
+      depthTest: false,
+    });
+
+    for (const pos of unique) {
+      const dot = new Mesh(geometry, material);
+      dot.renderOrder = 2;
+
+      const dotGroup = new Group();
+      dotGroup.renderOrder = 2;
+      dotGroup.add(dot);
+      dotGroup.position.copy(pos);
+
+      if (normal) {
+        dotGroup.lookAt(new Vector3(
+          pos.x + normal.x,
+          pos.y + normal.y,
+          pos.z + normal.z,
+        ));
+      }
+
+      dotGroup.scale.setScalar(Math.min(computeViewScale(camera, pos, VERTEX_SCALE_FACTOR), VERTEX_MAX_SCALE));
+
+      dot.onBeforeRender = (_renderer, _scene, cam) => {
+        dotGroup.scale.setScalar(Math.min(computeViewScale(cam, pos, VERTEX_SCALE_FACTOR), VERTEX_MAX_SCALE));
+        dotGroup.updateMatrixWorld(true);
+      };
+
+      this.add(dotGroup);
     }
   }
 

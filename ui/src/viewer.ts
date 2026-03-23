@@ -24,25 +24,6 @@ function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
 const HIGHLIGHT_FACE_COLOR = '#ffc578';
 const HIGHLIGHT_EDGE_COLOR = '#ffc578';
 
-const FILENAME_PILL_STYLES = `
-.filename-pill {
-  position: absolute;
-  bottom: 16px;
-  left: 16px;
-  z-index: 100;
-  background: rgba(30, 30, 30, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-radius: 9999px;
-  padding: 4px 14px;
-  color: #bbb;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 12px;
-  white-space: nowrap;
-  user-select: none;
-  pointer-events: none;
-}
-`;
 
 /**
  *  - SceneContext      — scene, camera, renderer, controls
@@ -70,16 +51,8 @@ export class Viewer {
     this.settingsPanel = new SettingsPanel(container, (mode) => this.ctx.switchCamera(mode));
     this.settingsPanel.setFitHandler(() => this.fitViewToScene());
 
-    if (!document.getElementById('filename-pill-styles')) {
-      const style = document.createElement('style');
-      style.id = 'filename-pill-styles';
-      style.textContent = FILENAME_PILL_STYLES;
-      document.head.appendChild(style);
-    }
-
     this.fileNamePill = document.createElement('div');
-    this.fileNamePill.className = 'filename-pill';
-    this.fileNamePill.style.display = 'none';
+    this.fileNamePill.className = 'absolute bottom-4 left-4 z-[100] glass-dark border border-white/10 rounded-full px-3.5 py-1 text-base-content/70 text-xs whitespace-nowrap select-none pointer-events-none hidden';
     container.appendChild(this.fileNamePill);
 
     this.initClickDetection();
@@ -394,7 +367,7 @@ export class Viewer {
   setFileName(absPath: string): void {
     const name = absPath.split('/').pop() ?? absPath;
     this.fileNamePill.textContent = name;
-    this.fileNamePill.style.display = '';
+    this.fileNamePill.classList.remove('hidden');
   }
 
   updateView(sceneObjects: SceneObjectRender[], isRollback = false): void {

@@ -1,68 +1,3 @@
-const STYLES = `
-.fio-overlay {
-  position: absolute;
-  bottom: 22px;
-  right: 64px;
-  width: 200px;
-  background: rgba(30, 30, 30, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 12px 14px;
-  z-index: 150;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
-  color: #d4d4d4;
-  font-family: var(--vscode-font-family, system-ui, sans-serif);
-  font-size: 12px;
-  display: none;
-  pointer-events: none;
-  user-select: none;
-}
-
-.fio-overlay.visible {
-  display: block;
-}
-
-.fio-badge {
-  display: inline-block;
-  background: rgba(74, 158, 255, 0.2);
-  color: #4a9eff;
-  border: 1px solid rgba(74, 158, 255, 0.35);
-  border-radius: 9999px;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 10px;
-  margin-bottom: 8px;
-  letter-spacing: 0.03em;
-}
-
-.fio-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding: 2px 0;
-}
-
-.fio-label {
-  color: #888;
-  font-size: 11px;
-}
-
-.fio-value {
-  color: #e0e0e0;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.fio-loading {
-  color: #888;
-  font-size: 11px;
-  text-align: center;
-  padding: 4px 0;
-}
-`;
-
 type FaceProperties = {
   surfaceType: 'plane' | 'circle' | 'cylinder' | 'sphere' | 'torus' | 'cone' | 'other';
   areaMm2?: number;
@@ -103,15 +38,8 @@ export class SelectionInfoOverlay {
   private abortController: AbortController | null = null;
 
   constructor(container: HTMLElement) {
-    if (!document.getElementById('fio-styles')) {
-      const style = document.createElement('style');
-      style.id = 'fio-styles';
-      style.textContent = STYLES;
-      document.head.appendChild(style);
-    }
-
     this.el = document.createElement('div');
-    this.el.className = 'fio-overlay';
+    this.el.className = 'absolute bottom-[22px] right-16 w-[200px] glass-dark border border-white/10 rounded-lg p-3 z-[150] shadow-[0_4px_24px_rgba(0,0,0,0.5)] text-base-content text-xs pointer-events-none select-none hidden';
     container.appendChild(this.el);
   }
 
@@ -121,8 +49,8 @@ export class SelectionInfoOverlay {
     }
     this.abortController = new AbortController();
 
-    this.el.innerHTML = '<div class="fio-loading">Loading…</div>';
-    this.el.classList.add('visible');
+    this.el.innerHTML = '<div class="text-base-content/50 text-[11px] text-center py-1">Loading\u2026</div>';
+    this.el.classList.remove('hidden');
 
     try {
       const res = await fetch(
@@ -130,14 +58,14 @@ export class SelectionInfoOverlay {
         { signal: this.abortController.signal },
       );
       if (!res.ok) {
-        this.el.classList.remove('visible');
+        this.el.classList.add('hidden');
         return;
       }
       const props: FaceProperties = await res.json();
       this.renderFace(props);
     } catch (err: any) {
       if (err?.name !== 'AbortError') {
-        this.el.classList.remove('visible');
+        this.el.classList.add('hidden');
       }
     }
   }
@@ -148,8 +76,8 @@ export class SelectionInfoOverlay {
     }
     this.abortController = new AbortController();
 
-    this.el.innerHTML = '<div class="fio-loading">Loading…</div>';
-    this.el.classList.add('visible');
+    this.el.innerHTML = '<div class="text-base-content/50 text-[11px] text-center py-1">Loading\u2026</div>';
+    this.el.classList.remove('hidden');
 
     try {
       const res = await fetch(
@@ -157,14 +85,14 @@ export class SelectionInfoOverlay {
         { signal: this.abortController.signal },
       );
       if (!res.ok) {
-        this.el.classList.remove('visible');
+        this.el.classList.add('hidden');
         return;
       }
       const props: EdgeProperties = await res.json();
       this.renderEdge(props);
     } catch (err: any) {
       if (err?.name !== 'AbortError') {
-        this.el.classList.remove('visible');
+        this.el.classList.add('hidden');
       }
     }
   }
@@ -174,7 +102,7 @@ export class SelectionInfoOverlay {
       this.abortController.abort();
       this.abortController = null;
     }
-    this.el.classList.remove('visible');
+    this.el.classList.add('hidden');
   }
 
   private renderFace(props: FaceProperties): void {
@@ -182,7 +110,7 @@ export class SelectionInfoOverlay {
     const rows: { label: string; value: string }[] = [];
 
     if (props.surfaceType === 'plane' && props.areaMm2 != null) {
-      rows.push({ label: 'Area', value: `${props.areaMm2.toFixed(4)} mm²` });
+      rows.push({ label: 'Area', value: `${props.areaMm2.toFixed(4)} mm\u00B2` });
     } else if (props.surfaceType === 'circle' && props.radius != null) {
       rows.push({ label: 'Radius', value: `${props.radius.toFixed(4)} mm` });
     } else if (props.surfaceType === 'cylinder' && props.radius != null) {
@@ -197,9 +125,9 @@ export class SelectionInfoOverlay {
         rows.push({ label: 'Minor R', value: `${props.minorRadius.toFixed(4)} mm` });
       }
     } else if (props.surfaceType === 'cone' && props.halfAngleDeg != null) {
-      rows.push({ label: 'Half-angle', value: `${props.halfAngleDeg.toFixed(2)}°` });
+      rows.push({ label: 'Half-angle', value: `${props.halfAngleDeg.toFixed(2)}\u00B0` });
     } else if (props.areaMm2 != null) {
-      rows.push({ label: 'Area', value: `${props.areaMm2.toFixed(4)} mm²` });
+      rows.push({ label: 'Area', value: `${props.areaMm2.toFixed(4)} mm\u00B2` });
     }
 
     this.renderPanel(badge, rows);
@@ -242,10 +170,10 @@ export class SelectionInfoOverlay {
 
   private renderPanel(badge: string, rows: { label: string; value: string }[]): void {
     const rowsHtml = rows
-      .map(r => `<div class="fio-row"><span class="fio-label">${r.label}</span><span class="fio-value">${r.value}</span></div>`)
+      .map(r => `<div class="flex justify-between items-baseline py-0.5"><span class="text-base-content/50 text-[11px]">${r.label}</span><span class="text-base-content/90 text-xs font-medium">${r.value}</span></div>`)
       .join('');
 
-    this.el.innerHTML = `<div class="fio-badge">${badge}</div>${rowsHtml}`;
-    this.el.classList.add('visible');
+    this.el.innerHTML = `<div class="badge badge-primary badge-outline badge-sm mb-2">${badge}</div>${rowsHtml}`;
+    this.el.classList.remove('hidden');
   }
 }

@@ -25,10 +25,14 @@
     "test": "vitest"
   },
   "dependencies": {
+    "@tabler/icons": "^3.40.0",
+    "@tailwindcss/vite": "^4.2.2",
     "@types/lodash": "^4.17.20",
     "@types/rbush": "^4.0.0",
     "camera-controls": "^3.1.2",
+    "daisyui": "^5.5.19",
     "lodash": "^4.17.21",
+    "tailwindcss": "^4.2.2",
     "three": "^0.180.0",
     "three-viewport-gizmo": "^2.2.0",
     "tsx": "^4.20.1",

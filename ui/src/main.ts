@@ -1,6 +1,7 @@
 import { Viewer } from './viewer';
 import { ShapePropertiesModal } from './ui/shape-properties-modal';
 import { SelectionInfoOverlay } from './ui/selection-info-overlay';
+import { ICON_SCISSORS } from './ui/icons';
 import { PointPickMode, HighlightInfo } from './interactive/point-pick-mode';
 import { Mesh, Object3D } from 'three';
 import { SnapManager } from './snapping/snap-manager';
@@ -14,46 +15,10 @@ const container = document.getElementById('fluidcad-viewer') || document.body;
 
 const loadingOverlay = document.createElement('div');
 loadingOverlay.id = 'fluidcad-loading';
+loadingOverlay.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[1000] pointer-events-none';
 loadingOverlay.innerHTML = `
-  <style>
-    #fluidcad-loading {
-      position: absolute;
-      top: 16px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 1000;
-      pointer-events: none;
-    }
-    #fluidcad-loading .loading-pill {
-      background: rgba(30, 30, 30, 0.85);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border-radius: 8px;
-      padding: 12px 24px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      color: #bbb;
-      font: 13px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      user-select: none;
-    }
-    #fluidcad-loading .spinner {
-      width: 16px;
-      height: 16px;
-      border: 2px solid rgba(255,255,255,0.15);
-      border-top-color: #888;
-      border-radius: 50%;
-      animation: fc-spin 0.8s linear infinite;
-    }
-    @keyframes fc-spin {
-      to { transform: rotate(360deg); }
-    }
-    #fluidcad-loading.hidden {
-      display: none;
-    }
-  </style>
-  <div class="loading-pill">
-    <div class="spinner"></div>
+  <div class="flex items-center gap-3 glass-dark border border-white/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none">
+    <span class="loading loading-spinner loading-sm"></span>
     <span class="loading-text">Loading FluidCAD...</span>
   </div>
 `;
@@ -119,37 +84,10 @@ viewer.setSelectionHandler((shapeId, sub) => {
 
 const trimIndicator = document.createElement('div');
 trimIndicator.id = 'fluidcad-trim-indicator';
+trimIndicator.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-none hidden';
 trimIndicator.innerHTML = `
-  <style>
-    #fluidcad-trim-indicator {
-      position: absolute;
-      top: 16px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 999;
-      pointer-events: none;
-      display: none;
-    }
-    #fluidcad-trim-indicator .trim-pill {
-      background: rgba(30, 30, 30, 0.85);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border-radius: 8px;
-      padding: 12px 24px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      color: #bbb;
-      font: 13px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      user-select: none;
-    }
-    #fluidcad-trim-indicator .trim-icon {
-      font-size: 16px;
-      line-height: 1;
-    }
-  </style>
-  <div class="trim-pill">
-    <span class="trim-icon">&#9986;</span>
+  <div class="flex items-center gap-3 glass-dark border border-white/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none">
+    <span class="[&>svg]:size-5">${ICON_SCISSORS}</span>
     <span>Trimming Mode</span>
   </div>
 `;
@@ -229,7 +167,7 @@ function updatePointPickMode(sceneObjects: SceneObjectRender[]) {
   );
   activePickSourceLine = srcLine;
   activePointPickMode.activate();
-  trimIndicator.style.display = 'block';
+  trimIndicator.classList.remove('hidden');
 }
 
 function deactivatePickMode() {
@@ -239,7 +177,7 @@ function deactivatePickMode() {
     activePickSourceLine = null;
   }
   clearVertexHighlights();
-  trimIndicator.style.display = 'none';
+  trimIndicator.classList.add('hidden');
 }
 
 const HIGHLIGHT_COLOR = 0xffc578;

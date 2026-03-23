@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+@plugin "daisyui" {
+  themes: fluidcad --default;
+}
+
+@plugin "daisyui/theme" {
+  name: "fluidcad";
+  default: true;
+  prefersdark: true;
+  color-scheme: dark;
+  --color-primary: #4a9eff;
+  --color-primary-content: #ffffff;
+  --color-secondary: #7b92b2;
+  --color-secondary-content: #ffffff;
+  --color-accent: #67cba0;
+  --color-accent-content: #ffffff;
+  --color-neutral: #23282e;
+  --color-neutral-content: #e0e0e0;
+  --color-base-100: #1e1e1e;
+  --color-base-200: #252525;
+  --color-base-300: #2d2d2d;
+  --color-base-content: #d4d4d4;
+  --color-info: #3abff8;
+  --color-info-content: #ffffff;
+  --color-success: #36d399;
+  --color-success-content: #ffffff;
+  --color-warning: #fbbd23;
+  --color-warning-content: #1e1e1e;
+  --color-error: #f48771;
+  --color-error-content: #ffffff;
+  --radius-selector: 0.5rem;
+  --radius-field: 0.25rem;
+  --radius-box: 0.5rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
+}
+
+@utility glass-dark {
+  background: oklch(0.2 0 0 / 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}

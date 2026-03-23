@@ -142,6 +142,7 @@ export class SketchMesh extends Group {
 
       const dotGroup = new Group();
       dotGroup.renderOrder = 2;
+      dotGroup.userData.isVertexDot = true;
       dotGroup.add(dot);
       dotGroup.position.copy(pos);
 

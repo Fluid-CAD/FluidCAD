@@ -82,12 +82,19 @@ export type ImportCompleteMessage = {
   success: boolean;
 };
 
+export type InsertPointMessage = {
+  type: 'insert-point';
+  point: [number, number];
+  sourceLocation: { line: number; column: number };
+};
+
 export type ServerToExtensionMessage =
   | ReadyMessage
   | InitCompleteMessage
   | SceneRenderedMessage
   | ErrorMessage
-  | ImportCompleteMessage;
+  | ImportCompleteMessage
+  | InsertPointMessage;
 
 // ---------------------------------------------------------------------------
 // WebSocket: Server → UI messages

@@ -259,7 +259,7 @@ export class FaceOps {
     const classifier = new oc.BRepClass_FaceClassifier();
     classifier.Perform(rawFace, gpPnt, oc.Precision.Confusion(), true, oc.Precision.Confusion());
     const state = classifier.State();
-    const isInside = state === oc.TopAbs_State.TopAbs_IN || state === oc.TopAbs_State.TopAbs_ON;
+    const isInside = state === oc.TopAbs_State.TopAbs_IN;
     classifier.delete();
     disposePnt();
     return isInside;
@@ -285,7 +285,19 @@ export class FaceOps {
     const rawFace2 = face2 instanceof Face ? face2.getShape() as TopoDS_Face : face2;
     const oc = getOC();
     const progress = new oc.Message_ProgressRange();
-    const fuseMaker = new oc.BRepAlgoAPI_Fuse(rawFace1, rawFace2, progress);
+    const fuseMaker = new oc.BRepAlgoAPI_Fuse();
+
+    const list1 = new oc.TopTools_ListOfShape();
+    const list2 = new oc.TopTools_ListOfShape();
+
+    list1.Append(rawFace1);
+    list2.Append(rawFace2);
+
+    fuseMaker.SetArguments(list1);
+    fuseMaker.SetTools(list2);
+    fuseMaker.SetUseOBB(false);
+
+    fuseMaker.Build(progress);
 
     if (!fuseMaker.IsDone()) {
       progress.delete();
@@ -306,6 +318,7 @@ export class FaceOps {
     }
 
     const faces = Explorer.findShapes(newShape, oc.TopAbs_ShapeEnum.TopAbs_FACE);
+
     if (faces.length <= 2) {
       return null;
     }

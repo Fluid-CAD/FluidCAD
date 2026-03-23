@@ -181,7 +181,8 @@ export function renderScene(scene: Scene) {
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        console.error(`Error building object ${object.getUniqueType()}:`, message);
+        console.error(`Error building object ${object.getUniqueType()}:`, error);
+
         object.setError(message);
       }
     }

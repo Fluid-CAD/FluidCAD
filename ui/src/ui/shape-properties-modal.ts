@@ -1,206 +1,4 @@
-const ICON_SCALE = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-  <line x1="8" y1="2" x2="8" y2="14"/>
-  <line x1="5" y1="14" x2="11" y2="14"/>
-  <line x1="2" y1="5" x2="14" y2="5"/>
-  <path d="M2 5 L2 8 Q2 10 4 10 Q6 10 6 8 L6 5"/>
-  <path d="M10 5 L10 8 Q10 10 12 10 Q14 10 14 8 L14 5"/>
-</svg>`;
-
-const STYLES = `
-.spm-trigger {
-  position: absolute;
-  bottom: 24px;
-  right: 24px;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(30, 30, 30, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  color: #999;
-  cursor: pointer;
-  z-index: 100;
-  transition: background 0.15s, color 0.15s;
-}
-
-.spm-trigger:hover {
-  background: rgba(50, 50, 50, 0.9);
-  color: #e0e0e0;
-}
-
-.spm-trigger.active {
-  background: rgba(74, 158, 255, 0.2);
-  color: #4a9eff;
-  border-color: rgba(74, 158, 255, 0.4);
-}
-
-.spm-panel {
-  position: absolute;
-  bottom: 68px;
-  right: 24px;
-  width: 300px;
-  background: rgba(30, 30, 30, 0.95);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 16px;
-  z-index: 200;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
-  color: #d4d4d4;
-  font-family: var(--vscode-font-family, system-ui, sans-serif);
-  font-size: 13px;
-  display: none;
-}
-
-.spm-panel.open {
-  display: block;
-}
-
-.spm-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.spm-panel-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: #bbb;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.spm-panel-close {
-  background: none;
-  border: none;
-  color: #666;
-  cursor: pointer;
-  font-size: 16px;
-  line-height: 1;
-  padding: 0 2px;
-  border-radius: 3px;
-}
-
-.spm-panel-close:hover {
-  color: #ccc;
-  background: rgba(255,255,255,0.08);
-}
-
-.spm-placeholder {
-  color: #888;
-  font-size: 12px;
-  text-align: center;
-  padding: 8px 0;
-}
-
-.spm-field {
-  margin-bottom: 10px;
-}
-
-.spm-label {
-  display: block;
-  color: #888;
-  margin-bottom: 4px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.spm-row {
-  display: flex;
-  gap: 8px;
-}
-
-.spm-row .spm-field {
-  flex: 1;
-}
-
-.spm-select,
-.spm-input {
-  width: 100%;
-  background: #252525;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  color: #d4d4d4;
-  font-size: 12px;
-  padding: 4px 7px;
-  box-sizing: border-box;
-  outline: none;
-}
-
-.spm-select:focus,
-.spm-input:focus {
-  border-color: #4a9eff;
-}
-
-.spm-calculate {
-  width: 100%;
-  background: #4a9eff;
-  color: #fff;
-  border: none;
-  border-radius: 4px;
-  padding: 6px 0;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  margin-top: 2px;
-}
-
-.spm-calculate:hover {
-  background: #5aabff;
-}
-
-.spm-calculate:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.spm-results {
-  margin-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
-  padding-top: 10px;
-  display: none;
-}
-
-.spm-results.visible {
-  display: block;
-}
-
-.spm-result-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding: 2px 0;
-}
-
-.spm-result-label {
-  color: #888;
-  font-size: 11px;
-}
-
-.spm-result-value {
-  color: #e0e0e0;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.spm-error {
-  color: #f48771;
-  font-size: 11px;
-  margin-top: 6px;
-  display: none;
-}
-
-.spm-error.visible {
-  display: block;
-}
-`;
+import { ICON_SCALE } from './icons';
 
 type RawProps = { volumeMm3: number; surfaceAreaMm2: number; centroid: { x: number; y: number; z: number } };
 
@@ -296,21 +94,14 @@ export class ShapePropertiesModal {
   private openHandler: (() => void) | null = null;
 
   constructor(container: HTMLElement) {
-    if (!document.getElementById('spm-styles')) {
-      const style = document.createElement('style');
-      style.id = 'spm-styles';
-      style.textContent = STYLES;
-      document.head.appendChild(style);
-    }
-
     this.btn = document.createElement('button');
-    this.btn.className = 'spm-trigger';
+    this.btn.className = 'btn btn-ghost btn-square btn-sm absolute bottom-6 right-8 z-[100] glass-dark border border-white/10 text-base-content/60';
     this.btn.title = 'Shape Properties';
     this.btn.innerHTML = ICON_SCALE;
     container.appendChild(this.btn);
 
     this.panel = document.createElement('div');
-    this.panel.className = 'spm-panel';
+    this.panel.className = 'absolute bottom-[68px] right-6 w-[300px] bg-base-100/95 backdrop-blur-xl border border-white/10 rounded-lg p-4 z-[200] shadow-[0_4px_24px_rgba(0,0,0,0.5)] text-base-content text-[13px] hidden';
     this.panel.innerHTML = this.buildHTML();
     container.appendChild(this.panel);
 
@@ -321,16 +112,16 @@ export class ShapePropertiesModal {
 
   private buildHTML(): string {
     return `
-      <div class="spm-panel-header">
-        <span class="spm-panel-title">Shape Properties</span>
-        <button class="spm-panel-close" data-action="panel-close">×</button>
+      <div class="flex items-center justify-between mb-3">
+        <span class="text-xs font-semibold text-base-content/70 uppercase tracking-wider">Shape Properties</span>
+        <button class="btn btn-ghost btn-xs btn-square" data-action="panel-close">\u00D7</button>
       </div>
-      <div class="spm-placeholder" data-ref="placeholder">Select a shape to view its properties</div>
-      <div data-ref="form" style="display:none">
-        <div class="spm-row">
-          <div class="spm-field">
-            <label class="spm-label">Length Unit</label>
-            <select class="spm-select" data-ref="length-unit">
+      <div class="text-base-content/50 text-xs text-center py-2" data-ref="placeholder">Select a shape to view its properties</div>
+      <div class="hidden" data-ref="form">
+        <div class="flex gap-2 mb-2.5">
+          <div class="flex-1">
+            <label class="label text-[11px] uppercase tracking-wide">Length Unit</label>
+            <select class="select select-sm select-bordered w-full" data-ref="length-unit">
               <option value="mm">mm</option>
               <option value="inch">inch</option>
               <option value="foot">foot</option>
@@ -338,50 +129,50 @@ export class ShapePropertiesModal {
               <option value="meter">meter</option>
             </select>
           </div>
-          <div class="spm-field">
-            <label class="spm-label">Mass Unit</label>
-            <select class="spm-select" data-ref="mass-unit">
+          <div class="flex-1">
+            <label class="label text-[11px] uppercase tracking-wide">Mass Unit</label>
+            <select class="select select-sm select-bordered w-full" data-ref="mass-unit">
               <option value="g">g</option>
               <option value="kg">kg</option>
               <option value="lbs">lbs</option>
             </select>
           </div>
         </div>
-        <div class="spm-field">
-          <label class="spm-label">Material</label>
-          <select class="spm-select" data-ref="material"></select>
+        <div class="mb-2.5">
+          <label class="label text-[11px] uppercase tracking-wide">Material</label>
+          <select class="select select-sm select-bordered w-full" data-ref="material"></select>
         </div>
-        <div class="spm-field">
-          <label class="spm-label">Density</label>
-          <div class="spm-row" style="margin:0">
-            <input type="number" class="spm-input" data-ref="density" step="any" min="0" style="flex:1" />
-            <select class="spm-select" data-ref="density-unit" style="flex:0 0 90px">
-              <option value="g/cm³">g/cm³</option>
-              <option value="kg/m³">kg/m³</option>
-              <option value="g/mm³">g/mm³</option>
-              <option value="lbs/in³">lbs/in³</option>
+        <div class="mb-2.5">
+          <label class="label text-[11px] uppercase tracking-wide">Density</label>
+          <div class="flex gap-2">
+            <input type="number" class="input input-sm input-bordered flex-1" data-ref="density" step="any" min="0" />
+            <select class="select select-sm select-bordered w-[90px]" data-ref="density-unit">
+              <option value="g/cm\u00B3">g/cm\u00B3</option>
+              <option value="kg/m\u00B3">kg/m\u00B3</option>
+              <option value="g/mm\u00B3">g/mm\u00B3</option>
+              <option value="lbs/in\u00B3">lbs/in\u00B3</option>
             </select>
           </div>
         </div>
-        <button class="spm-calculate" data-action="calculate">Calculate</button>
-        <div class="spm-error" data-ref="error"></div>
+        <button class="btn btn-primary btn-sm w-full mt-0.5" data-action="calculate">Calculate</button>
+        <div class="text-error text-[11px] mt-1.5 hidden" data-ref="error"></div>
       </div>
-      <div class="spm-results" data-ref="results">
-        <div class="spm-result-row">
-          <span class="spm-result-label">Volume</span>
-          <span class="spm-result-value" data-ref="vol">—</span>
+      <div class="mt-3 border-t border-white/[0.07] pt-2.5 hidden" data-ref="results">
+        <div class="flex justify-between items-baseline py-0.5">
+          <span class="text-base-content/50 text-[11px]">Volume</span>
+          <span class="text-base-content/90 text-xs font-medium" data-ref="vol">\u2014</span>
         </div>
-        <div class="spm-result-row">
-          <span class="spm-result-label">Surface Area</span>
-          <span class="spm-result-value" data-ref="area">—</span>
+        <div class="flex justify-between items-baseline py-0.5">
+          <span class="text-base-content/50 text-[11px]">Surface Area</span>
+          <span class="text-base-content/90 text-xs font-medium" data-ref="area">\u2014</span>
         </div>
-        <div class="spm-result-row">
-          <span class="spm-result-label">Mass</span>
-          <span class="spm-result-value" data-ref="mass">—</span>
+        <div class="flex justify-between items-baseline py-0.5">
+          <span class="text-base-content/50 text-[11px]">Mass</span>
+          <span class="text-base-content/90 text-xs font-medium" data-ref="mass">\u2014</span>
         </div>
-        <div class="spm-result-row" style="margin-top:6px">
-          <span class="spm-result-label">Center of Mass</span>
-          <span class="spm-result-value" data-ref="centroid">—</span>
+        <div class="flex justify-between items-baseline py-0.5 mt-1.5">
+          <span class="text-base-content/50 text-[11px]">Center of Mass</span>
+          <span class="text-base-content/90 text-xs font-medium" data-ref="centroid">\u2014</span>
         </div>
       </div>
     `;
@@ -405,7 +196,7 @@ export class ShapePropertiesModal {
   }
 
   get isOpen(): boolean {
-    return this.panel.classList.contains('open');
+    return !this.panel.classList.contains('hidden');
   }
 
   setCentroidHandler(fn: (centroid: { x: number; y: number; z: number } | null) => void): void {
@@ -424,7 +215,7 @@ export class ShapePropertiesModal {
     this.selectEl.addEventListener('change', () => {
       const opt = this.selectEl.options[this.selectEl.selectedIndex];
       if (opt?.dataset.density) {
-        this.currentDensityUnit = opt.dataset.densityUnit || 'g/cm³';
+        this.currentDensityUnit = opt.dataset.densityUnit || 'g/cm\u00B3';
         this.canonicalDensityGcm3 = densityToGcm3(parseFloat(opt.dataset.density), this.currentDensityUnit);
         this.updateDensityUnitSelect();
         this.updateDensityDisplay();
@@ -454,7 +245,6 @@ export class ShapePropertiesModal {
     if (opt) {
       this.densityUnitSelectEl.value = this.currentDensityUnit;
     } else {
-      // Unit from material not in the list — add it temporarily
       const extra = document.createElement('option');
       extra.value = this.currentDensityUnit;
       extra.textContent = this.currentDensityUnit;
@@ -469,7 +259,7 @@ export class ShapePropertiesModal {
   }
 
   private toggle(): void {
-    if (this.panel.classList.contains('open')) {
+    if (!this.panel.classList.contains('hidden')) {
       this.close();
     } else {
       this.open();
@@ -478,13 +268,13 @@ export class ShapePropertiesModal {
 
   private open(): void {
     this.openHandler?.();
-    this.panel.classList.add('open');
-    this.btn.classList.add('active');
+    this.panel.classList.remove('hidden');
+    this.btn.classList.add('btn-active', '!bg-primary/20', '!text-primary', '!border-primary/40');
   }
 
   private close(): void {
-    this.panel.classList.remove('open');
-    this.btn.classList.remove('active');
+    this.panel.classList.add('hidden');
+    this.btn.classList.remove('btn-active', '!bg-primary/20', '!text-primary', '!border-primary/40');
   }
 
   private async loadMaterials(): Promise<void> {
@@ -496,14 +286,13 @@ export class ShapePropertiesModal {
       for (const mat of materials) {
         const opt = document.createElement('option');
         opt.textContent = mat.name;
-        // Always store canonical density in g/cm³ in the data attribute
         opt.dataset.density = String(mat.density);
         opt.dataset.densityUnit = mat.densityUnit;
         this.selectEl.appendChild(opt);
       }
       const first = this.selectEl.options[0];
       if (first?.dataset.density) {
-        this.currentDensityUnit = first.dataset.densityUnit || 'g/cm³';
+        this.currentDensityUnit = first.dataset.densityUnit || 'g/cm\u00B3';
         this.canonicalDensityGcm3 = densityToGcm3(parseFloat(first.dataset.density), this.currentDensityUnit);
         this.updateDensityUnitSelect();
         this.updateDensityDisplay();
@@ -516,8 +305,8 @@ export class ShapePropertiesModal {
   private async calculate(): Promise<void> {
     if (!this.selectedShapeId) { return; }
     this.calcBtn.disabled = true;
-    this.errorEl.classList.remove('visible');
-    this.resultsEl.classList.remove('visible');
+    this.errorEl.classList.add('hidden');
+    this.resultsEl.classList.add('hidden');
 
     try {
       const res = await fetch(`/api/shape-properties?shapeId=${encodeURIComponent(this.selectedShapeId)}`);
@@ -544,15 +333,12 @@ export class ShapePropertiesModal {
     const lengthUnit = this.lengthUnitEl.value;
     const massUnit = this.massUnitEl.value;
 
-    // Raw values from the server are in whatever unit the model was authored in.
-    // The length unit dropdown declares that unit — no conversion needed, just label.
     const suffix = lengthSuffix(lengthUnit);
-    const vol = `${this.rawProps.volumeMm3.toFixed(4)} ${suffix}³`;
-    const area = `${this.rawProps.surfaceAreaMm2.toFixed(4)} ${suffix}²`;
+    const vol = `${this.rawProps.volumeMm3.toFixed(4)} ${suffix}\u00B3`;
+    const area = `${this.rawProps.surfaceAreaMm2.toFixed(4)} ${suffix}\u00B2`;
 
-    // mass = rawVolume [lengthUnit³] × density [g/lengthUnit³] → grams, then convert
     const densityGcm3 = this.canonicalDensityGcm3 ?? 0;
-    const densityGPerVol = toDisplayDensity(densityGcm3, 'g', lengthUnit); // g per model-unit³
+    const densityGPerVol = toDisplayDensity(densityGcm3, 'g', lengthUnit);
     const massG = this.rawProps.volumeMm3 * densityGPerVol;
     let mass: string;
     if (massUnit === 'kg') {
@@ -571,31 +357,31 @@ export class ShapePropertiesModal {
     this.areaVal.textContent = area;
     this.massVal.textContent = mass;
     this.centroidVal.textContent = centroidText;
-    this.resultsEl.classList.add('visible');
+    this.resultsEl.classList.remove('hidden');
     this.centroidHandler?.(centroid);
   }
 
   private showError(msg: string): void {
     this.errorEl.textContent = msg;
-    this.errorEl.classList.add('visible');
+    this.errorEl.classList.remove('hidden');
   }
 
   setSelectedShape(shapeId: string | null): void {
     if (shapeId === this.selectedShapeId) { return; }
 
     this.rawProps = null;
-    this.resultsEl.classList.remove('visible');
-    this.errorEl.classList.remove('visible');
+    this.resultsEl.classList.add('hidden');
+    this.errorEl.classList.add('hidden');
     this.centroidHandler?.(null);
 
     this.selectedShapeId = shapeId;
 
     if (shapeId) {
-      this.placeholderEl.style.display = 'none';
-      this.formEl.style.display = 'block';
+      this.placeholderEl.classList.add('hidden');
+      this.formEl.classList.remove('hidden');
     } else {
-      this.placeholderEl.style.display = 'block';
-      this.formEl.style.display = 'none';
+      this.placeholderEl.classList.remove('hidden');
+      this.formEl.classList.add('hidden');
     }
   }
 

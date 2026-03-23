@@ -7,25 +7,33 @@ import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
 
 interface WireFunction {
-  (targetObjects: GeometrySceneObject[]): WireObject;
-  (targetObjects: GeometrySceneObject[], targetPlane: PlaneLike | SceneObject): WireObject;
+  (...args: (GeometrySceneObject | PlaneLike | SceneObject)[]): WireObject;
 }
 
 function build(context: SceneParserContext): WireFunction {
-  return function wire(targetObjects: GeometrySceneObject[]) {
+  return function wire() {
     let planeObj: PlaneObjectBase | null = null;
+    let argCount = arguments.length;
 
-    if (arguments.length >= 2) {
-      const lastArg = arguments[1];
-      if (isPlaneLike(lastArg) || lastArg instanceof SceneObject) {
+    // Check if last argument is a plane
+    if (argCount > 0) {
+      const lastArg = arguments[argCount - 1];
+      if (isPlaneLike(lastArg) || (lastArg instanceof SceneObject && !(lastArg instanceof GeometrySceneObject))) {
         planeObj = resolvePlane(lastArg, context);
+        argCount--;
       }
     }
 
-    const path = new WireObject(targetObjects, planeObj);
+    // Collect target objects from arguments
+    let targetObjects: GeometrySceneObject[] = [];
+    for (let i = 0; i < argCount; i++) {
+      targetObjects.push(arguments[i]);
+    }
+
+    const path = new WireObject(targetObjects.length > 0 ? targetObjects : null, planeObj);
     context.addSceneObject(path);
     return path;
-  }
+  } as WireFunction;
 }
 
 export default registerBuilder(build);

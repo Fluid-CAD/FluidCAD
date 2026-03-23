@@ -124,18 +124,19 @@ export class Client {
     let debounceTimer: NodeJS.Timeout | undefined;
 
     const disposable = vscode.workspace.onDidChangeTextDocument((event) => {
-      const activeEditor = vscode.window.activeTextEditor;
-      if (activeEditor && activeEditor.document === event.document && activeEditor.document.fileName.endsWith('.fluid.js')) {
-        if (debounceTimer) {
-          clearTimeout(debounceTimer);
-        }
-
-        debounceTimer = setTimeout(() => {
-          const fullText = event.document.getText();
-          this.updateLiveCode(activeEditor.document.fileName, fullText);
-          debounceTimer = undefined;
-        }, 300);
+      const doc = event.document;
+      if (!doc.fileName.endsWith('.fluid.js')) {
+        return;
       }
+
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+
+      debounceTimer = setTimeout(() => {
+        this.updateLiveCode(doc.fileName, doc.getText());
+        debounceTimer = undefined;
+      }, 300);
     });
 
     this.context.subscriptions.push(disposable);
@@ -246,33 +247,7 @@ export class Client {
         break;
       }
       case 'insert-point': {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-          break;
-        }
-        const { point, sourceLocation } = msg;
-        const line = sourceLocation.line - 1;
-        if (line < 0 || line >= editor.document.lineCount) {
-          break;
-        }
-        const lineText = editor.document.lineAt(line).text;
-        const pointText = `[${point[0]}, ${point[1]}]`;
-
-        const closeParen = lineText.lastIndexOf(')');
-        if (closeParen < 0) {
-          break;
-        }
-
-        const openParen = lineText.lastIndexOf('(', closeParen);
-        if (openParen < 0) {
-          break;
-        }
-
-        const between = lineText.substring(openParen + 1, closeParen).trim();
-        const prefix = between.length > 0 ? ', ' : '';
-
-        const pos = new vscode.Position(line, closeParen);
-        editor.edit(b => b.insert(pos, `${prefix}${pointText}`));
+        this.handleInsertPoint(msg);
         break;
       }
     }
@@ -357,6 +332,49 @@ export class Client {
     this.sendToServer({
       type: 'clear-highlight',
     });
+  }
+
+  private async handleInsertPoint(msg: any) {
+    const { point, sourceLocation } = msg;
+    const line = sourceLocation.line - 1;
+    const pointText = `[${point[0]}, ${point[1]}]`;
+
+    // Find the editor for the current file. activeTextEditor may be undefined
+    // when the webview panel has focus, so search visibleTextEditors instead.
+    let editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.fileName !== this.currentFileName) {
+      editor = vscode.window.visibleTextEditors.find(
+        e => e.document.fileName === this.currentFileName
+      );
+    }
+    if (!editor) {
+      return;
+    }
+
+    if (line < 0 || line >= editor.document.lineCount) {
+      return;
+    }
+
+    const lineText = editor.document.lineAt(line).text;
+
+    const closeParen = lineText.lastIndexOf(')');
+    if (closeParen < 0) {
+      return;
+    }
+
+    const openParen = lineText.lastIndexOf('(', closeParen);
+    if (openParen < 0) {
+      return;
+    }
+
+    const between = lineText.substring(openParen + 1, closeParen).trim();
+    const prefix = between.length > 0 ? ', ' : '';
+
+    const pos = new vscode.Position(line, closeParen);
+    const applied = await editor.edit(b => b.insert(pos, `${prefix}${pointText}`));
+    if (applied) {
+      this.updateLiveCode(editor.document.fileName, editor.document.getText());
+    }
   }
 
   private async revealSourceLocation(loc: { filePath: string; line: number; column: number }) {

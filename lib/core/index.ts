@@ -21,4 +21,5 @@ export { default as load } from "./load.js";
 export { default as loft } from "./loft.js";
 export { default as color } from "./color.js";
 export { default as remove } from "./remove.js";
+export { default as split } from "./split.js";
 export * from "./2d/index.js";

@@ -69,7 +69,8 @@ export class FaceDriller {
   }
 
   private wireIsInsideFace(inner: FaceInfo, outer: FaceInfo): boolean {
-    const firstPoint = this.getFirstPointOfWire(inner.wire);
+    // TODO: find a better way to determine if a wire is inside a face. This is pretty hacky and can fail in some cases (e.g. if the first point of the wire is on the edge of the face).
+    const firstPoint = this.getLastPointOfWire(inner.wire);
     if (!firstPoint) return false;
     return FaceOps.isPointInsideFace(firstPoint, outer.face);
   }
@@ -90,10 +91,10 @@ export class FaceDriller {
     return holes;
   }
 
-  private getFirstPointOfWire(wire: Wire) {
+  private getLastPointOfWire(wire: Wire) {
     try {
       const edges = Explorer.findEdgesWrapped(wire);
-      const vertex = EdgeOps.getFirstVertex(edges[0]);
+      const vertex = EdgeOps.getLastVertex(edges[0]);
       return EdgeOps.getVertexPoint(vertex);
     } catch (error) {
       console.error("Error getting first point of wire:", error);

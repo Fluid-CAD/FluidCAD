@@ -3,6 +3,7 @@ import { getOC } from "./init.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Wire } from "../common/wire.js";
 import { Edge } from "../common/edge.js";
+import { Vertex } from "../common/vertex.js";
 import { Explorer } from "./explorer.js";
 import { Convert } from "./convert.js";
 import { Plane } from "../math/plane.js";
@@ -133,6 +134,66 @@ export class WireOps {
     const fixed = fixer.Wire();
     fixer.delete();
     return oc.TopoDS.Wire(fixed);
+  }
+
+  static groupConnectedEdges(edges: Edge[]): Edge[][] {
+    if (edges.length === 0) {
+      return [];
+    }
+
+    const visited = new Set<number>();
+    const groups: Edge[][] = [];
+
+    for (let i = 0; i < edges.length; i++) {
+      if (visited.has(i)) {
+        continue;
+      }
+
+      const group: Edge[] = [];
+      const queue = [i];
+      visited.add(i);
+
+      while (queue.length > 0) {
+        const idx = queue.shift()!;
+        group.push(edges[idx]);
+
+        const v1 = edges[idx].getFirstVertex();
+        const v2 = edges[idx].getLastVertex();
+
+        for (let j = 0; j < edges.length; j++) {
+          if (visited.has(j)) {
+            continue;
+          }
+
+          const ov1 = edges[j].getFirstVertex();
+          const ov2 = edges[j].getLastVertex();
+
+          if (
+            WireOps.verticesMatch(v1, ov1) || WireOps.verticesMatch(v1, ov2) ||
+            WireOps.verticesMatch(v2, ov1) || WireOps.verticesMatch(v2, ov2)
+          ) {
+            visited.add(j);
+            queue.push(j);
+          }
+        }
+      }
+
+      groups.push(group);
+    }
+
+    return groups;
+  }
+
+  private static verticesMatch(v1: Vertex, v2: Vertex): boolean {
+    if (v1.compareTo(v2)) {
+      return true;
+    }
+    const p1 = v1.toPoint();
+    const p2 = v2.toPoint();
+    const dx = p1.x - p2.x;
+    const dy = p1.y - p2.y;
+    const dz = p1.z - p2.z;
+    return (dx * dx + dy * dy + dz * dz) < 1e-14;
   }
 
   static offsetWireRaw(wire: TopoDS_Wire, distance: number, isOpen: boolean): TopoDS_Wire {

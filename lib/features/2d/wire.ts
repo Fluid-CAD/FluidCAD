@@ -7,29 +7,29 @@ import { ExtrudableGeometryBase } from "./extrudable-base.js";
 
 export class WireObject extends ExtrudableGeometryBase {
 
-  constructor(private geometries: GeometrySceneObject[], targetPlane: PlaneObjectBase = null) {
+  constructor(private geometries: GeometrySceneObject[] | null, targetPlane: PlaneObjectBase = null) {
     super(targetPlane);
   }
 
   build() {
-    let sources = this.geometries;
-
-    const map = new Map<SceneObject, Edge[]>();
-    for (const obj of sources) {
-      const edges = obj.getShapes().filter(s => s instanceof Edge) as Edge[];
-      map.set(obj, edges);
-    }
+    const sources = this.geometries ?? this.sketch.getPreviousSiblings(this) as GeometrySceneObject[];
 
     const allEdges: Edge[] = [];
-    for (const [obj, edges] of map.entries()) {
-      for (const edge of edges) {
-        allEdges.push(edge);
-        obj.removeShape(edge, this);
+    for (const obj of sources) {
+      const shapes = obj.getShapes();
+      for (const shape of shapes) {
+        if (shape instanceof Edge) {
+          allEdges.push(shape);
+          obj.removeShape(shape, this);
+        }
       }
     }
 
-    const wire = WireOps.makeWireFromEdges(allEdges);
-    this.addShape(wire);
+    const groups = WireOps.groupConnectedEdges(allEdges);
+    for (const group of groups) {
+      const wire = WireOps.makeWireFromEdges(group);
+      this.addShape(wire);
+    }
 
     if (this.targetPlane) {
       this.targetPlane.removeShapes(this);

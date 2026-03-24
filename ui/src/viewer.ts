@@ -381,8 +381,10 @@ export class Viewer {
       const activeObject = this.findActiveObject(sceneObjects);
 
       if (activeObject?.type === 'sketch' && activeObject.object?.plane) {
-        if (!this.isTrimming || !this.modeManager.isSketchMode) {
+        if (!this.modeManager.isSketchMode) {
           this.modeManager.enterSketchMode(activeObject.object.plane);
+        } else {
+          this.modeManager.enforceSketchNormal(activeObject.object.plane);
         }
         this.settingsPanel.setProjectionLocked(true);
         this.settingsPanel.setFitButtonVisible(false);

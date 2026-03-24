@@ -89,6 +89,28 @@ export class SceneModeManager {
     this.setupGrid(normal, origin.add(normal.clone().multiplyScalar(-0.01)));
   }
 
+  /** Snap the camera back along the sketch normal, preserving target and zoom. */
+  enforceSketchNormal(plane: PlaneData): void {
+    const cc = this.ctx.cameraControls;
+
+    const normal = toVec3(plane.normal);
+    const yDir = toVec3(plane.yDirection);
+
+    const tgt = new Vector3();
+    cc.getTarget(tgt);
+
+    const camPos = tgt.clone().add(normal.clone().multiplyScalar(SKETCH_CAMERA_DISTANCE));
+
+    this.ctx.camera.up.copy(yDir);
+    cc.updateCameraUp();
+
+    cc.normalizeRotations();
+    cc.setLookAt(camPos.x, camPos.y, camPos.z, tgt.x, tgt.y, tgt.z, false);
+
+    cc.getTarget(this.ctx.controls.target);
+    this.ctx.gizmo.target = this.ctx.controls.target;
+  }
+
   // -------------------------------------------------------------------------
   // Camera helpers
   // -------------------------------------------------------------------------

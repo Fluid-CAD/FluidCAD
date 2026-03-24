@@ -110,34 +110,6 @@ function build(context: SceneParserContext): MirrorFunction {
     if (arguments.length >= 2) {
       const args = Array.from(arguments);
 
-      // 2D mirror with target objects: mirror(axis/line, geometries[])
-      if (isAxisLike(args[0]) || args[0] instanceof SceneObject) {
-        let axis: AxisObjectBase = null;
-        if (args[0] instanceof AxisObjectBase) {
-          axis = args[0] as AxisObjectBase;
-        }
-        else if (args[0] instanceof SceneObject) {
-          const line = args[0] as SceneObject;
-          axis = new AxisFromEdge(line);
-          context.addSceneObject(axis);
-        }
-        else {
-          const a = normalizeAxis(args[0]);
-          axis = new AxisObject(a);
-          context.addSceneObject(axis);
-        }
-
-        const targetObjects = args.slice(1) as GeometrySceneObject[];
-        const mirror = new MirrorShape2D(axis, targetObjects);
-
-        if (!(args[0] instanceof AxisObjectBase) && !(args[0] instanceof SceneObject)) {
-          context.addSceneObject(axis);
-        }
-
-        context.addSceneObject(mirror);
-        return mirror;
-      }
-
       // 3D feature mirror: mirror(plane, 'feature', ...objects)
       if (args[1] === 'feature') {
         const targetObjects = args.slice(2) as SceneObject[];
@@ -164,6 +136,34 @@ function build(context: SceneParserContext): MirrorFunction {
 
         context.addSceneObject(mirror);
         context.addSceneObjects(mirrorTree);
+        return mirror;
+      }
+
+      // 2D mirror with target objects: mirror(axis/line, geometries[])
+      if (isAxisLike(args[0]) || args[0] instanceof SceneObject) {
+        let axis: AxisObjectBase = null;
+        if (args[0] instanceof AxisObjectBase) {
+          axis = args[0] as AxisObjectBase;
+        }
+        else if (args[0] instanceof SceneObject) {
+          const line = args[0] as SceneObject;
+          axis = new AxisFromEdge(line);
+          context.addSceneObject(axis);
+        }
+        else {
+          const a = normalizeAxis(args[0]);
+          axis = new AxisObject(a);
+          context.addSceneObject(axis);
+        }
+
+        const targetObjects = args.slice(1) as GeometrySceneObject[];
+        const mirror = new MirrorShape2D(axis, targetObjects);
+
+        if (!(args[0] instanceof AxisObjectBase) && !(args[0] instanceof SceneObject)) {
+          context.addSceneObject(axis);
+        }
+
+        context.addSceneObject(mirror);
         return mirror;
       }
 

@@ -149,8 +149,10 @@ function updatePointPickMode(sceneObjects: SceneObjectRender[]) {
 
   const srcLine = lastChild.sourceLocation.line;
 
-  // Already in pick mode for this same trim call — keep it active
+  // Already in pick mode for this same trim call — rebuild edge index
+  // so newly inserted features become highlightable
   if (activePointPickMode && activePickSourceLine === srcLine) {
+    activePointPickMode.updateEdges(sceneObjects, sketchObj.id);
     return;
   }
 

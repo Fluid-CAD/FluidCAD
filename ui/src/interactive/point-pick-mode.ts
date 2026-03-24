@@ -59,6 +59,18 @@ export class PointPickMode {
     this.boundMouseMove = this.handleMouseMove.bind(this);
   }
 
+  /** Rebuild the edge index (e.g. when the scene changes but the same trim call is active). */
+  updateEdges(sceneObjects: SceneObjectRender[], sketchId: string): void {
+    this.edges = buildEdgeIndex(sceneObjects, sketchId, this.plane);
+    if (this.highlightedShapeId) {
+      // Clear stale highlight if the shape no longer exists in the new index
+      if (!this.edges.some(e => e.shapeId === this.highlightedShapeId)) {
+        this.onHighlight(null);
+        this.highlightedShapeId = null;
+      }
+    }
+  }
+
   activate(): void {
     this.canvas.addEventListener('mousedown', this.boundMouseDown);
     this.canvas.addEventListener('mouseup', this.boundMouseUp);

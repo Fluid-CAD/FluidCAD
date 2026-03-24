@@ -96,6 +96,25 @@ container.appendChild(trimIndicator);
 let activePointPickMode: PointPickMode | null = null;
 let activePickSourceLine: number | null = null;
 
+function isTrimmingScene(sceneObjects: SceneObjectRender[]): boolean {
+  let lastRoot: SceneObjectRender | null = null;
+  for (let i = sceneObjects.length - 1; i >= 0; i--) {
+    if (!sceneObjects[i].parentId) {
+      lastRoot = sceneObjects[i];
+      break;
+    }
+  }
+  if (!lastRoot || lastRoot.type !== 'sketch' || !lastRoot.id) {
+    return false;
+  }
+  for (let i = sceneObjects.length - 1; i >= 0; i--) {
+    if (sceneObjects[i].parentId === lastRoot.id) {
+      return (sceneObjects[i] as any).type === 'trim2d';
+    }
+  }
+  return false;
+}
+
 function updatePointPickMode(sceneObjects: SceneObjectRender[]) {
   // Only activate pick mode if the last root-level object is a sketch
   // (i.e., the sketch is still the active/open feature)
@@ -245,6 +264,7 @@ function connectWebSocket() {
       case 'scene-rendered': {
         hideLoading();
         const isRollback = msg.rollbackStop != null && msg.rollbackStop < msg.result.length - 1;
+        viewer.isTrimming = isTrimmingScene(msg.result);
         viewer.toggleSketchMode(true);
         viewer.updateView(msg.result, isRollback);
         if (msg.absPath) {

@@ -121,7 +121,6 @@ export class FaceOps {
     const oc = getOC();
     console.log("Creating face from wire:", wire);
     const MakeFaceFn = new oc.BRepBuilderAPI_MakeFace(wire, false);
-    console.log("Created face from wire:", MakeFaceFn);
 
     if (MakeFaceFn.IsDone()) {
       const face = MakeFaceFn.Face();
@@ -129,7 +128,7 @@ export class FaceOps {
       return face;
     } else {
       const err = MakeFaceFn.Error();
-      throw new Error("Failed to create face: ");
+      throw new Error("Failed to create face: ", err);
     }
   }
 
@@ -140,9 +139,7 @@ export class FaceOps {
 
   static makeFaceOnPlane(wire: TopoDS_Wire, plane: gp_Pln): TopoDS_Face {
     const oc = getOC();
-    console.log("Creating face from wire:", wire);
     const MakeFaceFn = new oc.BRepBuilderAPI_MakeFace(plane);
-    console.log("Created face from wire:", MakeFaceFn);
     MakeFaceFn.Add(wire);
 
     if (MakeFaceFn.IsDone()) {
@@ -151,7 +148,7 @@ export class FaceOps {
       return face;
     } else {
       const err = MakeFaceFn.Error();
-      throw new Error("Failed to create face: ");
+      throw new Error("Failed to create face: ", err);
     }
   }
 

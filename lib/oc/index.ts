@@ -8,7 +8,6 @@ export { FaceOps } from "./face-ops.js";
 export { EdgeOps } from "./edge-ops.js";
 export { WireOps } from "./wire-ops.js";
 export { Geometry } from "./geometry.js";
-export { OcFaceMaker } from "./face-maker.js";
 export { BooleanOps } from "./boolean-ops.js";
 export { ExtrudeOps } from "./extrude-ops.js";
 export { Primitives } from "./primitives.js";

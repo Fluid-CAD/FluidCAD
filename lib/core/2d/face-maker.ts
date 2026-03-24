@@ -153,61 +153,48 @@ export class FaceMaker {
   }
 
   private static fuseIntersectingFaces(faces: Face[]): Face[] {
-    if (faces.length === 0) {
-      return [];
+    if (faces.length <= 1) {
+      return [...faces];
     }
 
-    if (faces.length === 1) {
-      return faces;
-    }
-
-    // Pre-compute bounding boxes for all faces
-    const faceBoxes = faces.map((face, index) => ({
+    let remaining = faces.map(face => ({
       face,
-      index,
       bbox: ShapeOps.getBoundingBox(face)
     }));
 
     const result: Face[] = [];
-    const processedFaces = new Set<Face>();
 
-    for (let i = 0; i < faces.length; i++) {
-      const face1 = faces[i];
-      if (processedFaces.has(face1)) {
-        continue;
+    while (remaining.length > 0) {
+      let current = remaining[0].face;
+      let currentBbox = remaining[0].bbox;
+      remaining = remaining.slice(1);
+
+      // Repeatedly scan remaining faces until no more fusions happen
+      let changed = true;
+      while (changed) {
+        changed = false;
+        const unfused: typeof remaining = [];
+
+        for (const candidate of remaining) {
+          if (!this.boundingBoxesIntersect(currentBbox, candidate.bbox)) {
+            unfused.push(candidate);
+            continue;
+          }
+
+          const fused = FaceOps.fuseFacesAndUnify(current, candidate.face);
+          if (fused) {
+            current = fused;
+            currentBbox = ShapeOps.getBoundingBox(current);
+            changed = true;
+          } else {
+            unfused.push(candidate);
+          }
+        }
+
+        remaining = unfused;
       }
 
-      let fusedFace = face1;
-      const facesToFuse = [face1];
-      let bbox1 = faceBoxes[i].bbox;
-
-      // Find all faces that intersect with face1 using bounding box pre-filtering
-      for (let j = i + 1; j < faces.length; j++) {
-        const face2 = faces[j];
-        if (processedFaces.has(face2)) {
-          continue;
-        }
-
-        const bbox2 = faceBoxes[j].bbox;
-
-        // Quick bounding box intersection test before expensive geometric operations
-        if (!this.boundingBoxesIntersect(bbox1, bbox2)) {
-          continue;
-        }
-
-        const newFusedFace = FaceOps.fuseFacesAndUnify(fusedFace, face2);
-        if (newFusedFace) {
-          fusedFace = newFusedFace;
-          bbox1 = ShapeOps.getBoundingBox(fusedFace);
-          facesToFuse.push(face2);
-        }
-      }
-
-      // Add the final fused face to results
-      result.push(fusedFace);
-
-      // Mark all processed faces
-      facesToFuse.forEach(face => processedFaces.add(face));
+      result.push(current);
     }
 
     console.log("Fused faces count:", result.length);

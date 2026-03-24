@@ -98,6 +98,30 @@ export class Sketch extends SceneObject implements Extrudable {
     this.planeObj.removeShapes(this)
   }
 
+  getEdges(): Edge[] {
+    return [...this.getEdgesWithOwner().keys()];
+  }
+
+  getEdgesWithOwner(): Map<Edge, GeometrySceneObject> {
+    const children = this.getChildren() as GeometrySceneObject[];
+    const result: Map<Edge, GeometrySceneObject> = new Map();
+
+    for (const child of children) {
+      const shapes = child.getShapes();
+      for (const shape of shapes) {
+        if (shape instanceof Edge) {
+          result.set(shape, child);
+        } else if (shape instanceof Wire) {
+          for (const edge of shape.getEdges()) {
+            result.set(edge, child);
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
   getGeometriesWithOwner(): Map<Wire | Edge, GeometrySceneObject> {
     const children = this.getChildren() as GeometrySceneObject[];
 

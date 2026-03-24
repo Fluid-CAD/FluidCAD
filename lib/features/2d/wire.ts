@@ -1,9 +1,9 @@
 import { Edge } from "../../common/edge.js";
 import { WireOps } from "../../oc/wire-ops.js";
 import { GeometrySceneObject } from "./geometry.js";
-import { SceneObject } from "../../common/scene-object.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
+import { Wire } from "../../common/wire.js";
 
 export class WireObject extends ExtrudableGeometryBase {
 
@@ -20,6 +20,11 @@ export class WireObject extends ExtrudableGeometryBase {
       for (const shape of shapes) {
         if (shape instanceof Edge) {
           allEdges.push(shape);
+          obj.removeShape(shape, this);
+        }
+        else if (shape instanceof Wire) {
+          const edges = shape.getEdges();
+          allEdges.push(...edges);
           obj.removeShape(shape, this);
         }
       }

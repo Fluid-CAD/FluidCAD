@@ -15,9 +15,10 @@ import { Extrudable } from "../helpers/types.js";
 
 export class ExtrudeToFace extends ExtrudeBase {
   constructor(
-    public face: SceneObject | 'first-face' | 'last-face') {
+    public face: SceneObject | 'first-face' | 'last-face',
+    extrudable?: Extrudable) {
 
-    super();
+    super(extrudable);
   }
 
   build(context: BuildSceneObjectContext) {
@@ -205,11 +206,10 @@ export class ExtrudeToFace extends ExtrudeBase {
     const newFace = this.face instanceof SceneObject
       ? (remap.get(this.face) || this.face)
       : this.face;
-    const copy = new ExtrudeToFace(newFace).syncWith(this) as ExtrudeToFace;
-    if (this.extrudable) {
-      copy.target((remap.get(this.extrudable) || this.extrudable) as Extrudable);
-    }
-    return copy;
+    const extrudable = this.extrudable
+      ? (remap.get(this.extrudable) || this.extrudable) as Extrudable
+      : undefined;
+    return new ExtrudeToFace(newFace, extrudable).syncWith(this);
   }
 
   compareTo(other: ExtrudeToFace): boolean {

@@ -4,16 +4,19 @@ import { Color } from "../features/color.js";
 
 interface ColorFunction {
   (color: string): Color;
+  (color: string, selection: SceneObject): Color;
 }
 
 function build(context: SceneParserContext): ColorFunction {
   return function color() {
-    const obj = new Color(arguments[0]);
-
-    const selection = context.getLastSelection();
-    if (selection) {
-      obj.target(selection);
+    let selection: SceneObject | undefined;
+    if (arguments.length >= 2 && arguments[1] instanceof SceneObject) {
+      selection = arguments[1] as SceneObject;
+    } else {
+      selection = context.getLastSelection() || undefined;
     }
+
+    const obj = new Color(arguments[0], selection);
 
     context.addSceneObject(obj);
     return obj;

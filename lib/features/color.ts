@@ -7,13 +7,9 @@ import { SelectSceneObject } from "./select.js";
 export class Color extends SceneObject {
   private _selection: SceneObject | null = null;
 
-  constructor(private color: string) {
+  constructor(private color: string, selection?: SceneObject) {
     super();
-  }
-
-  target(selection: SceneObject): this {
-    this._selection = selection;
-    return this;
+    this._selection = selection ?? null;
   }
 
   get selection(): SceneObject {

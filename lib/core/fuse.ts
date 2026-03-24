@@ -9,16 +9,17 @@ function build(context: SceneParserContext) {
     const activeSketch = context.getActiveSketch();
 
     if (activeSketch) {
-      const fuse2d = new Fuse2D();
+      let objects: GeometrySceneObject[];
       if (args.length > 0) {
-        let objects: SceneObject[];
         if (args.length === 1 && Array.isArray(args[0])) {
-          objects = args[0];
+          objects = args[0] as GeometrySceneObject[];
         } else {
-          objects = args;
+          objects = args as GeometrySceneObject[];
         }
-        fuse2d.target(...(objects as GeometrySceneObject[]));
+      } else {
+        objects = [];
       }
+      const fuse2d = new Fuse2D(...objects);
       context.addSceneObject(fuse2d);
       return fuse2d;
     }
@@ -31,10 +32,7 @@ function build(context: SceneParserContext) {
       solids = args;
     }
 
-    const fuse = new Fuse();
-    if (solids.length > 0) {
-      fuse.target(...solids);
-    }
+    const fuse = new Fuse(...solids);
     context.addSceneObject(fuse);
 
     return fuse;

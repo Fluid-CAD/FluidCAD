@@ -17,8 +17,8 @@ import { Extrudable } from "../helpers/types.js";
 
 export class ExtrudeSymmetric extends ExtrudeBase {
 
-  constructor(public distance?: number) {
-    super();
+  constructor(public distance?: number, extrudable?: Extrudable) {
+    super(extrudable);
   }
 
   build(context: BuildSceneObjectContext) {
@@ -186,11 +186,10 @@ export class ExtrudeSymmetric extends ExtrudeBase {
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const copy = new ExtrudeSymmetric(this.distance).syncWith(this) as ExtrudeSymmetric;
-    if (this.extrudable) {
-      copy.target((remap.get(this.extrudable) || this.extrudable) as Extrudable);
-    }
-    return copy;
+    const extrudable = this.extrudable
+      ? (remap.get(this.extrudable) || this.extrudable) as Extrudable
+      : undefined;
+    return new ExtrudeSymmetric(this.distance, extrudable).syncWith(this);
   }
 
   compareTo(other: ExtrudeSymmetric): boolean {

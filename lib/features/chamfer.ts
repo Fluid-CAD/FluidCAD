@@ -8,13 +8,9 @@ import { ShapeOps } from "../oc/shape-ops.js";
 export class Chamfer extends SceneObject {
   private _selection: SceneObject | null = null;
 
-  constructor(private distance: number, private distance2: number, private isAngle: boolean = false) {
+  constructor(private distance: number, private distance2: number, private isAngle: boolean = false, selection?: SceneObject) {
     super();
-  }
-
-  target(selection: SceneObject): this {
-    this._selection = selection;
-    return this;
+    this._selection = selection ?? null;
   }
 
   get selection(): SceneObject {
@@ -106,11 +102,10 @@ export class Chamfer extends SceneObject {
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const copy = new Chamfer(this.distance, this.distance2, this.isAngle);
-    if (this.selection) {
-      copy.target(remap.get(this.selection) || this.selection);
-    }
-    return copy;
+    const selection = this.selection
+      ? (remap.get(this.selection) || this.selection)
+      : undefined;
+    return new Chamfer(this.distance, this.distance2, this.isAngle, selection);
   }
 
   compareTo(other: SceneObject): boolean {

@@ -7,13 +7,9 @@ export class Shell extends SceneObject {
 
   private _faceSelection: SelectSceneObject | null = null;
 
-  constructor(private thickness: number) {
+  constructor(private thickness: number, faceSelection?: SelectSceneObject) {
     super();
-  }
-
-  target(faceSelection: SelectSceneObject): this {
-    this._faceSelection = faceSelection;
-    return this;
+    this._faceSelection = faceSelection ?? null;
   }
 
   get faceSelection(): SelectSceneObject {
@@ -92,11 +88,10 @@ export class Shell extends SceneObject {
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const copy = new Shell(this.thickness);
-    if (this.faceSelection) {
-      copy.target((remap.get(this.faceSelection) || this.faceSelection) as SelectSceneObject);
-    }
-    return copy;
+    const faceSelection = this.faceSelection
+      ? (remap.get(this.faceSelection) || this.faceSelection) as SelectSceneObject
+      : undefined;
+    return new Shell(this.thickness, faceSelection);
   }
 
   getType(): string {

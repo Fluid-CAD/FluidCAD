@@ -8,13 +8,9 @@ import { Explorer } from "../oc/explorer.js";
 export class Fillet extends SceneObject {
   private _targetEdges: SceneObject | null = null;
 
-  constructor(private radius: number) {
+  constructor(private radius: number, selection?: SceneObject) {
     super();
-  }
-
-  target(selection: SceneObject): this {
-    this._targetEdges = selection;
-    return this;
+    this._targetEdges = selection ?? null;
   }
 
   get targetEdges(): SceneObject {
@@ -117,11 +113,10 @@ export class Fillet extends SceneObject {
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const copy = new Fillet(this.radius);
-    if (this.targetEdges) {
-      copy.target(remap.get(this.targetEdges) || this.targetEdges);
-    }
-    return copy;
+    const selection = this.targetEdges
+      ? (remap.get(this.targetEdges) || this.targetEdges)
+      : undefined;
+    return new Fillet(this.radius, selection);
   }
 
   compareTo(other: Fillet): boolean {

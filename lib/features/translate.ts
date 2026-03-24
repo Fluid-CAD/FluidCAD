@@ -6,13 +6,9 @@ import { LazyVertex } from "./lazy-vertex.js";
 export class Translate extends SceneObject {
   private _targetObjects: SceneObject[] | null = null;
 
-  constructor(private amount: LazyVertex, private copy: boolean = false) {
+  constructor(private amount: LazyVertex, private copy: boolean = false, ...targets: SceneObject[]) {
     super();
-  }
-
-  target(...objects: SceneObject[]): this {
-    this._targetObjects = objects;
-    return this;
+    this._targetObjects = targets.length > 0 ? targets : null;
   }
 
   get targetObjects(): SceneObject[] {
@@ -45,11 +41,10 @@ export class Translate extends SceneObject {
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const copy = new Translate(this.amount, this.copy);
-    if (this.targetObjects) {
-      copy.target(...this.targetObjects.map(obj => remap.get(obj) || obj));
-    }
-    return copy;
+    const targets = this.targetObjects
+      ? this.targetObjects.map(obj => remap.get(obj) || obj)
+      : [];
+    return new Translate(this.amount, this.copy, ...targets);
   }
 
   compareTo(other: Translate): boolean {

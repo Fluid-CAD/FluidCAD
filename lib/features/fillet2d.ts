@@ -8,13 +8,9 @@ import { WireOps } from "../oc/wire-ops.js";
 export class Fillet2D extends GeometrySceneObject {
   private _targetObjects: GeometrySceneObject[] | null = null;
 
-  constructor(private radius: number) {
+  constructor(private radius: number, ...targets: SceneObject[]) {
     super();
-  }
-
-  target(...objects: SceneObject[]): this {
-    this._targetObjects = objects as GeometrySceneObject[];
-    return this;
+    this._targetObjects = targets.length > 0 ? targets as GeometrySceneObject[] : null;
   }
 
   get targetObjects(): GeometrySceneObject[] | null {
@@ -78,11 +74,10 @@ export class Fillet2D extends GeometrySceneObject {
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const copy = new Fillet2D(this.radius);
-    if (this.targetObjects) {
-      copy.target(...this.targetObjects.map(t => (remap.get(t) as GeometrySceneObject) || t));
-    }
-    return copy;
+    const targets = this.targetObjects
+      ? this.targetObjects.map(t => (remap.get(t) as GeometrySceneObject) || t)
+      : [];
+    return new Fillet2D(this.radius, ...targets);
   }
 
   compareTo(other: Fillet2D): boolean {

@@ -36,8 +36,7 @@ function build(context: SceneParserContext): RotateFunction {
       if (Array.isArray(args[0]) && activeSketch) {
         const objects = args[0] as GeometrySceneObject[];
         const angle = args[1] as number;
-        const rotate = new Rotate2D(angle, copy);
-        rotate.target(...objects);
+        const rotate = new Rotate2D(angle, copy, ...objects);
         context.addSceneObject(rotate);
         return rotate;
       }
@@ -69,8 +68,7 @@ function build(context: SceneParserContext): RotateFunction {
         const objects = args[0] as GeometrySceneObject[];
         const angle = args[1] as number;
         const copyArg = args[2] as boolean;
-        const rotate = new Rotate(null, angle, copyArg);
-        rotate.target(...objects);
+        const rotate = new Rotate(null, angle, copyArg, ...objects);
         context.addSceneObject(rotate);
         return rotate;
       }
@@ -93,8 +91,7 @@ function build(context: SceneParserContext): RotateFunction {
       }
 
       const angle = args[2] as number;
-      const rotate = new Rotate(axis, angle, copy);
-      rotate.target(...objects);
+      const rotate = new Rotate(axis, angle, copy, ...objects);
       context.addSceneObject(rotate);
       return rotate;
     }

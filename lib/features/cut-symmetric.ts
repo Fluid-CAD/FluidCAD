@@ -13,8 +13,8 @@ import { CutBase } from "./cut-base.js";
 
 export class CutSymmetric extends CutBase {
 
-  constructor(public distance: number) {
-    super();
+  constructor(public distance: number, extrudable?: Extrudable) {
+    super(extrudable);
   }
 
   build(context: BuildSceneObjectContext) {
@@ -87,11 +87,10 @@ export class CutSymmetric extends CutBase {
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const copy = new CutSymmetric(this.distance).syncWith(this) as CutSymmetric;
-    if (this.extrudable) {
-      copy.target((remap.get(this.extrudable) || this.extrudable) as Extrudable);
-    }
-    return copy;
+    const extrudable = this.extrudable
+      ? (remap.get(this.extrudable) || this.extrudable) as Extrudable
+      : undefined;
+    return new CutSymmetric(this.distance, extrudable).syncWith(this);
   }
 
   compareTo(other: CutSymmetric): boolean {

@@ -18,13 +18,10 @@ export class Revolve extends SceneObject {
   constructor(
     public axis: AxisObjectBase,
     public angle: number,
-    public options: RevolveOptions) {
+    public options: RevolveOptions,
+    extrudable?: Extrudable) {
     super();
-  }
-
-  target(extrudable: Extrudable): this {
-    this._extrudable = extrudable;
-    return this;
+    this._extrudable = extrudable ?? null;
   }
 
   get extrudable(): Extrudable {

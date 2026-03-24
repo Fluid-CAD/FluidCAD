@@ -8,19 +8,18 @@ function build(context: SceneParserContext) {
     const activeSketch = context.getActiveSketch();
 
     if (activeSketch) {
-      const split2d = new Split2D();
+      let objects: GeometrySceneObject[];
       if (args.length > 0) {
-        let objects: SceneObject[];
-
         if (args.length === 1 && Array.isArray(args[0])) {
-          objects = args[0];
+          objects = args[0] as GeometrySceneObject[];
         } else {
-          objects = args;
+          objects = args as GeometrySceneObject[];
         }
-
-        split2d.target(...(objects as GeometrySceneObject[]));
+      } else {
+        objects = [];
       }
 
+      const split2d = new Split2D(...objects);
       context.addSceneObject(split2d);
       return split2d;
     }

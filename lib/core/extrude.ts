@@ -6,34 +6,40 @@ import { ExtrudeToFace } from "../features/extrude-to-face.js";
 import { ExtrudeSymmetric } from "../features/extrude-symmetric.js";
 import { SelectSceneObject } from "../features/select.js";
 import { ExtrudeBase } from "../features/extrude-base.js";
+import { Extrudable } from "../helpers/types.js";
 
 interface ExtrudeFunction {
-  (distance?: number): Extrude;
-  (distance1: number, distance2: number): ExtrudeTwoDistances;
-  (distance: number, symmetric: true): ExtrudeSymmetric;
-  (face: SceneObject | 'first-face' | 'last-face'): ExtrudeToFace;
+  (target?: Extrudable): Extrude;
+  (distance: number, target?: Extrudable): Extrude;
+  (distance1: number, distance2: number, target?: Extrudable): ExtrudeTwoDistances;
+  (distance: number, symmetric: true, target?: Extrudable): ExtrudeSymmetric;
+  (face: SceneObject | 'first-face' | 'last-face', target?: Extrudable): ExtrudeToFace;
+}
+
+function isExtrudable(obj: any): obj is Extrudable {
+  return obj instanceof SceneObject && 'getGeometries' in obj && 'getPlane' in obj;
 }
 
 function build(context: SceneParserContext): ExtrudeFunction {
 
-  function doExtrude(params: any[]): ExtrudeBase {
+  function doExtrude(params: any[], extrudable?: Extrudable): ExtrudeBase {
     const defaultDistance = 25;
 
     if (params.length === 0) {
-      return new Extrude(defaultDistance);
+      return new Extrude(defaultDistance, extrudable);
     }
     if (params.length === 1) {
       if (typeof params[0] === 'number') {
-        return new Extrude(params[0]);
+        return new Extrude(params[0], extrudable);
       }
       else if (params[0] === 'first-face') {
-        return new ExtrudeToFace('first-face');
+        return new ExtrudeToFace('first-face', extrudable);
       }
       else if (params[0] === 'last-face') {
-        return new ExtrudeToFace('last-face');
+        return new ExtrudeToFace('last-face', extrudable);
       }
       else if (params[0] instanceof SceneObject) {
-        return new ExtrudeToFace(params[0] as SelectSceneObject);
+        return new ExtrudeToFace(params[0] as SelectSceneObject, extrudable);
       }
       else {
         throw new Error("Invalid parameter for extrude function.");
@@ -41,10 +47,10 @@ function build(context: SceneParserContext): ExtrudeFunction {
     }
     else if (params.length === 2) {
       if (typeof params[0] === 'number' && typeof params[1] === 'number') {
-        return new ExtrudeTwoDistances(params[0], params[1]);
+        return new ExtrudeTwoDistances(params[0], params[1], extrudable);
       }
       else if (typeof params[0] === 'number' && typeof params[1] === 'boolean') {
-        return new ExtrudeSymmetric(params[0]);
+        return new ExtrudeSymmetric(params[0], extrudable);
       }
     }
 
@@ -53,13 +59,16 @@ function build(context: SceneParserContext): ExtrudeFunction {
 
   //@ts-ignore
   return function extrude() {
-    const result = doExtrude([...arguments]);
+    const args = [...arguments];
 
-    const lastExtrudable = context.getLastExtrudable();
-    if (lastExtrudable) {
-      result.target(lastExtrudable);
+    let extrudable: Extrudable | undefined;
+    if (args.length > 0 && isExtrudable(args[args.length - 1])) {
+      extrudable = args.pop() as Extrudable;
+    } else {
+      extrudable = context.getLastExtrudable() || undefined;
     }
 
+    const result = doExtrude(args, extrudable);
     context.addSceneObject(result);
     return result;
   } as ExtrudeFunction;

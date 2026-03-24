@@ -37,8 +37,7 @@ function build(context: SceneParserContext): TranslateFunction {
       if (first.length === 0 || typeof first[0] !== 'number') {
         const objects = first as SceneObject[];
         const normalizedDistance = normalizePoint(args[1]);
-        const translate = new Translate(normalizedDistance, copy);
-        translate.target(...objects);
+        const translate = new Translate(normalizedDistance, copy, ...objects);
         context.addSceneObject(translate);
         return translate;
       }

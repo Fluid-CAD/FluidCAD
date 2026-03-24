@@ -11,13 +11,9 @@ import { FaceMaker } from "../core/2d/face-maker.js";
 export class Fuse2D extends GeometrySceneObject {
   private _targetObjects: GeometrySceneObject[] | null = null;
 
-  constructor() {
+  constructor(...targets: GeometrySceneObject[]) {
     super();
-  }
-
-  target(...objects: GeometrySceneObject[]): this {
-    this._targetObjects = objects;
-    return this;
+    this._targetObjects = targets.length > 0 ? targets : null;
   }
 
   get targetObjects(): GeometrySceneObject[] | null {
@@ -55,11 +51,10 @@ export class Fuse2D extends GeometrySceneObject {
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const copy = new Fuse2D();
-    if (this._targetObjects) {
-      copy.target(...this._targetObjects.map(t => (remap.get(t) as GeometrySceneObject) || t));
-    }
-    return copy;
+    const targets = this._targetObjects
+      ? this._targetObjects.map(t => (remap.get(t) as GeometrySceneObject) || t)
+      : [];
+    return new Fuse2D(...targets);
   }
 
   compareTo(other: Fuse2D): boolean {

@@ -11,13 +11,9 @@ export abstract class ExtrudeBase extends SceneObject {
   protected _fusionScope?: FusionScope = 'all';
   protected _drill?: boolean = true;
 
-  constructor() {
+  constructor(extrudable?: Extrudable) {
     super();
-  }
-
-  target(extrudable: Extrudable): this {
-    this._extrudable = extrudable;
-    return this;
+    this._extrudable = extrudable ?? null;
   }
 
   get extrudable(): Extrudable {

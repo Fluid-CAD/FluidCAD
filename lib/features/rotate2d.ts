@@ -11,13 +11,10 @@ export class Rotate2D extends GeometrySceneObject {
 
   constructor(
     public angle: number,
-    private copy: boolean = false) {
+    private copy: boolean = false,
+    ...targets: SceneObject[]) {
     super();
-  }
-
-  target(...objects: SceneObject[]): this {
-    this._targetObjects = objects;
-    return this;
+    this._targetObjects = targets.length > 0 ? targets : null;
   }
 
   get targetObjects(): SceneObject[] | null {

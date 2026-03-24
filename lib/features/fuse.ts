@@ -6,13 +6,9 @@ import { ShapeOps } from "../oc/shape-ops.js";
 export class Fuse extends SceneObject {
   private _sceneObjects: SceneObject[] = [];
 
-  constructor() {
+  constructor(...objects: SceneObject[]) {
     super();
-  }
-
-  target(...objects: SceneObject[]): this {
     this._sceneObjects = objects;
-    return this;
   }
 
   get sceneObjects(): SceneObject[] {

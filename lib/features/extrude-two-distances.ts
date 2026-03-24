@@ -17,9 +17,10 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
 
   constructor(
     public distance1: number,
-    public distance2: number) {
+    public distance2: number,
+    extrudable?: Extrudable) {
 
-    super();
+    super(extrudable);
   }
 
   build(context: BuildSceneObjectContext) {
@@ -110,11 +111,10 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const copy = new ExtrudeTwoDistances(this.distance1, this.distance2).syncWith(this) as ExtrudeTwoDistances;
-    if (this.extrudable) {
-      copy.target((remap.get(this.extrudable) || this.extrudable) as Extrudable);
-    }
-    return copy;
+    const extrudable = this.extrudable
+      ? (remap.get(this.extrudable) || this.extrudable) as Extrudable
+      : undefined;
+    return new ExtrudeTwoDistances(this.distance1, this.distance2, extrudable).syncWith(this);
   }
 
   compareTo(other: ExtrudeTwoDistances): boolean {

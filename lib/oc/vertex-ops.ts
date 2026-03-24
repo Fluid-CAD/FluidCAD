@@ -37,6 +37,7 @@ export class VertexOps {
 
   static fromPointRaw(point: Point): TopoDS_Vertex {
     const oc = getOC();
+    console.log("Creating vertex from point:", point);
     const [pnt, disposePnt] = Convert.toGpPnt(point);
     const vertexMaker = new oc.BRepBuilderAPI_MakeVertex(pnt);
     const vertex = vertexMaker.Vertex() as TopoDS_Vertex;

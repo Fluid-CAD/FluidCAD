@@ -37,8 +37,8 @@ function build(context: SceneParserContext): LineFunction {
     }
     else if (argCount === 2) {
       const start = normalizePoint2D(arguments[0]);
-      const vertex = normalizePoint2D(arguments[1]);
-      line = new LineTo(vertex, planeObj);
+      const end = normalizePoint2D(arguments[1]);
+      line = new LineTo(end, planeObj);
       context.addSceneObjects([new Move(start), line]);
     }
     else {

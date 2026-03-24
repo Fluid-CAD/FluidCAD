@@ -15,6 +15,8 @@ export class LineTo extends GeometrySceneObject {
 
     const targetPoint = this.endPoint.asPoint2D();
 
+    console.log('Building LineTo to', targetPoint);
+
     const currentPos = this.targetPlane
       ? plane.worldToLocal(this.targetPlane.getPlaneCenter())
       : this.getCurrentPosition();

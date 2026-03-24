@@ -29,15 +29,8 @@ export class OneObjectTangentLine extends GeometrySceneObject {
       },
       this.object.toQualifiedShape()
     );
+
     this.applyEdgeResults(plane, edges);
-  }
-
-  start(index: number = 0): LazyVertex {
-    return new LazyVertex(this.generateUniqueName(`start-vertex-${index}`), () => [this.getState('start')]);
-  }
-
-  end(index: number = 0): LazyVertex {
-    return new LazyVertex(this.generateUniqueName(`end-vertex-${index}`), () => [this.getState('end')]);
   }
 
   compareTo(other: OneObjectTangentLine): boolean {

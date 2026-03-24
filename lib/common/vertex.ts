@@ -41,6 +41,7 @@ export class Vertex extends Shape<TopoDS_Vertex> {
   }
 
   static fromPoint2D(point: Point2D): Vertex {
+    console.log("Creating vertex from point2D:", point);
     return Vertex.fromPoint(new Point(point.x, point.y, 0));
   }
 

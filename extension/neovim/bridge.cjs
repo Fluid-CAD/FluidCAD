@@ -12,7 +12,12 @@ if (!workspacePath) {
   process.exit(1);
 }
 
-const serverEntry = path.resolve(__dirname, '..', '..', 'server', 'src', 'index.ts');
+let serverEntry;
+try {
+  serverEntry = require.resolve('fluidcad/server');
+} catch {
+  serverEntry = path.resolve(__dirname, '..', '..', 'server', 'src', 'index.ts');
+}
 
 function findFreePort(start) {
   return new Promise((resolve, reject) => {
@@ -30,6 +35,9 @@ function findFreePort(start) {
   });
 }
 
+const isTs = serverEntry.endsWith('.ts');
+const execArgv = isTs ? ['--experimental-transform-types', '--no-warnings'] : [];
+
 findFreePort(3100).then((port) => {
 
 const server = fork(serverEntry, [], {
@@ -38,7 +46,7 @@ const server = fork(serverEntry, [], {
     FLUIDCAD_SERVER_PORT: String(port),
     FLUIDCAD_WORKSPACE_PATH: path.resolve(workspacePath),
   },
-  execArgv: ['--experimental-transform-types', '--no-warnings'],
+  execArgv,
   stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
 });
 

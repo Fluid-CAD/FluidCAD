@@ -161,11 +161,19 @@ export class Client {
   }
 
   private async spawnServer(workspacePath: string): Promise<void> {
-    const serverEntry = join(this.context.extensionUri.fsPath, '..', '..', 'server', 'src', 'index.ts');
+    let serverEntry: string;
+    try {
+      serverEntry = require.resolve('fluidcad/server');
+    } catch {
+      serverEntry = join(this.context.extensionUri.fsPath, '..', '..', 'server', 'src', 'index.ts');
+    }
 
     const port = 3100 + Math.floor(Math.random() * 900);
 
     this.logger.appendLine(`Spawning server on port ${port}: ${serverEntry}`);
+
+    const isTs = serverEntry.endsWith('.ts');
+    const execArgv = isTs ? ['--experimental-transform-types', '--no-warnings'] : [];
 
     this.serverProcess = fork(serverEntry, [], {
       env: {
@@ -173,7 +181,7 @@ export class Client {
         FLUIDCAD_SERVER_PORT: String(port),
         FLUIDCAD_WORKSPACE_PATH: workspacePath,
       },
-      execArgv: ['--experimental-transform-types', '--no-warnings'],
+      execArgv,
       stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
     });
 

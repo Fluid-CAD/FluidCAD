@@ -4,7 +4,7 @@ import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { FluidCadServer } from './fluidcad-server.ts';
 import type { ServerToUIMessage } from './ws-protocol.ts';
-import { getMaterials } from '../../lib/common/materials.ts';
+import { getMaterials } from '../../lib/dist/common/materials.js';
 
 const PORT = parseInt(process.env.FLUIDCAD_SERVER_PORT || '3100', 10);
 const WORKSPACE_PATH = process.env.FLUIDCAD_WORKSPACE_PATH || '';

@@ -3,21 +3,32 @@
   "version": "0.0.1",
   "description": "FluidCAD core library",
   "author": "Marwan Aouida",
-  "private": true,
   "type": "module",
   "workspaces": [
     "extension/vscode"
+  ],
+  "bin": {
+    "fluidcad": "./bin/fluidcad.js"
+  },
+  "files": [
+    "lib/dist/",
+    "server/dist/",
+    "ui/dist/",
+    "bin/"
   ],
   "exports": {
     ".": "./lib/dist/index.js",
     "./core": "./lib/dist/core/index.js",
     "./filters": "./lib/dist/filters/index.js",
-    "./constraints": "./lib/dist/features/2d/constraints/geometry-qualifier.js"
+    "./constraints": "./lib/dist/features/2d/constraints/geometry-qualifier.js",
+    "./server": "./server/dist/index.js"
   },
   "scripts": {
     "build:lib": "tsc -p lib/tsconfig.json",
+    "build:server": "tsc -p server/tsconfig.json",
     "build:ui": "vite build --config ui/vite.config.ts",
-    "build": "npm run build:lib && npm run build:ui",
+    "build": "npm run build:lib && npm run build:server && npm run build:ui",
+    "prepublishOnly": "npm run build",
     "dev:lib": "tsc -p lib/tsconfig.json --watch",
     "dev:server": "node --experimental-transform-types --no-warnings server/src/index.ts",
     "dev:ui": "vite --config ui/vite.config.ts",
@@ -32,6 +43,7 @@
     "camera-controls": "^3.1.2",
     "daisyui": "^5.5.19",
     "lodash": "^4.17.21",
+    "occjs-wrapper": "^2.0.0-beta.b5ff984-20",
     "tailwindcss": "^4.2.2",
     "three": "^0.180.0",
     "three-viewport-gizmo": "^2.2.0",

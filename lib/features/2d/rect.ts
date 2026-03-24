@@ -1,6 +1,5 @@
 import { Point2D } from "../../math/point.js";
 import { Sketch } from "./sketch.js";
-import { WireOps } from "../../oc/wire-ops.js";
 import { Geometry } from "../../oc/geometry.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
@@ -52,9 +51,7 @@ export class Rect extends ExtrudableGeometryBase {
       edges = this.buildSimpleRect(start, plane);
     }
 
-    let wire = WireOps.makeWireFromEdges(edges);
-
-    this.addShape(wire);
+    this.addShapes(edges);
     if (this.sketch) {
       this.setCurrentPosition(end);
     }

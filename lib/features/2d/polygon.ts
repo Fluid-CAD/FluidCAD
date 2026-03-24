@@ -1,6 +1,5 @@
 import { Point2D } from "../../math/point.js";
 import { Sketch } from "./sketch.js";
-import { WireOps } from "../../oc/wire-ops.js";
 import { Geometry } from "../../oc/geometry.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
@@ -60,18 +59,20 @@ export class Polygon extends ExtrudableGeometryBase {
       this.setState(`edge-${i}`, edge);
     }
 
-    const wire = WireOps.makeWireFromEdges(edges);
-
-    this.addShape(wire);
+    this.addShapes(edges);
 
     const baseCircle = Geometry.makeCircle(plane.localToWorld(center), this.radius, plane.normal);
     const baseCircleEdge = Geometry.makeEdgeFromCircle(baseCircle);
     baseCircleEdge.markAsMetaShape();
     this.addShape(baseCircleEdge);
 
-    if (this.sketch) this.setCurrentPosition(center);
+    if (this.sketch) {
+      this.setCurrentPosition(center);
+    }
 
-    if (this.targetPlane) this.targetPlane.removeShapes(this);
+    if (this.targetPlane) {
+      this.targetPlane.removeShapes(this);
+    }
   }
 
   override getDependencies(): SceneObject[] {

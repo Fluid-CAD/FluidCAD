@@ -39,6 +39,7 @@ export class Viewer {
   private faceHighlightMeshes: Mesh[] = [];
   private hasRendered = false;
   private lastFitBox: Box3 | null = null;
+  isTrimming = false;
   private fileNamePill: HTMLDivElement;
   private selectionHandler: ((shapeId: string | null, sub: SubSelection) => void) | null = null;
   private pickTarget: WebGLRenderTarget | null = null;
@@ -380,7 +381,9 @@ export class Viewer {
       const activeObject = this.findActiveObject(sceneObjects);
 
       if (activeObject?.type === 'sketch' && activeObject.object?.plane) {
-        this.modeManager.enterSketchMode(activeObject.object.plane);
+        if (!this.isTrimming || !this.modeManager.isSketchMode) {
+          this.modeManager.enterSketchMode(activeObject.object.plane);
+        }
         this.settingsPanel.setProjectionLocked(true);
         this.settingsPanel.setFitButtonVisible(false);
       } else {
@@ -394,8 +397,8 @@ export class Viewer {
     const mesh = buildSceneMesh(sceneObjects, this.modeManager.isSketchMode, this.ctx.camera);
     this.ctx.scene.add(mesh);
 
-    // Auto-fit on first render or in sketch mode (skip if viewport barely changed)
-    if (!this.hasRendered || (this.modeManager.isSketchMode && !isRollback)) {
+    // Auto-fit on first render or in sketch mode (skip if viewport barely changed or trimming)
+    if (!this.hasRendered || (this.modeManager.isSketchMode && !isRollback && !this.isTrimming)) {
       const box = new Box3();
       expandBoxExcludingMeta(box, mesh);
       if (!box.isEmpty() && !this.isBoxContained(box)) {

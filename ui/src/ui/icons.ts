@@ -1,13 +1,13 @@
-import iconArrowsMaximize from '@tabler/icons/outline/arrows-maximize.svg?raw';
-import iconBox from '@tabler/icons/outline/box.svg?raw';
+import iconAutoFit from '@tabler/icons/outline/arrow-autofit-content.svg?raw';
+import iconOrthographic from '@tabler/icons/outline/perspective-off.svg?raw';
 import iconPerspective from '@tabler/icons/outline/perspective.svg?raw';
-import iconGrid3x3 from '@tabler/icons/outline/grid-3x3.svg?raw';
+import iconGrid from '@tabler/icons/outline/grid-4x4.svg?raw';
 import iconScale from '@tabler/icons/outline/scale.svg?raw';
 import iconScissors from '@tabler/icons/outline/scissors.svg?raw';
 
-export const ICON_FIT = iconArrowsMaximize;
-export const ICON_ORTHO = iconBox;
+export const ICON_FIT = iconAutoFit;
+export const ICON_ORTHO = iconOrthographic;
 export const ICON_PERSP = iconPerspective;
-export const ICON_GRID = iconGrid3x3;
+export const ICON_GRID = iconGrid;
 export const ICON_SCALE = iconScale;
 export const ICON_SCISSORS = iconScissors;

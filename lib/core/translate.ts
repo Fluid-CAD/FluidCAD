@@ -1,7 +1,7 @@
 import { registerBuilder, SceneParserContext } from "../index.js";
-import { normalizePoint, normalizePoint2D } from "../helpers/normalize.js";
+import { normalizePoint } from "../helpers/normalize.js";
 import { Translate } from "../features/translate.js";
-import { Point, Point2DLike, PointLike, isPoint2DLike } from "../math/point.js";
+import { Point, PointLike } from "../math/point.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Vertex } from "../common/vertex.js";
 import { LazyVertex } from "../features/lazy-vertex.js";

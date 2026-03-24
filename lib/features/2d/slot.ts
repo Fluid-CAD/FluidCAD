@@ -1,6 +1,5 @@
 import { Point2D } from "../../math/point.js";
 import { Sketch } from "./sketch.js";
-import { WireOps } from "../../oc/wire-ops.js";
 import { Geometry } from "../../oc/geometry.js";
 import { Edge } from "../../common/edge.js";
 import { SceneObject } from "../../common/scene-object.js";
@@ -123,8 +122,7 @@ export class Slot extends ExtrudableGeometryBase {
       Geometry.makeEdgeFromCurve(leftArc),
     ];
 
-    const wire = WireOps.makeWireFromEdges(edges);
-    this.addShape(wire);
+    this.addShapes(edges);
 
     if (this.sketch) {
       if (this._center) {
@@ -134,7 +132,9 @@ export class Slot extends ExtrudableGeometryBase {
       }
     }
 
-    if (this.targetPlane) this.targetPlane.removeShapes(this);
+    if (this.targetPlane) {
+      this.targetPlane.removeShapes(this);
+    }
   }
 
   getType(): string {

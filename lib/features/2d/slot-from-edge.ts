@@ -27,7 +27,7 @@ export class SlotFromEdge extends ExtrudableGeometryBase {
     for (const shape of shapes) {
       if (shape.isEdge() || shape.isWire()) {
         const wire = WireOps.offsetWire(shape as (Wire | Edge), this.radius, false);
-        this.addShape(wire);
+        this.addShapes(wire.getEdges());
       }
     }
 

@@ -3,6 +3,7 @@ import { Wire } from "../common/wire.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
 import { FilletOps } from "../oc/fillet-ops.js";
 import { Edge } from "../common/edge.js";
+import { WireOps } from "../oc/wire-ops.js";
 
 export class Fillet2D extends GeometrySceneObject {
   private _targetObjects: GeometrySceneObject[] | null = null;
@@ -21,34 +22,55 @@ export class Fillet2D extends GeometrySceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
-    let wires: Map<Wire | Edge, SceneObject> = new Map<Wire, SceneObject>();
+    let edges: Map<Edge, SceneObject> = new Map<Wire, SceneObject>();
 
     if (this.targetObjects === null) {
-      wires = this.sketch.getGeometriesWithOwner();
+      edges = this.sketch.getEdgesWithOwner();
     }
     else {
       for (const obj of this.targetObjects) {
         const wireShapes = obj.getShapes();
         for (const shape of wireShapes) {
-          if (shape instanceof Wire) {
-            wires.set(shape, obj);
+          if (shape instanceof Edge) {
+            edges.set(shape, obj);
+          }
+          else if (shape instanceof Wire) {
+            for (const edge of shape.getEdges()) {
+              edges.set(edge, obj);
+            }
           }
         }
       }
     }
 
-    const result: Wire[] = [];
+    const allEdges = Array.from(edges.keys());
 
-    console.log("Fillet2D::build wires:", wires.size);
-    for (const [wire, owner] of wires) {
-      const filletedWire = FilletOps.fillet2d(wire, this.sketch.getPlane(), this.radius);
-      result.push(filletedWire);
-      owner.removeShape(wire, this)
+    const wires: {
+      wire: Wire,
+      edges: Map<Edge, SceneObject>,
+    }[] = [];
+
+    const groups = WireOps.groupConnectedEdges(allEdges);
+    for (const group of groups) {
+      const wire = WireOps.makeWireFromEdges(group);
+      wires.push({
+        wire,
+        edges: new Map(group.map(edge => [edge, edges.get(edge)]))
+      });
     }
 
-    console.log("Fillet2D::build result wires:", result.length);
+    for (const wireInfo of wires) {
+      const filletedWire = FilletOps.fillet2d(wireInfo.wire, this.sketch.getPlane(), this.radius);
+      const edges = filletedWire.getEdges();
 
-    this.addShapes(result);
+      for (const edge of edges) {
+        this.addShape(edge);
+      }
+
+      for (const [edge, owner] of wireInfo.edges) {
+        owner.removeShape(edge, this);
+      }
+    }
   }
 
   override getDependencies(): SceneObject[] {

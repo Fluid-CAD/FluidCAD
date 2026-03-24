@@ -18,29 +18,26 @@ export class Projection extends ExtrudableGeometryBase {
     const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
     const shapes = this.sourceObjects.flatMap(obj => obj.getShapes());
     const transform = context?.getTransform() ?? null;
-    let projection: Wire[] = [];
     for (let shape of shapes) {
       if (transform) {
         shape = ShapeOps.transform(shape, transform);
       }
 
+      let wires: Wire[] = [];
       if (shape instanceof Face) {
-        const wires = ProjectionOps.projectFaceOntoPlane(plane, shape as Face);
-        projection.push(...wires);
+        wires = ProjectionOps.projectFaceOntoPlane(plane, shape as Face);
       }
       else if (shape instanceof Wire) {
         const firstEdge = shape.getEdges()[0];
-        const wires = ProjectionOps.projectEdgeOntoPlane(plane, firstEdge);
-        projection.push(...wires);
+        wires = ProjectionOps.projectEdgeOntoPlane(plane, firstEdge);
       }
       else if (shape instanceof Edge) {
-        const wires = ProjectionOps.projectEdgeOntoPlane(plane, shape);
-        projection.push(...wires);
+        wires = ProjectionOps.projectEdgeOntoPlane(plane, shape);
       }
-    }
 
-    for (const wire of projection) {
-      this.addShape(wire);
+      for (const wire of wires) {
+        this.addShapes(wire.getEdges());
+      }
     }
 
     for (const obj of this.sourceObjects) {

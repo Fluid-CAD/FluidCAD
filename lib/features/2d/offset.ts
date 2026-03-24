@@ -17,17 +17,22 @@ export class Offset extends ExtrudableGeometryBase {
   }
 
   build() {
-    let sourceObjects: Map<Wire | Edge, SceneObject>;
+    let sourceObjects: Map<Edge, SceneObject>;
     if (this.sketch) {
-      sourceObjects = this.sketch.getGeometriesWithOwner();
+      sourceObjects = this.sketch.getEdgesWithOwner();
     }
     else {
-      sourceObjects = new Map<Wire | Edge, SceneObject>();
+      sourceObjects = new Map<Edge, SceneObject>();
       for (const obj of this.sourceGeometries) {
         const shapes = obj.getShapes();
         for (const shape of shapes) {
-          if (shape instanceof Wire || shape instanceof Edge) {
+          if (shape instanceof Edge) {
             sourceObjects.set(shape, obj);
+          }
+          else if (shape instanceof Wire) {
+            for (const edge of shape.getEdges()) {
+              sourceObjects.set(edge, obj);
+            }
           }
         }
       }
@@ -35,14 +40,34 @@ export class Offset extends ExtrudableGeometryBase {
       this.targetPlane.removeShapes(this);
     }
 
-    for (const [wire, owner] of sourceObjects) {
-      const isOpen = !wire.isClosed()
-      const offsetWire = WireOps.offsetWire(wire, this.distance, isOpen);
+    const allEdges = Array.from(sourceObjects.keys());
+    const wires: {
+      wire: Wire,
+      edges: Map<Edge, SceneObject>,
+    }[] = [];
 
-      this.addShape(offsetWire);
+    const groups = WireOps.groupConnectedEdges(allEdges);
+    for (const group of groups) {
+      const wire = WireOps.makeWireFromEdges(group);
+      wires.push({
+        wire,
+        edges: new Map(group.map(edge => [edge, sourceObjects.get(edge)]))
+      });
+    }
 
-      if (this.removeOriginal && owner) {
-        owner.removeShape(wire, this);
+    for (const wireInfo of wires) {
+      const isOpen = !wireInfo.wire.isClosed()
+      const offsetWire = WireOps.offsetWire(wireInfo.wire, this.distance, isOpen);
+      const edges = offsetWire.getEdges();
+
+      for (const edge of edges) {
+        this.addShape(edge);
+      }
+
+      if (this.removeOriginal) {
+        for (const [edge, owner] of wireInfo.edges) {
+          owner.removeShape(edge, this);
+        }
       }
     }
   }

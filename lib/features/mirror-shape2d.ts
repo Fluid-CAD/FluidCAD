@@ -9,6 +9,7 @@ import { AxisObjectBase } from "./axis-renderable-base.js";
 import { Edge } from "../common/edge.js";
 import { Wire } from "../common/wire.js";
 import { LazyVertex } from "./lazy-vertex.js";
+import { Vertex } from "../common/vertex.js";
 
 export class MirrorShape2D extends GeometrySceneObject {
 
@@ -56,7 +57,7 @@ export class MirrorShape2D extends GeometrySceneObject {
       const start = firstShape.getFirstVertex();
       if (start) {
         const localStart = plane.worldToLocal(start.toPoint());
-        this.setState('start', localStart);
+        this.setState('start', Vertex.fromPoint2D(localStart));
       }
     }
 
@@ -64,7 +65,7 @@ export class MirrorShape2D extends GeometrySceneObject {
       const end = lastShape.getLastVertex();
       if (end) {
         const localEnd = plane.worldToLocal(end.toPoint());
-        this.setState('end', localEnd);
+        this.setState('end', Vertex.fromPoint2D(localEnd));
       }
     }
 

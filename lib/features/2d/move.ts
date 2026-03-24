@@ -13,6 +13,7 @@ export class Move extends GeometrySceneObject {
 
   build() {
     const point = this.targetPosition.asPoint2D();
+    console.log('Building Move to', point);
     this.setCurrentPosition(point);
   }
 

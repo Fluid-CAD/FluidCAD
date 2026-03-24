@@ -1,21 +1,16 @@
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { normalizePoint, normalizePoint2D } from "../helpers/normalize.js";
 import { Translate } from "../features/translate.js";
-import { Translate2D } from "../features/translate2d.js";
 import { Point, Point2DLike, PointLike, isPoint2DLike } from "../math/point.js";
-import { PlaneLike } from "../math/plane.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Vertex } from "../common/vertex.js";
 import { LazyVertex } from "../features/lazy-vertex.js";
-import { resolvePlane } from "../helpers/resolve.js";
 
 interface TranslateFunction {
   (x: number, copy?: boolean): Translate;
   (x: number, y: number, copy?: boolean): Translate;
   (x: number, y: number, z: number, copy?: boolean): Translate;
-  (distance: Point2DLike, plane: PlaneLike | SceneObject): Translate2D;
   (distance: PointLike, copy?: boolean): Translate;
-  (objects: SceneObject[], distance: Point2DLike, plane: PlaneLike | SceneObject): Translate2D;
   (objects: SceneObject[], distance: PointLike, copy?: boolean): Translate;
 }
 
@@ -41,29 +36,12 @@ function build(context: SceneParserContext): TranslateFunction {
       const first = args[0];
       if (first.length === 0 || typeof first[0] !== 'number') {
         const objects = first as SceneObject[];
-        if (isPoint2DLike(args[1]) && args.length === 3) {
-          const point2D = normalizePoint2D(args[1]);
-          const plane = resolvePlane(args[2], context);
-          const translate = new Translate2D(point2D, plane);
-          translate.target(...objects);
-          context.addSceneObject(translate);
-          return translate;
-        }
         const normalizedDistance = normalizePoint(args[1]);
         const translate = new Translate(normalizedDistance, copy);
         translate.target(...objects);
         context.addSceneObject(translate);
         return translate;
       }
-    }
-
-    // translate(distance, plane)
-    if (args.length === 2 && isPoint2DLike(args[0])) {
-      const point2D = normalizePoint2D(args[0]);
-      const plane = resolvePlane(args[1], context);
-      const translate = new Translate2D(point2D, plane);
-      context.addSceneObject(translate);
-      return translate;
     }
 
     // translate(distance: PointLike)

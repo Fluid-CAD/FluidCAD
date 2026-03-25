@@ -1,7 +1,8 @@
 import { Plane } from "../math/plane.js";
 import { SceneObject } from "../common/scene-object.js";
+import { IPlane } from "../core/interfaces.js";
 
-export abstract class PlaneObjectBase extends SceneObject {
+export abstract class PlaneObjectBase extends SceneObject implements IPlane {
 
   constructor() {
     super();

@@ -1,8 +1,9 @@
 import { PolarMove } from "../../features/2d/pmove.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
+import { IGeometry } from "../interfaces.js";
 
 interface PolarMoveFunction {
-  (radius: number, angle: number): PolarMove;
+  (radius: number, angle: number): IGeometry;
 }
 
 function build(context: SceneParserContext): PolarMoveFunction {

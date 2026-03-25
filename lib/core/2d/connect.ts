@@ -1,8 +1,9 @@
 import { Connect, ConnectMode } from "../../features/2d/connect.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
+import { IGeometry } from "../interfaces.js";
 
 interface ConnectFunction {
-  (mode?: ConnectMode): Connect;
+  (mode?: ConnectMode): IGeometry;
 }
 
 function build(context: SceneParserContext): ConnectFunction {

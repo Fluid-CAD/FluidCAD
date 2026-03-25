@@ -8,11 +8,12 @@ import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
+import { IRect, ISceneObject } from "../interfaces.js";
 
 interface RectFunction {
-  (width: number, height?: number): Rect;
-  (start: Point2DLike, width: number, height?: number): Rect;
-  (width: number, height: number, targetPlane: PlaneLike | SceneObject): Rect;
+  (width: number, height?: number): IRect;
+  (start: Point2DLike, width: number, height?: number): IRect;
+  (width: number, height: number, targetPlane: PlaneLike | ISceneObject): IRect;
 }
 
 function build(context: SceneParserContext): RectFunction {

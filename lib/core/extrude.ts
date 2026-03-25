@@ -7,13 +7,14 @@ import { ExtrudeSymmetric } from "../features/extrude-symmetric.js";
 import { SelectSceneObject } from "../features/select.js";
 import { ExtrudeBase } from "../features/extrude-base.js";
 import { Extrudable } from "../helpers/types.js";
+import { IExtrude, ISceneObject } from "./interfaces.js";
 
 interface ExtrudeFunction {
-  (target?: Extrudable): Extrude;
-  (distance: number, target?: Extrudable): Extrude;
-  (distance1: number, distance2: number, target?: Extrudable): ExtrudeTwoDistances;
-  (distance: number, symmetric: true, target?: Extrudable): ExtrudeSymmetric;
-  (face: SceneObject | 'first-face' | 'last-face', target?: Extrudable): ExtrudeToFace;
+  (target?: ISceneObject): IExtrude;
+  (distance: number, target?: ISceneObject): IExtrude;
+  (distance1: number, distance2: number, target?: ISceneObject): IExtrude;
+  (distance: number, symmetric: true, target?: ISceneObject): IExtrude;
+  (face: ISceneObject | 'first-face' | 'last-face', target?: ISceneObject): IExtrude;
 }
 
 function isExtrudable(obj: any): obj is Extrudable {

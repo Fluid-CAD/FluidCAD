@@ -1,19 +1,13 @@
-import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
-import { ExtrudeThroughAll } from "./infinite-extrude.js";
-import { Shape, Solid } from "../common/shapes.js";
+import { SceneObject } from "../common/scene-object.js";
 import { ExtrudeOptions, FusionScope } from "./extrude-options.js";
-import { Sketch } from "./2d/sketch.js";
-import { FaceMaker } from "../core/2d/face-maker.js";
-import { Extruder } from "./simple-extruder.js";
-import { BooleanOps } from "../oc/boolean-ops.js";
-import { ShapeOps } from "../oc/shape-ops.js";
 import { Extrudable } from "../helpers/types.js";
 import { LazySceneObject } from "./lazy-scene-object.js";
 import { Edge } from "../common/edge.js";
+import { ICut } from "../core/interfaces.js";
 
 export interface CutOptions extends ExtrudeOptions { }
 
-export abstract class CutBase extends SceneObject {
+export abstract class CutBase extends SceneObject implements ICut {
   protected _extrudable: Extrudable | null = null;
   protected _draft?: number | [number, number];
   protected _endOffset?: number;
@@ -88,6 +82,16 @@ export abstract class CutBase extends SceneObject {
     }
 
     return true;
+  }
+
+  internalEdges(...indices: number[]): SceneObject {
+    const suffix = indices.length > 0 ? `internal-edges-${indices.join('-')}` : 'internal-edges';
+    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+      () => {
+        const edges = this.getState('internal-edges') as Edge[] || [];
+        if (indices.length === 0) { return edges; }
+        return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
+      });
   }
 
   getType(): string {

@@ -3,6 +3,7 @@ import { LazyVertex } from "../lazy-vertex.js";
 import { Vertex } from "../../common/vertex.js";
 import { QualifiedSceneObject } from "./constraints/qualified-geometry.js";
 import { createConstraintSolver } from "../../oc/constraints/create-solver.js";
+import { ITwoObjectsTangentLine } from "../../core/interfaces.js";
 
 export class OneObjectTangentLine extends GeometrySceneObject {
   constructor(public object: QualifiedSceneObject, public mustTouch: boolean) {
@@ -54,7 +55,7 @@ export class OneObjectTangentLine extends GeometrySceneObject {
   }
 }
 
-export class TwoObjectsTangentLine extends GeometrySceneObject {
+export class TwoObjectsTangentLine extends GeometrySceneObject implements ITwoObjectsTangentLine {
   constructor(public object1: QualifiedSceneObject, public object2: QualifiedSceneObject, public mustTouch: boolean) {
     super();
   }

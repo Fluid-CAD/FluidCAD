@@ -5,12 +5,13 @@ import { RevolveOptions } from "../features/revolve-options.js";
 import { resolveAxis } from "../helpers/resolve.js";
 import { Extrudable } from "../helpers/types.js";
 import { SceneObject } from "../common/scene-object.js";
+import { ISceneObject } from "./interfaces.js";
 
 interface RevolveFunction {
-  (axisLike: AxisLike, target?: Extrudable): Revolve;
-  (axisLike: AxisLike, angle: number, target?: Extrudable): Revolve;
-  (axisLike: AxisLike, angle: number, options: RevolveOptions, target?: Extrudable): Revolve;
-  (axisLike: AxisLike, options: RevolveOptions, target?: Extrudable): Revolve;
+  (axisLike: AxisLike, target?: ISceneObject): ISceneObject;
+  (axisLike: AxisLike, angle: number, target?: ISceneObject): ISceneObject;
+  (axisLike: AxisLike, angle: number, options: RevolveOptions, target?: ISceneObject): ISceneObject;
+  (axisLike: AxisLike, options: RevolveOptions, target?: ISceneObject): ISceneObject;
 }
 
 function isExtrudable(obj: any): obj is Extrudable {

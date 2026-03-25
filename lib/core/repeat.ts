@@ -7,14 +7,15 @@ import { rad } from "../helpers/math-helpers.js";
 import { LinearRepeatOptions, RepeatLinear } from "../features/repeat-linear.js";
 import { CircularRepeatOptions, RepeatCircular } from "../features/repeat-circular.js";
 import { cloneWithTransform } from "../helpers/clone-transform.js";
+import { ISceneObject } from "./interfaces.js";
 
 export type RepeatType = 'linear' | 'circular';
 
 interface RepeatFunction {
-  (type: 'linear', axis: AxisLike, options: LinearRepeatOptions, ...objects: SceneObject[]): RepeatLinear;
-  (type: 'linear', axis: AxisLike[], options: LinearRepeatOptions, ...objects: SceneObject[]): RepeatLinear;
+  (type: 'linear', axis: AxisLike, options: LinearRepeatOptions, ...objects: ISceneObject[]): ISceneObject;
+  (type: 'linear', axis: AxisLike[], options: LinearRepeatOptions, ...objects: ISceneObject[]): ISceneObject;
 
-  (type: 'circular', axis: AxisLike, options: CircularRepeatOptions, ...objects: SceneObject[]): RepeatCircular;
+  (type: 'circular', axis: AxisLike, options: CircularRepeatOptions, ...objects: ISceneObject[]): ISceneObject;
 }
 
 function build(context: SceneParserContext): RepeatFunction {

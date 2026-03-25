@@ -6,15 +6,16 @@ import { SceneObject } from "../common/scene-object.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisObject } from "../features/axis.js";
 import { Rotate2D } from "../features/rotate2d.js";
+import { ISceneObject } from "./interfaces.js";
 
 interface RotateFunction {
   // 2D rotation inside a sketch
-  (angle: number, ...targets: SceneObject[]): Rotate2D;
-  (angle: number, copy: boolean, ...targets: SceneObject[]): Rotate2D;
+  (angle: number, ...targets: ISceneObject[]): ISceneObject;
+  (angle: number, copy: boolean, ...targets: ISceneObject[]): ISceneObject;
 
   // 3D rotation
-  (axis: AxisLike, angle: number, ...targets: SceneObject[]): Rotate;
-  (axis: AxisLike, angle: number, copy: boolean, ...targets: SceneObject[]): Rotate;
+  (axis: AxisLike, angle: number, ...targets: ISceneObject[]): ISceneObject;
+  (axis: AxisLike, angle: number, copy: boolean, ...targets: ISceneObject[]): ISceneObject;
 }
 
 function build(context: SceneParserContext): RotateFunction {

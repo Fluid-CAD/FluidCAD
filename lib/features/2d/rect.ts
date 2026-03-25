@@ -8,9 +8,10 @@ import { LazyVertex } from "../lazy-vertex.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { Plane } from "../../math/plane.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
+import { IRect } from "../../core/interfaces.js";
 
 type CenteringOptions = boolean | 'horizontal' | 'vertical';
-export class Rect extends ExtrudableGeometryBase {
+export class Rect extends ExtrudableGeometryBase implements IRect {
   private _radius?: number | number[];
   private _center: CenteringOptions = false;
 

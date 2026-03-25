@@ -6,8 +6,9 @@ import { SceneObject } from "../../common/scene-object.js";
 import { rad } from "../../helpers/math-helpers.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
+import { ISlot } from "../../core/interfaces.js";
 
-export class Slot extends ExtrudableGeometryBase {
+export class Slot extends ExtrudableGeometryBase implements ISlot {
   private _center: boolean = false;
   private _angle: number = 0;
 

@@ -4,11 +4,12 @@ import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
+import { IGeometry, ISceneObject } from "../interfaces.js";
 
 interface ALineFunction {
-  (length: number, angle: number, centered?: boolean): AngledLine;
-  (length: number, angle: number, targetPlane: PlaneLike | SceneObject): AngledLine;
-  (length: number, angle: number, centered: boolean, targetPlane: PlaneLike | SceneObject): AngledLine;
+  (length: number, angle: number, centered?: boolean): IGeometry;
+  (length: number, angle: number, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  (length: number, angle: number, centered: boolean, targetPlane: PlaneLike | ISceneObject): IGeometry;
 }
 
 function build(context: SceneParserContext): ALineFunction {

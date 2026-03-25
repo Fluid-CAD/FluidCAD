@@ -5,10 +5,11 @@ import { LazyVertex } from "../lazy-vertex.js";
 import { Vertex } from "../../common/vertex.js";
 import { Edge } from "../../common/edge.js";
 import { Plane } from "../../math/plane.js";
+import { IGeometry } from "../../core/interfaces.js";
 
 export type GeometryOrientation = "cw" | "ccw";
 
-export abstract class GeometrySceneObject extends SceneObject {
+export abstract class GeometrySceneObject extends SceneObject implements IGeometry {
 
   constructor() {
     super();

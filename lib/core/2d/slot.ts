@@ -9,14 +9,15 @@ import { SceneObject } from "../../common/scene-object.js";
 import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { resolvePlane } from "../../helpers/resolve.js";
+import { ISlot, ISceneObject } from "../interfaces.js";
 
 interface SlotFunction {
-  (distance: number, radius: number): Slot;
-  (distance: number, radius: number, targetPlane: PlaneLike | SceneObject): Slot;
-  (start: Point2DLike, distance: number, radius: number): Slot;
-  (geometry: SceneObject, radius: number, deleteSource?: boolean): SlotFromEdge;
-  (geometry: SceneObject, radius: number, targetPlane: PlaneLike | SceneObject): SlotFromEdge;
-  (geometry: SceneObject, radius: number, deleteSource: boolean, targetPlane: PlaneLike | SceneObject): SlotFromEdge;
+  (distance: number, radius: number): ISlot;
+  (distance: number, radius: number, targetPlane: PlaneLike | ISceneObject): ISlot;
+  (start: Point2DLike, distance: number, radius: number): ISlot;
+  (geometry: ISceneObject, radius: number, deleteSource?: boolean): ISlot;
+  (geometry: ISceneObject, radius: number, targetPlane: PlaneLike | ISceneObject): ISlot;
+  (geometry: ISceneObject, radius: number, deleteSource: boolean, targetPlane: PlaneLike | ISceneObject): ISlot;
 }
 
 function build(context: SceneParserContext): SlotFunction {

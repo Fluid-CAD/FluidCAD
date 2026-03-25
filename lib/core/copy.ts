@@ -7,23 +7,24 @@ import { CopyLinear, LinearCopyOptions } from "../features/copy-linear.js";
 import { CopyCircular, CircularCopyOptions } from "../features/copy-circular.js";
 import { CopyLinear2D } from "../features/copy-linear2d.js";
 import { CopyCircular2D } from "../features/copy-circular2d.js";
+import { ISceneObject } from "./interfaces.js";
 
 export type CopyType = 'linear' | 'circular';
 
 interface CopyFunction {
   // 2D linear (inside sketch)
-  (type: 'linear', axis: AxisLike, options: LinearCopyOptions, ...objects: SceneObject[]): CopyLinear2D;
-  (type: 'linear', axis: AxisLike[], options: LinearCopyOptions, ...objects: SceneObject[]): CopyLinear2D;
+  (type: 'linear', axis: AxisLike, options: LinearCopyOptions, ...objects: ISceneObject[]): ISceneObject;
+  (type: 'linear', axis: AxisLike[], options: LinearCopyOptions, ...objects: ISceneObject[]): ISceneObject;
 
   // 3D linear
-  (type: 'linear', axis: AxisLike, options: LinearCopyOptions, ...objects: SceneObject[]): CopyLinear;
-  (type: 'linear', axis: AxisLike[], options: LinearCopyOptions, ...objects: SceneObject[]): CopyLinear;
+  (type: 'linear', axis: AxisLike, options: LinearCopyOptions, ...objects: ISceneObject[]): ISceneObject;
+  (type: 'linear', axis: AxisLike[], options: LinearCopyOptions, ...objects: ISceneObject[]): ISceneObject;
 
   // 2D circular (Point2DLike center, inside sketch)
-  (type: 'circular', center: Point2DLike, options: CircularCopyOptions, ...objects: SceneObject[]): CopyCircular2D;
+  (type: 'circular', center: Point2DLike, options: CircularCopyOptions, ...objects: ISceneObject[]): ISceneObject;
 
   // 3D circular
-  (type: 'circular', axis: AxisLike, options: CircularCopyOptions, ...objects: SceneObject[]): CopyCircular;
+  (type: 'circular', axis: AxisLike, options: CircularCopyOptions, ...objects: ISceneObject[]): ISceneObject;
 }
 
 function build(context: SceneParserContext): CopyFunction {

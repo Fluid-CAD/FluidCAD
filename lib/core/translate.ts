@@ -5,16 +5,17 @@ import { Point, PointLike } from "../math/point.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Vertex } from "../common/vertex.js";
 import { LazyVertex } from "../features/lazy-vertex.js";
+import { ISceneObject } from "./interfaces.js";
 
 interface TranslateFunction {
-  (x: number, ...targets: SceneObject[]): Translate;
-  (x: number, copy: boolean, ...targets: SceneObject[]): Translate;
-  (x: number, y: number, ...targets: SceneObject[]): Translate;
-  (x: number, y: number, copy: boolean, ...targets: SceneObject[]): Translate;
-  (x: number, y: number, z: number, ...targets: SceneObject[]): Translate;
-  (x: number, y: number, z: number, copy: boolean, ...targets: SceneObject[]): Translate;
-  (distance: PointLike, ...targets: SceneObject[]): Translate;
-  (distance: PointLike, copy: boolean, ...targets: SceneObject[]): Translate;
+  (x: number, ...targets: ISceneObject[]): ISceneObject;
+  (x: number, copy: boolean, ...targets: ISceneObject[]): ISceneObject;
+  (x: number, y: number, ...targets: ISceneObject[]): ISceneObject;
+  (x: number, y: number, copy: boolean, ...targets: ISceneObject[]): ISceneObject;
+  (x: number, y: number, z: number, ...targets: ISceneObject[]): ISceneObject;
+  (x: number, y: number, z: number, copy: boolean, ...targets: ISceneObject[]): ISceneObject;
+  (distance: PointLike, ...targets: ISceneObject[]): ISceneObject;
+  (distance: PointLike, copy: boolean, ...targets: ISceneObject[]): ISceneObject;
 }
 
 function build(context: SceneParserContext): TranslateFunction {

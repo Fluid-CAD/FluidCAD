@@ -1,8 +1,9 @@
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { LoadFile } from "../features/load.js";
+import { ISceneObject } from "./interfaces.js";
 
 interface LoadFunction {
-  (fileName: string): LoadFile;
+  (fileName: string): ISceneObject;
 }
 
 function build(context: SceneParserContext): LoadFunction {

@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { Shape, ShapeFilter } from "./shape.js";
 import { Matrix4 } from "../math/matrix4.js";
+import { ISceneObject } from "../core/interfaces.js";
 
 export type SourceLocation = {
   filePath: string;
@@ -24,7 +25,7 @@ export type BuildSceneObjectContext = {
   getLastObject(): SceneObject | null;
 }
 
-export abstract class SceneObject implements Comparable<SceneObject>, Serializable {
+export abstract class SceneObject implements Comparable<SceneObject>, Serializable, ISceneObject {
 
   private state: Map<string, any>;
   private children: SceneObject[] = [];

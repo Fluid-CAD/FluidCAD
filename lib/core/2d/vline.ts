@@ -7,12 +7,13 @@ import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
+import { IGeometry, ISceneObject } from "../interfaces.js";
 
 interface VLineFunction {
-  (distance: number, centered?: boolean): VerticalLine;
-  (start: Point2DLike, distance: number, centered?: boolean): VerticalLine;
-  (distance: number, targetPlane: PlaneLike | SceneObject): VerticalLine;
-  (distance: number, centered: boolean, targetPlane: PlaneLike | SceneObject): VerticalLine;
+  (distance: number, centered?: boolean): IGeometry;
+  (start: Point2DLike, distance: number, centered?: boolean): IGeometry;
+  (distance: number, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  (distance: number, centered: boolean, targetPlane: PlaneLike | ISceneObject): IGeometry;
 }
 
 function build(context: SceneParserContext): VLineFunction {

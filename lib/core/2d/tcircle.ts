@@ -5,9 +5,10 @@ import { TwoObjectsTangentCircle } from "../../features/2d/tcircle-constrained.j
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
 import { isPoint2DLike, Point2DLike } from "../../math/point.js";
+import { IGeometry, ISceneObject } from "../interfaces.js";
 
 interface TCircleFunction {
-  (c1: SceneObject | QualifiedSceneObject | Point2DLike, c2: SceneObject | QualifiedSceneObject | Point2DLike, radius: number, mustTouch?: boolean): TwoObjectsTangentCircle;
+  (c1: ISceneObject | QualifiedSceneObject | Point2DLike, c2: ISceneObject | QualifiedSceneObject | Point2DLike, radius: number, mustTouch?: boolean): IGeometry;
 }
 
 function build(context: SceneParserContext): TCircleFunction {

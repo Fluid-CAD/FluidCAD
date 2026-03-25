@@ -139,16 +139,6 @@ export class CutSymmetric extends CutBase {
       });
   }
 
-  internalEdges(...indices: number[]): SceneObject {
-    const suffix = indices.length > 0 ? `internal-edges-${indices.join('-')}` : 'internal-edges';
-    return new LazySceneObject(`${this.getOrder()}-cut-symmetric-${suffix}`,
-      () => {
-        const edges = this.getState('internal-edges') as Edge[] || [];
-        if (indices.length === 0) { return edges; }
-        return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
-      });
-  }
-
   getType(): string {
     return "cut-symmetric";
   }

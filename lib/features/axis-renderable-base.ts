@@ -1,7 +1,8 @@
 import { Axis } from "../math/axis.js";
 import { SceneObject } from "../common/scene-object.js";
+import { IAxis } from "../core/interfaces.js";
 
-export abstract class AxisObjectBase extends SceneObject {
+export abstract class AxisObjectBase extends SceneObject implements IAxis {
 
   constructor() {
     super();

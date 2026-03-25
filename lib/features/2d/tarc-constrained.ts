@@ -3,8 +3,9 @@ import { LazyVertex } from "../lazy-vertex.js";
 import { Vertex } from "../../common/vertex.js";
 import { QualifiedSceneObject } from "./constraints/qualified-geometry.js";
 import { createConstraintSolver } from "../../oc/constraints/create-solver.js";
+import { ITangentArcTwoObjects } from "../../core/interfaces.js";
 
-export class TangentArcTwoObjects extends GeometrySceneObject {
+export class TangentArcTwoObjects extends GeometrySceneObject implements ITangentArcTwoObjects {
   constructor(
     public c1: QualifiedSceneObject,
     public c2: QualifiedSceneObject,

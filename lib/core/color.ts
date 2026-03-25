@@ -1,10 +1,11 @@
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Color } from "../features/color.js";
+import { ISceneObject } from "./interfaces.js";
 
 interface ColorFunction {
-  (color: string): Color;
-  (color: string, selection: SceneObject): Color;
+  (color: string): ISceneObject;
+  (color: string, selection: ISceneObject): ISceneObject;
 }
 
 function build(context: SceneParserContext): ColorFunction {

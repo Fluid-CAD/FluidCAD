@@ -1,6 +1,5 @@
 import { Comparable, SceneObject } from "../../../common/scene-object.js";
 import { Shape } from "../../../common/shape.js";
-import { Vertex } from "../../../common/vertex.js";
 import { Wire } from "../../../common/wire.js";
 
 export type ConstraintQualifier = 'unqualified' | 'outside' | 'enclosed' | 'enclosing';

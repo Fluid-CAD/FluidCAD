@@ -7,11 +7,12 @@ import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
+import { IGeometry, ISceneObject } from "../interfaces.js";
 
 interface LineFunction {
-  (end: Point2DLike): LineTo;
-  (start: Point2DLike, end: Point2DLike): LineTo;
-  (end: Point2DLike, targetPlane: PlaneLike | SceneObject): LineTo;
+  (end: Point2DLike): IGeometry;
+  (start: Point2DLike, end: Point2DLike): IGeometry;
+  (end: Point2DLike, targetPlane: PlaneLike | ISceneObject): IGeometry;
 }
 
 function build(context: SceneParserContext): LineFunction {

@@ -1,12 +1,13 @@
 import { Chamfer } from "../features/chamfer.js";
 import { SceneObject } from "../common/scene-object.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
+import { ISceneObject } from "./interfaces.js";
 
 interface ChamferFunction {
-  (distance?: number): Chamfer;
-  (distance: number, selection: SceneObject): Chamfer;
-  (distance: number, distance2: number, isAngle?: boolean): Chamfer;
-  (distance: number, distance2: number, isAngle: boolean, selection: SceneObject): Chamfer;
+  (distance?: number): ISceneObject;
+  (distance: number, selection: ISceneObject): ISceneObject;
+  (distance: number, distance2: number, isAngle?: boolean): ISceneObject;
+  (distance: number, distance2: number, isAngle: boolean, selection: ISceneObject): ISceneObject;
 }
 
 function build(context: SceneParserContext): ChamferFunction {

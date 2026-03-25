@@ -3,8 +3,9 @@ import { SceneObject } from "../common/scene-object.js";
 import { FusionScope } from "./extrude-options.js";
 import { LazySceneObject } from "./lazy-scene-object.js";
 import { Extrudable } from "../helpers/types.js";
+import { IExtrude } from "../core/interfaces.js";
 
-export abstract class ExtrudeBase extends SceneObject {
+export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   protected _extrudable: Extrudable | null = null;
   protected _draft?: number | [number, number];
   protected _endOffset?: number;

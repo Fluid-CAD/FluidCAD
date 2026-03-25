@@ -4,10 +4,11 @@ import { PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { GeometrySceneObject } from "../../features/2d/geometry.js";
 import { resolvePlane } from "../../helpers/resolve.js";
+import { IExtrudableGeometry, IGeometry, ISceneObject } from "../interfaces.js";
 
 interface OffsetFunction {
-  (distance?: number, removeOriginal?: boolean): Offset;
-  (sourceGeometries: GeometrySceneObject[], distance: number, removeOriginal: boolean, targetPlane: PlaneLike | SceneObject): Offset;
+  (distance?: number, removeOriginal?: boolean): IExtrudableGeometry;
+  (sourceGeometries: IGeometry[], distance: number, removeOriginal: boolean, targetPlane: PlaneLike | ISceneObject): IExtrudableGeometry;
 }
 
 function build(context: SceneParserContext): OffsetFunction {

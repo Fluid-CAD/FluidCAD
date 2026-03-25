@@ -6,14 +6,15 @@ import { AxisFromEdge } from "../features/axis-from-edge.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisMiddle } from "../features/axis-mid.js";
 import { SceneObject } from "../common/scene-object.js";
+import { IAxis, ISceneObject } from "./interfaces.js";
 
 interface AxisFunction {
-  (axis: AxisLike): AxisObjectBase;
-  (axis: AxisLike, options: AxisTransformOptions): AxisObjectBase;
-  (source: SceneObject): AxisObjectBase;
-  (source: SceneObject, options: AxisTransformOptions): AxisObjectBase;
-  (axis: AxisObjectBase, options: AxisTransformOptions): AxisObjectBase;
-  (a1: AxisLike | AxisObjectBase, a2: AxisLike | AxisObjectBase, options?: AxisTransformOptions): AxisObjectBase;
+  (axis: AxisLike): IAxis;
+  (axis: AxisLike, options: AxisTransformOptions): IAxis;
+  (source: ISceneObject): IAxis;
+  (source: ISceneObject, options: AxisTransformOptions): IAxis;
+  (axis: IAxis, options: AxisTransformOptions): IAxis;
+  (a1: AxisLike | IAxis, a2: AxisLike | IAxis, options?: AxisTransformOptions): IAxis;
 }
 
 function build(context: SceneParserContext): AxisFunction {

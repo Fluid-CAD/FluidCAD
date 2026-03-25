@@ -5,6 +5,7 @@ import { Matrix4 } from "./matrix4.js";
 import { Quaternion } from "./quaternion.js";
 import { rad } from "../helpers/math-helpers.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
+import { IPlane } from "../core/interfaces.js";
 
 export type RotationSpace = 'local' | 'global';
 
@@ -279,7 +280,7 @@ export type StandardPlane =
   | "left"
   | "right";
 
-export type PlaneLike = StandardPlane | Plane | PlaneObjectBase;
+export type PlaneLike = StandardPlane | Plane | IPlane | PlaneObjectBase;
 
 export function isPlaneLike(value: unknown): value is PlaneLike {
   return (

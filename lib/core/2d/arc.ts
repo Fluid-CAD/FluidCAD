@@ -8,21 +8,22 @@ import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
+import { IGeometry, ISceneObject } from "../interfaces.js";
 
 interface ArcFunction {
   // Sketch-based (no plane)
-  (endPoint: Point2DLike, radius?: number): ArcToPoint;
-  (startPoint: Point2DLike, endPoint: Point2DLike, radius?: number): ArcToPoint;
-  (radius: number, startAngle?: number, endAngle?: number, centered?: boolean): ArcFromTwoAngles;
+  (endPoint: Point2DLike, radius?: number): IGeometry;
+  (startPoint: Point2DLike, endPoint: Point2DLike, radius?: number): IGeometry;
+  (radius: number, startAngle?: number, endAngle?: number, centered?: boolean): IGeometry;
 
   //  Non-sketch
-  (endPoint: Point2DLike, targetPlane: PlaneLike | SceneObject): ArcToPoint;
-  (endPoint: Point2DLike, radius: number, targetPlane: PlaneLike | SceneObject): ArcToPoint;
-  (startPoint: Point2DLike, endPoint: Point2DLike, targetPlane: PlaneLike | SceneObject): ArcToPoint;
-  (startPoint: Point2DLike, endPoint: Point2DLike, radius: number, targetPlane: PlaneLike | SceneObject): ArcToPoint;
-  (radius: number, targetPlane: PlaneLike | SceneObject): ArcFromTwoAngles;
-  (radius: number, startAngle: number, targetPlane: PlaneLike | SceneObject): ArcFromTwoAngles;
-  (radius: number, startAngle: number, endAngle: number, targetPlane: PlaneLike | SceneObject): ArcFromTwoAngles;
+  (endPoint: Point2DLike, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  (endPoint: Point2DLike, radius: number, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  (startPoint: Point2DLike, endPoint: Point2DLike, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  (startPoint: Point2DLike, endPoint: Point2DLike, radius: number, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  (radius: number, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  (radius: number, startAngle: number, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  (radius: number, startAngle: number, endAngle: number, targetPlane: PlaneLike | ISceneObject): IGeometry;
 }
 
 function build(context: SceneParserContext): ArcFunction {

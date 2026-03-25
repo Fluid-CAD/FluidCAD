@@ -3,9 +3,10 @@ import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { Fuse } from "../features/fuse.js";
 import { Fuse2D } from "../features/fuse2d.js";
+import { ISceneObject } from "./interfaces.js";
 
 function build(context: SceneParserContext) {
-  return function fuse(...args: (SceneObject[])): Fuse | Fuse2D {
+  return function fuse(...args: (ISceneObject[])): ISceneObject {
     const activeSketch = context.getActiveSketch();
 
     if (activeSketch) {
@@ -27,9 +28,9 @@ function build(context: SceneParserContext) {
     let solids: SceneObject[];
 
     if (args.length === 1 && Array.isArray(args[0])) {
-      solids = args[0];
+      solids = args[0] as SceneObject[];
     } else {
-      solids = args;
+      solids = args as SceneObject[];
     }
 
     const fuse = new Fuse(...solids);

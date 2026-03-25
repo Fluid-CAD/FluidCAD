@@ -1,9 +1,10 @@
 import { SceneObject } from "../common/scene-object.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { Loft } from "../features/loft.js";
+import { ISceneObject } from "./interfaces.js";
 
 interface LoftFunction {
-  (...faces: SceneObject[]): Loft;
+  (...faces: ISceneObject[]): ISceneObject;
 }
 
 function build(context: SceneParserContext): LoftFunction {

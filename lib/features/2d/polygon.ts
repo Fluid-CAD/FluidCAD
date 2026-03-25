@@ -8,10 +8,11 @@ import { LazySceneObject } from "../lazy-scene-object.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
+import { IPolygon } from "../../core/interfaces.js";
 
 export type PolygonMode = 'inscribed' | 'circumscribed';
 
-export class Polygon extends ExtrudableGeometryBase {
+export class Polygon extends ExtrudableGeometryBase implements IPolygon {
   constructor(
     public numberOfSides: number,
     public radius: number,

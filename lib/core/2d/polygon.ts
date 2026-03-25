@@ -8,12 +8,13 @@ import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
+import { IPolygon, ISceneObject } from "../interfaces.js";
 
 interface PolygonFunction {
-  (numberOfSides: number, radius: number, mode?: PolygonMode): Polygon;
-  (center: Point2DLike, numberOfSides: number, radius: number, mode?: PolygonMode): Polygon;
-  (numberOfSides: number, radius: number, targetPlane: PlaneLike | SceneObject): Polygon;
-  (numberOfSides: number, radius: number, mode: PolygonMode, targetPlane: PlaneLike | SceneObject): Polygon;
+  (numberOfSides: number, radius: number, mode?: PolygonMode): IPolygon;
+  (center: Point2DLike, numberOfSides: number, radius: number, mode?: PolygonMode): IPolygon;
+  (numberOfSides: number, radius: number, targetPlane: PlaneLike | ISceneObject): IPolygon;
+  (numberOfSides: number, radius: number, mode: PolygonMode, targetPlane: PlaneLike | ISceneObject): IPolygon;
 }
 
 function build(context: SceneParserContext): PolygonFunction {

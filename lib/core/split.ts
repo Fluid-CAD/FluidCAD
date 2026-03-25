@@ -2,9 +2,10 @@ import { SceneObject } from "../common/scene-object.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { Split2D } from "../features/split2d.js";
+import { ISceneObject } from "./interfaces.js";
 
 function build(context: SceneParserContext) {
-  return function split(...args: (SceneObject[])): Split2D {
+  return function split(...args: (ISceneObject[])): ISceneObject {
     const activeSketch = context.getActiveSketch();
 
     if (activeSketch) {

@@ -8,11 +8,12 @@ import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
+import { IExtrudableGeometry, ISceneObject } from "../interfaces.js";
 
 interface CircleFunction {
-  (center: Point2DLike, radius?: number): Circle;
-  (radius?: number): Circle;
-  (radius: number, targetPlane: PlaneLike | SceneObject): Circle;
+  (center: Point2DLike, radius?: number): IExtrudableGeometry;
+  (radius?: number): IExtrudableGeometry;
+  (radius: number, targetPlane: PlaneLike | ISceneObject): IExtrudableGeometry;
 }
 
 function build(context: SceneParserContext): CircleFunction {

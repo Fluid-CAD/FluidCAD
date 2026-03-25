@@ -2,10 +2,11 @@ import { Point2D, Point2DLike } from "../../math/point.js";
 import { Move } from "../../features/2d/move.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
+import { IGeometry } from "../interfaces.js";
 
 interface MoveFunction {
-  (): Move;
-  (to: Point2DLike): Move;
+  (): IGeometry;
+  (to: Point2DLike): IGeometry;
 }
 
 function build(context: SceneParserContext): MoveFunction {

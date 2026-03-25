@@ -4,13 +4,14 @@ import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { resolvePlane } from "../../helpers/resolve.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
 import { PlaneLike } from "../../math/plane.js";
+import { IExtrudableGeometry, ISceneObject } from "../interfaces.js";
 
 interface ProjectFunction {
   // in sketch
-  (...sourceObjects: SceneObject[]): Projection;
+  (...sourceObjects: ISceneObject[]): IExtrudableGeometry;
 
   // outside sketch
-  (sourceObjects: SceneObject[], targetPlane: PlaneLike | SceneObject): Projection;
+  (sourceObjects: ISceneObject[], targetPlane: PlaneLike | ISceneObject): IExtrudableGeometry;
 }
 
 function build(context: SceneParserContext): ProjectFunction {

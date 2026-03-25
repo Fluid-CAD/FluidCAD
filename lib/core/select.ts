@@ -3,9 +3,10 @@ import { Shape } from "../common/shapes.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { SelectSceneObject } from "../features/select.js";
 import { FilterBuilderBase } from "../filters/filter-builder-base.js";
+import { ISelect } from "./interfaces.js";
 
 interface SelectFunction {
-  (...filters: FilterBuilderBase<Shape>[]): SelectSceneObject;
+  (...filters: FilterBuilderBase<Shape>[]): ISelect;
 }
 
 function build(context: SceneParserContext): SelectFunction {

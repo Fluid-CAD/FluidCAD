@@ -3,11 +3,12 @@ import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { FilterBuilderBase } from "../filters/filter-builder-base.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
+import { ISelect } from "../core/interfaces.js";
 import { Shape } from "../common/shapes.js";
 
 export type Selectable = "edge" | "face";
 
-export class SelectSceneObject extends SceneObject {
+export class SelectSceneObject extends SceneObject implements ISelect {
 
   private type: Selectable;
   private shapes: Shape[] = [];

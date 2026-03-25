@@ -3,14 +3,15 @@ import { Fillet } from "../features/fillet.js";
 import { Fillet2D } from "../features/fillet2d.js";
 import { SceneObject } from "../common/scene-object.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
+import { IGeometry, ISceneObject } from "./interfaces.js";
 
 interface FilletFunction {
-  (radius?: number): Fillet | Fillet2D;
-  (radius: number, selection: SceneObject): Fillet;
+  (radius?: number): ISceneObject;
+  (radius: number, selection: ISceneObject): ISceneObject;
   // 2D overloads
-  (objects: GeometrySceneObject[]): Fillet2D;
-  (objects: GeometrySceneObject[], radius: number): Fillet2D;
-  (radius: number, ...objects: GeometrySceneObject[]): Fillet2D;
+  (objects: IGeometry[]): ISceneObject;
+  (objects: IGeometry[], radius: number): ISceneObject;
+  (radius: number, ...objects: IGeometry[]): ISceneObject;
 }
 
 function build(context: SceneParserContext): FilletFunction {

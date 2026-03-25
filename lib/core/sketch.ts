@@ -6,9 +6,10 @@ import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { SceneObject } from "../common/scene-object.js";
 import { PlaneFromObject } from "../features/plane-from-object.js";
+import { ISceneObject } from "./interfaces.js";
 
 function build(context: SceneParserContext) {
-  return function sketch(p: PlaneLike | SceneObject, sketcher: () => void) {
+  return function sketch(p: PlaneLike | SceneObject, sketcher: () => void): ISceneObject {
     let planeObj: PlaneObjectBase;
 
     if (p instanceof PlaneObjectBase) {
@@ -18,7 +19,7 @@ function build(context: SceneParserContext) {
       planeObj = new PlaneObject(normalizePlane(p));
       context.addSceneObject(planeObj);
     }
-    else if (p instanceof SceneObject) {
+    else if ((p as any) instanceof SceneObject) {
       planeObj = new PlaneFromObject(p);
       context.addSceneObject(planeObj);
     }

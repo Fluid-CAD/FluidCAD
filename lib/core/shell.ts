@@ -2,10 +2,11 @@ import { Shell } from "../features/shell.js";
 import { SceneObject } from "../common/scene-object.js";
 import { SelectSceneObject } from "../features/select.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
+import { ISceneObject } from "./interfaces.js";
 
 interface ShellFunction {
-  (thickness?: number): Shell;
-  (thickness: number, selection: SelectSceneObject): Shell;
+  (thickness?: number): ISceneObject;
+  (thickness: number, selection: ISceneObject): ISceneObject;
 }
 
 function build(context: SceneParserContext): ShellFunction {

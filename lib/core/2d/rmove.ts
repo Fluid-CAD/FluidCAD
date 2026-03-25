@@ -2,10 +2,11 @@ import { Point2D, Point2DLike } from "../../math/point.js";
 import { RMove } from "../../features/2d/rmove.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
+import { IGeometry } from "../interfaces.js";
 
 interface RMoveFunction {
-  (angle: number): RMove;
-  (angle: number, pivot: Point2DLike): RMove;
+  (angle: number): IGeometry;
+  (angle: number, pivot: Point2DLike): IGeometry;
 }
 
 function build(context: SceneParserContext): RMoveFunction {

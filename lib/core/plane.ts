@@ -6,16 +6,17 @@ import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { PlaneMiddleRenderable } from "../features/plane-mid.js";
 import { SceneObject } from "../common/scene-object.js";
 import { PlaneFromObject } from "../features/plane-from-object.js";
+import { IPlane, ISceneObject } from "./interfaces.js";
 
 export type PlaneRenderableOptions = PlaneTransformOptions & { sticky?: boolean };
 
 interface PlaneFunction {
-  (plane: PlaneLike): PlaneObjectBase;
-  (plane: PlaneLike, options: PlaneRenderableOptions): PlaneObjectBase;
-  (selection: SceneObject): PlaneObjectBase;
-  (selection: SceneObject, options: PlaneRenderableOptions): PlaneObjectBase;
-  (plane: PlaneObjectBase, options: PlaneRenderableOptions): PlaneObjectBase;
-  (p1: PlaneLike | PlaneObjectBase, p2: PlaneLike | PlaneObjectBase, options?: PlaneRenderableOptions): PlaneObjectBase;
+  (plane: PlaneLike): IPlane;
+  (plane: PlaneLike, options: PlaneRenderableOptions): IPlane;
+  (selection: ISceneObject): IPlane;
+  (selection: ISceneObject, options: PlaneRenderableOptions): IPlane;
+  (plane: IPlane, options: PlaneRenderableOptions): IPlane;
+  (p1: PlaneLike | IPlane, p2: PlaneLike | IPlane, options?: PlaneRenderableOptions): IPlane;
 }
 
 function build(context: SceneParserContext): PlaneFunction {

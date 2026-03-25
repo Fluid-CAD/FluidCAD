@@ -9,8 +9,9 @@ import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisLike, isAxisLike } from "../math/axis.js";
 import { AxisObject } from "../features/axis.js";
 import { AxisFromEdge } from "../features/axis-from-edge.js";
+import { ISceneObject } from "../core/interfaces.js";
 
-export function resolvePlane(p: PlaneLike | SceneObject, context: SceneParserContext): PlaneObjectBase {
+export function resolvePlane(p: PlaneLike | ISceneObject, context: SceneParserContext): PlaneObjectBase {
   if (p instanceof PlaneObjectBase) {
     return p;
   }
@@ -21,21 +22,21 @@ export function resolvePlane(p: PlaneLike | SceneObject, context: SceneParserCon
     return planeObj;
   }
 
-  if (p instanceof SceneObject) {
-    const planeObj = new PlaneFromObject(p);
+  if ((p as any) instanceof SceneObject) {
+    const planeObj = new PlaneFromObject(p as SceneObject);
     context.addSceneObject(planeObj);
     return planeObj;
   }
   throw new Error('Invalid argument: expected a plane or a scene object');
 }
 
-export function resolveAxis(arg: AxisLike | SceneObject, context: SceneParserContext): AxisObjectBase {
+export function resolveAxis(arg: AxisLike | ISceneObject, context: SceneParserContext): AxisObjectBase {
   if (arg instanceof AxisObjectBase) {
     return arg;
   }
 
-  if (arg instanceof SceneObject) {
-    const axis = new AxisFromEdge(arg);
+  if ((arg as any) instanceof SceneObject) {
+    const axis = new AxisFromEdge(arg as SceneObject);
     context.addSceneObject(axis);
     return axis;
   }

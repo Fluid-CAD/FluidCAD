@@ -5,9 +5,10 @@ import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
+import { IExtrudableGeometry, IGeometry, ISceneObject } from "../interfaces.js";
 
 interface WireFunction {
-  (...args: (GeometrySceneObject | PlaneLike | SceneObject)[]): WireObject;
+  (...args: (IGeometry | PlaneLike | ISceneObject)[]): IExtrudableGeometry;
 }
 
 function build(context: SceneParserContext): WireFunction {

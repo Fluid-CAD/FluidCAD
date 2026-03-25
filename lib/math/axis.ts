@@ -3,6 +3,7 @@ import { Vector3d } from "./vector3d.js";
 import { Matrix4 } from "./matrix4.js";
 import { Quaternion } from "./quaternion.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
+import { IAxis } from "../core/interfaces.js";
 
 export interface AxisTransformOptions {
   offsetX?: number;
@@ -194,7 +195,7 @@ export class Axis {
 }
 
 export type StandardAxis = "x" | "y" | "z";
-export type AxisLike = StandardAxis | Axis | AxisObjectBase;
+export type AxisLike = StandardAxis | Axis | IAxis | AxisObjectBase;
 
 export function isAxisLike(value: unknown): value is AxisLike {
   return value instanceof AxisObjectBase || value instanceof Axis || value === "x" || value === "y" || value === "z";

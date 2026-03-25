@@ -9,14 +9,15 @@ import { registerBuilder, SceneParserContext } from "../../index.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { QualifiedSceneObject } from "../../features/2d/constraints/qualified-geometry.js";
 import { TangentArcTwoObjects } from "../../features/2d/tarc-constrained.js";
+import { IGeometry, ISceneObject, ITangentArcTwoObjects } from "../interfaces.js";
 
 interface TArcFunction {
-  (radius?: number, endAngle?: number): TangentArc;
-  (radius: number, angle: number, tangent: Point2DLike): TangentArcWithTangent;
-  (endPoint: Point2DLike): TangentArcToPoint;
-  (endPoint: Point2DLike, tangent: Point2DLike): TangentArcToPointTangent;
-  (startPoint: Point2DLike, endPoint: Point2DLike, tangent: Point2DLike): TangentArcToPointTangent;
-  (c1: SceneObject | QualifiedSceneObject | Point2DLike, c2: SceneObject | QualifiedSceneObject | Point2DLike, radius: number, mustTouch?: boolean): TangentArcTwoObjects;
+  (radius?: number, endAngle?: number): IGeometry;
+  (radius: number, angle: number, tangent: Point2DLike): IGeometry;
+  (endPoint: Point2DLike): IGeometry;
+  (endPoint: Point2DLike, tangent: Point2DLike): IGeometry;
+  (startPoint: Point2DLike, endPoint: Point2DLike, tangent: Point2DLike): IGeometry;
+  (c1: ISceneObject | QualifiedSceneObject | Point2DLike, c2: ISceneObject | QualifiedSceneObject | Point2DLike, radius: number, mustTouch?: boolean): ITangentArcTwoObjects;
 }
 
 function build(context: SceneParserContext): TArcFunction {

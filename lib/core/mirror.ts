@@ -14,6 +14,7 @@ import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisObject } from "../features/axis.js";
 import { AxisFromEdge } from "../features/axis-from-edge.js";
 import { cloneWithTransform } from "../helpers/clone-transform.js";
+import { ISceneObject } from "./interfaces.js";
 
 interface MirrorFunction {
 
@@ -21,40 +22,40 @@ interface MirrorFunction {
   * [2D] Mirror all sketch geometries across a given line.
   * @param line The line to mirror across
   */
-  (line: SceneObject): MirrorShape2D;
+  (line: ISceneObject): ISceneObject;
 
   /**
   * [2D] Mirror all sketch geometries across a given axis.
   * @param axis The axis to mirror across
   */
-  (axis: AxisLike): MirrorShape2D;
+  (axis: AxisLike): ISceneObject;
 
   /**
   * [2D] Mirror given sketch geometries across a given line.
   * @param line The line to mirror across
   * @param geometries The geometries to mirror
   */
-  (line: SceneObject, ...geometries: SceneObject[]): MirrorShape2D;
+  (line: ISceneObject, ...geometries: ISceneObject[]): ISceneObject;
 
   /**
   * [2D] Mirror given sketch geometries across a given axis.
   * @param axis The axis to mirror across
   * @param geometries The geometries to mirror
   */
-  (axis: AxisLike, ...geometries: SceneObject[]): MirrorShape2D;
+  (axis: AxisLike, ...geometries: ISceneObject[]): ISceneObject;
 
   /**
   * [3D] Mirror all scene shapes across a given plane.
   * @param plane The plane to mirror across
   */
-  (plane: PlaneLike): MirrorShape;
+  (plane: PlaneLike): ISceneObject;
 
   /**
   * [3D] Mirror given shapes across a given plane.
   * @param plane The plane to mirror across
   * @param objects The shapes to mirror
   */
-  (plane: PlaneLike, ...objects: SceneObject[]): MirrorShape;
+  (plane: PlaneLike, ...objects: ISceneObject[]): ISceneObject;
 
   /**
   * [3D] Mirror (re-apply) given features across a given plane.
@@ -62,7 +63,7 @@ interface MirrorFunction {
   * @param type Must be 'feature'
   * @param objects The features to mirror
   */
-  (plane: PlaneLike, type: 'feature', ...objects: SceneObject[]): MirrorFeature;
+  (plane: PlaneLike, type: 'feature', ...objects: ISceneObject[]): ISceneObject;
 }
 
 function build(context: SceneParserContext): MirrorFunction {

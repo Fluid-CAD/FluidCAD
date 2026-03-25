@@ -7,14 +7,15 @@ import { ExtrudeTwoDistances } from "../features/extrude-two-distances.js";
 import { CutBase } from "../features/cut-base.js";
 import { ExtrudeBase } from "../features/extrude-base.js";
 import { Extrudable } from "../helpers/types.js";
+import { ICut, ISceneObject } from "./interfaces.js";
 
 interface CutFunction {
-  (target?: Extrudable): Cut;
-  (distance: number, target?: Extrudable): Cut;
-  (distance1: number, distance2: number, target?: Extrudable): Cut;
-  (face: SceneObject | 'first-face' | 'last-face', target?: Extrudable): Cut;
-  (distance: number, symmetric: true, target?: Extrudable): Cut;
-  (symmetric: true, target?: Extrudable): Cut;
+  (target?: ISceneObject): ICut;
+  (distance: number, target?: ISceneObject): ICut;
+  (distance1: number, distance2: number, target?: ISceneObject): ICut;
+  (face: ISceneObject | 'first-face' | 'last-face', target?: ISceneObject): ICut;
+  (distance: number, symmetric: true, target?: ISceneObject): ICut;
+  (symmetric: true, target?: ISceneObject): ICut;
 }
 
 function isExtrudable(obj: any): obj is Extrudable {

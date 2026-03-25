@@ -36,7 +36,9 @@ function findFreePort(start) {
 }
 
 const isTs = serverEntry.endsWith('.ts');
-const execArgv = isTs ? ['--experimental-transform-types', '--no-warnings'] : [];
+const execArgv = isTs
+  ? ['--experimental-transform-types', '--no-warnings', '--enable-source-maps']
+  : ['--enable-source-maps'];
 
 findFreePort(3100).then((port) => {
 

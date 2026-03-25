@@ -135,7 +135,24 @@ function M.handle_message(msg)
       end
     elseif msg.type == 'insert-point' then
       local line_idx = msg.sourceLocation.line - 1
-      local buf = vim.api.nvim_get_current_buf()
+      local file_path = msg.sourceLocation.filePath
+
+      -- Find the buffer matching the source file
+      local buf = nil
+      if file_path then
+        for _, b in ipairs(vim.api.nvim_list_bufs()) do
+          if vim.api.nvim_buf_is_loaded(b) then
+            local name = vim.api.nvim_buf_get_name(b)
+            if name == file_path then
+              buf = b
+              break
+            end
+          end
+        end
+      end
+      if not buf then
+        buf = vim.api.nvim_get_current_buf()
+      end
       local line_count = vim.api.nvim_buf_line_count(buf)
       if line_idx < 0 or line_idx >= line_count then
         return
@@ -175,6 +192,15 @@ function M.handle_message(msg)
 
       -- Insert before the closing paren (0-indexed col for nvim_buf_set_text)
       vim.api.nvim_buf_set_text(buf, line_idx, close_paren - 1, line_idx, close_paren - 1, { prefix .. point_text })
+
+      -- TextChanged autocmd won't fire for non-current buffers, so send live-update explicitly
+      local updated_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      local code = table.concat(updated_lines, '\n')
+      M.send({
+        type = 'live-update',
+        fileName = vim.api.nvim_buf_get_name(buf),
+        code = code,
+      })
     end
   end)
 end

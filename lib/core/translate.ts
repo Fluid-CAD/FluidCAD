@@ -7,16 +7,27 @@ import { Vertex } from "../common/vertex.js";
 import { LazyVertex } from "../features/lazy-vertex.js";
 
 interface TranslateFunction {
-  (x: number, copy?: boolean): Translate;
-  (x: number, y: number, copy?: boolean): Translate;
-  (x: number, y: number, z: number, copy?: boolean): Translate;
-  (distance: PointLike, copy?: boolean): Translate;
-  (objects: SceneObject[], distance: PointLike, copy?: boolean): Translate;
+  (x: number, ...targets: SceneObject[]): Translate;
+  (x: number, copy: boolean, ...targets: SceneObject[]): Translate;
+  (x: number, y: number, ...targets: SceneObject[]): Translate;
+  (x: number, y: number, copy: boolean, ...targets: SceneObject[]): Translate;
+  (x: number, y: number, z: number, ...targets: SceneObject[]): Translate;
+  (x: number, y: number, z: number, copy: boolean, ...targets: SceneObject[]): Translate;
+  (distance: PointLike, ...targets: SceneObject[]): Translate;
+  (distance: PointLike, copy: boolean, ...targets: SceneObject[]): Translate;
 }
 
 function build(context: SceneParserContext): TranslateFunction {
   return function translate() {
     const args = Array.from(arguments);
+
+    // Extract SceneObject targets from the end
+    const targets: SceneObject[] = [];
+    while (args.length > 0 && args[args.length - 1] instanceof SceneObject) {
+      targets.unshift(args.pop() as SceneObject);
+    }
+
+    // Extract copy flag from the end (if boolean)
     const copy = typeof args[args.length - 1] === 'boolean' ? args.pop() as boolean : false;
 
     // translate(x, y?, z?)
@@ -26,27 +37,15 @@ function build(context: SceneParserContext): TranslateFunction {
       const z = (args[2] as number) ?? 0;
       const vertex = Vertex.fromPoint(new Point(x, y, z));
       const lazyVertex = LazyVertex.fromVertex(vertex);
-      const translate = new Translate(lazyVertex, copy);
+      const translate = new Translate(lazyVertex, copy, ...targets);
       context.addSceneObject(translate);
       return translate;
     }
 
-    // translate(objects, distance, plane)
-    if (Array.isArray(args[0]) && args.length >= 2) {
-      const first = args[0];
-      if (first.length === 0 || typeof first[0] !== 'number') {
-        const objects = first as SceneObject[];
-        const normalizedDistance = normalizePoint(args[1]);
-        const translate = new Translate(normalizedDistance, copy, ...objects);
-        context.addSceneObject(translate);
-        return translate;
-      }
-    }
-
-    // translate(distance: PointLike)
+    // translate(distance: PointLike, copy?, ...targets)
     if (args.length === 1) {
       const normalizedDistance = normalizePoint(args[0]);
-      const translate = new Translate(normalizedDistance, copy);
+      const translate = new Translate(normalizedDistance, copy, ...targets);
       context.addSceneObject(translate);
       return translate;
     }
@@ -56,3 +55,4 @@ function build(context: SceneParserContext): TranslateFunction {
 }
 
 export default registerBuilder(build);
+

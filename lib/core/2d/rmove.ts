@@ -5,7 +5,16 @@ import { registerBuilder, SceneParserContext } from "../../index.js";
 import { IGeometry } from "../interfaces.js";
 
 interface RMoveFunction {
+  /**
+   * Rotates the cursor direction by the given angle in degrees.
+   * @param angle - The rotation angle in degrees
+   */
   (angle: number): IGeometry;
+  /**
+   * Rotates the cursor direction by the given angle around a pivot point.
+   * @param angle - The rotation angle in degrees
+   * @param pivot - The pivot point to rotate around
+   */
   (angle: number, pivot: Point2DLike): IGeometry;
 }
 

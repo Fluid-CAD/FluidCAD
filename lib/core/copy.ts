@@ -12,18 +12,56 @@ import { ISceneObject } from "./interfaces.js";
 export type CopyType = 'linear' | 'circular';
 
 interface CopyFunction {
-  // 2D linear (inside sketch)
+  /**
+   * [2D] Creates linear copies along an axis inside a sketch.
+   * @param type - Must be `'linear'`
+   * @param axis - The axis to copy along
+   * @param options - Copy count, spacing, etc.
+   * @param objects - The objects to copy (defaults to last object)
+   */
   (type: 'linear', axis: AxisLike, options: LinearCopyOptions, ...objects: ISceneObject[]): ISceneObject;
+  /**
+   * [2D] Creates linear copies along multiple axes inside a sketch.
+   * @param type - Must be `'linear'`
+   * @param axis - The axes to copy along
+   * @param options - Copy count, spacing, etc.
+   * @param objects - The objects to copy (defaults to last object)
+   */
   (type: 'linear', axis: AxisLike[], options: LinearCopyOptions, ...objects: ISceneObject[]): ISceneObject;
 
-  // 3D linear
+  /**
+   * [3D] Creates linear copies along an axis.
+   * @param type - Must be `'linear'`
+   * @param axis - The axis to copy along
+   * @param options - Copy count, spacing, etc.
+   * @param objects - The objects to copy (defaults to last object)
+   */
   (type: 'linear', axis: AxisLike, options: LinearCopyOptions, ...objects: ISceneObject[]): ISceneObject;
+  /**
+   * [3D] Creates linear copies along multiple axes.
+   * @param type - Must be `'linear'`
+   * @param axis - The axes to copy along
+   * @param options - Copy count, spacing, etc.
+   * @param objects - The objects to copy (defaults to last object)
+   */
   (type: 'linear', axis: AxisLike[], options: LinearCopyOptions, ...objects: ISceneObject[]): ISceneObject;
 
-  // 2D circular (Point2DLike center, inside sketch)
+  /**
+   * [2D] Creates circular copies around a center point inside a sketch.
+   * @param type - Must be `'circular'`
+   * @param center - The center point to copy around
+   * @param options - Copy count, angle, etc.
+   * @param objects - The objects to copy (defaults to last object)
+   */
   (type: 'circular', center: Point2DLike, options: CircularCopyOptions, ...objects: ISceneObject[]): ISceneObject;
 
-  // 3D circular
+  /**
+   * [3D] Creates circular copies around an axis.
+   * @param type - Must be `'circular'`
+   * @param axis - The axis to copy around
+   * @param options - Copy count, angle, etc.
+   * @param objects - The objects to copy (defaults to last object)
+   */
   (type: 'circular', axis: AxisLike, options: CircularCopyOptions, ...objects: ISceneObject[]): ISceneObject;
 }
 

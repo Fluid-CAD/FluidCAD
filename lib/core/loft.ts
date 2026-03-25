@@ -4,6 +4,10 @@ import { Loft } from "../features/loft.js";
 import { ISceneObject } from "./interfaces.js";
 
 interface LoftFunction {
+  /**
+   * Creates a loft between two or more profiles.
+   * @param faces - The profiles to loft between (minimum 2)
+   */
   (...faces: ISceneObject[]): ISceneObject;
 }
 

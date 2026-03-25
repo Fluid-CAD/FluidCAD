@@ -12,11 +12,47 @@ import { resolvePlane } from "../../helpers/resolve.js";
 import { ISlot, ISceneObject } from "../interfaces.js";
 
 interface SlotFunction {
+  /**
+   * Draws a slot with the given length and end radius.
+   * @param distance - The slot length
+   * @param radius - The end cap radius
+   */
   (distance: number, radius: number): ISlot;
+  /**
+   * Draws a slot on a specific plane.
+   * @param distance - The slot length
+   * @param radius - The end cap radius
+   * @param targetPlane - The plane to draw on
+   */
   (distance: number, radius: number, targetPlane: PlaneLike | ISceneObject): ISlot;
+  /**
+   * Draws a slot from a start point with the given length and end radius.
+   * @param start - The start point
+   * @param distance - The slot length
+   * @param radius - The end cap radius
+   */
   (start: Point2DLike, distance: number, radius: number): ISlot;
+  /**
+   * Creates a slot from a geometry edge with the given radius.
+   * @param geometry - The source geometry edge
+   * @param radius - The end cap radius
+   * @param deleteSource - Whether to delete the source geometry (defaults to true)
+   */
   (geometry: ISceneObject, radius: number, deleteSource?: boolean): ISlot;
+  /**
+   * Creates a slot from a geometry edge on a specific plane.
+   * @param geometry - The source geometry edge
+   * @param radius - The end cap radius
+   * @param targetPlane - The plane to draw on
+   */
   (geometry: ISceneObject, radius: number, targetPlane: PlaneLike | ISceneObject): ISlot;
+  /**
+   * Creates a slot from a geometry edge, optionally keeping the source, on a specific plane.
+   * @param geometry - The source geometry edge
+   * @param radius - The end cap radius
+   * @param deleteSource - Whether to delete the source geometry
+   * @param targetPlane - The plane to draw on
+   */
   (geometry: ISceneObject, radius: number, deleteSource: boolean, targetPlane: PlaneLike | ISceneObject): ISlot;
 }
 

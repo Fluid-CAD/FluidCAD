@@ -12,9 +12,30 @@ import { ISceneObject } from "./interfaces.js";
 export type RepeatType = 'linear' | 'circular';
 
 interface RepeatFunction {
+  /**
+   * Creates linear repeated instances along an axis.
+   * @param type - Must be `'linear'`
+   * @param axis - The axis to repeat along
+   * @param options - Repeat count, spacing, etc.
+   * @param objects - The objects to repeat (defaults to last object)
+   */
   (type: 'linear', axis: AxisLike, options: LinearRepeatOptions, ...objects: ISceneObject[]): ISceneObject;
+  /**
+   * Creates linear repeated instances along multiple axes.
+   * @param type - Must be `'linear'`
+   * @param axis - The axes to repeat along
+   * @param options - Repeat count, spacing, etc.
+   * @param objects - The objects to repeat (defaults to last object)
+   */
   (type: 'linear', axis: AxisLike[], options: LinearRepeatOptions, ...objects: ISceneObject[]): ISceneObject;
 
+  /**
+   * Creates circular repeated instances around an axis.
+   * @param type - Must be `'circular'`
+   * @param axis - The axis to repeat around
+   * @param options - Repeat count, angle, etc.
+   * @param objects - The objects to repeat (defaults to last object)
+   */
   (type: 'circular', axis: AxisLike, options: CircularRepeatOptions, ...objects: ISceneObject[]): ISceneObject;
 }
 

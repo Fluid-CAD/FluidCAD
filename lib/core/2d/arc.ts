@@ -11,18 +11,76 @@ import { resolvePlane } from "../../helpers/resolve.js";
 import { IGeometry, ISceneObject } from "../interfaces.js";
 
 interface ArcFunction {
-  // Sketch-based (no plane)
+  /**
+   * Draws an arc to an end point with an optional bulge radius.
+   * @param endPoint - The end point of the arc
+   * @param radius - The bulge radius (0 = auto)
+   */
   (endPoint: Point2DLike, radius?: number): IGeometry;
+  /**
+   * Draws an arc from a start point to an end point with an optional bulge radius.
+   * @param startPoint - The start point of the arc
+   * @param endPoint - The end point of the arc
+   * @param radius - The bulge radius (0 = auto)
+   */
   (startPoint: Point2DLike, endPoint: Point2DLike, radius?: number): IGeometry;
+  /**
+   * Draws an arc by radius and angle range.
+   * @param radius - The arc radius
+   * @param startAngle - The start angle in degrees (defaults to 0)
+   * @param endAngle - The end angle in degrees (defaults to 180)
+   * @param centered - Whether to center the arc on the current position
+   */
   (radius: number, startAngle?: number, endAngle?: number, centered?: boolean): IGeometry;
 
-  //  Non-sketch
+  /**
+   * Draws an arc to an end point on a specific plane.
+   * @param endPoint - The end point of the arc
+   * @param targetPlane - The plane to draw on
+   */
   (endPoint: Point2DLike, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  /**
+   * Draws an arc to an end point with a bulge radius on a specific plane.
+   * @param endPoint - The end point of the arc
+   * @param radius - The bulge radius
+   * @param targetPlane - The plane to draw on
+   */
   (endPoint: Point2DLike, radius: number, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  /**
+   * Draws an arc between two points on a specific plane.
+   * @param startPoint - The start point of the arc
+   * @param endPoint - The end point of the arc
+   * @param targetPlane - The plane to draw on
+   */
   (startPoint: Point2DLike, endPoint: Point2DLike, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  /**
+   * Draws an arc between two points with a bulge radius on a specific plane.
+   * @param startPoint - The start point of the arc
+   * @param endPoint - The end point of the arc
+   * @param radius - The bulge radius
+   * @param targetPlane - The plane to draw on
+   */
   (startPoint: Point2DLike, endPoint: Point2DLike, radius: number, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  /**
+   * Draws an arc by radius on a specific plane.
+   * @param radius - The arc radius
+   * @param targetPlane - The plane to draw on
+   */
   (radius: number, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  /**
+   * Draws an arc by radius and start angle on a specific plane.
+   * @param radius - The arc radius
+   * @param startAngle - The start angle in degrees
+   * @param targetPlane - The plane to draw on
+   */
   (radius: number, startAngle: number, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  /**
+   * Draws an arc by radius and angle range on a specific plane.
+   * @param radius - The arc radius
+   * @param startAngle - The start angle in degrees
+   * @param endAngle - The end angle in degrees
+   * @param targetPlane - The plane to draw on
+   */
   (radius: number, startAngle: number, endAngle: number, targetPlane: PlaneLike | ISceneObject): IGeometry;
 }
 

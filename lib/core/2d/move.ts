@@ -5,7 +5,12 @@ import { registerBuilder, SceneParserContext } from "../../index.js";
 import { IGeometry } from "../interfaces.js";
 
 interface MoveFunction {
+  /** Moves the cursor to the origin. */
   (): IGeometry;
+  /**
+   * Moves the cursor to the given point.
+   * @param to - The target point
+   */
   (to: Point2DLike): IGeometry;
 }
 

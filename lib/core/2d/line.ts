@@ -10,8 +10,22 @@ import { resolvePlane } from "../../helpers/resolve.js";
 import { IGeometry, ISceneObject } from "../interfaces.js";
 
 interface LineFunction {
+  /**
+   * Draws a line from the current position to the given point.
+   * @param end - The end point
+   */
   (end: Point2DLike): IGeometry;
+  /**
+   * Draws a line between two points.
+   * @param start - The start point
+   * @param end - The end point
+   */
   (start: Point2DLike, end: Point2DLike): IGeometry;
+  /**
+   * Draws a line to the given point on a specific plane.
+   * @param end - The end point
+   * @param targetPlane - The plane to draw on
+   */
   (end: Point2DLike, targetPlane: PlaneLike | ISceneObject): IGeometry;
 }
 

@@ -10,10 +10,36 @@ import { Extrudable } from "../helpers/types.js";
 import { IExtrude, ISceneObject } from "./interfaces.js";
 
 interface ExtrudeFunction {
+  /**
+   * Extrudes the last sketch with a default distance.
+   * @param target - The sketch to extrude
+   */
   (target?: ISceneObject): IExtrude;
+  /**
+   * Extrudes the last sketch by a given distance.
+   * @param distance - The extrusion distance
+   * @param target - The sketch to extrude
+   */
   (distance: number, target?: ISceneObject): IExtrude;
+  /**
+   * Extrudes the last sketch between two distances.
+   * @param distance1 - The first extrusion distance
+   * @param distance2 - The second extrusion distance
+   * @param target - The sketch to extrude
+   */
   (distance1: number, distance2: number, target?: ISceneObject): IExtrude;
+  /**
+   * Extrudes the last sketch symmetrically in both directions.
+   * @param distance - The extrusion distance in each direction
+   * @param symmetric - Must be `true`
+   * @param target - The sketch to extrude
+   */
   (distance: number, symmetric: true, target?: ISceneObject): IExtrude;
+  /**
+   * Extrudes the last sketch up to a face.
+   * @param face - The face to extrude up to, or `'first-face'`/`'last-face'`
+   * @param target - The sketch to extrude
+   */
   (face: ISceneObject | 'first-face' | 'last-face', target?: ISceneObject): IExtrude;
 }
 

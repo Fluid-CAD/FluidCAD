@@ -6,8 +6,23 @@ import { registerBuilder, SceneParserContext } from "../../index.js";
 import { IGeometry, ISceneObject, ITwoObjectsTangentLine } from "../interfaces.js";
 
 interface TLineFunction {
+  /**
+   * Draws a line tangent to the previous geometry with the given distance.
+   * @param distance - The tangent line length
+   */
   (distance: number): IGeometry;
+  /**
+   * Draws a line tangent to two objects.
+   * @param c1 - The first constraint object
+   * @param c2 - The second constraint object
+   * @param mustTouch - Whether the line must touch both objects
+   */
   (c1: ISceneObject | QualifiedSceneObject, c2: ISceneObject | QualifiedSceneObject, mustTouch?: boolean): ITwoObjectsTangentLine;
+  /**
+   * Draws a line tangent to one object.
+   * @param c1 - The constraint object
+   * @param mustTouch - Whether the line must touch the object
+   */
   (c1: ISceneObject | QualifiedSceneObject, mustTouch?: boolean): IGeometry;
 }
 

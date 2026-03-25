@@ -6,11 +6,33 @@ import { registerBuilder, SceneParserContext } from "../index.js";
 import { IGeometry, ISceneObject } from "./interfaces.js";
 
 interface FilletFunction {
+  /**
+   * Fillets selected edges with the given radius.
+   * @param radius - The fillet radius (defaults to 1)
+   */
   (radius?: number): ISceneObject;
+  /**
+   * Fillets the given edge selection with the given radius.
+   * @param radius - The fillet radius
+   * @param selection - The edge selection to fillet
+   */
   (radius: number, selection: ISceneObject): ISceneObject;
-  // 2D overloads
+  /**
+   * [2D] Fillets corners between the given geometries.
+   * @param objects - The geometries whose corners to fillet
+   */
   (objects: IGeometry[]): ISceneObject;
+  /**
+   * [2D] Fillets corners between the given geometries with a radius.
+   * @param objects - The geometries whose corners to fillet
+   * @param radius - The fillet radius
+   */
   (objects: IGeometry[], radius: number): ISceneObject;
+  /**
+   * [2D] Fillets corners at the given radius and geometries.
+   * @param radius - The fillet radius
+   * @param objects - The geometries whose corners to fillet
+   */
   (radius: number, ...objects: IGeometry[]): ISceneObject;
 }
 

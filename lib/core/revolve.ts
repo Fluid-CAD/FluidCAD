@@ -8,9 +8,33 @@ import { SceneObject } from "../common/scene-object.js";
 import { ISceneObject } from "./interfaces.js";
 
 interface RevolveFunction {
+  /**
+   * Revolves the last sketch 360 degrees around an axis.
+   * @param axisLike - The axis to revolve around
+   * @param target - The sketch to revolve
+   */
   (axisLike: AxisLike, target?: ISceneObject): ISceneObject;
+  /**
+   * Revolves the last sketch by a given angle around an axis.
+   * @param axisLike - The axis to revolve around
+   * @param angle - The sweep angle in degrees
+   * @param target - The sketch to revolve
+   */
   (axisLike: AxisLike, angle: number, target?: ISceneObject): ISceneObject;
+  /**
+   * Revolves the last sketch by a given angle around an axis with options.
+   * @param axisLike - The axis to revolve around
+   * @param angle - The sweep angle in degrees
+   * @param options - Revolve options
+   * @param target - The sketch to revolve
+   */
   (axisLike: AxisLike, angle: number, options: RevolveOptions, target?: ISceneObject): ISceneObject;
+  /**
+   * Revolves the last sketch 360 degrees around an axis with options.
+   * @param axisLike - The axis to revolve around
+   * @param options - Revolve options
+   * @param target - The sketch to revolve
+   */
   (axisLike: AxisLike, options: RevolveOptions, target?: ISceneObject): ISceneObject;
 }
 

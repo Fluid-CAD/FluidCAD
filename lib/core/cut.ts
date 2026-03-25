@@ -10,11 +10,42 @@ import { Extrudable } from "../helpers/types.js";
 import { ICut, ISceneObject } from "./interfaces.js";
 
 interface CutFunction {
+  /**
+   * Cuts through the last sketch with a default distance.
+   * @param target - The sketch to cut with
+   */
   (target?: ISceneObject): ICut;
+  /**
+   * Cuts through the last sketch by a given distance.
+   * @param distance - The cut depth
+   * @param target - The sketch to cut with
+   */
   (distance: number, target?: ISceneObject): ICut;
+  /**
+   * Cuts through the last sketch between two distances.
+   * @param distance1 - The first cut distance
+   * @param distance2 - The second cut distance
+   * @param target - The sketch to cut with
+   */
   (distance1: number, distance2: number, target?: ISceneObject): ICut;
+  /**
+   * Cuts through the last sketch up to a face.
+   * @param face - The face to cut up to, or `'first-face'`/`'last-face'`
+   * @param target - The sketch to cut with
+   */
   (face: ISceneObject | 'first-face' | 'last-face', target?: ISceneObject): ICut;
+  /**
+   * Cuts through the last sketch symmetrically in both directions.
+   * @param distance - The cut depth in each direction
+   * @param symmetric - Must be `true`
+   * @param target - The sketch to cut with
+   */
   (distance: number, symmetric: true, target?: ISceneObject): ICut;
+  /**
+   * Cuts through the last sketch symmetrically with a default distance.
+   * @param symmetric - Must be `true`
+   * @param target - The sketch to cut with
+   */
   (symmetric: true, target?: ISceneObject): ICut;
 }
 

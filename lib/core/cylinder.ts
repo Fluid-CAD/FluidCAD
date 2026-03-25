@@ -2,7 +2,16 @@ import { Cylinder } from "../features/cylinder.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { ISceneObject } from "./interfaces.js";
 
-function build(context: SceneParserContext) {
+interface CylinderFunction {
+  /**
+   * Creates a cylinder with the given radius and height.
+   * @param radius - The cylinder radius
+   * @param height - The cylinder height
+   */
+  (radius: number, height: number): ISceneObject;
+}
+
+function build(context: SceneParserContext): CylinderFunction {
   return function cylinder(radius: number, height: number): ISceneObject {
     const cylinder = new Cylinder(radius, height);
     context.addSceneObject(cylinder);

@@ -4,7 +4,16 @@ import { Color } from "../features/color.js";
 import { ISceneObject } from "./interfaces.js";
 
 interface ColorFunction {
+  /**
+   * Applies a color to the last selection.
+   * @param color - The color value (CSS color string)
+   */
   (color: string): ISceneObject;
+  /**
+   * Applies a color to the given selection.
+   * @param color - The color value (CSS color string)
+   * @param selection - The face or edge selection to color
+   */
   (color: string, selection: ISceneObject): ISceneObject;
 }
 

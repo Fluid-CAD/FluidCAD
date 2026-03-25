@@ -4,9 +4,31 @@ import { registerBuilder, SceneParserContext } from "../index.js";
 import { ISceneObject } from "./interfaces.js";
 
 interface ChamferFunction {
+  /**
+   * Chamfers selected edges with the given distance.
+   * @param distance - The chamfer distance (defaults to 1)
+   */
   (distance?: number): ISceneObject;
+  /**
+   * Chamfers the given edge selection with the given distance.
+   * @param distance - The chamfer distance
+   * @param selection - The edge selection to chamfer
+   */
   (distance: number, selection: ISceneObject): ISceneObject;
+  /**
+   * Chamfers selected edges with two distances or a distance and angle.
+   * @param distance - The first chamfer distance
+   * @param distance2 - The second distance, or angle if `isAngle` is true
+   * @param isAngle - Whether `distance2` is an angle
+   */
   (distance: number, distance2: number, isAngle?: boolean): ISceneObject;
+  /**
+   * Chamfers the given edge selection with two distances or a distance and angle.
+   * @param distance - The first chamfer distance
+   * @param distance2 - The second distance, or angle if `isAngle` is true
+   * @param isAngle - Whether `distance2` is an angle
+   * @param selection - The edge selection to chamfer
+   */
   (distance: number, distance2: number, isAngle: boolean, selection: ISceneObject): ISceneObject;
 }
 

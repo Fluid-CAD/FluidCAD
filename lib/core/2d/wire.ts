@@ -8,6 +8,10 @@ import { resolvePlane } from "../../helpers/resolve.js";
 import { IExtrudableGeometry, IGeometry, ISceneObject } from "../interfaces.js";
 
 interface WireFunction {
+  /**
+   * Groups geometry segments into a closed wire for extrusion.
+   * @param args - The geometry segments to group, optionally ending with a target plane
+   */
   (...args: (IGeometry | PlaneLike | ISceneObject)[]): IExtrudableGeometry;
 }
 

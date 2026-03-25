@@ -3,6 +3,10 @@ import { registerBuilder, SceneParserContext } from "../../index.js";
 import { IGeometry } from "../interfaces.js";
 
 interface ConnectFunction {
+  /**
+   * Connects the current position back to the start to close the sketch.
+   * @param mode - The connection mode
+   */
   (mode?: ConnectMode): IGeometry;
 }
 

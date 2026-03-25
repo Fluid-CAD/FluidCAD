@@ -4,7 +4,17 @@ import { registerBuilder, SceneParserContext } from "../index.js";
 import { Trim2D } from "../features/trim2d.js";
 import { ISceneObject } from "./interfaces.js";
 
-function build(context: SceneParserContext) {
+interface TrimFunction {
+  /** Trims all sketch geometry segments. */
+  (): ISceneObject;
+  /**
+   * Trims sketch geometry segments at the given points.
+   * @param points - The points where geometry should be trimmed
+   */
+  (...points: Point2DLike[]): ISceneObject;
+}
+
+function build(context: SceneParserContext): TrimFunction {
   return function trim(...args: Point2DLike[]): ISceneObject {
     const activeSketch = context.getActiveSketch();
 
@@ -19,7 +29,7 @@ function build(context: SceneParserContext) {
 
     context.addSceneObject(trim2d);
     return trim2d;
-  }
+  } as TrimFunction;
 }
 
 export default registerBuilder(build);

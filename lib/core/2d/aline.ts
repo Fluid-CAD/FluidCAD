@@ -7,8 +7,27 @@ import { resolvePlane } from "../../helpers/resolve.js";
 import { IGeometry, ISceneObject } from "../interfaces.js";
 
 interface ALineFunction {
+  /**
+   * Draws a line at the given angle with the given length.
+   * @param length - The line length
+   * @param angle - The angle in degrees
+   * @param centered - Whether to center the line on the current position
+   */
   (length: number, angle: number, centered?: boolean): IGeometry;
+  /**
+   * Draws a line at the given angle on a specific plane.
+   * @param length - The line length
+   * @param angle - The angle in degrees
+   * @param targetPlane - The plane to draw on
+   */
   (length: number, angle: number, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  /**
+   * Draws a centered line at the given angle on a specific plane.
+   * @param length - The line length
+   * @param angle - The angle in degrees
+   * @param centered - Whether to center the line on the current position
+   * @param targetPlane - The plane to draw on
+   */
   (length: number, angle: number, centered: boolean, targetPlane: PlaneLike | ISceneObject): IGeometry;
 }
 

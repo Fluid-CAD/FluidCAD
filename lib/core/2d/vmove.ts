@@ -2,6 +2,10 @@ import { VMove } from "../../features/2d/vmove.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
 
 interface VMoveFunction {
+  /**
+   * Moves the cursor vertically by the given distance.
+   * @param distance - The vertical distance to move
+   */
   (distance: number): void;
 }
 

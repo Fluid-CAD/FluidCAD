@@ -11,8 +11,22 @@ import { resolvePlane } from "../../helpers/resolve.js";
 import { IExtrudableGeometry, ISceneObject } from "../interfaces.js";
 
 interface CircleFunction {
+  /**
+   * Draws a circle at a given center with an optional radius.
+   * @param center - The center point
+   * @param radius - The circle radius (defaults to 20)
+   */
   (center: Point2DLike, radius?: number): IExtrudableGeometry;
+  /**
+   * Draws a circle at the origin with an optional radius.
+   * @param radius - The circle radius (defaults to 20)
+   */
   (radius?: number): IExtrudableGeometry;
+  /**
+   * Draws a circle with a given radius on a specific plane.
+   * @param radius - The circle radius
+   * @param targetPlane - The plane to draw on
+   */
   (radius: number, targetPlane: PlaneLike | ISceneObject): IExtrudableGeometry;
 }
 

@@ -10,9 +10,31 @@ import { resolvePlane } from "../../helpers/resolve.js";
 import { IGeometry, ISceneObject } from "../interfaces.js";
 
 interface VLineFunction {
+  /**
+   * Draws a vertical line of the given distance.
+   * @param distance - The line length
+   * @param centered - Whether to center the line on the current position
+   */
   (distance: number, centered?: boolean): IGeometry;
+  /**
+   * Draws a vertical line from a start point.
+   * @param start - The start point
+   * @param distance - The line length
+   * @param centered - Whether to center the line on the start point
+   */
   (start: Point2DLike, distance: number, centered?: boolean): IGeometry;
+  /**
+   * Draws a vertical line on a specific plane.
+   * @param distance - The line length
+   * @param targetPlane - The plane to draw on
+   */
   (distance: number, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  /**
+   * Draws a vertical line with centering on a specific plane.
+   * @param distance - The line length
+   * @param centered - Whether to center the line on the current position
+   * @param targetPlane - The plane to draw on
+   */
   (distance: number, centered: boolean, targetPlane: PlaneLike | ISceneObject): IGeometry;
 }
 

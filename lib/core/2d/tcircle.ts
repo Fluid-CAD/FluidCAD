@@ -8,6 +8,13 @@ import { isPoint2DLike, Point2DLike } from "../../math/point.js";
 import { IGeometry, ISceneObject } from "../interfaces.js";
 
 interface TCircleFunction {
+  /**
+   * Draws a circle tangent to two objects with the given radius.
+   * @param c1 - The first constraint object or point
+   * @param c2 - The second constraint object or point
+   * @param radius - The circle radius
+   * @param mustTouch - Whether the circle must touch both objects
+   */
   (c1: ISceneObject | QualifiedSceneObject | Point2DLike, c2: ISceneObject | QualifiedSceneObject | Point2DLike, radius: number, mustTouch?: boolean): IGeometry;
 }
 

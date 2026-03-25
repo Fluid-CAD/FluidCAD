@@ -66,7 +66,7 @@ function build(context: SceneParserContext): FilletFunction {
       context.addSceneObject(fillet);
       return fillet;
     }
-  }
+  } as FilletFunction;
 }
 
 export default registerBuilder(build);

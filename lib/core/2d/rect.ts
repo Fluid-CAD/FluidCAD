@@ -11,8 +11,25 @@ import { resolvePlane } from "../../helpers/resolve.js";
 import { IRect, ISceneObject } from "../interfaces.js";
 
 interface RectFunction {
+  /**
+   * Draws a rectangle with the given width and optional height.
+   * @param width - The rectangle width
+   * @param height - The rectangle height (defaults to width)
+   */
   (width: number, height?: number): IRect;
+  /**
+   * Draws a rectangle at a given start point.
+   * @param start - The start point (bottom-left corner)
+   * @param width - The rectangle width
+   * @param height - The rectangle height (defaults to width)
+   */
   (start: Point2DLike, width: number, height?: number): IRect;
+  /**
+   * Draws a rectangle with given dimensions on a specific plane.
+   * @param width - The rectangle width
+   * @param height - The rectangle height
+   * @param targetPlane - The plane to draw on
+   */
   (width: number, height: number, targetPlane: PlaneLike | ISceneObject): IRect;
 }
 

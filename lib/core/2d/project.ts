@@ -7,10 +7,17 @@ import { PlaneLike } from "../../math/plane.js";
 import { IExtrudableGeometry, ISceneObject } from "../interfaces.js";
 
 interface ProjectFunction {
-  // in sketch
+  /**
+   * Projects 3D objects onto the current sketch plane.
+   * @param sourceObjects - The 3D objects to project
+   */
   (...sourceObjects: ISceneObject[]): IExtrudableGeometry;
 
-  // outside sketch
+  /**
+   * Projects 3D objects onto a target plane.
+   * @param sourceObjects - The 3D objects to project
+   * @param targetPlane - The plane to project onto
+   */
   (sourceObjects: ISceneObject[], targetPlane: PlaneLike | ISceneObject): IExtrudableGeometry;
 }
 

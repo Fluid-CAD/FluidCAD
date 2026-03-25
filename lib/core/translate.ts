@@ -8,13 +8,63 @@ import { LazyVertex } from "../features/lazy-vertex.js";
 import { ISceneObject } from "./interfaces.js";
 
 interface TranslateFunction {
+  /**
+   * Translates objects along the X axis.
+   * @param x - The X distance
+   * @param targets - The objects to translate (defaults to last object)
+   */
   (x: number, ...targets: ISceneObject[]): ISceneObject;
+  /**
+   * Translates objects along the X axis, optionally making a copy.
+   * @param x - The X distance
+   * @param copy - Whether to copy instead of move
+   * @param targets - The objects to translate (defaults to last object)
+   */
   (x: number, copy: boolean, ...targets: ISceneObject[]): ISceneObject;
+  /**
+   * Translates objects along the X and Y axes.
+   * @param x - The X distance
+   * @param y - The Y distance
+   * @param targets - The objects to translate (defaults to last object)
+   */
   (x: number, y: number, ...targets: ISceneObject[]): ISceneObject;
+  /**
+   * Translates objects along the X and Y axes, optionally making a copy.
+   * @param x - The X distance
+   * @param y - The Y distance
+   * @param copy - Whether to copy instead of move
+   * @param targets - The objects to translate (defaults to last object)
+   */
   (x: number, y: number, copy: boolean, ...targets: ISceneObject[]): ISceneObject;
+  /**
+   * Translates objects along all three axes.
+   * @param x - The X distance
+   * @param y - The Y distance
+   * @param z - The Z distance
+   * @param targets - The objects to translate (defaults to last object)
+   */
   (x: number, y: number, z: number, ...targets: ISceneObject[]): ISceneObject;
+  /**
+   * Translates objects along all three axes, optionally making a copy.
+   * @param x - The X distance
+   * @param y - The Y distance
+   * @param z - The Z distance
+   * @param copy - Whether to copy instead of move
+   * @param targets - The objects to translate (defaults to last object)
+   */
   (x: number, y: number, z: number, copy: boolean, ...targets: ISceneObject[]): ISceneObject;
+  /**
+   * Translates objects by a point-like offset.
+   * @param distance - The offset as a point
+   * @param targets - The objects to translate (defaults to last object)
+   */
   (distance: PointLike, ...targets: ISceneObject[]): ISceneObject;
+  /**
+   * Translates objects by a point-like offset, optionally making a copy.
+   * @param distance - The offset as a point
+   * @param copy - Whether to copy instead of move
+   * @param targets - The objects to translate (defaults to last object)
+   */
   (distance: PointLike, copy: boolean, ...targets: ISceneObject[]): ISceneObject;
 }
 

@@ -11,9 +11,35 @@ import { resolvePlane } from "../../helpers/resolve.js";
 import { IPolygon, ISceneObject } from "../interfaces.js";
 
 interface PolygonFunction {
+  /**
+   * Draws a regular polygon with the given number of sides and radius.
+   * @param numberOfSides - The number of sides
+   * @param radius - The circumscribed or inscribed radius
+   * @param mode - `'inscribed'` or `'circumscribed'` (defaults to `'inscribed'`)
+   */
   (numberOfSides: number, radius: number, mode?: PolygonMode): IPolygon;
+  /**
+   * Draws a regular polygon at a given center point.
+   * @param center - The center point
+   * @param numberOfSides - The number of sides
+   * @param radius - The circumscribed or inscribed radius
+   * @param mode - `'inscribed'` or `'circumscribed'` (defaults to `'inscribed'`)
+   */
   (center: Point2DLike, numberOfSides: number, radius: number, mode?: PolygonMode): IPolygon;
+  /**
+   * Draws a regular polygon on a specific plane.
+   * @param numberOfSides - The number of sides
+   * @param radius - The circumscribed or inscribed radius
+   * @param targetPlane - The plane to draw on
+   */
   (numberOfSides: number, radius: number, targetPlane: PlaneLike | ISceneObject): IPolygon;
+  /**
+   * Draws a regular polygon with a given mode on a specific plane.
+   * @param numberOfSides - The number of sides
+   * @param radius - The circumscribed or inscribed radius
+   * @param mode - `'inscribed'` or `'circumscribed'`
+   * @param targetPlane - The plane to draw on
+   */
   (numberOfSides: number, radius: number, mode: PolygonMode, targetPlane: PlaneLike | ISceneObject): IPolygon;
 }
 

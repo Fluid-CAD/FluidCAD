@@ -2,6 +2,10 @@ import { HMove } from "../../features/2d/hmove.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
 
 interface HMoveFunction {
+  /**
+   * Moves the cursor horizontally by the given distance.
+   * @param distance - The horizontal distance to move
+   */
   (distance: number): void;
 }
 

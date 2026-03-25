@@ -6,9 +6,24 @@ import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { SceneObject } from "../common/scene-object.js";
 import { PlaneFromObject } from "../features/plane-from-object.js";
-import { ISceneObject } from "./interfaces.js";
+import { IPlane, ISceneObject } from "./interfaces.js";
 
-function build(context: SceneParserContext) {
+interface SketchFunction {
+  /**
+   * Draws 2D geometry on a standard plane.
+   * @param plane - The plane to sketch on
+   * @param sketcher - Callback containing sketch operations
+   */
+  (plane: PlaneLike, sketcher: () => void): ISceneObject;
+  /**
+   * Draws 2D geometry on a face or plane object.
+   * @param face - The face or plane object to sketch on
+   * @param sketcher - Callback containing sketch operations
+   */
+  (face: ISceneObject | IPlane, sketcher: () => void): ISceneObject;
+}
+
+function build(context: SceneParserContext): SketchFunction {
   return function sketch(p: PlaneLike | SceneObject, sketcher: () => void): ISceneObject {
     let planeObj: PlaneObjectBase;
 
@@ -34,7 +49,7 @@ function build(context: SceneParserContext) {
     context.endProgressiveContainer();
 
     return sketch;
-  }
+  } as unknown as SketchFunction;
 }
 
 export default registerBuilder(build);

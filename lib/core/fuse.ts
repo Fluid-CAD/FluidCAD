@@ -5,7 +5,17 @@ import { Fuse } from "../features/fuse.js";
 import { Fuse2D } from "../features/fuse2d.js";
 import { ISceneObject } from "./interfaces.js";
 
-function build(context: SceneParserContext) {
+interface FuseFunction {
+  /** Fuses all shapes or 2D geometries in the current context. */
+  (): ISceneObject;
+  /**
+   * Fuses the given shapes or 2D geometries into one.
+   * @param objects - The objects to fuse together
+   */
+  (...objects: ISceneObject[]): ISceneObject;
+}
+
+function build(context: SceneParserContext): FuseFunction {
   return function fuse(...args: (ISceneObject[])): ISceneObject {
     const activeSketch = context.getActiveSketch();
 
@@ -37,7 +47,7 @@ function build(context: SceneParserContext) {
     context.addSceneObject(fuse);
 
     return fuse;
-  }
+  } as FuseFunction;
 }
 
 export default registerBuilder(build);

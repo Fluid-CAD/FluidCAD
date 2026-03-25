@@ -11,11 +11,40 @@ import { IPlane, ISceneObject } from "./interfaces.js";
 export type PlaneRenderableOptions = PlaneTransformOptions & { sticky?: boolean };
 
 interface PlaneFunction {
+  /**
+   * Creates a plane from a standard plane or normal vector.
+   * @param plane - The standard plane or normal vector
+   */
   (plane: PlaneLike): IPlane;
+  /**
+   * Creates a plane with transform options.
+   * @param plane - The standard plane or normal vector
+   * @param options - Transform options (offset, flip, sticky, etc.)
+   */
   (plane: PlaneLike, options: PlaneRenderableOptions): IPlane;
+  /**
+   * Creates a plane from a face selection.
+   * @param selection - The selected face to create a plane from
+   */
   (selection: ISceneObject): IPlane;
+  /**
+   * Creates a plane from a face selection with transform options.
+   * @param selection - The selected face to create a plane from
+   * @param options - Transform options (offset, flip, sticky, etc.)
+   */
   (selection: ISceneObject, options: PlaneRenderableOptions): IPlane;
+  /**
+   * Transforms an existing plane with options.
+   * @param plane - The existing plane to transform
+   * @param options - Transform options (offset, flip, sticky, etc.)
+   */
   (plane: IPlane, options: PlaneRenderableOptions): IPlane;
+  /**
+   * Creates a plane midway between two planes.
+   * @param p1 - The first plane
+   * @param p2 - The second plane
+   * @param options - Transform options (offset, flip, sticky, etc.)
+   */
   (p1: PlaneLike | IPlane, p2: PlaneLike | IPlane, options?: PlaneRenderableOptions): IPlane;
 }
 

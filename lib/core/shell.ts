@@ -5,7 +5,16 @@ import { registerBuilder, SceneParserContext } from "../index.js";
 import { ISceneObject } from "./interfaces.js";
 
 interface ShellFunction {
+  /**
+   * Hollows out a solid with the given wall thickness.
+   * @param thickness - The wall thickness (defaults to 2.5)
+   */
   (thickness?: number): ISceneObject;
+  /**
+   * Hollows out a solid, removing the selected face.
+   * @param thickness - The wall thickness
+   * @param selection - The face selection to remove
+   */
   (thickness: number, selection: ISceneObject): ISceneObject;
 }
 

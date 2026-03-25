@@ -12,11 +12,44 @@ import { TangentArcTwoObjects } from "../../features/2d/tarc-constrained.js";
 import { IGeometry, ISceneObject, ITangentArcTwoObjects } from "../interfaces.js";
 
 interface TArcFunction {
+  /**
+   * Draws a tangent arc with a given radius and end angle.
+   * @param radius - The arc radius (defaults to 100)
+   * @param endAngle - The sweep angle in degrees (defaults to 90)
+   */
   (radius?: number, endAngle?: number): IGeometry;
+  /**
+   * Draws a tangent arc with a given radius, angle, and start tangent direction.
+   * @param radius - The arc radius
+   * @param angle - The sweep angle in degrees
+   * @param tangent - The start tangent direction
+   */
   (radius: number, angle: number, tangent: Point2DLike): IGeometry;
+  /**
+   * Draws a tangent arc to a given end point.
+   * @param endPoint - The end point of the arc
+   */
   (endPoint: Point2DLike): IGeometry;
+  /**
+   * Draws a tangent arc to a given end point with an explicit end tangent.
+   * @param endPoint - The end point of the arc
+   * @param tangent - The end tangent direction
+   */
   (endPoint: Point2DLike, tangent: Point2DLike): IGeometry;
+  /**
+   * Draws a tangent arc from a start point to an end point with a tangent.
+   * @param startPoint - The start point of the arc
+   * @param endPoint - The end point of the arc
+   * @param tangent - The end tangent direction
+   */
   (startPoint: Point2DLike, endPoint: Point2DLike, tangent: Point2DLike): IGeometry;
+  /**
+   * Draws a tangent arc between two objects with a given radius.
+   * @param c1 - The first constraint object or point
+   * @param c2 - The second constraint object or point
+   * @param radius - The arc radius
+   * @param mustTouch - Whether the arc must touch both objects
+   */
   (c1: ISceneObject | QualifiedSceneObject | Point2DLike, c2: ISceneObject | QualifiedSceneObject | Point2DLike, radius: number, mustTouch?: boolean): ITangentArcTwoObjects;
 }
 

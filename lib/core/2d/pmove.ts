@@ -3,6 +3,11 @@ import { registerBuilder, SceneParserContext } from "../../index.js";
 import { IGeometry } from "../interfaces.js";
 
 interface PolarMoveFunction {
+  /**
+   * Moves the cursor by polar coordinates.
+   * @param radius - The distance to move
+   * @param angle - The angle in degrees
+   */
   (radius: number, angle: number): IGeometry;
 }
 

@@ -9,11 +9,40 @@ import { SceneObject } from "../common/scene-object.js";
 import { IAxis, ISceneObject } from "./interfaces.js";
 
 interface AxisFunction {
+  /**
+   * Creates an axis from a direction vector.
+   * @param axis - The direction vector or standard axis
+   */
   (axis: AxisLike): IAxis;
+  /**
+   * Creates an axis from a direction vector with transform options.
+   * @param axis - The direction vector or standard axis
+   * @param options - Transform options (offset, flip, etc.)
+   */
   (axis: AxisLike, options: AxisTransformOptions): IAxis;
+  /**
+   * Creates an axis from a scene object's edge.
+   * @param source - The scene object whose edge defines the axis
+   */
   (source: ISceneObject): IAxis;
+  /**
+   * Creates an axis from a scene object's edge with transform options.
+   * @param source - The scene object whose edge defines the axis
+   * @param options - Transform options (offset, flip, etc.)
+   */
   (source: ISceneObject, options: AxisTransformOptions): IAxis;
+  /**
+   * Transforms an existing axis with options.
+   * @param axis - The existing axis to transform
+   * @param options - Transform options (offset, flip, etc.)
+   */
   (axis: IAxis, options: AxisTransformOptions): IAxis;
+  /**
+   * Creates an axis midway between two axes.
+   * @param a1 - The first axis
+   * @param a2 - The second axis
+   * @param options - Transform options (offset, flip, etc.)
+   */
   (a1: AxisLike | IAxis, a2: AxisLike | IAxis, options?: AxisTransformOptions): IAxis;
 }
 

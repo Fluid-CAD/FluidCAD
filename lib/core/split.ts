@@ -4,7 +4,17 @@ import { registerBuilder, SceneParserContext } from "../index.js";
 import { Split2D } from "../features/split2d.js";
 import { ISceneObject } from "./interfaces.js";
 
-function build(context: SceneParserContext) {
+interface SplitFunction {
+  /** Splits all intersecting sketch geometries at their crossing points. */
+  (): ISceneObject;
+  /**
+   * Splits the given sketch geometries at their crossing points.
+   * @param objects - The geometries to split
+   */
+  (...objects: ISceneObject[]): ISceneObject;
+}
+
+function build(context: SceneParserContext): SplitFunction {
   return function split(...args: (ISceneObject[])): ISceneObject {
     const activeSketch = context.getActiveSketch();
 
@@ -26,7 +36,7 @@ function build(context: SceneParserContext) {
     }
 
     throw new Error("Split can only be used within a sketch");
-  }
+  } as SplitFunction;
 }
 
 export default registerBuilder(build);

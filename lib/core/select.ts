@@ -6,6 +6,10 @@ import { FilterBuilderBase } from "../filters/filter-builder-base.js";
 import { ISelect } from "./interfaces.js";
 
 interface SelectFunction {
+  /**
+   * Selects faces or edges matching the given filters.
+   * @param filters - One or more filter builders to match against
+   */
   (...filters: FilterBuilderBase<Shape>[]): ISelect;
 }
 

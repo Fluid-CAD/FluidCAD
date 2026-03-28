@@ -96,6 +96,13 @@ export interface ITangentArcTwoObjects extends IGeometry {
 }
 
 /**
+ * Interface for common (intersection) results returned by the common() builder.
+ */
+export interface ICommon extends ISceneObject {
+  keepOriginal(value?: boolean): this;
+}
+
+/**
  * Interface for extrude results returned by the extrude() builder.
  */
 export interface IExtrude extends ISceneObject {

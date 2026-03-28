@@ -330,6 +330,58 @@ export class FaceOps {
     return Face.fromTopoDSFace(FaceOps.makeFace(wire));
   }
 
+  static commonFacesAndUnify(face1: Face | TopoDS_Face, face2: Face | TopoDS_Face): Face | null {
+    const rawFace1 = face1 instanceof Face ? face1.getShape() as TopoDS_Face : face1;
+    const rawFace2 = face2 instanceof Face ? face2.getShape() as TopoDS_Face : face2;
+    const oc = getOC();
+    const progress = new oc.Message_ProgressRange();
+    const commonMaker = new oc.BRepAlgoAPI_Common();
+
+    const list1 = new oc.TopTools_ListOfShape();
+    const list2 = new oc.TopTools_ListOfShape();
+
+    list1.Append(rawFace1);
+    list2.Append(rawFace2);
+
+    commonMaker.SetArguments(list1);
+    commonMaker.SetTools(list2);
+    commonMaker.SetUseOBB(false);
+
+    commonMaker.Build(progress);
+
+    if (!commonMaker.IsDone()) {
+      progress.delete();
+      commonMaker.delete();
+      return null;
+    }
+
+    const newShape = commonMaker.Shape();
+    progress.delete();
+    commonMaker.delete();
+
+    if (newShape.IsNull()) {
+      return null;
+    }
+
+    const faces = Explorer.findShapes(newShape, oc.TopAbs_ShapeEnum.TopAbs_FACE);
+
+    if (faces.length === 0) {
+      return null;
+    }
+
+    if (faces.length === 1) {
+      return Face.fromTopoDSFace(oc.TopoDS.Face(faces[0]));
+    }
+
+    const wire = FaceOps.getFreeBoundsWire(newShape);
+
+    if (!wire) {
+      return null;
+    }
+
+    return Face.fromTopoDSFace(FaceOps.makeFace(wire));
+  }
+
   static makeFaceFromPlane(plane: gp_Pln): TopoDS_Face {
     const oc = getOC();
     const faceMaker = new oc.BRepBuilderAPI_MakeFace(plane);

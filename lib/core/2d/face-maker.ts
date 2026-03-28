@@ -34,6 +34,16 @@ export class FaceMaker {
     return newWires;
   }
 
+  static commonWires(shapes: Array<Wire | Edge>, plane: Plane): Wire[] {
+    const wires = this.unifyWires(shapes);
+    let faces = this.createFacesFromWires(wires, plane);
+
+    faces = this.commonIntersectingFaces(faces);
+
+    const newWires = this.getWiresFromFaces(faces);
+    return newWires;
+  }
+
   static makeDrilledFaces(shapes: Array<Wire | Edge>, plane: Plane): Face[] {
     const wires = this.unifyWires(shapes);
     let faces = this.createFacesFromWires(wires, plane);
@@ -204,6 +214,34 @@ export class FaceMaker {
   private static boundingBoxesIntersect(bbox1: BoundingBox, bbox2: BoundingBox): boolean {
     return !(bbox1.maxX < bbox2.minX || bbox2.maxX < bbox1.minX ||
       bbox1.maxY < bbox2.minY || bbox2.maxY < bbox1.minY);
+  }
+
+  private static commonIntersectingFaces(faces: Face[]): Face[] {
+    if (faces.length <= 1) {
+      return [...faces];
+    }
+
+    let current = faces[0];
+    let currentBbox = ShapeOps.getBoundingBox(current);
+
+    for (let i = 1; i < faces.length; i++) {
+      const candidate = faces[i];
+      const candidateBbox = ShapeOps.getBoundingBox(candidate);
+
+      if (!this.boundingBoxesIntersect(currentBbox, candidateBbox)) {
+        return [];
+      }
+
+      const result = FaceOps.commonFacesAndUnify(current, candidate.getShape());
+      if (!result) {
+        return [];
+      }
+
+      current = result;
+      currentBbox = ShapeOps.getBoundingBox(current);
+    }
+
+    return [current];
   }
 
   private static getFaceInfos(faces: Face[], facesWires: Wire[]): FaceInfo[] {

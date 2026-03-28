@@ -1,22 +1,22 @@
 import { SceneObject } from "../common/scene-object.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
-import { Fuse } from "../features/fuse.js";
-import { Fuse2D } from "../features/fuse2d.js";
-import { ISceneObject } from "./interfaces.js";
+import { Common } from "../features/common.js";
+import { Common2D } from "../features/common2d.js";
+import { ICommon, ISceneObject } from "./interfaces.js";
 
-interface FuseFunction {
-  /** Fuses all shapes or 2D geometries in the current context. */
-  (): Fuse | Fuse2D;
+interface CommonFunction {
+  /** Computes the common (intersection) of all shapes or 2D geometries in the current context. */
+  (): ICommon;
   /**
-   * Fuses the given shapes or 2D geometries into one.
-   * @param objects - The objects to fuse together
+   * Computes the common (intersection) of the given shapes or 2D geometries.
+   * @param objects - The objects to intersect
    */
-  (...objects: ISceneObject[]): Fuse | Fuse2D;
+  (...objects: ISceneObject[]): ICommon;
 }
 
-function build(context: SceneParserContext): FuseFunction {
-  return function fuse(...args: (ISceneObject[])): ISceneObject {
+function build(context: SceneParserContext): CommonFunction {
+  return function common(...args: (ISceneObject[])): ISceneObject {
     const activeSketch = context.getActiveSketch();
 
     if (activeSketch) {
@@ -30,9 +30,9 @@ function build(context: SceneParserContext): FuseFunction {
       } else {
         objects = [];
       }
-      const fuse2d = new Fuse2D(...objects);
-      context.addSceneObject(fuse2d);
-      return fuse2d;
+      const common2d = new Common2D(...objects);
+      context.addSceneObject(common2d);
+      return common2d;
     }
 
     let solids: SceneObject[];
@@ -43,11 +43,11 @@ function build(context: SceneParserContext): FuseFunction {
       solids = args as SceneObject[];
     }
 
-    const fuse = new Fuse(...solids);
-    context.addSceneObject(fuse);
+    const common = new Common(...solids);
+    context.addSceneObject(common);
 
-    return fuse;
-  } as FuseFunction;
+    return common;
+  } as CommonFunction;
 }
 
 export default registerBuilder(build);

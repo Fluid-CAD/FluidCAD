@@ -303,6 +303,58 @@ export class BooleanOps {
     };
   }
 
+  static commonMultiShape(args: Shape[], tools: Shape[], checkDeleted: Shape[] = []): {
+    result: Shape;
+    modifiedShapes: Shape[];
+    solids: Solid[];
+  } {
+    const oc = getOC();
+
+    const argsCompound = ShapeOps.makeCompoundRaw(args.map(a => a.getShape()));
+    const argumentsList = new oc.TopTools_ListOfShape();
+    argumentsList.Append(argsCompound);
+
+    const toolsList = new oc.TopTools_ListOfShape();
+    for (const tool of tools) {
+      toolsList.Append(tool.getShape());
+    }
+
+    const progress = new oc.Message_ProgressRange();
+
+    const commonMaker = new oc.BRepAlgoAPI_Common();
+    commonMaker.SetArguments(argumentsList);
+    commonMaker.SetTools(toolsList);
+    commonMaker.SetNonDestructive(true);
+    commonMaker.SetCheckInverted(true);
+    commonMaker.Build(progress);
+
+    if (!commonMaker.IsDone()) {
+      commonMaker.delete();
+      toolsList.delete();
+      argumentsList.delete();
+      progress.delete();
+      throw new Error('Common operation failed');
+    }
+
+    let resultShape = commonMaker.Shape();
+    const rawSolids = Explorer.findShapes(resultShape, Explorer.getOcShapeType("solid"));
+    const solids = rawSolids.map(s => Solid.fromTopoDSSolid(Explorer.toSolid(s)));
+
+    const modifiedShapes: Shape[] = [];
+    for (const shape of checkDeleted) {
+      if (commonMaker.IsDeleted(shape.getShape())) {
+        modifiedShapes.push(shape);
+      }
+    }
+
+    commonMaker.delete();
+    toolsList.delete();
+    argumentsList.delete();
+    progress.delete();
+
+    return { result: solids[0], modifiedShapes, solids };
+  }
+
   static doShapesIntersect(shape1: Shape, shape2: Shape): boolean {
     const oc = getOC();
     const raw1 = shape1.getShape();

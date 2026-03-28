@@ -2,13 +2,14 @@ export type {
   ISceneObject, IPlane, IAxis, ISelect,
   IGeometry, IExtrudableGeometry, IRect, ISlot, IPolygon,
   ITwoObjectsTangentLine, ITangentArcTwoObjects,
-  IExtrude, ICut
+  IExtrude, ICut, ICommon
 } from "./interfaces.js";
 export { default as axis } from "./axis.js";
 export { default as plane } from "./plane.js";
 export { default as sketch } from "./sketch.js";
 export { default as fuse } from "./fuse.js";
 export { default as subtract } from "./subtract.js";
+export { default as common } from "./common.js";
 export { default as cut } from "./cut.js";
 export { default as revolve } from "./revolve.js";
 export { default as extrude } from "./extrude.js";

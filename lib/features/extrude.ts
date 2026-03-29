@@ -104,6 +104,12 @@ export class Extrude extends ExtrudeBase {
         cell.markAsMetaShape('pick-region');
       }
       this.addShape(cell);
+
+      // Add the cell's boundary edges as meta edge shapes
+      for (const edge of cell.getEdges()) {
+        edge.markAsMetaShape('pick-edge');
+        this.addShape(edge);
+      }
     }
 
     // If we have selected cells, extrude them

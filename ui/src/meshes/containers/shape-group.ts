@@ -6,12 +6,14 @@ import { SolidMesh } from '../shape-meshes/solid-mesh';
 import { MetaEdgeMesh } from '../shape-meshes/meta-edge-mesh';
 import { TrimMetaEdgeMesh } from '../shape-meshes/trim-meta-edge-mesh';
 import { RegionMetaFaceMesh } from '../shape-meshes/region-meta-face-mesh';
+import { PickEdgeMesh } from '../shape-meshes/pick-edge-mesh';
 
 const STANDALONE_EDGE_STYLE: EdgeMeshOptions = { color: '#2297ff', lineWidth: 2 };
 
 /** Map of metaType → factory function. Falls back to MetaEdgeMesh. */
 const metaEdgeFactories: Record<string, (shape: SceneObjectPart) => Group> = {
   trim: (shape) => new TrimMetaEdgeMesh(shape),
+  'pick-edge': (shape) => new PickEdgeMesh(shape),
 };
 
 export function createMetaEdgeMesh(shape: SceneObjectPart): Group {

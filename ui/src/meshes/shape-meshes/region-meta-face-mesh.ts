@@ -15,7 +15,8 @@ const OPACITY_SELECTED = 0.4;
 
 /**
  * Renders pick-region meta faces as semi-transparent colored surfaces.
- * Unselected regions are light blue; selected regions are green with higher opacity.
+ * Boundary edges and vertices are rendered separately as meta edge shapes
+ * added by the build.
  */
 export class RegionMetaFaceMesh extends Group {
   constructor(shape: SceneObjectPart, isSelected: boolean) {

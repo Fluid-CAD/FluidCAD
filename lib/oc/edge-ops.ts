@@ -190,21 +190,33 @@ export class EdgeOps {
     return edge;
   }
 
-  static splitEdges(edges: Edge[]) {
+  static splitEdges(edges: Edge[]): Edge[] {
+    return EdgeOps.splitEdgesWithMapping(edges).edges;
+  }
+
+  static splitEdgesWithMapping(edges: Edge[]): {
+    edges: Edge[];
+    sourceIndex: number[];
+  } {
     const oc = getOC();
     const tol = 1e-7;
 
     // Extract individual edges (expand wires passed at runtime)
     const allEdges: TopoDS_Edge[] = [];
-    for (const e of edges) {
-      const shape = e.getShape();
+    const inputIndex: number[] = []; // maps allEdges index → original edges[] index
+    for (let ei = 0; ei < edges.length; ei++) {
+      const shape = edges[ei].getShape();
       if (shape.ShapeType() === oc.TopAbs_ShapeEnum.TopAbs_WIRE) {
         const wireEdges = Explorer.findShapes<TopoDS_Edge>(
           shape, oc.TopAbs_ShapeEnum.TopAbs_EDGE
         );
-        allEdges.push(...wireEdges);
+        for (const we of wireEdges) {
+          allEdges.push(we);
+          inputIndex.push(ei);
+        }
       } else {
         allEdges.push(shape as TopoDS_Edge);
+        inputIndex.push(ei);
       }
     }
 
@@ -233,12 +245,15 @@ export class EdgeOps {
 
     // Split each edge at its collected intersection parameters
     const result: Edge[] = [];
+    const sourceIndex: number[] = [];
     for (let i = 0; i < allEdges.length; i++) {
       const edge = allEdges[i];
       const params = splitParams[i];
+      const srcIdx = inputIndex[i];
 
       if (params.length === 0) {
         result.push(Edge.fromTopoDSEdge(edge));
+        sourceIndex.push(srcIdx);
         continue;
       }
 
@@ -272,6 +287,7 @@ export class EdgeOps {
 
       if (interior.length === 0) {
         result.push(Edge.fromTopoDSEdge(edge));
+        sourceIndex.push(srcIdx);
         continue;
       }
 
@@ -289,6 +305,7 @@ export class EdgeOps {
           const maker = new oc.BRepBuilderAPI_MakeEdge(handle, u1, u2);
           if (maker.IsDone()) {
             result.push(Edge.fromTopoDSEdge(maker.Edge()));
+            sourceIndex.push(srcIdx);
           }
           maker.delete();
         }
@@ -299,18 +316,20 @@ export class EdgeOps {
           const maker = new oc.BRepBuilderAPI_MakeEdge(handle, allParams[k], allParams[k + 1]);
           if (maker.IsDone()) {
             result.push(Edge.fromTopoDSEdge(maker.Edge()));
+            sourceIndex.push(srcIdx);
           }
           maker.delete();
         }
       } else {
         // Closed curve with < 2 split points: return as-is
         result.push(Edge.fromTopoDSEdge(edge));
+        sourceIndex.push(srcIdx);
       }
 
       handle.delete();
     }
 
-    return result;
+    return { edges: result, sourceIndex };
   }
 
   static findNearestEdgeIndex(edges: Edge[], point: Point, tolerance: number = -1): number {

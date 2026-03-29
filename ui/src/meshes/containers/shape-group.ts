@@ -1,11 +1,22 @@
 import { Group } from 'three';
-import { EdgeMeshOptions, MeshRenderOptions, SceneObjectRender } from '../../types';
+import { EdgeMeshOptions, MeshRenderOptions, SceneObjectPart, SceneObjectRender } from '../../types';
 import { EdgeMesh } from '../shape-meshes/edge-mesh';
 import { FaceMesh } from '../shape-meshes/face-mesh';
 import { SolidMesh } from '../shape-meshes/solid-mesh';
 import { MetaEdgeMesh } from '../shape-meshes/meta-edge-mesh';
+import { TrimMetaEdgeMesh } from '../shape-meshes/trim-meta-edge-mesh';
 
 const STANDALONE_EDGE_STYLE: EdgeMeshOptions = { color: '#2297ff', lineWidth: 2 };
+
+/** Map of metaType → factory function. Falls back to MetaEdgeMesh. */
+const metaEdgeFactories: Record<string, (shape: SceneObjectPart) => Group> = {
+  trim: (shape) => new TrimMetaEdgeMesh(shape),
+};
+
+export function createMetaEdgeMesh(shape: SceneObjectPart): Group {
+  const factory = shape.metaType ? metaEdgeFactories[shape.metaType] : undefined;
+  return factory ? factory(shape) : new MetaEdgeMesh(shape);
+}
 
 /**
  * Builds the Three.js geometry for a leaf scene object — one that has no
@@ -31,31 +42,31 @@ export class ShapeGroup extends Group {
     );
 
     for (const shape of sceneObject.sceneShapes) {
+      let mesh: Group | undefined;
+
       if (shape.isMetaShape) {
         switch (shape.shapeType) {
           case 'wire':
           case 'edge':
-            this.add(new MetaEdgeMesh(shape));
+            mesh = createMetaEdgeMesh(shape);
             break;
         }
-        continue;
-      }
-
-      let mesh: Group | undefined;
-      switch (shape.shapeType) {
-        case 'wire':
-        case 'edge': {
-          const edgeOpts = options?.edge
-            ?? (isStandaloneWireEdge ? STANDALONE_EDGE_STYLE : undefined);
-          mesh = new EdgeMesh(shape, edgeOpts);
-          break;
+      } else {
+        switch (shape.shapeType) {
+          case 'wire':
+          case 'edge': {
+            const edgeOpts = options?.edge
+              ?? (isStandaloneWireEdge ? STANDALONE_EDGE_STYLE : undefined);
+            mesh = new EdgeMesh(shape, edgeOpts);
+            break;
+          }
+          case 'face':
+            mesh = new FaceMesh(shape, options?.face);
+            break;
+          case 'solid':
+            mesh = new SolidMesh(shape, options);
+            break;
         }
-        case 'face':
-          mesh = new FaceMesh(shape, options?.face);
-          break;
-        case 'solid':
-          mesh = new SolidMesh(shape, options);
-          break;
       }
 
       if (mesh) {

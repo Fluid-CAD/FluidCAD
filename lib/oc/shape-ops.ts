@@ -37,7 +37,7 @@ export class ShapeOps {
     }
 
     if (shape.isMetaShape()) {
-      transformed.markAsMetaShape();
+      transformed.markAsMetaShape(shape.metaType);
     }
 
     if (shape.isGuideShape()) {

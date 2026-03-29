@@ -14,7 +14,7 @@ import {
 } from 'three';
 import { SceneObjectRender } from '../../types';
 import { EdgeMesh } from '../shape-meshes/edge-mesh';
-import { MetaEdgeMesh } from '../shape-meshes/meta-edge-mesh';
+import { createMetaEdgeMesh } from './shape-group';
 
 function computeViewScale(camera: Camera, position: Vector3, factor: number): number {
   if (camera instanceof OrthographicCamera) {
@@ -68,7 +68,11 @@ export class SketchMesh extends Group {
       for (const shape of obj.sceneShapes) {
         if (shape.isMetaShape || shape.isGuide) {
           if (shape.shapeType === 'wire' || shape.shapeType === 'edge') {
-            this.add(new MetaEdgeMesh(shape));
+            const metaMesh = createMetaEdgeMesh(shape);
+            if (shape.shapeId) {
+              metaMesh.userData.shapeId = shape.shapeId;
+            }
+            this.add(metaMesh);
           }
           continue;
         }

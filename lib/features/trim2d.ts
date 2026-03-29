@@ -22,10 +22,6 @@ export class Trim2D extends GeometrySceneObject {
   }
 
   build() {
-    if (this._points.length === 0) {
-      return;
-    }
-
     const plane = this.sketch.getPlane();
     const sourceWires = this.sketch.getGeometriesWithOwner();
 
@@ -45,44 +41,99 @@ export class Trim2D extends GeometrySceneObject {
       }
     }
 
+    if (allEdges.length === 0) {
+      return;
+    }
+
+    const TRIM_TOLERANCE = 50;
+
     // Split all edges at intersection points
     const splitResult = EdgeOps.splitEdgesWithMapping(allEdges);
     const splitEdges = splitResult.edges;
     const sourceIndex = splitResult.sourceIndex;
 
-    // Find split edges nearest to each trim point
-    const TRIM_TOLERANCE = 50;
+    // Find split edges to remove
     const splitEdgesToRemove = new Set<number>();
-    for (const lazyPoint of this._points) {
-      const point2d = lazyPoint.asPoint2D();
-      const point3d = plane.localToWorld(point2d);
-      const indices = EdgeOps.findNearestEdgeIndices(splitEdges, point3d, TRIM_TOLERANCE);
-      for (const idx of indices) {
-        splitEdgesToRemove.add(idx);
+    if (this._points.length > 0) {
+      for (const lazyPoint of this._points) {
+        const point2d = lazyPoint.asPoint2D();
+        const point3d = plane.localToWorld(point2d);
+        for (const idx of EdgeOps.findNearestEdgeIndices(splitEdges, point3d, TRIM_TOLERANCE)) {
+          splitEdgesToRemove.add(idx);
+        }
+      }
+
+      // Remove affected original wires and re-add surviving split edges
+      const removedWires = new Set<Wire | Edge>();
+      for (const idx of splitEdgesToRemove) {
+        const origEdge = allEdges[sourceIndex[idx]];
+        const entry = edgeToOwner.get(origEdge)!;
+        if (!removedWires.has(entry.wire)) {
+          removedWires.add(entry.wire);
+          entry.owner.removeShape(entry.wire, this);
+        }
+      }
+
+      for (let i = 0; i < splitEdges.length; i++) {
+        if (splitEdgesToRemove.has(i)) {
+          continue;
+        }
+        const origEdge = allEdges[sourceIndex[i]];
+        const entry = edgeToOwner.get(origEdge)!;
+        if (removedWires.has(entry.wire)) {
+          this.addShape(splitEdges[i]);
+        }
       }
     }
 
-    // Remove affected original wires from their owners
-    const removedWires = new Set<Wire | Edge>();
-    for (const idx of splitEdgesToRemove) {
-      const origEdge = allEdges[sourceIndex[idx]];
-      const entry = edgeToOwner.get(origEdge)!;
-      if (!removedWires.has(entry.wire)) {
-        removedWires.add(entry.wire);
-        entry.owner.removeShape(entry.wire, this);
+    // --- Meta shapes for segment-level hover ---
+    // Originals with trims need the first-pass split (to preserve trim boundaries).
+    // Originals without trims are re-split against only surviving edges
+    // (so ghost intersections from fully-removed edges disappear).
+
+    const origSurvives = new Set<number>();
+    const origHasTrim = new Array(allEdges.length).fill(false);
+    for (let i = 0; i < splitEdges.length; i++) {
+      if (!splitEdgesToRemove.has(i)) {
+        origSurvives.add(sourceIndex[i]);
+      } else {
+        origHasTrim[sourceIndex[i]] = true;
       }
     }
 
-    // Re-add surviving split edges from affected wires
+    // Re-split only surviving originals (for clean meta shapes of untrimmed edges)
+    const metaInputEdges: Edge[] = [];
+    const metaInputToOrig: number[] = [];
+    for (let i = 0; i < allEdges.length; i++) {
+      if (origSurvives.has(i)) {
+        metaInputEdges.push(allEdges[i]);
+        metaInputToOrig.push(i);
+      }
+    }
+    const metaSplit = EdgeOps.splitEdgesWithMapping(metaInputEdges);
+
+    // Untrimmed originals: use re-split result (clean, no ghost intersections)
+    for (let i = 0; i < metaSplit.edges.length; i++) {
+      const origIdx = metaInputToOrig[metaSplit.sourceIndex[i]];
+      if (origHasTrim[origIdx]) {
+        continue;
+      }
+      const metaEdge = Edge.fromTopoDSEdge(metaSplit.edges[i].getShape());
+      metaEdge.markAsMetaShape('trim');
+      this.addShape(metaEdge);
+    }
+
+    // Trimmed originals: use first-pass surviving split edges (preserve boundaries)
     for (let i = 0; i < splitEdges.length; i++) {
       if (splitEdgesToRemove.has(i)) {
         continue;
       }
-      const origEdge = allEdges[sourceIndex[i]];
-      const entry = edgeToOwner.get(origEdge)!;
-      if (removedWires.has(entry.wire)) {
-        this.addShape(splitEdges[i]);
+      if (!origHasTrim[sourceIndex[i]]) {
+        continue;
       }
+      const metaEdge = Edge.fromTopoDSEdge(splitEdges[i].getShape());
+      metaEdge.markAsMetaShape('trim');
+      this.addShape(metaEdge);
     }
   }
 

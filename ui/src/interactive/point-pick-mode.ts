@@ -262,13 +262,29 @@ function buildEdgeIndex(
   const xx = plane.xDirection.x, xy = plane.xDirection.y, xz = plane.xDirection.z;
   const yx = plane.yDirection.x, yy = plane.yDirection.y, yz = plane.yDirection.z;
 
+  // When trim meta shapes exist, use only those for the hover index so
+  // individual split segments are highlighted instead of full originals.
+  const hasTrimMeta = sceneObjects.some(obj =>
+    obj.parentId === sketchId &&
+    obj.sceneShapes.some(s => s.metaType === 'trim'),
+  );
+
   for (const obj of sceneObjects) {
     if (obj.parentId !== sketchId) {
       continue;
     }
     for (const shape of obj.sceneShapes) {
-      if (shape.isMetaShape || shape.isGuide || !shape.shapeId) {
+      if (!shape.shapeId) {
         continue;
+      }
+      if (hasTrimMeta) {
+        if (shape.metaType !== 'trim') {
+          continue;
+        }
+      } else {
+        if (shape.isMetaShape || shape.isGuide) {
+          continue;
+        }
       }
       const segments: EdgeEntry['segments'] = [];
       const endpoints: [number, number, number][] = [];

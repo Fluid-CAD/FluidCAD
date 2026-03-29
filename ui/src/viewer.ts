@@ -433,6 +433,10 @@ export class Viewer {
       } else if (!isFaceHighlight && child instanceof LineSegments) {
         child.userData.originalColor = (child as any).material.color.getHex();
         (child as any).material.color.set(HIGHLIGHT_EDGE_COLOR);
+        if ((child as any).material.opacity < 1) {
+          child.userData.originalOpacity = (child as any).material.opacity;
+          (child as any).material.opacity = 1;
+        }
       }
     });
 
@@ -449,6 +453,10 @@ export class Viewer {
       if (child.userData.originalColor !== undefined) {
         (child as any).material.color.setHex(child.userData.originalColor);
         delete child.userData.originalColor;
+      }
+      if (child.userData.originalOpacity !== undefined) {
+        (child as any).material.opacity = child.userData.originalOpacity;
+        delete child.userData.originalOpacity;
       }
     });
 

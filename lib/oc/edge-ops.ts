@@ -314,7 +314,13 @@ export class EdgeOps {
   }
 
   static findNearestEdgeIndex(edges: Edge[], point: Point, tolerance: number = -1): number {
+    const indices = EdgeOps.findNearestEdgeIndices(edges, point, tolerance);
+    return indices.length > 0 ? indices[0] : -1;
+  }
+
+  static findNearestEdgeIndices(edges: Edge[], point: Point, tolerance: number = -1): number[] {
     const oc = getOC();
+    const DISTANCE_EPSILON = 1e-6;
 
     const gpPnt = new oc.gp_Pnt(point.x, point.y, point.z);
     const vertexMaker = new oc.BRepBuilderAPI_MakeVertex(gpPnt);
@@ -322,7 +328,7 @@ export class EdgeOps {
     gpPnt.delete();
 
     let minDist = Infinity;
-    let minIndex = -1;
+    const distances: number[] = [];
 
     const progress = new oc.Message_ProgressRange();
     for (let i = 0; i < edges.length; i++) {
@@ -335,10 +341,12 @@ export class EdgeOps {
       );
       if (distCalc.IsDone()) {
         const d = distCalc.Value();
+        distances[i] = d;
         if (d < minDist) {
           minDist = d;
-          minIndex = i;
         }
+      } else {
+        distances[i] = Infinity;
       }
       distCalc.delete();
     }
@@ -346,9 +354,16 @@ export class EdgeOps {
     vertexMaker.delete();
 
     if (tolerance >= 0 && minDist > tolerance) {
-      return -1;
+      return [];
     }
 
-    return minIndex;
+    const result: number[] = [];
+    for (let i = 0; i < edges.length; i++) {
+      if (distances[i] <= minDist + DISTANCE_EPSILON) {
+        result.push(i);
+      }
+    }
+
+    return result;
   }
 }

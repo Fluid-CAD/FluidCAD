@@ -99,6 +99,7 @@ export type SceneObjectPart = {
   shapeType?: ShapeType;
   isMetaShape?: boolean;
   isGuide?: boolean;
+  metaType?: string;
 };
 
 export type SceneObjectRender = {

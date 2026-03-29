@@ -11,6 +11,7 @@ export interface ShapeFilter {
 export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   isMetaShapeFlag = false;
   isGuideFlag = false;
+  metaType?: string;
   id: string;
 
   colorMap: Array<{ shape: TopoDS_Shape; color: string }> = [];
@@ -77,8 +78,9 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
     this.shape?.delete();
   }
 
-  markAsMetaShape() {
+  markAsMetaShape(type?: string) {
     this.isMetaShapeFlag = true;
+    this.metaType = type;
   }
 
   markAsGuide() {

@@ -23,14 +23,19 @@ export class ExtrudeToFace extends ExtrudeBase {
 
   build(context: BuildSceneObjectContext) {
     const sceneObjects = context.getSceneObjects();
+    const plane = this.extrudable.getPlane();
+
+    const pickedFaces = this.resolvePickedFaces(plane);
+    if (pickedFaces !== null && pickedFaces.length === 0) {
+      return;
+    }
+
     const targetFace = this.getFace();
     const isPlanar = FaceQuery.isPlanarFace(targetFace);
 
     let solids: Shape[] = [];
 
-    const wires = this.extrudable.getGeometries();
-    const plane = this.extrudable.getPlane();
-    const faces = FaceMaker.getFaces(wires, plane);
+    const faces = pickedFaces ?? FaceMaker.getFaces(this.extrudable.getGeometries(), plane);
 
     for (const startFace of faces) {
       if (isPlanar && FaceQuery.areFacePlanesParallel(startFace, targetFace)) {

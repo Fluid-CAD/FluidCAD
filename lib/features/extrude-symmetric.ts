@@ -24,12 +24,15 @@ export class ExtrudeSymmetric extends ExtrudeBase {
   build(context: BuildSceneObjectContext) {
     let solids: Shape[] = [];
     const sceneObjects = context.getSceneObjects();
-
-    const wires = this.extrudable.getGeometries();
-    const faces = FaceMaker.getFaces(wires, this.extrudable.getPlane(), this.getDrill());
-    console.log("Extruding faces:", faces);
-
     const plane = this.extrudable.getPlane();
+
+    const pickedFaces = this.resolvePickedFaces(plane);
+    if (pickedFaces !== null && pickedFaces.length === 0) {
+      return;
+    }
+
+    const faces = pickedFaces ?? FaceMaker.getFaces(this.extrudable.getGeometries(), plane, this.getDrill());
+    console.log("Extruding faces:", faces);
     const draft = this.getDraft();
 
     let startFaces: Face[] = [];

@@ -22,7 +22,7 @@ export class Fuse2D extends GeometrySceneObject {
 
   build(context: BuildSceneObjectContext) {
     const plane = this.sketch.getPlane();
-    let sourceWires: Map<Wire | Edge, SceneObject>;
+    let sourceWires: Map<Edge, SceneObject>;
 
     if (this._targetObjects === null) {
       sourceWires = this.sketch.getGeometriesWithOwner();
@@ -39,11 +39,13 @@ export class Fuse2D extends GeometrySceneObject {
 
     const fusedWires = FaceMaker.fuseWires(Array.from(sourceWires.keys()), plane);
 
-    for (const [wire, owner] of sourceWires) {
-      owner.removeShape(wire, this);
+    for (const [edge, owner] of sourceWires) {
+      owner.removeShape(edge, this);
     }
 
-    this.addShapes(fusedWires);
+    const newEdges = fusedWires.flatMap(wire => wire.getEdges());
+
+    this.addShapes(newEdges);
   }
 
   override getDependencies(): SceneObject[] {

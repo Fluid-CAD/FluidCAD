@@ -64,6 +64,7 @@ export class Fillet2D extends GeometrySceneObject {
       }
 
       for (const [edge, owner] of wireInfo.edges) {
+        console.log("Fillet2D: Removing edge from owner", owner.getType(), owner.id);
         owner.removeShape(edge, this);
       }
     }

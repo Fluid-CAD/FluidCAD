@@ -9,6 +9,7 @@ import { ShapeOps } from "../../oc/shape-ops.js";
 import { Edge } from "../../common/edge.js";
 import { WireOps } from "../../oc/wire-ops.js";
 import { BooleanOps } from "../../oc/boolean-ops.js";
+import { EdgeOps } from "../../oc/edge-ops.js";
 
 export class FaceMaker {
   static getFaces(shapes: Array<Wire | Edge>, plane: Plane, drill: boolean = true) {
@@ -16,14 +17,14 @@ export class FaceMaker {
       return this.makeDrilledFaces(shapes, plane);
     }
     else {
-      const wires = this.unifyWires(shapes);
+      const wires = this.unifyWires(shapes, plane);
       let faces = this.createFacesFromWires(wires, plane);
       return faces;
     }
   }
 
   static fuseWires(shapes: Array<Wire | Edge>, plane: Plane): Wire[] {
-    const wires = this.unifyWires(shapes);
+    const wires = this.unifyWires(shapes, plane);
     let faces = this.createFacesFromWires(wires, plane);
 
     console.log("====== Faces before fuse:", faces.length);
@@ -35,7 +36,7 @@ export class FaceMaker {
   }
 
   static commonWires(shapes: Array<Wire | Edge>, plane: Plane): Wire[] {
-    const wires = this.unifyWires(shapes);
+    const wires = this.unifyWires(shapes, plane);
     let faces = this.createFacesFromWires(wires, plane);
 
     faces = this.commonIntersectingFaces(faces);
@@ -45,7 +46,8 @@ export class FaceMaker {
   }
 
   static makeDrilledFaces(shapes: Array<Wire | Edge>, plane: Plane): Face[] {
-    const wires = this.unifyWires(shapes);
+    const wires = this.unifyWires(shapes, plane);
+    console.log("Unified wires count:", wires.length);
     let faces = this.createFacesFromWires(wires, plane);
 
     console.log("====== Faces before fuse:", faces.length);
@@ -62,7 +64,7 @@ export class FaceMaker {
     return faceInfo.map(info => info.face);
   }
 
-  static unifyWires(shapes: (Wire | Edge)[]) {
+  static unifyWires(shapes: (Wire | Edge)[], plane: Plane) {
     const wires: Wire[] = [];
     const looseEdges: Edge[] = [];
 
@@ -85,11 +87,25 @@ export class FaceMaker {
     // Group connected edges and build wires
     const groups = WireOps.groupConnectedEdges(prunedEdges);
     for (const group of groups) {
-      try {
-        const wire = WireOps.makeWireFromEdges(group);
-        wires.push(wire);
-      } catch {
-        // Silently ignore edge groups that can't form a valid wire
+      if (FaceMaker.hasBranchingVertices(group)) {
+        // Edges have branching vertices (degree > 2) — makeWireFromEdges would
+        // only consume a subset. Use planar face traversal to find all closed loops.
+        const cycles = FaceMaker.findMinimalCycles(group, plane);
+        for (const cycleEdges of cycles) {
+          try {
+            const cycleWire = WireOps.makeWireFromEdges(cycleEdges);
+            wires.push(cycleWire);
+          } catch {
+            // Skip cycles that can't form valid wires
+          }
+        }
+      } else {
+        try {
+          const wire = WireOps.makeWireFromEdges(group);
+          wires.push(wire);
+        } catch {
+          // Silently ignore edge groups that can't form a valid wire
+        }
       }
     }
 
@@ -138,6 +154,141 @@ export class FaceMaker {
     return [...active].map(i => edges[i]);
   }
 
+  private static hasBranchingVertices(edges: Edge[]): boolean {
+    const roundFactor = 1e7;
+    const vtxKey = (e: Edge, first: boolean): string => {
+      const p = first ? e.getFirstVertex().toPoint() : e.getLastVertex().toPoint();
+      return `${Math.round(p.x * roundFactor)},${Math.round(p.y * roundFactor)},${Math.round(p.z * roundFactor)}`;
+    };
+
+    const degrees = new Map<string, number>();
+    for (const edge of edges) {
+      const k1 = vtxKey(edge, true);
+      const k2 = vtxKey(edge, false);
+      degrees.set(k1, (degrees.get(k1) || 0) + 1);
+      degrees.set(k2, (degrees.get(k2) || 0) + 1);
+    }
+
+    for (const deg of degrees.values()) {
+      if (deg > 2) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Finds minimal closed loops in a planar edge graph using half-edge face traversal.
+   * Used when edges have branching vertices (degree > 2) and can't form a single wire.
+   */
+  private static findMinimalCycles(edges: Edge[], plane: Plane): Edge[][] {
+    if (edges.length === 0) {
+      return [];
+    }
+
+    const roundFactor = 1e7;
+
+    const vtxKey = (p: { x: number; y: number }): string => {
+      return `${Math.round(p.x * roundFactor)},${Math.round(p.y * roundFactor)}`;
+    };
+
+    interface HalfEdge {
+      fromKey: string;
+      toKey: string;
+      edgeIndex: number;
+      angle: number;
+    }
+
+    const vertexPositions = new Map<string, { x: number; y: number }>();
+    const edgeMidpoints: { x: number; y: number }[] = [];
+    const allHalfEdges: HalfEdge[] = [];
+    const outgoing = new Map<string, HalfEdge[]>();
+
+    for (let i = 0; i < edges.length; i++) {
+      const p1 = plane.worldToLocal(edges[i].getFirstVertex().toPoint());
+      const p2 = plane.worldToLocal(edges[i].getLastVertex().toPoint());
+      const mid = plane.worldToLocal(EdgeOps.getEdgeMidPoint(edges[i]));
+      const k1 = vtxKey(p1);
+      const k2 = vtxKey(p2);
+      vertexPositions.set(k1, p1);
+      vertexPositions.set(k2, p2);
+      edgeMidpoints.push(mid);
+
+      const he1: HalfEdge = {
+        fromKey: k1, toKey: k2, edgeIndex: i,
+        angle: Math.atan2(mid.y - p1.y, mid.x - p1.x),
+      };
+      const he2: HalfEdge = {
+        fromKey: k2, toKey: k1, edgeIndex: i,
+        angle: Math.atan2(mid.y - p2.y, mid.x - p2.x),
+      };
+
+      allHalfEdges.push(he1, he2);
+
+      if (!outgoing.has(k1)) { outgoing.set(k1, []); }
+      if (!outgoing.has(k2)) { outgoing.set(k2, []); }
+      outgoing.get(k1)!.push(he1);
+      outgoing.get(k2)!.push(he2);
+    }
+
+    // Sort outgoing half-edges at each vertex by angle (CCW)
+    for (const [, list] of outgoing) {
+      list.sort((a, b) => a.angle - b.angle);
+    }
+
+    // Build next mapping using planar face traversal:
+    // For half-edge (u→v), find its twin (v→u) in v's sorted outgoing list,
+    // then take the NEXT entry in CCW order (wrapping around).
+    const nextOf = new Map<HalfEdge, HalfEdge>();
+    for (const he of allHalfEdges) {
+      const toOutgoing = outgoing.get(he.toKey)!;
+      const twinIdx = toOutgoing.findIndex(
+        h => h.edgeIndex === he.edgeIndex && h.toKey === he.fromKey
+      );
+      if (twinIdx === -1) { continue; }
+      const nextIdx = (twinIdx + 1) % toOutgoing.length;
+      nextOf.set(he, toOutgoing[nextIdx]);
+    }
+
+    // Trace face cycles
+    const used = new Set<HalfEdge>();
+    const cycles: Edge[][] = [];
+
+    for (const startHe of allHalfEdges) {
+      if (used.has(startHe)) { continue; }
+
+      const cycleHes: HalfEdge[] = [];
+      let current: HalfEdge | undefined = startHe;
+
+      while (current && !used.has(current)) {
+        used.add(current);
+        cycleHes.push(current);
+        current = nextOf.get(current);
+        if (current === startHe) { break; }
+      }
+
+      if (!current || current !== startHe || cycleHes.length < 2) { continue; }
+
+      // Compute signed area using edge midpoints to handle curved edges.
+      // from→mid→to approximates each arc's area contribution.
+      let signedArea = 0;
+      for (const he of cycleHes) {
+        const from = vertexPositions.get(he.fromKey)!;
+        const to = vertexPositions.get(he.toKey)!;
+        const mid = edgeMidpoints[he.edgeIndex];
+        signedArea += from.x * mid.y - mid.x * from.y;
+        signedArea += mid.x * to.y - to.x * mid.y;
+      }
+
+      // Positive signed area = CCW = interior face; negative = exterior
+      if (signedArea <= 0) { continue; }
+
+      cycles.push(cycleHes.map(h => edges[h.edgeIndex]));
+    }
+
+    return cycles;
+  }
+
   private static createFacesFromWires(wires: Wire[], plane: Plane, fixOrientation = true): Face[] {
     if (wires.length === 0) {
       return [];
@@ -154,7 +305,8 @@ export class FaceMaker {
         }
 
         faces.push(face);
-      } catch {
+      } catch (e) {
+        console.log("Failed to create face from wire, skipping. Error:", e);
         // Silently ignore wires that can't form faces (e.g. open wires)
       }
     }

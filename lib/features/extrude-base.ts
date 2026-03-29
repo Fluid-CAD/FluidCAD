@@ -4,6 +4,9 @@ import { FusionScope } from "./extrude-options.js";
 import { LazySceneObject } from "./lazy-scene-object.js";
 import { Extrudable } from "../helpers/types.js";
 import { IExtrude } from "../core/interfaces.js";
+import { LazyVertex } from "./lazy-vertex.js";
+import { Point2DLike } from "../math/point.js";
+import { normalizePoint2D } from "../helpers/normalize.js";
 
 export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   protected _extrudable: Extrudable | null = null;
@@ -11,6 +14,8 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   protected _endOffset?: number;
   protected _fusionScope?: FusionScope = 'all';
   protected _drill?: boolean = true;
+  protected _picking: boolean = false;
+  protected _pickPoints: LazyVertex[] = [];
 
   constructor(extrudable?: Extrudable) {
     super();
@@ -93,6 +98,20 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return this;
   }
 
+  pick(...points: Point2DLike[]): this {
+    this._picking = true;
+    this._pickPoints = points.map(p => normalizePoint2D(p));
+    return this;
+  }
+
+  isPicking(): boolean {
+    return this._picking;
+  }
+
+  getPickPoints(): LazyVertex[] {
+    return this._pickPoints;
+  }
+
   getDraft(): [number, number] {
     const draft = this._draft;
     if (!draft) {
@@ -118,6 +137,8 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     this._draft = other._draft;
     this._endOffset = other._endOffset;
     this._fusionScope = other._fusionScope;
+    this._picking = other._picking;
+    this._pickPoints = other._pickPoints;
     return this;
   }
 
@@ -130,6 +151,20 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       || this._endOffset !== other._endOffset
        || this._drill !== other._drill) {
       return false;
+    }
+
+    if (this._picking !== other._picking) {
+      return false;
+    }
+
+    if (this._pickPoints.length !== other._pickPoints.length) {
+      return false;
+    }
+
+    for (let i = 0; i < this._pickPoints.length; i++) {
+      if (!this._pickPoints[i].compareTo(other._pickPoints[i])) {
+        return false;
+      }
     }
 
     let thisDraft = this._draft || [0, 0];

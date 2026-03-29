@@ -258,6 +258,14 @@ export class Client {
         this.handleInsertPoint(msg);
         break;
       }
+      case 'remove-point': {
+        this.handleRemovePoint(msg);
+        break;
+      }
+      case 'set-pick-points': {
+        this.handleSetPickPoints(msg);
+        break;
+      }
     }
   }
 
@@ -380,6 +388,148 @@ export class Client {
 
     const pos = new vscode.Position(line, closeParen);
     const applied = await editor.edit(b => b.insert(pos, `${prefix}${pointText}`));
+    if (applied) {
+      this.updateLiveCode(editor.document.fileName, editor.document.getText());
+    }
+  }
+
+  private async handleRemovePoint(msg: any) {
+    const { point, sourceLocation } = msg;
+    const line = sourceLocation.line - 1;
+
+    let editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.fileName !== this.currentFileName) {
+      editor = vscode.window.visibleTextEditors.find(
+        e => e.document.fileName === this.currentFileName
+      );
+    }
+    if (!editor) {
+      return;
+    }
+
+    if (line < 0 || line >= editor.document.lineCount) {
+      return;
+    }
+
+    const lineText = editor.document.lineAt(line).text;
+
+    // Find the last .pick(...) or standalone (...) call on the line
+    const closeParen = lineText.lastIndexOf(')');
+    if (closeParen < 0) {
+      return;
+    }
+
+    const openParen = lineText.lastIndexOf('(', closeParen);
+    if (openParen < 0) {
+      return;
+    }
+
+    const argsStr = lineText.substring(openParen + 1, closeParen);
+
+    // Parse all [x, y] point arguments
+    const pointPattern = /\[([^\]]+)\]/g;
+    const matches = [...argsStr.matchAll(pointPattern)];
+
+    if (matches.length === 0) {
+      return;
+    }
+
+    // Find the point closest to the clicked location
+    let bestIndex = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < matches.length; i++) {
+      const parts = matches[i][1].split(',').map(s => parseFloat(s.trim()));
+      if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        const dx = parts[0] - point[0];
+        const dy = parts[1] - point[1];
+        const dist = dx * dx + dy * dy;
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestIndex = i;
+        }
+      }
+    }
+
+    // Calculate the range to delete (including surrounding comma + whitespace)
+    const match = matches[bestIndex];
+    const matchStart = openParen + 1 + match.index!;
+    const matchEnd = matchStart + match[0].length;
+
+    let deleteStart: number;
+    let deleteEnd: number;
+
+    if (matches.length === 1) {
+      // Only point — just remove it
+      deleteStart = matchStart;
+      deleteEnd = matchEnd;
+    } else if (bestIndex === 0) {
+      // First point — remove trailing ", "
+      deleteStart = matchStart;
+      deleteEnd = matchEnd;
+      const rest = lineText.substring(deleteEnd);
+      const commaMatch = rest.match(/^,\s*/);
+      if (commaMatch) {
+        deleteEnd += commaMatch[0].length;
+      }
+    } else {
+      // Non-first point — remove leading ", "
+      const before = lineText.substring(0, matchStart);
+      const commaMatch = before.match(/,\s*$/);
+      deleteStart = commaMatch ? matchStart - commaMatch[0].length : matchStart;
+      deleteEnd = matchEnd;
+    }
+
+    const range = new vscode.Range(
+      new vscode.Position(line, deleteStart),
+      new vscode.Position(line, deleteEnd),
+    );
+
+    const applied = await editor.edit(b => b.delete(range));
+    if (applied) {
+      this.updateLiveCode(editor.document.fileName, editor.document.getText());
+    }
+  }
+
+  private async handleSetPickPoints(msg: any) {
+    const { points, sourceLocation } = msg;
+    const line = sourceLocation.line - 1;
+
+    let editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.fileName !== this.currentFileName) {
+      editor = vscode.window.visibleTextEditors.find(
+        e => e.document.fileName === this.currentFileName
+      );
+    }
+    if (!editor) {
+      return;
+    }
+
+    if (line < 0 || line >= editor.document.lineCount) {
+      return;
+    }
+
+    const lineText = editor.document.lineAt(line).text;
+
+    const closeParen = lineText.lastIndexOf(')');
+    if (closeParen < 0) {
+      return;
+    }
+
+    const openParen = lineText.lastIndexOf('(', closeParen);
+    if (openParen < 0) {
+      return;
+    }
+
+    const newArgs = (points as [number, number][])
+      .map(p => `[${p[0]}, ${p[1]}]`)
+      .join(', ');
+
+    const range = new vscode.Range(
+      new vscode.Position(line, openParen + 1),
+      new vscode.Position(line, closeParen),
+    );
+
+    const applied = await editor.edit(b => b.replace(range, newArgs));
     if (applied) {
       this.updateLiveCode(editor.document.fileName, editor.document.getText());
     }

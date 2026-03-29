@@ -223,6 +223,10 @@ export class ExtrudeSymmetric extends ExtrudeBase {
       symmetric: true,
       draft: this.getDraft(),
       endOffset: this.getEndOffset(),
+      picking: this.isPicking() || undefined,
+      pickPoints: this.isPicking()
+        ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })
+        : undefined,
     }
   }
 }

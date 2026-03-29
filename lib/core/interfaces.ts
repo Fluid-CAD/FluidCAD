@@ -1,4 +1,5 @@
 import { LazyVertex } from "../features/lazy-vertex.js";
+import { Point2DLike } from "../math/point.js";
 
 /**
  * Base interface for all scene objects exposed to the end user.
@@ -115,6 +116,7 @@ export interface IExtrude extends ISceneObject {
   endOffset(value: number): this;
   fuse(value: 'all' | 'none' | ISceneObject | ISceneObject[]): this;
   drill(value?: boolean): this;
+  pick(...points: Point2DLike[]): this;
 }
 
 /**

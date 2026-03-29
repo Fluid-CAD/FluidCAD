@@ -12,6 +12,7 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   isMetaShapeFlag = false;
   isGuideFlag = false;
   metaType?: string;
+  metaData?: Record<string, any>;
   id: string;
 
   colorMap: Array<{ shape: TopoDS_Shape; color: string }> = [];

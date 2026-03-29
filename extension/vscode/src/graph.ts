@@ -32,6 +32,10 @@ export class SceneShapesProvider implements vscode.TreeDataProvider<ShapeTreeIte
       const groups = new Map<string, { obj: SceneObject; shapeId: string }[]>();
       for (let i = 0; i < shapes.length; i++) {
         const type = shapes[i].shapeType || 'unknown';
+        if (shapes[i].isMetaShape) {
+          continue;
+        }
+
         if (!groups.has(type)) {
           groups.set(type, []);
         }

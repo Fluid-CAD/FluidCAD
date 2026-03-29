@@ -192,6 +192,7 @@ export class BooleanOps {
     }
 
     const progress = new oc.Message_ProgressRange();
+    new oc.BOPAlgo_CellsBuilder()
 
     const fuseMaker = new oc.BRepAlgoAPI_Fuse();
     fuseMaker.SetArguments(argumentsList);

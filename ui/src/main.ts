@@ -3,6 +3,7 @@ import { ShapePropertiesModal } from './ui/shape-properties-modal';
 import { SelectionInfoOverlay } from './ui/selection-info-overlay';
 import { ICON_SCISSORS } from './ui/icons';
 import { PointPickMode, HighlightInfo } from './interactive/point-pick-mode';
+import { RegionPickMode } from './interactive/region-pick-mode';
 import { Mesh, Object3D } from 'three';
 import { SnapManager } from './snapping/snap-manager';
 import { SceneObjectRender, PlaneData } from './types';
@@ -249,6 +250,102 @@ function clearVertexHighlights() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Interactive region-pick mode (for extrude .pick())
+// ---------------------------------------------------------------------------
+
+const regionPickIndicator = document.createElement('div');
+regionPickIndicator.id = 'fluidcad-region-pick-indicator';
+regionPickIndicator.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-none hidden';
+regionPickIndicator.innerHTML = `
+  <div class="flex items-center gap-3 glass-dark border border-white/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none">
+    <span>Region Picking Mode</span>
+  </div>
+`;
+container.appendChild(regionPickIndicator);
+
+let activeRegionPickMode: RegionPickMode | null = null;
+let activeRegionPickSourceLine: number | null = null;
+
+function isRegionPickingScene(sceneObjects: SceneObjectRender[]): {
+  active: boolean;
+  extrudeObj?: SceneObjectRender & { sourceLocation?: any };
+  sketchObj?: SceneObjectRender;
+} {
+  // Find the last root-level object
+  for (let i = sceneObjects.length - 1; i >= 0; i--) {
+    const obj = sceneObjects[i] as any;
+    if (!obj.parentId && obj.type === 'extrude' && obj.object?.picking) {
+      // Found an extrude with picking=true. Find the sketch before it.
+      let sketchObj: SceneObjectRender | undefined;
+      for (let j = i - 1; j >= 0; j--) {
+        if (!sceneObjects[j].parentId && sceneObjects[j].type === 'sketch') {
+          sketchObj = sceneObjects[j];
+          break;
+        }
+      }
+      return { active: true, extrudeObj: obj, sketchObj };
+    }
+  }
+  return { active: false };
+}
+
+function updateRegionPickMode(sceneObjects: SceneObjectRender[]) {
+  const pickInfo = isRegionPickingScene(sceneObjects);
+
+  if (!pickInfo.active || !pickInfo.extrudeObj?.sourceLocation || !pickInfo.sketchObj?.object?.plane) {
+    deactivateRegionPickMode();
+    return;
+  }
+
+  const srcLine = pickInfo.extrudeObj.sourceLocation.line;
+
+  // Already in region pick mode for this same extrude call — just re-render
+  if (activeRegionPickMode && activeRegionPickSourceLine === srcLine) {
+    return;
+  }
+
+  // Activate new region pick mode
+  deactivateRegionPickMode();
+
+  const plane: PlaneData = pickInfo.sketchObj.object.plane;
+  const sourceLocation = pickInfo.extrudeObj.sourceLocation;
+
+  activeRegionPickMode = new RegionPickMode(
+    viewer.sceneContext,
+    plane,
+    (point2d) => {
+      fetch('/api/insert-point', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ point: point2d, sourceLocation }),
+      });
+    },
+    (finalPoints) => {
+      fetch('/api/set-pick-points', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ points: finalPoints, sourceLocation }),
+      });
+    },
+    (_shapeId) => {
+      // Highlight is handled directly by RegionPickMode via material changes
+    },
+  );
+  activeRegionPickSourceLine = srcLine;
+  activeRegionPickMode.activate();
+  regionPickIndicator.classList.remove('hidden');
+}
+
+function deactivateRegionPickMode() {
+  if (activeRegionPickMode) {
+    activeRegionPickMode.deactivate();
+    activeRegionPickMode = null;
+    activeRegionPickSourceLine = null;
+  }
+  regionPickIndicator.classList.add('hidden');
+}
+
 function connectWebSocket() {
   const wsUrl = `ws://${window.location.host}`;
   const ws = new WebSocket(wsUrl);
@@ -267,12 +364,15 @@ function connectWebSocket() {
         hideLoading();
         const isRollback = msg.rollbackStop != null && msg.rollbackStop < msg.result.length - 1;
         viewer.isTrimming = isTrimmingScene(msg.result);
-        viewer.toggleSketchMode(true);
+        const regionPicking = isRegionPickingScene(msg.result);
+        viewer.isRegionPicking = regionPicking.active;
+        viewer.toggleSketchMode(!regionPicking.active);
         viewer.updateView(msg.result, isRollback);
         if (msg.absPath) {
           viewer.setFileName(msg.absPath);
         }
         updatePointPickMode(msg.result);
+        updateRegionPickMode(msg.result);
         break;
       }
       case 'highlight-shape':

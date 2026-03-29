@@ -31,6 +31,7 @@ function renderSceneObject(obj: SceneObject, scene: Scene) {
         isMetaShape: shape.isMetaShape() || undefined,
         isGuide: shape.isGuideShape() || undefined,
         metaType: shape.metaType || undefined,
+        metaData: shape.metaData || undefined,
       })
     }
   }

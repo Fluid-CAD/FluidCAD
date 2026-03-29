@@ -242,7 +242,11 @@ export class ExtrudeToFace extends ExtrudeBase {
       extrudable: this.extrudable.serialize(),
       draft: this.getDraft(),
       endOffset: this.getEndOffset(),
-      face: typeof (this.face) === 'string' ? this.face : 'selection'
+      face: typeof (this.face) === 'string' ? this.face : 'selection',
+      picking: this.isPicking() || undefined,
+      pickPoints: this.isPicking()
+        ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })
+        : undefined,
     }
   }
 }

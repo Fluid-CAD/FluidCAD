@@ -145,7 +145,11 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
     return {
       extrudable: this.extrudable.serialize(),
       distance1: this.distance1,
-      distance2: this.distance2
+      distance2: this.distance2,
+      picking: this.isPicking() || undefined,
+      pickPoints: this.isPicking()
+        ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })
+        : undefined,
     }
   }
 }

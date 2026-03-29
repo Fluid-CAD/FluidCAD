@@ -88,13 +88,27 @@ export type InsertPointMessage = {
   sourceLocation: { line: number; column: number };
 };
 
+export type RemovePointMessage = {
+  type: 'remove-point';
+  point: [number, number];
+  sourceLocation: { line: number; column: number };
+};
+
+export type SetPickPointsMessage = {
+  type: 'set-pick-points';
+  points: [number, number][];
+  sourceLocation: { line: number; column: number };
+};
+
 export type ServerToExtensionMessage =
   | ReadyMessage
   | InitCompleteMessage
   | SceneRenderedMessage
   | ErrorMessage
   | ImportCompleteMessage
-  | InsertPointMessage;
+  | InsertPointMessage
+  | RemovePointMessage
+  | SetPickPointsMessage;
 
 // ---------------------------------------------------------------------------
 // WebSocket: Server → UI messages

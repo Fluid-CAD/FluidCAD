@@ -5,6 +5,7 @@ import { FaceMesh } from '../shape-meshes/face-mesh';
 import { SolidMesh } from '../shape-meshes/solid-mesh';
 import { MetaEdgeMesh } from '../shape-meshes/meta-edge-mesh';
 import { TrimMetaEdgeMesh } from '../shape-meshes/trim-meta-edge-mesh';
+import { RegionMetaFaceMesh } from '../shape-meshes/region-meta-face-mesh';
 
 const STANDALONE_EDGE_STYLE: EdgeMeshOptions = { color: '#2297ff', lineWidth: 2 };
 
@@ -16,6 +17,17 @@ const metaEdgeFactories: Record<string, (shape: SceneObjectPart) => Group> = {
 export function createMetaEdgeMesh(shape: SceneObjectPart): Group {
   const factory = shape.metaType ? metaEdgeFactories[shape.metaType] : undefined;
   return factory ? factory(shape) : new MetaEdgeMesh(shape);
+}
+
+/** Map of metaType → factory function for face meta shapes. */
+const metaFaceFactories: Record<string, (shape: SceneObjectPart) => Group> = {
+  'pick-region': (shape) => new RegionMetaFaceMesh(shape, false),
+  'pick-region-selected': (shape) => new RegionMetaFaceMesh(shape, true),
+};
+
+export function createMetaFaceMesh(shape: SceneObjectPart): Group {
+  const factory = shape.metaType ? metaFaceFactories[shape.metaType] : undefined;
+  return factory ? factory(shape) : new FaceMesh(shape);
 }
 
 /**
@@ -49,6 +61,9 @@ export class ShapeGroup extends Group {
           case 'wire':
           case 'edge':
             mesh = createMetaEdgeMesh(shape);
+            break;
+          case 'face':
+            mesh = createMetaFaceMesh(shape);
             break;
         }
       } else {

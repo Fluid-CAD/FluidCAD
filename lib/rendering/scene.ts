@@ -20,6 +20,7 @@ export type RenderedShape = {
   isMetaShape?: boolean;
   isGuide?: boolean;
   metaType?: string;
+  metaData?: Record<string, any>;
 }
 
 export type SceneObjectRender = {

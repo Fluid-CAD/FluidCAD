@@ -45,37 +45,43 @@ export class Trim2D extends GeometrySceneObject {
       }
     }
 
-    // Find edges nearest to each point (with tolerance)
+    // Split all edges at intersection points
+    const splitResult = EdgeOps.splitEdgesWithMapping(allEdges);
+    const splitEdges = splitResult.edges;
+    const sourceIndex = splitResult.sourceIndex;
+
+    // Find split edges nearest to each trim point
     const TRIM_TOLERANCE = 50;
-    const edgesToRemove = new Set<number>();
+    const splitEdgesToRemove = new Set<number>();
     for (const lazyPoint of this._points) {
       const point2d = lazyPoint.asPoint2D();
       const point3d = plane.localToWorld(point2d);
-      const indices = EdgeOps.findNearestEdgeIndices(allEdges, point3d, TRIM_TOLERANCE);
+      const indices = EdgeOps.findNearestEdgeIndices(splitEdges, point3d, TRIM_TOLERANCE);
       for (const idx of indices) {
-        edgesToRemove.add(idx);
+        splitEdgesToRemove.add(idx);
       }
     }
 
-    // Remove original wires/edges that contain a trimmed edge
+    // Remove affected original wires from their owners
     const removedWires = new Set<Wire | Edge>();
-    for (let i = 0; i < allEdges.length; i++) {
-      if (edgesToRemove.has(i)) {
-        const entry = edgeToOwner.get(allEdges[i])!;
-        if (!removedWires.has(entry.wire)) {
-          removedWires.add(entry.wire);
-          entry.owner.removeShape(entry.wire, this);
-        }
+    for (const idx of splitEdgesToRemove) {
+      const origEdge = allEdges[sourceIndex[idx]];
+      const entry = edgeToOwner.get(origEdge)!;
+      if (!removedWires.has(entry.wire)) {
+        removedWires.add(entry.wire);
+        entry.owner.removeShape(entry.wire, this);
       }
     }
 
-    // Re-add edges that were NOT trimmed (from wires that were removed)
-    for (let i = 0; i < allEdges.length; i++) {
-      if (!edgesToRemove.has(i)) {
-        const entry = edgeToOwner.get(allEdges[i])!;
-        if (removedWires.has(entry.wire)) {
-          this.addShape(allEdges[i]);
-        }
+    // Re-add surviving split edges from affected wires
+    for (let i = 0; i < splitEdges.length; i++) {
+      if (splitEdgesToRemove.has(i)) {
+        continue;
+      }
+      const origEdge = allEdges[sourceIndex[i]];
+      const entry = edgeToOwner.get(origEdge)!;
+      if (removedWires.has(entry.wire)) {
+        this.addShape(splitEdges[i]);
       }
     }
   }

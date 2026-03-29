@@ -6,7 +6,12 @@ import { Extrudable } from "../helpers/types.js";
 import { IExtrude } from "../core/interfaces.js";
 import { LazyVertex } from "./lazy-vertex.js";
 import { Point2DLike } from "../math/point.js";
+import { Plane } from "../math/plane.js";
 import { normalizePoint2D } from "../helpers/normalize.js";
+import { FaceMaker } from "../core/2d/face-maker.js";
+import { getOC } from "../oc/init.js";
+import { Explorer } from "../oc/explorer.js";
+import { FaceOps } from "../oc/face-ops.js";
 
 export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   protected _extrudable: Extrudable | null = null;
@@ -110,6 +115,101 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
 
   getPickPoints(): LazyVertex[] {
     return this._pickPoints;
+  }
+
+  /**
+   * Resolves pick mode: partitions sketch into cells via CellsBuilder,
+   * classifies which cells are selected, adds meta shapes for all cells + edges,
+   * and returns the selected faces to extrude.
+   * Returns null if not in pick mode.
+   */
+  protected resolvePickedFaces(plane: Plane): Face[] | null {
+    if (!this.isPicking()) {
+      return null;
+    }
+
+    const sketchShapes = this.extrudable.getGeometries();
+    const oc = getOC();
+
+    const sketchFaces = FaceMaker.getFaces(sketchShapes, plane, false);
+    if (sketchFaces.length === 0) {
+      return [];
+    }
+
+    let cells: Face[];
+
+    if (sketchFaces.length === 1) {
+      // Single face — no overlaps to partition, use directly
+      cells = sketchFaces;
+    } else {
+      // Multiple faces — use CellsBuilder to partition overlapping regions
+      const cellsBuilder = new oc.BOPAlgo_CellsBuilder();
+
+      const argsList = new oc.TopTools_ListOfShape();
+      for (const face of sketchFaces) {
+        argsList.Append(face.getShape());
+      }
+      cellsBuilder.SetArguments(argsList);
+
+      const progress = new oc.Message_ProgressRange();
+      cellsBuilder.Perform(progress);
+
+      if (cellsBuilder.HasErrors()) {
+        console.error('CellsBuilder: Perform() reported errors');
+        cellsBuilder.delete();
+        argsList.delete();
+        progress.delete();
+        cells = sketchFaces;
+      } else {
+        cellsBuilder.AddAllToResult(0, false);
+        cellsBuilder.MakeContainers();
+        const resultShape = cellsBuilder.Shape();
+
+        const rawFaces = Explorer.findShapes(resultShape, Explorer.getOcShapeType("face"));
+        cells = rawFaces.map(f => Face.fromTopoDSFace(oc.TopoDS.Face(f)));
+
+        if (cells.length === 0) {
+          cells = sketchFaces;
+        }
+
+        cellsBuilder.delete();
+        argsList.delete();
+        progress.delete();
+      }
+    }
+
+    const pickPoints = this.getPickPoints();
+    const selectedCells: Face[] = [];
+
+    for (const cell of cells) {
+      let isSelected = false;
+      let pickPoint: [number, number] | null = null;
+      for (const lazyPt of pickPoints) {
+        const pt2d = lazyPt.asPoint2D();
+        const pt3d = plane.localToWorld(pt2d);
+        if (FaceOps.isPointInsideFace(pt3d, cell)) {
+          isSelected = true;
+          pickPoint = [pt2d.x, pt2d.y];
+          break;
+        }
+      }
+
+      if (isSelected) {
+        cell.markAsMetaShape('pick-region-selected');
+        cell.metaData = { pickPoint };
+        selectedCells.push(cell);
+      } else {
+        cell.markAsMetaShape('pick-region');
+      }
+      this.addShape(cell);
+
+      for (const edge of cell.getEdges()) {
+        edge.markAsMetaShape('pick-edge');
+        this.addShape(edge);
+      }
+    }
+
+    return selectedCells;
   }
 
   getDraft(): [number, number] {

@@ -51,8 +51,8 @@ export class Trim2D extends GeometrySceneObject {
     for (const lazyPoint of this._points) {
       const point2d = lazyPoint.asPoint2D();
       const point3d = plane.localToWorld(point2d);
-      const idx = EdgeOps.findNearestEdgeIndex(allEdges, point3d, TRIM_TOLERANCE);
-      if (idx >= 0) {
+      const indices = EdgeOps.findNearestEdgeIndices(allEdges, point3d, TRIM_TOLERANCE);
+      for (const idx of indices) {
         edgesToRemove.add(idx);
       }
     }

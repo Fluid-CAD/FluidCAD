@@ -51,8 +51,6 @@ export class Extruder {
     for (const face of this.faces) {
       let { solid, firstFace, lastFace } = ExtrudeOps.makePrismFromVec(face, vec);
 
-      solid = ShapeOps.cleanShape(solid);
-
       if (this.draft) {
         solid = this.applyDraft(solid, firstFace, lastFace, this.plane)
       }
@@ -76,6 +74,11 @@ export class Extruder {
     this.firstFaces = firstFaces;
     this.lastFaces = lastFaces;
     this.sideFaces = sideFaces;
+
+    if (extrusions.length > 1) {
+      const { result } = BooleanOps.fuse(extrusions, []);
+      return result;
+    }
 
     return extrusions;
   }

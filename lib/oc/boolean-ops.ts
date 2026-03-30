@@ -1,70 +1,15 @@
-import type { TopAbs_ShapeEnum, TopoDS_Face, TopoDS_Shape, TopoDS_Wire } from "occjs-wrapper";
+import type { TopoDS_Face, TopoDS_Shape, TopoDS_Wire } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { ShapeOps } from "./shape-ops.js";
-import { FaceOps } from "./face-ops.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { Edge } from "../common/edge.js";
 import { EdgeOps } from "./edge-ops.js";
 import { Plane } from "../math/plane.js";
-import { mod, sub } from "three/tsl";
 
 export class BooleanOps {
-  static fuseShapes(shape1: Shape, shape2: Shape): Shape {
-    const result = BooleanOps.fuseShapesRaw(shape1.getShape(), shape2.getShape());
-    return ShapeFactory.fromShape(result);
-  }
-
-  static fuseShapesRaw(shape1: TopoDS_Shape, shape2: TopoDS_Shape): TopoDS_Shape {
-    const oc = getOC();
-    try {
-      const fuseProgress = new oc.Message_ProgressRange();
-      const fuser = new oc.BRepAlgoAPI_Fuse(shape1, shape2, fuseProgress);
-      fuser.SetCheckInverted(true);
-      fuser.Build(fuseProgress);
-
-      if (!fuser.IsDone()) {
-        fuser.delete();
-        throw new Error("Fuse operation failed");
-      }
-
-      fuseProgress.delete();
-
-      const fusedResult = fuser.Shape();
-      fuser.delete();
-      return fusedResult;
-    } catch (error) {
-      throw new Error(`Error in fuseShapes: ${error}`);
-    }
-  }
-
-  static fuseFaces(face1: TopoDS_Face, face2: TopoDS_Face): TopoDS_Face {
-    const oc = getOC();
-    try {
-      const fusedResult = BooleanOps.fuseShapesRaw(face1, face2);
-      console.log("Fused result is null:", fusedResult.IsNull());
-
-      const freeBounds = new oc.ShapeAnalysis_FreeBounds(fusedResult, oc.Precision.Confusion(), true, false);
-
-      const closedWiresCompound = freeBounds.GetClosedWires();
-
-      let unifiedFace = null;
-
-      if (closedWiresCompound && !closedWiresCompound.IsNull()) {
-        const firstWire = Explorer.findFirstShapeOfType(closedWiresCompound, oc.TopAbs_ShapeEnum.TopAbs_WIRE as TopAbs_ShapeEnum);
-        return FaceOps.makeFace(oc.TopoDS.Wire(firstWire));
-      }
-
-      freeBounds.delete();
-
-      return unifiedFace;
-    } catch (error) {
-      throw new Error(`Error in fuseFaces: ${error}`);
-    }
-  }
-
   static cutShapes(shape: Shape, tool: Shape): Shape {
     const result = BooleanOps.cutShapesRaw(shape.getShape(), tool.getShape());
     return ShapeFactory.fromShape(result);
@@ -175,57 +120,62 @@ export class BooleanOps {
     return { result: wrappedResult, modified, sectionEdges, startEdges, endEdges, internalEdges };
   }
 
-  static fuseMultiShape(args: Shape[], tools: Shape[], checkDeleted: Shape[] = []): {
-    result: Shape;
+  static fuse(args: Shape[], checkDeleted: Shape[] = []): {
+    result: Shape[];
     modifiedShapes: Shape[];
-    solids: Solid[];
+    newShapes: Shape[];
   } {
     const oc = getOC();
+    const builder = new oc.BRepAlgoAPI_Fuse();
+    builder.SetNonDestructive(true);
+    builder.SetRunParallel(true);
 
-    const argsCompound = ShapeOps.makeCompoundRaw(args.map(a => a.getShape()));
-    const argumentsList = new oc.TopTools_ListOfShape();
-    argumentsList.Append(argsCompound);
-
-    const toolsList = new oc.TopTools_ListOfShape();
-    for (const tool of tools) {
-      toolsList.Append(tool.getShape());
+    const argsList = new oc.TopTools_ListOfShape();
+    for (const arg of args) {
+      argsList.Append(arg.getShape());
     }
+
+    builder.SetArguments(argsList);
+    builder.SetTools(argsList);
 
     const progress = new oc.Message_ProgressRange();
-    new oc.BOPAlgo_CellsBuilder()
+    builder.Build(progress);
 
-    const fuseMaker = new oc.BRepAlgoAPI_Fuse();
-    fuseMaker.SetArguments(argumentsList);
-    fuseMaker.SetTools(toolsList);
-    fuseMaker.SetNonDestructive(true);
-    fuseMaker.SetCheckInverted(true);
-    fuseMaker.Build(progress);
+    const resultShape = builder.Shape();
+    console.log('FuseMultiShape: Result shape type:', Explorer.getShapeType(resultShape));
 
-    if (!fuseMaker.IsDone()) {
-      fuseMaker.delete();
-      toolsList.delete();
-      argumentsList.delete();
-      progress.delete();
-      throw new Error('Fuse operation failed');
-    }
+    const allShapes = Explorer.findAllShapes(resultShape);
+    const types = allShapes.map(s => Explorer.getShapeType(s));
+    console.log('FuseMultiShape: Result shape types:', types);
 
-    let resultShape = fuseMaker.Shape();
     const rawSolids = Explorer.findShapes(resultShape, Explorer.getOcShapeType("solid"));
-    const solids = rawSolids.map(s => Solid.fromTopoDSSolid(Explorer.toSolid(s)));
+    console.log('FuseMultiShape: Result solids count:', rawSolids.length);
+    const result = rawSolids.map(s => Solid.fromTopoDSSolid(Explorer.toSolid(s)));
 
     const modifiedShapes: Shape[] = [];
     for (const shape of checkDeleted) {
-      if (fuseMaker.IsDeleted(shape.getShape())) {
+      if (builder.IsDeleted(shape.getShape())) {
         modifiedShapes.push(shape);
       }
     }
 
-    fuseMaker.delete();
-    toolsList.delete();
-    argumentsList.delete();
+    builder.delete();
     progress.delete();
 
-    return { result: solids[0], modifiedShapes, solids };
+    const newShapes: Shape[] = [];
+
+    for (const s of result) {
+      const existsInArgs = args.some(arg => arg.getShape().IsPartner(s.getShape()));
+
+      if (!existsInArgs) {
+        newShapes.push(s);
+      }
+    }
+
+    const cleanResult = result.map(s => ShapeOps.cleanShape(s));
+    const cleanNewShapes = newShapes.map(s => ShapeOps.cleanShape(s));
+
+    return { result: cleanResult, newShapes: cleanNewShapes, modifiedShapes };
   }
 
   static splitShape(shape: Shape, tool: Shape): Shape[] {
@@ -254,54 +204,6 @@ export class BooleanOps {
 
     return Explorer.findShapes(resultShape, Explorer.getOcShapeType("solid"))
       .map(s => ShapeFactory.fromShape(s));
-  }
-
-  static fuseMultiShapeWithCleanup(args: Shape[], tools: Shape[]): {
-    newShapes: Shape[],
-    modifiedShapes: Shape[]
-  } {
-    console.log('Fuse: Arguments count:', args.length);
-    console.log('Fuse: Tools count:', tools.length);
-
-    const fuseResult = BooleanOps.fuseMultiShape(args, tools, args);
-
-    const resultShape = fuseResult.result;
-    console.log('Fuse: Result shape type:', Explorer.getShapeType(resultShape.getShape()));
-    const solids = fuseResult.solids;
-    console.log('Fuse: Result solids count:', solids.length);
-
-    if (solids.length === (args.length + tools.length)) {
-      return {
-        newShapes: tools,
-        modifiedShapes: []
-      }
-    }
-
-    const modifiedShapes = fuseResult.modifiedShapes;
-
-    if (!modifiedShapes.length) {
-      return {
-        newShapes: tools,
-        modifiedShapes: []
-      }
-    }
-
-    const newShapes: Shape[] = [];
-
-    for (const s of solids) {
-      const existsInArgs = args.some(arg => arg.getShape().IsPartner(s.getShape()));
-
-      console.log('Fuse: Solid exists in args:', existsInArgs);
-
-      if (!existsInArgs) {
-        newShapes.push(ShapeOps.cleanShape(s));
-      }
-    }
-
-    return {
-      newShapes: newShapes,
-      modifiedShapes: Array.from(modifiedShapes)
-    };
   }
 
   static commonMultiShape(args: Shape[], tools: Shape[], checkDeleted: Shape[] = []): {

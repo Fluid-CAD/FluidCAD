@@ -50,7 +50,7 @@ export class ExtrudeSymmetric extends ExtrudeBase {
         const center = face.center();
         const mirrored = ShapeOps.mirrorShape(solid, center);
 
-        const fused = BooleanOps.fuseShapes(solid, mirrored);
+        const fused = BooleanOps.fuse([solid, mirrored]);
 
         const solidFaces = Explorer.findFacesWrapped(fused);
         for (const f of solidFaces) {
@@ -63,7 +63,9 @@ export class ExtrudeSymmetric extends ExtrudeBase {
           }
         }
 
-        solids.push(fused as Solid);
+        for (const f of fused.result) {
+          solids.push(f);
+        }
       }
     }
     else {

@@ -37,7 +37,7 @@ export class Fuse extends SceneObject {
     const args = allShapes.slice(0, 1);
     const tools = allShapes.slice(1);
 
-    const fuseResult = BooleanOps.fuseMultiShape(args, tools, allShapes);
+    const fuseResult = BooleanOps.fuse(args, allShapes);
 
     if (fuseResult.solids.length === allShapes.length) {
       return;

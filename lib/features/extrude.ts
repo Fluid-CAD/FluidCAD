@@ -1,10 +1,10 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Extruder } from "./simple-extruder.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
-import { FaceMaker } from "../core/2d/face-maker.js";
 import { Extrudable } from "../helpers/types.js";
 import { ExtrudeBase } from "./extrude-base.js";
 import { Face } from "../common/face.js";
+import { FaceMaker2 } from "../oc/face-maker2.js";
 
 export class Extrude extends ExtrudeBase {
   constructor(public distance: number, extrudable?: Extrudable) {
@@ -29,7 +29,8 @@ export class Extrude extends ExtrudeBase {
     }
 
     const sketchShapes = this.extrudable.getGeometries();
-    const faces = FaceMaker.getFaces(sketchShapes, this.extrudable.getPlane(), this.getDrill());
+    const faces = FaceMaker2.getFaces(sketchShapes, this.extrudable.getPlane(), this.getDrill());
+    console.log('Extrude: Generated faces count:', faces.length);
     this.extrudeAndFuse(faces, plane, sceneObjects);
   }
 

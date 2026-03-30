@@ -1,6 +1,5 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Face, Shape } from "../common/shapes.js";
-import { ExtrudeOptions } from "./extrude-options.js";
 import { ExtrudeBase } from "./extrude-base.js";
 import { Extruder } from "./simple-extruder.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";

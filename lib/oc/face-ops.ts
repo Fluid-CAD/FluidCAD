@@ -321,6 +321,7 @@ export class FaceOps {
     }
 
     // Unify faces compound
+    console.log("Fused shape has more than 2 faces, attempting to unify...");
     const wire = FaceOps.getFreeBoundsWire(newShape);
 
     if (!wire) {
@@ -380,6 +381,15 @@ export class FaceOps {
     }
 
     return Face.fromTopoDSFace(FaceOps.makeFace(wire));
+  }
+
+  static makeFaceFromPlane2(plane: gp_Pln): TopoDS_Face {
+    const oc = getOC();
+    const faceMaker = new oc.BRepBuilderAPI_MakeFace(plane,
+                                                    -1000, 1000, -1000, 1000);
+    const face = faceMaker.Face();
+    faceMaker.delete();
+    return face;
   }
 
   static makeFaceFromPlane(plane: gp_Pln): TopoDS_Face {

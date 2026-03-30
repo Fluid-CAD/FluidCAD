@@ -6,6 +6,7 @@ import { Explorer } from "../oc/explorer.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
 import { rad } from "../helpers/math-helpers.js";
 import { ShapeOps } from "../oc/shape-ops.js";
+import { BooleanOps } from "../oc/boolean-ops.js";
 
 export class Extruder {
   private firstFaces: Face[];
@@ -34,8 +35,6 @@ export class Extruder {
 
   extrude() {
     let extrusions: Shape[] = [];
-
-    console.log("Extruding faces::", this.faces);
 
     let distance = this.distance;
 

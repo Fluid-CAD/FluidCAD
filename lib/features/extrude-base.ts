@@ -7,8 +7,6 @@ import { LazyVertex } from "./lazy-vertex.js";
 import { Point2DLike } from "../math/point.js";
 import { Plane } from "../math/plane.js";
 import { normalizePoint2D } from "../helpers/normalize.js";
-import { getOC } from "../oc/init.js";
-import { Explorer } from "../oc/explorer.js";
 import { FaceOps } from "../oc/face-ops.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 
@@ -122,53 +120,10 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     }
 
     const sketchShapes = this.extrudable.getGeometries();
-    const oc = getOC();
 
-    const sketchFaces = FaceMaker2.getRegions(sketchShapes, plane, false);
-    if (sketchFaces.length === 0) {
+    const cells = FaceMaker2.getRegions(sketchShapes, plane, false);
+    if (cells.length === 0) {
       return [];
-    }
-
-    let cells: Face[];
-
-    if (sketchFaces.length === 1) {
-      // Single face — no overlaps to partition, use directly
-      cells = sketchFaces;
-    } else {
-      // Multiple faces — use CellsBuilder to partition overlapping regions
-      const cellsBuilder = new oc.BOPAlgo_CellsBuilder();
-
-      const argsList = new oc.TopTools_ListOfShape();
-      for (const face of sketchFaces) {
-        argsList.Append(face.getShape());
-      }
-      cellsBuilder.SetArguments(argsList);
-
-      const progress = new oc.Message_ProgressRange();
-      cellsBuilder.Perform(progress);
-
-      if (cellsBuilder.HasErrors()) {
-        console.error('CellsBuilder: Perform() reported errors');
-        cellsBuilder.delete();
-        argsList.delete();
-        progress.delete();
-        cells = sketchFaces;
-      } else {
-        cellsBuilder.AddAllToResult(0, false);
-        cellsBuilder.MakeContainers();
-        const resultShape = cellsBuilder.Shape();
-
-        const rawFaces = Explorer.findShapes(resultShape, Explorer.getOcShapeType("face"));
-        cells = rawFaces.map(f => Face.fromTopoDSFace(oc.TopoDS.Face(f)));
-
-        if (cells.length === 0) {
-          cells = sketchFaces;
-        }
-
-        cellsBuilder.delete();
-        argsList.delete();
-        progress.delete();
-      }
     }
 
     const pickPoints = this.getPickPoints();

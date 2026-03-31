@@ -28,6 +28,7 @@ export class Extrude extends ExtrudeBase {
       return;
     }
 
+    this.extrudable.removeShapes(this);
     const sketchShapes = this.extrudable.getGeometries();
     const faces = FaceMaker2.getRegions(sketchShapes, this.extrudable.getPlane(), this.getDrill());
     console.log('Extrude: Generated faces count:', faces.length);
@@ -41,8 +42,6 @@ export class Extrude extends ExtrudeBase {
     this.setState('start-faces', extruder.getStartFaces());
     this.setState('end-faces', extruder.getEndFaces());
     this.setState('side-faces', extruder.getSideFaces());
-
-    this.extrudable.removeShapes(this)
 
     console.log('Extrude: Generated extrusions count:', extrusions.length);
 

@@ -467,6 +467,12 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     this._fusionScope = arr;
     return this;
   }
+  /**
+   * Called after all objects have been built. Override to perform
+   * cleanup that depends on knowing the final scene state.
+   */
+  clean(allObjects: SceneObject[]): void {}
+
   protected generateUniqueName(suffix: string) {
     return `${this.getOrder()}-${this.getUniqueType()}-${suffix}`;
   }

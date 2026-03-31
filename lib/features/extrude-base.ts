@@ -160,6 +160,25 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return selectedCells;
   }
 
+  override clean(allObjects: SceneObject[]): void {
+    if (!this.isPicking()) {
+      return;
+    }
+
+    const lastObject = allObjects[allObjects.length - 1];
+    if (lastObject !== this) {
+      this.removeMetaShapes(lastObject);
+    }
+  }
+
+  removeMetaShapes(removedBy: SceneObject): void {
+    for (const shape of this.getAddedShapes()) {
+      if (shape.isMetaShape()) {
+        this.removeShape(shape, removedBy);
+      }
+    }
+  }
+
   getDraft(): [number, number] {
     const draft = this._draft;
     if (!draft) {

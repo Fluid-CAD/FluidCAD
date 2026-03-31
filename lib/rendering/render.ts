@@ -190,6 +190,11 @@ export function renderScene(scene: Scene) {
     }
   }
 
+  // Cleanup pass — let objects adjust based on final scene state
+  for (const object of sceneObjects) {
+    object.clean(sceneObjects);
+  }
+
   for (const object of sceneObjects) {
     renderSceneObject(object, scene);
   }

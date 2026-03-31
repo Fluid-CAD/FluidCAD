@@ -3,8 +3,8 @@ import { Explorer } from "../oc/explorer.js";
 import { LoftOps } from "../oc/loft-ops.js";
 import { Wire } from "../common/wire.js";
 import { Face } from "../common/face.js";
-import { FaceMaker } from "../core/2d/face-maker.js";
 import { Extrudable } from "../helpers/types.js";
+import { FaceMaker2 } from "../oc/face-maker2.js";
 
 export class Loft extends SceneObject {
   private _faces: SceneObject[] = [];
@@ -73,7 +73,7 @@ export class Loft extends SceneObject {
       const extrudable = obj as unknown as Extrudable;
       const geometries = extrudable.getGeometries();
       const plane = extrudable.getPlane();
-      const faces = FaceMaker.getFaces(geometries, plane);
+      const faces = FaceMaker2.getFaces(geometries, plane);
       const wires: Wire[] = [];
       for (const face of faces) {
         const faceWires = face.getWires();

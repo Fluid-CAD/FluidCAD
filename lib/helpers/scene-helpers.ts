@@ -14,24 +14,17 @@ export function fuseWithSceneObjects(sceneObjects: SceneObject[], extrusions: Sh
   }
 
   let args = Array.from(objShapeMap.keys());
-  console.log('Shapes from scene objects:', args.length);
-  console.log('Extrusions to fuse:', extrusions.length);
-  const { result, newShapes, modifiedShapes } = BooleanOps.fuse([...args, ...extrusions], args);
-
-  console.log('New shapes from fuse:', newShapes.length);
-  console.log('Modified shapes from fuse:', modifiedShapes.length);
-
+  const all = [...args, ...extrusions];
+  const { newShapes, modifiedShapes } = BooleanOps.fuse(all);
 
   if (newShapes.length === 0 && modifiedShapes.length === 0) {
     console.log("No fusions were made.");
     return {
+      newShapes: extrusions,
       extrusions,
       modifiedShapes: []
     }
   }
-
-  console.log("Final fused solids count:", newShapes.length);
-  console.log("Modified shapes count:", modifiedShapes.length);
 
   extrusions = newShapes;
 
@@ -40,5 +33,5 @@ export function fuseWithSceneObjects(sceneObjects: SceneObject[], extrusions: Sh
     modified.push({ shape, object: obj });
   }
 
-  return { result, newShapes, modifiedShapes: modified };
+  return { newShapes, modifiedShapes: modified };
 }

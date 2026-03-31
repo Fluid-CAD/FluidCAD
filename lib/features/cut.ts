@@ -1,9 +1,6 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { ExtrudeThroughAll } from "./infinite-extrude.js";
 import { Shape, Solid } from "../common/shapes.js";
-import { ExtrudeOptions } from "./extrude-options.js";
-import { Sketch } from "./2d/sketch.js";
-import { FaceMaker } from "../core/2d/face-maker.js";
 import { Extruder } from "./simple-extruder.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { ShapeOps } from "../oc/shape-ops.js";
@@ -11,6 +8,7 @@ import { Extrudable } from "../helpers/types.js";
 import { LazySceneObject } from "./lazy-scene-object.js";
 import { Edge } from "../common/edge.js";
 import { CutBase } from "./cut-base.js";
+import { FaceMaker2 } from "../oc/face-maker2.js";
 
 export class Cut extends CutBase {
 
@@ -20,10 +18,21 @@ export class Cut extends CutBase {
 
   build(context: BuildSceneObjectContext) {
     let sceneObjects: Map<SceneObject, Shape[]>;
+    let scope = context.getSceneObjects();
+
+    if (this.getFusionScope() === 'none') {
+      scope = [];
+    }
+    else if (this.getFusionScope() instanceof SceneObject) {
+      scope = [this.getFusionScope() as SceneObject];
+    }
+    else if (Array.isArray(this.getFusionScope())){
+      scope = this.getFusionScope() as SceneObject[];
+    }
 
     sceneObjects = new Map<SceneObject, Shape[]>();
-    for (const obj of context.getSceneObjects()) {
-      const shapes = obj.getShapes({ excludeMeta: false }, 'solid');
+    for (const obj of scope) {
+      const shapes = obj.getShapes({}, 'solid');
       if (shapes.length === 0) {
         continue;
       }
@@ -44,7 +53,7 @@ export class Cut extends CutBase {
     }
     else {
       const wires = this.extrudable.getGeometries();
-      const faces = FaceMaker.getFaces(wires, this.extrudable.getPlane());
+      const faces = FaceMaker2.getFaces(wires, this.extrudable.getPlane());
       const plane = this.extrudable.getPlane();
       const extruder = new Extruder(faces, plane, distance, this.getDraft(), this.getEndOffset());
       extrusionShapes = extruder.extrude();

@@ -108,7 +108,6 @@ export class Extrude extends ExtrudeBase {
       distance: this.distance,
       draft: this.getDraft(),
       endOffset: this.getEndOffset(),
-      fusionScope: this.getFusionScope(),
       picking: this.isPicking() || undefined,
       pickPoints: this.isPicking()
         ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })

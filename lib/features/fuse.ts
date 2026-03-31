@@ -34,12 +34,9 @@ export class Fuse extends SceneObject {
       return;
     }
 
-    const args = allShapes.slice(0, 1);
-    const tools = allShapes.slice(1);
+    const fuseResult = BooleanOps.fuse(allShapes);
 
-    const fuseResult = BooleanOps.fuse(args, allShapes);
-
-    if (fuseResult.solids.length === allShapes.length) {
+    if (fuseResult.result.length === allShapes.length) {
       return;
     }
 
@@ -47,20 +44,12 @@ export class Fuse extends SceneObject {
       return;
     }
 
-    const newShapes: Shape[] = [];
-    for (const solid of fuseResult.solids) {
-      const existsInOriginal = allShapes.some(s => s.getShape().IsPartner(solid.getShape()));
-      if (!existsInOriginal) {
-        newShapes.push(ShapeOps.cleanShape(solid));
-      }
-    }
-
     for (const shape of fuseResult.modifiedShapes) {
       const obj = objShapeMap.get(shape);
       obj.removeShape(shape, this);
     }
 
-    this.addShapes(newShapes);
+    this.addShapes(fuseResult.newShapes);
   }
 
   compareTo(other: Fuse): boolean {

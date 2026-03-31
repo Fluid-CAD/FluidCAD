@@ -1,5 +1,5 @@
 import { SceneObject } from "../common/scene-object.js";
-import { ExtrudeOptions, FusionScope } from "./extrude-options.js";
+import { ExtrudeOptions } from "./extrude-options.js";
 import { Extrudable } from "../helpers/types.js";
 import { LazySceneObject } from "./lazy-scene-object.js";
 import { Edge } from "../common/edge.js";
@@ -11,7 +11,6 @@ export abstract class CutBase extends SceneObject implements ICut {
   protected _extrudable: Extrudable | null = null;
   protected _draft?: number | [number, number];
   protected _endOffset?: number;
-  protected _fusionScope?: FusionScope;
 
   constructor(extrudable?: Extrudable) {
     super();
@@ -32,11 +31,6 @@ export abstract class CutBase extends SceneObject implements ICut {
     return this;
   }
 
-  fuse(value: FusionScope): this {
-    this._fusionScope = value;
-    return this;
-  }
-
   getDraft(): [number, number] {
     const draft = this._draft;
     if (!draft) {
@@ -50,14 +44,10 @@ export abstract class CutBase extends SceneObject implements ICut {
     return this._endOffset;
   }
 
-  getFusionScope(): FusionScope | undefined {
-    return this._fusionScope || 'all';
-  }
-
   protected syncWith(other: CutBase) {
     this._draft = other._draft;
     this._endOffset = other._endOffset;
-    this._fusionScope = other._fusionScope;
+    this._fusionScope = other.getFusionScope()
     return this;
   }
 

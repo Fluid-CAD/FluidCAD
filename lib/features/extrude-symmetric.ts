@@ -5,7 +5,6 @@ import { Plane } from "../math/plane.js";
 import { ExtrudeBase } from "./extrude-base.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
 import { Vector3d } from "../math/vector3d.js";
-import { FaceMaker } from "../core/2d/face-maker.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
@@ -14,6 +13,7 @@ import { Face } from "../common/face.js";
 import { LazySceneObject } from "./lazy-scene-object.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Extrudable } from "../helpers/types.js";
+import { FaceMaker2 } from "../oc/face-maker2.js";
 
 export class ExtrudeSymmetric extends ExtrudeBase {
 
@@ -31,7 +31,7 @@ export class ExtrudeSymmetric extends ExtrudeBase {
       return;
     }
 
-    const faces = pickedFaces ?? FaceMaker.getFaces(this.extrudable.getGeometries(), plane, this.getDrill());
+    const faces = pickedFaces ?? FaceMaker2.getFaces(this.extrudable.getGeometries(), plane, this.getDrill());
     console.log("Extruding faces:", faces);
     const draft = this.getDraft();
 
@@ -52,14 +52,16 @@ export class ExtrudeSymmetric extends ExtrudeBase {
 
         const fused = BooleanOps.fuse([solid, mirrored]);
 
-        const solidFaces = Explorer.findFacesWrapped(fused);
-        for (const f of solidFaces) {
-          if (f.getShape().IsSame(firstFace.getShape())) {
-            startFaces.push(f);
-          } else if (f.getShape().IsSame(lastFace.getShape())) {
-            endFaces.push(f);
-          } else {
-            sideFaces.push(f);
+        for (const f of fused.result) {
+          const solidFaces = Explorer.findFacesWrapped(f);
+          for (const f of solidFaces) {
+            if (f.getShape().IsSame(firstFace.getShape())) {
+              startFaces.push(f);
+            } else if (f.getShape().IsSame(lastFace.getShape())) {
+              endFaces.push(f);
+            } else {
+              sideFaces.push(f);
+            }
           }
         }
 

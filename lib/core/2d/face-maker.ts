@@ -12,17 +12,6 @@ import { BooleanOps } from "../../oc/boolean-ops.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 
 export class FaceMaker {
-  static getFaces(shapes: Array<Wire | Edge>, plane: Plane, drill: boolean = true) {
-    if (drill) {
-      return this.makeDrilledFaces(shapes, plane);
-    }
-    else {
-      const wires = this.unifyWires(shapes, plane);
-      let faces = this.createFacesFromWires(wires, plane);
-      return faces;
-    }
-  }
-
   static fuseWires(shapes: Array<Wire | Edge>, plane: Plane): Wire[] {
     const wires = this.unifyWires(shapes, plane);
     let faces = this.createFacesFromWires(wires, plane);

@@ -130,21 +130,36 @@ export class FaceMaker2 {
 
   private static getSplitEdges(shapes: Array<Wire | Edge>) {
     const oc = getOC();
+    console.log('Getting split edges for shapes:', shapes.length);
+
+    if (shapes.length === 1) {
+      if (shapes[0] instanceof Edge) {
+        console.log('Single edge shape, using directly as split edge');
+        return [shapes[0] as Edge];
+      }
+    }
+
     const cellsBuilder = new oc.BOPAlgo_CellsBuilder();
     const argsList = new oc.TopTools_ListOfShape();
+
     for (const shape of shapes) {
       argsList.Append(shape.getShape());
     }
+
     cellsBuilder.SetArguments(argsList);
     cellsBuilder.SetNonDestructive(true);
+
     const progress = new oc.Message_ProgressRange();
     cellsBuilder.Perform(progress);
+
     if (cellsBuilder.HasErrors()) {
       cellsBuilder.delete();
       argsList.delete();
       progress.delete();
-      throw new Error('Failed to partition sketch faces');
+
+      return shapes;
     }
+
     cellsBuilder.AddAllToResult(0, false);
     const allParts = cellsBuilder.GetAllParts();
     return Explorer.findShapes(allParts, oc.TopAbs_ShapeEnum.TopAbs_EDGE).map(e =>

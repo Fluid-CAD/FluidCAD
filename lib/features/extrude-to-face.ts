@@ -4,13 +4,13 @@ import { ExtrudeBase } from "./extrude-base.js";
 import { Extruder } from "./simple-extruder.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
 import { SelectSceneObject } from "./select.js";
-import { FaceMaker } from "../core/2d/face-maker.js";
 import { FaceQuery } from "../oc/face-query.js";
 import { FaceOps } from "../oc/face-ops.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { Extrudable } from "../helpers/types.js";
+import { FaceMaker2 } from "../oc/face-maker2.js";
 
 export class ExtrudeToFace extends ExtrudeBase {
   constructor(
@@ -34,7 +34,7 @@ export class ExtrudeToFace extends ExtrudeBase {
 
     let solids: Shape[] = [];
 
-    const faces = pickedFaces ?? FaceMaker.getFaces(this.extrudable.getGeometries(), plane);
+    const faces = pickedFaces ?? FaceMaker2.getFaces(this.extrudable.getGeometries(), plane);
 
     for (const startFace of faces) {
       if (isPlanar && FaceQuery.areFacePlanesParallel(startFace, targetFace)) {

@@ -1,17 +1,16 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Shape, Solid } from "../common/shapes.js";
-import { ExtrudeOptions } from "./extrude-options.js";
 import { rad } from "../helpers/math-helpers.js";
 import { Plane } from "../math/plane.js";
 import { ExtrudeBase } from "./extrude-base.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Matrix4 } from "../math/matrix4.js";
-import { FaceMaker } from "../core/2d/face-maker.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { Extrudable } from "../helpers/types.js";
+import { FaceMaker2 } from "../oc/face-maker2.js";
 
 export class ExtrudeTwoDistances extends ExtrudeBase {
 
@@ -34,7 +33,7 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       return;
     }
 
-    const faces = pickedFaces ?? FaceMaker.getFaces(this.extrudable.getGeometries(), plane);
+    const faces = pickedFaces ?? FaceMaker2.getFaces(this.extrudable.getGeometries(), plane);
     console.log("Extruding faces:", faces);
     const draft = this.getDraft();
 
@@ -60,10 +59,12 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
         downSolid = this.applyDraft(angle2, downSolid, downFirstFace, downLastFace, plane.reverse());
         console.log("Drafted down solid:", downSolid);
 
-        const fused = BooleanOps.fuseShapes(upSolid, downSolid);
+        const fused = BooleanOps.fuse([upSolid, downSolid]);
         console.log("Fused solid:", fused);
 
-        solids.push(fused as Solid);
+        for (const f of fused.result) {
+          solids.push(f);
+        }
       }
     }
     else {

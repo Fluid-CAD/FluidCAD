@@ -10,6 +10,9 @@ export interface ISceneObject {
   keep(): this;
   guide(): this;
   forceRemove(): this;
+  fuse(value: 'all' | 'none'): this;
+  fuse(object: ISceneObject): this;
+  fuse(...objects: ISceneObject[]): this;
 }
 
 /**
@@ -114,7 +117,6 @@ export interface IExtrude extends ISceneObject {
   sideFace(...indices: number[]): ISceneObject;
   draft(value: number | [number, number]): this;
   endOffset(value: number): this;
-  fuse(value: 'all' | 'none' | ISceneObject | ISceneObject[]): this;
   drill(value?: boolean): this;
   pick(...points: Point2DLike[]): this;
 }
@@ -125,6 +127,5 @@ export interface IExtrude extends ISceneObject {
 export interface ICut extends ISceneObject {
   draft(value: number | [number, number]): this;
   endOffset(value: number): this;
-  fuse(value: 'all' | 'none' | ISceneObject | ISceneObject[]): this;
   internalEdges(...indices: number[]): ISceneObject;
 }

@@ -11,36 +11,60 @@ import { ICut, ISceneObject } from "./interfaces.js";
 
 interface CutFunction {
   /**
-   * Cuts through the last sketch with a default distance.
+   * Cuts through all using the last sketch
    * @param target - The sketch to cut with
    */
-  (target?: ISceneObject): ICut;
+  (): ICut;
   /**
-   * Cuts through the last sketch by a given distance.
+   * Cuts using the given sketch with a default distance.
+   * @param target - The sketch to cut with
+   */
+  (target: ISceneObject): ICut;
+  /**
+   * Cuts using the given sketch by a given distance.
    * @param distance - The cut depth
    * @param target - The sketch to cut with
    */
   (distance: number, target?: ISceneObject): ICut;
   /**
-   * Cuts through the last sketch between two distances.
+   * Cuts by two distances using the last sketch.
+   * @param distance1 - The first cut distance
+   * @param distance2 - The second cut distance
+   */
+  (distance1: number, distance2: number): ICut;
+  /**
+   * Cuts by two distances using the given sketch.
    * @param distance1 - The first cut distance
    * @param distance2 - The second cut distance
    * @param target - The sketch to cut with
    */
-  (distance1: number, distance2: number, target?: ISceneObject): ICut;
+  (distance1: number, distance2: number, target: ISceneObject): ICut;
   /**
-   * Cuts through the last sketch up to a face.
+   * Cuts up to face using the last sketch.
    * @param face - The face to cut up to, or `'first-face'`/`'last-face'`
    * @param target - The sketch to cut with
    */
-  (face: ISceneObject | 'first-face' | 'last-face', target?: ISceneObject): ICut;
+  (face: ISceneObject | 'first-face' | 'last-face'): ICut;
   /**
-   * Cuts through the last sketch symmetrically in both directions.
+   * Cuts up to face using the given sketch.
+   * @param face - The face to cut up to, or `'first-face'`/`'last-face'`
+   * @param target - The sketch to cut with
+   */
+  (face: ISceneObject | 'first-face' | 'last-face', target: ISceneObject): ICut;
+  /**
+   * Cuts symmetrically in both directions using the last sketch.
    * @param distance - The cut depth in each direction
    * @param symmetric - Must be `true`
    * @param target - The sketch to cut with
    */
-  (distance: number, symmetric: true, target?: ISceneObject): ICut;
+  (distance: number, symmetric: true): ICut;
+  /**
+   * Cuts symmetrically in both directions using the given sketch.
+   * @param distance - The cut depth in each direction
+   * @param symmetric - Must be `true`
+   * @param target - The sketch to cut with
+   */
+  (distance: number, symmetric: true, target: ISceneObject): ICut;
   /**
    * Cuts through the last sketch symmetrically with a default distance.
    * @param symmetric - Must be `true`

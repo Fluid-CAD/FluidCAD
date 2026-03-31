@@ -1,10 +1,7 @@
-import { Shape, Solid } from "../common/shapes.js";
-import { Convert } from "../math/convert.js";
-import { Vector3d } from "../math/vector3d.js";
-import { Sketch } from "./2d/sketch.js";
-import { FaceMaker } from "../core/2d/face-maker.js";
+import { Solid } from "../common/shapes.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
 import { Extrudable } from "../helpers/types.js";
+import { FaceMaker2 } from "../oc/face-maker2.js";
 
 export class ExtrudeThroughAll {
 
@@ -25,7 +22,7 @@ export class ExtrudeThroughAll {
     const wires = this.extrudable.getGeometries();
     const plane = this.extrudable.getPlane();
 
-    const faces = FaceMaker.getFaces(wires, plane);
+    const faces = FaceMaker2.getFaces(wires, plane);
 
     console.log("Extruding faces:", faces);
 

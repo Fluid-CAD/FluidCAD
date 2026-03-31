@@ -76,7 +76,7 @@ export class Extruder {
     this.sideFaces = sideFaces;
 
     if (extrusions.length > 1) {
-      const { result } = BooleanOps.fuse(extrusions, []);
+      const { result } = BooleanOps.fuse(extrusions);
       return result;
     }
 
@@ -91,9 +91,5 @@ export class Extruder {
     }
 
     return ExtrudeOps.applyDraftOnSideFaces(solid, firstFace, lastFace, plane, rad(angle));
-  }
-
-  private doExtrude(shape: Shape, vector: any) {
-    return ExtrudeOps.makePrismFromVec(shape, vector);
   }
 }

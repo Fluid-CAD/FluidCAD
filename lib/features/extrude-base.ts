@@ -1,6 +1,5 @@
 import { Face } from "../common/face.js";
 import { SceneObject } from "../common/scene-object.js";
-import { FusionScope } from "./extrude-options.js";
 import { LazySceneObject } from "./lazy-scene-object.js";
 import { Extrudable } from "../helpers/types.js";
 import { IExtrude } from "../core/interfaces.js";
@@ -8,16 +7,15 @@ import { LazyVertex } from "./lazy-vertex.js";
 import { Point2DLike } from "../math/point.js";
 import { Plane } from "../math/plane.js";
 import { normalizePoint2D } from "../helpers/normalize.js";
-import { FaceMaker } from "../core/2d/face-maker.js";
 import { getOC } from "../oc/init.js";
 import { Explorer } from "../oc/explorer.js";
 import { FaceOps } from "../oc/face-ops.js";
+import { FaceMaker2 } from "../oc/face-maker2.js";
 
 export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   protected _extrudable: Extrudable | null = null;
   protected _draft?: number | [number, number];
   protected _endOffset?: number;
-  protected _fusionScope?: FusionScope = 'all';
   protected _drill?: boolean = true;
   protected _picking: boolean = false;
   protected _pickPoints: LazyVertex[] = [];
@@ -93,11 +91,6 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return this;
   }
 
-  fuse(value: FusionScope): this {
-    this._fusionScope = value;
-    return this;
-  }
-
   drill(value: boolean = true): this {
     this._drill = value;
     return this;
@@ -131,7 +124,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     const sketchShapes = this.extrudable.getGeometries();
     const oc = getOC();
 
-    const sketchFaces = FaceMaker.getFaces(sketchShapes, plane, false);
+    const sketchFaces = FaceMaker2.getFaces(sketchShapes, plane, false);
     if (sketchFaces.length === 0) {
       return [];
     }
@@ -225,10 +218,6 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return this._endOffset;
   }
 
-  getFusionScope(): FusionScope | undefined {
-    return this._fusionScope || 'all';
-  }
-
   getDrill(): boolean {
     return this._drill;
   }
@@ -247,8 +236,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       return false;
     }
 
-    if (this._fusionScope !== other._fusionScope
-      || this._endOffset !== other._endOffset
+    if (this._endOffset !== other._endOffset
        || this._drill !== other._drill) {
       return false;
     }

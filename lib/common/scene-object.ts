@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { Shape, ShapeFilter } from "./shape.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { ISceneObject } from "../core/interfaces.js";
+import { FusionScope } from "../features/extrude-options.js";
 
 export type SourceLocation = {
   filePath: string;
@@ -41,6 +42,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _forceRemoveShapes: boolean = false;
   private _sourceLocation: SourceLocation | null = null;
   private _error: string | null = null;
+  protected _fusionScope?: FusionScope = 'all';
 
   constructor() {
     this.state = new Map();
@@ -141,7 +143,38 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   abstract build(context?: BuildSceneObjectContext): void;
 
   compareTo(other: SceneObject): boolean {
-    return this._guide === other._guide && this._keep === other._keep && this._forceRemoveShapes === other._forceRemoveShapes;
+    const match = this._guide === other._guide && this._keep === other._keep && this._forceRemoveShapes === other._forceRemoveShapes;
+
+    if (!match) {
+      return false;
+    }
+
+    if (typeof(this._fusionScope) !== typeof(other._fusionScope)) {
+      return false;
+    }
+
+    if (typeof (this._fusionScope) === 'string' && typeof (other._fusionScope) === 'string') {
+      return this._fusionScope === other._fusionScope;
+    }
+
+    if (this._fusionScope instanceof SceneObject && other._fusionScope instanceof SceneObject) {
+      return this._fusionScope.compareTo(other._fusionScope);
+    }
+
+    const thisScope = this._fusionScope as SceneObject[];
+    const otherScope = other._fusionScope as SceneObject[];
+
+    if (thisScope.length !== otherScope.length) {
+      return false;
+    }
+
+    for (let i = 0; i < thisScope.length; i++) {
+      if (!thisScope[i].compareTo(otherScope[i])) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   getDependencies(): SceneObject[] {
@@ -412,6 +445,28 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this._error;
   }
 
+  getFusionScope(): FusionScope | undefined {
+    return this._fusionScope || 'all';
+  }
+
+  fuse(value: 'all' | 'none'): this;
+  fuse(object: ISceneObject): this;
+  fuse(...objects: ISceneObject[]): this;
+  fuse(): this {
+    const arr = Array.from(arguments);
+    if (arr.length === 0) {
+      this._fusionScope = 'all';
+      return this;
+    }
+
+    if (arr.length === 1) {
+      this._fusionScope = arr[0];
+      return this;
+    }
+
+    this._fusionScope = arr;
+    return this;
+  }
   protected generateUniqueName(suffix: string) {
     return `${this.getOrder()}-${this.getUniqueType()}-${suffix}`;
   }

@@ -120,7 +120,7 @@ export class BooleanOps {
     return { result: wrappedResult, modified, sectionEdges, startEdges, endEdges, internalEdges };
   }
 
-  static fuse(args: Shape[], checkDeleted: Shape[] = []): {
+  static fuse(args: Shape[]): {
     result: Shape[];
     modifiedShapes: Shape[];
     newShapes: Shape[];
@@ -135,7 +135,11 @@ export class BooleanOps {
       argsList.Append(arg.getShape());
     }
 
-    builder.SetArguments(argsList);
+    const empty = ShapeOps.makeCompoundRaw([])
+    const list = new oc.TopTools_ListOfShape();
+    list.Append(empty);
+    builder.SetArguments(list);
+
     builder.SetTools(argsList);
 
     const progress = new oc.Message_ProgressRange();
@@ -153,10 +157,12 @@ export class BooleanOps {
     const result = rawSolids.map(s => Solid.fromTopoDSSolid(Explorer.toSolid(s)));
 
     const modifiedShapes: Shape[] = [];
-    for (const shape of checkDeleted) {
+    for (const shape of args) {
       if (builder.IsDeleted(shape.getShape())) {
+        console.log('=======', 'Shape was deleted in fuse:', shape);
         modifiedShapes.push(shape);
       }
+
     }
 
     builder.delete();

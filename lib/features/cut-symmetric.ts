@@ -1,7 +1,5 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Shape, Solid } from "../common/shapes.js";
-import { Sketch } from "./2d/sketch.js";
-import { FaceMaker } from "../core/2d/face-maker.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
@@ -10,6 +8,7 @@ import { Extrudable } from "../helpers/types.js";
 import { LazySceneObject } from "./lazy-scene-object.js";
 import { Edge } from "../common/edge.js";
 import { CutBase } from "./cut-base.js";
+import { FaceMaker2 } from "../oc/face-maker2.js";
 
 export class CutSymmetric extends CutBase {
 
@@ -38,7 +37,7 @@ export class CutSymmetric extends CutBase {
     }
     else {
       const wires = this.extrudable.getGeometries();
-      const faces = FaceMaker.getFaces(wires, plane);
+      const faces = FaceMaker2.getFaces(wires, plane);
 
       const vec = plane.normal.multiply(this.distance);
       const translateVec = vec.multiply(-0.5);

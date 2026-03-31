@@ -1,11 +1,7 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Wire } from "../common/wire.js";
 import { Edge } from "../common/edge.js";
-import { Face } from "../common/face.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
-import { FaceOps } from "../oc/face-ops.js";
-import { Explorer } from "../oc/explorer.js";
-import { ShapeOps } from "../oc/shape-ops.js";
 import { FaceMaker } from "../core/2d/face-maker.js";
 
 export class Fuse2D extends GeometrySceneObject {

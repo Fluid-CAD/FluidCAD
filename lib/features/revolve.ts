@@ -1,16 +1,15 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { rad } from "../helpers/math-helpers.js";
 import { Solid } from "../common/shapes.js";
-import { Axis } from "../math/axis.js";
 import { RevolveOptions } from "./revolve-options.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
-import { Convert } from "../math/convert.js";
 import { FaceMaker } from "../core/2d/face-maker.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { Extrudable } from "../helpers/types.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
+import { FaceMaker2 } from "../oc/face-maker2.js";
 
 export class Revolve extends SceneObject {
   private _extrudable: Extrudable | null = null;
@@ -37,7 +36,7 @@ export class Revolve extends SceneObject {
     const solids: Solid[] = [];
     const wires = this.extrudable.getGeometries();
     const plane = this.extrudable.getPlane();
-    const faces = FaceMaker.getFaces(wires, plane);
+    const faces = FaceMaker2.getFaces(wires, plane);
 
     const axis = this.axis.getAxis();
     for (const face of faces) {

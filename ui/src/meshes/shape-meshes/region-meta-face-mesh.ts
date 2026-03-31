@@ -9,7 +9,7 @@ import {
 import { SceneObjectPart } from '../../types';
 
 const COLOR_UNSELECTED = '#2297ff';
-const COLOR_SELECTED = '#4CAF50';
+const COLOR_SELECTED = '#2297ff';
 const OPACITY_UNSELECTED = 0.15;
 const OPACITY_SELECTED = 0.4;
 

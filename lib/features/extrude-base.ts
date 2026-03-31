@@ -124,7 +124,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     const sketchShapes = this.extrudable.getGeometries();
     const oc = getOC();
 
-    const sketchFaces = FaceMaker2.getFaces(sketchShapes, plane, false);
+    const sketchFaces = FaceMaker2.getRegions(sketchShapes, plane, false);
     if (sketchFaces.length === 0) {
       return [];
     }

@@ -34,7 +34,7 @@ export class ExtrudeToFace extends ExtrudeBase {
 
     let solids: Shape[] = [];
 
-    const faces = pickedFaces ?? FaceMaker2.getFaces(this.extrudable.getGeometries(), plane);
+    const faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane);
 
     for (const startFace of faces) {
       if (isPlanar && FaceQuery.areFacePlanesParallel(startFace, targetFace)) {

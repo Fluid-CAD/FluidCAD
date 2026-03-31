@@ -10,18 +10,21 @@ import { Face } from "../common/face.js";
 import { ShapeOps } from "./shape-ops.js";
 
 export class FaceMaker2 {
-  static getFaces(shapes: Array<Wire | Edge>, plane: Plane, drill: boolean = true) {
+
+  static getRegions(shapes: Array<Wire | Edge>, plane: Plane, drill: boolean = true) {
     const splitEdges = this.getSplitEdges(shapes);
+
     if (drill) {
       const faces = this.getDrilledFaces(splitEdges, plane);
       return faces;
     }
-    const faces = this.getSplitFaces(splitEdges, plane);
+
+    const faces = this.getFaces(splitEdges, plane);
     return faces;
   }
 
   private static getDrilledFaces(edges: Edge[], plane: Plane) {
-    const allFaces = this.getSplitFaces(edges, plane);
+    const allFaces = this.getFaces(edges, plane);
     const oc = getOC();
 
     // For each face, collect its outer wire edges and inner wire edges
@@ -76,7 +79,7 @@ export class FaceMaker2 {
     return allFaces.filter((_, i) => getDepth(i) % 2 === 0);
   }
 
-  private static getSplitFaces(edges: Edge[], plane: Plane) {
+  private static getFaces(edges: Edge[], plane: Plane) {
     const [gpPln, dispose] = Convert.toGpPln(plane);
     const oc = getOC();
     const planeFace = FaceOps.makeFaceFromPlane2(gpPln);
@@ -85,16 +88,22 @@ export class FaceMaker2 {
     const boundaryEdges = Explorer.findShapes(planeFace, oc.TopAbs_ShapeEnum.TopAbs_EDGE);
 
     const splitter = new oc.BRepAlgoAPI_Splitter();
-    const objects = new oc.TopTools_ListOfShape();
-    objects.Append(planeFace);
-    splitter.SetArguments(objects);
+
+    const args = new oc.TopTools_ListOfShape();
+    args.Append(planeFace);
+    splitter.SetArguments(args);
+
     const toolsList = new oc.TopTools_ListOfShape();
+
     for (const edge of edges) {
       toolsList.Append(edge.getShape());
     }
+
     splitter.SetTools(toolsList);
+
     splitter.SetNonDestructive(true);
     splitter.SetCheckInverted(true);
+
     const progress = new oc.Message_ProgressRange();
     splitter.Build(progress);
     const result = splitter.Shape();

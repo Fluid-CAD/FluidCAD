@@ -2,7 +2,6 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Wire } from "../common/wire.js";
 import { Edge } from "../common/edge.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
-import { FaceMaker } from "../core/2d/face-maker.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 
 export class Split2D extends GeometrySceneObject {
@@ -18,7 +17,6 @@ export class Split2D extends GeometrySceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
-    const plane = this.sketch.getPlane();
     let sourceWires: Map<Wire | Edge, SceneObject>;
 
     if (this._targetObjects === null) {

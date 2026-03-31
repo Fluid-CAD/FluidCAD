@@ -40,21 +40,10 @@ export class Common extends SceneObject {
       return;
     }
 
-    const args = allShapes.slice(0, 1);
-    const tools = allShapes.slice(1);
+    const { newShapes, modifiedShapes, result } = BooleanOps.common(allShapes);
 
-    const commonResult = BooleanOps.commonMultiShape(args, tools, allShapes);
-
-    if (!commonResult.modifiedShapes.length && commonResult.solids.length === 0) {
+    if (!modifiedShapes.length && newShapes.length === 0) {
       return;
-    }
-
-    const newShapes: Shape[] = [];
-    for (const solid of commonResult.solids) {
-      const existsInOriginal = allShapes.some(s => s.getShape().IsPartner(solid.getShape()));
-      if (!existsInOriginal) {
-        newShapes.push(ShapeOps.cleanShape(solid));
-      }
     }
 
     if (!this._keepOriginal) {
@@ -64,7 +53,7 @@ export class Common extends SceneObject {
       }
     }
 
-    this.addShapes(newShapes.length > 0 ? newShapes : commonResult.solids);
+    this.addShapes(newShapes.length > 0 ? newShapes : result);
   }
 
   compareTo(other: Common): boolean {

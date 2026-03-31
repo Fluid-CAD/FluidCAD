@@ -30,9 +30,7 @@ export class Edge extends Shape<TopoDS_Edge> {
   }
 
   isClosed(): boolean {
-    const first = this.getFirstVertex();
-    const last = this.getLastVertex();
-    return first.getShape().IsEqual(last.getShape());
+    return EdgeOps.isClosed(this);
   }
 
   static fromTopoDSEdge(edge: TopoDS_Edge): Edge {

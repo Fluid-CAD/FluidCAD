@@ -31,7 +31,7 @@ export class ExtrudeSymmetric extends ExtrudeBase {
       return;
     }
 
-    const faces = pickedFaces ?? FaceMaker2.getFaces(this.extrudable.getGeometries(), plane, this.getDrill());
+    const faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill());
     console.log("Extruding faces:", faces);
     const draft = this.getDraft();
 

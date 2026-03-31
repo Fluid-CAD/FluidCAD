@@ -37,7 +37,7 @@ export class CutSymmetric extends CutBase {
     }
     else {
       const wires = this.extrudable.getGeometries();
-      const faces = FaceMaker2.getFaces(wires, plane);
+      const faces = FaceMaker2.getRegions(wires, plane);
 
       const vec = plane.normal.multiply(this.distance);
       const translateVec = vec.multiply(-0.5);

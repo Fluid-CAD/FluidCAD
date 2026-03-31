@@ -2,7 +2,11 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Wire } from "../common/wire.js";
 import { Edge } from "../common/edge.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
-import { FaceMaker } from "../core/2d/face-maker.js";
+import { BooleanOps } from "../oc/boolean-ops.js";
+import { FaceOps } from "../oc/face-ops.js";
+import { WireOps } from "../oc/wire-ops.js";
+import { Face } from "../common/face.js";
+import { all } from "three/tsl";
 
 export class Common2D extends GeometrySceneObject {
   private _targetObjects: GeometrySceneObject[] | null = null;
@@ -23,31 +27,46 @@ export class Common2D extends GeometrySceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
-    const plane = this.sketch.getPlane();
-    let sourceWires: Map<Wire | Edge, SceneObject>;
+    let sourceEdges: Map<Edge, SceneObject>;
 
     if (this._targetObjects === null) {
-      sourceWires = this.sketch.getGeometriesWithOwner();
+      sourceEdges = this.sketch.getGeometriesWithOwner();
+
     } else {
-      sourceWires = new Map<Wire | Edge, SceneObject>();
+      sourceEdges = new Map<Wire | Edge, SceneObject>();
       for (const obj of this._targetObjects) {
         for (const shape of obj.getShapes()) {
-          if (shape instanceof Wire || shape instanceof Edge) {
-            sourceWires.set(shape, obj);
+          if (shape instanceof Edge) {
+            sourceEdges.set(shape, obj);
+          }
+          else if (shape instanceof Wire) {
+            for (const edge of shape.getEdges()) {
+              sourceEdges.set(edge, obj);
+            }
           }
         }
       }
     }
 
-    const commonWires = FaceMaker.commonWires(Array.from(sourceWires.keys()), plane);
+    const allEdges = Array.from(sourceEdges.keys()).filter(edge => edge.isClosed());
+    const wires = allEdges.map(edge => WireOps.makeWireFromEdges([edge]));
+    const faces = wires.map(wire => FaceOps.makeFaceWrapped(wire));
+
+    const { newShapes } = BooleanOps.common(faces);
+
+    const newEdges = newShapes.flatMap((face: Face) => face.getEdges());
 
     if (!this._keepOriginal) {
-      for (const [wire, owner] of sourceWires) {
+      for (const [wire, owner] of sourceEdges) {
+        if (!allEdges.includes(wire)) {
+          continue;
+        }
+
         owner.removeShape(wire, this);
       }
     }
 
-    this.addShapes(commonWires);
+    this.addShapes(newEdges);
   }
 
   override getDependencies(): SceneObject[] {

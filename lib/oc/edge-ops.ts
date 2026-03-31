@@ -385,4 +385,12 @@ export class EdgeOps {
 
     return result;
   }
+
+  static isClosed(edge: Edge): boolean {
+    const oc = getOC();
+    const adaptor = new oc.BRepAdaptor_Curve(edge.getShape() as TopoDS_Edge);
+    const closed = adaptor.IsClosed();
+    adaptor.delete();
+    return closed;
+  }
 }

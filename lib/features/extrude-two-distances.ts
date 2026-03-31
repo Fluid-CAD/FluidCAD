@@ -33,7 +33,7 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       return;
     }
 
-    const faces = pickedFaces ?? FaceMaker2.getFaces(this.extrudable.getGeometries(), plane);
+    const faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane);
     console.log("Extruding faces:", faces);
     const draft = this.getDraft();
 

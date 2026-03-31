@@ -122,7 +122,7 @@ export class Sketch extends SceneObject implements Extrudable {
     return result;
   }
 
-  getGeometriesWithOwner(): Map<Wire | Edge, GeometrySceneObject> {
+  getGeometriesWithOwner(): Map<Edge, GeometrySceneObject> {
     const children = this.getChildren() as GeometrySceneObject[];
 
     const result: Map<(Wire | Edge), GeometrySceneObject | null> = new Map();

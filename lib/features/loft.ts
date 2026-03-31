@@ -73,7 +73,7 @@ export class Loft extends SceneObject {
       const extrudable = obj as unknown as Extrudable;
       const geometries = extrudable.getGeometries();
       const plane = extrudable.getPlane();
-      const faces = FaceMaker2.getFaces(geometries, plane);
+      const faces = FaceMaker2.getRegions(geometries, plane);
       const wires: Wire[] = [];
       for (const face of faces) {
         const faceWires = face.getWires();

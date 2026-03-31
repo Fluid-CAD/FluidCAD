@@ -53,7 +53,7 @@ export class Cut extends CutBase {
     }
     else {
       const wires = this.extrudable.getGeometries();
-      const faces = FaceMaker2.getFaces(wires, this.extrudable.getPlane());
+      const faces = FaceMaker2.getRegions(wires, this.extrudable.getPlane());
       const plane = this.extrudable.getPlane();
       const extruder = new Extruder(faces, plane, distance, this.getDraft(), this.getEndOffset());
       extrusionShapes = extruder.extrude();

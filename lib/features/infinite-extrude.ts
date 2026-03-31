@@ -22,7 +22,7 @@ export class ExtrudeThroughAll {
     const wires = this.extrudable.getGeometries();
     const plane = this.extrudable.getPlane();
 
-    const faces = FaceMaker2.getFaces(wires, plane);
+    const faces = FaceMaker2.getRegions(wires, plane);
 
     console.log("Extruding faces:", faces);
 

@@ -28,11 +28,11 @@ export class Extrude extends ExtrudeBase {
       return;
     }
 
-    this.extrudable.removeShapes(this);
     const sketchShapes = this.extrudable.getGeometries();
     const faces = FaceMaker2.getRegions(sketchShapes, this.extrudable.getPlane(), this.getDrill());
     console.log('Extrude: Generated faces count:', faces.length);
     this.extrudeAndFuse(faces, plane, sceneObjects);
+    this.extrudable.removeShapes(this);
   }
 
   private extrudeAndFuse(faces: Face[], plane: any, sceneObjects: SceneObject[]) {

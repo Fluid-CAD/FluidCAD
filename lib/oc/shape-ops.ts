@@ -102,11 +102,30 @@ export class ShapeOps {
 
   static cleanShapeRaw(shape: TopoDS_Shape) {
     const oc = getOC();
-    const unify = new oc.ShapeUpgrade_UnifySameDomain(shape, false, true, false);
+
+    // Full unification: merge redundant edges AND co-surface faces
+    const unify = new oc.ShapeUpgrade_UnifySameDomain(shape, true, true, false);
     unify.Build();
-    const cleaned = unify.Shape();
+    let cleaned = unify.Shape();
     unify.delete();
-    return cleaned;
+
+    // Validate — UnifySameDomain can corrupt periodic surfaces (e.g. cylinders)
+    const checker = new oc.BRepCheck_Analyzer(cleaned, true, false);
+    if (checker.IsValid()) {
+      checker.delete();
+      return cleaned;
+    }
+    checker.delete();
+
+    // Repair with ShapeFix_Shape (fixes seam edges, wire orientation, SameParameter)
+    const fixer = new oc.ShapeFix_Shape(cleaned);
+    const progress = new oc.Message_ProgressRange();
+    fixer.Perform(progress);
+    const fixed = fixer.Shape();
+    fixer.delete();
+    progress.delete();
+
+    return fixed;
   }
 
   static getSolidOutwardNormal(face: Face, solid: Solid): Vector3d {

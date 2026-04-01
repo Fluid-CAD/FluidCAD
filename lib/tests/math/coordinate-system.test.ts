@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { CoordinateSystem } from "./coordinate-system.js";
-import { Point } from "./point.js";
-import { Vector3d } from "./vector3d.js";
-import { Axis } from "./axis.js";
-import { Plane } from "./plane.js";
+import { CoordinateSystem } from "../../math/coordinate-system.js";
+import { Point } from "../../math/point.js";
+import { Vector3d } from "../../math/vector3d.js";
+import { Axis } from "../../math/axis.js";
+import { Plane } from "../../math/plane.js";
 
 describe("CoordinateSystem", () => {
   describe("constructor", () => {

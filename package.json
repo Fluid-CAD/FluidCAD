@@ -33,7 +33,8 @@
     "dev:server": "node --experimental-transform-types --no-warnings server/src/index.ts",
     "dev:ui": "vite --config ui/vite.config.ts",
     "typecheck": "tsc -b",
-    "test": "vitest"
+    "test": "vitest",
+    "test:features": "vitest run lib/tests/features/"
   },
   "dependencies": {
     "@tabler/icons": "^3.40.0",

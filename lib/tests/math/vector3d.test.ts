@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Vector3d, normalizeVector } from "./vector3d.js";
+import { Vector3d, normalizeVector } from "../../math/vector3d.js";
 
 describe("Vector3d", () => {
   describe("constructor", () => {

@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { Plane, toPlane, isPlaneLike } from "./plane.js";
-import { Point, Point2D } from "./point.js";
-import { Vector3d } from "./vector3d.js";
-import { Axis } from "./axis.js";
+import { Plane, toPlane, isPlaneLike } from "../../math/plane.js";
+import { Point, Point2D } from "../../math/point.js";
+import { Vector3d } from "../../math/vector3d.js";
+import { Axis } from "../../math/axis.js";
 
 describe("Plane", () => {
   describe("constructor", () => {

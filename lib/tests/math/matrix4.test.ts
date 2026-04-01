@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { Matrix4 } from "./matrix4.js";
-import { Vector3d } from "./vector3d.js";
-import { Point } from "./point.js";
-import { Quaternion } from "./quaternion.js";
+import { Matrix4 } from "../../math/matrix4.js";
+import { Vector3d } from "../../math/vector3d.js";
+import { Point } from "../../math/point.js";
+import { Quaternion } from "../../math/quaternion.js";
 
 describe("Matrix4", () => {
   describe("constructor", () => {

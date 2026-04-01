@@ -48,10 +48,11 @@ export class CutTwoDistances extends CutBase {
 
     const faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane);
 
-    const extruder1 = new Extruder(faces, plane, this.distance1, this.getDraft(), this.getEndOffset());
+    // Positive distance = reverse normal direction, negate before passing to Extruder
+    const extruder1 = new Extruder(faces, plane, -this.distance1, this.getDraft(), this.getEndOffset());
     const extrusions1 = extruder1.extrude();
 
-    const extruder2 = new Extruder(faces, plane, -this.distance2, this.getDraft(), this.getEndOffset());
+    const extruder2 = new Extruder(faces, plane, this.distance2, this.getDraft(), this.getEndOffset());
     const extrusions2 = extruder2.extrude();
 
     const all = [...extrusions1, ...extrusions2];

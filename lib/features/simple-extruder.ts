@@ -77,6 +77,7 @@ export class Extruder {
 
     if (extrusions.length > 1) {
       const { result } = BooleanOps.fuse(extrusions);
+      console.log('Self fused extrusions count:', result.length);
       return result;
     }
 

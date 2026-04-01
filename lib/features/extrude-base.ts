@@ -119,9 +119,15 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       return null;
     }
 
-    const sketchShapes = this.extrudable.getGeometries();
+    let cells: Face[] = this.extrudable.getState('pick-region-cells') as Face[] | null;
 
-    const cells = FaceMaker2.getRegions(sketchShapes, plane, false);
+    if (!cells) {
+      console.log(':::::::: No cached cells found, computing cells for the first time');
+      const sketchShapes = this.extrudable.getGeometries(true);
+      cells = FaceMaker2.getRegions(sketchShapes, plane, false);
+      this.extrudable.setState('pick-region-cells', cells);
+    }
+
     if (cells.length === 0) {
       return [];
     }
@@ -149,6 +155,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       } else {
         cell.markAsMetaShape('pick-region');
       }
+
       this.addShape(cell);
 
       for (const edge of cell.getEdges()) {
@@ -211,7 +218,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     }
 
     if (this._endOffset !== other._endOffset
-       || this._drill !== other._drill) {
+      || this._drill !== other._drill) {
       return false;
     }
 

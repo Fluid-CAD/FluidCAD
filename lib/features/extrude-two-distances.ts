@@ -85,7 +85,7 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
 
     if (this.getFusionScope() !== 'none' && solids.length > 0 && sceneObjects?.length > 0) {
       const fusionResult = fuseWithSceneObjects(sceneObjects, solids);
-      solids = fusionResult.extrusions;
+      // solids = fusionResult.extrusions;
 
       for (const modifiedShape of fusionResult.modifiedShapes) {
         modifiedShape.object.removeShape(modifiedShape.shape, this);

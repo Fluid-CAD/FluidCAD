@@ -155,10 +155,8 @@ export class BooleanOps {
     const modifiedShapes: Shape[] = [];
     for (const shape of args) {
       if (builder.IsDeleted(shape.getShape())) {
-        console.log('=======', 'Shape was deleted in fuse:', shape);
         modifiedShapes.push(shape);
       }
-
     }
 
     builder.delete();

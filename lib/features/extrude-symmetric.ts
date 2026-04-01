@@ -107,7 +107,7 @@ export class ExtrudeSymmetric extends ExtrudeBase {
     }
 
     const fusionResult = fuseWithSceneObjects(sceneObjects, solids);
-    solids = fusionResult.extrusions;
+    // solids = fusionResult.extrusions;
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
       if (!modifiedShape.object) {

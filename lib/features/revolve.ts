@@ -66,7 +66,7 @@ export class Revolve extends SceneObject {
       modifiedShape.object.removeShape(modifiedShape.shape, this);
     }
 
-    this.addShapes(fusionResult.extrusions);
+    this.addShapes(fusionResult.newShapes);
   }
 
   compareTo(other: SceneObject): boolean {

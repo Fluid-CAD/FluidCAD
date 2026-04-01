@@ -14,24 +14,22 @@ export function fuseWithSceneObjects(sceneObjects: SceneObject[], extrusions: Sh
   }
 
   let args = Array.from(objShapeMap.keys());
+  console.log("Fusing extrusions with scene objects. Extrusions:", extrusions.length, "Scene object shapes:", args.length);
   const all = [...args, ...extrusions];
-  const { newShapes, modifiedShapes } = BooleanOps.fuse(all);
+  const { result, newShapes, modifiedShapes } = BooleanOps.fuse(all);
 
   if (newShapes.length === 0 && modifiedShapes.length === 0) {
     console.log("No fusions were made.");
     return {
       newShapes: extrusions,
-      extrusions,
       modifiedShapes: []
     }
   }
-
-  extrusions = newShapes;
 
   for (const shape of modifiedShapes) {
     const obj = objShapeMap.get(shape);
     modified.push({ shape, object: obj });
   }
 
-  return { newShapes, modifiedShapes: modified };
+  return { newShapes: result, modifiedShapes: modified };
 }

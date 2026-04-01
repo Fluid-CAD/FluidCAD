@@ -16,7 +16,7 @@ export abstract class ExtrudableGeometryBase extends GeometrySceneObject impleme
     return true;
   }
 
-  getGeometries(): (Wire | Edge)[] {
+  getGeometries(): Edge[] {
     return this.getShapes() as Edge[];
   }
 

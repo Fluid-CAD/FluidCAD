@@ -120,22 +120,22 @@ export class Client {
     this.logger.appendLine('Server initialized successfully.');
   }
 
-  private initLiveRender() {
-    let debounceTimer: NodeJS.Timeout | undefined;
+  private debounceTimer: NodeJS.Timeout | undefined;
 
+  private initLiveRender() {
     const disposable = vscode.workspace.onDidChangeTextDocument((event) => {
       const doc = event.document;
       if (!doc.fileName.endsWith('.fluid.js')) {
         return;
       }
 
-      if (debounceTimer) {
-        clearTimeout(debounceTimer);
+      if (this.debounceTimer) {
+        clearTimeout(this.debounceTimer);
       }
 
-      debounceTimer = setTimeout(() => {
+      this.debounceTimer = setTimeout(() => {
         this.updateLiveCode(doc.fileName, doc.getText());
-        debounceTimer = undefined;
+        this.debounceTimer = undefined;
       }, 300);
     });
 
@@ -286,6 +286,10 @@ export class Client {
   }
 
   public async updateLiveCode(fileName: string, newCode: string) {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = undefined;
+    }
     this.sendToServer({
       type: 'live-update',
       fileName,
@@ -387,6 +391,7 @@ export class Client {
     const prefix = between.length > 0 ? ', ' : '';
 
     const pos = new vscode.Position(line, closeParen);
+
     const applied = await editor.edit(b => b.insert(pos, `${prefix}${pointText}`));
     if (applied) {
       this.updateLiveCode(editor.document.fileName, editor.document.getText());
@@ -484,6 +489,7 @@ export class Client {
       new vscode.Position(line, deleteEnd),
     );
 
+
     const applied = await editor.edit(b => b.delete(range));
     if (applied) {
       this.updateLiveCode(editor.document.fileName, editor.document.getText());
@@ -528,6 +534,7 @@ export class Client {
       new vscode.Position(line, openParen + 1),
       new vscode.Position(line, closeParen),
     );
+
 
     const applied = await editor.edit(b => b.replace(range, newArgs));
     if (applied) {

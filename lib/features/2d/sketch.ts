@@ -98,16 +98,16 @@ export class Sketch extends SceneObject implements Extrudable {
     this.planeObj.removeShapes(this)
   }
 
-  getEdges(): Edge[] {
-    return [...this.getEdgesWithOwner().keys()];
+  getEdges(includeRemoved?: boolean): Edge[] {
+    return [...this.getEdgesWithOwner(includeRemoved).keys()];
   }
 
-  getEdgesWithOwner(): Map<Edge, GeometrySceneObject> {
+  getEdgesWithOwner(includeRemoved = false): Map<Edge, GeometrySceneObject> {
     const children = this.getChildren() as GeometrySceneObject[];
     const result: Map<Edge, GeometrySceneObject> = new Map();
 
     for (const child of children) {
-      const shapes = child.getShapes();
+      const shapes = includeRemoved ? child.getAddedShapes() : child.getShapes();
       for (const shape of shapes) {
         if (shape instanceof Edge) {
           result.set(shape, child);
@@ -122,43 +122,19 @@ export class Sketch extends SceneObject implements Extrudable {
     return result;
   }
 
-  getGeometriesWithOwner(): Map<Edge, GeometrySceneObject> {
-    const children = this.getChildren() as GeometrySceneObject[];
-
-    const result: Map<(Wire | Edge), GeometrySceneObject | null> = new Map();
-    for (const child of children) {
-      const shapes = child.getShapes();
-      for (const shape of shapes) {
-        result.set(shape as (Wire | Edge), child);
-      }
+  getGeometriesWithOwner(includrRemoved = false): Map<Edge, GeometrySceneObject> {
+    let geometries = this.getState('geometries') as Map<Edge, GeometrySceneObject>;
+    if (geometries) {
+      return geometries;
     }
 
-    return result;
+    geometries = this.getEdgesWithOwner(includrRemoved);
+    this.setState('geometries', geometries);
+    return geometries;
   }
 
-  getGeometries(): (Wire | Edge)[] {
-    const children = this.getChildren() as GeometrySceneObject[];
-
-    let wires: Array<Wire | Edge> = [];
-
-    for (const child of children) {
-      console.log("Sketch::getGeometries child:", child.getType(), child.parentId, this.id);
-      if (child.parentId && child.parentId !== this.id) {
-        continue;
-      }
-
-      if (child.isContainer()) {
-        wires.push(...child.getChildShapes() as Wire[]);
-      }
-      else {
-        const shapes = child.getShapes();
-        for (const shape of shapes) {
-          wires.push(shape as (Wire | Edge));
-        }
-      }
-    }
-
-    return wires;
+  getGeometries(includeRemoved?: boolean): Edge[] {
+    return this.getEdges(includeRemoved);
   }
 
   override getDependencies(): SceneObject[] {

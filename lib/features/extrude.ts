@@ -22,6 +22,7 @@ export class Extrude extends ExtrudeBase {
 
     const pickedFaces = this.resolvePickedFaces(plane);
     if (pickedFaces !== null) {
+      console.log('[pick] pickedFaces:', pickedFaces.length, 'distance:', this.distance);
       if (pickedFaces.length > 0) {
         this.extrudeAndFuse(pickedFaces, plane, sceneObjects);
       }
@@ -32,7 +33,6 @@ export class Extrude extends ExtrudeBase {
     const faces = FaceMaker2.getRegions(sketchShapes, this.extrudable.getPlane(), this.getDrill());
     console.log('Extrude: Generated faces count:', faces.length);
     this.extrudeAndFuse(faces, plane, sceneObjects);
-    this.extrudable.removeShapes(this);
   }
 
   private extrudeAndFuse(faces: Face[], plane: any, sceneObjects: SceneObject[]) {
@@ -43,6 +43,8 @@ export class Extrude extends ExtrudeBase {
     this.setState('end-faces', extruder.getEndFaces());
     this.setState('side-faces', extruder.getSideFaces());
 
+    this.extrudable.removeShapes(this);
+
     console.log('Extrude: Generated extrusions count:', extrusions.length);
 
     console.log('Extrude: Fusion scope:', this.getFusionScope());
@@ -50,8 +52,6 @@ export class Extrude extends ExtrudeBase {
       this.addShapes(extrusions);
       return;
     }
-
-    console.log('::: Extrusions to fuse count:', extrusions.length);
 
     const fusionResult = fuseWithSceneObjects(sceneObjects, extrusions);
 

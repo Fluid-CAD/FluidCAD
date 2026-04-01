@@ -123,7 +123,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
 
     if (!cells) {
       console.log(':::::::: No cached cells found, computing cells for the first time');
-      const sketchShapes = this.extrudable.getGeometries(true);
+      const sketchShapes = this.extrudable.getGeometries();
       cells = FaceMaker2.getRegions(sketchShapes, plane, false);
       this.extrudable.setState('pick-region-cells', cells);
     }

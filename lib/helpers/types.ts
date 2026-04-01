@@ -24,7 +24,7 @@ export type FaceInfo = {
 }
 
 export interface Extrudable extends SceneObject {
-  getGeometries(includeRemoved?: boolean): Edge[];
-  getGeometriesWithOwner(includeRemoved?: boolean): Map<Edge, GeometrySceneObject>;
+  getGeometries(): Edge[];
+  getGeometriesWithOwner(): Map<Edge, GeometrySceneObject>;
   getPlane(): Plane;
 }

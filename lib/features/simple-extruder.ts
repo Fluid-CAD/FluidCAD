@@ -53,7 +53,10 @@ export class Extruder {
       let { solid, firstFace, lastFace } = ExtrudeOps.makePrismFromVec(face, vec);
 
       if (this.draft) {
-        solid = this.applyDraft(solid, firstFace, lastFace, this.plane)
+        const draftResult = this.applyDraft(solid, firstFace, lastFace, this.plane);
+        solid = draftResult.solid;
+        firstFace = draftResult.firstFace;
+        lastFace = draftResult.lastFace;
       }
 
       const solidFaces = Explorer.findFacesWrapped(solid);
@@ -85,7 +88,7 @@ export class Extruder {
     return extrusions;
   }
 
-  private applyDraft(solid: Shape, firstFace: Shape, lastFace: Shape, plane: Plane): Shape {
+  private applyDraft(solid: Shape, firstFace: Shape, lastFace: Shape, plane: Plane): { solid: Shape; firstFace: Shape; lastFace: Shape } {
     let angle: number = this.draft[0];
 
     if (this.distance > 0) {

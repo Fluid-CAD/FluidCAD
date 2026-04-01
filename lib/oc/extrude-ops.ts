@@ -85,7 +85,7 @@ export class ExtrudeOps {
     lastFace: Shape,
     plane: Plane,
     angle: number
-  ): Shape {
+  ): { solid: Shape; firstFace: Shape; lastFace: Shape } {
     const oc = getOC();
     const [dir, disposeDir] = Convert.toGpDir(plane.normal);
     const [pln, disposePln] = Convert.toGpPln(plane);
@@ -114,11 +114,25 @@ export class ExtrudeOps {
       throw new Error("Draft application failed");
     }
 
+    const modifiedFirst = ShapeOps.shapeListToArray(draftMaker.Modified(firstFaceRaw));
+    const modifiedLast = ShapeOps.shapeListToArray(draftMaker.Modified(lastFaceRaw));
+
+    const newFirstFace = modifiedFirst.length > 0
+      ? ShapeFactory.fromShape(modifiedFirst[0])
+      : firstFace;
+    const newLastFace = modifiedLast.length > 0
+      ? ShapeFactory.fromShape(modifiedLast[0])
+      : lastFace;
+
     const result = draftMaker.Shape();
     draftMaker.delete();
     disposeDir();
     disposePln();
-    return ShapeFactory.fromShape(result);
+    return {
+      solid: ShapeFactory.fromShape(result),
+      firstFace: newFirstFace,
+      lastFace: newLastFace,
+    };
   }
 
   static applyDraft(shape: TopoDS_Shape, direction: Vector3d, angle: number): TopoDS_Shape {

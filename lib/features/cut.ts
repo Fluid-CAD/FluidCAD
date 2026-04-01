@@ -58,13 +58,13 @@ export class Cut extends CutBase {
     }
     else {
       const faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane);
-      // Positive distance = cut in normal direction, negative = reverse
-      // For through-all with picking, use a large distance
+      // Positive distance = cut in reverse normal direction, negative = normal direction
+      // Negate before passing to Extruder which interprets positive as normal direction
       let distance: number;
       if (isThroughAll) {
-        distance = 10000;
+        distance = -10000;
       } else {
-        distance = this.distance;
+        distance = -this.distance;
       }
       const extruder = new Extruder(faces, plane, distance, this.getDraft(), this.getEndOffset());
       extrusionShapes = extruder.extrude();

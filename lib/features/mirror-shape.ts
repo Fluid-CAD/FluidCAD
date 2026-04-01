@@ -66,7 +66,9 @@ export class MirrorShape extends SceneObject {
     const fusionResult = fuseWithSceneObjects(allSceneObjects, transformedShapes)
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
-      modifiedShape.object.removeShape(modifiedShape.shape, this)
+      if (modifiedShape.object) {
+        modifiedShape.object.removeShape(modifiedShape.shape, this)
+      }
     }
 
     for (const shape of fusionResult.newShapes) {

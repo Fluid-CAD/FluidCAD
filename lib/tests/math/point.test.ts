@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { Point, Point2D, isPointLike, isPoint2DLike } from "./point.js";
-import { Vector3d } from "./vector3d.js";
-import { Axis } from "./axis.js";
+import { Point, Point2D, isPointLike, isPoint2DLike } from "../../math/point.js";
+import { Vector3d } from "../../math/vector3d.js";
+import { Axis } from "../../math/axis.js";
 
 describe("Point", () => {
   describe("constructor", () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { Quaternion } from "./quaternion.js";
-import { Vector3d } from "./vector3d.js";
+import { Quaternion } from "../../math/quaternion.js";
+import { Vector3d } from "../../math/vector3d.js";
 
 describe("Quaternion", () => {
   describe("constructor", () => {

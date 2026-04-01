@@ -48,7 +48,8 @@ export class Extruder {
     let lastFaces: Face[] = [];
     let sideFaces: Face[] = [];
 
-    for (const face of this.faces) {
+    const fusedFaces = BooleanOps.fuseFaces(this.faces)
+    for (const face of fusedFaces.result) {
       let { solid, firstFace, lastFace } = ExtrudeOps.makePrismFromVec(face, vec);
 
       if (this.draft) {
@@ -75,11 +76,11 @@ export class Extruder {
     this.lastFaces = lastFaces;
     this.sideFaces = sideFaces;
 
-    if (extrusions.length > 1) {
-      const { result } = BooleanOps.fuse(extrusions);
-      console.log('Self fused extrusions count:', result.length);
-      return result;
-    }
+    // if (extrusions.length > 1) {
+    //   const { result } = BooleanOps.fuse(extrusions);
+    //   console.log('Self fused extrusions count:', result.length);
+    //   return result;
+    // }
 
     return extrusions;
   }

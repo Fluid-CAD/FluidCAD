@@ -14,6 +14,7 @@ import { LazySceneObject } from "./lazy-scene-object.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
+import { Extruder } from "./simple-extruder.js";
 
 export class ExtrudeSymmetric extends ExtrudeBase {
 
@@ -22,7 +23,6 @@ export class ExtrudeSymmetric extends ExtrudeBase {
   }
 
   build(context: BuildSceneObjectContext) {
-    let solids: Shape[] = [];
     const sceneObjects = context.getSceneObjects();
     const plane = this.extrudable.getPlane();
 
@@ -33,81 +33,32 @@ export class ExtrudeSymmetric extends ExtrudeBase {
 
     const faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill());
     console.log("Extruding faces:", faces);
-    const draft = this.getDraft();
 
-    let startFaces: Face[] = [];
-    let endFaces: Face[] = [];
-    let sideFaces: Face[] = [];
+    const extruder1 = new Extruder(faces, plane, this.distance / 2, this.getDraft(), this.getEndOffset());
+    const extrusions1 = extruder1.extrude();
+    const startFaces = extruder1.getStartFaces();
+    const sideFaces1 = extruder1.getSideFaces();
 
-    if (draft) {
-      let vec = plane.normal.multiply(this.distance / 2);
+    const extruder2 = new Extruder(faces, plane, -this.distance / 2, this.getDraft(), this.getEndOffset());
+    const extrusions2 = extruder2.extrude();
+    const endFaces = extruder2.getEndFaces();
+    const sideFaces2 = extruder2.getSideFaces();
 
-      for (const face of faces) {
-        let { solid, firstFace, lastFace } = this.doExtrude(face, vec);
-
-        solid = this.applyDraft(solid, firstFace, lastFace, plane);
-
-        const center = face.center();
-        const mirrored = ShapeOps.mirrorShape(solid, center);
-
-        const fused = BooleanOps.fuse([solid, mirrored]);
-
-        for (const f of fused.result) {
-          const solidFaces = Explorer.findFacesWrapped(f);
-          for (const f of solidFaces) {
-            if (f.getShape().IsSame(firstFace.getShape())) {
-              startFaces.push(f);
-            } else if (f.getShape().IsSame(lastFace.getShape())) {
-              endFaces.push(f);
-            } else {
-              sideFaces.push(f);
-            }
-          }
-        }
-
-        for (const f of fused.result) {
-          solids.push(f);
-        }
-      }
-    }
-    else {
-      let vec = plane.normal.multiply(this.distance);
-      const translateVec = vec.multiply(-0.5);
-
-      for (const face of faces) {
-        let { solid, firstFace, lastFace } = this.doExtrude(face, vec);
-
-        solid = ShapeOps.translateShape(solid, translateVec);
-
-        const solidFaces = Explorer.findFacesWrapped(solid);
-        for (const f of solidFaces) {
-          // here we use IsPartner instead of IsSame because the place location has changed after translation
-          if (f.getShape().IsPartner(firstFace.getShape())) {
-            startFaces.push(f);
-          } else if (f.getShape().IsPartner(lastFace.getShape())) {
-            endFaces.push(f);
-          } else {
-            sideFaces.push(f);
-          }
-        }
-
-        solids.push(solid as Solid);
-      }
-    }
+    const all = [...extrusions1, ...extrusions2];
+    const { result: extrusions } = BooleanOps.fuse(all);
 
     this.setState('start-faces', startFaces);
     this.setState('end-faces', endFaces);
-    this.setState('side-faces', sideFaces);
+    this.setState('side-faces', [...sideFaces1, ...sideFaces2]);
 
     this.extrudable.removeShapes(this);
 
-    if (this.getFusionScope() === 'none' || solids.length === 0 || sceneObjects?.length === 0) {
-      this.addShapes(solids);
+    if (this.getFusionScope() === 'none' || extrusions.length === 0 || sceneObjects?.length === 0) {
+      this.addShapes(extrusions);
       return;
     }
 
-    const fusionResult = fuseWithSceneObjects(sceneObjects, solids);
-    // solids = fusionResult.extrusions;
+    const fusionResult = fuseWithSceneObjects(sceneObjects, extrusions);
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
       if (!modifiedShape.object) {
@@ -117,7 +68,7 @@ export class ExtrudeSymmetric extends ExtrudeBase {
       modifiedShape.object.removeShape(modifiedShape.shape, this);
     }
 
-    this.addShapes(solids);
+    this.addShapes(fusionResult.newShapes);
   }
 
   private applyDraft(solid: Shape, firstFace: Shape, lastFace: Shape, plane: Plane): Shape {

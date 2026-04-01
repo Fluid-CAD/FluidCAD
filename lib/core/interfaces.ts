@@ -7,9 +7,7 @@ import { Point2DLike } from "../math/point.js";
  */
 export interface ISceneObject {
   name(value: string): this;
-  keep(): this;
   guide(): this;
-  forceRemove(): this;
   fuse(value: 'all' | 'none'): this;
   fuse(object: ISceneObject): this;
   fuse(...objects: ISceneObject[]): this;

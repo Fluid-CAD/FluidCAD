@@ -128,6 +128,7 @@ export class BooleanOps {
     const oc = getOC();
     const builder = new oc.BRepAlgoAPI_Fuse();
     builder.SetNonDestructive(true);
+    builder.SetCheckInverted(true);
     builder.SetRunParallel(true);
 
     const argsList = new oc.TopTools_ListOfShape();

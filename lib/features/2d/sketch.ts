@@ -189,7 +189,6 @@ export class Sketch extends SceneObject implements Extrudable {
 
       const tangent = last.getTangent();
       if (tangent) {
-        console.log("Sketch::getTangent found tangent from child:", last.getName(), tangent);
         return tangent;
       }
 

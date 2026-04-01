@@ -38,8 +38,6 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _alwaysVisible: boolean = false;
   private _name: string = '';
   private _guide: boolean = false;
-  private _keep: boolean = false;
-  private _forceRemoveShapes: boolean = false;
   private _sourceLocation: SourceLocation | null = null;
   private _error: string | null = null;
   protected _fusionScope?: FusionScope = 'all';
@@ -143,7 +141,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   abstract build(context?: BuildSceneObjectContext): void;
 
   compareTo(other: SceneObject): boolean {
-    const match = this._guide === other._guide && this._keep === other._keep && this._forceRemoveShapes === other._forceRemoveShapes;
+    const match = this._guide === other._guide;
 
     if (!match) {
       return false;
@@ -278,21 +276,12 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     }
   }
 
-  forceRemove() {
-    this._forceRemoveShapes = true;
-    return this;
-  }
-
-  removeShape(shape: Shape, removedBy: SceneObject, force: boolean = false) {
-    if (this._keep && !(force || removedBy._forceRemoveShapes)) {
-      return;
-    }
-
+  removeShape(shape: Shape, removedBy: SceneObject) {
     if (this.isContainer()) {
       for (const child of this.children) {
         const childShapes = child.getShapes();
         if (childShapes.some(s => s === shape)) {
-          child.removeShape(shape, removedBy, force);
+          child.removeShape(shape, removedBy);
         }
       }
       return;
@@ -304,26 +293,18 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     })
   }
 
-  removeShapes(removedBy: SceneObject, force: boolean = false) {
-    if (this._keep && !(force || removedBy._forceRemoveShapes)) {
-      return;
-    }
+  removeShapes(removedBy: SceneObject) {
 
     if (this.isContainer()) {
       for (const child of this.children) {
-        child.removeShapes(removedBy, force);
+        child.removeShapes(removedBy);
       }
       return;
     }
 
     for (const shape of this.addedShapes) {
-      this.removeShape(shape, removedBy, force);
+      this.removeShape(shape, removedBy);
     }
-  }
-
-  keep() {
-    this._keep = true;
-    return this;
   }
 
   getOwnShapes(filter?: ShapeFilter, scope?: Set<SceneObject>): Shape[] {

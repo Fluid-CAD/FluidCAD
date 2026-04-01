@@ -6,7 +6,6 @@ import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
 import { Wire } from "../../common/wire.js";
 import { Extrudable } from "../../helpers/types.js";
-import { Geometry } from "../../oc/geometry.js";
 
 export class Sketch extends SceneObject implements Extrudable {
 
@@ -98,16 +97,16 @@ export class Sketch extends SceneObject implements Extrudable {
     this.planeObj.removeShapes(this)
   }
 
-  getEdges(includeRemoved?: boolean): Edge[] {
-    return [...this.getEdgesWithOwner(includeRemoved).keys()];
+  getEdges(): Edge[] {
+    return [...this.getEdgesWithOwner().keys()];
   }
 
-  getEdgesWithOwner(includeRemoved = false): Map<Edge, GeometrySceneObject> {
+  getEdgesWithOwner(): Map<Edge, GeometrySceneObject> {
     const children = this.getChildren() as GeometrySceneObject[];
     const result: Map<Edge, GeometrySceneObject> = new Map();
 
     for (const child of children) {
-      const shapes = includeRemoved ? child.getAddedShapes() : child.getShapes();
+      const shapes = child.getAddedShapes();
       for (const shape of shapes) {
         if (shape instanceof Edge) {
           result.set(shape, child);
@@ -122,19 +121,19 @@ export class Sketch extends SceneObject implements Extrudable {
     return result;
   }
 
-  getGeometriesWithOwner(includrRemoved = false): Map<Edge, GeometrySceneObject> {
+  getGeometriesWithOwner(): Map<Edge, GeometrySceneObject> {
     let geometries = this.getState('geometries') as Map<Edge, GeometrySceneObject>;
     if (geometries) {
       return geometries;
     }
 
-    geometries = this.getEdgesWithOwner(includrRemoved);
+    geometries = this.getEdgesWithOwner();
     this.setState('geometries', geometries);
     return geometries;
   }
 
-  getGeometries(includeRemoved?: boolean): Edge[] {
-    return this.getEdges(includeRemoved);
+  getGeometries(): Edge[] {
+    return this.getEdges();
   }
 
   override getDependencies(): SceneObject[] {

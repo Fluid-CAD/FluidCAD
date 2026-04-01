@@ -3,7 +3,7 @@ import { registerBuilder, SceneParserContext } from "../index.js";
 import { Cut } from "../features/cut.js";
 import { CutSymmetric } from "../features/cut-symmetric.js";
 import { ExtrudeToFace } from "../features/extrude-to-face.js";
-import { ExtrudeTwoDistances } from "../features/extrude-two-distances.js";
+import { CutTwoDistances } from "../features/cut-two-distances.js";
 import { CutBase } from "../features/cut-base.js";
 import { ExtrudeBase } from "../features/extrude-base.js";
 import { Extrudable } from "../helpers/types.js";
@@ -106,7 +106,7 @@ function build(context: SceneParserContext): CutFunction {
     }
     else if (params.length === 2) {
       if (typeof params[0] === 'number' && typeof params[1] === 'number') {
-        return new ExtrudeTwoDistances(params[0], params[1], extrudable);
+        return new CutTwoDistances(params[0], params[1], extrudable);
       }
       else if (typeof params[0] === 'number' && typeof params[1] === 'boolean') {
         return new CutSymmetric(params[0], extrudable);

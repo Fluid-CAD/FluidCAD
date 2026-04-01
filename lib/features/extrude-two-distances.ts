@@ -1,16 +1,10 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
-import { Shape, Solid } from "../common/shapes.js";
-import { rad } from "../helpers/math-helpers.js";
-import { Plane } from "../math/plane.js";
 import { ExtrudeBase } from "./extrude-base.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
-import { Vector3d } from "../math/vector3d.js";
-import { Matrix4 } from "../math/matrix4.js";
-import { ExtrudeOps } from "../oc/extrude-ops.js";
-import { ShapeOps } from "../oc/shape-ops.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
+import { Extruder } from "./simple-extruder.js";
 
 export class ExtrudeTwoDistances extends ExtrudeBase {
 
@@ -23,8 +17,6 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
   }
 
   build(context: BuildSceneObjectContext) {
-    let solids: Shape[] = [];
-
     const sceneObjects = context.getSceneObjects();
     const plane = this.extrudable.getPlane();
 
@@ -33,81 +25,44 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       return;
     }
 
-    const faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane);
+    const faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill());
     console.log("Extruding faces:", faces);
-    const draft = this.getDraft();
 
-    if (draft) {
-      let upVec = plane.normal.multiply(this.distance1);
-      let downVec = plane.normal.multiply(-this.distance2);
+    const extruder1 = new Extruder(faces, plane, this.distance1, this.getDraft(), this.getEndOffset());
+    const extrusions1 = extruder1.extrude();
+    const startFaces = extruder1.getStartFaces();
+    const sideFaces1 = extruder1.getSideFaces();
 
-      console.log("Up vec:", new Vector3d(upVec.x, upVec.y, upVec.z));
-      console.log("Down vec:", new Vector3d(downVec.x, downVec.y, downVec.z));
+    const extruder2 = new Extruder(faces, plane, -this.distance2, this.getDraft(), this.getEndOffset());
+    const extrusions2 = extruder2.extrude();
+    const endFaces = extruder2.getEndFaces();
+    const sideFaces2 = extruder2.getSideFaces();
 
-      for (const face of faces) {
-        let { solid: upSolid, firstFace: upFirstFace, lastFace: upLastFace } = this.doExtrude(face, upVec);
-        console.log("Up solid:", upSolid);
-        let { solid: downSolid, firstFace: downFirstFace, lastFace: downLastFace } = this.doExtrude(face, downVec);
-        console.log("Down solid:", downSolid);
+    const all = [...extrusions1, ...extrusions2];
+    const { result: extrusions } = BooleanOps.fuse(all);
 
-        let [angle1, angle2] = draft;
-        console.log("Draft angles:", angle1, angle2);
-
-        upSolid = this.applyDraft(angle1, upSolid, upFirstFace, upLastFace, plane);
-        console.log("Drafted up solid:", upSolid);
-
-        downSolid = this.applyDraft(angle2, downSolid, downFirstFace, downLastFace, plane.reverse());
-        console.log("Drafted down solid:", downSolid);
-
-        const fused = BooleanOps.fuse([upSolid, downSolid]);
-        console.log("Fused solid:", fused);
-
-        for (const f of fused.result) {
-          solids.push(f);
-        }
-      }
-    }
-    else {
-      const totalDistance = this.distance1 + this.distance2;
-      console.log("Total distance:", totalDistance);
-      let vec = plane.normal.multiply(totalDistance);
-      const translateVec = plane.normal.multiply(-this.distance2);
-
-      for (const face of faces) {
-        let { solid } = this.doExtrude(face, vec);
-        const translated = ShapeOps.transform(solid, Matrix4.fromTranslationVector(translateVec));
-
-        solids.push(translated);
-      }
-    }
+    this.setState('start-faces', startFaces);
+    this.setState('end-faces', endFaces);
+    this.setState('side-faces', [...sideFaces1, ...sideFaces2]);
 
     this.extrudable.removeShapes(this);
 
-    if (this.getFusionScope() !== 'none' && solids.length > 0 && sceneObjects?.length > 0) {
-      const fusionResult = fuseWithSceneObjects(sceneObjects, solids);
-      // solids = fusionResult.extrusions;
-
-      for (const modifiedShape of fusionResult.modifiedShapes) {
-        modifiedShape.object.removeShape(modifiedShape.shape, this);
-      }
+    if (this.getFusionScope() === 'none' || extrusions.length === 0 || sceneObjects?.length === 0) {
+      this.addShapes(extrusions);
+      return;
     }
 
-    this.addShapes(solids);
-  }
+    const fusionResult = fuseWithSceneObjects(sceneObjects, extrusions);
 
-  private applyDraft(angle: number, solid: Shape, firstFace: Shape, lastFace: Shape, plane: Plane): Shape {
-    return ExtrudeOps.applyDraftOnSideFaces(solid, firstFace, lastFace, plane, rad(angle));
-  }
+    for (const modifiedShape of fusionResult.modifiedShapes) {
+      if (!modifiedShape.object) {
+        continue;
+      }
 
-  private doExtrude(shape: Shape, vector: Vector3d) {
-    const { solid: rawSolid, firstFace, lastFace } = ExtrudeOps.makePrismFromVec(shape, vector);
-    const solid = ShapeOps.cleanShape(rawSolid);
+      modifiedShape.object.removeShape(modifiedShape.shape, this);
+    }
 
-    return {
-      solid,
-      firstFace,
-      lastFace
-    };
+    this.addShapes(fusionResult.newShapes);
   }
 
   override getDependencies(): SceneObject[] {

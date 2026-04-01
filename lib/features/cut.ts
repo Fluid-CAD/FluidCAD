@@ -17,6 +17,13 @@ export class Cut extends CutBase {
   }
 
   build(context: BuildSceneObjectContext) {
+    const plane = this.extrudable.getPlane();
+
+    const pickedFaces = this.resolvePickedFaces(plane);
+    if (pickedFaces !== null && pickedFaces.length === 0) {
+      return;
+    }
+
     let sceneObjects: Map<SceneObject, Shape[]>;
     let scope = context.getSceneObjects();
 
@@ -42,19 +49,23 @@ export class Cut extends CutBase {
 
     console.log('Cut: Scene objects for cut:', Array.from(sceneObjects.keys()).map(o => o.getType()));
 
-    let distance = this.distance === 0 ? 0 : -this.distance;
-
     let extrusionShapes: Shape[] = [];
     const isThroughAll = this.distance === 0;
 
-    if (isThroughAll) {
+    if (isThroughAll && !pickedFaces) {
       const extrudeThroughAll = new ExtrudeThroughAll(this.extrudable, false, true);
       extrusionShapes = extrudeThroughAll.build();
     }
     else {
-      const wires = this.extrudable.getGeometries();
-      const faces = FaceMaker2.getRegions(wires, this.extrudable.getPlane());
-      const plane = this.extrudable.getPlane();
+      const faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane);
+      // Positive distance = cut in normal direction, negative = reverse
+      // For through-all with picking, use a large distance
+      let distance: number;
+      if (isThroughAll) {
+        distance = 10000;
+      } else {
+        distance = this.distance;
+      }
       const extruder = new Extruder(faces, plane, distance, this.getDraft(), this.getEndOffset());
       extrusionShapes = extruder.extrude();
     }
@@ -163,6 +174,10 @@ export class Cut extends CutBase {
       draft: this.getDraft(),
       endOffset: this.getEndOffset(),
       fusionScope: this.getFusionScope(),
+      picking: this.isPicking() || undefined,
+      pickPoints: this.isPicking()
+        ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })
+        : undefined,
     }
   }
 }

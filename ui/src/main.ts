@@ -275,8 +275,8 @@ function isRegionPickingScene(sceneObjects: SceneObjectRender[]): {
   // Find the last root-level object
   for (let i = sceneObjects.length - 1; i >= 0; i--) {
     const obj = sceneObjects[i] as any;
-    if (!obj.parentId && obj.type === 'extrude' && obj.object?.picking) {
-      // Found an extrude with picking=true. Find the sketch before it.
+    if (!obj.parentId && (obj.type === 'extrude' || obj.type === 'cut' || obj.type === 'cut-symmetric' || obj.type === 'revolve') && obj.object?.picking) {
+      // Found an extrude/cut with picking=true. Find the sketch before it.
       let sketchObj: SceneObjectRender | undefined;
       for (let j = i - 1; j >= 0; j--) {
         if (!sceneObjects[j].parentId && sceneObjects[j].type === 'sketch') {

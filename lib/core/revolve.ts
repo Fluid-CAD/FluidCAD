@@ -5,7 +5,7 @@ import { RevolveOptions } from "../features/revolve-options.js";
 import { resolveAxis } from "../helpers/resolve.js";
 import { Extrudable } from "../helpers/types.js";
 import { SceneObject } from "../common/scene-object.js";
-import { ISceneObject } from "./interfaces.js";
+import { IRevolve, ISceneObject } from "./interfaces.js";
 
 interface RevolveFunction {
   /**
@@ -13,14 +13,14 @@ interface RevolveFunction {
    * @param axisLike - The axis to revolve around
    * @param target - The sketch to revolve
    */
-  (axisLike: AxisLike, target?: ISceneObject): ISceneObject;
+  (axisLike: AxisLike, target?: ISceneObject): IRevolve;
   /**
    * Revolves the last sketch by a given angle around an axis.
    * @param axisLike - The axis to revolve around
    * @param angle - The sweep angle in degrees
    * @param target - The sketch to revolve
    */
-  (axisLike: AxisLike, angle: number, target?: ISceneObject): ISceneObject;
+  (axisLike: AxisLike, angle: number, target?: ISceneObject): IRevolve;
   /**
    * Revolves the last sketch by a given angle around an axis with options.
    * @param axisLike - The axis to revolve around
@@ -28,14 +28,14 @@ interface RevolveFunction {
    * @param options - Revolve options
    * @param target - The sketch to revolve
    */
-  (axisLike: AxisLike, angle: number, options: RevolveOptions, target?: ISceneObject): ISceneObject;
+  (axisLike: AxisLike, angle: number, options: RevolveOptions, target?: ISceneObject): IRevolve;
   /**
    * Revolves the last sketch 360 degrees around an axis with options.
    * @param axisLike - The axis to revolve around
    * @param options - Revolve options
    * @param target - The sketch to revolve
    */
-  (axisLike: AxisLike, options: RevolveOptions, target?: ISceneObject): ISceneObject;
+  (axisLike: AxisLike, options: RevolveOptions, target?: ISceneObject): IRevolve;
 }
 
 function isExtrudable(obj: any): obj is Extrudable {

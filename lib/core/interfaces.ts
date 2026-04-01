@@ -126,4 +126,12 @@ export interface ICut extends ISceneObject {
   draft(value: number | [number, number]): this;
   endOffset(value: number): this;
   internalEdges(...indices: number[]): ISceneObject;
+  pick(...points: Point2DLike[]): this;
+}
+
+/**
+ * Interface for revolve results returned by the revolve() builder.
+ */
+export interface IRevolve extends ISceneObject {
+  pick(...points: Point2DLike[]): this;
 }

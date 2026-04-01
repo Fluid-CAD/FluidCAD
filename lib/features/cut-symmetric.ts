@@ -17,6 +17,13 @@ export class CutSymmetric extends CutBase {
   }
 
   build(context: BuildSceneObjectContext) {
+    const plane = this.extrudable.getPlane();
+
+    const pickedFaces = this.resolvePickedFaces(plane);
+    if (pickedFaces !== null && pickedFaces.length === 0) {
+      return;
+    }
+
     const sceneObjects = new Map<SceneObject, Shape[]>();
     for (const obj of context.getSceneObjects()) {
       const shapes = obj.getShapes({ excludeMeta: false }, 'solid');
@@ -26,20 +33,19 @@ export class CutSymmetric extends CutBase {
       sceneObjects.set(obj, shapes);
     }
 
-    const plane = this.extrudable.getPlane();
     let toolShapes: Shape[];
 
     const isThroughAll = this.distance === 0;
 
-    if (isThroughAll) {
+    if (isThroughAll && !pickedFaces) {
       const extrudeThroughAll = new ExtrudeThroughAll(this.extrudable, true, false);
       toolShapes = extrudeThroughAll.build();
     }
     else {
-      const wires = this.extrudable.getGeometries();
-      const faces = FaceMaker2.getRegions(wires, plane);
+      const faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane);
 
-      const vec = plane.normal.multiply(this.distance);
+      const effectiveDistance = isThroughAll ? 10000 : this.distance;
+      const vec = plane.normal.multiply(effectiveDistance);
       const translateVec = vec.multiply(-0.5);
 
       toolShapes = [];
@@ -150,6 +156,10 @@ export class CutSymmetric extends CutBase {
       draft: this.getDraft(),
       endOffset: this.getEndOffset(),
       fusionScope: this.getFusionScope(),
+      picking: this.isPicking() || undefined,
+      pickPoints: this.isPicking()
+        ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })
+        : undefined,
     }
   }
 }

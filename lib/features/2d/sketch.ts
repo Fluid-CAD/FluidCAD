@@ -6,6 +6,7 @@ import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
 import { Wire } from "../../common/wire.js";
 import { Extrudable } from "../../helpers/types.js";
+import { remove } from "three/examples/jsm/libs/tween.module.js";
 
 export class Sketch extends SceneObject implements Extrudable {
 
@@ -105,9 +106,20 @@ export class Sketch extends SceneObject implements Extrudable {
     const children = this.getChildren() as GeometrySceneObject[];
     const result: Map<Edge, GeometrySceneObject> = new Map();
 
+    // get edges and filter out the ones that were removed by non-siblings
     for (const child of children) {
       const shapes = child.getAddedShapes();
+      const removedShapes = child.getRemovedShapes();
       for (const shape of shapes) {
+        if (shape.isMetaShape() || shape.isGuideShape()) {
+          continue;
+        }
+        const isRemovedBySibling = removedShapes.some(s => s.shape === shape && s.removedBy?.parentId === this.id);
+
+        if (isRemovedBySibling) {
+          continue;
+        }
+
         if (shape instanceof Edge) {
           result.set(shape, child);
         } else if (shape instanceof Wire) {

@@ -387,6 +387,10 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this.addedShapes;
   }
 
+  getRemovedShapes() {
+    return this.removedShapes;
+  }
+
   getFullState() {
     return this.state;
   }

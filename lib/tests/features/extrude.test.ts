@@ -566,6 +566,92 @@ describe("extrude", () => {
     });
   });
 
+  describe("pick", () => {
+    it("should only extrude the picked region", () => {
+      sketch("xy", () => {
+        circle(30);
+        circle([100, 0], 30);
+      });
+
+      // Pick point inside the first circle only
+      const e = extrude(20).pick([0, 0]) as Extrude;
+
+      render();
+
+      const shapes = e.getShapes();
+      expect(shapes).toHaveLength(1);
+      expect(shapes[0].getType()).toBe("solid");
+    });
+
+    it("should extrude multiple picked regions", () => {
+      sketch("xy", () => {
+        circle(30);
+        circle([100, 0], 30);
+      });
+
+      // Pick points inside both circles
+      const e = extrude(20).pick([0, 0], [100, 0]) as Extrude;
+
+      render();
+
+      const shapes = e.getShapes();
+      expect(shapes).toHaveLength(2);
+    });
+
+    it("should extrude only the intersection region of two overlapping circles", () => {
+      sketch("xy", () => {
+        circle([-20, 0], 40);
+        circle([20, 0], 40);
+      });
+
+      // Pick at the center — inside the intersection of both circles
+      const e = extrude(20).pick([0, 0]) as Extrude;
+
+      render();
+
+      const shapes = e.getShapes();
+      expect(shapes).toHaveLength(1);
+
+      // The intersection region should be narrower than either full circle
+      const bbox = ShapeOps.getBoundingBox(shapes[0]);
+      const solidWidth = bbox.maxX - bbox.minX;
+      expect(solidWidth).toBeLessThan(80);
+    });
+
+    it("should produce no solid when pick point is outside all regions", () => {
+      sketch("xy", () => {
+        circle(30);
+      });
+
+      const e = extrude(20).pick([500, 500]) as Extrude;
+
+      render();
+
+      const shapes = e.getShapes();
+      expect(shapes).toHaveLength(0);
+    });
+
+    it("should add meta shapes for all cells", () => {
+      sketch("xy", () => {
+        circle(30);
+        circle([100, 0], 30);
+      });
+
+      const e = extrude(20).pick([0, 0]) as Extrude;
+
+      render();
+
+      const allShapes = e.getAddedShapes();
+      const metaShapes = allShapes.filter(s => s.isMetaShape());
+      expect(metaShapes.length).toBeGreaterThan(0);
+
+      const selected = metaShapes.filter(s => s.metaType === "pick-region-selected");
+      const unselected = metaShapes.filter(s => s.metaType === "pick-region");
+      expect(selected.length).toBeGreaterThan(0);
+      expect(unselected.length).toBeGreaterThan(0);
+    });
+  });
+
   describe("drill", () => {
     it("should drill hole when inner shape is nested (default)", () => {
       sketch("xy", () => {

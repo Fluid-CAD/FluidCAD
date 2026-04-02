@@ -2,6 +2,8 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { ExtrudeBase } from "./extrude-base.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
+import { Explorer } from "../oc/explorer.js";
+import { Face } from "../common/face.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { Extruder } from "./simple-extruder.js";
@@ -30,20 +32,30 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
 
     const extruder1 = new Extruder(faces, plane, this.distance1, this.getDraft(), this.getEndOffset());
     const extrusions1 = extruder1.extrude();
-    const startFaces = extruder1.getStartFaces();
-    const sideFaces1 = extruder1.getSideFaces();
+    const startFaces = extruder1.getEndFaces();
 
     const extruder2 = new Extruder(faces, plane, -this.distance2, this.getDraft(), this.getEndOffset());
     const extrusions2 = extruder2.extrude();
     const endFaces = extruder2.getEndFaces();
-    const sideFaces2 = extruder2.getSideFaces();
 
     const all = [...extrusions1, ...extrusions2];
     const { result: extrusions } = BooleanOps.fuse(all);
 
+    const sideFaces: Face[] = [];
+    for (const solid of extrusions) {
+      const allFaces = Explorer.findFacesWrapped(solid);
+      for (const f of allFaces) {
+        const isStart = startFaces.some(sf => f.getShape().IsSame(sf.getShape()));
+        const isEnd = endFaces.some(ef => f.getShape().IsSame(ef.getShape()));
+        if (!isStart && !isEnd) {
+          sideFaces.push(f as Face);
+        }
+      }
+    }
+
     this.setState('start-faces', startFaces);
     this.setState('end-faces', endFaces);
-    this.setState('side-faces', [...sideFaces1, ...sideFaces2]);
+    this.setState('side-faces', sideFaces);
 
     this.extrudable.removeShapes(this);
 

@@ -1,12 +1,6 @@
 import { BuildSceneObjectContext } from "../common/scene-object.js";
-import { Shape, Solid } from "../common/shapes.js";
-import { rad } from "../helpers/math-helpers.js";
-import { Plane } from "../math/plane.js";
 import { ExtrudeBase } from "./extrude-base.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
-import { Vector3d } from "../math/vector3d.js";
-import { ExtrudeOps } from "../oc/extrude-ops.js";
-import { ShapeOps } from "../oc/shape-ops.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { Face } from "../common/face.js";
@@ -36,20 +30,30 @@ export class ExtrudeSymmetric extends ExtrudeBase {
 
     const extruder1 = new Extruder(faces, plane, this.distance / 2, this.getDraft(), this.getEndOffset());
     const extrusions1 = extruder1.extrude();
-    const startFaces = extruder1.getStartFaces();
-    const sideFaces1 = extruder1.getSideFaces();
+    const startFaces = extruder1.getEndFaces();
 
     const extruder2 = new Extruder(faces, plane, -this.distance / 2, this.getDraft(), this.getEndOffset());
     const extrusions2 = extruder2.extrude();
     const endFaces = extruder2.getEndFaces();
-    const sideFaces2 = extruder2.getSideFaces();
 
     const all = [...extrusions1, ...extrusions2];
     const { result: extrusions } = BooleanOps.fuse(all);
 
+    const sideFaces: Face[] = [];
+    for (const solid of extrusions) {
+      const allFaces = Explorer.findFacesWrapped(solid);
+      for (const f of allFaces) {
+        const isStart = startFaces.some(sf => f.getShape().IsSame(sf.getShape()));
+        const isEnd = endFaces.some(ef => f.getShape().IsSame(ef.getShape()));
+        if (!isStart && !isEnd) {
+          sideFaces.push(f as Face);
+        }
+      }
+    }
+
     this.setState('start-faces', startFaces);
     this.setState('end-faces', endFaces);
-    this.setState('side-faces', [...sideFaces1, ...sideFaces2]);
+    this.setState('side-faces', sideFaces);
 
     this.extrudable.removeShapes(this);
 
@@ -69,18 +73,6 @@ export class ExtrudeSymmetric extends ExtrudeBase {
     }
 
     this.addShapes(fusionResult.newShapes);
-  }
-
-  private applyDraft(solid: Shape, firstFace: Shape, lastFace: Shape, plane: Plane): Shape {
-    const angle: number = this.getDraft()[0]
-    return ExtrudeOps.applyDraftOnSideFaces(solid, firstFace, lastFace, plane, rad(angle));
-  }
-
-  private doExtrude(shape: Shape, vector: Vector3d) {
-    const { solid: rawSolid, firstFace, lastFace } = ExtrudeOps.makePrismFromVec(shape, vector);
-    const solid = ShapeOps.cleanShape(rawSolid);
-
-    return { solid, firstFace, lastFace };
   }
 
   private getUniqueName(suffix: string) {

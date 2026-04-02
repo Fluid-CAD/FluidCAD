@@ -133,4 +133,4 @@ This starts a local server and opens a 3D viewport in your browser. Edit your `.
 
 ## License
 
-ISC
+LGPL-2.1

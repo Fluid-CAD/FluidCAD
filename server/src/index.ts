@@ -1,25 +1,15 @@
 import http from 'http';
-import fs from 'fs';
 import path from 'path';
+import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { FluidCadServer } from './fluidcad-server.ts';
+import { createPropertiesRouter } from './routes/properties.ts';
+import { createActionsRouter } from './routes/actions.ts';
 import type { ServerToUIMessage } from './ws-protocol.ts';
-import { getMaterials } from '../../lib/dist/common/materials.js';
 
 const PORT = parseInt(process.env.FLUIDCAD_SERVER_PORT || '3100', 10);
 const WORKSPACE_PATH = process.env.FLUIDCAD_WORKSPACE_PATH || '';
 const UI_DIST = path.resolve(import.meta.dirname, '../../ui/dist');
-
-const MIME_TYPES: Record<string, string> = {
-  '.html': 'text/html',
-  '.js': 'text/javascript',
-  '.css': 'text/css',
-  '.json': 'application/json',
-  '.png': 'image/png',
-  '.svg': 'image/svg+xml',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
-};
 
 // ---------------------------------------------------------------------------
 // IPC helpers — communication with extension host process
@@ -32,228 +22,35 @@ function sendToExtension(msg: any) {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP server — serves UI static files
+// Express app
 // ---------------------------------------------------------------------------
 
-const httpServer = http.createServer((req, res) => {
-  const url = new URL(req.url!, `http://localhost`);
+const fluidCadServer = new FluidCadServer();
 
-  if (url.pathname === '/api/materials') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(getMaterials()));
-    return;
-  }
+const app = express();
+app.use(express.json());
 
-  if (url.pathname === '/api/shape-properties') {
-    const shapeId = url.searchParams.get('shapeId') || '';
-    const props = fluidCadServer.getShapeProperties(shapeId);
-    if (!props) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Shape not found' }));
-      return;
+app.use('/api', createPropertiesRouter(fluidCadServer));
+app.use('/api', createActionsRouter(fluidCadServer, sendToExtension));
+
+// Static files — serve UI build, with SPA fallback
+app.use(express.static(UI_DIST, {
+  setHeaders(res, filePath) {
+    if (path.extname(filePath) === '.html') {
+      res.setHeader('Cache-Control', 'no-cache');
     }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(props));
-    return;
-  }
-
-  if (url.pathname === '/api/face-properties') {
-    const shapeId = url.searchParams.get('shapeId') || '';
-    const faceIndex = parseInt(url.searchParams.get('faceIndex') || '', 10);
-    if (!shapeId || isNaN(faceIndex) || faceIndex < 0) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Missing or invalid shapeId / faceIndex' }));
-      return;
-    }
-    const props = fluidCadServer.getFaceProperties(shapeId, faceIndex);
-    if (!props) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Face not found' }));
-      return;
-    }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(props));
-    return;
-  }
-
-  if (url.pathname === '/api/edge-properties') {
-    const shapeId = url.searchParams.get('shapeId') || '';
-    const edgeIndex = parseInt(url.searchParams.get('edgeIndex') || '', 10);
-    if (!shapeId || isNaN(edgeIndex) || edgeIndex < 0) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Missing or invalid shapeId / edgeIndex' }));
-      return;
-    }
-    const props = fluidCadServer.getEdgeProperties(shapeId, edgeIndex);
-    if (!props) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Edge not found' }));
-      return;
-    }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(props));
-    return;
-  }
-
-  if (req.method === 'POST' && url.pathname === '/api/hit-test') {
-    let body = '';
-    req.on('data', (chunk) => { body += chunk.toString(); });
-    req.on('end', () => {
-      try {
-        const parsed = JSON.parse(body);
-        const { shapeId, rayOrigin, rayDir, edgeThreshold } = parsed;
-        if (
-          typeof shapeId !== 'string' ||
-          !Array.isArray(rayOrigin) || rayOrigin.length !== 3 ||
-          !Array.isArray(rayDir) || rayDir.length !== 3 ||
-          typeof edgeThreshold !== 'number'
-        ) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Invalid request body' }));
-          return;
-        }
-        const result = fluidCadServer.hitTest(
-          shapeId,
-          rayOrigin as [number, number, number],
-          rayDir as [number, number, number],
-          edgeThreshold,
-        );
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(result));
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON' }));
-      }
-    });
-    return;
-  }
-
-  if (req.method === 'POST' && url.pathname === '/api/insert-point') {
-    let body = '';
-    req.on('data', (chunk) => { body += chunk.toString(); });
-    req.on('end', () => {
-      try {
-        const parsed = JSON.parse(body);
-        const { point, sourceLocation } = parsed;
-        if (
-          !Array.isArray(point) || point.length !== 2 ||
-          !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number'
-        ) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Invalid request body' }));
-          return;
-        }
-        sendToExtension({
-          type: 'insert-point',
-          point: point as [number, number],
-          sourceLocation,
-        });
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true }));
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON' }));
-      }
-    });
-    return;
-  }
-
-  if (req.method === 'POST' && url.pathname === '/api/remove-point') {
-    let body = '';
-    req.on('data', (chunk) => { body += chunk.toString(); });
-    req.on('end', () => {
-      try {
-        const parsed = JSON.parse(body);
-        const { point, sourceLocation } = parsed;
-        if (
-          !Array.isArray(point) || point.length !== 2 ||
-          !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number'
-        ) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Invalid request body' }));
-          return;
-        }
-        sendToExtension({
-          type: 'remove-point',
-          point: point as [number, number],
-          sourceLocation,
-        });
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true }));
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON' }));
-      }
-    });
-    return;
-  }
-
-  if (req.method === 'POST' && url.pathname === '/api/set-pick-points') {
-    let body = '';
-    req.on('data', (chunk) => { body += chunk.toString(); });
-    req.on('end', () => {
-      try {
-        const parsed = JSON.parse(body);
-        const { points, sourceLocation } = parsed;
-        if (
-          !Array.isArray(points) ||
-          !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number'
-        ) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Invalid request body' }));
-          return;
-        }
-        sendToExtension({
-          type: 'set-pick-points',
-          points: points as [number, number][],
-          sourceLocation,
-        });
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true }));
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON' }));
-      }
-    });
-    return;
-  }
-
-  let filePath = path.join(UI_DIST, req.url === '/' ? 'index.html' : req.url!);
-
-  // Prevent directory traversal
-  if (!filePath.startsWith(UI_DIST)) {
-    res.writeHead(403);
-    res.end();
-    return;
-  }
-
-  if (!fs.existsSync(filePath)) {
-    // SPA fallback
-    filePath = path.join(UI_DIST, 'index.html');
-  }
-
-  const ext = path.extname(filePath);
-  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      res.writeHead(500);
-      res.end('Internal Server Error');
-      return;
-    }
-    const headers: Record<string, string> = { 'Content-Type': contentType };
-    if (ext === '.html') {
-      headers['Cache-Control'] = 'no-cache';
-    }
-    res.writeHead(200, headers);
-    res.end(data);
-  });
+  },
+}));
+app.get('*', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(UI_DIST, 'index.html'));
 });
 
 // ---------------------------------------------------------------------------
-// WebSocket server — UI clients only
+// HTTP + WebSocket server
 // ---------------------------------------------------------------------------
 
+const httpServer = http.createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 const uiClients = new Set<WebSocket>();
 let lastSceneMessage: string | null = null;
@@ -284,10 +81,9 @@ wss.on('connection', (ws) => {
 });
 
 // ---------------------------------------------------------------------------
-// FluidCAD server + IPC message handling
+// IPC message handling — extension host → server
 // ---------------------------------------------------------------------------
 
-const fluidCadServer = new FluidCadServer();
 let currentFile: string | null = null;
 
 async function handleExtensionMessage(msg: any) {

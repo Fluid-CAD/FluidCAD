@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { join } from 'path';
 import { fork, ChildProcess } from 'child_process';
-import { SceneHistoryProvider, SceneShapesProvider } from './graph';
+import { SceneShapesProvider } from './graph';
 
 export class Client {
   panel: vscode.WebviewPanel | undefined = undefined;
@@ -11,7 +11,6 @@ export class Client {
   private diagnosticCollection: vscode.DiagnosticCollection;
 
   currentSceneObjects: any[] = [];
-  rollbackStop = -1;
   private currentFileName: string = '';
 
   constructor(private context: vscode.ExtensionContext, private logger: vscode.OutputChannel) {
@@ -23,18 +22,6 @@ export class Client {
     if (this.panel) {
       return;
     }
-
-    this.context.subscriptions.push(vscode.commands.registerCommand(
-      'fluidcad.rollback',
-      async (obj) => {
-        const index = this.currentSceneObjects.indexOf(obj);
-        await this.rollback(index);
-
-        if (obj.sourceLocation) {
-          this.revealSourceLocation(obj.sourceLocation);
-        }
-      }
-    ));
 
     this.context.subscriptions.push(vscode.commands.registerCommand(
       'fluidcad.show_scene',
@@ -67,48 +54,6 @@ export class Client {
         this.sendToServer({ type: 'show-shape-properties', shapeId: item.shapeId });
       }
     ));
-
-    vscode.window.registerFileDecorationProvider({
-      provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
-        if (uri.scheme === 'fluidcad') {
-          const decoration: vscode.FileDecoration = {
-          };
-
-          const parts = uri.path.split('/');
-          const visible = parts[1] === 'true';
-          const fromCache = parts[2] === 'true';
-          const hasError = parts[3] === 'true';
-          const isCurrent = parts[4] === 'true';
-
-          if (!visible) {
-            decoration.color = new vscode.ThemeColor('disabledForeground');
-          }
-
-          if (fromCache) {
-            decoration.badge = '✓';
-            decoration.tooltip = 'Cached';
-          }
-          else {
-            decoration.badge = '↺';
-            decoration.tooltip = 'Computed';
-          }
-
-          if (hasError) {
-            decoration.badge = '⨯';
-            decoration.color = new vscode.ThemeColor('problemsErrorIcon.foreground');
-          }
-
-          if (isCurrent) {
-            decoration.badge = '←' + (decoration.badge || '');
-            if (!hasError) {
-              decoration.color = new vscode.ThemeColor('charts.blue');
-            }
-          }
-
-          return decoration;
-        }
-      }
-    });
 
     this.initLiveRender();
 
@@ -237,8 +182,7 @@ export class Client {
     switch (msg.type) {
       case 'scene-rendered': {
         this.currentSceneObjects = msg.result;
-        this.rollbackStop = msg.rollbackStop;
-        this.renderSceneGraph();
+        this.renderShapesTree();
         this.updateDiagnostics();
         this.logger.appendLine(`Scene rendered: ${msg.absPath}`);
         break;
@@ -294,24 +238,6 @@ export class Client {
       type: 'live-update',
       fileName,
       code: newCode,
-    });
-  }
-
-  async rollback(index: number) {
-    if (index < 0 || index >= this.currentSceneObjects.length) {
-      this.logger.appendLine(`Invalid rollback index: ${index}`);
-      return;
-    }
-
-    const obj = this.currentSceneObjects[index];
-    if (obj.isContainer) {
-      index += 1;
-    }
-
-    this.sendToServer({
-      type: 'rollback',
-      fileName: this.currentFileName,
-      index,
     });
   }
 
@@ -592,11 +518,7 @@ export class Client {
   // Tree views (fed by server data via IPC)
   // ---------------------------------------------------------------------------
 
-  renderSceneGraph() {
-    vscode.window.createTreeView('fluidcad.scene_history', {
-      treeDataProvider: new SceneHistoryProvider(this.context, this.currentSceneObjects, this.rollbackStop)
-    });
-
+  renderShapesTree() {
     const shapesTree = vscode.window.createTreeView('fluidcad.scene_shapes', {
       treeDataProvider: new SceneShapesProvider(this.context, this.currentSceneObjects)
     });

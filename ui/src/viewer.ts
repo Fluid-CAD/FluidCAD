@@ -41,7 +41,7 @@ export class Viewer {
   private lastFitBox: Box3 | null = null;
   isTrimming = false;
   isRegionPicking = false;
-  private fileNamePill: HTMLDivElement;
+
   private selectionHandler: ((shapeId: string | null, sub: SubSelection) => void) | null = null;
   private pickTarget: WebGLRenderTarget | null = null;
   private centroidIndicator = new CentroidIndicator();
@@ -52,10 +52,6 @@ export class Viewer {
     this.modeManager = new SceneModeManager(this.ctx);
     this.settingsPanel = new SettingsPanel(container, (mode) => this.ctx.switchCamera(mode));
     this.settingsPanel.setFitHandler(() => this.fitViewToScene());
-
-    this.fileNamePill = document.createElement('div');
-    this.fileNamePill.className = 'absolute bottom-4 left-4 z-[100] glass-dark border border-white/10 rounded-full px-3.5 py-1 text-base-content/70 text-xs whitespace-nowrap select-none pointer-events-none hidden';
-    container.appendChild(this.fileNamePill);
 
     this.initClickDetection();
   }
@@ -366,10 +362,8 @@ export class Viewer {
     this.modeManager.sketchEnabled = enable;
   }
 
-  setFileName(absPath: string): void {
-    const name = absPath.split('/').pop() ?? absPath;
-    this.fileNamePill.textContent = name;
-    this.fileNamePill.classList.remove('hidden');
+  setFileName(_absPath: string): void {
+    // File name is now shown in the timeline panel header
   }
 
   updateView(sceneObjects: SceneObjectRender[], isRollback = false): void {

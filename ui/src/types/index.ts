@@ -105,7 +105,9 @@ export type SceneObjectPart = {
 
 export type SceneObjectRender = {
   id?: string;
+  name?: string;
   parentId?: string | null;
+  isContainer?: boolean;
   object?: any;
   sceneShapes: SceneObjectPart[];
   ownShapes: SceneObjectPart[];
@@ -113,6 +115,8 @@ export type SceneObjectRender = {
   type?: ObjectType;
   fromCache?: boolean;
   hasError?: boolean;
+  errorMessage?: string;
+  sourceLocation?: { filePath: string; line: number; column: number };
 };
 
 // ---------------------------------------------------------------------------

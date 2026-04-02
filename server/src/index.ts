@@ -41,7 +41,7 @@ app.use(express.static(UI_DIST, {
     }
   },
 }));
-app.get('*', (_req, res) => {
+app.get('*splat', (_req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(path.join(UI_DIST, 'index.html'));
 });

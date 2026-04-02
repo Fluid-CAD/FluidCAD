@@ -7,7 +7,6 @@ import { Solid } from "../../common/solid.js";
 import { ExtrudeSymmetric } from "../../features/extrude-symmetric.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import cylinder from "../../core/cylinder.js";
-import { Cylinder } from "../../features/cylinder.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 

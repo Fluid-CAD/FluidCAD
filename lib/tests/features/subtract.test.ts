@@ -6,6 +6,9 @@ import subtract from "../../core/subtract.js";
 import cylinder from "../../core/cylinder.js";
 import { circle, move, rect } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
+import { Subtract } from "../../features/subtract.js";
+import { ExtrudeBase } from "../../features/extrude-base.js";
+import { SceneObject } from "../../common/scene-object.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 
@@ -17,11 +20,11 @@ describe("subtract", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      const box = extrude(50).fuse("none");
+      const box = extrude(50).fuse("none") as ExtrudeBase;
 
-      const cyl = cylinder(20, 50);
+      const cyl = cylinder(20, 50) as SceneObject;
 
-      const s = subtract(box, cyl);
+      const s = subtract(box, cyl) as Subtract;
 
       render();
 
@@ -38,9 +41,9 @@ describe("subtract", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      const box = extrude(50).fuse("none");
+      const box = extrude(50).fuse("none") as ExtrudeBase;
 
-      const cyl = cylinder(20, 50);
+      const cyl = cylinder(20, 50) as SceneObject;
 
       subtract(box, cyl);
 
@@ -54,9 +57,9 @@ describe("subtract", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      const box = extrude(50).fuse("none");
+      const box = extrude(50).fuse("none") as ExtrudeBase;
 
-      const cyl = cylinder(20, 50);
+      const cyl = cylinder(20, 50) as SceneObject;
 
       subtract(box, cyl);
 
@@ -71,11 +74,11 @@ describe("subtract", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      const box = extrude(50).fuse("none");
+      const box = extrude(50).fuse("none") as ExtrudeBase;
 
-      const cyl = cylinder(20, 50);
+      const cyl = cylinder(20, 50) as SceneObject;
 
-      const s = subtract(box, cyl);
+      const s = subtract(box, cyl) as Subtract;
 
       render();
 
@@ -91,15 +94,15 @@ describe("subtract", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      const bigBox = extrude(50).fuse("none");
+      const bigBox = extrude(50).fuse("none") as ExtrudeBase;
 
       sketch("xy", () => {
         move([25, 25]);
         rect(50, 50);
       });
-      const smallBox = extrude(50).fuse("none");
+      const smallBox = extrude(50).fuse("none") as ExtrudeBase;
 
-      const s = subtract(bigBox, smallBox);
+      const s = subtract(bigBox, smallBox) as Subtract;
 
       render();
 
@@ -115,15 +118,15 @@ describe("subtract", () => {
       sketch("xy", () => {
         rect(50, 50);
       });
-      const box = extrude(30).fuse("none");
+      const box = extrude(30).fuse("none") as ExtrudeBase;
 
       sketch("xy", () => {
         move([200, 200]);
         rect(50, 50);
       });
-      const farBox = extrude(30).fuse("none");
+      const farBox = extrude(30).fuse("none") as ExtrudeBase;
 
-      const s = subtract(box, farBox);
+      const s = subtract(box, farBox) as Subtract;
 
       render();
 

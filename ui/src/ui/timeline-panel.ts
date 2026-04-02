@@ -1,57 +1,81 @@
-import { ICON_LIST_TREE } from './icons';
 import type { SceneObjectRender } from '../types';
 
-const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
-const BTN_ACTIVE = 'btn-active !bg-primary/20 !text-primary !border-primary/40';
+const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 glass-dark border border-white/10 rounded-md cursor-pointer select-none shrink-0';
+const CHEVRON_SVG = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
+const CUBE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
 
 export class TimelinePanel {
-  private el: HTMLDivElement;
-  private toggleBtn: HTMLButtonElement;
   private panel: HTMLDivElement;
-  private treeContainer: HTMLDivElement;
-  private isOpen = true;
+  private fileLabel: HTMLSpanElement;
+  private timelineBody: HTMLDivElement;
+  private shapesBody: HTMLDivElement;
   private loaded = false;
   private sceneObjects: SceneObjectRender[] = [];
   private rollbackStop = -1;
-  private headerLabel: HTMLSpanElement;
   private collapsedIds = new Set<string>();
+  private collapsedShapeGroups = new Set<string>();
+  private timelineExpanded = true;
+  private shapesExpanded = true;
+  private onHighlightShape: (shapeId: string) => void;
 
-  constructor(container: HTMLElement) {
-    // Toggle button — hidden until first scene load
-    this.toggleBtn = document.createElement('button');
-    this.toggleBtn.className = `${BTN_BASE} ${BTN_ACTIVE} absolute left-6 top-6 z-[100] glass-dark border border-white/10 hidden`;
-    this.toggleBtn.title = 'Toggle Timeline';
-    this.toggleBtn.innerHTML = `<span class="[&>svg]:size-5">${ICON_LIST_TREE}</span>`;
-    container.appendChild(this.toggleBtn);
+  constructor(container: HTMLElement, onHighlightShape: (shapeId: string) => void) {
+    this.onHighlightShape = onHighlightShape;
 
     // Panel — hidden until first scene load
     this.panel = document.createElement('div');
-    this.panel.className = 'absolute left-6 top-16 bottom-6 w-[220px] z-[99] overflow-hidden flex flex-col select-none hidden';
-    this.panel.innerHTML = `
-      <div class="flex items-center justify-between px-3 py-2 border-b border-white/[0.07]">
-        <span data-ref="header" class="text-sm font-medium text-base-content/50 truncate"></span>
-      </div>
-      <div data-ref="tree" class="flex-1 overflow-y-auto py-1"></div>
-    `;
+    this.panel.className = 'absolute left-6 top-6 bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
     container.appendChild(this.panel);
 
-    this.headerLabel = this.panel.querySelector('[data-ref="header"]')!;
+    // File name label above accordion
+    const fileRow = document.createElement('div');
+    fileRow.className = 'flex items-center gap-2 px-1 pb-1 shrink-0';
+    fileRow.innerHTML = `
+      <span class="text-base-content/50 [&>svg]:size-4">${CUBE_SVG}</span>
+      <span data-ref="filename" class="text-base text-base-content/70 truncate"></span>
+    `;
+    this.panel.appendChild(fileRow);
+    this.fileLabel = fileRow.querySelector('[data-ref="filename"]')!;
 
-    this.treeContainer = this.panel.querySelector('[data-ref="tree"]')!;
+    // Timeline accordion section
+    const timelineHeader = document.createElement('div');
+    timelineHeader.className = SECTION_HEADER;
+    timelineHeader.innerHTML = `
+      <span class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${CHEVRON_SVG}</span>
+      <span class="text-sm font-medium text-base-content/70">History</span>
+    `;
+    this.panel.appendChild(timelineHeader);
 
-    // Wrapper div for external API
-    this.el = document.createElement('div');
+    this.timelineBody = document.createElement('div');
+    this.timelineBody.className = 'py-1 overflow-y-auto min-h-0';
+    this.panel.appendChild(this.timelineBody);
 
-    this.toggleBtn.addEventListener('click', () => this.toggle());
-  }
+    // Shapes accordion section
+    const shapesHeader = document.createElement('div');
+    shapesHeader.className = SECTION_HEADER;
+    shapesHeader.innerHTML = `
+      <span class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${CHEVRON_SVG}</span>
+      <span class="text-sm font-medium text-base-content/70">Shapes</span>
+    `;
+    this.panel.appendChild(shapesHeader);
 
-  private toggle(): void {
-    this.isOpen = !this.isOpen;
-    this.panel.classList.toggle('hidden', !this.isOpen);
-    this.toggleBtn.classList.toggle(BTN_ACTIVE.split(' ')[0], this.isOpen);
-    this.toggleBtn.classList.toggle('!bg-primary/20', this.isOpen);
-    this.toggleBtn.classList.toggle('!text-primary', this.isOpen);
-    this.toggleBtn.classList.toggle('!border-primary/40', this.isOpen);
+    this.shapesBody = document.createElement('div');
+    this.shapesBody.className = 'py-1 overflow-y-auto min-h-[120px]';
+    this.panel.appendChild(this.shapesBody);
+
+    // Bind accordion header toggles
+    timelineHeader.addEventListener('click', () => {
+      this.timelineExpanded = !this.timelineExpanded;
+      this.timelineBody.classList.toggle('hidden', !this.timelineExpanded);
+      const chevron = timelineHeader.querySelector('span')!;
+      chevron.classList.toggle('rotate-90', this.timelineExpanded);
+    });
+
+    shapesHeader.addEventListener('click', () => {
+      this.shapesExpanded = !this.shapesExpanded;
+      this.shapesBody.classList.toggle('hidden', !this.shapesExpanded);
+      const chevron = shapesHeader.querySelector('span')!;
+      chevron.classList.toggle('rotate-90', this.shapesExpanded);
+    });
   }
 
   update(sceneObjects: SceneObjectRender[], rollbackStop: number, absPath?: string): void {
@@ -59,23 +83,24 @@ export class TimelinePanel {
     this.rollbackStop = rollbackStop;
     if (absPath) {
       const fileName = absPath.split('/').pop() || absPath;
-      this.headerLabel.textContent = fileName;
+      this.fileLabel.textContent = fileName;
     }
     if (!this.loaded) {
       this.loaded = true;
-      this.toggleBtn.classList.remove('hidden');
-      if (this.isOpen) {
-        this.panel.classList.remove('hidden');
-      }
+      this.panel.classList.remove('hidden');
     }
-    this.renderTree();
+    this.renderTimeline();
+    this.renderShapes();
   }
 
-  private renderTree(): void {
+  // ---------------------------------------------------------------------------
+  // Timeline section
+  // ---------------------------------------------------------------------------
+
+  private renderTimeline(): void {
     const items = this.sceneObjects;
     const rollbackStop = this.rollbackStop;
 
-    // Build a set of parent ids that have children
     const parentIds = new Set<string>();
     for (const obj of items) {
       if (obj.parentId) {
@@ -94,24 +119,22 @@ export class TimelinePanel {
       const hasChildren = obj.id != null && parentIds.has(obj.id);
       const isCollapsed = obj.id != null && this.collapsedIds.has(obj.id);
 
-      html += this.renderItem(obj, i, rollbackStop, false, hasChildren, isCollapsed);
+      html += this.renderTimelineItem(obj, i, rollbackStop, false, hasChildren, isCollapsed);
 
-      // Render children if expanded
       if (hasChildren && !isCollapsed) {
         for (let j = 0; j < items.length; j++) {
           if (items[j].parentId === obj.id) {
-            html += this.renderItem(items[j], j, rollbackStop, true, false, false);
+            html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false);
           }
         }
       }
     }
 
-    this.treeContainer.innerHTML = html;
+    this.timelineBody.innerHTML = html;
 
-    // Bind click handlers for rollback
-    this.treeContainer.querySelectorAll<HTMLElement>('[data-index]').forEach((el) => {
+    // Bind rollback click handlers
+    this.timelineBody.querySelectorAll<HTMLElement>('[data-index]').forEach((el) => {
       el.addEventListener('click', (e) => {
-        // Don't rollback if the chevron was clicked
         if ((e.target as HTMLElement).closest('[data-toggle]')) {
           return;
         }
@@ -121,8 +144,8 @@ export class TimelinePanel {
       });
     });
 
-    // Bind toggle handlers for expand/collapse
-    this.treeContainer.querySelectorAll<HTMLElement>('[data-toggle]').forEach((el) => {
+    // Bind expand/collapse toggle handlers
+    this.timelineBody.querySelectorAll<HTMLElement>('[data-toggle]').forEach((el) => {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         const id = el.dataset.toggle!;
@@ -131,18 +154,17 @@ export class TimelinePanel {
         } else {
           this.collapsedIds.add(id);
         }
-        this.renderTree();
+        this.renderTimeline();
       });
     });
 
-    // Scroll the current rollback item into view
-    const currentEl = this.treeContainer.querySelector<HTMLElement>('[data-current="true"]');
+    const currentEl = this.timelineBody.querySelector<HTMLElement>('[data-current="true"]');
     if (currentEl) {
       currentEl.scrollIntoView({ block: 'nearest' });
     }
   }
 
-  private renderItem(obj: SceneObjectRender, index: number, rollbackStop: number, isChild: boolean, hasChildren: boolean, isCollapsed: boolean): string {
+  private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, isChild: boolean, hasChildren: boolean, isCollapsed: boolean): string {
     const isCurrent = index === rollbackStop;
     const isPast = index > rollbackStop;
     const isInvisible = obj.visible === false;
@@ -174,7 +196,7 @@ export class TimelinePanel {
     if (hasChildren) {
       const rotation = isCollapsed ? '' : 'rotate-90';
       chevron = `<span data-toggle="${obj.id}" class="flex items-center justify-center w-5 h-5 opacity-50 hover:opacity-100 transition-transform ${rotation}">
-        <svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>
+        ${CHEVRON_SVG}
       </span>`;
     } else {
       chevron = '<span class="w-4"></span>';
@@ -200,5 +222,84 @@ export class TimelinePanel {
     } catch (err) {
       console.error('Rollback failed:', err);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Shapes section
+  // ---------------------------------------------------------------------------
+
+  private renderShapes(): void {
+    const groups = new Map<string, { shapeId: string; shapeType: string }[]>();
+
+    for (const obj of this.sceneObjects) {
+      for (const shape of obj.sceneShapes) {
+        if (shape.isMetaShape) {
+          continue;
+        }
+        const type = shape.shapeType || 'unknown';
+        if (!groups.has(type)) {
+          groups.set(type, []);
+        }
+        groups.get(type)!.push({
+          shapeId: shape.shapeId || '',
+          shapeType: type,
+        });
+      }
+    }
+
+    let html = '';
+
+    for (const [type, shapes] of groups) {
+      const capitalized = type.charAt(0).toUpperCase() + type.slice(1);
+      const isCollapsed = this.collapsedShapeGroups.has(type);
+      const rotation = isCollapsed ? '' : 'rotate-90';
+
+      html += `
+        <div class="flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-white/[0.06] text-sm text-base-content/70 font-medium" data-shape-group="${type}">
+          <span class="flex items-center justify-center w-5 h-5 opacity-50 hover:opacity-100 transition-transform ${rotation}">
+            ${CHEVRON_SVG}
+          </span>
+          <span>${capitalized}</span>
+          <span class="text-base-content/40 ml-1">${shapes.length}</span>
+        </div>
+      `;
+
+      if (!isCollapsed) {
+        for (let i = 0; i < shapes.length; i++) {
+          const shape = shapes[i];
+          html += `
+            <div class="flex items-center gap-2 pl-9 pr-3 py-1 cursor-pointer hover:bg-white/[0.06] text-sm text-base-content/70" data-shape-id="${shape.shapeId}">
+              <img src="/icons/${shape.shapeType}.png" class="w-4 h-4 object-contain" alt="" />
+              <span class="truncate">${capitalized} ${i + 1}</span>
+            </div>
+          `;
+        }
+      }
+    }
+
+    this.shapesBody.innerHTML = html;
+
+    // Bind shape group toggle
+    this.shapesBody.querySelectorAll<HTMLElement>('[data-shape-group]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const type = el.dataset.shapeGroup!;
+        if (this.collapsedShapeGroups.has(type)) {
+          this.collapsedShapeGroups.delete(type);
+        } else {
+          this.collapsedShapeGroups.add(type);
+        }
+        this.renderShapes();
+      });
+    });
+
+    // Bind shape item click to highlight
+    this.shapesBody.querySelectorAll<HTMLElement>('[data-shape-id]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const shapeId = el.dataset.shapeId!;
+        if (shapeId) {
+          this.onHighlightShape(shapeId);
+        }
+      });
+    });
   }
 }

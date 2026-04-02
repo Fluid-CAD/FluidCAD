@@ -15,15 +15,6 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
-    "views": {
-      "explorer": [
-        {
-          "id": "fluidcad.scene_shapes",
-          "name": "Shapes",
-          "contextualTitle": "Shapes"
-        }
-      ]
-    },
     "commands": [
       {
         "command": "fluidcad.show_scene",
@@ -34,11 +25,6 @@
         "command": "fluidcad.import_file",
         "title": "Import STEP File",
         "icon": "$(file-add)"
-      },
-      {
-        "command": "fluidcad.shape_properties",
-        "title": "Shape Properties",
-        "icon": "$(info)"
       }
     ],
     "menus": {
@@ -46,25 +32,6 @@
         {
           "command": "fluidcad.show_scene",
           "when": "resourceExtname == .js",
-          "group": "navigation"
-        }
-      ],
-      "view/title": [
-        {
-          "command": "fluidcad.import_file",
-          "when": "view == fluidcad.scene_shapes",
-          "group": "navigation"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "fluidcad.shape_properties",
-          "when": "view == fluidcad.scene_shapes && viewItem == shape",
-          "group": "inline"
-        },
-        {
-          "command": "fluidcad.shape_properties",
-          "when": "view == fluidcad.scene_shapes && viewItem == shape",
           "group": "navigation"
         }
       ]

@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { join } from 'path';
 import { fork, ChildProcess } from 'child_process';
-import { SceneShapesProvider } from './graph';
 
 export class Client {
   panel: vscode.WebviewPanel | undefined = undefined;
@@ -39,20 +38,6 @@ export class Client {
     this.context.subscriptions.push(vscode.commands.registerCommand(
       'fluidcad.import_file',
       () => this.importFile()
-    ));
-
-    this.context.subscriptions.push(vscode.commands.registerCommand(
-      'fluidcad.highlight_shape',
-      (shapeId: string) => {
-        this.highlightShape(shapeId);
-      }
-    ));
-
-    this.context.subscriptions.push(vscode.commands.registerCommand(
-      'fluidcad.shape_properties',
-      (item: any) => {
-        this.sendToServer({ type: 'show-shape-properties', shapeId: item.shapeId });
-      }
     ));
 
     this.initLiveRender();
@@ -182,7 +167,6 @@ export class Client {
     switch (msg.type) {
       case 'scene-rendered': {
         this.currentSceneObjects = msg.result;
-        this.renderShapesTree();
         this.updateDiagnostics();
         this.logger.appendLine(`Scene rendered: ${msg.absPath}`);
         break;
@@ -264,19 +248,6 @@ export class Client {
       workspacePath,
       fileName,
       data: Buffer.from(data).toString('base64'),
-    });
-  }
-
-  highlightShape(shapeId: string) {
-    this.sendToServer({
-      type: 'highlight-shape',
-      shapeId,
-    });
-  }
-
-  clearHighlight() {
-    this.sendToServer({
-      type: 'clear-highlight',
     });
   }
 
@@ -512,22 +483,6 @@ export class Client {
     for (const [filePath, diagnostics] of diagnosticsByFile) {
       this.diagnosticCollection.set(vscode.Uri.file(filePath), diagnostics);
     }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Tree views (fed by server data via IPC)
-  // ---------------------------------------------------------------------------
-
-  renderShapesTree() {
-    const shapesTree = vscode.window.createTreeView('fluidcad.scene_shapes', {
-      treeDataProvider: new SceneShapesProvider(this.context, this.currentSceneObjects)
-    });
-
-    shapesTree.onDidChangeSelection(e => {
-      if (e.selection.length === 0) {
-        this.clearHighlight();
-      }
-    });
   }
 
   // ---------------------------------------------------------------------------

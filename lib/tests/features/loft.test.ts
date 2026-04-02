@@ -6,6 +6,7 @@ import loft from "../../core/loft.js";
 import { move, rect, circle } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Loft } from "../../features/loft.js";
+import { Sketch } from "../../features/2d/sketch.js";
 import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ShapeProps } from "../../oc/props.js";
@@ -142,11 +143,11 @@ describe("loft", () => {
     it("should remove sketch shapes from the profiles", () => {
       const s1 = sketch("xy", () => {
         rect(100, 50);
-      });
+      }) as Sketch;
 
       const s2 = sketch(plane("xy", { offset: 40 }), () => {
         rect(100, 50);
-      });
+      }) as Sketch;
 
       loft(s1, s2);
 

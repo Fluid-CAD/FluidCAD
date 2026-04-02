@@ -1,7 +1,6 @@
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { AxisLike } from "../math/axis.js";
 import { Revolve } from "../features/revolve.js";
-import { RevolveOptions } from "../features/revolve-options.js";
 import { resolveAxis } from "../helpers/resolve.js";
 import { Extrudable } from "../helpers/types.js";
 import { SceneObject } from "../common/scene-object.js";
@@ -22,20 +21,13 @@ interface RevolveFunction {
    */
   (axisLike: AxisLike, angle: number, target?: ISceneObject): IRevolve;
   /**
-   * Revolves the last sketch by a given angle around an axis with options.
+   * Revolves the last sketch symmetrically by a given angle around an axis.
    * @param axisLike - The axis to revolve around
    * @param angle - The sweep angle in degrees
-   * @param options - Revolve options
+   * @param symmetric - Must be `true`
    * @param target - The sketch to revolve
    */
-  (axisLike: AxisLike, angle: number, options: RevolveOptions, target?: ISceneObject): IRevolve;
-  /**
-   * Revolves the last sketch 360 degrees around an axis with options.
-   * @param axisLike - The axis to revolve around
-   * @param options - Revolve options
-   * @param target - The sketch to revolve
-   */
-  (axisLike: AxisLike, options: RevolveOptions, target?: ISceneObject): IRevolve;
+  (axisLike: AxisLike, angle: number, symmetric: true, target?: ISceneObject): IRevolve;
 }
 
 function isExtrudable(obj: any): obj is Extrudable {
@@ -46,29 +38,27 @@ function build(context: SceneParserContext): RevolveFunction {
 
   function doRevolve(params: any[], extrudable?: Extrudable): Revolve {
     const defaultAngle = 360;
-    const defaultOptions: RevolveOptions = {};
 
     // (axis)
     if (params.length === 1) {
       const axis = resolveAxis(params[0], context);
-      return new Revolve(axis, defaultAngle, defaultOptions, extrudable);
+      return new Revolve(axis, defaultAngle, false, extrudable);
     }
 
-    // (axis, angle) or (axis, options)
+    // (axis, angle)
     if (params.length === 2) {
       const axis = resolveAxis(params[0], context);
       if (typeof params[1] === 'number') {
-        return new Revolve(axis, params[1], defaultOptions, extrudable);
-      }
-      if (typeof params[1] === 'object') {
-        return new Revolve(axis, defaultAngle, params[1], extrudable);
+        return new Revolve(axis, params[1], false, extrudable);
       }
     }
 
-    // (axis, angle, options)
+    // (axis, angle, symmetric)
     if (params.length === 3) {
       const axis = resolveAxis(params[0], context);
-      return new Revolve(axis, params[1], params[2], extrudable);
+      if (typeof params[1] === 'number' && typeof params[2] === 'boolean') {
+        return new Revolve(axis, params[1], params[2], extrudable);
+      }
     }
 
     throw new Error("Invalid parameters for revolve function.");

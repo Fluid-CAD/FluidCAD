@@ -46,6 +46,10 @@ export class Fuse2D extends GeometrySceneObject {
 
     const { newShapes } = BooleanOps.fuseFaces(faces);
 
+    if (newShapes.length === 0) {
+      return;
+    }
+
     const newEdges = newShapes.flatMap((face: Face) => face.getEdges());
 
     for (const [edge, owner] of sourceEdges) {

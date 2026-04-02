@@ -54,6 +54,10 @@ export class Common2D extends GeometrySceneObject {
 
     const { newShapes } = BooleanOps.common(faces);
 
+    if (newShapes.length === 0) {
+      return;
+    }
+
     const newEdges = newShapes.flatMap((face: Face) => face.getEdges());
 
     if (!this._keepOriginal) {

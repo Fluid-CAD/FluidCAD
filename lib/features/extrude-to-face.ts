@@ -29,7 +29,7 @@ export class ExtrudeToFace extends ExtrudeBase {
       return;
     }
 
-    const targetFace = this.getFace();
+    const targetFace = this.getFace(sceneObjects);
     const isPlanar = FaceQuery.isPlanarFace(targetFace);
 
     let solids: Shape[] = [];
@@ -64,16 +64,15 @@ export class ExtrudeToFace extends ExtrudeBase {
       return;
     }
 
-    if (solids.length > 0) {
-      const fusionResult = fuseWithSceneObjects(sceneObjects, solids);
-      // solids = fusionResult.extrusions;
+    const fusionResult = fuseWithSceneObjects(sceneObjects, solids);
 
-      for (const modifiedShape of fusionResult.modifiedShapes) {
+    for (const modifiedShape of fusionResult.modifiedShapes) {
+      if (modifiedShape.object) {
         modifiedShape.object.removeShape(modifiedShape.shape, this);
       }
     }
 
-    this.addShapes(solids);
+    this.addShapes(fusionResult.newShapes);
   }
 
   private createAdvancedExtrude(sourceFace: Face, targetFace: Face, isPlanar: boolean): Shape[] {
@@ -159,7 +158,7 @@ export class ExtrudeToFace extends ExtrudeBase {
     return extruder.extrude();
   }
 
-  private getFace(): Face {
+  private getFace(sceneObjects: SceneObject[]): Face {
     if (this.face instanceof SceneObject) {
       const selection = this.face.getShapes();
       if (selection.length === 0) {
@@ -177,22 +176,37 @@ export class ExtrudeToFace extends ExtrudeBase {
       return shape;
     }
     else if (this.face === 'first-face') {
-      return this.getFirstFace();
+      return this.getFirstOrLastFace(sceneObjects, 'first');
     }
     else if (this.face === 'last-face') {
-      return this.getLastFace();
+      return this.getFirstOrLastFace(sceneObjects, 'last');
     }
     else {
       throw new Error("Invalid face parameter");
     }
   }
 
-  getLastFace(): Face {
-    throw new Error("Method not implemented.");
-  }
+  private getFirstOrLastFace(sceneObjects: SceneObject[], mode: 'first' | 'last'): Face {
+    const plane = this.extrudable.getPlane();
+    const allFaces: Face[] = [];
 
-  getFirstFace(): Face {
-    throw new Error("Method not implemented.");
+    for (const obj of sceneObjects) {
+      if (obj === this.extrudable) {
+        continue;
+      }
+      for (const shape of obj.getShapes()) {
+        const faces = Explorer.findFacesWrapped(shape);
+        for (const face of faces) {
+          allFaces.push(face as Face);
+        }
+      }
+    }
+
+    const result = FaceQuery.findFaceByDistance(allFaces, plane, mode);
+    if (!result) {
+      throw new Error(`No face found for '${mode}-face' extrusion`);
+    }
+    return result;
   }
 
   override getDependencies(): SceneObject[] {
@@ -229,7 +243,15 @@ export class ExtrudeToFace extends ExtrudeBase {
       return false;
     }
 
+    if (typeof (this.face) !== typeof (other.face)) {
+      return false;
+    }
+
     if (this.face instanceof SceneObject && other.face instanceof SceneObject && !this.face.compareTo(other.face)) {
+      return false;
+    }
+
+    if (this.face !== other.face) {
       return false;
     }
 

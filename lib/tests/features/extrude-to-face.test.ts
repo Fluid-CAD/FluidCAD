@@ -62,6 +62,101 @@ describe("extrude to face", () => {
     });
   });
 
+  describe("first-face / last-face", () => {
+    it("should extrude up to the first face in the normal direction", () => {
+      // Thin slab at z=20..21 — its top face center is at z=21
+      sketch("xy", () => {
+        move([200, 0]);
+        rect(50, 50);
+      });
+      extrude(21).endOffset(1).fuse("none");
+
+      // Thin slab at z=50..51
+      sketch("xy", () => {
+        move([200, 100]);
+        rect(50, 50);
+      });
+      extrude(51).endOffset(1).fuse("none");
+
+      // first-face should reach the closest face center (z=20 bottom of first slab)
+      sketch("xy", () => {
+        rect(30, 30);
+      });
+      const e = extrude("first-face") as ExtrudeToFace;
+
+      render();
+
+      const shapes = e.getShapes();
+      expect(shapes).toHaveLength(1);
+
+      const bbox = ShapeOps.getBoundingBox(shapes[0]);
+      // Should reach the first slab, not the second
+      expect(bbox.maxZ).toBeLessThan(50);
+    });
+
+    it("should extrude up to the last face in the normal direction", () => {
+      // Short box
+      sketch("xy", () => {
+        move([200, 0]);
+        rect(50, 50);
+      });
+      extrude(30).fuse("none");
+
+      // Tall box
+      sketch("xy", () => {
+        move([200, 100]);
+        rect(50, 50);
+      });
+      extrude(60).fuse("none");
+
+      // last-face should reach the farthest face
+      sketch("xy", () => {
+        rect(30, 30);
+      });
+      const e = extrude("last-face") as ExtrudeToFace;
+
+      render();
+
+      const shapes = e.getShapes();
+      expect(shapes).toHaveLength(1);
+
+      const bbox = ShapeOps.getBoundingBox(shapes[0]);
+      expect(bbox.maxZ).toBeCloseTo(60, 0);
+    });
+
+    it("first-face and last-face should produce different heights", () => {
+      sketch("xy", () => {
+        move([200, 0]);
+        rect(50, 50);
+      });
+      extrude(30).fuse("none");
+
+      sketch("xy", () => {
+        move([200, 100]);
+        rect(50, 50);
+      });
+      extrude(80).fuse("none");
+
+      sketch("xy", () => {
+        rect(20, 20);
+      });
+      const eFirst = extrude("first-face") as ExtrudeToFace;
+
+      sketch("xy", () => {
+        move([0, 30]);
+        rect(20, 20);
+      });
+      const eLast = extrude("last-face") as ExtrudeToFace;
+
+      render();
+
+      const firstBBox = ShapeOps.getBoundingBox(eFirst.getShapes()[0]);
+      const lastBBox = ShapeOps.getBoundingBox(eLast.getShapes()[0]);
+
+      expect(lastBBox.maxZ).toBeGreaterThan(firstBBox.maxZ);
+    });
+  });
+
   describe("non-parallel planar face", () => {
     it("should extrude up to a drafted side face", () => {
       // Create a box with drafted sides — side faces are inclined planes
@@ -139,6 +234,23 @@ describe("extrude to face", () => {
       const scene = render();
 
       expect(countShapes(scene)).toBe(2);
+    });
+
+    it("should fuse with intersecting objects by default", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e1 = extrude(50) as Extrude;
+
+      sketch("xy", () => {
+        move([25, 10]);
+        rect(30, 30);
+      });
+      extrude(e1.endFace());
+
+      const scene = render();
+
+      expect(countShapes(scene)).toBe(1);
     });
 
     it("should not fuse with intersecting objects when fuse is none", () => {

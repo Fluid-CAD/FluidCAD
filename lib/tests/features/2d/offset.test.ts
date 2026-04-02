@@ -118,7 +118,7 @@ describe("offset", () => {
         circle(20);
       }) as Sketch;
 
-      (offset as any)(5, false, "xy", s);
+      offset(5, false, "xy", s);
 
       render();
 

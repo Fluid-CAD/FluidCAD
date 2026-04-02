@@ -5,6 +5,7 @@ import extrude from "../../core/extrude.js";
 import fuse from "../../core/fuse.js";
 import { circle, move, rect } from "../../core/2d/index.js";
 import { Sketch } from "../../features/2d/sketch.js";
+import { ExtrudeBase } from "../../features/extrude-base.js";
 import { Solid } from "../../common/solid.js";
 
 describe("fuse2d", () => {
@@ -18,7 +19,7 @@ describe("fuse2d", () => {
         fuse();
       });
 
-      const e = extrude(20);
+      const e = extrude(20) as ExtrudeBase;
 
       render();
 
@@ -36,7 +37,7 @@ describe("fuse2d", () => {
         fuse();
       });
 
-      const e = extrude(20);
+      const e = extrude(20) as ExtrudeBase;
 
       render();
 
@@ -55,7 +56,7 @@ describe("fuse2d", () => {
         fuse(c1, c2);
       });
 
-      const e = extrude(20);
+      const e = extrude(20) as ExtrudeBase;
 
       render();
 
@@ -90,7 +91,7 @@ describe("fuse2d", () => {
         fuse();
       });
 
-      const e = extrude(20);
+      const e = extrude(20) as ExtrudeBase;
 
       render();
 

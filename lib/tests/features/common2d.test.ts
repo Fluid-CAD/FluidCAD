@@ -5,6 +5,7 @@ import extrude from "../../core/extrude.js";
 import common from "../../core/common.js";
 import { circle, move, rect } from "../../core/2d/index.js";
 import { Sketch } from "../../features/2d/sketch.js";
+import { ExtrudeBase } from "../../features/extrude-base.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 
 describe("common2d", () => {
@@ -18,7 +19,7 @@ describe("common2d", () => {
         common();
       });
 
-      const e = extrude(20);
+      const e = extrude(20) as ExtrudeBase;
 
       render();
 
@@ -39,7 +40,7 @@ describe("common2d", () => {
         common();
       });
 
-      const e = extrude(20);
+      const e = extrude(20) as ExtrudeBase;
 
       render();
 
@@ -65,7 +66,7 @@ describe("common2d", () => {
         common(c1, c2);
       });
 
-      const e = extrude(20);
+      const e = extrude(20) as ExtrudeBase;
 
       render();
 
@@ -130,7 +131,7 @@ describe("common2d", () => {
         common();
       });
 
-      const e = extrude(20);
+      const e = extrude(20) as ExtrudeBase;
 
       render();
 

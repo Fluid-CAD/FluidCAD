@@ -6,6 +6,8 @@ import fuse from "../../core/fuse.js";
 import cylinder from "../../core/cylinder.js";
 import { circle, move, rect } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
+import { ExtrudeBase } from "../../features/extrude-base.js";
+import { Fuse } from "../../features/fuse.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 
@@ -55,13 +57,13 @@ describe("fuse", () => {
       sketch("xy", () => {
         rect(100, 50);
       });
-      const e1 = extrude(30).fuse("none");
+      const e1 = extrude(30).fuse("none") as ExtrudeBase;
 
       sketch("xy", () => {
         move([50, 0]);
         rect(100, 50);
       });
-      const e2 = extrude(30).fuse("none");
+      const e2 = extrude(30).fuse("none") as ExtrudeBase;
 
       fuse(e1, e2);
 
@@ -146,7 +148,7 @@ describe("fuse", () => {
       });
       const e2 = extrude(30).fuse("none");
 
-      const f = fuse(e1, e2);
+      const f = fuse(e1, e2) as Fuse;
 
       render();
 

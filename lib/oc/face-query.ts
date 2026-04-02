@@ -352,6 +352,26 @@ export class FaceQuery {
     return result;
   }
 
+  static findFaceByDistance(faces: Face[], plane: Plane, mode: 'first' | 'last'): Face | null {
+    const oc = getOC();
+    const tolerance = oc.Precision.Confusion();
+    let bestFace: Face | null = null;
+    let bestDistance = mode === 'first' ? Infinity : -Infinity;
+
+    for (const face of faces) {
+      const distance = plane.distanceToPoint(face.center());
+      if (distance < tolerance) {
+        continue;
+      }
+      if (mode === 'first' ? distance < bestDistance : distance > bestDistance) {
+        bestDistance = distance;
+        bestFace = face;
+      }
+    }
+
+    return bestFace;
+  }
+
   static getSignedPlaneDistanceRaw(startPlane: gp_Pln, targetPlane: gp_Pln): number {
     const startPlanePosition = startPlane.Location();
     const targetPlanePosition = targetPlane.Location();

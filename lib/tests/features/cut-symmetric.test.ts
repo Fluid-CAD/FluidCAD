@@ -7,7 +7,7 @@ import { circle, move, rect } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { ExtrudeSymmetric } from "../../features/extrude-symmetric.js";
 import { CutSymmetric } from "../../features/cut-symmetric.js";
-import { countShapes } from "../utils.js";
+import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 
 describe("cut symmetric", () => {
@@ -36,8 +36,9 @@ describe("cut symmetric", () => {
         .flatMap(o => o.getShapes())
         .find(s => s.getType() === "solid") as Solid;
 
-      // A box with a symmetric pocket has more than 6 faces
-      expect(solid.getFaces().length).toBeGreaterThan(6);
+      // Rectangular symmetric pocket: all faces are planar, more than original 6
+      expect(getFacesByType(solid, "plane").length).toBeGreaterThan(6);
+      expect(getFacesByType(solid, "cylinder")).toHaveLength(0);
     });
 
     it("should preserve the outer dimensions of the solid", () => {
@@ -87,8 +88,9 @@ describe("cut symmetric", () => {
         .flatMap(o => o.getShapes())
         .find(s => s.getType() === "solid") as Solid;
 
-      // Through-all symmetric cut with a circle creates a hole
-      expect(solid.getFaces().length).toBeGreaterThan(6);
+      // Through-all circular cut adds a cylindrical face (the hole wall)
+      expect(getFacesByType(solid, "cylinder")).toHaveLength(1);
+      expect(getEdgesByType(solid, "circle").length).toBeGreaterThanOrEqual(2);
     });
   });
 

@@ -7,7 +7,7 @@ import { circle, move, rect } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extrude } from "../../features/extrude.js";
 import { Cut } from "../../features/cut.js";
-import { countShapes } from "../utils.js";
+import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { SceneObject } from "../../common/scene-object.js";
 
@@ -35,8 +35,10 @@ describe("cut", () => {
         .flatMap(o => o.getShapes())
         .find(s => s.getType() === "solid") as Solid;
 
-      // A box with a rectangular pocket has more than 6 faces
-      expect(solid.getFaces().length).toBeGreaterThan(6);
+      // A box with a rectangular pocket: 6 original + 4 pocket walls + 1 pocket floor = 11 planar faces
+      expect(getFacesByType(solid, "plane").length).toBeGreaterThan(6);
+      // All faces should be planar (no curves)
+      expect(getFacesByType(solid, "cylinder")).toHaveLength(0);
     });
 
     it("should cut a circular pocket into a box", () => {
@@ -96,8 +98,10 @@ describe("cut", () => {
         .flatMap(o => o.getShapes())
         .find(s => s.getType() === "solid") as Solid;
 
-      // Through-all cut with a circle creates a hole — more faces than a simple box
-      expect(solid.getFaces().length).toBeGreaterThan(6);
+      // Through-all circular cut adds a cylindrical face (the hole wall)
+      expect(getFacesByType(solid, "cylinder")).toHaveLength(1);
+      // Circle edges at top and bottom of the hole
+      expect(getEdgesByType(solid, "circle").length).toBeGreaterThanOrEqual(2);
     });
   });
 

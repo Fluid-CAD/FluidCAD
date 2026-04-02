@@ -6,7 +6,7 @@ import cut from "../../core/cut.js";
 import { circle, move, rect } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { CutTwoDistances } from "../../features/cut-two-distances.js";
-import { countShapes } from "../utils.js";
+import { countShapes, getFacesByType } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { SceneObject } from "../../common/scene-object.js";
 
@@ -35,8 +35,9 @@ describe("cut two distances", () => {
         .flatMap(o => o.getShapes())
         .find(s => s.getType() === "solid") as Solid;
 
-      // A box with an asymmetric pocket has more than 6 faces
-      expect(solid.getFaces().length).toBeGreaterThan(6);
+      // Rectangular asymmetric pocket: all faces planar, more than original 6
+      expect(getFacesByType(solid, "plane").length).toBeGreaterThan(6);
+      expect(getFacesByType(solid, "cylinder")).toHaveLength(0);
     });
 
     it("should remove the extrudable sketch shapes", () => {

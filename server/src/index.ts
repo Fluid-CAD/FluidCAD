@@ -31,7 +31,7 @@ const app = express();
 app.use(express.json());
 
 app.use('/api', createPropertiesRouter(fluidCadServer));
-app.use('/api', createActionsRouter(fluidCadServer, sendToExtension));
+app.use('/api', createActionsRouter(fluidCadServer, sendToExtension, broadcastToUI));
 
 // Static files — serve UI build, with SPA fallback
 app.use(express.static(UI_DIST, {

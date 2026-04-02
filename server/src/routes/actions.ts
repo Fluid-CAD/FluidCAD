@@ -4,6 +4,7 @@ import type { FluidCadServer } from '../fluidcad-server.ts';
 export function createActionsRouter(
   fluidCadServer: FluidCadServer,
   sendToExtension: (msg: any) => void,
+  broadcastToUI: (msg: any) => void,
 ): Router {
   const router = Router();
 
@@ -57,6 +58,32 @@ export function createActionsRouter(
       type: 'remove-point',
       point: point as [number, number],
       sourceLocation,
+    });
+    res.json({ success: true });
+  });
+
+  router.post('/rollback', async (req, res) => {
+    const { index } = req.body;
+    if (typeof index !== 'number' || index < 0) {
+      res.status(400).json({ error: 'Invalid index' });
+      return;
+    }
+    const data = await fluidCadServer.rollbackFromUI(index);
+    if (!data) {
+      res.status(404).json({ error: 'No active scene' });
+      return;
+    }
+    sendToExtension({
+      type: 'scene-rendered',
+      absPath: data.absPath,
+      result: data.result,
+      rollbackStop: data.rollbackStop,
+    });
+    broadcastToUI({
+      type: 'scene-rendered',
+      result: data.result,
+      absPath: data.absPath,
+      rollbackStop: data.rollbackStop,
     });
     res.json({ success: true });
   });

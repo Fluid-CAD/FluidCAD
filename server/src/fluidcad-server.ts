@@ -107,6 +107,10 @@ export class FluidCadServer {
     return this.processFile(id, true);
   }
 
+  async rollbackFromUI(index: number): Promise<SceneRenderedData | null> {
+    return this.rollback(this.currentFileName, index);
+  }
+
   async rollback(fileName: string, index: number): Promise<SceneRenderedData | null> {
     if (!this.sceneManager) {
       return null;

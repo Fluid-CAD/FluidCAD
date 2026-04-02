@@ -134,14 +134,7 @@ export class Sketch extends SceneObject implements Extrudable {
   }
 
   getGeometriesWithOwner(): Map<Edge, GeometrySceneObject> {
-    let geometries = this.getState('geometries') as Map<Edge, GeometrySceneObject>;
-    if (geometries) {
-      return geometries;
-    }
-
-    geometries = this.getEdgesWithOwner();
-    this.setState('geometries', geometries);
-    return geometries;
+    return this.getEdgesWithOwner();
   }
 
   getGeometries(): Edge[] {

@@ -9,6 +9,7 @@ import { Extrude } from "../../features/extrude.js";
 import { Cut } from "../../features/cut.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
+import { SceneObject } from "../../common/scene-object.js";
 
 describe("cut", () => {
   setupOC();
@@ -64,7 +65,8 @@ describe("cut", () => {
       const s = sketch(e.endFace(), () => {
         move([25, 25]);
         rect(50, 50);
-      });
+      }) as SceneObject;
+
       cut(20);
 
       render();

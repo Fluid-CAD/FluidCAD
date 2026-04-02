@@ -8,6 +8,7 @@ import { Solid } from "../../common/solid.js";
 import { CutTwoDistances } from "../../features/cut-two-distances.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
+import { SceneObject } from "../../common/scene-object.js";
 
 describe("cut two distances", () => {
   setupOC();
@@ -47,7 +48,8 @@ describe("cut two distances", () => {
       const s = sketch("xy", () => {
         move([25, 25]);
         rect(50, 50);
-      });
+      }) as SceneObject;
+
       cut(20, 10);
 
       render();

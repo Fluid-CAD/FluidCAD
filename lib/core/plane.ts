@@ -23,6 +23,12 @@ interface PlaneFunction {
    */
   (plane: PlaneLike, options: PlaneRenderableOptions): IPlane;
   /**
+   * Creates a plane with an offset.
+   * @param plane - The standard plane or normal vector
+   * @param offset - The offset distance
+   */
+  (plane: PlaneLike, offset: number): IPlane;
+  /**
    * Creates a plane from a face selection.
    * @param selection - The selected face to create a plane from
    */
@@ -33,6 +39,12 @@ interface PlaneFunction {
    * @param options - Transform options (offset, flip, sticky, etc.)
    */
   (selection: ISceneObject, options: PlaneRenderableOptions): IPlane;
+  /**
+   * Creates a plane from a face selection with an offset.
+   * @param selection - The selected face to create a plane from
+   * @param offset - The offset distance
+   */
+  (selection: ISceneObject, offset: number): IPlane;
   /**
    * Transforms an existing plane with options.
    * @param plane - The existing plane to transform
@@ -65,6 +77,20 @@ function build(context: SceneParserContext): PlaneFunction {
     }
 
     if (arguments.length === 2) {
+      if (typeof arguments[1] === 'number') {
+        const options: PlaneRenderableOptions = { offset: arguments[1] };
+        if (arguments[0] instanceof SceneObject) {
+          const pln = new PlaneFromObject(arguments[0], options);
+          context.addSceneObject(pln);
+          return pln;
+        } else if (isPlaneLike(arguments[0])) {
+          const axis = normalizePlane(arguments[0]);
+          const pln = new PlaneObject(axis, options);
+          context.addSceneObject(pln);
+          return pln;
+        }
+      }
+
       if ((arguments[0] instanceof PlaneObjectBase || isPlaneLike(arguments[0])) &&
         (arguments[1] instanceof PlaneObjectBase || isPlaneLike(arguments[1]))) {
         // axis between two others

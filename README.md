@@ -15,7 +15,7 @@
 Design parametric 3D models using JavaScript. Every change in your code is reflected instantly in the 3D viewport.
 
 ```js
-import { extrude, fillet, shell, sketch } from 'fluidcad/core';
+import { extrude, fillet, sketch } from 'fluidcad/core';
 import { circle } from 'fluidcad/core';
 
 sketch("xy", () => {
@@ -23,8 +23,6 @@ sketch("xy", () => {
 })
 
 const e = extrude(50)
-
-shell(-6, e.endFace())
 
 fillet(5, e.startEdge())
 ```
@@ -56,6 +54,16 @@ Re-apply modeling features based on matrix transformations. Move, rotate, or mir
 ### Pattern Copying
 
 Duplicate features in linear or circular patterns to quickly populate repetitive geometry.
+
+### Smart Defaults
+
+Most operations just do the right thing without extra arguments. `extrude` picks up the last sketch, `fillet` targets the last selection, and touching shapes are automatically fused -- less boilerplate, more readable code.
+
+### STEP Import / Export
+
+Import and export STEP files with full color support. Bring in existing CAD models or share your designs with any standard CAD tool.
+
+<!-- ![STEP Import/Export](docs/assets/step.gif) -->
 
 ### Use Your Favorite Editor
 

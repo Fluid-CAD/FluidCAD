@@ -5,7 +5,8 @@
   "author": "Marwan Aouida",
   "type": "module",
   "workspaces": [
-    "extension/vscode"
+    "extension/vscode",
+    "packages/create-fluidcad-app"
   ],
   "bin": {
     "fluidcad": "./bin/fluidcad.js"

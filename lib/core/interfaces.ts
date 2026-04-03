@@ -143,3 +143,15 @@ export interface ICut extends ISceneObject {
 export interface IRevolve extends ISceneObject {
   pick(...points: Point2DLike[]): this;
 }
+
+/**
+ * Interface for loft results returned by the loft() builder.
+ */
+export interface ILoft extends ISceneObject {
+  startFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  endFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  sideFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  startEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  endEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  sideEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+}

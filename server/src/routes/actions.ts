@@ -5,6 +5,7 @@ export function createActionsRouter(
   fluidCadServer: FluidCadServer,
   sendToExtension: (msg: any) => void,
   broadcastToUI: (msg: any) => void,
+  workspacePath: string,
 ): Router {
   const router = Router();
 
@@ -103,6 +104,24 @@ export function createActionsRouter(
       sourceLocation,
     });
     res.json({ success: true });
+  });
+
+  router.post('/import-file', async (req, res) => {
+    const { fileName, data } = req.body;
+    if (typeof fileName !== 'string' || typeof data !== 'string') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+
+    try {
+      await fluidCadServer.importFile(workspacePath, fileName, data);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || String(err) });
+      return;
+    }
+
+    const loadName = fileName.replace(/\.(step|stp)$/i, '');
+    res.json({ success: true, fileName: loadName });
   });
 
   return router;

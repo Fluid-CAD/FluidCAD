@@ -171,6 +171,7 @@ export class OcIO {
     const cleanup = () => {
       reader.delete();
       oc.FS.unlink(fileName);
+      app.Close(docHandle);
       docHandle.delete();
       app.delete();
     };

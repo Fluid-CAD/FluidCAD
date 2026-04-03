@@ -88,6 +88,7 @@ export class Cut extends CutBase {
 
     const cutResult = BooleanOps.cutMultiShape(stock, toBeRemoved, this.extrudable.getPlane(), this.distance);
 
+    const cleanedShapes: Shape[] = [];
     for (const shape of stock) {
       const list = cutResult.modified(shape);
       console.log('Cut: Modified shapes for shape:', list.length);
@@ -96,6 +97,7 @@ export class Cut extends CutBase {
           const s = ShapeOps.cleanShape(newShape) as Solid;
           console.log('Cut: Adding modified shape:', s);
           this.addShape(s);
+          cleanedShapes.push(s);
         }
 
         const obj = shapeObjectMap.get(shape);
@@ -104,11 +106,7 @@ export class Cut extends CutBase {
       console.log('Cut: Shape modified count:', list.length);
     }
 
-    this.setState('section-edges', cutResult.sectionEdges);
-    this.setState('start-edges', cutResult.startEdges);
-    this.setState('end-edges', cutResult.endEdges);
-    this.setState('internal-edges', cutResult.internalEdges);
-    this.setState('internal-faces', cutResult.internalFaces);
+    this.classifyCutResult(stock, cleanedShapes, this.extrudable.getPlane(), this.distance);
   }
 
   override getDependencies(): SceneObject[] {

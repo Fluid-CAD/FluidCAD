@@ -68,12 +68,14 @@ export class CutSymmetric extends CutBase {
     const stock = Array.from(shapeObjectMap.keys());
     const cutResult = BooleanOps.cutMultiShape(stock, toolShapes, plane, this.distance);
 
+    const cleanedShapes: Shape[] = [];
     for (const shape of stock) {
       const list = cutResult.modified(shape);
       if (list.length) {
         for (const newShape of list) {
           const s = ShapeOps.cleanShape(newShape) as Solid;
           this.addShape(s);
+          cleanedShapes.push(s);
         }
 
         const obj = shapeObjectMap.get(shape);
@@ -81,11 +83,7 @@ export class CutSymmetric extends CutBase {
       }
     }
 
-    this.setState('section-edges', cutResult.sectionEdges);
-    this.setState('start-edges', cutResult.startEdges);
-    this.setState('end-edges', cutResult.endEdges);
-    this.setState('internal-edges', cutResult.internalEdges);
-    this.setState('internal-faces', cutResult.internalFaces);
+    this.classifyCutResult(stock, cleanedShapes, plane, this.distance);
   }
 
   override getDependencies(): SceneObject[] {

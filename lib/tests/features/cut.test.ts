@@ -3,6 +3,8 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
+import plane from "../../core/plane.js";
+import cylinder from "../../core/cylinder.js";
 import { circle, move, rect } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extrude } from "../../features/extrude.js";
@@ -332,6 +334,62 @@ describe("cut", () => {
       for (const edge of edges) {
         expect(edge.getType()).toBe("edge");
       }
+    });
+  });
+
+  describe("multiple intersecting shapes", () => {
+    it("should expose startEdges for through-all cut with overlapping circles", () => {
+      cylinder(50, 80);
+
+      sketch(plane("xy", 80), () => {
+        circle([-20, 0], 20);
+        circle([20, 0], 25);
+      });
+
+      const c = cut() as Cut;
+
+      render();
+
+      const startEdges = c.startEdges().getShapes();
+      expect(startEdges.length).toBeGreaterThan(0);
+      for (const edge of startEdges) {
+        expect(edge.getType()).toBe("edge");
+      }
+    });
+
+    it("should expose internalFaces for through-all cut with overlapping circles", () => {
+      cylinder(50, 80);
+
+      sketch(plane("xy", 80), () => {
+        circle([-20, 0], 20);
+        circle([20, 0], 25);
+      });
+
+      const c = cut() as Cut;
+
+      render();
+
+      const faces = c.internalFaces().getShapes();
+      expect(faces.length).toBeGreaterThan(0);
+      for (const f of faces) {
+        expect(f.getType()).toBe("face");
+      }
+    });
+
+    it("should expose endEdges for through-all cut with overlapping circles", () => {
+      cylinder(50, 80);
+
+      sketch(plane("xy", 80), () => {
+        circle([-20, 0], 20);
+        circle([20, 0], 25);
+      });
+
+      const c = cut() as Cut;
+
+      render();
+
+      const endEdges = c.endEdges().getShapes();
+      expect(endEdges.length).toBeGreaterThan(0);
     });
   });
 });

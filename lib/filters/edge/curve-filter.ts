@@ -3,38 +3,38 @@ import { Edge } from "../../common/shapes.js";
 import { FilterBase } from "../filter-base.js";
 import { EdgeQuery } from "../../oc/edge-query.js";
 
-export class CircleCurveFilter extends FilterBase<Edge> {
-  constructor(private diameter?: number) {
+export class ArcFilter extends FilterBase<Edge> {
+  constructor(private radius?: number) {
     super();
   }
 
   match(shape: Edge): boolean {
-    return EdgeQuery.isArcEdge(shape, this.diameter);
+    return EdgeQuery.isArcEdge(shape, this.radius);
   }
 
-  compareTo(other: CircleCurveFilter): boolean {
-    return this.diameter === other.diameter;
+  compareTo(other: ArcFilter): boolean {
+    return this.radius === other.radius;
   }
 
-  transform(matrix: Matrix4): CircleCurveFilter {
-    return new CircleCurveFilter(this.diameter);
+  transform(matrix: Matrix4): ArcFilter {
+    return new ArcFilter(this.radius);
   }
 }
 
-export class NotCircleCurveFilter extends FilterBase<Edge> {
-  constructor(private diameter?: number) {
+export class NotArcFilter extends FilterBase<Edge> {
+  constructor(private radius?: number) {
     super();
   }
 
   match(shape: Edge): boolean {
-    return !EdgeQuery.isArcEdge(shape, this.diameter);
+    return !EdgeQuery.isArcEdge(shape, this.radius);
   }
 
-  compareTo(other: NotCircleCurveFilter): boolean {
-    return this.diameter === other.diameter;
+  compareTo(other: NotArcFilter): boolean {
+    return this.radius === other.radius;
   }
 
-  transform(matrix: Matrix4): NotCircleCurveFilter {
-    return new NotCircleCurveFilter(this.diameter);
+  transform(matrix: Matrix4): NotArcFilter {
+    return new NotArcFilter(this.radius);
   }
 }

@@ -3,7 +3,7 @@ import { normalizePlane } from "../../helpers/normalize.js";
 import { Edge } from "../../common/shapes.js";
 import { FilterBuilderBase } from "../filter-builder-base.js";
 import { CircleFilter, NotCircleFilter } from "./circle-filter.js";
-import { CircleCurveFilter, NotCircleCurveFilter } from "./curve-filter.js";
+import { ArcFilter, NotArcFilter } from "./curve-filter.js";
 import { LineFilter, NotLineFilter } from "./line-filter.js";
 import { NotOnPlaneFilter, OnPlaneFilter } from "./on-plane.js";
 import { ParallelPlaneFilter, NotParallelPlaneFilter } from "./parallel.js";
@@ -165,14 +165,14 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
     return this;
   }
 
-  circleCurve(diameter?: number) {
-    const filter = new CircleCurveFilter(diameter);
+  arc(radius?: number) {
+    const filter = new ArcFilter(radius);
     this.filters.push(filter);
     return this;
   }
 
-  notCircleCurve(diameter?: number) {
-    const filter = new NotCircleCurveFilter(diameter);
+  notArc(radius?: number) {
+    const filter = new NotArcFilter(radius);
     this.filters.push(filter);
     return this;
   }

@@ -12,11 +12,7 @@ export class Extrude extends ExtrudeBase {
   }
 
   build(context: BuildSceneObjectContext) {
-    let sceneObjects = context.getSceneObjects();
-
-    if (this.parentId) {
-      sceneObjects.filter(so => so.id !== this.parentId);
-    }
+    const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
 
     const plane = this.extrudable.getPlane();
 
@@ -49,7 +45,7 @@ export class Extrude extends ExtrudeBase {
     console.log('Extrude: Generated extrusions count:', extrusions.length);
 
     console.log('Extrude: Fusion scope:', this.getFusionScope());
-    if (this.getFusionScope() === 'none' || extrusions.length === 0 || sceneObjects?.length === 0) {
+    if (extrusions.length === 0 || sceneObjects.length === 0) {
       this.addShapes(extrusions);
       return;
     }

@@ -24,20 +24,9 @@ export class Cut extends CutBase {
       return;
     }
 
-    let sceneObjects: Map<SceneObject, Shape[]>;
-    let scope = context.getSceneObjects();
+    const scope = this.resolveFusionScope(context.getSceneObjects());
 
-    if (this.getFusionScope() === 'none') {
-      scope = [];
-    }
-    else if (this.getFusionScope() instanceof SceneObject) {
-      scope = [this.getFusionScope() as SceneObject];
-    }
-    else if (Array.isArray(this.getFusionScope())){
-      scope = this.getFusionScope() as SceneObject[];
-    }
-
-    sceneObjects = new Map<SceneObject, Shape[]>();
+    const sceneObjects = new Map<SceneObject, Shape[]>();
     for (const obj of scope) {
       const shapes = obj.getShapes({}, 'solid');
       if (shapes.length === 0) {

@@ -21,7 +21,8 @@ export class ExtrudeToFace extends ExtrudeBase {
   }
 
   build(context: BuildSceneObjectContext) {
-    const sceneObjects = context.getSceneObjects();
+    const allSceneObjects = context.getSceneObjects();
+    const sceneObjects = this.resolveFusionScope(allSceneObjects);
     const plane = this.extrudable.getPlane();
 
     const pickedFaces = this.resolvePickedFaces(plane);
@@ -29,7 +30,7 @@ export class ExtrudeToFace extends ExtrudeBase {
       return;
     }
 
-    const targetFace = this.getFace(sceneObjects);
+    const targetFace = this.getFace(allSceneObjects);
     const isPlanar = FaceQuery.isPlanarFace(targetFace);
 
     let solids: Shape[] = [];
@@ -72,7 +73,7 @@ export class ExtrudeToFace extends ExtrudeBase {
       this.face.removeShapes(this);
     }
 
-    if (this.getFusionScope() === 'none' || sceneObjects.length === 0) {
+    if (sceneObjects.length === 0) {
       this.addShapes(solids);
       return;
     }

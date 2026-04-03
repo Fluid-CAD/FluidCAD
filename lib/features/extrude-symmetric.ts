@@ -16,7 +16,7 @@ export class ExtrudeSymmetric extends ExtrudeBase {
   }
 
   build(context: BuildSceneObjectContext) {
-    const sceneObjects = context.getSceneObjects();
+    const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
     const plane = this.extrudable.getPlane();
 
     const pickedFaces = this.resolvePickedFaces(plane);
@@ -68,7 +68,7 @@ export class ExtrudeSymmetric extends ExtrudeBase {
 
     this.extrudable.removeShapes(this);
 
-    if (this.getFusionScope() === 'none' || extrusions.length === 0 || sceneObjects?.length === 0) {
+    if (extrusions.length === 0 || sceneObjects.length === 0) {
       this.addShapes(extrusions);
       return;
     }

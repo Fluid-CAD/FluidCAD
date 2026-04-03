@@ -13,9 +13,9 @@ describe("tCircle", () => {
   describe("tangent circle between two objects", () => {
     it("should create a circle tangent to two circles", () => {
       const s = sketch("xy", () => {
-        const c1 = circle(20);
-        const c2 = circle([80, 0], 20);
-        tCircle(c1, c2, 15);
+        const c1 = circle(40);
+        const c2 = circle([80, 0], 40);
+        tCircle(c1, c2, 30);
       }) as Sketch;
       render();
 
@@ -26,7 +26,7 @@ describe("tCircle", () => {
 
     it("should create a circle tangent to two points", () => {
       const s = sketch("xy", () => {
-        tCircle([0, 0], [50, 0], 30);
+        tCircle([0, 0], [50, 0], 60);
       }) as Sketch;
       render();
 

@@ -9,12 +9,12 @@ import { Edge } from "../common/edge.js";
 
 export class EdgeQuery {
   // Wrapper methods (public API for external callers)
-  static isCircleEdge(edge: Shape, radius?: number): boolean {
-    return EdgeQuery.isCircleEdgeRaw(edge.getShape(), radius);
+  static isCircleEdge(edge: Shape, diameter?: number): boolean {
+    return EdgeQuery.isCircleEdgeRaw(edge.getShape(), diameter);
   }
 
-  static isArcEdge(edge: Shape, radius?: number): boolean {
-    return EdgeQuery.isArcEdgeRaw(edge.getShape(), radius);
+  static isArcEdge(edge: Shape, diameter?: number): boolean {
+    return EdgeQuery.isArcEdgeRaw(edge.getShape(), diameter);
   }
 
   static isLineEdge(edge: Shape): boolean {
@@ -63,7 +63,7 @@ export class EdgeQuery {
   }
 
   // Raw methods (for oc-internal and common/ use)
-  static isCircleEdgeRaw(edge: TopoDS_Shape, radius?: number): boolean {
+  static isCircleEdgeRaw(edge: TopoDS_Shape, diameter?: number): boolean {
     const oc = getOC();
     const ocEdge = oc.TopoDS.Edge(edge);
     const curveAdaptor = new oc.BRepAdaptor_Curve(ocEdge);
@@ -79,7 +79,7 @@ export class EdgeQuery {
       return false;
     }
 
-    if (radius === undefined) {
+    if (diameter === undefined) {
       curveAdaptor.delete();
       return true;
     }
@@ -88,10 +88,10 @@ export class EdgeQuery {
     const r = circle.Radius();
     circle.delete();
     curveAdaptor.delete();
-    return Math.abs(r - radius) <= oc.Precision.Confusion();
+    return Math.abs(r - diameter / 2) <= oc.Precision.Confusion();
   }
 
-  static isArcEdgeRaw(edge: TopoDS_Shape, radius?: number): boolean {
+  static isArcEdgeRaw(edge: TopoDS_Shape, diameter?: number): boolean {
     const oc = getOC();
     const ocEdge = oc.TopoDS.Edge(edge);
     const curveAdaptor = new oc.BRepAdaptor_Curve(ocEdge);
@@ -107,7 +107,7 @@ export class EdgeQuery {
       return false;
     }
 
-    if (radius === undefined) {
+    if (diameter === undefined) {
       curveAdaptor.delete();
       return true;
     }
@@ -116,7 +116,7 @@ export class EdgeQuery {
     const r = circle.Radius();
     circle.delete();
     curveAdaptor.delete();
-    return Math.abs(r - radius) <= oc.Precision.Confusion();
+    return Math.abs(r - diameter / 2) <= oc.Precision.Confusion();
   }
 
   static isLineEdgeRaw(edge: TopoDS_Shape): boolean {

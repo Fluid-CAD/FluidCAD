@@ -66,38 +66,38 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
     return this;
   }
 
-  circle(radius?: number) {
-    const filter = new CircleFilter(radius);
+  circle(diameter?: number) {
+    const filter = new CircleFilter(diameter);
     this.filters.push(filter);
     return this;
   }
 
-  notCircle(radius?: number) {
-    const filter = new NotCircleFilter(radius);
+  notCircle(diameter?: number) {
+    const filter = new NotCircleFilter(diameter);
     this.filters.push(filter);
     return this;
   }
 
-  cylinder(radius?: number) {
-    const filter = new CylinderFilter(radius);
+  cylinder(diameter?: number) {
+    const filter = new CylinderFilter(diameter);
     this.filters.push(filter);
     return this;
   }
 
-  notCylinder(radius?: number) {
-    const filter = new NotCylinderFilter(radius);
+  notCylinder(diameter?: number) {
+    const filter = new NotCylinderFilter(diameter);
     this.filters.push(filter);
     return this;
   }
 
-  cylinderCurve(radius?: number) {
-    const filter = new CylinderCurveFilter(radius);
+  cylinderCurve(diameter?: number) {
+    const filter = new CylinderCurveFilter(diameter);
     this.filters.push(filter);
     return this;
   }
 
-  notCylinderCurve(radius?: number) {
-    const filter = new NotCylinderCurveFilter(radius);
+  notCylinderCurve(diameter?: number) {
+    const filter = new NotCylinderCurveFilter(diameter);
     this.filters.push(filter);
     return this;
   }

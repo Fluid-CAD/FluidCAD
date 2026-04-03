@@ -14,8 +14,8 @@ describe("fuse2d", () => {
   describe("fuse all sketch geometries", () => {
     it("should fuse overlapping circles into a single outline", () => {
       sketch("xy", () => {
-        const c1 = circle([-20, 0], 30);
-        const c2 = circle([20, 0], 30);
+        const c1 = circle([-20, 0], 60);
+        const c2 = circle([20, 0], 60);
         fuse();
       });
 
@@ -49,10 +49,10 @@ describe("fuse2d", () => {
   describe("fuse specific targets", () => {
     it("should fuse only the specified geometries", () => {
       sketch("xy", () => {
-        const c1 = circle([-20, 0], 30);
-        const c2 = circle([20, 0], 30);
+        const c1 = circle([-20, 0], 60);
+        const c2 = circle([20, 0], 60);
         // Third circle far away, not included in fuse
-        circle([200, 0], 30);
+        circle([200, 0], 60);
         fuse(c1, c2);
       });
 
@@ -69,8 +69,8 @@ describe("fuse2d", () => {
   describe("fuse removes original edges", () => {
     it("should remove original edges from fused geometries", () => {
       const s = sketch("xy", () => {
-        const c1 = circle([-20, 0], 30);
-        const c2 = circle([20, 0], 30);
+        const c1 = circle([-20, 0], 60);
+        const c2 = circle([20, 0], 60);
         fuse(c1, c2);
       }) as Sketch;
 
@@ -86,8 +86,8 @@ describe("fuse2d", () => {
   describe("non-overlapping geometries", () => {
     it("should not change non-overlapping geometries", () => {
       sketch("xy", () => {
-        circle(20);
-        circle([200, 0], 20);
+        circle(40);
+        circle([200, 0], 40);
         fuse();
       });
 

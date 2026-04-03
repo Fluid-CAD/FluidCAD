@@ -208,8 +208,8 @@ describe("tArc", () => {
   describe("tangent arc between two objects (c1, c2, radius)", () => {
     it("should create a fillet arc between two circles", () => {
       sketch("xy", () => {
-        const c1 = circle(20);
-        const c2 = circle([80, 0], 20);
+        const c1 = circle(40);
+        const c2 = circle([80, 0], 40);
         tArc(c1, c2, 15);
       });
       const e = extrude(10) as ExtrudeBase;
@@ -221,8 +221,8 @@ describe("tArc", () => {
 
     it("should create a fillet arc between two circles with outside qualifier", () => {
       const s = sketch("xy", () => {
-        const c1 = circle(80);
-        const c2 = circle([200, 0], 30);
+        const c1 = circle(160);
+        const c2 = circle([200, 0], 60);
         tArc(outside(c1), outside(c2), 80).guide();
       }) as Sketch;
       render();
@@ -233,7 +233,7 @@ describe("tArc", () => {
 
     it("should create a fillet arc between a circle and a point", () => {
       const s = sketch("xy", () => {
-        const c = circle([100, 0], 20);
+        const c = circle([100, 0], 40);
         tArc(outside(c), [100, 50], 100).guide();
       }) as Sketch;
       render();
@@ -244,8 +244,8 @@ describe("tArc", () => {
 
     it("should create a fillet arc with mustTouch enabled", () => {
       const s = sketch("xy", () => {
-        const c1 = circle(30);
-        const c2 = circle([100, 0], 30);
+        const c1 = circle(60);
+        const c2 = circle([100, 0], 60);
         tArc(c1, c2, 40, true).guide();
       }) as Sketch;
       render();
@@ -256,8 +256,8 @@ describe("tArc", () => {
 
     it("should expose start and end accessors on constrained arc", () => {
       sketch("xy", () => {
-        const c1 = circle(50);
-        const c2 = circle([200, 0], 30);
+        const c1 = circle(100);
+        const c2 = circle([200, 0], 60);
         const t = tArc(outside(c1), outside(c2), 80);
         const startPt = t.start();
         const endPt = t.end();
@@ -269,8 +269,8 @@ describe("tArc", () => {
 
     it("should expose indexed start and end accessors", () => {
       sketch("xy", () => {
-        const c1 = circle(50);
-        const c2 = circle([200, 0], 30);
+        const c1 = circle(100);
+        const c2 = circle([200, 0], 60);
         const t = tArc(outside(c1), outside(c2), 80);
         const start0 = t.start(0);
         const end0 = t.end(0);

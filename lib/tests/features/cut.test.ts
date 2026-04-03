@@ -51,7 +51,7 @@ describe("cut", () => {
 
       sketch(e.endFaces(), () => {
         move([50, 50]);
-        circle(20);
+        circle(40);
       });
       cut(30);
 
@@ -88,7 +88,7 @@ describe("cut", () => {
 
       sketch(e.endFaces(), () => {
         move([25, 25]);
-        circle(20);
+        circle(40);
       });
       cut();
 
@@ -233,9 +233,9 @@ describe("cut", () => {
 
       sketch(e.endFaces(), () => {
         move([25, 25]);
-        circle(15);
+        circle(30);
         move([75, 25]);
-        circle(15);
+        circle(30);
       });
       const c = cut(20).pick([25, 25]) as Cut;
 
@@ -279,7 +279,7 @@ describe("cut", () => {
 
       sketch(e.endFaces(), () => {
         move([50, 50]);
-        circle(20);
+        circle(40);
       });
       const c = cut(30) as Cut;
 
@@ -342,8 +342,8 @@ describe("cut", () => {
       cylinder(50, 80);
 
       sketch(plane("xy", 80), () => {
-        circle([-20, 0], 20);
-        circle([20, 0], 25);
+        circle([-20, 0], 40);
+        circle([20, 0], 50);
       });
 
       const c = cut() as Cut;
@@ -361,8 +361,8 @@ describe("cut", () => {
       cylinder(50, 80);
 
       sketch(plane("xy", 80), () => {
-        circle([-20, 0], 20);
-        circle([20, 0], 25);
+        circle([-20, 0], 40);
+        circle([20, 0], 50);
       });
 
       const c = cut() as Cut;
@@ -380,8 +380,8 @@ describe("cut", () => {
       cylinder(50, 80);
 
       sketch(plane("xy", 80), () => {
-        circle([-20, 0], 20);
-        circle([20, 0], 25);
+        circle([-20, 0], 40);
+        circle([20, 0], 50);
       });
 
       const c = cut() as Cut;

@@ -54,11 +54,11 @@ describe("loft", () => {
 
     it("should loft between two circles of different radii", () => {
       const s1 = sketch("xy", () => {
-        circle(40);
+        circle(80);
       });
 
       const s2 = sketch(plane("xy", { offset: 50 }), () => {
-        circle(20);
+        circle(40);
       });
 
       const l = loft(s1, s2) as Loft;
@@ -77,11 +77,11 @@ describe("loft", () => {
 
     it("should produce a solid with positive volume", () => {
       const s1 = sketch("xy", () => {
-        circle(30);
+        circle(60);
       });
 
       const s2 = sketch(plane("xy", { offset: 40 }), () => {
-        circle(15);
+        circle(30);
       });
 
       const l = loft(s1, s2) as Loft;
@@ -100,7 +100,7 @@ describe("loft", () => {
       });
 
       const s2 = sketch(plane("xy", { offset: 50 }), () => {
-        circle(30);
+        circle(60);
       });
 
       const l = loft(s1, s2) as Loft;
@@ -116,15 +116,15 @@ describe("loft", () => {
   describe("loft between three profiles", () => {
     it("should loft through three profiles", () => {
       const s1 = sketch("xy", () => {
-        circle(30);
+        circle(60);
       });
 
       const s2 = sketch(plane("xy", { offset: 25 }), () => {
-        circle(50);
+        circle(100);
       });
 
       const s3 = sketch(plane("xy", { offset: 50 }), () => {
-        circle(30);
+        circle(60);
       });
 
       const l = loft(s1, s2, s3) as Loft;
@@ -162,11 +162,11 @@ describe("loft", () => {
   describe("loft produces single shape", () => {
     it("should produce a single shape in the scene", () => {
       const s1 = sketch("xy", () => {
-        circle(30);
+        circle(60);
       });
 
       const s2 = sketch(plane("xy", { offset: 40 }), () => {
-        circle(20);
+        circle(40);
       });
 
       loft(s1, s2);

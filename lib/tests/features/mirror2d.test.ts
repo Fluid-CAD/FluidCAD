@@ -16,7 +16,7 @@ describe("mirror (2D)", () => {
     it("should mirror a circle across the Y axis", () => {
       sketch("xy", () => {
         move([30, 0]);
-        const c = circle(10);
+        const c = circle(20);
         mirror("y", c);
       });
 
@@ -64,7 +64,7 @@ describe("mirror (2D)", () => {
 
       sketch("xy", () => {
         move([30, 0]);
-        const c = circle(10);
+        const c = circle(20);
         m.ref = mirror("y", c) as MirrorShape2D;
       });
 
@@ -79,9 +79,9 @@ describe("mirror (2D)", () => {
     it("should mirror only the specified geometry", () => {
       sketch("xy", () => {
         move([30, 0]);
-        const c1 = circle(10);
+        const c1 = circle(20);
         move([0, 50]);
-        circle(10);
+        circle(20);
         mirror("y", c1);
       });
 

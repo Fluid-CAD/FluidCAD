@@ -140,9 +140,9 @@ describe("cut two distances", () => {
 
       sketch("xy", () => {
         move([25, 25]);
-        circle(15);
+        circle(30);
         move([75, 25]);
-        circle(15);
+        circle(30);
       });
       const c = cut(20, 10).pick([25, 25]) as CutTwoDistances;
 

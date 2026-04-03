@@ -11,7 +11,7 @@ describe("offset", () => {
   describe("offset closed shape", () => {
     it("should offset a circle outward with positive distance", () => {
       const s = sketch("xy", () => {
-        circle(20);
+        circle(40);
         offset(5);
       }) as Sketch;
 
@@ -28,7 +28,7 @@ describe("offset", () => {
 
     it("should offset a circle inward with negative distance", () => {
       const s = sketch("xy", () => {
-        circle(30);
+        circle(60);
         offset(-5);
       }) as Sketch;
 
@@ -58,7 +58,7 @@ describe("offset", () => {
   describe("offset direction", () => {
     it("positive and negative offsets should produce different results", () => {
       const s1 = sketch("xy", () => {
-        circle(20);
+        circle(40);
         offset(10);
       }) as Sketch;
 
@@ -69,7 +69,7 @@ describe("offset", () => {
       const width1 = bbox1.maxX - bbox1.minX;
 
       const s2 = sketch("xy", () => {
-        circle(20);
+        circle(40);
         offset(-5);
       }) as Sketch;
 
@@ -87,7 +87,7 @@ describe("offset", () => {
   describe("removeOriginal", () => {
     it("should keep original edges by default", () => {
       const s = sketch("xy", () => {
-        const c = circle(20);
+        const c = circle(40);
         offset(5);
       }) as Sketch;
 
@@ -100,7 +100,7 @@ describe("offset", () => {
 
     it("should remove original edges when removeOriginal is true", () => {
       const s = sketch("xy", () => {
-        circle(20);
+        circle(40);
         offset(5, true);
       }) as Sketch;
 
@@ -115,7 +115,7 @@ describe("offset", () => {
   describe("specific targets (standalone)", () => {
     it("should offset source geometries onto a target plane", () => {
       const s = sketch("xy", () => {
-        circle(20);
+        circle(40);
       }) as Sketch;
 
       offset(5, false, "xy", s);
@@ -129,7 +129,7 @@ describe("offset", () => {
   describe("default distance", () => {
     it("should use default distance of 1", () => {
       const s = sketch("xy", () => {
-        circle(20);
+        circle(40);
         offset();
       }) as Sketch;
 

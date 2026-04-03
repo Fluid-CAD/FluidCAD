@@ -14,8 +14,8 @@ describe("common2d", () => {
   describe("common of all sketch geometries", () => {
     it("should produce the intersection of overlapping circles", () => {
       sketch("xy", () => {
-        circle([-15, 0], 30);
-        circle([15, 0], 30);
+        circle([-15, 0], 60);
+        circle([15, 0], 60);
         common();
       });
 
@@ -35,8 +35,8 @@ describe("common2d", () => {
 
     it("should produce a smaller region than either input circle", () => {
       sketch("xy", () => {
-        circle([-15, 0], 30);
-        circle([15, 0], 30);
+        circle([-15, 0], 60);
+        circle([15, 0], 60);
         common();
       });
 
@@ -59,10 +59,10 @@ describe("common2d", () => {
   describe("common of specific targets", () => {
     it("should intersect only the specified geometries", () => {
       sketch("xy", () => {
-        const c1 = circle([-15, 0], 30);
-        const c2 = circle([15, 0], 30);
+        const c1 = circle([-15, 0], 60);
+        const c2 = circle([15, 0], 60);
         // Third circle far away, not included
-        circle([200, 0], 30);
+        circle([200, 0], 60);
         common(c1, c2);
       });
 
@@ -79,8 +79,8 @@ describe("common2d", () => {
   describe("common removes original edges", () => {
     it("should remove original edges from intersected geometries", () => {
       const s = sketch("xy", () => {
-        const c1 = circle([-15, 0], 30);
-        const c2 = circle([15, 0], 30);
+        const c1 = circle([-15, 0], 60);
+        const c2 = circle([15, 0], 60);
         common(c1, c2);
       }) as Sketch;
 
@@ -95,8 +95,8 @@ describe("common2d", () => {
   describe("keepOriginal", () => {
     it("should keep original edges when keepOriginal is true", () => {
       const s = sketch("xy", () => {
-        const c1 = circle([-15, 0], 30);
-        const c2 = circle([15, 0], 30);
+        const c1 = circle([-15, 0], 60);
+        const c2 = circle([15, 0], 60);
         common(c1, c2).keepOriginal();
       }) as Sketch;
 
@@ -109,8 +109,8 @@ describe("common2d", () => {
 
     it("should remove original edges when keepOriginal is false", () => {
       const s = sketch("xy", () => {
-        const c1 = circle([-15, 0], 30);
-        const c2 = circle([15, 0], 30);
+        const c1 = circle([-15, 0], 60);
+        const c2 = circle([15, 0], 60);
         common(c1, c2);
       }) as Sketch;
 
@@ -126,8 +126,8 @@ describe("common2d", () => {
   describe("non-overlapping geometries", () => {
     it("should not remove original edges when geometries do not overlap", () => {
       sketch("xy", () => {
-        circle(20);
-        circle([200, 0], 20);
+        circle(40);
+        circle([200, 0], 40);
         common();
       });
 

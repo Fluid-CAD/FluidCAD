@@ -74,8 +74,8 @@ describe("extrude symmetric", () => {
   describe("fuse", () => {
     it("should fuse intersecting faces by default", () => {
       sketch("xy", () => {
-        circle([-25, 0], 50);
-        circle([25, 0], 50);
+        circle([-25, 0], 100);
+        circle([25, 0], 100);
       });
 
       const e = extrude(30, true) as ExtrudeSymmetric;
@@ -92,7 +92,7 @@ describe("extrude symmetric", () => {
 
       sketch("xy", () => {
         move([25, 0]);
-        circle(50);
+        circle(100);
       });
 
       extrude(30, true);
@@ -107,7 +107,7 @@ describe("extrude symmetric", () => {
 
       sketch("xy", () => {
         move([0, 0]);
-        circle(50);
+        circle(100);
       });
 
       extrude(30, true).fuse("none");
@@ -171,8 +171,8 @@ describe("extrude symmetric", () => {
 
     it("should expose specific face by index for separate regions", () => {
       sketch("xy", () => {
-        circle(20);
-        circle([100, 0], 20);
+        circle(40);
+        circle([100, 0], 40);
       });
 
       const e = extrude(30, true) as ExtrudeSymmetric;
@@ -243,8 +243,8 @@ describe("extrude symmetric", () => {
   describe("drill", () => {
     it("should drill hole when inner shape is nested (default)", () => {
       sketch("xy", () => {
-        circle(50);
-        circle(20);
+        circle(100);
+        circle(40);
       });
 
       const e = extrude(30, true) as ExtrudeSymmetric;
@@ -260,8 +260,8 @@ describe("extrude symmetric", () => {
 
     it("should not drill hole when drill is false", () => {
       sketch("xy", () => {
-        circle(50);
-        circle(20);
+        circle(100);
+        circle(40);
       });
 
       const e = extrude(30, true).drill(false) as ExtrudeSymmetric;
@@ -279,8 +279,8 @@ describe("extrude symmetric", () => {
   describe("pick", () => {
     it("should only extrude the picked region", () => {
       sketch("xy", () => {
-        circle(30);
-        circle([100, 0], 30);
+        circle(60);
+        circle([100, 0], 60);
       });
 
       const e = extrude(20, true).pick([0, 0]) as ExtrudeSymmetric;
@@ -294,7 +294,7 @@ describe("extrude symmetric", () => {
 
     it("should produce no solid when pick point is outside all regions", () => {
       sketch("xy", () => {
-        circle(30);
+        circle(60);
       });
 
       const e = extrude(20, true).pick([500, 500]) as ExtrudeSymmetric;

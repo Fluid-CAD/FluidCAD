@@ -4,37 +4,37 @@ import { FilterBase } from "../filter-base.js";
 import { FaceQuery } from "../../oc/face-query.js";
 
 export class CircleFilter extends FilterBase<Face> {
-  constructor(private radius?: number) {
+  constructor(private diameter?: number) {
     super();
   }
 
   match(shape: Face): boolean {
-    return FaceQuery.isCircleFace(shape, this.radius);
+    return FaceQuery.isCircleFace(shape, this.diameter);
   }
 
   compareTo(other: CircleFilter): boolean {
-    return this.radius === other.radius;
+    return this.diameter === other.diameter;
   }
 
   transform(matrix: Matrix4): CircleFilter {
-    return new CircleFilter(this.radius);
+    return new CircleFilter(this.diameter);
   }
 }
 
 export class NotCircleFilter extends FilterBase<Face> {
-  constructor(private radius?: number) {
+  constructor(private diameter?: number) {
     super();
   }
 
   match(shape: Face): boolean {
-    return !FaceQuery.isCircleFace(shape, this.radius);
+    return !FaceQuery.isCircleFace(shape, this.diameter);
   }
 
   compareTo(other: NotCircleFilter): boolean {
-    return this.radius === other.radius;
+    return this.diameter === other.diameter;
   }
 
   transform(matrix: Matrix4): NotCircleFilter {
-    return new NotCircleFilter(this.radius);
+    return new NotCircleFilter(this.diameter);
   }
 }

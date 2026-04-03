@@ -112,10 +112,10 @@ describe("select", () => {
         expect(shapes).toHaveLength(2);
       });
 
-      it("should select circular faces with specific radius", () => {
+      it("should select circular faces with specific diameter", () => {
         cylinder(30, 50);
 
-        const sel = select(face().circle(30)) as SelectSceneObject;
+        const sel = select(face().circle(60)) as SelectSceneObject;
 
         render();
 
@@ -123,10 +123,10 @@ describe("select", () => {
         expect(shapes).toHaveLength(2);
       });
 
-      it("should not match circles with wrong radius", () => {
+      it("should not match circles with wrong diameter", () => {
         cylinder(30, 50);
 
-        const sel = select(face().circle(999)) as SelectSceneObject;
+        const sel = select(face().circle(1998)) as SelectSceneObject;
 
         render();
 
@@ -158,10 +158,10 @@ describe("select", () => {
         expect(shapes).toHaveLength(1);
       });
 
-      it("should select cylindrical faces with specific radius", () => {
+      it("should select cylindrical faces with specific diameter", () => {
         cylinder(30, 50);
 
-        const sel = select(face().cylinder(30)) as SelectSceneObject;
+        const sel = select(face().cylinder(60)) as SelectSceneObject;
 
         render();
 
@@ -184,7 +184,7 @@ describe("select", () => {
     describe("cone / notCone", () => {
       it("should select conical faces from a drafted extrusion", () => {
         sketch("xy", () => {
-          circle(30);
+          circle(60);
         });
         extrude(50).draft(10);
 
@@ -199,7 +199,7 @@ describe("select", () => {
 
       it("should select non-conical faces", () => {
         sketch("xy", () => {
-          circle(30);
+          circle(60);
         });
         extrude(50).draft(10);
 
@@ -359,10 +359,10 @@ describe("select", () => {
         expect(sel.getShapes()).toHaveLength(2);
       });
 
-      it("should select circular edges with specific radius", () => {
+      it("should select circular edges with specific diameter", () => {
         cylinder(30, 50);
 
-        const sel = select(edge().circle(30)) as SelectSceneObject;
+        const sel = select(edge().circle(60)) as SelectSceneObject;
 
         render();
 

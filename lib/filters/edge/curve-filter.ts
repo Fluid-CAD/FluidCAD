@@ -4,37 +4,37 @@ import { FilterBase } from "../filter-base.js";
 import { EdgeQuery } from "../../oc/edge-query.js";
 
 export class CircleCurveFilter extends FilterBase<Edge> {
-  constructor(private radius?: number) {
+  constructor(private diameter?: number) {
     super();
   }
 
   match(shape: Edge): boolean {
-    return EdgeQuery.isArcEdge(shape, this.radius);
+    return EdgeQuery.isArcEdge(shape, this.diameter);
   }
 
   compareTo(other: CircleCurveFilter): boolean {
-    return this.radius === other.radius;
+    return this.diameter === other.diameter;
   }
 
   transform(matrix: Matrix4): CircleCurveFilter {
-    return new CircleCurveFilter(this.radius);
+    return new CircleCurveFilter(this.diameter);
   }
 }
 
 export class NotCircleCurveFilter extends FilterBase<Edge> {
-  constructor(private radius?: number) {
+  constructor(private diameter?: number) {
     super();
   }
 
   match(shape: Edge): boolean {
-    return !EdgeQuery.isArcEdge(shape, this.radius);
+    return !EdgeQuery.isArcEdge(shape, this.diameter);
   }
 
   compareTo(other: NotCircleCurveFilter): boolean {
-    return this.radius === other.radius;
+    return this.diameter === other.diameter;
   }
 
   transform(matrix: Matrix4): NotCircleCurveFilter {
-    return new NotCircleCurveFilter(this.radius);
+    return new NotCircleCurveFilter(this.diameter);
   }
 }

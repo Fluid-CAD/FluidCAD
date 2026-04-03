@@ -9,13 +9,13 @@ import { IGeometry, ISceneObject } from "../interfaces.js";
 
 interface TCircleFunction {
   /**
-   * Draws a circle tangent to two objects with the given radius.
+   * Draws a circle tangent to two objects with the given diameter.
    * @param c1 - The first constraint object or point
    * @param c2 - The second constraint object or point
-   * @param radius - The circle radius
+   * @param diameter - The circle diameter
    * @param mustTouch - Whether the circle must touch both objects
    */
-  (c1: ISceneObject | QualifiedSceneObject | Point2DLike, c2: ISceneObject | QualifiedSceneObject | Point2DLike, radius: number, mustTouch?: boolean): IGeometry;
+  (c1: ISceneObject | QualifiedSceneObject | Point2DLike, c2: ISceneObject | QualifiedSceneObject | Point2DLike, diameter: number, mustTouch?: boolean): IGeometry;
 }
 
 function build(context: SceneParserContext): TCircleFunction {
@@ -25,15 +25,15 @@ function build(context: SceneParserContext): TCircleFunction {
       const o2 = isPoint2DLike(arguments[1]) ? normalizePoint2D(arguments[1] as Point2DLike) : arguments[1]
       const c1 = QualifiedSceneObject.from(o1);
       const c2 = QualifiedSceneObject.from(o2);
-      const radius: number = arguments[2];
+      const diameter: number = arguments[2];
       const mustTouch = typeof arguments[3] === 'boolean' ? arguments[3] : false;
 
-      const tangentCircle = new TwoObjectsTangentCircle(c1, c2, radius, mustTouch);
+      const tangentCircle = new TwoObjectsTangentCircle(c1, c2, diameter, mustTouch);
       context.addSceneObject(tangentCircle);
       return tangentCircle;
     }
     else {
-      throw new Error('Invalid arguments for tCircle: expected (c1, c2, radius) or (c1, c2, c3)');
+      throw new Error('Invalid arguments for tCircle: expected (c1, c2, diameter) or (c1, c2, c3)');
     }
   } as TCircleFunction;
 }

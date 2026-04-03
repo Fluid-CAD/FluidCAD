@@ -26,8 +26,8 @@ describe("tLine", () => {
   describe("tangent line between two objects", () => {
     it("should create a tangent line between two circles", () => {
       sketch("xy", () => {
-        const c1 = circle(20);
-        const c2 = circle([80, 0], 20);
+        const c1 = circle(40);
+        const c2 = circle([80, 0], 40);
         tLine(c1, c2);
       });
       const e = extrude(10) as ExtrudeBase;

@@ -153,26 +153,26 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
     return this;
   }
 
-  circle(radius?: number) {
-    const filter = new CircleFilter(radius);
+  circle(diameter?: number) {
+    const filter = new CircleFilter(diameter);
     this.filters.push(filter);
     return this;
   }
 
-  notCircle(radius?: number) {
-    const filter = new NotCircleFilter(radius);
+  notCircle(diameter?: number) {
+    const filter = new NotCircleFilter(diameter);
     this.filters.push(filter);
     return this;
   }
 
-  circleCurve(radius?: number) {
-    const filter = new CircleCurveFilter(radius);
+  circleCurve(diameter?: number) {
+    const filter = new CircleCurveFilter(diameter);
     this.filters.push(filter);
     return this;
   }
 
-  notCircleCurve(radius?: number) {
-    const filter = new NotCircleCurveFilter(radius);
+  notCircleCurve(diameter?: number) {
+    const filter = new NotCircleCurveFilter(diameter);
     this.filters.push(filter);
     return this;
   }

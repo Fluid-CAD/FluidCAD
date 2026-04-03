@@ -15,7 +15,7 @@ describe("polygon", () => {
   describe("face and edge count", () => {
     it("should create a triangle (5 faces, 9 edges)", () => {
       sketch("xy", () => {
-        polygon(3, 30);
+        polygon(3, 60);
       });
       const e = extrude(10) as ExtrudeBase;
       render();
@@ -27,7 +27,7 @@ describe("polygon", () => {
 
     it("should create a hexagon (8 faces, 18 edges)", () => {
       sketch("xy", () => {
-        polygon(6, 30);
+        polygon(6, 60);
       });
       const e = extrude(10) as ExtrudeBase;
       render();
@@ -39,7 +39,7 @@ describe("polygon", () => {
 
     it("should create an octagon (10 faces, 24 edges)", () => {
       sketch("xy", () => {
-        polygon(8, 30);
+        polygon(8, 60);
       });
       const e = extrude(10) as ExtrudeBase;
       render();
@@ -51,49 +51,49 @@ describe("polygon", () => {
   });
 
   describe("inscribed mode (default)", () => {
-    it("should place vertices on the circle of given radius", () => {
-      const radius = 40;
+    it("should place vertices on the circle of given diameter", () => {
+      const diameter = 80;
 
-      // Hexagon inscribed: vertices at distance R from center, bbox width = 2R
+      // Hexagon inscribed: vertices at distance D/2 from center, bbox width = D
       const s = sketch("xy", () => {
-        polygon(6, radius);
+        polygon(6, diameter);
       }) as Sketch;
       render();
 
       const shapes = s.getShapes({ excludeMeta: true });
       const bbox = getBoundingBoxOfShapes(shapes);
-      expect(bbox.maxX - bbox.minX).toBeCloseTo(2 * radius, 0);
+      expect(bbox.maxX - bbox.minX).toBeCloseTo(diameter, 0);
     });
 
-    it("should produce a square with bbox = 2R x 2R", () => {
-      const radius = 30;
+    it("should produce a square with bbox = D x D", () => {
+      const diameter = 60;
 
-      // Square inscribed: 4 vertices at angles 0, 90, 180, 270 → bbox = 2R x 2R
+      // Square inscribed: 4 vertices at angles 0, 90, 180, 270 → bbox = D x D
       const s = sketch("xy", () => {
-        polygon(4, radius);
+        polygon(4, diameter);
       }) as Sketch;
       render();
 
       const shapes = s.getShapes({ excludeMeta: true });
       const bbox = getBoundingBoxOfShapes(shapes);
-      expect(bbox.maxX - bbox.minX).toBeCloseTo(2 * radius, 0);
-      expect(bbox.maxY - bbox.minY).toBeCloseTo(2 * radius, 0);
+      expect(bbox.maxX - bbox.minX).toBeCloseTo(diameter, 0);
+      expect(bbox.maxY - bbox.minY).toBeCloseTo(diameter, 0);
     });
   });
 
   describe("circumscribed mode", () => {
-    it("should produce a larger shape than inscribed with same radius", () => {
-      const radius = 30;
+    it("should produce a larger shape than inscribed with same diameter", () => {
+      const diameter = 60;
 
       const s1 = sketch("xy", () => {
-        polygon(6, radius, "inscribed");
+        polygon(6, diameter, "inscribed");
       }) as Sketch;
       render();
       const inscribedBbox = ShapeOps.getBoundingBox(s1.getShapes({ excludeMeta: true })[0]);
       const inscribedWidth = inscribedBbox.maxX - inscribedBbox.minX;
 
       const s2 = sketch("xy", () => {
-        polygon(6, radius, "circumscribed");
+        polygon(6, diameter, "circumscribed");
       }) as Sketch;
       render();
       const circumscribedBbox = ShapeOps.getBoundingBox(s2.getShapes({ excludeMeta: true })[0]);
@@ -103,14 +103,14 @@ describe("polygon", () => {
     });
 
     it("should have correct vertex radius for hexagon", () => {
-      const radius = 30;
+      const diameter = 60;
       const n = 6;
 
-      // Circumscribed: vertices at radius / cos(π/n) from center
-      const effectiveRadius = radius / Math.cos(Math.PI / n);
+      // Circumscribed: vertices at (diameter/2) / cos(π/n) from center
+      const effectiveRadius = (diameter / 2) / Math.cos(Math.PI / n);
 
       const s = sketch("xy", () => {
-        polygon(n, radius, "circumscribed");
+        polygon(n, diameter, "circumscribed");
       }) as Sketch;
       render();
 
@@ -120,14 +120,14 @@ describe("polygon", () => {
     });
 
     it("should have correct vertex radius for square", () => {
-      const radius = 25;
+      const diameter = 50;
       const n = 4;
 
-      // Circumscribed square: vertices at radius * sqrt(2) from center
-      const effectiveRadius = radius / Math.cos(Math.PI / n);
+      // Circumscribed square: vertices at (diameter/2) * sqrt(2) from center
+      const effectiveRadius = (diameter / 2) / Math.cos(Math.PI / n);
 
       const s = sketch("xy", () => {
-        polygon(n, radius, "circumscribed");
+        polygon(n, diameter, "circumscribed");
       }) as Sketch;
       render();
 
@@ -141,7 +141,7 @@ describe("polygon", () => {
   describe("center position", () => {
     it("should create a polygon at a given center", () => {
       sketch("xy", () => {
-        polygon([50, 40], 6, 30);
+        polygon([50, 40], 6, 60);
       });
       const e = extrude(10) as ExtrudeBase;
       render();
@@ -153,7 +153,7 @@ describe("polygon", () => {
 
     it("should center circumscribed polygon at given point", () => {
       sketch("xy", () => {
-        polygon([20, 30], 6, 25, "circumscribed");
+        polygon([20, 30], 6, 50, "circumscribed");
       });
       const e = extrude(10) as ExtrudeBase;
       render();
@@ -166,7 +166,7 @@ describe("polygon", () => {
 
   describe("standalone with targetPlane", () => {
     it("should create a polygon on a specific plane", () => {
-      polygon(5, 25, "xy");
+      polygon(5, 50, "xy");
       const e = extrude(10) as ExtrudeBase;
       render();
 
@@ -175,7 +175,7 @@ describe("polygon", () => {
     });
 
     it("should create a circumscribed polygon on a specific plane", () => {
-      polygon(6, 30, "circumscribed", "xy");
+      polygon(6, 60, "circumscribed", "xy");
       const e = extrude(10) as ExtrudeBase;
       render();
 

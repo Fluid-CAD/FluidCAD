@@ -12,41 +12,41 @@ import { IPolygon, ISceneObject } from "../interfaces.js";
 
 interface PolygonFunction {
   /**
-   * Draws a regular polygon with the given number of sides and radius.
+   * Draws a regular polygon with the given number of sides and diameter.
    * @param numberOfSides - The number of sides
-   * @param radius - The circumscribed or inscribed radius
+   * @param diameter - The circumscribed or inscribed diameter
    * @param mode - `'inscribed'` or `'circumscribed'` (defaults to `'inscribed'`)
    */
-  (numberOfSides: number, radius: number, mode?: PolygonMode): IPolygon;
+  (numberOfSides: number, diameter: number, mode?: PolygonMode): IPolygon;
   /**
    * Draws a regular polygon at a given center point.
    * @param center - The center point
    * @param numberOfSides - The number of sides
-   * @param radius - The circumscribed or inscribed radius
+   * @param diameter - The circumscribed or inscribed diameter
    * @param mode - `'inscribed'` or `'circumscribed'` (defaults to `'inscribed'`)
    */
-  (center: Point2DLike, numberOfSides: number, radius: number, mode?: PolygonMode): IPolygon;
+  (center: Point2DLike, numberOfSides: number, diameter: number, mode?: PolygonMode): IPolygon;
   /**
    * Draws a regular polygon on a specific plane.
    * @param numberOfSides - The number of sides
-   * @param radius - The circumscribed or inscribed radius
+   * @param diameter - The circumscribed or inscribed diameter
    * @param targetPlane - The plane to draw on
    */
-  (numberOfSides: number, radius: number, targetPlane: PlaneLike | ISceneObject): IPolygon;
+  (numberOfSides: number, diameter: number, targetPlane: PlaneLike | ISceneObject): IPolygon;
   /**
    * Draws a regular polygon with a given mode on a specific plane.
    * @param numberOfSides - The number of sides
-   * @param radius - The circumscribed or inscribed radius
+   * @param diameter - The circumscribed or inscribed diameter
    * @param mode - `'inscribed'` or `'circumscribed'`
    * @param targetPlane - The plane to draw on
    */
-  (numberOfSides: number, radius: number, mode: PolygonMode, targetPlane: PlaneLike | ISceneObject): IPolygon;
+  (numberOfSides: number, diameter: number, mode: PolygonMode, targetPlane: PlaneLike | ISceneObject): IPolygon;
 }
 
 function build(context: SceneParserContext): PolygonFunction {
   return function polygon() {
     let numberOfSides: number;
-    let radius: number;
+    let diameter: number;
     let mode: PolygonMode;
     let center: LazyVertex;
     let poly: Polygon;
@@ -65,37 +65,37 @@ function build(context: SceneParserContext): PolygonFunction {
 
     if (argCount === 2) {
       numberOfSides = arguments[0] as number;
-      radius = arguments[1] as number;
+      diameter = arguments[1] as number;
       mode = 'inscribed';
 
-      poly = new Polygon(numberOfSides, radius, mode, planeObj);
+      poly = new Polygon(numberOfSides, diameter, mode, planeObj);
       context.addSceneObject(poly);
     }
     else if (argCount === 3) {
       if (typeof arguments[0] === 'number') {
         numberOfSides = arguments[0] as number;
-        radius = arguments[1] as number;
+        diameter = arguments[1] as number;
         mode = arguments[2] as PolygonMode;
 
-        poly = new Polygon(numberOfSides, radius, mode, planeObj);
+        poly = new Polygon(numberOfSides, diameter, mode, planeObj);
         context.addSceneObject(poly);
       } else {
         center = normalizePoint2D(arguments[0]);
         numberOfSides = arguments[1] as number;
-        radius = arguments[2] as number;
+        diameter = arguments[2] as number;
         mode = 'inscribed';
 
-        poly = new Polygon(numberOfSides, radius, mode, planeObj);
+        poly = new Polygon(numberOfSides, diameter, mode, planeObj);
         context.addSceneObjects([new Move(center), poly]);
       }
     }
     else if (argCount === 4) {
       center = normalizePoint2D(arguments[0]);
       numberOfSides = arguments[1] as number;
-      radius = arguments[2] as number;
+      diameter = arguments[2] as number;
       mode = arguments[3] as PolygonMode;
 
-      poly = new Polygon(numberOfSides, radius, mode, planeObj);
+      poly = new Polygon(numberOfSides, diameter, mode, planeObj);
       context.addSceneObjects([new Move(center), poly]);
     }
 

@@ -15,8 +15,8 @@ describe("constrained geometries", () => {
   describe("tLine between two circles", () => {
     it("should create a tangent line between two outside circles", () => {
       const s = sketch("xy", () => {
-        const c1 = circle(50);
-        const c2 = circle([200, 0], 30);
+        const c1 = circle(100);
+        const c2 = circle([200, 0], 60);
         tLine(outside(c1), outside(c2));
       }) as Sketch;
       render();
@@ -27,8 +27,8 @@ describe("constrained geometries", () => {
 
     it("should create a tangent line with enclosing constraint", () => {
       const s = sketch("xy", () => {
-        const c1 = circle(50);
-        const c2 = circle([200, 0], 30);
+        const c1 = circle(100);
+        const c2 = circle([200, 0], 60);
         tLine(enclosing(c1), enclosing(c2));
       }) as Sketch;
       render();
@@ -54,8 +54,8 @@ describe("constrained geometries", () => {
   describe("tLine result accessors", () => {
     it("should expose start and end points", () => {
       const s = sketch("xy", () => {
-        const c1 = circle(50);
-        const c2 = circle([200, 0], 30);
+        const c1 = circle(100);
+        const c2 = circle([200, 0], 60);
         const t = tLine(outside(c1), outside(c2));
         // start() and end() return LazyVertex / SceneObjects
         const startPt = t.start();
@@ -70,9 +70,9 @@ describe("constrained geometries", () => {
   describe("tCircle between two circles", () => {
     it("should create a tangent circle with outside constraints", () => {
       const s = sketch("xy", () => {
-        const c1 = circle(80);
-        const c2 = circle([200, 0], 30);
-        tCircle(outside(c1), outside(c2), 80).guide();
+        const c1 = circle(160);
+        const c2 = circle([200, 0], 60);
+        tCircle(outside(c1), outside(c2), 160).guide();
       }) as Sketch;
       render();
 
@@ -82,9 +82,9 @@ describe("constrained geometries", () => {
 
     it("should create a tangent circle with enclosing constraint", () => {
       const s = sketch("xy", () => {
-        const c1 = circle(80);
-        const c2 = circle([200, 0], 30);
-        tCircle(c1, enclosing(c2), 80).guide();
+        const c1 = circle(160);
+        const c2 = circle([200, 0], 60);
+        tCircle(c1, enclosing(c2), 160).guide();
       }) as Sketch;
       render();
 
@@ -96,7 +96,7 @@ describe("constrained geometries", () => {
   describe("tCircle between two points", () => {
     it("should create a tangent circle from two points", () => {
       const s = sketch("xy", () => {
-        tCircle([-50, 0], [50, 0], 150);
+        tCircle([-50, 0], [50, 0], 300);
       }) as Sketch;
       render();
 
@@ -109,8 +109,8 @@ describe("constrained geometries", () => {
     it("should create a tangent circle to a circle and a line", () => {
       const s = sketch("xy", () => {
         const l = aLine(150, 45);
-        const c = circle([100, 0], 30);
-        tCircle(c, l, 50).guide();
+        const c = circle([100, 0], 60);
+        tCircle(c, l, 100).guide();
       }) as Sketch;
       render();
 
@@ -125,7 +125,7 @@ describe("constrained geometries", () => {
         const l1 = aLine(300, 45);
         move([-50, 0]);
         const l2 = vLine(300);
-        tCircle(l1, l2, 100, true).guide();
+        tCircle(l1, l2, 200, true).guide();
       }) as Sketch;
       render();
 
@@ -137,8 +137,8 @@ describe("constrained geometries", () => {
   describe("tArc between two circles", () => {
     it("should create a tangent arc with outside constraints", () => {
       const s = sketch("xy", () => {
-        const c1 = circle(80);
-        const c2 = circle([200, 0], 30);
+        const c1 = circle(160);
+        const c2 = circle([200, 0], 60);
         tArc(outside(c1), outside(c2), 80).guide();
       }) as Sketch;
       render();
@@ -149,8 +149,8 @@ describe("constrained geometries", () => {
 
     it("should create a tangent arc with enclosing constraint", () => {
       const s = sketch("xy", () => {
-        const c1 = circle(85);
-        const c2 = circle([200, 0], 30);
+        const c1 = circle(170);
+        const c2 = circle([200, 0], 60);
         tArc(c1, enclosing(c2), 50).guide();
       }) as Sketch;
       render();
@@ -164,7 +164,7 @@ describe("constrained geometries", () => {
     it("should create a tangent arc to a circle and a line", () => {
       const s = sketch("xy", () => {
         const l = aLine(150, 45);
-        const c = circle([100, 0], 20);
+        const c = circle([100, 0], 40);
         tArc(c, l, 50).guide();
       }) as Sketch;
       render();
@@ -192,7 +192,7 @@ describe("constrained geometries", () => {
   describe("tArc between circle and point", () => {
     it("should create a tangent arc to a circle and a point", () => {
       const s = sketch("xy", () => {
-        const c = circle([100, 0], 20);
+        const c = circle([100, 0], 40);
         const p = [100, 50];
         tArc(outside(c), p, 100).guide();
       }) as Sketch;
@@ -221,8 +221,8 @@ describe("constrained geometries", () => {
   describe("constrained geometry produces extrudable shape", () => {
     it("should extrude a closed shape formed by tLine and tArc between circles", () => {
       sketch("xy", () => {
-        const c1 = circle(50);
-        const c2 = circle([200, 0], 30);
+        const c1 = circle(100);
+        const c2 = circle([200, 0], 60);
         const t1 = tLine(outside(c1), outside(c2));
         const t2 = tLine(enclosing(c1), enclosing(c2));
         tArc(t1.end(), t2.end(), t1.tangent());

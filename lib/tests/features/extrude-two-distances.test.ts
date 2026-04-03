@@ -88,8 +88,8 @@ describe("extrude two distances", () => {
   describe("fuse", () => {
     it("should fuse intersecting faces by default", () => {
       sketch("xy", () => {
-        circle([-25, 0], 50);
-        circle([25, 0], 50);
+        circle([-25, 0], 100);
+        circle([25, 0], 100);
       });
 
       const e = extrude(20, 10) as ExtrudeTwoDistances;
@@ -106,7 +106,7 @@ describe("extrude two distances", () => {
 
       sketch("xy", () => {
         move([25, 0]);
-        circle(50);
+        circle(100);
       });
 
       extrude(20, 10);
@@ -121,7 +121,7 @@ describe("extrude two distances", () => {
 
       sketch("xy", () => {
         move([0, 0]);
-        circle(50);
+        circle(100);
       });
 
       extrude(20, 10).fuse("none");
@@ -185,8 +185,8 @@ describe("extrude two distances", () => {
 
     it("should expose specific face by index for separate regions", () => {
       sketch("xy", () => {
-        circle(20);
-        circle([100, 0], 20);
+        circle(40);
+        circle([100, 0], 40);
       });
 
       const e = extrude(20, 10) as ExtrudeTwoDistances;
@@ -275,8 +275,8 @@ describe("extrude two distances", () => {
   describe("drill", () => {
     it("should drill hole when inner shape is nested (default)", () => {
       sketch("xy", () => {
-        circle(50);
-        circle(20);
+        circle(100);
+        circle(40);
       });
 
       const e = extrude(20, 10) as ExtrudeTwoDistances;
@@ -292,8 +292,8 @@ describe("extrude two distances", () => {
 
     it("should not drill hole when drill is false", () => {
       sketch("xy", () => {
-        circle(50);
-        circle(20);
+        circle(100);
+        circle(40);
       });
 
       const e = extrude(20, 10).drill(false) as ExtrudeTwoDistances;
@@ -311,8 +311,8 @@ describe("extrude two distances", () => {
   describe("pick", () => {
     it("should only extrude the picked region", () => {
       sketch("xy", () => {
-        circle(30);
-        circle([100, 0], 30);
+        circle(60);
+        circle([100, 0], 60);
       });
 
       const e = extrude(20, 10).pick([0, 0]) as ExtrudeTwoDistances;
@@ -326,7 +326,7 @@ describe("extrude two distances", () => {
 
     it("should produce no solid when pick point is outside all regions", () => {
       sketch("xy", () => {
-        circle(30);
+        circle(60);
       });
 
       const e = extrude(20, 10).pick([500, 500]) as ExtrudeTwoDistances;

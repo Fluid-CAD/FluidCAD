@@ -51,7 +51,7 @@ describe("revolve", () => {
     it("should produce a single solid torus", () => {
       sketch("xz", () => {
         move([30, 15]);
-        circle(10);
+        circle(20);
       });
 
       const r = revolve("z") as Revolve;
@@ -69,7 +69,7 @@ describe("revolve", () => {
 
       sketch("xz", () => {
         move([R, 15]);
-        circle(tubR);
+        circle(tubR * 2);
       });
 
       const r = revolve("z") as Revolve;
@@ -141,7 +141,7 @@ describe("revolve", () => {
     it("should produce circular end faces and a swept surface", () => {
       sketch("xz", () => {
         move([30, 15]);
-        circle(10);
+        circle(20);
       });
 
       const r = revolve("z", 180) as Revolve;
@@ -159,7 +159,7 @@ describe("revolve", () => {
     it("should have circular edges at the sweep ends", () => {
       sketch("xz", () => {
         move([30, 15]);
-        circle(10);
+        circle(20);
       });
 
       const r = revolve("z", 180) as Revolve;
@@ -252,9 +252,9 @@ describe("revolve", () => {
     it("should only revolve the picked region", () => {
       sketch("xz", () => {
         move([20, 0]);
-        circle(8);
+        circle(16);
         move([20, 30]);
-        circle(8);
+        circle(16);
       });
 
       const r = revolve("z", 360).pick([20, 0]) as Revolve;

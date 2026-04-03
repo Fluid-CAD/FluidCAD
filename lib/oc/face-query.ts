@@ -10,20 +10,20 @@ import { Face } from "../common/face.js";
 
 export class FaceQuery {
   // Wrapper methods (public API for external callers)
-  static isCircleFace(face: Shape, radius?: number): boolean {
-    return FaceQuery.isCircleFaceRaw(face.getShape(), radius);
+  static isCircleFace(face: Shape, diameter?: number): boolean {
+    return FaceQuery.isCircleFaceRaw(face.getShape(), diameter);
   }
 
   static isConeFace(face: Shape): boolean {
     return FaceQuery.isConeFaceRaw(face.getShape());
   }
 
-  static isCylinderFace(face: Shape, radius?: number): boolean {
-    return FaceQuery.isCylinderFaceRaw(face.getShape(), radius);
+  static isCylinderFace(face: Shape, diameter?: number): boolean {
+    return FaceQuery.isCylinderFaceRaw(face.getShape(), diameter);
   }
 
-  static isCylinderCurveFace(face: Shape, radius?: number): boolean {
-    return FaceQuery.isCylinderCurveFaceRaw(face.getShape(), radius);
+  static isCylinderCurveFace(face: Shape, diameter?: number): boolean {
+    return FaceQuery.isCylinderCurveFaceRaw(face.getShape(), diameter);
   }
 
   static isFaceOnPlane(face: Shape, plane: Plane): boolean {
@@ -106,7 +106,7 @@ export class FaceQuery {
   }
 
   // Raw methods (for oc-internal and common/ use)
-  static isCircleFaceRaw(face: TopoDS_Shape, radius?: number): boolean {
+  static isCircleFaceRaw(face: TopoDS_Shape, diameter?: number): boolean {
     const oc = getOC();
     const ocFace = oc.TopoDS.Face(face);
     const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
@@ -132,7 +132,7 @@ export class FaceQuery {
       }
 
       if (curveAdaptor.IsClosed()) {
-        if (radius === undefined) {
+        if (diameter === undefined) {
           curveAdaptor.delete();
           return true;
         }
@@ -141,7 +141,7 @@ export class FaceQuery {
         const r = circle.Radius();
         circle.delete();
         curveAdaptor.delete();
-        return Math.abs(r - radius) <= oc.Precision.Confusion();
+        return Math.abs(r - diameter / 2) <= oc.Precision.Confusion();
       }
 
       curveAdaptor.delete();
@@ -159,7 +159,7 @@ export class FaceQuery {
     return type === oc.GeomAbs_SurfaceType.GeomAbs_Cone;
   }
 
-  static isCylinderFaceRaw(face: TopoDS_Shape, radius?: number): boolean {
+  static isCylinderFaceRaw(face: TopoDS_Shape, diameter?: number): boolean {
     const oc = getOC();
     const ocFace = oc.TopoDS.Face(face);
     const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
@@ -176,7 +176,7 @@ export class FaceQuery {
       const curveAdaptor = new oc.BRepAdaptor_Curve(oc.TopoDS.Edge(edge));
       const curveType = curveAdaptor.GetType();
       if (curveAdaptor.IsClosed() && curveType === oc.GeomAbs_CurveType.GeomAbs_Circle) {
-        if (radius === undefined) {
+        if (diameter === undefined) {
           curveAdaptor.delete();
           return true;
         }
@@ -185,7 +185,7 @@ export class FaceQuery {
         const r = circle.Radius();
         circle.delete();
         curveAdaptor.delete();
-        return Math.abs(r - radius) <= oc.Precision.Confusion();
+        return Math.abs(r - diameter / 2) <= oc.Precision.Confusion();
       }
 
       curveAdaptor.delete();
@@ -194,7 +194,7 @@ export class FaceQuery {
     return false;
   }
 
-  static isCylinderCurveFaceRaw(face: TopoDS_Shape, radius?: number): boolean {
+  static isCylinderCurveFaceRaw(face: TopoDS_Shape, diameter?: number): boolean {
     const oc = getOC();
     const ocFace = oc.TopoDS.Face(face);
     const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
@@ -211,7 +211,7 @@ export class FaceQuery {
       const curveAdaptor = new oc.BRepAdaptor_Curve(oc.TopoDS.Edge(edge));
       const curveType = curveAdaptor.GetType();
       if (curveType === oc.GeomAbs_CurveType.GeomAbs_Circle && !curveAdaptor.IsClosed()) {
-        if (radius === undefined) {
+        if (diameter === undefined) {
           curveAdaptor.delete();
           return true;
         }
@@ -220,7 +220,7 @@ export class FaceQuery {
         const r = circle.Radius();
         circle.delete();
         curveAdaptor.delete();
-        return Math.abs(r - radius) <= oc.Precision.Confusion();
+        return Math.abs(r - diameter / 2) <= oc.Precision.Confusion();
       }
 
       curveAdaptor.delete();

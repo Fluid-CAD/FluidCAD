@@ -29,7 +29,7 @@ describe("move functions", () => {
         move([50, 50]);
         rect(20, 20);
         move();
-        circle(10);
+        circle(20);
       });
       const e = extrude(10) as ExtrudeBase;
       render();

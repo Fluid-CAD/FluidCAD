@@ -15,7 +15,7 @@ export type PolygonMode = 'inscribed' | 'circumscribed';
 export class Polygon extends ExtrudableGeometryBase implements IPolygon {
   constructor(
     public numberOfSides: number,
-    public radius: number,
+    public diameter: number,
     public mode: PolygonMode,
     targetPlane: PlaneObjectBase = null,
   ) {
@@ -36,9 +36,10 @@ export class Polygon extends ExtrudableGeometryBase implements IPolygon {
       ? plane.worldToLocal(this.targetPlane.getPlaneCenter())
       : this.getCurrentPosition();
 
-    let effectiveRadius = this.radius;
+    const radius = this.diameter / 2;
+    let effectiveRadius = radius;
     if (this.mode === 'circumscribed') {
-      effectiveRadius = this.radius / Math.cos(Math.PI / this.numberOfSides);
+      effectiveRadius = radius / Math.cos(Math.PI / this.numberOfSides);
     }
 
     const vertices: Point2D[] = [];
@@ -62,7 +63,7 @@ export class Polygon extends ExtrudableGeometryBase implements IPolygon {
 
     this.addShapes(edges);
 
-    const baseCircle = Geometry.makeCircle(plane.localToWorld(center), this.radius, plane.normal);
+    const baseCircle = Geometry.makeCircle(plane.localToWorld(center), radius, plane.normal);
     const baseCircleEdge = Geometry.makeEdgeFromCircle(baseCircle);
     baseCircleEdge.markAsMetaShape();
     this.addShape(baseCircleEdge);
@@ -82,7 +83,7 @@ export class Polygon extends ExtrudableGeometryBase implements IPolygon {
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
-    return new Polygon(this.numberOfSides, this.radius, this.mode, targetPlane);
+    return new Polygon(this.numberOfSides, this.diameter, this.mode, targetPlane);
   }
 
   compareTo(other: this): boolean {
@@ -103,7 +104,7 @@ export class Polygon extends ExtrudableGeometryBase implements IPolygon {
     }
 
     return this.numberOfSides === other.numberOfSides
-      && this.radius === other.radius
+      && this.diameter === other.diameter
       && this.mode === other.mode;
   }
 
@@ -130,7 +131,7 @@ export class Polygon extends ExtrudableGeometryBase implements IPolygon {
   serialize() {
     return {
       numberOfSides: this.numberOfSides,
-      radius: this.radius,
+      diameter: this.diameter,
       mode: this.mode,
     };
   }

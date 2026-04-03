@@ -6,7 +6,7 @@ import { ExtrudableGeometryBase } from "./extrudable-base.js";
 export type CircleOptions = {};
 
 export class Circle extends ExtrudableGeometryBase {
-  constructor(public radius: number, private options: CircleOptions = null, targetPlane: PlaneObjectBase = null) {
+  constructor(public diameter: number, private options: CircleOptions = null, targetPlane: PlaneObjectBase = null) {
     super(targetPlane);
   }
 
@@ -22,7 +22,8 @@ export class Circle extends ExtrudableGeometryBase {
 
     console.log('Circle: building edges')
 
-    const circle = Geometry.makeCircle(plane.localToWorld(center), this.radius, plane.normal);
+    const radius = this.diameter / 2;
+    const circle = Geometry.makeCircle(plane.localToWorld(center), radius, plane.normal);
 
     let edge = Geometry.makeEdgeFromCircle(circle);
 
@@ -40,7 +41,7 @@ export class Circle extends ExtrudableGeometryBase {
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
-    return new Circle(this.radius, this.options, targetPlane);
+    return new Circle(this.diameter, this.options, targetPlane);
   }
 
   compareTo(other: this): boolean {
@@ -60,13 +61,13 @@ export class Circle extends ExtrudableGeometryBase {
       return false;
     }
 
-    return this.radius === other.radius
+    return this.diameter === other.diameter
       && JSON.stringify(this.options) === JSON.stringify(other.options);
   }
 
   serialize() {
     return {
-      radius: this.radius,
+      diameter: this.diameter,
     }
   }
 

@@ -76,7 +76,7 @@ describe("cut symmetric", () => {
 
       sketch("xy", () => {
         move([25, 25]);
-        circle(20);
+        circle(40);
       });
       cut(true);
 
@@ -126,9 +126,9 @@ describe("cut symmetric", () => {
 
       sketch("xy", () => {
         move([25, 25]);
-        circle(15);
+        circle(30);
         move([75, 25]);
-        circle(15);
+        circle(30);
       });
       const c = cut(20, true).pick([25, 25]) as CutSymmetric;
 

@@ -280,8 +280,8 @@ describe("extrude to face", () => {
 
       sketch("xy", () => {
         move([200, 0]);
-        circle(50);
-        circle([200, 0], 20);
+        circle(100);
+        circle([200, 0], 40);
       });
       const e2 = extrude(e1.endFaces()) as ExtrudeToFace;
 
@@ -304,8 +304,8 @@ describe("extrude to face", () => {
 
       sketch("xy", () => {
         move([200, 0]);
-        circle(30);
-        circle([200, 100], 30);
+        circle(60);
+        circle([200, 100], 60);
       });
       const e2 = extrude(e1.endFaces()).pick([200, 0]) as ExtrudeToFace;
 

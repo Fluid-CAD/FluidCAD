@@ -61,8 +61,8 @@ describe("extrude", () => {
   describe("fuse", () => {
     it("should fuse intersecting faces by default", () => {
       sketch("xy", () => {
-        circle([-25, 0], 50);
-        circle([25, 0], 50);
+        circle([-25, 0], 100);
+        circle([25, 0], 100);
       }) as Sketch;
 
       const e = extrude() as Extrude;
@@ -79,7 +79,7 @@ describe("extrude", () => {
 
       sketch("xy", () => {
         move([25, 0]);
-        circle(50);
+        circle(100);
       }) as Sketch;
 
       extrude() as Extrude;
@@ -94,7 +94,7 @@ describe("extrude", () => {
 
       sketch("xy", () => {
         move([250, 0]);
-        circle(50);
+        circle(100);
       }) as Sketch;
 
       extrude() as Extrude;
@@ -109,7 +109,7 @@ describe("extrude", () => {
 
       sketch("xy", () => {
         move([0, 0]);
-        circle(50);
+        circle(100);
       }) as Sketch;
 
       extrude().fuse('none') as Extrude;
@@ -183,8 +183,8 @@ describe("extrude", () => {
 
     it("should expose multiple start and end faces for separate regions", () => {
       sketch("xy", () => {
-        circle(20);
-        circle([100, 0], 20);
+        circle(40);
+        circle([100, 0], 40);
       });
 
       const e = extrude(30) as Extrude;
@@ -200,8 +200,8 @@ describe("extrude", () => {
 
     it("should expose specific start face by index", () => {
       sketch("xy", () => {
-        circle(20);
-        circle([100, 0], 20);
+        circle(40);
+        circle([100, 0], 40);
       });
 
       const e = extrude(30) as Extrude;
@@ -219,8 +219,8 @@ describe("extrude", () => {
 
     it("should expose specific end face by index", () => {
       sketch("xy", () => {
-        circle(20);
-        circle([100, 0], 20);
+        circle(40);
+        circle([100, 0], 40);
       });
 
       const e = extrude(30) as Extrude;
@@ -570,8 +570,8 @@ describe("extrude", () => {
   describe("pick", () => {
     it("should only extrude the picked region", () => {
       sketch("xy", () => {
-        circle(30);
-        circle([100, 0], 30);
+        circle(60);
+        circle([100, 0], 60);
       });
 
       // Pick point inside the first circle only
@@ -586,8 +586,8 @@ describe("extrude", () => {
 
     it("should extrude multiple picked regions", () => {
       sketch("xy", () => {
-        circle(30);
-        circle([100, 0], 30);
+        circle(60);
+        circle([100, 0], 60);
       });
 
       // Pick points inside both circles
@@ -601,8 +601,8 @@ describe("extrude", () => {
 
     it("should extrude only the intersection region of two overlapping circles", () => {
       sketch("xy", () => {
-        circle([-20, 0], 40);
-        circle([20, 0], 40);
+        circle([-20, 0], 80);
+        circle([20, 0], 80);
       });
 
       // Pick at the center — inside the intersection of both circles
@@ -621,7 +621,7 @@ describe("extrude", () => {
 
     it("should produce no solid when pick point is outside all regions", () => {
       sketch("xy", () => {
-        circle(30);
+        circle(60);
       });
 
       const e = extrude(20).pick([500, 500]) as Extrude;
@@ -634,8 +634,8 @@ describe("extrude", () => {
 
     it("should add meta shapes for all cells", () => {
       sketch("xy", () => {
-        circle(30);
-        circle([100, 0], 30);
+        circle(60);
+        circle([100, 0], 60);
       });
 
       const e = extrude(20).pick([0, 0]) as Extrude;
@@ -656,8 +656,8 @@ describe("extrude", () => {
   describe("drill", () => {
     it("should drill hole when inner shape is nested (default)", () => {
       sketch("xy", () => {
-        circle(50);
-        circle(20);
+        circle(100);
+        circle(40);
       });
 
       const e = extrude(30) as Extrude;
@@ -674,8 +674,8 @@ describe("extrude", () => {
 
     it("should not drill hole when drill is false", () => {
       sketch("xy", () => {
-        circle(50);
-        circle(20);
+        circle(100);
+        circle(40);
       });
 
       const e = extrude(30).drill(false) as Extrude;
@@ -694,8 +694,8 @@ describe("extrude", () => {
   describe("internalFaces / internalEdges", () => {
     it("should expose internal faces for concentric circles (tube)", () => {
       sketch("xy", () => {
+        circle(80);
         circle(40);
-        circle(20);
       });
 
       const e = extrude(30) as Extrude;
@@ -712,8 +712,8 @@ describe("extrude", () => {
 
     it("should expose internal edges for concentric circles", () => {
       sketch("xy", () => {
+        circle(80);
         circle(40);
-        circle(20);
       });
 
       const e = extrude(30) as Extrude;
@@ -742,8 +742,8 @@ describe("extrude", () => {
 
     it("should filter internal faces by index", () => {
       sketch("xy", () => {
+        circle(80);
         circle(40);
-        circle(20);
       });
 
       const e = extrude(30) as Extrude;

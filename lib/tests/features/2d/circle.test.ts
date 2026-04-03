@@ -12,7 +12,7 @@ describe("circle", () => {
   setupOC();
 
   describe("in sketch", () => {
-    it("should create a circle with default radius", () => {
+    it("should create a circle with default diameter", () => {
       sketch("xy", () => {
         circle();
       });
@@ -20,14 +20,14 @@ describe("circle", () => {
       render();
 
       const solid = e.getShapes()[0] as Solid;
-      // Default radius is 20, so diameter = 40
+      // Default diameter is 40
       const bbox = ShapeOps.getBoundingBox(solid);
       expect(bbox.maxX - bbox.minX).toBeCloseTo(40, 0);
     });
 
-    it("should create a circle with given radius", () => {
+    it("should create a circle with given diameter", () => {
       sketch("xy", () => {
-        circle(30);
+        circle(60);
       });
       const e = extrude(10) as ExtrudeBase;
       render();
@@ -39,7 +39,7 @@ describe("circle", () => {
 
     it("should create a circle at a given center", () => {
       sketch("xy", () => {
-        circle([50, 30], 20);
+        circle([50, 30], 40);
       });
       const e = extrude(10) as ExtrudeBase;
       render();
@@ -51,7 +51,7 @@ describe("circle", () => {
 
     it("should produce a cylinder when extruded", () => {
       sketch("xy", () => {
-        circle(25);
+        circle(50);
       });
       const e = extrude(30) as ExtrudeBase;
       render();
@@ -65,7 +65,7 @@ describe("circle", () => {
 
   describe("standalone with targetPlane", () => {
     it("should create a circle on a specific plane", () => {
-      circle(30, "xy");
+      circle(60, "xy");
       const e = extrude(10) as ExtrudeBase;
       render();
 

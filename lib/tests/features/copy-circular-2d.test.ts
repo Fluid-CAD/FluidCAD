@@ -12,7 +12,7 @@ describe("copy circular 2D", () => {
 
   it("should create 2D circular copies inside a sketch", () => {
     sketch("xy", () => {
-      const c = circle([30, 0], 10);
+      const c = circle([30, 0], 20);
       copy("circular", [0, 0], { count: 4, angle: 360 }, c);
     });
 
@@ -26,7 +26,7 @@ describe("copy circular 2D", () => {
 
   it("should place copies symmetrically around the center", () => {
     sketch("xy", () => {
-      const c = circle([30, 0], 10);
+      const c = circle([30, 0], 20);
       copy("circular", [0, 0], { count: 4, angle: 360 }, c);
     });
 

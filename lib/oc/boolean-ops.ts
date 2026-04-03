@@ -6,6 +6,7 @@ import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { Edge } from "../common/edge.js";
+import { Face } from "../common/face.js";
 import { EdgeOps } from "./edge-ops.js";
 import { Plane } from "../math/plane.js";
 
@@ -61,9 +62,10 @@ export class BooleanOps {
       ShapeOps.shapeListToArray(cutMaker.Modified(shape.getShape()))
         .map(s => ShapeFactory.fromShape(s));
 
-    // Build a map of all edges that came from the original stocks (unchanged or modified).
-    // Any result edge not in this map is a new edge created by the cut (both opening and floor edges).
+    // Build maps of all edges and faces that came from the original stocks (unchanged or modified).
+    // Any result edge/face not in these maps is new, created by the cut.
     const stockEdgeMap = new oc.TopTools_MapOfShape();
+    const stockFaceMap = new oc.TopTools_MapOfShape();
     for (const stock of stocks) {
       const rawEdges = Explorer.findShapes(stock.getShape(), Explorer.getOcShapeType("edge"));
       for (const rawEdge of rawEdges) {
@@ -72,6 +74,17 @@ export class BooleanOps {
         const modifiedList = cutMaker.Modified(rawEdge);
         while (modifiedList.Size() > 0) {
           stockEdgeMap.Add(modifiedList.First());
+          modifiedList.RemoveFirst();
+        }
+        modifiedList.delete();
+      }
+
+      const rawFaces = Explorer.findShapes(stock.getShape(), Explorer.getOcShapeType("face"));
+      for (const rawFace of rawFaces) {
+        stockFaceMap.Add(rawFace);
+        const modifiedList = cutMaker.Modified(rawFace);
+        while (modifiedList.Size() > 0) {
+          stockFaceMap.Add(modifiedList.First());
           modifiedList.RemoveFirst();
         }
         modifiedList.delete();
@@ -112,12 +125,18 @@ export class BooleanOps {
       }
     }
 
+    const resultRawFaces = Explorer.findShapes(result, Explorer.getOcShapeType("face"));
+    const internalFaces = resultRawFaces
+      .filter(rf => !stockFaceMap.Contains(rf))
+      .map(rf => Face.fromTopoDSFace(Explorer.toFace(rf)));
+
     stockEdgeMap.delete();
+    stockFaceMap.delete();
     progress.delete();
     stockList.delete();
     toolList.delete();
 
-    return { result: wrappedResult, modified, sectionEdges, startEdges, endEdges, internalEdges };
+    return { result: wrappedResult, modified, sectionEdges, startEdges, endEdges, internalEdges, internalFaces };
   }
 
   static fuse(args: Shape[]): {

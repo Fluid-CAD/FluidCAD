@@ -130,7 +130,10 @@ export interface IExtrude extends ISceneObject {
 export interface ICut extends ISceneObject {
   draft(value: number | [number, number]): this;
   endOffset(value: number): this;
-  internalEdges(...indices: number[]): ISceneObject;
+  startEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  endEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  internalFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
   pick(...points: Point2DLike[]): this;
 }
 

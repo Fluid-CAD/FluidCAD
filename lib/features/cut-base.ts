@@ -1,16 +1,21 @@
 import { Face } from "../common/face.js";
+import { Edge } from "../common/edge.js";
+import { Shape } from "../common/shape.js";
 import { SceneObject } from "../common/scene-object.js";
 import { ExtrudeOptions } from "./extrude-options.js";
 import { Extrudable } from "../helpers/types.js";
 import { LazySceneObject } from "./lazy-scene-object.js";
 import { LazyVertex } from "./lazy-vertex.js";
-import { Edge } from "../common/edge.js";
 import { ICut } from "../core/interfaces.js";
 import { Point2DLike } from "../math/point.js";
 import { Plane } from "../math/plane.js";
 import { normalizePoint2D } from "../helpers/normalize.js";
 import { FaceOps } from "../oc/face-ops.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
+import { FaceFilterBuilder } from "../filters/face/face-filter.js";
+import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
+import { FilterBuilderBase } from "../filters/filter-builder-base.js";
+import { ShapeFilter } from "../filters/filter.js";
 
 export interface CutOptions extends ExtrudeOptions { }
 
@@ -177,14 +182,62 @@ export abstract class CutBase extends SceneObject implements ICut {
     return true;
   }
 
-  internalEdges(...indices: number[]): SceneObject {
-    const suffix = indices.length > 0 ? `internal-edges-${indices.join('-')}` : 'internal-edges';
+  startEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
+    const suffix = this.buildSuffix('start-edges', args);
+    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+      () => {
+        const edges = this.getState('start-edges') as Edge[] || [];
+        return this.resolveShapes(edges, args);
+      });
+  }
+
+  endEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
+    const suffix = this.buildSuffix('end-edges', args);
+    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+      () => {
+        const edges = this.getState('end-edges') as Edge[] || [];
+        return this.resolveShapes(edges, args);
+      });
+  }
+
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
+    const suffix = this.buildSuffix('internal-edges', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
       () => {
         const edges = this.getState('internal-edges') as Edge[] || [];
-        if (indices.length === 0) { return edges; }
-        return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
+        return this.resolveShapes(edges, args);
       });
+  }
+
+  internalFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
+    const suffix = this.buildSuffix('internal-faces', args);
+    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+      () => {
+        const faces = this.getState('internal-faces') as Face[] || [];
+        return this.resolveShapes(faces, args);
+      });
+  }
+
+  private buildSuffix(prefix: string, args: any[]): string {
+    if (args.length === 0) {
+      return prefix;
+    }
+    const key = args.map(a => typeof a === 'number' ? a : 'f').join('-');
+    return `${prefix}-${key}`;
+  }
+
+  private resolveShapes<T extends Shape>(shapes: T[], args: (number | FilterBuilderBase<T>)[]): T[] {
+    if (args.length === 0) {
+      return shapes;
+    }
+
+    if (args.every(a => typeof a === 'number')) {
+      const indices = args as number[];
+      return indices.filter(i => i >= 0 && i < shapes.length).map(i => shapes[i]);
+    }
+
+    const filters = args.filter(a => a instanceof FilterBuilderBase) as FilterBuilderBase<T>[];
+    return new ShapeFilter(shapes as any, ...filters).apply() as T[];
   }
 
   getType(): string {

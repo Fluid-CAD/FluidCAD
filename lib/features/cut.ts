@@ -108,6 +108,7 @@ export class Cut extends CutBase {
     this.setState('start-edges', cutResult.startEdges);
     this.setState('end-edges', cutResult.endEdges);
     this.setState('internal-edges', cutResult.internalEdges);
+    this.setState('internal-faces', cutResult.internalFaces);
   }
 
   override getDependencies(): SceneObject[] {
@@ -142,26 +143,6 @@ export class Cut extends CutBase {
     return new LazySceneObject(`${this.getOrder()}-cut-${suffix}`,
       () => {
         const edges = this.getState('section-edges') as Edge[] || [];
-        if (indices.length === 0) { return edges; }
-        return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
-      });
-  }
-
-  startEdges(...indices: number[]): SceneObject {
-    const suffix = indices.length > 0 ? `start-edges-${indices.join('-')}` : 'start-edges';
-    return new LazySceneObject(`${this.getOrder()}-cut-${suffix}`,
-      () => {
-        const edges = this.getState('start-edges') as Edge[] || [];
-        if (indices.length === 0) { return edges; }
-        return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
-      });
-  }
-
-  endEdges(...indices: number[]): SceneObject {
-    const suffix = indices.length > 0 ? `end-edges-${indices.join('-')}` : 'end-edges';
-    return new LazySceneObject(`${this.getOrder()}-cut-${suffix}`,
-      () => {
-        const edges = this.getState('end-edges') as Edge[] || [];
         if (indices.length === 0) { return edges; }
         return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
       });

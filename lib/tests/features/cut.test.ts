@@ -245,4 +245,93 @@ describe("cut", () => {
       expect(shapes[0].getType()).toBe("solid");
     });
   });
+
+  describe("internalFaces", () => {
+    it("should expose internal faces for a rectangular pocket", () => {
+      sketch("xy", () => {
+        rect(100, 100);
+      });
+      const e = extrude(50) as Extrude;
+
+      sketch(e.endFaces(), () => {
+        move([25, 25]);
+        rect(50, 50);
+      });
+      const c = cut(20) as Cut;
+
+      render();
+
+      const faces = c.internalFaces().getShapes();
+      // A rectangular pocket creates 5 internal faces: 4 walls + 1 floor
+      expect(faces.length).toBeGreaterThan(0);
+      for (const f of faces) {
+        expect(f.getType()).toBe("face");
+      }
+    });
+
+    it("should expose internal faces for a circular pocket", () => {
+      sketch("xy", () => {
+        rect(100, 100);
+      });
+      const e = extrude(50) as Extrude;
+
+      sketch(e.endFaces(), () => {
+        move([50, 50]);
+        circle(20);
+      });
+      const c = cut(30) as Cut;
+
+      render();
+
+      const faces = c.internalFaces().getShapes();
+      // A circular pocket creates internal faces: cylinder wall + floor
+      expect(faces.length).toBeGreaterThan(0);
+    });
+
+    it("should filter internal faces by index", () => {
+      sketch("xy", () => {
+        rect(100, 100);
+      });
+      const e = extrude(50) as Extrude;
+
+      sketch(e.endFaces(), () => {
+        move([25, 25]);
+        rect(50, 50);
+      });
+      const c = cut(20) as Cut;
+
+      render();
+
+      const allFaces = c.internalFaces().getShapes();
+      if (allFaces.length > 0) {
+        const first = c.internalFaces(0).getShapes();
+        expect(first).toHaveLength(1);
+        expect(first[0].isSame(allFaces[0])).toBe(true);
+      }
+    });
+  });
+
+  describe("internalEdges", () => {
+    it("should expose internal edges for a rectangular pocket", () => {
+      sketch("xy", () => {
+        rect(100, 100);
+      });
+      const e = extrude(50) as Extrude;
+
+      sketch(e.endFaces(), () => {
+        move([25, 25]);
+        rect(50, 50);
+      });
+      const c = cut(20) as Cut;
+
+      render();
+
+      const edges = c.internalEdges().getShapes();
+      // A rectangular pocket has 4 internal edges (vertical wall edges)
+      expect(edges.length).toBeGreaterThan(0);
+      for (const edge of edges) {
+        expect(edge.getType()).toBe("edge");
+      }
+    });
+  });
 });

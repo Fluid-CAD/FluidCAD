@@ -434,6 +434,18 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this._fusionScope || 'all';
   }
 
+  resolveFusionScope(sceneObjects: SceneObject[]): SceneObject[] {
+    const scope = this.getFusionScope();
+    if (scope === 'none') {
+      return [];
+    } else if (scope instanceof SceneObject) {
+      return [scope];
+    } else if (Array.isArray(scope)) {
+      return scope;
+    }
+    return sceneObjects;
+  }
+
   fuse(value: 'all' | 'none'): this;
   fuse(object: ISceneObject): this;
   fuse(...objects: ISceneObject[]): this;

@@ -110,9 +110,9 @@ export class Revolve extends ExtrudeBase implements IRevolve {
     this.extrudable.removeShapes(this);
     this.axis.removeShapes(this);
 
-    const sceneObjects = context.getSceneObjects();
+    const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
 
-    if (this.getFusionScope() === 'none' || !sceneObjects.length) {
+    if (sceneObjects.length === 0) {
       this.addShapes(solids);
       return;
     }

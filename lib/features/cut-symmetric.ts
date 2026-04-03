@@ -24,8 +24,9 @@ export class CutSymmetric extends CutBase {
       return;
     }
 
+    const scope = this.resolveFusionScope(context.getSceneObjects());
     const sceneObjects = new Map<SceneObject, Shape[]>();
-    for (const obj of context.getSceneObjects()) {
+    for (const obj of scope) {
       const shapes = obj.getShapes({ excludeMeta: false }, 'solid');
       if (shapes.length === 0) {
         continue;

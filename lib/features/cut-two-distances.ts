@@ -27,15 +27,7 @@ export class CutTwoDistances extends CutBase {
       return;
     }
 
-    let scope = context.getSceneObjects();
-
-    if (this.getFusionScope() === 'none') {
-      scope = [];
-    } else if (this.getFusionScope() instanceof SceneObject) {
-      scope = [this.getFusionScope() as SceneObject];
-    } else if (Array.isArray(this.getFusionScope())) {
-      scope = this.getFusionScope() as SceneObject[];
-    }
+    const scope = this.resolveFusionScope(context.getSceneObjects());
 
     const sceneObjects = new Map<SceneObject, Shape[]>();
     for (const obj of scope) {

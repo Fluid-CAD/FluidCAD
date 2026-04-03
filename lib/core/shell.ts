@@ -2,20 +2,20 @@ import { Shell } from "../features/shell.js";
 import { SceneObject } from "../common/scene-object.js";
 import { SelectSceneObject } from "../features/select.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
-import { ISceneObject } from "./interfaces.js";
+import { ISceneObject, IShell } from "./interfaces.js";
 
 interface ShellFunction {
   /**
    * Hollows out a solid with the given wall thickness.
    * @param thickness - The wall thickness (defaults to 2.5)
    */
-  (thickness?: number): ISceneObject;
+  (thickness?: number): IShell;
   /**
    * Hollows out a solid, removing the selected face.
    * @param thickness - The wall thickness
    * @param selection - The face selection to remove
    */
-  (thickness: number, selection: ISceneObject): ISceneObject;
+  (thickness: number, selection: ISceneObject): IShell;
 }
 
 function build(context: SceneParserContext): ShellFunction {

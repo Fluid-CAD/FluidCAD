@@ -2,10 +2,10 @@ const CLOSE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" s
 
 export class ExportDialog {
   private overlay: HTMLDivElement;
-  private formatSelect: HTMLSelectElement;
+  private pillsContainer: HTMLDivElement;
   private stepSection: HTMLDivElement;
   private stlSection: HTMLDivElement;
-  private includeColorsCheckbox: HTMLInputElement;
+  private includeColorsToggle: HTMLInputElement;
   private resolutionSelect: HTMLSelectElement;
   private customSection: HTMLDivElement;
   private angularInput: HTMLInputElement;
@@ -13,6 +13,7 @@ export class ExportDialog {
   private exportBtn: HTMLButtonElement;
   private statusEl: HTMLDivElement;
   private shapeIds: string[] = [];
+  private selectedFormat: string = 'step';
 
   constructor(container: HTMLElement) {
     this.overlay = document.createElement('div');
@@ -20,10 +21,10 @@ export class ExportDialog {
     this.overlay.innerHTML = this.buildHTML();
     container.appendChild(this.overlay);
 
-    this.formatSelect = this.overlay.querySelector('[data-ref="format"]')!;
+    this.pillsContainer = this.overlay.querySelector('[data-ref="format-pills"]')!;
     this.stepSection = this.overlay.querySelector('[data-ref="step-section"]')!;
     this.stlSection = this.overlay.querySelector('[data-ref="stl-section"]')!;
-    this.includeColorsCheckbox = this.overlay.querySelector('[data-ref="include-colors"]')!;
+    this.includeColorsToggle = this.overlay.querySelector('[data-ref="include-colors"]')!;
     this.resolutionSelect = this.overlay.querySelector('[data-ref="resolution"]')!;
     this.customSection = this.overlay.querySelector('[data-ref="custom-section"]')!;
     this.angularInput = this.overlay.querySelector('[data-ref="angular"]')!;
@@ -47,7 +48,7 @@ export class ExportDialog {
 
   private buildHTML(): string {
     return `
-      <div class="w-[380px] glass-dark border border-white/10 rounded-lg p-5 shadow-[0_4px_24px_rgba(0,0,0,0.5)]">
+      <div class="w-[380px] bg-base-100 border border-white/10 rounded-lg p-5 shadow-[0_4px_24px_rgba(0,0,0,0.5)]">
         <div class="flex items-center justify-between mb-4">
           <h3 class="text-sm font-medium text-base-content/90">Export</h3>
           <button data-ref="close-btn" class="btn btn-ghost btn-square btn-xs text-base-content/60">
@@ -57,17 +58,17 @@ export class ExportDialog {
 
         <div class="flex flex-col gap-3">
           <div>
-            <label class="text-xs text-base-content/60 mb-1 block">Format</label>
-            <select data-ref="format" class="select select-sm select-bordered w-full">
-              <option value="step">STEP (.step)</option>
-              <option value="stl">STL (.stl)</option>
-            </select>
+            <label class="text-xs text-base-content/60 mb-1.5 block">Format</label>
+            <div data-ref="format-pills" class="flex gap-1 bg-base-300/50 rounded-lg p-1">
+              <button data-format="step" class="flex-1 text-xs py-1.5 rounded-md transition-all bg-primary/20 text-primary font-medium">STEP</button>
+              <button data-format="stl" class="flex-1 text-xs py-1.5 rounded-md transition-all text-base-content/50 hover:text-base-content/70">STL</button>
+            </div>
           </div>
 
           <div data-ref="step-section">
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" data-ref="include-colors" class="checkbox checkbox-sm checkbox-primary" checked />
+            <label class="flex items-center justify-between cursor-pointer">
               <span class="text-xs text-base-content/70">Include colors</span>
+              <input type="checkbox" data-ref="include-colors" class="toggle toggle-sm toggle-primary" checked />
             </label>
           </div>
 
@@ -84,7 +85,7 @@ export class ExportDialog {
 
             <div data-ref="custom-section" class="hidden flex gap-2">
               <div class="flex-1">
-                <label class="text-xs text-base-content/60 mb-1 block">Angular Deviation (deg)</label>
+                <label class="text-xs text-base-content/60 mb-1 block">Angular Deflection (deg)</label>
                 <input data-ref="angular" type="number" class="input input-sm input-bordered w-full" value="17" min="1" max="90" step="1" />
               </div>
               <div class="flex-1">
@@ -108,6 +109,22 @@ export class ExportDialog {
     `;
   }
 
+  private setFormat(format: string): void {
+    this.selectedFormat = format;
+    const isStep = format === 'step';
+    this.stepSection.classList.toggle('hidden', !isStep);
+    this.stlSection.classList.toggle('hidden', isStep);
+
+    this.pillsContainer.querySelectorAll<HTMLButtonElement>('[data-format]').forEach((btn) => {
+      const active = btn.dataset.format === format;
+      btn.className = `flex-1 text-xs py-1.5 rounded-md transition-all ${
+        active
+          ? 'bg-primary/20 text-primary font-medium'
+          : 'text-base-content/50 hover:text-base-content/70'
+      }`;
+    });
+  }
+
   private bindEvents(): void {
     this.overlay.querySelector('[data-ref="close-btn"]')!.addEventListener('click', () => this.hide());
     this.overlay.querySelector('[data-ref="cancel-btn"]')!.addEventListener('click', () => this.hide());
@@ -118,10 +135,8 @@ export class ExportDialog {
       }
     });
 
-    this.formatSelect.addEventListener('change', () => {
-      const isStep = this.formatSelect.value === 'step';
-      this.stepSection.classList.toggle('hidden', !isStep);
-      this.stlSection.classList.toggle('hidden', isStep);
+    this.pillsContainer.querySelectorAll<HTMLButtonElement>('[data-format]').forEach((btn) => {
+      btn.addEventListener('click', () => this.setFormat(btn.dataset.format!));
     });
 
     this.resolutionSelect.addEventListener('change', () => {
@@ -132,11 +147,11 @@ export class ExportDialog {
   }
 
   private async onExport(): Promise<void> {
-    const format = this.formatSelect.value;
+    const format = this.selectedFormat;
     const body: Record<string, any> = { format, shapeIds: this.shapeIds };
 
     if (format === 'step') {
-      body.includeColors = this.includeColorsCheckbox.checked;
+      body.includeColors = this.includeColorsToggle.checked;
     } else {
       body.resolution = this.resolutionSelect.value;
       if (body.resolution === 'custom') {

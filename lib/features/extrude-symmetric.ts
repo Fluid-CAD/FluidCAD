@@ -4,7 +4,6 @@ import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { Face } from "../common/face.js";
-import { LazySceneObject } from "./lazy-scene-object.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
@@ -36,17 +35,28 @@ export class ExtrudeSymmetric extends ExtrudeBase {
     const extrusions2 = extruder2.extrude();
     const endFaces = extruder2.getEndFaces();
 
+    const preFusionInternalFaces = [
+      ...extruder1.getInternalFaces(),
+      ...extruder2.getInternalFaces(),
+    ];
+
     const all = [...extrusions1, ...extrusions2];
     const { result: extrusions } = BooleanOps.fuse(all);
 
     const sideFaces: Face[] = [];
+    const internalFaces: Face[] = [];
     for (const solid of extrusions) {
       const allFaces = Explorer.findFacesWrapped(solid);
       for (const f of allFaces) {
         const isStart = startFaces.some(sf => f.getShape().IsSame(sf.getShape()));
         const isEnd = endFaces.some(ef => f.getShape().IsSame(ef.getShape()));
         if (!isStart && !isEnd) {
-          sideFaces.push(f as Face);
+          const isInternal = preFusionInternalFaces.some(pf => f.getShape().IsSame(pf.getShape()));
+          if (isInternal) {
+            internalFaces.push(f as Face);
+          } else {
+            sideFaces.push(f as Face);
+          }
         }
       }
     }
@@ -54,6 +64,7 @@ export class ExtrudeSymmetric extends ExtrudeBase {
     this.setState('start-faces', startFaces);
     this.setState('end-faces', endFaces);
     this.setState('side-faces', sideFaces);
+    this.setState('internal-faces', internalFaces);
 
     this.extrudable.removeShapes(this);
 
@@ -73,62 +84,6 @@ export class ExtrudeSymmetric extends ExtrudeBase {
     }
 
     this.addShapes(fusionResult.newShapes);
-  }
-
-  private getUniqueName(suffix: string) {
-    return `${this.getOrder()}-${this.getUniqueType()}-${suffix}`;
-  }
-
-  startFace(...indices: number[]): SceneObject {
-    const suffix = indices.length > 0 ? `start-faces-${indices.join('-')}` : 'start-faces';
-    return new LazySceneObject(`${this.getUniqueName(suffix)}`,
-      () => {
-        const faces = this.getState('start-faces') as Face[] || [];
-        if (indices.length === 0) return faces.length > 0 ? [faces[0]] : [];
-        return indices.filter(i => i >= 0 && i < faces.length).map(i => faces[i]);
-      });
-  }
-
-  endFace(...indices: number[]): SceneObject {
-    const suffix = indices.length > 0 ? `end-faces-${indices.join('-')}` : 'end-faces';
-    return new LazySceneObject(`${this.getUniqueName(suffix)}`,
-      () => {
-        const faces = this.getState('end-faces') as Face[] || [];
-        if (indices.length === 0) return faces.length > 0 ? [faces[0]] : [];
-        return indices.filter(i => i >= 0 && i < faces.length).map(i => faces[i]);
-      });
-  }
-
-  startEdge(...indices: number[]): SceneObject {
-    const suffix = indices.length > 0 ? `start-edges-${indices.join('-')}` : 'start-edges';
-    return new LazySceneObject(`${this.getUniqueName(suffix)}`,
-      () => {
-        const faces = this.getState('start-faces') as Face[] || [];
-        const edges = faces.flatMap(f => f.getEdges());
-        if (indices.length === 0) return edges;
-        return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
-      });
-  }
-
-  endEdge(...indices: number[]): SceneObject {
-    const suffix = indices.length > 0 ? `end-edges-${indices.join('-')}` : 'end-edges';
-    return new LazySceneObject(`${this.getUniqueName(suffix)}`,
-      () => {
-        const faces = this.getState('end-faces') as Face[] || [];
-        const edges = faces.flatMap(f => f.getEdges());
-        if (indices.length === 0) return edges;
-        return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
-      });
-  }
-
-  sideFace(...indices: number[]): SceneObject {
-    const suffix = indices.length > 0 ? `side-faces-${indices.join('-')}` : 'side-faces';
-    return new LazySceneObject(`${this.getUniqueName(suffix)}`,
-      () => {
-        const faces = this.getState('side-faces') as Face[] || [];
-        if (indices.length === 0) return faces.length > 0 ? [faces[0]] : [];
-        return indices.filter(i => i >= 0 && i < faces.length).map(i => faces[i]);
-      });
   }
 
   override getDependencies(): SceneObject[] {

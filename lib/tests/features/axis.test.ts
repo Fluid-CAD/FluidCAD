@@ -84,7 +84,7 @@ describe("axis", () => {
       });
       const e = extrude(30) as Extrude;
 
-      const a = axis(e.startEdge(0)) as AxisObjectBase;
+      const a = axis(e.startEdges(0)) as AxisObjectBase;
 
       render();
 
@@ -103,7 +103,7 @@ describe("axis", () => {
       });
       const e = extrude(30) as Extrude;
 
-      const a = axis(e.endEdge(0)) as AxisObjectBase;
+      const a = axis(e.endEdges(0)) as AxisObjectBase;
 
       render();
 
@@ -118,7 +118,7 @@ describe("axis", () => {
       });
       const e = extrude(30) as Extrude;
 
-      const a = axis(e.startEdge(0), { offsetZ: 15 }) as AxisObjectBase;
+      const a = axis(e.startEdges(0), { offsetZ: 15 }) as AxisObjectBase;
 
       render();
 

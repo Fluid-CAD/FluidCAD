@@ -99,7 +99,7 @@ describe("plane", () => {
       });
       const e = extrude(40) as Extrude;
 
-      const p = plane(e.endFace()) as PlaneObjectBase;
+      const p = plane(e.endFaces()) as PlaneObjectBase;
 
       render();
 
@@ -114,7 +114,7 @@ describe("plane", () => {
       });
       const e = extrude(40) as Extrude;
 
-      const p = plane(e.startFace()) as PlaneObjectBase;
+      const p = plane(e.startFaces()) as PlaneObjectBase;
 
       render();
 
@@ -143,7 +143,7 @@ describe("plane", () => {
       });
       const e = extrude(40) as Extrude;
 
-      const p = plane(e.endFace(), { offset: 10 }) as PlaneObjectBase;
+      const p = plane(e.endFaces(), { offset: 10 }) as PlaneObjectBase;
 
       render();
 
@@ -194,8 +194,8 @@ describe("plane", () => {
       });
       const e = extrude(60) as Extrude;
 
-      const pStart = plane(e.startFace()) as PlaneObjectBase;
-      const pEnd = plane(e.endFace()) as PlaneObjectBase;
+      const pStart = plane(e.startFaces()) as PlaneObjectBase;
+      const pEnd = plane(e.endFaces()) as PlaneObjectBase;
       const mid = plane(pStart, pEnd) as PlaneObjectBase;
 
       render();

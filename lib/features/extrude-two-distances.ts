@@ -38,17 +38,28 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
     const extrusions2 = extruder2.extrude();
     const endFaces = extruder2.getEndFaces();
 
+    const preFusionInternalFaces = [
+      ...extruder1.getInternalFaces(),
+      ...extruder2.getInternalFaces(),
+    ];
+
     const all = [...extrusions1, ...extrusions2];
     const { result: extrusions } = BooleanOps.fuse(all);
 
     const sideFaces: Face[] = [];
+    const internalFaces: Face[] = [];
     for (const solid of extrusions) {
       const allFaces = Explorer.findFacesWrapped(solid);
       for (const f of allFaces) {
         const isStart = startFaces.some(sf => f.getShape().IsSame(sf.getShape()));
         const isEnd = endFaces.some(ef => f.getShape().IsSame(ef.getShape()));
         if (!isStart && !isEnd) {
-          sideFaces.push(f as Face);
+          const isInternal = preFusionInternalFaces.some(pf => f.getShape().IsSame(pf.getShape()));
+          if (isInternal) {
+            internalFaces.push(f as Face);
+          } else {
+            sideFaces.push(f as Face);
+          }
         }
       }
     }
@@ -56,6 +67,7 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
     this.setState('start-faces', startFaces);
     this.setState('end-faces', endFaces);
     this.setState('side-faces', sideFaces);
+    this.setState('internal-faces', internalFaces);
 
     this.extrudable.removeShapes(this);
 

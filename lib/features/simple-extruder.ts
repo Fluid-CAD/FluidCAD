@@ -12,6 +12,7 @@ export class Extruder {
   private firstFaces: Face[];
   private lastFaces: Face[];
   private sideFaces: Face[];
+  private _internalFaces: Face[];
 
   constructor(
     private faces: Face[],
@@ -33,6 +34,10 @@ export class Extruder {
     return this.sideFaces;
   }
 
+  getInternalFaces() {
+    return this._internalFaces;
+  }
+
   extrude() {
     let extrusions: Shape[] = [];
 
@@ -47,6 +52,7 @@ export class Extruder {
     let firstFaces: Face[] = [];
     let lastFaces: Face[] = [];
     let sideFaces: Face[] = [];
+    let internalFaces: Face[] = [];
 
     const fusedFaces = BooleanOps.fuseFaces(this.faces)
     for (const face of fusedFaces.result) {
@@ -60,13 +66,35 @@ export class Extruder {
       }
 
       const solidFaces = Explorer.findFacesWrapped(solid);
+      const remainingFaces: Face[] = [];
       for (const f of solidFaces) {
         if (f.getShape().IsSame(firstFace.getShape())) {
           firstFace = f;
         } else if (f.getShape().IsSame(lastFace.getShape())) {
           lastFace = f;
         } else {
-          sideFaces.push(f as Face);
+          remainingFaces.push(f as Face);
+        }
+      }
+
+      // Use the firstFace from the solid to detect inner wires
+      // Inner wires (CCW) indicate holes — side faces sharing edges with them are internal
+      const resolvedFirst = firstFace as Face;
+      const innerWireEdgeShapes: Shape[] = [];
+      const wires = resolvedFirst.getWires();
+      for (const wire of wires) {
+        if (!wire.isCW(this.plane.normal)) {
+          for (const edge of wire.getEdges()) {
+            innerWireEdgeShapes.push(edge);
+          }
+        }
+      }
+
+      for (const f of remainingFaces) {
+        if (innerWireEdgeShapes.length > 0 && this.isInternalFace(f, innerWireEdgeShapes)) {
+          internalFaces.push(f);
+        } else {
+          sideFaces.push(f);
         }
       }
 
@@ -78,6 +106,7 @@ export class Extruder {
     this.firstFaces = firstFaces;
     this.lastFaces = lastFaces;
     this.sideFaces = sideFaces;
+    this._internalFaces = internalFaces;
 
     // if (extrusions.length > 1) {
     //   const { result } = BooleanOps.fuse(extrusions);
@@ -86,6 +115,13 @@ export class Extruder {
     // }
 
     return extrusions;
+  }
+
+  private isInternalFace(face: Face, innerWireEdgeShapes: Shape[]): boolean {
+    const faceEdges = face.getEdges();
+    return faceEdges.some(fe =>
+      innerWireEdgeShapes.some(iwe => fe.getShape().IsPartner(iwe.getShape()))
+    );
   }
 
   private applyDraft(solid: Shape, firstFace: Shape, lastFace: Shape, plane: Plane): { solid: Shape; firstFace: Shape; lastFace: Shape } {

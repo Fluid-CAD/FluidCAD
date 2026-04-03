@@ -24,7 +24,7 @@ sketch("xy", () => {
 
 const e = extrude(50)
 
-fillet(5, e.startEdge())
+fillet(5, e.startEdges())
 ```
 
 ### Traditional CAD Workflow

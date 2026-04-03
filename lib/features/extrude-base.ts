@@ -1,4 +1,6 @@
 import { Face } from "../common/face.js";
+import { Edge } from "../common/edge.js";
+import { Shape } from "../common/shape.js";
 import { SceneObject } from "../common/scene-object.js";
 import { LazySceneObject } from "./lazy-scene-object.js";
 import { Extrudable } from "../helpers/types.js";
@@ -9,6 +11,10 @@ import { Plane } from "../math/plane.js";
 import { normalizePoint2D } from "../helpers/normalize.js";
 import { FaceOps } from "../oc/face-ops.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
+import { FaceFilterBuilder } from "../filters/face/face-filter.js";
+import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
+import { FilterBuilderBase } from "../filters/filter-builder-base.js";
+import { ShapeFilter } from "../filters/filter.js";
 
 export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   protected _extrudable: Extrudable | null = null;
@@ -27,56 +33,106 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return this._extrudable;
   }
 
-  startFace(...indices: number[]): SceneObject {
-    const suffix = indices.length > 0 ? `start-faces-${indices.join('-')}` : 'start-faces';
+  startFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
+    const suffix = this.buildSuffix('start-faces', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
       () => {
         const faces = this.getState('start-faces') as Face[] || [];
-        if (indices.length === 0) return faces.length > 0 ? [faces[0]] : [];
-        return indices.filter(i => i >= 0 && i < faces.length).map(i => faces[i]);
+        return this.resolveShapes(faces, args);
       });
   }
 
-  endFace(...indices: number[]): SceneObject {
-    const suffix = indices.length > 0 ? `end-faces-${indices.join('-')}` : 'end-faces';
+  endFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
+    const suffix = this.buildSuffix('end-faces', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
       () => {
         const faces = this.getState('end-faces') as Face[] || [];
-        if (indices.length === 0) return faces.length > 0 ? [faces[0]] : [];
-        return indices.filter(i => i >= 0 && i < faces.length).map(i => faces[i]);
+        return this.resolveShapes(faces, args);
       });
   }
 
-  startEdge(...indices: number[]): SceneObject {
-    const suffix = indices.length > 0 ? `start-edges-${indices.join('-')}` : 'start-edges';
+  startEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
+    const suffix = this.buildSuffix('start-edges', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
       () => {
         const faces = this.getState('start-faces') as Face[] || [];
         const edges = faces.flatMap(f => f.getEdges());
-        if (indices.length === 0) return edges;
-        return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
+        return this.resolveShapes(edges, args);
       });
   }
 
-  endEdge(...indices: number[]): SceneObject {
-    const suffix = indices.length > 0 ? `end-edges-${indices.join('-')}` : 'end-edges';
+  endEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
+    const suffix = this.buildSuffix('end-edges', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
       () => {
         const faces = this.getState('end-faces') as Face[] || [];
         const edges = faces.flatMap(f => f.getEdges());
-        if (indices.length === 0) return edges;
-        return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
+        return this.resolveShapes(edges, args);
       });
   }
 
-  sideFace(...indices: number[]): SceneObject {
-    const suffix = indices.length > 0 ? `side-faces-${indices.join('-')}` : 'side-faces';
+  sideFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
+    const suffix = this.buildSuffix('side-faces', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
       () => {
         const faces = this.getState('side-faces') as Face[] || [];
-        if (indices.length === 0) return faces.length > 0 ? [faces[0]] : [];
-        return indices.filter(i => i >= 0 && i < faces.length).map(i => faces[i]);
+        return this.resolveShapes(faces, args);
       });
+  }
+
+  sideEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
+    const suffix = this.buildSuffix('side-edges', args);
+    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+      () => {
+        const sideFaces = this.getState('side-faces') as Face[] || [];
+        const startFaces = this.getState('start-faces') as Face[] || [];
+        const endFaces = this.getState('end-faces') as Face[] || [];
+        const excludedEdges = [...startFaces, ...endFaces].flatMap(f => f.getEdges());
+        const edges = sideFaces.flatMap(f => f.getEdges())
+          .filter(e => !excludedEdges.some(ex => e.getShape().IsSame(ex.getShape())));
+        return this.resolveShapes(edges, args);
+      });
+  }
+
+  internalFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
+    const suffix = this.buildSuffix('internal-faces', args);
+    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+      () => {
+        const faces = this.getState('internal-faces') as Face[] || [];
+        return this.resolveShapes(faces, args);
+      });
+  }
+
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
+    const suffix = this.buildSuffix('internal-edges', args);
+    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+      () => {
+        const faces = this.getState('internal-faces') as Face[] || [];
+        const edges = faces.flatMap(f => f.getEdges());
+        return this.resolveShapes(edges, args);
+      });
+  }
+
+  private buildSuffix(prefix: string, args: any[]): string {
+    if (args.length === 0) {
+      return prefix;
+    }
+    const key = args.map(a => typeof a === 'number' ? a : 'f').join('-');
+    return `${prefix}-${key}`;
+  }
+
+  private resolveShapes<T extends Shape>(shapes: T[], args: (number | FilterBuilderBase<T>)[]): T[] {
+    if (args.length === 0) {
+      return shapes;
+    }
+
+    if (args.every(a => typeof a === 'number')) {
+      const indices = args as number[];
+      return indices.filter(i => i >= 0 && i < shapes.length).map(i => shapes[i]);
+    }
+
+    const filters = args.filter(a => a instanceof FilterBuilderBase) as FilterBuilderBase<T>[];
+    return new ShapeFilter(shapes as any, ...filters).apply() as T[];
   }
 
   draft(value: number | [number, number]): this {

@@ -1,5 +1,7 @@
 import { LazyVertex } from "../features/lazy-vertex.js";
 import { Point2DLike } from "../math/point.js";
+import { FaceFilterBuilder } from "../filters/face/face-filter.js";
+import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 
 /**
  * Base interface for all scene objects exposed to the end user.
@@ -108,11 +110,14 @@ export interface ICommon extends ISceneObject {
  * Interface for extrude results returned by the extrude() builder.
  */
 export interface IExtrude extends ISceneObject {
-  startFace(...indices: number[]): ISceneObject;
-  endFace(...indices: number[]): ISceneObject;
-  startEdge(...indices: number[]): ISceneObject;
-  endEdge(...indices: number[]): ISceneObject;
-  sideFace(...indices: number[]): ISceneObject;
+  startFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  endFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  startEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  endEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  sideFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  sideEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  internalFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
   draft(value: number | [number, number]): this;
   endOffset(value: number): this;
   drill(value?: boolean): this;

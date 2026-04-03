@@ -42,6 +42,7 @@ export class Extrude extends ExtrudeBase {
     this.setState('start-faces', extruder.getStartFaces());
     this.setState('end-faces', extruder.getEndFaces());
     this.setState('side-faces', extruder.getSideFaces());
+    this.setState('internal-faces', extruder.getInternalFaces());
 
     this.extrudable.removeShapes(this);
 

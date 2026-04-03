@@ -50,9 +50,9 @@ sketch("xy", () => {
 
 const e = extrude(50)
 
-shell(-6, e.endFace())
+shell(-6, e.endFaces())
 
-fillet(5, e.startEdge())
+fillet(5, e.startEdges())
 `;
 writeFileSync(resolve(targetDir, 'test.fluid.js'), testFluid);
 

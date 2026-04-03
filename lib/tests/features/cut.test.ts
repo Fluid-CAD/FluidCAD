@@ -21,7 +21,7 @@ describe("cut", () => {
       });
       const e = extrude(50) as Extrude;
 
-      sketch(e.endFace(), () => {
+      sketch(e.endFaces(), () => {
         move([25, 25]);
         rect(50, 50);
       });
@@ -47,7 +47,7 @@ describe("cut", () => {
       });
       const e = extrude(50) as Extrude;
 
-      sketch(e.endFace(), () => {
+      sketch(e.endFaces(), () => {
         move([50, 50]);
         circle(20);
       });
@@ -64,7 +64,7 @@ describe("cut", () => {
       });
       const e = extrude(50) as Extrude;
 
-      const s = sketch(e.endFace(), () => {
+      const s = sketch(e.endFaces(), () => {
         move([25, 25]);
         rect(50, 50);
       }) as SceneObject;
@@ -84,7 +84,7 @@ describe("cut", () => {
       });
       const e = extrude(50) as Extrude;
 
-      sketch(e.endFace(), () => {
+      sketch(e.endFaces(), () => {
         move([25, 25]);
         circle(20);
       });
@@ -112,7 +112,7 @@ describe("cut", () => {
       });
       const e = extrude(50) as Extrude;
 
-      sketch(e.endFace(), () => {
+      sketch(e.endFaces(), () => {
         move([25, 25]);
         rect(50, 50);
       });
@@ -133,7 +133,7 @@ describe("cut", () => {
       });
       const e = extrude(50) as Extrude;
 
-      sketch(e.endFace(), () => {
+      sketch(e.endFaces(), () => {
         move([25, 25]);
         rect(50, 50);
       });
@@ -156,7 +156,7 @@ describe("cut", () => {
       });
       const e = extrude(50) as Extrude;
 
-      sketch(e.endFace(), () => {
+      sketch(e.endFaces(), () => {
         move([25, 25]);
         rect(50, 50);
       });
@@ -184,7 +184,7 @@ describe("cut", () => {
       });
       extrude(50);
 
-      sketch(e1.endFace(), () => {
+      sketch(e1.endFaces(), () => {
         move([25, 25]);
         rect(50, 50);
       });
@@ -202,7 +202,7 @@ describe("cut", () => {
       });
       const e = extrude(50) as Extrude;
 
-      sketch(e.endFace(), () => {
+      sketch(e.endFaces(), () => {
         move([25, 25]);
         rect(50, 50);
       });
@@ -229,7 +229,7 @@ describe("cut", () => {
       });
       const e = extrude(50) as Extrude;
 
-      sketch(e.endFace(), () => {
+      sketch(e.endFaces(), () => {
         move([25, 25]);
         circle(15);
         move([75, 25]);

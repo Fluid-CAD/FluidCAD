@@ -12,6 +12,8 @@ import { ExtrudeBase } from "./extrude-base.js";
 import { IRevolve } from "../core/interfaces.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { Face } from "../common/face.js";
+import { FaceOps } from "../oc/face-ops.js";
+import { Plane } from "../math/plane.js";
 
 export class Revolve extends ExtrudeBase implements IRevolve {
 
@@ -32,20 +34,78 @@ export class Revolve extends ExtrudeBase implements IRevolve {
     }
 
     const solids: Solid[] = [];
+    const allStartFaces: Face[] = [];
+    const allEndFaces: Face[] = [];
+    const allSideFaces: Face[] = [];
+    const allInternalFaces: Face[] = [];
     const faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane);
     const { result: fusedFaces } = BooleanOps.fuseFaces(faces);
 
     const axis = this.axis.getAxis();
-    for (const face of fusedFaces) {
+    const isFullRevolution = Math.abs(this.angle) >= 360;
+
+    for (const face of fusedFaces as Face[]) {
       const solid = ExtrudeOps.makeRevol(face, axis, rad(this.angle));
 
+      // Collect inner wire edges for internal face detection
+      const innerWireEdges: any[] = [];
+      const wires = face.getWires();
+      for (const wire of wires) {
+        if (!wire.isCW(plane.normal)) {
+          for (const edge of wire.getEdges()) {
+            innerWireEdges.push(edge);
+          }
+        }
+      }
+
+      let resultSolid: Solid;
       if (this.symmetric) {
         const rotated = ShapeOps.rotateShape(solid.getShape(), axis, -rad(this.angle) / 2);
-        solids.push(Solid.fromTopoDSSolid(Explorer.toSolid(rotated)));
+        resultSolid = Solid.fromTopoDSSolid(Explorer.toSolid(rotated));
       } else {
-        solids.push(Solid.fromTopoDSSolid(Explorer.toSolid(solid.getShape())));
+        resultSolid = Solid.fromTopoDSSolid(Explorer.toSolid(solid.getShape()));
+      }
+      solids.push(resultSolid);
+
+      // Classify faces of the revolved solid
+      const solidFaces = Explorer.findFacesWrapped(resultSolid);
+      for (const f of solidFaces) {
+        const isOnSourcePlane = FaceOps.faceOnPlaneWrapped(f as Face, plane);
+        if (isOnSourcePlane && !isFullRevolution) {
+          // Planar faces on the source plane are start/end faces for partial revolves
+          allStartFaces.push(f as Face);
+        } else if (!isOnSourcePlane) {
+          // Check if face is internal (from inner wire)
+          if (innerWireEdges.length > 0) {
+            const faceEdges = (f as Face).getEdges();
+            const isInternal = faceEdges.some(fe =>
+              innerWireEdges.some(iwe => fe.getShape().IsPartner(iwe.getShape()))
+            );
+            if (isInternal) {
+              allInternalFaces.push(f as Face);
+              continue;
+            }
+          }
+          allSideFaces.push(f as Face);
+        }
       }
     }
+
+    // For partial revolves with symmetric, classify start/end by plane offset
+    if (!isFullRevolution && allStartFaces.length > 1) {
+      // Split planar faces into start (first half) and end (second half)
+      const half = Math.floor(allStartFaces.length / 2);
+      const startSlice = allStartFaces.splice(0, half);
+      const endSlice = allStartFaces.splice(0);
+      allStartFaces.length = 0;
+      allStartFaces.push(...startSlice);
+      allEndFaces.push(...endSlice);
+    }
+
+    this.setState('start-faces', allStartFaces);
+    this.setState('end-faces', allEndFaces);
+    this.setState('side-faces', allSideFaces);
+    this.setState('internal-faces', allInternalFaces);
 
     this.extrudable.removeShapes(this);
     this.axis.removeShapes(this);

@@ -31,7 +31,7 @@ sketch("xy", () => {
 
 const e = extrude(50)
 
-sketch(e.endFace(), () => {
+sketch(e.endFaces(), () => {
     circle(20)
 });
 

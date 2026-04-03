@@ -28,7 +28,7 @@ describe("extrude to face", () => {
         move([200, 0]);
         rect(30, 30);
       });
-      const e2 = extrude(e1.endFace()) as ExtrudeToFace;
+      const e2 = extrude(e1.endFaces()) as ExtrudeToFace;
 
       render();
 
@@ -50,7 +50,7 @@ describe("extrude to face", () => {
         move([200, 0]);
         rect(30, 30);
       });
-      const e2 = extrude(e1.endFace()) as ExtrudeToFace;
+      const e2 = extrude(e1.endFaces()) as ExtrudeToFace;
 
       render();
 
@@ -169,7 +169,7 @@ describe("extrude to face", () => {
         move([200, 0]);
         rect(30, 30);
       });
-      const e2 = extrude(e1.sideFace(0)) as ExtrudeToFace;
+      const e2 = extrude(e1.sideFaces(0)) as ExtrudeToFace;
 
       render();
 
@@ -229,7 +229,7 @@ describe("extrude to face", () => {
         move([200, 0]);
         rect(30, 30);
       });
-      extrude(e1.endFace());
+      extrude(e1.endFaces());
 
       const scene = render();
 
@@ -246,7 +246,7 @@ describe("extrude to face", () => {
         move([25, 10]);
         rect(30, 30);
       });
-      extrude(e1.endFace());
+      extrude(e1.endFaces());
 
       const scene = render();
 
@@ -263,7 +263,7 @@ describe("extrude to face", () => {
         move([25, 10]);
         rect(30, 30);
       });
-      extrude(e1.endFace()).fuse("none");
+      extrude(e1.endFaces()).fuse("none");
 
       const scene = render();
 
@@ -283,7 +283,7 @@ describe("extrude to face", () => {
         circle(50);
         circle([200, 0], 20);
       });
-      const e2 = extrude(e1.endFace()) as ExtrudeToFace;
+      const e2 = extrude(e1.endFaces()) as ExtrudeToFace;
 
       render();
 
@@ -307,7 +307,7 @@ describe("extrude to face", () => {
         circle(30);
         circle([200, 100], 30);
       });
-      const e2 = extrude(e1.endFace()).pick([200, 0]) as ExtrudeToFace;
+      const e2 = extrude(e1.endFaces()).pick([200, 0]) as ExtrudeToFace;
 
       render();
 

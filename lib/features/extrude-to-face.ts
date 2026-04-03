@@ -33,25 +33,38 @@ export class ExtrudeToFace extends ExtrudeBase {
     const isPlanar = FaceQuery.isPlanarFace(targetFace);
 
     let solids: Shape[] = [];
+    const allStartFaces: Face[] = [];
+    const allEndFaces: Face[] = [];
+    const allSideFaces: Face[] = [];
+    const allInternalFaces: Face[] = [];
 
     const faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane);
 
     for (const startFace of faces) {
       if (isPlanar && FaceQuery.areFacePlanesParallel(startFace, targetFace)) {
-        const extrusion = this.createSimpleExtrude(startFace, targetFace);
-        for (const s of extrusion) {
+        const { shapes, extruder } = this.createSimpleExtrude(startFace, targetFace);
+        for (const s of shapes) {
           solids.push(s);
         }
+        allStartFaces.push(...extruder.getStartFaces());
+        allEndFaces.push(...extruder.getEndFaces());
+        allSideFaces.push(...extruder.getSideFaces());
+        allInternalFaces.push(...extruder.getInternalFaces());
       }
       else {
         console.log("Creating advanced extrude for face:");
-        const shapes = this.createAdvancedExtrude(startFace, targetFace, isPlanar);
+        const advancedShapes = this.createAdvancedExtrude(startFace, targetFace, isPlanar);
 
-        for (const shape of shapes) {
+        for (const shape of advancedShapes) {
           solids.push(shape);
         }
       }
     }
+
+    this.setState('start-faces', allStartFaces);
+    this.setState('end-faces', allEndFaces);
+    this.setState('side-faces', allSideFaces);
+    this.setState('internal-faces', allInternalFaces);
 
     this.extrudable.removeShapes(this);
 
@@ -151,11 +164,12 @@ export class ExtrudeToFace extends ExtrudeBase {
     return result;
   }
 
-  private createSimpleExtrude(startFace: Face, targetFace: Face): Shape[] {
+  private createSimpleExtrude(startFace: Face, targetFace: Face): { shapes: Shape[]; extruder: Extruder } {
     const distance = FaceQuery.getSignedPlaneDistance(startFace, targetFace);
     const plane = FaceQuery.getSurfacePlane(startFace);
     const extruder = new Extruder([startFace], plane, distance, this.getDraft(), this.getEndOffset());
-    return extruder.extrude();
+    const shapes = extruder.extrude();
+    return { shapes, extruder };
   }
 
   private getFace(sceneObjects: SceneObject[]): Face {

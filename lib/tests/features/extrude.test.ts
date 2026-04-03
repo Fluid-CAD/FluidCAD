@@ -8,6 +8,7 @@ import { Extruder } from "../../features/simple-extruder.js";
 import { Extrude } from "../../features/extrude.js";
 import { exp } from "three/tsl";
 import { Sketch } from "../../features/2d/sketch.js";
+import { face } from "../../filters/index.js";
 import cylinder from "../../core/cylinder.js";
 import { Cylinder } from "../../features/cylinder.js";
 import { countShapes } from "../utils.js";
@@ -119,7 +120,7 @@ describe("extrude", () => {
     });
   });
 
-  describe("startFace / endFace", () => {
+  describe("startFaces / endFaces", () => {
     it("should expose start face", () => {
       sketch("xy", () => {
         rect(100, 50);
@@ -129,7 +130,7 @@ describe("extrude", () => {
 
       render();
 
-      const startFaces = e.startFace().getShapes();
+      const startFaces = e.startFaces().getShapes();
       expect(startFaces).toHaveLength(1);
       expect(startFaces[0].getType()).toBe("face");
     });
@@ -143,7 +144,7 @@ describe("extrude", () => {
 
       render();
 
-      const endFaces = e.endFace().getShapes();
+      const endFaces = e.endFaces().getShapes();
       expect(endFaces).toHaveLength(1);
       expect(endFaces[0].getType()).toBe("face");
     });
@@ -157,8 +158,8 @@ describe("extrude", () => {
 
       render();
 
-      const startFace = e.startFace().getShapes()[0];
-      const endFace = e.endFace().getShapes()[0];
+      const startFace = e.startFaces().getShapes()[0];
+      const endFace = e.endFaces().getShapes()[0];
       expect(startFace.isSame(endFace)).toBe(false);
     });
 
@@ -171,11 +172,11 @@ describe("extrude", () => {
 
       render();
 
-      const startBBox = ShapeOps.getBoundingBox(e.startFace().getShapes()[0]);
+      const startBBox = ShapeOps.getBoundingBox(e.startFaces().getShapes()[0]);
       expect(startBBox.minZ).toBeCloseTo(0);
       expect(startBBox.maxZ).toBeCloseTo(0);
 
-      const endBBox = ShapeOps.getBoundingBox(e.endFace().getShapes()[0]);
+      const endBBox = ShapeOps.getBoundingBox(e.endFaces().getShapes()[0]);
       expect(endBBox.minZ).toBeCloseTo(30);
       expect(endBBox.maxZ).toBeCloseTo(30);
     });
@@ -190,10 +191,10 @@ describe("extrude", () => {
 
       render();
 
-      const startFaces = e.startFace(0, 1).getShapes();
+      const startFaces = e.startFaces(0, 1).getShapes();
       expect(startFaces).toHaveLength(2);
 
-      const endFaces = e.endFace(0, 1).getShapes();
+      const endFaces = e.endFaces(0, 1).getShapes();
       expect(endFaces).toHaveLength(2);
     });
 
@@ -207,10 +208,10 @@ describe("extrude", () => {
 
       render();
 
-      const face0 = e.startFace(0).getShapes();
+      const face0 = e.startFaces(0).getShapes();
       expect(face0).toHaveLength(1);
 
-      const face1 = e.startFace(1).getShapes();
+      const face1 = e.startFaces(1).getShapes();
       expect(face1).toHaveLength(1);
 
       expect(face0[0].isSame(face1[0])).toBe(false);
@@ -226,10 +227,10 @@ describe("extrude", () => {
 
       render();
 
-      const face0 = e.endFace(0).getShapes();
+      const face0 = e.endFaces(0).getShapes();
       expect(face0).toHaveLength(1);
 
-      const face1 = e.endFace(1).getShapes();
+      const face1 = e.endFaces(1).getShapes();
       expect(face1).toHaveLength(1);
 
       expect(face0[0].isSame(face1[0])).toBe(false);
@@ -244,17 +245,17 @@ describe("extrude", () => {
 
       render();
 
-      const startBBox = ShapeOps.getBoundingBox(e.startFace().getShapes()[0]);
+      const startBBox = ShapeOps.getBoundingBox(e.startFaces().getShapes()[0]);
       expect(startBBox.minZ).toBeCloseTo(0);
       expect(startBBox.maxZ).toBeCloseTo(0);
 
-      const endBBox = ShapeOps.getBoundingBox(e.endFace().getShapes()[0]);
+      const endBBox = ShapeOps.getBoundingBox(e.endFaces().getShapes()[0]);
       expect(endBBox.minZ).toBeCloseTo(-20);
       expect(endBBox.maxZ).toBeCloseTo(-20);
     });
   });
 
-  describe("sideFace", () => {
+  describe("sideFaces", () => {
     it("should expose side faces", () => {
       sketch("xy", () => {
         rect(100, 50);
@@ -264,14 +265,14 @@ describe("extrude", () => {
 
       render();
 
-      const sideFaces = e.sideFace(0, 1, 2, 3).getShapes();
+      const sideFaces = e.sideFaces(0, 1, 2, 3).getShapes();
       expect(sideFaces).toHaveLength(4);
       for (const face of sideFaces) {
         expect(face.getType()).toBe("face");
       }
     });
 
-    it("should return first side face by default", () => {
+    it("should return all side faces by default", () => {
       sketch("xy", () => {
         rect(100, 50);
       });
@@ -280,11 +281,11 @@ describe("extrude", () => {
 
       render();
 
-      const defaultFace = e.sideFace().getShapes();
-      expect(defaultFace).toHaveLength(1);
+      const allFaces = e.sideFaces().getShapes();
+      expect(allFaces).toHaveLength(4);
 
-      const firstFace = e.sideFace(0).getShapes();
-      expect(defaultFace[0].isSame(firstFace[0])).toBe(true);
+      const firstFace = e.sideFaces(0).getShapes();
+      expect(allFaces[0].isSame(firstFace[0])).toBe(true);
     });
 
     it("should expose specific side face by index", () => {
@@ -296,10 +297,10 @@ describe("extrude", () => {
 
       render();
 
-      const face0 = e.sideFace(0).getShapes();
+      const face0 = e.sideFaces(0).getShapes();
       expect(face0).toHaveLength(1);
 
-      const face1 = e.sideFace(1).getShapes();
+      const face1 = e.sideFaces(1).getShapes();
       expect(face1).toHaveLength(1);
 
       expect(face0[0].isSame(face1[0])).toBe(false);
@@ -314,13 +315,13 @@ describe("extrude", () => {
 
       render();
 
-      const bbox = ShapeOps.getBoundingBox(e.sideFace(0).getShapes()[0]);
+      const bbox = ShapeOps.getBoundingBox(e.sideFaces(0).getShapes()[0]);
       expect(bbox.minZ).toBeCloseTo(0, 0);
       expect(bbox.maxZ).toBeCloseTo(30, 0);
     });
   });
 
-  describe("startEdge / endEdge", () => {
+  describe("startEdges / endEdges", () => {
     it("should expose start edges", () => {
       sketch("xy", () => {
         rect(100, 50);
@@ -330,7 +331,7 @@ describe("extrude", () => {
 
       render();
 
-      const startEdges = e.startEdge().getShapes();
+      const startEdges = e.startEdges().getShapes();
       expect(startEdges).toHaveLength(4);
       for (const edge of startEdges) {
         expect(edge.getType()).toBe("edge");
@@ -346,7 +347,7 @@ describe("extrude", () => {
 
       render();
 
-      const endEdges = e.endEdge().getShapes();
+      const endEdges = e.endEdges().getShapes();
       expect(endEdges).toHaveLength(4);
       for (const edge of endEdges) {
         expect(edge.getType()).toBe("edge");
@@ -362,11 +363,11 @@ describe("extrude", () => {
 
       render();
 
-      const startBBox = ShapeOps.getBoundingBox(e.startEdge().getShapes()[0]);
+      const startBBox = ShapeOps.getBoundingBox(e.startEdges().getShapes()[0]);
       expect(startBBox.minZ).toBeCloseTo(0, 0);
       expect(startBBox.maxZ).toBeCloseTo(0, 0);
 
-      const endBBox = ShapeOps.getBoundingBox(e.endEdge().getShapes()[0]);
+      const endBBox = ShapeOps.getBoundingBox(e.endEdges().getShapes()[0]);
       expect(endBBox.minZ).toBeCloseTo(30, 0);
       expect(endBBox.maxZ).toBeCloseTo(30, 0);
     });
@@ -380,10 +381,10 @@ describe("extrude", () => {
 
       render();
 
-      const edge0 = e.startEdge(0).getShapes();
+      const edge0 = e.startEdges(0).getShapes();
       expect(edge0).toHaveLength(1);
 
-      const edge1 = e.startEdge(1).getShapes();
+      const edge1 = e.startEdges(1).getShapes();
       expect(edge1).toHaveLength(1);
 
       expect(edge0[0].isSame(edge1[0])).toBe(false);
@@ -398,10 +399,10 @@ describe("extrude", () => {
 
       render();
 
-      const edge0 = e.endEdge(0).getShapes();
+      const edge0 = e.endEdges(0).getShapes();
       expect(edge0).toHaveLength(1);
 
-      const edge1 = e.endEdge(1).getShapes();
+      const edge1 = e.endEdges(1).getShapes();
       expect(edge1).toHaveLength(1);
 
       expect(edge0[0].isSame(edge1[0])).toBe(false);
@@ -418,7 +419,7 @@ describe("extrude", () => {
 
       render();
 
-      const endBBox = ShapeOps.getBoundingBox(e.endFace().getShapes()[0]);
+      const endBBox = ShapeOps.getBoundingBox(e.endFaces().getShapes()[0]);
       expect(endBBox.minZ).toBeCloseTo(25);
       expect(endBBox.maxZ).toBeCloseTo(25);
     });
@@ -432,7 +433,7 @@ describe("extrude", () => {
 
       render();
 
-      const endBBox = ShapeOps.getBoundingBox(e.endFace().getShapes()[0]);
+      const endBBox = ShapeOps.getBoundingBox(e.endFaces().getShapes()[0]);
       expect(endBBox.minZ).toBeCloseTo(-25);
       expect(endBBox.maxZ).toBeCloseTo(-25);
     });
@@ -448,8 +449,8 @@ describe("extrude", () => {
 
       render();
 
-      const startBBox = ShapeOps.getBoundingBox(e.startFace().getShapes()[0]);
-      const endBBox = ShapeOps.getBoundingBox(e.endFace().getShapes()[0]);
+      const startBBox = ShapeOps.getBoundingBox(e.startFaces().getShapes()[0]);
+      const endBBox = ShapeOps.getBoundingBox(e.endFaces().getShapes()[0]);
 
       const startWidth = startBBox.maxX - startBBox.minX;
       const endWidth = endBBox.maxX - endBBox.minX;
@@ -465,8 +466,8 @@ describe("extrude", () => {
 
       render();
 
-      const startBBox = ShapeOps.getBoundingBox(e.startFace().getShapes()[0]);
-      const endBBox = ShapeOps.getBoundingBox(e.endFace().getShapes()[0]);
+      const startBBox = ShapeOps.getBoundingBox(e.startFaces().getShapes()[0]);
+      const endBBox = ShapeOps.getBoundingBox(e.endFaces().getShapes()[0]);
 
       const startWidth = startBBox.maxX - startBBox.minX;
       const endWidth = endBBox.maxX - endBBox.minX;
@@ -487,7 +488,7 @@ describe("extrude", () => {
 
       render();
 
-      const endBBox = ShapeOps.getBoundingBox(e.endFace().getShapes()[0]);
+      const endBBox = ShapeOps.getBoundingBox(e.endFaces().getShapes()[0]);
       const endWidth = endBBox.maxX - endBBox.minX;
       const endHeight = endBBox.maxY - endBBox.minY;
 
@@ -506,8 +507,8 @@ describe("extrude", () => {
 
       render();
 
-      const startBBox = ShapeOps.getBoundingBox(e.startFace().getShapes()[0]);
-      const endBBox = ShapeOps.getBoundingBox(e.endFace().getShapes()[0]);
+      const startBBox = ShapeOps.getBoundingBox(e.startFaces().getShapes()[0]);
+      const endBBox = ShapeOps.getBoundingBox(e.endFaces().getShapes()[0]);
 
       const startWidth = startBBox.maxX - startBBox.minX;
       const endWidth = endBBox.maxX - endBBox.minX;
@@ -687,6 +688,94 @@ describe("extrude", () => {
       const solid = shapes[0] as Solid;
       // Without drilling, inner circle fills in — result is a simple cylinder with 3 faces
       expect(solid.getFaces()).toHaveLength(3);
+    });
+  });
+
+  describe("internalFaces / internalEdges", () => {
+    it("should expose internal faces for concentric circles (tube)", () => {
+      sketch("xy", () => {
+        circle(40);
+        circle(20);
+      });
+
+      const e = extrude(30) as Extrude;
+
+      render();
+
+      const internal = e.internalFaces().getShapes();
+      expect(internal.length).toBeGreaterThan(0);
+      // Internal face is the inner cylinder
+      for (const f of internal) {
+        expect(f.getType()).toBe("face");
+      }
+    });
+
+    it("should expose internal edges for concentric circles", () => {
+      sketch("xy", () => {
+        circle(40);
+        circle(20);
+      });
+
+      const e = extrude(30) as Extrude;
+
+      render();
+
+      const internalEdges = e.internalEdges().getShapes();
+      expect(internalEdges.length).toBeGreaterThan(0);
+      for (const edge of internalEdges) {
+        expect(edge.getType()).toBe("edge");
+      }
+    });
+
+    it("should return empty internal faces for simple extrusion", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+
+      const e = extrude(30) as Extrude;
+
+      render();
+
+      const internal = e.internalFaces().getShapes();
+      expect(internal).toHaveLength(0);
+    });
+
+    it("should filter internal faces by index", () => {
+      sketch("xy", () => {
+        circle(40);
+        circle(20);
+      });
+
+      const e = extrude(30) as Extrude;
+
+      render();
+
+      const allInternal = e.internalFaces().getShapes();
+      if (allInternal.length > 0) {
+        const first = e.internalFaces(0).getShapes();
+        expect(first).toHaveLength(1);
+        expect(first[0].isSame(allInternal[0])).toBe(true);
+      }
+    });
+  });
+
+  describe("filter support", () => {
+    it("should filter side faces with face filter builder", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+
+      const e = extrude(30) as Extrude;
+
+      render();
+
+      const allSideFaces = e.sideFaces().getShapes();
+      expect(allSideFaces.length).toBeGreaterThan(0);
+
+      // Filter by a plane-parallel filter — all side faces of a rect extrude
+      // are vertical, so filtering parallel to XY should return none
+      const parallelXY = e.sideFaces(face().parallelTo("xy")).getShapes();
+      expect(parallelXY).toHaveLength(0);
     });
   });
 });

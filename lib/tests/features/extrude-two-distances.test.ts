@@ -132,7 +132,7 @@ describe("extrude two distances", () => {
     });
   });
 
-  describe("startFace / endFace", () => {
+  describe("startFaces / endFaces", () => {
     it("should expose start and end faces", () => {
       sketch("xy", () => {
         rect(100, 50);
@@ -142,11 +142,11 @@ describe("extrude two distances", () => {
 
       render();
 
-      const startFaces = e.startFace().getShapes();
+      const startFaces = e.startFaces().getShapes();
       expect(startFaces).toHaveLength(1);
       expect(startFaces[0].getType()).toBe("face");
 
-      const endFaces = e.endFace().getShapes();
+      const endFaces = e.endFaces().getShapes();
       expect(endFaces).toHaveLength(1);
       expect(endFaces[0].getType()).toBe("face");
     });
@@ -160,8 +160,8 @@ describe("extrude two distances", () => {
 
       render();
 
-      const startFace = e.startFace().getShapes()[0];
-      const endFace = e.endFace().getShapes()[0];
+      const startFace = e.startFaces().getShapes()[0];
+      const endFace = e.endFaces().getShapes()[0];
       expect(startFace.isSame(endFace)).toBe(false);
     });
 
@@ -174,11 +174,11 @@ describe("extrude two distances", () => {
 
       render();
 
-      const startBBox = ShapeOps.getBoundingBox(e.startFace().getShapes()[0]);
+      const startBBox = ShapeOps.getBoundingBox(e.startFaces().getShapes()[0]);
       expect(startBBox.minZ).toBeCloseTo(20);
       expect(startBBox.maxZ).toBeCloseTo(20);
 
-      const endBBox = ShapeOps.getBoundingBox(e.endFace().getShapes()[0]);
+      const endBBox = ShapeOps.getBoundingBox(e.endFaces().getShapes()[0]);
       expect(endBBox.minZ).toBeCloseTo(-10);
       expect(endBBox.maxZ).toBeCloseTo(-10);
     });
@@ -193,15 +193,15 @@ describe("extrude two distances", () => {
 
       render();
 
-      const face0 = e.startFace(0).getShapes();
-      const face1 = e.startFace(1).getShapes();
+      const face0 = e.startFaces(0).getShapes();
+      const face1 = e.startFaces(1).getShapes();
       expect(face0).toHaveLength(1);
       expect(face1).toHaveLength(1);
       expect(face0[0].isSame(face1[0])).toBe(false);
     });
   });
 
-  describe("sideFace", () => {
+  describe("sideFaces", () => {
     it("should expose side faces spanning full height", () => {
       sketch("xy", () => {
         rect(100, 50);
@@ -211,16 +211,16 @@ describe("extrude two distances", () => {
 
       render();
 
-      const sideFaces = e.sideFace(0, 1, 2, 3).getShapes();
+      const sideFaces = e.sideFaces(0, 1, 2, 3).getShapes();
       expect(sideFaces.length).toBeGreaterThanOrEqual(4);
 
-      const bbox = ShapeOps.getBoundingBox(e.sideFace(0).getShapes()[0]);
+      const bbox = ShapeOps.getBoundingBox(e.sideFaces(0).getShapes()[0]);
       expect(bbox.minZ).toBeCloseTo(-10, 0);
       expect(bbox.maxZ).toBeCloseTo(20, 0);
     });
   });
 
-  describe("startEdge / endEdge", () => {
+  describe("startEdges / endEdges", () => {
     it("should expose start and end edges", () => {
       sketch("xy", () => {
         rect(100, 50);
@@ -230,10 +230,10 @@ describe("extrude two distances", () => {
 
       render();
 
-      const startEdges = e.startEdge().getShapes();
+      const startEdges = e.startEdges().getShapes();
       expect(startEdges).toHaveLength(4);
 
-      const endEdges = e.endEdge().getShapes();
+      const endEdges = e.endEdges().getShapes();
       expect(endEdges).toHaveLength(4);
     });
 
@@ -246,8 +246,8 @@ describe("extrude two distances", () => {
 
       render();
 
-      const edge0 = e.endEdge(0).getShapes();
-      const edge1 = e.endEdge(1).getShapes();
+      const edge0 = e.endEdges(0).getShapes();
+      const edge1 = e.endEdges(1).getShapes();
       expect(edge0).toHaveLength(1);
       expect(edge1).toHaveLength(1);
       expect(edge0[0].isSame(edge1[0])).toBe(false);

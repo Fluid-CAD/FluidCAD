@@ -155,3 +155,11 @@ export interface ILoft extends ISceneObject {
   endEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
   sideEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
+
+/**
+ * Interface for shell results returned by the shell() builder.
+ */
+export interface IShell extends ISceneObject {
+  internalFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+}

@@ -8,6 +8,7 @@ import cylinder from "../../core/cylinder.js";
 import { circle, rect } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extrude } from "../../features/extrude.js";
+import { Shell } from "../../features/shell.js";
 import { SelectSceneObject } from "../../features/select.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
@@ -159,6 +160,96 @@ describe("shell", () => {
       render();
 
       expect(sel.getShapes()).toHaveLength(0);
+    });
+  });
+
+  describe("internalFaces", () => {
+    it("should expose internal faces of a shelled box", () => {
+      sketch("xy", () => {
+        rect(100, 100);
+      });
+      extrude(50);
+
+      select(face().onPlane("xy", 50));
+      const s = shell(5) as Shell;
+
+      render();
+
+      const faces = s.internalFaces().getShapes();
+      expect(faces.length).toBeGreaterThan(0);
+      for (const f of faces) {
+        expect(f.getType()).toBe("face");
+      }
+    });
+
+    it("should expose internal faces of a shelled cylinder", () => {
+      cylinder(50, 80);
+
+      select(face().onPlane("xy", 80));
+      const s = shell(5) as Shell;
+
+      render();
+
+      const faces = s.internalFaces().getShapes();
+      expect(faces.length).toBeGreaterThan(0);
+    });
+
+    it("should filter internal faces by index", () => {
+      sketch("xy", () => {
+        rect(100, 100);
+      });
+      extrude(50);
+
+      select(face().onPlane("xy", 50));
+      const s = shell(5) as Shell;
+
+      render();
+
+      const allFaces = s.internalFaces().getShapes();
+      if (allFaces.length > 0) {
+        const first = s.internalFaces(0).getShapes();
+        expect(first).toHaveLength(1);
+        expect(first[0].isSame(allFaces[0])).toBe(true);
+      }
+    });
+  });
+
+  describe("internalEdges", () => {
+    it("should expose internal edges of a shelled box", () => {
+      sketch("xy", () => {
+        rect(100, 100);
+      });
+      extrude(50);
+
+      select(face().onPlane("xy", 50));
+      const s = shell(5) as Shell;
+
+      render();
+
+      const edges = s.internalEdges().getShapes();
+      expect(edges.length).toBeGreaterThan(0);
+      for (const e of edges) {
+        expect(e.getType()).toBe("edge");
+      }
+    });
+
+    it("should filter internal edges by index", () => {
+      sketch("xy", () => {
+        rect(100, 100);
+      });
+      extrude(50);
+
+      select(face().onPlane("xy", 50));
+      const s = shell(5) as Shell;
+
+      render();
+
+      const allEdges = s.internalEdges().getShapes();
+      if (allEdges.length > 0) {
+        const first = s.internalEdges(0).getShapes();
+        expect(first).toHaveLength(1);
+        expect(first[0].isSame(allEdges[0])).toBe(true);
+      }
     });
   });
 });

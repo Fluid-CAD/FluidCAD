@@ -12,6 +12,9 @@ import { Plane } from "../math/plane.js";
 import { normalizePoint2D } from "../helpers/normalize.js";
 import { FaceOps } from "../oc/face-ops.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
+import { EdgeOps } from "../oc/edge-ops.js";
+import { Explorer } from "../oc/explorer.js";
+import { Point } from "../math/point.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FilterBuilderBase } from "../filters/filter-builder-base.js";
@@ -134,6 +137,102 @@ export abstract class CutBase extends SceneObject implements ICut {
     if (lastObject !== this) {
       this.removeMetaShapes(lastObject);
     }
+  }
+
+  /**
+   * Classifies edges and faces from cleaned result shapes by comparing with
+   * original stock shapes. Edges/faces not present in stock are "section" geometry
+   * created by the cut. Section edges are further classified by signed distance
+   * from the cut plane into start, end, and internal groups.
+   */
+  protected classifyCutResult(
+    stockShapes: Shape[],
+    cleanedShapes: Shape[],
+    plane: Plane,
+    cutDistance: number,
+  ) {
+    // Collect stock edge midpoints for geometric comparison
+    const stockEdgeMidpoints: Point[] = [];
+
+    for (const stock of stockShapes) {
+      const edges = Explorer.findEdgesWrapped(stock);
+      for (const edge of edges) {
+        stockEdgeMidpoints.push(EdgeOps.getEdgeMidPoint(edge));
+      }
+    }
+
+    const tolerance = 1e-6;
+    const isStockEdge = (edge: Edge): boolean => {
+      const mid = EdgeOps.getEdgeMidPoint(edge);
+      return stockEdgeMidpoints.some(sm =>
+        Math.abs(mid.x - sm.x) < tolerance &&
+        Math.abs(mid.y - sm.y) < tolerance &&
+        Math.abs(mid.z - sm.z) < tolerance
+      );
+    };
+
+    // Find section edges from cleaned result (edges not in stock)
+    const sectionEdges: Edge[] = [];
+    const sectionEdgeSet = new Set<Edge>();
+
+    for (const shape of cleanedShapes) {
+      const edges = Explorer.findEdgesWrapped(shape);
+      for (const edge of edges) {
+        if (!isStockEdge(edge)) {
+          sectionEdges.push(edge);
+          sectionEdgeSet.add(edge);
+        }
+      }
+    }
+
+    // Internal faces: faces where ALL edges are section edges (not from stock).
+    // Modified stock faces (e.g., top face with holes) still have stock edges
+    // on their outer boundary, so they are correctly excluded.
+    const internalFaces: Face[] = [];
+
+    for (const shape of cleanedShapes) {
+      const faces = Explorer.findFacesWrapped(shape);
+      for (const f of faces) {
+        const faceEdges = (f as Face).getEdges();
+        if (faceEdges.length > 0 && faceEdges.every(e => !isStockEdge(e))) {
+          internalFaces.push(f as Face);
+        }
+      }
+    }
+
+    // Classify section edges by signed distance from cut plane
+    const startEdges: Edge[] = [];
+    const endEdges: Edge[] = [];
+    const internalEdges: Edge[] = [];
+
+    if (plane && sectionEdges.length > 0) {
+      const isThroughAll = cutDistance === 0;
+
+      const dists = sectionEdges.map(edge => ({
+        edge,
+        d: plane.signedDistanceToPoint(EdgeOps.getEdgeMidPoint(edge))
+      }));
+
+      const startDist = isThroughAll ? Math.max(...dists.map(e => e.d)) : 0;
+      const endDist = isThroughAll ? Math.min(...dists.map(e => e.d)) : -cutDistance;
+
+      const distTolerance = 1e-4;
+      for (const { edge, d } of dists) {
+        if (Math.abs(d - startDist) < distTolerance) {
+          startEdges.push(edge);
+        } else if (Math.abs(d - endDist) < distTolerance) {
+          endEdges.push(edge);
+        } else {
+          internalEdges.push(edge);
+        }
+      }
+    }
+
+    this.setState('section-edges', sectionEdges);
+    this.setState('start-edges', startEdges);
+    this.setState('end-edges', endEdges);
+    this.setState('internal-edges', internalEdges);
+    this.setState('internal-faces', internalFaces);
   }
 
   protected syncWith(other: CutBase) {

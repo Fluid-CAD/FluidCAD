@@ -1,14 +1,14 @@
 import { SceneObject } from "../common/scene-object.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { Loft } from "../features/loft.js";
-import { ISceneObject } from "./interfaces.js";
+import { ILoft, ISceneObject } from "./interfaces.js";
 
 interface LoftFunction {
   /**
    * Creates a loft between two or more profiles.
-   * @param faces - The profiles to loft between (minimum 2)
+   * @param profiles - The profiles to loft between (minimum 2)
    */
-  (...faces: ISceneObject[]): ISceneObject;
+  (...profiles: ISceneObject[]): ILoft;
 }
 
 function build(context: SceneParserContext): LoftFunction {

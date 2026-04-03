@@ -10,6 +10,7 @@ import { Sketch } from "../../features/2d/sketch.js";
 import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ShapeProps } from "../../oc/props.js";
+import { face } from "../../filters/index.js";
 
 describe("loft", () => {
   setupOC();
@@ -173,6 +174,175 @@ describe("loft", () => {
       const scene = render();
 
       expect(countShapes(scene)).toBe(1);
+    });
+  });
+
+  describe("startFaces / endFaces / sideFaces", () => {
+    it("should expose start and end faces", () => {
+      const s1 = sketch("xy", () => {
+        rect(100, 50);
+      });
+
+      const s2 = sketch(plane("xy", { offset: 40 }), () => {
+        rect(100, 50);
+      });
+
+      const l = loft(s1, s2) as Loft;
+
+      render();
+
+      const startFaces = l.startFaces().getShapes();
+      expect(startFaces).toHaveLength(1);
+      expect(startFaces[0].getType()).toBe("face");
+
+      const endFaces = l.endFaces().getShapes();
+      expect(endFaces).toHaveLength(1);
+      expect(endFaces[0].getType()).toBe("face");
+    });
+
+    it("start and end faces should be different", () => {
+      const s1 = sketch("xy", () => {
+        rect(100, 50);
+      });
+
+      const s2 = sketch(plane("xy", { offset: 40 }), () => {
+        rect(100, 50);
+      });
+
+      const l = loft(s1, s2) as Loft;
+
+      render();
+
+      const startFace = l.startFaces().getShapes()[0];
+      const endFace = l.endFaces().getShapes()[0];
+      expect(startFace.isSame(endFace)).toBe(false);
+    });
+
+    it("should expose side faces", () => {
+      const s1 = sketch("xy", () => {
+        rect(100, 50);
+      });
+
+      const s2 = sketch(plane("xy", { offset: 40 }), () => {
+        rect(100, 50);
+      });
+
+      const l = loft(s1, s2) as Loft;
+
+      render();
+
+      const sideFaces = l.sideFaces().getShapes();
+      expect(sideFaces.length).toBeGreaterThan(0);
+      for (const f of sideFaces) {
+        expect(f.getType()).toBe("face");
+      }
+    });
+
+    it("should filter faces by index", () => {
+      const s1 = sketch("xy", () => {
+        rect(100, 50);
+      });
+
+      const s2 = sketch(plane("xy", { offset: 40 }), () => {
+        rect(100, 50);
+      });
+
+      const l = loft(s1, s2) as Loft;
+
+      render();
+
+      const allSide = l.sideFaces().getShapes();
+      const first = l.sideFaces(0).getShapes();
+      expect(first).toHaveLength(1);
+      expect(first[0].isSame(allSide[0])).toBe(true);
+    });
+
+    it("should filter faces with face filter builder", () => {
+      const s1 = sketch("xy", () => {
+        rect(100, 50);
+      });
+
+      const s2 = sketch(plane("xy", { offset: 40 }), () => {
+        rect(100, 50);
+      });
+
+      const l = loft(s1, s2) as Loft;
+
+      render();
+
+      const parallelXY = l.startFaces(face().parallelTo("xy")).getShapes();
+      expect(parallelXY).toHaveLength(1);
+    });
+  });
+
+  describe("startEdges / endEdges / sideEdges", () => {
+    it("should expose start and end edges", () => {
+      const s1 = sketch("xy", () => {
+        rect(100, 50);
+      });
+
+      const s2 = sketch(plane("xy", { offset: 40 }), () => {
+        rect(100, 50);
+      });
+
+      const l = loft(s1, s2) as Loft;
+
+      render();
+
+      const startEdges = l.startEdges().getShapes();
+      expect(startEdges.length).toBeGreaterThan(0);
+      for (const e of startEdges) {
+        expect(e.getType()).toBe("edge");
+      }
+
+      const endEdges = l.endEdges().getShapes();
+      expect(endEdges.length).toBeGreaterThan(0);
+    });
+
+    it("should expose side edges excluding start/end edges", () => {
+      const s1 = sketch("xy", () => {
+        rect(100, 50);
+      });
+
+      const s2 = sketch(plane("xy", { offset: 40 }), () => {
+        rect(100, 50);
+      });
+
+      const l = loft(s1, s2) as Loft;
+
+      render();
+
+      const sideEdges = l.sideEdges().getShapes();
+      expect(sideEdges.length).toBeGreaterThan(0);
+
+      // Side edges should not include any start or end edges
+      const startEdges = l.startEdges().getShapes();
+      const endEdges = l.endEdges().getShapes();
+      for (const se of sideEdges) {
+        const inStart = startEdges.some(e => e.isSame(se));
+        const inEnd = endEdges.some(e => e.isSame(se));
+        expect(inStart).toBe(false);
+        expect(inEnd).toBe(false);
+      }
+    });
+
+    it("should filter edges by index", () => {
+      const s1 = sketch("xy", () => {
+        rect(100, 50);
+      });
+
+      const s2 = sketch(plane("xy", { offset: 40 }), () => {
+        rect(100, 50);
+      });
+
+      const l = loft(s1, s2) as Loft;
+
+      render();
+
+      const allStart = l.startEdges().getShapes();
+      const first = l.startEdges(0).getShapes();
+      expect(first).toHaveLength(1);
+      expect(first[0].isSame(allStart[0])).toBe(true);
     });
   });
 });

@@ -5,6 +5,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { FluidCadServer } from './fluidcad-server.ts';
 import { createPropertiesRouter } from './routes/properties.ts';
 import { createActionsRouter } from './routes/actions.ts';
+import { createExportRouter } from './routes/export.ts';
 import type { ServerToUIMessage } from './ws-protocol.ts';
 
 const PORT = parseInt(process.env.FLUIDCAD_SERVER_PORT || '3100', 10);
@@ -32,6 +33,7 @@ app.use(express.json({ limit: '50mb' }));
 
 app.use('/api', createPropertiesRouter(fluidCadServer));
 app.use('/api', createActionsRouter(fluidCadServer, sendToExtension, broadcastToUI, WORKSPACE_PATH));
+app.use('/api', createExportRouter(fluidCadServer));
 
 // Static files — serve UI build, with SPA fallback
 app.use(express.static(UI_DIST, {
@@ -172,6 +174,28 @@ async function handleExtensionMessage(msg: any) {
 
       case 'show-shape-properties': {
         broadcastToUI({ type: 'show-shape-properties', shapeId: msg.shapeId });
+        break;
+      }
+
+      case 'export-scene': {
+        try {
+          const result = fluidCadServer.exportShapes(msg.shapeIds, msg.options);
+          if (result) {
+            const data = typeof result.data === 'string'
+              ? Buffer.from(result.data, 'utf-8').toString('base64')
+              : Buffer.from(result.data).toString('base64');
+            sendToExtension({
+              type: 'export-complete',
+              success: true,
+              data,
+              fileName: result.fileName,
+            });
+          } else {
+            sendToExtension({ type: 'export-complete', success: false, error: 'No active scene to export.' });
+          }
+        } catch (err: any) {
+          sendToExtension({ type: 'export-complete', success: false, error: err.message || String(err) });
+        }
         break;
       }
     }

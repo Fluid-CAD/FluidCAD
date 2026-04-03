@@ -8,6 +8,7 @@ export class Client {
   private serverProcess: ChildProcess | undefined;
   private serverUrl: string = '';
   private diagnosticCollection: vscode.DiagnosticCollection;
+  private pendingExportUri: vscode.Uri | undefined;
 
   currentSceneObjects: any[] = [];
   private currentFileName: string = '';
@@ -38,6 +39,11 @@ export class Client {
     this.context.subscriptions.push(vscode.commands.registerCommand(
       'fluidcad.import_file',
       () => this.importFile()
+    ));
+
+    this.context.subscriptions.push(vscode.commands.registerCommand(
+      'fluidcad.export_file',
+      () => this.exportFile()
     ));
 
     this.initLiveRender();
@@ -194,6 +200,17 @@ export class Client {
         this.handleSetPickPoints(msg);
         break;
       }
+      case 'export-complete': {
+        if (msg.success && msg.data && this.pendingExportUri) {
+          const buffer = Buffer.from(msg.data, 'base64');
+          await vscode.workspace.fs.writeFile(this.pendingExportUri, buffer);
+          vscode.window.showInformationMessage(`Exported to ${this.pendingExportUri.fsPath}`);
+        } else {
+          vscode.window.showErrorMessage(`Export failed: ${msg.error || 'Unknown error'}`);
+        }
+        this.pendingExportUri = undefined;
+        break;
+      }
     }
   }
 
@@ -248,6 +265,88 @@ export class Client {
       workspacePath,
       fileName,
       data: Buffer.from(data).toString('base64'),
+    });
+  }
+
+  async exportFile() {
+    const formatPick = await vscode.window.showQuickPick(
+      ['STEP (.step)', 'STL (.stl)'],
+      { placeHolder: 'Select export format' }
+    );
+    if (!formatPick) {
+      return;
+    }
+
+    const isStl = formatPick.startsWith('STL');
+    const format = isStl ? 'stl' : 'step';
+    const options: Record<string, any> = { format };
+
+    if (format === 'step') {
+      options.includeColors = true;
+    }
+
+    if (isStl) {
+      const resPick = await vscode.window.showQuickPick(
+        ['Coarse', 'Medium', 'Fine', 'Custom'],
+        { placeHolder: 'Select mesh resolution' }
+      );
+      if (!resPick) {
+        return;
+      }
+      options.resolution = resPick.toLowerCase();
+
+      if (options.resolution === 'custom') {
+        const angStr = await vscode.window.showInputBox({
+          prompt: 'Angular deviation in degrees',
+          value: '17',
+        });
+        if (!angStr) {
+          return;
+        }
+        options.customAngularDeflectionDeg = parseFloat(angStr);
+
+        const linStr = await vscode.window.showInputBox({
+          prompt: 'Linear deflection in mm',
+          value: '0.3',
+        });
+        if (!linStr) {
+          return;
+        }
+        options.customLinearDeflection = parseFloat(linStr);
+      }
+    }
+
+    const ext = isStl ? 'stl' : 'step';
+    const uri = await vscode.window.showSaveDialog({
+      filters: isStl
+        ? { 'STL Files': ['stl'] }
+        : { 'STEP Files': ['step', 'stp'] },
+      defaultUri: vscode.Uri.file(`export.${ext}`),
+    });
+    if (!uri) {
+      return;
+    }
+
+    // Collect all solid shape IDs from the current scene
+    const shapeIds: string[] = [];
+    for (const obj of this.currentSceneObjects) {
+      for (const shape of (obj.sceneShapes || [])) {
+        if (shape.shapeType === 'solid' && !shape.isMetaShape) {
+          shapeIds.push(shape.shapeId);
+        }
+      }
+    }
+
+    if (shapeIds.length === 0) {
+      vscode.window.showErrorMessage('No solids in the scene to export.');
+      return;
+    }
+
+    this.pendingExportUri = uri;
+    this.sendToServer({
+      type: 'export-scene',
+      shapeIds,
+      options,
     });
   }
 

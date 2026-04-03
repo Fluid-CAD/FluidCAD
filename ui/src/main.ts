@@ -2,6 +2,7 @@ import { Viewer } from './viewer';
 import { ShapePropertiesModal } from './ui/shape-properties-modal';
 import { SelectionInfoOverlay } from './ui/selection-info-overlay';
 import { TimelinePanel } from './ui/timeline-panel';
+import { ExportDialog } from './ui/export-dialog';
 import { ICON_SCISSORS, ICON_FILE_IMPORT, ICON_COPY } from './ui/icons';
 import { PointPickMode, HighlightInfo } from './interactive/point-pick-mode';
 import { RegionPickMode } from './interactive/region-pick-mode';
@@ -40,8 +41,11 @@ function hideLoading() {
 const viewer = new Viewer('fluidcad-viewer');
 const shapePropertiesModal = new ShapePropertiesModal(container);
 const selectionInfoOverlay = new SelectionInfoOverlay(container);
+const exportDialog = new ExportDialog(container);
 const timelinePanel = new TimelinePanel(container, (shapeId) => {
   viewer.highlightShape(shapeId);
+}, (shapeIds) => {
+  exportDialog.show(shapeIds);
 });
 
 shapePropertiesModal.setOpenHandler(() => {

@@ -2,6 +2,9 @@ import { Scene } from "./rendering/scene.js";
 import { renderScene, renderSceneRollback } from "./rendering/render.js";
 import { SceneCompare } from "./rendering/scene-compare.js";
 import { FileImport } from "./io/file-import.js";
+import { FileExport } from "./io/file-export.js";
+import type { ExportOptions } from "./io/file-export.js";
+import { Solid } from "./common/solid.js";
 import { ShapeProps } from "./oc/props.js";
 import type { ShapeProperties } from "./oc/props.js";
 import { FaceProps } from "./oc/face-props.js";
@@ -79,6 +82,23 @@ class SceneManager {
       }
     }
     return null;
+  }
+
+  exportShapes(scene: Scene, shapeIds: string[], options: ExportOptions): { data: string | Uint8Array; fileName: string } {
+    const solids: Solid[] = [];
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getAddedShapes()) {
+        if (shapeIds.includes(shape.id) && shape.isSolid()) {
+          solids.push(shape as Solid);
+        }
+      }
+    }
+
+    if (solids.length === 0) {
+      throw new Error('No matching solids found for export');
+    }
+
+    return FileExport.exportShapes(solids, options);
   }
 
   hitTest(

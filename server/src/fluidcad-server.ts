@@ -18,6 +18,17 @@ type SceneManager = {
     rayDir: [number, number, number],
     edgeThreshold: number,
   ): any;
+  exportShapes(
+    scene: any,
+    shapeIds: string[],
+    options: {
+      format: 'step' | 'stl';
+      includeColors?: boolean;
+      resolution?: string;
+      customLinearDeflection?: number;
+      customAngularDeflectionDeg?: number;
+    },
+  ): { data: string | Uint8Array; fileName: string };
 };
 
 export type SceneRenderedData = {
@@ -174,6 +185,26 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.getEdgeProperties(scene, shapeId, edgeIndex);
+  }
+
+  exportShapes(
+    shapeIds: string[],
+    options: {
+      format: 'step' | 'stl';
+      includeColors?: boolean;
+      resolution?: string;
+      customLinearDeflection?: number;
+      customAngularDeflectionDeg?: number;
+    },
+  ): { data: string | Uint8Array; fileName: string } | null {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.exportShapes(scene, shapeIds, options);
   }
 
   hitTest(

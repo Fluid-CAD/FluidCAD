@@ -40,6 +40,18 @@ export type ShowShapePropertiesMessage = {
   shapeId: string;
 };
 
+export type ExportSceneMessage = {
+  type: 'export-scene';
+  shapeIds: string[];
+  options: {
+    format: 'step' | 'stl';
+    includeColors?: boolean;
+    resolution?: string;
+    customLinearDeflection?: number;
+    customAngularDeflectionDeg?: number;
+  };
+};
+
 export type ExtensionMessage =
   | ProcessFileMessage
   | LiveUpdateMessage
@@ -47,7 +59,8 @@ export type ExtensionMessage =
   | ImportFileMessage
   | HighlightShapeMessage
   | ClearHighlightMessage
-  | ShowShapePropertiesMessage;
+  | ShowShapePropertiesMessage
+  | ExportSceneMessage;
 
 // ---------------------------------------------------------------------------
 // IPC: Server → Extension messages
@@ -100,6 +113,14 @@ export type SetPickPointsMessage = {
   sourceLocation: { line: number; column: number };
 };
 
+export type ExportCompleteMessage = {
+  type: 'export-complete';
+  success: boolean;
+  data?: string;
+  fileName?: string;
+  error?: string;
+};
+
 export type ServerToExtensionMessage =
   | ReadyMessage
   | InitCompleteMessage
@@ -108,7 +129,8 @@ export type ServerToExtensionMessage =
   | ImportCompleteMessage
   | InsertPointMessage
   | RemovePointMessage
-  | SetPickPointsMessage;
+  | SetPickPointsMessage
+  | ExportCompleteMessage;
 
 // ---------------------------------------------------------------------------
 // WebSocket: Server → UI messages

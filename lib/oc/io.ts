@@ -303,6 +303,157 @@ export class OcIO {
     return { solids };
   }
 
+  static writeStepRaw(compound: TopoDS_Shape, fileName: string): string {
+    const oc = getOC();
+
+    const writer = new oc.STEPControl_Writer();
+    const progress = new oc.Message_ProgressRange();
+    const status = writer.Transfer(compound, oc.STEPControl_StepModelType.STEPControl_AsIs, true, progress);
+    progress.delete();
+
+    if (status !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) {
+      writer.delete();
+      throw new Error(`STEP transfer failed. Status: ${status}`);
+    }
+
+    const writeStatus = writer.Write(fileName);
+    if (writeStatus !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) {
+      writer.delete();
+      throw new Error(`STEP write failed. Status: ${writeStatus}`);
+    }
+
+    const file = oc.FS.readFile(fileName, { encoding: "utf8" });
+    oc.FS.unlink(fileName);
+    writer.delete();
+
+    return file;
+  }
+
+  static writeStepXCAF(solids: Solid[], fileName: string): string {
+    const oc = getOC();
+
+    const app = new oc.TDocStd_Application();
+    const docHandle = new oc.Handle_TDocStd_Document();
+    const format = new oc.TCollection_ExtendedString('MDTV-XCAF');
+    app.NewDocument(format, docHandle);
+    format.delete();
+
+    const doc = docHandle.get();
+    const shapeToolHandle = oc.XCAFDoc_DocumentTool.ShapeTool(doc.Main());
+    const colorToolHandle = oc.XCAFDoc_DocumentTool.ColorTool(doc.Main());
+    const shapeTool = shapeToolHandle.get();
+    const colorTool = colorToolHandle.get();
+    const surfType = oc.XCAFDoc_ColorType.XCAFDoc_ColorSurf;
+
+    // Use NewShape + SetShape (per OCC docs) instead of AddShape to avoid
+    // compound wrapping that triggers multi-file assembly output.
+    for (const solid of solids) {
+      const label = shapeTool.NewShape();
+      shapeTool.SetShape(label, solid.getShape());
+
+      for (const entry of solid.colorMap) {
+        const [r, g, b] = OcIO.hexToRgb(entry.color);
+        const color = new oc.Quantity_Color(r, g, b, oc.Quantity_TypeOfColor.Quantity_TOC_RGB);
+        colorTool.SetColor(entry.shape, color, surfType);
+        color.delete();
+      }
+    }
+
+    shapeTool.UpdateAssemblies();
+
+    const cleanup = () => {
+      shapeToolHandle.delete();
+      colorToolHandle.delete();
+      app.Close(docHandle);
+      docHandle.delete();
+    };
+
+    const writer = new oc.STEPCAFControl_Writer();
+    writer.SetColorMode(true);
+    writer.SetNameMode(true);
+
+    const progress = new oc.Message_ProgressRange();
+    const transferred = writer.Transfer(docHandle, oc.STEPControl_StepModelType.STEPControl_AsIs, "", progress);
+    progress.delete();
+
+    if (!transferred) {
+      writer.delete();
+      cleanup();
+      throw new Error('STEP XCAF transfer failed');
+    }
+
+    const writeStatus = writer.Write(fileName);
+    writer.delete();
+
+    if (writeStatus !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) {
+      cleanup();
+      throw new Error(`STEP XCAF write failed. Status: ${writeStatus}`);
+    }
+
+    // The XCAF writer may split output into a main file (assembly references)
+    // and external files with actual geometry + colors. Collect all STEP files
+    // from the virtual FS and return the one with color data.
+    const rootFiles: string[] = oc.FS.readdir('/');
+    const stepFiles: Array<{ name: string; content: string }> = [];
+    for (const f of rootFiles) {
+      if (f === '.' || f === '..' || (!f.endsWith('.stp') && !f.endsWith('.step'))) {
+        continue;
+      }
+      try {
+        stepFiles.push({ name: f, content: oc.FS.readFile(f, { encoding: "utf8" }) as string });
+      } catch { /* skip */ }
+    }
+
+    let file: string;
+    if (stepFiles.length === 1) {
+      file = stepFiles[0].content;
+    } else {
+      const withColors = stepFiles.find(f => f.content.includes('COLOUR_RGB'));
+      file = withColors?.content
+        ?? stepFiles.sort((a, b) => b.content.length - a.content.length)[0].content;
+    }
+
+    for (const f of stepFiles) {
+      try { oc.FS.unlink(f.name); } catch { /* ignore */ }
+    }
+
+    cleanup();
+    return file;
+  }
+
+  static writeStl(compound: TopoDS_Shape, fileName: string, linearDeflection: number, angularDeflection: number): Uint8Array {
+    const oc = getOC();
+
+    const mesh = new oc.BRepMesh_IncrementalMesh(compound, linearDeflection, false, angularDeflection, true);
+
+    const writer = new oc.StlAPI_Writer();
+    const progress = new oc.Message_ProgressRange();
+    const ok = writer.Write(compound, fileName, progress);
+    progress.delete();
+
+    if (!ok) {
+      mesh.delete();
+      writer.delete();
+      throw new Error('STL write failed');
+    }
+
+    const file = oc.FS.readFile(fileName);
+    oc.FS.unlink(fileName);
+    mesh.delete();
+    writer.delete();
+
+    return file;
+  }
+
+  private static hexToRgb(hex: string): [number, number, number] {
+    const h = hex.replace('#', '');
+    return [
+      parseInt(h.substring(0, 2), 16) / 255,
+      parseInt(h.substring(2, 4), 16) / 255,
+      parseInt(h.substring(4, 6), 16) / 255,
+    ];
+  }
+
   private static findFaceColor(
     face: TopoDS_Shape,
     solidShape: TopoDS_Shape,

@@ -25,6 +25,11 @@
         "command": "fluidcad.import_file",
         "title": "Import STEP File",
         "icon": "$(file-add)"
+      },
+      {
+        "command": "fluidcad.export_file",
+        "title": "Export Model (STEP/STL)",
+        "icon": "$(file-symlink-file)"
       }
     ],
     "menus": {

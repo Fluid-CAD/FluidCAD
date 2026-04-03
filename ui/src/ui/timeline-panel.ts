@@ -3,6 +3,7 @@ import type { SceneObjectRender } from '../types';
 const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 glass-dark border border-white/10 rounded-md cursor-pointer select-none shrink-0';
 const CHEVRON_SVG = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
 const CUBE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
+const DOTS_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
 
 export class TimelinePanel {
   private panel: HTMLDivElement;
@@ -14,12 +15,17 @@ export class TimelinePanel {
   private rollbackStop = -1;
   private collapsedIds = new Set<string>();
   private collapsedShapeGroups = new Set<string>();
+  private selectedShapeIds = new Set<string>();
   private timelineExpanded = true;
   private shapesExpanded = true;
   private onHighlightShape: (shapeId: string) => void;
+  private onExportShapes: (shapeIds: string[]) => void;
+  private activeDropdown: HTMLDivElement | null = null;
+  private dropdownCleanup: (() => void) | null = null;
 
-  constructor(container: HTMLElement, onHighlightShape: (shapeId: string) => void) {
+  constructor(container: HTMLElement, onHighlightShape: (shapeId: string) => void, onExportShapes: (shapeIds: string[]) => void) {
     this.onHighlightShape = onHighlightShape;
+    this.onExportShapes = onExportShapes;
 
     // Panel — hidden until first scene load
     this.panel = document.createElement('div');
@@ -267,10 +273,17 @@ export class TimelinePanel {
       if (!isCollapsed) {
         for (let i = 0; i < shapes.length; i++) {
           const shape = shapes[i];
+          const isSolid = shape.shapeType === 'solid';
+          const isSelected = this.selectedShapeIds.has(shape.shapeId);
+          const selectedClass = isSelected ? ' bg-primary/10' : '';
+          const dotsBtn = isSolid
+            ? `<button class="ml-auto opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${shape.shapeId}">${DOTS_SVG}</button>`
+            : '';
           html += `
-            <div class="flex items-center gap-2 pl-9 pr-3 py-1 cursor-pointer hover:bg-white/[0.06] text-sm text-base-content/70" data-shape-id="${shape.shapeId}">
+            <div class="group flex items-center gap-2 pl-9 pr-3 py-1 cursor-pointer hover:bg-white/[0.06] text-sm text-base-content/70${selectedClass}" data-shape-id="${shape.shapeId}" data-shape-type="${shape.shapeType}">
               <img src="/icons/${shape.shapeType}.png" class="w-4 h-4 object-contain" alt="" />
               <span class="truncate">${capitalized} ${i + 1}</span>
+              ${dotsBtn}
             </div>
           `;
         }
@@ -292,14 +305,92 @@ export class TimelinePanel {
       });
     });
 
-    // Bind shape item click to highlight
+    // Bind shape item click to highlight + multi-select
     this.shapesBody.querySelectorAll<HTMLElement>('[data-shape-id]').forEach((el) => {
-      el.addEventListener('click', () => {
+      el.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).closest('[data-dots]')) {
+          return;
+        }
         const shapeId = el.dataset.shapeId!;
+        const isSolid = el.dataset.shapeType === 'solid';
+
+        if (isSolid && (e.ctrlKey || e.metaKey)) {
+          if (this.selectedShapeIds.has(shapeId)) {
+            this.selectedShapeIds.delete(shapeId);
+          } else {
+            this.selectedShapeIds.add(shapeId);
+          }
+          this.renderShapes();
+        } else {
+          this.selectedShapeIds.clear();
+          if (isSolid) {
+            this.selectedShapeIds.add(shapeId);
+            this.renderShapes();
+          }
+        }
+
         if (shapeId) {
           this.onHighlightShape(shapeId);
         }
       });
     });
+
+    // Bind 3-dot menu buttons
+    this.shapesBody.querySelectorAll<HTMLElement>('[data-dots]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const shapeId = btn.dataset.dots!;
+        this.showShapeDropdown(btn, shapeId);
+      });
+    });
+  }
+
+  private showShapeDropdown(anchor: HTMLElement, shapeId: string): void {
+    this.closeDropdown();
+
+    const dropdown = document.createElement('div');
+    dropdown.className = 'absolute z-[200] glass-dark border border-white/10 rounded-md py-1 shadow-[0_4px_12px_rgba(0,0,0,0.4)] min-w-[100px]';
+
+    const rect = anchor.getBoundingClientRect();
+    const panelRect = this.panel.getBoundingClientRect();
+    dropdown.style.top = `${rect.bottom - panelRect.top + 2}px`;
+    dropdown.style.left = `${rect.left - panelRect.left}px`;
+
+    dropdown.innerHTML = `
+      <button class="w-full text-left px-3 py-1.5 text-xs text-base-content/70 hover:bg-white/[0.08] cursor-pointer" data-action="export">Export</button>
+    `;
+
+    this.panel.appendChild(dropdown);
+    this.activeDropdown = dropdown;
+
+    dropdown.querySelector('[data-action="export"]')!.addEventListener('click', () => {
+      let ids: string[];
+      if (this.selectedShapeIds.has(shapeId) && this.selectedShapeIds.size > 0) {
+        ids = [...this.selectedShapeIds];
+      } else {
+        ids = [shapeId];
+      }
+      this.closeDropdown();
+      this.onExportShapes(ids);
+    });
+
+    const onClickOutside = (e: MouseEvent) => {
+      if (!dropdown.contains(e.target as Node) && !anchor.contains(e.target as Node)) {
+        this.closeDropdown();
+      }
+    };
+    setTimeout(() => document.addEventListener('click', onClickOutside), 0);
+    this.dropdownCleanup = () => document.removeEventListener('click', onClickOutside);
+  }
+
+  private closeDropdown(): void {
+    if (this.activeDropdown) {
+      this.activeDropdown.remove();
+      this.activeDropdown = null;
+    }
+    if (this.dropdownCleanup) {
+      this.dropdownCleanup();
+      this.dropdownCleanup = null;
+    }
   }
 }

@@ -3,12 +3,25 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
 import { SelectSceneObject } from "./select.js";
+import cssColorNames from "color-name";
+
+function toHex(color: string): string {
+  if (color.startsWith('#')) {
+    return color;
+  }
+  const rgb = cssColorNames[color.toLowerCase() as keyof typeof cssColorNames];
+  if (rgb) {
+    return '#' + rgb.map(c => c.toString(16).padStart(2, '0')).join('');
+  }
+  return color;
+}
 
 export class Color extends SceneObject {
   private _selection: SceneObject | null = null;
 
   constructor(private color: string, selection?: SceneObject) {
     super();
+    this.color = toHex(color);
     this._selection = selection ?? null;
   }
 

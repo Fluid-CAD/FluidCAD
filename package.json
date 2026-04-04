@@ -38,6 +38,7 @@
     "test:features": "vitest run lib/tests/features/"
   },
   "dependencies": {
+    "occjs-wrapper": "file:../occjs-fluidcad",
     "@tabler/icons": "^3.40.0",
     "@tailwindcss/vite": "^4.2.2",
     "@types/lodash": "^4.17.20",

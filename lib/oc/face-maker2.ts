@@ -92,6 +92,7 @@ export class FaceMaker2 {
     const args = new oc.TopTools_ListOfShape();
     args.Append(planeFace);
     splitter.SetArguments(args);
+    splitter.SetRunParallel(true);
 
     const toolsList = new oc.TopTools_ListOfShape();
 

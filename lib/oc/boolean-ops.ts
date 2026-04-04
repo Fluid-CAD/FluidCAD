@@ -424,6 +424,7 @@ export class BooleanOps {
     }
 
     const common = new oc.BRepAlgoAPI_Common(raw1, raw2, progress);
+    common.SetRunParallel(true);
     common.Build(new oc.Message_ProgressRange());
 
     if (!common.IsDone()) {

@@ -51,6 +51,7 @@ export class BooleanOps {
     cutMaker.SetArguments(stockList);
     cutMaker.SetTools(toolList);
     cutMaker.SetNonDestructive(true);
+    cutMaker.SetRunParallel(true);
     cutMaker.Build(progress);
 
     const result = cutMaker.Shape();
@@ -320,6 +321,7 @@ export class BooleanOps {
     builder.SetArguments(argsList);
     builder.SetNonDestructive(true);
     builder.SetCheckInverted(true);
+    builder.SetRunParallel(true);
     builder.Perform(progress);
 
     if (builder.HasErrors()) {
@@ -409,6 +411,8 @@ export class BooleanOps {
       oc.Extrema_ExtAlgo.Extrema_ExtAlgo_Grad,
       progress
     );
+
+    distCalc.SetMultiThread(true);
 
     const distance = distCalc.IsDone() ? distCalc.Value() : Infinity;
     distCalc.delete();

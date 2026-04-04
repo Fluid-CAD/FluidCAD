@@ -1,11 +1,9 @@
 import type { gp_Cylinder, gp_Pln, TopoDS_Face, TopoDS_Wire } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
-import { Explorer } from "./explorer.js";
 import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
-import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
 import { Wire } from "../common/wire.js";
 
@@ -275,112 +273,6 @@ export class FaceOps {
     explorer.delete();
     freeBounds.delete();
     return result;
-  }
-
-  static fuseFacesAndUnify(face1: Face | TopoDS_Face, face2: Face | TopoDS_Face): Face | null {
-    const rawFace1 = face1 instanceof Face ? face1.getShape() as TopoDS_Face : face1;
-    const rawFace2 = face2 instanceof Face ? face2.getShape() as TopoDS_Face : face2;
-    const oc = getOC();
-    const progress = new oc.Message_ProgressRange();
-    const fuseMaker = new oc.BRepAlgoAPI_Fuse();
-
-    const list1 = new oc.TopTools_ListOfShape();
-    const list2 = new oc.TopTools_ListOfShape();
-
-    list1.Append(rawFace1);
-    list2.Append(rawFace2);
-
-    fuseMaker.SetArguments(list1);
-    fuseMaker.SetTools(list2);
-    fuseMaker.SetUseOBB(false);
-
-    fuseMaker.Build(progress);
-
-    if (!fuseMaker.IsDone()) {
-      progress.delete();
-      fuseMaker.delete();
-      return null;
-    }
-
-    const newShape = fuseMaker.Shape();
-    progress.delete();
-    fuseMaker.delete();
-
-    if (newShape.IsNull())  {
-      return null;
-    }
-
-    if (newShape.ShapeType() !== oc.TopAbs_ShapeEnum.TopAbs_COMPOUND)   {
-      return null;
-    }
-
-    const faces = Explorer.findShapes(newShape, oc.TopAbs_ShapeEnum.TopAbs_FACE);
-
-    if (faces.length <= 2) {
-      return null;
-    }
-
-    // Unify faces compound
-    console.log("Fused shape has more than 2 faces, attempting to unify...");
-    const wire = FaceOps.getFreeBoundsWire(newShape);
-
-    if (!wire) {
-      return null;
-    }
-
-    return Face.fromTopoDSFace(FaceOps.makeFace(wire));
-  }
-
-  static commonFacesAndUnify(face1: Face | TopoDS_Face, face2: Face | TopoDS_Face): Face | null {
-    const rawFace1 = face1 instanceof Face ? face1.getShape() as TopoDS_Face : face1;
-    const rawFace2 = face2 instanceof Face ? face2.getShape() as TopoDS_Face : face2;
-    const oc = getOC();
-    const progress = new oc.Message_ProgressRange();
-    const commonMaker = new oc.BRepAlgoAPI_Common();
-
-    const list1 = new oc.TopTools_ListOfShape();
-    const list2 = new oc.TopTools_ListOfShape();
-
-    list1.Append(rawFace1);
-    list2.Append(rawFace2);
-
-    commonMaker.SetArguments(list1);
-    commonMaker.SetTools(list2);
-    commonMaker.SetUseOBB(false);
-
-    commonMaker.Build(progress);
-
-    if (!commonMaker.IsDone()) {
-      progress.delete();
-      commonMaker.delete();
-      return null;
-    }
-
-    const newShape = commonMaker.Shape();
-    progress.delete();
-    commonMaker.delete();
-
-    if (newShape.IsNull()) {
-      return null;
-    }
-
-    const faces = Explorer.findShapes(newShape, oc.TopAbs_ShapeEnum.TopAbs_FACE);
-
-    if (faces.length === 0) {
-      return null;
-    }
-
-    if (faces.length === 1) {
-      return Face.fromTopoDSFace(oc.TopoDS.Face(faces[0]));
-    }
-
-    const wire = FaceOps.getFreeBoundsWire(newShape);
-
-    if (!wire) {
-      return null;
-    }
-
-    return Face.fromTopoDSFace(FaceOps.makeFace(wire));
   }
 
   static makeFaceFromPlane2(plane: gp_Pln): TopoDS_Face {

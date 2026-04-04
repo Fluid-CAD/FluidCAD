@@ -59,9 +59,9 @@ export class ExportDialog {
         <div class="flex flex-col gap-3">
           <div>
             <label class="text-xs text-base-content/60 mb-1.5 block">Format</label>
-            <div data-ref="format-pills" class="flex gap-1 bg-base-300/50 rounded-lg p-1">
-              <button data-format="step" class="flex-1 text-xs py-1.5 rounded-md transition-all bg-primary/20 text-primary font-medium">STEP</button>
-              <button data-format="stl" class="flex-1 text-xs py-1.5 rounded-md transition-all text-base-content/50 hover:text-base-content/70">STL</button>
+            <div data-ref="format-pills" class="join w-full">
+              <input class="join-item btn btn-sm flex-1" type="radio" name="export-format" aria-label="STEP" data-format="step" checked />
+              <input class="join-item btn btn-sm flex-1" type="radio" name="export-format" aria-label="STL" data-format="stl" />
             </div>
           </div>
 
@@ -114,15 +114,6 @@ export class ExportDialog {
     const isStep = format === 'step';
     this.stepSection.classList.toggle('hidden', !isStep);
     this.stlSection.classList.toggle('hidden', isStep);
-
-    this.pillsContainer.querySelectorAll<HTMLButtonElement>('[data-format]').forEach((btn) => {
-      const active = btn.dataset.format === format;
-      btn.className = `flex-1 text-xs py-1.5 rounded-md transition-all ${
-        active
-          ? 'bg-primary/20 text-primary font-medium'
-          : 'text-base-content/50 hover:text-base-content/70'
-      }`;
-    });
   }
 
   private bindEvents(): void {
@@ -135,8 +126,8 @@ export class ExportDialog {
       }
     });
 
-    this.pillsContainer.querySelectorAll<HTMLButtonElement>('[data-format]').forEach((btn) => {
-      btn.addEventListener('click', () => this.setFormat(btn.dataset.format!));
+    this.pillsContainer.querySelectorAll<HTMLInputElement>('[data-format]').forEach((radio) => {
+      radio.addEventListener('change', () => this.setFormat(radio.dataset.format!));
     });
 
     this.resolutionSelect.addEventListener('change', () => {

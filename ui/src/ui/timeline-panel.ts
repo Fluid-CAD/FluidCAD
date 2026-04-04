@@ -349,7 +349,7 @@ export class TimelinePanel {
     this.closeDropdown();
 
     const dropdown = document.createElement('div');
-    dropdown.className = 'absolute z-[200] glass-dark border border-white/10 rounded-md py-1 shadow-[0_4px_12px_rgba(0,0,0,0.4)] min-w-[100px]';
+    dropdown.className = 'absolute z-[200] glass-dark border border-white/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
 
     const rect = anchor.getBoundingClientRect();
     const panelRect = this.panel.getBoundingClientRect();
@@ -357,7 +357,9 @@ export class TimelinePanel {
     dropdown.style.left = `${rect.left - panelRect.left}px`;
 
     dropdown.innerHTML = `
-      <button class="w-full text-left px-3 py-1.5 text-xs text-base-content/70 hover:bg-white/[0.08] cursor-pointer" data-action="export">Export</button>
+      <ul class="menu menu-xs p-1 min-w-[100px]">
+        <li><button data-action="export">Export</button></li>
+      </ul>
     `;
 
     this.panel.appendChild(dropdown);

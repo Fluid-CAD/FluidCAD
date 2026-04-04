@@ -2,7 +2,7 @@ import { viewerSettings } from '../scene/viewer-settings';
 import { ICON_FIT, ICON_ORTHO, ICON_PERSP, ICON_GRID } from './icons';
 
 const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
-const BTN_ACTIVE = 'btn-active !bg-primary/20 !text-primary';
+const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
 
 export class SettingsPanel {
   private el: HTMLDivElement;
@@ -71,17 +71,11 @@ export class SettingsPanel {
   private sync(): void {
     const s = viewerSettings.current;
     this.el.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) => {
-      const isActive = btn.dataset.mode === s.cameraMode;
-      btn.classList.toggle('btn-active', isActive);
-      btn.classList.toggle('!bg-primary/20', isActive);
-      btn.classList.toggle('!text-primary', isActive);
+      btn.className = btn.dataset.mode === s.cameraMode ? BTN_ACTIVE : BTN_BASE;
     });
     const gridBtn = this.el.querySelector<HTMLButtonElement>('[data-action="grid"]');
     if (gridBtn) {
-      const isActive = s.showGrid;
-      gridBtn.classList.toggle('btn-active', isActive);
-      gridBtn.classList.toggle('!bg-primary/20', isActive);
-      gridBtn.classList.toggle('!text-primary', isActive);
+      gridBtn.className = s.showGrid ? BTN_ACTIVE : BTN_BASE;
     }
   }
 }

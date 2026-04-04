@@ -269,12 +269,12 @@ export class ShapePropertiesModal {
   private open(): void {
     this.openHandler?.();
     this.panel.classList.remove('hidden');
-    this.btn.classList.add('btn-active', '!bg-primary/20', '!text-primary', '!border-primary/40');
+    this.btn.className = 'btn btn-soft btn-primary btn-square btn-sm absolute bottom-6 right-8 z-[100] glass-dark border border-white/10';
   }
 
   private close(): void {
     this.panel.classList.add('hidden');
-    this.btn.classList.remove('btn-active', '!bg-primary/20', '!text-primary', '!border-primary/40');
+    this.btn.className = 'btn btn-ghost btn-square btn-sm absolute bottom-6 right-8 z-[100] glass-dark border border-white/10 text-base-content/60';
   }
 
   private async loadMaterials(): Promise<void> {

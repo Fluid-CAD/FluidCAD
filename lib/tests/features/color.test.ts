@@ -67,7 +67,7 @@ describe("color", () => {
 
       const solid = c.getShapes()[0] as Solid;
       expect(solid.hasColors()).toBe(true);
-      expect(solid.colorMap[0].color).toBe("blue");
+      expect(solid.colorMap[0].color).toBe("#0000ff");
     });
   });
 
@@ -80,14 +80,14 @@ describe("color", () => {
 
       // Select both top and bottom faces
       select(face().parallelTo("xy"));
-      const c = color("green") as Color;
+      const c = color("#008000") as Color;
 
       render();
 
       const solid = c.getShapes()[0] as Solid;
       expect(solid.colorMap).toHaveLength(2);
       for (const entry of solid.colorMap) {
-        expect(entry.color).toBe("green");
+        expect(entry.color).toBe("#008000");
       }
     });
   });

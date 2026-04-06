@@ -284,37 +284,37 @@ export abstract class CutBase extends SceneObject implements ICut {
   startEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('start-edges', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
-      () => {
-        const edges = this.getState('start-edges') as Edge[] || [];
+      (parent) => {
+        const edges = parent.getState('start-edges') as Edge[] || [];
         return this.resolveShapes(edges, args);
-      });
+      }, this);
   }
 
   endEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('end-edges', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
-      () => {
-        const edges = this.getState('end-edges') as Edge[] || [];
+      (parent) => {
+        const edges = parent.getState('end-edges') as Edge[] || [];
         return this.resolveShapes(edges, args);
-      });
+      }, this);
   }
 
   internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('internal-edges', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
-      () => {
-        const edges = this.getState('internal-edges') as Edge[] || [];
+      (parent) => {
+        const edges = parent.getState('internal-edges') as Edge[] || [];
         return this.resolveShapes(edges, args);
-      });
+      }, this);
   }
 
   internalFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('internal-faces', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
-      () => {
-        const faces = this.getState('internal-faces') as Face[] || [];
+      (parent) => {
+        const faces = parent.getState('internal-faces') as Face[] || [];
         return this.resolveShapes(faces, args);
-      });
+      }, this);
   }
 
   private buildSuffix(prefix: string, args: any[]): string {

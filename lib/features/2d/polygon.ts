@@ -109,10 +109,10 @@ export class Polygon extends ExtrudableGeometryBase implements IPolygon {
   }
 
   getEdge(index: number): LazySceneObject {
-    return new LazySceneObject(this.generateUniqueName(`edge-${index}`), () => {
-      const edge = this.getState(`edge-${index}`) as Edge;
+    return new LazySceneObject(this.generateUniqueName(`edge-${index}`), (parent) => {
+      const edge = parent.getState(`edge-${index}`) as Edge;
       return edge ? [edge] : [];
-    });
+    }, this);
   }
 
   getVertex(index: number): LazyVertex {

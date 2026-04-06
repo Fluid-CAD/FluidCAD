@@ -108,12 +108,6 @@ export class Extruder {
     this.sideFaces = sideFaces;
     this._internalFaces = internalFaces;
 
-    // if (extrusions.length > 1) {
-    //   const { result } = BooleanOps.fuse(extrusions);
-    //   console.log('Self fused extrusions count:', result.length);
-    //   return result;
-    // }
-
     return extrusions;
   }
 

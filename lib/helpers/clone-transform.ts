@@ -1,28 +1,49 @@
 import { Matrix4 } from "../math/matrix4.js";
 import { SceneObject } from "../common/scene-object.js";
-import { LazySceneObject } from "../features/lazy-scene-object.js";
 
 export function cloneWithTransform(
   objects: SceneObject[],
   transform: Matrix4,
   container: SceneObject
 ): SceneObject[] {
-  const allCloned: SceneObject[] = [];
+  const visited = new Set<SceneObject>();
+  const ordered: SceneObject[] = [];
+
+  const collect = (obj: SceneObject) => {
+    if (visited.has(obj)) {
+      return;
+    }
+    visited.add(obj);
+
+    for (const dep of obj.getDependencies()) {
+      collect(dep);
+    }
+
+    ordered.push(obj);
+
+    for (const child of obj.getChildren()) {
+      collect(child);
+    }
+  };
 
   for (const obj of objects) {
-    const clonedTree = obj.clone();
+    collect(obj);
+  }
 
-    for (const cloned of clonedTree) {
-      if (cloned instanceof LazySceneObject) {
-        continue;
-      }
+  const remap = new Map<SceneObject, SceneObject>();
+  const allCloned: SceneObject[] = [];
 
-      cloned.setTransform(transform);
-      allCloned.push(cloned);
+  for (const obj of ordered) {
+    const copy = obj.createCopy(remap);
+    remap.set(obj, copy);
+    copy.setTransform(transform);
+    allCloned.push(copy);
 
-      if (!cloned.parentId) {
-        container.addChildObject(cloned);
-      }
+    const parent = obj.getParent();
+    if (parent && remap.has(parent)) {
+      remap.get(parent)!.addChildObject(copy);
+    } else if (!copy.parentId) {
+      container.addChildObject(copy);
     }
   }
 

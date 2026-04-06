@@ -176,6 +176,18 @@ export class Explorer {
     return raw.map((e: TopoDS_Shape) => Edge.fromTopoDSEdge(Explorer.toEdge(e)));
   }
 
+  static findEdgesInWireOrderWrapped(wire: Wire): Edge[] {
+    const oc = getOC();
+    const result: Edge[] = [];
+    const explorer = new oc.BRepTools_WireExplorer(wire.getShape());
+    while (explorer.More()) {
+      result.push(Edge.fromTopoDSEdge(Explorer.toEdge(explorer.Current())));
+      explorer.Next();
+    }
+    explorer.delete();
+    return result;
+  }
+
   static findSolidsWrapped(shape: Shape): Solid[] {
     const oc = getOC();
     const raw = Explorer.findShapes(shape.getShape(), oc.TopAbs_ShapeEnum.TopAbs_SOLID as TopAbs_ShapeEnum);

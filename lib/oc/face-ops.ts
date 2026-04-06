@@ -307,7 +307,7 @@ export class FaceOps {
   static planeToFace(plane: Plane, center?: Point): Face {
     const oc = getOC();
 
-    const size = 300;
+    const size = 100;
 
     if (center) {
       const translation = center.subtract(plane.origin);

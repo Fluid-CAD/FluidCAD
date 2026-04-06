@@ -36,81 +36,81 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   startFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('start-faces', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
-      () => {
-        const faces = this.getState('start-faces') as Face[] || [];
+      (parent) => {
+        const faces = parent.getState('start-faces') as Face[] || [];
         return this.resolveShapes(faces, args);
-      });
+      }, this);
   }
 
   endFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('end-faces', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
-      () => {
-        const faces = this.getState('end-faces') as Face[] || [];
+      (parent) => {
+        const faces = parent.getState('end-faces') as Face[] || [];
         return this.resolveShapes(faces, args);
-      });
+      }, this);
   }
 
   startEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('start-edges', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
-      () => {
-        const faces = this.getState('start-faces') as Face[] || [];
+      (parent) => {
+        const faces = parent.getState('start-faces') as Face[] || [];
         const edges = faces.flatMap(f => f.getEdges());
         return this.resolveShapes(edges, args);
-      });
+      }, this);
   }
 
   endEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('end-edges', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
-      () => {
-        const faces = this.getState('end-faces') as Face[] || [];
+      (parent) => {
+        const faces = parent.getState('end-faces') as Face[] || [];
         const edges = faces.flatMap(f => f.getEdges());
         return this.resolveShapes(edges, args);
-      });
+      }, this);
   }
 
   sideFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('side-faces', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
-      () => {
-        const faces = this.getState('side-faces') as Face[] || [];
+      (parent) => {
+        const faces = parent.getState('side-faces') as Face[] || [];
         return this.resolveShapes(faces, args);
-      });
+      }, this);
   }
 
   sideEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('side-edges', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
-      () => {
-        const sideFaces = this.getState('side-faces') as Face[] || [];
-        const startFaces = this.getState('start-faces') as Face[] || [];
-        const endFaces = this.getState('end-faces') as Face[] || [];
+      (parent) => {
+        const sideFaces = parent.getState('side-faces') as Face[] || [];
+        const startFaces = parent.getState('start-faces') as Face[] || [];
+        const endFaces = parent.getState('end-faces') as Face[] || [];
         const excludedEdges = [...startFaces, ...endFaces].flatMap(f => f.getEdges());
         const edges = sideFaces.flatMap(f => f.getEdges())
           .filter(e => !excludedEdges.some(ex => e.getShape().IsSame(ex.getShape())));
         return this.resolveShapes(edges, args);
-      });
+      }, this);
   }
 
   internalFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('internal-faces', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
-      () => {
-        const faces = this.getState('internal-faces') as Face[] || [];
+      (parent) => {
+        const faces = parent.getState('internal-faces') as Face[] || [];
         return this.resolveShapes(faces, args);
-      });
+      }, this);
   }
 
   internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('internal-edges', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
-      () => {
-        const faces = this.getState('internal-faces') as Face[] || [];
+      (parent) => {
+        const faces = parent.getState('internal-faces') as Face[] || [];
         const edges = faces.flatMap(f => f.getEdges());
         return this.resolveShapes(edges, args);
-      });
+      }, this);
   }
 
   private buildSuffix(prefix: string, args: any[]): string {

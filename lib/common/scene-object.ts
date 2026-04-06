@@ -3,6 +3,7 @@ import { Shape, ShapeFilter } from "./shape.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { ISceneObject } from "../core/interfaces.js";
 import { FusionScope } from "../features/extrude-options.js";
+import { ShapeType } from "./shape-type.js";
 
 export type SourceLocation = {
   filePath: string;
@@ -330,7 +331,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return filteredShapes;
   }
 
-  getChildShapes(filter?: ShapeFilter, type?: string): Shape[] {
+  getChildShapes(filter?: ShapeFilter, type?: ShapeType): Shape[] {
     let shapes: Shape[] = [];
 
     filter = {
@@ -345,7 +346,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return shapes;
   }
 
-  getShapes(filter?: ShapeFilter, type?: string): Shape[] {
+  getShapes(filter?: ShapeFilter, type?: ShapeType): Shape[] {
     filter = {
       excludeMeta: filter?.excludeMeta ?? true,
       excludeGuide: filter?.excludeGuide ?? true,

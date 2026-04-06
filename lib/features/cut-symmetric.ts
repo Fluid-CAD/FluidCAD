@@ -117,11 +117,11 @@ export class CutSymmetric extends CutBase {
   edges(...indices: number[]): SceneObject {
     const suffix = indices.length > 0 ? `section-edges-${indices.join('-')}` : 'section-edges';
     return new LazySceneObject(`${this.getOrder()}-cut-symmetric-${suffix}`,
-      () => {
-        const edges = this.getState('section-edges') as Edge[] || [];
+      (parent) => {
+        const edges = parent.getState('section-edges') as Edge[] || [];
         if (indices.length === 0) { return edges; }
         return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
-      });
+      }, this);
   }
 
   getType(): string {

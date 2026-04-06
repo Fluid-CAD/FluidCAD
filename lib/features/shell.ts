@@ -138,19 +138,19 @@ export class Shell extends SceneObject implements IShell {
   internalFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('internal-faces', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
-      () => {
-        const faces = this.getState('internal-faces') as Face[] || [];
+      (parent) => {
+        const faces = parent.getState('internal-faces') as Face[] || [];
         return this.resolveShapes(faces, args);
-      });
+      }, this);
   }
 
   internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('internal-edges', args);
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
-      () => {
-        const edges = this.getState('internal-edges') as Edge[] || [];
+      (parent) => {
+        const edges = parent.getState('internal-edges') as Edge[] || [];
         return this.resolveShapes(edges, args);
-      });
+      }, this);
   }
 
   private buildSuffix(prefix: string, args: any[]): string {

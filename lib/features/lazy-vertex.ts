@@ -1,4 +1,5 @@
 import { SceneObject } from "../common/scene-object.js";
+import { ShapeType } from "../common/shape-type.js";
 import { Shape, ShapeFilter } from "../common/shape.js";
 import { Vertex } from "../common/vertex.js";
 import { Plane } from "../math/plane.js";
@@ -24,7 +25,7 @@ export class LazyVertex extends SceneObject {
     this.addShapes(shapes);
   }
 
-  override getShapes(filter?: ShapeFilter, type?: string): Shape[] {
+  override getShapes(filter?: ShapeFilter, type?: ShapeType): Shape[] {
     if (this._isBuilt) {
       return super.getShapes(filter, type);
     }

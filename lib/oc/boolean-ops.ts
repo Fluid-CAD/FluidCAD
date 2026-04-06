@@ -193,8 +193,8 @@ export class BooleanOps {
       }
     }
 
-    const cleanResult = result.map(s => ShapeOps.cleanShape(s));
-    const cleanNewShapes = newShapes.map(s => ShapeOps.cleanShape(s));
+    const cleanResult = result; // result.map(s => ShapeOps.cleanShape(s));
+    const cleanNewShapes = newShapes; // newShapes.map(s => ShapeOps.cleanShape(s));
 
     return { result: cleanResult, newShapes: cleanNewShapes, modifiedShapes };
   }

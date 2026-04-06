@@ -22,7 +22,7 @@ export class Chamfer extends SceneObject {
 
     sceneObjects = new Map<SceneObject, Shape[]>();
     for (const obj of context.getSceneObjects()) {
-      const shapes = obj.getShapes({ excludeMeta: false }, 'solid');
+      const shapes = obj.getShapes({}, 'solid');
       if (shapes.length) {
         sceneObjects.set(obj, shapes);
       }
@@ -41,15 +41,18 @@ export class Chamfer extends SceneObject {
       }
 
       for (const shape of shapes) {
+        console.log('Chamfer: Mapping shape to object:', shape.getType(), obj.id);
         shapeObjectMap.set(shape, obj);
       }
     }
 
     const allTargetShapes = Array.from(shapeObjectMap.keys());
+    console.log('Chamfer: All target shapes count:', allTargetShapes.length);
     console.log('Fillet: Target shapes count:', allTargetShapes.length);
 
     for (const shape of allTargetShapes) {
       const solid = shape as Solid;
+      console.log('Chamfer: Processing solid:', solid.getType(), solid.id);
       const targetEdges = edges.filter(e => solid.hasEdge(e.getShape()));
       console.log('Fillet: Target edges count:', targetEdges.length);
       if (!targetEdges.length) {

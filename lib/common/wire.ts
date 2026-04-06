@@ -6,6 +6,7 @@ import { Vector3d } from "../math/vector3d.js";
 import { Vertex } from "./vertex.js";
 import { Explorer } from "../oc/explorer.js";
 import { Edge } from "./edge.js";
+import { EdgeOps } from "../oc/edge-ops.js";
 
 export class Wire extends Shape<TopoDS_Wire> {
   vertices: Vertex[] | null = null;
@@ -36,8 +37,46 @@ export class Wire extends Shape<TopoDS_Wire> {
       return this.edges;
     }
 
-    this.edges = Explorer.findEdgesWrapped(this);
+    // Use BRepTools_WireExplorer (via findEdgesInWireOrderWrapped) instead of
+    // TopExp_Explorer to get edges in wire-parametric order. TopExp_Explorer
+    // returns edges in topology-graph order which varies depending on how the
+    // shape was constructed (e.g. mirrored vs original extrusions).
+    let edges = Explorer.findEdgesInWireOrderWrapped(this);
+
+    // For closed wires, the starting edge from BRepTools_WireExplorer is still
+    // construction-dependent. Normalize by rotating to start from the edge with
+    // the lexicographically smallest midpoint, making indices geometry-based.
+    if (this.isClosed() && edges.length > 1) {
+      edges = Wire.normalizeStartEdge(edges);
+    }
+
+    this.edges = edges;
     return this.edges;
+  }
+
+  // Rotates the edge list so it starts from the edge with the smallest midpoint
+  // (lexicographic x → y → z). This ensures consistent indexing regardless of
+  // how OCCT constructed the wire internally.
+  private static normalizeStartEdge(edges: Edge[]): Edge[] {
+    const eps = 1e-10;
+    let minIdx = 0;
+    let minMid = EdgeOps.getEdgeMidPoint(edges[0]);
+
+    for (let i = 1; i < edges.length; i++) {
+      const mid = EdgeOps.getEdgeMidPoint(edges[i]);
+      if (mid.x < minMid.x - eps
+          || (Math.abs(mid.x - minMid.x) < eps && mid.y < minMid.y - eps)
+          || (Math.abs(mid.x - minMid.x) < eps && Math.abs(mid.y - minMid.y) < eps && mid.z < minMid.z - eps)) {
+        minIdx = i;
+        minMid = mid;
+      }
+    }
+
+    if (minIdx === 0) {
+      return edges;
+    }
+
+    return [...edges.slice(minIdx), ...edges.slice(0, minIdx)];
   }
 
   getFirstVertex(): Vertex {

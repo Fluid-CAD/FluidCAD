@@ -270,35 +270,35 @@ export class Rect extends ExtrudableGeometryBase implements IRect {
   }
 
   topEdge(): LazySceneObject {
-    return new LazySceneObject(this.generateUniqueName('top-edge'), () => [this.getState('topEdge')]);
+    return new LazySceneObject(this.generateUniqueName('top-edge'), (parent) => [parent.getState('topEdge')], this);
   }
 
   bottomEdge(): LazySceneObject {
-    return new LazySceneObject(this.generateUniqueName('bottom-edge'), () => [this.getState('bottomEdge')]);
+    return new LazySceneObject(this.generateUniqueName('bottom-edge'), (parent) => [parent.getState('bottomEdge')], this);
   }
 
   leftEdge(): LazySceneObject {
-    return new LazySceneObject(this.generateUniqueName('left-edge'), () => [this.getState('leftEdge')]);
+    return new LazySceneObject(this.generateUniqueName('left-edge'), (parent) => [parent.getState('leftEdge')], this);
   }
 
   rightEdge(): LazySceneObject {
-    return new LazySceneObject(this.generateUniqueName('right-edge'), () => [this.getState('rightEdge')]);
+    return new LazySceneObject(this.generateUniqueName('right-edge'), (parent) => [parent.getState('rightEdge')], this);
   }
 
   topLeftArcEdge(): LazySceneObject {
-    return new LazySceneObject(this.generateUniqueName('top-left-arc'), () => [this.getState('topLeftArcEdge')]);
+    return new LazySceneObject(this.generateUniqueName('top-left-arc'), (parent) => [parent.getState('topLeftArcEdge')], this);
   }
 
   topRightArcEdge(): LazySceneObject {
-    return new LazySceneObject(this.generateUniqueName('top-right-arc'), () => [this.getState('topRightArcEdge')]);
+    return new LazySceneObject(this.generateUniqueName('top-right-arc'), (parent) => [parent.getState('topRightArcEdge')], this);
   }
 
   bottomLeftArcEdge(): LazySceneObject {
-    return new LazySceneObject(this.generateUniqueName('bottom-left-arc'), () => [this.getState('bottomLeftArcEdge')]);
+    return new LazySceneObject(this.generateUniqueName('bottom-left-arc'), (parent) => [parent.getState('bottomLeftArcEdge')], this);
   }
 
   bottomRightArcEdge(): LazySceneObject {
-    return new LazySceneObject(this.generateUniqueName('bottom-right-arc'), () => [this.getState('bottomRightArcEdge')]);
+    return new LazySceneObject(this.generateUniqueName('bottom-right-arc'), (parent) => [parent.getState('bottomRightArcEdge')], this);
   }
 
   topLeft(): LazyVertex {

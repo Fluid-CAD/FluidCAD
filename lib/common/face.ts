@@ -46,7 +46,8 @@ export class Face extends Shape<TopoDS_Face> {
       return this.edges;
     }
 
-    this.edges = Explorer.findEdgesWrapped(this);
+    const wires = this.getWires();
+    this.edges = wires.flatMap(w => w.getEdges());
     return this.edges;
   }
 

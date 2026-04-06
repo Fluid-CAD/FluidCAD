@@ -1,4 +1,4 @@
-import type { TopoDS_Face, TopoDS_Shape } from "occjs-wrapper";
+import type { BRepMesh_IncrementalMesh, TopoDS_Face, TopoDS_Shape } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";
@@ -28,9 +28,9 @@ export class Mesh {
     const normals: number[] = [];
     const indices: number[] = [];
 
-    let inc;
+    let inc: BRepMesh_IncrementalMesh;
     try {
-      inc = new oc.BRepMesh_IncrementalMesh(face, 0.3, false, 0.3, false);
+      inc = new oc.BRepMesh_IncrementalMesh(face, 0.3, false, 0.3, true);
     } catch (e) {
       console.error("Face mesh failed", e);
       return null;

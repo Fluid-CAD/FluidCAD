@@ -33,6 +33,7 @@ function build(context: SceneParserContext): ShellFunction {
       ? args[0] as number
       : 2.5;
 
+    context.addSceneObject(selection);
     const shell = new Shell(thickness, selection);
 
     context.addSceneObject(shell);

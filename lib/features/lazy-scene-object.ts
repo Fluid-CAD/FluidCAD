@@ -36,6 +36,10 @@ export class LazySceneObject extends SceneObject {
       return false;
     }
 
+    if (this.uniqueName !== other.uniqueName) {
+      return false;
+    }
+
     if (!super.compareTo(other)) {
       return false;
     }

@@ -66,6 +66,7 @@ function build(context: SceneParserContext): ExtrudeFunction {
         return new ExtrudeToFace('last-face', extrudable);
       }
       else if (params[0] instanceof SceneObject) {
+        context.addSceneObject(params[0] as SceneObject);
         return new ExtrudeToFace(params[0] as SelectSceneObject, extrudable);
       }
       else {

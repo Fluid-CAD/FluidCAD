@@ -17,8 +17,8 @@ import { Explorer } from "../oc/explorer.js";
 import { Point } from "../math/point.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
-import { FilterBuilderBase } from "../filters/filter-builder-base.js";
 import { ShapeFilter } from "../filters/filter.js";
+import { Matrix4 } from "../math/matrix4.js";
 
 export interface CutOptions extends ExtrudeOptions { }
 
@@ -286,7 +286,11 @@ export abstract class CutBase extends SceneObject implements ICut {
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const edges = parent.getState('start-edges') as Edge[] || [];
-        return this.resolveShapes(edges, args);
+        const transform = parent.getTransform();
+        const originalEdges = transform
+          ? (this.getState('start-edges') as Edge[] || [])
+          : null;
+        return this.resolveEdges(edges, args, transform, originalEdges);
       }, this);
   }
 
@@ -295,7 +299,11 @@ export abstract class CutBase extends SceneObject implements ICut {
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const edges = parent.getState('end-edges') as Edge[] || [];
-        return this.resolveShapes(edges, args);
+        const transform = parent.getTransform();
+        const originalEdges = transform
+          ? (this.getState('end-edges') as Edge[] || [])
+          : null;
+        return this.resolveEdges(edges, args, transform, originalEdges);
       }, this);
   }
 
@@ -304,7 +312,11 @@ export abstract class CutBase extends SceneObject implements ICut {
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const edges = parent.getState('internal-edges') as Edge[] || [];
-        return this.resolveShapes(edges, args);
+        const transform = parent.getTransform();
+        const originalEdges = transform
+          ? (this.getState('internal-edges') as Edge[] || [])
+          : null;
+        return this.resolveEdges(edges, args, transform, originalEdges);
       }, this);
   }
 
@@ -313,7 +325,11 @@ export abstract class CutBase extends SceneObject implements ICut {
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('internal-faces') as Face[] || [];
-        return this.resolveShapes(faces, args);
+        const transform = parent.getTransform();
+        const originalFaces = transform
+          ? (this.getState('internal-faces') as Face[] || [])
+          : null;
+        return this.resolveFaces(faces, args, transform, originalFaces);
       }, this);
   }
 
@@ -325,18 +341,48 @@ export abstract class CutBase extends SceneObject implements ICut {
     return `${prefix}-${key}`;
   }
 
-  private resolveShapes<T extends Shape>(shapes: T[], args: (number | FilterBuilderBase<T>)[]): T[] {
+  private resolveEdges(shapes: Edge[], args: (number | EdgeFilterBuilder)[],
+                       transform: Matrix4 = null, originalShapes: Edge[] = null): Edge[] {
     if (args.length === 0) {
       return shapes;
     }
 
     if (args.every(a => typeof a === 'number')) {
       const indices = args as number[];
-      return indices.filter(i => i >= 0 && i < shapes.length).map(i => shapes[i]);
+      let filters = indices.map(i => new EdgeFilterBuilder().atIndex(i, shapes, originalShapes));
+      if (transform) {
+        filters = filters.map(f => f.transform(transform) as EdgeFilterBuilder);
+      }
+      return new ShapeFilter(shapes, ...filters).apply() as Edge[];
     }
 
-    const filters = args.filter(a => a instanceof FilterBuilderBase) as FilterBuilderBase<T>[];
-    return new ShapeFilter(shapes as any, ...filters).apply() as T[];
+    let filters = args.filter(a => a instanceof EdgeFilterBuilder) as EdgeFilterBuilder[];
+    if (transform) {
+      filters = filters.map(f => f.transform(transform) as EdgeFilterBuilder);
+    }
+    return new ShapeFilter(shapes as any, ...filters).apply() as Edge[];
+  }
+
+  private resolveFaces(shapes: Face[], args: (number | FaceFilterBuilder)[],
+                       transform: Matrix4 = null, originalShapes: Face[] = null): Face[] {
+    if (args.length === 0) {
+      return shapes;
+    }
+
+    if (args.every(a => typeof a === 'number')) {
+      const indices = args as number[];
+      let filters = indices.map(i => new FaceFilterBuilder().atIndex(i, shapes, originalShapes));
+      if (transform) {
+        filters = filters.map(f => f.transform(transform) as FaceFilterBuilder);
+      }
+      return new ShapeFilter(shapes, ...filters).apply() as Face[];
+    }
+
+    let filters = args.filter(a => a instanceof FaceFilterBuilder) as FaceFilterBuilder[];
+    if (transform) {
+      filters = filters.map(f => f.transform(transform) as FaceFilterBuilder);
+    }
+    return new ShapeFilter(shapes as any, ...filters).apply() as Face[];
   }
 
   getType(): string {

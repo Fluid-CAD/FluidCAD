@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render } from "../setup.js";
+import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import shell from "../../core/shell.js";
@@ -172,10 +172,12 @@ describe("shell", () => {
 
       select(face().onPlane("xy", 50));
       const s = shell(5) as Shell;
+      const inf = s.internalFaces();
+      addToScene(inf);
 
       render();
 
-      const faces = s.internalFaces().getShapes();
+      const faces = inf.getShapes();
       expect(faces.length).toBeGreaterThan(0);
       for (const f of faces) {
         expect(f.getType()).toBe("face");
@@ -187,10 +189,12 @@ describe("shell", () => {
 
       select(face().onPlane("xy", 80));
       const s = shell(5) as Shell;
+      const inf = s.internalFaces();
+      addToScene(inf);
 
       render();
 
-      const faces = s.internalFaces().getShapes();
+      const faces = inf.getShapes();
       expect(faces.length).toBeGreaterThan(0);
     });
 
@@ -202,15 +206,17 @@ describe("shell", () => {
 
       select(face().onPlane("xy", 50));
       const s = shell(5) as Shell;
+      const allFaces = s.internalFaces();
+      const first = s.internalFaces(0);
+      addToScene(allFaces);
+      addToScene(first);
 
       render();
 
-      const allFaces = s.internalFaces().getShapes();
-      if (allFaces.length > 0) {
-        const first = s.internalFaces(0).getShapes();
-        expect(first).toHaveLength(1);
-        expect(first[0].isSame(allFaces[0])).toBe(true);
-      }
+      const allShapes = allFaces.getShapes();
+      expect(allShapes.length).toBeGreaterThan(0);
+      expect(first.getShapes()).toHaveLength(1);
+      expect(first.getShapes()[0].isSame(allShapes[0])).toBe(true);
     });
   });
 
@@ -223,10 +229,12 @@ describe("shell", () => {
 
       select(face().onPlane("xy", 50));
       const s = shell(5) as Shell;
+      const ine = s.internalEdges();
+      addToScene(ine);
 
       render();
 
-      const edges = s.internalEdges().getShapes();
+      const edges = ine.getShapes();
       expect(edges.length).toBeGreaterThan(0);
       for (const e of edges) {
         expect(e.getType()).toBe("edge");
@@ -241,15 +249,17 @@ describe("shell", () => {
 
       select(face().onPlane("xy", 50));
       const s = shell(5) as Shell;
+      const allEdges = s.internalEdges();
+      const first = s.internalEdges(0);
+      addToScene(allEdges);
+      addToScene(first);
 
       render();
 
-      const allEdges = s.internalEdges().getShapes();
-      if (allEdges.length > 0) {
-        const first = s.internalEdges(0).getShapes();
-        expect(first).toHaveLength(1);
-        expect(first[0].isSame(allEdges[0])).toBe(true);
-      }
+      const allShapes = allEdges.getShapes();
+      expect(allShapes.length).toBeGreaterThan(0);
+      expect(first.getShapes()).toHaveLength(1);
+      expect(first.getShapes()[0].isSame(allShapes[0])).toBe(true);
     });
   });
 });

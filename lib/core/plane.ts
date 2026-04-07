@@ -64,6 +64,7 @@ function build(context: SceneParserContext): PlaneFunction {
   return function plane(): PlaneObjectBase {
     if (arguments.length === 1) {
        if (arguments[0] instanceof SceneObject) {
+         context.addSceneObject(arguments[0]);
         const pln = new PlaneFromObject(arguments[0]);
         context.addSceneObject(pln);
         return pln;
@@ -80,6 +81,7 @@ function build(context: SceneParserContext): PlaneFunction {
       if (typeof arguments[1] === 'number') {
         const options: PlaneRenderableOptions = { offset: arguments[1] };
         if (arguments[0] instanceof SceneObject) {
+          context.addSceneObject(arguments[0]);
           const pln = new PlaneFromObject(arguments[0], options);
           context.addSceneObject(pln);
           return pln;
@@ -113,11 +115,14 @@ function build(context: SceneParserContext): PlaneFunction {
           a2 = new PlaneObject(axis);
         }
 
+        context.addSceneObject(a1);
+        context.addSceneObject(a2);
         const pln = new PlaneMiddleRenderable(a1, a2);
         context.addSceneObject(pln);
         return pln;
       }
       else if (arguments[0] instanceof SceneObject) {
+        context.addSceneObject(arguments[0]);
         const pln = new PlaneFromObject(arguments[0], arguments[1]);
         context.addSceneObject(pln);
         return pln;
@@ -157,6 +162,8 @@ function build(context: SceneParserContext): PlaneFunction {
 
         const options = arguments[2] as PlaneRenderableOptions;
 
+        context.addSceneObject(a1);
+        context.addSceneObject(a2);
         const pln = new PlaneMiddleRenderable(a1, a2, options);
         context.addSceneObject(pln);
         return pln;

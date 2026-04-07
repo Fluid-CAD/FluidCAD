@@ -13,7 +13,6 @@ import { FaceOps } from "../oc/face-ops.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
-import { FilterBuilderBase } from "../filters/filter-builder-base.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { Matrix4 } from "../math/matrix4.js";
 
@@ -39,7 +38,11 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('start-faces') as Face[] || [];
-        return this.resolveFaces(faces, args);
+        const transform = parent.getTransform();
+        const originalFaces = transform
+          ? (this.getState('start-faces') as Face[] || [])
+          : null;
+        return this.resolveFaces(faces, args, transform, originalFaces);
       }, this);
   }
 
@@ -48,7 +51,11 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('end-faces') as Face[] || [];
-        return this.resolveFaces(faces, args);
+        const transform = parent.getTransform();
+        const originalFaces = transform
+          ? (this.getState('end-faces') as Face[] || [])
+          : null;
+        return this.resolveFaces(faces, args, transform, originalFaces);
       }, this);
   }
 
@@ -85,7 +92,11 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('side-faces') as Face[] || [];
-        return this.resolveFaces(faces, args);
+        const transform = parent.getTransform();
+        const originalFaces = transform
+          ? (this.getState('side-faces') as Face[] || [])
+          : null;
+        return this.resolveFaces(faces, args, transform, originalFaces);
       }, this);
   }
 
@@ -108,7 +119,11 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('internal-faces') as Face[] || [];
-        return this.resolveFaces(faces, args);
+        const transform = parent.getTransform();
+        const originalFaces = transform
+          ? (this.getState('internal-faces') as Face[] || [])
+          : null;
+        return this.resolveFaces(faces, args, transform, originalFaces);
       }, this);
   }
 
@@ -130,18 +145,26 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return `${prefix}-${key}`;
   }
 
-  private resolveFaces<T extends Shape>(shapes: Face[], args: number[] | FaceFilterBuilder[]): T[] {
+  private resolveFaces<T extends Shape>(shapes: Face[], args: number[] | FaceFilterBuilder[],
+                                       transform: Matrix4 = null,
+                                       originalShapes: Face[] = null): T[] {
     if (args.length === 0) {
       return new ShapeFilter(shapes).apply() as T[];
     }
 
     if (args.some(a => typeof a === 'number')) {
       const indices = args as number[];
-      const filters = indices.map(i => new FaceFilterBuilder().atIndex(i, shapes));
+      let filters = indices.map(i => new FaceFilterBuilder().atIndex(i, shapes, originalShapes));
+      if (transform) {
+        filters = filters.map(f => f.transform(transform) as FaceFilterBuilder);
+      }
       return new ShapeFilter(shapes, ...filters).apply() as T[];
     }
 
-    const filters = args as FaceFilterBuilder[];
+    let filters = args as FaceFilterBuilder[];
+    if (transform) {
+      filters = filters.map(f => f.transform(transform) as FaceFilterBuilder);
+    }
     return new ShapeFilter(shapes, ...filters).apply() as T[];
   }
 

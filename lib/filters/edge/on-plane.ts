@@ -15,7 +15,6 @@ export class OnPlaneFilter extends FilterBase<Edge> {
 
   match(shape: Edge): boolean {
     const plane = this.plane.getPlane();
-    console.log('******** Edge type:', Explorer.getShapeType(shape.getShape()));
     if (EdgeQuery.isEdgeOnPlane(shape, plane)) {
       return true;
     }

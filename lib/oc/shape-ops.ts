@@ -104,13 +104,13 @@ export class ShapeOps {
     const oc = getOC();
 
     // Full unification: merge redundant edges AND co-surface faces
-    const unify = new oc.ShapeUpgrade_UnifySameDomain(shape, true, true, false);
+    const unify = new oc.ShapeUpgrade_UnifySameDomain(shape, false, true, false);
     unify.Build();
     let cleaned = unify.Shape();
     unify.delete();
 
     // Validate — UnifySameDomain can corrupt periodic surfaces (e.g. cylinders)
-    const checker = new oc.BRepCheck_Analyzer(cleaned, true, false);
+    const checker = new oc.BRepCheck_Analyzer(cleaned, true, true);
     if (checker.IsValid()) {
       checker.delete();
       return cleaned;

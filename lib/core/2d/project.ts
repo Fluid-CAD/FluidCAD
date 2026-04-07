@@ -25,6 +25,7 @@ function build(context: SceneParserContext): ProjectFunction {
   return function project(...args: any[]) {
     if (Array.isArray(args[0])) {
       const sourceObjects = args[0] as SceneObject[];
+      context.addSceneObjects(sourceObjects);
       const planeObj: PlaneObjectBase = resolvePlane(args[1], context);
 
       const projection = new Projection(sourceObjects, planeObj);
@@ -33,6 +34,7 @@ function build(context: SceneParserContext): ProjectFunction {
     }
 
     const projection = new Projection(args as SceneObject[]);
+    context.addSceneObjects(args);
     context.addSceneObject(projection);
     return projection;
   } as ProjectFunction;

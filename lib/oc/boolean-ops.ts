@@ -160,11 +160,12 @@ export class BooleanOps {
     const list = new oc.TopTools_ListOfShape();
     list.Append(empty);
     builder.SetArguments(list);
-
     builder.SetTools(argsList);
+
 
     const progress = new oc.Message_ProgressRange();
     builder.Build(progress);
+    builder.SimplifyResult(false, true, oc.Precision.Angular());
 
     const resultShape = builder.Shape();
     console.log('FuseMultiShape: Result shape type:', Explorer.getShapeType(resultShape));
@@ -193,10 +194,7 @@ export class BooleanOps {
       }
     }
 
-    const cleanResult = result; // result.map(s => ShapeOps.cleanShape(s));
-    const cleanNewShapes = newShapes; // newShapes.map(s => ShapeOps.cleanShape(s));
-
-    return { result: cleanResult, newShapes: cleanNewShapes, modifiedShapes };
+    return { result, newShapes, modifiedShapes };
   }
 
   static fuseFaces(args: Shape[]): {

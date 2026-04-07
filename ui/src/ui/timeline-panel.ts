@@ -1,4 +1,5 @@
 import type { SceneObjectRender } from '../types';
+import { ICON_CIRCLE_CHECK, ICON_REFRESH } from './icons';
 
 const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 glass-dark border border-white/10 rounded-md cursor-pointer select-none shrink-0';
 const CHEVRON_SVG = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
@@ -208,11 +209,16 @@ export class TimelinePanel {
       chevron = '<span class="w-4"></span>';
     }
 
+    const statusIcon = obj.fromCache
+      ? `<span class="ml-auto shrink-0 opacity-40 [&>svg]:w-4 [&>svg]:h-4">${ICON_CIRCLE_CHECK}</span>`
+      : `<span class="ml-auto shrink-0 opacity-40 [&>svg]:w-4 [&>svg]:h-4">${ICON_REFRESH}</span>`;
+
     return `
       <div class="${itemClass}" data-index="${index}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}">
         ${chevron}
         <img src="${iconSrc}" class="${imgClass}" alt="" />
         <span class="truncate">${name}</span>
+        ${statusIcon}
       </div>
     `;
   }

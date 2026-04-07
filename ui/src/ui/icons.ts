@@ -7,6 +7,8 @@ import iconScissors from '@tabler/icons/outline/scissors.svg?raw';
 import iconListTree from '@tabler/icons/outline/list-tree.svg?raw';
 import iconFileImport from '@tabler/icons/outline/file-import.svg?raw';
 import iconCopy from '@tabler/icons/outline/copy.svg?raw';
+import iconCircleCheck from '@tabler/icons/outline/circle-check.svg?raw';
+import iconRefresh from '@tabler/icons/outline/refresh.svg?raw';
 
 export const ICON_FIT = iconAutoFit;
 export const ICON_ORTHO = iconOrthographic;
@@ -17,3 +19,5 @@ export const ICON_SCISSORS = iconScissors;
 export const ICON_LIST_TREE = iconListTree;
 export const ICON_FILE_IMPORT = iconFileImport;
 export const ICON_COPY = iconCopy;
+export const ICON_CIRCLE_CHECK = iconCircleCheck;
+export const ICON_REFRESH = iconRefresh;

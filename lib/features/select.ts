@@ -4,16 +4,15 @@ import { FilterBuilderBase } from "../filters/filter-builder-base.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { ISelect } from "../core/interfaces.js";
-import { Shape } from "../common/shapes.js";
-
-export type Selectable = "edge" | "face";
+import { Shape, ShapeFilter as ShapeFilterType } from "../common/shape.js";
+import { ShapeType } from "../common/shape-type.js";
 
 export class SelectSceneObject extends SceneObject implements ISelect {
 
-  private type: Selectable;
+  private type: ShapeType;
   private shapes: Shape[] = [];
 
-  constructor(private filters: FilterBuilderBase<Shape>[]) {
+  constructor(private filters: FilterBuilderBase<Shape>[], private constraintObject?: SceneObject) {
     super();
 
     if (filters.every(f => f instanceof FaceFilterBuilder)) {
@@ -22,9 +21,6 @@ export class SelectSceneObject extends SceneObject implements ISelect {
     else {
       this.type = "edge";
     }
-    // else {
-    //   throw new Error("All filters must be of the same type, either face() or edge()");
-    // }
   }
 
   build(context: BuildSceneObjectContext) {
@@ -33,69 +29,57 @@ export class SelectSceneObject extends SceneObject implements ISelect {
     let filters = this.filters;
 
     let sceneObjects = context.getSceneObjects();
-    let excludedObjects: Map<SceneObject, Shape[]> = new Map();
+    let excludedObjects: Shape[] = [];
 
     if (transform) {
       filters = filters.map(f => f.transform(transform));
-      console.log('SelectSceneObject: transform applied to selection filters.', filters);
-      if (parent) {
-        excludedObjects = parent.getSnapshot()
-        console.log('SelectSceneObject: snapshot of parent for exclusion:', excludedObjects.size);
-        sceneObjects = context.getSceneObjectsFromTo(parent, this)
-        console.log('SelectSceneObject: scene objects from parent to self:', sceneObjects.length);
+
+      if (!this.constraintObject && parent) {
+        const snapshot = parent.getSnapshot();
+        excludedObjects = snapshot ? Array.from(snapshot.values()).flat() : [];
+        sceneObjects = context.getSceneObjectsFromTo(parent, this);
       }
     }
 
-    const shapes = this.doBuild(sceneObjects, excludedObjects, filters);
-    this.addShapes(shapes);
+    const allShapes = this.constraintObject ? this.constraintObject.getShapes() : this.getAllShapes(sceneObjects, excludedObjects);
+    const filteredShapes = this.applyFilters(allShapes, filters);
+    console.log(`SelectSceneObject: shapes after filtering: ${filteredShapes[0]}`);
+    this.addShapes(filteredShapes);
   }
 
-  doBuild(sceneObjects: SceneObject[], excludedObjects: Map<SceneObject, Shape[]>, filters: FilterBuilderBase<Shape>[]): Shape[] {
-    let actualShapes: Shape[] = [];
-    let actualExcludedShapes: Shape[] = [];
+  private getAllShapes(scope: SceneObject[], exludedShapes: Shape[]) {
+    const scopeShapes = scope.flatMap(obj => obj.getShapes({}, 'solid').map(s => s.getSubShapes(this.type)).flat());
+    exludedShapes = exludedShapes.flatMap(s => s.getSubShapes(this.type));
+    const finalShapes = scopeShapes.filter(shape => !exludedShapes.some(exShape => exShape.isSame(shape)));
 
-    let sceneShapes = sceneObjects.flatMap(o => o.getShapes({ excludeMeta: false }, 'solid'));
-    let excludedShapes = Array.from(excludedObjects.values()).flat()
+    console.log('=== Scope Objects:', scope.length, ' Shapes:', scopeShapes.length)
+    console.log('=== Excluded Shapes:', exludedShapes.length)
+    console.log('=== Final Shapes after exclusion:', finalShapes.length)
 
-    for (const shape of sceneShapes) {
-      actualShapes.push(...shape.getSubShapes(this.type));
+    let allShapes: Shape[] = [];
+    for (const shape of finalShapes) {
+      allShapes.push(shape);
     }
 
-    for (const shape of excludedShapes) {
-      actualExcludedShapes.push(...shape.getSubShapes(this.type));
-    }
-
-    if (actualExcludedShapes.length > 0) {
-      actualShapes = actualShapes.filter(s => !actualExcludedShapes.some(es => s.getShape().IsSame(es.getShape())));
-    }
-
-    console.log('======= Shapes after exclusion:', actualShapes.length);
-
-    if (actualShapes.length === 0) {
-      actualShapes = actualExcludedShapes;
-    }
-
-    console.log('======= Shapes before filtering:', actualShapes.length);
-
-    actualShapes = this.applyFilters(actualShapes, filters);
-
-    console.log(`======= Selection length: ${actualShapes.length}`);
-
-    return actualShapes;
+    console.log('SelectSceneObject: total shapes collected for filtering:', allShapes.length);
+    return allShapes;
   }
 
   override getDependencies(): SceneObject[] {
-    return [];
+    return this.constraintObject ? [this.constraintObject] : [];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    return new SelectSceneObject(this.filters);
+    const remappedConstraint = this.constraintObject
+      ? (remap.get(this.constraintObject) || this.constraintObject)
+      : undefined;
+    return new SelectSceneObject(this.filters, remappedConstraint);
   }
 
   transform(matrix: Matrix4) {
     const mirroredFilters = this.filters.map(f => f.transform(matrix));
     console.log('SelectSceneObject: transform applied to selection filters.', mirroredFilters);
-    return new SelectSceneObject(mirroredFilters);
+    return new SelectSceneObject(mirroredFilters, this.constraintObject);
   }
 
   applyFilters(shapes: Shape[], filters: FilterBuilderBase<Shape>[]): Shape[] {
@@ -114,6 +98,17 @@ export class SelectSceneObject extends SceneObject implements ISelect {
 
     if (this.type !== other.type) {
       return false;
+    }
+
+    const thisHasConstraint = !!this.constraintObject;
+    const otherHasConstraint = !!other.constraintObject;
+    if (thisHasConstraint !== otherHasConstraint) {
+      return false;
+    }
+    if (thisHasConstraint && otherHasConstraint) {
+      if (!this.constraintObject!.compareTo(other.constraintObject!)) {
+        return false;
+      }
     }
 
     if (this.filters.length !== other.filters.length) {
@@ -144,3 +139,4 @@ export class SelectSceneObject extends SceneObject implements ISelect {
     }
   }
 }
+

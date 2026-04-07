@@ -6,7 +6,6 @@ import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
 import { Wire } from "../../common/wire.js";
 import { Extrudable } from "../../helpers/types.js";
-import { remove } from "three/examples/jsm/libs/tween.module.js";
 
 export class Sketch extends SceneObject implements Extrudable {
 

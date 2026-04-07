@@ -4,7 +4,6 @@ import { ShapeOps } from "../../oc/shape-ops.js";
 import { Edge } from "../../common/edge.js";
 import { ProjectionOps } from "../../oc/intersection.js";
 import { Wire } from "../../common/wire.js";
-import { SelectSceneObject } from "../select.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
 
@@ -21,9 +20,9 @@ export class Projection extends ExtrudableGeometryBase {
 
     console.log('Projection: building with shapes:', shapes.length);
     for (let shape of shapes) {
-      // if (transform) {
-      //   shape = ShapeOps.transform(shape, transform);
-      // }
+      if (transform) {
+        shape = ShapeOps.transform(shape, transform);
+      }
 
       let wires: Wire[] = [];
       if (shape instanceof Face) {

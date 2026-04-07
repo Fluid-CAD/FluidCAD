@@ -71,10 +71,6 @@ export class PlaneFromObject extends PlaneObjectBase {
       throw new Error("Plane: Selected object has no shapes to extract plane from");
     }
 
-    if (shapes.length > 1) {
-      throw new Error("Plane: Selected object has multiple shapes; cannot determine plane");
-    }
-
     let sourceFace: Face = shapes[0] as Face;
 
     if (!sourceFace.isFace()) {

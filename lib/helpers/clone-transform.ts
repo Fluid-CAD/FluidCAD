@@ -9,25 +9,36 @@ export function cloneWithTransform(
   const visited = new Set<SceneObject>();
   const ordered: SceneObject[] = [];
 
-  const collect = (obj: SceneObject) => {
+  const collectDeps = (obj: SceneObject) => {
     if (visited.has(obj)) {
       return;
     }
     visited.add(obj);
 
     for (const dep of obj.getDependencies()) {
-      collect(dep);
+      collectDeps(dep);
     }
 
     ordered.push(obj);
 
+    // Collect children without following their dependencies —
+    // cloned children will reference originals for any deps not in the clone set
+    collectChildren(obj);
+  };
+
+  const collectChildren = (obj: SceneObject) => {
     for (const child of obj.getChildren()) {
-      collect(child);
+      if (visited.has(child)) {
+        continue;
+      }
+      visited.add(child);
+      ordered.push(child);
+      collectChildren(child);
     }
   };
 
   for (const obj of objects) {
-    collect(obj);
+    collectDeps(obj);
   }
 
   const remap = new Map<SceneObject, SceneObject>();

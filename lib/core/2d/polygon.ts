@@ -59,6 +59,7 @@ function build(context: SceneParserContext): PolygonFunction {
       const lastArg = arguments[argCount - 1];
       if (isPlaneLike(lastArg) || (lastArg instanceof SceneObject && !isPoint2DLike(lastArg))) {
         planeObj = resolvePlane(lastArg, context);
+        context.addSceneObject(planeObj);
         argCount--;
       }
     }

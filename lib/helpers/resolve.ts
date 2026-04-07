@@ -23,6 +23,7 @@ export function resolvePlane(p: PlaneLike | ISceneObject, context: SceneParserCo
   }
 
   if ((p as any) instanceof SceneObject) {
+    context.addSceneObject(p as SceneObject);
     const planeObj = new PlaneFromObject(p as SceneObject);
     context.addSceneObject(planeObj);
     return planeObj;
@@ -36,6 +37,7 @@ export function resolveAxis(arg: AxisLike | ISceneObject, context: SceneParserCo
   }
 
   if ((arg as any) instanceof SceneObject) {
+    context.addSceneObject(arg as SceneObject);
     const axis = new AxisFromEdge(arg as SceneObject);
     context.addSceneObject(axis);
     return axis;

@@ -13,7 +13,6 @@ import { IRevolve } from "../core/interfaces.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { Face } from "../common/face.js";
 import { FaceOps } from "../oc/face-ops.js";
-import { Plane } from "../math/plane.js";
 
 export class Revolve extends ExtrudeBase implements IRevolve {
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render } from "../setup.js";
+import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
@@ -71,10 +71,12 @@ describe("cut two distances", () => {
         rect(50, 50);
       });
       const c = cut(20, 10) as CutTwoDistances;
+      const edgesObj = c.edges();
+      addToScene(edgesObj);
 
       render();
 
-      const edges = c.edges().getShapes();
+      const edges = edgesObj.getShapes();
       expect(edges.length).toBeGreaterThan(0);
       for (const edge of edges) {
         expect(edge.getType()).toBe("edge");
@@ -92,16 +94,16 @@ describe("cut two distances", () => {
         rect(50, 50);
       });
       const c = cut(20, 10) as CutTwoDistances;
+      const edge0 = c.edges(0);
+      const edge1 = c.edges(1);
+      addToScene(edge0);
+      addToScene(edge1);
 
       render();
 
-      const edge0 = c.edges(0).getShapes();
-      expect(edge0).toHaveLength(1);
-
-      const edge1 = c.edges(1).getShapes();
-      expect(edge1).toHaveLength(1);
-
-      expect(edge0[0].isSame(edge1[0])).toBe(false);
+      expect(edge0.getShapes()).toHaveLength(1);
+      expect(edge1.getShapes()).toHaveLength(1);
+      expect(edge0.getShapes()[0].isSame(edge1.getShapes()[0])).toBe(false);
     });
   });
 

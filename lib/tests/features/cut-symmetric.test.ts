@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render } from "../setup.js";
+import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
@@ -106,10 +106,12 @@ describe("cut symmetric", () => {
         rect(50, 50);
       });
       const c = cut(20, true) as CutSymmetric;
+      const edgesObj = c.edges();
+      addToScene(edgesObj);
 
       render();
 
-      const edges = c.edges().getShapes();
+      const edges = edgesObj.getShapes();
       expect(edges.length).toBeGreaterThan(0);
       for (const edge of edges) {
         expect(edge.getType()).toBe("edge");

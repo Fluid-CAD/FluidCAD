@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render } from "../setup.js";
+import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
@@ -119,10 +119,12 @@ describe("cut", () => {
         rect(50, 50);
       });
       const c = cut(20) as Cut;
+      const edgesObj = c.edges();
+      addToScene(edgesObj);
 
       render();
 
-      const edges = c.edges().getShapes();
+      const edges = edgesObj.getShapes();
       expect(edges.length).toBeGreaterThan(0);
       for (const edge of edges) {
         expect(edge.getType()).toBe("edge");
@@ -140,16 +142,16 @@ describe("cut", () => {
         rect(50, 50);
       });
       const c = cut(20) as Cut;
+      const edge0 = c.edges(0);
+      const edge1 = c.edges(1);
+      addToScene(edge0);
+      addToScene(edge1);
 
       render();
 
-      const edge0 = c.edges(0).getShapes();
-      expect(edge0).toHaveLength(1);
-
-      const edge1 = c.edges(1).getShapes();
-      expect(edge1).toHaveLength(1);
-
-      expect(edge0[0].isSame(edge1[0])).toBe(false);
+      expect(edge0.getShapes()).toHaveLength(1);
+      expect(edge1.getShapes()).toHaveLength(1);
+      expect(edge0.getShapes()[0].isSame(edge1.getShapes()[0])).toBe(false);
     });
 
     it("should expose start and end edges for a distance cut", () => {
@@ -163,11 +165,15 @@ describe("cut", () => {
         rect(50, 50);
       });
       const c = cut(20) as Cut;
+      const se = c.startEdges();
+      const ee = c.endEdges();
+      addToScene(se);
+      addToScene(ee);
 
       render();
 
-      const startEdges = c.startEdges().getShapes();
-      const endEdges = c.endEdges().getShapes();
+      const startEdges = se.getShapes();
+      const endEdges = ee.getShapes();
       expect(startEdges.length).toBeGreaterThan(0);
       expect(endEdges.length).toBeGreaterThan(0);
     });
@@ -260,10 +266,12 @@ describe("cut", () => {
         rect(50, 50);
       });
       const c = cut(20) as Cut;
+      const inf = c.internalFaces();
+      addToScene(inf);
 
       render();
 
-      const faces = c.internalFaces().getShapes();
+      const faces = inf.getShapes();
       // A rectangular pocket creates 5 internal faces: 4 walls + 1 floor
       expect(faces.length).toBeGreaterThan(0);
       for (const f of faces) {
@@ -282,10 +290,12 @@ describe("cut", () => {
         circle(40);
       });
       const c = cut(30) as Cut;
+      const inf = c.internalFaces();
+      addToScene(inf);
 
       render();
 
-      const faces = c.internalFaces().getShapes();
+      const faces = inf.getShapes();
       // A circular pocket creates internal faces: cylinder wall + floor
       expect(faces.length).toBeGreaterThan(0);
     });
@@ -301,15 +311,17 @@ describe("cut", () => {
         rect(50, 50);
       });
       const c = cut(20) as Cut;
+      const allFaces = c.internalFaces();
+      const first = c.internalFaces(0);
+      addToScene(allFaces);
+      addToScene(first);
 
       render();
 
-      const allFaces = c.internalFaces().getShapes();
-      if (allFaces.length > 0) {
-        const first = c.internalFaces(0).getShapes();
-        expect(first).toHaveLength(1);
-        expect(first[0].isSame(allFaces[0])).toBe(true);
-      }
+      const allShapes = allFaces.getShapes();
+      expect(allShapes.length).toBeGreaterThan(0);
+      expect(first.getShapes()).toHaveLength(1);
+      expect(first.getShapes()[0].isSame(allShapes[0])).toBe(true);
     });
   });
 
@@ -325,10 +337,12 @@ describe("cut", () => {
         rect(50, 50);
       });
       const c = cut(20) as Cut;
+      const ine = c.internalEdges();
+      addToScene(ine);
 
       render();
 
-      const edges = c.internalEdges().getShapes();
+      const edges = ine.getShapes();
       // A rectangular pocket has 4 internal edges (vertical wall edges)
       expect(edges.length).toBeGreaterThan(0);
       for (const edge of edges) {
@@ -347,10 +361,12 @@ describe("cut", () => {
       });
 
       const c = cut() as Cut;
+      const se = c.startEdges();
+      addToScene(se);
 
       render();
 
-      const startEdges = c.startEdges().getShapes();
+      const startEdges = se.getShapes();
       expect(startEdges.length).toBeGreaterThan(0);
       for (const edge of startEdges) {
         expect(edge.getType()).toBe("edge");
@@ -366,10 +382,12 @@ describe("cut", () => {
       });
 
       const c = cut() as Cut;
+      const inf = c.internalFaces();
+      addToScene(inf);
 
       render();
 
-      const faces = c.internalFaces().getShapes();
+      const faces = inf.getShapes();
       expect(faces.length).toBeGreaterThan(0);
       for (const f of faces) {
         expect(f.getType()).toBe("face");
@@ -385,10 +403,12 @@ describe("cut", () => {
       });
 
       const c = cut() as Cut;
+      const ee = c.endEdges();
+      addToScene(ee);
 
       render();
 
-      const endEdges = c.endEdges().getShapes();
+      const endEdges = ee.getShapes();
       expect(endEdges.length).toBeGreaterThan(0);
     });
   });

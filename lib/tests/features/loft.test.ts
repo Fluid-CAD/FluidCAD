@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render } from "../setup.js";
+import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import plane from "../../core/plane.js";
 import loft from "../../core/loft.js";
@@ -188,14 +188,18 @@ describe("loft", () => {
       });
 
       const l = loft(s1, s2) as Loft;
+      const sf = l.startFaces();
+      const ef = l.endFaces();
+      addToScene(sf);
+      addToScene(ef);
 
       render();
 
-      const startFaces = l.startFaces().getShapes();
+      const startFaces = sf.getShapes();
       expect(startFaces).toHaveLength(1);
       expect(startFaces[0].getType()).toBe("face");
 
-      const endFaces = l.endFaces().getShapes();
+      const endFaces = ef.getShapes();
       expect(endFaces).toHaveLength(1);
       expect(endFaces[0].getType()).toBe("face");
     });
@@ -210,11 +214,15 @@ describe("loft", () => {
       });
 
       const l = loft(s1, s2) as Loft;
+      const sf = l.startFaces();
+      const ef = l.endFaces();
+      addToScene(sf);
+      addToScene(ef);
 
       render();
 
-      const startFace = l.startFaces().getShapes()[0];
-      const endFace = l.endFaces().getShapes()[0];
+      const startFace = sf.getShapes()[0];
+      const endFace = ef.getShapes()[0];
       expect(startFace.isSame(endFace)).toBe(false);
     });
 
@@ -228,10 +236,12 @@ describe("loft", () => {
       });
 
       const l = loft(s1, s2) as Loft;
+      const sidf = l.sideFaces();
+      addToScene(sidf);
 
       render();
 
-      const sideFaces = l.sideFaces().getShapes();
+      const sideFaces = sidf.getShapes();
       expect(sideFaces.length).toBeGreaterThan(0);
       for (const f of sideFaces) {
         expect(f.getType()).toBe("face");
@@ -248,13 +258,15 @@ describe("loft", () => {
       });
 
       const l = loft(s1, s2) as Loft;
+      const allSide = l.sideFaces();
+      const first = l.sideFaces(0);
+      addToScene(allSide);
+      addToScene(first);
 
       render();
 
-      const allSide = l.sideFaces().getShapes();
-      const first = l.sideFaces(0).getShapes();
-      expect(first).toHaveLength(1);
-      expect(first[0].isSame(allSide[0])).toBe(true);
+      expect(first.getShapes()).toHaveLength(1);
+      expect(first.getShapes()[0].isSame(allSide.getShapes()[0])).toBe(true);
     });
 
     it("should filter faces with face filter builder", () => {
@@ -267,11 +279,12 @@ describe("loft", () => {
       });
 
       const l = loft(s1, s2) as Loft;
+      const parallelXY = l.startFaces(face().parallelTo("xy"));
+      addToScene(parallelXY);
 
       render();
 
-      const parallelXY = l.startFaces(face().parallelTo("xy")).getShapes();
-      expect(parallelXY).toHaveLength(1);
+      expect(parallelXY.getShapes()).toHaveLength(1);
     });
   });
 
@@ -286,16 +299,20 @@ describe("loft", () => {
       });
 
       const l = loft(s1, s2) as Loft;
+      const se = l.startEdges();
+      const ee = l.endEdges();
+      addToScene(se);
+      addToScene(ee);
 
       render();
 
-      const startEdges = l.startEdges().getShapes();
+      const startEdges = se.getShapes();
       expect(startEdges.length).toBeGreaterThan(0);
       for (const e of startEdges) {
         expect(e.getType()).toBe("edge");
       }
 
-      const endEdges = l.endEdges().getShapes();
+      const endEdges = ee.getShapes();
       expect(endEdges.length).toBeGreaterThan(0);
     });
 
@@ -309,18 +326,24 @@ describe("loft", () => {
       });
 
       const l = loft(s1, s2) as Loft;
+      const side = l.sideEdges();
+      const se = l.startEdges();
+      const ee = l.endEdges();
+      addToScene(side);
+      addToScene(se);
+      addToScene(ee);
 
       render();
 
-      const sideEdges = l.sideEdges().getShapes();
+      const sideEdges = side.getShapes();
       expect(sideEdges.length).toBeGreaterThan(0);
 
       // Side edges should not include any start or end edges
-      const startEdges = l.startEdges().getShapes();
-      const endEdges = l.endEdges().getShapes();
-      for (const se of sideEdges) {
-        const inStart = startEdges.some(e => e.isSame(se));
-        const inEnd = endEdges.some(e => e.isSame(se));
+      const startEdges = se.getShapes();
+      const endEdges = ee.getShapes();
+      for (const s of sideEdges) {
+        const inStart = startEdges.some(e => e.isSame(s));
+        const inEnd = endEdges.some(e => e.isSame(s));
         expect(inStart).toBe(false);
         expect(inEnd).toBe(false);
       }
@@ -336,13 +359,15 @@ describe("loft", () => {
       });
 
       const l = loft(s1, s2) as Loft;
+      const allStart = l.startEdges();
+      const first = l.startEdges(0);
+      addToScene(allStart);
+      addToScene(first);
 
       render();
 
-      const allStart = l.startEdges().getShapes();
-      const first = l.startEdges(0).getShapes();
-      expect(first).toHaveLength(1);
-      expect(first[0].isSame(allStart[0])).toBe(true);
+      expect(first.getShapes()).toHaveLength(1);
+      expect(first.getShapes()[0].isSame(allStart.getShapes()[0])).toBe(true);
     });
   });
 });

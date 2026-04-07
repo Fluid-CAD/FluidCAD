@@ -84,6 +84,7 @@ function build(context: SceneParserContext): FilletFunction {
         selection = context.getLastSelection() || undefined;
       }
 
+      context.addSceneObject(selection);
       const fillet = new Fillet(radius, selection);
 
       context.addSceneObject(fillet);

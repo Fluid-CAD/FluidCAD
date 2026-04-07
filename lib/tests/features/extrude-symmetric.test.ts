@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { setupOC, render } from "../setup.js";
+import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import { circle, move, rect } from "../../core/2d/index.js";
@@ -125,16 +125,17 @@ describe("extrude symmetric", () => {
       });
 
       const e = extrude(30, true) as ExtrudeSymmetric;
+      const sf = e.startFaces();
+      const ef = e.endFaces();
+      addToScene(sf);
+      addToScene(ef);
 
       render();
 
-      const startFaces = e.startFaces().getShapes();
-      expect(startFaces).toHaveLength(1);
-      expect(startFaces[0].getType()).toBe("face");
-
-      const endFaces = e.endFaces().getShapes();
-      expect(endFaces).toHaveLength(1);
-      expect(endFaces[0].getType()).toBe("face");
+      expect(sf.getShapes()).toHaveLength(1);
+      expect(sf.getShapes()[0].getType()).toBe("face");
+      expect(ef.getShapes()).toHaveLength(1);
+      expect(ef.getShapes()[0].getType()).toBe("face");
     });
 
     it("start and end faces should be different", () => {
@@ -143,12 +144,14 @@ describe("extrude symmetric", () => {
       });
 
       const e = extrude(30, true) as ExtrudeSymmetric;
+      const sf = e.startFaces();
+      const ef = e.endFaces();
+      addToScene(sf);
+      addToScene(ef);
 
       render();
 
-      const startFace = e.startFaces().getShapes()[0];
-      const endFace = e.endFaces().getShapes()[0];
-      expect(startFace.isSame(endFace)).toBe(false);
+      expect(sf.getShapes()[0].isSame(ef.getShapes()[0])).toBe(false);
     });
 
     it("start face should be at z=distance/2 and end face at z=-distance/2", () => {
@@ -157,14 +160,18 @@ describe("extrude symmetric", () => {
       });
 
       const e = extrude(30, true) as ExtrudeSymmetric;
+      const sf = e.startFaces();
+      const ef = e.endFaces();
+      addToScene(sf);
+      addToScene(ef);
 
       render();
 
-      const startBBox = ShapeOps.getBoundingBox(e.startFaces().getShapes()[0]);
+      const startBBox = ShapeOps.getBoundingBox(sf.getShapes()[0]);
       expect(startBBox.minZ).toBeCloseTo(15);
       expect(startBBox.maxZ).toBeCloseTo(15);
 
-      const endBBox = ShapeOps.getBoundingBox(e.endFaces().getShapes()[0]);
+      const endBBox = ShapeOps.getBoundingBox(ef.getShapes()[0]);
       expect(endBBox.minZ).toBeCloseTo(-15);
       expect(endBBox.maxZ).toBeCloseTo(-15);
     });
@@ -176,14 +183,16 @@ describe("extrude symmetric", () => {
       });
 
       const e = extrude(30, true) as ExtrudeSymmetric;
+      const face0 = e.startFaces(0);
+      const face1 = e.startFaces(1);
+      addToScene(face0);
+      addToScene(face1);
 
       render();
 
-      const face0 = e.startFaces(0).getShapes();
-      const face1 = e.startFaces(1).getShapes();
-      expect(face0).toHaveLength(1);
-      expect(face1).toHaveLength(1);
-      expect(face0[0].isSame(face1[0])).toBe(false);
+      expect(face0.getShapes()).toHaveLength(1);
+      expect(face1.getShapes()).toHaveLength(1);
+      expect(face0.getShapes()[0].isSame(face1.getShapes()[0])).toBe(false);
     });
   });
 
@@ -194,13 +203,16 @@ describe("extrude symmetric", () => {
       });
 
       const e = extrude(30, true) as ExtrudeSymmetric;
+      const sf = e.sideFaces(0, 1, 2, 3);
+      const sf0 = e.sideFaces(0);
+      addToScene(sf);
+      addToScene(sf0);
 
       render();
 
-      const sideFaces = e.sideFaces(0, 1, 2, 3).getShapes();
-      expect(sideFaces.length).toBeGreaterThanOrEqual(4);
+      expect(sf.getShapes().length).toBeGreaterThanOrEqual(4);
 
-      const bbox = ShapeOps.getBoundingBox(e.sideFaces(0).getShapes()[0]);
+      const bbox = ShapeOps.getBoundingBox(sf0.getShapes()[0]);
       expect(bbox.minZ).toBeCloseTo(-15, 0);
       expect(bbox.maxZ).toBeCloseTo(15, 0);
     });
@@ -213,14 +225,15 @@ describe("extrude symmetric", () => {
       });
 
       const e = extrude(30, true) as ExtrudeSymmetric;
+      const se = e.startEdges();
+      const ee = e.endEdges();
+      addToScene(se);
+      addToScene(ee);
 
       render();
 
-      const startEdges = e.startEdges().getShapes();
-      expect(startEdges).toHaveLength(4);
-
-      const endEdges = e.endEdges().getShapes();
-      expect(endEdges).toHaveLength(4);
+      expect(se.getShapes()).toHaveLength(4);
+      expect(ee.getShapes()).toHaveLength(4);
     });
 
     it("should expose specific edge by index", () => {
@@ -229,14 +242,16 @@ describe("extrude symmetric", () => {
       });
 
       const e = extrude(30, true) as ExtrudeSymmetric;
+      const edge0 = e.startEdges(0);
+      const edge1 = e.startEdges(1);
+      addToScene(edge0);
+      addToScene(edge1);
 
       render();
 
-      const edge0 = e.startEdges(0).getShapes();
-      const edge1 = e.startEdges(1).getShapes();
-      expect(edge0).toHaveLength(1);
-      expect(edge1).toHaveLength(1);
-      expect(edge0[0].isSame(edge1[0])).toBe(false);
+      expect(edge0.getShapes()).toHaveLength(1);
+      expect(edge1.getShapes()).toHaveLength(1);
+      expect(edge0.getShapes()[0].isSame(edge1.getShapes()[0])).toBe(false);
     });
   });
 

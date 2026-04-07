@@ -229,11 +229,13 @@ describe("extrude to face", () => {
         move([200, 0]);
         rect(30, 30);
       });
-      extrude(e1.endFaces());
+      const e2 = extrude(e1.endFaces()) as ExtrudeToFace;
 
-      const scene = render();
+      render();
 
-      expect(countShapes(scene)).toBe(2);
+      // Two solids: the original box and the extruded-to-face box
+      expect(e1.getShapes({}, 'solid')).toHaveLength(1);
+      expect(e2.getShapes({}, 'solid')).toHaveLength(1);
     });
 
     it("should fuse with intersecting objects by default", () => {
@@ -250,7 +252,9 @@ describe("extrude to face", () => {
 
       const scene = render();
 
-      expect(countShapes(scene)).toBe(1);
+      // Fused into 1 solid (lazy face selection is not a solid)
+      const solids = scene.getAllSceneObjects().flatMap(o => o.getShapes({}, 'solid'));
+      expect(solids).toHaveLength(1);
     });
 
     it("should not fuse with intersecting objects when fuse is none", () => {
@@ -263,11 +267,13 @@ describe("extrude to face", () => {
         move([25, 10]);
         rect(30, 30);
       });
-      extrude(e1.endFaces()).fuse("none");
+      const e2 = extrude(e1.endFaces()).fuse("none") as ExtrudeToFace;
 
-      const scene = render();
+      render();
 
-      expect(countShapes(scene)).toBe(2);
+      // Two solids: the original box and the unfused extruded-to-face box
+      expect(e1.getShapes({}, 'solid')).toHaveLength(1);
+      expect(e2.getShapes({}, 'solid')).toHaveLength(1);
     });
   });
 

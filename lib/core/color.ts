@@ -26,6 +26,7 @@ function build(context: SceneParserContext): ColorFunction {
       selection = context.getLastSelection() || undefined;
     }
 
+    context.addSceneObject(selection);
     const obj = new Color(arguments[0], selection);
 
     context.addSceneObject(obj);

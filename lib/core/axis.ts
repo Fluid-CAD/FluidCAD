@@ -50,6 +50,7 @@ function build(context: SceneParserContext): AxisFunction {
   return function axis() {
     if (arguments.length === 1) {
       if (arguments[0] instanceof SceneObject) {
+        context.addSceneObject(arguments[0]);
         const a = new AxisFromEdge(arguments[0]);
         context.addSceneObject(a);
         return a;
@@ -85,6 +86,8 @@ function build(context: SceneParserContext): AxisFunction {
           a2 = new AxisObject(axis);
         }
 
+        context.addSceneObject(a1);
+        context.addSceneObject(a2);
         const a = new AxisMiddle(a1, a2);
         context.addSceneObject(a);
         return a;
@@ -93,12 +96,14 @@ function build(context: SceneParserContext): AxisFunction {
       if ((arguments[0] instanceof AxisObjectBase) && typeof arguments[1] === 'object') {
         const axis = arguments[0] as AxisObjectBase;
         const options = arguments[1] as AxisTransformOptions;
+        context.addSceneObject(axis);
         const a = new AxisFromEdge(axis, options);
         context.addSceneObject(a);
         return a;
       }
 
       if (arguments[0] instanceof SceneObject) {
+        context.addSceneObject(arguments[0]);
         const a = new AxisFromEdge(arguments[0], arguments[1]);
         context.addSceneObject(a);
         return a;
@@ -139,6 +144,8 @@ function build(context: SceneParserContext): AxisFunction {
 
         const options = arguments[2] as AxisTransformOptions;
 
+        context.addSceneObject(a1);
+        context.addSceneObject(a2);
         const a = new AxisMiddle(a1, a2, options);
         context.addSceneObject(a);
         return a;

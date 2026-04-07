@@ -67,15 +67,21 @@ function build(context: SceneParserContext): RepeatFunction {
 
     if (type === 'linear') {
       const counts = Array.isArray(options.count) ? options.count : [options.count];
+      const offsets = options.offset != null
+        ? (Array.isArray(options.offset) ? options.offset : [options.offset])
+        : null;
+      const lengths = 'length' in options && options.length != null
+        ? (Array.isArray(options.length) ? options.length : [options.length])
+        : null;
       const repeat = new RepeatLinear(axes, options, objects);
 
       const transformedObjects: SceneObject[] = [];
 
       const axisOffsets = axes.map((axis, i) => {
         const count = counts[i] ?? counts[0];
-        const offset = options.offset != null
-          ? options.offset
-          : options.length / (count - 1);
+        const offset = offsets != null
+          ? (offsets[i] ?? offsets[0])
+          : (lengths![i] ?? lengths![0]) / (count - 1);
         return { axis, count, offset };
       });
 
@@ -118,7 +124,6 @@ function build(context: SceneParserContext): RepeatFunction {
         }
 
         const transform = Matrix4.fromTranslation(dx, dy, dz);
-        console.log('Translating by', { dx, dy, dz }, 'for indices', indices);
 
         const cloned = cloneWithTransform(objects, transform, repeat);
         transformedObjects.push(...cloned);

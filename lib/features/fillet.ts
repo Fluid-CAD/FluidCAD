@@ -6,19 +6,19 @@ import { FilletOps } from "../oc/fillet-ops.js";
 import { Explorer } from "../oc/explorer.js";
 
 export class Fillet extends SceneObject {
-  private _targetEdges: SceneObject | null = null;
+  private _targetEdges: SceneObject[] = [];
 
-  constructor(private radius: number, selection?: SceneObject) {
+  constructor(private radius: number, ...selections: SceneObject[]) {
     super();
-    this._targetEdges = selection ?? null;
+    this._targetEdges = selections;
   }
 
-  get targetEdges(): SceneObject {
+  get targetEdges(): SceneObject[] {
     return this._targetEdges;
   }
 
   build(context: BuildSceneObjectContext) {
-    let selection: SceneObject = this.targetEdges;
+    const selections = this.targetEdges;
 
     let sceneObjects: Map<SceneObject, Shape[]>;
 
@@ -32,7 +32,7 @@ export class Fillet extends SceneObject {
       sceneObjects.set(obj, shapes);
     }
 
-    const { addedShapes, removedShapes } = this.doBuild(sceneObjects, selection);
+    const { addedShapes, removedShapes } = this.doBuild(sceneObjects, selections);
 
     for (const item of removedShapes) {
       item.owner.removeShape(item.shape, this);
@@ -42,18 +42,19 @@ export class Fillet extends SceneObject {
   }
 
   doBuild(sceneObjectsMap: Map<SceneObject, Shape[]>,
-    selection: SceneObject) {
+    selections: SceneObject[]) {
     const addedShapes: Shape[] = [];
     const removedShapes: { shape: Shape, owner: SceneObject }[] = [];
 
-    const allEdgeShapes = selection.getShapes();
-
     let edges: Edge[] = [];
-    for (const shape of allEdgeShapes) {
-      if (shape.isEdge()) {
-        edges.push(shape as Edge);
-      } else {
-        edges.push(...Explorer.findEdgesWrapped(shape));
+    for (const selection of selections) {
+      const allEdgeShapes = selection.getShapes();
+      for (const shape of allEdgeShapes) {
+        if (shape.isEdge()) {
+          edges.push(shape as Edge);
+        } else {
+          edges.push(...Explorer.findEdgesWrapped(shape));
+        }
       }
     }
 
@@ -100,23 +101,23 @@ export class Fillet extends SceneObject {
       }
     }
 
-    const shapes = selection.getShapes();
-    for (const shape of shapes) {
-      removedShapes.push({ shape, owner: selection });
+    for (const selection of selections) {
+      const shapes = selection.getShapes();
+      for (const shape of shapes) {
+        removedShapes.push({ shape, owner: selection });
+      }
     }
 
     return { addedShapes, removedShapes };
   }
 
   override getDependencies(): SceneObject[] {
-    return this.targetEdges ? [this.targetEdges] : [];
+    return [...this.targetEdges];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const selection = this.targetEdges
-      ? (remap.get(this.targetEdges) || this.targetEdges)
-      : undefined;
-    return new Fillet(this.radius, selection);
+    const selections = this.targetEdges.map(s => remap.get(s) || s);
+    return new Fillet(this.radius, ...selections);
   }
 
   compareTo(other: Fillet): boolean {
@@ -128,14 +129,19 @@ export class Fillet extends SceneObject {
       return false;
     }
 
-    if (!this.targetEdges?.compareTo(other.targetEdges)) {
+    if (this.targetEdges.length !== other.targetEdges.length) {
       return false;
+    }
+
+    for (let i = 0; i < this.targetEdges.length; i++) {
+      if (!this.targetEdges[i].compareTo(other.targetEdges[i])) {
+        return false;
+      }
     }
 
     if (!super.compareTo(other)) {
       return false;
     }
-
 
     return true;
   }
@@ -146,7 +152,7 @@ export class Fillet extends SceneObject {
 
   serialize() {
     return {
-      edges: this.targetEdges.serialize(),
+      edges: this.targetEdges.map(s => s.serialize()),
       radius: this.radius
     }
   }

@@ -16,15 +16,15 @@ import { IShell } from "../core/interfaces.js";
 
 export class Shell extends SceneObject implements IShell {
 
-  private _faceSelection: SelectSceneObject | null = null;
+  private _faceSelections: SelectSceneObject[] = [];
 
-  constructor(private thickness: number, faceSelection?: SelectSceneObject) {
+  constructor(private thickness: number, faceSelections?: SelectSceneObject[]) {
     super();
-    this._faceSelection = faceSelection ?? null;
+    this._faceSelections = faceSelections ?? [];
   }
 
-  get faceSelection(): SelectSceneObject {
-    return this._faceSelection;
+  get faceSelections(): SelectSceneObject[] {
+    return this._faceSelections;
   }
 
   build(context: BuildSceneObjectContext): void {
@@ -44,7 +44,10 @@ export class Shell extends SceneObject implements IShell {
       return;
     }
 
-    const allFaceShapes = this.faceSelection.getShapes();
+    const allFaceShapes: Shape[] = [];
+    for (const sel of this.faceSelections) {
+      allFaceShapes.push(...sel.getShapes());
+    }
     const faces = allFaceShapes as Face[];
 
     const newShapes: Shape[] = [];
@@ -69,7 +72,9 @@ export class Shell extends SceneObject implements IShell {
       }
     }
 
-    this.faceSelection.removeShapes(this);
+    for (const sel of this.faceSelections) {
+      sel.removeShapes(this);
+    }
 
     this.addShapes(newShapes);
 
@@ -226,22 +231,27 @@ export class Shell extends SceneObject implements IShell {
       return false;
     }
 
-    if (!this.faceSelection.compareTo(other.faceSelection)) {
+    if (this._faceSelections.length !== other._faceSelections.length) {
       return false;
+    }
+    for (let i = 0; i < this._faceSelections.length; i++) {
+      if (!this._faceSelections[i].compareTo(other._faceSelections[i])) {
+        return false;
+      }
     }
 
     return true;
   }
 
   override getDependencies(): SceneObject[] {
-    return this.faceSelection ? [this.faceSelection] : [];
+    return [...this._faceSelections];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const faceSelection = this.faceSelection
-      ? (remap.get(this.faceSelection) || this.faceSelection) as SelectSceneObject
-      : undefined;
-    return new Shell(this.thickness, faceSelection);
+    const faceSelections = this._faceSelections.map(
+      sel => (remap.get(sel) || sel) as SelectSceneObject
+    );
+    return new Shell(this.thickness, faceSelections.length > 0 ? faceSelections : undefined);
   }
 
   getType(): string {

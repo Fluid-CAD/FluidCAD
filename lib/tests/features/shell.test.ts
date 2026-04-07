@@ -262,4 +262,42 @@ describe("shell", () => {
       expect(first.getShapes()[0].isSame(allShapes[0])).toBe(true);
     });
   });
+
+  describe("shell with multiple selections", () => {
+    it("should shell a box by removing two faces", () => {
+      sketch("xy", () => {
+        rect(100, 100);
+      });
+      extrude(50);
+
+      const sel1 = select(face().onPlane("xy", 50)) as SelectSceneObject;
+      const sel2 = select(face().onPlane("xy", 0)) as SelectSceneObject;
+      shell(5, sel1, sel2);
+
+      const scene = render();
+      expect(countShapes(scene)).toBe(1);
+
+      const solid = scene.getAllSceneObjects()
+        .flatMap(o => o.getShapes())
+        .find(s => s.getType() === "solid") as Solid;
+
+      expect(solid.getFaces().length).toBeGreaterThan(6);
+    });
+
+    it("should remove all selection shapes after shelling with multiple selections", () => {
+      sketch("xy", () => {
+        rect(100, 100);
+      });
+      extrude(50);
+
+      const sel1 = select(face().onPlane("xy", 50)) as SelectSceneObject;
+      const sel2 = select(face().onPlane("xy", 0)) as SelectSceneObject;
+      shell(5, sel1, sel2);
+
+      render();
+
+      expect(sel1.getShapes()).toHaveLength(0);
+      expect(sel2.getShapes()).toHaveLength(0);
+    });
+  });
 });

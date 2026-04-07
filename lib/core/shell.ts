@@ -11,30 +11,38 @@ interface ShellFunction {
    */
   (thickness?: number): IShell;
   /**
-   * Hollows out a solid, removing the selected face.
+   * Hollows out a solid, removing the selected faces.
    * @param thickness - The wall thickness
-   * @param selection - The face selection to remove
+   * @param selections - The face selections to remove
    */
-  (thickness: number, selection: ISceneObject): IShell;
+  (thickness: number, ...selections: ISceneObject[]): IShell;
 }
 
 function build(context: SceneParserContext): ShellFunction {
   return function shell() {
     const args = Array.from(arguments);
 
-    let selection: SelectSceneObject | undefined;
-    if (args.length > 0 && args[args.length - 1] instanceof SceneObject) {
-      selection = args.pop() as SelectSceneObject;
-    } else {
-      selection = context.getLastSelection() || undefined;
+    const selections: SelectSceneObject[] = [];
+    while (args.length > 0 && args[args.length - 1] instanceof SceneObject) {
+      selections.unshift(args.pop() as SelectSceneObject);
+    }
+
+    if (selections.length === 0) {
+      const implicit = context.getLastSelection() || undefined;
+      if (implicit) {
+        selections.push(implicit);
+      }
     }
 
     const thickness = (args.length >= 1 && typeof args[0] === 'number')
       ? args[0] as number
       : 2.5;
 
-    context.addSceneObject(selection);
-    const shell = new Shell(thickness, selection);
+    for (const sel of selections) {
+      context.addSceneObject(sel);
+    }
+
+    const shell = new Shell(thickness, selections.length > 0 ? selections : undefined);
 
     context.addSceneObject(shell);
     return shell;

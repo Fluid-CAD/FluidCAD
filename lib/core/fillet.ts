@@ -12,11 +12,11 @@ interface FilletFunction {
    */
   (radius?: number): ISceneObject;
   /**
-   * Fillets the given edge selection with the given radius.
+   * Fillets the given edge selections with the given radius.
    * @param radius - The fillet radius
-   * @param selection - The edge selection to fillet
+   * @param sceneObjects - The edge selections to fillet
    */
-  (radius: number, selection: ISceneObject): ISceneObject;
+  (radius: number, ...sceneObjects: ISceneObject[]): ISceneObject;
   /**
    * [2D] Fillets corners between the given geometries.
    * @param objects - The geometries whose corners to fillet
@@ -77,15 +77,20 @@ function build(context: SceneParserContext): FilletFunction {
         ? args[0] as number
         : 1;
 
-      let selection: SceneObject | undefined;
-      if (args.length > 0 && args[args.length - 1] instanceof SceneObject) {
-        selection = args[args.length - 1] as SceneObject;
-      } else {
-        selection = context.getLastSelection() || undefined;
+      const selections: SceneObject[] = args
+        .filter(a => a instanceof SceneObject) as SceneObject[];
+
+      if (selections.length === 0) {
+        const lastSelection = context.getLastSelection() || undefined;
+        if (lastSelection) {
+          selections.push(lastSelection);
+        }
       }
 
-      context.addSceneObject(selection);
-      const fillet = new Fillet(radius, selection);
+      for (const selection of selections) {
+        context.addSceneObject(selection);
+      }
+      const fillet = new Fillet(radius, ...selections);
 
       context.addSceneObject(fillet);
       return fillet;

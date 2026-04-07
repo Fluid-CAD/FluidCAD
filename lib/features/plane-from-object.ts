@@ -29,9 +29,7 @@ export class PlaneFromObject extends PlaneObjectBase {
       sourceFace = extract.sourceFace;
     }
 
-    if (this.sourceObject instanceof SelectSceneObject) {
-      this.sourceObject.removeShapes(this);
-    }
+    this.sourceObject.removeShapes(this);
 
     if (this.options) {
       plane = plane.transform(this.options);

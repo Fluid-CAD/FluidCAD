@@ -43,6 +43,8 @@ function build(context: SceneParserContext): ChamferFunction {
       selection = context.getLastSelection() || undefined;
     }
 
+    context.addSceneObject(selection); // Ensure lazy selections are added to the scene
+
     let distance = 1;
     let distance2: number = undefined;
     let isAngle = false;

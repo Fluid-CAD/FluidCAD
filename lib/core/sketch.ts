@@ -35,6 +35,7 @@ function build(context: SceneParserContext): SketchFunction {
       context.addSceneObject(planeObj);
     }
     else if ((p as any) instanceof SceneObject) {
+      context.addSceneObject(p as SceneObject);
       planeObj = new PlaneFromObject(p);
       context.addSceneObject(planeObj);
     }

@@ -194,6 +194,10 @@ export class Matrix4 {
     return { translation, rotation, scale };
   }
 
+  isMirroring(): boolean {
+    return this.determinant() < 0;
+  }
+
   equals(other: Matrix4, tolerance: number = 0): boolean {
     for (let i = 0; i < 16; i++) {
       if (tolerance === 0) {

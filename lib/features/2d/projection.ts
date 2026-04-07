@@ -18,10 +18,12 @@ export class Projection extends ExtrudableGeometryBase {
     const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
     const shapes = this.sourceObjects.flatMap(obj => obj.getShapes());
     const transform = context?.getTransform() ?? null;
+
+    console.log('Projection: building with shapes:', shapes.length);
     for (let shape of shapes) {
-      if (transform) {
-        shape = ShapeOps.transform(shape, transform);
-      }
+      // if (transform) {
+      //   shape = ShapeOps.transform(shape, transform);
+      // }
 
       let wires: Wire[] = [];
       if (shape instanceof Face) {
@@ -41,9 +43,7 @@ export class Projection extends ExtrudableGeometryBase {
     }
 
     for (const obj of this.sourceObjects) {
-      if (obj instanceof SelectSceneObject) {
         obj.removeShapes(this);
-      }
     }
 
     if (this.targetPlane) {

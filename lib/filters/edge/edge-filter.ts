@@ -10,10 +10,23 @@ import { ParallelPlaneFilter, NotParallelPlaneFilter } from "./parallel.js";
 import { NotVerticalFilter, VerticalFilter } from "./vertical-plane.js";
 import { PlaneObject } from "../../features/plane.js";
 import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
+import { AtIndexFilter, NotAtIndexFilter } from "./at-index.js";
 
 export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   constructor() {
     super();
+  }
+
+  atIndex(index: number, shapes: Edge[], originalShapes?: Edge[]) {
+    const filter = new AtIndexFilter(index, shapes, originalShapes);
+    this.filters.push(filter);
+    return this;
+  }
+
+  notAtIndex(index: number, shapes: Edge[], originalShapes?: Edge[]) {
+    const filter = new NotAtIndexFilter(index, shapes, originalShapes);
+    this.filters.push(filter);
+    return this;
   }
 
   onPlane(plane: PlaneLike | PlaneObjectBase, offset = 0, bothDirections = false) {

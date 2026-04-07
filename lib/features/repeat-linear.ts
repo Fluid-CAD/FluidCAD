@@ -6,8 +6,8 @@ export type LinearRepeatOptions = {
   centered?: boolean;
   skip?: number[][]
 } & (
-    | { offset: number; length?: never }
-    | { length: number; offset?: never }
+    | { offset: number | number[]; length?: never }
+    | { length: number | number[]; offset?: never }
 );
 
 export class RepeatLinear extends SceneObject {

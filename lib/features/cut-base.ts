@@ -4,7 +4,7 @@ import { Shape } from "../common/shape.js";
 import { SceneObject } from "../common/scene-object.js";
 import { ExtrudeOptions } from "./extrude-options.js";
 import { Extrudable } from "../helpers/types.js";
-import { LazySceneObject } from "./lazy-scene-object.js";
+import { LazySelectionSceneObject } from "./lazy-scene-object.js";
 import { LazyVertex } from "./lazy-vertex.js";
 import { ICut } from "../core/interfaces.js";
 import { Point2DLike } from "../math/point.js";
@@ -283,7 +283,7 @@ export abstract class CutBase extends SceneObject implements ICut {
 
   startEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('start-edges', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const edges = parent.getState('start-edges') as Edge[] || [];
         const transform = parent.getTransform();
@@ -296,7 +296,7 @@ export abstract class CutBase extends SceneObject implements ICut {
 
   endEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('end-edges', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const edges = parent.getState('end-edges') as Edge[] || [];
         const transform = parent.getTransform();
@@ -309,7 +309,7 @@ export abstract class CutBase extends SceneObject implements ICut {
 
   internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('internal-edges', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const edges = parent.getState('internal-edges') as Edge[] || [];
         const transform = parent.getTransform();
@@ -322,7 +322,7 @@ export abstract class CutBase extends SceneObject implements ICut {
 
   internalFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('internal-faces', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('internal-faces') as Face[] || [];
         const transform = parent.getTransform();

@@ -4,7 +4,7 @@ import { Geometry } from "../../oc/geometry.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
 import { Vertex } from "../../common/vertex.js";
-import { LazySceneObject } from "../lazy-scene-object.js";
+import { LazySelectionSceneObject } from "../lazy-scene-object.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
@@ -108,8 +108,8 @@ export class Polygon extends ExtrudableGeometryBase implements IPolygon {
       && this.mode === other.mode;
   }
 
-  getEdge(index: number): LazySceneObject {
-    return new LazySceneObject(this.generateUniqueName(`edge-${index}`), (parent) => {
+  getEdge(index: number): LazySelectionSceneObject {
+    return new LazySelectionSceneObject(this.generateUniqueName(`edge-${index}`), (parent) => {
       const edge = parent.getState(`edge-${index}`) as Edge;
       return edge ? [edge] : [];
     }, this);

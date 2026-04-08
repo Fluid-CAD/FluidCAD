@@ -2,7 +2,7 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { ShellOps } from "../oc/shell-ops.js";
 import { SelectSceneObject } from "./select.js";
 import { Face, Shape, Solid, Edge } from "../common/shapes.js";
-import { LazySceneObject } from "./lazy-scene-object.js";
+import { LazySelectionSceneObject } from "./lazy-scene-object.js";
 import { Explorer } from "../oc/explorer.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { FaceQuery } from "../oc/face-query.js";
@@ -142,7 +142,7 @@ export class Shell extends SceneObject implements IShell {
 
   internalFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('internal-faces', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('internal-faces') as Face[] || [];
         const transform = parent.getTransform();
@@ -155,7 +155,7 @@ export class Shell extends SceneObject implements IShell {
 
   internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('internal-edges', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const edges = parent.getState('internal-edges') as Edge[] || [];
         const transform = parent.getTransform();

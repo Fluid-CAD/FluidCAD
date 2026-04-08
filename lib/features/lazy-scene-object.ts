@@ -1,7 +1,7 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
 
-export class LazySceneObject extends SceneObject {
+export class LazySelectionSceneObject extends SceneObject {
 
   private _originalParent: SceneObject | null = null;
 
@@ -24,15 +24,15 @@ export class LazySceneObject extends SceneObject {
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const remappedParent = remap.get(this.sourceParent) || this.sourceParent;
-    const copy = new LazySceneObject(this.uniqueName, this.getShapesFn, remappedParent);
+    const copy = new LazySelectionSceneObject(this.uniqueName, this.getShapesFn, remappedParent);
     if (remappedParent !== this.sourceParent) {
       copy._originalParent = this._originalParent || this.sourceParent;
     }
     return copy;
   }
 
-  compareTo(other: LazySceneObject): boolean {
-    if (!(other instanceof LazySceneObject)) {
+  compareTo(other: LazySelectionSceneObject): boolean {
+    if (!(other instanceof LazySelectionSceneObject)) {
       return false;
     }
 
@@ -52,7 +52,11 @@ export class LazySceneObject extends SceneObject {
   }
 
   getType(): string {
-    return "lazy";
+    return "select";
+  }
+
+  getUniqueType(): string {
+      return 'lazy-select';
   }
 
   serialize() {

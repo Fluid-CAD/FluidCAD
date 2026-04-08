@@ -5,7 +5,7 @@ import { ShapeOps } from "../oc/shape-ops.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
 import { ExtrudeThroughAll } from "./infinite-extrude.js";
 import { Extrudable } from "../helpers/types.js";
-import { LazySceneObject } from "./lazy-scene-object.js";
+import { LazySelectionSceneObject } from "./lazy-scene-object.js";
 import { Edge } from "../common/edge.js";
 import { CutBase } from "./cut-base.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
@@ -116,7 +116,7 @@ export class CutSymmetric extends CutBase {
 
   edges(...indices: number[]): SceneObject {
     const suffix = indices.length > 0 ? `section-edges-${indices.join('-')}` : 'section-edges';
-    return new LazySceneObject(`${this.getOrder()}-cut-symmetric-${suffix}`,
+    return new LazySelectionSceneObject(`${this.getOrder()}-cut-symmetric-${suffix}`,
       (parent) => {
         const edges = parent.getState('section-edges') as Edge[] || [];
         if (indices.length === 0) { return edges; }

@@ -2,7 +2,7 @@ import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { Shape } from "../common/shape.js";
 import { SceneObject } from "../common/scene-object.js";
-import { LazySceneObject } from "./lazy-scene-object.js";
+import { LazySelectionSceneObject } from "./lazy-scene-object.js";
 import { Extrudable } from "../helpers/types.js";
 import { IExtrude } from "../core/interfaces.js";
 import { LazyVertex } from "./lazy-vertex.js";
@@ -35,7 +35,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
 
   startFaces(...args: number[] | FaceFilterBuilder[]): SceneObject {
     const suffix = this.buildSuffix('start-faces', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('start-faces') as Face[] || [];
         const transform = parent.getTransform();
@@ -48,7 +48,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
 
   endFaces(...args: number[] | FaceFilterBuilder[]): SceneObject {
     const suffix = this.buildSuffix('end-faces', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('end-faces') as Face[] || [];
         const transform = parent.getTransform();
@@ -61,7 +61,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
 
   startEdges(...args: number[] | EdgeFilterBuilder[]): SceneObject {
     const suffix = this.buildSuffix('start-edges', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('start-faces') as Face[] || [];
         const edges = faces.flatMap(f => f.getEdges());
@@ -75,7 +75,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
 
   endEdges(...args: number[] | EdgeFilterBuilder[]): SceneObject {
     const suffix = this.buildSuffix('end-edges', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('end-faces') as Face[] || [];
         const edges = faces.flatMap(f => f.getEdges());
@@ -89,7 +89,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
 
   sideFaces(...args: number[] | FaceFilterBuilder[]): SceneObject {
     const suffix = this.buildSuffix('side-faces', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('side-faces') as Face[] || [];
         const transform = parent.getTransform();
@@ -102,7 +102,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
 
   sideEdges(...args: number[] | EdgeFilterBuilder[]): SceneObject {
     const suffix = this.buildSuffix('side-edges', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const sideFaces = parent.getState('side-faces') as Face[] || [];
         const startFaces = parent.getState('start-faces') as Face[] || [];
@@ -116,7 +116,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
 
   internalFaces(...args: number[] | FaceFilterBuilder[]): SceneObject {
     const suffix = this.buildSuffix('internal-faces', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('internal-faces') as Face[] || [];
         const transform = parent.getTransform();
@@ -129,7 +129,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
 
   internalEdges(...args: number[] | EdgeFilterBuilder[]): SceneObject {
     const suffix = this.buildSuffix('internal-edges', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('internal-faces') as Face[] || [];
         const edges = faces.flatMap(f => f.getEdges());

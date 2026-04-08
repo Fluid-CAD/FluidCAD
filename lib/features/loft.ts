@@ -7,7 +7,7 @@ import { Edge } from "../common/edge.js";
 import { Shape } from "../common/shape.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
-import { LazySceneObject } from "./lazy-scene-object.js";
+import { LazySelectionSceneObject } from "./lazy-scene-object.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { ShapeFilter } from "../filters/filter.js";
@@ -90,7 +90,7 @@ export class Loft extends SceneObject implements ILoft {
 
   startFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('start-faces', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('start-faces') as Face[] || [];
         const transform = parent.getTransform();
@@ -103,7 +103,7 @@ export class Loft extends SceneObject implements ILoft {
 
   endFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('end-faces', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('end-faces') as Face[] || [];
         const transform = parent.getTransform();
@@ -116,7 +116,7 @@ export class Loft extends SceneObject implements ILoft {
 
   sideFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('side-faces', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('side-faces') as Face[] || [];
         const transform = parent.getTransform();
@@ -129,7 +129,7 @@ export class Loft extends SceneObject implements ILoft {
 
   startEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('start-edges', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('start-faces') as Face[] || [];
         const edges = faces.flatMap(f => f.getEdges());
@@ -143,7 +143,7 @@ export class Loft extends SceneObject implements ILoft {
 
   endEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('end-edges', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const faces = parent.getState('end-faces') as Face[] || [];
         const edges = faces.flatMap(f => f.getEdges());
@@ -157,7 +157,7 @@ export class Loft extends SceneObject implements ILoft {
 
   sideEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
     const suffix = this.buildSuffix('side-edges', args);
-    return new LazySceneObject(`${this.generateUniqueName(suffix)}`,
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
         const sideFaces = parent.getState('side-faces') as Face[] || [];
         const startFaces = parent.getState('start-faces') as Face[] || [];

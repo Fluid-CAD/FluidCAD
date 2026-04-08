@@ -8,6 +8,12 @@ interface SweepFunction {
   /**
    * Sweeps the last sketch along a path.
    * @param path - The path to sweep along (edges/wire)
+   */
+  (path: ISceneObject): ISweep;
+
+  /**
+   * Sweeps the given sketch along a path.
+   * @param path - The path to sweep along (edges/wire)
    * @param target - The sketch to sweep
    */
   (path: ISceneObject, target?: ISceneObject): ISweep;

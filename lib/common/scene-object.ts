@@ -471,6 +471,31 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
    */
   clean(allObjects: SceneObject[]): void {}
 
+  /**
+   * Releases all resources held by this scene object.
+   * Called after scene comparison for old objects that are no longer needed.
+   * Subclasses can override to dispose additional resources, calling super.dispose().
+   */
+  dispose(): void {
+    for (const [key, value] of this.state.entries()) {
+      // Skip shapes owned by other objects
+      if (key === 'removedShapes' || key === 'snapshot') {
+        continue;
+      }
+
+      if (value instanceof Shape) {
+        value.dispose();
+      } else if (Array.isArray(value)) {
+        for (const item of value) {
+          if (item instanceof Shape) {
+            item.dispose();
+          }
+        }
+      }
+    }
+    this.state.clear();
+  }
+
   protected generateUniqueName(suffix: string) {
     return `${this.getOrder()}-${this.getUniqueType()}-${suffix}`;
   }

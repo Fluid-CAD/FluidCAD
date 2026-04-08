@@ -54,6 +54,13 @@ export class SceneCompare {
       }
     }
 
+    // Dispose unmatched old scene objects
+    for (const oldObj of oldScene.getSceneObjects()) {
+      if (!map.has(oldObj)) {
+        oldObj.dispose();
+      }
+    }
+
     return newScene;
   }
 }

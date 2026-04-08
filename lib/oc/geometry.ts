@@ -1,4 +1,4 @@
-import type { Geom_Circle, Geom_TrimmedCurve, Handle_Geom_Curve, TopoDS_Edge } from "occjs-wrapper";
+import type { Geom_BezierCurve, Geom_Circle, Geom_TrimmedCurve, Handle_Geom_Curve, TopoDS_Edge } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Point, Point2D } from "../math/point.js";
@@ -168,6 +168,46 @@ export class Geometry {
     disposeDir();
 
     throw new Error('Failed to create circle edge: ' + status);
+  }
+
+  static makeBezierCurve(poles: Point[]): Geom_BezierCurve {
+    const oc = getOC();
+    const polesArray = new oc.TColgp_Array1OfPnt(1, poles.length);
+    const disposers: (() => void)[] = [];
+
+    for (let i = 0; i < poles.length; i++) {
+      const [gpPnt, dispose] = Convert.toGpPnt(poles[i]);
+      polesArray.SetValue(i + 1, gpPnt);
+      disposers.push(dispose);
+    }
+
+    const curve = new oc.Geom_BezierCurve(polesArray);
+
+    polesArray.delete();
+    for (const dispose of disposers) {
+      dispose();
+    }
+
+    return curve as Geom_BezierCurve;
+  }
+
+  static makeEdgeFromBezier(curve: Geom_BezierCurve): Edge {
+    const oc = getOC();
+    const handle = new oc.Handle_Geom_Curve(curve as any);
+    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(handle, curve.StartPoint(), curve.EndPoint());
+
+    if (edgeMaker.IsDone()) {
+      const edge = edgeMaker.Edge();
+      edgeMaker.delete();
+      handle.delete();
+      return Edge.fromTopoDSEdge(edge);
+    }
+
+    const status = edgeMaker.Error();
+    edgeMaker.delete();
+    handle.delete();
+
+    throw new Error('Failed to create edge from bezier curve: ' + status);
   }
 
   // ── Edge factories ─────────────────────────────────────────────────────────

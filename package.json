@@ -38,7 +38,6 @@
     "test:features": "vitest run lib/tests/features/"
   },
   "dependencies": {
-    "occjs-wrapper": "file:../occjs-fluidcad",
     "@tabler/icons": "^3.40.0",
     "@tailwindcss/vite": "^4.2.2",
     "@types/lodash": "^4.17.20",
@@ -48,6 +47,7 @@
     "daisyui": "^5.5.19",
     "express": "^5.2.1",
     "lodash": "^4.17.21",
+    "occjs-wrapper": "file:../occjs-fluidcad",
     "tailwindcss": "^4.2.2",
     "three": "^0.180.0",
     "three-viewport-gizmo": "^2.2.0",

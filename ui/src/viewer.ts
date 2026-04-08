@@ -41,6 +41,7 @@ export class Viewer {
   private lastFitBox: Box3 | null = null;
   isTrimming = false;
   isRegionPicking = false;
+  isBezierDrawing = false;
 
   private selectionHandler: ((shapeId: string | null, sub: SubSelection) => void) | null = null;
   private pickTarget: WebGLRenderTarget | null = null;
@@ -79,7 +80,7 @@ export class Viewer {
     });
 
     canvas.addEventListener('mouseup', async (e) => {
-      if (!this.selectionHandler || this.isTrimming || this.isRegionPicking) {
+      if (!this.selectionHandler || this.isTrimming || this.isRegionPicking || this.isBezierDrawing) {
         return;
       }
       const dx = e.clientX - downX;
@@ -395,7 +396,7 @@ export class Viewer {
     this.ctx.scene.add(mesh);
 
     // Auto-fit on first render or in sketch mode (skip if viewport barely changed or trimming)
-    if (!this.hasRendered || (this.modeManager.isSketchMode && !isRollback && !this.isTrimming && !this.isRegionPicking)) {
+    if (!this.hasRendered || (this.modeManager.isSketchMode && !isRollback && !this.isTrimming && !this.isRegionPicking && !this.isBezierDrawing)) {
       const box = new Box3();
       expandBoxExcludingMeta(box, mesh);
       if (!box.isEmpty() && !this.isBoxContained(box)) {

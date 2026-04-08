@@ -6,8 +6,10 @@ import { ExportDialog } from './ui/export-dialog';
 import { ICON_SCISSORS, ICON_FILE_IMPORT, ICON_COPY } from './ui/icons';
 import { PointPickMode, HighlightInfo } from './interactive/point-pick-mode';
 import { RegionPickMode } from './interactive/region-pick-mode';
+import { BezierDrawMode } from './interactive/bezier-draw-mode';
 import { Mesh, Object3D } from 'three';
 import { SnapManager } from './snapping/snap-manager';
+import { SnapController } from './snapping/snap-controller';
 import { SceneObjectRender, PlaneData } from './types';
 
 const container = document.getElementById('fluidcad-viewer') || document.body;
@@ -364,6 +366,171 @@ function deactivateRegionPickMode() {
 }
 
 // ---------------------------------------------------------------------------
+// Interactive bezier drawing mode
+// ---------------------------------------------------------------------------
+
+const bezierIndicator = document.createElement('div');
+bezierIndicator.id = 'fluidcad-bezier-indicator';
+bezierIndicator.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto hidden';
+bezierIndicator.innerHTML = `
+  <div class="flex items-center gap-3 glass-dark border border-white/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none">
+    <span>Bezier Drawing Mode</span>
+    <div class="h-4 w-px bg-white/10"></div>
+    <label class="flex items-center gap-1.5 cursor-pointer">
+      <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" data-snap="vertex" checked />
+      <span class="text-xs">Vertices</span>
+    </label>
+    <label class="flex items-center gap-1.5 cursor-pointer">
+      <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" data-snap="grid" checked />
+      <span class="text-xs">Grid</span>
+    </label>
+  </div>
+`;
+container.appendChild(bezierIndicator);
+
+bezierIndicator.querySelector<HTMLInputElement>('[data-snap="vertex"]')!.addEventListener('change', (e) => {
+  if (activeBezierDrawMode) {
+    activeBezierDrawMode.snapController.snapToVertices = (e.target as HTMLInputElement).checked;
+  }
+});
+bezierIndicator.querySelector<HTMLInputElement>('[data-snap="grid"]')!.addEventListener('change', (e) => {
+  if (activeBezierDrawMode) {
+    activeBezierDrawMode.snapController.snapToGrid = (e.target as HTMLInputElement).checked;
+  }
+});
+
+let activeBezierDrawMode: BezierDrawMode | null = null;
+let activeBezierSourceLine: number | null = null;
+
+function isBezierDrawingScene(sceneObjects: SceneObjectRender[]): boolean {
+  let lastRoot: SceneObjectRender | null = null;
+  for (let i = sceneObjects.length - 1; i >= 0; i--) {
+    if (isTopLevel(sceneObjects[i], sceneObjects)) {
+      lastRoot = sceneObjects[i];
+      break;
+    }
+  }
+  if (!lastRoot || lastRoot.type !== 'sketch' || !lastRoot.id) {
+    return false;
+  }
+  for (let i = sceneObjects.length - 1; i >= 0; i--) {
+    if (sceneObjects[i].parentId === lastRoot.id) {
+      return (sceneObjects[i] as any).type === 'bezier';
+    }
+  }
+  return false;
+}
+
+/** Extract the bezier's existing poles (start + placed points) from the scene render data. */
+function getBezierPoles(
+  sceneObjects: SceneObjectRender[],
+  sketchId: string,
+): [number, number][] {
+  for (let i = sceneObjects.length - 1; i >= 0; i--) {
+    const obj = sceneObjects[i] as any;
+    if (obj.parentId === sketchId && obj.type === 'bezier') {
+      const startPt = obj.object?.startPoint as [number, number] | undefined;
+      const resolved = obj.object?.resolvedPoints as [number, number][] | undefined;
+      if (startPt) {
+        return [startPt, ...(resolved || [])];
+      }
+      return [];
+    }
+  }
+  return [];
+}
+
+function updateBezierDrawMode(sceneObjects: SceneObjectRender[]) {
+  let lastRoot: SceneObjectRender | null = null;
+  for (let i = sceneObjects.length - 1; i >= 0; i--) {
+    if (isTopLevel(sceneObjects[i], sceneObjects)) {
+      lastRoot = sceneObjects[i];
+      break;
+    }
+  }
+
+  const sketchObj = lastRoot?.type === 'sketch' ? lastRoot : null;
+
+  if (!sketchObj || !sketchObj.id || !sketchObj.object?.plane) {
+    deactivateBezierDrawMode();
+    return;
+  }
+
+  let lastChild: (SceneObjectRender & { type?: string; sourceLocation?: any }) | null = null;
+  for (let i = sceneObjects.length - 1; i >= 0; i--) {
+    if (sceneObjects[i].parentId === sketchObj.id) {
+      lastChild = sceneObjects[i] as any;
+      break;
+    }
+  }
+
+  if (!lastChild || (lastChild as any).type !== 'bezier' || !lastChild.sourceLocation) {
+    deactivateBezierDrawMode();
+    return;
+  }
+
+  const srcLine = lastChild.sourceLocation.line;
+  const plane: PlaneData = sketchObj.object.plane;
+  const existingPoles = getBezierPoles(sceneObjects, sketchObj.id);
+  const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchObj.id, plane);
+
+  // Already in draw mode for this same bezier call — update poles and snap manager
+  if (activeBezierDrawMode && activeBezierSourceLine === srcLine) {
+    activeBezierDrawMode.updateExistingPoles(existingPoles);
+    activeBezierDrawMode.snapController.updateSnapManager(snapManager);
+    return;
+  }
+
+  deactivateBezierDrawMode();
+
+  const sourceLocation = lastChild.sourceLocation;
+  const snapController = new SnapController(snapManager, plane);
+
+  // Sync checkbox state to new controller
+  const vertexCb = bezierIndicator.querySelector<HTMLInputElement>('[data-snap="vertex"]');
+  const gridCb = bezierIndicator.querySelector<HTMLInputElement>('[data-snap="grid"]');
+  if (vertexCb) {
+    snapController.snapToVertices = vertexCb.checked;
+  }
+  if (gridCb) {
+    snapController.snapToGrid = gridCb.checked;
+  }
+
+  activeBezierDrawMode = new BezierDrawMode(
+    viewer.sceneContext,
+    plane,
+    snapController,
+    existingPoles,
+    (point2d) => {
+      fetch('/api/insert-point', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ point: point2d, sourceLocation }),
+      });
+    },
+    (points) => {
+      fetch('/api/set-pick-points', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ points, sourceLocation }),
+      });
+    },
+  );
+  activeBezierSourceLine = srcLine;
+  activeBezierDrawMode.activate();
+  bezierIndicator.classList.remove('hidden');
+}
+
+function deactivateBezierDrawMode() {
+  if (activeBezierDrawMode) {
+    activeBezierDrawMode.deactivate();
+    activeBezierDrawMode = null;
+    activeBezierSourceLine = null;
+  }
+  bezierIndicator.classList.add('hidden');
+}
+
+// ---------------------------------------------------------------------------
 // Import file button
 // ---------------------------------------------------------------------------
 
@@ -478,6 +645,7 @@ function connectWebSocket() {
         viewer.isTrimming = isTrimmingScene(msg.result);
         const regionPicking = isRegionPickingScene(msg.result);
         viewer.isRegionPicking = regionPicking.active;
+        viewer.isBezierDrawing = isBezierDrawingScene(msg.result);
         viewer.toggleSketchMode(!regionPicking.active);
         viewer.updateView(msg.result, isRollback);
         if (msg.absPath) {
@@ -485,6 +653,7 @@ function connectWebSocket() {
         }
         updatePointPickMode(msg.result);
         updateRegionPickMode(msg.result);
+        updateBezierDrawMode(msg.result);
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1, msg.absPath);
         break;
       }

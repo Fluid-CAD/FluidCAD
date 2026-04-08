@@ -18,7 +18,11 @@ export class Edge extends Shape<TopoDS_Edge> {
   }
 
   getSubShapes(type: ShapeType): Shape[] {
-    throw new Error("Method not implemented.");
+    if (type === 'edge') {
+      return [this];
+    }
+
+    return [];
   }
 
   getFirstVertex(): Vertex {

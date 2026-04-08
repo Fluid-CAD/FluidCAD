@@ -29,6 +29,14 @@ export class Wire extends Shape<TopoDS_Wire> {
   }
 
   getSubShapes(type: ShapeType): Shape[] {
+    if (type === 'edge') {
+      return this.getEdges();
+    }
+
+    if (type === 'wire') {
+      return [this];
+    }
+
     return [];
   }
 

@@ -5,5 +5,6 @@ out/
 .DS_Store
 .vscode/
 *.tsbuildinfo
+*.vsix
 server/dist/
 ui/dist/

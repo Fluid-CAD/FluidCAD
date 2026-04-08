@@ -54,10 +54,16 @@ export class SceneCompare {
       }
     }
 
-    // Dispose unmatched old scene objects
+    // Collect all WASM shape handles still referenced by matched objects
+    const keepHandles = new Set<any>();
+    for (const newObj of map.values()) {
+      newObj.collectShapeHandles(keepHandles);
+    }
+
+    // Dispose unmatched old scene objects, protecting shared handles
     for (const oldObj of oldScene.getSceneObjects()) {
       if (!map.has(oldObj)) {
-        oldObj.dispose();
+        oldObj.dispose(keepHandles);
       }
     }
 

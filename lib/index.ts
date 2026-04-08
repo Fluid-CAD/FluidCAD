@@ -6,7 +6,7 @@ import { SelectSceneObject } from "./features/select.js";
 import { Sketch } from "./features/2d/sketch.js";
 import { Extrudable } from "./helpers/types.js";
 
-function captureSourceLocation(): SourceLocation | null {
+export function captureSourceLocation(): SourceLocation | null {
   const stack = new Error().stack;
   if (!stack) {
     return null;
@@ -78,7 +78,7 @@ export function registerBuilder<T extends Function>(builder: (context: ScenePars
         scene.endProgressiveContainer();
       },
       getSceneObjects() {
-        return scene.getSceneObjects();
+        return scene.getPartScopedSceneObjects();
       },
       getActiveSketch(): Sketch | null {
         return scene.getActiveSketch();

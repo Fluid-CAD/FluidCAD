@@ -661,6 +661,11 @@ export class Viewer {
     for (let i = objects.length - 1; i >= 0; i--) {
       const obj = objects[i];
       if (!obj.parentId && (obj.visible || obj.type === 'sketch')) return obj;
+      // Also consider objects that are direct children of a Part container
+      if (obj.parentId && (obj.visible || obj.type === 'sketch')) {
+        const parent = objects.find(o => o.id === obj.parentId);
+        if (parent?.type === 'part') return obj;
+      }
     }
     return undefined;
   }

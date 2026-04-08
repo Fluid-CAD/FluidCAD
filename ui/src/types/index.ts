@@ -45,7 +45,9 @@ export type ObjectType =
   | 'linear-pattern'
   | 'boolean'
   // Direct solid reference
-  | 'solid';
+  | 'solid'
+  // Part containers
+  | 'part';
 
 // ---------------------------------------------------------------------------
 // Shape types — the geometric representation of a scene object

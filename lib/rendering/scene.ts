@@ -2,6 +2,7 @@ import { Sketch } from "../features/2d/sketch.js";
 import { SelectSceneObject } from "../features/select.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Extrudable } from "../helpers/types.js";
+import { Part } from "../features/part.js";
 
 export type SceneObjectMesh = {
   label?: string;
@@ -55,7 +56,7 @@ export class Scene {
     obj.setOrder(this.sceneObjects.length);
 
     const activeObj = this.getActiveContainer();
-    if (activeObj) {
+    if (activeObj && !obj.getParent()) {
       activeObj.addChildObject(obj);
     }
 
@@ -93,9 +94,67 @@ export class Scene {
     return null;
   }
 
+  getActivePart(): Part | null {
+    for (let i = this.progressiveContainers.length - 1; i >= 0; i--) {
+      if (this.progressiveContainers[i] instanceof Part) {
+        return this.progressiveContainers[i] as Part;
+      }
+    }
+    return null;
+  }
+
+  findEnclosingPart(obj: SceneObject): Part | null {
+    let current = obj.getParent();
+    while (current) {
+      if (current instanceof Part) {
+        return current;
+      }
+      current = current.getParent();
+    }
+    // The object itself might be a Part
+    if (obj instanceof Part) {
+      return obj;
+    }
+    return null;
+  }
+
+  getPartScopedObjectsUpTo(obj: SceneObject): SceneObject[] {
+    const allUpTo = this.getSceneObjectsUpTo(obj);
+    const part = this.findEnclosingPart(obj);
+    if (!part) {
+      return allUpTo;
+    }
+    return allUpTo.filter(o => this.findEnclosingPart(o) === part);
+  }
+
+  getPartScopedActiveObjectsUpTo(obj: SceneObject): SceneObject[] {
+    const allUpTo = this.getActiveSceneObjectsUpTo(obj);
+    const part = this.findEnclosingPart(obj);
+    if (!part) {
+      return allUpTo;
+    }
+    return allUpTo.filter(o => this.findEnclosingPart(o) === part);
+  }
+
   getSceneObjects(): SceneObject[] {
     const object = this.sceneObjects
     return object;
+  }
+
+  getPartScopedSceneObjects(): SceneObject[] {
+    const activePart = this.getActivePart();
+    if (!activePart) {
+      return this.sceneObjects;
+    }
+    return this.sceneObjects.filter(o => this.findEnclosingPart(o) === activePart);
+  }
+
+  getPartScopedAllObjects(obj: SceneObject): SceneObject[] {
+    const part = this.findEnclosingPart(obj);
+    if (!part) {
+      return this.sceneObjects;
+    }
+    return this.sceneObjects.filter(o => this.findEnclosingPart(o) === part);
   }
 
   getActiveSceneObjectsUpTo(obj: SceneObject): SceneObject[] {
@@ -125,12 +184,25 @@ export class Scene {
   }
 
   getLastExtrudable(): Extrudable | null {
+    const activePart = this.getActivePart();
     let count = this.sceneObjects.length;
 
     while (count--) {
       const object = this.sceneObjects[count];
-      if (object.isExtrudable() && !object.parentId) {
-        return object as Extrudable;
+      if (!object.isExtrudable()) {
+        continue;
+      }
+
+      if (activePart) {
+        // Inside a Part: find extrudables that are direct children of this Part
+        if (object.getParent() === activePart) {
+          return object as Extrudable;
+        }
+      } else {
+        // Outside any Part: original behavior (top-level only)
+        if (!object.parentId) {
+          return object as Extrudable;
+        }
       }
     }
 

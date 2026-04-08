@@ -7,6 +7,7 @@ type SceneManager = {
   renderScene(scene: any): any;
   rollbackScene(scene: any, rollbackIndex: number): any;
   compare(previousScene: any, currentScene: any): any;
+  setCurrentFile(filePath: string): void;
   importFile(workspacePath: string, fileName: string, data: Uint8Array): any;
   getShapeProperties(scene: any, shapeId: string): any;
   getFaceProperties(scene: any, shapeId: string, faceIndex: number): any;
@@ -75,6 +76,7 @@ export class FluidCadServer {
 
     try {
       let scene = this.sceneManager.startScene();
+      this.sceneManager.setCurrentFile(normalizedFileName);
       this.viteManager.invalidateModule();
       await this.viteManager.loadModule(filePath);
 

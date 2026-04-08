@@ -87,14 +87,17 @@ wss.on('connection', (ws) => {
 // ---------------------------------------------------------------------------
 
 let currentFile: string | null = null;
+let renderVersion = 0;
 
 async function handleExtensionMessage(msg: any) {
   try {
     switch (msg.type) {
       case 'process-file': {
+        const myVersion = ++renderVersion;
         broadcastToUI({ type: 'processing-file' });
         currentFile = msg.filePath;
         const data = await fluidCadServer.processFile(msg.filePath);
+        if (myVersion !== renderVersion) { return; }
         if (data) {
           sendToExtension({
             type: 'scene-rendered',
@@ -112,11 +115,13 @@ async function handleExtensionMessage(msg: any) {
       }
 
       case 'live-update': {
+        const myVersion = ++renderVersion;
         if (msg.fileName !== currentFile) {
           broadcastToUI({ type: 'processing-file' });
           currentFile = msg.fileName;
         }
         const data = await fluidCadServer.updateLiveCode(msg.fileName, msg.code);
+        if (myVersion !== renderVersion) { return; }
         if (data) {
           sendToExtension({
             type: 'scene-rendered',
@@ -134,7 +139,9 @@ async function handleExtensionMessage(msg: any) {
       }
 
       case 'rollback': {
+        const myVersion = ++renderVersion;
         const data = await fluidCadServer.rollback(msg.fileName, msg.index);
+        if (myVersion !== renderVersion) { return; }
         if (data) {
           sendToExtension({
             type: 'scene-rendered',

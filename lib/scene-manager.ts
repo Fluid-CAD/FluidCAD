@@ -17,8 +17,13 @@ import type { HitTestResult } from "./oc/hit-test.js";
 
 class SceneManager {
   currentScene: Scene = new Scene();
+  currentFile: string = '';
 
   constructor(public rootPath: string) {
+  }
+
+  setCurrentFile(filePath: string) {
+    this.currentFile = filePath;
   }
 
   startScene() {
@@ -129,6 +134,16 @@ export function createManager(rootPath: string) {
 
 export function getCurrentScene() {
   return currentManager?.currentScene;
+}
+
+export function getCurrentFile(): string {
+  return currentManager?.currentFile || '';
+}
+
+export function setCurrentFile(filePath: string) {
+  if (currentManager) {
+    currentManager.setCurrentFile(filePath);
+  }
 }
 
 export function getSceneManager() {

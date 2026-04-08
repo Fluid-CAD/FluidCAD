@@ -12,6 +12,15 @@ import { SceneObjectRender, PlaneData } from './types';
 
 const container = document.getElementById('fluidcad-viewer') || document.body;
 
+/** Check if a scene object is "top-level": either root or a direct child of a Part container. */
+function isTopLevel(obj: SceneObjectRender, sceneObjects: SceneObjectRender[]): boolean {
+  if (!obj.parentId) {
+    return true;
+  }
+  const parent = sceneObjects.find(o => o.id === obj.parentId);
+  return parent?.type === 'part';
+}
+
 // ---------------------------------------------------------------------------
 // Loading overlay — shown until the server kernel finishes initializing
 // ---------------------------------------------------------------------------
@@ -108,7 +117,7 @@ let activePickSourceLine: number | null = null;
 function isTrimmingScene(sceneObjects: SceneObjectRender[]): boolean {
   let lastRoot: SceneObjectRender | null = null;
   for (let i = sceneObjects.length - 1; i >= 0; i--) {
-    if (!sceneObjects[i].parentId) {
+    if (isTopLevel(sceneObjects[i], sceneObjects)) {
       lastRoot = sceneObjects[i];
       break;
     }
@@ -125,11 +134,11 @@ function isTrimmingScene(sceneObjects: SceneObjectRender[]): boolean {
 }
 
 function updatePointPickMode(sceneObjects: SceneObjectRender[]) {
-  // Only activate pick mode if the last root-level object is a sketch
+  // Only activate pick mode if the last top-level object is a sketch
   // (i.e., the sketch is still the active/open feature)
   let lastRoot: SceneObjectRender | null = null;
   for (let i = sceneObjects.length - 1; i >= 0; i--) {
-    if (!sceneObjects[i].parentId) {
+    if (isTopLevel(sceneObjects[i], sceneObjects)) {
       lastRoot = sceneObjects[i];
       break;
     }
@@ -280,14 +289,14 @@ function isRegionPickingScene(sceneObjects: SceneObjectRender[]): {
   extrudeObj?: SceneObjectRender & { sourceLocation?: any };
   sketchObj?: SceneObjectRender;
 } {
-  // Find the last root-level object
+  // Find the last extrude/cut with picking=true (may be inside a Part container)
   for (let i = sceneObjects.length - 1; i >= 0; i--) {
     const obj = sceneObjects[i] as any;
-    if (!obj.parentId && (obj.type === 'extrude' || obj.type === 'cut' || obj.type === 'cut-symmetric' || obj.type === 'revolve' || obj.type === 'sweep') && obj.object?.picking) {
-      // Found an extrude/cut with picking=true. Find the sketch before it.
+    if ((obj.type === 'extrude' || obj.type === 'cut' || obj.type === 'cut-symmetric' || obj.type === 'revolve' || obj.type === 'sweep') && obj.object?.picking) {
+      // Found an extrude/cut with picking=true. Find the sketch before it (same parent scope).
       let sketchObj: SceneObjectRender | undefined;
       for (let j = i - 1; j >= 0; j--) {
-        if (!sceneObjects[j].parentId && sceneObjects[j].type === 'sketch') {
+        if (sceneObjects[j].type === 'sketch' && sceneObjects[j].parentId === obj.parentId) {
           sketchObj = sceneObjects[j];
           break;
         }

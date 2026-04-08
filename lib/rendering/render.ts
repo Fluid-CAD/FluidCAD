@@ -159,10 +159,10 @@ export function renderScene(scene: Scene) {
       try {
         object.build({
           getSceneObjects() {
-            return scene.getSceneObjectsUpTo(object);
+            return scene.getPartScopedObjectsUpTo(object);
           },
           getActiveSceneObjects() {
-            return scene.getActiveSceneObjectsUpTo(object);
+            return scene.getPartScopedActiveObjectsUpTo(object);
           },
           getSceneObjectsFromTo(from: SceneObject, to: SceneObject) {
             return scene.getSceneObjectsFromTo(from, to);
@@ -192,7 +192,7 @@ export function renderScene(scene: Scene) {
 
   // Cleanup pass — let objects adjust based on final scene state
   for (const object of sceneObjects) {
-    object.clean(sceneObjects);
+    object.clean(scene.getPartScopedAllObjects(object));
   }
 
   for (const object of sceneObjects) {

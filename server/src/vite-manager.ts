@@ -1,4 +1,5 @@
 import { type ViteDevServer, createServer } from 'vite';
+import { dirname, resolve, isAbsolute } from 'path';
 
 export class ViteManager {
   server: ViteDevServer;
@@ -23,9 +24,14 @@ export class ViteManager {
       plugins: [
         {
           name: 'virtual-module',
-          resolveId(id) {
+          resolveId(id, importer) {
             if (id.startsWith('virtual:')) {
               return id;
+            }
+            // Resolve relative imports from virtual modules against the real file path
+            if (importer && importer.startsWith('virtual:live-render:') && !isAbsolute(id)) {
+              const realImporter = importer.replace('virtual:live-render:', '');
+              return resolve(dirname(realImporter), id);
             }
           },
           load(id) {

@@ -1,9 +1,7 @@
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { normalizeAxis, normalizePlane } from "../helpers/normalize.js";
 import { SceneObject } from "../common/scene-object.js";
-import { Plane, PlaneLike } from "../math/plane.js";
-import { Matrix4 } from "../math/matrix4.js";
-import { MirrorFeature } from "../features/mirror-feature.js";
+import { PlaneLike } from "../math/plane.js";
 import { MirrorShape } from "../features/mirror-shape.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { PlaneObject } from "../features/plane.js";
@@ -13,7 +11,6 @@ import { MirrorShape2D } from "../features/mirror-shape2d.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisObject } from "../features/axis.js";
 import { AxisFromEdge } from "../features/axis-from-edge.js";
-import { cloneWithTransform } from "../helpers/clone-transform.js";
 import { ISceneObject } from "./interfaces.js";
 
 interface MirrorFunction {
@@ -57,13 +54,6 @@ interface MirrorFunction {
   */
   (plane: PlaneLike, ...objects: ISceneObject[]): ISceneObject;
 
-  /**
-  * [3D] Mirror (re-apply) given features across a given plane.
-  * @param plane The plane to mirror across
-  * @param type Must be 'feature'
-  * @param objects The features to mirror
-  */
-  (plane: PlaneLike, type: 'feature', ...objects: ISceneObject[]): ISceneObject;
 }
 
 function build(context: SceneParserContext): MirrorFunction {
@@ -110,35 +100,6 @@ function build(context: SceneParserContext): MirrorFunction {
 
     if (arguments.length >= 2) {
       const args = Array.from(arguments);
-
-      // 3D feature mirror: mirror(plane, 'feature', ...objects)
-      if (args[1] === 'feature') {
-        const targetObjects = args.slice(2) as SceneObject[];
-
-        let planeObj: PlaneObjectBase;
-        let normalizedPlane: Plane;
-        if (args[0] instanceof PlaneObjectBase) {
-          planeObj = args[0] as PlaneObjectBase;
-          planeObj.build();
-          normalizedPlane = planeObj.getPlane();
-        }
-        else {
-          normalizedPlane = normalizePlane(args[0]);
-          planeObj = new PlaneObject(normalizedPlane);
-          planeObj.build();
-          context.addSceneObject(planeObj);
-        }
-
-        const matrix = Matrix4.mirrorPlane(normalizedPlane.normal, normalizedPlane.origin);
-        const mirror = new MirrorFeature(planeObj, matrix);
-        const mirrorTree = cloneWithTransform(targetObjects, matrix, mirror);
-
-        console.log('Mirror: Transformed objects:', mirrorTree.map(o => o.getType()));
-
-        context.addSceneObject(mirror);
-        context.addSceneObjects(mirrorTree);
-        return mirror;
-      }
 
       // 2D mirror with target objects: mirror(axis/line, geometries[])
       if (isAxisLike(args[0]) || args[0] instanceof SceneObject) {

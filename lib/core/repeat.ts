@@ -1,5 +1,5 @@
 import { registerBuilder, SceneParserContext } from "../index.js";
-import { normalizeAxis } from "../helpers/normalize.js";
+import { normalizeAxis, normalizePlane } from "../helpers/normalize.js";
 import { AxisLike } from "../math/axis.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Matrix4 } from "../math/matrix4.js";
@@ -8,8 +8,12 @@ import { LinearRepeatOptions, RepeatLinear } from "../features/repeat-linear.js"
 import { CircularRepeatOptions, RepeatCircular } from "../features/repeat-circular.js";
 import { cloneWithTransform } from "../helpers/clone-transform.js";
 import { ISceneObject } from "./interfaces.js";
+import { Plane, PlaneLike } from "../math/plane.js";
+import { PlaneObjectBase } from "../features/plane-renderable-base.js";
+import { PlaneObject } from "../features/plane.js";
+import { MirrorFeature } from "../features/mirror-feature.js";
 
-export type RepeatType = 'linear' | 'circular';
+export type RepeatType = 'linear' | 'circular' | 'mirror';
 
 interface RepeatFunction {
   /**
@@ -37,14 +41,22 @@ interface RepeatFunction {
    * @param objects - The objects to repeat (defaults to last object)
    */
   (type: 'circular', axis: AxisLike, options: CircularRepeatOptions, ...objects: ISceneObject[]): ISceneObject;
+
+  /**
+   * Creates a mirrored instance of objects across a plane.
+   * @param type - Must be `'mirror'`
+   * @param plane - The plane to mirror across
+   * @param objects - The objects to mirror (defaults to last object)
+   */
+  (type: 'mirror', plane: PlaneLike, ...objects: ISceneObject[]): ISceneObject;
 }
 
 function build(context: SceneParserContext): RepeatFunction {
   return (function repeat() {
     const args = Array.from(arguments);
 
-    if (args.length < 3) {
-      throw new Error("Invalid arguments for repeat function: expected at least (type, axis, options)");
+    if (args.length < 2) {
+      throw new Error("Invalid arguments for repeat function: expected at least (type, ...)");
     }
 
     const sketch = context.getActiveSketch();
@@ -53,120 +65,152 @@ function build(context: SceneParserContext): RepeatFunction {
     }
 
     const type = args[0] as RepeatType;
-    const axisArg = args[1] as AxisLike | AxisLike[];
 
-    const axes = Array.isArray(axisArg)
-      ? axisArg.map(a => normalizeAxis(a))
-      : [normalizeAxis(axisArg)];
+    if (type === 'linear' || type === 'circular') {
+      const axisArg = args[1] as AxisLike | AxisLike[];
 
-    const options = args[2] as LinearRepeatOptions;
-    const restObjects = args.slice(3) as SceneObject[];
-    const objects = restObjects.length > 0
-      ? restObjects
-      : [context.getSceneObjects().at(-1)!];
+      const axes = Array.isArray(axisArg)
+        ? axisArg.map(a => normalizeAxis(a))
+        : [normalizeAxis(axisArg)];
 
-    if (type === 'linear') {
-      const counts = Array.isArray(options.count) ? options.count : [options.count];
-      const offsets = options.offset != null
-        ? (Array.isArray(options.offset) ? options.offset : [options.offset])
-        : null;
-      const lengths = 'length' in options && options.length != null
-        ? (Array.isArray(options.length) ? options.length : [options.length])
-        : null;
-      const repeat = new RepeatLinear(axes, options, objects);
+      const options = args[2] as LinearRepeatOptions;
+      const restObjects = args.slice(3) as SceneObject[];
+      const objects = restObjects.length > 0
+        ? restObjects
+        : [context.getSceneObjects().at(-1)!];
 
-      const transformedObjects: SceneObject[] = [];
+      if (type === 'linear') {
+        const counts = Array.isArray(options.count) ? options.count : [options.count];
+        const offsets = options.offset != null
+          ? (Array.isArray(options.offset) ? options.offset : [options.offset])
+          : null;
+        const lengths = 'length' in options && options.length != null
+          ? (Array.isArray(options.length) ? options.length : [options.length])
+          : null;
+        const repeat = new RepeatLinear(axes, options, objects);
 
-      const axisOffsets = axes.map((axis, i) => {
-        const count = counts[i] ?? counts[0];
-        const offset = offsets != null
-          ? (offsets[i] ?? offsets[0])
-          : (lengths![i] ?? lengths![0]) / (count - 1);
-        return { axis, count, offset };
-      });
+        const transformedObjects: SceneObject[] = [];
 
-      // Generate all index combinations across axes
-      const indexCombinations: number[][] = [[]];
-      for (const { count } of axisOffsets) {
-        const newCombinations: number[][] = [];
-        for (const combo of indexCombinations) {
-          for (let i = 0; i < count; i++) {
-            newCombinations.push([...combo, i]);
+        const axisOffsets = axes.map((axis, i) => {
+          const count = counts[i] ?? counts[0];
+          const offset = offsets != null
+            ? (offsets[i] ?? offsets[0])
+            : (lengths![i] ?? lengths![0]) / (count - 1);
+          return { axis, count, offset };
+        });
+
+        // Generate all index combinations across axes
+        const indexCombinations: number[][] = [[]];
+        for (const { count } of axisOffsets) {
+          const newCombinations: number[][] = [];
+          for (const combo of indexCombinations) {
+            for (let i = 0; i < count; i++) {
+              newCombinations.push([...combo, i]);
+            }
           }
+          indexCombinations.length = 0;
+          indexCombinations.push(...newCombinations);
         }
-        indexCombinations.length = 0;
-        indexCombinations.push(...newCombinations);
+
+        for (const indices of indexCombinations) {
+          // Skip the origin instance (all zeros)
+          if (indices.every(i => i === 0)) {
+            continue;
+          }
+
+          // Skip if in the skip list
+          if (options.skip?.some(s =>
+            s.length === indices.length && s.every((v, i) => v === indices[i])
+          )) {
+            continue;
+          }
+
+          // Compose translation from all axes
+          let dx = 0, dy = 0, dz = 0;
+          for (let a = 0; a < axisOffsets.length; a++) {
+            const { axis, offset } = axisOffsets[a];
+            const idx = options.centered
+              ? indices[a] - Math.floor(axisOffsets[a].count / 2)
+              : indices[a];
+            dx += axis.direction.x * offset * idx;
+            dy += axis.direction.y * offset * idx;
+            dz += axis.direction.z * offset * idx;
+          }
+
+          const transform = Matrix4.fromTranslation(dx, dy, dz);
+
+          const cloned = cloneWithTransform(objects, transform, repeat);
+          transformedObjects.push(...cloned);
+        }
+
+        context.addSceneObject(repeat);
+        context.addSceneObjects(transformedObjects);
+        return repeat;
       }
 
-      for (const indices of indexCombinations) {
-        // Skip the origin instance (all zeros)
-        if (indices.every(i => i === 0)) {
-          continue;
+      if (type === 'circular') {
+        const axis = axes[0];
+        const circularOptions = options as unknown as CircularRepeatOptions;
+        const { count, centered, skip } = circularOptions;
+
+        const repeat = new RepeatCircular(axis, circularOptions, objects);
+
+        let offset: number;
+        if ('offset' in circularOptions && circularOptions.offset !== undefined) {
+          offset = circularOptions.offset;
+        } else {
+          offset = (circularOptions as { angle: number }).angle / (count - 1);
         }
 
-        // Skip if in the skip list
-        if (options.skip?.some(s =>
-          s.length === indices.length && s.every((v, i) => v === indices[i])
-        )) {
-          continue;
+        const startOffset = centered ? -(count * offset) / 2 : 0;
+
+        const transformedObjects: SceneObject[] = [];
+
+        for (let i = 1; i < count; i++) {
+          if (skip?.includes(i)) {
+            continue;
+          }
+
+          const angle = startOffset + offset * i;
+          const matrix = Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, rad(angle));
+
+          const cloned = cloneWithTransform(objects, matrix, repeat);
+          transformedObjects.push(...cloned);
         }
 
-        // Compose translation from all axes
-        let dx = 0, dy = 0, dz = 0;
-        for (let a = 0; a < axisOffsets.length; a++) {
-          const { axis, offset } = axisOffsets[a];
-          const idx = options.centered
-            ? indices[a] - Math.floor(axisOffsets[a].count / 2)
-            : indices[a];
-          dx += axis.direction.x * offset * idx;
-          dy += axis.direction.y * offset * idx;
-          dz += axis.direction.z * offset * idx;
-        }
-
-        const transform = Matrix4.fromTranslation(dx, dy, dz);
-
-        const cloned = cloneWithTransform(objects, transform, repeat);
-        transformedObjects.push(...cloned);
+        context.addSceneObject(repeat);
+        context.addSceneObjects(transformedObjects);
+        return repeat;
       }
-
-      context.addSceneObject(repeat);
-      context.addSceneObjects(transformedObjects);
-      return repeat;
     }
 
-    if (type === 'circular') {
-      const axis = axes[0];
-      const circularOptions = options as unknown as CircularRepeatOptions;
-      const { count, centered, skip } = circularOptions;
+    if (type === 'mirror') {
+      const planeArg = args[1] as PlaneLike;
+      const restObjects = args.slice(2) as SceneObject[];
+      const targetObjects = restObjects.length > 0
+        ? restObjects
+        : [context.getSceneObjects().at(-1)!];
 
-      const repeat = new RepeatCircular(axis, circularOptions, objects);
-
-      let offset: number;
-      if ('offset' in circularOptions && circularOptions.offset !== undefined) {
-        offset = circularOptions.offset;
+      let planeObj: PlaneObjectBase;
+      let normalizedPlane: Plane;
+      if (planeArg instanceof PlaneObjectBase) {
+        planeObj = planeArg as PlaneObjectBase;
+        planeObj.build();
+        normalizedPlane = planeObj.getPlane();
       } else {
-        offset = (circularOptions as { angle: number }).angle / (count - 1);
+        normalizedPlane = normalizePlane(planeArg);
+        planeObj = new PlaneObject(normalizedPlane);
+        planeObj.build();
+        context.addSceneObject(planeObj);
       }
 
-      const startOffset = centered ? -(count * offset) / 2 : 0;
+      const matrix = Matrix4.mirrorPlane(normalizedPlane.normal, normalizedPlane.origin);
+      const mirrorFeature = new MirrorFeature(planeObj, matrix);
+      const mirrorTree = cloneWithTransform(targetObjects, matrix, mirrorFeature);
 
-      const transformedObjects: SceneObject[] = [];
-
-      for (let i = 1; i < count; i++) {
-        if (skip?.includes(i)) {
-          continue;
-        }
-
-        const angle = startOffset + offset * i;
-        const matrix = Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, rad(angle));
-
-        const cloned = cloneWithTransform(objects, matrix, repeat);
-        transformedObjects.push(...cloned);
-      }
-
-      context.addSceneObject(repeat);
-      context.addSceneObjects(transformedObjects);
-      return repeat;
+      context.addSceneObject(mirrorFeature);
+      context.addSceneObjects(mirrorTree);
+      return mirrorFeature;
     }
 
     throw new Error(`Invalid repeat type: ${type}`);

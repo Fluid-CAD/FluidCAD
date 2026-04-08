@@ -4,6 +4,11 @@
   "author": "Marwan Aouida",
   "description": "",
   "version": "0.0.1",
+  "license": "LGPL-2.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Fluid-CAD/FluidCAD"
+  },
   "engines": {
     "vscode": "^1.104.0"
   },
@@ -51,6 +56,7 @@
     "package": "npm run check-types && npm run lint && node esbuild.js --production",
     "check-types": "tsc --noEmit -p tsconfig.extension.json",
     "lint": "eslint src",
+    "vsix": "npx @vscode/vsce package --no-dependencies",
     "test": "vscode-test"
   },
   "devDependencies": {

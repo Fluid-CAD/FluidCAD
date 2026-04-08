@@ -169,7 +169,7 @@ export class Client {
     });
   }
 
-  private handleServerMessage(msg: any) {
+  private async handleServerMessage(msg: any) {
     switch (msg.type) {
       case 'scene-rendered': {
         this.currentSceneObjects = msg.result;

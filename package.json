@@ -9,27 +9,40 @@
     "packages/create-fluidcad-app"
   ],
   "bin": {
-    "fluidcad": "./bin/fluidcad.js"
+    "fluidcad": "./dist/bin/fluidcad.js"
   },
   "files": [
-    "lib/dist/",
-    "server/dist/",
-    "ui/dist/",
-    "bin/"
+    "dist/"
   ],
   "exports": {
-    ".": "./lib/dist/index.js",
-    "./core": "./lib/dist/core/index.js",
-    "./filters": "./lib/dist/filters/index.js",
-    "./constraints": "./lib/dist/features/2d/constraints/geometry-qualifier.js",
-    "./server": "./server/dist/index.js"
+    ".": {
+      "types": "./dist/lib/index.d.ts",
+      "default": "./dist/lib/index.js"
+    },
+    "./core": {
+      "types": "./dist/lib/core/index.d.ts",
+      "default": "./dist/lib/core/index.js"
+    },
+    "./filters": {
+      "types": "./dist/lib/filters/index.d.ts",
+      "default": "./dist/lib/filters/index.js"
+    },
+    "./constraints": {
+      "types": "./dist/lib/features/2d/constraints/geometry-qualifier.d.ts",
+      "default": "./dist/lib/features/2d/constraints/geometry-qualifier.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "default": "./dist/server/index.js"
+    }
   },
   "scripts": {
     "build:lib": "tsc -p lib/tsconfig.json",
     "build:server": "tsc -p server/tsconfig.json",
     "build:ui": "vite build --config ui/vite.config.ts",
     "build": "npm run build:lib && npm run build:server && npm run build:ui",
-    "prepublishOnly": "npm run build",
+    "build:dist": "npm run build && bash scripts/build-dist.sh",
+    "prepublishOnly": "npm run build:dist",
     "dev:lib": "tsc -p lib/tsconfig.json --watch",
     "dev:server": "node --experimental-transform-types --no-warnings server/src/index.ts",
     "dev:ui": "vite --config ui/vite.config.ts",
@@ -47,7 +60,8 @@
     "daisyui": "^5.5.19",
     "express": "^5.2.1",
     "lodash": "^4.17.21",
-    "occjs-wrapper": "file:../occjs-fluidcad",
+    "occjs-fluidcad": "^1.0.0",
+    "occjs-wrapper": "npm:occjs-fluidcad@^1.0.0",
     "tailwindcss": "^4.2.2",
     "three": "^0.180.0",
     "three-viewport-gizmo": "^2.2.0",

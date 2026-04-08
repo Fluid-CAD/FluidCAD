@@ -179,7 +179,7 @@ export class TimelinePanel {
     const name = obj.name
       ? obj.name.charAt(0).toUpperCase() + obj.name.slice(1)
       : obj.type || 'Unknown';
-    const iconSrc = obj.isContainer ? '/icons/box.png' : `/icons/${obj.type || 'solid'}.png`;
+    const iconSrc = obj.type === 'part' ? '/icons/box.png' : `/icons/${obj.type || 'solid'}.png`;
 
     let itemClass = 'flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-white/[0.06] text-sm';
 

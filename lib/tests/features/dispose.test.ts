@@ -4,8 +4,10 @@ import { getCurrentScene, getSceneManager } from "../../scene-manager.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cylinder from "../../core/cylinder.js";
+import trim from "../../core/trim.js";
 import { circle, rect } from "../../core/2d/index.js";
 import { SceneCompare } from "../../rendering/scene-compare.js";
+import { renderScene } from "../../rendering/render.js";
 import { Extrude } from "../../features/extrude.js";
 import { Cylinder } from "../../features/cylinder.js";
 import { Sketch } from "../../features/2d/sketch.js";
@@ -214,6 +216,33 @@ describe("dispose", () => {
       // Sketch is new — should not be cached
       const newSketch = scene2.getSceneObjects().find(o => o instanceof Sketch);
       expect(scene2.isCached(newSketch)).toBe(false);
+    });
+
+    it("should not delete shapes shared with matched objects (trim2d scenario)", () => {
+      // Build first scene: sketch with circle + trim
+      sketch("xy", () => {
+        circle(100);
+        trim();
+      });
+      const scene1 = render();
+
+      // Build second scene: same sketch, trim with different points
+      getSceneManager().startScene();
+      sketch("xy", () => {
+        circle(100);
+        trim([10, 0]);
+      });
+      const scene2 = getCurrentScene();
+
+      // Compare — circle matches, trim2d does not
+      SceneCompare.compare(scene1, scene2);
+
+      // Render should succeed — the matched circle's edge must not be deleted
+      expect(() => renderScene(scene2)).not.toThrow();
+
+      // Verify shapes exist on the scene
+      const rendered = scene2.getRenderedObjects();
+      expect(rendered.length).toBeGreaterThan(0);
     });
   });
 });

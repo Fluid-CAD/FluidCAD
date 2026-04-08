@@ -472,11 +472,35 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   clean(allObjects: SceneObject[]): void {}
 
   /**
+   * Collects all raw WASM shape handles referenced by this object's state.
+   * Used to protect shapes still in use by matched objects during disposal.
+   */
+  collectShapeHandles(handles: Set<any>): void {
+    for (const [key, value] of this.state.entries()) {
+      if (key === 'removedShapes' || key === 'snapshot') {
+        continue;
+      }
+
+      if (value instanceof Shape) {
+        handles.add(value.getShape());
+      } else if (Array.isArray(value)) {
+        for (const item of value) {
+          if (item instanceof Shape) {
+            handles.add(item.getShape());
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * Releases all resources held by this scene object.
    * Called after scene comparison for old objects that are no longer needed.
    * Subclasses can override to dispose additional resources, calling super.dispose().
+   *
+   * @param keepHandles Raw WASM handles still in use by matched objects — these must not be deleted.
    */
-  dispose(): void {
+  dispose(keepHandles?: Set<any>): void {
     for (const [key, value] of this.state.entries()) {
       // Skip shapes owned by other objects
       if (key === 'removedShapes' || key === 'snapshot') {
@@ -484,11 +508,15 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
       }
 
       if (value instanceof Shape) {
-        value.dispose();
+        if (!keepHandles || !keepHandles.has(value.getShape())) {
+          value.dispose();
+        }
       } else if (Array.isArray(value)) {
         for (const item of value) {
           if (item instanceof Shape) {
-            item.dispose();
+            if (!keepHandles || !keepHandles.has(item.getShape())) {
+              item.dispose();
+            }
           }
         }
       }

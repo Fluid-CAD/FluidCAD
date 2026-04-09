@@ -43,7 +43,7 @@ interface ExtrudeFunction {
 }
 
 function isExtrudable(obj: any): obj is Extrudable {
-  return obj instanceof SceneObject && 'getGeometries' in obj && 'getPlane' in obj;
+  return obj instanceof SceneObject && obj.isExtrudable();
 }
 
 function build(context: SceneParserContext): ExtrudeFunction {

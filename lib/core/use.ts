@@ -2,10 +2,11 @@ import { captureSourceLocation } from "../index.js";
 import { getCurrentScene } from "../scene-manager.js";
 import { Part } from "../features/part.js";
 import { PartHandle } from "./part.js";
+import { ISceneObject } from "./interfaces.js";
 
-function use(handle: PartHandle): void;
-function use<T>(handle: PartHandle<T>, options: T): void;
-function use<T = any>(handle: PartHandle<T>, options?: T): void {
+function use(handle: PartHandle): ISceneObject;
+function use<T>(handle: PartHandle<T>, options: T): ISceneObject;
+function use<T = any>(handle: PartHandle<T>, options?: T): ISceneObject {
   if (!handle || !handle.__fluidcad_part) {
     throw new Error("use() expects a PartHandle created by part()");
   }
@@ -23,6 +24,8 @@ function use<T = any>(handle: PartHandle<T>, options?: T): void {
   scene.startProgressiveContainer(partObj);
   handle._callback(options as T);
   scene.endProgressiveContainer();
+
+  return partObj;
 }
 
 export default use;

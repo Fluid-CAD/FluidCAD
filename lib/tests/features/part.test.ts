@@ -5,6 +5,8 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
 import repeat from "../../core/repeat.js";
+import translate from "../../core/translate.js";
+import rotate from "../../core/rotate.js";
 import { circle, rect } from "../../core/2d/index.js";
 import part from "../../core/part.js";
 import use from "../../core/use.js";
@@ -295,6 +297,73 @@ describe("part", () => {
       // First extrude (pick) should still have meta shapes
       const metaShapes = extrudeRenders[0]!.sceneShapes.filter(s => s.isMetaShape);
       expect(metaShapes.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("use() as transform target", () => {
+    it("should return an ISceneObject (Part instance)", () => {
+      const handle = part("ret-test", () => {
+        sketch("xy", () => { circle(10); });
+        extrude(20);
+      });
+
+      const result = use(handle);
+      expect(result).toBeDefined();
+      expect(result).toBeInstanceOf(Part);
+    });
+
+    it("should translate a Part target", () => {
+      const handle = part("translate-part", () => {
+        sketch("xy", () => { rect(20, 20); });
+        extrude(10);
+      });
+
+      const p = use(handle);
+      translate(50, 0, 0, p);
+      const scene = render();
+
+      expect(countShapes(scene)).toBe(1);
+    });
+
+    it("should translate-copy a Part target", () => {
+      const handle = part("copy-part", () => {
+        sketch("xy", () => { rect(20, 20); });
+        extrude(10);
+      });
+
+      const p = use(handle);
+      translate(50, 0, 0, true, p);
+      const scene = render();
+
+      // Original + copy = 2 shapes
+      expect(countShapes(scene)).toBe(2);
+    });
+
+    it("should transform only the targeted Part", () => {
+      const handle = part<{ size: number }>("multi", (options) => {
+        sketch("xy", () => { rect(options.size, options.size); });
+        extrude(options.size);
+      });
+
+      const p1 = use(handle, { size: 10 });
+      const p2 = use(handle, { size: 20 });
+      translate(100, 0, 0, p1);
+      const scene = render();
+
+      // Both parts should still produce shapes (2 total)
+      expect(countShapes(scene)).toBe(2);
+    });
+
+    it("should work inline with translate", () => {
+      const handle = part("inline-part", () => {
+        sketch("xy", () => { circle(10); });
+        extrude(20);
+      });
+
+      translate(50, 0, 0, use(handle));
+      const scene = render();
+
+      expect(countShapes(scene)).toBe(1);
     });
   });
 

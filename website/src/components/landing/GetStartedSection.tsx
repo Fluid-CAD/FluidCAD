@@ -35,7 +35,7 @@ export default function GetStartedSection() {
             </Link>
             <Link
               className={styles.btnOutline}
-              href="https://github.com/AouidaM/FluidCAD">
+              href="https://github.com/Fluid-CAD/FluidCAD">
               View on GitHub
             </Link>
           </div>

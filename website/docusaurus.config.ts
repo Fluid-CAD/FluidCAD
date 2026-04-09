@@ -68,7 +68,7 @@ const config: Config = {
           position: 'right',
         },
         {
-          href: 'https://github.com/AouidaM/FluidCAD',
+          href: 'https://github.com/Fluid-CAD/FluidCAD',
           label: 'GitHub',
           position: 'right',
         },
@@ -99,7 +99,7 @@ const config: Config = {
           items: [
             {
               label: 'GitHub',
-              href: 'https://github.com/AouidaM/FluidCAD',
+              href: 'https://github.com/Fluid-CAD/FluidCAD',
             },
           ],
         },

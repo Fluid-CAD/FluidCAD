@@ -1,0 +1,143 @@
+.section {
+  position: relative;
+  padding: 5rem 1.5rem;
+  background: var(--fluidcad-bg-secondary);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.gridBg {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--fluidcad-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--fluidcad-grid-line) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(ellipse 60% 80% at 50% 50%, black 20%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 60% 80% at 50% 50%, black 20%, transparent 100%);
+}
+
+.content {
+  position: relative;
+  z-index: 1;
+  max-width: 600px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.heading {
+  font-size: 2.25rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--fluidcad-text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.subtitle {
+  font-size: 1.1rem;
+  color: var(--fluidcad-text-secondary);
+  margin-bottom: 2rem;
+}
+
+/* ===== Terminal window ===== */
+.terminal {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--fluidcad-border);
+  box-shadow: var(--fluidcad-card-shadow);
+  text-align: left;
+  margin-bottom: 2rem;
+}
+
+.terminalChrome {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.65rem 1rem;
+  background: var(--fluidcad-bg-surface);
+  border-bottom: 1px solid var(--fluidcad-border);
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.dot[data-color='red'] {
+  background: #ef4444;
+}
+
+.dot[data-color='yellow'] {
+  background: #eab308;
+}
+
+.dot[data-color='green'] {
+  background: #22c55e;
+}
+
+.terminalTitle {
+  margin-left: 0.5rem;
+  font-size: 0.8rem;
+  font-family: var(--ifm-font-family-monospace);
+  color: var(--fluidcad-text-tertiary);
+}
+
+.terminalBody {
+  margin: 0;
+}
+
+/* Override Docusaurus CodeBlock margins inside our terminal */
+.terminalBody > div {
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* ===== Buttons ===== */
+.buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.btnPrimary {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.75rem 2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 8px;
+  background: var(--fluidcad-accent);
+  color: #fff !important;
+  text-decoration: none !important;
+  transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+
+.btnPrimary:hover {
+  background: var(--fluidcad-accent-light);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px var(--fluidcad-accent-glow);
+}
+
+.btnOutline {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.75rem 2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1.5px solid var(--fluidcad-border-strong);
+  color: var(--fluidcad-text-primary) !important;
+  text-decoration: none !important;
+  background: transparent;
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+
+.btnOutline:hover {
+  border-color: var(--fluidcad-accent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px var(--fluidcad-accent-glow);
+}

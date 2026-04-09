@@ -1,0 +1,137 @@
+.section {
+  padding: 5rem 1.5rem;
+  background: var(--fluidcad-bg-secondary);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.sectionTitle {
+  text-align: center;
+  font-size: 2.25rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--fluidcad-text-primary);
+  margin-bottom: 3rem;
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  position: relative;
+}
+
+.step {
+  text-align: center;
+  padding: 0 1.5rem;
+  position: relative;
+}
+
+/* ===== Step icon + connector ===== */
+.stepTop {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+  height: 56px;
+}
+
+.stepIcon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: var(--fluidcad-bg-surface);
+  border: 1.5px solid var(--fluidcad-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  color: var(--fluidcad-accent);
+}
+
+.connector {
+  position: absolute;
+  top: 50%;
+  left: calc(50% + 32px);
+  right: calc(-50% + 32px);
+  height: 2px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--fluidcad-border-strong) 0,
+    var(--fluidcad-border-strong) 6px,
+    transparent 6px,
+    transparent 12px
+  );
+  transform: translateY(-50%);
+}
+
+/* ===== Step content ===== */
+.stepNumber {
+  display: block;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--fluidcad-accent);
+  letter-spacing: 0.05em;
+  margin-bottom: 0.35rem;
+}
+
+.stepTitle {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--fluidcad-text-primary);
+  margin-bottom: 0.4rem;
+}
+
+.stepDesc {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--fluidcad-text-secondary);
+  margin: 0;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+  .steps {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+
+  .step {
+    text-align: left;
+    padding: 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto auto;
+    column-gap: 1rem;
+    row-gap: 0;
+  }
+
+  .stepTop {
+    grid-row: 1 / 3;
+    grid-column: 1;
+    margin-bottom: 0;
+    height: auto;
+    align-self: center;
+  }
+
+  .connector {
+    display: none;
+  }
+
+  .stepNumber {
+    grid-column: 2;
+    align-self: end;
+  }
+
+  .stepTitle {
+    grid-column: 2;
+  }
+
+  .stepDesc {
+    grid-column: 2;
+  }
+}

@@ -1,0 +1,207 @@
+.section {
+  padding: 5rem 1.5rem;
+  background: var(--fluidcad-bg-secondary);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3rem;
+  align-items: start;
+  min-width: 0;
+}
+
+.grid > * {
+  min-width: 0;
+}
+
+/* ===== Text column ===== */
+.textCol {
+  padding-top: 1rem;
+}
+
+.heading {
+  font-size: 2.5rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--fluidcad-text-primary);
+  margin-bottom: 1.25rem;
+}
+
+.description {
+  font-size: 1.1rem;
+  line-height: 1.7;
+  color: var(--fluidcad-text-secondary);
+  margin-bottom: 1rem;
+}
+
+.subdesc {
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: var(--fluidcad-text-tertiary);
+}
+
+.subdesc code {
+  background: var(--fluidcad-bg-surface);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  border: 1px solid var(--fluidcad-border);
+}
+
+/* ===== Code column ===== */
+.codeCol {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* Window chrome wrapper */
+.codeWindow {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--fluidcad-border);
+  box-shadow: var(--fluidcad-card-shadow);
+  background: var(--fluidcad-bg-surface);
+}
+
+.windowChrome {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.65rem 1rem;
+  background: var(--fluidcad-bg-surface);
+  border-bottom: 1px solid var(--fluidcad-border);
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.dot[data-color='red'] {
+  background: #ef4444;
+}
+
+.dot[data-color='yellow'] {
+  background: #eab308;
+}
+
+.dot[data-color='green'] {
+  background: #22c55e;
+}
+
+.windowTitle {
+  margin-left: 0.5rem;
+  font-size: 0.8rem;
+  font-family: var(--ifm-font-family-monospace);
+  color: var(--fluidcad-text-tertiary);
+}
+
+.codeBody {
+  margin: 0;
+}
+
+/* Override Docusaurus CodeBlock margins inside our window */
+.codeBody > div {
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.codeBody pre {
+  overflow-x: auto;
+}
+
+/* ===== Screenshot placeholder ===== */
+.placeholder {
+  border: 2px dashed var(--fluidcad-border);
+  border-radius: 12px;
+  padding: 2rem;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.placeholderInner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.placeholderIcon {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cubeIcon {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--fluidcad-text-tertiary);
+  transform: rotateX(-25deg) rotateY(45deg);
+  position: relative;
+  opacity: 0.5;
+}
+
+.cubeIcon::before,
+.cubeIcon::after {
+  content: '';
+  position: absolute;
+  border: 2px solid var(--fluidcad-text-tertiary);
+}
+
+.cubeIcon::before {
+  width: 100%;
+  height: 100%;
+  top: -6px;
+  left: 6px;
+}
+
+.cubeIcon::after {
+  width: 6px;
+  height: 6px;
+  bottom: -2px;
+  right: -2px;
+  border: none;
+  border-right: 2px solid var(--fluidcad-text-tertiary);
+  border-bottom: 2px solid var(--fluidcad-text-tertiary);
+}
+
+.placeholderText {
+  font-size: 0.85rem;
+  color: var(--fluidcad-text-tertiary);
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 996px) {
+  .section {
+    padding: 3rem 1rem;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+
+  .heading {
+    font-size: 2rem;
+  }
+
+  .codeWindow {
+    max-width: 100%;
+  }
+
+  .codeCol {
+    min-width: 0;
+  }
+}

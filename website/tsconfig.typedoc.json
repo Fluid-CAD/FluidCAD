@@ -1,0 +1,16 @@
+{
+  "extends": "../lib/tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "strict": false,
+    "noImplicitAny": false,
+    "skipLibCheck": true
+  },
+  "include": [
+    "../lib"
+  ],
+  "exclude": [
+    "../lib/dist/**/*",
+    "../lib/tests/**/*"
+  ]
+}

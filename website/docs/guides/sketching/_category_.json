@@ -1,0 +1,8 @@
+{
+  "label": "2D Sketching",
+  "position": 1,
+  "link": {
+    "type": "generated-index",
+    "description": "Every 3D model starts with a 2D sketch. A sketch draws flat shapes on a plane, which you can then extrude, cut, revolve, or sweep into 3D geometry."
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "label": "3D Operations",
+  "position": 2,
+  "link": {
+    "type": "generated-index",
+    "description": "Once you have a 2D sketch, you turn it into 3D geometry with operations like extrude, cut, revolve, loft, and sweep."
+  }
+}

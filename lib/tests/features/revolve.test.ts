@@ -174,7 +174,7 @@ describe("revolve", () => {
   });
 
   // symmetric revolve is skipped due to known OC binding issue (SetRotation overload)
-  describe.skip("symmetric revolution", () => {
+  describe("symmetric revolution", () => {
     it("should revolve symmetrically around the sketch plane", () => {
       sketch("xz", () => {
         move([20, 0]);

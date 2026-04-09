@@ -5,7 +5,7 @@ import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
 import { circle, move, rect } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
-import { CutTwoDistances } from "../../features/cut-two-distances.js";
+import { ExtrudeBase } from "../../features/extrude-base.js";
 import { countShapes, getFacesByType } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { SceneObject } from "../../common/scene-object.js";
@@ -19,7 +19,7 @@ describe("cut two distances", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      extrude(50, true);
+      extrude(50).symmetric();
 
       sketch("xy", () => {
         move([25, 25]);
@@ -44,7 +44,7 @@ describe("cut two distances", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      extrude(50, true);
+      extrude(50).symmetric();
 
       const s = sketch("xy", () => {
         move([25, 25]);
@@ -64,13 +64,13 @@ describe("cut two distances", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      extrude(50, true);
+      extrude(50).symmetric();
 
       sketch("xy", () => {
         move([25, 25]);
         rect(50, 50);
       });
-      const c = cut(20, 10) as CutTwoDistances;
+      const c = cut(20, 10) as ExtrudeBase;
       const edgesObj = c.edges();
       addToScene(edgesObj);
 
@@ -87,13 +87,13 @@ describe("cut two distances", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      extrude(50, true);
+      extrude(50).symmetric();
 
       sketch("xy", () => {
         move([25, 25]);
         rect(50, 50);
       });
-      const c = cut(20, 10) as CutTwoDistances;
+      const c = cut(20, 10) as ExtrudeBase;
       const edge0 = c.edges(0);
       const edge1 = c.edges(1);
       addToScene(edge0);
@@ -112,19 +112,19 @@ describe("cut two distances", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      const e1 = extrude(50, true);
+      const e1 = extrude(50).symmetric();
 
       sketch("xy", () => {
         move([200, 0]);
         rect(100, 100);
       });
-      extrude(50, true);
+      extrude(50).symmetric();
 
       sketch("xy", () => {
         move([25, 25]);
         rect(50, 50);
       });
-      cut(20, 10).fuse(e1);
+      cut(20, 10).remove(e1);
 
       const scene = render();
 
@@ -138,7 +138,7 @@ describe("cut two distances", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      extrude(50, true);
+      extrude(50).symmetric();
 
       sketch("xy", () => {
         move([25, 25]);
@@ -146,7 +146,7 @@ describe("cut two distances", () => {
         move([75, 25]);
         circle(30);
       });
-      const c = cut(20, 10).pick([25, 25]) as CutTwoDistances;
+      const c = cut(20, 10).pick([25, 25]) as ExtrudeBase;
 
       render();
 

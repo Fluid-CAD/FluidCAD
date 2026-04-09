@@ -4,7 +4,6 @@ import { LoftOps } from "../oc/loft-ops.js";
 import { Wire } from "../common/wire.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
-import { Shape } from "../common/shape.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { LazySelectionSceneObject } from "./lazy-scene-object.js";
@@ -15,6 +14,7 @@ import { Matrix4 } from "../math/matrix4.js";
 import { FaceOps } from "../oc/face-ops.js";
 import { Plane } from "../math/plane.js";
 import { ILoft } from "../core/interfaces.js";
+import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
 
 export class Loft extends SceneObject implements ILoft {
   private _profiles: SceneObject[] = [];
@@ -53,8 +53,6 @@ export class Loft extends SceneObject implements ILoft {
       profile.removeShapes(this);
     }
 
-    this.addShapes(newShapes);
-
     // Classify faces into start/end/side using profile planes
     const firstPlane = this.getProfilePlane(this.profiles[0]);
     const lastPlane = this.getProfilePlane(this.profiles[this.profiles.length - 1]);
@@ -79,6 +77,31 @@ export class Loft extends SceneObject implements ILoft {
     this.setState('start-faces', startFaces);
     this.setState('end-faces', endFaces);
     this.setState('side-faces', sideFaces);
+
+    // Handle boolean operation based on operation mode
+    if (this._operationMode === 'remove') {
+      const scope = this.resolveFusionScope(context.getSceneObjects());
+      const plane = firstPlane || lastPlane;
+      cutWithSceneObjects(scope, newShapes, plane, 0, this);
+      return;
+    }
+
+    const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
+
+    if (sceneObjects.length === 0) {
+      this.addShapes(newShapes);
+      return;
+    }
+
+    const fusionResult = fuseWithSceneObjects(sceneObjects, newShapes);
+
+    for (const modifiedShape of fusionResult.modifiedShapes) {
+      if (modifiedShape.object) {
+        modifiedShape.object.removeShape(modifiedShape.shape, this);
+      }
+    }
+
+    this.addShapes(fusionResult.newShapes);
   }
 
   private getProfilePlane(profile: SceneObject): Plane | null {
@@ -304,6 +327,7 @@ export class Loft extends SceneObject implements ILoft {
   serialize() {
     return {
       profiles: this.profiles.map(f => f.serialize()),
+      operationMode: this._operationMode !== 'add' ? this._operationMode : undefined,
     }
   }
 }

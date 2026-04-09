@@ -14,7 +14,7 @@ describe("repeat linear", () => {
     sketch("xy", () => {
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     repeat("linear", "x", { count: 3, offset: 40 }, e);
 
@@ -27,7 +27,7 @@ describe("repeat linear", () => {
     sketch("xy", () => {
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     repeat("linear", "y", { count: 3, offset: 40 }, e);
 
@@ -39,7 +39,7 @@ describe("repeat linear", () => {
     sketch("xy", () => {
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     repeat("linear", "z", { count: 3, offset: 40 }, e);
 
@@ -51,7 +51,7 @@ describe("repeat linear", () => {
     sketch("xy", () => {
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     // 4 instances over length 120 → offset = 120 / 3 = 40
     repeat("linear", "x", { count: 4, length: 120 }, e);
@@ -65,7 +65,7 @@ describe("repeat linear", () => {
     sketch("xy", () => {
       rect(10, 10);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     // 3 along X × 2 along Y = 6 positions, minus origin = 5 clones
     repeat("linear", ["x", "y"], { count: [3, 2], offset: 30 }, e);
@@ -79,7 +79,7 @@ describe("repeat linear", () => {
     sketch("xy", () => {
       rect(10, 10);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     // count: [2] shared for both axes → 2×2 = 4 positions, minus origin = 3 clones
     repeat("linear", ["x", "y"], { count: [2], offset: 30 }, e);
@@ -93,7 +93,7 @@ describe("repeat linear", () => {
     sketch("xy", () => {
       rect(10, 10);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     // x: count=3, length=60 → offset=30; y: count=2, length=40 → offset=40
     repeat("linear", ["x", "y"], { count: [3, 2], length: [60, 40] }, e);
@@ -107,7 +107,7 @@ describe("repeat linear", () => {
     sketch("xy", () => {
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     repeat("linear", "x", { count: 5, offset: 20, centered: true }, e);
 
@@ -120,7 +120,7 @@ describe("repeat linear", () => {
     sketch("xy", () => {
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     // 3 instances, skip index [1]
     repeat("linear", "x", { count: 3, offset: 40, skip: [[1]] }, e);
@@ -134,7 +134,7 @@ describe("repeat linear", () => {
     sketch("xy", () => {
       rect(10, 10);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     // 3×2 grid, skip position [1,1]
     repeat("linear", ["x", "y"], { count: [3, 2], offset: 30, skip: [[1, 1]] }, e);
@@ -148,12 +148,12 @@ describe("repeat linear", () => {
     sketch("xy", () => {
       rect(20, 20);
     });
-    const e1 = extrude(10).fuse("none") as ExtrudeBase;
+    const e1 = extrude(10).new() as ExtrudeBase;
 
     sketch("xy", () => {
       rect(10, 10);
     });
-    const e2 = extrude(5).fuse("none") as ExtrudeBase;
+    const e2 = extrude(5).new() as ExtrudeBase;
 
     repeat("linear", "x", { count: 3, offset: 40 }, e1, e2);
 
@@ -166,7 +166,7 @@ describe("repeat linear", () => {
     sketch("xy", () => {
       rect(20, 20);
     });
-    extrude(10).fuse("none");
+    extrude(10).new();
 
     repeat("linear", "x", { count: 3, offset: 40 });
 

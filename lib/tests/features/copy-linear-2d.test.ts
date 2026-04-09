@@ -30,7 +30,7 @@ describe("copy linear 2D", () => {
       copy("linear", "x", { count: 3, offset: 40 }, r);
     });
 
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     render();
 

@@ -2,7 +2,7 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Face, Shape } from "../common/shapes.js";
 import { ExtrudeBase } from "./extrude-base.js";
 import { Extruder } from "./simple-extruder.js";
-import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
+import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
 import { SelectSceneObject } from "./select.js";
 import { FaceQuery } from "../oc/face-query.js";
 import { FaceOps } from "../oc/face-ops.js";
@@ -71,6 +71,12 @@ export class ExtrudeToFace extends ExtrudeBase {
 
     if (this.face instanceof SelectSceneObject) {
       this.face.removeShapes(this);
+    }
+
+    if (this._operationMode === 'remove') {
+      const scope = this.resolveFusionScope(allSceneObjects);
+      cutWithSceneObjects(scope, solids, plane, 0, this);
+      return;
     }
 
     if (sceneObjects.length === 0) {

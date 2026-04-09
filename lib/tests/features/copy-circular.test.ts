@@ -16,7 +16,7 @@ describe("copy circular", () => {
       move([50, 0]);
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     copy("circular", "z", { count: 4, angle: 360 }, e);
 
@@ -31,7 +31,7 @@ describe("copy circular", () => {
       move([50, 0]);
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     // 3 copies over 180° → 60° each
     const c = copy("circular", "z", { count: 3, angle: 180 }, e) as SceneObject;
@@ -47,7 +47,7 @@ describe("copy circular", () => {
       move([50, 0]);
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     copy("circular", "z", { count: 4, angle: 360, skip: [1] }, e);
 

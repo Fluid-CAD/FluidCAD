@@ -15,24 +15,30 @@ export interface ISceneObject {
    * final geometry output unless explicitly included.
    */
   guide(): this;
+}
+
+export interface IFuseable extends ISceneObject {
+  /**
+   * Additive boolean operation — fuses the result with existing shapes.
+   * When called with no arguments, fuses with all intersecting scene objects.
+   * When called with specific objects, fuses only with those objects.
+   * @param objects - Optional target objects to fuse with.
+   */
+  add(...objects: ISceneObject[]): this;
 
   /**
-   * Controls the fusion scope for this operation — determines which existing shapes
-   * are merged with the result.
-   *
-   * @param value - `'all'` merges with every intersecting shape; `'none'` keeps the result separate.
+   * No boolean operation — keeps the result as a standalone shape,
+   * separate from all other scene objects.
    */
-  fuse(value: 'all' | 'none'): this;
+  'new'(): this;
+
   /**
-   * Merges the result of this operation with a specific object's shapes.
-   * @param object - The target object to fuse with.
+   * Subtractive boolean operation — cuts the result from existing shapes.
+   * When called with no arguments, cuts from all intersecting scene objects.
+   * When called with specific objects, cuts only from those objects.
+   * @param objects - Optional target objects to cut from.
    */
-  fuse(object: ISceneObject): this;
-  /**
-   * Merges the result of this operation with multiple specific objects' shapes.
-   * @param objects - The target objects to fuse with.
-   */
-  fuse(...objects: ISceneObject[]): this;
+  remove(...objects: ISceneObject[]): this;
 }
 
 export interface IPlane extends ISceneObject {}
@@ -204,7 +210,11 @@ export interface ICommon extends ISceneObject {
   keepOriginal(value?: boolean): this;
 }
 
-export interface IExtrude extends ISceneObject {
+export interface IExtrude extends IFuseable {
+  /**
+   * Enables symmetric mode — extrudes equally in both directions from the sketch plane.
+   */
+  symmetric(): this;
   /**
    * Selects faces at the start (base) of the extrusion.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
@@ -281,6 +291,16 @@ export interface IExtrude extends ISceneObject {
 
 export interface ICut extends ISceneObject {
   /**
+   * Enables symmetric mode — cuts equally in both directions from the sketch plane.
+   */
+  symmetric(): this;
+
+  /**
+   * Narrows the cut scope to specific objects instead of all scene objects.
+   * @param objects - The target objects to cut from.
+   */
+  remove(...objects: ISceneObject[]): this;
+  /**
    * Applies a draft (taper) angle to the cut walls.
    * @param value - A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft.
    */
@@ -323,7 +343,11 @@ export interface ICut extends ISceneObject {
   pick(...points: Point2DLike[]): this;
 }
 
-export interface IRevolve extends ISceneObject {
+export interface IRevolve extends IFuseable {
+  /**
+   * Enables symmetric mode — revolves equally in both directions from the sketch plane.
+   */
+  symmetric(): this;
   /**
    * Restricts the revolve to only the sketch regions containing the given points.
    * @param points - 2D points in the sketch plane identifying regions to revolve.
@@ -331,7 +355,7 @@ export interface IRevolve extends ISceneObject {
   pick(...points: Point2DLike[]): this;
 }
 
-export interface ILoft extends ISceneObject {
+export interface ILoft extends IFuseable {
   /**
    * Selects faces on the first profile plane of the loft.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
@@ -369,7 +393,7 @@ export interface ILoft extends ISceneObject {
   sideEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
-export interface ISweep extends ISceneObject {
+export interface ISweep extends IFuseable {
   /**
    * Selects faces at the start (profile plane) of the sweep.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.

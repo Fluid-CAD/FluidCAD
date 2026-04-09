@@ -8,7 +8,7 @@ import cylinder from "../../core/cylinder.js";
 import { circle, move, rect } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extrude } from "../../features/extrude.js";
-import { Cut } from "../../features/cut.js";
+import { ExtrudeBase } from "../../features/extrude-base.js";
 import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { SceneObject } from "../../common/scene-object.js";
@@ -118,7 +118,7 @@ describe("cut", () => {
         move([25, 25]);
         rect(50, 50);
       });
-      const c = cut(20) as Cut;
+      const c = cut(20) as ExtrudeBase;
       const edgesObj = c.edges();
       addToScene(edgesObj);
 
@@ -141,7 +141,7 @@ describe("cut", () => {
         move([25, 25]);
         rect(50, 50);
       });
-      const c = cut(20) as Cut;
+      const c = cut(20) as ExtrudeBase;
       const edge0 = c.edges(0);
       const edge1 = c.edges(1);
       addToScene(edge0);
@@ -164,7 +164,7 @@ describe("cut", () => {
         move([25, 25]);
         rect(50, 50);
       });
-      const c = cut(20) as Cut;
+      const c = cut(20) as ExtrudeBase;
       const se = c.startEdges();
       const ee = c.endEdges();
       addToScene(se);
@@ -196,7 +196,7 @@ describe("cut", () => {
         move([25, 25]);
         rect(50, 50);
       });
-      cut(20).fuse(e1);
+      cut(20).remove(e1);
 
       const scene = render();
 
@@ -204,30 +204,6 @@ describe("cut", () => {
       expect(countShapes(scene)).toBe(2);
     });
 
-    it("should not cut anything when fuse is none", () => {
-      sketch("xy", () => {
-        rect(100, 100);
-      });
-      const e = extrude(50) as Extrude;
-
-      sketch(e.endFaces(), () => {
-        move([25, 25]);
-        rect(50, 50);
-      });
-      cut(20).fuse("none");
-
-      const scene = render();
-
-      // Original solid is untouched — 1 shape
-      expect(countShapes(scene)).toBe(1);
-
-      const solid = scene.getAllSceneObjects()
-        .flatMap(o => o.getShapes())
-        .find(s => s.getType() === "solid") as Solid;
-
-      // Still a simple box
-      expect(solid.getFaces()).toHaveLength(6);
-    });
   });
 
   describe("pick", () => {
@@ -243,7 +219,7 @@ describe("cut", () => {
         move([75, 25]);
         circle(30);
       });
-      const c = cut(20).pick([25, 25]) as Cut;
+      const c = cut(20).pick([25, 25]) as ExtrudeBase;
 
       render();
 
@@ -265,7 +241,7 @@ describe("cut", () => {
         move([25, 25]);
         rect(50, 50);
       });
-      const c = cut(20) as Cut;
+      const c = cut(20) as ExtrudeBase;
       const inf = c.internalFaces();
       addToScene(inf);
 
@@ -289,7 +265,7 @@ describe("cut", () => {
         move([50, 50]);
         circle(40);
       });
-      const c = cut(30) as Cut;
+      const c = cut(30) as ExtrudeBase;
       const inf = c.internalFaces();
       addToScene(inf);
 
@@ -310,7 +286,7 @@ describe("cut", () => {
         move([25, 25]);
         rect(50, 50);
       });
-      const c = cut(20) as Cut;
+      const c = cut(20) as ExtrudeBase;
       const allFaces = c.internalFaces();
       const first = c.internalFaces(0);
       addToScene(allFaces);
@@ -336,7 +312,7 @@ describe("cut", () => {
         move([25, 25]);
         rect(50, 50);
       });
-      const c = cut(20) as Cut;
+      const c = cut(20) as ExtrudeBase;
       const ine = c.internalEdges();
       addToScene(ine);
 
@@ -360,7 +336,7 @@ describe("cut", () => {
         circle([20, 0], 50);
       });
 
-      const c = cut() as Cut;
+      const c = cut() as ExtrudeBase;
       const se = c.startEdges();
       addToScene(se);
 
@@ -381,7 +357,7 @@ describe("cut", () => {
         circle([20, 0], 50);
       });
 
-      const c = cut() as Cut;
+      const c = cut() as ExtrudeBase;
       const inf = c.internalFaces();
       addToScene(inf);
 
@@ -402,7 +378,7 @@ describe("cut", () => {
         circle([20, 0], 50);
       });
 
-      const c = cut() as Cut;
+      const c = cut() as ExtrudeBase;
       const ee = c.endEdges();
       addToScene(ee);
 

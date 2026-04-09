@@ -17,7 +17,7 @@ describe("rotate", () => {
       sketch("xy", () => {
         rect(20, 10);
       });
-      const e = extrude(5).fuse("none") as ExtrudeBase;
+      const e = extrude(5).new() as ExtrudeBase;
 
       // Box at (0..20, 0..10). Rotate 90° around Z → should move to (-10..0, 0..20)
       const r = rotate("z", 90, e) as SceneObject;
@@ -38,7 +38,7 @@ describe("rotate", () => {
       sketch("xy", () => {
         rect(20, 10);
       });
-      const e = extrude(5).fuse("none") as ExtrudeBase;
+      const e = extrude(5).new() as ExtrudeBase;
 
       // Rotate 90° around X → Y becomes Z, Z becomes -Y
       const r = rotate("x", 90, e) as SceneObject;
@@ -55,7 +55,7 @@ describe("rotate", () => {
       sketch("xy", () => {
         rect(20, 10);
       });
-      const e = extrude(5).fuse("none") as ExtrudeBase;
+      const e = extrude(5).new() as ExtrudeBase;
 
       // Rotate 90° around Y → X becomes -Z, Z becomes X
       const r = rotate("y", 90, e) as SceneObject;
@@ -74,7 +74,7 @@ describe("rotate", () => {
       sketch("xy", () => {
         rect(20, 10);
       });
-      const e = extrude(5).fuse("none") as ExtrudeBase;
+      const e = extrude(5).new() as ExtrudeBase;
 
       rotate("z", 90, e);
 
@@ -87,7 +87,7 @@ describe("rotate", () => {
       sketch("xy", () => {
         rect(20, 10);
       });
-      const e = extrude(5).fuse("none") as ExtrudeBase;
+      const e = extrude(5).new() as ExtrudeBase;
 
       rotate("z", 90, true, e);
 
@@ -100,7 +100,7 @@ describe("rotate", () => {
       sketch("xy", () => {
         rect(20, 10);
       });
-      const e = extrude(5).fuse("none") as ExtrudeBase;
+      const e = extrude(5).new() as ExtrudeBase;
 
       rotate("z", 90, true, e);
 
@@ -115,12 +115,12 @@ describe("rotate", () => {
       sketch("xy", () => {
         rect(20, 10);
       });
-      const e1 = extrude(5).fuse("none") as ExtrudeBase;
+      const e1 = extrude(5).new() as ExtrudeBase;
 
       sketch("xy", () => {
         rect(20, 10);
       });
-      const e2 = extrude(5).fuse("none") as ExtrudeBase;
+      const e2 = extrude(5).new() as ExtrudeBase;
 
       rotate("z", 90, e1);
 
@@ -141,7 +141,7 @@ describe("rotate", () => {
       sketch("xy", () => {
         rect(20, 20);
       });
-      const e = extrude(5).fuse("none") as ExtrudeBase;
+      const e = extrude(5).new() as ExtrudeBase;
 
       const r = rotate("z", 45, e) as SceneObject;
 
@@ -158,7 +158,7 @@ describe("rotate", () => {
       sketch("xy", () => {
         rect(20, 10);
       });
-      const e = extrude(5).fuse("none") as ExtrudeBase;
+      const e = extrude(5).new() as ExtrudeBase;
 
       // Box at (0..20, 0..10). Rotate 180° around Z → (-20..0, -10..0)
       const r = rotate("z", 180, e) as SceneObject;

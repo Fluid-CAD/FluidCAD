@@ -199,7 +199,7 @@ describe("part", () => {
         sketch("xy", () => {
           rect(50);
         });
-        const e = extrude().fuse("none") as ExtrudeBase;
+        const e = extrude().new() as ExtrudeBase;
 
         repeat("linear", "x", { count: 3, offset: 80 }, e);
       });
@@ -215,7 +215,7 @@ describe("part", () => {
         sketch("xy", () => {
           rect(50);
         });
-        extrude().fuse("none");
+        extrude().new();
 
         repeat("linear", "x", { count: 3, offset: 80 });
       });

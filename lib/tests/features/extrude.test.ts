@@ -112,7 +112,7 @@ describe("extrude", () => {
         circle(100);
       }) as Sketch;
 
-      extrude().fuse('none') as Extrude;
+      extrude().new() as Extrude;
 
       const scene = render();
 

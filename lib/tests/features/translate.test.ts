@@ -17,7 +17,7 @@ describe("translate", () => {
       sketch("xy", () => {
         rect(20, 20);
       });
-      const e = extrude(10).fuse("none") as ExtrudeBase;
+      const e = extrude(10).new() as ExtrudeBase;
 
       const t = translate(50, e) as SceneObject;
 
@@ -35,7 +35,7 @@ describe("translate", () => {
       sketch("xy", () => {
         rect(20, 20);
       });
-      const e = extrude(10).fuse("none") as ExtrudeBase;
+      const e = extrude(10).new() as ExtrudeBase;
 
       const t = translate(30, 40, e) as SceneObject;
 
@@ -51,7 +51,7 @@ describe("translate", () => {
       sketch("xy", () => {
         rect(20, 20);
       });
-      const e = extrude(10).fuse("none") as ExtrudeBase;
+      const e = extrude(10).new() as ExtrudeBase;
 
       const t = translate(10, 20, 30, e) as SceneObject;
 
@@ -70,7 +70,7 @@ describe("translate", () => {
       sketch("xy", () => {
         rect(20, 20);
       });
-      const e = extrude(10).fuse("none") as ExtrudeBase;
+      const e = extrude(10).new() as ExtrudeBase;
 
       const t = translate([15, 25, 35], e) as SceneObject;
 
@@ -89,7 +89,7 @@ describe("translate", () => {
       sketch("xy", () => {
         rect(20, 20);
       });
-      const e = extrude(10).fuse("none") as ExtrudeBase;
+      const e = extrude(10).new() as ExtrudeBase;
 
       translate(50, e);
 
@@ -103,7 +103,7 @@ describe("translate", () => {
       sketch("xy", () => {
         rect(20, 20);
       });
-      const e = extrude(10).fuse("none") as ExtrudeBase;
+      const e = extrude(10).new() as ExtrudeBase;
 
       translate(50, true, e);
 
@@ -117,7 +117,7 @@ describe("translate", () => {
       sketch("xy", () => {
         rect(20, 20);
       });
-      const e = extrude(10).fuse("none") as ExtrudeBase;
+      const e = extrude(10).new() as ExtrudeBase;
 
       translate(50, true, e);
 
@@ -133,12 +133,12 @@ describe("translate", () => {
       sketch("xy", () => {
         rect(20, 20);
       });
-      const e1 = extrude(10).fuse("none") as ExtrudeBase;
+      const e1 = extrude(10).new() as ExtrudeBase;
 
       sketch("xy", () => {
         rect(20, 20);
       });
-      const e2 = extrude(10).fuse("none") as ExtrudeBase;
+      const e2 = extrude(10).new() as ExtrudeBase;
 
       translate(100, e1);
 

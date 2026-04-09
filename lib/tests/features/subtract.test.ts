@@ -20,7 +20,7 @@ describe("subtract", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      const box = extrude(50).fuse("none") as ExtrudeBase;
+      const box = extrude(50).new() as ExtrudeBase;
 
       const cyl = cylinder(20, 50) as SceneObject;
 
@@ -41,7 +41,7 @@ describe("subtract", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      const box = extrude(50).fuse("none") as ExtrudeBase;
+      const box = extrude(50).new() as ExtrudeBase;
 
       const cyl = cylinder(20, 50) as SceneObject;
 
@@ -57,7 +57,7 @@ describe("subtract", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      const box = extrude(50).fuse("none") as ExtrudeBase;
+      const box = extrude(50).new() as ExtrudeBase;
 
       const cyl = cylinder(20, 50) as SceneObject;
 
@@ -74,7 +74,7 @@ describe("subtract", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      const box = extrude(50).fuse("none") as ExtrudeBase;
+      const box = extrude(50).new() as ExtrudeBase;
 
       const cyl = cylinder(20, 50) as SceneObject;
 
@@ -94,13 +94,13 @@ describe("subtract", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      const bigBox = extrude(50).fuse("none") as ExtrudeBase;
+      const bigBox = extrude(50).new() as ExtrudeBase;
 
       sketch("xy", () => {
         move([25, 25]);
         rect(50, 50);
       });
-      const smallBox = extrude(50).fuse("none") as ExtrudeBase;
+      const smallBox = extrude(50).new() as ExtrudeBase;
 
       const s = subtract(bigBox, smallBox) as Subtract;
 
@@ -118,13 +118,13 @@ describe("subtract", () => {
       sketch("xy", () => {
         rect(50, 50);
       });
-      const box = extrude(30).fuse("none") as ExtrudeBase;
+      const box = extrude(30).new() as ExtrudeBase;
 
       sketch("xy", () => {
         move([200, 200]);
         rect(50, 50);
       });
-      const farBox = extrude(30).fuse("none") as ExtrudeBase;
+      const farBox = extrude(30).new() as ExtrudeBase;
 
       const s = subtract(box, farBox) as Subtract;
 

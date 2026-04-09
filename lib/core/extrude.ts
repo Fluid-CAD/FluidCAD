@@ -3,7 +3,6 @@ import { registerBuilder, SceneParserContext } from "../index.js";
 import { Extrude } from "../features/extrude.js";
 import { ExtrudeTwoDistances } from "../features/extrude-two-distances.js";
 import { ExtrudeToFace } from "../features/extrude-to-face.js";
-import { ExtrudeSymmetric } from "../features/extrude-symmetric.js";
 import { SelectSceneObject } from "../features/select.js";
 import { ExtrudeBase } from "../features/extrude-base.js";
 import { Extrudable } from "../helpers/types.js";
@@ -27,14 +26,14 @@ interface ExtrudeFunction {
    * @param distance2 - The second extrusion distance
    * @param target - The sketch to extrude
    */
-  (distance1: number, distance2: number, target?: ISceneObject): IExtrude;
+  (distance1: number, distance2: number): IExtrude;
   /**
-   * Extrudes the last sketch symmetrically in both directions.
-   * @param distance - The extrusion distance in each direction
-   * @param symmetric - Must be `true`
+   * Extrudes the given sketch between two distances.
+   * @param distance1 - The first extrusion distance
+   * @param distance2 - The second extrusion distance
    * @param target - The sketch to extrude
    */
-  (distance: number, symmetric: true, target?: ISceneObject): IExtrude;
+  (distance1: number, distance2: number, target: ISceneObject): IExtrude;
   /**
    * Extrudes the last sketch up to a face.
    * @param face - The face to extrude up to, or `'first-face'`/`'last-face'`
@@ -76,9 +75,6 @@ function build(context: SceneParserContext): ExtrudeFunction {
     else if (params.length === 2) {
       if (typeof params[0] === 'number' && typeof params[1] === 'number') {
         return new ExtrudeTwoDistances(params[0], params[1], extrudable);
-      }
-      else if (typeof params[0] === 'number' && typeof params[1] === 'boolean') {
-        return new ExtrudeSymmetric(params[0], extrudable);
       }
     }
 

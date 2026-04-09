@@ -9,7 +9,7 @@ import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { ExtrudeBase } from "./extrude-base.js";
 import { ISweep } from "../core/interfaces.js";
-import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
+import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
 
 export class Sweep extends ExtrudeBase implements ISweep {
   private _path: SceneObject;
@@ -77,7 +77,13 @@ export class Sweep extends ExtrudeBase implements ISweep {
     this.extrudable.removeShapes(this);
     this._path.removeShapes(this);
 
-    // Handle fusion
+    // Handle boolean operation based on operation mode
+    if (this._operationMode === 'remove') {
+      const scope = this.resolveFusionScope(context.getSceneObjects());
+      cutWithSceneObjects(scope, newShapes, plane, 0, this);
+      return;
+    }
+
     const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
 
     if (sceneObjects.length === 0) {
@@ -152,6 +158,7 @@ export class Sweep extends ExtrudeBase implements ISweep {
     return {
       path: this._path.serialize(),
       extrudable: this.extrudable.serialize(),
+      operationMode: this._operationMode !== 'add' ? this._operationMode : undefined,
       picking: this.isPicking() || undefined,
       pickPoints: this.isPicking()
         ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })

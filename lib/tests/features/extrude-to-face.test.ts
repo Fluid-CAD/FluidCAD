@@ -69,14 +69,14 @@ describe("extrude to face", () => {
         move([200, 0]);
         rect(50, 50);
       });
-      extrude(21).endOffset(1).fuse("none");
+      extrude(21).endOffset(1).new();
 
       // Thin slab at z=50..51
       sketch("xy", () => {
         move([200, 100]);
         rect(50, 50);
       });
-      extrude(51).endOffset(1).fuse("none");
+      extrude(51).endOffset(1).new();
 
       // first-face should reach the closest face center (z=20 bottom of first slab)
       sketch("xy", () => {
@@ -100,14 +100,14 @@ describe("extrude to face", () => {
         move([200, 0]);
         rect(50, 50);
       });
-      extrude(30).fuse("none");
+      extrude(30).new();
 
       // Tall box
       sketch("xy", () => {
         move([200, 100]);
         rect(50, 50);
       });
-      extrude(60).fuse("none");
+      extrude(60).new();
 
       // last-face should reach the farthest face
       sketch("xy", () => {
@@ -129,13 +129,13 @@ describe("extrude to face", () => {
         move([200, 0]);
         rect(50, 50);
       });
-      extrude(30).fuse("none");
+      extrude(30).new();
 
       sketch("xy", () => {
         move([200, 100]);
         rect(50, 50);
       });
-      extrude(80).fuse("none");
+      extrude(80).new();
 
       sketch("xy", () => {
         rect(20, 20);
@@ -267,7 +267,7 @@ describe("extrude to face", () => {
         move([25, 10]);
         rect(30, 30);
       });
-      const e2 = extrude(e1.endFaces()).fuse("none") as ExtrudeToFace;
+      const e2 = extrude(e1.endFaces()).new() as ExtrudeToFace;
 
       render();
 

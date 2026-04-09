@@ -4,7 +4,7 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import { circle, move, rect } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
-import { ExtrudeSymmetric } from "../../features/extrude-symmetric.js";
+import { Extrude } from "../../features/extrude.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import cylinder from "../../core/cylinder.js";
 import { countShapes } from "../utils.js";
@@ -19,7 +19,7 @@ describe("extrude symmetric", () => {
         rect(100, 50);
       });
 
-      const e = extrude(30, true) as ExtrudeSymmetric;
+      const e = extrude(30).symmetric() as Extrude;
 
       expect(e.extrudable).toBe(s);
     });
@@ -29,7 +29,7 @@ describe("extrude symmetric", () => {
         rect(100, 50);
       }) as Sketch;
 
-      extrude(30, true);
+      extrude(30).symmetric();
 
       render();
 
@@ -43,7 +43,7 @@ describe("extrude symmetric", () => {
         rect(100, 50);
       });
 
-      const e = extrude(30, true) as ExtrudeSymmetric;
+      const e = extrude(30).symmetric() as Extrude;
 
       render();
 
@@ -61,7 +61,7 @@ describe("extrude symmetric", () => {
         rect(100, 50);
       });
 
-      const e = extrude(40, true) as ExtrudeSymmetric;
+      const e = extrude(40).symmetric() as Extrude;
 
       render();
 
@@ -78,7 +78,7 @@ describe("extrude symmetric", () => {
         circle([25, 0], 100);
       });
 
-      const e = extrude(30, true) as ExtrudeSymmetric;
+      const e = extrude(30).symmetric() as Extrude;
 
       render();
 
@@ -95,14 +95,14 @@ describe("extrude symmetric", () => {
         circle(100);
       });
 
-      extrude(30, true);
+      extrude(30).symmetric();
 
       const scene = render();
 
       expect(countShapes(scene)).toBe(1);
     });
 
-    it("should not fuse when fuse is none", () => {
+    it("should not fuse when new", () => {
       cylinder(50, 50);
 
       sketch("xy", () => {
@@ -110,7 +110,7 @@ describe("extrude symmetric", () => {
         circle(100);
       });
 
-      extrude(30, true).fuse("none");
+      extrude(30).symmetric().new();
 
       const scene = render();
 
@@ -124,7 +124,7 @@ describe("extrude symmetric", () => {
         rect(100, 50);
       });
 
-      const e = extrude(30, true) as ExtrudeSymmetric;
+      const e = extrude(30).symmetric() as Extrude;
       const sf = e.startFaces();
       const ef = e.endFaces();
       addToScene(sf);
@@ -143,7 +143,7 @@ describe("extrude symmetric", () => {
         rect(100, 50);
       });
 
-      const e = extrude(30, true) as ExtrudeSymmetric;
+      const e = extrude(30).symmetric() as Extrude;
       const sf = e.startFaces();
       const ef = e.endFaces();
       addToScene(sf);
@@ -159,7 +159,7 @@ describe("extrude symmetric", () => {
         rect(100, 50);
       });
 
-      const e = extrude(30, true) as ExtrudeSymmetric;
+      const e = extrude(30).symmetric() as Extrude;
       const sf = e.startFaces();
       const ef = e.endFaces();
       addToScene(sf);
@@ -182,7 +182,7 @@ describe("extrude symmetric", () => {
         circle([100, 0], 40);
       });
 
-      const e = extrude(30, true) as ExtrudeSymmetric;
+      const e = extrude(30).symmetric() as Extrude;
       const face0 = e.startFaces(0);
       const face1 = e.startFaces(1);
       addToScene(face0);
@@ -202,7 +202,7 @@ describe("extrude symmetric", () => {
         rect(100, 50);
       });
 
-      const e = extrude(30, true) as ExtrudeSymmetric;
+      const e = extrude(30).symmetric() as Extrude;
       const sf = e.sideFaces(0, 1, 2, 3);
       const sf0 = e.sideFaces(0);
       addToScene(sf);
@@ -224,7 +224,7 @@ describe("extrude symmetric", () => {
         rect(100, 50);
       });
 
-      const e = extrude(30, true) as ExtrudeSymmetric;
+      const e = extrude(30).symmetric() as Extrude;
       const se = e.startEdges();
       const ee = e.endEdges();
       addToScene(se);
@@ -241,7 +241,7 @@ describe("extrude symmetric", () => {
         rect(100, 50);
       });
 
-      const e = extrude(30, true) as ExtrudeSymmetric;
+      const e = extrude(30).symmetric() as Extrude;
       const edge0 = e.startEdges(0);
       const edge1 = e.startEdges(1);
       addToScene(edge0);
@@ -262,7 +262,7 @@ describe("extrude symmetric", () => {
         circle(40);
       });
 
-      const e = extrude(30, true) as ExtrudeSymmetric;
+      const e = extrude(30).symmetric() as Extrude;
 
       render();
 
@@ -279,7 +279,7 @@ describe("extrude symmetric", () => {
         circle(40);
       });
 
-      const e = extrude(30, true).drill(false) as ExtrudeSymmetric;
+      const e = extrude(30).symmetric().drill(false) as Extrude;
 
       render();
 
@@ -298,7 +298,7 @@ describe("extrude symmetric", () => {
         circle([100, 0], 60);
       });
 
-      const e = extrude(20, true).pick([0, 0]) as ExtrudeSymmetric;
+      const e = extrude(20).symmetric().pick([0, 0]) as Extrude;
 
       render();
 
@@ -312,7 +312,7 @@ describe("extrude symmetric", () => {
         circle(60);
       });
 
-      const e = extrude(20, true).pick([500, 500]) as ExtrudeSymmetric;
+      const e = extrude(20).symmetric().pick([500, 500]) as Extrude;
 
       render();
 

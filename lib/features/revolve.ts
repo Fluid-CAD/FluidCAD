@@ -1,7 +1,7 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { rad } from "../helpers/math-helpers.js";
 import { Solid } from "../common/shapes.js";
-import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
+import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { ShapeOps } from "../oc/shape-ops.js";
@@ -19,7 +19,6 @@ export class Revolve extends ExtrudeBase implements IRevolve {
   constructor(
     public axis: AxisObjectBase,
     public angle: number,
-    public symmetric: boolean = false,
     extrudable?: Extrudable) {
     super(extrudable);
   }
@@ -58,7 +57,7 @@ export class Revolve extends ExtrudeBase implements IRevolve {
       }
 
       let resultSolid: Solid;
-      if (this.symmetric) {
+      if (this._symmetric) {
         const rotated = ShapeOps.rotateShape(solid.getShape(), axis, -rad(this.angle) / 2);
         resultSolid = Solid.fromTopoDSSolid(Explorer.toSolid(rotated));
       } else {
@@ -71,10 +70,8 @@ export class Revolve extends ExtrudeBase implements IRevolve {
       for (const f of solidFaces) {
         const isOnSourcePlane = FaceOps.faceOnPlaneWrapped(f as Face, plane);
         if (isOnSourcePlane && !isFullRevolution) {
-          // Planar faces on the source plane are start/end faces for partial revolves
           allStartFaces.push(f as Face);
         } else if (!isOnSourcePlane) {
-          // Check if face is internal (from inner wire)
           if (innerWireEdges.length > 0) {
             const faceEdges = (f as Face).getEdges();
             const isInternal = faceEdges.some(fe =>
@@ -92,7 +89,6 @@ export class Revolve extends ExtrudeBase implements IRevolve {
 
     // For partial revolves with symmetric, classify start/end by plane offset
     if (!isFullRevolution && allStartFaces.length > 1) {
-      // Split planar faces into start (first half) and end (second half)
       const half = Math.floor(allStartFaces.length / 2);
       const startSlice = allStartFaces.splice(0, half);
       const endSlice = allStartFaces.splice(0);
@@ -108,6 +104,12 @@ export class Revolve extends ExtrudeBase implements IRevolve {
 
     this.extrudable.removeShapes(this);
     this.axis.removeShapes(this);
+
+    if (this._operationMode === 'remove') {
+      const scope = this.resolveFusionScope(context.getSceneObjects());
+      cutWithSceneObjects(scope, solids, plane, 0, this);
+      return;
+    }
 
     const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
 
@@ -135,7 +137,7 @@ export class Revolve extends ExtrudeBase implements IRevolve {
     const extrudable = this.extrudable
       ? (remap.get(this.extrudable) || this.extrudable) as Extrudable
       : undefined;
-    return new Revolve(this.axis, this.angle, this.symmetric, extrudable).syncWith(this);
+    return new Revolve(this.axis, this.angle, extrudable).syncWith(this);
   }
 
   compareTo(other: Revolve): boolean {
@@ -155,10 +157,6 @@ export class Revolve extends ExtrudeBase implements IRevolve {
       return false;
     }
 
-    if (this.symmetric !== other.symmetric) {
-      return false;
-    }
-
     if (!this.extrudable.compareTo(other.extrudable)) {
       return false;
     }
@@ -174,7 +172,8 @@ export class Revolve extends ExtrudeBase implements IRevolve {
     return {
       angle: this.angle,
       axis: this.axis.serialize(),
-      symmetric: this.symmetric || undefined,
+      operationMode: this._operationMode !== 'add' ? this._operationMode : undefined,
+      symmetric: this._symmetric || undefined,
       picking: this.isPicking() || undefined,
       pickPoints: this.isPicking()
         ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })

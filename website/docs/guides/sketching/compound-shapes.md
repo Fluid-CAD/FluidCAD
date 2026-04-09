@@ -35,18 +35,6 @@ r.leftEdge()       // the left edge
 r.rightEdge()      // the right edge
 ```
 
-## circle
-
-`circle()` takes a **diameter** (not radius):
-
-```js
-sketch("xy", () => {
-    circle(50)                 // diameter 50 at the origin
-    circle([30, 20], 40)      // diameter 40 centered at [30, 20]
-    circle()                   // default diameter of 40
-})
-```
-
 ## polygon
 
 ```js
@@ -66,3 +54,19 @@ sketch("xy", () => {
     slot(80, 20).center()      // centered at origin
 })
 ```
+
+### Slot from edge
+
+You can create a slot that follows an existing edge or arc. Pass the geometry as the first argument and the width as the second:
+
+```js
+sketch("xy", () => {
+    move([100, 0])
+    const a = arc(90, 0, 90)
+    slot(a, 20, true)          // slot following the arc, width 20, remove the source arc
+})
+
+extrude(50)
+```
+
+The third argument (`true`) removes the source geometry after creating the slot. Set it to `false` to keep the original edge.

@@ -7,6 +7,18 @@ title: "Primitive Geometries"
 
 Primitive geometries are the building blocks of sketches — lines, arcs, and curves. They follow a "pen" model: each command starts from where the last one ended.
 
+## circle
+
+`circle()` takes a **diameter** (not radius):
+
+```js
+sketch("xy", () => {
+    circle(50)                 // diameter 50 at the origin
+    circle([30, 20], 40)      // diameter 40 centered at [30, 20]
+    circle()                   // default diameter of 40
+})
+```
+
 ## line
 
 ```js

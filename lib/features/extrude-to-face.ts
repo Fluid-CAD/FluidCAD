@@ -11,6 +11,8 @@ import { ShapeOps } from "../oc/shape-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
+import { Plane } from "../math/plane.js";
+import { Point } from "../math/point.js";
 
 export class ExtrudeToFace extends ExtrudeBase {
   constructor(
@@ -43,7 +45,7 @@ export class ExtrudeToFace extends ExtrudeBase {
 
     for (const startFace of faces) {
       if (isPlanar && FaceQuery.areFacePlanesParallel(startFace, targetFace)) {
-        const { shapes, extruder } = this.createSimpleExtrude(startFace, targetFace);
+        const { shapes, extruder } = this.createSimpleExtrude(startFace, targetFace, plane);
         for (const s of shapes) {
           solids.push(s);
         }
@@ -54,7 +56,7 @@ export class ExtrudeToFace extends ExtrudeBase {
       }
       else {
         console.log("Creating advanced extrude for face:");
-        const advancedShapes = this.createAdvancedExtrude(startFace, targetFace, isPlanar);
+        const advancedShapes = this.createAdvancedExtrude(startFace, targetFace, isPlanar, plane);
 
         for (const shape of advancedShapes) {
           solids.push(shape);
@@ -95,8 +97,8 @@ export class ExtrudeToFace extends ExtrudeBase {
     this.addShapes(fusionResult.newShapes);
   }
 
-  private createAdvancedExtrude(sourceFace: Face, targetFace: Face, isPlanar: boolean): Shape[] {
-    const targetDistance = FaceQuery.findFarthestCornerDistanceFromFace(targetFace, sourceFace);
+  private createAdvancedExtrude(sourceFace: Face, targetFace: Face, isPlanar: boolean, sketchPlane: Plane): Shape[] {
+    const targetDistance = this.computeSignedDistanceToFace(targetFace, sketchPlane);
 
     let distance = targetDistance;
 
@@ -104,8 +106,7 @@ export class ExtrudeToFace extends ExtrudeBase {
       distance *= 1.5;
     }
 
-    const sourcePlane = FaceOps.getPlane(sourceFace);
-    const extruder = new Extruder([sourceFace], sourcePlane, distance, this.getDraft(), 0);
+    const extruder = new Extruder([sourceFace], sketchPlane, distance, this.getDraft(), 0);
     const extrusions = extruder.extrude();
 
     let splitTargetFace: Face;
@@ -140,6 +141,36 @@ export class ExtrudeToFace extends ExtrudeBase {
     return FaceQuery.makeInfiniteCylindricalFace(targetFace, this.getEndOffset());
   }
 
+  /**
+   * Computes the signed distance from the sketch plane to the farthest
+   * bounding-box corner of the target face, measured along the sketch
+   * plane normal. This ensures the extrusion direction is always
+   * consistent with the sketch plane orientation.
+   */
+  private computeSignedDistanceToFace(targetFace: Face, sketchPlane: Plane): number {
+    const bbox = ShapeOps.getBoundingBox(targetFace);
+    const corners = [
+      new Point(bbox.minX, bbox.minY, bbox.minZ),
+      new Point(bbox.maxX, bbox.minY, bbox.minZ),
+      new Point(bbox.minX, bbox.maxY, bbox.minZ),
+      new Point(bbox.minX, bbox.minY, bbox.maxZ),
+      new Point(bbox.maxX, bbox.maxY, bbox.minZ),
+      new Point(bbox.maxX, bbox.minY, bbox.maxZ),
+      new Point(bbox.minX, bbox.maxY, bbox.maxZ),
+      new Point(bbox.maxX, bbox.maxY, bbox.maxZ),
+    ];
+
+    let maxDistance = 0;
+    for (const corner of corners) {
+      const d = sketchPlane.signedDistanceToPoint(corner);
+      if (Math.abs(d) > Math.abs(maxDistance)) {
+        maxDistance = d;
+      }
+    }
+
+    return maxDistance;
+  }
+
   private splitShapesByFace(extrusions: Shape[], targetFace: Face): Shape[] {
     const result: Shape[] = [];
 
@@ -171,10 +202,10 @@ export class ExtrudeToFace extends ExtrudeBase {
     return result;
   }
 
-  private createSimpleExtrude(startFace: Face, targetFace: Face): { shapes: Shape[]; extruder: Extruder } {
-    const distance = FaceQuery.getSignedPlaneDistance(startFace, targetFace);
-    const plane = FaceQuery.getSurfacePlane(startFace);
-    const extruder = new Extruder([startFace], plane, distance, this.getDraft(), this.getEndOffset());
+  private createSimpleExtrude(startFace: Face, targetFace: Face, sketchPlane: Plane): { shapes: Shape[]; extruder: Extruder } {
+    const targetPlane = FaceQuery.getSurfacePlane(targetFace);
+    const distance = sketchPlane.signedDistanceToPoint(targetPlane.origin);
+    const extruder = new Extruder([startFace], sketchPlane, distance, this.getDraft(), this.getEndOffset());
     const shapes = extruder.extrude();
     return { shapes, extruder };
   }

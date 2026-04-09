@@ -4,6 +4,7 @@ import { fork } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parseArgs } from 'util';
+import { createFileWatcher } from './watcher.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -34,6 +35,9 @@ server.stderr.on('data', (data) => {
   process.stderr.write(data);
 });
 
+const workspacePath = resolve(values.workspace);
+let watcher;
+
 server.on('message', (msg) => {
   if (msg.type === 'ready') {
     console.log(`FluidCAD server ready at ${msg.url}`);
@@ -41,6 +45,7 @@ server.on('message', (msg) => {
   if (msg.type === 'init-complete') {
     if (msg.success) {
       console.log('FluidCAD initialized successfully.');
+      watcher = createFileWatcher(workspacePath, server);
     } else {
       console.error(`FluidCAD initialization failed: ${msg.error}`);
       process.exit(1);
@@ -53,9 +58,11 @@ server.on('exit', (code) => {
 });
 
 process.on('SIGINT', () => {
+  if (watcher) { watcher.close(); }
   server.kill('SIGINT');
 });
 
 process.on('SIGTERM', () => {
+  if (watcher) { watcher.close(); }
   server.kill('SIGTERM');
 });

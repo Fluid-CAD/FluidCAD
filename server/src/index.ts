@@ -56,11 +56,15 @@ const httpServer = http.createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 const uiClients = new Set<WebSocket>();
 let lastSceneMessage: string | null = null;
+let initCompleteMessage: string | null = null;
 
 function broadcastToUI(msg: ServerToUIMessage) {
   const data = JSON.stringify(msg);
   if (msg.type === 'scene-rendered') {
     lastSceneMessage = data;
+  }
+  if (msg.type === 'init-complete') {
+    initCompleteMessage = data;
   }
   for (const client of uiClients) {
     if (client.readyState === WebSocket.OPEN) {
@@ -72,7 +76,10 @@ function broadcastToUI(msg: ServerToUIMessage) {
 wss.on('connection', (ws) => {
   uiClients.add(ws);
 
-  // Replay last scene to newly connected UI client
+  // Replay init-complete and last scene to newly connected UI client
+  if (initCompleteMessage) {
+    ws.send(initCompleteMessage);
+  }
   if (lastSceneMessage) {
     ws.send(lastSceneMessage);
   }

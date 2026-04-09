@@ -1,8 +1,19 @@
 {
   "name": "fluidcad",
   "version": "0.0.1",
-  "description": "FluidCAD core library",
+  "description": "Parametric CAD modeling library using javascript",
   "author": "Marwan Aouida <contact@marwan.dev>",
+  "homepage": "https://fluidcad.io",
+  "keywords": [
+    "cad",
+    "opencascade.js",
+    "modeling",
+    "3d",
+    "parametric",
+    "brep",
+    "step",
+    "stl"
+  ],
   "type": "module",
   "workspaces": [
     "extension/vscode",

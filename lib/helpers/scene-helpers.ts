@@ -16,9 +16,9 @@ export function fuseWithSceneObjects(sceneObjects: SceneObject[], extrusions: Sh
     }
   }
 
-  let args = Array.from(objShapeMap.keys());
-  console.log("Fusing extrusions with scene objects. Extrusions:", extrusions.length, "Scene object shapes:", args.length);
-  const all = [...args, ...extrusions];
+  let sceneShapes = Array.from(objShapeMap.keys());
+  console.log("Fusing extrusions with scene objects. Extrusions:", extrusions.length, "Scene object shapes:", sceneShapes.length);
+  const all = [...sceneShapes, ...extrusions];
   const { result, newShapes, modifiedShapes } = BooleanOps.fuse(all);
 
   if (newShapes.length === 0 && modifiedShapes.length === 0) {
@@ -34,7 +34,15 @@ export function fuseWithSceneObjects(sceneObjects: SceneObject[], extrusions: Sh
     modified.push({ shape, object: obj });
   }
 
-  return { newShapes: result, modifiedShapes: modified };
+  // Include all result shapes EXCEPT partners of scene object shapes
+  // that survived the fuse (weren't consumed). Unconsumed scene shapes
+  // stay on their original owners so we must not duplicate them.
+  const unconsumed = sceneShapes.filter(s => !modifiedShapes.includes(s));
+  const shapesToAdd = result.filter(s =>
+    !unconsumed.some(u => u.getShape().IsPartner(s.getShape()))
+  );
+
+  return { newShapes: shapesToAdd, modifiedShapes: modified };
 }
 
 export function cutWithSceneObjects(

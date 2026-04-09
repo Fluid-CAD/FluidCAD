@@ -38,6 +38,7 @@
     "test:features": "vitest run lib/tests/features/"
   },
   "dependencies": {
+    "chokidar": "^5.0.0",
     "color-name": "^2.1.0",
     "express": "^5.2.1",
     "occjs-fluidcad": "^1.0.0",

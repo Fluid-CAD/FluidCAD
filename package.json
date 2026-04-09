@@ -2,7 +2,7 @@
   "name": "fluidcad",
   "version": "0.0.1",
   "description": "FluidCAD core library",
-  "author": "Marwan Aouida",
+  "author": "Marwan Aouida <contact@marwan.dev>",
   "type": "module",
   "workspaces": [
     "extension/vscode",

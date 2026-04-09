@@ -1,22 +1,85 @@
+/* ===== FluidCAD Design Tokens ===== */
+/* Colors derived from the FluidCAD UI (ui/src/styles.css + Three.js scene) */
+
 :root {
-  --ifm-color-primary: #2563eb;
-  --ifm-color-primary-dark: #1d4ed8;
-  --ifm-color-primary-darker: #1e40af;
-  --ifm-color-primary-darkest: #1e3a8a;
-  --ifm-color-primary-light: #3b82f6;
-  --ifm-color-primary-lighter: #60a5fa;
-  --ifm-color-primary-lightest: #93c5fd;
+  /* Docusaurus primary palette — matches UI --color-primary #4a9eff */
+  --ifm-color-primary: #4a9eff;
+  --ifm-color-primary-dark: #2e8df7;
+  --ifm-color-primary-darker: #1a7fee;
+  --ifm-color-primary-darkest: #0f66c4;
+  --ifm-color-primary-light: #6db1ff;
+  --ifm-color-primary-lighter: #8ac1ff;
+  --ifm-color-primary-lightest: #b8d9ff;
   --ifm-code-font-size: 95%;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+
+  /* FluidCAD tokens — light mode */
+  --fluidcad-bg-primary: #ffffff;
+  --fluidcad-bg-secondary: #f7f8fa;
+  --fluidcad-bg-surface: #f0f1f4;
+  --fluidcad-text-primary: #1a1d23;
+  --fluidcad-text-secondary: #4b5563;
+  --fluidcad-text-tertiary: #8892a4;
+  --fluidcad-border: #dfe2e8;
+  --fluidcad-border-strong: #c4c9d4;
+  --fluidcad-grid-line: rgba(74, 158, 255, 0.06);
+  --fluidcad-accent: #4a9eff;
+  --fluidcad-accent-light: #6db1ff;
+  --fluidcad-accent-glow: rgba(74, 158, 255, 0.15);
+  --fluidcad-warm: #ffc578;
+  --fluidcad-warm-deep: #c88f40;
+  --fluidcad-terminal-bg: #1e1e1e;
+  --fluidcad-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 [data-theme='dark'] {
-  --ifm-color-primary: #3b82f6;
-  --ifm-color-primary-dark: #2563eb;
-  --ifm-color-primary-darker: #1d4ed8;
-  --ifm-color-primary-darkest: #1e40af;
-  --ifm-color-primary-light: #60a5fa;
-  --ifm-color-primary-lighter: #93c5fd;
-  --ifm-color-primary-lightest: #bfdbfe;
+  /* Docusaurus primary palette — dark */
+  --ifm-color-primary: #4a9eff;
+  --ifm-color-primary-dark: #2e8df7;
+  --ifm-color-primary-darker: #1a7fee;
+  --ifm-color-primary-darkest: #0f66c4;
+  --ifm-color-primary-light: #6db1ff;
+  --ifm-color-primary-lighter: #8ac1ff;
+  --ifm-color-primary-lightest: #b8d9ff;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+
+  /* Override Docusaurus dark backgrounds — matches UI base colors */
+  --ifm-background-color: #181818;
+  --ifm-background-surface-color: #1e1e1e;
+
+  /* FluidCAD tokens — dark mode */
+  --fluidcad-bg-primary: #181818;
+  --fluidcad-bg-secondary: #1e1e1e;
+  --fluidcad-bg-surface: #252525;
+  --fluidcad-text-primary: #e0e0e0;
+  --fluidcad-text-secondary: #9ca3af;
+  --fluidcad-text-tertiary: #6b7280;
+  --fluidcad-border: #333333;
+  --fluidcad-border-strong: #444444;
+  --fluidcad-grid-line: rgba(74, 158, 255, 0.06);
+  --fluidcad-accent: #4a9eff;
+  --fluidcad-accent-light: #6db1ff;
+  --fluidcad-accent-glow: rgba(74, 158, 255, 0.18);
+  --fluidcad-warm: #ffc578;
+  --fluidcad-warm-deep: #c88f40;
+  --fluidcad-terminal-bg: #141414;
+  --fluidcad-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* ===== Dark mode footer fix ===== */
+[data-theme='dark'] .footer--dark {
+  --ifm-footer-background-color: #111111;
+}
+
+/* ===== CodeBlock background overrides ===== */
+[data-theme='dark'] .prism-code {
+  background-color: #1e1e1e !important;
+}
+
+[data-theme='dark'] div[class*='codeBlockContainer'] {
+  background-color: #1e1e1e !important;
+}
+
+[data-theme='dark'] div[class*='codeBlockContent'] {
+  background-color: #1e1e1e !important;
 }

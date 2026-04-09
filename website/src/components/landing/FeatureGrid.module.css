@@ -1,0 +1,92 @@
+.section {
+  padding: 5rem 1.5rem;
+  background: var(--fluidcad-bg-primary);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.sectionTitle {
+  text-align: center;
+  font-size: 2.25rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--fluidcad-text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.sectionSubtitle {
+  text-align: center;
+  font-size: 1.1rem;
+  color: var(--fluidcad-text-secondary);
+  margin-bottom: 3rem;
+  max-width: 540px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
+}
+
+/* ===== Card ===== */
+.card {
+  background: var(--fluidcad-bg-surface);
+  border: 1px solid var(--fluidcad-border);
+  border-radius: 12px;
+  padding: 1.75rem;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.card:hover {
+  border-color: var(--fluidcad-accent-light);
+  box-shadow: 0 0 24px var(--fluidcad-accent-glow);
+  transform: translateY(-2px);
+}
+
+.cardTitle {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--fluidcad-text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.cardDesc {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--fluidcad-text-secondary);
+  margin: 0;
+}
+
+/* ===== Icon ===== */
+.icon {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fluidcad-accent);
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 996px) {
+  .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sectionTitle {
+    font-size: 1.8rem;
+  }
+
+  .section {
+    padding: 3rem 1rem;
+  }
+}

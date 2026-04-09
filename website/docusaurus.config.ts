@@ -4,7 +4,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'FluidCAD',
-  tagline: 'Programmatic CAD for everyone',
+  tagline: 'Parametric CAD for everyone',
   favicon: 'img/favicon.ico',
 
   future: {
@@ -91,11 +91,11 @@ const config: Config = {
           ],
         },
         {
-          title: 'Reference',
+          title: 'Community',
           items: [
             {
-              label: 'API',
-              to: '/docs/api',
+              label: 'GitHub',
+              href: 'https://github.com/AouidaM/FluidCAD',
             },
           ],
         },
@@ -104,7 +104,7 @@ const config: Config = {
     },
     prism: {
       theme: prismThemes.github,
-      darkTheme: prismThemes.dracula,
+      darkTheme: prismThemes.vsDark,
     },
   } satisfies Preset.ThemeConfig,
 };

@@ -137,7 +137,7 @@ export class Extrude extends ExtrudeBase {
     if (this._symmetric) {
       // Symmetric cut: create tool centered on sketch plane
       if (isThroughAll) {
-        const extrudeThroughAll = new ExtrudeThroughAll(this.extrudable, false, true);
+        const extrudeThroughAll = new ExtrudeThroughAll(this.extrudable, true, true);
         toolShapes = extrudeThroughAll.build();
       } else {
         const extruder1 = new Extruder(faces, plane, -this.distance / 2, this.getDraft(), this.getEndOffset());

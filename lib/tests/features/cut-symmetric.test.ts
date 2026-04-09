@@ -86,6 +86,19 @@ describe("cut symmetric", () => {
 
       expect(getFacesByType(solid, "cylinder")).toHaveLength(1);
       expect(getEdgesByType(solid, "circle").length).toBeGreaterThanOrEqual(2);
+
+      // Verify the hole spans both sides (symmetric about z=0)
+      const bbox = ShapeOps.getBoundingBox(solid);
+      expect(bbox.minZ).toBeCloseTo(-25, 0);
+      expect(bbox.maxZ).toBeCloseTo(25, 0);
+
+      // The cylindrical hole should have circle edges on both the top and bottom faces
+      const circleEdges = getEdgesByType(solid, "circle");
+      const edgeBBoxes = circleEdges.map(e => ShapeOps.getBoundingBox(e));
+      const hasTopEdge = edgeBBoxes.some(b => Math.abs(b.minZ - 25) < 1);
+      const hasBottomEdge = edgeBBoxes.some(b => Math.abs(b.maxZ + 25) < 1);
+      expect(hasTopEdge).toBe(true);
+      expect(hasBottomEdge).toBe(true);
     });
   });
 

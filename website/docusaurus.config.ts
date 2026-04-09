@@ -88,6 +88,10 @@ const config: Config = {
               label: 'Guides',
               to: '/docs/guides',
             },
+            {
+              label: 'Tutorials',
+              to: '/docs/tutorials',
+            },
           ],
         },
         {

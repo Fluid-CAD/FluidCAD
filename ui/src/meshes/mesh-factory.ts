@@ -30,12 +30,13 @@ const SKETCH_TRANSPARENT_OPTIONS: MeshRenderOptions = {
  *  3. Mode-based overrides (sketch mode → ghost non-sketch objects).
  */
 function resolveOptions(
-  type: string | undefined,
+  uniqueType: string | undefined,
   isSketchMode: boolean,
+  type: string | undefined,
   inherited?: MeshRenderOptions,
 ): MeshRenderOptions | undefined {
   if (inherited) return inherited;
-  if (type === 'select') return SELECT_OPTIONS;
+  if (uniqueType === 'select') return SELECT_OPTIONS;
   if (isSketchMode && type !== 'sketch') return SKETCH_TRANSPARENT_OPTIONS;
   return undefined;
 }
@@ -72,8 +73,8 @@ export function buildObjectMesh(
   }
 
   // --- generic objects: resolve options and recurse into children ---
-  const isSelect = obj.type === 'select';
-  const options = resolveOptions(obj.type, isSketchMode, inherited);
+  const isSelect = obj.uniqueType === 'select';
+  const options = resolveOptions(obj.uniqueType, isSketchMode, obj.type, inherited);
   const children = allObjects.filter(o => o.parentId === obj.id);
 
   let result: Object3D;

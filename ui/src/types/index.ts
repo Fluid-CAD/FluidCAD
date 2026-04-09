@@ -115,6 +115,7 @@ export type SceneObjectRender = {
   ownShapes: SceneObjectPart[];
   visible?: boolean;
   type?: ObjectType;
+  uniqueType?: string;
   fromCache?: boolean;
   hasError?: boolean;
   errorMessage?: string;

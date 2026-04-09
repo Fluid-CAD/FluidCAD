@@ -4,6 +4,7 @@ import type {
   TopoDS_Face,
   TopoDS_Shape,
   TopoDS_Solid,
+  gp_Ax1,
 } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
@@ -14,6 +15,7 @@ import { Face } from "../common/face.js";
 import { Solid } from "../common/solid.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { BoundingBox } from "../helpers/types.js";
+import { Axis } from "../math/axis.js";
 
 export class ShapeOps {
   static transform(shape: Shape, matrix: Matrix4): Shape {
@@ -238,15 +240,17 @@ export class ShapeOps {
     return result;
   }
 
-  static rotateShape(shape: TopoDS_Shape, axis: any, angle: number): TopoDS_Shape {
+  static rotateShape(shape: TopoDS_Shape, axis: Axis, angle: number): TopoDS_Shape {
     const oc = getOC();
     const trsf = new oc.gp_Trsf();
-    trsf.SetRotation(axis, angle);
+    const [gpAxis, disposeGpAxis] = Convert.toGpAx1(axis);
+    trsf.SetRotation(gpAxis, angle);
     const transformer = new oc.BRepBuilderAPI_Transform(trsf);
     transformer.Perform(shape, false);
     const result = transformer.Shape();
     transformer.delete();
     trsf.delete();
+    disposeGpAxis();
     return result;
   }
 

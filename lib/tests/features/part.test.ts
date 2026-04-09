@@ -305,6 +305,50 @@ describe("part", () => {
     });
   });
 
+  describe("options", () => {
+    it("should pass options from use() to the part callback", () => {
+      const handle = part<{ radius: number; height: number }>("opts-part", (options) => {
+        sketch("xy", () => {
+          circle(options.radius);
+        });
+        extrude(options.height);
+      });
+
+      use(handle, { radius: 15, height: 30 });
+      render();
+
+      const scene = getCurrentScene();
+      const objects = scene.getAllSceneObjects();
+      const parts = objects.filter(o => o instanceof Part);
+      expect(parts).toHaveLength(1);
+      expect((parts[0] as Part).partName).toBe("opts-part");
+
+      const extrudeObj = objects.find(o => o instanceof Extrude) as Extrude;
+      expect(extrudeObj).toBeDefined();
+      const shapes = extrudeObj.getShapes();
+      expect(shapes.length).toBeGreaterThan(0);
+      expect(shapes[0].getType()).toBe("solid");
+    });
+
+    it("should allow reusing a part with different options", () => {
+      const handle = part<{ size: number }>("reusable", (options) => {
+        sketch("xy", () => {
+          circle(options.size);
+        });
+        extrude(options.size);
+      });
+
+      use(handle, { size: 10 });
+      use(handle, { size: 20 });
+      render();
+
+      const scene = getCurrentScene();
+      const objects = scene.getAllSceneObjects();
+      const parts = objects.filter(o => o instanceof Part);
+      expect(parts).toHaveLength(2);
+    });
+  });
+
   describe("PartHandle", () => {
     it("should have correct properties", () => {
       const handle = part("test-handle", () => {});

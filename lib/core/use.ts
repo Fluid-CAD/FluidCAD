@@ -3,7 +3,9 @@ import { getCurrentScene } from "../scene-manager.js";
 import { Part } from "../features/part.js";
 import { PartHandle } from "./part.js";
 
-function use(handle: PartHandle): void {
+function use(handle: PartHandle): void;
+function use<T>(handle: PartHandle<T>, options: T): void;
+function use<T = any>(handle: PartHandle<T>, options?: T): void {
   if (!handle || !handle.__fluidcad_part) {
     throw new Error("use() expects a PartHandle created by part()");
   }
@@ -19,7 +21,7 @@ function use(handle: PartHandle): void {
     partObj.setSourceLocation(sourceLocation);
   }
   scene.startProgressiveContainer(partObj);
-  handle._callback();
+  handle._callback(options as T);
   scene.endProgressiveContainer();
 }
 

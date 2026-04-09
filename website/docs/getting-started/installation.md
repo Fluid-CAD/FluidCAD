@@ -9,7 +9,7 @@ FluidCAD is a JavaScript library for building parametric 3D models with code. Yo
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) version 20 or higher
+- [Node.js](https://nodejs.org/) version 24 or higher
 - npm (comes with Node.js)
 
 ## Create a new project

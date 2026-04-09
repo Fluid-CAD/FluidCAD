@@ -2,14 +2,14 @@ import { captureSourceLocation } from "../index.js";
 import { getCurrentScene, getCurrentFile } from "../scene-manager.js";
 import { Part } from "../features/part.js";
 
-export type PartHandle = {
+export type PartHandle<T = any> = {
   __fluidcad_part: true;
   name: string;
-  _callback: () => void;
+  _callback: (options: T) => void;
 };
 
-function part(name: string, callback: () => void): PartHandle {
-  const handle: PartHandle = {
+function part<T = any>(name: string, callback: (options: T) => void): PartHandle<T> {
+  const handle: PartHandle<T> = {
     __fluidcad_part: true,
     name,
     _callback: callback,
@@ -30,7 +30,7 @@ function part(name: string, callback: () => void): PartHandle {
         partObj.setSourceLocation(sourceLocation);
       }
       scene.startProgressiveContainer(partObj);
-      callback();
+      callback(undefined);
       scene.endProgressiveContainer();
     }
   }

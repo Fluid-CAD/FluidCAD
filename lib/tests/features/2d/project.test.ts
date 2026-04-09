@@ -6,8 +6,7 @@ import { project, rect } from "../../../core/2d/index.js";
 import { Extrude } from "../../../features/extrude.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 
-// project tests skipped due to OC runtime error (null function or function signature mismatch)
-describe.skip("project", () => {
+describe("project", () => {
   setupOC();
 
   describe("project 3D shape onto sketch plane", () => {
@@ -15,10 +14,11 @@ describe.skip("project", () => {
       sketch("xy", () => {
         rect(100, 50);
       });
-      const e = extrude(30).new() as Extrude;
+
+      const e = extrude(30) as Extrude;
 
       const s = sketch("xy", () => {
-        project(e);
+        project(e.sideFaces(0));
       }) as Sketch;
 
       render();

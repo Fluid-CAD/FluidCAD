@@ -9,40 +9,27 @@
     "packages/create-fluidcad-app"
   ],
   "bin": {
-    "fluidcad": "./dist/bin/fluidcad.js"
+    "fluidcad": "./bin/fluidcad.js"
   },
   "files": [
-    "dist/"
+    "lib/dist/",
+    "server/dist/",
+    "ui/dist/",
+    "bin/"
   ],
   "exports": {
-    ".": {
-      "types": "./dist/lib/index.d.ts",
-      "default": "./dist/lib/index.js"
-    },
-    "./core": {
-      "types": "./dist/lib/core/index.d.ts",
-      "default": "./dist/lib/core/index.js"
-    },
-    "./filters": {
-      "types": "./dist/lib/filters/index.d.ts",
-      "default": "./dist/lib/filters/index.js"
-    },
-    "./constraints": {
-      "types": "./dist/lib/features/2d/constraints/geometry-qualifier.d.ts",
-      "default": "./dist/lib/features/2d/constraints/geometry-qualifier.js"
-    },
-    "./server": {
-      "types": "./dist/server/index.d.ts",
-      "default": "./dist/server/index.js"
-    }
+    ".": "./lib/dist/index.js",
+    "./core": "./lib/dist/core/index.js",
+    "./filters": "./lib/dist/filters/index.js",
+    "./constraints": "./lib/dist/features/2d/constraints/geometry-qualifier.js",
+    "./server": "./server/dist/index.js"
   },
   "scripts": {
     "build:lib": "tsc -p lib/tsconfig.json",
     "build:server": "tsc -p server/tsconfig.json",
     "build:ui": "vite build --config ui/vite.config.ts",
     "build": "npm run build:lib && npm run build:server && npm run build:ui",
-    "build:dist": "npm run build && bash scripts/build-dist.sh",
-    "prepublishOnly": "npm run build:dist",
+    "prepublishOnly": "npm run build",
     "dev:lib": "tsc -p lib/tsconfig.json --watch",
     "dev:server": "node --experimental-transform-types --no-warnings server/src/index.ts",
     "dev:ui": "vite --config ui/vite.config.ts",

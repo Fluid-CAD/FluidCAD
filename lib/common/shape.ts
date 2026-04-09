@@ -19,8 +19,6 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
 
   private meshes: SceneObjectMesh[]
 
-  private disposed = false;
-
   constructor(private shape: T) {
     this.id = randomUUID()
   }
@@ -78,10 +76,7 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   }
 
   dispose() {
-    if (!this.disposed) {
-      this.disposed = true;
-      this.shape?.delete();
-    }
+    this.shape?.delete();
   }
 
   markAsMetaShape(type?: string) {

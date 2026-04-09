@@ -27,7 +27,7 @@ writeFileSync(resolve(targetDir, 'package.json'), JSON.stringify(pkg, null, 2) +
 // init.js
 const initJs = `import { init } from 'fluidcad'
 
-export default init(import.meta.dirname)
+export default init()
 `;
 writeFileSync(resolve(targetDir, 'init.js'), initJs);
 

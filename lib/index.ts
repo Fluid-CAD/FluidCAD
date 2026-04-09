@@ -93,7 +93,8 @@ export function registerBuilder<T extends Function>(builder: (context: ScenePars
   return fn as ReturnType<typeof builder>;;
 }
 
-export async function init(rootPath: string) {
+export async function init(rootPath?: string) {
   await loadOC();
-  return createManager(rootPath);
+  const resolvedPath = rootPath || process.env.FLUIDCAD_WORKSPACE_PATH || '';
+  return createManager(resolvedPath);
 }

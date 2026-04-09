@@ -1,0 +1,47 @@
+---
+sidebar_position: 2
+title: "Editor Setup"
+---
+
+# Editor Setup
+
+FluidCAD works with any text editor. It ships official extensions for VS Code and Neovim, and a CLI for everything else. All three options give you the same live 3D viewport — pick whichever fits your workflow.
+
+## VS Code
+
+1. Install the **FluidCAD** extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/).
+2. Open your project folder in VS Code.
+3. Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux, `Cmd+Shift+P` on macOS) and run **Show FluidCAD Scene**.
+
+A 3D viewport opens in a side panel. It updates live as you edit any `.fluid.js` file.
+
+## Neovim
+
+Add the plugin with [lazy.nvim](https://github.com/folke/lazy.nvim):
+
+```lua
+{
+  "fluidcad/fluidcad",
+  config = function()
+    require("fluidcad").setup()
+  end,
+  ft = { "javascript" },
+}
+```
+
+Open a `.fluid.js` file — the server starts automatically. Run `:FluidCadOpenBrowser` to open the 3D viewport in your browser.
+
+## Any other editor (CLI)
+
+Run FluidCAD directly from the terminal:
+
+```bash
+npx fluidcad -w ./my-app
+```
+
+This starts a local server and opens the 3D viewport at `http://localhost:3100` in your browser. Edit your `.fluid.js` files in any editor — the viewport refreshes on save.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-w, --workspace <path>` | Path to your project | Current directory |
+| `-p, --port <port>` | Server port | `3100` |

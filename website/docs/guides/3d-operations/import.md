@@ -1,0 +1,44 @@
+---
+sidebar_position: 10
+title: "Import"
+---
+
+# Import
+
+## Importing a STEP file
+
+To import a STEP file into your project:
+
+1. Click the **Import** button in the bottom-left of the viewport UI.
+2. Select your `.step` file. FluidCAD converts it and saves it as `imports/{filename}.brep` in your project folder.
+3. Use `load()` in your code to load the imported file:
+
+```js
+import { load } from 'fluidcad/core';
+
+const part = load("bracket")   // loads imports/bracket.brep
+```
+
+The project structure looks like this after importing:
+
+```
+my-app/
+├── imports/
+│   └── bracket.brep           ← created by the import button
+├── test.fluid.js
+└── package.json
+```
+
+## Transforming imported geometry
+
+After loading, you can move and rotate the geometry:
+
+```js
+import { load, rotate, translate } from 'fluidcad/core';
+
+const l = load("EGH20CA1R350Z0H_FILE_1")
+rotate("x", 90)
+translate(0, -50, 25)
+```
+
+Imported files preserve color metadata automatically.

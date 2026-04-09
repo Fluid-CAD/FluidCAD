@@ -1,0 +1,61 @@
+---
+sidebar_position: 4
+title: "Trimming"
+---
+
+# Trimming
+
+`trim()` removes parts of intersecting geometry in a sketch. Draw overlapping shapes, then trim away the segments you don't need.
+
+In practice, trimming is **rarely needed** — sketch geometries that overlap are automatically fused together when extruded or cut. Trimming is mainly useful when you need precise control over which segments form the final profile, such as creating a specific outline from intersecting curves.
+
+## Basic usage
+
+```js
+sketch("xy", () => {
+    circle([25, 0], 120)
+    circle([-25, 0], 100)
+    trim()
+})
+```
+
+FluidCAD splits all edges at their intersection points, then you select which segments to remove.
+
+## Trimming at specific points
+
+Pass 2D points to specify which edge segments to remove — the segment nearest to each point gets trimmed:
+
+```js
+sketch("xy", () => {
+    circle([25, 0], 120)
+    circle([-25, 0], 100)
+    trim([50, 10], [30, -20])  // remove segments near these points
+})
+```
+
+:::tip[Interactive mode]
+Call `trim()` with no arguments to enter interactive mode. Hover over edge segments to highlight them, then click to remove them. This is often easier than calculating point coordinates by hand.
+:::
+
+:::caution[Point-based trim can be fragile]
+When you trim by passing coordinates (or by clicking in interactive mode), those coordinates are saved in your code. If the model dimensions change later, the trim points may fall outside the resized geometry, breaking the model.
+
+This makes `trim()` great for **fast prototyping** or models with fixed dimensions. For parametric models where dimensions are likely to change, prefer building profiles from individual primitives and constrained geometry instead of trimming overlapping shapes.
+:::
+
+## Example: creating a profile from overlapping circles
+
+```js
+sketch("xy", () => {
+    rect(100, 50).center()
+    circle([0, 25], 40)        // overlaps the top edge
+
+    // Trim away the parts you don't want
+    trim([0, 50])              // remove the top edge of the rect inside the circle
+    trim([0, 30])              // remove the bottom arc of the circle inside the rect
+})
+
+extrude(20)
+```
+
+By trimming the overlapping segments, you're left with a single closed profile that combines the rectangle and the circular bump — ready to extrude.

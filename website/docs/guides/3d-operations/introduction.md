@@ -1,0 +1,89 @@
+---
+sidebar_position: 1
+title: "Introduction"
+---
+
+# 3D Operations
+
+Once you have a 2D sketch, you turn it into 3D geometry. FluidCAD provides several operations for this, each suited to different modeling tasks.
+
+## The core operations
+
+| Operation | What it does |
+|-----------|-------------|
+| [Extrude](./extrude) | Pulls a sketch into a solid along the plane's normal |
+| [Cut](./cut) | Removes material from a solid using a sketch profile |
+| [Revolve](./revolve) | Rotates a sketch around an axis |
+| [Loft](./loft) | Creates a smooth transition between two or more profiles |
+| [Sweep](./sweep) | Moves a profile along a path |
+| [Fillet](./fillet) | Rounds edges |
+| [Chamfer](./chamfer) | Bevels edges |
+| [Shell](./shell) | Hollows out a solid |
+
+## Accessing geometry
+
+Most operations return an object with methods to access the faces and edges they created:
+
+```js
+const e = extrude(30)
+
+e.endFaces()       // top face(s)
+e.startFaces()     // bottom face(s)
+e.sideFaces()      // side face(s)
+e.endEdges()       // edges on the top
+e.startEdges()     // edges on the bottom
+e.sideEdges()      // edges on the sides
+```
+
+You'll use these to sketch on faces, fillet edges, apply color, and more. The exact methods available depend on the operation — each operation's page lists what it returns.
+
+:::warning[Geometry references can become stale]
+When a later operation modifies or removes a face or edge, references to it may no longer be valid. For example, if you fillet an edge, the original edge is replaced by the fillet surface — so a reference to that edge won't work for subsequent operations.
+
+**Exception for faces as planes:** even if a face is modified or destroyed by a later feature, you can still use it as a sketch plane. FluidCAD remembers the plane's position and orientation regardless of what happens to the face geometry.
+
+```js
+const e = extrude(30)
+
+fillet(5, e.endEdges())        // ✅ works — edges exist at this point
+
+// After fillet, the original end edges are gone (replaced by fillet surfaces).
+// But sketching on the end face still works:
+sketch(e.endFaces(), () => {   // ✅ works — face reference is valid as a plane
+    circle(20)
+})
+```
+
+As a rule of thumb: reference geometry as close to its creation as possible, before later features reshape it.
+:::
+
+## Fusion scope
+
+Operations that create or remove material — extrude, cut, revolve, loft, sweep — interact with existing solids. By default, new material fuses with touching solids (for additive operations) and cuts remove from all intersecting solids. You can control this with fusion scope methods:
+
+- **`.add()`** — fuse with all touching solids (default for additive operations)
+- **`.new()`** — create a separate solid, don't fuse with anything
+- **`.remove(target1, target2, ...)`** — for cut operations, remove only from specific solids
+
+```js
+const box = extrude(30)
+
+sketch("xy", () => { circle(20) })
+extrude(50).new()              // separate solid — no fusion with the box
+
+sketch("xy", () => { circle(10) })
+cut().remove(box)              // cut only from the box, not from other solids
+```
+
+Each operation's page notes which fusion scope methods it supports.
+
+## Primitives
+
+These are shorthand for creating common solids without needing a sketch:
+
+```js
+import { sphere, cylinder } from 'fluidcad/core';
+
+sphere(50)                     // sphere with diameter 50
+cylinder(50, 100)              // cylinder: diameter 50, height 100
+```

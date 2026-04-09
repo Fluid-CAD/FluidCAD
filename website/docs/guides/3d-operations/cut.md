@@ -5,7 +5,7 @@ title: "Cut"
 
 # Cut
 
-`cut()` removes material from existing solids. Sketch a profile on a face, then cut into the solid.
+`cut()` removes material from existing solids. It is a shortcut for a subtractive extrude (`extrude().remove()`). Sketch a profile on a face, then cut into the solid.
 
 ```js
 sketch("xy", () => {

@@ -26,12 +26,25 @@ This creates a project with the following structure:
 my-app/
 ├── package.json
 ├── jsconfig.json
-└── test.fluid.js      ← your first model
+├── init.js             ← required project entry point
+└── test.fluid.js       ← your first model
 ```
 
 :::note
 FluidCAD files use the `.fluid.js` extension. The viewer only picks up files with this naming convention.
 :::
+
+## The `init.js` file
+
+Every FluidCAD project must have an `init.js` file at its root. This file initializes the FluidCAD engine and must be present before any `.fluid.js` files can run:
+
+```js
+import { init } from 'fluidcad';
+
+export default await init();
+```
+
+Do not modify this file — it is generated automatically by `npm create fluidcad-app` and is required for the viewer to work.
 
 ## The starter file
 

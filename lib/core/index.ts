@@ -1,8 +1,8 @@
 export type {
-  ISceneObject, IPlane, IAxis, ISelect,
+  ISceneObject, IFuseable, IPlane, IAxis, ISelect,
   IGeometry, IExtrudableGeometry, IRect, ISlot, IPolygon,
   ITwoObjectsTangentLine, ITangentArcTwoObjects,
-  IExtrude, ICut, ICommon, ISweep
+  IExtrude, ICut, ICommon, ISweep, ILoft, IRevolve
 } from "./interfaces.js";
 export { default as axis } from "./axis.js";
 export { default as plane } from "./plane.js";

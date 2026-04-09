@@ -18,7 +18,7 @@ describe("mirror (3D)", () => {
         move([20, 0]);
         rect(30, 30);
       });
-      const e = extrude(10).fuse("none") as ExtrudeBase;
+      const e = extrude(10).new() as ExtrudeBase;
 
       mirror("yz", e);
 
@@ -33,7 +33,7 @@ describe("mirror (3D)", () => {
         move([20, 0]);
         rect(30, 30);
       });
-      const e = extrude(10).fuse("none") as ExtrudeBase;
+      const e = extrude(10).new() as ExtrudeBase;
 
       const m = mirror("yz", e) as SceneObject;
 
@@ -53,7 +53,7 @@ describe("mirror (3D)", () => {
         move([0, 20]);
         rect(30, 30);
       });
-      const e = extrude(10).fuse("none") as ExtrudeBase;
+      const e = extrude(10).new() as ExtrudeBase;
 
       const m = mirror("xz", e) as SceneObject;
 
@@ -72,7 +72,7 @@ describe("mirror (3D)", () => {
       sketch("xy", () => {
         rect(30, 30);
       });
-      extrude(20).fuse("none");
+      extrude(20).new();
 
       mirror("xy");
 
@@ -97,7 +97,7 @@ describe("mirror (3D)", () => {
         move([20, 0]);
         rect(30, 30);
       });
-      extrude(10).fuse("none");
+      extrude(10).new();
 
       mirror("yz");
 
@@ -113,13 +113,13 @@ describe("mirror (3D)", () => {
         move([20, 0]);
         rect(30, 30);
       });
-      const e1 = extrude(10).fuse("none") as ExtrudeBase;
+      const e1 = extrude(10).new() as ExtrudeBase;
 
       sketch("xy", () => {
         move([0, 50]);
         rect(30, 30);
       });
-      extrude(10).fuse("none");
+      extrude(10).new();
 
       mirror("yz", e1);
 
@@ -136,7 +136,7 @@ describe("mirror (3D)", () => {
       sketch("xy", () => {
         rect(30, 30);
       });
-      extrude(10).fuse("none");
+      extrude(10).new();
 
       mirror("yz");
 

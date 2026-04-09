@@ -181,7 +181,7 @@ describe("revolve", () => {
         rect(10, 30);
       });
 
-      const r = revolve("z", 180, true) as Revolve;
+      const r = revolve("z", 180).symmetric() as Revolve;
 
       render();
 
@@ -200,13 +200,13 @@ describe("revolve", () => {
         move([20, 0]);
         rect(10, 30);
       });
-      revolve("z").fuse("none");
+      revolve("z").new();
 
       sketch("xz", () => {
         move([20, 0]);
         rect(10, 30);
       });
-      revolve("z").fuse("none");
+      revolve("z").new();
 
       const scene = render();
 

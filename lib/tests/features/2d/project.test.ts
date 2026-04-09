@@ -15,7 +15,7 @@ describe.skip("project", () => {
       sketch("xy", () => {
         rect(100, 50);
       });
-      const e = extrude(30).fuse("none") as Extrude;
+      const e = extrude(30).new() as Extrude;
 
       const s = sketch("xy", () => {
         project(e);

@@ -16,7 +16,7 @@ describe("copy linear", () => {
     sketch("xy", () => {
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     copy("linear", "x", { count: 3, offset: 40 }, e);
 
@@ -30,7 +30,7 @@ describe("copy linear", () => {
     sketch("xy", () => {
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     const c = copy("linear", "x", { count: 3, offset: 50 }, e) as SceneObject;
 
@@ -50,7 +50,7 @@ describe("copy linear", () => {
     sketch("xy", () => {
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     const c = copy("linear", "y", { count: 2, offset: 60 }, e) as SceneObject;
 
@@ -67,7 +67,7 @@ describe("copy linear", () => {
     sketch("xy", () => {
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     const c = copy("linear", "z", { count: 2, offset: 30 }, e) as SceneObject;
 
@@ -84,7 +84,7 @@ describe("copy linear", () => {
     sketch("xy", () => {
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     // 4 copies over length 120 → offset = 120/4 = 30
     const c = copy("linear", "x", { count: 4, length: 120 }, e) as SceneObject;
@@ -102,7 +102,7 @@ describe("copy linear", () => {
     sketch("xy", () => {
       rect(10, 10);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     // 3 along X, 2 along Y → 3×2 = 6 positions, minus original = 5 copies
     copy("linear", ["x", "y"], { count: [3, 2], offset: 30 }, e);
@@ -117,7 +117,7 @@ describe("copy linear", () => {
     sketch("xy", () => {
       rect(10, 10);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     // 3 copies, skip index 1
     copy("linear", "x", { count: 3, offset: 30, skip: [[1]] }, e);

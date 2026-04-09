@@ -1,6 +1,6 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { ExtrudeBase } from "./extrude-base.js";
-import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
+import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { Face } from "../common/face.js";
@@ -71,6 +71,12 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
 
     this.extrudable.removeShapes(this);
 
+    if (this._operationMode === 'remove') {
+      const scope = this.resolveFusionScope(context.getSceneObjects());
+      cutWithSceneObjects(scope, extrusions, plane, this.distance1 + this.distance2, this);
+      return;
+    }
+
     if (extrusions.length === 0 || sceneObjects.length === 0) {
       this.addShapes(extrusions);
       return;
@@ -129,6 +135,7 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       extrudable: this.extrudable.serialize(),
       distance1: this.distance1,
       distance2: this.distance2,
+      operationMode: this._operationMode !== 'add' ? this._operationMode : undefined,
       picking: this.isPicking() || undefined,
       pickPoints: this.isPicking()
         ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })

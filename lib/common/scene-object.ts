@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { Shape, ShapeFilter } from "./shape.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { ISceneObject } from "../core/interfaces.js";
-import { FusionScope } from "../features/extrude-options.js";
+import { FusionScope, OperationMode } from "../features/extrude-options.js";
 import { ShapeType } from "./shape-type.js";
 
 export type SourceLocation = {
@@ -42,6 +42,8 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _sourceLocation: SourceLocation | null = null;
   private _error: string | null = null;
   protected _fusionScope?: FusionScope = 'all';
+  protected _operationMode: OperationMode = 'add';
+  protected _symmetric: boolean = false;
 
   constructor() {
     this.state = new Map();
@@ -145,6 +147,14 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     const match = this._guide === other._guide;
 
     if (!match) {
+      return false;
+    }
+
+    if (this._operationMode !== other._operationMode) {
+      return false;
+    }
+
+    if (this._symmetric !== other._symmetric) {
       return false;
     }
 
@@ -435,6 +445,14 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this._fusionScope || 'all';
   }
 
+  getOperationMode(): OperationMode {
+    return this._operationMode;
+  }
+
+  isSymmetric(): boolean {
+    return this._symmetric;
+  }
+
   resolveFusionScope(sceneObjects: SceneObject[]): SceneObject[] {
     const scope = this.getFusionScope();
     if (scope === 'none') {
@@ -447,22 +465,38 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return sceneObjects;
   }
 
-  fuse(value: 'all' | 'none'): this;
-  fuse(object: ISceneObject): this;
-  fuse(...objects: ISceneObject[]): this;
-  fuse(): this {
-    const arr = Array.from(arguments);
-    if (arr.length === 0) {
+  add(...objects: ISceneObject[]): this {
+    this._operationMode = 'add';
+    if (objects.length === 0) {
       this._fusionScope = 'all';
-      return this;
+    } else if (objects.length === 1) {
+      this._fusionScope = objects[0] as SceneObject;
+    } else {
+      this._fusionScope = objects as SceneObject[];
     }
+    return this;
+  }
 
-    if (arr.length === 1) {
-      this._fusionScope = arr[0];
-      return this;
+  new(): this {
+    this._operationMode = 'new';
+    this._fusionScope = 'none';
+    return this;
+  }
+
+  remove(...objects: ISceneObject[]): this {
+    this._operationMode = 'remove';
+    if (objects.length === 0) {
+      this._fusionScope = 'all';
+    } else if (objects.length === 1) {
+      this._fusionScope = objects[0] as SceneObject;
+    } else {
+      this._fusionScope = objects as SceneObject[];
     }
+    return this;
+  }
 
-    this._fusionScope = arr;
+  symmetric(): this {
+    this._symmetric = true;
     return this;
   }
   /**

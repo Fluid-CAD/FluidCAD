@@ -124,7 +124,7 @@ describe("extrude two distances", () => {
         circle(100);
       });
 
-      extrude(20, 10).fuse("none");
+      extrude(20, 10).new();
 
       const scene = render();
 

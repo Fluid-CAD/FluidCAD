@@ -5,8 +5,7 @@ import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
 import { circle, move, rect } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
-import { ExtrudeSymmetric } from "../../features/extrude-symmetric.js";
-import { CutSymmetric } from "../../features/cut-symmetric.js";
+import { ExtrudeBase } from "../../features/extrude-base.js";
 import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 
@@ -15,18 +14,16 @@ describe("cut symmetric", () => {
 
   describe("symmetric cut by distance", () => {
     it("should cut symmetrically from both sides of the sketch plane", () => {
-      // Symmetric extrude spans z=-25 to z=+25, sketch plane is at z=0
       sketch("xy", () => {
         rect(100, 100);
       });
-      extrude(50, true);
+      extrude(50).symmetric();
 
-      // Sketch on xy (z=0) is in the middle of the solid
       sketch("xy", () => {
         move([25, 25]);
         rect(50, 50);
       });
-      cut(20, true);
+      extrude(20).symmetric().remove();
 
       const scene = render();
 
@@ -36,7 +33,6 @@ describe("cut symmetric", () => {
         .flatMap(o => o.getShapes())
         .find(s => s.getType() === "solid") as Solid;
 
-      // Rectangular symmetric pocket: all faces are planar, more than original 6
       expect(getFacesByType(solid, "plane").length).toBeGreaterThan(6);
       expect(getFacesByType(solid, "cylinder")).toHaveLength(0);
     });
@@ -45,13 +41,13 @@ describe("cut symmetric", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      extrude(50, true);
+      extrude(50).symmetric();
 
       sketch("xy", () => {
         move([25, 25]);
         rect(50, 50);
       });
-      cut(30, true);
+      extrude(30).symmetric().remove();
 
       const scene = render();
 
@@ -72,13 +68,13 @@ describe("cut symmetric", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      extrude(50, true);
+      extrude(50).symmetric();
 
       sketch("xy", () => {
         move([25, 25]);
         circle(40);
       });
-      cut(true);
+      extrude(0).symmetric().remove();
 
       const scene = render();
 
@@ -88,7 +84,6 @@ describe("cut symmetric", () => {
         .flatMap(o => o.getShapes())
         .find(s => s.getType() === "solid") as Solid;
 
-      // Through-all circular cut adds a cylindrical face (the hole wall)
       expect(getFacesByType(solid, "cylinder")).toHaveLength(1);
       expect(getEdgesByType(solid, "circle").length).toBeGreaterThanOrEqual(2);
     });
@@ -99,13 +94,13 @@ describe("cut symmetric", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      extrude(50, true);
+      extrude(50).symmetric();
 
       sketch("xy", () => {
         move([25, 25]);
         rect(50, 50);
       });
-      const c = cut(20, true) as CutSymmetric;
+      const c = extrude(20).symmetric().remove() as ExtrudeBase;
       const edgesObj = c.edges();
       addToScene(edgesObj);
 
@@ -124,7 +119,7 @@ describe("cut symmetric", () => {
       sketch("xy", () => {
         rect(100, 100);
       });
-      extrude(50, true);
+      extrude(50).symmetric();
 
       sketch("xy", () => {
         move([25, 25]);
@@ -132,7 +127,7 @@ describe("cut symmetric", () => {
         move([75, 25]);
         circle(30);
       });
-      const c = cut(20, true).pick([25, 25]) as CutSymmetric;
+      const c = extrude(20).symmetric().remove().pick([25, 25]) as ExtrudeBase;
 
       render();
 

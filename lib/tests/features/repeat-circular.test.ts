@@ -15,7 +15,7 @@ describe("repeat circular", () => {
       move([50, 0]);
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     repeat("circular", "z", { count: 4, angle: 360 }, e);
 
@@ -29,7 +29,7 @@ describe("repeat circular", () => {
       move([50, 0]);
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     repeat("circular", "y", { count: 4, angle: 360 }, e);
 
@@ -42,7 +42,7 @@ describe("repeat circular", () => {
       move([50, 0]);
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     // 3 instances over 180° → offset = 90° each
     repeat("circular", "z", { count: 3, angle: 180 }, e);
@@ -57,7 +57,7 @@ describe("repeat circular", () => {
       move([50, 0]);
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     repeat("circular", "z", { count: 4, offset: 90 }, e);
 
@@ -71,7 +71,7 @@ describe("repeat circular", () => {
       move([50, 0]);
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     repeat("circular", "z", { count: 5, angle: 360, centered: true }, e);
 
@@ -85,7 +85,7 @@ describe("repeat circular", () => {
       move([50, 0]);
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     repeat("circular", "z", { count: 4, angle: 360, skip: [1] }, e);
 
@@ -99,7 +99,7 @@ describe("repeat circular", () => {
       move([50, 0]);
       rect(20, 20);
     });
-    const e = extrude(10).fuse("none") as ExtrudeBase;
+    const e = extrude(10).new() as ExtrudeBase;
 
     repeat("circular", "z", { count: 6, angle: 360, skip: [1, 3] }, e);
 
@@ -113,13 +113,13 @@ describe("repeat circular", () => {
       move([50, 0]);
       rect(20, 20);
     });
-    const e1 = extrude(10).fuse("none") as ExtrudeBase;
+    const e1 = extrude(10).new() as ExtrudeBase;
 
     sketch("xy", () => {
       move([50, 20]);
       rect(10, 10);
     });
-    const e2 = extrude(5).fuse("none") as ExtrudeBase;
+    const e2 = extrude(5).new() as ExtrudeBase;
 
     repeat("circular", "z", { count: 3, angle: 360 }, e1, e2);
 
@@ -133,7 +133,7 @@ describe("repeat circular", () => {
       move([50, 0]);
       rect(20, 20);
     });
-    extrude(10).fuse("none");
+    extrude(10).new();
 
     repeat("circular", "z", { count: 4, angle: 360 });
 

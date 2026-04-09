@@ -19,13 +19,13 @@ describe("fuse", () => {
       sketch("xy", () => {
         rect(100, 50);
       });
-      const e1 = extrude(30).fuse("none");
+      const e1 = extrude(30).new();
 
       sketch("xy", () => {
         move([50, 0]);
         rect(100, 50);
       });
-      const e2 = extrude(30).fuse("none");
+      const e2 = extrude(30).new();
 
       fuse(e1, e2);
 
@@ -38,13 +38,13 @@ describe("fuse", () => {
       sketch("xy", () => {
         rect(50, 50);
       });
-      const e1 = extrude(30).fuse("none");
+      const e1 = extrude(30).new();
 
       sketch("xy", () => {
         move([200, 0]);
         rect(50, 50);
       });
-      const e2 = extrude(30).fuse("none");
+      const e2 = extrude(30).new();
 
       fuse(e1, e2);
 
@@ -57,13 +57,13 @@ describe("fuse", () => {
       sketch("xy", () => {
         rect(100, 50);
       });
-      const e1 = extrude(30).fuse("none") as ExtrudeBase;
+      const e1 = extrude(30).new() as ExtrudeBase;
 
       sketch("xy", () => {
         move([50, 0]);
         rect(100, 50);
       });
-      const e2 = extrude(30).fuse("none") as ExtrudeBase;
+      const e2 = extrude(30).new() as ExtrudeBase;
 
       fuse(e1, e2);
 
@@ -77,7 +77,7 @@ describe("fuse", () => {
       sketch("xy", () => {
         rect(100, 50);
       });
-      const e1 = extrude(30).fuse("none");
+      const e1 = extrude(30).new();
 
       const c = cylinder(30, 30);
 
@@ -94,13 +94,13 @@ describe("fuse", () => {
       sketch("xy", () => {
         rect(100, 50);
       });
-      extrude(30).fuse("none");
+      extrude(30).new();
 
       sketch("xy", () => {
         move([50, 0]);
         rect(100, 50);
       });
-      extrude(30).fuse("none");
+      extrude(30).new();
 
       fuse();
 
@@ -113,19 +113,19 @@ describe("fuse", () => {
       sketch("xy", () => {
         rect(50, 50);
       });
-      extrude(30).fuse("none");
+      extrude(30).new();
 
       sketch("xy", () => {
         move([25, 0]);
         rect(50, 50);
       });
-      extrude(30).fuse("none");
+      extrude(30).new();
 
       sketch("xy", () => {
         move([50, 0]);
         rect(50, 50);
       });
-      extrude(30).fuse("none");
+      extrude(30).new();
 
       fuse();
 
@@ -140,13 +140,13 @@ describe("fuse", () => {
       sketch("xy", () => {
         rect(100, 50);
       });
-      const e1 = extrude(30).fuse("none");
+      const e1 = extrude(30).new();
 
       sketch("xy", () => {
         move([50, 0]);
         rect(100, 50);
       });
-      const e2 = extrude(30).fuse("none");
+      const e2 = extrude(30).new();
 
       const f = fuse(e1, e2) as Fuse;
 

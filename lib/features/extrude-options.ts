@@ -1,6 +1,7 @@
 import { SceneObject } from "../common/scene-object.js";
 
 export type FusionScope = 'all' | 'none' | SceneObject | SceneObject[];
+export type OperationMode = 'add' | 'new' | 'remove';
 export type ExtrudeOptions = {
     draft?: number | [number, number];
     endOffset?: number;

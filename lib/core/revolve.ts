@@ -20,14 +20,6 @@ interface RevolveFunction {
    * @param target - The sketch to revolve
    */
   (axisLike: AxisLike, angle: number, target?: ISceneObject): IRevolve;
-  /**
-   * Revolves the last sketch symmetrically by a given angle around an axis.
-   * @param axisLike - The axis to revolve around
-   * @param angle - The sweep angle in degrees
-   * @param symmetric - Must be `true`
-   * @param target - The sketch to revolve
-   */
-  (axisLike: AxisLike, angle: number, symmetric: true, target?: ISceneObject): IRevolve;
 }
 
 function isExtrudable(obj: any): obj is Extrudable {
@@ -42,22 +34,14 @@ function build(context: SceneParserContext): RevolveFunction {
     // (axis)
     if (params.length === 1) {
       const axis = resolveAxis(params[0], context);
-      return new Revolve(axis, defaultAngle, false, extrudable);
+      return new Revolve(axis, defaultAngle, extrudable);
     }
 
     // (axis, angle)
     if (params.length === 2) {
       const axis = resolveAxis(params[0], context);
       if (typeof params[1] === 'number') {
-        return new Revolve(axis, params[1], false, extrudable);
-      }
-    }
-
-    // (axis, angle, symmetric)
-    if (params.length === 3) {
-      const axis = resolveAxis(params[0], context);
-      if (typeof params[1] === 'number' && typeof params[2] === 'boolean') {
-        return new Revolve(axis, params[1], params[2], extrudable);
+        return new Revolve(axis, params[1], extrudable);
       }
     }
 

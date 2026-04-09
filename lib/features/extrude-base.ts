@@ -63,6 +63,14 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     const suffix = this.buildSuffix('start-edges', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
+        if (this._operationMode === 'remove') {
+          const edges = parent.getState('start-edges') as Edge[] || [];
+          const transform = parent.getTransform();
+          const originalEdges = transform
+            ? (this.getState('start-edges') as Edge[] || [])
+            : null;
+          return this.resolveEdges(edges, args, transform, originalEdges);
+        }
         const faces = parent.getState('start-faces') as Face[] || [];
         const edges = faces.flatMap(f => f.getEdges());
         const transform = parent.getTransform();
@@ -77,6 +85,14 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     const suffix = this.buildSuffix('end-edges', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
+        if (this._operationMode === 'remove') {
+          const edges = parent.getState('end-edges') as Edge[] || [];
+          const transform = parent.getTransform();
+          const originalEdges = transform
+            ? (this.getState('end-edges') as Edge[] || [])
+            : null;
+          return this.resolveEdges(edges, args, transform, originalEdges);
+        }
         const faces = parent.getState('end-faces') as Face[] || [];
         const edges = faces.flatMap(f => f.getEdges());
         const transform = parent.getTransform();
@@ -114,6 +130,22 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       }, this);
   }
 
+  /**
+   * Returns the section edges created by a cut operation.
+   * Only meaningful when operationMode is 'remove'.
+   */
+  edges(...indices: number[]): SceneObject {
+    const suffix = indices.length > 0 ? `section-edges-${indices.join('-')}` : 'section-edges';
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
+      (parent) => {
+        const edges = parent.getState('section-edges') as Edge[] || [];
+        if (indices.length === 0) {
+          return edges;
+        }
+        return indices.filter(i => i >= 0 && i < edges.length).map(i => edges[i]);
+      }, this);
+  }
+
   internalFaces(...args: number[] | FaceFilterBuilder[]): SceneObject {
     const suffix = this.buildSuffix('internal-faces', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
@@ -131,6 +163,10 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     const suffix = this.buildSuffix('internal-edges', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
+        if (this._operationMode === 'remove') {
+          const edges = parent.getState('internal-edges') as Edge[] || [];
+          return this.resolveEdges(edges, args);
+        }
         const faces = parent.getState('internal-faces') as Face[] || [];
         const edges = faces.flatMap(f => f.getEdges());
         return this.resolveEdges(edges, args);
@@ -319,6 +355,8 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     this._draft = other._draft;
     this._endOffset = other._endOffset;
     this._fusionScope = other._fusionScope;
+    this._operationMode = other._operationMode;
+    this._symmetric = other._symmetric;
     this._picking = other._picking;
     this._pickPoints = other._pickPoints;
     return this;

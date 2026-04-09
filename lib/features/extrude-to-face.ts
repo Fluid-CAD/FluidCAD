@@ -71,7 +71,7 @@ export class ExtrudeToFace extends ExtrudeBase {
 
     this.extrudable.removeShapes(this);
 
-    if (this.face instanceof SelectSceneObject) {
+    if (this.face instanceof SceneObject) {
       this.face.removeShapes(this);
     }
 

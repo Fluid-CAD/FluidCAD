@@ -33,6 +33,7 @@ export type SceneObjectRender = {
   sceneShapes: RenderedShape[];
   visible: boolean;
   type: string;
+  uniqueType: string;
   fromCache: boolean;
   hasError: boolean;
   errorMessage?: string;

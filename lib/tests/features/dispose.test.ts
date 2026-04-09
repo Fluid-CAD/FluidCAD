@@ -5,6 +5,8 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cylinder from "../../core/cylinder.js";
 import trim from "../../core/trim.js";
+import color from "../../core/color.js";
+import plane from "../../core/plane.js";
 import { circle, rect } from "../../core/2d/index.js";
 import { SceneCompare } from "../../rendering/scene-compare.js";
 import { renderScene } from "../../rendering/render.js";
@@ -216,6 +218,81 @@ describe("dispose", () => {
       // Sketch is new — should not be cached
       const newSketch = scene2.getSceneObjects().find(o => o instanceof Sketch);
       expect(scene2.isCached(newSketch)).toBe(false);
+    });
+
+    it("should not delete shapes shared with matched objects (color + sideFaces scenario)", () => {
+      // Build first scene: two extrudes + color on side face
+      sketch("xy", () => {
+        rect([0, 100], 50, 50);
+      });
+      extrude(100);
+
+      sketch("xy", () => {
+        rect([0, 0], 50, 50);
+      });
+      const e2 = extrude(100).new();
+
+      color("red", e2.sideFaces(0));
+      const scene1 = render();
+
+      // Build second scene: same but different color
+      getSceneManager().startScene();
+      sketch("xy", () => {
+        rect([0, 100], 50, 50);
+      });
+      extrude(100);
+
+      sketch("xy", () => {
+        rect([0, 0], 50, 50);
+      });
+      const e2b = extrude(100).new();
+
+      color("blue", e2b.sideFaces(0));
+      const scene2 = getCurrentScene();
+
+      // Compare — everything matches except Color (red vs blue)
+      SceneCompare.compare(scene1, scene2);
+
+      // Render should succeed — faces from matched extrude must not be deleted
+      expect(() => renderScene(scene2)).not.toThrow();
+    });
+
+    it("should not delete shapes when new objects are added after matched ones", () => {
+      // First render: two extrudes, no color
+      sketch(plane("xy"), () => {
+        rect([100, 250], 50, 50);
+      });
+      extrude(100);
+
+      sketch(plane("xy"), () => {
+        rect([100, 150], 50, 50);
+      });
+      extrude(100).new();
+
+      const scene1 = render();
+
+      // Second render: same two extrudes + color added at the end
+      getSceneManager().startScene();
+      sketch(plane("xy"), () => {
+        rect([100, 250], 50, 50);
+      });
+      extrude(100);
+
+      sketch(plane("xy"), () => {
+        rect([100, 150], 50, 50);
+      });
+      const e2 = extrude(100).new();
+
+      color("red", e2.sideFaces(1));
+
+      const scene2 = getCurrentScene();
+
+      // Compare — all old objects match, color/selection are new
+      SceneCompare.compare(scene1, scene2);
+
+      // Render — LazySelection and Color must build successfully
+      // using faces from the matched extrude's transferred state
+      expect(() => renderScene(scene2)).not.toThrow();
     });
 
     it("should not delete shapes shared with matched objects (trim2d scenario)", () => {

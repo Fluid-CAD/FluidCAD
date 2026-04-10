@@ -7,6 +7,7 @@ import { ICON_SCISSORS, ICON_FILE_IMPORT, ICON_COPY } from './ui/icons';
 import { PointPickMode, HighlightInfo } from './interactive/point-pick-mode';
 import { RegionPickMode } from './interactive/region-pick-mode';
 import { BezierDrawMode } from './interactive/bezier-draw-mode';
+import { captureScreenshot } from './screenshot';
 import { Mesh, Object3D } from 'three';
 import { SnapManager } from './snapping/snap-manager';
 import { SnapController } from './snapping/snap-controller';
@@ -625,6 +626,31 @@ fileInput.addEventListener('change', async () => {
   }
 });
 
+async function handleScreenshotRequest(ws: WebSocket, requestId: string, options: any) {
+  try {
+    const blob = await captureScreenshot(viewer.sceneContext, options);
+    const buffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    ws.send(JSON.stringify({
+      type: 'screenshot-result',
+      requestId,
+      success: true,
+      data: btoa(binary),
+    }));
+  } catch (err: any) {
+    ws.send(JSON.stringify({
+      type: 'screenshot-result',
+      requestId,
+      success: false,
+      error: err.message || String(err),
+    }));
+  }
+}
+
 function connectWebSocket() {
   const wsUrl = `ws://${window.location.host}`;
   const ws = new WebSocket(wsUrl);
@@ -670,6 +696,9 @@ function connectWebSocket() {
         viewer.clearHighlight();
         selectionInfoOverlay.hide();
         shapePropertiesModal.show(msg.shapeId);
+        break;
+      case 'take-screenshot':
+        handleScreenshotRequest(ws, msg.requestId, msg.options);
         break;
     }
   });

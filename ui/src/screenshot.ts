@@ -35,6 +35,7 @@ export function captureScreenshot(sceneCtx: SceneContext, opts: Partial<Screensh
 
   const scene = sceneCtx.scene;
   const camera = sceneCtx.camera;
+  const cc = sceneCtx.cameraControls;
 
   // --- Save state ---
   const gridObj = scene.getObjectByName('grid');
@@ -46,11 +47,30 @@ export function captureScreenshot(sceneCtx: SceneContext, opts: Partial<Screensh
   const savedSketchAxes = sketchAxes?.visible;
   const savedBackground = scene.background;
 
+  const savedCamPos = new Vector3();
+  const savedCamTarget = new Vector3();
+  cc.getPosition(savedCamPos);
+  cc.getTarget(savedCamTarget);
+  const savedZoom = camera.zoom;
+
   // --- Apply export settings ---
   if (gridObj) { gridObj.visible = showGrid; }
   if (defaultAxes) { defaultAxes.visible = showAxes; }
   if (sketchAxes) { sketchAxes.visible = showAxes; }
   if (transparent) { scene.background = null; }
+
+  // Auto-fit the model into view before rendering
+  if (autoCrop) {
+    const compiled = scene.getObjectByName('compiledMesh');
+    if (compiled) {
+      const box = new Box3();
+      expandBounds(box, compiled);
+      if (!box.isEmpty()) {
+        sceneCtx.fitToBox(box, false);
+        cc.update(0);
+      }
+    }
+  }
 
   // Adjust camera projection for export aspect ratio
   const exportAspect = width / height;
@@ -118,7 +138,15 @@ export function captureScreenshot(sceneCtx: SceneContext, opts: Partial<Screensh
   } else {
     cam.aspect = savedCameraState.aspect;
   }
+  camera.zoom = savedZoom;
   cam.updateProjectionMatrix();
+
+  cc.setLookAt(
+    savedCamPos.x, savedCamPos.y, savedCamPos.z,
+    savedCamTarget.x, savedCamTarget.y, savedCamTarget.z,
+    false,
+  );
+  cc.update(0);
 
   tmpRenderer.dispose();
   sceneCtx.requestRender();

@@ -1,0 +1,66 @@
+.pre {
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  border: none;
+  overflow-x: auto;
+}
+
+.code {
+  position: relative;
+  display: block;
+  padding: 1rem 0;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: var(--ifm-code-font-size);
+  line-height: 1.6;
+}
+
+/* ===== Highlight overlay ===== */
+.highlightOverlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgba(74, 158, 255, 0.08);
+  border-left: 3px solid var(--fluidcad-accent);
+  pointer-events: none;
+  z-index: 0;
+  border-radius: 0 4px 4px 0;
+  transition:
+    transform 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+    height 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-theme='dark'] .highlightOverlay {
+  background: rgba(74, 158, 255, 0.14);
+}
+
+/* ===== Line layout ===== */
+.line {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  padding: 0 1rem;
+}
+
+.lineNumber {
+  display: inline-block;
+  width: 2ch;
+  margin-right: 1.5ch;
+  text-align: right;
+  color: var(--fluidcad-text-tertiary);
+  opacity: 0.5;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.lineContent {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ===== Reduced motion ===== */
+@media (prefers-reduced-motion: reduce) {
+  .highlightOverlay {
+    transition-duration: 0s !important;
+  }
+}

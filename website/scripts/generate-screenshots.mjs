@@ -46,6 +46,8 @@ const DEFAULT_SCREENSHOT_OPTIONS = {
   showAxes: false,
   autoCrop: true,
   margin: 20,
+  width: 800,
+  height: 800,
 };
 
 const PORT = 3200;
@@ -84,6 +86,16 @@ function discoverExamples(docsDir) {
     const showAxes = firstLines.includes('// @screenshot showAxes') ||
       SHOW_AXES_MARKERS.some(marker => code.includes(marker));
 
+    // Determine noAutoCrop from annotation
+    const noAutoCrop = firstLines.includes('noAutoCrop');
+
+    // Determine emptyScene from annotation (capture viewport with no code sent)
+    const emptyScene = firstLines.includes('emptyScene');
+
+    // Parse aspectRatio annotation, e.g. "// @screenshot aspectRatio 1.67"
+    const arMatch = firstLines.match(/\/\/ @screenshot.*aspectRatio\s+([\d.]+)/);
+    const aspectRatio = arMatch ? parseFloat(arMatch[1]) : null;
+
     // Compute output path
     const outputPath = examplePathToImagePath(filePath, docsDir);
     const name = basename(filePath, '.js');
@@ -95,6 +107,9 @@ function discoverExamples(docsDir) {
       code,
       outputPath,
       showAxes,
+      noAutoCrop,
+      emptyScene,
+      aspectRatio,
       source: relPath,
     });
   }
@@ -258,37 +273,45 @@ async function main() {
     let done = 0;
     let failed = 0;
     for (const config of allScreenshots) {
-      const { id, outputPath, code, showAxes } = config;
+      const { id, outputPath, code, showAxes, noAutoCrop, emptyScene, aspectRatio } = config;
 
       mkdirSync(dirname(outputPath), { recursive: true });
 
       process.stdout.write(`[${++done}/${allScreenshots.length}] ${id}... `);
 
-      // Send code to server via live-update
-      const sceneRendered = waitForIPC(server, 'scene-rendered', 30000);
-      server.send({
-        type: 'live-update',
-        fileName: join(WORKSPACE_DIR, 'test.fluid.js'),
-        code: code.trim(),
-      });
+      if (emptyScene) {
+        // Capture the viewport as-is without sending any code
+        await sleep(RENDER_DELAY_MS);
+      } else {
+        // Send code to server via live-update
+        const sceneRendered = waitForIPC(server, 'scene-rendered', 30000);
+        server.send({
+          type: 'live-update',
+          fileName: join(WORKSPACE_DIR, 'test.fluid.js'),
+          code: code.trim(),
+        });
 
-      // Wait for the server to finish processing + the UI to receive scene data
-      try {
-        await sceneRendered;
-      } catch {
-        console.log('TIMEOUT (scene-rendered) - skipping');
-        failed++;
-        continue;
+        // Wait for the server to finish processing + the UI to receive scene data
+        try {
+          await sceneRendered;
+        } catch {
+          console.log('TIMEOUT (scene-rendered) - skipping');
+          failed++;
+          continue;
+        }
+
+        // Wait for the UI to fully render the scene
+        await sleep(RENDER_DELAY_MS);
       }
-
-      // Wait for the UI to fully render the scene
-      await sleep(RENDER_DELAY_MS);
 
       // Capture screenshot
       try {
+        const arSize = aspectRatio ? { width: Math.round(800 * aspectRatio), height: 800 } : {};
         const options = {
           ...DEFAULT_SCREENSHOT_OPTIONS,
           ...(showAxes ? { showAxes: true } : {}),
+          ...(noAutoCrop ? { autoCrop: false, fitToModel: true, transparent: false } : {}),
+          ...arSize,
         };
         const png = await takeScreenshot(PORT, options);
         writeFileSync(outputPath, png);

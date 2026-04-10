@@ -36,7 +36,7 @@ export class TimelinePanel {
     // Logo above file name
     const logoRow = document.createElement('div');
     logoRow.className = 'flex items-center gap-1.5 px-1 pb-1 shrink-0';
-    logoRow.innerHTML = `<img src="/logo.png" alt="FluidCAD" class="h-[18px] w-auto opacity-70" /><span class="text-sm font-bold text-base-content/50">FluidCAD</span>`;
+    logoRow.innerHTML = `<img src="/logo.png" alt="FluidCAD" class="h-6 w-auto opacity-70" /><span class="text-[18px] font-bold text-base-content/70">FluidCAD</span>`;
     this.panel.appendChild(logoRow);
 
     // File name label above accordion

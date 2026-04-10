@@ -16,8 +16,7 @@
   ],
   "type": "module",
   "workspaces": [
-    "extension/vscode",
-    "packages/create-fluidcad-app"
+    "extension/vscode"
   ],
   "bin": {
     "fluidcad": "./bin/fluidcad.js"

@@ -4,17 +4,43 @@ import { fork } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parseArgs } from 'util';
+import { writeFileSync, existsSync } from 'fs';
 import { createFileWatcher } from './watcher.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const { values } = parseArgs({
+const { values, positionals } = parseArgs({
   options: {
     port: { type: 'string', short: 'p', default: '3100' },
     workspace: { type: 'string', short: 'w', default: process.cwd() },
   },
   allowPositionals: true,
 });
+
+if (positionals[0] === 'init') {
+  const cwd = process.cwd();
+
+  const initPath = resolve(cwd, 'init.js');
+  if (existsSync(initPath)) {
+    console.error('init.js already exists in this directory.');
+    process.exit(1);
+  }
+
+  writeFileSync(initPath, `import { init } from 'fluidcad'\n\nexport default init()\n`);
+
+  const jsconfigPath = resolve(cwd, 'jsconfig.json');
+  if (!existsSync(jsconfigPath)) {
+    writeFileSync(jsconfigPath, JSON.stringify({
+      compilerOptions: {
+        checkJs: true,
+        module: 'node20',
+      },
+    }, null, 2) + '\n');
+  }
+
+  console.log('FluidCAD initialized.');
+  process.exit(0);
+}
 
 const serverEntry = resolve(__dirname, '..', 'server', 'dist', 'index.js');
 

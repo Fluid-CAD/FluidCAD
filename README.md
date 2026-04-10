@@ -76,12 +76,13 @@ FluidCAD ships official extensions for **VS Code** and **Neovim**, but works wit
 ### 1. Create a New Project
 
 ```bash
-npm create fluidcad-app@latest my-app
-cd my-app
-npm install
+mkdir my-app && cd my-app
+npm init -y
+npm install fluidcad
+npx fluidcad init
 ```
 
-This scaffolds a project with a sample `.fluid.js` file ready to go.
+This generates `init.js` and `jsconfig.json` to get you started.
 
 ### 2. Set Up Your Editor
 

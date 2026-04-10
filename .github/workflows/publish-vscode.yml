@@ -27,7 +27,7 @@ jobs:
         working-directory: extension/vscode
 
       - name: Publish to VS Marketplace
-        run: npx @vscode/vsce publish --no-dependencies --no-rewrite-relative-links
+        run: npx @vscode/vsce publish --no-dependencies
         working-directory: extension/vscode
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}

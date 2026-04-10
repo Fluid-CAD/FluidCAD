@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="FluidCAD Logo" width="120" />
+  <img src="https://fluidcad.io/img/logo.png" alt="FluidCAD Logo" width="120" />
 </p>
 
 <h1 align="center">FluidCAD</h1>
@@ -38,7 +38,7 @@ A modeling workflow that feels familiar to users of mainstream CAD software -- s
 Navigate through your modeling history step by step. Review how any model was built and roll back to any point in the feature tree.
 
 <p align="center">
-  <img src="assets/history.gif" alt="FluidCAD History" />
+  <img src="https://fluidcad.io/img/history.gif" alt="FluidCAD History" />
 </p>
 
 ### Interactive Prototyping
@@ -46,7 +46,7 @@ Navigate through your modeling history step by step. Review how any model was bu
 Some operations support interactive mouse-driven input directly in the viewport, letting you prototype faster without writing every parameter by hand.
 
 <p align="center">
-  <img src="assets/region-extrude.gif" alt="FluidCAD Region Extrude" />
+  <img src="https://fluidcad.io/img/region-extrude.gif" alt="FluidCAD Region Extrude" />
 </p>
 
 ### Feature Transforms
@@ -75,7 +75,7 @@ repeat("linear", ["x", "y"], {
 
 ```
 <p align="center">
-  <img src="assets/repeat.png" alt="FluidCAD Repeat Feature" />
+  <img src="https://fluidcad.io/img/repeat.png" alt="FluidCAD Repeat Feature" />
 </p>
 
 
@@ -92,7 +92,7 @@ Most operations just do the right thing without extra arguments. `extrude` picks
 Import and export STEP files with full color support. Bring in existing CAD models or share your designs with any standard CAD tool.
 
 <p align="center">
-  <img src="assets/step-import.png" alt="FluidCAD Step Import" />
+  <img src="https://fluidcad.io/img/step-import.png" alt="FluidCAD Step Import" />
 </p>
 
 ### Use Your Favorite Editor

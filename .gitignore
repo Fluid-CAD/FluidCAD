@@ -7,6 +7,5 @@ out/
 *.tsbuildinfo
 *.vsix
 extension/vscode/README.md
-extension/vscode/assets/
 server/dist/
 ui/dist/

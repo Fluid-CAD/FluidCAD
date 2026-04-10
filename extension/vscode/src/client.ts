@@ -99,7 +99,7 @@ export class Client {
   private async spawnServer(workspacePath: string): Promise<void> {
     let serverEntry: string;
     try {
-      serverEntry = require.resolve('fluidcad/server');
+      serverEntry = require.resolve('fluidcad/server', { paths: [workspacePath] });
     } catch {
       serverEntry = join(this.context.extensionUri.fsPath, '..', '..', 'server', 'src', 'index.ts');
     }

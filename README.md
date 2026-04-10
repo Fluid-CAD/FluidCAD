@@ -53,7 +53,31 @@ Some operations support interactive mouse-driven input directly in the viewport,
 
 Re-apply modeling features based on matrix transformations. Move, rotate, or mirror entire feature sequences to build complex geometry from simple building blocks.
 
-<!-- ![Feature Transforms](docs/assets/transforms.gif) -->
+```javascript
+sketch("xy", () => {
+    rect(200, 100).center()
+})
+
+const e1 = extrude(20)
+
+sketch(e1.endFaces(), () => {
+    circle([-80, 30], 30)
+});
+
+const pin = extrude(10)
+
+const f = chamfer(2, pin.endEdges());
+
+repeat("linear", ["x", "y"], {
+    count: [4, 2],
+    length: [160, -60]
+}, pin, f)
+
+```
+<p align="center">
+  <img src="assets/repeat.png" alt="FluidCAD Repeat Feature" />
+</p>
+
 
 ### Pattern Copying
 
@@ -67,7 +91,9 @@ Most operations just do the right thing without extra arguments. `extrude` picks
 
 Import and export STEP files with full color support. Bring in existing CAD models or share your designs with any standard CAD tool.
 
-<!-- ![STEP Import/Export](docs/assets/step.gif) -->
+<p align="center">
+  <img src="assets/step-import.png" alt="FluidCAD Step Import" />
+</p>
 
 ### Use Your Favorite Editor
 

@@ -15,9 +15,8 @@ FluidCAD is a JavaScript library for building parametric 3D models with code. Yo
 ## Create a new project
 
 ```bash
-npm create fluidcad-app@latest my-app
-cd my-app
-npm install
+npm i fluidcad
+npx fluidcad init
 ```
 
 This creates a project with the following structure:
@@ -44,7 +43,7 @@ import { init } from 'fluidcad';
 export default await init();
 ```
 
-Do not modify this file — it is generated automatically by `npm create fluidcad-app` and is required for the viewer to work.
+Do not modify this file — it is generated automatically by `npx fluidcad init` and is required for the viewer to work.
 
 ## The starter file
 

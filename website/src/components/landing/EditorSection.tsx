@@ -2,6 +2,9 @@ import {useState} from 'react';
 import CodeBlock from '@theme/CodeBlock';
 import styles from './EditorSection.module.css';
 
+const INSTALL_CMD = `npm i fluidcad
+npx fluidcad init`;
+
 type Editor = {
   id: string;
   name: string;
@@ -60,39 +63,63 @@ export default function EditorSection() {
   return (
     <section className={styles.section}>
       <div className="container">
-        <h2 className={styles.sectionTitle}>Works with your editor</h2>
+        <h2 className={styles.sectionTitle}>Get started</h2>
         <p className={styles.sectionSubtitle}>
-          First-class integrations for popular editors, or bring your own.
+          Set up a project and connect your editor in under a minute.
         </p>
-        <div className={styles.tabLayout}>
-          <div className={styles.tabList} role="tablist">
-            {EDITORS.map((e, i) => (
-              <button
-                key={e.id}
-                role="tab"
-                aria-selected={i === active}
-                className={`${styles.tab} ${i === active ? styles.tabActive : ''}`}
-                onClick={() => setActive(i)}>
-                {e.name}
-              </button>
-            ))}
-          </div>
-          <div className={styles.tabPanel} role="tabpanel">
-            <div className={styles.steps}>
-              {editor.steps.map((step, i) => (
-                <div key={step} className={styles.step}>
-                  <span className={styles.stepNumber}>{i + 1}</span>
-                  <span className={styles.stepText}>{step}</span>
-                </div>
-              ))}
-            </div>
-            {editor.code && (
-              <div className={styles.codeWrapper}>
-                <CodeBlock language={editor.code.language}>
-                  {editor.code.content}
+        <div className={styles.columns}>
+          {/* Left: Install */}
+          <div className={styles.installCol}>
+            <h3 className={`${styles.colTitle} ${styles.installTitle}`}>Install</h3>
+            <div className={styles.terminal}>
+              <div className={styles.terminalChrome}>
+                <span className={styles.dot} data-color="red" />
+                <span className={styles.dot} data-color="yellow" />
+                <span className={styles.dot} data-color="green" />
+                <span className={styles.terminalTitle}>Terminal</span>
+              </div>
+              <div className={styles.terminalBody}>
+                <CodeBlock language="bash">
+                  {INSTALL_CMD}
                 </CodeBlock>
               </div>
-            )}
+            </div>
+          </div>
+
+          {/* Right: Editor setup */}
+          <div className={styles.editorCol}>
+            <h3 className={styles.colTitle}>Set up your editor</h3>
+            <div className={styles.tabLayout}>
+              <div className={styles.tabList} role="tablist">
+                {EDITORS.map((e, i) => (
+                  <button
+                    key={e.id}
+                    role="tab"
+                    aria-selected={i === active}
+                    className={`${styles.tab} ${i === active ? styles.tabActive : ''}`}
+                    onClick={() => setActive(i)}>
+                    {e.name}
+                  </button>
+                ))}
+              </div>
+              <div className={styles.tabPanel} role="tabpanel">
+                <div className={styles.steps}>
+                  {editor.steps.map((step, i) => (
+                    <div key={step} className={styles.step}>
+                      <span className={styles.stepNumber}>{i + 1}</span>
+                      <span className={styles.stepText}>{step}</span>
+                    </div>
+                  ))}
+                </div>
+                {editor.code && (
+                  <div className={styles.codeWrapper}>
+                    <CodeBlock language={editor.code.language}>
+                      {editor.code.content}
+                    </CodeBlock>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>

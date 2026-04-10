@@ -1,6 +1,6 @@
 {
   "name": "fluidcad",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Parametric CAD modeling library using javascript",
   "author": "Marwan Aouida <contact@marwan.dev>",
   "homepage": "https://fluidcad.io",
@@ -46,7 +46,7 @@
     "typecheck": "tsc -b",
     "test": "vitest",
     "test:features": "vitest run lib/tests/features/",
-    "release": "npm version --workspaces --include-workspace-root"
+    "release": "npx bumpp patch package.json extension/vscode/package.json"
   },
   "dependencies": {
     "chokidar": "^5.0.0",

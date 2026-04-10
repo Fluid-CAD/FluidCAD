@@ -52,7 +52,7 @@ function hideLoading() {
 const viewer = new Viewer('fluidcad-viewer');
 const shapePropertiesModal = new ShapePropertiesModal(container);
 const selectionInfoOverlay = new SelectionInfoOverlay(container);
-const exportDialog = new ExportDialog(container);
+const exportDialog = new ExportDialog(container, viewer.sceneContext);
 const timelinePanel = new TimelinePanel(container, (shapeId) => {
   viewer.highlightShape(shapeId);
 }, (shapeIds) => {

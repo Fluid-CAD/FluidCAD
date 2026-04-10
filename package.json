@@ -54,7 +54,7 @@
     "express": "^5.2.1",
     "occjs-fluidcad": "^1.0.0",
     "occjs-wrapper": "npm:occjs-fluidcad@^1.0.0",
-    "vite": "^7.1.7",
+    "vite": "^8.0.8",
     "ws": "^8.18.0"
   },
   "devDependencies": {

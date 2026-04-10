@@ -1,0 +1,187 @@
+.section {
+  padding: 5rem 1.5rem;
+  background: var(--fluidcad-bg-primary);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.sectionTitle {
+  text-align: center;
+  font-size: 2.25rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--fluidcad-text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.sectionSubtitle {
+  text-align: center;
+  font-size: 1.1rem;
+  color: var(--fluidcad-text-secondary);
+  margin-bottom: 4rem;
+  max-width: 580px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ===== Showcase list ===== */
+.showcases {
+  display: flex;
+  flex-direction: column;
+  gap: 4.5rem;
+}
+
+/* ===== Single showcase row ===== */
+.showcase {
+  display: flex;
+  gap: 4rem;
+  align-items: center;
+}
+
+/* ===== Media column (larger) ===== */
+.mediaCol {
+  flex: 3;
+  min-width: 0;
+}
+
+.mediaCard {
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--fluidcad-border);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.07), 0 1px 4px rgba(0, 0, 0, 0.04);
+  background: var(--fluidcad-bg-surface);
+  line-height: 0;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+[data-theme='dark'] .mediaCard {
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35), 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.media {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* ===== Text column (smaller) ===== */
+.textCol {
+  flex: 2;
+  min-width: 0;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fluidcad-accent);
+  margin-bottom: 0.75rem;
+}
+
+.showcaseTitle {
+  font-size: 1.65rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--fluidcad-text-primary);
+  margin-bottom: 0.85rem;
+  line-height: 1.25;
+}
+
+.showcaseDesc {
+  font-size: 1rem;
+  line-height: 1.75;
+  color: var(--fluidcad-text-secondary);
+  margin: 0;
+}
+
+/* ===== Featured cards below showcases ===== */
+.featuredGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.25rem;
+  margin-top: 4.5rem;
+  padding-top: 4rem;
+  border-top: 1px solid var(--fluidcad-border);
+}
+
+.featuredCard {
+  background: var(--fluidcad-bg-surface);
+  border: 1px solid var(--fluidcad-border);
+  border-radius: 12px;
+  padding: 1.75rem;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.featuredCard:hover {
+  border-color: var(--fluidcad-accent-light);
+  box-shadow: 0 0 24px var(--fluidcad-accent-glow);
+  transform: translateY(-2px);
+}
+
+.featuredIcon {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fluidcad-accent);
+}
+
+.featuredCardTitle {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--fluidcad-text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.featuredCardDesc {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--fluidcad-text-secondary);
+  margin: 0;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 996px) {
+  .showcase {
+    flex-direction: column;
+    gap: 2rem;
+  }
+
+  .mediaCol,
+  .textCol {
+    flex: unset;
+    width: 100%;
+  }
+
+  .featuredGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .section {
+    padding: 3rem 1rem;
+  }
+
+  .showcases {
+    gap: 3rem;
+  }
+
+  .sectionTitle {
+    font-size: 1.8rem;
+  }
+
+  .showcaseTitle {
+    font-size: 1.4rem;
+  }
+
+  .featuredGrid {
+    grid-template-columns: 1fr;
+  }
+}

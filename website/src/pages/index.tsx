@@ -3,7 +3,7 @@ import Layout from '@theme/Layout';
 import HeroSection from '@site/src/components/landing/HeroSection';
 import CodeShowcase from '@site/src/components/landing/CodeShowcase';
 import FeatureGrid from '@site/src/components/landing/FeatureGrid';
-import WorkflowSection from '@site/src/components/landing/WorkflowSection';
+import ShowcaseSection from '@site/src/components/landing/ShowcaseSection';
 import EditorSection from '@site/src/components/landing/EditorSection';
 
 export default function Home(): ReactNode {
@@ -14,9 +14,9 @@ export default function Home(): ReactNode {
       <main>
         <HeroSection />
         <CodeShowcase />
+        <ShowcaseSection />
         <FeatureGrid />
-        <WorkflowSection />
-        <EditorSection />
+<EditorSection />
       </main>
     </Layout>
   );

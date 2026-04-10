@@ -15,6 +15,8 @@ export interface ScreenshotOptions {
   showAxes: boolean;
   transparent: boolean;
   autoCrop: boolean;
+  /** Fit camera to the model without cropping the canvas. */
+  fitToModel: boolean;
   margin: number;
 }
 
@@ -25,13 +27,14 @@ const DEFAULTS: ScreenshotOptions = {
   showAxes: false,
   transparent: false,
   autoCrop: false,
+  fitToModel: false,
   margin: 0,
 };
 
 /** Render the current scene to a PNG blob with the given options. */
 export function captureScreenshot(sceneCtx: SceneContext, opts: Partial<ScreenshotOptions> = {}): Promise<Blob> {
   const options = { ...DEFAULTS, ...opts };
-  const { width, height, showGrid, showAxes, transparent, autoCrop, margin } = options;
+  const { width, height, showGrid, showAxes, transparent, autoCrop, fitToModel, margin } = options;
 
   const scene = sceneCtx.scene;
   const camera = sceneCtx.camera;
@@ -79,7 +82,7 @@ export function captureScreenshot(sceneCtx: SceneContext, opts: Partial<Screensh
   // Auto-fit the model into view before rendering.
   // We position the camera directly instead of going through camera-controls,
   // since cc.update(0) may not apply the state to the camera reliably.
-  if (autoCrop) {
+  if (autoCrop || fitToModel) {
     const compiled = scene.getObjectByName('compiledMesh');
     if (compiled) {
       const box = new Box3();

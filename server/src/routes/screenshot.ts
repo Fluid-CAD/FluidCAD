@@ -6,7 +6,7 @@ export function createScreenshotRouter(
   const router = Router();
 
   router.post('/screenshot', async (req, res) => {
-    const { width, height, showGrid, showAxes, transparent, autoCrop, margin } = req.body;
+    const { width, height, showGrid, showAxes, transparent, autoCrop, fitToModel, margin } = req.body;
 
     const options: Record<string, unknown> = {};
 
@@ -56,6 +56,14 @@ export function createScreenshotRouter(
         return;
       }
       options.autoCrop = autoCrop;
+    }
+
+    if (fitToModel !== undefined) {
+      if (typeof fitToModel !== 'boolean') {
+        res.status(400).json({ error: 'fitToModel must be a boolean.' });
+        return;
+      }
+      options.fitToModel = fitToModel;
     }
 
     if (margin !== undefined) {

@@ -167,10 +167,25 @@ export type UIProcessingFileMessage = {
   type: 'processing-file';
 };
 
+export type UITakeScreenshotMessage = {
+  type: 'take-screenshot';
+  requestId: string;
+  options: {
+    width?: number;
+    height?: number;
+    showGrid?: boolean;
+    showAxes?: boolean;
+    transparent?: boolean;
+    autoCrop?: boolean;
+    margin?: number;
+  };
+};
+
 export type ServerToUIMessage =
   | UIInitCompleteMessage
   | UIProcessingFileMessage
   | UISceneRenderedMessage
   | UIHighlightShapeMessage
   | UIClearHighlightMessage
-  | UIShowShapePropertiesMessage;
+  | UIShowShapePropertiesMessage
+  | UITakeScreenshotMessage;

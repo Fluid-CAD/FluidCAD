@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import http from 'http';
 import path from 'path';
 import express from 'express';
@@ -6,6 +7,7 @@ import { FluidCadServer } from './fluidcad-server.ts';
 import { createPropertiesRouter } from './routes/properties.ts';
 import { createActionsRouter } from './routes/actions.ts';
 import { createExportRouter } from './routes/export.ts';
+import { createScreenshotRouter } from './routes/screenshot.ts';
 import type { ServerToUIMessage } from './ws-protocol.ts';
 
 const PORT = parseInt(process.env.FLUIDCAD_SERVER_PORT || '3100', 10);
@@ -34,6 +36,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use('/api', createPropertiesRouter(fluidCadServer));
 app.use('/api', createActionsRouter(fluidCadServer, sendToExtension, broadcastToUI, WORKSPACE_PATH));
 app.use('/api', createExportRouter(fluidCadServer));
+app.use('/api', createScreenshotRouter(requestScreenshot));
 
 // Static files — serve UI build, with SPA fallback
 app.use(express.static(UI_DIST, {
@@ -73,6 +76,71 @@ function broadcastToUI(msg: ServerToUIMessage) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Screenshot request/response coordination
+// ---------------------------------------------------------------------------
+
+const SCREENSHOT_TIMEOUT_MS = 10_000;
+const pendingScreenshots = new Map<string, {
+  resolve: (data: Buffer) => void;
+  reject: (err: Error) => void;
+}>();
+
+function requestScreenshot(options: Record<string, unknown>): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    if (uiClients.size === 0) {
+      reject(new Error('No UI client connected.'));
+      return;
+    }
+
+    const requestId = crypto.randomUUID();
+
+    const timeout = setTimeout(() => {
+      pendingScreenshots.delete(requestId);
+      reject(new Error('Screenshot request timed out.'));
+    }, SCREENSHOT_TIMEOUT_MS);
+
+    pendingScreenshots.set(requestId, {
+      resolve(data) {
+        clearTimeout(timeout);
+        pendingScreenshots.delete(requestId);
+        resolve(data);
+      },
+      reject(err) {
+        clearTimeout(timeout);
+        pendingScreenshots.delete(requestId);
+        reject(err);
+      },
+    });
+
+    broadcastToUI({ type: 'take-screenshot', requestId, options });
+  });
+}
+
+function handleUIMessage(raw: string): void {
+  let msg: any;
+  try {
+    msg = JSON.parse(raw);
+  } catch {
+    return;
+  }
+
+  if (msg.type === 'screenshot-result' && msg.requestId) {
+    const pending = pendingScreenshots.get(msg.requestId);
+    if (!pending) { return; }
+
+    if (msg.success && msg.data) {
+      pending.resolve(Buffer.from(msg.data, 'base64'));
+    } else {
+      pending.reject(new Error(msg.error || 'Screenshot failed.'));
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket connections
+// ---------------------------------------------------------------------------
+
 wss.on('connection', (ws) => {
   uiClients.add(ws);
 
@@ -83,6 +151,10 @@ wss.on('connection', (ws) => {
   if (lastSceneMessage) {
     ws.send(lastSceneMessage);
   }
+
+  ws.on('message', (data) => {
+    handleUIMessage(String(data));
+  });
 
   ws.on('close', () => {
     uiClients.delete(ws);

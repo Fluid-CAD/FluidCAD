@@ -1,6 +1,10 @@
-# FluidCAD
+<p align="center">
+  <img src="logo.png" alt="FluidCAD Logo" width="120" />
+</p>
 
-**Write CAD models in JavaScript. See the result in real time.**
+<h1 align="center">FluidCAD</h1>
+
+<p align="center"><strong>Write CAD models in JavaScript. See the result in real time.</strong></p>
 
 > FluidCAD is under active development. APIs and features may change as the project evolves.
 

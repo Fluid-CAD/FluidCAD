@@ -33,6 +33,12 @@ export class TimelinePanel {
     this.panel.className = 'absolute left-6 top-6 bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
     container.appendChild(this.panel);
 
+    // Logo above file name
+    const logoRow = document.createElement('div');
+    logoRow.className = 'flex items-center gap-1.5 px-1 pb-1 shrink-0';
+    logoRow.innerHTML = `<img src="/logo.png" alt="FluidCAD" class="h-[18px] w-auto opacity-70" /><span class="text-sm font-bold text-base-content/50">FluidCAD</span>`;
+    this.panel.appendChild(logoRow);
+
     // File name label above accordion
     const fileRow = document.createElement('div');
     fileRow.className = 'flex items-center gap-2 px-1 pb-1 shrink-0';

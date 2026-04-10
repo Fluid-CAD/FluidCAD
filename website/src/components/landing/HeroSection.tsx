@@ -10,6 +10,7 @@ export default function HeroSection() {
       <div className={styles.gridBg} />
       <div className="container">
         <div className={styles.content}>
+          <img src="/img/logo.png" alt="FluidCAD Logo" className={styles.logo} />
           <Heading as="h1" className={styles.title}>
             {siteConfig.title}
           </Heading>

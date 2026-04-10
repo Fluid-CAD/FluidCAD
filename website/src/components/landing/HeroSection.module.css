@@ -29,6 +29,13 @@
   padding: 4rem 1rem;
 }
 
+.logo {
+  width: 100px;
+  height: auto;
+  margin: 0 auto 1.5rem;
+  display: block;
+}
+
 .title {
   font-size: 4.5rem;
   font-weight: 800;

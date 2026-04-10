@@ -279,12 +279,9 @@ export class TimelinePanel {
       if (!isCollapsed) {
         for (let i = 0; i < shapes.length; i++) {
           const shape = shapes[i];
-          const isSolid = shape.shapeType === 'solid';
           const isSelected = this.selectedShapeIds.has(shape.shapeId);
           const selectedClass = isSelected ? ' bg-primary/10' : '';
-          const dotsBtn = isSolid
-            ? `<button class="ml-auto opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${shape.shapeId}">${DOTS_SVG}</button>`
-            : '';
+          const dotsBtn = `<button class="ml-auto opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${shape.shapeId}">${DOTS_SVG}</button>`;
           html += `
             <div class="group flex items-center gap-2 pl-9 pr-3 py-1 cursor-pointer hover:bg-white/[0.06] text-sm text-base-content/70${selectedClass}" data-shape-id="${shape.shapeId}" data-shape-type="${shape.shapeType}">
               <img src="/icons/${shape.shapeType}.png" class="w-4 h-4 object-contain" alt="" />
@@ -318,22 +315,18 @@ export class TimelinePanel {
           return;
         }
         const shapeId = el.dataset.shapeId!;
-        const isSolid = el.dataset.shapeType === 'solid';
 
-        if (isSolid && (e.ctrlKey || e.metaKey)) {
+        if (e.ctrlKey || e.metaKey) {
           if (this.selectedShapeIds.has(shapeId)) {
             this.selectedShapeIds.delete(shapeId);
           } else {
             this.selectedShapeIds.add(shapeId);
           }
-          this.renderShapes();
         } else {
           this.selectedShapeIds.clear();
-          if (isSolid) {
-            this.selectedShapeIds.add(shapeId);
-            this.renderShapes();
-          }
+          this.selectedShapeIds.add(shapeId);
         }
+        this.renderShapes();
 
         if (shapeId) {
           this.onHighlightShape(shapeId);

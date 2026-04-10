@@ -1,0 +1,56 @@
+---
+sidebar_position: 5
+title: "Copying"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import copyLinear from '!!raw-loader!./_examples/copy-linear.js';
+import copyCircular from '!!raw-loader!./_examples/copy-circular.js';
+
+# Copying
+
+`copy()` duplicates the **entire shape** in linear or circular arrangements. The original solid is cloned as-is — FluidCAD doesn't re-run any modeling operations, it just places copies of the finished shape at new positions.
+
+## Linear copy
+
+Duplicate a shape along one axis:
+
+<CodeBlock language="js">{copyLinear}</CodeBlock>
+
+![Linear copy](/img/docs/guides/copy-linear.png)
+
+Options:
+- **`count`** — total number of instances (including the original)
+- **`offset`** — spacing between each instance
+- **`skip`** — indices to skip (0-based)
+
+### Multi-axis linear copy
+
+Copy along two axes at once:
+
+```js
+copy("linear", ["x", "y"], {
+    count: 4,
+    offset: 150,
+    skip: [[2], [1, 3]]       // skip index 2 on X, indices 1 and 3 on Y
+})
+```
+
+When using two axes, `count`, `offset`, and `skip` can each be arrays — one value per axis.
+
+## Circular copy
+
+Duplicate a shape around an axis:
+
+<CodeBlock language="js">{copyCircular}</CodeBlock>
+
+![Circular copy](/img/docs/guides/copy-circular.png)
+
+Options:
+- **`count`** — total number of instances (including the original)
+- **`angle`** — total angle to spread across (default: 360)
+- **`skip`** — indices to skip
+
+:::info[Copy vs. Repeat]
+`copy()` duplicates the finished shape. If you need to re-apply a modeling operation (like a cut or extrude) at multiple positions — so it interacts with the underlying solid at each location — use [`repeat()`](./patterns) instead.
+:::

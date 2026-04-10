@@ -1,0 +1,47 @@
+---
+sidebar_position: 5
+title: "Loft"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import loftTwo from '!!raw-loader!./_examples/loft-two-profiles.js';
+import loftThree from '!!raw-loader!./_examples/loft-three-profiles.js';
+
+# Loft
+
+`loft()` creates a smooth transition between two or more sketch profiles on different planes. It's useful for shapes that change cross-section along their length.
+
+<CodeBlock language="js">{loftTwo}</CodeBlock>
+
+![Loft from circle to square](/img/docs/3d-operations/loft-two-profiles.png)
+
+## Multiple profiles
+
+You can loft through more than two profiles:
+
+<CodeBlock language="js">{loftThree}</CodeBlock>
+
+![Three-profile loft](/img/docs/3d-operations/loft-three-profiles.png)
+
+The profiles must be on different planes (typically parallel planes at different offsets).
+
+## Accessing geometry
+
+```js
+const l = loft(s1, s2)
+
+l.endFaces()       // face at the last profile
+l.startFaces()     // face at the first profile
+l.sideFaces()      // the transition surface(s)
+l.endEdges()       // edges at the last profile
+l.startEdges()     // edges at the first profile
+l.sideEdges()      // edges along the sides
+```
+
+## Fusion scope
+
+```js
+loft(s1, s2).new()             // create a separate solid
+loft(s1, s2).add()             // fuse with touching solids (default)
+loft(s1, s2).remove(box)       // subtract the lofted shape from the box
+```

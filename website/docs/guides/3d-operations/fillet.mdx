@@ -1,0 +1,46 @@
+---
+sidebar_position: 7
+title: "Fillet"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import filletBasic from '!!raw-loader!./_examples/fillet-basic.js';
+import fillet2d from '!!raw-loader!./_examples/fillet-2d.js';
+
+# Fillet
+
+`fillet()` rounds edges with a given radius, creating smooth transitions between faces.
+
+<CodeBlock language="js">{filletBasic}</CodeBlock>
+
+![Filleted box edges](/img/docs/3d-operations/fillet-basic.png)
+
+## Targeting edges
+
+Pass specific edges as the second argument:
+
+```js
+fillet(5, e.endEdges())        // top edges of the extrude
+fillet(3, e.sideEdges())       // side edges
+fillet(2, c.internalEdges())   // internal edges from a cut
+```
+
+## Using the last selection
+
+If you don't specify edges, `fillet()` targets the last `select()` result:
+
+```js
+import { select } from 'fluidcad/core';
+import { edge } from 'fluidcad/filters';
+
+select(edge().verticalTo("xy"))
+fillet(5)                      // fillets the selected vertical edges
+```
+
+## 2D fillet
+
+`fillet()` also works inside sketches to round corners between lines:
+
+<CodeBlock language="js">{fillet2d}</CodeBlock>
+
+![2D fillet on a pentagon](/img/docs/3d-operations/fillet-2d.png)

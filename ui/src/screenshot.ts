@@ -6,7 +6,7 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three';
-import { SceneContext } from './scene/scene-context';
+import { FIT_PADDING, SceneContext } from './scene/scene-context';
 
 export interface ScreenshotOptions {
   width: number;
@@ -59,20 +59,8 @@ export function captureScreenshot(sceneCtx: SceneContext, opts: Partial<Screensh
   if (sketchAxes) { sketchAxes.visible = showAxes; }
   if (transparent) { scene.background = null; }
 
-  // Auto-fit the model into view before rendering
-  if (autoCrop) {
-    const compiled = scene.getObjectByName('compiledMesh');
-    if (compiled) {
-      const box = new Box3();
-      expandBounds(box, compiled);
-      if (!box.isEmpty()) {
-        sceneCtx.fitToBox(box, false);
-        cc.update(0);
-      }
-    }
-  }
-
-  // Adjust camera projection for export aspect ratio
+  // Adjust camera projection for export aspect ratio BEFORE fitting,
+  // so fitToSphere computes zoom against the correct frustum dimensions.
   const exportAspect = width / height;
   const cam = camera as any;
   let savedCameraState: any;
@@ -86,6 +74,36 @@ export function captureScreenshot(sceneCtx: SceneContext, opts: Partial<Screensh
     savedCameraState = { aspect: cam.aspect };
     cam.aspect = exportAspect;
     cam.updateProjectionMatrix();
+  }
+
+  // Auto-fit the model into view before rendering.
+  // We position the camera directly instead of going through camera-controls,
+  // since cc.update(0) may not apply the state to the camera reliably.
+  if (autoCrop) {
+    const compiled = scene.getObjectByName('compiledMesh');
+    if (compiled) {
+      const box = new Box3();
+      expandBounds(box, compiled);
+      if (!box.isEmpty()) {
+        const center = box.getCenter(new Vector3());
+        const diameter = box.getSize(new Vector3()).length() * FIT_PADDING;
+
+        if (diameter > 0) {
+          // Shift camera along its current viewing direction to center on the geometry
+          const dir = new Vector3();
+          camera.getWorldDirection(dir);
+          camera.position.copy(center).sub(dir.clone().multiplyScalar(1000));
+          camera.lookAt(center);
+
+          if (cam.isOrthographicCamera) {
+            const frustumW = cam.right - cam.left;
+            const frustumH = cam.top - cam.bottom;
+            cam.zoom = Math.min(frustumW / diameter, frustumH / diameter);
+          }
+          cam.updateProjectionMatrix();
+        }
+      }
+    }
   }
 
   // --- Render to off-screen canvas ---
@@ -139,14 +157,16 @@ export function captureScreenshot(sceneCtx: SceneContext, opts: Partial<Screensh
     cam.aspect = savedCameraState.aspect;
   }
   camera.zoom = savedZoom;
+  camera.position.copy(savedCamPos);
+  camera.lookAt(savedCamTarget);
   cam.updateProjectionMatrix();
 
+  // Resync camera-controls to the restored camera state
   cc.setLookAt(
     savedCamPos.x, savedCamPos.y, savedCamPos.z,
     savedCamTarget.x, savedCamTarget.y, savedCamTarget.z,
     false,
   );
-  cc.update(0);
 
   tmpRenderer.dispose();
   sceneCtx.requestRender();
@@ -218,8 +238,13 @@ function computeCropRect(
   return { x, y, w, h };
 }
 
+/** Recursively expand a Box3 to include all visible geometry.
+ *  Unlike the viewer's expandBoxExcludingMeta, this includes guide/construction
+ *  edges so that screenshots frame everything the user can see. Construction
+ *  planes are still skipped because their geometry extends far beyond the model. */
 function expandBounds(box: Box3, object: Object3D): void {
-  if (object.userData.isMetaShape) { return; }
+  if (object.userData.isConstructionPlane) { return; }
+  if (!object.visible) { return; }
   const o = object as any;
   if ((o.isMesh || o.isLine || o.isPoints) && o.geometry) {
     o.geometry.computeBoundingBox();

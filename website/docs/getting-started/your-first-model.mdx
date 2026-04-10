@@ -1,0 +1,107 @@
+---
+sidebar_position: 3
+title: "Your First Model"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import firstModelStep2 from '!!raw-loader!./_examples/first-model-step2.js';
+import firstModelStep4 from '!!raw-loader!./_examples/first-model-step4.js';
+import firstModelStep5 from '!!raw-loader!./_examples/first-model-step5.js';
+import firstModelFinal from '!!raw-loader!./_examples/first-model-final.js';
+
+# Your First Model
+
+In this tutorial you'll build a rounded box with a circular pocket cut from the top. Along the way you'll learn the core workflow: **sketch → extrude → modify**.
+
+Create a new file called `box.fluid.js` in your project folder.
+
+## Step 1: Import what you need
+
+```js
+import { sketch, extrude, cut, fillet } from 'fluidcad/core';
+import { rect, circle, move } from 'fluidcad/core';
+```
+
+Everything you need comes from `fluidcad/core`. Later guides will introduce `fluidcad/filters` for advanced selections.
+
+## Step 2: Sketch a rectangle
+
+```js
+sketch("xy", () => {
+    rect(100, 60)
+})
+```
+
+`sketch("xy", ...)` opens a 2D drawing on the XY plane (the ground plane, looking down from above). Inside the callback, `rect(100, 60)` draws a rectangle that is 100 wide and 60 tall.
+
+You should see a flat rectangle in your viewport.
+
+## Step 3: Extrude it into a box
+
+<CodeBlock language="js">{firstModelStep2}</CodeBlock>
+
+![Extruded rectangle](/img/docs/getting-started/first-model-step2.png)
+
+`extrude(30)` pulls the sketch 30 units upward into a solid box.
+
+Notice that we didn't pass the sketch to `extrude()` — FluidCAD automatically picks up the last sketch. Most operations work this way: `extrude()` grabs the last sketch, `fillet()` targets the last selection, and touching shapes auto-fuse into one solid. You can always be explicit when you need to, but smart defaults keep simple cases simple.
+
+We save the result in `box` so we can reference its faces and edges later.
+
+## Step 4: Round the corners
+
+Let's make it nicer by rounding the rectangle's corners. Update the sketch:
+
+<CodeBlock language="js">{firstModelStep4}</CodeBlock>
+
+- `.center()` moves the rectangle so its center sits at the origin.
+- `.radius(8)` rounds all four corners with a radius of 8.
+
+![Rounded box](/img/docs/getting-started/first-model-step4.png)
+
+## Step 5: Cut a pocket
+
+Now let's cut a circular pocket into the top. We sketch on the top face and then cut downward:
+
+```js
+sketch(box.endFaces(), () => {
+    circle(40)
+})
+
+cut(15)
+```
+
+- `box.endFaces()` gives us the top face of the extrusion — we use it as the sketch plane.
+- `circle(40)` draws a circle with a diameter of 40, centered at the origin of that face.
+- `cut(15)` removes material 15 units deep. If you call `cut()` with no argument, it cuts all the way through.
+
+![Box with pocket](/img/docs/getting-started/first-model-step5.png)
+
+## Step 6: Fillet the bottom edges
+
+Finally, let's round the bottom edges of the box:
+
+```js
+fillet(3, box.startEdges())
+```
+
+`box.startEdges()` selects the edges at the bottom (start) of the extrusion. `fillet(3)` rounds them with a radius of 3.
+
+![Finished model with fillets](/img/docs/getting-started/first-model-final.png)
+
+## Full code
+
+Here's the complete model:
+
+<CodeBlock language="js">{firstModelFinal}</CodeBlock>
+
+## What you learned
+
+- **`sketch(plane, callback)`** draws 2D shapes on a plane
+- **`extrude(distance)`** turns a sketch into a 3D solid
+- **`cut(depth)`** removes material from a solid
+- **`fillet(radius, edges)`** rounds edges
+- Operations like `extrude` return objects with methods like `.endFaces()` and `.startEdges()` that let you reference specific geometry
+- Most operations have smart defaults — `extrude()` picks up the last sketch, touching solids auto-fuse, and `cut()` with no argument cuts all the way through
+
+You're ready to explore the [Guides](../guides) for deeper coverage of each feature.

@@ -1,0 +1,40 @@
+---
+sidebar_position: 8
+title: "Chamfer"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import chamferBasic from '!!raw-loader!./_examples/chamfer-basic.js';
+import chamferAsymmetric from '!!raw-loader!./_examples/chamfer-asymmetric.js';
+
+# Chamfer
+
+`chamfer()` bevels edges with a flat cut, creating angled transitions between faces.
+
+<CodeBlock language="js">{chamferBasic}</CodeBlock>
+
+![Basic chamfer](/img/docs/3d-operations/chamfer-basic.png)
+
+## Asymmetric chamfer
+
+Specify two distances for an uneven bevel:
+
+<CodeBlock language="js">{chamferAsymmetric}</CodeBlock>
+
+![Asymmetric chamfer](/img/docs/3d-operations/chamfer-asymmetric.png)
+
+## Targeting edges
+
+Works the same way as fillet — pass specific edges or use the last selection:
+
+```js
+// Direct
+chamfer(2, e.sideEdges())
+
+// With select
+import { select } from 'fluidcad/core';
+import { edge } from 'fluidcad/filters';
+
+select(edge().onPlane("xy", 30))
+chamfer(4)
+```

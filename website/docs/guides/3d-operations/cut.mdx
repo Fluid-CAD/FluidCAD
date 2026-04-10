@@ -1,0 +1,72 @@
+---
+sidebar_position: 3
+title: "Cut"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import cutBasic from '!!raw-loader!./_examples/cut-basic.js';
+import cutThrough from '!!raw-loader!./_examples/cut-through.js';
+
+# Cut
+
+`cut()` removes material from existing solids. It is a shortcut for a subtractive extrude (`extrude().remove()`). Sketch a profile on a face, then cut into the solid.
+
+<CodeBlock language="js">{cutBasic}</CodeBlock>
+
+![Basic cut](/img/docs/3d-operations/cut-basic.png)
+
+## Through-all cut
+
+<CodeBlock language="js">{cutThrough}</CodeBlock>
+
+![Through-all cut](/img/docs/3d-operations/cut-through.png)
+
+When called with no distance, `cut()` removes material through the entire solid.
+
+## Draft angle
+
+```js
+cut(20).draft(-5)              // cut with a 5° inward draft
+```
+
+## Region picking
+
+When a sketch has multiple regions, use `.pick()` to select which region to cut:
+
+```js
+sketch(box.endFaces(), () => {
+    circle(60)
+    circle(30)
+})
+
+cut(10).pick([20, 0])          // cut only the ring region near [20, 0]
+```
+
+:::tip[Interactive mode]
+Call `.pick()` with no arguments to enter interactive mode. Click on regions in the viewport to select them.
+:::
+
+:::caution[Region picking can be fragile]
+When you pick a region by coordinates (or by clicking in interactive mode), those coordinates are saved in your code. If the sketch dimensions change later, the pick point may fall outside the resized regions, breaking the model.
+
+This makes `.pick()` great for **fast prototyping** or models with fixed dimensions. For parametric models where dimensions are likely to change, prefer structuring your sketches so each sketch contains only the regions you need — avoiding the need for `.pick()` altogether.
+:::
+
+## Accessing geometry
+
+```js
+const c = cut(15)
+
+c.startEdges()         // edges at the top of the cut
+c.endEdges()           // edges at the bottom of the cut
+c.internalEdges()      // edges created inside the solid
+c.internalFaces()      // faces inside the cut pocket
+```
+
+## Fusion scope
+
+By default, cut removes material from all intersecting solids. Control this with:
+
+```js
+cut().remove(box)              // cut only from the box, leaving other solids untouched
+```

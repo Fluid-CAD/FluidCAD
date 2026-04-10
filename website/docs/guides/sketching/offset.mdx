@@ -1,0 +1,43 @@
+---
+sidebar_position: 6
+title: "Offset"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import offsetBasic from '!!raw-loader!./_examples/offset-basic.js';
+import offsetRemove from '!!raw-loader!./_examples/offset-remove.js';
+
+# Offset
+
+`offset()` creates a copy of sketch geometry shifted inward or outward by a given distance.
+
+## Basic usage
+
+Inside a sketch, `offset()` offsets all existing shapes:
+
+<CodeBlock language="js">{offsetBasic}</CodeBlock>
+
+![Offset outward](/img/docs/sketching/offset-basic.png)
+
+Positive values offset outward, negative values offset inward.
+
+## Removing the original
+
+Pass `true` as the second argument to remove the original geometry and keep only the offset:
+
+<CodeBlock language="js">{offsetRemove}</CodeBlock>
+
+![Offset inward with removal](/img/docs/sketching/offset-remove.png)
+
+## Combining with other shapes
+
+Offset is useful for creating walls, margins, and clearances:
+
+```js
+sketch("xy", () => {
+    rect(50)
+    circle(30)
+    offset(5)                  // both the rect and circle are offset
+    circle(14)                 // add another shape after offsetting
+})
+```

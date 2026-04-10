@@ -1,0 +1,33 @@
+name: Publish VSCode Extension
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    if: github.repository == 'Fluid-CAD/FluidCAD'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/vscode/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: extension/vscode
+
+      - name: Publish to VS Marketplace
+        run: npx @vscode/vsce publish --no-dependencies --no-rewrite-relative-links
+        working-directory: extension/vscode
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}

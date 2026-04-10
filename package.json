@@ -45,7 +45,8 @@
     "dev:ui": "vite --config ui/vite.config.ts",
     "typecheck": "tsc -b",
     "test": "vitest",
-    "test:features": "vitest run lib/tests/features/"
+    "test:features": "vitest run lib/tests/features/",
+    "release": "npm version --workspaces --include-workspace-root"
   },
   "dependencies": {
     "chokidar": "^5.0.0",

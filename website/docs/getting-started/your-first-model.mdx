@@ -11,15 +11,15 @@ import firstModelFinal from '!!raw-loader!./_examples/first-model-final.js';
 
 # Your First Model
 
-In this tutorial you'll build a rounded box with a circular pocket cut from the top. Along the way you'll learn the core workflow: **sketch → extrude → modify**.
+In this tutorial you'll build a small open-top container with rounded corners. Along the way you'll learn the core workflow: **sketch → extrude → modify**.
 
 Create a new file called `box.fluid.js` in your project folder.
 
 ## Step 1: Import what you need
 
 ```js
-import { sketch, extrude, cut, fillet } from 'fluidcad/core';
-import { rect, circle, move } from 'fluidcad/core';
+import { sketch, extrude, shell, fillet } from 'fluidcad/core';
+import { rect } from 'fluidcad/core';
 ```
 
 Everything you need comes from `fluidcad/core`. Later guides will introduce `fluidcad/filters` for advanced selections.
@@ -59,27 +59,9 @@ Let's make it nicer by rounding the rectangle's corners. Update the sketch:
 
 ![Rounded box](/img/docs/getting-started/first-model-step4.png)
 
-## Step 5: Cut a pocket
+## Step 5: Fillet the bottom edges
 
-Now let's cut a circular pocket into the top. We sketch on the top face and then cut downward:
-
-```js
-sketch(box.endFaces(), () => {
-    circle(40)
-})
-
-cut(15)
-```
-
-- `box.endFaces()` gives us the top face of the extrusion — we use it as the sketch plane.
-- `circle(40)` draws a circle with a diameter of 40, centered at the origin of that face.
-- `cut(15)` removes material 15 units deep. If you call `cut()` with no argument, it cuts all the way through.
-
-![Box with pocket](/img/docs/getting-started/first-model-step5.png)
-
-## Step 6: Fillet the bottom edges
-
-Finally, let's round the bottom edges of the box:
+Let's round the bottom edges of the box:
 
 ```js
 fillet(3, box.startEdges())
@@ -87,7 +69,21 @@ fillet(3, box.startEdges())
 
 `box.startEdges()` selects the edges at the bottom (start) of the extrusion. `fillet(3)` rounds them with a radius of 3.
 
-![Finished model with fillets](/img/docs/getting-started/first-model-final.png)
+![Box with filleted edges](/img/docs/getting-started/first-model-step5.png)
+
+## Step 6: Shell it into a container
+
+Finally, let's hollow out the box to turn it into an open-top container:
+
+```js
+shell(-2, box.endFaces())
+```
+
+- `shell(-2, box.endFaces())` removes the top face and hollows out the solid, leaving walls that are 2 units thick.
+- The negative thickness means the shell goes **inward** — the outer shape stays the same.
+- `box.endFaces()` tells `shell()` which face to remove — this becomes the opening.
+
+![Finished container](/img/docs/getting-started/first-model-final.png)
 
 ## Full code
 
@@ -99,9 +95,9 @@ Here's the complete model:
 
 - **`sketch(plane, callback)`** draws 2D shapes on a plane
 - **`extrude(distance)`** turns a sketch into a 3D solid
-- **`cut(depth)`** removes material from a solid
 - **`fillet(radius, edges)`** rounds edges
+- **`shell(thickness, faces)`** hollows out a solid into a thin-walled container
 - Operations like `extrude` return objects with methods like `.endFaces()` and `.startEdges()` that let you reference specific geometry
-- Most operations have smart defaults — `extrude()` picks up the last sketch, touching solids auto-fuse, and `cut()` with no argument cuts all the way through
+- Most operations have smart defaults — `extrude()` picks up the last sketch, and touching shapes auto-fuse into one solid
 
 You're ready to explore the [Guides](../guides) for deeper coverage of each feature.

@@ -61,9 +61,7 @@
     "@tabler/icons": "^3.40.0",
     "@tailwindcss/vite": "^4.2.2",
     "@types/express": "^5.0.6",
-    "@types/lodash": "^4.17.20",
     "@types/node": "^22.14.1",
-    "@types/rbush": "^4.0.0",
     "@types/three": "^0.180.0",
     "@types/ws": "^8.18.0",
     "camera-controls": "^3.1.2",
@@ -74,7 +72,6 @@
     "tailwindcss": "^4.2.2",
     "three": "^0.180.0",
     "three-viewport-gizmo": "^2.2.0",
-    "tsx": "^4.20.1",
     "typescript": "^5.9.2",
     "vitest": "^4.0.17"
   }

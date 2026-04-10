@@ -4,6 +4,10 @@
   "description": "Parametric CAD modeling library using javascript",
   "author": "Marwan Aouida <contact@marwan.dev>",
   "homepage": "https://fluidcad.io",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fluid-CAD/FluidCAD.git"
+  },
   "keywords": [
     "cad",
     "opencascade.js",

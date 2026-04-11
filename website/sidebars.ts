@@ -27,7 +27,7 @@ const sidebars: SidebarsConfig = {
         type: 'doc',
         id: 'tutorials/index',
       },
-      items: ['tutorials/lantern', 'tutorials/ice-cube-tray'],
+      items: ['tutorials/lantern', 'tutorials/ice-cube-tray', 'tutorials/upper-alignment-clamp'],
     },
   ],
   apiSidebar: [

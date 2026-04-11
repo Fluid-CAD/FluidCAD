@@ -1,12 +1,12 @@
 .grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 1.5rem;
 }
 
 .card {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   border: 1px solid var(--ifm-color-emphasis-300);
   border-radius: 8px;
   overflow: hidden;
@@ -28,7 +28,8 @@
   align-items: center;
   justify-content: center;
   padding: 1.5rem;
-  aspect-ratio: 4 / 3;
+  width: 280px;
+  flex-shrink: 0;
 }
 
 .image {
@@ -39,7 +40,10 @@
 }
 
 .content {
-  padding: 1rem 1.25rem;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .title {

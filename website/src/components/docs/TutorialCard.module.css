@@ -57,3 +57,13 @@
   color: var(--ifm-color-emphasis-700);
   line-height: 1.5;
 }
+
+@media (max-width: 480px) {
+  .card {
+    flex-direction: column;
+  }
+
+  .imageWrapper {
+    width: 100%;
+  }
+}

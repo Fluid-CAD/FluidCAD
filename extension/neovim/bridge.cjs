@@ -12,9 +12,12 @@ if (!workspacePath) {
   process.exit(1);
 }
 
+const { createRequire } = require('module');
+const workspaceRequire = createRequire(path.join(workspacePath, 'noop.js'));
+
 let serverEntry;
 try {
-  serverEntry = require.resolve('fluidcad/server', { paths: [workspacePath] });
+  serverEntry = workspaceRequire.resolve('fluidcad/server');
 } catch {
   process.stderr.write(
     'Could not find fluidcad in this project.\n' +

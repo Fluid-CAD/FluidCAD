@@ -1,4 +1,4 @@
-// @screenshot skip
+// @screenshot waitForInput
 import { arc, chamfer, circle, copy, cut, extrude, fillet, hMove, mirror, move, plane, pMove, rect, repeat, sketch, vMove } from "fluidcad/core";
 
 let supportWidth = (150 - 63) / 2;
@@ -34,5 +34,3 @@ const p1 = plane("xy");
 sketch(p1, () => {
     rect(100, 62).center();
 });
-
-cut(-158).draft(-3)

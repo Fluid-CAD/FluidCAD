@@ -1,6 +1,32 @@
 import { type ViteDevServer, createServer } from 'vite';
 import { dirname, resolve, isAbsolute } from 'path';
 
+const BLOCKED_NODE_MODULES = new Set([
+  'fs',
+  'child_process',
+  'net',
+  'dgram',
+  'tls',
+  'http',
+  'https',
+  'http2',
+  'os',
+  'worker_threads',
+  'vm',
+  'cluster',
+  'dns',
+  'module',
+]);
+
+function getBlockedNodeModule(id: string): string | null {
+  let name = id;
+  if (name.startsWith('node:')) {
+    name = name.slice(5);
+  }
+  const baseName = name.split('/')[0];
+  return BLOCKED_NODE_MODULES.has(baseName) ? baseName : null;
+}
+
 export class ViteManager {
   server: ViteDevServer;
   private rootPath: string = '';
@@ -25,6 +51,14 @@ export class ViteManager {
         {
           name: 'virtual-module',
           resolveId(id, importer) {
+            const blockedModule = getBlockedNodeModule(id);
+            if (blockedModule) {
+              throw new Error(
+                `Module "${id}" is not allowed in FluidCAD scripts. ` +
+                `Access to Node.js "${blockedModule}" module is restricted for security.`
+              );
+            }
+
             if (id.startsWith('virtual:')) {
               return id;
             }

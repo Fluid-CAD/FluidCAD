@@ -109,7 +109,7 @@ export class FluidCadServer {
     catch (error) {
       this.viteManager.invalidateModule();
       console.log('Error processing file:', error);
-      return null;
+      throw error;
     }
   }
 

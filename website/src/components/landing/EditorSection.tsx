@@ -1,3 +1,4 @@
+import type {ReactNode} from 'react';
 import {useState} from 'react';
 import CodeBlock from '@theme/CodeBlock';
 import styles from './EditorSection.module.css';
@@ -8,7 +9,7 @@ npx fluidcad init`;
 type Editor = {
   id: string;
   name: string;
-  steps: string[];
+  steps: (string | ReactNode)[];
   code?: {language: string; content: string};
 };
 
@@ -17,7 +18,7 @@ const EDITORS: Editor[] = [
     id: 'vscode',
     name: 'VS Code',
     steps: [
-      'Install the FluidCAD extension from the VS Code Marketplace.',
+      <>Install the FluidCAD extension from the <a href="https://marketplace.visualstudio.com/items?itemName=FluidCAD.fluidcad" target="_blank" rel="noopener noreferrer">VS Code Marketplace</a>.</>,
       'Open your project folder in VS Code.',
       'Open the Command Palette (Ctrl+Shift+P / Cmd+Shift+P) and run Show FluidCAD Scene.',
     ],
@@ -33,7 +34,7 @@ const EDITORS: Editor[] = [
     code: {
       language: 'lua',
       content: `{
-  "fluidcad/fluidcad",
+  "Fluid-CAD/FluidCAD",
   config = function()
     require("fluidcad").setup()
   end,
@@ -105,7 +106,7 @@ export default function EditorSection() {
               <div className={styles.tabPanel} role="tabpanel">
                 <div className={styles.steps}>
                   {editor.steps.map((step, i) => (
-                    <div key={step} className={styles.step}>
+                    <div key={i} className={styles.step}>
                       <span className={styles.stepNumber}>{i + 1}</span>
                       <span className={styles.stepText}>{step}</span>
                     </div>

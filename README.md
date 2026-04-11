@@ -6,7 +6,23 @@
 
 <p align="center"><strong>Write CAD models in JavaScript. See the result in real time.</strong></p>
 
+<p align="center">
+  <a href="https://fluidcad.io/docs/getting-started">Getting Started</a> &middot;
+  <a href="https://fluidcad.io/docs/tutorials/">Tutorials</a> &middot;
+  <a href="https://fluidcad.io/docs/guides">Guides</a>
+</p>
+
 > FluidCAD is under active development. APIs and features may change as the project evolves.
+>
+> I'm not accepting pull requests just yet -- I'm still finalizing the design and putting together a roadmap. Once I hit **v0.1.0**, I'd love to have contributions from the community. Stay tuned!
+
+---
+
+## Under the Hood
+
+FluidCAD is built on [OpenCascade](https://dev.opencascade.org/), a full B-Rep (boundary representation) modeling kernel, through the [opencascade.js](https://ocjs.org/) WebAssembly binding. This means precise, production-grade geometry -- exact edges, fillets, and booleans -- not mesh approximations.
+
+A huge thanks to the [opencascade.js](https://ocjs.org/) team for making this possible.
 
 ---
 
@@ -119,7 +135,7 @@ This generates `init.js` and `jsconfig.json` to get you started.
 <details>
 <summary><strong>VS Code</strong></summary>
 
-1. Install the **FluidCAD** extension from the VS Code Marketplace.
+1. Install the **FluidCAD** extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=FluidCAD.fluidcad).
 2. Open your project folder in VS Code.
 3. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and run **Show FluidCAD Scene**.
 
@@ -134,7 +150,7 @@ Add the plugin with [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
 {
-  "fluidcad/fluidcad",
+  "Fluid-CAD/FluidCAD",
   config = function()
     require("fluidcad").setup()
   end,

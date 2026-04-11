@@ -1,0 +1,17 @@
+import {
+    axis, circle, color, cut, extrude, loft, move, offset,
+    plane, polygon, project, repeat, revolve, select, shell,
+    sketch, sphere, translate
+} from 'fluidcad/core';
+import { face } from 'fluidcad/filters';
+
+const sides = 6;
+const draft = 8;
+const windowOffset = 6;
+const wallThickness = 7;
+const middleHeight = 150;
+
+// Middle Body
+sketch(plane("xy", { offset: 24 }), () => {
+    polygon(sides, 100);
+})

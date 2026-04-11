@@ -89,6 +89,9 @@ function discoverExamples(docsDir) {
     // Determine noAutoCrop from annotation
     const noAutoCrop = firstLines.includes('noAutoCrop');
 
+    // Determine waitForInput from annotation (pause before screenshot for manual camera adjustment)
+    const waitForInput = firstLines.includes('waitForInput');
+
     // Determine emptyScene from annotation (capture viewport with no code sent)
     const emptyScene = firstLines.includes('emptyScene');
 
@@ -108,6 +111,7 @@ function discoverExamples(docsDir) {
       outputPath,
       showAxes,
       noAutoCrop,
+      waitForInput,
       emptyScene,
       aspectRatio,
       source: relPath,
@@ -150,6 +154,18 @@ function examplePathToImagePath(filePath, docsDir) {
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
+}
+
+function waitForEnter(prompt) {
+  return new Promise((resolve) => {
+    process.stdout.write(prompt);
+    process.stdin.setRawMode?.(false);
+    process.stdin.resume();
+    process.stdin.once('data', () => {
+      process.stdin.pause();
+      resolve();
+    });
+  });
 }
 
 function waitForIPC(server, type, timeoutMs = 30000) {
@@ -273,7 +289,7 @@ async function main() {
     let done = 0;
     let failed = 0;
     for (const config of allScreenshots) {
-      const { id, outputPath, code, showAxes, noAutoCrop, emptyScene, aspectRatio } = config;
+      const { id, outputPath, code, showAxes, noAutoCrop, waitForInput, emptyScene, aspectRatio } = config;
 
       mkdirSync(dirname(outputPath), { recursive: true });
 
@@ -304,13 +320,18 @@ async function main() {
         await sleep(RENDER_DELAY_MS);
       }
 
+      // Pause for manual camera adjustment if requested
+      if (waitForInput) {
+        await waitForEnter('\n>>> Adjust the camera, then press Enter to capture <<<\n');
+      }
+
       // Capture screenshot
       try {
         const arSize = aspectRatio ? { width: Math.round(800 * aspectRatio), height: 800 } : {};
         const options = {
           ...DEFAULT_SCREENSHOT_OPTIONS,
           ...(showAxes ? { showAxes: true } : {}),
-          ...(noAutoCrop ? { autoCrop: false, fitToModel: true, transparent: false } : {}),
+          ...(noAutoCrop ? { autoCrop: false, fitToModel: false, transparent: false } : {}),
           ...arSize,
         };
         const png = await takeScreenshot(PORT, options);

@@ -23,6 +23,18 @@ import cutThrough from '!!raw-loader!./_examples/cut-through.js';
 
 When called with no distance, `cut()` removes material through the entire solid.
 
+## Cut to face
+
+Like `extrude()`, `cut()` accepts a face reference, `'first-face'`, or `'last-face'` instead of a fixed distance:
+
+```js
+cut(targetFace)        // cut until the target face
+cut('first-face')      // cut to the nearest face
+cut('last-face')       // cut to the farthest face
+```
+
+See [Extrude — Extrude to face](/docs/guides/3d-operations/extrude#extrude-to-face) for detailed examples. The same rules apply: only **planar and cylindrical faces** are supported at the moment.
+
 ## Draft angle
 
 ```js

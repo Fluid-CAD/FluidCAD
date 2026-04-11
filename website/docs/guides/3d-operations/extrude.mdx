@@ -8,6 +8,10 @@ import extrudeBasic from '!!raw-loader!./_examples/extrude-basic.js';
 import extrudeSymmetric from '!!raw-loader!./_examples/extrude-symmetric.js';
 import extrudeDraft from '!!raw-loader!./_examples/extrude-draft.js';
 import extrudeRegionPick from '!!raw-loader!./_examples/extrude-region-pick.js';
+import extrudeToFace from '!!raw-loader!./_examples/extrude-to-face.js';
+import extrudeToFaceBlend from '!!raw-loader!./_examples/extrude-to-face-blend.js';
+import extrudeToFirstFace from '!!raw-loader!./_examples/extrude-to-first-face.js';
+import extrudeToFirstFaceCylindrical from '!!raw-loader!./_examples/extrude-to-first-face-cylindrical.js';
 
 # Extrude
 
@@ -40,6 +44,44 @@ Add a taper to the extrusion:
 <CodeBlock language="js">{extrudeDraft}</CodeBlock>
 
 ![Extrude with draft angle](/img/docs/3d-operations/extrude-draft.png)
+
+## Extrude to face
+
+Instead of a fixed distance, you can extrude until the solid reaches a target face. Pass a face reference to `extrude()`:
+
+<CodeBlock language="js">{extrudeToFace}</CodeBlock>
+
+![Extrude to face](/img/docs/3d-operations/extrude-to-face.png)
+
+Use `select()` with a face filter to grab the target face. The extrusion stops when it meets that face.
+
+### Blending with non-planar faces
+
+When the target face is angled or curved (e.g. from a drafted extrude), the extrusion end blends to match the face shape:
+
+<CodeBlock language="js">{extrudeToFaceBlend}</CodeBlock>
+
+![Extrude to face with blending](/img/docs/3d-operations/extrude-to-face-blend.png)
+
+The red face is the target — the extrusion conforms to its angled surface.
+
+## Extrude to first / last face
+
+Instead of selecting a specific face, use `'first-face'` or `'last-face'` to automatically extrude to the nearest or farthest intersecting face along the extrusion direction:
+
+<CodeBlock language="js">{extrudeToFirstFace}</CodeBlock>
+
+![Extrude to first face](/img/docs/3d-operations/extrude-to-first-face.png)
+
+With cylindrical targets, the extrusion blends to the curved surface:
+
+<CodeBlock language="js">{extrudeToFirstFaceCylindrical}</CodeBlock>
+
+![Extrude to first face — cylindrical](/img/docs/3d-operations/extrude-to-first-face-cylindrical.png)
+
+:::note
+Extrude to face, `'first-face'`, and `'last-face'` currently work with **planar and cylindrical faces** only.
+:::
 
 ## Region picking
 

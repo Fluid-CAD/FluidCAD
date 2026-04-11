@@ -16,7 +16,11 @@ let serverEntry;
 try {
   serverEntry = require.resolve('fluidcad/server', { paths: [workspacePath] });
 } catch {
-  serverEntry = path.resolve(__dirname, '..', '..', 'server', 'src', 'index.ts');
+  process.stderr.write(
+    'Could not find fluidcad in this project.\n' +
+    'Install it with: npm install fluidcad\n'
+  );
+  process.exit(1);
 }
 
 function findFreePort(start) {

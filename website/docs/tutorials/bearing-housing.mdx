@@ -1,0 +1,280 @@
+---
+sidebar_position: 4
+title: "Bearing Housing"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import bearingHousingFinal from '!!raw-loader!./_examples/bearing-housing-final.js';
+
+# Building a Bearing Housing
+
+![Finished bearing housing](/img/docs/tutorials/bearing-housing-final.png)
+
+In this tutorial, you'll build a bearing housing based on exercises from [Too Tall Toby](https://www.tootalltoby.com/practice/). It covers filleting, angled chamfers, multi-level extrusions, draft cuts, arc profiles, complex sketches with rounded corners, drilling, counterbores, circular copy patterns, and mirror symmetry.
+
+Create a new file called `bearing-housing.fluid.js` in your project.
+
+## Setup
+
+Start with the imports and parameters for the support brackets:
+
+```js
+import { arc, chamfer, circle, copy, cut, extrude, fillet, hMove, mirror, move, plane, pMove, rect, repeat, sketch, vMove } from "fluidcad/core";
+
+let supportWidth = (150 - 63) / 2;
+let supportThickness = 12;
+```
+
+The bearing housing is **150mm** wide overall. The central gap between the support brackets is **63mm**, so each bracket is `(150 - 63) / 2 = 43.5mm` wide. The brackets are **12mm** thick.
+
+## Step 1: Support Bracket
+
+### Sketch the bracket profile
+
+The first bracket sits to the right of center. `hMove(63 / 2)` shifts the cursor to the edge of the central gap, then `rect()` draws the bracket profile. `.center('vertical')` centers it vertically so it extends equally above and below the origin.
+
+```js
+sketch("xy", () => {
+    hMove(63 / 2)
+    rect(supportWidth, 115).center('vertical')
+});
+```
+
+![Support bracket sketch](/img/docs/tutorials/bearing-housing-step1-sketch.png)
+
+### Extrude and add edge treatments
+
+Extrude the bracket, fillet two side edges to round them, and add an angled chamfer to the end edges. `chamfer(8, 90 - 25, true, ...)` uses a distance of **8mm** and an angle of **65°** — the third argument `true` means the second parameter is an angle rather than a second distance.
+
+```js
+const e1 = extrude(supportThickness);
+
+fillet(12, e1.sideEdges(2, 3));
+
+chamfer(8, 90 - 25, true, e1.endEdges())
+```
+
+![Support bracket with fillet and chamfer](/img/docs/tutorials/bearing-housing-step1.png)
+
+## Step 2: Main Housing Body
+
+### Lower body
+
+Sketch a centered rectangle on the `"top"` plane and extrude it **130mm** upward to form the main housing block. Also create a reference plane on the bracket's side face — you'll use `rightPlane` later for the slot and bolt hole.
+
+```js
+sketch("top", () => {
+    rect(116, 77).center();
+});
+
+const e2 = extrude(130);
+const rightPlane = plane(e1.sideFaces(2))
+```
+
+### Upper section
+
+Sketch a slightly narrower rectangle on the end face of the lower body and extrude it **38mm** more. The width change from **77mm** to **68mm** creates a stepped profile. Chamfer the top edges to finish.
+
+```js
+sketch(e2.endFaces(), () => {
+    rect(116, 68).center();
+});
+
+const e3 = extrude(168 - 130);
+
+chamfer(8, e3.endEdges());
+```
+
+![Main housing body](/img/docs/tutorials/bearing-housing-step2.png)
+
+## Step 3: Internal Cavity
+
+Sketch a centered rectangle on the `"xy"` plane and cut downward **158mm** with a **3°** draft angle. The negative depth cuts downward, and `.draft(-3)` tapers the cavity walls inward — typical for cast parts where draft helps with mold release.
+
+```js
+const p1 = plane("xy");
+sketch(p1, () => {
+    rect(100, 62).center();
+});
+
+cut(-158).draft(-3)
+```
+
+![Internal cavity with draft](/img/docs/tutorials/bearing-housing-step3.png)
+
+## Step 4: Side Slot and Bolt Hole
+
+### Sketch the slot profile
+
+On `rightPlane`, build a keyhole-shaped profile: a narrow rectangle topped by a semicircular arc. `vMove()` positions the cursor vertically, `rect(20, 4).center('horizontal')` draws the narrow slot, then `arc(10, 0, 180)` adds a **180°** semicircle on top.
+
+```js
+sketch(rightPlane, () => {
+    move([0, 0]);
+    vMove(16)
+    vMove(-4)
+    rect(20, 4).center('horizontal')
+    vMove(4)
+    arc(10, 0, 180)
+});
+```
+
+![Slot profile sketch](/img/docs/tutorials/bearing-housing-step4-sketch.png)
+
+### Extrude the slot and cut the bolt hole
+
+Extrude the slot profile **20mm** inward, then sketch a circle on the same plane and cut through for the bolt hole.
+
+```js
+extrude(-40 / 2)
+sketch(rightPlane, () => {
+    move([0, 0]);
+    vMove(16)
+    circle(9);
+});
+
+cut();
+```
+
+![Slot and bolt hole](/img/docs/tutorials/bearing-housing-step4.png)
+
+## Step 5: Side Ribs
+
+### Sketch the rib profile
+
+On the side face of the upper section, sketch a profile made of two stacked rectangles with rounded corners. `.radius(8, 8, 0, 0)` rounds the top corners of the lower rectangle, while `.radius(0, 0, 8, 8)` rounds the bottom corners of the upper one, creating a smooth transition.
+
+```js
+sketch(e3.sideFaces(0), () => {
+    const rect1Width = 77;
+    const offset = 90;
+    const rect1Height = 130 - offset;
+    move([-rect1Width / 2, offset]);
+
+    rect(rect1Width, rect1Height).radius(8, 8, 0, 0)
+
+    const leftOffset = (rect1Width - 68) / 2;
+
+    hMove(-rect1Width + leftOffset);
+
+    const rect2Width = 68;
+    const rect2Height = 152 - 130;
+
+    rect(rect2Width, rect2Height).radius(0, 0, 8, 8)
+});
+```
+
+![Rib profile sketch](/img/docs/tutorials/bearing-housing-step5-sketch.png)
+
+### Extrude and mirror
+
+Extrude the rib by `(128 - 116) / 2 = 6mm`. `.drill(false)` prevents the extrusion from cutting into the existing body. Then `mirror("yz")` creates the matching rib on the opposite side.
+
+```js
+const e5 = extrude((128 - 116)/2).drill(false)
+mirror("yz")
+```
+
+![Side ribs mirrored](/img/docs/tutorials/bearing-housing-step5.png)
+
+## Step 6: Bearing Bore and Counterbore
+
+Cut a through-hole for the bearing with a **42mm** radius circle, then add a larger **54mm** radius counterbore **10mm** deep. `repeat("mirror", "yz", counterbore)` mirrors the counterbore to the opposite side.
+
+```js
+sketch(e5.endFaces(), () => {
+    move([0, 122])
+    circle(42);
+});
+
+cut()
+
+sketch(e5.endFaces(), () => {
+    move([0, 122])
+    circle(54);
+});
+
+const counterbore = cut(10);
+repeat("mirror", "yz", counterbore);
+```
+
+![Bearing bore and counterbore](/img/docs/tutorials/bearing-housing-step6.png)
+
+## Step 7: Front Plate and Mounting Holes
+
+### Circular front plate
+
+Sketch a large circle on the front face of the housing and extrude it **5.5mm** to create the bearing mounting plate.
+
+```js
+sketch(e2.sideFaces(3), () => {
+    circle(122)
+});
+
+const e6 = extrude(11/2)
+```
+
+### Keyway notches
+
+Cut narrow rectangular notches at the sides of the plate. `repeat("mirror", "yz", c2)` mirrors the notch to the other side.
+
+```js
+sketch(e6.endFaces(), () => {
+    hMove(116 / 2);
+    rect(5, 40).center('vertical')
+});
+
+const c2 = cut()
+repeat("mirror", "yz", c2);
+```
+
+### Bolt hole pattern
+
+Use `pMove()` to position the cursor in polar coordinates, then draw a bolt hole with `circle(9)`. `copy('circular', [0, 65], ...)` repeats the hole **4** times around center `[0, 65]` at equal **90°** intervals. Finally, `circle(85)` adds the large central bore.
+
+```js
+sketch(e6.endFaces(), () => {
+
+    pMove(103 / 2, 45)
+    circle(9)
+
+    copy('circular', [0, 65], {
+        count: 4,
+        angle: 360
+    });
+
+    circle(85)
+});
+
+cut()
+```
+
+![Bolt hole pattern sketch](/img/docs/tutorials/bearing-housing-step7-sketch.png)
+
+### Final mirror
+
+`mirror("front")` mirrors the entire model across the front plane to complete the symmetric bearing housing.
+
+```js
+mirror("front")
+```
+
+![Finished bearing housing](/img/docs/tutorials/bearing-housing-final.png)
+
+## Full code
+
+<CodeBlock language="js">{bearingHousingFinal}</CodeBlock>
+
+## What you practiced
+
+- **`fillet()`** — rounds selected edges with a given radius
+- **`chamfer()` with angle** — creates chamfers using a distance and angle when `isAngle` is `true`
+- **`plane()`** — creates a reference plane from an existing face for subsequent sketches
+- **`cut().draft()`** — cuts material with tapered walls for mold-release draft angles
+- **`arc()`** — draws semicircular arcs to build keyhole-shaped profiles
+- **`rect().radius()`** — creates rectangles with selectively rounded corners
+- **`.drill(false)`** — extrudes material without cutting into the existing body
+- **`mirror()`** — mirrors geometry across a principal plane
+- **`repeat("mirror", ...)`** — mirrors specific operations to the opposite side
+- **`copy('circular', ...)`** — creates circular patterns of sketch elements
+- **`pMove()`** — positions the cursor using polar coordinates

@@ -119,7 +119,7 @@ This generates `init.js` and `jsconfig.json` to get you started.
 <details>
 <summary><strong>VS Code</strong></summary>
 
-1. Install the **FluidCAD** extension from the VS Code Marketplace.
+1. Install the **FluidCAD** extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=FluidCAD.fluidcad).
 2. Open your project folder in VS Code.
 3. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and run **Show FluidCAD Scene**.
 
@@ -134,7 +134,7 @@ Add the plugin with [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
 {
-  "fluidcad/fluidcad",
+  "Fluid-CAD/FluidCAD",
   config = function()
     require("fluidcad").setup()
   end,

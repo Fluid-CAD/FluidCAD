@@ -14,7 +14,7 @@ Neovim integration for the FluidCAD editor. Spawns the same server used by the V
 
 ```lua
 {
-  dir = "~/projects/cad/extension/neovim",
+  "Fluid-CAD/FluidCAD",
   config = function()
     require("fluidcad").setup()
   end,

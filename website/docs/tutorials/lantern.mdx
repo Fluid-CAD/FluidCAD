@@ -55,6 +55,8 @@ sketch(plane("xy", { offset: 24 }), () => {
 const middle = extrude(middleHeight).draft(draft).new()
 ```
 
+![Hexagon sketch](/img/docs/tutorials/lantern-step1-sketch.png)
+
 The draft angle makes the hexagon slightly narrower at the top than the bottom, giving the lantern its characteristic tapered shape.
 
 ![Tapered hexagonal prism](/img/docs/tutorials/lantern-step1.png)
@@ -93,7 +95,12 @@ sketch(middle.sideFaces(0), () => {
 
 - `middle.sideFaces(0)` gives us the first side face of the hexagonal body — we use it both as the sketch plane and as the geometry to project.
 - `project()` traces the face's outline onto the sketch.
+
+![Projected face outline](/img/docs/tutorials/lantern-step2-project.png)
+
 - `offset(-windowOffset, true)` shrinks the outline inward by 6 units. The `true` removes the original projected outline, leaving only the inset shape.
+
+![Offset window cutout](/img/docs/tutorials/lantern-step2-offset.png)
 
 ### Cut and repeat
 
@@ -190,6 +197,9 @@ revolve(ringAxis).new()
 
 - `axis("y", { offsetZ: 290 })` creates a Y-axis shifted up to height 290 — this is the center of the ring.
 - A small circle (diameter 7) is sketched on the left plane, positioned to form the ring's cross-section.
+
+![Ring cross-section sketch](/img/docs/tutorials/lantern-step5-sketch.png)
+
 - `revolve(ringAxis)` rotates this circle around the offset axis, creating a torus (ring). The `.new()` keeps it separate from the rest.
 
 ![Finished lantern](/img/docs/tutorials/lantern-final.png)

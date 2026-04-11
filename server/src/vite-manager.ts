@@ -27,6 +27,21 @@ function getBlockedNodeModule(id: string): string | null {
   return BLOCKED_NODE_MODULES.has(baseName) ? baseName : null;
 }
 
+const IMPORT_PATTERN = /\b(?:import|export)\s[\s\S]*?from\s+['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+
+function scanForBlockedImports(code: string): string | null {
+  let match;
+  IMPORT_PATTERN.lastIndex = 0;
+  while ((match = IMPORT_PATTERN.exec(code)) !== null) {
+    const specifier = match[1] || match[2];
+    const blocked = getBlockedNodeModule(specifier);
+    if (blocked) {
+      return specifier;
+    }
+  }
+  return null;
+}
+
 export class ViteManager {
   server: ViteDevServer;
   private rootPath: string = '';
@@ -51,14 +66,6 @@ export class ViteManager {
         {
           name: 'virtual-module',
           resolveId(id, importer) {
-            const blockedModule = getBlockedNodeModule(id);
-            if (blockedModule) {
-              throw new Error(
-                `Module "${id}" is not allowed in FluidCAD scripts. ` +
-                `Access to Node.js "${blockedModule}" module is restricted for security.`
-              );
-            }
-
             if (id.startsWith('virtual:')) {
               return id;
             }
@@ -66,6 +73,18 @@ export class ViteManager {
             if (importer && importer.startsWith('virtual:live-render:') && !isAbsolute(id)) {
               const realImporter = importer.replace('virtual:live-render:', '');
               return resolve(dirname(realImporter), id);
+            }
+          },
+          transform(code, id) {
+            if (id.startsWith(rootPath) || id.startsWith('virtual:live-render')) {
+              const blocked = scanForBlockedImports(code);
+              if (blocked) {
+                const moduleName = getBlockedNodeModule(blocked)!;
+                throw new Error(
+                  `Module "${blocked}" is not allowed in FluidCAD scripts. ` +
+                  `Access to Node.js "${moduleName}" module is restricted for security.`
+                );
+              }
             }
           },
           load(id) {

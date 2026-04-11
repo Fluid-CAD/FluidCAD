@@ -125,7 +125,8 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         const endFaces = parent.getState('end-faces') as Face[] || [];
         const excludedEdges = [...startFaces, ...endFaces].flatMap(f => f.getEdges());
         const edges = sideFaces.flatMap(f => f.getEdges())
-          .filter(e => !excludedEdges.some(ex => e.getShape().IsSame(ex.getShape())));
+          .filter(e => !excludedEdges.some(ex => e.getShape().IsSame(ex.getShape())))
+          .filter((e, i, arr) => arr.findIndex(o => o.getShape().IsSame(e.getShape())) === i);
         return this.resolveEdges(edges, args);
       }, this);
   }

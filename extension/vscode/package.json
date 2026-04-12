@@ -47,6 +47,16 @@
           "group": "navigation"
         }
       ]
+    },
+    "configuration": {
+      "title": "FluidCAD",
+      "properties": {
+        "fluidcad.autoUpdatePackage": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically update the FluidCAD npm package when the extension version is newer."
+        }
+      }
     }
   },
   "scripts": {

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { Client } from './client';
+import { checkVersionMismatch } from './version-check';
 
 let client: Client;
 let currentOpenedFile: string | undefined;
@@ -64,6 +65,8 @@ export async function activate(context: vscode.ExtensionContext) {
   const logger = vscode.window.createOutputChannel('FluidCAD');
 
   logger.appendLine('FluidCAD extension activated');
+
+  checkVersionMismatch(context, logger);
 
   const editors = vscode.window.visibleTextEditors;
 

@@ -247,19 +247,21 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   }
 
   /**
-   * Selects straight-line edges.
+   * Selects straight-line edges, optionally matching a specific length.
+   * @param length - Optional length to match.
    */
-  line() {
-    const filter = new LineFilter();
+  line(length?: number) {
+    const filter = new LineFilter(length);
     this.filters.push(filter);
     return this;
   }
 
   /**
-   * Excludes straight-line edges.
+   * Excludes straight-line edges, optionally matching a specific length.
+   * @param length - Optional length to exclude.
    */
-  notLine() {
-    const filter = new NotLineFilter();
+  notLine(length?: number) {
+    const filter = new NotLineFilter(length);
     this.filters.push(filter);
     return this;
   }

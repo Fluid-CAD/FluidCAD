@@ -17,8 +17,8 @@ export class EdgeQuery {
     return EdgeQuery.isArcEdgeRaw(edge.getShape(), radius);
   }
 
-  static isLineEdge(edge: Shape): boolean {
-    return EdgeQuery.isLineEdgeRaw(edge.getShape());
+  static isLineEdge(edge: Shape, length?: number): boolean {
+    return EdgeQuery.isLineEdgeRaw(edge.getShape(), length);
   }
 
   static isEdgeOnPlane(edge: Shape, plane: Plane): boolean {
@@ -119,14 +119,25 @@ export class EdgeQuery {
     return Math.abs(r - radius) <= oc.Precision.Confusion();
   }
 
-  static isLineEdgeRaw(edge: TopoDS_Shape): boolean {
+  static isLineEdgeRaw(edge: TopoDS_Shape, length?: number): boolean {
     const oc = getOC();
     const ocEdge = oc.TopoDS.Edge(edge);
     const curveAdaptor = new oc.BRepAdaptor_Curve(ocEdge);
 
     const curveType = curveAdaptor.GetType();
+    if (curveType !== oc.GeomAbs_CurveType.GeomAbs_Line) {
+      curveAdaptor.delete();
+      return false;
+    }
+
+    if (length === undefined) {
+      curveAdaptor.delete();
+      return true;
+    }
+
+    const edgeLength = Math.abs(curveAdaptor.LastParameter() - curveAdaptor.FirstParameter());
     curveAdaptor.delete();
-    return curveType === oc.GeomAbs_CurveType.GeomAbs_Line;
+    return Math.abs(edgeLength - length) <= oc.Precision.Confusion();
   }
 
   static isEdgeOnPlaneRaw(edge: TopoDS_Shape, plane: gp_Pln): boolean {

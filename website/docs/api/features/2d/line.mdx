@@ -1,0 +1,45 @@
+---
+sidebar_position: 1
+title: "line"
+description: "Draws a line from the current position to the given point."
+---
+
+# line()
+
+Draws a line from the current position to the given point.
+
+**Returns**: [**`Geometry`**](/docs/api/types/geometry)
+
+:::tip
+See the [guide](/docs/guides/sketching/introduction) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+line(end: Point2DLike): Geometry
+```
+
+Draws a line from the current position to the given point.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `end` | [Point2DLike](/docs/api/types/point2dlike) | The end point |
+
+---
+
+```ts
+line(start: Point2DLike, end: Point2DLike): Geometry
+```
+
+Draws a line between two points.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `start` | [Point2DLike](/docs/api/types/point2dlike) | The start point |
+| `end` | [Point2DLike](/docs/api/types/point2dlike) | The end point |
+
+
+:::note
+All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
+:::

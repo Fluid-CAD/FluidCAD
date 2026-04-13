@@ -1,0 +1,41 @@
+---
+sidebar_position: 1
+title: "sketch"
+description: "Draws 2D geometry on a standard plane."
+---
+
+# sketch()
+
+Draws 2D geometry on a standard plane.
+
+**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+
+:::tip
+See the [guide](/docs/guides/sketching/introduction) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+sketch(plane: PlaneLike, sketcher: () => void): SceneObject
+```
+
+Draws 2D geometry on a standard plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [PlaneLike](/docs/api/types/plane-like) | The plane to sketch on |
+| `sketcher` | () =&gt; void | Callback containing sketch operations |
+
+---
+
+```ts
+sketch(face: SceneObject | Plane, sketcher: () => void): SceneObject
+```
+
+Draws 2D geometry on a face or plane object.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `face` | [SceneObject](/docs/api/types/scene-object) \| [Plane](/docs/api/types/plane) | The face or plane object to sketch on |
+| `sketcher` | () =&gt; void | Callback containing sketch operations |

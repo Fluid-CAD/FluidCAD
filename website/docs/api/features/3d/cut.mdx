@@ -1,0 +1,100 @@
+---
+sidebar_position: 3
+title: "cut"
+description: "Cuts through all using the last sketch"
+---
+
+# cut()
+
+Cuts through all using the last sketch
+
+**Returns**: [**`Cut`**](/docs/api/types/cut)
+
+:::tip
+See the [guide](/docs/guides/3d-operations/cut) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+cut(): Cut
+```
+
+Cuts through all using the last sketch
+
+---
+
+```ts
+cut(target: SceneObject): Cut
+```
+
+Cuts using the given sketch with a default distance.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to cut with |
+
+---
+
+```ts
+cut(distance: number, target?: SceneObject): Cut
+```
+
+Cuts using the given sketch by a given distance.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance` | number | The cut depth |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to cut with *(optional)* |
+
+---
+
+```ts
+cut(distance1: number, distance2: number): Cut
+```
+
+Cuts by two distances using the last sketch.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance1` | number | The first cut distance |
+| `distance2` | number | The second cut distance |
+
+---
+
+```ts
+cut(distance1: number, distance2: number, target: SceneObject): Cut
+```
+
+Cuts by two distances using the given sketch.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance1` | number | The first cut distance |
+| `distance2` | number | The second cut distance |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to cut with |
+
+---
+
+```ts
+cut(face: SceneObject | "first-face" | "last-face"): Cut
+```
+
+Cuts up to face using the last sketch.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `face` | [SceneObject](/docs/api/types/scene-object) \| "first-face" \| "last-face" | The face to cut up to, or `'first-face'`/`'last-face'` |
+
+---
+
+```ts
+cut(face: SceneObject | "first-face" | "last-face", target: SceneObject): Cut
+```
+
+Cuts up to face using the given sketch.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `face` | [SceneObject](/docs/api/types/scene-object) \| "first-face" \| "last-face" | The face to cut up to, or `'first-face'`/`'last-face'` |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to cut with |

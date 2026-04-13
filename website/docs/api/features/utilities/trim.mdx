@@ -1,0 +1,35 @@
+---
+sidebar_position: 8
+title: "trim"
+description: "Trims all sketch geometry segments."
+---
+
+# trim()
+
+Trims all sketch geometry segments.
+
+**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+
+:::tip
+See the [guide](/docs/guides/sketching/trim) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+trim(): SceneObject
+```
+
+Trims all sketch geometry segments.
+
+---
+
+```ts
+trim(...points: Point2DLike[]): SceneObject
+```
+
+Trims sketch geometry segments at the given points.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...points` | [Point2DLike](/docs/api/types/point2dlike)[] | The points where geometry should be trimmed *(optional)* |

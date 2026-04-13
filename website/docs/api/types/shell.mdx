@@ -1,0 +1,73 @@
+---
+sidebar_position: 11
+title: "Shell"
+description: "The Shell type. Extends SceneObject."
+---
+
+# Shell
+
+Extends [`SceneObject`](/docs/api/types/scene-object)
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### guide()
+
+```ts
+guide(): this
+```
+
+Marks this object as construction geometry. Guide objects are excluded from
+final geometry output unless explicitly included.
+
+
+</details>
+
+## Methods
+
+### internalFaces()
+
+```ts
+internalFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+```
+
+Selects the inner wall faces created by the shell operation (from thickness removal).
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### internalEdges()
+
+```ts
+internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges created by the shell operation that are not from the original solid
+or on the opening rim.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+

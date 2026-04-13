@@ -1,0 +1,78 @@
+---
+sidebar_position: 13
+title: "fillet"
+description: "Fillets selected edges with the given radius."
+---
+
+# fillet()
+
+Fillets selected edges with the given radius.
+
+**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+
+:::tip
+See the [guide](/docs/guides/3d-operations/fillet) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+fillet(radius?: number): SceneObject
+```
+
+Fillets selected edges with the given radius.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `radius` | number | The fillet radius (defaults to 1) *(optional)* |
+
+---
+
+```ts
+fillet(radius: number, ...sceneObjects: SceneObject[]): SceneObject
+```
+
+Fillets the given edge selections with the given radius.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `radius` | number | The fillet radius |
+| `...sceneObjects` | [SceneObject](/docs/api/types/scene-object)[] | The edge selections to fillet *(optional)* |
+
+---
+
+```ts
+fillet(objects: Geometry[]): SceneObject
+```
+
+[2D] Fillets corners between the given geometries.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `objects` | [Geometry](/docs/api/types/geometry)[] | The geometries whose corners to fillet |
+
+---
+
+```ts
+fillet(objects: Geometry[], radius: number): SceneObject
+```
+
+[2D] Fillets corners between the given geometries with a radius.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `objects` | [Geometry](/docs/api/types/geometry)[] | The geometries whose corners to fillet |
+| `radius` | number | The fillet radius |
+
+---
+
+```ts
+fillet(radius: number, ...objects: Geometry[]): SceneObject
+```
+
+[2D] Fillets corners at the given radius and geometries.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `radius` | number | The fillet radius |
+| `...objects` | [Geometry](/docs/api/types/geometry)[] | The geometries whose corners to fillet *(optional)* |

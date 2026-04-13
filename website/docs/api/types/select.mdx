@@ -1,0 +1,39 @@
+---
+sidebar_position: 17
+title: "Select"
+description: "The Select type. Extends SceneObject."
+---
+
+# Select
+
+Extends [`SceneObject`](/docs/api/types/scene-object)
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### guide()
+
+```ts
+guide(): this
+```
+
+Marks this object as construction geometry. Guide objects are excluded from
+final geometry output unless explicitly included.
+
+
+</details>

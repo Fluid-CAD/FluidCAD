@@ -1,0 +1,69 @@
+---
+sidebar_position: 14
+title: "chamfer"
+description: "Chamfers selected edges with the given distance."
+---
+
+# chamfer()
+
+Chamfers selected edges with the given distance.
+
+**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+
+:::tip
+See the [guide](/docs/guides/3d-operations/chamfer) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+chamfer(distance?: number): SceneObject
+```
+
+Chamfers selected edges with the given distance.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance` | number | The chamfer distance (defaults to 1) *(optional)* |
+
+---
+
+```ts
+chamfer(distance: number, selection: SceneObject): SceneObject
+```
+
+Chamfers the given edge selection with the given distance.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance` | number | The chamfer distance |
+| `selection` | [SceneObject](/docs/api/types/scene-object) | The edge selection to chamfer |
+
+---
+
+```ts
+chamfer(distance: number, distance2: number, isAngle?: boolean): SceneObject
+```
+
+Chamfers selected edges with two distances or a distance and angle.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance` | number | The first chamfer distance |
+| `distance2` | number | The second distance, or angle if `isAngle` is true |
+| `isAngle` | boolean | Whether `distance2` is an angle *(optional)* |
+
+---
+
+```ts
+chamfer(distance: number, distance2: number, isAngle: boolean, selection: SceneObject): SceneObject
+```
+
+Chamfers the given edge selection with two distances or a distance and angle.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance` | number | The first chamfer distance |
+| `distance2` | number | The second distance, or angle if `isAngle` is true |
+| `isAngle` | boolean | Whether `distance2` is an angle |
+| `selection` | [SceneObject](/docs/api/types/scene-object) | The edge selection to chamfer |

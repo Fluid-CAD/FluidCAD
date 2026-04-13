@@ -1,0 +1,16 @@
+---
+sidebar_position: 20
+title: "Point2DLike"
+description: "A 2D point accepted by sketching functions."
+---
+
+# Point2DLike
+
+A 2D point used by all sketching functions. Any of the following formats are accepted:
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| `[number, number]` | `[10, 20]` | Tuple of x, y coordinates |
+| `number[]` | `[10, 20]` | Array of x, y coordinates |
+| `{ x, y }` | `{ x: 10, y: 20 }` | Object with x, y properties |
+| [`Vertex`](/docs/api/types/vertex) | `line(...).end()` | A vertex returned by a geometry method |

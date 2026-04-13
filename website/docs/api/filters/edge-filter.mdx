@@ -1,0 +1,192 @@
+---
+sidebar_position: 2
+title: "EdgeFilter"
+description: "Creates a new edge filter builder for selecting edges by geometric properties."
+---
+
+# EdgeFilter
+
+Creates a new edge filter builder for selecting edges by geometric properties.
+
+```ts
+import { edge } from 'fluidcad/filters';
+```
+
+## Methods
+
+### .atIndex()
+
+```ts
+.atIndex(index: number): this
+```
+
+Selects the edge at the given index.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `index` | number | Zero-based edge index. |
+
+### .notAtIndex()
+
+```ts
+.notAtIndex(index: number): this
+```
+
+Excludes the edge at the given index.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `index` | number | Zero-based edge index to exclude. |
+
+---
+
+### .onPlane()
+
+```ts
+.onPlane(plane: PlaneLike, offset?: number, bothDirections?: boolean): this
+```
+
+Selects edges that lie on the given plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
+| `offset` | number | Optional distance to offset the plane before matching. *(optional)* |
+| `bothDirections` | boolean | When true, also matches the plane offset in the opposite direction. *(optional)* |
+
+### .notOnPlane()
+
+```ts
+.notOnPlane(plane: PlaneLike, offset?: number, bothDirections?: boolean): this
+```
+
+Excludes edges that lie on the given plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
+| `offset` | number | Optional distance to offset the plane before matching. *(optional)* |
+| `bothDirections` | boolean | When true, also excludes the plane offset in the opposite direction. *(optional)* |
+
+---
+
+### .parallelTo()
+
+```ts
+.parallelTo(plane: PlaneLike): this
+```
+
+Selects edges that are parallel to the given plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
+
+### .notParallelTo()
+
+```ts
+.notParallelTo(plane: PlaneLike): this
+```
+
+Excludes edges that are parallel to the given plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
+
+---
+
+### .verticalTo()
+
+```ts
+.verticalTo(plane: PlaneLike): this
+```
+
+Selects edges that are perpendicular (vertical) to the given plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
+
+### .notVerticalTo()
+
+```ts
+.notVerticalTo(plane: PlaneLike): this
+```
+
+Excludes edges that are perpendicular (vertical) to the given plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
+
+---
+
+### .circle()
+
+```ts
+.circle(diameter?: number): this
+```
+
+Selects circular edges, optionally matching a specific diameter.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `diameter` | number | Optional diameter to match. *(optional)* |
+
+### .notCircle()
+
+```ts
+.notCircle(diameter?: number): this
+```
+
+Excludes circular edges, optionally matching a specific diameter.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `diameter` | number | Optional diameter to exclude. *(optional)* |
+
+---
+
+### .arc()
+
+```ts
+.arc(radius?: number): this
+```
+
+Selects arc edges, optionally matching a specific radius.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `radius` | number | Optional radius to match. *(optional)* |
+
+### .notArc()
+
+```ts
+.notArc(radius?: number): this
+```
+
+Excludes arc edges, optionally matching a specific radius.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `radius` | number | Optional radius to exclude. *(optional)* |
+
+---
+
+### .line()
+
+```ts
+.line(): this
+```
+
+Selects straight-line edges.
+
+### .notLine()
+
+```ts
+.notLine(): this
+```
+
+Excludes straight-line edges.
+

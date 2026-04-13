@@ -1,0 +1,45 @@
+---
+sidebar_position: 2
+title: "circle"
+description: "Draws a circle at a given center with an optional diameter."
+---
+
+# circle()
+
+Draws a circle at a given center with an optional diameter.
+
+**Returns**: [**`ExtrudableGeometry`**](/docs/api/types/extrudable-geometry)
+
+:::tip
+See the [guide](/docs/guides/sketching/primitive-shapes) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+circle(center: Point2DLike, diameter?: number): ExtrudableGeometry
+```
+
+Draws a circle at a given center with an optional diameter.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `center` | [Point2DLike](/docs/api/types/point2dlike) | The center point |
+| `diameter` | number | The circle diameter (defaults to 40) *(optional)* |
+
+---
+
+```ts
+circle(diameter?: number): ExtrudableGeometry
+```
+
+Draws a circle at the origin with an optional diameter.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `diameter` | number | The circle diameter (defaults to 40) *(optional)* |
+
+
+:::note
+All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
+:::

@@ -1,0 +1,35 @@
+---
+sidebar_position: 9
+title: "fuse"
+description: "Fuses all shapes or 2D geometries in the current context."
+---
+
+# fuse()
+
+Fuses all shapes or 2D geometries in the current context.
+
+**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+
+:::tip
+See the [guide](/docs/guides/booleans-and-fusion) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+fuse(): Fuse | Fuse2D
+```
+
+Fuses all shapes or 2D geometries in the current context.
+
+---
+
+```ts
+fuse(...objects: SceneObject[]): Fuse | Fuse2D
+```
+
+Fuses the given shapes or 2D geometries into one.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to fuse together *(optional)* |

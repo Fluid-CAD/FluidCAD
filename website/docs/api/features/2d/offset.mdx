@@ -1,0 +1,43 @@
+---
+sidebar_position: 21
+title: "offset"
+description: "Offsets the current sketch geometry by the given distance."
+---
+
+# offset()
+
+Offsets the current sketch geometry by the given distance.
+
+**Returns**: [**`ExtrudableGeometry`**](/docs/api/types/extrudable-geometry)
+
+:::tip
+See the [guide](/docs/guides/sketching/offset) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+offset(distance?: number, removeOriginal?: boolean): ExtrudableGeometry
+```
+
+Offsets the current sketch geometry by the given distance.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance` | number | The offset distance (defaults to 1) *(optional)* |
+| `removeOriginal` | boolean | Whether to remove the original geometry *(optional)* |
+
+---
+
+```ts
+offset(distance: number, removeOriginal: boolean, targetPlane: SceneObject | PlaneLike, ...sourceGeometries: Geometry[]): ExtrudableGeometry
+```
+
+Offsets source geometries onto a target plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance` | number | The offset distance |
+| `removeOriginal` | boolean | Whether to remove the original geometry |
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to offset onto |
+| `...sourceGeometries` | [Geometry](/docs/api/types/geometry)[] | The geometries to offset *(optional)* |

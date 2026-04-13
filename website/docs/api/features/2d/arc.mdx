@@ -1,0 +1,58 @@
+---
+sidebar_position: 4
+title: "arc"
+description: "Draws an arc to an end point with an optional bulge radius."
+---
+
+# arc()
+
+Draws an arc to an end point with an optional bulge radius.
+
+**Returns**: [**`Geometry`**](/docs/api/types/geometry)
+
+## Signatures
+
+```ts
+arc(endPoint: Point2DLike, radius?: number): Geometry
+```
+
+Draws an arc to an end point with an optional bulge radius.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `endPoint` | [Point2DLike](/docs/api/types/point2dlike) | The end point of the arc |
+| `radius` | number | The bulge radius (0 = auto) *(optional)* |
+
+---
+
+```ts
+arc(startPoint: Point2DLike, endPoint: Point2DLike, radius?: number): Geometry
+```
+
+Draws an arc from a start point to an end point with an optional bulge radius.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `startPoint` | [Point2DLike](/docs/api/types/point2dlike) | The start point of the arc |
+| `endPoint` | [Point2DLike](/docs/api/types/point2dlike) | The end point of the arc |
+| `radius` | number | The bulge radius (0 = auto) *(optional)* |
+
+---
+
+```ts
+arc(radius: number, startAngle?: number, endAngle?: number, centered?: boolean): Geometry
+```
+
+Draws an arc by radius and angle range.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `radius` | number | The arc radius |
+| `startAngle` | number | The start angle in degrees (defaults to 0) *(optional)* |
+| `endAngle` | number | The end angle in degrees (defaults to 180) *(optional)* |
+| `centered` | boolean | Whether to center the arc on the current position *(optional)* |
+
+
+:::note
+All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
+:::

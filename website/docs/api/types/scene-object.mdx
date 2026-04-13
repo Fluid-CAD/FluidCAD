@@ -1,0 +1,33 @@
+---
+sidebar_position: 1
+title: "SceneObject"
+description: "The SceneObject type."
+---
+
+# SceneObject
+
+## Methods
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### guide()
+
+```ts
+guide(): this
+```
+
+Marks this object as construction geometry. Guide objects are excluded from
+final geometry output unless explicitly included.
+

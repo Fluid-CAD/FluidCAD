@@ -1,0 +1,256 @@
+---
+sidebar_position: 12
+title: "Rect"
+description: "The Rect type. Extends ExtrudableGeometry."
+---
+
+# Rect
+
+Extends [`ExtrudableGeometry`](/docs/api/types/extrudable-geometry)
+
+
+<details>
+<summary>Inherited from [`Geometry`](/docs/api/types/geometry)</summary>
+
+### start()
+
+```ts
+start(): Vertex
+```
+
+Returns a lazy-evaluated vertex at the start point of this geometry element.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### end()
+
+```ts
+end(): Vertex
+```
+
+Returns a lazy-evaluated vertex at the end point of this geometry element.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### tangent()
+
+```ts
+tangent(): Vertex
+```
+
+Returns a lazy-evaluated vertex representing the tangent direction at the end
+of this geometry. Used to determine the direction of subsequent geometry elements.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+
+</details>
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### guide()
+
+```ts
+guide(): this
+```
+
+Marks this object as construction geometry. Guide objects are excluded from
+final geometry output unless explicitly included.
+
+
+</details>
+
+## Methods
+
+### radius()
+
+```ts
+radius(...r: number[]): this
+```
+
+Sets corner radii for a rounded rectangle. Accepts 1–4 values
+in order: `[bottomLeft, bottomRight, topRight, topLeft]`.
+A single value applies to all corners.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...r` | number[] | One or more radius values. *(optional)* |
+
+---
+
+### center()
+
+```ts
+center(value?: boolean | "horizontal" | "vertical"): this
+```
+
+Controls how the rectangle is positioned relative to the current point.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | boolean \| "horizontal" \| "vertical" | `true` centers on both axes, `'horizontal'` or `'vertical'` centers on one axis, `false` (default) keeps the current point as the origin corner. *(optional)* |
+
+---
+
+### topEdge()
+
+```ts
+topEdge(): SceneObject
+```
+
+Returns the top straight edge of the rectangle.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+---
+
+### bottomEdge()
+
+```ts
+bottomEdge(): SceneObject
+```
+
+Returns the bottom straight edge of the rectangle.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+---
+
+### leftEdge()
+
+```ts
+leftEdge(): SceneObject
+```
+
+Returns the left straight edge of the rectangle.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+---
+
+### rightEdge()
+
+```ts
+rightEdge(): SceneObject
+```
+
+Returns the right straight edge of the rectangle.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+---
+
+### topLeftArcEdge()
+
+```ts
+topLeftArcEdge(): SceneObject
+```
+
+Returns the arc edge at the top-left corner. Only present when a radius is applied.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+---
+
+### topRightArcEdge()
+
+```ts
+topRightArcEdge(): SceneObject
+```
+
+Returns the arc edge at the top-right corner. Only present when a radius is applied.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+---
+
+### bottomLeftArcEdge()
+
+```ts
+bottomLeftArcEdge(): SceneObject
+```
+
+Returns the arc edge at the bottom-left corner. Only present when a radius is applied.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+---
+
+### bottomRightArcEdge()
+
+```ts
+bottomRightArcEdge(): SceneObject
+```
+
+Returns the arc edge at the bottom-right corner. Only present when a radius is applied.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+---
+
+### topLeft()
+
+```ts
+topLeft(): Vertex
+```
+
+Returns a lazy-evaluated vertex at the top-left corner.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### topRight()
+
+```ts
+topRight(): Vertex
+```
+
+Returns a lazy-evaluated vertex at the top-right corner.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### bottomLeft()
+
+```ts
+bottomLeft(): Vertex
+```
+
+Returns a lazy-evaluated vertex at the bottom-left corner.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### bottomRight()
+
+```ts
+bottomRight(): Vertex
+```
+
+Returns a lazy-evaluated vertex at the bottom-right corner.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+

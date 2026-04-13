@@ -1,0 +1,184 @@
+---
+sidebar_position: 8
+title: "Loft"
+description: "The Loft type. Extends Fuseable."
+---
+
+# Loft
+
+Extends [`Fuseable`](/docs/api/types/fuseable)
+
+
+<details>
+<summary>Inherited from [`Fuseable`](/docs/api/types/fuseable)</summary>
+
+### add()
+
+```ts
+add(...objects: SceneObject[]): this
+```
+
+Additive boolean operation — fuses the result with existing shapes.
+When called with no arguments, fuses with all intersecting scene objects.
+When called with specific objects, fuses only with those objects.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | Optional target objects to fuse with. *(optional)* |
+
+---
+
+### 'new'()
+
+```ts
+'new'(): this
+```
+
+No boolean operation — keeps the result as a standalone shape,
+separate from all other scene objects.
+
+---
+
+### remove()
+
+```ts
+remove(...objects: SceneObject[]): this
+```
+
+Subtractive boolean operation — cuts the result from existing shapes.
+When called with no arguments, cuts from all intersecting scene objects.
+When called with specific objects, cuts only from those objects.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | Optional target objects to cut from. *(optional)* |
+
+
+</details>
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### guide()
+
+```ts
+guide(): this
+```
+
+Marks this object as construction geometry. Guide objects are excluded from
+final geometry output unless explicitly included.
+
+
+</details>
+
+## Methods
+
+### startFaces()
+
+```ts
+startFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+```
+
+Selects faces on the first profile plane of the loft.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### endFaces()
+
+```ts
+endFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+```
+
+Selects faces on the last profile plane of the loft.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### sideFaces()
+
+```ts
+sideFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+```
+
+Selects the lateral faces generated between loft profiles.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### startEdges()
+
+```ts
+startEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges on the first profile plane of the loft.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### endEdges()
+
+```ts
+endEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges on the last profile plane of the loft.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### sideEdges()
+
+```ts
+sideEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges on the side faces, excluding edges shared with start/end faces.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+

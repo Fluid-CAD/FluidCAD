@@ -1,0 +1,88 @@
+---
+sidebar_position: 5
+title: "axis"
+description: "Creates an axis from a direction vector."
+---
+
+# axis()
+
+Creates an axis from a direction vector.
+
+**Returns**: [**`Axis`**](/docs/api/types/axis)
+
+## Signatures
+
+```ts
+axis(axis: AxisLike): Axis
+```
+
+Creates an axis from a direction vector.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `axis` | [AxisLike](/docs/api/types/axis-like) | The direction vector or standard axis |
+
+---
+
+```ts
+axis(axis: AxisLike, options: AxisTransformOptions): Axis
+```
+
+Creates an axis from a direction vector with transform options.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `axis` | [AxisLike](/docs/api/types/axis-like) | The direction vector or standard axis |
+| `options` | AxisTransformOptions | Transform options (offset, flip, etc.) |
+
+---
+
+```ts
+axis(source: SceneObject): Axis
+```
+
+Creates an axis from a scene object's edge.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `source` | [SceneObject](/docs/api/types/scene-object) | The scene object whose edge defines the axis |
+
+---
+
+```ts
+axis(source: SceneObject, options: AxisTransformOptions): Axis
+```
+
+Creates an axis from a scene object's edge with transform options.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `source` | [SceneObject](/docs/api/types/scene-object) | The scene object whose edge defines the axis |
+| `options` | AxisTransformOptions | Transform options (offset, flip, etc.) |
+
+---
+
+```ts
+axis(axis: Axis, options: AxisTransformOptions): Axis
+```
+
+Transforms an existing axis with options.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `axis` | [Axis](/docs/api/types/axis) | The existing axis to transform |
+| `options` | AxisTransformOptions | Transform options (offset, flip, etc.) |
+
+---
+
+```ts
+axis(a1: AxisLike, a2: AxisLike, options?: AxisTransformOptions): Axis
+```
+
+Creates an axis midway between two axes.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `a1` | [AxisLike](/docs/api/types/axis-like) | The first axis |
+| `a2` | [AxisLike](/docs/api/types/axis-like) | The second axis |
+| `options` | AxisTransformOptions | Transform options (offset, flip, etc.) *(optional)* |

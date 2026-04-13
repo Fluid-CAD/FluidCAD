@@ -1,0 +1,111 @@
+---
+sidebar_position: 13
+title: "Slot"
+description: "The Slot type. Extends ExtrudableGeometry."
+---
+
+# Slot
+
+Extends [`ExtrudableGeometry`](/docs/api/types/extrudable-geometry)
+
+
+<details>
+<summary>Inherited from [`Geometry`](/docs/api/types/geometry)</summary>
+
+### start()
+
+```ts
+start(): Vertex
+```
+
+Returns a lazy-evaluated vertex at the start point of this geometry element.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### end()
+
+```ts
+end(): Vertex
+```
+
+Returns a lazy-evaluated vertex at the end point of this geometry element.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### tangent()
+
+```ts
+tangent(): Vertex
+```
+
+Returns a lazy-evaluated vertex representing the tangent direction at the end
+of this geometry. Used to determine the direction of subsequent geometry elements.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+
+</details>
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### guide()
+
+```ts
+guide(): this
+```
+
+Marks this object as construction geometry. Guide objects are excluded from
+final geometry output unless explicitly included.
+
+
+</details>
+
+## Methods
+
+### center()
+
+```ts
+center(value?: boolean): this
+```
+
+Controls whether the slot is centered on the current position.
+When `true`, the slot is offset backward by half its length.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | boolean | `true` to center, `false` (default) to start from the current position. *(optional)* |
+
+---
+
+### rotate()
+
+```ts
+rotate(angle: number): this
+```
+
+Sets the rotation angle of the slot's primary axis.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `angle` | number | Rotation in degrees. |
+

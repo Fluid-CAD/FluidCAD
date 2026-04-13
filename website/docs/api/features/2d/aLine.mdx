@@ -1,0 +1,30 @@
+---
+sidebar_position: 15
+title: "aLine"
+description: "Draws a line at the given angle with the given length."
+---
+
+# aLine()
+
+Draws a line at the given angle with the given length.
+
+**Returns**: [**`Geometry`**](/docs/api/types/geometry)
+
+## Signatures
+
+```ts
+aLine(length: number, angle: number, centered?: boolean): Geometry
+```
+
+Draws a line at the given angle with the given length.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `length` | number | The line length |
+| `angle` | number | The angle in degrees |
+| `centered` | boolean | Whether to center the line on the current position *(optional)* |
+
+
+:::note
+All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
+:::

@@ -1,0 +1,71 @@
+---
+sidebar_position: 4
+title: "Constraints"
+description: "Constraint qualifiers for constraining geometry relationships in 2D sketches."
+---
+
+# Constraints
+
+Constraint qualifiers control the spatial relationship between geometries in 2D sketches.
+They are used with tangent geometry functions like `tLine()`, `tCircle()`, and `tArc()`.
+
+```ts
+import { outside, enclosed, enclosing, unqualified } from 'fluidcad/constraints';
+```
+
+## Functions
+
+### outside()
+
+```ts
+outside(sceneObject: SceneObject): QualifiedGeometry
+```
+
+Qualifies a geometry as being on the outside of the constraining object.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `sceneObject` | [SceneObject](/docs/api/types/scene-object) | The geometry to qualify. |
+
+---
+
+### enclosed()
+
+```ts
+enclosed(sceneObject: SceneObject): QualifiedGeometry
+```
+
+Qualifies a geometry as being enclosed by the constraining object.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `sceneObject` | [SceneObject](/docs/api/types/scene-object) | The geometry to qualify. |
+
+---
+
+### enclosing()
+
+```ts
+enclosing(sceneObject: SceneObject): QualifiedGeometry
+```
+
+Qualifies a geometry as enclosing the constraining object.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `sceneObject` | [SceneObject](/docs/api/types/scene-object) | The geometry to qualify. |
+
+---
+
+### unqualified()
+
+```ts
+unqualified(sceneObject: SceneObject): QualifiedGeometry
+```
+
+Removes any existing constraint qualification from a geometry.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `sceneObject` | [SceneObject](/docs/api/types/scene-object) | The geometry to unqualify. |
+

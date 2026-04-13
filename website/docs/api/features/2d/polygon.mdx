@@ -1,0 +1,45 @@
+---
+sidebar_position: 6
+title: "polygon"
+description: "Draws a regular polygon with the given number of sides and diameter."
+---
+
+# polygon()
+
+Draws a regular polygon with the given number of sides and diameter.
+
+**Returns**: [**`Polygon`**](/docs/api/types/polygon)
+
+## Signatures
+
+```ts
+polygon(numberOfSides: number, diameter: number, mode?: PolygonMode): Polygon
+```
+
+Draws a regular polygon with the given number of sides and diameter.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `numberOfSides` | number | The number of sides |
+| `diameter` | number | The circumscribed or inscribed diameter |
+| `mode` | PolygonMode | `'inscribed'` or `'circumscribed'` (defaults to `'inscribed'`) *(optional)* |
+
+---
+
+```ts
+polygon(center: Point2DLike, numberOfSides: number, diameter: number, mode?: PolygonMode): Polygon
+```
+
+Draws a regular polygon at a given center point.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `center` | [Point2DLike](/docs/api/types/point2dlike) | The center point |
+| `numberOfSides` | number | The number of sides |
+| `diameter` | number | The circumscribed or inscribed diameter |
+| `mode` | PolygonMode | `'inscribed'` or `'circumscribed'` (defaults to `'inscribed'`) *(optional)* |
+
+
+:::note
+All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
+:::

@@ -1,0 +1,47 @@
+---
+sidebar_position: 3
+title: "rect"
+description: "Draws a rectangle with the given width and optional height."
+---
+
+# rect()
+
+Draws a rectangle with the given width and optional height.
+
+**Returns**: [**`Rect`**](/docs/api/types/rect)
+
+:::tip
+See the [guide](/docs/guides/sketching/primitive-shapes) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+rect(width: number, height?: number): Rect
+```
+
+Draws a rectangle with the given width and optional height.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `width` | number | The rectangle width |
+| `height` | number | The rectangle height (defaults to width) *(optional)* |
+
+---
+
+```ts
+rect(start: Point2DLike, width: number, height?: number): Rect
+```
+
+Draws a rectangle at a given start point.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `start` | [Point2DLike](/docs/api/types/point2dlike) | The start point (bottom-left corner) |
+| `width` | number | The rectangle width |
+| `height` | number | The rectangle height (defaults to width) *(optional)* |
+
+
+:::note
+All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
+:::

@@ -1,0 +1,31 @@
+---
+sidebar_position: 7
+title: "split"
+description: "Splits all intersecting sketch geometries at their crossing points."
+---
+
+# split()
+
+Splits all intersecting sketch geometries at their crossing points.
+
+**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+
+## Signatures
+
+```ts
+split(): SceneObject
+```
+
+Splits all intersecting sketch geometries at their crossing points.
+
+---
+
+```ts
+split(...objects: SceneObject[]): SceneObject
+```
+
+Splits the given sketch geometries at their crossing points.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The geometries to split *(optional)* |

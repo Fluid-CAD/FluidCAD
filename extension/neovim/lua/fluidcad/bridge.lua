@@ -58,7 +58,7 @@ function M.start(workspace_path)
         ready = false
         pending_callbacks = {}
         if code ~= 0 then
-          vim.api.nvim_echo({{ '[fluidcad] Server exited with code ' .. code, 'ErrorMsg' }}, true, {})
+          vim.notify('[fluidcad] Server exited with code ' .. code, vim.log.levels.ERROR)
         end
       end)
     end,
@@ -67,7 +67,7 @@ function M.start(workspace_path)
   })
 
   if job_id <= 0 then
-    vim.api.nvim_echo({{ '[fluidcad] Failed to start bridge', 'ErrorMsg' }}, true, {})
+    vim.notify('[fluidcad] Failed to start bridge', vim.log.levels.ERROR)
     job_id = nil
   end
 end
@@ -118,17 +118,21 @@ function M.handle_message(msg)
         pending_callbacks = {}
       else
         local full = msg.error or 'unknown'
-        table.insert(log_lines, '[init-error] ' .. full)
+        for sub in ('[init-error] ' .. full .. '\n'):gmatch('([^\n]*)\n') do
+          table.insert(log_lines, sub)
+        end
         local first_line = full:match('%S[^\n]*') or 'unknown error'
-        vim.api.nvim_echo({{ '[fluidcad] Init failed: ' .. first_line .. '  (:FluidCadLog for details)', 'ErrorMsg' }}, true, {})
+        vim.notify('[fluidcad] Init failed: ' .. first_line .. '  (:FluidCadLog for details)', vim.log.levels.ERROR)
       end
     elseif msg.type == 'scene-rendered' then
       M.update_diagnostics(msg.result)
     elseif msg.type == 'error' then
       local full = msg.message or 'unknown'
-      table.insert(log_lines, '[error] ' .. full)
+      for sub in ('[error] ' .. full .. '\n'):gmatch('([^\n]*)\n') do
+        table.insert(log_lines, sub)
+      end
       local first_line = full:match('%S[^\n]*') or 'unknown error'
-      vim.api.nvim_echo({{ '[fluidcad] ' .. first_line .. '  (:FluidCadLog for details)', 'ErrorMsg' }}, true, {})
+      vim.notify('[fluidcad] ' .. first_line .. '  (:FluidCadLog for details)', vim.log.levels.ERROR)
     elseif msg.type == 'import-complete' then
       if msg.success then
         vim.print('[fluidcad] File imported successfully')

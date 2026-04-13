@@ -2,6 +2,18 @@ local bridge = require('fluidcad.bridge')
 
 local M = {}
 
+--- Split any entries that contain embedded newlines into separate lines
+--- so that nvim_buf_set_lines never receives a string with '\n'.
+local function flatten_lines(lines)
+  local out = {}
+  for _, line in ipairs(lines) do
+    for sub in (line .. '\n'):gmatch('([^\n]*)\n') do
+      table.insert(out, sub)
+    end
+  end
+  return out
+end
+
 function M.setup(_config)
   vim.api.nvim_create_user_command('FluidCadStart', function()
     bridge.start(vim.fn.getcwd())
@@ -99,7 +111,7 @@ function M.setup(_config)
     local logs = bridge.get_logs()
     if #logs > 0 then
       vim.bo[buf].modifiable = true
-      vim.api.nvim_buf_set_lines(buf, 0, -1, false, logs)
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, flatten_lines(logs))
       vim.bo[buf].modifiable = false
     end
 
@@ -116,7 +128,7 @@ function M.setup(_config)
         return
       end
       vim.bo[buf].modifiable = true
-      vim.api.nvim_buf_set_lines(buf, -1, -1, false, lines)
+      vim.api.nvim_buf_set_lines(buf, -1, -1, false, flatten_lines(lines))
       vim.bo[buf].modifiable = false
       -- Auto-scroll any window showing this buffer
       for _, w in ipairs(vim.api.nvim_list_wins()) do

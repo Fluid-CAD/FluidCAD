@@ -12,6 +12,7 @@ import { Plane, PlaneLike } from "../math/plane.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { PlaneObject } from "../features/plane.js";
 import { MirrorFeature } from "../features/mirror-feature.js";
+import { RepeatMatrix } from "../features/repeat-matrix.js";
 
 export type RepeatType = 'linear' | 'circular' | 'mirror';
 
@@ -49,19 +50,41 @@ interface RepeatFunction {
    * @param objects - The objects to mirror (defaults to last object)
    */
   (type: 'mirror', plane: PlaneLike, ...objects: ISceneObject[]): ISceneObject;
+
+  /**
+   * Creates a transformed clone of objects using an arbitrary matrix.
+   * @param matrix - The transformation matrix to apply
+   * @param objects - The objects to transform (defaults to last object)
+   */
+  (matrix: Matrix4, ...objects: ISceneObject[]): ISceneObject;
 }
 
 function build(context: SceneParserContext): RepeatFunction {
   return (function repeat() {
     const args = Array.from(arguments);
 
-    if (args.length < 2) {
-      throw new Error("Invalid arguments for repeat function: expected at least (type, ...)");
-    }
-
     const sketch = context.getActiveSketch();
     if (sketch) {
       throw new Error("Cannot call repeat() inside a sketch. Use copy() instead.")
+    }
+
+    if (args[0] instanceof Matrix4) {
+      const matrix = args[0] as Matrix4;
+      const restObjects = args.slice(1) as SceneObject[];
+      const objects = restObjects.length > 0
+        ? restObjects
+        : [context.getSceneObjects().at(-1)!];
+
+      const feature = new RepeatMatrix(matrix, objects);
+      const cloned = cloneWithTransform(objects, matrix, feature);
+
+      context.addSceneObject(feature);
+      context.addSceneObjects(cloned);
+      return feature;
+    }
+
+    if (args.length < 2) {
+      throw new Error("Invalid arguments for repeat function: expected at least (type, ...)");
     }
 
     const type = args[0] as RepeatType;

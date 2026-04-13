@@ -36,7 +36,8 @@
     "./core": "./lib/dist/core/index.js",
     "./filters": "./lib/dist/filters/index.js",
     "./constraints": "./lib/dist/features/2d/constraints/geometry-qualifier.js",
-    "./server": "./server/dist/index.js"
+    "./server": "./server/dist/index.js",
+    "./math": "./lib/dist/math/index.js"
   },
   "scripts": {
     "clean": "rm -rf lib/dist server/dist ui/dist lib/tsconfig.tsbuildinfo server/tsconfig.tsbuildinfo",

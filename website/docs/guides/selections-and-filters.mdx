@@ -46,10 +46,10 @@ fillet(3)
 
 ## Edge filters
 
-Import `edge` from `fluidcad/filters` and chain filter methods:
+Import `edge` (and `face` if using `belongsToFace`) from `fluidcad/filters` and chain filter methods:
 
 ```js
-import { edge } from 'fluidcad/filters';
+import { edge, face } from 'fluidcad/filters';
 ```
 
 ### By direction
@@ -72,6 +72,14 @@ edge().onPlane("yz", 50, true) // edges on YZ plane at offset 50 (approximate ma
 edge().circle()                // circular edges
 edge().arc()                   // arc-shaped edges
 edge().line()                  // straight edges
+edge().line(10)                // straight edges with length 10
+```
+
+### By parent face
+
+```js
+edge().belongsToFace(face().circle())         // edges on circular faces
+edge().belongsToFace(face().parallelTo("xy")) // edges on faces parallel to XY
 ```
 
 ### Negation
@@ -79,14 +87,15 @@ edge().line()                  // straight edges
 ```js
 edge().notOnPlane("xy", 0)     // edges NOT on the ground plane
 edge().notCircle()             // edges that aren't circular
+edge().notBelongsToFace(face().cylinder())  // edges NOT on cylindrical faces
 ```
 
 ## Face filters
 
-Import `face` from `fluidcad/filters` and chain filter methods:
+Import `face` (and `edge` if using `hasEdge`) from `fluidcad/filters` and chain filter methods:
 
 ```js
-import { face } from 'fluidcad/filters';
+import { face, edge } from 'fluidcad/filters';
 ```
 
 ### By direction
@@ -110,11 +119,21 @@ face().cylinder()              // cylindrical faces
 face().cone()                  // conical faces
 ```
 
+### By edge properties
+
+```js
+face().edgeCount(4)            // faces with exactly 4 edges (rectangular faces)
+face().hasEdge(edge().line())  // faces that have at least one straight edge
+face().hasEdge(edge().circle(10))  // faces with a circular edge of diameter 10
+```
+
 ### Negation
 
 ```js
 face().notOnPlane("xy", 0)     // faces NOT on the ground plane
 face().notCircle()             // non-circular faces
+face().notEdgeCount(4)         // faces that don't have exactly 4 edges
+face().notHasEdge(edge().arc())  // faces without any arc edges
 ```
 
 ## Using selections

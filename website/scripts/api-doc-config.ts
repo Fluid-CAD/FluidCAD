@@ -83,7 +83,7 @@ export const features: FeatureEntry[] = [
   { name: 'sphere', displayName: 'sphere', category: '3d', sourceFile: 'core/sphere.ts', interfaceName: 'SphereFunction', returnType: 'ISceneObject', sidebarPosition: 7 },
   { name: 'cylinder', displayName: 'cylinder', category: '3d', sourceFile: 'core/cylinder.ts', interfaceName: 'CylinderFunction', returnType: 'ISceneObject', sidebarPosition: 8 },
   { name: 'fuse', displayName: 'fuse', category: ['2d', '3d'], sourceFile: 'core/fuse.ts', interfaceName: 'FuseFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/booleans-and-fusion', sidebarPosition: 9 },
-  { name: 'subtract', displayName: 'subtract', category: '3d', sourceFile: 'core/subtract.ts', interfaceName: 'SubtractFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/booleans-and-fusion', sidebarPosition: 10 },
+  { name: 'subtract', displayName: 'subtract', category: ['2d', '3d'], sourceFile: 'core/subtract.ts', interfaceName: 'SubtractFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/booleans-and-fusion', sidebarPosition: 10 },
   { name: 'common', displayName: 'common', category: ['2d', '3d'], sourceFile: 'core/common.ts', interfaceName: 'CommonFunction', returnType: 'ICommon', relatedGuide: '/docs/guides/booleans-and-fusion', sidebarPosition: 11 },
   { name: 'shell', displayName: 'shell', category: '3d', sourceFile: 'core/shell.ts', interfaceName: 'ShellFunction', returnType: 'IShell', relatedGuide: '/docs/guides/3d-operations/shell', sidebarPosition: 12 },
   { name: 'fillet', displayName: 'fillet', category: '3d', sourceFile: 'core/fillet.ts', interfaceName: 'FilletFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/3d-operations/fillet', sidebarPosition: 13 },

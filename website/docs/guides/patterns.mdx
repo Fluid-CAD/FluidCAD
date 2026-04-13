@@ -80,6 +80,36 @@ You can pass multiple features to mirror them all at once. Only the features you
 
 ![Mirror repeat across front plane](/img/docs/guides/pattern-mirror.png)
 
+## Rotate repeat
+
+Create a rotated clone of a feature around an axis:
+
+```js
+const e = extrude(10)
+repeat("rotate", "z", 45, e)   // rotate 45° around the Z axis
+```
+
+The angle defaults to 90° if omitted:
+
+```js
+repeat("rotate", "z", e)       // rotate 90° around Z
+```
+
+## Matrix repeat
+
+For arbitrary transformations, pass a `Matrix4` directly:
+
+```js
+import { Matrix4 } from 'fluidcad/math';
+
+const m = Matrix4.fromTranslation(10, 0, 5).multiply(
+    Matrix4.fromRotationZ(Math.PI / 6)
+)
+repeat(m, e)                   // apply a combined translation + rotation
+```
+
+This is useful when you need a transformation that doesn't fit the linear, circular, mirror, or rotate presets.
+
 ## Example: ice cube tray pockets
 
 Cut one pocket, then repeat it across a grid:

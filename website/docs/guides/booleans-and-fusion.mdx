@@ -43,7 +43,7 @@ fuse(solid1, solid2)
 
 ### Subtract (difference)
 
-Remove one solid from another:
+Remove one shape from another:
 
 ```js
 import { subtract } from 'fluidcad/core';
@@ -52,6 +52,16 @@ subtract(solidToKeep, solidToRemove)
 ```
 
 ![Subtract result](/img/docs/guides/boolean-subtract.png)
+
+`subtract()` also works inside sketches to cut 2D geometries from each other:
+
+```js
+sketch("xy", () => {
+    const outer = rect(100, 60)
+    const inner = rect([10, 10], 80, 40)
+    subtract(outer, inner)
+})
+```
 
 ### Common (intersection)
 
@@ -70,6 +80,6 @@ common(solid1, solid2)
 | Adding a boss to an existing solid | Just extrude — auto-fusion handles it |
 | Creating a hole | `sketch` on a face + `cut()` |
 | Merging two separate objects | `fuse(a, b)` |
-| Subtracting a shape from another | `subtract(keep, remove)` |
+| Subtracting a shape from another | `subtract(keep, remove)` (works in 3D and 2D sketches) |
 | Keeping only the overlap | `common(a, b)` |
 | Building multiple independent parts | Use `.new()` or `part()` |

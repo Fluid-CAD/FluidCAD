@@ -38,3 +38,9 @@ import { edge } from 'fluidcad/filters';
 select(edge().onPlane("xy", 30))
 chamfer(4)
 ```
+
+You can also pass multiple edge selections to chamfer them all at once:
+
+```js
+chamfer(2, e.endEdges(), e.sideEdges())
+```

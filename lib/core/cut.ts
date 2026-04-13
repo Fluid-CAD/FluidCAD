@@ -38,17 +38,38 @@ interface CutFunction {
    */
   (distance1: number, distance2: number, target: ISceneObject): ICut;
   /**
-   * Cuts up to face using the last sketch.
-   * @param face - The face to cut up to, or `'first-face'`/`'last-face'`
-   * @param target - The sketch to cut with
+   * Cuts up to a specific face using the last sketch.
+   * @param face - A face selection to cut up to
    */
-  (face: ISceneObject | 'first-face' | 'last-face'): ICut;
+  (face: ISceneObject): ICut;
   /**
-   * Cuts up to face using the given sketch.
-   * @param face - The face to cut up to, or `'first-face'`/`'last-face'`
+   * Cuts up to the first intersecting face using the last sketch.
+   * @param face - The literal `'first-face'`
+   */
+  (face: 'first-face'): ICut;
+  /**
+   * Cuts up to the last intersecting face using the last sketch.
+   * @param face - The literal `'last-face'`
+   */
+  (face: 'last-face'): ICut;
+  /**
+   * Cuts up to a specific face using the given sketch.
+   * @param face - A face selection to cut up to
    * @param target - The sketch to cut with
    */
-  (face: ISceneObject | 'first-face' | 'last-face', target: ISceneObject): ICut;
+  (face: ISceneObject, target: ISceneObject): ICut;
+  /**
+   * Cuts up to the first intersecting face using the given sketch.
+   * @param face - The literal `'first-face'`
+   * @param target - The sketch to cut with
+   */
+  (face: 'first-face', target: ISceneObject): ICut;
+  /**
+   * Cuts up to the last intersecting face using the given sketch.
+   * @param face - The literal `'last-face'`
+   * @param target - The sketch to cut with
+   */
+  (face: 'last-face', target: ISceneObject): ICut;
 }
 
 function isExtrudable(obj: any): obj is Extrudable {

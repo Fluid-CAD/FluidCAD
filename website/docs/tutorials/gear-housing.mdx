@@ -1,18 +1,18 @@
 ---
 sidebar_position: 4
-title: "Bearing Housing"
+title: "Gear Housing"
 ---
 
 import CodeBlock from '@theme/CodeBlock';
-import bearingHousingFinal from '!!raw-loader!./_examples/bearing-housing-final.js';
+import gearHousingFinal from '!!raw-loader!./_examples/gear-housing-final.js';
 
-# Building a Bearing Housing
+# Building a Gear Housing
 
-![Finished bearing housing](/img/docs/tutorials/bearing-housing-final.png)
+![Finished gear housing](/img/docs/tutorials/gear-housing-final.png)
 
-In this tutorial, you'll build a bearing housing based on exercises from [Too Tall Toby](https://www.tootalltoby.com/practice/). It covers filleting, angled chamfers, multi-level extrusions, draft cuts, arc profiles, complex sketches with rounded corners, drilling, counterbores, circular copy patterns, and mirror symmetry.
+In this tutorial, you'll build a gear housing based on exercises from [Too Tall Toby](https://www.tootalltoby.com/practice/). It covers filleting, angled chamfers, multi-level extrusions, draft cuts, arc profiles, complex sketches with rounded corners, drilling, counterbores, circular copy patterns, and mirror symmetry.
 
-Create a new file called `bearing-housing.fluid.js` in your project.
+Create a new file called `gear-housing.fluid.js` in your project.
 
 ## Setup
 
@@ -25,7 +25,7 @@ let supportWidth = (150 - 63) / 2;
 let supportThickness = 12;
 ```
 
-The bearing housing is **150mm** wide overall. The central gap between the support brackets is **63mm**, so each bracket is `(150 - 63) / 2 = 43.5mm` wide. The brackets are **12mm** thick.
+The gear housing is **150mm** wide overall. The central gap between the support brackets is **63mm**, so each bracket is `(150 - 63) / 2 = 43.5mm` wide. The brackets are **12mm** thick.
 
 ## Step 1: Support Bracket
 
@@ -40,7 +40,7 @@ sketch("xy", () => {
 });
 ```
 
-![Support bracket sketch](/img/docs/tutorials/bearing-housing-step1-sketch.png)
+![Support bracket sketch](/img/docs/tutorials/gear-housing-step1-sketch.png)
 
 ### Extrude and add edge treatments
 
@@ -54,7 +54,7 @@ fillet(12, e1.sideEdges(2, 3));
 chamfer(8, 90 - 25, true, e1.endEdges())
 ```
 
-![Support bracket with fillet and chamfer](/img/docs/tutorials/bearing-housing-step1.png)
+![Support bracket with fillet and chamfer](/img/docs/tutorials/gear-housing-step1.png)
 
 ## Step 2: Main Housing Body
 
@@ -85,7 +85,7 @@ const e3 = extrude(168 - 130);
 chamfer(8, e3.endEdges());
 ```
 
-![Main housing body](/img/docs/tutorials/bearing-housing-step2.png)
+![Main housing body](/img/docs/tutorials/gear-housing-step2.png)
 
 ## Step 3: Internal Cavity
 
@@ -100,7 +100,7 @@ sketch(p1, () => {
 cut(-158).draft(-3)
 ```
 
-![Internal cavity sketch](/img/docs/tutorials/bearing-housing-step3-sketch.png)
+![Internal cavity sketch](/img/docs/tutorials/gear-housing-step3-sketch.png)
 
 ## Step 4: Side Slot and Bolt Hole
 
@@ -119,7 +119,7 @@ sketch(rightPlane, () => {
 });
 ```
 
-![Slot profile sketch](/img/docs/tutorials/bearing-housing-step4-sketch.png)
+![Slot profile sketch](/img/docs/tutorials/gear-housing-step4-sketch.png)
 
 ### Extrude the slot and cut the bolt hole
 
@@ -136,7 +136,7 @@ sketch(rightPlane, () => {
 cut();
 ```
 
-![Slot and bolt hole](/img/docs/tutorials/bearing-housing-step4.png)
+![Slot and bolt hole](/img/docs/tutorials/gear-housing-step4.png)
 
 ## Step 5: Side Ribs
 
@@ -164,7 +164,7 @@ sketch(e3.sideFaces(0), () => {
 });
 ```
 
-![Rib profile sketch](/img/docs/tutorials/bearing-housing-step5-sketch.png)
+![Rib profile sketch](/img/docs/tutorials/gear-housing-step5-sketch.png)
 
 ### Extrude and mirror
 
@@ -175,7 +175,7 @@ const e5 = extrude((128 - 116)/2).drill(false)
 mirror("yz")
 ```
 
-![Side ribs mirrored](/img/docs/tutorials/bearing-housing-step5.png)
+![Side ribs mirrored](/img/docs/tutorials/gear-housing-step5.png)
 
 ## Step 6: Bearing Bore and Counterbore
 
@@ -198,7 +198,7 @@ const counterbore = cut(10);
 repeat("mirror", "yz", counterbore);
 ```
 
-![Bearing bore and counterbore](/img/docs/tutorials/bearing-housing-step6.png)
+![Bearing bore and counterbore](/img/docs/tutorials/gear-housing-step6.png)
 
 ## Step 7: Front Plate and Mounting Holes
 
@@ -249,21 +249,21 @@ sketch(e6.endFaces(), () => {
 cut()
 ```
 
-![Bolt hole pattern sketch](/img/docs/tutorials/bearing-housing-step7-sketch.png)
+![Bolt hole pattern sketch](/img/docs/tutorials/gear-housing-step7-sketch.png)
 
 ### Final mirror
 
-`mirror("front")` mirrors the entire model across the front plane to complete the symmetric bearing housing.
+`mirror("front")` mirrors the entire model across the front plane to complete the symmetric gear housing.
 
 ```js
 mirror("front")
 ```
 
-![Finished bearing housing](/img/docs/tutorials/bearing-housing-final.png)
+![Finished gear housing](/img/docs/tutorials/gear-housing-final.png)
 
 ## Full code
 
-<CodeBlock language="js">{bearingHousingFinal}</CodeBlock>
+<CodeBlock language="js">{gearHousingFinal}</CodeBlock>
 
 ## What you practiced
 

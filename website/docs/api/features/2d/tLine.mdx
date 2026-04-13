@@ -29,26 +29,67 @@ Draws a line tangent to the previous geometry with the given distance.
 ---
 
 ```ts
-tLine(c1: SceneObject | QualifiedGeometry, c2: SceneObject | QualifiedGeometry, mustTouch?: boolean): TwoObjectsTangentLine
+tLine(c1: SceneObject, c2: SceneObject, mustTouch?: boolean): TwoObjectsTangentLine
 ```
 
-Draws a line tangent to two objects.
+Draws a line tangent to two geometry objects.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `c1` | [SceneObject](/docs/api/types/scene-object) \| QualifiedGeometry | The first constraint object |
-| `c2` | [SceneObject](/docs/api/types/scene-object) \| QualifiedGeometry | The second constraint object |
+| `c1` | [SceneObject](/docs/api/types/scene-object) | The first geometry object |
+| `c2` | [SceneObject](/docs/api/types/scene-object) | The second geometry object |
 | `mustTouch` | boolean | Whether the line must touch both objects *(optional)* |
 
 ---
 
 ```ts
-tLine(c1: SceneObject | QualifiedGeometry, mustTouch?: boolean): Geometry
+tLine(c1: QualifiedGeometry, c2: QualifiedGeometry, mustTouch?: boolean): TwoObjectsTangentLine
 ```
 
-Draws a line tangent to one object.
+Draws a line tangent to two qualified geometry objects.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `c1` | [SceneObject](/docs/api/types/scene-object) \| QualifiedGeometry | The constraint object |
+| `c1` | QualifiedGeometry | The first qualified geometry object (e.g., `outside(circle1)`) |
+| `c2` | QualifiedGeometry | The second qualified geometry object |
+| `mustTouch` | boolean | Whether the line must touch both objects *(optional)* |
+
+---
+
+```ts
+tLine(c1: SceneObject | QualifiedGeometry, c2: SceneObject | QualifiedGeometry, mustTouch?: boolean): TwoObjectsTangentLine
+```
+
+Draws a line tangent to a combination of geometry and qualified geometry objects.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `c1` | [SceneObject](/docs/api/types/scene-object) \| QualifiedGeometry | The first constraint (geometry or qualified geometry) |
+| `c2` | [SceneObject](/docs/api/types/scene-object) \| QualifiedGeometry | The second constraint (geometry or qualified geometry) |
+| `mustTouch` | boolean | Whether the line must touch both objects *(optional)* |
+
+---
+
+```ts
+tLine(c1: SceneObject, mustTouch?: boolean): Geometry
+```
+
+Draws a line tangent to one geometry object.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `c1` | [SceneObject](/docs/api/types/scene-object) | The geometry object to be tangent to |
+| `mustTouch` | boolean | Whether the line must touch the object *(optional)* |
+
+---
+
+```ts
+tLine(c1: QualifiedGeometry, mustTouch?: boolean): Geometry
+```
+
+Draws a line tangent to a qualified geometry object.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `c1` | QualifiedGeometry | The qualified geometry object (e.g., `outside(circle1)`) |
 | `mustTouch` | boolean | Whether the line must touch the object *(optional)* |

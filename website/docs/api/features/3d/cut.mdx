@@ -77,24 +77,74 @@ Cuts by two distances using the given sketch.
 ---
 
 ```ts
-cut(face: SceneObject | "first-face" | "last-face"): Cut
+cut(face: SceneObject): Cut
 ```
 
-Cuts up to face using the last sketch.
+Cuts up to a specific face using the last sketch.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `face` | [SceneObject](/docs/api/types/scene-object) \| "first-face" \| "last-face" | The face to cut up to, or `'first-face'`/`'last-face'` |
+| `face` | [SceneObject](/docs/api/types/scene-object) | A face selection to cut up to |
 
 ---
 
 ```ts
-cut(face: SceneObject | "first-face" | "last-face", target: SceneObject): Cut
+cut(face: "first-face"): Cut
 ```
 
-Cuts up to face using the given sketch.
+Cuts up to the first intersecting face using the last sketch.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `face` | [SceneObject](/docs/api/types/scene-object) \| "first-face" \| "last-face" | The face to cut up to, or `'first-face'`/`'last-face'` |
+| `face` | "first-face" | The literal `'first-face'` |
+
+---
+
+```ts
+cut(face: "last-face"): Cut
+```
+
+Cuts up to the last intersecting face using the last sketch.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `face` | "last-face" | The literal `'last-face'` |
+
+---
+
+```ts
+cut(face: SceneObject, target: SceneObject): Cut
+```
+
+Cuts up to a specific face using the given sketch.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `face` | [SceneObject](/docs/api/types/scene-object) | A face selection to cut up to |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to cut with |
+
+---
+
+```ts
+cut(face: "first-face", target: SceneObject): Cut
+```
+
+Cuts up to the first intersecting face using the given sketch.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `face` | "first-face" | The literal `'first-face'` |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to cut with |
+
+---
+
+```ts
+cut(face: "last-face", target: SceneObject): Cut
+```
+
+Cuts up to the last intersecting face using the given sketch.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `face` | "last-face" | The literal `'last-face'` |
 | `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to cut with |

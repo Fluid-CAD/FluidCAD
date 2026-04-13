@@ -17,18 +17,35 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
     super();
   }
 
+  /**
+   * Selects the face at the given index.
+   * @param index - Zero-based face index.
+   * @param shapes - The face array to index into.
+   * @param originalShapes - Optional original face array before filtering.
+   */
   atIndex(index: number, shapes: Face[], originalShapes?: Face[]) {
     const filter = new AtIndexFilter(index, shapes, originalShapes);
     this.filters.push(filter);
     return this;
   }
 
+  /**
+   * Excludes the face at the given index.
+   * @param index - Zero-based face index to exclude.
+   * @param shapes - The face array to index into.
+   * @param originalShapes - Optional original face array before filtering.
+   */
   notAtIndex(index: number, shapes: Face[], originalShapes?: Face[]) {
     const filter = new NotAtIndexFilter(index, shapes, originalShapes);
     this.filters.push(filter);
     return this;
   }
 
+  /**
+   * Selects faces that lie on the given plane.
+   * @param plane - The reference plane.
+   * @param offset - Optional distance to offset the plane before matching.
+   */
   onPlane(plane: PlaneLike | PlaneObjectBase, offset = 0) {
     if (!plane) {
       throw new Error('Plane is required');
@@ -54,6 +71,11 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
     return this;
   }
 
+  /**
+   * Excludes faces that lie on the given plane.
+   * @param plane - The reference plane.
+   * @param offset - Optional distance to offset the plane before matching.
+   */
   notOnPlane(plane: PlaneLike | PlaneObjectBase, offset = 0) {
     if (!plane) {
       throw new Error('Plane is required');
@@ -79,42 +101,70 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
     return this;
   }
 
+  /**
+   * Selects circular (flat, disc-shaped) faces, optionally matching a specific diameter.
+   * @param diameter - Optional diameter to match.
+   */
   circle(diameter?: number) {
     const filter = new CircleFilter(diameter);
     this.filters.push(filter);
     return this;
   }
 
+  /**
+   * Excludes circular (flat, disc-shaped) faces, optionally matching a specific diameter.
+   * @param diameter - Optional diameter to exclude.
+   */
   notCircle(diameter?: number) {
     const filter = new NotCircleFilter(diameter);
     this.filters.push(filter);
     return this;
   }
 
+  /**
+   * Selects cylindrical faces, optionally matching a specific diameter.
+   * @param diameter - Optional diameter to match.
+   */
   cylinder(diameter?: number) {
     const filter = new CylinderFilter(diameter);
     this.filters.push(filter);
     return this;
   }
 
+  /**
+   * Excludes cylindrical faces, optionally matching a specific diameter.
+   * @param diameter - Optional diameter to exclude.
+   */
   notCylinder(diameter?: number) {
     const filter = new NotCylinderFilter(diameter);
     this.filters.push(filter);
     return this;
   }
 
+  /**
+   * Selects faces bounded by cylindrical curves, optionally matching a specific diameter.
+   * @param diameter - Optional diameter to match.
+   */
   cylinderCurve(diameter?: number) {
     const filter = new CylinderCurveFilter(diameter);
     this.filters.push(filter);
     return this;
   }
 
+  /**
+   * Excludes faces bounded by cylindrical curves, optionally matching a specific diameter.
+   * @param diameter - Optional diameter to exclude.
+   */
   notCylinderCurve(diameter?: number) {
     const filter = new NotCylinderCurveFilter(diameter);
     this.filters.push(filter);
     return this;
   }
 
+  /**
+   * Selects faces whose normal is parallel to the given plane.
+   * @param plane - The reference plane.
+   */
   parallelTo(plane: PlaneLike | PlaneObjectBase) {
     if (!plane) {
       throw new Error('Plane is required');
@@ -134,6 +184,10 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
     return this;
   }
 
+  /**
+   * Excludes faces whose normal is parallel to the given plane.
+   * @param plane - The reference plane.
+   */
   notParallelTo(plane: PlaneLike | PlaneObjectBase) {
     if (!plane) {
       throw new Error('Plane is required');
@@ -153,12 +207,18 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
     return this;
   }
 
+  /**
+   * Selects conical faces.
+   */
   cone() {
     const filter = new ConeFilter();
     this.filters.push(filter);
     return this;
   }
 
+  /**
+   * Excludes conical faces.
+   */
   notCone() {
     const filter = new NotConeFilter();
     this.filters.push(filter);

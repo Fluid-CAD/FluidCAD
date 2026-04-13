@@ -16,11 +16,17 @@ interface SketchFunction {
    */
   (plane: PlaneLike, sketcher: () => void): ISceneObject;
   /**
-   * Draws 2D geometry on a face or plane object.
-   * @param face - The face or plane object to sketch on
+   * Draws 2D geometry on a face selection.
+   * @param face - The face to sketch on
    * @param sketcher - Callback containing sketch operations
    */
-  (face: ISceneObject | IPlane, sketcher: () => void): ISceneObject;
+  (face: ISceneObject, sketcher: () => void): ISceneObject;
+  /**
+   * Draws 2D geometry on an existing Plane object.
+   * @param plane - The Plane object to sketch on
+   * @param sketcher - Callback containing sketch operations
+   */
+  (plane: IPlane, sketcher: () => void): ISceneObject;
 }
 
 function build(context: SceneParserContext): SketchFunction {

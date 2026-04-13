@@ -69,12 +69,38 @@ Extrudes the given sketch between two distances.
 ---
 
 ```ts
-extrude(face: SceneObject | "first-face" | "last-face", target?: SceneObject): Extrude
+extrude(face: SceneObject, target?: SceneObject): Extrude
 ```
 
-Extrudes the last sketch up to a face.
+Extrudes the last sketch up to a specific face.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `face` | [SceneObject](/docs/api/types/scene-object) \| "first-face" \| "last-face" | The face to extrude up to, or `'first-face'`/`'last-face'` |
+| `face` | [SceneObject](/docs/api/types/scene-object) | A face selection to extrude up to |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to extrude *(optional)* |
+
+---
+
+```ts
+extrude(face: "first-face", target?: SceneObject): Extrude
+```
+
+Extrudes the last sketch up to the first intersecting face.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `face` | "first-face" | The literal `'first-face'` |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to extrude *(optional)* |
+
+---
+
+```ts
+extrude(face: "last-face", target?: SceneObject): Extrude
+```
+
+Extrudes the last sketch up to the last intersecting face.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `face` | "last-face" | The literal `'last-face'` |
 | `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to extrude *(optional)* |

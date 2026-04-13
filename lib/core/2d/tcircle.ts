@@ -9,11 +9,35 @@ import { IGeometry, ISceneObject } from "../interfaces.js";
 
 interface TCircleFunction {
   /**
-   * Draws a circle tangent to two objects with the given diameter.
+   * Draws a circle tangent to two geometry objects.
+   * @param c1 - The first geometry object
+   * @param c2 - The second geometry object
+   * @param diameter - The circle diameter
+   * @param mustTouch - Whether the circle must touch both objects
+   */
+  (c1: ISceneObject, c2: ISceneObject, diameter: number, mustTouch?: boolean): IGeometry;
+  /**
+   * Draws a circle tangent to two qualified geometry objects.
+   * @param c1 - The first qualified geometry object (e.g., `outside(circle1)`)
+   * @param c2 - The second qualified geometry object
+   * @param diameter - The circle diameter
+   * @param mustTouch - Whether the circle must touch both objects
+   */
+  (c1: QualifiedSceneObject, c2: QualifiedSceneObject, diameter: number, mustTouch?: boolean): IGeometry;
+  /**
+   * Draws a circle passing through two points.
+   * @param c1 - The first point
+   * @param c2 - The second point
+   * @param diameter - The circle diameter
+   * @param mustTouch - Whether the circle must touch both points
+   */
+  (c1: Point2DLike, c2: Point2DLike, diameter: number, mustTouch?: boolean): IGeometry;
+  /**
+   * Draws a tangent circle using a mix of geometry objects, qualified objects, or points as constraints.
    * @param c1 - The first constraint object or point
    * @param c2 - The second constraint object or point
    * @param diameter - The circle diameter
-   * @param mustTouch - Whether the circle must touch both objects
+   * @param mustTouch - Whether the circle must touch both constraints
    */
   (c1: ISceneObject | QualifiedSceneObject | Point2DLike, c2: ISceneObject | QualifiedSceneObject | Point2DLike, diameter: number, mustTouch?: boolean): IGeometry;
 }

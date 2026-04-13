@@ -29,6 +29,23 @@ describe("arc", () => {
     });
   });
 
+  describe("from three points (start, end, center)", () => {
+    it("should create an arc from start to end around a center point", () => {
+      sketch("xy", () => {
+        arc([0, 0], [20, 0], [10, 0]);
+        line([0, 0]);
+      });
+      const e = extrude(10) as ExtrudeBase;
+      render();
+
+      expect(e.getShapes()).toHaveLength(1);
+
+      const solid = e.getShapes()[0] as Solid;
+      const arcEdges = getEdgesByType(solid, "arc");
+      expect(arcEdges.length).toBeGreaterThan(0);
+    });
+  });
+
   describe("combined with lines", () => {
     it("should create a shape with straight and curved edges", () => {
       sketch("xy", () => {

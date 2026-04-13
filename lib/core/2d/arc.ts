@@ -1,6 +1,7 @@
 import { isPoint2DLike, Point2DLike } from "../../math/point.js";
 import { ArcFromTwoAngles } from "../../features/2d/arc.js";
 import { ArcToPoint } from "../../features/2d/arc-to-point.js";
+import { ArcThreePoints } from "../../features/2d/arc-three-points.js";
 import { Move } from "../../features/2d/move.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
@@ -34,6 +35,14 @@ interface ArcFunction {
   (radius: number, startAngle?: number, endAngle?: number, centered?: boolean): IGeometry;
 
   /**
+   * Draws an arc from a start point to an end point around a center point.
+   * @param startPoint - The start point of the arc
+   * @param endPoint - The end point of the arc
+   * @param center - The center point of the arc
+   */
+  (startPoint: Point2DLike, endPoint: Point2DLike, center: Point2DLike): IGeometry;
+
+  /**
    * Draws an arc to an end point on a specific plane.
    * @param endPoint - The end point of the arc
    * @param targetPlane - The plane to draw on
@@ -61,6 +70,14 @@ interface ArcFunction {
    * @param targetPlane - The plane to draw on
    */
   (startPoint: Point2DLike, endPoint: Point2DLike, radius: number, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  /**
+   * Draws an arc from a start point to an end point around a center point on a specific plane.
+   * @param startPoint - The start point of the arc
+   * @param endPoint - The end point of the arc
+   * @param center - The center point of the arc
+   * @param targetPlane - The plane to draw on
+   */
+  (startPoint: Point2DLike, endPoint: Point2DLike, center: Point2DLike, targetPlane: PlaneLike | ISceneObject): IGeometry;
   /**
    * Draws an arc by radius on a specific plane.
    * @param radius - The arc radius
@@ -96,6 +113,16 @@ function build(context: SceneParserContext): ArcFunction {
         planeObj = resolvePlane(lastArg, context);
         argCount--;
       }
+    }
+
+    // (startPoint, endPoint, center) — three Point2DLike args
+    if (argCount >= 3 && isPoint2DLike(arguments[0]) && isPoint2DLike(arguments[1]) && isPoint2DLike(arguments[2])) {
+      const start = normalizePoint2D(arguments[0] as Point2DLike);
+      const end = normalizePoint2D(arguments[1] as Point2DLike);
+      const center = normalizePoint2D(arguments[2] as Point2DLike);
+      const arcObj = new ArcThreePoints(start, end, center, planeObj);
+      context.addSceneObjects([new Move(start), arcObj]);
+      return arcObj;
     }
 
     // (startPoint, endPoint, radius?) — two Point2DLike args

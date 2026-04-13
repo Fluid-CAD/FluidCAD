@@ -35,11 +35,23 @@ interface ExtrudeFunction {
    */
   (distance1: number, distance2: number, target: ISceneObject): IExtrude;
   /**
-   * Extrudes the last sketch up to a face.
-   * @param face - The face to extrude up to, or `'first-face'`/`'last-face'`
+   * Extrudes the last sketch up to a specific face.
+   * @param face - A face selection to extrude up to
    * @param target - The sketch to extrude
    */
-  (face: ISceneObject | 'first-face' | 'last-face', target?: ISceneObject): IExtrude;
+  (face: ISceneObject, target?: ISceneObject): IExtrude;
+  /**
+   * Extrudes the last sketch up to the first intersecting face.
+   * @param face - The literal `'first-face'`
+   * @param target - The sketch to extrude
+   */
+  (face: 'first-face', target?: ISceneObject): IExtrude;
+  /**
+   * Extrudes the last sketch up to the last intersecting face.
+   * @param face - The literal `'last-face'`
+   * @param target - The sketch to extrude
+   */
+  (face: 'last-face', target?: ISceneObject): IExtrude;
 }
 
 function isExtrudable(obj: any): obj is Extrudable {

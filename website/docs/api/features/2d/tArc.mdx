@@ -83,14 +83,59 @@ Draws a tangent arc from a start point to an end point with a tangent.
 ---
 
 ```ts
+tArc(c1: SceneObject, c2: SceneObject, radius: number, mustTouch?: boolean): TangentArcTwoObjects
+```
+
+Draws a tangent arc between two geometry objects.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `c1` | [SceneObject](/docs/api/types/scene-object) | The first geometry object |
+| `c2` | [SceneObject](/docs/api/types/scene-object) | The second geometry object |
+| `radius` | number | The arc radius |
+| `mustTouch` | boolean | Whether the arc must touch both objects *(optional)* |
+
+---
+
+```ts
+tArc(c1: QualifiedGeometry, c2: QualifiedGeometry, radius: number, mustTouch?: boolean): TangentArcTwoObjects
+```
+
+Draws a tangent arc between two qualified geometry objects.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `c1` | QualifiedGeometry | The first qualified geometry object (e.g., `outside(circle1)`) |
+| `c2` | QualifiedGeometry | The second qualified geometry object |
+| `radius` | number | The arc radius |
+| `mustTouch` | boolean | Whether the arc must touch both objects *(optional)* |
+
+---
+
+```ts
+tArc(c1: Point2DLike, c2: Point2DLike, radius: number, mustTouch?: boolean): TangentArcTwoObjects
+```
+
+Draws a tangent arc between two points.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `c1` | [Point2DLike](/docs/api/types/point2dlike) | The first point |
+| `c2` | [Point2DLike](/docs/api/types/point2dlike) | The second point |
+| `radius` | number | The arc radius |
+| `mustTouch` | boolean | Whether the arc must touch both points *(optional)* |
+
+---
+
+```ts
 tArc(c1: Point2DLike | SceneObject | QualifiedGeometry, c2: Point2DLike | SceneObject | QualifiedGeometry, radius: number, mustTouch?: boolean): TangentArcTwoObjects
 ```
 
-Draws a tangent arc between two objects with a given radius.
+Draws a tangent arc using a mix of geometry objects, qualified objects, or points as constraints.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `c1` | [Point2DLike](/docs/api/types/point2dlike) \| [SceneObject](/docs/api/types/scene-object) \| QualifiedGeometry | The first constraint object or point |
 | `c2` | [Point2DLike](/docs/api/types/point2dlike) \| [SceneObject](/docs/api/types/scene-object) \| QualifiedGeometry | The second constraint object or point |
 | `radius` | number | The arc radius |
-| `mustTouch` | boolean | Whether the arc must touch both objects *(optional)* |
+| `mustTouch` | boolean | Whether the arc must touch both constraints *(optional)* |

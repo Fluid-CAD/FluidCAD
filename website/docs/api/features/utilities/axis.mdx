@@ -79,10 +79,24 @@ Transforms an existing axis with options.
 axis(a1: AxisLike, a2: AxisLike, options?: AxisTransformOptions): Axis
 ```
 
-Creates an axis midway between two axes.
+Creates an axis midway between two direction vectors.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `a1` | [AxisLike](/docs/api/types/axis-like) | The first axis |
-| `a2` | [AxisLike](/docs/api/types/axis-like) | The second axis |
+| `a1` | [AxisLike](/docs/api/types/axis-like) | The first direction vector or standard axis |
+| `a2` | [AxisLike](/docs/api/types/axis-like) | The second direction vector or standard axis |
+| `options` | AxisTransformOptions | Transform options (offset, flip, etc.) *(optional)* |
+
+---
+
+```ts
+axis(a1: Axis, a2: Axis, options?: AxisTransformOptions): Axis
+```
+
+Creates an axis midway between two existing Axis objects.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `a1` | [Axis](/docs/api/types/axis) | The first Axis object |
+| `a2` | [Axis](/docs/api/types/axis) | The second Axis object |
 | `options` | AxisTransformOptions | Transform options (offset, flip, etc.) *(optional)* |

@@ -93,12 +93,26 @@ Transforms an existing plane with options.
 plane(p1: PlaneLike, p2: PlaneLike, options?: PlaneRenderableOptions): Plane
 ```
 
-Creates a plane midway between two planes.
+Creates a plane midway between two standard planes or normal vectors.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `p1` | [PlaneLike](/docs/api/types/plane-like) | The first plane |
-| `p2` | [PlaneLike](/docs/api/types/plane-like) | The second plane |
+| `p1` | [PlaneLike](/docs/api/types/plane-like) | The first standard plane or normal vector |
+| `p2` | [PlaneLike](/docs/api/types/plane-like) | The second standard plane or normal vector |
+| `options` | PlaneRenderableOptions | Transform options (offset, flip, sticky, etc.) *(optional)* |
+
+---
+
+```ts
+plane(p1: Plane, p2: Plane, options?: PlaneRenderableOptions): Plane
+```
+
+Creates a plane midway between two existing Plane objects.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `p1` | [Plane](/docs/api/types/plane) | The first Plane object |
+| `p2` | [Plane](/docs/api/types/plane) | The second Plane object |
 | `options` | PlaneRenderableOptions | Transform options (offset, flip, sticky, etc.) *(optional)* |
 
 

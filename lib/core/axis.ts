@@ -38,12 +38,19 @@ interface AxisFunction {
    */
   (axis: IAxis, options: AxisTransformOptions): IAxis;
   /**
-   * Creates an axis midway between two axes.
-   * @param a1 - The first axis
-   * @param a2 - The second axis
+   * Creates an axis midway between two direction vectors.
+   * @param a1 - The first direction vector or standard axis
+   * @param a2 - The second direction vector or standard axis
    * @param options - Transform options (offset, flip, etc.)
    */
-  (a1: AxisLike | IAxis, a2: AxisLike | IAxis, options?: AxisTransformOptions): IAxis;
+  (a1: AxisLike, a2: AxisLike, options?: AxisTransformOptions): IAxis;
+  /**
+   * Creates an axis midway between two existing Axis objects.
+   * @param a1 - The first Axis object
+   * @param a2 - The second Axis object
+   * @param options - Transform options (offset, flip, etc.)
+   */
+  (a1: IAxis, a2: IAxis, options?: AxisTransformOptions): IAxis;
 }
 
 function build(context: SceneParserContext): AxisFunction {

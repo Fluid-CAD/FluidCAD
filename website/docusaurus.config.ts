@@ -64,6 +64,12 @@ const config: Config = {
           label: 'Docs',
         },
         {
+          type: 'docSidebar',
+          sidebarId: 'apiSidebar',
+          position: 'left',
+          label: 'API',
+        },
+        {
           type: 'docsVersionDropdown',
           position: 'right',
         },

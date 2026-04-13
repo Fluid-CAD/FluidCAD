@@ -13,6 +13,8 @@
     "write-translations": "docusaurus write-translations",
     "write-heading-ids": "docusaurus write-heading-ids",
     "typecheck": "tsc",
+    "generate-api-docs": "npx tsx scripts/generate-api-docs.ts",
+    "prebuild": "npm run generate-api-docs",
     "version:create": "docusaurus docs:version"
   },
   "dependencies": {
@@ -34,6 +36,7 @@
     "@docusaurus/types": "3.10.0",
     "@types/node": "^25.5.2",
     "@types/react": "^19.0.0",
+    "ts-morph": "^28.0.0",
     "typescript": "~6.0.2"
   },
   "browserslist": {

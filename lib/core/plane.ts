@@ -52,12 +52,19 @@ interface PlaneFunction {
    */
   (plane: IPlane, options: PlaneRenderableOptions): IPlane;
   /**
-   * Creates a plane midway between two planes.
-   * @param p1 - The first plane
-   * @param p2 - The second plane
+   * Creates a plane midway between two standard planes or normal vectors.
+   * @param p1 - The first standard plane or normal vector
+   * @param p2 - The second standard plane or normal vector
    * @param options - Transform options (offset, flip, sticky, etc.)
    */
-  (p1: PlaneLike | IPlane, p2: PlaneLike | IPlane, options?: PlaneRenderableOptions): IPlane;
+  (p1: PlaneLike, p2: PlaneLike, options?: PlaneRenderableOptions): IPlane;
+  /**
+   * Creates a plane midway between two existing Plane objects.
+   * @param p1 - The first Plane object
+   * @param p2 - The second Plane object
+   * @param options - Transform options (offset, flip, sticky, etc.)
+   */
+  (p1: IPlane, p2: IPlane, options?: PlaneRenderableOptions): IPlane;
 }
 
 function build(context: SceneParserContext): PlaneFunction {

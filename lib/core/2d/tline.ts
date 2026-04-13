@@ -12,18 +12,38 @@ interface TLineFunction {
    */
   (distance: number): IGeometry;
   /**
-   * Draws a line tangent to two objects.
-   * @param c1 - The first constraint object
-   * @param c2 - The second constraint object
+   * Draws a line tangent to two geometry objects.
+   * @param c1 - The first geometry object
+   * @param c2 - The second geometry object
+   * @param mustTouch - Whether the line must touch both objects
+   */
+  (c1: ISceneObject, c2: ISceneObject, mustTouch?: boolean): ITwoObjectsTangentLine;
+  /**
+   * Draws a line tangent to two qualified geometry objects.
+   * @param c1 - The first qualified geometry object (e.g., `outside(circle1)`)
+   * @param c2 - The second qualified geometry object
+   * @param mustTouch - Whether the line must touch both objects
+   */
+  (c1: QualifiedSceneObject, c2: QualifiedSceneObject, mustTouch?: boolean): ITwoObjectsTangentLine;
+  /**
+   * Draws a line tangent to a combination of geometry and qualified geometry objects.
+   * @param c1 - The first constraint (geometry or qualified geometry)
+   * @param c2 - The second constraint (geometry or qualified geometry)
    * @param mustTouch - Whether the line must touch both objects
    */
   (c1: ISceneObject | QualifiedSceneObject, c2: ISceneObject | QualifiedSceneObject, mustTouch?: boolean): ITwoObjectsTangentLine;
   /**
-   * Draws a line tangent to one object.
-   * @param c1 - The constraint object
+   * Draws a line tangent to one geometry object.
+   * @param c1 - The geometry object to be tangent to
    * @param mustTouch - Whether the line must touch the object
    */
-  (c1: ISceneObject | QualifiedSceneObject, mustTouch?: boolean): IGeometry;
+  (c1: ISceneObject, mustTouch?: boolean): IGeometry;
+  /**
+   * Draws a line tangent to a qualified geometry object.
+   * @param c1 - The qualified geometry object (e.g., `outside(circle1)`)
+   * @param mustTouch - Whether the line must touch the object
+   */
+  (c1: QualifiedSceneObject, mustTouch?: boolean): IGeometry;
 }
 
 function build(context: SceneParserContext): TLineFunction {

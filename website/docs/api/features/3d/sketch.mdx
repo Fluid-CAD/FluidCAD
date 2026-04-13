@@ -30,12 +30,25 @@ Draws 2D geometry on a standard plane.
 ---
 
 ```ts
-sketch(face: SceneObject | Plane, sketcher: () => void): SceneObject
+sketch(face: SceneObject, sketcher: () => void): SceneObject
 ```
 
-Draws 2D geometry on a face or plane object.
+Draws 2D geometry on a face selection.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `face` | [SceneObject](/docs/api/types/scene-object) \| [Plane](/docs/api/types/plane) | The face or plane object to sketch on |
+| `face` | [SceneObject](/docs/api/types/scene-object) | The face to sketch on |
+| `sketcher` | () =&gt; void | Callback containing sketch operations |
+
+---
+
+```ts
+sketch(plane: Plane, sketcher: () => void): SceneObject
+```
+
+Draws 2D geometry on an existing Plane object.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [Plane](/docs/api/types/plane) | The Plane object to sketch on |
 | `sketcher` | () =&gt; void | Callback containing sketch operations |

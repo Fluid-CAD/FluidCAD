@@ -450,8 +450,11 @@ function generate() {
 
     const examples = findExamples(feature.name);
     const mdx = renderFeaturePage(feature, sigs, examples);
-    const outputFile = path.join(categoryDirs[feature.category], `${feature.name}.mdx`);
-    fs.writeFileSync(outputFile, mdx);
+    const categories = Array.isArray(feature.category) ? feature.category : [feature.category];
+    for (const cat of categories) {
+      const outputFile = path.join(categoryDirs[cat], `${feature.name}.mdx`);
+      fs.writeFileSync(outputFile, mdx);
+    }
     featureCount++;
   }
 

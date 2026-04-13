@@ -1,12 +1,12 @@
 ---
 sidebar_position: 17
 title: "tCircle"
-description: "Draws a circle tangent to two objects with the given diameter."
+description: "Draws a circle tangent to two geometry objects."
 ---
 
 # tCircle()
 
-Draws a circle tangent to two objects with the given diameter.
+Draws a circle tangent to two geometry objects.
 
 **Returns**: [**`Geometry`**](/docs/api/types/geometry)
 
@@ -17,14 +17,59 @@ See the [guide](/docs/guides/sketching/constrained-geometry) for detailed usage 
 ## Signatures
 
 ```ts
+tCircle(c1: SceneObject, c2: SceneObject, diameter: number, mustTouch?: boolean): Geometry
+```
+
+Draws a circle tangent to two geometry objects.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `c1` | [SceneObject](/docs/api/types/scene-object) | The first geometry object |
+| `c2` | [SceneObject](/docs/api/types/scene-object) | The second geometry object |
+| `diameter` | number | The circle diameter |
+| `mustTouch` | boolean | Whether the circle must touch both objects *(optional)* |
+
+---
+
+```ts
+tCircle(c1: QualifiedGeometry, c2: QualifiedGeometry, diameter: number, mustTouch?: boolean): Geometry
+```
+
+Draws a circle tangent to two qualified geometry objects.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `c1` | QualifiedGeometry | The first qualified geometry object (e.g., `outside(circle1)`) |
+| `c2` | QualifiedGeometry | The second qualified geometry object |
+| `diameter` | number | The circle diameter |
+| `mustTouch` | boolean | Whether the circle must touch both objects *(optional)* |
+
+---
+
+```ts
+tCircle(c1: Point2DLike, c2: Point2DLike, diameter: number, mustTouch?: boolean): Geometry
+```
+
+Draws a circle passing through two points.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `c1` | [Point2DLike](/docs/api/types/point2dlike) | The first point |
+| `c2` | [Point2DLike](/docs/api/types/point2dlike) | The second point |
+| `diameter` | number | The circle diameter |
+| `mustTouch` | boolean | Whether the circle must touch both points *(optional)* |
+
+---
+
+```ts
 tCircle(c1: Point2DLike | SceneObject | QualifiedGeometry, c2: Point2DLike | SceneObject | QualifiedGeometry, diameter: number, mustTouch?: boolean): Geometry
 ```
 
-Draws a circle tangent to two objects with the given diameter.
+Draws a tangent circle using a mix of geometry objects, qualified objects, or points as constraints.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `c1` | [Point2DLike](/docs/api/types/point2dlike) \| [SceneObject](/docs/api/types/scene-object) \| QualifiedGeometry | The first constraint object or point |
 | `c2` | [Point2DLike](/docs/api/types/point2dlike) \| [SceneObject](/docs/api/types/scene-object) \| QualifiedGeometry | The second constraint object or point |
 | `diameter` | number | The circle diameter |
-| `mustTouch` | boolean | Whether the circle must touch both objects *(optional)* |
+| `mustTouch` | boolean | Whether the circle must touch both constraints *(optional)* |

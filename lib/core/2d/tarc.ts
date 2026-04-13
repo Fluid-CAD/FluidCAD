@@ -44,11 +44,35 @@ interface TArcFunction {
    */
   (startPoint: Point2DLike, endPoint: Point2DLike, tangent: Point2DLike): IGeometry;
   /**
-   * Draws a tangent arc between two objects with a given radius.
+   * Draws a tangent arc between two geometry objects.
+   * @param c1 - The first geometry object
+   * @param c2 - The second geometry object
+   * @param radius - The arc radius
+   * @param mustTouch - Whether the arc must touch both objects
+   */
+  (c1: ISceneObject, c2: ISceneObject, radius: number, mustTouch?: boolean): ITangentArcTwoObjects;
+  /**
+   * Draws a tangent arc between two qualified geometry objects.
+   * @param c1 - The first qualified geometry object (e.g., `outside(circle1)`)
+   * @param c2 - The second qualified geometry object
+   * @param radius - The arc radius
+   * @param mustTouch - Whether the arc must touch both objects
+   */
+  (c1: QualifiedSceneObject, c2: QualifiedSceneObject, radius: number, mustTouch?: boolean): ITangentArcTwoObjects;
+  /**
+   * Draws a tangent arc between two points.
+   * @param c1 - The first point
+   * @param c2 - The second point
+   * @param radius - The arc radius
+   * @param mustTouch - Whether the arc must touch both points
+   */
+  (c1: Point2DLike, c2: Point2DLike, radius: number, mustTouch?: boolean): ITangentArcTwoObjects;
+  /**
+   * Draws a tangent arc using a mix of geometry objects, qualified objects, or points as constraints.
    * @param c1 - The first constraint object or point
    * @param c2 - The second constraint object or point
    * @param radius - The arc radius
-   * @param mustTouch - Whether the arc must touch both objects
+   * @param mustTouch - Whether the arc must touch both constraints
    */
   (c1: ISceneObject | QualifiedSceneObject | Point2DLike, c2: ISceneObject | QualifiedSceneObject | Point2DLike, radius: number, mustTouch?: boolean): ITangentArcTwoObjects;
 }

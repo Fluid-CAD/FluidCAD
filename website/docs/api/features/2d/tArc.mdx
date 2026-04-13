@@ -1,0 +1,96 @@
+---
+sidebar_position: 18
+title: "tArc"
+description: "Draws a tangent arc with a given radius and end angle."
+---
+
+# tArc()
+
+Draws a tangent arc with a given radius and end angle.
+
+**Returns**: [**`Geometry`**](/docs/api/types/geometry)
+
+:::tip
+See the [guide](/docs/guides/sketching/constrained-geometry) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+tArc(radius?: number, endAngle?: number): Geometry
+```
+
+Draws a tangent arc with a given radius and end angle.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `radius` | number | The arc radius (defaults to 100) *(optional)* |
+| `endAngle` | number | The sweep angle in degrees (defaults to 90) *(optional)* |
+
+---
+
+```ts
+tArc(radius: number, angle: number, tangent: Point2DLike): Geometry
+```
+
+Draws a tangent arc with a given radius, angle, and start tangent direction.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `radius` | number | The arc radius |
+| `angle` | number | The sweep angle in degrees |
+| `tangent` | [Point2DLike](/docs/api/types/point2dlike) | The start tangent direction |
+
+---
+
+```ts
+tArc(endPoint: Point2DLike): Geometry
+```
+
+Draws a tangent arc to a given end point.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `endPoint` | [Point2DLike](/docs/api/types/point2dlike) | The end point of the arc |
+
+---
+
+```ts
+tArc(endPoint: Point2DLike, tangent: Point2DLike): Geometry
+```
+
+Draws a tangent arc to a given end point with an explicit end tangent.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `endPoint` | [Point2DLike](/docs/api/types/point2dlike) | The end point of the arc |
+| `tangent` | [Point2DLike](/docs/api/types/point2dlike) | The end tangent direction |
+
+---
+
+```ts
+tArc(startPoint: Point2DLike, endPoint: Point2DLike, tangent: Point2DLike): Geometry
+```
+
+Draws a tangent arc from a start point to an end point with a tangent.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `startPoint` | [Point2DLike](/docs/api/types/point2dlike) | The start point of the arc |
+| `endPoint` | [Point2DLike](/docs/api/types/point2dlike) | The end point of the arc |
+| `tangent` | [Point2DLike](/docs/api/types/point2dlike) | The end tangent direction |
+
+---
+
+```ts
+tArc(c1: Point2DLike | SceneObject | QualifiedGeometry, c2: Point2DLike | SceneObject | QualifiedGeometry, radius: number, mustTouch?: boolean): TangentArcTwoObjects
+```
+
+Draws a tangent arc between two objects with a given radius.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `c1` | [Point2DLike](/docs/api/types/point2dlike) \| [SceneObject](/docs/api/types/scene-object) \| QualifiedGeometry | The first constraint object or point |
+| `c2` | [Point2DLike](/docs/api/types/point2dlike) \| [SceneObject](/docs/api/types/scene-object) \| QualifiedGeometry | The second constraint object or point |
+| `radius` | number | The arc radius |
+| `mustTouch` | boolean | Whether the arc must touch both objects *(optional)* |

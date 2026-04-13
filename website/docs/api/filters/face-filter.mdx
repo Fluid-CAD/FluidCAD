@@ -1,0 +1,190 @@
+---
+sidebar_position: 1
+title: "FaceFilter"
+description: "Creates a new face filter builder for selecting faces by geometric properties."
+---
+
+# FaceFilter
+
+Creates a new face filter builder for selecting faces by geometric properties.
+
+```ts
+import { face } from 'fluidcad/filters';
+```
+
+## Methods
+
+### .atIndex()
+
+```ts
+.atIndex(index: number): this
+```
+
+Selects the face at the given index.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `index` | number | Zero-based face index. |
+
+### .notAtIndex()
+
+```ts
+.notAtIndex(index: number): this
+```
+
+Excludes the face at the given index.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `index` | number | Zero-based face index to exclude. |
+
+---
+
+### .onPlane()
+
+```ts
+.onPlane(plane: PlaneLike, offset?: number): this
+```
+
+Selects faces that lie on the given plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
+| `offset` | number | Optional distance to offset the plane before matching. *(optional)* |
+
+### .notOnPlane()
+
+```ts
+.notOnPlane(plane: PlaneLike, offset?: number): this
+```
+
+Excludes faces that lie on the given plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
+| `offset` | number | Optional distance to offset the plane before matching. *(optional)* |
+
+---
+
+### .circle()
+
+```ts
+.circle(diameter?: number): this
+```
+
+Selects circular (flat, disc-shaped) faces, optionally matching a specific diameter.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `diameter` | number | Optional diameter to match. *(optional)* |
+
+### .notCircle()
+
+```ts
+.notCircle(diameter?: number): this
+```
+
+Excludes circular (flat, disc-shaped) faces, optionally matching a specific diameter.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `diameter` | number | Optional diameter to exclude. *(optional)* |
+
+---
+
+### .cylinder()
+
+```ts
+.cylinder(diameter?: number): this
+```
+
+Selects cylindrical faces, optionally matching a specific diameter.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `diameter` | number | Optional diameter to match. *(optional)* |
+
+### .notCylinder()
+
+```ts
+.notCylinder(diameter?: number): this
+```
+
+Excludes cylindrical faces, optionally matching a specific diameter.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `diameter` | number | Optional diameter to exclude. *(optional)* |
+
+---
+
+### .cylinderCurve()
+
+```ts
+.cylinderCurve(diameter?: number): this
+```
+
+Selects faces bounded by cylindrical curves, optionally matching a specific diameter.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `diameter` | number | Optional diameter to match. *(optional)* |
+
+### .notCylinderCurve()
+
+```ts
+.notCylinderCurve(diameter?: number): this
+```
+
+Excludes faces bounded by cylindrical curves, optionally matching a specific diameter.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `diameter` | number | Optional diameter to exclude. *(optional)* |
+
+---
+
+### .parallelTo()
+
+```ts
+.parallelTo(plane: PlaneLike): this
+```
+
+Selects faces whose normal is parallel to the given plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
+
+### .notParallelTo()
+
+```ts
+.notParallelTo(plane: PlaneLike): this
+```
+
+Excludes faces whose normal is parallel to the given plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
+
+---
+
+### .cone()
+
+```ts
+.cone(): this
+```
+
+Selects conical faces.
+
+### .notCone()
+
+```ts
+.notCone(): this
+```
+
+Excludes conical faces.
+

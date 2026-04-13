@@ -1,0 +1,40 @@
+---
+sidebar_position: 12
+title: "shell"
+description: "Hollows out a solid with the given wall thickness."
+---
+
+# shell()
+
+Hollows out a solid with the given wall thickness.
+
+**Returns**: [**`Shell`**](/docs/api/types/shell)
+
+:::tip
+See the [guide](/docs/guides/3d-operations/shell) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+shell(thickness?: number): Shell
+```
+
+Hollows out a solid with the given wall thickness.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `thickness` | number | The wall thickness (defaults to 2.5) *(optional)* |
+
+---
+
+```ts
+shell(thickness: number, ...selections: SceneObject[]): Shell
+```
+
+Hollows out a solid, removing the selected faces.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `thickness` | number | The wall thickness |
+| `...selections` | [SceneObject](/docs/api/types/scene-object)[] | The face selections to remove *(optional)* |

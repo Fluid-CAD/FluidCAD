@@ -1,0 +1,112 @@
+---
+sidebar_position: 7
+title: "Revolve"
+description: "The Revolve type. Extends Fuseable."
+---
+
+# Revolve
+
+Extends [`Fuseable`](/docs/api/types/fuseable)
+
+
+<details>
+<summary>Inherited from [`Fuseable`](/docs/api/types/fuseable)</summary>
+
+### add()
+
+```ts
+add(...objects: SceneObject[]): this
+```
+
+Additive boolean operation — fuses the result with existing shapes.
+When called with no arguments, fuses with all intersecting scene objects.
+When called with specific objects, fuses only with those objects.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | Optional target objects to fuse with. *(optional)* |
+
+---
+
+### 'new'()
+
+```ts
+'new'(): this
+```
+
+No boolean operation — keeps the result as a standalone shape,
+separate from all other scene objects.
+
+---
+
+### remove()
+
+```ts
+remove(...objects: SceneObject[]): this
+```
+
+Subtractive boolean operation — cuts the result from existing shapes.
+When called with no arguments, cuts from all intersecting scene objects.
+When called with specific objects, cuts only from those objects.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | Optional target objects to cut from. *(optional)* |
+
+
+</details>
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### guide()
+
+```ts
+guide(): this
+```
+
+Marks this object as construction geometry. Guide objects are excluded from
+final geometry output unless explicitly included.
+
+
+</details>
+
+## Methods
+
+### symmetric()
+
+```ts
+symmetric(): this
+```
+
+Enables symmetric mode — revolves equally in both directions from the sketch plane.
+
+---
+
+### pick()
+
+```ts
+pick(...points: Point2DLike[]): this
+```
+
+Restricts the revolve to only the sketch regions containing the given points.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...points` | [Point2DLike](/docs/api/types/point2dlike)[] | 2D points in the sketch plane identifying regions to revolve. *(optional)* |
+

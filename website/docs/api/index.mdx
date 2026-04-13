@@ -1,0 +1,42 @@
+---
+sidebar_position: 0
+title: "API Reference"
+description: "FluidCAD API Reference - complete documentation for all features, types, and filters."
+slug: "/api"
+---
+
+# API Reference
+
+Complete API documentation for FluidCAD.
+
+## Features
+
+Functions for creating and manipulating geometry.
+
+- **2D Sketching** - Lines, circles, arcs, rectangles, and other 2D geometry
+- **3D Operations** - Extrude, revolve, loft, sweep, booleans, and modifications
+- **Transforms** - Translate, rotate, mirror, copy, and repeat
+- **Utilities** - Select, color, remove, load, and other utilities
+
+## Types
+
+Return types from feature functions. These provide methods for further operations on created geometry.
+
+- [**SceneObject**](/docs/api/types/scene-object) - Base type for all scene objects
+- [**Extrude**](/docs/api/types/extrude) - Return type for `extrude()`
+- [**Revolve**](/docs/api/types/revolve) - Return type for `revolve()`
+- [**Loft**](/docs/api/types/loft) - Return type for `loft()`
+- [**Sweep**](/docs/api/types/sweep) - Return type for `sweep()`
+
+## Filters
+
+Filter builders for selecting specific faces and edges.
+
+- [**FaceFilter**](/docs/api/filters/face-filter) - Filter faces by shape, plane, and orientation
+- [**EdgeFilter**](/docs/api/filters/edge-filter) - Filter edges by curve type, plane, and orientation
+
+## Constraints
+
+Constraint qualifiers for tangent geometry.
+
+- [**Constraints**](/docs/api/constraints) - `outside()`, `enclosed()`, `enclosing()`, `unqualified()`

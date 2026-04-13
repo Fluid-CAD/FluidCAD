@@ -1,0 +1,33 @@
+---
+sidebar_position: 7
+title: "bezier"
+description: "Draws a bezier curve from the current position through control points to the end point. The last argument is the endpoint; all preceding arguments are control points. With 0 args: interactive mode placeholder (no geometry). With 1 arg: degree 1 (line). With 2 args: degree 2 (quadratic bezier). With 3 args: degree 3 (cubic bezier)."
+---
+
+# bezier()
+
+Draws a bezier curve from the current position through control points to the end point.
+The last argument is the endpoint; all preceding arguments are control points.
+With 0 args: interactive mode placeholder (no geometry).
+With 1 arg: degree 1 (line).
+With 2 args: degree 2 (quadratic bezier).
+With 3 args: degree 3 (cubic bezier).
+
+**Returns**: [**`Geometry`**](/docs/api/types/geometry)
+
+## Signatures
+
+```ts
+bezier(...points: Point2DLike[]): Geometry
+```
+
+Draws a bezier curve from the current position through control points to the end point.
+The last argument is the endpoint; all preceding arguments are control points.
+With 0 args: interactive mode placeholder (no geometry).
+With 1 arg: degree 1 (line).
+With 2 args: degree 2 (quadratic bezier).
+With 3 args: degree 3 (cubic bezier).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...points` | [Point2DLike](/docs/api/types/point2dlike)[] | Control points and end point *(optional)* |

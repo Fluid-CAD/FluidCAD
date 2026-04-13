@@ -1,0 +1,129 @@
+---
+sidebar_position: 1
+title: "translate"
+description: "Translates objects along the X axis."
+---
+
+# translate()
+
+Translates objects along the X axis.
+
+**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+
+:::tip
+See the [guide](/docs/guides/transforms) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+translate(x: number, ...targets: SceneObject[]): SceneObject
+```
+
+Translates objects along the X axis.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `x` | number | The X distance |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
+
+---
+
+```ts
+translate(x: number, copy: boolean, ...targets: SceneObject[]): SceneObject
+```
+
+Translates objects along the X axis, optionally making a copy.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `x` | number | The X distance |
+| `copy` | boolean | Whether to copy instead of move |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
+
+---
+
+```ts
+translate(x: number, y: number, ...targets: SceneObject[]): SceneObject
+```
+
+Translates objects along the X and Y axes.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `x` | number | The X distance |
+| `y` | number | The Y distance |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
+
+---
+
+```ts
+translate(x: number, y: number, copy: boolean, ...targets: SceneObject[]): SceneObject
+```
+
+Translates objects along the X and Y axes, optionally making a copy.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `x` | number | The X distance |
+| `y` | number | The Y distance |
+| `copy` | boolean | Whether to copy instead of move |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
+
+---
+
+```ts
+translate(x: number, y: number, z: number, ...targets: SceneObject[]): SceneObject
+```
+
+Translates objects along all three axes.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `x` | number | The X distance |
+| `y` | number | The Y distance |
+| `z` | number | The Z distance |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
+
+---
+
+```ts
+translate(x: number, y: number, z: number, copy: boolean, ...targets: SceneObject[]): SceneObject
+```
+
+Translates objects along all three axes, optionally making a copy.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `x` | number | The X distance |
+| `y` | number | The Y distance |
+| `z` | number | The Z distance |
+| `copy` | boolean | Whether to copy instead of move |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
+
+---
+
+```ts
+translate(distance: PointLike, ...targets: SceneObject[]): SceneObject
+```
+
+Translates objects by a point-like offset.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance` | [PointLike](/docs/api/types/point-like) | The offset as a point |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
+
+---
+
+```ts
+translate(distance: PointLike, copy: boolean, ...targets: SceneObject[]): SceneObject
+```
+
+Translates objects by a point-like offset, optionally making a copy.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance` | [PointLike](/docs/api/types/point-like) | The offset as a point |
+| `copy` | boolean | Whether to copy instead of move |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |

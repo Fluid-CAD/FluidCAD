@@ -1,0 +1,54 @@
+---
+sidebar_position: 16
+title: "tLine"
+description: "Draws a line tangent to the previous geometry with the given distance."
+---
+
+# tLine()
+
+Draws a line tangent to the previous geometry with the given distance.
+
+**Returns**: [**`Geometry`**](/docs/api/types/geometry)
+
+:::tip
+See the [guide](/docs/guides/sketching/constrained-geometry) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+tLine(distance: number): Geometry
+```
+
+Draws a line tangent to the previous geometry with the given distance.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance` | number | The tangent line length |
+
+---
+
+```ts
+tLine(c1: SceneObject | QualifiedGeometry, c2: SceneObject | QualifiedGeometry, mustTouch?: boolean): TwoObjectsTangentLine
+```
+
+Draws a line tangent to two objects.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `c1` | [SceneObject](/docs/api/types/scene-object) \| QualifiedGeometry | The first constraint object |
+| `c2` | [SceneObject](/docs/api/types/scene-object) \| QualifiedGeometry | The second constraint object |
+| `mustTouch` | boolean | Whether the line must touch both objects *(optional)* |
+
+---
+
+```ts
+tLine(c1: SceneObject | QualifiedGeometry, mustTouch?: boolean): Geometry
+```
+
+Draws a line tangent to one object.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `c1` | [SceneObject](/docs/api/types/scene-object) \| QualifiedGeometry | The constraint object |
+| `mustTouch` | boolean | Whether the line must touch the object *(optional)* |

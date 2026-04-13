@@ -1,0 +1,57 @@
+---
+sidebar_position: 5
+title: "slot"
+description: "Draws a slot with the given length and end radius."
+---
+
+# slot()
+
+Draws a slot with the given length and end radius.
+
+**Returns**: [**`Slot`**](/docs/api/types/slot)
+
+## Signatures
+
+```ts
+slot(distance: number, radius: number): Slot
+```
+
+Draws a slot with the given length and end radius.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance` | number | The slot length |
+| `radius` | number | The end cap radius |
+
+---
+
+```ts
+slot(start: Point2DLike, distance: number, radius: number): Slot
+```
+
+Draws a slot from a start point with the given length and end radius.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `start` | [Point2DLike](/docs/api/types/point2dlike) | The start point |
+| `distance` | number | The slot length |
+| `radius` | number | The end cap radius |
+
+---
+
+```ts
+slot(geometry: SceneObject, radius: number, deleteSource?: boolean): Slot
+```
+
+Creates a slot from a geometry edge with the given radius.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `geometry` | [SceneObject](/docs/api/types/scene-object) | The source geometry edge |
+| `radius` | number | The end cap radius |
+| `deleteSource` | boolean | Whether to delete the source geometry (defaults to true) *(optional)* |
+
+
+:::note
+All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
+:::

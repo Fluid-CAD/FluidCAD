@@ -1,0 +1,74 @@
+---
+sidebar_position: 5
+title: "repeat"
+description: "Creates linear repeated instances along an axis."
+---
+
+# repeat()
+
+Creates linear repeated instances along an axis.
+
+**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+
+:::tip
+See the [guide](/docs/guides/patterns) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+repeat(type: "linear", axis: AxisLike, options: LinearRepeatOptions, ...objects: SceneObject[]): SceneObject
+```
+
+Creates linear repeated instances along an axis.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | "linear" | Must be `'linear'` |
+| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to repeat along |
+| `options` | LinearRepeatOptions | Repeat count, spacing, etc. |
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to repeat (defaults to last object) *(optional)* |
+
+---
+
+```ts
+repeat(type: "linear", axis: AxisLike[], options: LinearRepeatOptions, ...objects: SceneObject[]): SceneObject
+```
+
+Creates linear repeated instances along multiple axes.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | "linear" | Must be `'linear'` |
+| `axis` | [AxisLike](/docs/api/types/axis-like)[] | The axes to repeat along |
+| `options` | LinearRepeatOptions | Repeat count, spacing, etc. |
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to repeat (defaults to last object) *(optional)* |
+
+---
+
+```ts
+repeat(type: "circular", axis: AxisLike, options: CircularRepeatOptions, ...objects: SceneObject[]): SceneObject
+```
+
+Creates circular repeated instances around an axis.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | "circular" | Must be `'circular'` |
+| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to repeat around |
+| `options` | CircularRepeatOptions | Repeat count, angle, etc. |
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to repeat (defaults to last object) *(optional)* |
+
+---
+
+```ts
+repeat(type: "mirror", plane: PlaneLike, ...objects: SceneObject[]): SceneObject
+```
+
+Creates a mirrored instance of objects across a plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | "mirror" | Must be `'mirror'` |
+| `plane` | [PlaneLike](/docs/api/types/plane-like) | The plane to mirror across |
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to mirror (defaults to last object) *(optional)* |

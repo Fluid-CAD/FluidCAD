@@ -1,0 +1,32 @@
+---
+sidebar_position: 22
+title: "project"
+description: "Projects 3D objects onto the current sketch plane."
+---
+
+# project()
+
+Projects 3D objects onto the current sketch plane.
+
+**Returns**: [**`ExtrudableGeometry`**](/docs/api/types/extrudable-geometry)
+
+:::tip
+See the [guide](/docs/guides/sketching/projection) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+project(...sourceObjects: SceneObject[]): ExtrudableGeometry
+```
+
+Projects 3D objects onto the current sketch plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...sourceObjects` | [SceneObject](/docs/api/types/scene-object)[] | The 3D objects to project *(optional)* |
+
+
+:::note
+All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
+:::

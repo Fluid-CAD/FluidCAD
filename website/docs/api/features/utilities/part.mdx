@@ -1,0 +1,28 @@
+---
+sidebar_position: 9
+title: "part"
+description: "Defines a reusable part with a name and a callback containing the geometry."
+---
+
+# part()
+
+Defines a reusable part with a name and a callback containing the geometry.
+
+**Returns**: **`PartHandle`**
+
+:::tip
+See the [guide](/docs/guides/3d-operations/parts) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+part(name: string, callback: (options: T) => void): PartHandle
+```
+
+Defines a reusable part with a name and a callback containing the geometry.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | string | The part name. |
+| `callback` | (options: T) =&gt; void | Callback containing the part geometry. |

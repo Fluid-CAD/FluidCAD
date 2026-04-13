@@ -1,0 +1,36 @@
+---
+sidebar_position: 11
+title: "rMove"
+description: "Rotates the cursor direction by the given angle in degrees."
+---
+
+# rMove()
+
+Rotates the cursor direction by the given angle in degrees.
+
+**Returns**: [**`Geometry`**](/docs/api/types/geometry)
+
+## Signatures
+
+```ts
+rMove(angle: number): Geometry
+```
+
+Rotates the cursor direction by the given angle in degrees.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `angle` | number | The rotation angle in degrees |
+
+---
+
+```ts
+rMove(angle: number, pivot: Point2DLike): Geometry
+```
+
+Rotates the cursor direction by the given angle around a pivot point.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `angle` | number | The rotation angle in degrees |
+| `pivot` | [Point2DLike](/docs/api/types/point2dlike) | The pivot point to rotate around |

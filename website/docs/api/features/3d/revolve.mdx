@@ -1,0 +1,42 @@
+---
+sidebar_position: 4
+title: "revolve"
+description: "Revolves the last sketch 360 degrees around an axis."
+---
+
+# revolve()
+
+Revolves the last sketch 360 degrees around an axis.
+
+**Returns**: [**`Revolve`**](/docs/api/types/revolve)
+
+:::tip
+See the [guide](/docs/guides/3d-operations/revolve) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+revolve(axisLike: AxisLike, target?: SceneObject): Revolve
+```
+
+Revolves the last sketch 360 degrees around an axis.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `axisLike` | [AxisLike](/docs/api/types/axis-like) | The axis to revolve around |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to revolve *(optional)* |
+
+---
+
+```ts
+revolve(axisLike: AxisLike, angle: number, target?: SceneObject): Revolve
+```
+
+Revolves the last sketch by a given angle around an axis.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `axisLike` | [AxisLike](/docs/api/types/axis-like) | The axis to revolve around |
+| `angle` | number | The sweep angle in degrees |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to revolve *(optional)* |

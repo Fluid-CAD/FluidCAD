@@ -1,0 +1,80 @@
+---
+sidebar_position: 2
+title: "extrude"
+description: "Extrudes the last sketch with a default distance."
+---
+
+# extrude()
+
+Extrudes the last sketch with a default distance.
+
+**Returns**: [**`Extrude`**](/docs/api/types/extrude)
+
+:::tip
+See the [guide](/docs/guides/3d-operations/extrude) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+extrude(target?: SceneObject): Extrude
+```
+
+Extrudes the last sketch with a default distance.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to extrude *(optional)* |
+
+---
+
+```ts
+extrude(distance: number, target?: SceneObject): Extrude
+```
+
+Extrudes the last sketch by a given distance.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance` | number | The extrusion distance |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to extrude *(optional)* |
+
+---
+
+```ts
+extrude(distance1: number, distance2: number): Extrude
+```
+
+Extrudes the last sketch between two distances.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance1` | number | The first extrusion distance |
+| `distance2` | number | The second extrusion distance |
+
+---
+
+```ts
+extrude(distance1: number, distance2: number, target: SceneObject): Extrude
+```
+
+Extrudes the given sketch between two distances.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance1` | number | The first extrusion distance |
+| `distance2` | number | The second extrusion distance |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to extrude |
+
+---
+
+```ts
+extrude(face: SceneObject | "first-face" | "last-face", target?: SceneObject): Extrude
+```
+
+Extrudes the last sketch up to a face.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `face` | [SceneObject](/docs/api/types/scene-object) \| "first-face" \| "last-face" | The face to extrude up to, or `'first-face'`/`'last-face'` |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to extrude *(optional)* |

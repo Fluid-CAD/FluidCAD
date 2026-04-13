@@ -1,0 +1,170 @@
+---
+sidebar_position: 6
+title: "Cut"
+description: "The Cut type. Extends SceneObject."
+---
+
+# Cut
+
+Extends [`SceneObject`](/docs/api/types/scene-object)
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### guide()
+
+```ts
+guide(): this
+```
+
+Marks this object as construction geometry. Guide objects are excluded from
+final geometry output unless explicitly included.
+
+
+</details>
+
+## Methods
+
+### symmetric()
+
+```ts
+symmetric(): this
+```
+
+Enables symmetric mode — cuts equally in both directions from the sketch plane.
+
+---
+
+### remove()
+
+```ts
+remove(...objects: SceneObject[]): this
+```
+
+Narrows the cut scope to specific objects instead of all scene objects.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The target objects to cut from. *(optional)* |
+
+---
+
+### draft()
+
+```ts
+draft(value: number | [number, number]): this
+```
+
+Applies a draft (taper) angle to the cut walls.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | number \| [number, number] | A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft. |
+
+---
+
+### endOffset()
+
+```ts
+endOffset(value: number): this
+```
+
+Offsets the cut end face by a specified distance along the cut direction.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | number | The offset distance. |
+
+---
+
+### startEdges()
+
+```ts
+startEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges at the start of the cut path, classified by signed distance from the cut plane.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### endEdges()
+
+```ts
+endEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges at the end of the cut path, classified by signed distance from the cut plane.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### internalEdges()
+
+```ts
+internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects internal edges created by the cut that are not on the cut plane boundary.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### internalFaces()
+
+```ts
+internalFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+```
+
+Selects internal faces exposed by the cut — newly created surfaces not from the original stock.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### pick()
+
+```ts
+pick(...points: Point2DLike[]): this
+```
+
+Restricts the cut to only the sketch regions containing the given points.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...points` | [Point2DLike](/docs/api/types/point2dlike)[] | 2D points in the sketch plane identifying regions to cut. *(optional)* |
+

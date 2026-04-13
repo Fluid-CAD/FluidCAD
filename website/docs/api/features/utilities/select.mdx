@@ -1,0 +1,27 @@
+---
+sidebar_position: 1
+title: "select"
+description: "Selects faces or edges matching the given filters."
+---
+
+# select()
+
+Selects faces or edges matching the given filters.
+
+**Returns**: [**`Select`**](/docs/api/types/select)
+
+:::tip
+See the [guide](/docs/guides/selections-and-filters) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+select(...filters: FaceFilter | EdgeFilter[]): Select
+```
+
+Selects faces or edges matching the given filters.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...filters` | FaceFilter \| EdgeFilter[] | One or more filter builders to match against *(optional)* |

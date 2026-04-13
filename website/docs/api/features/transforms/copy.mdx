@@ -1,0 +1,105 @@
+---
+sidebar_position: 4
+title: "copy"
+description: "[2D] Creates linear copies along an axis inside a sketch."
+---
+
+# copy()
+
+[2D] Creates linear copies along an axis inside a sketch.
+
+**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+
+:::tip
+See the [guide](/docs/guides/copying) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+copy(type: "linear", axis: AxisLike, options: LinearCopyOptions, ...objects: SceneObject[]): SceneObject
+```
+
+[2D] Creates linear copies along an axis inside a sketch.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | "linear" | Must be `'linear'` |
+| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to copy along |
+| `options` | LinearCopyOptions | Copy count, spacing, etc. |
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to copy (defaults to last object) *(optional)* |
+
+---
+
+```ts
+copy(type: "linear", axis: AxisLike[], options: LinearCopyOptions, ...objects: SceneObject[]): SceneObject
+```
+
+[2D] Creates linear copies along multiple axes inside a sketch.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | "linear" | Must be `'linear'` |
+| `axis` | [AxisLike](/docs/api/types/axis-like)[] | The axes to copy along |
+| `options` | LinearCopyOptions | Copy count, spacing, etc. |
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to copy (defaults to last object) *(optional)* |
+
+---
+
+```ts
+copy(type: "linear", axis: AxisLike, options: LinearCopyOptions, ...objects: SceneObject[]): SceneObject
+```
+
+[3D] Creates linear copies along an axis.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | "linear" | Must be `'linear'` |
+| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to copy along |
+| `options` | LinearCopyOptions | Copy count, spacing, etc. |
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to copy (defaults to last object) *(optional)* |
+
+---
+
+```ts
+copy(type: "linear", axis: AxisLike[], options: LinearCopyOptions, ...objects: SceneObject[]): SceneObject
+```
+
+[3D] Creates linear copies along multiple axes.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | "linear" | Must be `'linear'` |
+| `axis` | [AxisLike](/docs/api/types/axis-like)[] | The axes to copy along |
+| `options` | LinearCopyOptions | Copy count, spacing, etc. |
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to copy (defaults to last object) *(optional)* |
+
+---
+
+```ts
+copy(type: "circular", center: Point2DLike, options: CircularCopyOptions, ...objects: SceneObject[]): SceneObject
+```
+
+[2D] Creates circular copies around a center point inside a sketch.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | "circular" | Must be `'circular'` |
+| `center` | [Point2DLike](/docs/api/types/point2dlike) | The center point to copy around |
+| `options` | CircularCopyOptions | Copy count, angle, etc. |
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to copy (defaults to last object) *(optional)* |
+
+---
+
+```ts
+copy(type: "circular", axis: AxisLike, options: CircularCopyOptions, ...objects: SceneObject[]): SceneObject
+```
+
+[3D] Creates circular copies around an axis.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | "circular" | Must be `'circular'` |
+| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to copy around |
+| `options` | CircularCopyOptions | Copy count, angle, etc. |
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to copy (defaults to last object) *(optional)* |

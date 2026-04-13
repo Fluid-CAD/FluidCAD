@@ -1,0 +1,43 @@
+---
+sidebar_position: 13
+title: "hLine"
+description: "Draws a horizontal line of the given distance."
+---
+
+# hLine()
+
+Draws a horizontal line of the given distance.
+
+**Returns**: [**`Geometry`**](/docs/api/types/geometry)
+
+## Signatures
+
+```ts
+hLine(distance: number, centered?: boolean): Geometry
+```
+
+Draws a horizontal line of the given distance.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance` | number | The line length |
+| `centered` | boolean | Whether to center the line on the current position *(optional)* |
+
+---
+
+```ts
+hLine(start: Point2DLike, distance: number, centered?: boolean): Geometry
+```
+
+Draws a horizontal line from a start point.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `start` | [Point2DLike](/docs/api/types/point2dlike) | The start point |
+| `distance` | number | The line length |
+| `centered` | boolean | Whether to center the line on the start point *(optional)* |
+
+
+:::note
+All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
+:::

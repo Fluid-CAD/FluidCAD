@@ -1,0 +1,17 @@
+---
+sidebar_position: 22
+title: "PlaneLike"
+description: "A plane reference accepted by 3D operations and sketching functions."
+---
+
+# PlaneLike
+
+A plane reference used by `sketch()`, filters, and other operations. Any of the following formats are accepted:
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| Standard plane string | `"xy"`, `"xz"`, `"yz"` | The three principal planes |
+| Negative plane string | `"-xy"`, `"-xz"`, `"-yz"` | Principal planes with flipped normals |
+| Named plane string | `"top"`, `"bottom"`, `"front"`, `"back"`, `"left"`, `"right"` | Descriptive aliases for the principal planes |
+| [`Plane`](/docs/api/types/plane) | `plane("xy", 10)` | A plane object created with `plane()` |
+| [`SceneObject`](/docs/api/types/scene-object) | A face selection | A planar face to use as reference |

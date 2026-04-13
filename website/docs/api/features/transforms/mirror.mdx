@@ -1,0 +1,83 @@
+---
+sidebar_position: 3
+title: "mirror"
+description: "[2D] Mirror all sketch geometries across a given line."
+---
+
+# mirror()
+
+[2D] Mirror all sketch geometries across a given line.
+
+**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+
+:::tip
+See the [guide](/docs/guides/transforms) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+mirror(line: SceneObject): SceneObject
+```
+
+[2D] Mirror all sketch geometries across a given line.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `line` | [SceneObject](/docs/api/types/scene-object) | The line to mirror across |
+
+---
+
+```ts
+mirror(axis: AxisLike): SceneObject
+```
+
+[2D] Mirror all sketch geometries across a given axis.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to mirror across |
+
+---
+
+```ts
+mirror(line: SceneObject, ...geometries: SceneObject[]): SceneObject
+```
+
+[2D] Mirror given sketch geometries across a given line.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `line` | [SceneObject](/docs/api/types/scene-object) | The line to mirror across |
+| `...geometries` | [SceneObject](/docs/api/types/scene-object)[] | The geometries to mirror *(optional)* |
+
+---
+
+```ts
+mirror(axis: AxisLike, ...geometries: SceneObject[]): SceneObject
+```
+
+[2D] Mirror given sketch geometries across a given axis.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to mirror across |
+| `...geometries` | [SceneObject](/docs/api/types/scene-object)[] | The geometries to mirror *(optional)* |
+
+---
+
+```ts
+mirror(plane: PlaneLike, ...objects: SceneObject[]): SceneObject
+```
+
+[3D] Mirror given shapes across a given plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [PlaneLike](/docs/api/types/plane-like) | The plane to mirror across |
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The shapes to mirror *(optional)* |
+
+
+:::note
+All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
+:::

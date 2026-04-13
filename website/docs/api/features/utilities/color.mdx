@@ -1,0 +1,40 @@
+---
+sidebar_position: 2
+title: "color"
+description: "Applies a color to the last selection."
+---
+
+# color()
+
+Applies a color to the last selection.
+
+**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+
+:::tip
+See the [guide](/docs/guides/3d-operations/color) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+color(color: string): SceneObject
+```
+
+Applies a color to the last selection.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `color` | string | The color value (CSS color string) |
+
+---
+
+```ts
+color(color: string, selection: SceneObject): SceneObject
+```
+
+Applies a color to the given selection.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `color` | string | The color value (CSS color string) |
+| `selection` | [SceneObject](/docs/api/types/scene-object) | The face or edge selection to color |

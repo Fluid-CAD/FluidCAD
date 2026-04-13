@@ -1,0 +1,40 @@
+---
+sidebar_position: 6
+title: "sweep"
+description: "Sweeps the last sketch along a path."
+---
+
+# sweep()
+
+Sweeps the last sketch along a path.
+
+**Returns**: [**`Sweep`**](/docs/api/types/sweep)
+
+:::tip
+See the [guide](/docs/guides/3d-operations/sweep) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+sweep(path: SceneObject): Sweep
+```
+
+Sweeps the last sketch along a path.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `path` | [SceneObject](/docs/api/types/scene-object) | The path to sweep along (edges/wire) |
+
+---
+
+```ts
+sweep(path: SceneObject, target?: SceneObject): Sweep
+```
+
+Sweeps the given sketch along a path.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `path` | [SceneObject](/docs/api/types/scene-object) | The path to sweep along (edges/wire) |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to sweep *(optional)* |

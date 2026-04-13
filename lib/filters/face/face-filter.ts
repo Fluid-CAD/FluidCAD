@@ -12,8 +12,11 @@ import { PlaneObject } from "../../features/plane.js";
 import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { AtIndexFilter, NotAtIndexFilter } from "./at-index.js";
 import { HasEdgeFilter, NotHasEdgeFilter } from "./has-edge.js";
+import { HasEdgeFromSceneObjectFilter, NotHasEdgeFromSceneObjectFilter } from "./has-object.js";
 import { EdgeCountFilter, NotEdgeCountFilter } from "./edge-count.js";
 import { EdgeFilterBuilder } from "../edge/edge-filter.js";
+import { SceneObject } from "../../common/scene-object.js";
+import { ISceneObject } from "../../core/interfaces.js";
 
 export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   constructor() {
@@ -229,23 +232,53 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   }
 
   /**
+   * Selects faces that share an edge with the given scene object.
+   * @param sceneObject - A scene object whose edges are matched against.
+   */
+  hasEdge(sceneObject: ISceneObject): this;
+  /**
    * Selects faces that have edges matching all of the given edge filters.
    * Each edge filter builder must match at least one edge of the face.
    * @param edgeFilters - One or more edge filter builders. All must be satisfied.
    */
-  hasEdge(...edgeFilters: EdgeFilterBuilder[]) {
-    const filter = new HasEdgeFilter(edgeFilters);
-    this.filters.push(filter);
+  hasEdge(...edgeFilters: EdgeFilterBuilder[]): this;
+  hasEdge(...args: any[]): this {
+    const filterBuilders: EdgeFilterBuilder[] = [];
+    for (const arg of args) {
+      if (arg instanceof SceneObject) {
+        this.filters.push(new HasEdgeFromSceneObjectFilter(arg));
+      } else {
+        filterBuilders.push(arg as EdgeFilterBuilder);
+      }
+    }
+    if (filterBuilders.length > 0) {
+      this.filters.push(new HasEdgeFilter(filterBuilders));
+    }
     return this;
   }
 
   /**
+   * Excludes faces that share an edge with the given scene object.
+   * @param sceneObject - A scene object whose edges are matched against.
+   */
+  notHasEdge(sceneObject: ISceneObject): this;
+  /**
    * Excludes faces that have edges matching all of the given edge filters.
    * @param edgeFilters - One or more edge filter builders. If all are satisfied, the face is excluded.
    */
-  notHasEdge(...edgeFilters: EdgeFilterBuilder[]) {
-    const filter = new NotHasEdgeFilter(edgeFilters);
-    this.filters.push(filter);
+  notHasEdge(...edgeFilters: EdgeFilterBuilder[]): this;
+  notHasEdge(...args: any[]): this {
+    const filterBuilders: EdgeFilterBuilder[] = [];
+    for (const arg of args) {
+      if (arg instanceof SceneObject) {
+        this.filters.push(new NotHasEdgeFromSceneObjectFilter(arg));
+      } else {
+        filterBuilders.push(arg as EdgeFilterBuilder);
+      }
+    }
+    if (filterBuilders.length > 0) {
+      this.filters.push(new NotHasEdgeFilter(filterBuilders));
+    }
     return this;
   }
 

@@ -28,6 +28,22 @@ if (positionals[0] === 'init') {
 
   writeFileSync(initPath, `import { init } from 'fluidcad'\n\nexport default init()\n`);
 
+  const testPath = resolve(cwd, 'test.fluid.js');
+  if (!existsSync(testPath)) {
+    writeFileSync(testPath, `import { extrude, fillet, rect, shell, sketch } from "fluidcad/core";
+
+sketch("xy", () => {
+    rect(100, 50).radius(10).center();
+});
+
+const e = extrude(30);
+
+fillet(4, e.startEdges());
+
+shell(-2, e.endFaces());
+`);
+  }
+
   const jsconfigPath = resolve(cwd, 'jsconfig.json');
   if (!existsSync(jsconfigPath)) {
     writeFileSync(jsconfigPath, JSON.stringify({

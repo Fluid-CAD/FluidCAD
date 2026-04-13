@@ -30,4 +30,4 @@ jobs:
         run: npx vitest run
 
       - name: Publish to npm
-        run: npm publish --latest --provenance
+        run: npm publish --tag next --provenance && npm  dist-tag add fluidcad@${{ github.ref_name }} latest

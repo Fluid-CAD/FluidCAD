@@ -13,8 +13,9 @@ import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { PlaneObject } from "../features/plane.js";
 import { MirrorFeature } from "../features/mirror-feature.js";
 import { RepeatMatrix } from "../features/repeat-matrix.js";
+import { AxisObjectBase } from "../features/axis-renderable-base.js";
 
-export type RepeatType = 'linear' | 'circular' | 'mirror';
+export type RepeatType = 'linear' | 'circular' | 'mirror' | 'rotate';
 
 interface RepeatFunction {
   /**
@@ -50,6 +51,15 @@ interface RepeatFunction {
    * @param objects - The objects to mirror (defaults to last object)
    */
   (type: 'mirror', plane: PlaneLike, ...objects: ISceneObject[]): ISceneObject;
+
+  /**
+   * Creates a rotated clone of objects around an axis.
+   * @param type - Must be `'rotate'`
+   * @param axis - The axis to rotate around
+   * @param angle - The rotation angle in degrees (defaults to 90)
+   * @param objects - The objects to rotate (defaults to last object)
+   */
+  (type: 'rotate', axis: AxisLike, angle?: number, ...objects: ISceneObject[]): ISceneObject;
 
   /**
    * Creates a transformed clone of objects using an arbitrary matrix.
@@ -234,6 +244,33 @@ function build(context: SceneParserContext): RepeatFunction {
       context.addSceneObject(mirrorFeature);
       context.addSceneObjects(mirrorTree);
       return mirrorFeature;
+    }
+
+    if (type === 'rotate') {
+      const axisArg = args[1];
+      const axis = axisArg instanceof AxisObjectBase
+        ? axisArg.getAxis()
+        : normalizeAxis(axisArg as AxisLike);
+      let angle = 90;
+      let restStart = 2;
+
+      if (typeof args[2] === 'number') {
+        angle = args[2];
+        restStart = 3;
+      }
+
+      const restObjects = args.slice(restStart) as SceneObject[];
+      const objects = restObjects.length > 0
+        ? restObjects
+        : [context.getSceneObjects().at(-1)!];
+
+      const matrix = Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, rad(angle));
+      const feature = new RepeatMatrix(matrix, objects);
+      const cloned = cloneWithTransform(objects, matrix, feature);
+
+      context.addSceneObject(feature);
+      context.addSceneObjects(cloned);
+      return feature;
     }
 
     throw new Error(`Invalid repeat type: ${type}`);

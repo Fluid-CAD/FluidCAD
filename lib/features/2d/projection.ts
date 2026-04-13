@@ -2,6 +2,7 @@ import { BuildSceneObjectContext, SceneObject } from "../../common/scene-object.
 import { Face } from "../../common/face.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { Edge } from "../../common/edge.js";
+import { Vertex } from "../../common/vertex.js";
 import { ProjectionOps } from "../../oc/intersection.js";
 import { Wire } from "../../common/wire.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
@@ -17,6 +18,8 @@ export class Projection extends ExtrudableGeometryBase {
     const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
     const shapes = this.sourceObjects.flatMap(obj => obj.getShapes());
     const transform = context?.getTransform() ?? null;
+
+    let lastWire: Wire = null;
 
     console.log('Projection: building with shapes:', shapes.length);
     for (let shape of shapes) {
@@ -37,8 +40,17 @@ export class Projection extends ExtrudableGeometryBase {
       }
 
       for (const wire of wires) {
+        lastWire = wire;
         this.addShapes(wire.getEdges());
       }
+    }
+
+    if (lastWire) {
+      const localStart = plane.worldToLocal(lastWire.getFirstVertex().toPoint());
+      const localEnd = plane.worldToLocal(lastWire.getLastVertex().toPoint());
+
+      this.setState('start', Vertex.fromPoint2D(localStart));
+      this.setState('end', Vertex.fromPoint2D(localEnd));
     }
 
     for (const obj of this.sourceObjects) {

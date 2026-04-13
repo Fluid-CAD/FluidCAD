@@ -11,6 +11,8 @@ import { NotParallelFilter, ParallelFilter } from "./parallel.js";
 import { PlaneObject } from "../../features/plane.js";
 import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { AtIndexFilter, NotAtIndexFilter } from "./at-index.js";
+import { HasEdgeFilter, NotHasEdgeFilter } from "./has-edge.js";
+import { EdgeFilterBuilder } from "../edge/edge-filter.js";
 
 export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   constructor() {
@@ -221,6 +223,27 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    */
   notCone() {
     const filter = new NotConeFilter();
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Selects faces that have edges matching all of the given edge filters.
+   * Each edge filter builder must match at least one edge of the face.
+   * @param edgeFilters - One or more edge filter builders. All must be satisfied.
+   */
+  hasEdge(...edgeFilters: EdgeFilterBuilder[]) {
+    const filter = new HasEdgeFilter(edgeFilters);
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Excludes faces that have edges matching all of the given edge filters.
+   * @param edgeFilters - One or more edge filter builders. If all are satisfied, the face is excluded.
+   */
+  notHasEdge(...edgeFilters: EdgeFilterBuilder[]) {
+    const filter = new NotHasEdgeFilter(edgeFilters);
     this.filters.push(filter);
     return this;
   }

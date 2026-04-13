@@ -412,6 +412,108 @@ describe("select", () => {
     });
   });
 
+  describe("hasEdge / notHasEdge", () => {
+    it("should select faces that have circular edges", () => {
+      cylinder(30, 50);
+
+      // All 3 faces have circular edges (top, bottom, and cylindrical side bounded by circles)
+      const sel = select(face().hasEdge(edge().circle())) as SelectSceneObject;
+
+      render();
+
+      expect(sel.getShapes()).toHaveLength(3);
+    });
+
+    it("should select faces that have line edges", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      extrude(30);
+
+      // All 6 faces of a box have line edges
+      const sel = select(face().hasEdge(edge().line())) as SelectSceneObject;
+
+      render();
+
+      expect(sel.getShapes()).toHaveLength(6);
+    });
+
+    it("should select faces with multiple edge criteria (AND)", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      extrude(30);
+
+      // Faces that have both a line edge on XY AND a line edge on XY offset 30
+      // The 4 side faces each have edges on both bottom and top planes
+      const sel = select(face().hasEdge(edge().onPlane("xy"), edge().onPlane("xy", 30))) as SelectSceneObject;
+
+      render();
+
+      expect(sel.getShapes()).toHaveLength(4);
+    });
+
+    it("should select faces with vertical and horizontal edges", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      extrude(30);
+
+      // Side faces have both vertical and horizontal edges
+      const sel = select(face().hasEdge(edge().verticalTo("xy"), edge().parallelTo("xy"))) as SelectSceneObject;
+
+      render();
+
+      // 4 side faces
+      expect(sel.getShapes()).toHaveLength(4);
+    });
+
+    it("should combine hasEdge with other face filters", () => {
+      cylinder(30, 50);
+
+      // Circle faces that also have circular edges
+      const sel = select(face().circle().hasEdge(edge().circle())) as SelectSceneObject;
+
+      render();
+
+      expect(sel.getShapes()).toHaveLength(2);
+    });
+
+    it("should exclude faces with notHasEdge", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      extrude(30);
+
+      // Exclude faces that have vertical edges → only top and bottom faces remain
+      const sel = select(face().notHasEdge(edge().verticalTo("xy"))) as SelectSceneObject;
+
+      render();
+
+      expect(sel.getShapes()).toHaveLength(2);
+    });
+
+    it("should have complementary results between hasEdge and notHasEdge", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      extrude(30);
+
+      // Side faces have vertical edges, top/bottom do not
+      const has = select(face().hasEdge(edge().verticalTo("xy"))) as SelectSceneObject;
+      const notHas = select(face().notHasEdge(edge().verticalTo("xy"))) as SelectSceneObject;
+
+      render();
+
+      expect(has.getShapes()).toHaveLength(4);
+      expect(notHas.getShapes()).toHaveLength(2);
+      // No overlap
+      for (const s of has.getShapes()) {
+        expect(notHas.getShapes().some(ns => ns.isSame(s))).toBe(false);
+      }
+    });
+  });
+
   describe("OR logic (multiple builders)", () => {
     it("should match faces satisfying any builder", () => {
       cylinder(30, 50);

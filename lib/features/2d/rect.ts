@@ -105,24 +105,28 @@ export class Rect extends ExtrudableGeometryBase implements IRect {
 
     const topRight = new Point2D(bottomLeft.x + this.width, bottomLeft.y + this.height);
 
-    const bottomLeftArcCenter = new Point2D(bottomLeft.x + bottomLeftRadius, bottomLeft.y + bottomLeftRadius)
-    const bottomRightArcCenter = new Point2D(topRight.x - bottomRightRadius, bottomLeft.y + bottomRightRadius);
-    const topRightArcCenter = new Point2D(topRight.x - topRightRadius, topRight.y - topRightRadius);
-    const topLeftArcCenter = new Point2D(bottomLeft.x + topLeftRadius, topRight.y - topLeftRadius);
+    const signW = Math.sign(this.width);
+    const signH = Math.sign(this.height);
 
-    const bottomLineStart = new Point2D(bottomLeft.x + bottomLeftRadius, bottomLeft.y);
-    const bottomLineEnd = new Point2D(topRight.x - bottomRightRadius, bottomLeft.y);
+    const bottomLeftArcCenter = new Point2D(bottomLeft.x + bottomLeftRadius * signW, bottomLeft.y + bottomLeftRadius * signH)
+    const bottomRightArcCenter = new Point2D(topRight.x - bottomRightRadius * signW, bottomLeft.y + bottomRightRadius * signH);
+    const topRightArcCenter = new Point2D(topRight.x - topRightRadius * signW, topRight.y - topRightRadius * signH);
+    const topLeftArcCenter = new Point2D(bottomLeft.x + topLeftRadius * signW, topRight.y - topLeftRadius * signH);
 
-    const rightLineStart = new Point2D(topRight.x, bottomLeft.y + bottomRightRadius);
-    const rightLineEnd = new Point2D(topRight.x, topRight.y - topRightRadius);
+    const bottomLineStart = new Point2D(bottomLeft.x + bottomLeftRadius * signW, bottomLeft.y);
+    const bottomLineEnd = new Point2D(topRight.x - bottomRightRadius * signW, bottomLeft.y);
 
-    const topLineStart = new Point2D(topRight.x - topRightRadius, topRight.y);
-    const topLineEnd = new Point2D(bottomLeft.x + topLeftRadius, topRight.y);
+    const rightLineStart = new Point2D(topRight.x, bottomLeft.y + bottomRightRadius * signH);
+    const rightLineEnd = new Point2D(topRight.x, topRight.y - topRightRadius * signH);
 
-    const leftLineStart = new Point2D(bottomLeft.x, topRight.y - topLeftRadius);
-    const leftLineEnd = new Point2D(bottomLeft.x, bottomLeft.y + bottomLeftRadius);
+    const topLineStart = new Point2D(topRight.x - topRightRadius * signW, topRight.y);
+    const topLineEnd = new Point2D(bottomLeft.x + topLeftRadius * signW, topRight.y);
+
+    const leftLineStart = new Point2D(bottomLeft.x, topRight.y - topLeftRadius * signH);
+    const leftLineEnd = new Point2D(bottomLeft.x, bottomLeft.y + bottomLeftRadius * signH);
 
     const localToWorld = plane.localToWorld.bind(plane);
+    const arcNormal = signW * signH < 0 ? plane.normal.negate() : plane.normal;
 
     const bottomLineSegment = Geometry.makeSegment(
       localToWorld(bottomLineStart),
@@ -149,7 +153,7 @@ export class Rect extends ExtrudableGeometryBase implements IRect {
       const arc = Geometry.makeArc(
         localToWorld(bottomRightArcCenter),
         bottomRightRadius,
-        plane.normal,
+        arcNormal,
         localToWorld(bottomLineEnd),
         localToWorld(rightLineStart)
       );
@@ -161,7 +165,7 @@ export class Rect extends ExtrudableGeometryBase implements IRect {
       const arc = Geometry.makeArc(
         localToWorld(topRightArcCenter),
         topRightRadius,
-        plane.normal,
+        arcNormal,
         localToWorld(rightLineEnd),
         localToWorld(topLineStart)
       );
@@ -173,7 +177,7 @@ export class Rect extends ExtrudableGeometryBase implements IRect {
       const arc = Geometry.makeArc(
         localToWorld(topLeftArcCenter),
         topLeftRadius,
-        plane.normal,
+        arcNormal,
         localToWorld(topLineEnd),
         localToWorld(leftLineStart)
       );
@@ -185,7 +189,7 @@ export class Rect extends ExtrudableGeometryBase implements IRect {
       const arc = Geometry.makeArc(
         localToWorld(bottomLeftArcCenter),
         bottomLeftRadius,
-        plane.normal,
+        arcNormal,
         localToWorld(leftLineEnd),
         localToWorld(bottomLineStart)
       );

@@ -12,6 +12,7 @@ import { PlaneObject } from "../../features/plane.js";
 import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { AtIndexFilter, NotAtIndexFilter } from "./at-index.js";
 import { HasEdgeFilter, NotHasEdgeFilter } from "./has-edge.js";
+import { EdgeCountFilter, NotEdgeCountFilter } from "./edge-count.js";
 import { EdgeFilterBuilder } from "../edge/edge-filter.js";
 
 export class FaceFilterBuilder extends FilterBuilderBase<Face> {
@@ -244,6 +245,26 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    */
   notHasEdge(...edgeFilters: EdgeFilterBuilder[]) {
     const filter = new NotHasEdgeFilter(edgeFilters);
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Selects faces with exactly the given number of edges.
+   * @param count - The exact number of edges to match.
+   */
+  edgeCount(count: number) {
+    const filter = new EdgeCountFilter(count);
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Excludes faces with the given number of edges.
+   * @param count - The number of edges to exclude.
+   */
+  notEdgeCount(count: number) {
+    const filter = new NotEdgeCountFilter(count);
     this.filters.push(filter);
     return this;
   }

@@ -1,0 +1,20 @@
+import { arc, chamfer, circle, cut, extrude, fillet, hLine, hMove, line, move, offset, plane, project, rect, select, sketch, subtract, tArc, vLine, vMove } from 'fluidcad/core';
+import { edge, face } from 'fluidcad/filters';
+
+// CSWP Exam Parameters — Stage 1
+const A = 213;
+const B = 200;
+const C = 170;
+const D = 130;
+const E = 41;
+const X = A / 3;
+const Y = B / 3 + 10;
+
+const leftOffset = B - C;
+
+// Base plate
+sketch("xy", () => {
+    rect(B, A).radius(10);
+})
+
+const base = extrude(25);

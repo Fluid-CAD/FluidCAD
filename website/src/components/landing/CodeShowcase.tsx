@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import HighlightedCode from './HighlightedCode';
 import styles from './CodeShowcase.module.css';
 
-const CODE = `sketch("xy", () => {
+const CODE = `import { sketch, extrude, fillet, shell } from 'fluidcad/core';
+
+sketch("xy", () => {
     circle(50)
 })
 
@@ -20,27 +22,27 @@ type Step = {
 
 const STEPS: Step[] = [
   {
-    highlightRange: [1, 3],
+    highlightRange: [3, 5],
     screenshot: '/img/docs/_landing/step-1-empty.png',
     caption: 'Define a 2D sketch on the XY plane',
   },
   {
-    highlightRange: [2, 2],
+    highlightRange: [4, 4],
     screenshot: '/img/docs/_landing/step-2-sketch.png',
     caption: 'Draw a circle with diameter 50',
   },
   {
-    highlightRange: [5, 5],
+    highlightRange: [7, 7],
     screenshot: '/img/docs/_landing/step-3-extrude.png',
     caption: 'Extrude into a solid cylinder',
   },
   {
-    highlightRange: [7, 7],
+    highlightRange: [9, 9],
     screenshot: '/img/docs/_landing/step-4-fillet.png',
     caption: 'Round the bottom edges with a fillet',
   },
   {
-    highlightRange: [9, 9],
+    highlightRange: [11, 11],
     screenshot: '/img/docs/_landing/step-5-shell.png',
     caption: 'Hollow the top to create a shell',
   },

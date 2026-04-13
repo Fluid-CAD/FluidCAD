@@ -1,0 +1,436 @@
+---
+sidebar_position: 5
+title: "CSWP Sample Exam"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import part1Final from '!!raw-loader!./_examples/cswp-sample-exam-final.js';
+import part2Final from '!!raw-loader!./_examples/cswp-sample-exam-part2-final.js';
+
+# Building a CSWP Sample Exam Part
+
+![Finished CSWP part](/img/docs/tutorials/cswp-sample-exam-final.png)
+
+In this tutorial, you'll build the parametric part from the [SolidWorks CSWP Sample Exam](https://www.solidworks.com/sites/default/files/cswpsampleexam.pdf). The CSWP (Certified SolidWorks Professional) exam tests your ability to build parts from engineering drawings, then modify parameters and recalculate. It covers parametric variables, arc/offset sketch geometry, reference planes, hollow cylinders with chamfers, counterbore holes, face projection, and edge selection filters.
+
+The tutorial is split into two parts matching the exam stages:
+- **Part 1** — Build the initial part from the exam drawings
+- **Part 2** — Modify the part with additional features
+
+:::tip Checking mass properties
+In the CSWP exam, each question asks you to calculate the mass of the part for a given set of parameters. To check the mass of your model in FluidCAD, click the **info button** in the bottom-right corner of the 3D viewer, then select the shape. The mass properties panel will display the volume and mass of the selected shape. Use this to verify your answers against the exam answer key.
+:::
+
+Create a new file called `cswp-sample-exam.fluid.js` in your project.
+
+## Setup
+
+Start with imports and the exam parameters. Using variables makes the model fully parametric — change a value and the entire part updates, just like in the real exam.
+
+```js
+import {
+    arc, chamfer, circle, cut, extrude, fillet, hLine, hMove,
+    line, move, offset, plane, project, rect, select, sketch,
+    subtract, tArc, vLine, vMove
+} from 'fluidcad/core';
+import { edge, face } from 'fluidcad/filters';
+
+// CSWP Exam Parameters — Stage 1
+const A = 213;  // height
+const B = 200;  // width
+const C = 170;  // support size
+const D = 130;  // pipe length
+const E = 41;   // inner bore diameter
+const X = A / 3;        // front pipe diameter
+const Y = B / 3 + 10;   // right pipe diameter
+
+const leftOffset = B - C;
+```
+
+- **`A`** and **`B`** — overall height and width of the base plate
+- **`C`** — determines the size of the L-shaped support (the support spans from `B - C` to `B` horizontally and from `0` to `C` vertically)
+- **`D`** — length of the cylindrical pipes
+- **`E`** — inner bore diameter of the pipes
+- **`X`** and **`Y`** — outer diameters of the front and right pipes, derived from `A` and `B`
+- **`leftOffset`** — the horizontal position where the support starts, computed as `B - C`
+
+## Part 1: Build the Initial Part
+
+### Step 1: Base Plate
+
+Sketch a rounded rectangle on the XY plane and extrude it to create the base plate.
+
+```js
+sketch("xy", () => {
+    rect(B, A).radius(10);
+})
+
+const base = extrude(25);
+```
+
+`rect(B, A)` creates a rectangle of width `B` (200) and height `A` (213). The `.radius(10)` rounds all four corners with a 10mm radius. The base is extruded 25mm thick.
+
+![Base plate](/img/docs/tutorials/cswp-sample-exam-step1.png)
+
+### Step 2: L-Shaped Support
+
+The L-shaped support sits on top of the base. Its profile is made of two perpendicular lines connected by an arc, then offset inward and closed with straight lines.
+
+#### Sketch the profile
+
+```js
+sketch("xy", () => {
+    move([leftOffset, 0]);
+    const l1 = vLine(80)
+
+    move([B, C]);
+    const l2 = hLine(-80)
+
+    arc(l1.end(), l2.end(), [leftOffset, C])
+
+    const o = offset(15)
+    line(l1.start(), o.start())
+    line(l2.start(), o.end())
+});
+```
+
+- `move([leftOffset, 0])` positions the cursor at the left edge of the support
+- `vLine(80)` draws an 80mm vertical line upward
+- `move([B, C])` jumps to the top-right corner, then `hLine(-80)` draws 80mm to the left
+- `arc(l1.end(), l2.end(), [leftOffset, C])` connects the two line endpoints with an arc, using `[leftOffset, C]` as the center point — this creates the curved corner of the L
+- `offset(15)` offsets the arc inward by 15mm to give the support wall thickness
+- The two `line()` calls close the profile by connecting the vertical and horizontal lines to the offset arc
+
+![L-shaped support sketch](/img/docs/tutorials/cswp-sample-exam-step2-sketch.png)
+
+#### Extrude the support
+
+```js
+const support = extrude(95)
+```
+
+The support is extruded 95mm upward from the base plane. Since it shares the same XY sketch plane as the base, it rises from ground level and extends well above the 25mm base plate.
+
+![L-shaped support extruded](/img/docs/tutorials/cswp-sample-exam-step2.png)
+
+### Step 3: Cylindrical Pipes
+
+Two hollow pipes extend from the support — one from the front face and one from the right face. Each is created by extruding a circle on an offset reference plane, then cutting a smaller bore through it.
+
+#### Pipe 1 — Sketch on offset plane
+
+First, create a reference plane offset 10mm from the front of the support. Then sketch a circle for the pipe's outer profile:
+
+```js
+const p1 = plane("front", 10);
+
+sketch(p1, () => {
+    move([leftOffset, 95]);
+    hMove(7.5)
+    circle(X)
+});
+```
+
+- `plane("front", 10)` creates a reference plane 10mm in front of the support face
+- `move([leftOffset, 95])` positions the cursor at the support's left edge, at the top of the support (95mm high)
+- `hMove(7.5)` shifts 7.5mm to the right to center the pipe on the support wall
+- `circle(X)` draws the outer circle with diameter `X` (= A/3)
+
+![Pipe 1 circle sketched on front plane](/img/docs/tutorials/cswp-sample-exam-step3-sketch.png)
+
+#### Pipe 1 — Extrude, bore, and chamfer
+
+```js
+const cylBody1 = extrude(-D)
+circle(E, cylBody1.startFaces())
+const cylCut1 = cut()
+
+chamfer(2, cylCut1.startEdges(), cylCut1.endEdges())
+```
+
+- `extrude(-D)` extends the pipe backward (away from the viewer) by `D` (130mm) — the negative direction pushes it into and through the support
+- `circle(E, cylBody1.startFaces())` sketches a smaller circle of diameter `E` (41mm) on the pipe's far end face
+- `cut()` bores through the entire pipe, making it hollow
+- `chamfer(2, ...)` adds a 2mm chamfer to both the start and end edges of the bore
+
+![Pipe 1 complete with bore and chamfer](/img/docs/tutorials/cswp-sample-exam-step3-pipe1.png)
+
+#### Pipe 2 — Right
+
+The right pipe follows the same pattern on the right side of the support:
+
+```js
+const p2 = plane("right", B + 10)
+
+sketch(p2, () => {
+    move([C - 7.5, 95]);
+    circle(Y)
+});
+
+const cylBody2 = extrude(-D)
+circle(E, cylBody2.startFaces())
+const cylCut2 = cut()
+
+chamfer(2, cylCut2.startEdges(), cylCut2.endEdges())
+```
+
+- `plane("right", B + 10)` creates a reference plane 10mm beyond the right edge of the base
+- `move([C - 7.5, 95])` centers the pipe on the support wall on the right side
+- The extrude, bore, cut, and chamfer steps are identical to Pipe 1, but with diameter `Y` (= B/3 + 10) for the outer circle
+
+![Both pipes with chamfered bores](/img/docs/tutorials/cswp-sample-exam-step3.png)
+
+### Step 4: Corner Block & Counterbore
+
+A rectangular block is added at the front-right corner of the base, with a through-all hole and a counterbore on top.
+
+#### Corner sketch
+
+```js
+sketch("xy", () => {
+    move([B, 0])
+    rect(-60, 60).radius(10, 0, 15, 0);
+});
+```
+
+`move([B, 0])` positions at the right edge, then `rect(-60, 60)` draws a 60x60 rectangle extending to the left and upward. The `.radius(10, 0, 15, 0)` rounds two of the four corners — 10mm on the top-left and 15mm on the bottom-left.
+
+![Corner block sketch](/img/docs/tutorials/cswp-sample-exam-step4-sketch.png)
+
+#### Corner extrusion
+
+```js
+const corner = extrude(35);
+```
+
+The block is extruded 35mm, taller than the 25mm base plate.
+
+![Corner block extruded](/img/docs/tutorials/cswp-sample-exam-step4-corner.png)
+
+#### Through-all hole and counterbore
+
+```js
+circle(15, corner.endFaces())
+cut()
+
+circle(30, corner.endFaces())
+cut(10)
+```
+
+- `circle(15, corner.endFaces())` sketches a 15mm radius circle on the top face of the corner block, and `cut()` with no depth argument cuts through the entire block
+- `circle(30, corner.endFaces())` adds a larger 30mm radius circle on the same face, and `cut(10)` cuts only 10mm deep — creating the counterbore recess
+
+![Corner block with counterbore](/img/docs/tutorials/cswp-sample-exam-step4.png)
+
+### Step 5: Face Pocket
+
+The final feature of Part 1 is a pocket cut into the top of the base plate. It's created by projecting the L-shaped support's footprint, offsetting it inward, and cutting down.
+
+#### Select and project the face
+
+```js
+const topFace = select(face().onPlane("xy", 25).hasEdge(edge().line(45)));
+
+sketch(base.endFaces(), () => {
+    project(topFace);
+    offset(-9, true)
+});
+```
+
+- `face().onPlane("xy", 25)` finds faces at the top of the base plate (25mm height)
+- `.hasEdge(edge().line(45))` narrows it to the face that has a 45-degree edge — this is the L-shaped support's footprint, which has the diagonal arc
+- `project(topFace)` projects the outline of that face onto the sketch
+- `offset(-9, true)` shrinks the projected outline inward by 9mm, and the `true` flag discards the original projection, keeping only the offset
+
+![Face pocket sketch](/img/docs/tutorials/cswp-sample-exam-step5-sketch.png)
+
+#### Cut the pocket
+
+```js
+const c = cut(20)
+```
+
+`cut(20)` removes material 20mm deep, creating the pocket.
+
+![Face pocket cut](/img/docs/tutorials/cswp-sample-exam-step5-pocket.png)
+
+#### Fillet the pocket edges
+
+```js
+fillet(10, c.internalEdges())
+```
+
+`c.internalEdges()` selects the internal edges of the pocket (the edges at the bottom where the cut meets the base), and `fillet(10, ...)` rounds them with a 10mm fillet.
+
+![Part 1 complete with filleted pocket](/img/docs/tutorials/cswp-sample-exam-final.png)
+
+## Part 1 — Full Code
+
+<CodeBlock language="js">{part1Final}</CodeBlock>
+
+### Verify with exam answers
+
+With the Stage 1 test 1 parameters above (A=213, B=200, C=170, D=130, E=41), the mass should be **14207.34 grams** (using Alloy Steel with density 0.0077 g/mm^3). Try changing the parameters to test 2 (A=225, B=210, C=176, D=137, E=39) and test 3 (A=209, B=218, C=169, D=125, E=41) to verify you get **16490.45 g** and **15100.47 g** respectively.
+
+## Part 2: Modify the Part
+
+Stage 2 of the CSWP exam modifies the initial part. The key changes are:
+
+- **Remove corner radii** from the base plate
+- **Change Y formula** from `B/3 + 10` to `B/3 + 15`
+- **Change chamfers** to angled (2mm x 30 degrees)
+- **Remove the corner block** (no counterbore hole)
+- **Add a second pocket** cut into the base
+- **Add a key slot** on the front pipe
+- **Add fillets** on the base plate side edges
+
+Update the parameters at the top of your file:
+
+```js
+// CSWP Exam Parameters — Stage 2
+const A = 221;
+const B = 211;
+const C = 165;
+const D = 121;
+const E = 37;
+const X = A / 3;
+const Y = B / 3 + 15;   // changed from B/3 + 10
+
+const leftOffset = B - C;
+```
+
+### Step 6: Angled Chamfers & Second Pocket
+
+#### Base plate and chamfer changes
+
+The base plate no longer has rounded corners:
+
+```js
+sketch("xy", () => {
+    rect(B, A);  // no .radius(10)
+})
+```
+
+The pipe chamfers change from equal-distance to angled. Instead of `chamfer(2, ...)`, use:
+
+```js
+chamfer(2, 30, true, cylCut1.startEdges(), cylCut1.endEdges())
+```
+
+The three arguments `(2, 30, true)` specify a 2mm distance at a 30-degree angle, with `true` indicating the angle is measured from the face rather than the edge.
+
+#### First pocket — different face selection
+
+Since the corner block is removed, the face selector changes. Instead of matching a face with a 45-degree edge, use edge count:
+
+```js
+const topFace1 = select(face().onPlane("xy", 25).edgeCount(5));
+
+sketch(base.endFaces(), () => {
+    project(topFace1);
+    offset(-9, true)
+});
+
+let c1 = cut(20)
+
+fillet(10, c1.internalEdges())
+```
+
+`edgeCount(5)` selects the face with exactly 5 edges — the L-shaped footprint without the corner block interfering. The rest follows the same project-offset-cut-fillet pattern as Part 1.
+
+![First pocket in Stage 2](/img/docs/tutorials/cswp-sample-exam-step6-pocket1.png)
+
+#### Second pocket — sketch
+
+A second pocket is cut on the opposite side of the base, using a manually constructed profile that mirrors the L-shape:
+
+```js
+sketch(base.endFaces(), () => {
+    const outerOffset = 9;
+    move([0, 0])
+    vMove(A - outerOffset)
+    hMove(outerOffset)
+    const l1 = hLine(B - 80 - outerOffset * 2)
+    const l2 = vLine(l1.start(), -A + 80 + outerOffset * 2)
+    const l3 = hLine(l2.end(), B - C - outerOffset)
+    const l4 = vLine(l1.end(), -A + C + outerOffset)
+    tArc(l4.end(), l3.end(), l4.tangent())
+});
+```
+
+- The sketch starts near the top-left corner of the base, offset 9mm inward from the edges
+- Four lines trace the pocket boundary, following the L-shape in reverse
+- `tArc(l4.end(), l3.end(), l4.tangent())` creates a tangent arc connecting the two open endpoints — the arc is tangent to `l4`, creating a smooth curved corner that mirrors the support's arc
+
+![Second pocket sketch](/img/docs/tutorials/cswp-sample-exam-step6-sketch.png)
+
+#### Second pocket — cut and fillet
+
+```js
+const c2 = cut(20)
+
+fillet(10, c2.internalEdges())
+```
+
+The pocket is cut 20mm deep and its internal edges are filleted with a 10mm radius, matching the first pocket.
+
+![Stage 2 with second pocket](/img/docs/tutorials/cswp-sample-exam-step6.png)
+
+### Step 7: Key Slot & Base Fillets
+
+#### Key slot on front pipe
+
+A key slot is cut into the front pipe by projecting the pipe face, offsetting it, then subtracting a rectangular notch:
+
+```js
+sketch(plane(cylBody1.startFaces(), -30), () => {
+    let p = project(cylBody1.startFaces());
+    let o = offset(-10)
+    move(p.end())
+    let r = rect(15).center('horizontal')
+    const s = subtract(p, r)
+    subtract(s, o)
+});
+
+cut(30);
+```
+
+- `plane(cylBody1.startFaces(), -30)` creates a sketch plane 30mm behind the pipe's far end
+- `project(cylBody1.startFaces())` projects the pipe's circular face onto the sketch
+- `offset(-10)` creates a smaller concentric circle (the bore)
+- `rect(15).center('horizontal')` draws a 15mm square centered horizontally at the top of the circle
+- Two `subtract()` calls remove the inner circle and the rectangle from the outer circle, leaving a ring with a rectangular notch — the key slot profile
+- `cut(30)` cuts this profile 30mm deep into the pipe
+
+#### Base side fillets
+
+```js
+fillet(10, base.sideEdges())
+```
+
+`base.sideEdges()` selects all vertical edges of the base plate, and `fillet(10, ...)` rounds them with a 10mm radius.
+
+![Stage 2 complete with key slot and base fillets](/img/docs/tutorials/cswp-sample-exam-part2-final.png)
+
+## Part 2 — Full Code
+
+<CodeBlock language="js">{part2Final}</CodeBlock>
+
+### Verify with exam answers
+
+With the Stage 2 test 4 parameters above (A=221, B=211, C=165, D=121, E=37), the mass should be **13206.40 grams**. Try changing to test 5 (A=229, B=217, C=163, D=119, E=34) to verify you get **14208.00 g**.
+
+## What you practiced
+
+- **`rect().radius()`** — creating rectangles with selectively rounded corners
+- **`arc()`** — connecting two endpoints with an arc through a center point
+- **`offset()`** — offsetting sketch geometry inward or outward to create wall thickness
+- **`plane()`** — creating offset reference planes for sketching on non-standard surfaces
+- **`chamfer()`** — adding equal-distance and angled chamfers to edges
+- **`circle()` on faces** — sketching circles on existing faces for holes and bores
+- **`cut()` with and without depth** — through-all cuts vs. depth-limited counterbores
+- **`select()` with `face()` filters** — selecting specific faces using `onPlane()`, `hasEdge()`, and `edgeCount()`
+- **`project()` + `offset()`** — projecting face outlines and offsetting them to create pocket profiles
+- **`fillet()`** — rounding internal pocket edges and base side edges
+- **`subtract()`** — boolean subtraction of sketch geometry to create complex profiles like key slots
+- **`tArc()`** — creating tangent arcs for smooth profile transitions

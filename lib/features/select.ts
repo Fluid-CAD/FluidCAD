@@ -6,6 +6,8 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { ISelect } from "../core/interfaces.js";
 import { Shape, ShapeFilter as ShapeFilterType } from "../common/shape.js";
 import { ShapeType } from "../common/shape-type.js";
+import { Face } from "../common/face.js";
+import { BelongsToFaceFilter, NotBelongsToFaceFilter } from "../filters/edge/belongs-to-face.js";
 
 export class SelectSceneObject extends SceneObject implements ISelect {
 
@@ -42,6 +44,9 @@ export class SelectSceneObject extends SceneObject implements ISelect {
     }
 
     const allShapes = this.constraintObject ? this.constraintObject.getShapes() : this.getAllShapes(sceneObjects, excludedObjects);
+    if (this.type === "edge") {
+      this.injectScopeFaces(filters, sceneObjects);
+    }
     const filteredShapes = this.applyFilters(allShapes, filters);
     console.log(`SelectSceneObject: shapes after filtering: ${filteredShapes[0]}`);
     this.addShapes(filteredShapes);
@@ -80,6 +85,24 @@ export class SelectSceneObject extends SceneObject implements ISelect {
     const mirroredFilters = this.filters.map(f => f.transform(matrix));
     console.log('SelectSceneObject: transform applied to selection filters.', mirroredFilters);
     return new SelectSceneObject(mirroredFilters, this.constraintObject);
+  }
+
+  private injectScopeFaces(filters: FilterBuilderBase<Shape>[], sceneObjects: SceneObject[]) {
+    let scopeFaces: Face[] | null = null;
+    for (const builder of filters) {
+      for (const filter of builder.getFilters()) {
+        if (filter instanceof BelongsToFaceFilter || filter instanceof NotBelongsToFaceFilter) {
+          if (!scopeFaces) {
+            scopeFaces = this.constraintObject
+              ? this.constraintObject.getShapes().flatMap(s => s.getSubShapes("face")) as Face[]
+              : sceneObjects.flatMap(obj =>
+                  obj.getShapes({}, 'solid').flatMap(s => s.getSubShapes("face"))
+                ) as Face[];
+          }
+          filter.setScopeFaces(scopeFaces);
+        }
+      }
+    }
   }
 
   applyFilters(shapes: Shape[], filters: FilterBuilderBase<Shape>[]): Shape[] {

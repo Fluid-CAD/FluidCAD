@@ -1,6 +1,6 @@
 import { PlaneLike } from "../../math/plane.js";
 import { normalizePlane } from "../../helpers/normalize.js";
-import { Edge } from "../../common/shapes.js";
+import { Edge, Face } from "../../common/shapes.js";
 import { FilterBuilderBase } from "../filter-builder-base.js";
 import { CircleFilter, NotCircleFilter } from "./circle-filter.js";
 import { ArcFilter, NotArcFilter } from "./curve-filter.js";
@@ -11,6 +11,7 @@ import { NotVerticalFilter, VerticalFilter } from "./vertical-plane.js";
 import { PlaneObject } from "../../features/plane.js";
 import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { AtIndexFilter, NotAtIndexFilter } from "./at-index.js";
+import { BelongsToFaceFilter, NotBelongsToFaceFilter } from "./belongs-to-face.js";
 
 export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   constructor() {
@@ -262,6 +263,26 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
    */
   notLine(length?: number) {
     const filter = new NotLineFilter(length);
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Selects edges that belong to a face matching the given face filters.
+   * @param faceFilters - One or more face filter builders to match against.
+   */
+  belongsToFace(...faceFilters: FilterBuilderBase<Face>[]) {
+    const filter = new BelongsToFaceFilter(faceFilters);
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Excludes edges that belong to a face matching the given face filters.
+   * @param faceFilters - One or more face filter builders to match against.
+   */
+  notBelongsToFace(...faceFilters: FilterBuilderBase<Face>[]) {
+    const filter = new NotBelongsToFaceFilter(faceFilters);
     this.filters.push(filter);
     return this;
   }

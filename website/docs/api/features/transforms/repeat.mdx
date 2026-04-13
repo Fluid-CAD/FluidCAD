@@ -72,3 +72,31 @@ Creates a mirrored instance of objects across a plane.
 | `type` | "mirror" | Must be `'mirror'` |
 | `plane` | [PlaneLike](/docs/api/types/plane-like) | The plane to mirror across |
 | `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to mirror (defaults to last object) *(optional)* |
+
+---
+
+```ts
+repeat(type: "rotate", axis: AxisLike, angle?: number, ...objects: SceneObject[]): SceneObject
+```
+
+Creates a rotated clone of objects around an axis.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | "rotate" | Must be `'rotate'` |
+| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to rotate around |
+| `angle` | number | The rotation angle in degrees (defaults to 90) *(optional)* |
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to rotate (defaults to last object) *(optional)* |
+
+---
+
+```ts
+repeat(matrix: Matrix4, ...objects: SceneObject[]): SceneObject
+```
+
+Creates a transformed clone of objects using an arbitrary matrix.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `matrix` | Matrix4 | The transformation matrix to apply |
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to transform (defaults to last object) *(optional)* |

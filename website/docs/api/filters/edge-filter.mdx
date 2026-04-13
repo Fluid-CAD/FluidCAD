@@ -177,16 +177,50 @@ Excludes arc edges, optionally matching a specific radius.
 ### .line()
 
 ```ts
-.line(): this
+.line(length?: number): this
 ```
 
-Selects straight-line edges.
+Selects straight-line edges, optionally matching a specific length.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `length` | number | Optional length to match. *(optional)* |
 
 ### .notLine()
 
 ```ts
-.notLine(): this
+.notLine(length?: number): this
 ```
 
-Excludes straight-line edges.
+Excludes straight-line edges, optionally matching a specific length.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `length` | number | Optional length to exclude. *(optional)* |
+
+---
+
+### .belongsToFace()
+
+```ts
+.belongsToFace(...faceFilters: FilterBuilderBase<Face>[][]): this
+```
+
+Selects edges that belong to a face matching the given face filters.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...faceFilters` | FilterBuilderBase&lt;Face&gt;[] | One or more face filter builders to match against. *(optional)* |
+
+### .notBelongsToFace()
+
+```ts
+.notBelongsToFace(...faceFilters: FilterBuilderBase<Face>[][]): this
+```
+
+Excludes edges that belong to a face matching the given face filters.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...faceFilters` | FilterBuilderBase&lt;Face&gt;[] | One or more face filter builders to match against. *(optional)* |
 

@@ -3,10 +3,8 @@ import { Wire } from "../common/wire.js";
 import { Edge } from "../common/edge.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
-import { FaceOps } from "../oc/face-ops.js";
-import { WireOps } from "../oc/wire-ops.js";
 import { Face } from "../common/face.js";
-import { all } from "three/tsl";
+import { FaceMaker2 } from "../oc/face-maker2.js";
 
 export class Common2D extends GeometrySceneObject {
   private _targetObjects: GeometrySceneObject[] | null = null;
@@ -48,9 +46,31 @@ export class Common2D extends GeometrySceneObject {
       }
     }
 
-    const allEdges = Array.from(sourceEdges.keys()).filter(edge => edge.isClosed());
-    const wires = allEdges.map(edge => WireOps.makeWireFromEdges([edge]));
-    const faces = wires.map(wire => FaceOps.makeFaceWrapped(wire));
+    const plane = this.sketch.getPlane();
+
+    // Group edges by owner
+    const ownerToEdges = new Map<SceneObject, Edge[]>();
+    for (const [edge, owner] of sourceEdges) {
+      if (!ownerToEdges.has(owner)) {
+        ownerToEdges.set(owner, []);
+      }
+      ownerToEdges.get(owner)!.push(edge);
+    }
+
+    // Convert each owner's edges to faces via FaceMaker2
+    const faces: Face[] = [];
+    const processedOwners = new Set<SceneObject>();
+    for (const [owner, edges] of ownerToEdges) {
+      const ownerFaces = FaceMaker2.getRegions(edges, plane);
+      if (ownerFaces.length > 0) {
+        faces.push(...ownerFaces);
+        processedOwners.add(owner);
+      }
+    }
+
+    if (faces.length === 0) {
+      return;
+    }
 
     const { newShapes } = BooleanOps.common(faces);
 
@@ -61,12 +81,11 @@ export class Common2D extends GeometrySceneObject {
     const newEdges = newShapes.flatMap((face: Face) => face.getEdges());
 
     if (!this._keepOriginal) {
-      for (const [wire, owner] of sourceEdges) {
-        if (!allEdges.includes(wire)) {
+      for (const [edge, owner] of sourceEdges) {
+        if (!processedOwners.has(owner)) {
           continue;
         }
-
-        owner.removeShape(wire, this);
+        owner.removeShape(edge, this);
       }
     }
 

@@ -1,21 +1,32 @@
 
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { Subtract } from "../features/subtract.js";
+import { Subtract2D } from "../features/subtract2d.js";
 import { SceneObject } from "../common/scene-object.js";
+import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { ISceneObject } from "./interfaces.js";
 
 interface SubtractFunction {
   /**
-   * Subtracts the second solid from the first (boolean difference).
-   * @param solid1 - The base solid
-   * @param solid2 - The solid to subtract
+   * Subtracts the second shape from the first (boolean difference).
+   * Works with both 3D solids and 2D sketch geometries.
+   * @param object1 - The base shape
+   * @param object2 - The shape to subtract
    */
-  (solid1: ISceneObject, solid2: ISceneObject): ISceneObject;
+  (object1: ISceneObject, object2: ISceneObject): ISceneObject;
 }
 
 function build(context: SceneParserContext): SubtractFunction {
-  return function subtract(solid1: ISceneObject, solid2: ISceneObject): ISceneObject {
-    const subtract = new Subtract(solid1 as SceneObject, solid2 as SceneObject);
+  return function subtract(object1: ISceneObject, object2: ISceneObject): ISceneObject {
+    const activeSketch = context.getActiveSketch();
+
+    if (activeSketch) {
+      const subtract2d = new Subtract2D(object1 as GeometrySceneObject, object2 as GeometrySceneObject);
+      context.addSceneObject(subtract2d);
+      return subtract2d;
+    }
+
+    const subtract = new Subtract(object1 as SceneObject, object2 as SceneObject);
     context.addSceneObject(subtract);
     return subtract;
   }

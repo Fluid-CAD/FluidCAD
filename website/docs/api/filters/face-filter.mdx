@@ -188,3 +188,56 @@ Selects conical faces.
 
 Excludes conical faces.
 
+---
+
+### .hasEdge()
+
+```ts
+.hasEdge(...edgeFilters: EdgeFilter[][]): this
+```
+
+Selects faces that have edges matching all of the given edge filters.
+Each edge filter builder must match at least one edge of the face.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...edgeFilters` | EdgeFilter[] | One or more edge filter builders. All must be satisfied. *(optional)* |
+
+### .notHasEdge()
+
+```ts
+.notHasEdge(...edgeFilters: EdgeFilter[][]): this
+```
+
+Excludes faces that have edges matching all of the given edge filters.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...edgeFilters` | EdgeFilter[] | One or more edge filter builders. If all are satisfied, the face is excluded. *(optional)* |
+
+---
+
+### .edgeCount()
+
+```ts
+.edgeCount(count: number): this
+```
+
+Selects faces with exactly the given number of edges.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `count` | number | The exact number of edges to match. |
+
+### .notEdgeCount()
+
+```ts
+.notEdgeCount(count: number): this
+```
+
+Excludes faces with the given number of edges.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `count` | number | The number of edges to exclude. |
+

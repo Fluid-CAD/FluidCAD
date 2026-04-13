@@ -52,6 +52,20 @@ Draws an arc by radius and angle range.
 | `endAngle` | number | The end angle in degrees (defaults to 180) *(optional)* |
 | `centered` | boolean | Whether to center the arc on the current position *(optional)* |
 
+---
+
+```ts
+arc(startPoint: Point2DLike, endPoint: Point2DLike, center: Point2DLike): Geometry
+```
+
+Draws an arc from a start point to an end point around a center point.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `startPoint` | [Point2DLike](/docs/api/types/point2dlike) | The start point of the arc |
+| `endPoint` | [Point2DLike](/docs/api/types/point2dlike) | The end point of the arc |
+| `center` | [Point2DLike](/docs/api/types/point2dlike) | The center point of the arc |
+
 
 :::note
 All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.

@@ -194,26 +194,38 @@ Excludes conical faces.
 
 ```ts
 .hasEdge(...edgeFilters: EdgeFilter[][]): this
+.hasEdge(sceneObject: ISceneObject): this
 ```
 
-Selects faces that have edges matching all of the given edge filters.
-Each edge filter builder must match at least one edge of the face.
+Selects faces that have edges matching all of the given edge filters, or faces that share an edge with the given scene object.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...edgeFilters` | EdgeFilter[] | One or more edge filter builders. All must be satisfied. *(optional)* |
+| `...edgeFilters` | EdgeFilter[] | One or more edge filter builders. All must be satisfied. |
+| `sceneObject` | ISceneObject | A scene object whose edges are matched against. |
+
+```js
+// Using edge filters
+face().hasEdge(edge().circle())
+
+// Using a scene object
+const topEdges = select(edge().onPlane("xy", 30));
+face().hasEdge(topEdges)
+```
 
 ### .notHasEdge()
 
 ```ts
 .notHasEdge(...edgeFilters: EdgeFilter[][]): this
+.notHasEdge(sceneObject: ISceneObject): this
 ```
 
-Excludes faces that have edges matching all of the given edge filters.
+Excludes faces that have edges matching all of the given edge filters, or faces that share an edge with the given scene object.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...edgeFilters` | EdgeFilter[] | One or more edge filter builders. If all are satisfied, the face is excluded. *(optional)* |
+| `...edgeFilters` | EdgeFilter[] | One or more edge filter builders. If all are satisfied, the face is excluded. |
+| `sceneObject` | ISceneObject | A scene object whose edges are matched against. |
 
 ---
 

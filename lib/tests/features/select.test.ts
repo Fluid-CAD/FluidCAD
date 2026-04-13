@@ -512,6 +512,33 @@ describe("select", () => {
         expect(notHas.getShapes().some(ns => ns.isSame(s))).toBe(false);
       }
     });
+
+    it("should select faces matching edges from a scene object", () => {
+      cylinder(30, 50);
+
+      const circleEdges = select(edge().circle());
+      const sel = select(face().hasEdge(circleEdges)) as SelectSceneObject;
+
+      render();
+
+      // All 3 cylinder faces share a circular edge
+      expect(sel.getShapes()).toHaveLength(3);
+    });
+
+    it("should exclude faces with notHasEdge using a scene object", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      extrude(30);
+
+      const bottomEdges = select(edge().belongsToFace(face().onPlane("xy")));
+      const sel = select(face().notHasEdge(bottomEdges)) as SelectSceneObject;
+
+      render();
+
+      // Top face has no edges from the bottom face selection
+      expect(sel.getShapes()).toHaveLength(1);
+    });
   });
 
   describe("OR logic (multiple builders)", () => {
@@ -763,6 +790,30 @@ describe("select", () => {
 
       // 4 bottom + 4 top = 8 edges
       expect(sel.getShapes()).toHaveLength(8);
+    });
+
+    it("should select edges belonging to faces from a scene object", () => {
+      cylinder(30, 50);
+
+      const circleFaces = select(face().circle());
+      const sel = select(edge().belongsToFace(circleFaces)) as SelectSceneObject;
+
+      render();
+
+      // Top and bottom disc faces each have 1 circular edge = 2 edges
+      expect(sel.getShapes()).toHaveLength(2);
+    });
+
+    it("should exclude edges with notBelongsToFace using a scene object", () => {
+      cylinder(30, 50);
+
+      const circleFaces = select(face().circle());
+      const sel = select(edge().notBelongsToFace(circleFaces)) as SelectSceneObject;
+
+      render();
+
+      // Cylinder has 3 edges; 2 belong to circle faces, so 1 remains (the seam)
+      expect(sel.getShapes()).toHaveLength(1);
     });
   });
 });

@@ -12,6 +12,9 @@ import { PlaneObject } from "../../features/plane.js";
 import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { AtIndexFilter, NotAtIndexFilter } from "./at-index.js";
 import { BelongsToFaceFilter, NotBelongsToFaceFilter } from "./belongs-to-face.js";
+import { BelongsToFaceFromSceneObjectFilter, NotBelongsToFaceFromSceneObjectFilter } from "./belongs-to-object.js";
+import { SceneObject } from "../../common/scene-object.js";
+import { ISceneObject } from "../../core/interfaces.js";
 
 export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   constructor() {
@@ -268,22 +271,52 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   }
 
   /**
+   * Selects edges that belong to a face from the given scene object.
+   * @param sceneObject - A scene object whose faces are matched against.
+   */
+  belongsToFace(sceneObject: ISceneObject): this;
+  /**
    * Selects edges that belong to a face matching the given face filters.
    * @param faceFilters - One or more face filter builders to match against.
    */
-  belongsToFace(...faceFilters: FilterBuilderBase<Face>[]) {
-    const filter = new BelongsToFaceFilter(faceFilters);
-    this.filters.push(filter);
+  belongsToFace(...faceFilters: FilterBuilderBase<Face>[]): this;
+  belongsToFace(...args: any[]): this {
+    const filterBuilders: FilterBuilderBase<Face>[] = [];
+    for (const arg of args) {
+      if (arg instanceof SceneObject) {
+        this.filters.push(new BelongsToFaceFromSceneObjectFilter(arg));
+      } else {
+        filterBuilders.push(arg as FilterBuilderBase<Face>);
+      }
+    }
+    if (filterBuilders.length > 0) {
+      this.filters.push(new BelongsToFaceFilter(filterBuilders));
+    }
     return this;
   }
 
   /**
+   * Excludes edges that belong to a face from the given scene object.
+   * @param sceneObject - A scene object whose faces are matched against.
+   */
+  notBelongsToFace(sceneObject: ISceneObject): this;
+  /**
    * Excludes edges that belong to a face matching the given face filters.
    * @param faceFilters - One or more face filter builders to match against.
    */
-  notBelongsToFace(...faceFilters: FilterBuilderBase<Face>[]) {
-    const filter = new NotBelongsToFaceFilter(faceFilters);
-    this.filters.push(filter);
+  notBelongsToFace(...faceFilters: FilterBuilderBase<Face>[]): this;
+  notBelongsToFace(...args: any[]): this {
+    const filterBuilders: FilterBuilderBase<Face>[] = [];
+    for (const arg of args) {
+      if (arg instanceof SceneObject) {
+        this.filters.push(new NotBelongsToFaceFromSceneObjectFilter(arg));
+      } else {
+        filterBuilders.push(arg as FilterBuilderBase<Face>);
+      }
+    }
+    if (filterBuilders.length > 0) {
+      this.filters.push(new NotBelongsToFaceFilter(filterBuilders));
+    }
     return this;
   }
 

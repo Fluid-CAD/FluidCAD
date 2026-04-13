@@ -2,6 +2,7 @@ import { WireOps } from "../../oc/wire-ops.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { Edge } from "../../common/edge.js";
+import { Vertex } from "../../common/vertex.js";
 import { Wire } from "../../common/wire.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
 
@@ -55,12 +56,15 @@ export class Offset extends ExtrudableGeometryBase {
       });
     }
 
+    const allOffsetEdges: Edge[] = [];
+
     for (const wireInfo of wires) {
       const isOpen = !wireInfo.wire.isClosed()
       const offsetWire = WireOps.offsetWire(wireInfo.wire, this.distance, isOpen);
       const edges = offsetWire.getEdges();
 
       for (const edge of edges) {
+        allOffsetEdges.push(edge);
         this.addShape(edge);
       }
 
@@ -69,6 +73,17 @@ export class Offset extends ExtrudableGeometryBase {
           owner.removeShape(edge, this);
         }
       }
+    }
+
+    if (allOffsetEdges.length > 0) {
+      const plane = this.getPlane();
+      const firstEdge = allOffsetEdges[0];
+      const lastEdge = allOffsetEdges[allOffsetEdges.length - 1];
+      const localStart = plane.worldToLocal(firstEdge.getFirstVertex().toPoint());
+      const localEnd = plane.worldToLocal(lastEdge.getLastVertex().toPoint());
+
+      this.setState('start', Vertex.fromPoint2D(localStart));
+      this.setState('end', Vertex.fromPoint2D(localEnd));
     }
   }
 

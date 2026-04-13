@@ -29,15 +29,15 @@ Chamfers selected edges with the given distance.
 ---
 
 ```ts
-chamfer(distance: number, selection: SceneObject): SceneObject
+chamfer(distance: number, ...sceneObjects: SceneObject[]): SceneObject
 ```
 
-Chamfers the given edge selection with the given distance.
+Chamfers the given edge selections with the given distance.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `distance` | number | The chamfer distance |
-| `selection` | [SceneObject](/docs/api/types/scene-object) | The edge selection to chamfer |
+| `...sceneObjects` | [SceneObject](/docs/api/types/scene-object)[] | The edge selections to chamfer *(optional)* |
 
 ---
 
@@ -56,14 +56,14 @@ Chamfers selected edges with two distances or a distance and angle.
 ---
 
 ```ts
-chamfer(distance: number, distance2: number, isAngle: boolean, selection: SceneObject): SceneObject
+chamfer(distance: number, distance2: number, isAngle: boolean, ...sceneObjects: SceneObject[]): SceneObject
 ```
 
-Chamfers the given edge selection with two distances or a distance and angle.
+Chamfers the given edge selections with two distances or a distance and angle.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `distance` | number | The first chamfer distance |
 | `distance2` | number | The second distance, or angle if `isAngle` is true |
 | `isAngle` | boolean | Whether `distance2` is an angle |
-| `selection` | [SceneObject](/docs/api/types/scene-object) | The edge selection to chamfer |
+| `...sceneObjects` | [SceneObject](/docs/api/types/scene-object)[] | The edge selections to chamfer *(optional)* |

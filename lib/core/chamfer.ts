@@ -10,11 +10,11 @@ interface ChamferFunction {
    */
   (distance?: number): ISceneObject;
   /**
-   * Chamfers the given edge selection with the given distance.
+   * Chamfers the given edge selections with the given distance.
    * @param distance - The chamfer distance
-   * @param selection - The edge selection to chamfer
+   * @param sceneObjects - The edge selections to chamfer
    */
-  (distance: number, selection: ISceneObject): ISceneObject;
+  (distance: number, ...sceneObjects: ISceneObject[]): ISceneObject;
   /**
    * Chamfers selected edges with two distances or a distance and angle.
    * @param distance - The first chamfer distance
@@ -23,27 +23,18 @@ interface ChamferFunction {
    */
   (distance: number, distance2: number, isAngle?: boolean): ISceneObject;
   /**
-   * Chamfers the given edge selection with two distances or a distance and angle.
+   * Chamfers the given edge selections with two distances or a distance and angle.
    * @param distance - The first chamfer distance
    * @param distance2 - The second distance, or angle if `isAngle` is true
    * @param isAngle - Whether `distance2` is an angle
-   * @param selection - The edge selection to chamfer
+   * @param sceneObjects - The edge selections to chamfer
    */
-  (distance: number, distance2: number, isAngle: boolean, selection: ISceneObject): ISceneObject;
+  (distance: number, distance2: number, isAngle: boolean, ...sceneObjects: ISceneObject[]): ISceneObject;
 }
 
 function build(context: SceneParserContext): ChamferFunction {
   return function chamfer() {
     const args = Array.from(arguments);
-
-    let selection: SceneObject | undefined;
-    if (args.length > 0 && args[args.length - 1] instanceof SceneObject) {
-      selection = args.pop() as SceneObject;
-    } else {
-      selection = context.getLastSelection() || undefined;
-    }
-
-    context.addSceneObject(selection); // Ensure lazy selections are added to the scene
 
     let distance = 1;
     let distance2: number = undefined;
@@ -61,11 +52,25 @@ function build(context: SceneParserContext): ChamferFunction {
       isAngle = args[2] as boolean;
     }
 
-    const chamfer = new Chamfer(distance, distance2, isAngle, selection);
+    const selections: SceneObject[] = args
+      .filter(a => a instanceof SceneObject) as SceneObject[];
+
+    if (selections.length === 0) {
+      const lastSelection = context.getLastSelection() || undefined;
+      if (lastSelection) {
+        selections.push(lastSelection);
+      }
+    }
+
+    for (const selection of selections) {
+      context.addSceneObject(selection);
+    }
+
+    const chamfer = new Chamfer(distance, distance2, isAngle, ...selections);
 
     context.addSceneObject(chamfer);
     return chamfer;
-  };
+  } as ChamferFunction;
 }
 
 export default registerBuilder(build);

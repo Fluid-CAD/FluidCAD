@@ -1,20 +1,19 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
-import { SelectSceneObject } from "./select.js";
 import { Edge, Face, Shape, Solid } from "../common/shapes.js";
 import { FilletOps } from "../oc/fillet-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 
 export class Chamfer extends SceneObject {
-  private _selection: SceneObject | null = null;
+  private _selections: SceneObject[] = [];
 
-  constructor(private distance: number, private distance2: number, private isAngle: boolean = false, selection?: SceneObject) {
+  constructor(private distance: number, private distance2: number, private isAngle: boolean = false, ...selections: SceneObject[]) {
     super();
-    this._selection = selection ?? null;
+    this._selections = selections;
   }
 
-  get selection(): SceneObject {
-    return this._selection;
+  get selections(): SceneObject[] {
+    return this._selections;
   }
 
   build(context: BuildSceneObjectContext): void {
@@ -28,9 +27,17 @@ export class Chamfer extends SceneObject {
       }
     }
 
-    const allEdgeShapes = this.selection.getShapes();
-
-    let edges = allEdgeShapes as Edge[];
+    let edges: Edge[] = [];
+    for (const selection of this.selections) {
+      const allEdgeShapes = selection.getShapes();
+      for (const shape of allEdgeShapes) {
+        if (shape.isEdge()) {
+          edges.push(shape as Edge);
+        } else {
+          edges.push(...Explorer.findEdgesWrapped(shape));
+        }
+      }
+    }
 
     const newShapes = [];
 
@@ -95,20 +102,23 @@ export class Chamfer extends SceneObject {
       }
     }
 
-    this.selection.removeShapes(this);
+    for (const selection of this.selections) {
+      const shapes = selection.getShapes();
+      for (const shape of shapes) {
+        selection.removeShape(shape, this);
+      }
+    }
 
     this.addShapes(newShapes);
   }
 
   override getDependencies(): SceneObject[] {
-    return this.selection ? [this.selection] : [];
+    return [...this.selections];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const selection = this.selection
-      ? (remap.get(this.selection) || this.selection)
-      : undefined;
-    return new Chamfer(this.distance, this.distance2, this.isAngle, selection);
+    const selections = this.selections.map(s => remap.get(s) || s);
+    return new Chamfer(this.distance, this.distance2, this.isAngle, ...selections);
   }
 
   compareTo(other: SceneObject): boolean {
@@ -132,8 +142,14 @@ export class Chamfer extends SceneObject {
       return false;
     }
 
-    if (!this.selection.compareTo(other.selection)) {
+    if (this.selections.length !== other.selections.length) {
       return false;
+    }
+
+    for (let i = 0; i < this.selections.length; i++) {
+      if (!this.selections[i].compareTo(other.selections[i])) {
+        return false;
+      }
     }
 
     return true;
@@ -145,7 +161,7 @@ export class Chamfer extends SceneObject {
 
   serialize() {
     return {
-      edges: this.selection.serialize(),
+      edges: this.selections.map(s => s.serialize()),
       distance: this.distance,
       distance2: this.distance2,
       isAngle: this.isAngle

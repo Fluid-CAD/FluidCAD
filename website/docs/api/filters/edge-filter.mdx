@@ -204,23 +204,36 @@ Excludes straight-line edges, optionally matching a specific length.
 
 ```ts
 .belongsToFace(...faceFilters: FilterBuilderBase<Face>[][]): this
+.belongsToFace(sceneObject: ISceneObject): this
 ```
 
-Selects edges that belong to a face matching the given face filters.
+Selects edges that belong to a face matching the given face filters, or edges that belong to a face from the given scene object.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...faceFilters` | FilterBuilderBase&lt;Face&gt;[] | One or more face filter builders to match against. *(optional)* |
+| `...faceFilters` | FilterBuilderBase&lt;Face&gt;[] | One or more face filter builders to match against. |
+| `sceneObject` | ISceneObject | A scene object whose faces are matched against. |
+
+```js
+// Using face filters
+edge().belongsToFace(face().circle())
+
+// Using a scene object
+const topFaces = select(face().onPlane("xy", 30));
+edge().belongsToFace(topFaces)
+```
 
 ### .notBelongsToFace()
 
 ```ts
 .notBelongsToFace(...faceFilters: FilterBuilderBase<Face>[][]): this
+.notBelongsToFace(sceneObject: ISceneObject): this
 ```
 
-Excludes edges that belong to a face matching the given face filters.
+Excludes edges that belong to a face matching the given face filters, or edges that belong to a face from the given scene object.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...faceFilters` | FilterBuilderBase&lt;Face&gt;[] | One or more face filter builders to match against. *(optional)* |
+| `...faceFilters` | FilterBuilderBase&lt;Face&gt;[] | One or more face filter builders to match against. |
+| `sceneObject` | ISceneObject | A scene object whose faces are matched against. |
 

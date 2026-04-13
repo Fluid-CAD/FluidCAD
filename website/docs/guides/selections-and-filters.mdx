@@ -80,6 +80,10 @@ edge().line(10)                // straight edges with length 10
 ```js
 edge().belongsToFace(face().circle())         // edges on circular faces
 edge().belongsToFace(face().parallelTo("xy")) // edges on faces parallel to XY
+
+// or pass a scene object directly
+const topFaces = select(face().onPlane("xy", 30));
+edge().belongsToFace(topFaces)                // edges belonging to those faces
 ```
 
 ### Negation
@@ -125,6 +129,10 @@ face().cone()                  // conical faces
 face().edgeCount(4)            // faces with exactly 4 edges (rectangular faces)
 face().hasEdge(edge().line())  // faces that have at least one straight edge
 face().hasEdge(edge().circle(10))  // faces with a circular edge of diameter 10
+
+// or pass a scene object directly
+const circularEdges = select(edge().circle());
+face().hasEdge(circularEdges)  // faces that share an edge with the selection
 ```
 
 ### Negation

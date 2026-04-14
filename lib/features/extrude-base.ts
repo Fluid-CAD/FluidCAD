@@ -183,8 +183,8 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   }
 
   private resolveFaces<T extends Shape>(shapes: Face[], args: number[] | FaceFilterBuilder[],
-                                       transform: Matrix4 = null,
-                                       originalShapes: Face[] = null): T[] {
+    transform: Matrix4 = null,
+    originalShapes: Face[] = null): T[] {
     if (args.length === 0) {
       return new ShapeFilter(shapes).apply() as T[];
     }
@@ -206,8 +206,8 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   }
 
   private resolveEdges<T extends Shape>(shapes: Edge[], args: number[] | EdgeFilterBuilder[],
-                                       transform: Matrix4 = null,
-                                       originalShapes: Edge[] = null): T[] {
+    transform: Matrix4 = null,
+    originalShapes: Edge[] = null): T[] {
     if (args.length === 0) {
       return new ShapeFilter(shapes).apply() as T[];
     }
@@ -243,6 +243,23 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return this;
   }
 
+  protected serializePickFields() {
+    const plane = this._extrudable?.getPlane();
+    return {
+      picking: this.isPicking() || undefined,
+      pickPoints: this.isPicking()
+        ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })
+        : undefined,
+      trigger: 'region-picking' as const,
+      pickPlane: plane ? {
+        origin: plane.origin,
+        xDirection: plane.xDirection,
+        yDirection: plane.yDirection,
+        normal: plane.normal,
+      } : undefined,
+    };
+  }
+
   pick(...points: Point2DLike[]): this {
     this._picking = true;
     this._pickPoints = points.map(p => normalizePoint2D(p));
@@ -268,14 +285,8 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       return null;
     }
 
-    let cells: Face[] = this.extrudable.getState('pick-region-cells') as Face[] | null;
-
-    if (!cells) {
-      console.log(':::::::: No cached cells found, computing cells for the first time');
-      const sketchShapes = this.extrudable.getGeometries();
-      cells = FaceMaker2.getRegions(sketchShapes, plane, false);
-      this.extrudable.setState('pick-region-cells', cells);
-    }
+    const sketchShapes = this.extrudable.getGeometries();
+    const cells = FaceMaker2.getRegions(sketchShapes, plane, false);
 
     if (cells.length === 0) {
       return [];

@@ -159,10 +159,7 @@ export class Sweep extends ExtrudeBase implements ISweep {
       path: this._path.serialize(),
       extrudable: this.extrudable.serialize(),
       operationMode: this._operationMode !== 'add' ? this._operationMode : undefined,
-      picking: this.isPicking() || undefined,
-      pickPoints: this.isPicking()
-        ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })
-        : undefined,
+      ...this.serializePickFields(),
     };
   }
 }

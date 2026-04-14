@@ -3,7 +3,7 @@ import { ShapePropertiesModal } from './ui/shape-properties-modal';
 import { SelectionInfoOverlay } from './ui/selection-info-overlay';
 import { TimelinePanel } from './ui/timeline-panel';
 import { ExportDialog } from './ui/export-dialog';
-import { ICON_SCISSORS, ICON_FILE_IMPORT, ICON_COPY } from './ui/icons';
+import { ICON_SCISSORS, ICON_FILE_IMPORT, ICON_COPY, ICON_WAND } from './ui/icons';
 import { PointPickMode, HighlightInfo } from './interactive/point-pick-mode';
 import { RegionPickMode } from './interactive/region-pick-mode';
 import { BezierDrawMode } from './interactive/bezier-draw-mode';
@@ -274,62 +274,81 @@ function clearVertexHighlights() {
 // Interactive region-pick mode (for extrude .pick())
 // ---------------------------------------------------------------------------
 
-const regionPickIndicator = document.createElement('div');
-regionPickIndicator.id = 'fluidcad-region-pick-indicator';
-regionPickIndicator.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-none hidden';
-regionPickIndicator.innerHTML = `
+// Magic wand trigger button — shown when last element has trigger='region-picking'
+const regionPickTriggerBtn = document.createElement('div');
+regionPickTriggerBtn.id = 'fluidcad-region-pick-trigger';
+regionPickTriggerBtn.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto hidden';
+regionPickTriggerBtn.innerHTML = `
+  <button class="flex items-center gap-3 glass-dark border border-white/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none cursor-pointer hover:border-white/20 transition-colors">
+    <span class="[&>svg]:size-5">${ICON_WAND}</span>
+    <span>Pick Regions</span>
+  </button>
+`;
+container.appendChild(regionPickTriggerBtn);
+
+// Active picking bar with exit button — shown when in picking mode
+const regionPickActiveBar = document.createElement('div');
+regionPickActiveBar.id = 'fluidcad-region-pick-active';
+regionPickActiveBar.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto hidden';
+regionPickActiveBar.innerHTML = `
   <div class="flex items-center gap-3 glass-dark border border-white/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none">
     <span>Region Picking Mode</span>
+    <div class="h-4 w-px bg-white/10"></div>
+    <button class="text-base-content/60 hover:text-base-content transition-colors cursor-pointer" id="exit-region-pick">Exit</button>
   </div>
 `;
-container.appendChild(regionPickIndicator);
+container.appendChild(regionPickActiveBar);
 
+let regionPickState: 'idle' | 'icon-visible' | 'picking-active' = 'idle';
+let lastRegionPickInfo: { extrudeObj: SceneObjectRender & { sourceLocation?: any }; sketchObj: SceneObjectRender } | null = null;
 let activeRegionPickMode: RegionPickMode | null = null;
 let activeRegionPickSourceLine: number | null = null;
 
-function isRegionPickingScene(sceneObjects: SceneObjectRender[]): {
-  active: boolean;
+const EXTRUDABLE_TYPES = ['extrude', 'cut', 'cut-symmetric', 'revolve', 'sweep'];
+
+function hasRegionPickingTrigger(sceneObjects: SceneObjectRender[]): {
+  hasTrigger: boolean;
   extrudeObj?: SceneObjectRender & { sourceLocation?: any };
   sketchObj?: SceneObjectRender;
 } {
-  // Find the last extrude/cut with picking=true (may be inside a Part container)
+  // The trigger only applies when the LAST element in the tree is an extrudable with trigger
+  // Find the last top-level element (skip planes/axes which are construction helpers)
+  const SKIP_TYPES = ['plane', 'axis'];
+  let lastObj: SceneObjectRender | undefined;
   for (let i = sceneObjects.length - 1; i >= 0; i--) {
     const obj = sceneObjects[i] as any;
-    if ((obj.type === 'extrude' || obj.type === 'cut' || obj.type === 'cut-symmetric' || obj.type === 'revolve' || obj.type === 'sweep') && obj.object?.picking) {
-      // Found an extrude/cut with picking=true. Find the sketch before it (same parent scope).
-      let sketchObj: SceneObjectRender | undefined;
-      for (let j = i - 1; j >= 0; j--) {
-        if (sceneObjects[j].type === 'sketch' && sceneObjects[j].parentId === obj.parentId) {
-          sketchObj = sceneObjects[j];
-          break;
-        }
-      }
-      return { active: true, extrudeObj: obj, sketchObj };
+    if (!obj.parentId && !SKIP_TYPES.includes(obj.type)) {
+      lastObj = obj;
+      break;
     }
   }
-  return { active: false };
+
+  if (!lastObj) {
+    return { hasTrigger: false };
+  }
+
+  const obj = lastObj as any;
+  if (!EXTRUDABLE_TYPES.includes(obj.type) || obj.object?.trigger !== 'region-picking') {
+    return { hasTrigger: false };
+  }
+
+  // Find the sketch before it (same parent scope)
+  const idx = sceneObjects.indexOf(lastObj);
+  let sketchObj: SceneObjectRender | undefined;
+  for (let j = idx - 1; j >= 0; j--) {
+    if (sceneObjects[j].type === 'sketch' && sceneObjects[j].parentId === obj.parentId) {
+      sketchObj = sceneObjects[j];
+      break;
+    }
+  }
+  return { hasTrigger: true, extrudeObj: lastObj, sketchObj };
 }
 
-function updateRegionPickMode(sceneObjects: SceneObjectRender[]) {
-  const pickInfo = isRegionPickingScene(sceneObjects);
+function activateRegionPickModeInteractive(info: { extrudeObj: any; sketchObj: any }) {
+  deactivateRegionPickModeHandler();
 
-  if (!pickInfo.active || !pickInfo.extrudeObj?.sourceLocation || !pickInfo.sketchObj?.object?.plane) {
-    deactivateRegionPickMode();
-    return;
-  }
-
-  const srcLine = pickInfo.extrudeObj.sourceLocation.line;
-
-  // Already in region pick mode for this same extrude call — just re-render
-  if (activeRegionPickMode && activeRegionPickSourceLine === srcLine) {
-    return;
-  }
-
-  // Activate new region pick mode
-  deactivateRegionPickMode();
-
-  const plane: PlaneData = pickInfo.sketchObj.object.plane;
-  const sourceLocation = pickInfo.extrudeObj.sourceLocation;
+  const plane: PlaneData = info.extrudeObj.object?.pickPlane ?? info.sketchObj.object.plane;
+  const sourceLocation = info.extrudeObj.sourceLocation;
 
   activeRegionPickMode = new RegionPickMode(
     viewer.sceneContext,
@@ -352,19 +371,121 @@ function updateRegionPickMode(sceneObjects: SceneObjectRender[]) {
       // Highlight is handled directly by RegionPickMode via material changes
     },
   );
-  activeRegionPickSourceLine = srcLine;
+  activeRegionPickSourceLine = sourceLocation.line;
   activeRegionPickMode.activate();
-  regionPickIndicator.classList.remove('hidden');
 }
 
-function deactivateRegionPickMode() {
+function enterRegionPickMode() {
+  if (!lastRegionPickInfo) {
+    return;
+  }
+
+  const hasPicking = (lastRegionPickInfo.extrudeObj as any).object?.picking;
+
+  if (!hasPicking) {
+    // Need to add .pick() to the code first — send request to extension
+    fetch('/api/add-pick', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceLocation: (lastRegionPickInfo.extrudeObj as any).sourceLocation,
+      }),
+    });
+    // Transition to picking-active optimistically; the scene will re-render
+    // when .pick() is added, and updateRegionPickMode will activate the handler
+    regionPickState = 'picking-active';
+    regionPickTriggerBtn.classList.add('hidden');
+    regionPickActiveBar.classList.remove('hidden');
+    viewer.isRegionPicking = true;
+    viewer.toggleSketchMode(false);
+    return;
+  }
+
+  // .pick() already exists — activate interactive mode directly
+  activateRegionPickModeInteractive(lastRegionPickInfo);
+  regionPickState = 'picking-active';
+  regionPickTriggerBtn.classList.add('hidden');
+  regionPickActiveBar.classList.remove('hidden');
+  viewer.isRegionPicking = true;
+  viewer.toggleSketchMode(false);
+  viewer.rebuildSceneMesh();
+}
+
+function exitRegionPickMode() {
+  deactivateRegionPickModeHandler();
+  viewer.isRegionPicking = false;
+  viewer.toggleSketchMode(true);
+  viewer.rebuildSceneMesh();
+
+  if (lastRegionPickInfo) {
+    // Transition back to icon-visible
+    regionPickState = 'icon-visible';
+    regionPickActiveBar.classList.add('hidden');
+    regionPickTriggerBtn.classList.remove('hidden');
+  } else {
+    regionPickState = 'idle';
+    regionPickActiveBar.classList.add('hidden');
+    regionPickTriggerBtn.classList.add('hidden');
+  }
+}
+
+function deactivateRegionPickModeHandler() {
   if (activeRegionPickMode) {
     activeRegionPickMode.deactivate();
     activeRegionPickMode = null;
     activeRegionPickSourceLine = null;
   }
-  regionPickIndicator.classList.add('hidden');
 }
+
+function resetRegionPickMode() {
+  deactivateRegionPickModeHandler();
+  regionPickState = 'idle';
+  regionPickTriggerBtn.classList.add('hidden');
+  regionPickActiveBar.classList.add('hidden');
+  lastRegionPickInfo = null;
+  viewer.isRegionPicking = false;
+  viewer.toggleSketchMode(true);
+}
+
+function updateRegionPickMode(sceneObjects: SceneObjectRender[]) {
+  const triggerInfo = hasRegionPickingTrigger(sceneObjects);
+
+  const hasPlane = (triggerInfo.extrudeObj as any)?.object?.pickPlane || triggerInfo.sketchObj?.object?.plane;
+  if (!triggerInfo.hasTrigger || !triggerInfo.extrudeObj?.sourceLocation || !hasPlane) {
+    resetRegionPickMode();
+    return;
+  }
+
+  lastRegionPickInfo = { extrudeObj: triggerInfo.extrudeObj, sketchObj: triggerInfo.sketchObj };
+  const hasPicking = (triggerInfo.extrudeObj as any).object?.picking;
+
+  if (regionPickState === 'picking-active') {
+    // Already actively picking — activate/keep the interactive handler if meta shapes exist
+    if (hasPicking) {
+      const srcLine = lastRegionPickInfo.extrudeObj.sourceLocation.line;
+      if (activeRegionPickMode && activeRegionPickSourceLine === srcLine) {
+        return; // Same source line, no change needed
+      }
+      activateRegionPickModeInteractive(lastRegionPickInfo);
+    }
+    // If not picking yet, the add-pick request is still in flight — wait for next render
+    return;
+  }
+
+  // Show the wand icon — user must click it to enter picking mode
+  regionPickState = 'icon-visible';
+  regionPickTriggerBtn.classList.remove('hidden');
+  regionPickActiveBar.classList.add('hidden');
+}
+
+// Wire up click handlers
+regionPickTriggerBtn.querySelector('button')!.addEventListener('click', () => {
+  enterRegionPickMode();
+});
+
+regionPickActiveBar.querySelector('#exit-region-pick')!.addEventListener('click', () => {
+  exitRegionPickMode();
+});
 
 // ---------------------------------------------------------------------------
 // Interactive bezier drawing mode
@@ -669,10 +790,7 @@ function connectWebSocket() {
         hideLoading();
         const isRollback = msg.rollbackStop != null && msg.rollbackStop < msg.result.length - 1;
         viewer.isTrimming = isTrimmingScene(msg.result);
-        const regionPicking = isRegionPickingScene(msg.result);
-        viewer.isRegionPicking = regionPicking.active;
         viewer.isBezierDrawing = isBezierDrawingScene(msg.result);
-        viewer.toggleSketchMode(!regionPicking.active);
         viewer.updateView(msg.result, isRollback);
         if (msg.absPath) {
           viewer.setFileName(msg.absPath);

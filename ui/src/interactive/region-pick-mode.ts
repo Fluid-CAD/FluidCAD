@@ -85,7 +85,7 @@ export class RegionPickMode {
       return;
     }
 
-    const hitGroup = hit.parent;
+    const hitGroup = hit.mesh.parent;
     const isSelected = hitGroup?.userData.isPickRegionSelected === true;
 
     if (isSelected) {
@@ -120,26 +120,27 @@ export class RegionPickMode {
 
   private handleMouseMove(e: MouseEvent): void {
     const hit = this.raycastRegions(e.clientX, e.clientY);
+    const hitMesh = hit?.mesh ?? null;
 
-    if (hit === this.highlightedMesh) {
+    if (hitMesh === this.highlightedMesh) {
       return; // Same mesh, no change
     }
 
     // Restore previous highlight
     this.restoreHighlight();
 
-    if (hit) {
+    if (hitMesh) {
       // Apply hover highlight
-      const mat = hit.material as MeshBasicMaterial;
+      const mat = hitMesh.material as MeshBasicMaterial;
       this.highlightedOriginalColor = mat.color.getHex();
       this.highlightedOriginalOpacity = mat.opacity;
       mat.color.set(HOVER_COLOR);
       mat.opacity = HOVER_OPACITY;
-      this.highlightedMesh = hit;
+      this.highlightedMesh = hitMesh;
 
       // Find shapeId from parent group
       let shapeId: string | null = null;
-      let obj: Object3D | null = hit;
+      let obj: Object3D | null = hitMesh;
       while (obj) {
         if (obj.userData.shapeId) {
           shapeId = obj.userData.shapeId;
@@ -171,8 +172,8 @@ export class RegionPickMode {
     }
   }
 
-  /** Raycast against pick-region meta face meshes and return the closest hit Mesh. */
-  private raycastRegions(clientX: number, clientY: number): Mesh | null {
+  /** Raycast against pick-region meta face meshes and return the closest hit Mesh + world point. */
+  private raycastRegions(clientX: number, clientY: number): { mesh: Mesh; point: Vector3 } | null {
     const renderer = this.ctx.renderer;
     const camera = this.ctx.camera;
     const rect = renderer.domElement.getBoundingClientRect();
@@ -199,7 +200,10 @@ export class RegionPickMode {
     }
 
     const intersects = raycaster.intersectObjects(regionMeshes, false);
-    return intersects.length > 0 ? intersects[0].object as Mesh : null;
+    if (intersects.length === 0) {
+      return null;
+    }
+    return { mesh: intersects[0].object as Mesh, point: intersects[0].point };
   }
 
   /** Project screen coordinates to 2D sketch plane coordinates. */

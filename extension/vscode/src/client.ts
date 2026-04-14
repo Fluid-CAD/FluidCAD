@@ -200,6 +200,10 @@ export class Client {
         this.handleSetPickPoints(msg);
         break;
       }
+      case 'add-pick': {
+        this.handleAddPick(msg);
+        break;
+      }
       case 'export-complete': {
         if (msg.success && msg.data && this.pendingExportUri) {
           const buffer = Buffer.from(msg.data, 'base64');
@@ -389,6 +393,44 @@ export class Client {
     const pos = new vscode.Position(line, closeParen);
 
     const applied = await editor.edit(b => b.insert(pos, `${prefix}${pointText}`));
+    if (applied) {
+      this.updateLiveCode(editor.document.fileName, editor.document.getText());
+    }
+  }
+
+  private async handleAddPick(msg: any) {
+    const { sourceLocation } = msg;
+    const line = sourceLocation.line - 1;
+
+    let editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.fileName !== this.currentFileName) {
+      editor = vscode.window.visibleTextEditors.find(
+        e => e.document.fileName === this.currentFileName
+      );
+    }
+    if (!editor) {
+      return;
+    }
+
+    if (line < 0 || line >= editor.document.lineCount) {
+      return;
+    }
+
+    const lineText = editor.document.lineAt(line).text;
+
+    // If .pick( already exists on this line, do nothing
+    if (lineText.includes('.pick(')) {
+      return;
+    }
+
+    // Find the last ')' on the line and append .pick() after it
+    const lastCloseParen = lineText.lastIndexOf(')');
+    if (lastCloseParen < 0) {
+      return;
+    }
+
+    const pos = new vscode.Position(line, lastCloseParen + 1);
+    const applied = await editor.edit(b => b.insert(pos, '.pick()'));
     if (applied) {
       this.updateLiveCode(editor.document.fileName, editor.document.getText());
     }

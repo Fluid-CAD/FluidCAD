@@ -174,10 +174,7 @@ export class Revolve extends ExtrudeBase implements IRevolve {
       axis: this.axis.serialize(),
       operationMode: this._operationMode !== 'add' ? this._operationMode : undefined,
       symmetric: this._symmetric || undefined,
-      picking: this.isPicking() || undefined,
-      pickPoints: this.isPicking()
-        ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })
-        : undefined,
+      ...this.serializePickFields(),
     }
   }
 }

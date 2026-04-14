@@ -1,4 +1,5 @@
 import { Solid } from "../common/shapes.js";
+import { Face } from "../common/face.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
@@ -9,7 +10,8 @@ export class ExtrudeThroughAll {
 
   constructor(public extrudable: Extrudable,
     public symmetric: boolean,
-    public reversed: boolean) {
+    public reversed: boolean,
+    public pickedFaces?: Face[]) {
   }
 
   build(): Solid[] {
@@ -19,10 +21,10 @@ export class ExtrudeThroughAll {
 
     const solids: Solid[] = [];
 
-    const wires = this.extrudable.getGeometries();
     const plane = this.extrudable.getPlane();
 
-    const faces = FaceMaker2.getRegions(wires, plane);
+    const faces = this.pickedFaces ?? FaceMaker2.getRegions(
+      this.extrudable.getGeometries(), plane);
 
     console.log("Extruding faces:", faces);
 
@@ -32,20 +34,21 @@ export class ExtrudeThroughAll {
       dir = dir.multiply(-1);
     }
 
+    const shouldDispose = !this.pickedFaces;
+
     if (this.symmetric) {
       for (const face of faces) {
         const solid = ExtrudeOps.makePrismSymmetric(face, dir);
         solids.push(solid as Solid);
-        face.dispose();
+        if (shouldDispose) { face.dispose(); }
       }
-    }
-    else {
+    } else {
       dir = dir.multiply(100000);
 
       for (const face of faces) {
         const solid = ExtrudeOps.makePrism(face, dir, 1);
         solids.push(solid as Solid);
-        face.dispose();
+        if (shouldDispose) { face.dispose(); }
       }
     }
 

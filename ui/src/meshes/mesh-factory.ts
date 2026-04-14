@@ -60,6 +60,7 @@ export function buildObjectMesh(
   allObjects: SceneObjectRender[],
   isSketchMode: boolean,
   camera: Camera,
+  isRegionPicking: boolean,
   inherited?: MeshRenderOptions,
 ): Object3D {
   // --- dedicated mesh classes for construction geometry ---
@@ -82,12 +83,12 @@ export function buildObjectMesh(
   if (children.length > 0) {
     const group = new Group();
     for (const child of children) {
-      group.add(buildObjectMesh(child, allObjects, isSketchMode, camera, options));
+      group.add(buildObjectMesh(child, allObjects, isSketchMode, camera, isRegionPicking, options));
     }
     result = group;
   } else {
     // Leaf node — build geometry from shape data
-    result = new ShapeGroup(obj, options);
+    result = new ShapeGroup(obj, isRegionPicking, options);
   }
 
   // Select overlays render last so they always appear on top.
@@ -105,6 +106,7 @@ export function buildSceneMesh(
   sceneObjects: SceneObjectRender[],
   isSketchMode: boolean,
   camera: Camera,
+  isRegionPicking: boolean = false,
 ): Object3D {
   const container = new Group();
   container.name = 'compiledMesh';
@@ -112,7 +114,7 @@ export function buildSceneMesh(
   for (const obj of sceneObjects) {
     if (obj.parentId) continue;
     if (!obj.visible && !(isSketchMode && obj.type === 'sketch')) continue;
-    container.add(buildObjectMesh(obj, sceneObjects, isSketchMode, camera));
+    container.add(buildObjectMesh(obj, sceneObjects, isSketchMode, camera, isRegionPicking));
   }
 
   return container;

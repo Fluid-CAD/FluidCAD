@@ -42,6 +42,7 @@ export function createMetaFaceMesh(shape: SceneObjectPart): Group {
 export class ShapeGroup extends Group {
   constructor(
     sceneObject: SceneObjectRender,
+    isRegionPicking: boolean,
     options?: MeshRenderOptions,
   ) {
     super();
@@ -55,7 +56,14 @@ export class ShapeGroup extends Group {
       s => s.isMetaShape || s.shapeType === 'wire' || s.shapeType === 'edge',
     );
 
+    const PICK_META_TYPES = ['pick-region', 'pick-region-selected', 'pick-edge'];
+
     for (const shape of sceneObject.sceneShapes) {
+      // Skip pick-region meta shapes when not in region picking mode
+      if (!isRegionPicking && shape.isMetaShape && shape.metaType && PICK_META_TYPES.includes(shape.metaType)) {
+        continue;
+      }
+
       let mesh: Group | undefined;
 
       if (shape.isMetaShape) {

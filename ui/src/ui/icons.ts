@@ -9,6 +9,7 @@ import iconFileImport from '@tabler/icons/outline/file-import.svg?raw';
 import iconCopy from '@tabler/icons/outline/copy.svg?raw';
 import iconCircleCheck from '@tabler/icons/outline/circle-check.svg?raw';
 import iconRefresh from '@tabler/icons/outline/refresh.svg?raw';
+import iconWand from '@tabler/icons/outline/wand.svg?raw';
 
 export const ICON_FIT = iconAutoFit;
 export const ICON_ORTHO = iconOrthographic;
@@ -21,3 +22,4 @@ export const ICON_FILE_IMPORT = iconFileImport;
 export const ICON_COPY = iconCopy;
 export const ICON_CIRCLE_CHECK = iconCircleCheck;
 export const ICON_REFRESH = iconRefresh;
+export const ICON_WAND = iconWand;

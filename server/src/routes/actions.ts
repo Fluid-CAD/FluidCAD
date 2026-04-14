@@ -89,6 +89,21 @@ export function createActionsRouter(
     res.json({ success: true });
   });
 
+  router.post('/add-pick', (req, res) => {
+    const { sourceLocation } = req.body;
+    if (
+      !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    sendToExtension({
+      type: 'add-pick',
+      sourceLocation,
+    });
+    res.json({ success: true });
+  });
+
   router.post('/set-pick-points', (req, res) => {
     const { points, sourceLocation } = req.body;
     if (

@@ -121,6 +121,11 @@ export type ExportCompleteMessage = {
   error?: string;
 };
 
+export type AddPickMessage = {
+  type: 'add-pick';
+  sourceLocation: { line: number; column: number };
+};
+
 export type ServerToExtensionMessage =
   | ReadyMessage
   | InitCompleteMessage
@@ -130,6 +135,7 @@ export type ServerToExtensionMessage =
   | InsertPointMessage
   | RemovePointMessage
   | SetPickPointsMessage
+  | AddPickMessage
   | ExportCompleteMessage;
 
 // ---------------------------------------------------------------------------

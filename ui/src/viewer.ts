@@ -392,7 +392,7 @@ export class Viewer {
       }
     }
 
-    const mesh = buildSceneMesh(sceneObjects, this.modeManager.isSketchMode, this.ctx.camera);
+    const mesh = buildSceneMesh(sceneObjects, this.modeManager.isSketchMode, this.ctx.camera, this.isRegionPicking);
     this.ctx.scene.add(mesh);
 
     // Auto-fit on first render or in sketch mode (skip if viewport barely changed or trimming)
@@ -688,6 +688,17 @@ export class Viewer {
     // The new box is contained when its circumscribed sphere fits within
     // the padded sphere we last fitted to.
     return oldCenter.distanceTo(newCenter) + newRadius <= oldPaddedRadius;
+  }
+
+  /** Rebuild the scene mesh using the current scene objects (no mode transitions or auto-fit). */
+  rebuildSceneMesh(): void {
+    if (!this.sceneObjects) {
+      return;
+    }
+    this.removeCompiledMesh();
+    const mesh = buildSceneMesh(this.sceneObjects, this.modeManager.isSketchMode, this.ctx.camera, this.isRegionPicking);
+    this.ctx.scene.add(mesh);
+    this.ctx.requestRender();
   }
 
   /** Remove the previous compiled mesh tree and dispose its GPU resources. */

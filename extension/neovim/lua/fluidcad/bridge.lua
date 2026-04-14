@@ -205,6 +205,58 @@ function M.handle_message(msg)
         fileName = vim.api.nvim_buf_get_name(buf),
         code = code,
       })
+    elseif msg.type == 'add-pick' then
+      local line_idx = msg.sourceLocation.line - 1
+      local file_path = msg.sourceLocation.filePath
+
+      local buf = nil
+      if file_path then
+        for _, b in ipairs(vim.api.nvim_list_bufs()) do
+          if vim.api.nvim_buf_is_loaded(b) then
+            local name = vim.api.nvim_buf_get_name(b)
+            if name == file_path then
+              buf = b
+              break
+            end
+          end
+        end
+      end
+      if not buf then
+        buf = vim.api.nvim_get_current_buf()
+      end
+      local line_count = vim.api.nvim_buf_line_count(buf)
+      if line_idx < 0 or line_idx >= line_count then
+        return
+      end
+      local line_text = vim.api.nvim_buf_get_lines(buf, line_idx, line_idx + 1, false)[1]
+
+      -- If .pick( already exists on this line, do nothing
+      if line_text:find('%.pick%(') then
+        return
+      end
+
+      -- Find last ')' on this line
+      local close_paren = nil
+      for i = #line_text, 1, -1 do
+        if line_text:sub(i, i) == ')' then
+          close_paren = i
+          break
+        end
+      end
+      if not close_paren then
+        return
+      end
+
+      -- Insert .pick() after the last closing paren (Lua 1-indexed → nvim 0-indexed)
+      vim.api.nvim_buf_set_text(buf, line_idx, close_paren, line_idx, close_paren, { '.pick()' })
+
+      local updated_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      local code = table.concat(updated_lines, '\n')
+      M.send({
+        type = 'live-update',
+        fileName = vim.api.nvim_buf_get_name(buf),
+        code = code,
+      })
     elseif msg.type == 'set-pick-points' then
       local line_idx = msg.sourceLocation.line - 1
       local file_path = msg.sourceLocation.filePath

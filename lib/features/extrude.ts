@@ -137,7 +137,7 @@ export class Extrude extends ExtrudeBase {
     if (this._symmetric) {
       // Symmetric cut: create tool centered on sketch plane
       if (isThroughAll) {
-        const extrudeThroughAll = new ExtrudeThroughAll(this.extrudable, true, true);
+        const extrudeThroughAll = new ExtrudeThroughAll(this.extrudable, true, true, faces);
         toolShapes = extrudeThroughAll.build();
       } else {
         const extruder1 = new Extruder(faces, plane, -this.distance / 2, this.getDraft(), this.getEndOffset());
@@ -149,7 +149,7 @@ export class Extrude extends ExtrudeBase {
         toolShapes = result;
       }
     } else if (isThroughAll) {
-      const extrudeThroughAll = new ExtrudeThroughAll(this.extrudable, false, true);
+      const extrudeThroughAll = new ExtrudeThroughAll(this.extrudable, false, true, faces);
       toolShapes = extrudeThroughAll.build();
     } else {
       const distance = -this.distance;
@@ -211,10 +211,7 @@ export class Extrude extends ExtrudeBase {
       symmetric: this._symmetric || undefined,
       draft: this.getDraft(),
       endOffset: this.getEndOffset(),
-      picking: this.isPicking() || undefined,
-      pickPoints: this.isPicking()
-        ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })
-        : undefined,
+      ...this.serializePickFields(),
     }
   }
 }

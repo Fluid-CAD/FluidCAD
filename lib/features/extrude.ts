@@ -194,11 +194,14 @@ export class Extrude extends ExtrudeBase {
   }
 
   getUniqueType(): string {
+    if (this._operationMode === 'remove') {
+      if (this._symmetric) {
+        return 'cut-symmetric';
+      }
+      return 'cut';
+    }
     if (this._symmetric) {
       return 'extrude-symmetric';
-    }
-    if (this._operationMode === 'remove') {
-      return 'cut-by-distance';
     }
     return 'extrude-by-distance';
   }

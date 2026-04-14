@@ -53,7 +53,7 @@ export class SketchMesh extends Group {
     super();
     this.buildEdges(sceneObject, allObjects);
     this.buildVertices(sceneObject, allObjects, camera);
-    if (isSketchMode && sceneObject.visible) {
+    if (isSketchMode) {
       this.buildCursor(sceneObject, camera);
       this.buildTangentArrow(sceneObject, camera);
     }

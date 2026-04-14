@@ -7,8 +7,7 @@ import {
   ShaderMaterial,
 } from 'three';
 import { SceneObjectPart } from '../../types';
-
-const COLOR = '#b0b0b0';
+import { themeColors } from '../../scene/theme-colors';
 
 // Dash-dot pattern parameters (in world units)
 const DASH_LENGTH = 4.0;
@@ -88,7 +87,7 @@ export class MetaEdgeMesh extends Group {
 
       const material = new ShaderMaterial({
         uniforms: {
-          color: { value: { r: 0.69, g: 0.69, b: 0.69 } }, // #b0b0b0
+          color: { value: themeColors.metaEdgeColor },
           dashLength: { value: DASH_LENGTH },
           gapLength: { value: GAP_LENGTH },
           dotLength: { value: DOT_LENGTH },

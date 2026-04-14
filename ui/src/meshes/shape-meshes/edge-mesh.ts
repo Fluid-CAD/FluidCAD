@@ -7,9 +7,10 @@ import {
   LineSegments,
 } from 'three';
 import { EdgeMeshOptions, SceneObjectPart } from '../../types';
+import { themeColors } from '../../scene/theme-colors';
 
 const DEFAULTS: Required<EdgeMeshOptions> = {
-  color: '#000000',
+  color: '',
   lineWidth: 1,
   opacity: 1,
   depthWrite: true,
@@ -28,7 +29,7 @@ export class EdgeMesh extends Group {
       geometry.setIndex(new BufferAttribute(new IndexArray(meshData.indices), 1));
 
       const material = new LineBasicMaterial({
-        color: opts.color,
+        color: opts.color || themeColors.edgeColor,
         linewidth: opts.lineWidth,
         transparent: opts.opacity < 1,
         opacity: opts.opacity,

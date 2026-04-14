@@ -39,7 +39,7 @@ export class SelectionInfoOverlay {
 
   constructor(container: HTMLElement) {
     this.el = document.createElement('div');
-    this.el.className = 'absolute bottom-[22px] right-16 w-[200px] glass-dark border border-white/10 rounded-lg p-3 z-[150] shadow-[0_4px_24px_rgba(0,0,0,0.5)] text-base-content text-xs pointer-events-none select-none hidden';
+    this.el.className = 'absolute bottom-[22px] right-16 w-[200px] panel-bg border border-base-content/10 rounded-lg p-3 z-[150] shadow-[0_4px_24px_rgba(0,0,0,0.5)] text-base-content text-xs pointer-events-none select-none hidden';
     container.appendChild(this.el);
   }
 

@@ -15,6 +15,19 @@ import { SceneObjectRender, PlaneData } from './types';
 
 const container = document.getElementById('fluidcad-viewer') || document.body;
 
+// Load persisted theme preference from the server and apply it.
+// The default dark theme is set in index.html, so there's no flash of unstyled content.
+fetch('/api/preferences')
+  .then((res) => res.ok ? res.json() : null)
+  .then((prefs) => {
+    if (prefs?.theme) {
+      document.documentElement.setAttribute('data-theme', prefs.theme);
+    }
+  })
+  .catch(() => {
+    // Use default theme
+  });
+
 /** Check if a scene object is "top-level": either root or a direct child of a Part container. */
 function isTopLevel(obj: SceneObjectRender, sceneObjects: SceneObjectRender[]): boolean {
   if (!obj.parentId) {
@@ -32,7 +45,7 @@ const loadingOverlay = document.createElement('div');
 loadingOverlay.id = 'fluidcad-loading';
 loadingOverlay.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[1000] pointer-events-none';
 loadingOverlay.innerHTML = `
-  <div class="flex items-center gap-3 glass-dark border border-white/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none">
+  <div class="flex items-center gap-3 panel-bg border border-base-content/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none">
     <span class="loading loading-spinner loading-sm"></span>
     <span class="loading-text">Loading FluidCAD...</span>
   </div>
@@ -107,7 +120,7 @@ const trimIndicator = document.createElement('div');
 trimIndicator.id = 'fluidcad-trim-indicator';
 trimIndicator.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-none hidden';
 trimIndicator.innerHTML = `
-  <div class="flex items-center gap-3 glass-dark border border-white/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none">
+  <div class="flex items-center gap-3 panel-bg border border-base-content/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none">
     <span class="[&>svg]:size-5">${ICON_SCISSORS}</span>
     <span>Trimming Mode</span>
   </div>
@@ -279,7 +292,7 @@ const regionPickTriggerBtn = document.createElement('div');
 regionPickTriggerBtn.id = 'fluidcad-region-pick-trigger';
 regionPickTriggerBtn.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto hidden';
 regionPickTriggerBtn.innerHTML = `
-  <button class="flex items-center gap-3 glass-dark border border-white/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none cursor-pointer hover:border-white/20 transition-colors">
+  <button class="flex items-center gap-3 panel-bg border border-base-content/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none cursor-pointer hover:border-base-content/20 transition-colors">
     <span class="[&>svg]:size-5">${ICON_WAND}</span>
     <span>Pick Regions</span>
   </button>
@@ -291,9 +304,9 @@ const regionPickActiveBar = document.createElement('div');
 regionPickActiveBar.id = 'fluidcad-region-pick-active';
 regionPickActiveBar.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto hidden';
 regionPickActiveBar.innerHTML = `
-  <div class="flex items-center gap-3 glass-dark border border-white/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none">
+  <div class="flex items-center gap-3 panel-bg border border-base-content/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none">
     <span>Region Picking Mode</span>
-    <div class="h-4 w-px bg-white/10"></div>
+    <div class="h-4 w-px bg-base-content/10"></div>
     <button class="text-base-content/60 hover:text-base-content transition-colors cursor-pointer" id="exit-region-pick">Exit</button>
   </div>
 `;
@@ -495,9 +508,9 @@ const bezierIndicator = document.createElement('div');
 bezierIndicator.id = 'fluidcad-bezier-indicator';
 bezierIndicator.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto hidden';
 bezierIndicator.innerHTML = `
-  <div class="flex items-center gap-3 glass-dark border border-white/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none">
+  <div class="flex items-center gap-3 panel-bg border border-base-content/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none">
     <span>Bezier Drawing Mode</span>
-    <div class="h-4 w-px bg-white/10"></div>
+    <div class="h-4 w-px bg-base-content/10"></div>
     <label class="flex items-center gap-1.5 cursor-pointer">
       <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" data-snap="vertex" checked />
       <span class="text-xs">Vertices</span>
@@ -666,7 +679,7 @@ importBtn.innerHTML = `
 container.appendChild(importBtn);
 
 const importToast = document.createElement('div');
-importToast.className = 'absolute bottom-16 left-6 z-[100] glass-dark border border-white/10 rounded-lg px-4 py-3 text-sm text-base-content/80 hidden';
+importToast.className = 'absolute bottom-16 left-6 z-[100] panel-bg border border-base-content/10 rounded-lg px-4 py-3 text-sm text-base-content/80 hidden';
 container.appendChild(importToast);
 
 let importToastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -675,7 +688,7 @@ function showImportToast(message: string, loadCmd?: string) {
   if (loadCmd) {
     importToast.innerHTML = `
       <div class="flex items-center gap-2">
-        <span>${message} <code class="bg-white/10 px-1.5 py-0.5 rounded text-base-content/90">${loadCmd}</code></span>
+        <span>${message} <code class="bg-base-content/10 px-1.5 py-0.5 rounded text-base-content/90">${loadCmd}</code></span>
         <button class="btn btn-ghost btn-square btn-xs text-base-content/60 import-toast-copy" title="Copy">
           <span class="[&>svg]:size-3.5">${ICON_COPY}</span>
         </button>

@@ -1,13 +1,13 @@
-import { AxesHelper, Color, Matrix4, Object3D, Vector3 } from 'three';
+import { AxesHelper, Matrix4, Object3D, Vector3 } from 'three';
 import InfiniteGridHelper from '../helpers/infinit-grid';
 import { PlaneData, Vec3Data } from '../types';
 import { SceneContext } from './scene-context';
 import { viewerSettings } from './viewer-settings';
+import { themeColors, onThemeChange } from './theme-colors';
 
 const Z_UP = new Vector3(0, 0, 1);
 const DEFAULT_CAMERA_POSITION = new Vector3(50, -50, 40);
 const SKETCH_CAMERA_DISTANCE = 50;
-const GRID_COLOR = new Color('#6f6f6f');
 
 export type SceneMode = 'default' | 'sketch';
 
@@ -25,12 +25,17 @@ export class SceneModeManager {
   private cameraBackup: { position: Vector3; target: Vector3 } | null = null;
   private cameraBackupMode: 'perspective' | 'orthographic' | null = null;
   private enabled = true;
+  private lastGridNormal = Z_UP.clone();
+  private lastGridPosition: Vector3 | undefined;
 
   constructor(private ctx: SceneContext) {
     this.setupDefaultAxes();
     this.setupGrid(Z_UP);
 
     viewerSettings.subscribe(() => this.applyGridVisibility());
+
+    // Rebuild grid when theme changes so grid color updates
+    onThemeChange(() => this.rebuildGrid());
   }
 
   get currentMode(): SceneMode {
@@ -207,10 +212,17 @@ export class SceneModeManager {
   // Grid
   // -------------------------------------------------------------------------
 
+  private rebuildGrid(): void {
+    this.setupGrid(this.lastGridNormal, this.lastGridPosition);
+    this.ctx.requestRender();
+  }
+
   private setupGrid(normal: Vector3, position?: Vector3): void {
+    this.lastGridNormal = normal.clone();
+    this.lastGridPosition = position?.clone();
     this.removeByName('grid');
 
-    const grid = new InfiniteGridHelper(10, 100, GRID_COLOR, 100000, normal);
+    const grid = new InfiniteGridHelper(10, 100, themeColors.gridColor, 100000, normal);
     grid.name = 'grid';
 
     if (position) {

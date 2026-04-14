@@ -1,6 +1,6 @@
 {
   "name": "fluidcad",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Parametric CAD modeling library using javascript",
   "author": "Marwan Aouida <contact@marwan.dev>",
   "homepage": "https://fluidcad.io",

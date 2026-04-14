@@ -96,6 +96,8 @@ export function renderSceneRollback(scene: Scene, rollbackIndex: number) {
           shapeType: shape.getType(),
           isMetaShape: shape.isMetaShape() || undefined,
           isGuide: shape.isGuideShape() || undefined,
+          metaType: shape.metaType || undefined,
+          metaData: shape.metaData || undefined,
         });
       }
 

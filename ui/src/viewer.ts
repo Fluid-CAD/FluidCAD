@@ -1,4 +1,4 @@
-import { Box3, BufferAttribute, BufferGeometry, Color, LineSegments, Mesh, MeshBasicMaterial, MeshPhongMaterial, Object3D, Raycaster, Vector2, Vector3, WebGLRenderTarget } from 'three';
+import { Box3, BufferAttribute, BufferGeometry, LineSegments, Mesh, MeshPhongMaterial, Object3D, Raycaster, Vector2, Vector3 } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { SceneModeManager } from './scene/scene-mode';
 import { buildSceneMesh } from './meshes/mesh-factory';
@@ -24,6 +24,10 @@ function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
 const HIGHLIGHT_FACE_COLOR = '#ffc578';
 const HIGHLIGHT_EDGE_COLOR = '#ffc578';
 
+const HOVER_FACE_COLOR = '#64B5F6';
+const HOVER_EDGE_COLOR = '#64B5F6';
+const HOVER_FACE_OPACITY = 0.3;
+
 
 /**
  *  - SceneContext      — scene, camera, renderer, controls
@@ -44,8 +48,12 @@ export class Viewer {
   isBezierDrawing = false;
 
   private selectionHandler: ((shapeId: string | null, sub: SubSelection) => void) | null = null;
-  private pickTarget: WebGLRenderTarget | null = null;
   private centroidIndicator = new CentroidIndicator();
+  private hoverState: { shapeId: string; sub: SubSelection } | null = null;
+  private hoverFaceOverlayMeshes: Mesh[] = [];
+  private hoverRafId: number | null = null;
+  private isMouseDown = false;
+  private highlightedSub: SubSelection = null;
 
   constructor(containerId: string) {
     const container = document.getElementById(containerId)!;
@@ -55,6 +63,7 @@ export class Viewer {
     this.settingsPanel.setFitHandler(() => this.fitViewToScene());
 
     this.initClickDetection();
+    this.initHoverDetection();
   }
 
   get sceneContext(): SceneContext {
@@ -79,7 +88,7 @@ export class Viewer {
       downY = e.clientY;
     });
 
-    canvas.addEventListener('mouseup', async (e) => {
+    canvas.addEventListener('mouseup', (e) => {
       if (!this.selectionHandler || this.isTrimming || this.isRegionPicking || this.isBezierDrawing) {
         return;
       }
@@ -89,158 +98,23 @@ export class Viewer {
         return; // was a drag (> 8px)
       }
 
-      const shapeId = this.pickShapeAt(e.clientX, e.clientY);
-      if (!shapeId) {
+      this.clearHover();
+      const result = this.pickAt(e.clientX, e.clientY);
+      if (result) {
+        this.selectionHandler(result.shapeId, result.sub);
+      } else {
         this.selectionHandler(null, null);
-        return;
       }
-      const sub = await this.pickSubAtServer(e.clientX, e.clientY, shapeId);
-      this.selectionHandler(shapeId, sub);
     });
-
-  }
-
-  private computeWorldRay(clientX: number, clientY: number): { origin: [number, number, number]; dir: [number, number, number] } {
-    const renderer = this.ctx.renderer;
-    const camera = this.ctx.camera;
-    const rect = renderer.domElement.getBoundingClientRect();
-    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
-
-    const raycaster = new Raycaster();
-    raycaster.setFromCamera(new Vector2(ndcX, ndcY), camera);
-
-    const o = raycaster.ray.origin;
-    const d = raycaster.ray.direction;
-    return {
-      origin: [o.x, o.y, o.z],
-      dir: [d.x, d.y, d.z],
-    };
-  }
-
-  private async pickSubAtServer(clientX: number, clientY: number, shapeId: string): Promise<SubSelection> {
-    const { origin, dir } = this.computeWorldRay(clientX, clientY);
-    const edgeThreshold = this.computeEdgePickThreshold();
-    try {
-      const response = await fetch('/api/hit-test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shapeId, rayOrigin: origin, rayDir: dir, edgeThreshold }),
-      });
-      if (!response.ok) {
-        return null;
-      }
-      const result = await response.json();
-      return result ?? null;
-    } catch {
-      return null;
-    }
   }
 
   /**
-   * GPU colour-picking: renders every shape with a unique flat colour into an
-   * off-screen buffer, then reads the single pixel under the cursor.
-   * Pixel-perfect regardless of zoom level, camera angle, or surface curvature.
+   * Client-side raycaster picking across all shapes.  Returns the closest
+   * front-facing face or edge hit together with its shapeId.
    */
-  private pickShapeAt(clientX: number, clientY: number): string | null {
-    const renderer = this.ctx.renderer;
+  private pickAt(clientX: number, clientY: number): { shapeId: string; sub: SubSelection } | null {
     const camera = this.ctx.camera;
-    const canvasW = renderer.domElement.width;
-    const canvasH = renderer.domElement.height;
-
-    if (!this.pickTarget || this.pickTarget.width !== canvasW || this.pickTarget.height !== canvasH) {
-      this.pickTarget?.dispose();
-      this.pickTarget = new WebGLRenderTarget(canvasW, canvasH);
-    }
-
-    const shapeToColor = new Map<string, number>();
-    const colorToShape = new Map<number, string>();
-    let colorIndex = 1;
-    const meshesToRestore: { mesh: Mesh; mat: any }[] = [];
-
-    // For each leaf Mesh, walk up to find its shapeId and assign a unique colour.
-    this.ctx.scene.traverse((obj) => {
-      if (!(obj as Mesh).isMesh) {
-        return;
-      }
-      let shapeId: string | undefined;
-      let cur: Object3D | null = obj;
-      while (cur) {
-        if (cur.userData.shapeId && !cur.userData.isMetaShape) {
-          shapeId = cur.userData.shapeId as string;
-          break;
-        }
-        cur = cur.parent;
-      }
-      if (!shapeId) {
-        return;
-      }
-
-      if (!shapeToColor.has(shapeId)) {
-        const c = colorIndex++;
-        shapeToColor.set(shapeId, c);
-        colorToShape.set(c, shapeId);
-      }
-      const c = shapeToColor.get(shapeId)!;
-
-      const mesh = obj as Mesh;
-      meshesToRestore.push({ mesh, mat: mesh.material });
-      mesh.material = new MeshBasicMaterial({
-        color: new Color(
-          ((c >> 16) & 0xff) / 255,
-          ((c >> 8) & 0xff) / 255,
-          (c & 0xff) / 255,
-        ),
-      });
-    });
-
-    // Render picking scene to off-screen target.
-    const prevTarget = renderer.getRenderTarget();
-    const prevClearColor = new Color();
-    const prevClearAlpha = renderer.getClearAlpha();
-    renderer.getClearColor(prevClearColor);
-
-    renderer.setRenderTarget(this.pickTarget);
-    renderer.setClearColor(0x000000, 1);
-    renderer.clear();
-    renderer.render(this.ctx.scene, camera);
-    renderer.setRenderTarget(prevTarget);
-    renderer.setClearColor(prevClearColor, prevClearAlpha);
-
-    // Restore original materials.
-    for (const { mesh, mat } of meshesToRestore) {
-      (mesh.material as MeshBasicMaterial).dispose();
-      mesh.material = mat;
-    }
-
-    // Read pixel (WebGL Y is bottom-up).
-    const rect = renderer.domElement.getBoundingClientRect();
-    const dpr = renderer.getPixelRatio();
-    const px = Math.floor((clientX - rect.left) * dpr);
-    const py = Math.floor((rect.height - (clientY - rect.top)) * dpr);
-
-    if (px < 0 || px >= canvasW || py < 0 || py >= canvasH) {
-      return null;
-    }
-
-    const pixel = new Uint8Array(4);
-    renderer.readRenderTargetPixels(this.pickTarget, px, py, 1, 1, pixel);
-
-    const encoded = (pixel[0] << 16) | (pixel[1] << 8) | pixel[2];
-    if (encoded === 0) {
-      return null;
-    }
-    return colorToShape.get(encoded) ?? null;
-  }
-
-  /**
-   * Raycaster sub-selection picking: given a shapeId already identified by GPU picking,
-   * find which OCC face or edge was hit. Whichever intersection has a smaller distance wins.
-   */
-  private pickSubAt(clientX: number, clientY: number, shapeId: string): SubSelection {
-    const renderer = this.ctx.renderer;
-    const camera = this.ctx.camera;
-    const rect = renderer.domElement.getBoundingClientRect();
+    const rect = this.ctx.renderer.domElement.getBoundingClientRect();
     const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
     const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
 
@@ -252,19 +126,9 @@ export class Viewer {
     const edgeCandidates: LineSegments[] = [];
 
     this.ctx.scene.traverse((obj) => {
-      let belongsToShape = false;
-      let cur: Object3D | null = obj;
-      while (cur) {
-        if (cur.userData.shapeId === shapeId && !cur.userData.isMetaShape) {
-          belongsToShape = true;
-          break;
-        }
-        cur = cur.parent;
-      }
-      if (!belongsToShape) {
+      if (obj.userData.isMetaShape) {
         return;
       }
-
       if ((obj as Mesh).isMesh && obj.userData.faceMapping) {
         faceCandidates.push(obj as Mesh);
       } else if ((obj as LineSegments).isLine && obj.userData.edgeIndex !== undefined) {
@@ -279,11 +143,7 @@ export class Viewer {
       return null;
     }
 
-    // For faces: pick the closest hit whose triangle normal actually faces the camera.
-    // This guards against back-face or opposite-side hits that can occur on concave or
-    // complex boolean shapes even with FrontSide material (e.g. mis-wound normals).
-    // Do NOT fall back to faceHits[0] if no front-facing hit is found — a back-face
-    // fallback would give a large faceDepth that lets back edges pass the depth check.
+    // Pick the closest face hit whose triangle normal faces the camera.
     const viewDir = new Vector3();
     camera.getWorldDirection(viewDir);
     let bestFace: (typeof faceHits)[number] | undefined;
@@ -299,31 +159,15 @@ export class Viewer {
       }
     }
 
-    // Edge depth test.
-    //
-    // Key insight: Three.js sets hit.point for lines to the closest point ON THE RAY, not
-    // on the segment.  At oblique angles this is far from the actual edge surface, so any
-    // depth comparison using hit.point is unreliable.  We use ray.distanceSqToSegment to
-    // recover the actual closest point on the segment (segPt).
-    //
-    // Depth metric: project segPt onto the pick ray and compare with bestFace.distance.
-    // Both values are scalars along the same ray, so they are directly comparable at any
-    // viewing angle and for both orthographic and perspective cameras.  viewDir.dot() was
-    // wrong here because for off-centre pixels the per-pixel ray direction ≠ viewDir,
-    // which caused diagonal back edges to pass the check by having the same viewDir
-    // projection as the front face despite being physically behind it.
-    //
-    // When there is no face hit (tessellation seam gap) faceDist = Infinity so any edge
-    // candidate wins.  We iterate all hits (sorted closest-first) so a back edge that
-    // happens to rank first does not block a valid front edge later in the list.
+    // Edge depth test: project actual closest point on the edge segment onto
+    // the pick ray and compare with the face depth.
     const faceDist = bestFace != null ? bestFace.distance : Infinity;
     const rayOrigin = raycaster.ray.origin;
-    const rayDir = raycaster.ray.direction; // normalised by setFromCamera
+    const rayDir = raycaster.ray.direction;
     const segPt = new Vector3();
     const toSeg = new Vector3();
     for (const edgeHit of edgeHits) {
-      // Recover actual closest point on the edge segment.
-      const geo = edgeHit.object.geometry;
+      const geo = (edgeHit.object as LineSegments).geometry;
       const pos = geo.getAttribute('position') as BufferAttribute;
       const idx = geo.getIndex();
       if (idx !== null && edgeHit.faceIndex != null) {
@@ -335,12 +179,13 @@ export class Viewer {
       } else {
         segPt.copy(edgeHit.point);
       }
-      // Depth of the edge along the pick ray (comparable to bestFace.distance).
       const edgeDist = rayDir.dot(toSeg.copy(segPt).sub(rayOrigin));
-      // Tiny seam tolerance (1e-3 world units) for OCC boundary tessellation gaps.
       if (edgeDist <= faceDist + 1e-3) {
         const edgeIndex = edgeHit.object.userData.edgeIndex as number;
-        return { type: 'edge', index: edgeIndex };
+        const shapeId = this.findShapeIdForObject(edgeHit.object);
+        if (shapeId) {
+          return { shapeId, sub: { type: 'edge', index: edgeIndex } };
+        }
       }
     }
 
@@ -353,9 +198,23 @@ export class Viewer {
       if (faceIndex == null) {
         return null;
       }
-      return { type: 'face', index: faceIndex };
+      const shapeId = this.findShapeIdForObject(bestFace.object);
+      if (shapeId) {
+        return { shapeId, sub: { type: 'face', index: faceIndex } };
+      }
     }
 
+    return null;
+  }
+
+  private findShapeIdForObject(obj: Object3D): string | null {
+    let cur: Object3D | null = obj;
+    while (cur) {
+      if (cur.userData.shapeId && !cur.userData.isMetaShape) {
+        return cur.userData.shapeId as string;
+      }
+      cur = cur.parent;
+    }
     return null;
   }
 
@@ -370,6 +229,10 @@ export class Viewer {
   updateView(sceneObjects: SceneObjectRender[], isRollback = false): void {
     this.sceneObjects = sceneObjects;
     this.highlightedShapeId = null;
+    this.highlightedSub = null;
+    this.hoverState = null;
+    this.hoverFaceOverlayMeshes = [];
+    this.ctx.renderer.domElement.style.cursor = '';
 
     this.removeCompiledMesh();
 
@@ -437,6 +300,7 @@ export class Viewer {
     });
 
     this.highlightedShapeId = shapeId;
+    this.highlightedSub = null;
     this.ctx.render();
   }
 
@@ -464,6 +328,7 @@ export class Viewer {
     this.faceHighlightMeshes = [];
 
     this.highlightedShapeId = null;
+    this.highlightedSub = null;
     this.ctx.render();
   }
 
@@ -534,6 +399,7 @@ export class Viewer {
     });
 
     this.highlightedShapeId = shapeId;
+    this.highlightedSub = { type: 'face', index: faceIndex };
     this.ctx.render();
   }
 
@@ -566,7 +432,207 @@ export class Viewer {
     });
 
     this.highlightedShapeId = shapeId;
+    this.highlightedSub = { type: 'edge', index: edgeIndex };
     this.ctx.render();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Hover highlighting
+  // ---------------------------------------------------------------------------
+
+  private initHoverDetection(): void {
+    const canvas = this.ctx.renderer.domElement;
+
+    canvas.addEventListener('mousedown', () => {
+      this.isMouseDown = true;
+      this.clearHover();
+    });
+
+    canvas.addEventListener('mouseup', () => {
+      this.isMouseDown = false;
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (this.isMouseDown || this.isTrimming || this.isRegionPicking || this.isBezierDrawing) {
+        return;
+      }
+      if (this.hoverRafId !== null) {
+        return;
+      }
+      this.hoverRafId = requestAnimationFrame(() => {
+        this.hoverRafId = null;
+        this.updateHover(e.clientX, e.clientY);
+      });
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      this.clearHover();
+    });
+  }
+
+  private updateHover(clientX: number, clientY: number): void {
+    if (!this.selectionHandler) {
+      return;
+    }
+
+    const result = this.pickAt(clientX, clientY);
+
+    // Same as current hover — skip.
+    if (this.hoverState && result &&
+        this.hoverState.shapeId === result.shapeId &&
+        this.hoverState.sub?.type === result.sub?.type &&
+        this.hoverState.sub?.index === result.sub?.index) {
+      return;
+    }
+
+    // Nothing hovered — clear and return.
+    if (!result) {
+      if (this.hoverState) {
+        this.clearHover();
+      }
+      return;
+    }
+
+    // Don't hover-highlight the currently selected face/edge.
+    if (this.highlightedShapeId === result.shapeId &&
+        this.highlightedSub?.type === result.sub?.type &&
+        this.highlightedSub?.index === result.sub?.index) {
+      if (this.hoverState) {
+        this.clearHover();
+      }
+      return;
+    }
+
+    this.clearHover();
+    this.hoverState = result;
+    this.ctx.renderer.domElement.style.cursor = 'pointer';
+
+    if (result.sub?.type === 'face') {
+      this.applyHoverFace(result.shapeId, result.sub.index);
+    } else if (result.sub?.type === 'edge') {
+      this.applyHoverEdge(result.shapeId, result.sub.index);
+    }
+  }
+
+  clearHover(): void {
+    // Remove face hover overlays
+    for (const m of this.hoverFaceOverlayMeshes) {
+      m.parent?.remove(m);
+      m.geometry.dispose();
+      (m.material as MeshPhongMaterial).dispose();
+    }
+    this.hoverFaceOverlayMeshes = [];
+
+    // Restore edge hover colors
+    this.ctx.scene.traverse((child) => {
+      if (child.userData.hoverOriginalColor !== undefined) {
+        (child as any).material.color.setHex(child.userData.hoverOriginalColor);
+        delete child.userData.hoverOriginalColor;
+      }
+    });
+
+    this.hoverState = null;
+    this.ctx.renderer.domElement.style.cursor = '';
+    this.ctx.requestRender();
+  }
+
+  private applyHoverFace(shapeId: string, faceIndex: number): void {
+    this.ctx.scene.traverse((obj) => {
+      if (!(obj as Mesh).isMesh) {
+        return;
+      }
+      const mapping: number[] | undefined = obj.userData.faceMapping;
+      if (!mapping) {
+        return;
+      }
+
+      let belongsToShape = false;
+      let cur: Object3D | null = obj;
+      while (cur) {
+        if (cur.userData.shapeId === shapeId && !cur.userData.isMetaShape) {
+          belongsToShape = true;
+          break;
+        }
+        cur = cur.parent;
+      }
+      if (!belongsToShape) {
+        return;
+      }
+
+      const mesh = obj as Mesh;
+      const geo = mesh.geometry as BufferGeometry;
+      const indexAttr = geo.index;
+      if (!indexAttr) {
+        return;
+      }
+
+      const indices = indexAttr.array;
+      const positions = (geo.getAttribute('position').array) as Float32Array;
+      const newPositions: number[] = [];
+
+      for (let tri = 0; tri < mapping.length; tri++) {
+        if (mapping[tri] === faceIndex) {
+          const i0 = (indices[tri * 3] as number) * 3;
+          const i1 = (indices[tri * 3 + 1] as number) * 3;
+          const i2 = (indices[tri * 3 + 2] as number) * 3;
+          newPositions.push(positions[i0], positions[i0 + 1], positions[i0 + 2]);
+          newPositions.push(positions[i1], positions[i1 + 1], positions[i1 + 2]);
+          newPositions.push(positions[i2], positions[i2 + 1], positions[i2 + 2]);
+        }
+      }
+
+      if (newPositions.length === 0) {
+        return;
+      }
+
+      const overlayGeo = new BufferGeometry();
+      overlayGeo.setAttribute('position', new BufferAttribute(new Float32Array(newPositions), 3));
+
+      const overlayMat = new MeshPhongMaterial({
+        color: HOVER_FACE_COLOR,
+        transparent: true,
+        opacity: HOVER_FACE_OPACITY,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -1,
+      });
+
+      const overlayMesh = new Mesh(overlayGeo, overlayMat);
+      (mesh.parent ?? this.ctx.scene).add(overlayMesh);
+      this.hoverFaceOverlayMeshes.push(overlayMesh);
+    });
+
+    this.ctx.requestRender();
+  }
+
+  private applyHoverEdge(shapeId: string, edgeIndex: number): void {
+    this.ctx.scene.traverse((obj) => {
+      if (!(obj as LineSegments).isLine) {
+        return;
+      }
+      if (obj.userData.edgeIndex !== edgeIndex) {
+        return;
+      }
+
+      let belongsToShape = false;
+      let cur: Object3D | null = obj;
+      while (cur) {
+        if (cur.userData.shapeId === shapeId && !cur.userData.isMetaShape) {
+          belongsToShape = true;
+          break;
+        }
+        cur = cur.parent;
+      }
+      if (!belongsToShape) {
+        return;
+      }
+
+      obj.userData.hoverOriginalColor = (obj as any).material.color.getHex();
+      (obj as any).material.color.set(HOVER_EDGE_COLOR);
+    });
+
+    this.ctx.requestRender();
   }
 
   showCentroid(pos: { x: number; y: number; z: number }): void {

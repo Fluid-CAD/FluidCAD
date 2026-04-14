@@ -8,10 +8,11 @@ import { createPropertiesRouter } from './routes/properties.ts';
 import { createActionsRouter } from './routes/actions.ts';
 import { createExportRouter } from './routes/export.ts';
 import { createScreenshotRouter } from './routes/screenshot.ts';
+import { normalizePath } from './normalize-path.ts';
 import type { ServerToUIMessage } from './ws-protocol.ts';
 
 const PORT = parseInt(process.env.FLUIDCAD_SERVER_PORT || '3100', 10);
-const WORKSPACE_PATH = process.env.FLUIDCAD_WORKSPACE_PATH || '';
+const WORKSPACE_PATH = normalizePath(process.env.FLUIDCAD_WORKSPACE_PATH || '');
 const UI_DIST = path.resolve(import.meta.dirname, '../../ui/dist');
 
 // ---------------------------------------------------------------------------

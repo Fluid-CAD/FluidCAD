@@ -13,7 +13,7 @@ export function captureSourceLocation(): SourceLocation | null {
   }
   const lines = stack.split('\n');
   for (const frame of lines) {
-    const match = frame.match(/(\/[^:]+\.fluid\.js):(\d+):(\d+)/);
+    const match = frame.match(/((?:[A-Za-z]:)?\/[^\s]+?\.fluid\.js):(\d+):(\d+)/);
     if (match) {
       return {
         filePath: match[1],

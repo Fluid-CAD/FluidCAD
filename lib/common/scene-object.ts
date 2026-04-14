@@ -16,7 +16,7 @@ export interface Comparable<T> {
 }
 
 export interface Serializable {
-  serialize(): any;
+  serialize(scope?: Set<SceneObject>): any;
 }
 
 export type BuildSceneObjectContext = {
@@ -139,7 +139,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this.getState('snapshot') || [];
   }
 
-  abstract serialize(): any;
+  abstract serialize(scope?: Set<SceneObject>): any;
   abstract getType(): string;
   abstract build(context?: BuildSceneObjectContext): void;
 

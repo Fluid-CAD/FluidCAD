@@ -73,8 +73,11 @@ export class Sketch extends SceneObject implements Extrudable {
     return this.getStartPoint();
   }
 
-  getLastPosition(): Point2D {
-    const children = this.getChildren().slice() as GeometrySceneObject[];
+  getLastPosition(scope?: Set<SceneObject>): Point2D {
+    let children = this.getChildren().slice() as GeometrySceneObject[];
+    if (scope) {
+      children = children.filter(c => scope.has(c));
+    }
     if (children.length === 0) {
       return this.getStartPoint();
     }
@@ -165,8 +168,11 @@ export class Sketch extends SceneObject implements Extrudable {
     return true;
   }
 
-  getTangent(): Point2D | null {
+  getTangent(scope?: Set<SceneObject>): Point2D | null {
     let children = this.getChildren()?.slice() as GeometrySceneObject[];
+    if (scope) {
+      children = children.filter(c => scope.has(c));
+    }
     if (children.length === 0) {
       return null;
     }
@@ -195,11 +201,11 @@ export class Sketch extends SceneObject implements Extrudable {
     return "sketch";
   }
 
-  serialize() {
+  serialize(scope?: Set<SceneObject>) {
     const plane = this.getPlane();
-    const tangent = this.getTangent();
+    const tangent = this.getTangent(scope);
     return {
-      currentPosition: plane.localToWorld(this.getLastPosition()),
+      currentPosition: plane.localToWorld(this.getLastPosition(scope)),
       currentTangent: tangent ? plane.localToWorld(tangent) : null,
       plane: this.planeObj.serialize(),
     }

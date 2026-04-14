@@ -63,6 +63,9 @@ export class ViteManager {
         noDiscovery: true,
         include: []
       },
+      ssr: {
+        external: ['fluidcad']
+      },
       plugins: [
         {
           name: 'virtual-module',

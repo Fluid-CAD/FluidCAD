@@ -311,6 +311,9 @@ export class ExtrudeToFace extends ExtrudeBase {
   }
 
   override getUniqueType(): string {
+    if (this._operationMode === 'remove') {
+      return 'cut';
+    }
     return 'extrude-to-face';
   }
 

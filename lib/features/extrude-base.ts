@@ -412,6 +412,6 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   }
 
   getType(): string {
-    return "extrude";
+    return this._operationMode === "remove" ? "cut" : "extrude";
   }
 }

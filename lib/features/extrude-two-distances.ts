@@ -127,6 +127,9 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
   }
 
   getUniqueType(): string {
+    if (this._operationMode === 'remove') {
+      return 'cut';
+    }
     return 'extrude-by-two-distance';
   }
 

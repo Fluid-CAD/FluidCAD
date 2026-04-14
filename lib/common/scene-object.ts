@@ -37,7 +37,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _transform: Matrix4 | null = null;
   private _parent: SceneObject | null = null;
   private _alwaysVisible: boolean = false;
-  private _name: string = '';
+  private _name: string | null = null;
   private _guide: boolean = false;
   private _sourceLocation: SourceLocation | null = null;
   private _error: string | null = null;
@@ -51,7 +51,6 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     this.state.set('removedShapes', [])
 
     this._id = randomUUID().toString();
-    this._name = this.getType();
   }
 
   get id(): string {
@@ -408,7 +407,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   }
 
   getName(): string {
-    return this._name;
+    return this._name ?? this.getType();
   }
 
   name(value: string) {

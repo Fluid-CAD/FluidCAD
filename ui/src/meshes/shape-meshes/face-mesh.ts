@@ -6,9 +6,10 @@ import {
   MeshPhongMaterial,
 } from 'three';
 import { FaceMeshOptions, SceneObjectPart } from '../../types';
+import { themeColors } from '../../scene/theme-colors';
 
 const DEFAULTS: Required<FaceMeshOptions> = {
-  color: '#969696',
+  color: '',
   opacity: 1,
 };
 
@@ -25,7 +26,7 @@ export class FaceMesh extends Group {
       geometry.setIndex(new BufferAttribute(new IndexArray(meshData.indices), 1));
       geometry.computeBoundingBox();
 
-      const faceColor = options?.color ?? meshData.color ?? DEFAULTS.color;
+      const faceColor = options?.color ?? meshData.color ?? '#' + themeColors.faceColor.getHexString();
 
       const isOverlay = options?.color !== undefined || options?.opacity !== undefined;
       const material = new MeshPhongMaterial({

@@ -1,8 +1,16 @@
 import { viewerSettings } from '../scene/viewer-settings';
-import { ICON_FIT, ICON_ORTHO, ICON_PERSP, ICON_GRID } from './icons';
+import { ICON_FIT, ICON_ORTHO, ICON_PERSP, ICON_GRID, ICON_SUN, ICON_MOON } from './icons';
 
 const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
 const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
+
+function getCurrentTheme(): string {
+  return document.documentElement.getAttribute('data-theme') || 'fluidcad-dark';
+}
+
+function isDarkTheme(): boolean {
+  return getCurrentTheme() !== 'fluidcad-light';
+}
 
 export class SettingsPanel {
   private el: HTMLDivElement;
@@ -13,7 +21,7 @@ export class SettingsPanel {
     private onCameraSwitch: (mode: 'perspective' | 'orthographic') => void,
   ) {
     this.el = document.createElement('div');
-    this.el.className = 'absolute right-6 top-1/2 -translate-y-1/2 z-[100] flex flex-col gap-0.5 glass-dark border border-white/10 rounded-md p-1 select-none';
+    this.el.className = 'absolute right-6 top-1/2 -translate-y-1/2 z-[100] flex flex-col gap-0.5 panel-bg border border-base-content/10 rounded-md p-1 select-none';
     this.el.innerHTML = this.buildHTML();
     container.appendChild(this.el);
 
@@ -23,13 +31,17 @@ export class SettingsPanel {
 
   private buildHTML(): string {
     const s = viewerSettings.current;
+    const themeIcon = isDarkTheme() ? ICON_SUN : ICON_MOON;
+    const themeTitle = isDarkTheme() ? 'Switch to light theme' : 'Switch to dark theme';
     return `
       <button class="${BTN_BASE}" data-action="fit" title="Fit to view">${ICON_FIT}</button>
-      <div class="h-px bg-white/[0.08] my-0.5"></div>
+      <div class="h-px bg-base-content/[0.08] my-0.5"></div>
       <button class="${BTN_BASE} ${s.cameraMode === 'orthographic' ? BTN_ACTIVE : ''}" data-mode="orthographic" title="Orthographic projection">${ICON_ORTHO}</button>
       <button class="${BTN_BASE} ${s.cameraMode === 'perspective' ? BTN_ACTIVE : ''}" data-mode="perspective" title="Perspective projection">${ICON_PERSP}</button>
-      <div class="h-px bg-white/[0.08] my-0.5"></div>
+      <div class="h-px bg-base-content/[0.08] my-0.5"></div>
       <button class="${BTN_BASE} ${s.showGrid ? BTN_ACTIVE : ''}" data-action="grid" title="Toggle grid">${ICON_GRID}</button>
+      <div class="h-px bg-base-content/[0.08] my-0.5"></div>
+      <button class="${BTN_BASE}" data-action="theme" title="${themeTitle}">${themeIcon}</button>
     `;
   }
 
@@ -49,6 +61,17 @@ export class SettingsPanel {
     this.el.querySelector<HTMLButtonElement>('[data-action="grid"]')?.addEventListener('click', () => {
       viewerSettings.update({ showGrid: !viewerSettings.current.showGrid });
     });
+
+    this.el.querySelector<HTMLButtonElement>('[data-action="theme"]')?.addEventListener('click', () => {
+      const next = isDarkTheme() ? 'fluidcad-light' : 'fluidcad-dark';
+      document.documentElement.setAttribute('data-theme', next);
+      this.syncThemeButton();
+      fetch('/api/preferences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme: next }),
+      });
+    });
   }
 
   setFitHandler(fn: () => void): void {
@@ -66,6 +89,14 @@ export class SettingsPanel {
     this.el.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) => {
       btn.disabled = locked;
     });
+  }
+
+  private syncThemeButton(): void {
+    const btn = this.el.querySelector<HTMLButtonElement>('[data-action="theme"]');
+    if (btn) {
+      btn.innerHTML = isDarkTheme() ? ICON_SUN : ICON_MOON;
+      btn.title = isDarkTheme() ? 'Switch to light theme' : 'Switch to dark theme';
+    }
   }
 
   private sync(): void {

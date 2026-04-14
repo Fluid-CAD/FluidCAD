@@ -1,11 +1,11 @@
 @import "tailwindcss";
 
 @plugin "daisyui" {
-   themes:  business --prefersdark;
+  themes: fluidcad-dark --default --prefersdark, fluidcad-light;
 }
 
 @plugin "daisyui/theme" {
-  name: "fluidcad";
+  name: "fluidcad-dark";
   default: true;
   prefersdark: true;
   color-scheme: dark;
@@ -21,10 +21,67 @@
   --color-base-200: #252525;
   --color-base-300: #2d2d2d;
   --color-base-content: #d4d4d4;
+  --color-info: #3abff8;
+  --color-info-content: #002b3d;
+  --color-success: #36d399;
+  --color-success-content: #003320;
+  --color-warning: #fbbd23;
+  --color-warning-content: #382800;
+  --color-error: #f87272;
+  --color-error-content: #470000;
+  --radius-selector: 0.5rem;
+  --radius-field: 0.25rem;
+  --radius-box: 0.5rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+  --scene-face-color: #969696;
+  --scene-edge-color: #000000;
+  --scene-grid-color: #6f6f6f;
+  --scene-meta-edge-color: #b0b0b0;
 }
 
-@utility glass-dark {
-  background: oklch(0.2 0 0 / 0.85);
+@plugin "daisyui/theme" {
+  name: "fluidcad-light";
+  color-scheme: light;
+  --color-primary: #2563eb;
+  --color-primary-content: #ffffff;
+  --color-secondary: #5b7a9e;
+  --color-secondary-content: #ffffff;
+  --color-accent: #16a34a;
+  --color-accent-content: #ffffff;
+  --color-neutral: #e5e7eb;
+  --color-neutral-content: #1e1e1e;
+  --color-base-100: #ffffff;
+  --color-base-200: #f3f4f6;
+  --color-base-300: #e5e7eb;
+  --color-base-content: #1f2937;
+  --color-info: #2563eb;
+  --color-info-content: #ffffff;
+  --color-success: #16a34a;
+  --color-success-content: #ffffff;
+  --color-warning: #d97706;
+  --color-warning-content: #ffffff;
+  --color-error: #dc2626;
+  --color-error-content: #ffffff;
+  --radius-selector: 0.5rem;
+  --radius-field: 0.25rem;
+  --radius-box: 0.5rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+  --scene-face-color: #b8b8b8;
+  --scene-edge-color: #555555;
+  --scene-grid-color: #e8e8e8;
+  --scene-meta-edge-color: #888888;
+}
+
+@utility panel-bg {
+  background: light-dark(oklch(0.95 0 0 / 0.85), oklch(0.2 0 0 / 0.85));
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }

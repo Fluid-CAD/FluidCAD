@@ -1,7 +1,7 @@
 import type { SceneObjectRender } from '../types';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH } from './icons';
 
-const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 glass-dark border border-white/10 rounded-md cursor-pointer select-none shrink-0';
+const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
 const CHEVRON_SVG = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
 const CUBE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
 const DOTS_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
@@ -187,7 +187,7 @@ export class TimelinePanel {
       : obj.type || 'Unknown';
     const iconSrc = obj.type === 'part' ? '/icons/box.png' : `/icons/${obj.type || 'solid'}.png`;
 
-    let itemClass = 'flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-white/[0.06] text-sm';
+    let itemClass = 'flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm';
 
     if (isChild) {
       itemClass += ' pl-7';
@@ -198,7 +198,7 @@ export class TimelinePanel {
     } else if (hasError) {
       itemClass += ' text-error';
     } else if (isPast || isInvisible) {
-      itemClass += ' opacity-60';
+      itemClass += ' text-base-content/60';
     } else {
       itemClass += ' text-base-content/80';
     }
@@ -216,8 +216,8 @@ export class TimelinePanel {
     }
 
     const statusIcon = obj.fromCache
-      ? `<span class="ml-auto shrink-0 opacity-40 [&>svg]:w-4 [&>svg]:h-4">${ICON_CIRCLE_CHECK}</span>`
-      : `<span class="ml-auto shrink-0 opacity-40 [&>svg]:w-4 [&>svg]:h-4">${ICON_REFRESH}</span>`;
+      ? `<span class="ml-auto shrink-0 text-base-content/40 [&>svg]:w-4 [&>svg]:h-4">${ICON_CIRCLE_CHECK}</span>`
+      : `<span class="ml-auto shrink-0 text-base-content/40 [&>svg]:w-4 [&>svg]:h-4">${ICON_REFRESH}</span>`;
 
     return `
       <div class="${itemClass}" data-index="${index}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}">
@@ -273,7 +273,7 @@ export class TimelinePanel {
       const rotation = isCollapsed ? '' : 'rotate-90';
 
       html += `
-        <div class="flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-white/[0.06] text-sm text-base-content/70 font-medium" data-shape-group="${type}">
+        <div class="flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/70 font-medium" data-shape-group="${type}">
           <span class="flex items-center justify-center w-5 h-5 opacity-50 hover:opacity-100 transition-transform ${rotation}">
             ${CHEVRON_SVG}
           </span>
@@ -289,7 +289,7 @@ export class TimelinePanel {
           const selectedClass = isSelected ? ' bg-primary/10' : '';
           const dotsBtn = `<button class="ml-auto opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${shape.shapeId}">${DOTS_SVG}</button>`;
           html += `
-            <div class="group flex items-center gap-2 pl-9 pr-3 py-1 cursor-pointer hover:bg-white/[0.06] text-sm text-base-content/70${selectedClass}" data-shape-id="${shape.shapeId}" data-shape-type="${shape.shapeType}">
+            <div class="group flex items-center gap-2 pl-9 pr-3 py-1 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/70${selectedClass}" data-shape-id="${shape.shapeId}" data-shape-type="${shape.shapeType}">
               <img src="/icons/${shape.shapeType}.png" class="w-4 h-4 object-contain" alt="" />
               <span class="truncate">${capitalized} ${i + 1}</span>
               ${dotsBtn}
@@ -354,7 +354,7 @@ export class TimelinePanel {
     this.closeDropdown();
 
     const dropdown = document.createElement('div');
-    dropdown.className = 'absolute z-[200] glass-dark border border-white/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
+    dropdown.className = 'absolute z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
 
     const rect = anchor.getBoundingClientRect();
     const panelRect = this.panel.getBoundingClientRect();

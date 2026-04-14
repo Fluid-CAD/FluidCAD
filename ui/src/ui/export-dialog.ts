@@ -69,7 +69,7 @@ export class ExportDialog {
 
   private buildHTML(): string {
     return `
-      <div class="w-[380px] bg-base-100 border border-white/10 rounded-lg p-5 shadow-[0_4px_24px_rgba(0,0,0,0.5)]">
+      <div class="w-[380px] bg-base-100 border border-base-content/10 rounded-lg p-5 shadow-[0_4px_24px_rgba(0,0,0,0.5)]">
         <div class="flex items-center justify-between mb-4">
           <h3 class="text-sm font-medium text-base-content/90">Export</h3>
           <button data-ref="close-btn" class="btn btn-ghost btn-square btn-xs text-base-content/60">
@@ -80,10 +80,10 @@ export class ExportDialog {
         <div class="flex flex-col gap-3">
           <div>
             <label class="text-xs text-base-content/60 mb-1.5 block">Format</label>
-            <div data-ref="format-pills" class="join w-full">
-              <input class="join-item btn btn-sm flex-1" type="radio" name="export-format" aria-label="STEP" data-format="step" checked />
-              <input class="join-item btn btn-sm flex-1" type="radio" name="export-format" aria-label="STL" data-format="stl" />
-              <input class="join-item btn btn-sm flex-1" type="radio" name="export-format" aria-label="PNG" data-format="png" />
+            <div data-ref="format-pills" class="join w-full border border-base-content/10 rounded-lg">
+              <input class="join-item btn btn-sm flex-1 border-0 border-r border-base-content/10 checked:btn-primary" type="radio" name="export-format" aria-label="STEP" data-format="step" checked />
+              <input class="join-item btn btn-sm flex-1 border-0 border-r border-base-content/10 checked:btn-primary" type="radio" name="export-format" aria-label="STL" data-format="stl" />
+              <input class="join-item btn btn-sm flex-1 border-0 checked:btn-primary" type="radio" name="export-format" aria-label="PNG" data-format="png" />
             </div>
           </div>
 

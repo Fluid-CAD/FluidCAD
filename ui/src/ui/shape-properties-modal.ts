@@ -95,13 +95,13 @@ export class ShapePropertiesModal {
 
   constructor(container: HTMLElement) {
     this.btn = document.createElement('button');
-    this.btn.className = 'btn btn-ghost btn-square btn-sm absolute bottom-6 right-8 z-[100] glass-dark border border-white/10 text-base-content/60';
+    this.btn.className = 'btn btn-ghost btn-square btn-sm rounded-md absolute bottom-6 right-8 z-[100] panel-bg border border-base-content/10 text-base-content/60';
     this.btn.title = 'Shape Properties';
     this.btn.innerHTML = ICON_SCALE;
     container.appendChild(this.btn);
 
     this.panel = document.createElement('div');
-    this.panel.className = 'absolute bottom-[68px] right-6 w-[300px] bg-base-100/95 backdrop-blur-xl border border-white/10 rounded-lg p-4 z-[200] shadow-[0_4px_24px_rgba(0,0,0,0.5)] text-base-content text-[13px] hidden';
+    this.panel.className = 'absolute bottom-[68px] right-6 w-[300px] bg-base-100/95 backdrop-blur-xl border border-base-content/10 rounded-lg p-4 z-[200] shadow-[0_4px_24px_rgba(0,0,0,0.5)] text-base-content text-[13px] hidden';
     this.panel.innerHTML = this.buildHTML();
     container.appendChild(this.panel);
 
@@ -157,7 +157,7 @@ export class ShapePropertiesModal {
         <button class="btn btn-primary btn-sm w-full mt-0.5" data-action="calculate">Calculate</button>
         <div class="text-error text-[11px] mt-1.5 hidden" data-ref="error"></div>
       </div>
-      <div class="mt-3 border-t border-white/[0.07] pt-2.5 hidden" data-ref="results">
+      <div class="mt-3 border-t border-base-content/[0.07] pt-2.5 hidden" data-ref="results">
         <div class="flex justify-between items-baseline py-0.5">
           <span class="text-base-content/50 text-[11px]">Volume</span>
           <span class="text-base-content/90 text-xs font-medium" data-ref="vol">\u2014</span>
@@ -269,12 +269,12 @@ export class ShapePropertiesModal {
   private open(): void {
     this.openHandler?.();
     this.panel.classList.remove('hidden');
-    this.btn.className = 'btn btn-soft btn-primary btn-square btn-sm absolute bottom-6 right-8 z-[100] glass-dark border border-white/10';
+    this.btn.className = 'btn btn-soft btn-primary btn-square btn-sm rounded-md absolute bottom-6 right-8 z-[100] panel-bg border border-base-content/10';
   }
 
   private close(): void {
     this.panel.classList.add('hidden');
-    this.btn.className = 'btn btn-ghost btn-square btn-sm absolute bottom-6 right-8 z-[100] glass-dark border border-white/10 text-base-content/60';
+    this.btn.className = 'btn btn-ghost btn-square btn-sm rounded-md absolute bottom-6 right-8 z-[100] panel-bg border border-base-content/10 text-base-content/60';
   }
 
   private async loadMaterials(): Promise<void> {

@@ -8,6 +8,7 @@ import { createPropertiesRouter } from './routes/properties.ts';
 import { createActionsRouter } from './routes/actions.ts';
 import { createExportRouter } from './routes/export.ts';
 import { createScreenshotRouter } from './routes/screenshot.ts';
+import { createPreferencesRouter } from './routes/preferences.ts';
 import { normalizePath } from './normalize-path.ts';
 import type { ServerToUIMessage } from './ws-protocol.ts';
 
@@ -38,6 +39,7 @@ app.use('/api', createPropertiesRouter(fluidCadServer));
 app.use('/api', createActionsRouter(fluidCadServer, sendToExtension, broadcastToUI, WORKSPACE_PATH));
 app.use('/api', createExportRouter(fluidCadServer));
 app.use('/api', createScreenshotRouter(requestScreenshot));
+app.use('/api', createPreferencesRouter());
 
 // Static files — serve UI build, with SPA fallback
 app.use(express.static(UI_DIST, {

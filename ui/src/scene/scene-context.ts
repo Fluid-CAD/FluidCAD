@@ -3,7 +3,6 @@ import {
   AmbientLight,
   Box3,
   Clock,
-  Color,
   DirectionalLight,
   MathUtils,
   Matrix4,
@@ -24,6 +23,7 @@ import {
 import CameraControls from 'camera-controls';
 import { ViewportGizmo } from 'three-viewport-gizmo';
 import { CameraControlsAdapter } from './camera-controls-adapter';
+import { themeColors, onThemeChange } from './theme-colors';
 
 // Install camera-controls with only the Three.js submodules it needs
 CameraControls.install({
@@ -46,7 +46,6 @@ const VIEW_SIZE = 120;
 
 /** Factor applied to the bounding sphere radius when fitting to add breathing room. */
 export const FIT_PADDING = 1.1;
-const BACKGROUND_COLOR = '#181818';
 
 /**
  * Owns the core Three.js objects: scene, dual cameras, renderer,
@@ -89,7 +88,7 @@ export class SceneContext {
 
     // Scene
     this.scene = new Scene();
-    this.scene.background = new Color(BACKGROUND_COLOR);
+    this.scene.background = themeColors.backgroundColor.clone();
 
     // Dual cameras
     const aspect = width / height;
@@ -142,6 +141,12 @@ export class SceneContext {
     // ResizeObserver for container size changes
     this.resizeObserver = new ResizeObserver(() => this.handleResize());
     this.resizeObserver.observe(container);
+
+    // Update scene background when the theme changes
+    onThemeChange(() => {
+      this.scene.background = themeColors.backgroundColor.clone();
+      this.requestRender();
+    });
 
     // Start animation loop
     this.tick();

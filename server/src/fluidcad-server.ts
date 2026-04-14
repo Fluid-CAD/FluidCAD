@@ -61,7 +61,8 @@ export class FluidCadServer {
       return null;
     }
 
-    const normalizedFileName = normalizePath(filePath.replace('virtual:live-render:', ''));
+    filePath = normalizePath(filePath);
+    const normalizedFileName = filePath.replace('virtual:live-render:', '');
     this.currentFileName = normalizedFileName;
 
     if (!ignoreCache) {
@@ -115,6 +116,7 @@ export class FluidCadServer {
   }
 
   async updateLiveCode(fileName: string, code: string): Promise<SceneRenderedData | null> {
+    fileName = normalizePath(fileName);
     const id = `virtual:live-render:${fileName}`;
     this.viteManager.setBuffer(id, code);
     this.renderingCache.delete(fileName);

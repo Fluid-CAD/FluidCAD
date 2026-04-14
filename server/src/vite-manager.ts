@@ -77,7 +77,7 @@ export class ViteManager {
             }
           },
           transform(code, id) {
-            if (id.startsWith(rootPath) || id.startsWith('virtual:live-render')) {
+            if ((id.startsWith(that.rootPath) && !id.includes('/node_modules/')) || id.startsWith('virtual:live-render')) {
               const blocked = scanForBlockedImports(code);
               if (blocked) {
                 const moduleName = getBlockedNodeModule(blocked)!;
@@ -118,7 +118,7 @@ export class ViteManager {
 
   invalidateModule() {
     for (const [id, mod] of this.server.moduleGraph.idToModuleMap) {
-      if (id.startsWith(this.rootPath) || id.startsWith('virtual:live-render')) {
+      if ((id.startsWith(this.rootPath) && !id.includes('/node_modules/')) || id.startsWith('virtual:live-render')) {
         this.server.moduleGraph.invalidateModule(mod);
       }
     }

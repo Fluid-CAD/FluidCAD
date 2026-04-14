@@ -1,6 +1,7 @@
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { ViteManager } from './vite-manager.ts';
+import { normalizePath } from './normalize-path.ts';
 
 type SceneManager = {
   startScene(): any;
@@ -48,7 +49,7 @@ export class FluidCadServer {
   async init(workspacePath: string) {
     await this.viteManager.init(workspacePath);
 
-    const initFilePath = join(workspacePath, 'init.js');
+    const initFilePath = normalizePath(join(workspacePath, 'init.js'));
     if (existsSync(initFilePath)) {
       const { default: _sceneManager } = await this.viteManager.loadModule(initFilePath);
       this.sceneManager = await _sceneManager;
@@ -60,7 +61,7 @@ export class FluidCadServer {
       return null;
     }
 
-    const normalizedFileName = filePath.replace('virtual:live-render:', '');
+    const normalizedFileName = normalizePath(filePath.replace('virtual:live-render:', ''));
     this.currentFileName = normalizedFileName;
 
     if (!ignoreCache) {

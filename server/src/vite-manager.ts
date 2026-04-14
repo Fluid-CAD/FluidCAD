@@ -1,5 +1,6 @@
 import { type ViteDevServer, createServer } from 'vite';
 import { dirname, resolve, isAbsolute } from 'path';
+import { normalizePath } from './normalize-path.ts';
 
 const BLOCKED_NODE_MODULES = new Set([
   'fs',
@@ -48,7 +49,7 @@ export class ViteManager {
   private buffers: Map<string, string> = new Map();
 
   async init(rootPath: string) {
-    this.rootPath = rootPath;
+    this.rootPath = normalizePath(rootPath);
     const that = this;
     this.server = await createServer({
       root: rootPath,
@@ -72,7 +73,7 @@ export class ViteManager {
             // Resolve relative imports from virtual modules against the real file path
             if (importer && importer.startsWith('virtual:live-render:') && !isAbsolute(id)) {
               const realImporter = importer.replace('virtual:live-render:', '');
-              return resolve(dirname(realImporter), id);
+              return normalizePath(resolve(dirname(realImporter), id));
             }
           },
           transform(code, id) {

@@ -238,7 +238,7 @@ sketch(base.endFaces(), () => {
 ```
 
 - `face().onPlane("xy", 25)` finds faces at the top of the base plate (25mm height)
-- `.hasEdge(edge().line(45))` narrows it to the face that has a 45-degree edge — this is the L-shaped support's footprint, which has the diagonal arc
+- `.hasEdge(edge().line(45))` narrows it to the face that has a 45mm long line edge — this is the L-shaped support's footprint
 - `project(topFace)` projects the outline of that face onto the sketch
 - `offset(-9, true)` shrinks the projected outline inward by 9mm, and the `true` flag discards the original projection, keeping only the offset
 

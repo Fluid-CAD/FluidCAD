@@ -12,6 +12,7 @@ import { Mesh, Object3D } from 'three';
 import { SnapManager } from './snapping/snap-manager';
 import { SnapController } from './snapping/snap-controller';
 import { SceneObjectRender, PlaneData } from './types';
+import { onThemeChange } from './scene/theme-colors';
 
 const container = document.getElementById('fluidcad-viewer') || document.body;
 
@@ -64,6 +65,10 @@ function hideLoading() {
 }
 
 const viewer = new Viewer('fluidcad-viewer');
+
+// Rebuild scene meshes when the theme changes so face/edge colors update
+onThemeChange(() => viewer.rebuildSceneMesh());
+
 const shapePropertiesModal = new ShapePropertiesModal(container);
 const selectionInfoOverlay = new SelectionInfoOverlay(container);
 const exportDialog = new ExportDialog(container, viewer.sceneContext);

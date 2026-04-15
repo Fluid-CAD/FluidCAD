@@ -202,20 +202,27 @@ async function handleExtensionMessage(msg: any) {
           broadcastToUI({ type: 'processing-file' });
           currentFile = msg.fileName;
         }
-        const data = await fluidCadServer.updateLiveCode(msg.fileName, msg.code);
-        if (myVersion !== renderVersion) { return; }
-        if (data) {
-          sendToExtension({
-            type: 'scene-rendered',
-            absPath: data.absPath,
-            result: data.result,
-            rollbackStop: data.rollbackStop,
-          });
-          broadcastToUI({
-            type: 'scene-rendered',
-            result: data.result,
-            absPath: data.absPath,
-          });
+        try {
+          const data = await fluidCadServer.updateLiveCode(msg.fileName, msg.code);
+          if (myVersion !== renderVersion) { return; }
+          if (data) {
+            sendToExtension({
+              type: 'scene-rendered',
+              absPath: data.absPath,
+              result: data.result,
+              rollbackStop: data.rollbackStop,
+            });
+            broadcastToUI({
+              type: 'scene-rendered',
+              result: data.result,
+              absPath: data.absPath,
+            });
+          }
+        } catch {
+          // Silently ignore errors during live-update (syntax errors, incomplete
+          // expressions, etc. while the user is typing). The last successful
+          // render remains visible. Model-building errors are delivered separately
+          // via scene-rendered object properties and are not affected.
         }
         break;
       }

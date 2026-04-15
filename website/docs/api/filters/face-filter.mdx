@@ -190,6 +190,32 @@ Excludes conical faces.
 
 ---
 
+### .intersectsWith()
+
+```ts
+.intersectsWith(plane: PlaneLike): this
+```
+
+Selects faces that intersect with the given plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane to test intersection against. |
+
+### .notIntersectsWith()
+
+```ts
+.notIntersectsWith(plane: PlaneLike): this
+```
+
+Excludes faces that intersect with the given plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane to test intersection against. |
+
+---
+
 ### .hasEdge()
 
 ```ts

@@ -33,6 +33,25 @@ export class FaceQuery {
     return result;
   }
 
+  static doesFaceIntersectPlane(face: Shape, plane: Plane): boolean {
+    const oc = getOC();
+    const [gpPln, dispose] = Convert.toGpPln(plane);
+    const planeFace = FaceOps.makeFaceFromPlane(gpPln);
+
+    const tool = new oc.IntTools_FaceFace();
+    tool.Perform(oc.TopoDS.Face(face.getShape()), planeFace, false);
+
+    let result = false;
+    if (tool.IsDone()) {
+      result = tool.Lines().Length() > 0 || tool.Points().Length() > 0;
+    }
+
+    tool.delete();
+    planeFace.delete();
+    dispose();
+    return result;
+  }
+
   static isFaceParallelToPlane(face: Shape, plane: Plane): boolean {
     const [gpPln, dispose] = Convert.toGpPln(plane);
     const result = FaceQuery.isFaceParallelToPlaneRaw(face.getShape(), gpPln);

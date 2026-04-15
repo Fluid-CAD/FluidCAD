@@ -99,6 +99,66 @@ describe("select", () => {
       });
     });
 
+    describe("intersectsWith / notIntersectsWith", () => {
+      it("should select faces that intersect with a plane", () => {
+        sketch("xy", () => {
+          move([-50, -25]);
+          rect(100, 50);
+        });
+        extrude(30);
+
+        // XZ plane (y=0) cuts through the centered box.
+        // Box spans x:-50..50, y:-25..25, z:0..30.
+        // Top, bottom, left, right faces are cut by the plane.
+        // Front (y=-25) and back (y=25) are parallel to XZ → not intersected.
+        const xzPlane = "xz" as const;
+        const sel = select(face().intersectsWith(xzPlane)) as SelectSceneObject;
+
+        render();
+
+        const shapes = sel.getShapes();
+        expect(shapes).toHaveLength(4);
+      });
+
+      it("should select faces not intersecting with a plane", () => {
+        sketch("xy", () => {
+          move([-50, -25]);
+          rect(100, 50);
+        });
+        extrude(30);
+
+        const xzPlane = "xz" as const;
+        const sel = select(face().notIntersectsWith(xzPlane)) as SelectSceneObject;
+
+        render();
+
+        // Front and back faces are parallel to XZ → not intersected
+        const shapes = sel.getShapes();
+        expect(shapes).toHaveLength(2);
+      });
+
+      it("should have complementary results between intersectsWith and notIntersectsWith", () => {
+        sketch("xy", () => {
+          move([-50, -25]);
+          rect(100, 50);
+        });
+        extrude(30);
+
+        const xzPlane = "xz" as const;
+        const intersects = select(face().intersectsWith(xzPlane)) as SelectSceneObject;
+        const notIntersects = select(face().notIntersectsWith(xzPlane)) as SelectSceneObject;
+
+        render();
+
+        expect(intersects.getShapes()).toHaveLength(4);
+        expect(notIntersects.getShapes()).toHaveLength(2);
+        // No overlap
+        for (const s of intersects.getShapes()) {
+          expect(notIntersects.getShapes().some(ns => ns.isSame(s))).toBe(false);
+        }
+      });
+    });
+
     describe("circle / notCircle", () => {
       it("should select circular faces", () => {
         cylinder(30, 50);

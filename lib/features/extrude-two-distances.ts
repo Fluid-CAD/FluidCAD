@@ -7,6 +7,7 @@ import { Face } from "../common/face.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { Extruder } from "./simple-extruder.js";
+import { ThinFaceMaker } from "../oc/thin-face-maker.js";
 
 export class ExtrudeTwoDistances extends ExtrudeBase {
 
@@ -27,8 +28,9 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       return;
     }
 
-    const faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill());
-    console.log("Extruding faces:", faces);
+    const faces = this.isThin()
+      ? ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1])
+      : pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill());
 
     const extruder1 = new Extruder(faces, plane, this.distance1, this.getDraft(), this.getEndOffset());
     const extrusions1 = extruder1.extrude();
@@ -139,6 +141,7 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       distance1: this.distance1,
       distance2: this.distance2,
       operationMode: this._operationMode !== 'add' ? this._operationMode : undefined,
+      thin: this._thin,
       ...this.serializePickFields(),
     }
   }

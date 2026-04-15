@@ -11,6 +11,7 @@ import { ShapeOps } from "../oc/shape-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
+import { ThinFaceMaker } from "../oc/thin-face-maker.js";
 import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
 
@@ -41,7 +42,9 @@ export class ExtrudeToFace extends ExtrudeBase {
     const allSideFaces: Face[] = [];
     const allInternalFaces: Face[] = [];
 
-    const faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane);
+    const faces = this.isThin()
+      ? ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1])
+      : pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane);
 
     for (const startFace of faces) {
       if (isPlanar && FaceQuery.areFacePlanesParallel(startFace, targetFace)) {
@@ -324,6 +327,7 @@ export class ExtrudeToFace extends ExtrudeBase {
       draft: this.getDraft(),
       endOffset: this.getEndOffset(),
       face: typeof (this.face) === 'string' ? this.face : 'selection',
+      thin: this._thin,
       ...this.serializePickFields(),
     }
   }

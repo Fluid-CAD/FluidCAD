@@ -310,6 +310,20 @@ export interface IExtrude extends IFuseable {
    * @param points - 2D points in the sketch plane identifying regions to extrude.
    */
   pick(...points: Point2DLike[]): this;
+
+  /**
+   * Enables thin extrude mode — offsets the profile edges to create a thin-walled solid
+   * instead of extruding filled faces.
+   * @param offset - The wall offset distance in the outward direction.
+   */
+  thin(offset: number): this;
+
+  /**
+   * Enables thin extrude mode with two offset directions.
+   * @param offset1 - The wall offset distance in the outward direction.
+   * @param offset2 - The wall offset distance in the inward direction.
+   */
+  thin(offset1: number, offset2: number): this;
 }
 
 export interface ICut extends ISceneObject {

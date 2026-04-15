@@ -23,6 +23,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   protected _drill?: boolean = true;
   protected _picking: boolean = false;
   protected _pickPoints: LazyVertex[] = [];
+  protected _thin?: [number] | [number, number];
 
   constructor(extrudable?: Extrudable) {
     super();
@@ -243,6 +244,19 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return this;
   }
 
+  thin(offset1: number, offset2?: number): this {
+    this._thin = offset2 !== undefined ? [offset1, offset2] : [offset1];
+    return this;
+  }
+
+  isThin(): boolean {
+    return this._thin !== undefined;
+  }
+
+  getThinOffsets(): [number] | [number, number] | undefined {
+    return this._thin;
+  }
+
   protected serializePickFields() {
     const plane = this._extrudable?.getPlane();
     return {
@@ -371,6 +385,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     this._symmetric = other._symmetric;
     this._picking = other._picking;
     this._pickPoints = other._pickPoints;
+    this._thin = other._thin;
     return this;
   }
 
@@ -395,6 +410,22 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     for (let i = 0; i < this._pickPoints.length; i++) {
       if (!this._pickPoints[i].compareTo(other._pickPoints[i])) {
         return false;
+      }
+    }
+
+    const thisThin = this._thin;
+    const otherThin = other._thin;
+    if ((thisThin === undefined) !== (otherThin === undefined)) {
+      return false;
+    }
+    if (thisThin && otherThin) {
+      if (thisThin.length !== otherThin.length) {
+        return false;
+      }
+      for (let i = 0; i < thisThin.length; i++) {
+        if (thisThin[i] !== otherThin[i]) {
+          return false;
+        }
       }
     }
 

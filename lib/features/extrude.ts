@@ -8,6 +8,7 @@ import { FaceMaker2 } from "../oc/face-maker2.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { ExtrudeThroughAll } from "./infinite-extrude.js";
+import { ThinFaceMaker } from "../oc/thin-face-maker.js";
 
 export class Extrude extends ExtrudeBase {
   constructor(public distance: number, extrudable?: Extrudable) {
@@ -22,11 +23,13 @@ export class Extrude extends ExtrudeBase {
       return;
     }
 
-    const faces = pickedFaces ?? FaceMaker2.getRegions(
-      this.extrudable.getGeometries(),
-      plane,
-      this.getDrill()
-    );
+    const faces = this.isThin()
+      ? ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1])
+      : pickedFaces ?? FaceMaker2.getRegions(
+        this.extrudable.getGeometries(),
+        plane,
+        this.getDrill()
+      );
 
     if (this._operationMode === 'remove') {
       this.buildRemove(faces, plane, context);
@@ -214,6 +217,7 @@ export class Extrude extends ExtrudeBase {
       symmetric: this._symmetric || undefined,
       draft: this.getDraft(),
       endOffset: this.getEndOffset(),
+      thin: this._thin,
       ...this.serializePickFields(),
     }
   }

@@ -146,9 +146,15 @@ function build(context: SceneParserContext): RepeatFunction {
         }
 
         for (const indices of indexCombinations) {
-          // Skip the origin instance (all zeros)
-          if (indices.every(i => i === 0)) {
-            continue;
+          // Skip the origin instance
+          if (options.centered) {
+            if (indices.every((idx, a) => idx === Math.floor(axisOffsets[a].count / 2))) {
+              continue;
+            }
+          } else {
+            if (indices.every(i => i === 0)) {
+              continue;
+            }
           }
 
           // Skip if in the skip list

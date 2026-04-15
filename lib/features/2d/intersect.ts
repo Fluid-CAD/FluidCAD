@@ -20,11 +20,14 @@ export class Intersect extends ExtrudableGeometryBase {
     let lastEdge: Edge = null;
 
     for (let shape of shapes) {
+      let sectionPlane = plane;
       if (transform) {
+        console.log('Applying transform to shape and plane for intersection');
         shape = ShapeOps.transform(shape, transform);
+        sectionPlane = plane.applyMatrix(transform);
       }
 
-      const edges = SectionOps.sectionShapeWithPlane(plane, shape);
+      const edges = SectionOps.sectionShapeWithPlane(sectionPlane, shape);
       for (const edge of edges) {
         lastEdge = edge;
       }

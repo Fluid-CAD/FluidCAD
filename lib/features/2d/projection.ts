@@ -23,9 +23,9 @@ export class Projection extends ExtrudableGeometryBase {
 
     console.log('Projection: building with shapes:', shapes.length);
     for (let shape of shapes) {
-      if (transform) {
-        shape = ShapeOps.transform(shape, transform);
-      }
+      // if (transform) {
+      //   shape = ShapeOps.transform(shape, transform);
+      // }
 
       let wires: Wire[] = [];
       if (shape instanceof Face) {

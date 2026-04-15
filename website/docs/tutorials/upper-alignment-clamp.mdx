@@ -36,11 +36,11 @@ import { edge, face } from "fluidcad/filters";
 The clamp starts as a rounded rectangular block.
 
 ```js
-rect(120, 66, "top").center().radius(13)
+rect(120, 66, "top").centered().radius(13)
 let e = extrude(13)
 ```
 
-`rect(120, 66, "top")` draws a 120 x 66 rectangle on the top plane. `.center()` centers it on the origin. `.radius(13)` rounds all four corners with a 13-unit fillet. `extrude(13)` pushes it up 13 units. We store the result in `e` to reference its faces later.
+`rect(120, 66, "top")` draws a 120 x 66 rectangle on the top plane. `.centered()` centers it on the origin. `.radius(13)` rounds all four corners with a 13-unit fillet. `extrude(13)` pushes it up 13 units. We store the result in `e` to reference its faces later.
 
 ![Base body](/img/docs/tutorials/upper-alignment-clamp-step1.png)
 
@@ -53,12 +53,12 @@ Each side of the clamp has a notch cut into it. We'll create one notch and mirro
 ```js
 sketch(e.endFaces(), () => {
     hMove(120 / 2 - 10)
-    rect(10, 14).center('vertical')
+    rect(10, 14).centered('vertical')
     circle(14)
 });
 ```
 
-`e.endFaces()` gives us the top face of the base. `hMove(120 / 2 - 10)` moves the cursor to 10 units from the right edge. `rect(10, 14).center('vertical')` draws a 10 x 14 rectangle centered vertically. `circle(14)` adds a semicircular end to the notch.
+`e.endFaces()` gives us the top face of the base. `hMove(120 / 2 - 10)` moves the cursor to 10 units from the right edge. `rect(10, 14).centered('vertical')` draws a 10 x 14 rectangle centered vertically. `circle(14)` adds a semicircular end to the notch.
 
 ![Notch profile sketch](/img/docs/tutorials/upper-alignment-clamp-step2-sketch.png)
 
@@ -243,7 +243,7 @@ color('#4b8f4b')
 
 ## What you practiced
 
-- **`rect().center().radius()`** — creating a centered rectangle with rounded corners
+- **`rect().centered().radius()`** — creating a centered rectangle with rounded corners
 - **`.endFaces()`** — referencing the top face of an extrusion for follow-up sketches
 - **`cut()` + `repeat("mirror")`** — cutting and mirroring geometry across a plane
 - **`arc()` + `connect()`** — drawing a semicircular profile and closing it

@@ -6,7 +6,7 @@ const s1 = sketch("xy", () => {
 })
 
 const s2 = sketch(plane("xy", { offset: 100 }), () => {
-    rect(80).center()
+    rect(80).centered()
 })
 
 loft(s1, s2)

@@ -14,7 +14,7 @@ describe("arc", () => {
     it("should create an arc and form a closed shape", () => {
       sketch("xy", () => {
         hLine(50);
-        arc([50, 30], 20);
+        arc([50, 30]).radius(20);
         hLine(-50);
         vLine(-30);
       });
@@ -32,7 +32,7 @@ describe("arc", () => {
   describe("from three points (start, end, center)", () => {
     it("should create an arc from start to end around a center point", () => {
       sketch("xy", () => {
-        arc([0, 0], [20, 0], [10, 0]);
+        arc([0, 0], [20, 0]).center([10, 0]);
         line([0, 0]);
       });
       const e = extrude(10) as ExtrudeBase;

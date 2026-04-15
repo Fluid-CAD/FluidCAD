@@ -3,7 +3,7 @@ import { rect } from 'fluidcad/core';
 import { face } from 'fluidcad/filters';
 
 sketch("xy", () => {
-    rect(100, 60).center()
+    rect(100, 60).centered()
 })
 
 const e = extrude(30)

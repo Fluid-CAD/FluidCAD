@@ -1,70 +1,58 @@
 ---
 sidebar_position: 4
 title: "arc"
-description: "Draws an arc to an end point with an optional bulge radius."
+description: "Draws an arc to an end point from the current position. Chain `.radius(r)` to set bulge radius, or `.center(point)` to specify the circle center."
 ---
 
 # arc()
 
-Draws an arc to an end point with an optional bulge radius.
+Draws an arc to an end point from the current position.
+Chain `.radius(r)` to set bulge radius, or `.center(point)` to specify the circle center.
 
-**Returns**: [**`Geometry`**](/docs/api/types/geometry)
+**Returns**: [**`ArcPoints`**](/docs/api/types/arc-points) \| [**`ArcAngles`**](/docs/api/types/arc-angles)
 
 ## Signatures
 
 ```ts
-arc(endPoint: Point2DLike, radius?: number): Geometry
+arc(endPoint: Point2DLike): ArcPoints
 ```
 
-Draws an arc to an end point with an optional bulge radius.
+Draws an arc to an end point from the current position.
+Chain `.radius(r)` to set bulge radius, or `.center(point)` to specify the circle center.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `endPoint` | [Point2DLike](/docs/api/types/point2dlike) | The end point of the arc |
-| `radius` | number | The bulge radius (0 = auto) *(optional)* |
 
 ---
 
 ```ts
-arc(startPoint: Point2DLike, endPoint: Point2DLike, radius?: number): Geometry
+arc(startPoint: Point2DLike, endPoint: Point2DLike): ArcPoints
 ```
 
-Draws an arc from a start point to an end point with an optional bulge radius.
+Draws an arc from a start point to an end point.
+By default, uses the current position as the arc center.
+Chain `.radius(r)` to use bulge radius instead, or `.center(point)` to specify an explicit center.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `startPoint` | [Point2DLike](/docs/api/types/point2dlike) | The start point of the arc |
 | `endPoint` | [Point2DLike](/docs/api/types/point2dlike) | The end point of the arc |
-| `radius` | number | The bulge radius (0 = auto) *(optional)* |
 
 ---
 
 ```ts
-arc(radius: number, startAngle?: number, endAngle?: number, centered?: boolean): Geometry
+arc(radius: number, startAngle?: number, endAngle?: number): ArcAngles
 ```
 
-Draws an arc by radius and angle range.
+Draws an arc by radius and angle range at the current position.
+Chain `.centered()` to center the arc symmetrically around the start angle.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `radius` | number | The arc radius |
 | `startAngle` | number | The start angle in degrees (defaults to 0) *(optional)* |
 | `endAngle` | number | The end angle in degrees (defaults to 180) *(optional)* |
-| `centered` | boolean | Whether to center the arc on the current position *(optional)* |
-
----
-
-```ts
-arc(startPoint: Point2DLike, endPoint: Point2DLike, center: Point2DLike): Geometry
-```
-
-Draws an arc from a start point to an end point around a center point.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `startPoint` | [Point2DLike](/docs/api/types/point2dlike) | The start point of the arc |
-| `endPoint` | [Point2DLike](/docs/api/types/point2dlike) | The end point of the arc |
-| `center` | [Point2DLike](/docs/api/types/point2dlike) | The center point of the arc |
 
 
 :::note

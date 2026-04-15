@@ -3,7 +3,7 @@ import { rect, circle } from 'fluidcad/core';
 
 part("base", () => {
     sketch("xy", () => {
-        rect(120, 80).center()
+        rect(120, 80).centered()
     })
     extrude(10)
 })

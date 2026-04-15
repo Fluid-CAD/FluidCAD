@@ -1,12 +1,12 @@
 ---
-sidebar_position: 20
-title: "TwoObjectsTangentLine"
-description: "The TwoObjectsTangentLine type. Extends Geometry."
+sidebar_position: 13
+title: "ArcAngles"
+description: "The ArcAngles type. Extends ExtrudableGeometry."
 ---
 
-# TwoObjectsTangentLine
+# ArcAngles
 
-Extends [`Geometry`](/docs/api/types/geometry)
+Extends [`ExtrudableGeometry`](/docs/api/types/extrudable-geometry)
 
 
 <details>
@@ -82,33 +82,11 @@ final geometry output unless explicitly included.
 
 ## Methods
 
-### start()
+### centered()
 
 ```ts
-start(index?: number): Vertex
+centered(): this
 ```
 
-Returns the start vertex of the tangent line.
-
-**Returns**: [`Vertex`](/docs/api/types/vertex)
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `index` | number | Solution index when multiple tangent lines exist (defaults to 0). *(optional)* |
-
----
-
-### end()
-
-```ts
-end(index?: number): Vertex
-```
-
-Returns the end vertex of the tangent line.
-
-**Returns**: [`Vertex`](/docs/api/types/vertex)
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `index` | number | Solution index when multiple tangent lines exist (defaults to 0). *(optional)* |
+Centers the arc symmetrically around the start angle.
 

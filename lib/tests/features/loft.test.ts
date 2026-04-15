@@ -96,7 +96,7 @@ describe("loft", () => {
   describe("loft between different shapes", () => {
     it("should loft between a rect and a circle", () => {
       const s1 = sketch("xy", () => {
-        rect(60, 60).center();
+        rect(60, 60).centered();
       });
 
       const s2 = sketch(plane("xy", { offset: 50 }), () => {

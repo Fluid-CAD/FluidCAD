@@ -1,7 +1,7 @@
 import { sketch, extrude, cut, repeat, move, rect } from 'fluidcad/core';
 
 sketch("xy", () => {
-    rect(300, 104).center()
+    rect(300, 104).centered()
 })
 
 const tray = extrude(50)

@@ -5,7 +5,7 @@ let supportThickness = 12;
 
 sketch("xy", () => {
     hMove(63 / 2)
-    rect(supportWidth, 115).center('vertical')
+    rect(supportWidth, 115).centered('vertical')
 });
 
 const e1 = extrude(supportThickness);

@@ -2,5 +2,5 @@ import { aLine, arc, circle, color, connect, copy, cut, extrude, fillet, fuse, h
 import { enclosed, enclosing, outside } from "fluidcad/constraints";
 import { edge, face } from "fluidcad/filters";
 
-rect(120, 66, "top").center().radius(13)
+rect(120, 66, "top").centered().radius(13)
 let e = extrude(13)

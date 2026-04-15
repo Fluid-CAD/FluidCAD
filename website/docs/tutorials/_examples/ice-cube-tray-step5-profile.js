@@ -12,7 +12,7 @@ const draft = 10;
 const thickness = 2;
 
 sketch("xy", () => {
-    rect(width, length).center();
+    rect(width, length).centered();
 })
 
 let e = extrude(height)

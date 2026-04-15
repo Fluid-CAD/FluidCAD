@@ -236,7 +236,7 @@ export class Rect extends ExtrudableGeometryBase implements IRect {
     if (this._radius) {
       rect.radius(...(Array.isArray(this._radius) ? this._radius : [this._radius]));
     }
-    rect.center(this._center);
+    rect.centered(this._center);
     return rect;
   }
 
@@ -356,7 +356,7 @@ export class Rect extends ExtrudableGeometryBase implements IRect {
     return this;
   }
 
-  center(value: CenteringOptions = true): this {
+  centered(value: CenteringOptions = true): this {
     this._center = value;
     return this;
   }
@@ -366,7 +366,7 @@ export class Rect extends ExtrudableGeometryBase implements IRect {
       width: this.width,
       height: this.height,
       radius: this._radius,
-      center: this._center
+      centered: this._center
     };
   }
 }

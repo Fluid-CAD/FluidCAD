@@ -47,13 +47,13 @@ The tray starts as a simple rectangular block.
 
 ```js
 sketch("xy", () => {
-    rect(width, length).center();
+    rect(width, length).centered();
 })
 
 let e = extrude(height)
 ```
 
-`rect(width, length).center()` draws a 300 x 104 rectangle centered on the origin. `extrude(height)` pushes it up 50 units to create a solid block. We store the result in `e` so we can reference its faces later.
+`rect(width, length).centered()` draws a 300 x 104 rectangle centered on the origin. `extrude(height)` pushes it up 50 units to create a solid block. We store the result in `e` so we can reference its faces later.
 
 ![Extruded tray body](/img/docs/tutorials/ice-cube-tray-step1.png)
 
@@ -174,7 +174,7 @@ fillet(0.5, s.sideEdges())
 ## What you practiced
 
 - **Parametric variables** — defining dimensions at the top so the whole model adapts when you change a value
-- **`rect().center()`** — centering a rectangle on the sketch origin
+- **`rect().centered()`** — centering a rectangle on the sketch origin
 - **`.endFaces()` / `.startFaces()` / `.sideFaces()`** — referencing specific faces of an extrusion
 - **`cut().draft()`** — removing material with tapered walls
 - **`fillet()` with `internalFaces()`** — rounding all edges inside a cut

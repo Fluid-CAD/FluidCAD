@@ -1,12 +1,12 @@
 ---
-sidebar_position: 20
-title: "TwoObjectsTangentLine"
-description: "The TwoObjectsTangentLine type. Extends Geometry."
+sidebar_position: 12
+title: "ArcPoints"
+description: "The ArcPoints type. Extends ExtrudableGeometry."
 ---
 
-# TwoObjectsTangentLine
+# ArcPoints
 
-Extends [`Geometry`](/docs/api/types/geometry)
+Extends [`ExtrudableGeometry`](/docs/api/types/extrudable-geometry)
 
 
 <details>
@@ -82,33 +82,31 @@ final geometry output unless explicitly included.
 
 ## Methods
 
-### start()
+### radius()
 
 ```ts
-start(index?: number): Vertex
+radius(value: number): this
 ```
 
-Returns the start vertex of the tangent line.
-
-**Returns**: [`Vertex`](/docs/api/types/vertex)
+Sets the bulge radius for point-to-point arcs.
+Positive = CCW, negative = CW.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `index` | number | Solution index when multiple tangent lines exist (defaults to 0). *(optional)* |
+| `value` | number | The bulge radius. |
 
 ---
 
-### end()
+### center()
 
 ```ts
-end(index?: number): Vertex
+center(value: Point2DLike): this
 ```
 
-Returns the end vertex of the tangent line.
-
-**Returns**: [`Vertex`](/docs/api/types/vertex)
+Specifies the circle center point for the arc.
+Mutually exclusive with `.radius()`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `index` | number | Solution index when multiple tangent lines exist (defaults to 0). *(optional)* |
+| `value` | [Point2DLike](/docs/api/types/point2dlike) | The center point of the arc's circle. |
 

@@ -20,7 +20,7 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
     super(targetPlane);
   }
 
-  center(value: boolean = true): this {
+  centered(value: boolean = true): this {
     this._center = value;
     return this;
   }
@@ -149,7 +149,7 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
     const s = new Slot(this.distance, this.radius, targetPlane);
-    s.center(this._center);
+    s.centered(this._center);
     s.rotate(this._angle);
     return s;
   }
@@ -181,7 +181,7 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
     return {
       distance: this.distance,
       radius: this.radius,
-      center: this._center,
+      centered: this._center,
       angle: this._angle,
     };
   }

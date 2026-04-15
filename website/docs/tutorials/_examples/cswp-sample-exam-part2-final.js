@@ -28,7 +28,7 @@ sketch("xy", () => {
     move([B, C]);
     const l2 = hLine(-80)
 
-    arc(l1.end(), l2.end(), [leftOffset, C])
+    arc(l1.end(), l2.end()).center([leftOffset, C])
 
     const o = offset(15)
     line(l1.start(), o.start())
@@ -100,7 +100,7 @@ sketch(plane(cylBody1.startFaces(), -30), () => {
     let p = project(cylBody1.startFaces());
     let o = offset(-10)
     move(p.end())
-    let r = rect(15).center('horizontal')
+    let r = rect(15).centered('horizontal')
     const s = subtract(p, r)
     subtract(s, o)
 });

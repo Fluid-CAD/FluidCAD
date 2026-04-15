@@ -127,10 +127,19 @@ export function renderFeaturePage(
   // Use first signature's description as page intro
   const introDesc = nonPlaneSignatures[0]?.description || signatures[0]?.description || '';
 
-  const returnDisplay = resolveTypeName(feature.returnType);
-  const returnLink = hasTypePage(feature.returnType)
-    ? `[**\`${returnDisplay}\`**](/docs/api/types/${typeSlug(returnDisplay)})`
-    : `**\`${returnDisplay}\`**`;
+  const returnLink = feature.returnType.includes(' | ')
+    ? feature.returnType.split(' | ').map(part => {
+        const display = resolveTypeName(part.trim());
+        return hasTypePage(part.trim())
+          ? `[**\`${display}\`**](/docs/api/types/${typeSlug(display)})`
+          : `**\`${display}\`**`;
+      }).join(' \\| ')
+    : (() => {
+        const returnDisplay = resolveTypeName(feature.returnType);
+        return hasTypePage(feature.returnType)
+          ? `[**\`${returnDisplay}\`**](/docs/api/types/${typeSlug(returnDisplay)})`
+          : `**\`${returnDisplay}\`**`;
+      })();
 
   const lines: string[] = [];
 

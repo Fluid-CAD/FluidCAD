@@ -39,7 +39,7 @@ describe("rect", () => {
 
     it("should create a centered rectangle", () => {
       sketch("xy", () => {
-        rect(100, 50).center();
+        rect(100, 50).centered();
       });
       const e = extrude(10) as ExtrudeBase;
       render();

@@ -67,6 +67,29 @@ export interface IGeometry extends ISceneObject {
 
 export interface IExtrudableGeometry extends IGeometry {}
 
+export interface IArcPoints extends IExtrudableGeometry {
+  /**
+   * Sets the bulge radius for point-to-point arcs.
+   * Positive = CCW, negative = CW.
+   * @param value - The bulge radius.
+   */
+  radius(value: number): this;
+
+  /**
+   * Specifies the circle center point for the arc.
+   * Mutually exclusive with `.radius()`.
+   * @param value - The center point of the arc's circle.
+   */
+  center(value: Point2DLike): this;
+}
+
+export interface IArcAngles extends IExtrudableGeometry {
+  /**
+   * Centers the arc symmetrically around the start angle.
+   */
+  centered(): this;
+}
+
 export interface IRect extends IExtrudableGeometry {
   /**
    * Sets corner radii for a rounded rectangle. Accepts 1–4 values
@@ -81,7 +104,7 @@ export interface IRect extends IExtrudableGeometry {
    * @param value - `true` centers on both axes, `'horizontal'` or `'vertical'` centers
    *   on one axis, `false` (default) keeps the current point as the origin corner.
    */
-  center(value?: boolean | 'horizontal' | 'vertical'): this;
+  centered(value?: boolean | 'horizontal' | 'vertical'): this;
 
   /**
    * Returns the top straight edge of the rectangle.
@@ -150,7 +173,7 @@ export interface ISlot extends IExtrudableGeometry {
    * When `true`, the slot is offset backward by half its length.
    * @param value - `true` to center, `false` (default) to start from the current position.
    */
-  center(value?: boolean): this;
+  centered(value?: boolean): this;
 
   /**
    * Sets the rotation angle of the slot's primary axis.

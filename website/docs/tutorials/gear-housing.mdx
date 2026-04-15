@@ -31,12 +31,12 @@ The gear housing is **150mm** wide overall. The central gap between the support 
 
 ### Sketch the bracket profile
 
-The first bracket sits to the right of center. `hMove(63 / 2)` shifts the cursor to the edge of the central gap, then `rect()` draws the bracket profile. `.center('vertical')` centers it vertically so it extends equally above and below the origin.
+The first bracket sits to the right of center. `hMove(63 / 2)` shifts the cursor to the edge of the central gap, then `rect()` draws the bracket profile. `.centered('vertical')` centers it vertically so it extends equally above and below the origin.
 
 ```js
 sketch("xy", () => {
     hMove(63 / 2)
-    rect(supportWidth, 115).center('vertical')
+    rect(supportWidth, 115).centered('vertical')
 });
 ```
 
@@ -64,7 +64,7 @@ Sketch a centered rectangle on the `"top"` plane and extrude it **130mm** upward
 
 ```js
 sketch("top", () => {
-    rect(116, 77).center();
+    rect(116, 77).centered();
 });
 
 const e2 = extrude(130);
@@ -77,7 +77,7 @@ Sketch a slightly narrower rectangle on the end face of the lower body and extru
 
 ```js
 sketch(e2.endFaces(), () => {
-    rect(116, 68).center();
+    rect(116, 68).centered();
 });
 
 const e3 = extrude(168 - 130);
@@ -94,7 +94,7 @@ Sketch a centered rectangle on the `"xy"` plane and cut downward **158mm** with 
 ```js
 const p1 = plane("xy");
 sketch(p1, () => {
-    rect(100, 62).center();
+    rect(100, 62).centered();
 });
 
 cut(-158).draft(-3)
@@ -106,14 +106,14 @@ cut(-158).draft(-3)
 
 ### Sketch the slot profile
 
-On `rightPlane`, build a keyhole-shaped profile: a narrow rectangle topped by a semicircular arc. `vMove()` positions the cursor vertically, `rect(20, 4).center('horizontal')` draws the narrow slot, then `arc(10, 0, 180)` adds a **180°** semicircle on top.
+On `rightPlane`, build a keyhole-shaped profile: a narrow rectangle topped by a semicircular arc. `vMove()` positions the cursor vertically, `rect(20, 4).centered('horizontal')` draws the narrow slot, then `arc(10, 0, 180)` adds a **180°** semicircle on top.
 
 ```js
 sketch(rightPlane, () => {
     move([0, 0]);
     vMove(16)
     vMove(-4)
-    rect(20, 4).center('horizontal')
+    rect(20, 4).centered('horizontal')
     vMove(4)
     arc(10, 0, 180)
 });
@@ -221,7 +221,7 @@ Cut narrow rectangular notches at the sides of the plate. `repeat("mirror", "yz"
 ```js
 sketch(e6.endFaces(), () => {
     hMove(116 / 2);
-    rect(5, 40).center('vertical')
+    rect(5, 40).centered('vertical')
 });
 
 const c2 = cut()

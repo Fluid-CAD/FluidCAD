@@ -380,6 +380,22 @@ export interface ICut extends ISceneObject {
    * @param points - 2D points in the sketch plane identifying regions to cut.
    */
   pick(...points: Point2DLike[]): this;
+
+  /**
+   * Enables thin cut mode — offsets the profile edges to cut a thin-walled shape
+   * instead of cutting filled faces. Positive values offset outward, negative values offset inward.
+   * @param offset - The wall offset distance. Positive = outward, negative = inward.
+   */
+  thin(offset: number): this;
+
+  /**
+   * Enables thin cut mode with two offset directions.
+   * The two offsets must go in opposite directions. If both have the same sign,
+   * the second offset is automatically flipped.
+   * @param offset1 - The first wall offset distance. Positive = outward, negative = inward.
+   * @param offset2 - The second wall offset distance, in the opposite direction of offset1.
+   */
+  thin(offset1: number, offset2: number): this;
 }
 
 export interface IRevolve extends IFuseable {

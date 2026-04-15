@@ -6,6 +6,8 @@ out/
 .vscode/
 *.tsbuildinfo
 *.vsix
+*.tar.gz
 extension/vscode/README.md
 server/dist/
 ui/dist/
+

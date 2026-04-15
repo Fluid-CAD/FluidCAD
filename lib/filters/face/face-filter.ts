@@ -14,6 +14,7 @@ import { AtIndexFilter, NotAtIndexFilter } from "./at-index.js";
 import { HasEdgeFilter, NotHasEdgeFilter } from "./has-edge.js";
 import { HasEdgeFromSceneObjectFilter, NotHasEdgeFromSceneObjectFilter } from "./has-object.js";
 import { EdgeCountFilter, NotEdgeCountFilter } from "./edge-count.js";
+import { IntersectsWithFilter, NotIntersectsWithFilter } from "./intersects-with.js";
 import { EdgeFilterBuilder } from "../edge/edge-filter.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { ISceneObject } from "../../core/interfaces.js";
@@ -227,6 +228,52 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    */
   notCone() {
     const filter = new NotConeFilter();
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Selects faces that intersect with the given plane.
+   * @param plane - The reference plane to test intersection against.
+   */
+  intersectsWith(plane: PlaneLike | PlaneObjectBase) {
+    if (!plane) {
+      throw new Error('Plane is required');
+    }
+
+    let planeObj: PlaneObjectBase;
+
+    if (plane instanceof PlaneObjectBase) {
+      planeObj = plane;
+    }
+    else {
+      planeObj = new PlaneObject(normalizePlane(plane));
+    }
+
+    const filter = new IntersectsWithFilter(planeObj);
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Excludes faces that intersect with the given plane.
+   * @param plane - The reference plane to test intersection against.
+   */
+  notIntersectsWith(plane: PlaneLike | PlaneObjectBase) {
+    if (!plane) {
+      throw new Error('Plane is required');
+    }
+
+    let planeObj: PlaneObjectBase;
+
+    if (plane instanceof PlaneObjectBase) {
+      planeObj = plane;
+    }
+    else {
+      planeObj = new PlaneObject(normalizePlane(plane));
+    }
+
+    const filter = new NotIntersectsWithFilter(planeObj);
     this.filters.push(filter);
     return this;
   }

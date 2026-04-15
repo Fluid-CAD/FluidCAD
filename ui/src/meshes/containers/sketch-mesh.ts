@@ -49,11 +49,11 @@ const TANGENT_HEAD_WIDTH = 2.5;
  * at the current drawing position.
  */
 export class SketchMesh extends Group {
-  constructor(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], isSketchMode: boolean, camera: Camera) {
+  constructor(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], activeSketchId: string | null, camera: Camera) {
     super();
     this.buildEdges(sceneObject, allObjects);
     this.buildVertices(sceneObject, allObjects, camera);
-    if (isSketchMode) {
+    if (activeSketchId && sceneObject.id === activeSketchId) {
       this.buildCursor(sceneObject, camera);
       this.buildTangentArrow(sceneObject, camera);
     }

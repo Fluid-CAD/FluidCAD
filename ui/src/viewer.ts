@@ -54,6 +54,7 @@ export class Viewer {
   private hoverRafId: number | null = null;
   private isMouseDown = false;
   private highlightedSub: SubSelection = null;
+  private activeSketchId: string | null = null;
 
   constructor(containerId: string) {
     const container = document.getElementById(containerId)!;
@@ -245,9 +246,11 @@ export class Viewer {
         } else {
           this.modeManager.enforceSketchNormal(activeObject.object.plane);
         }
+        this.activeSketchId = activeObject.id;
         this.settingsPanel.setProjectionLocked(true);
         this.settingsPanel.setFitButtonVisible(false);
       } else {
+        this.activeSketchId = null;
         this.modeManager.enterDefaultMode();
         this.settingsPanel.setProjectionLocked(false);
         this.settingsPanel.setFitButtonVisible(true);
@@ -255,7 +258,7 @@ export class Viewer {
       }
     }
 
-    const mesh = buildSceneMesh(sceneObjects, this.modeManager.isSketchMode, this.ctx.camera, this.isRegionPicking);
+    const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking);
     this.ctx.scene.add(mesh);
 
     // Auto-fit on first render or in sketch mode (skip if viewport barely changed or trimming)
@@ -762,7 +765,7 @@ export class Viewer {
       return;
     }
     this.removeCompiledMesh();
-    const mesh = buildSceneMesh(this.sceneObjects, this.modeManager.isSketchMode, this.ctx.camera, this.isRegionPicking);
+    const mesh = buildSceneMesh(this.sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking);
     this.ctx.scene.add(mesh);
     this.ctx.requestRender();
   }

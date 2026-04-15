@@ -31,13 +31,13 @@ const SKETCH_TRANSPARENT_OPTIONS: MeshRenderOptions = {
  */
 function resolveOptions(
   uniqueType: string | undefined,
-  isSketchMode: boolean,
+  activeSketchId: string | null,
   type: string | undefined,
   inherited?: MeshRenderOptions,
 ): MeshRenderOptions | undefined {
   if (inherited) return inherited;
   if (uniqueType === 'select') return SELECT_OPTIONS;
-  if (isSketchMode && type !== 'sketch') return SKETCH_TRANSPARENT_OPTIONS;
+  if (activeSketchId && type !== 'sketch') return SKETCH_TRANSPARENT_OPTIONS;
   return undefined;
 }
 
@@ -58,7 +58,7 @@ function resolveOptions(
 export function buildObjectMesh(
   obj: SceneObjectRender,
   allObjects: SceneObjectRender[],
-  isSketchMode: boolean,
+  activeSketchId: string | null,
   camera: Camera,
   isRegionPicking: boolean,
   inherited?: MeshRenderOptions,
@@ -66,7 +66,7 @@ export function buildObjectMesh(
   // --- dedicated mesh classes for construction geometry ---
   switch (obj.type) {
     case 'sketch':
-      return new SketchMesh(obj, allObjects, isSketchMode, camera);
+      return new SketchMesh(obj, allObjects, activeSketchId, camera);
     case 'plane':
       return new PlaneMesh(obj, camera);
     case 'axis':
@@ -75,7 +75,7 @@ export function buildObjectMesh(
 
   // --- generic objects: resolve options and recurse into children ---
   const isSelect = obj.uniqueType === 'select';
-  const options = resolveOptions(obj.uniqueType, isSketchMode, obj.type, inherited);
+  const options = resolveOptions(obj.uniqueType, activeSketchId, obj.type, inherited);
   const children = allObjects.filter(o => o.parentId === obj.id);
 
   let result: Object3D;
@@ -83,7 +83,7 @@ export function buildObjectMesh(
   if (children.length > 0) {
     const group = new Group();
     for (const child of children) {
-      group.add(buildObjectMesh(child, allObjects, isSketchMode, camera, isRegionPicking, options));
+      group.add(buildObjectMesh(child, allObjects, activeSketchId, camera, isRegionPicking, options));
     }
     result = group;
   } else {
@@ -104,7 +104,7 @@ export function buildObjectMesh(
  */
 export function buildSceneMesh(
   sceneObjects: SceneObjectRender[],
-  isSketchMode: boolean,
+  activeSketchId: string | null,
   camera: Camera,
   isRegionPicking: boolean = false,
 ): Object3D {
@@ -113,8 +113,8 @@ export function buildSceneMesh(
 
   for (const obj of sceneObjects) {
     if (obj.parentId) continue;
-    if (!obj.visible && !(isSketchMode && obj.type === 'sketch')) continue;
-    container.add(buildObjectMesh(obj, sceneObjects, isSketchMode, camera, isRegionPicking));
+    if (!obj.visible && !(activeSketchId && obj.type === 'sketch')) continue;
+    container.add(buildObjectMesh(obj, sceneObjects, activeSketchId, camera, isRegionPicking));
   }
 
   return container;

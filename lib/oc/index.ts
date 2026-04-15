@@ -21,4 +21,5 @@ export type { MeshData } from "./mesh.js";
 export { OcIO } from "./io.js";
 export { ShapeProps } from './props.js';
 export { SweepOps } from "./sweep-ops.js";
+export { SectionOps } from "./section-ops.js";
 export type { ShapeProperties } from './props.js';

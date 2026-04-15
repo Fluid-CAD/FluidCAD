@@ -12,6 +12,10 @@ import extrudeToFace from '!!raw-loader!./_examples/extrude-to-face.js';
 import extrudeToFaceBlend from '!!raw-loader!./_examples/extrude-to-face-blend.js';
 import extrudeToFirstFace from '!!raw-loader!./_examples/extrude-to-first-face.js';
 import extrudeToFirstFaceCylindrical from '!!raw-loader!./_examples/extrude-to-first-face-cylindrical.js';
+import extrudeThin from '!!raw-loader!./_examples/extrude-thin.js';
+import extrudeThinDual from '!!raw-loader!./_examples/extrude-thin-dual.js';
+import extrudeThinOpen from '!!raw-loader!./_examples/extrude-thin-open.js';
+import extrudeThinOpenDual from '!!raw-loader!./_examples/extrude-thin-open-dual.js';
 
 # Extrude
 
@@ -82,6 +86,45 @@ With cylindrical targets, the extrusion blends to the curved surface:
 :::note
 Extrude to face, `'first-face'`, and `'last-face'` currently work with **planar and cylindrical faces** only.
 :::
+
+## Thin extrude
+
+`.thin()` creates a thin-walled solid by offsetting the profile edges instead of extruding a filled face. The offset distance controls the wall thickness:
+
+<CodeBlock language="js">{extrudeThin}</CodeBlock>
+
+![Thin extrude](/img/docs/3d-operations/extrude-thin.png)
+
+Positive values offset outward, negative values offset inward:
+
+```js
+extrude(30).thin(5)    // 5 units outward
+extrude(30).thin(-5)   // 5 units inward
+```
+
+### Two-direction offset
+
+Pass two values to offset in both directions. The second offset automatically goes in the opposite direction of the first:
+
+<CodeBlock language="js">{extrudeThinDual}</CodeBlock>
+
+![Thin extrude — dual offset](/img/docs/3d-operations/extrude-thin-dual.png)
+
+### Open profiles
+
+Thin extrude also works with open profiles (unclosed curves). The ends are capped with straight lines:
+
+<CodeBlock language="js">{extrudeThinOpen}</CodeBlock>
+
+![Thin extrude — open profile](/img/docs/3d-operations/extrude-thin-open.png)
+
+Two-direction offset works with open profiles as well — the original curve is not used, only the two offset curves:
+
+<CodeBlock language="js">{extrudeThinOpenDual}</CodeBlock>
+
+![Thin extrude — open profile dual offset](/img/docs/3d-operations/extrude-thin-open-dual.png)
+
+Thin extrude works with all extrude modes — `.symmetric()`, `.draft()`, `.remove()`, two distances, and face targets.
 
 ## Region picking
 

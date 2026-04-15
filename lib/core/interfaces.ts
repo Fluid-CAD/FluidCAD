@@ -313,15 +313,17 @@ export interface IExtrude extends IFuseable {
 
   /**
    * Enables thin extrude mode — offsets the profile edges to create a thin-walled solid
-   * instead of extruding filled faces.
-   * @param offset - The wall offset distance in the outward direction.
+   * instead of extruding filled faces. Positive values offset outward, negative values offset inward.
+   * @param offset - The wall offset distance. Positive = outward, negative = inward.
    */
   thin(offset: number): this;
 
   /**
    * Enables thin extrude mode with two offset directions.
-   * @param offset1 - The wall offset distance in the outward direction.
-   * @param offset2 - The wall offset distance in the inward direction.
+   * The two offsets must go in opposite directions. If both have the same sign,
+   * the second offset is automatically flipped.
+   * @param offset1 - The first wall offset distance. Positive = outward, negative = inward.
+   * @param offset2 - The second wall offset distance, in the opposite direction of offset1.
    */
   thin(offset1: number, offset2: number): this;
 }

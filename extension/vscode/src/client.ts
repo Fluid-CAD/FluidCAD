@@ -356,7 +356,7 @@ export class Client {
 
   private async handleInsertPoint(msg: any) {
     const { point, sourceLocation } = msg;
-    const line = sourceLocation.line - 1;
+    let line = sourceLocation.line - 1;
     const pointText = `[${point[0]}, ${point[1]}]`;
 
     // Find the editor for the current file. activeTextEditor may be undefined
@@ -371,7 +371,16 @@ export class Client {
       return;
     }
 
-    if (line < 0 || line >= editor.document.lineCount) {
+    if (line < 0) {
+      return;
+    }
+    if (line >= editor.document.lineCount) {
+      line = editor.document.lineCount - 1;
+    }
+    while (line >= 0 && editor.document.lineAt(line).text.trim() === '') {
+      line--;
+    }
+    if (line < 0) {
       return;
     }
 
@@ -400,7 +409,10 @@ export class Client {
 
   private async handleAddPick(msg: any) {
     const { sourceLocation } = msg;
-    const line = sourceLocation.line - 1;
+    let line = sourceLocation.line - 1;
+
+    this.logger.appendLine(`[add-pick] sourceLocation: line=${sourceLocation.line}, filePath=${sourceLocation.filePath}`);
+    this.logger.appendLine(`[add-pick] currentFileName: ${this.currentFileName}`);
 
     let editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.fileName !== this.currentFileName) {
@@ -409,10 +421,23 @@ export class Client {
       );
     }
     if (!editor) {
+      this.logger.appendLine(`[add-pick] No editor found for ${this.currentFileName}`);
       return;
     }
 
-    if (line < 0 || line >= editor.document.lineCount) {
+    if (line < 0) {
+      return;
+    }
+    // sourceLocation.line may point past the last editor line (trailing newline
+    // mismatch between live-update code and editor). Search backwards for the
+    // actual code line containing the feature call.
+    if (line >= editor.document.lineCount) {
+      line = editor.document.lineCount - 1;
+    }
+    while (line >= 0 && editor.document.lineAt(line).text.trim() === '') {
+      line--;
+    }
+    if (line < 0) {
       return;
     }
 
@@ -431,6 +456,7 @@ export class Client {
 
     const pos = new vscode.Position(line, lastCloseParen + 1);
     const applied = await editor.edit(b => b.insert(pos, '.pick()'));
+    this.logger.appendLine(`[add-pick] Edit applied: ${applied}`);
     if (applied) {
       this.updateLiveCode(editor.document.fileName, editor.document.getText());
     }
@@ -438,7 +464,7 @@ export class Client {
 
   private async handleRemovePoint(msg: any) {
     const { point, sourceLocation } = msg;
-    const line = sourceLocation.line - 1;
+    let line = sourceLocation.line - 1;
 
     let editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.fileName !== this.currentFileName) {
@@ -450,7 +476,16 @@ export class Client {
       return;
     }
 
-    if (line < 0 || line >= editor.document.lineCount) {
+    if (line < 0) {
+      return;
+    }
+    if (line >= editor.document.lineCount) {
+      line = editor.document.lineCount - 1;
+    }
+    while (line >= 0 && editor.document.lineAt(line).text.trim() === '') {
+      line--;
+    }
+    if (line < 0) {
       return;
     }
 
@@ -536,7 +571,7 @@ export class Client {
 
   private async handleSetPickPoints(msg: any) {
     const { points, sourceLocation } = msg;
-    const line = sourceLocation.line - 1;
+    let line = sourceLocation.line - 1;
 
     let editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.fileName !== this.currentFileName) {
@@ -548,7 +583,16 @@ export class Client {
       return;
     }
 
-    if (line < 0 || line >= editor.document.lineCount) {
+    if (line < 0) {
+      return;
+    }
+    if (line >= editor.document.lineCount) {
+      line = editor.document.lineCount - 1;
+    }
+    while (line >= 0 && editor.document.lineAt(line).text.trim() === '') {
+      line--;
+    }
+    if (line < 0) {
       return;
     }
 

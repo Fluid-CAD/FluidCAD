@@ -11,6 +11,7 @@ type Editor = {
   name: string;
   steps: (string | ReactNode)[];
   code?: {language: string; content: string};
+  note?: string;
 };
 
 const EDITORS: Editor[] = [
@@ -50,6 +51,7 @@ const EDITORS: Editor[] = [
       'Edit your .fluid.js files in any editor.',
       'The viewport updates on save.',
     ],
+    note: 'Interactive features like region picking, trimming, and interactive bezier drawing are only available in VS Code and Neovim.',
     code: {
       language: 'bash',
       content: 'npx fluidcad -w ./my-app',
@@ -118,6 +120,9 @@ export default function EditorSection() {
                       {editor.code.content}
                     </CodeBlock>
                   </div>
+                )}
+                {editor.note && (
+                  <p className={styles.note}>{editor.note}</p>
                 )}
               </div>
             </div>

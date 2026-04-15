@@ -199,6 +199,15 @@
   padding-top: 1px;
 }
 
+/* ===== Note ===== */
+.note {
+  margin-top: 0.85rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--fluidcad-text-tertiary);
+  font-style: italic;
+}
+
 /* ===== Code block inside panel ===== */
 .codeWrapper {
   margin-top: 0.85rem;

@@ -281,3 +281,35 @@ Restricts extrusion to only the sketch regions containing the given points.
 |-----------|------|-------------|
 | `...points` | [Point2DLike](/docs/api/types/point2dlike)[] | 2D points in the sketch plane identifying regions to extrude. *(optional)* |
 
+---
+
+### thin()
+
+```ts
+thin(offset: number): this
+```
+
+Enables thin extrude mode — offsets the profile edges to create a thin-walled solid
+instead of extruding filled faces. Positive values offset outward, negative values offset inward.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `offset` | number | The wall offset distance. Positive = outward, negative = inward. |
+
+---
+
+### thin()
+
+```ts
+thin(offset1: number, offset2: number): this
+```
+
+Enables thin extrude mode with two offset directions.
+The two offsets must go in opposite directions. If both have the same sign,
+the second offset is automatically flipped.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `offset1` | number | The first wall offset distance. Positive = outward, negative = inward. |
+| `offset2` | number | The second wall offset distance, in the opposite direction of offset1. |
+

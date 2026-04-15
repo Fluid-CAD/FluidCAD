@@ -9,6 +9,8 @@ export interface FeatureEntry {
   returnType: string;
   relatedGuide?: string;
   sidebarPosition: number;
+  /** Override sidebarPosition per category (for multi-category features) */
+  sidebarPositions?: Partial<Record<FeatureCategory, number>>;
 }
 
 export interface TypeEntry {
@@ -50,28 +52,32 @@ export const categoryPositions: Record<FeatureCategory, number> = {
 };
 
 export const features: FeatureEntry[] = [
-  // 2D Sketching
+  // 2D Sketching — Basic Geometry
   { name: 'line', displayName: 'line', category: '2d', sourceFile: 'core/2d/line.ts', interfaceName: 'LineFunction', returnType: 'IGeometry', relatedGuide: '/docs/guides/sketching/introduction', sidebarPosition: 1 },
-  { name: 'circle', displayName: 'circle', category: '2d', sourceFile: 'core/2d/circle.ts', interfaceName: 'CircleFunction', returnType: 'IExtrudableGeometry', relatedGuide: '/docs/guides/sketching/primitive-shapes', sidebarPosition: 2 },
-  { name: 'rect', displayName: 'rect', category: '2d', sourceFile: 'core/2d/rect.ts', interfaceName: 'RectFunction', returnType: 'IRect', relatedGuide: '/docs/guides/sketching/primitive-shapes', sidebarPosition: 3 },
-  { name: 'arc', displayName: 'arc', category: '2d', sourceFile: 'core/2d/arc.ts', interfaceName: 'ArcFunction', returnType: 'IArcPoints | IArcAngles', sidebarPosition: 4 },
+  { name: 'arc', displayName: 'arc', category: '2d', sourceFile: 'core/2d/arc.ts', interfaceName: 'ArcFunction', returnType: 'IArcPoints | IArcAngles', sidebarPosition: 2 },
+  { name: 'circle', displayName: 'circle', category: '2d', sourceFile: 'core/2d/circle.ts', interfaceName: 'CircleFunction', returnType: 'IExtrudableGeometry', relatedGuide: '/docs/guides/sketching/primitive-shapes', sidebarPosition: 3 },
+  { name: 'rect', displayName: 'rect', category: '2d', sourceFile: 'core/2d/rect.ts', interfaceName: 'RectFunction', returnType: 'IRect', relatedGuide: '/docs/guides/sketching/primitive-shapes', sidebarPosition: 4 },
   { name: 'slot', displayName: 'slot', category: '2d', sourceFile: 'core/2d/slot.ts', interfaceName: 'SlotFunction', returnType: 'ISlot', sidebarPosition: 5 },
   { name: 'polygon', displayName: 'polygon', category: '2d', sourceFile: 'core/2d/polygon.ts', interfaceName: 'PolygonFunction', returnType: 'IPolygon', sidebarPosition: 6 },
   { name: 'bezier', displayName: 'bezier', category: '2d', sourceFile: 'core/2d/bezier.ts', interfaceName: 'BezierFunction', returnType: 'IGeometry', sidebarPosition: 7 },
-  { name: 'move', displayName: 'move', category: '2d', sourceFile: 'core/2d/move.ts', interfaceName: 'MoveFunction', returnType: 'IGeometry', sidebarPosition: 8 },
-  { name: 'hMove', displayName: 'hMove', category: '2d', sourceFile: 'core/2d/hmove.ts', interfaceName: 'HMoveFunction', returnType: 'void', sidebarPosition: 9 },
-  { name: 'vMove', displayName: 'vMove', category: '2d', sourceFile: 'core/2d/vmove.ts', interfaceName: 'VMoveFunction', returnType: 'void', sidebarPosition: 10 },
-  { name: 'rMove', displayName: 'rMove', category: '2d', sourceFile: 'core/2d/rmove.ts', interfaceName: 'RMoveFunction', returnType: 'IGeometry', sidebarPosition: 11 },
-  { name: 'pMove', displayName: 'pMove', category: '2d', sourceFile: 'core/2d/pmove.ts', interfaceName: 'PolarMoveFunction', returnType: 'IGeometry', sidebarPosition: 12 },
-  { name: 'hLine', displayName: 'hLine', category: '2d', sourceFile: 'core/2d/hline.ts', interfaceName: 'HLineFunction', returnType: 'IGeometry', sidebarPosition: 13 },
-  { name: 'vLine', displayName: 'vLine', category: '2d', sourceFile: 'core/2d/vline.ts', interfaceName: 'VLineFunction', returnType: 'IGeometry', sidebarPosition: 14 },
-  { name: 'aLine', displayName: 'aLine', category: '2d', sourceFile: 'core/2d/aline.ts', interfaceName: 'ALineFunction', returnType: 'IGeometry', sidebarPosition: 15 },
-  { name: 'tLine', displayName: 'tLine', category: '2d', sourceFile: 'core/2d/tline.ts', interfaceName: 'TLineFunction', returnType: 'IGeometry', relatedGuide: '/docs/guides/sketching/constrained-geometry', sidebarPosition: 16 },
-  { name: 'tCircle', displayName: 'tCircle', category: '2d', sourceFile: 'core/2d/tcircle.ts', interfaceName: 'TCircleFunction', returnType: 'IGeometry', relatedGuide: '/docs/guides/sketching/constrained-geometry', sidebarPosition: 17 },
-  { name: 'tArc', displayName: 'tArc', category: '2d', sourceFile: 'core/2d/tarc.ts', interfaceName: 'TArcFunction', returnType: 'IGeometry', relatedGuide: '/docs/guides/sketching/constrained-geometry', sidebarPosition: 18 },
+  // 2D Sketching — Line Shortcuts
+  { name: 'hLine', displayName: 'hLine', category: '2d', sourceFile: 'core/2d/hline.ts', interfaceName: 'HLineFunction', returnType: 'IGeometry', sidebarPosition: 8 },
+  { name: 'vLine', displayName: 'vLine', category: '2d', sourceFile: 'core/2d/vline.ts', interfaceName: 'VLineFunction', returnType: 'IGeometry', sidebarPosition: 9 },
+  { name: 'aLine', displayName: 'aLine', category: '2d', sourceFile: 'core/2d/aline.ts', interfaceName: 'ALineFunction', returnType: 'IGeometry', sidebarPosition: 10 },
+  // 2D Sketching — Positioning
+  { name: 'center', displayName: 'center', category: '2d', sourceFile: 'core/2d/center.ts', interfaceName: 'CenterFunction', returnType: 'IGeometry', sidebarPosition: 11 },
+  { name: 'move', displayName: 'move', category: '2d', sourceFile: 'core/2d/move.ts', interfaceName: 'MoveFunction', returnType: 'IGeometry', sidebarPosition: 12 },
+  { name: 'hMove', displayName: 'hMove', category: '2d', sourceFile: 'core/2d/hmove.ts', interfaceName: 'HMoveFunction', returnType: 'void', sidebarPosition: 13 },
+  { name: 'vMove', displayName: 'vMove', category: '2d', sourceFile: 'core/2d/vmove.ts', interfaceName: 'VMoveFunction', returnType: 'void', sidebarPosition: 14 },
+  { name: 'rMove', displayName: 'rMove', category: '2d', sourceFile: 'core/2d/rmove.ts', interfaceName: 'RMoveFunction', returnType: 'IGeometry', sidebarPosition: 15 },
+  { name: 'pMove', displayName: 'pMove', category: '2d', sourceFile: 'core/2d/pmove.ts', interfaceName: 'PolarMoveFunction', returnType: 'IGeometry', sidebarPosition: 16 },
+  // 2D Sketching — Constrained Geometry
+  { name: 'tLine', displayName: 'tLine', category: '2d', sourceFile: 'core/2d/tline.ts', interfaceName: 'TLineFunction', returnType: 'IGeometry', relatedGuide: '/docs/guides/sketching/constrained-geometry', sidebarPosition: 17 },
+  { name: 'tCircle', displayName: 'tCircle', category: '2d', sourceFile: 'core/2d/tcircle.ts', interfaceName: 'TCircleFunction', returnType: 'IGeometry', relatedGuide: '/docs/guides/sketching/constrained-geometry', sidebarPosition: 18 },
+  { name: 'tArc', displayName: 'tArc', category: '2d', sourceFile: 'core/2d/tarc.ts', interfaceName: 'TArcFunction', returnType: 'IGeometry', relatedGuide: '/docs/guides/sketching/constrained-geometry', sidebarPosition: 19 },
   { name: 'connect', displayName: 'connect', category: '2d', sourceFile: 'core/2d/connect.ts', interfaceName: 'ConnectFunction', returnType: 'IGeometry', sidebarPosition: 20 },
+  // 2D Sketching — Advanced Operations
   { name: 'offset', displayName: 'offset', category: '2d', sourceFile: 'core/2d/offset.ts', interfaceName: 'OffsetFunction', returnType: 'IExtrudableGeometry', relatedGuide: '/docs/guides/sketching/offset', sidebarPosition: 21 },
-  { name: 'project', displayName: 'project', category: '2d', sourceFile: 'core/2d/project.ts', interfaceName: 'ProjectFunction', returnType: 'IExtrudableGeometry', relatedGuide: '/docs/guides/sketching/projection', sidebarPosition: 22 },
 
   // 3D Operations
   { name: 'sketch', displayName: 'sketch', category: '3d', sourceFile: 'core/sketch.ts', interfaceName: 'SketchFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/sketching/introduction', sidebarPosition: 1 },
@@ -82,18 +88,18 @@ export const features: FeatureEntry[] = [
   { name: 'sweep', displayName: 'sweep', category: '3d', sourceFile: 'core/sweep.ts', interfaceName: 'SweepFunction', returnType: 'ISweep', relatedGuide: '/docs/guides/3d-operations/sweep', sidebarPosition: 6 },
   { name: 'sphere', displayName: 'sphere', category: '3d', sourceFile: 'core/sphere.ts', interfaceName: 'SphereFunction', returnType: 'ISceneObject', sidebarPosition: 7 },
   { name: 'cylinder', displayName: 'cylinder', category: '3d', sourceFile: 'core/cylinder.ts', interfaceName: 'CylinderFunction', returnType: 'ISceneObject', sidebarPosition: 8 },
-  { name: 'fuse', displayName: 'fuse', category: ['2d', '3d'], sourceFile: 'core/fuse.ts', interfaceName: 'FuseFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/booleans-and-fusion', sidebarPosition: 9 },
-  { name: 'subtract', displayName: 'subtract', category: ['2d', '3d'], sourceFile: 'core/subtract.ts', interfaceName: 'SubtractFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/booleans-and-fusion', sidebarPosition: 10 },
-  { name: 'common', displayName: 'common', category: ['2d', '3d'], sourceFile: 'core/common.ts', interfaceName: 'CommonFunction', returnType: 'ICommon', relatedGuide: '/docs/guides/booleans-and-fusion', sidebarPosition: 11 },
+  { name: 'fuse', displayName: 'fuse', category: ['2d', '3d'], sourceFile: 'core/fuse.ts', interfaceName: 'FuseFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/booleans-and-fusion', sidebarPosition: 9, sidebarPositions: { '2d': 29 } },
+  { name: 'subtract', displayName: 'subtract', category: ['2d', '3d'], sourceFile: 'core/subtract.ts', interfaceName: 'SubtractFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/booleans-and-fusion', sidebarPosition: 10, sidebarPositions: { '2d': 30 } },
+  { name: 'common', displayName: 'common', category: ['2d', '3d'], sourceFile: 'core/common.ts', interfaceName: 'CommonFunction', returnType: 'ICommon', relatedGuide: '/docs/guides/booleans-and-fusion', sidebarPosition: 11, sidebarPositions: { '2d': 31 } },
   { name: 'shell', displayName: 'shell', category: '3d', sourceFile: 'core/shell.ts', interfaceName: 'ShellFunction', returnType: 'IShell', relatedGuide: '/docs/guides/3d-operations/shell', sidebarPosition: 12 },
   { name: 'fillet', displayName: 'fillet', category: '3d', sourceFile: 'core/fillet.ts', interfaceName: 'FilletFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/3d-operations/fillet', sidebarPosition: 13 },
   { name: 'chamfer', displayName: 'chamfer', category: '3d', sourceFile: 'core/chamfer.ts', interfaceName: 'ChamferFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/3d-operations/chamfer', sidebarPosition: 14 },
 
   // Transforms
   { name: 'translate', displayName: 'translate', category: 'transforms', sourceFile: 'core/translate.ts', interfaceName: 'TranslateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/transforms', sidebarPosition: 1 },
-  { name: 'rotate', displayName: 'rotate', category: ['2d', 'transforms'], sourceFile: 'core/rotate.ts', interfaceName: 'RotateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/transforms', sidebarPosition: 2 },
-  { name: 'mirror', displayName: 'mirror', category: ['2d', 'transforms'], sourceFile: 'core/mirror.ts', interfaceName: 'MirrorFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/transforms', sidebarPosition: 3 },
-  { name: 'copy', displayName: 'copy', category: ['2d', 'transforms'], sourceFile: 'core/copy.ts', interfaceName: 'CopyFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/copying', sidebarPosition: 4 },
+  { name: 'rotate', displayName: 'rotate', category: ['2d', 'transforms'], sourceFile: 'core/rotate.ts', interfaceName: 'RotateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/transforms', sidebarPosition: 2, sidebarPositions: { '2d': 26 } },
+  { name: 'mirror', displayName: 'mirror', category: ['2d', 'transforms'], sourceFile: 'core/mirror.ts', interfaceName: 'MirrorFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/transforms', sidebarPosition: 3, sidebarPositions: { '2d': 27 } },
+  { name: 'copy', displayName: 'copy', category: ['2d', 'transforms'], sourceFile: 'core/copy.ts', interfaceName: 'CopyFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/copying', sidebarPosition: 4, sidebarPositions: { '2d': 28 } },
   { name: 'repeat', displayName: 'repeat', category: 'transforms', sourceFile: 'core/repeat.ts', interfaceName: 'RepeatFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/patterns', sidebarPosition: 5 },
 
   // Utilities
@@ -103,8 +109,10 @@ export const features: FeatureEntry[] = [
   { name: 'load', displayName: 'load', category: 'utilities', sourceFile: 'core/load.ts', interfaceName: 'LoadFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/import', sidebarPosition: 4 },
   { name: 'axis', displayName: 'axis', category: 'utilities', sourceFile: 'core/axis.ts', interfaceName: 'AxisFunction', returnType: 'IAxis', sidebarPosition: 5 },
   { name: 'plane', displayName: 'plane', category: 'utilities', sourceFile: 'core/plane.ts', interfaceName: 'PlaneFunction', returnType: 'IPlane', sidebarPosition: 6 },
-  { name: 'split', displayName: 'split', category: '2d', sourceFile: 'core/split.ts', interfaceName: 'SplitFunction', returnType: 'ISceneObject', sidebarPosition: 23 },
-  { name: 'trim', displayName: 'trim', category: '2d', sourceFile: 'core/trim.ts', interfaceName: 'TrimFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/sketching/trim', sidebarPosition: 24 },
+  { name: 'split', displayName: 'split', category: '2d', sourceFile: 'core/split.ts', interfaceName: 'SplitFunction', returnType: 'ISceneObject', sidebarPosition: 22 },
+  { name: 'trim', displayName: 'trim', category: '2d', sourceFile: 'core/trim.ts', interfaceName: 'TrimFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/sketching/trim', sidebarPosition: 23 },
+  { name: 'project', displayName: 'project', category: '2d', sourceFile: 'core/2d/project.ts', interfaceName: 'ProjectFunction', returnType: 'IExtrudableGeometry', relatedGuide: '/docs/guides/sketching/projection', sidebarPosition: 24 },
+  { name: 'intersect', displayName: 'intersect', category: '2d', sourceFile: 'core/2d/intersect.ts', interfaceName: 'IntersectFunction', returnType: 'IExtrudableGeometry', sidebarPosition: 25 },
   { name: 'part', displayName: 'part', category: 'utilities', sourceFile: 'core/part.ts', interfaceName: null, returnType: 'PartHandle', relatedGuide: '/docs/guides/3d-operations/parts', sidebarPosition: 9 },
   { name: 'use', displayName: 'use', category: 'utilities', sourceFile: 'core/use.ts', interfaceName: null, returnType: 'ISceneObject', relatedGuide: '/docs/guides/3d-operations/parts', sidebarPosition: 10 },
 ];

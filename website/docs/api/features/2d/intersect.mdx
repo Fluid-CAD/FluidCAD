@@ -1,0 +1,28 @@
+---
+sidebar_position: 25
+title: "intersect"
+description: "Intersects 3D objects with the current sketch plane, producing cross-section edges."
+---
+
+# intersect()
+
+Intersects 3D objects with the current sketch plane, producing cross-section edges.
+
+**Returns**: [**`ExtrudableGeometry`**](/docs/api/types/extrudable-geometry)
+
+## Signatures
+
+```ts
+intersect(...sourceObjects: SceneObject[]): ExtrudableGeometry
+```
+
+Intersects 3D objects with the current sketch plane, producing cross-section edges.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...sourceObjects` | [SceneObject](/docs/api/types/scene-object)[] | The 3D objects to intersect *(optional)* |
+
+
+:::note
+All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
+:::

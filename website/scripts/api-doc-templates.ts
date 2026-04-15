@@ -120,6 +120,7 @@ export function renderFeaturePage(
   feature: FeatureEntry,
   signatures: SignatureInfo[],
   examples: ExampleFile[],
+  sidebarPositionOverride?: number,
 ): string {
   const nonPlaneSignatures = signatures.filter(s => !s.isPlaneVariant);
   const hasPlaneVariants = signatures.some(s => s.isPlaneVariant);
@@ -145,7 +146,7 @@ export function renderFeaturePage(
 
   // Frontmatter
   lines.push('---');
-  lines.push(`sidebar_position: ${feature.sidebarPosition}`);
+  lines.push(`sidebar_position: ${sidebarPositionOverride ?? feature.sidebarPosition}`);
   lines.push(`title: "${feature.displayName}"`);
   if (introDesc) {
     lines.push(`description: "${escapeForTable(introDesc)}"`);

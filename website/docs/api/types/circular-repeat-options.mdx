@@ -1,0 +1,20 @@
+---
+sidebar_position: 28
+sidebar_label: "CircularRepeatOptions"
+title: "CircularRepeatOptions"
+description: "Options for circular repeat."
+---
+
+# CircularRepeatOptions
+
+Options for [`repeat("circular", ...)`](/docs/api/features/transforms/repeat).
+
+## Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `count` | number | Number of instances (including the original) |
+| `angle` | number | Total angle to spread across. Cannot be used with `offset`. *(optional)* |
+| `offset` | number | Angle between each instance. Cannot be used with `angle`. *(optional)* |
+| `centered` | boolean | When `true`, centers the pattern around the original object's position *(optional)* |
+| `skip` | number[] | Indices to skip (e.g. `[2, 4]` to skip the 3rd and 5th instances) *(optional)* |

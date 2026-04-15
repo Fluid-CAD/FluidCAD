@@ -42,9 +42,11 @@ Repeat a feature along one or more axes:
 The last argument is the feature to repeat — the return value from `extrude()`, `cut()`, `fillet()`, etc.
 
 Options:
-- **`count`** — number of repetitions per axis
+- **`count`** — number of repetitions per axis (including the original)
 - **`length`** — total span to distribute across (evenly spaced)
 - **`offset`** — explicit spacing between repetitions (alternative to `length`)
+- **`centered`** — when `true`, centers the pattern around the original object's position. For example, `count: 3` with `centered` places one instance on each side of the original.
+- **`skip`** — array of index tuples to skip. For a single axis, use `[[1], [3]]` to skip the 2nd and 4th instances. For multi-axis grids, use `[[1, 2]]` to skip a specific grid position.
 
 Use `length` when you know the total distance and want even spacing. Use `offset` when you know the exact spacing you want.
 
@@ -60,8 +62,11 @@ repeat("circular", "z", {
 ```
 
 Options:
-- **`count`** — number of repetitions
-- **`angle`** — total angle to spread across (default: 360)
+- **`count`** — number of repetitions (including the original)
+- **`angle`** — total angle to spread across
+- **`offset`** — explicit angle between each repetition (alternative to `angle`)
+- **`centered`** — when `true`, centers the pattern around the original object's position
+- **`skip`** — array of indices to skip (e.g. `[2, 4]` to skip the 3rd and 5th instances)
 
 ## Mirror repeat
 

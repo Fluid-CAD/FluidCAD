@@ -1,6 +1,7 @@
 import {
   FeatureEntry, TypeEntry, FilterEntry,
   resolveTypeName, typeSlug, hasTypePage, getInheritanceChain,
+  optionsTypeProperties, OptionsProperty,
 } from './api-doc-config.ts';
 
 export interface SignatureInfo {
@@ -114,6 +115,21 @@ function renderParamsTable(params: ParamInfo[]): string {
   ].join('\n');
 }
 
+function renderOptionsTable(properties: OptionsProperty[]): string {
+  const rows = properties.map(p => {
+    const opt = p.optional ? ' *(optional)*' : '';
+    const desc = escapeForTable(p.description) + opt;
+    const typeDisplay = formatParamType(p.type);
+    return `| \`${p.name}\` | ${typeDisplay} | ${desc} |`;
+  });
+
+  return [
+    '| Property | Type | Description |',
+    '|----------|------|-------------|',
+    ...rows,
+  ].join('\n');
+}
+
 // ── Feature Page ──
 
 export function renderFeaturePage(
@@ -189,6 +205,8 @@ export function renderFeaturePage(
   lines.push('## Signatures');
   lines.push('');
 
+  const renderedOptionsTypes = new Set<string>();
+
   for (let i = 0; i < nonPlaneSignatures.length; i++) {
     const sig = nonPlaneSignatures[i];
     lines.push('```ts');
@@ -205,6 +223,23 @@ export function renderFeaturePage(
     if (table) {
       lines.push(table);
       lines.push('');
+    }
+
+    // Expand options types into property tables (once per type)
+    for (const p of sig.params) {
+      const props = optionsTypeProperties[p.type];
+      if (props && !renderedOptionsTypes.has(p.type)) {
+        // Defer if the next signature also uses this same type
+        const nextSig = nonPlaneSignatures[i + 1];
+        if (nextSig?.params.some(np => np.type === p.type)) {
+          continue;
+        }
+        renderedOptionsTypes.add(p.type);
+        lines.push(`#### ${p.type}`);
+        lines.push('');
+        lines.push(renderOptionsTable(props));
+        lines.push('');
+      }
     }
 
     if (i < nonPlaneSignatures.length - 1) {
@@ -623,6 +658,38 @@ export function renderIndexPage(): string {
 
 // ── Custom Type Pages ──
 
+function renderOptionsTypePage(type: TypeEntry, shortDescription: string, bodyDescription: string): string {
+  const props = optionsTypeProperties[type.displayName];
+  if (!props) {
+    return '';
+  }
+
+  const rows = props.map(p => {
+    const opt = p.optional ? ' *(optional)*' : '';
+    const desc = escapeForTable(p.description) + opt;
+    const typeDisplay = formatParamType(p.type);
+    return `| \`${p.name}\` | ${typeDisplay} | ${desc} |`;
+  }).join('\n');
+
+  return `---
+sidebar_position: ${type.sidebarPosition}
+sidebar_label: "${type.displayName}"
+title: "${type.displayName}"
+description: "${shortDescription}"
+---
+
+# ${type.displayName}
+
+${bodyDescription}
+
+## Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+${rows}
+`;
+}
+
 const customTypePages: Record<string, (type: TypeEntry) => string> = {
   Point2DLike: (type) => `---
 sidebar_position: ${type.sidebarPosition}
@@ -692,6 +759,16 @@ An axis reference used by \`revolve()\` and other axis-based operations. Any of 
 | Standard axis string | \`"x"\`, \`"y"\`, \`"z"\` | The three principal axes |
 | [\`Axis\`](/docs/api/types/axis) | \`axis("x", [0, 10])\` | An axis object created with \`axis()\` |
 `,
+
+  LinearRepeatOptions: (type) => renderOptionsTypePage(type,
+    'Options for linear repeat.',
+    'Options for [`repeat("linear", ...)`](/docs/api/features/transforms/repeat).',
+  ),
+
+  CircularRepeatOptions: (type) => renderOptionsTypePage(type,
+    'Options for circular repeat.',
+    'Options for [`repeat("circular", ...)`](/docs/api/features/transforms/repeat).',
+  ),
 
   Vertex: (type) => `---
 sidebar_position: ${type.sidebarPosition}

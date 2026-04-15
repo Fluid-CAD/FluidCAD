@@ -144,6 +144,8 @@ export const types: TypeEntry[] = [
   { name: 'PlaneLike', displayName: 'PlaneLike', sourceFile: 'math/plane.ts', sidebarPosition: 24 },
   { name: 'AxisLike', displayName: 'AxisLike', sourceFile: 'math/axis.ts', sidebarPosition: 25 },
   { name: 'LazyVertex', displayName: 'Vertex', sourceFile: 'features/lazy-vertex.ts', sidebarPosition: 26 },
+  { name: 'LinearRepeatOptions', displayName: 'LinearRepeatOptions', sourceFile: 'features/repeat-linear.ts', sidebarPosition: 27 },
+  { name: 'CircularRepeatOptions', displayName: 'CircularRepeatOptions', sourceFile: 'features/repeat-circular.ts', sidebarPosition: 28 },
 ];
 
 export const filters: FilterEntry[] = [
@@ -173,6 +175,33 @@ export const constraints: ConstraintEntry[] = [
   { name: 'enclosing', sourceFile: 'features/2d/constraints/geometry-qualifier.ts', functionName: 'enclosing' },
   { name: 'unqualified', sourceFile: 'features/2d/constraints/geometry-qualifier.ts', functionName: 'unqualified' },
 ];
+
+// ── Expandable options types ──
+// These appear as param types in signatures and get expanded into property tables
+
+export interface OptionsProperty {
+  name: string;
+  type: string;
+  description: string;
+  optional: boolean;
+}
+
+export const optionsTypeProperties: Record<string, OptionsProperty[]> = {
+  LinearRepeatOptions: [
+    { name: 'count', type: 'number | number[]', description: 'Number of instances per axis (including the original)', optional: false },
+    { name: 'offset', type: 'number | number[]', description: 'Spacing between each instance. Cannot be used with `length`.', optional: true },
+    { name: 'length', type: 'number | number[]', description: 'Total span to distribute instances across (evenly spaced). Cannot be used with `offset`.', optional: true },
+    { name: 'centered', type: 'boolean', description: 'When `true`, centers the pattern around the original object\'s position', optional: true },
+    { name: 'skip', type: 'number[][]', description: 'Index tuples to skip (e.g. `[[1], [3]]` for single axis, `[[1, 2]]` for multi-axis)', optional: true },
+  ],
+  CircularRepeatOptions: [
+    { name: 'count', type: 'number', description: 'Number of instances (including the original)', optional: false },
+    { name: 'angle', type: 'number', description: 'Total angle to spread across. Cannot be used with `offset`.', optional: true },
+    { name: 'offset', type: 'number', description: 'Angle between each instance. Cannot be used with `angle`.', optional: true },
+    { name: 'centered', type: 'boolean', description: 'When `true`, centers the pattern around the original object\'s position', optional: true },
+    { name: 'skip', type: 'number[]', description: 'Indices to skip (e.g. `[2, 4]` to skip the 3rd and 5th instances)', optional: true },
+  ],
+};
 
 /** Maps internal type names to display names for the docs */
 export const typeDisplayNameMap: Record<string, string> = {
@@ -209,6 +238,8 @@ export const typeDisplayNameMap: Record<string, string> = {
   'QualifiedSceneObject': 'QualifiedGeometry',
   'PartHandle': 'PartHandle',
   'PartHandle<T>': 'PartHandle',
+  'LinearRepeatOptions': 'LinearRepeatOptions',
+  'CircularRepeatOptions': 'CircularRepeatOptions',
 };
 
 /** Maps type display names to their docs URL slug */

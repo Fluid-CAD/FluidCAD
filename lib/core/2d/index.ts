@@ -18,4 +18,6 @@ export { default as connect } from './connect.js';
 export { default as polygon } from './polygon.js';
 export { default as offset } from './offset.js';
 export { default as project } from './project.js';
+export { default as intersect } from './intersect.js';
 export { default as bezier } from './bezier.js';
+export { default as center } from './center.js';

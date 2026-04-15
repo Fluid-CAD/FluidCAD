@@ -35,6 +35,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _id: string;
   private _order: number = 0;
   private _transform: Matrix4 | null = null;
+  private _cloneSource: SceneObject | null = null;
   private _parent: SceneObject | null = null;
   private _alwaysVisible: boolean = false;
   private _name: string | null = null;
@@ -239,6 +240,14 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   getTransform(): Matrix4 | null {
     return this._transform;
+  }
+
+  setCloneSource(source: SceneObject): void {
+    this._cloneSource = source;
+  }
+
+  getCloneSource(): SceneObject | null {
+    return this._cloneSource;
   }
 
   getTransformMatrix(): Matrix4 | null {

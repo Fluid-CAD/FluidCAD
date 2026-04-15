@@ -2,10 +2,11 @@ import { Plane } from "../../math/plane.js";
 import { Point2D } from "../../math/point.js";
 import { GeometrySceneObject } from "./geometry.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
-import { SceneObject } from "../../common/scene-object.js";
+import { BuildSceneObjectContext, SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
 import { Wire } from "../../common/wire.js";
 import { Extrudable } from "../../helpers/types.js";
+import { ShapeOps } from "../../oc/shape-ops.js";
 
 export class Sketch extends SceneObject implements Extrudable {
 
@@ -96,11 +97,26 @@ export class Sketch extends SceneObject implements Extrudable {
     }
   }
 
-  build() {
-    this.planeObj.removeShapes(this)
+  build(context?: BuildSceneObjectContext) {
+    this.planeObj.removeShapes(this);
+
+    const source = this.getCloneSource();
+    const transform = context?.getTransform();
+
+    if (source instanceof Sketch && transform) {
+      const originalEdges = source.getEdges();
+      const transformedEdges = originalEdges.map(
+        edge => ShapeOps.transform(edge, transform) as Edge
+      );
+      this.setState('cloned-edges', transformedEdges);
+    }
   }
 
   getEdges(): Edge[] {
+    const clonedEdges = this.getState('cloned-edges') as Edge[];
+    if (clonedEdges) {
+      return clonedEdges;
+    }
     return [...this.getEdgesWithOwner().keys()];
   }
 

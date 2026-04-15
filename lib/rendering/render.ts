@@ -3,6 +3,7 @@ import { MeshBuilder } from "./mesh-builder.js";
 import { SceneObject } from "../common/scene-object.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
+import { Sketch } from "../features/2d/sketch.js";
 
 const meshBuilder = new MeshBuilder();
 
@@ -155,7 +156,17 @@ export function renderScene(scene: Scene) {
   const sceneObjects = scene.getAllSceneObjects();
   console.log("============ Rendering ==============", sceneObjects.length);
 
+  const skippedContainers = new Set<SceneObject>();
+
   for (const object of sceneObjects) {
+    // Skip descendants of cloned sketches — their edges are already
+    // computed by the parent sketch's clone-mode build.
+    const parent = object.getParent();
+    if (parent && skippedContainers.has(parent)) {
+      skippedContainers.add(object);
+      continue;
+    }
+
     console.log("Rendering object:", object.getUniqueType());
 
     const isCached = scene.isCached(object);
@@ -193,10 +204,18 @@ export function renderScene(scene: Scene) {
         object.setError(message);
       }
     }
+
+    // After building, mark cloned sketches so their children are skipped
+    if (object instanceof Sketch && object.getState('cloned-edges')) {
+      skippedContainers.add(object);
+    }
   }
 
   // Cleanup pass — let objects adjust based on final scene state
   for (const object of sceneObjects) {
+    if (skippedContainers.has(object)) {
+      continue;
+    }
     object.clean(scene.getPartScopedAllObjects(object));
   }
 

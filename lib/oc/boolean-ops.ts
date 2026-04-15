@@ -168,7 +168,6 @@ export class BooleanOps {
     builder.SimplifyResult(false, true, oc.Precision.Angular());
 
     const resultShape = builder.Shape();
-    console.log('FuseMultiShape: Result shape type:', Explorer.getShapeType(resultShape));
 
     const rawShapes = Explorer.findAllShapes(resultShape);
     console.log('FuseMultiShape: Result shapes count:', rawShapes.length);
@@ -223,8 +222,6 @@ export class BooleanOps {
     builder.Build(progress);
 
     const resultShape = builder.Shape();
-    console.log('FuseMultiShape: Result shape type:', Explorer.getShapeType(resultShape));
-
 
     const unify = new oc.ShapeUpgrade_UnifySameDomain(resultShape, true, true, false);
     unify.Build();

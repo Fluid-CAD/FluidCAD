@@ -9,6 +9,7 @@ import { Sketch } from "../../features/2d/sketch.js";
 import cylinder from "../../core/cylinder.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
+import { Face } from "../../common/face.js";
 
 describe("extrude two distances", () => {
   setupOC();
@@ -284,6 +285,29 @@ describe("extrude two distances", () => {
       // Draft should expand beyond the original rect dimensions
       expect(bbox.maxX - bbox.minX).toBeGreaterThan(100);
       expect(bbox.maxY - bbox.minY).toBeGreaterThan(50);
+    });
+
+    it("should apply different draft angles per direction", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+
+      const e = extrude(20, 20).draft([8, 2]) as ExtrudeTwoDistances;
+
+      render();
+
+      const startFaces = e.getState('start-faces') as Face[];
+      const endFaces = e.getState('end-faces') as Face[];
+
+      const startBbox = ShapeOps.getBoundingBox(startFaces[0].getShape());
+      const endBbox = ShapeOps.getBoundingBox(endFaces[0].getShape());
+
+      const startWidth = startBbox.maxX - startBbox.minX;
+      const endWidth = endBbox.maxX - endBbox.minX;
+
+      // Start face (distance1=20, draft=8°) should be wider than
+      // end face (distance2=20, draft=2°) due to greater taper
+      expect(startWidth).toBeGreaterThan(endWidth);
     });
   });
 

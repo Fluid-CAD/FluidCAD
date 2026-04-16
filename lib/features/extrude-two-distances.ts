@@ -42,11 +42,15 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill());
     }
 
-    const extruder1 = new Extruder(faces, plane, this.distance1, this.getDraft(), this.getEndOffset());
+    const draft = this.getDraft();
+    const draft1 = draft ? [draft[0], draft[0]] as [number, number] : undefined;
+    const draft2 = draft ? [draft[1], draft[1]] as [number, number] : undefined;
+
+    const extruder1 = new Extruder(faces, plane, this.distance1, draft1, this.getEndOffset());
     const extrusions1 = extruder1.extrude();
     const startFaces = extruder1.getEndFaces();
 
-    const extruder2 = new Extruder(faces, plane, -this.distance2, this.getDraft(), this.getEndOffset());
+    const extruder2 = new Extruder(faces, plane, -this.distance2, draft2, this.getEndOffset());
     const extrusions2 = extruder2.extrude();
     const endFaces = extruder2.getEndFaces();
 

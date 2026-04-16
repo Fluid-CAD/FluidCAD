@@ -1,0 +1,117 @@
+.section {
+  padding: 5rem 1.5rem;
+  background: var(--fluidcad-bg-secondary);
+  overflow: hidden;
+}
+
+.sectionTitle {
+  text-align: center;
+  font-size: 2.25rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--fluidcad-text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.sectionSubtitle {
+  text-align: center;
+  font-size: 1.1rem;
+  color: var(--fluidcad-text-secondary);
+  margin-bottom: 3rem;
+}
+
+/* ===== Card grid ===== */
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1.5rem;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  width: calc(33.333% - 1rem);
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--fluidcad-border);
+  background: var(--fluidcad-bg-primary);
+  box-shadow: var(--fluidcad-card-shadow);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.card:hover {
+  border-color: var(--fluidcad-accent);
+  box-shadow: 0 4px 20px var(--fluidcad-accent-glow);
+  transform: translateY(-2px);
+  text-decoration: none;
+  color: inherit;
+}
+
+/* ===== Image container ===== */
+.imageWrapper {
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--fluidcad-bg-surface);
+  padding: 1rem;
+}
+
+.image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* ===== Card title ===== */
+.title {
+  display: block;
+  padding: 0.75rem 1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--fluidcad-text-primary);
+  text-align: center;
+}
+
+/* ===== CTA link ===== */
+.cta {
+  text-align: center;
+  margin-top: 2rem;
+}
+
+.ctaLink {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--fluidcad-accent);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.ctaLink:hover {
+  color: var(--fluidcad-accent-light);
+  text-decoration: none;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 996px) {
+  .section {
+    padding: 3rem 1rem;
+  }
+
+  .card {
+    width: calc(50% - 0.75rem);
+  }
+}
+
+@media (max-width: 600px) {
+  .card {
+    width: 100%;
+  }
+
+  .imageWrapper {
+    height: 180px;
+  }
+}

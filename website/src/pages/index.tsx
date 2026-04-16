@@ -5,6 +5,7 @@ import CodeShowcase from '@site/src/components/landing/CodeShowcase';
 import FeatureGrid from '@site/src/components/landing/FeatureGrid';
 import ShowcaseSection from '@site/src/components/landing/ShowcaseSection';
 import EditorSection from '@site/src/components/landing/EditorSection';
+import TutorialShowcase from '@site/src/components/landing/TutorialShowcase';
 
 export default function Home(): ReactNode {
   return (
@@ -16,7 +17,8 @@ export default function Home(): ReactNode {
         <CodeShowcase />
         <ShowcaseSection />
         <FeatureGrid />
-<EditorSection />
+        <EditorSection />
+        <TutorialShowcase />
       </main>
     </Layout>
   );

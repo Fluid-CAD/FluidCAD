@@ -5,7 +5,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parseArgs } from 'util';
 import { writeFileSync, existsSync } from 'fs';
-import { createFileWatcher } from './watcher.js';
+import { createFileWatcher, findFluidFiles } from './watcher.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -88,6 +88,11 @@ server.on('message', (msg) => {
     if (msg.success) {
       console.log('FluidCAD initialized successfully.');
       watcher = createFileWatcher(workspacePath, server);
+
+      const files = findFluidFiles(workspacePath);
+      if (files.length > 0) {
+        server.send({ type: 'process-file', filePath: files[0] });
+      }
     } else {
       console.error(`FluidCAD initialization failed: ${msg.error}`);
       process.exit(1);

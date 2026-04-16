@@ -84,6 +84,7 @@ export class SceneContext {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.toneMapping = ACESFilmicToneMapping;
     this.renderer.outputColorSpace = SRGBColorSpace;
+    this.renderer.localClippingEnabled = true;
     container.appendChild(this.renderer.domElement);
 
     // Scene

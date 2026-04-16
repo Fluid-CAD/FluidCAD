@@ -5,6 +5,7 @@ import { buildSceneMesh } from './meshes/mesh-factory';
 import { SceneObjectPart, SceneObjectRender, SubSelection } from './types';
 import { SettingsPanel } from './ui/settings-panel';
 import { CentroidIndicator } from './scene/centroid-indicator';
+import { viewerSettings } from './scene/viewer-settings';
 
 /** Recursively expand `box` to include `object`, skipping meta-shape subtrees. */
 function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
@@ -64,6 +65,13 @@ export class Viewer {
     this.modeManager = new SceneModeManager(this.ctx);
     this.settingsPanel = new SettingsPanel(container, (mode) => this.ctx.switchCamera(mode));
     this.settingsPanel.setFitHandler(() => this.fitViewToScene());
+    this.settingsPanel.setSectionViewToggleHandler((enabled) => {
+      if (enabled) {
+        this.applySectionView();
+      } else {
+        this.clearSectionView();
+      }
+    });
 
     this.initClickDetection();
     this.initHoverDetection();
@@ -264,6 +272,15 @@ export class Viewer {
     this.ctx.scene.add(mesh);
     this.applyHiddenShapes();
     this.applyShapeOpacities();
+
+    // Section view: apply clipping when in sketch mode
+    this.settingsPanel.setSectionViewVisible(this.modeManager.isSketchMode);
+    if (this.modeManager.isSketchMode) {
+      this.settingsPanel.setSectionViewActive(viewerSettings.current.sectionView);
+      if (viewerSettings.current.sectionView) {
+        this.applySectionView();
+      }
+    }
 
     // Auto-fit on first render or in sketch mode (skip if viewport barely changed or trimming)
     if (!this.hasRendered || (this.modeManager.isSketchMode && !isRollback && !this.isTrimming && !this.isRegionPicking && !this.isBezierDrawing)) {
@@ -773,6 +790,9 @@ export class Viewer {
     this.ctx.scene.add(mesh);
     this.applyHiddenShapes();
     this.applyShapeOpacities();
+    if (this.modeManager.isSketchMode && viewerSettings.current.sectionView) {
+      this.applySectionView();
+    }
     this.ctx.requestRender();
   }
 
@@ -872,6 +892,41 @@ export class Viewer {
     for (const shapeIndex of this.hiddenShapeIndices) {
       this.applyVisibilityForIndex(shapeIndex, false);
     }
+  }
+
+  private applySectionView(): void {
+    const plane = this.modeManager.sectionPlane;
+    if (!plane) { return; }
+
+    const compiled = this.ctx.scene.getObjectByName('compiledMesh');
+    if (!compiled) { return; }
+
+    compiled.traverse((child) => {
+      const mat = (child as any).material;
+      if (!mat) { return; }
+      const materials = Array.isArray(mat) ? mat : [mat];
+      for (const m of materials) {
+        m.clippingPlanes = [plane];
+      }
+    });
+
+    this.ctx.requestRender();
+  }
+
+  private clearSectionView(): void {
+    const compiled = this.ctx.scene.getObjectByName('compiledMesh');
+    if (!compiled) { return; }
+
+    compiled.traverse((child) => {
+      const mat = (child as any).material;
+      if (!mat) { return; }
+      const materials = Array.isArray(mat) ? mat : [mat];
+      for (const m of materials) {
+        m.clippingPlanes = [];
+      }
+    });
+
+    this.ctx.requestRender();
   }
 
   /** Remove the previous compiled mesh tree and dispose its GPU resources. */

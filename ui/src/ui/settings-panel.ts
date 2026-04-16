@@ -1,5 +1,5 @@
 import { viewerSettings } from '../scene/viewer-settings';
-import { ICON_FIT, ICON_ORTHO, ICON_PERSP, ICON_GRID, ICON_SUN, ICON_MOON } from './icons';
+import { ICON_FIT, ICON_ORTHO, ICON_PERSP, ICON_GRID, ICON_SUN, ICON_MOON, ICON_SECTION_VIEW } from './icons';
 
 const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
 const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
@@ -14,16 +14,31 @@ function isDarkTheme(): boolean {
 
 export class SettingsPanel {
   private el: HTMLDivElement;
+  private sectionViewEl: HTMLDivElement;
   private onFitView: (() => void) | null = null;
+  private onSectionViewToggle: ((enabled: boolean) => void) | null = null;
 
   constructor(
     container: HTMLElement,
     private onCameraSwitch: (mode: 'perspective' | 'orthographic') => void,
   ) {
+    // Wrapper so both containers share one positioning anchor
+    const wrapper = document.createElement('div');
+    wrapper.className = 'absolute right-6 top-1/2 -translate-y-1/2 z-[100] flex flex-col items-end gap-2 select-none';
+    container.appendChild(wrapper);
+
+    // Section view button — own container, hidden by default
+    this.sectionViewEl = document.createElement('div');
+    this.sectionViewEl.className = 'panel-bg border border-base-content/10 rounded-md p-1';
+    this.sectionViewEl.style.display = 'none';
+    this.sectionViewEl.innerHTML = `<button class="${BTN_ACTIVE}" data-action="section-view" title="Toggle section view">${ICON_SECTION_VIEW}</button>`;
+    wrapper.appendChild(this.sectionViewEl);
+
+    // Main settings panel
     this.el = document.createElement('div');
-    this.el.className = 'absolute right-6 top-1/2 -translate-y-1/2 z-[100] flex flex-col gap-0.5 panel-bg border border-base-content/10 rounded-md p-1 select-none';
+    this.el.className = 'flex flex-col gap-0.5 panel-bg border border-base-content/10 rounded-md p-1';
     this.el.innerHTML = this.buildHTML();
-    container.appendChild(this.el);
+    wrapper.appendChild(this.el);
 
     this.bindEvents();
     viewerSettings.subscribe(() => this.sync());
@@ -62,6 +77,12 @@ export class SettingsPanel {
       viewerSettings.update({ showGrid: !viewerSettings.current.showGrid });
     });
 
+    this.sectionViewEl.querySelector<HTMLButtonElement>('[data-action="section-view"]')?.addEventListener('click', () => {
+      const next = !viewerSettings.current.sectionView;
+      viewerSettings.update({ sectionView: next });
+      this.onSectionViewToggle?.(next);
+    });
+
     this.el.querySelector<HTMLButtonElement>('[data-action="theme"]')?.addEventListener('click', () => {
       const next = isDarkTheme() ? 'fluidcad-light' : 'fluidcad-dark';
       document.documentElement.setAttribute('data-theme', next);
@@ -83,6 +104,19 @@ export class SettingsPanel {
     if (btn) { btn.style.display = visible ? '' : 'none'; }
     const sep = this.el.querySelector<HTMLElement>('.h-px');
     if (sep) { sep.style.display = visible ? '' : 'none'; }
+  }
+
+  setSectionViewToggleHandler(fn: (enabled: boolean) => void): void {
+    this.onSectionViewToggle = fn;
+  }
+
+  setSectionViewVisible(visible: boolean): void {
+    this.sectionViewEl.style.display = visible ? '' : 'none';
+  }
+
+  setSectionViewActive(active: boolean): void {
+    const btn = this.sectionViewEl.querySelector<HTMLButtonElement>('[data-action="section-view"]');
+    if (btn) { btn.className = active ? BTN_ACTIVE : BTN_BASE; }
   }
 
   setProjectionLocked(locked: boolean): void {
@@ -107,6 +141,12 @@ export class SettingsPanel {
     const gridBtn = this.el.querySelector<HTMLButtonElement>('[data-action="grid"]');
     if (gridBtn) {
       gridBtn.className = s.showGrid ? BTN_ACTIVE : BTN_BASE;
+    }
+    if (this.sectionViewEl.style.display !== 'none') {
+      const sectionBtn = this.sectionViewEl.querySelector<HTMLButtonElement>('[data-action="section-view"]');
+      if (sectionBtn) {
+        sectionBtn.className = s.sectionView ? BTN_ACTIVE : BTN_BASE;
+      }
     }
   }
 }

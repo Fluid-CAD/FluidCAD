@@ -1,4 +1,4 @@
-import { AxesHelper, Matrix4, Object3D, Vector3 } from 'three';
+import { AxesHelper, Matrix4, Object3D, Plane, Vector3 } from 'three';
 import InfiniteGridHelper from '../helpers/infinit-grid';
 import { PlaneData, Vec3Data } from '../types';
 import { SceneContext } from './scene-context';
@@ -27,6 +27,7 @@ export class SceneModeManager {
   private enabled = true;
   private lastGridNormal = Z_UP.clone();
   private lastGridPosition: Vector3 | undefined;
+  private _sectionPlane: Plane | null = null;
 
   constructor(private ctx: SceneContext) {
     this.setupDefaultAxes();
@@ -46,6 +47,10 @@ export class SceneModeManager {
     return this.mode === 'sketch';
   }
 
+  get sectionPlane(): Plane | null {
+    return this._sectionPlane;
+  }
+
   set sketchEnabled(value: boolean) {
     this.enabled = value;
   }
@@ -56,6 +61,7 @@ export class SceneModeManager {
 
   enterDefaultMode(): void {
     if (this.mode === 'sketch') {
+      this._sectionPlane = null;
       this.restoreCamera();
 
       // Restore perspective if it was active before sketch mode
@@ -92,6 +98,8 @@ export class SceneModeManager {
     const normal = toVec3(plane.normal);
     const origin = toVec3(plane.origin);
     this.setupGrid(normal, origin.add(normal.clone().multiplyScalar(-0.01)));
+
+    this.createSectionPlane(plane);
   }
 
   /** Snap the camera back along the sketch normal, preserving target and zoom. */
@@ -114,6 +122,8 @@ export class SceneModeManager {
 
     cc.getTarget(this.ctx.controls.target);
     this.ctx.gizmo.target = this.ctx.controls.target;
+
+    this.createSectionPlane(plane);
   }
 
   // -------------------------------------------------------------------------
@@ -244,6 +254,15 @@ export class SceneModeManager {
   // -------------------------------------------------------------------------
   // Util
   // -------------------------------------------------------------------------
+
+  private createSectionPlane(plane: PlaneData): void {
+    const normal = toVec3(plane.normal).negate();
+    const origin = toVec3(plane.origin).add(toVec3(plane.normal).multiplyScalar(0.1));
+    if (!this._sectionPlane) {
+      this._sectionPlane = new Plane();
+    }
+    this._sectionPlane.setFromNormalAndCoplanarPoint(normal, origin);
+  }
 
   private removeByName(name: string): void {
     const obj = this.ctx.scene.getObjectByName(name);

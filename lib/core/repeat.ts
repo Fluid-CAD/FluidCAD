@@ -198,7 +198,8 @@ function build(context: SceneParserContext): RepeatFunction {
         if ('offset' in circularOptions && circularOptions.offset !== undefined) {
           offset = circularOptions.offset;
         } else {
-          offset = (circularOptions as { angle: number }).angle / (count - 1);
+          const angle = (circularOptions as { angle: number }).angle;
+          offset = angle % 360 === 0 ? angle / count : angle / (count - 1);
         }
 
         const startOffset = centered ? -(count * offset) / 2 : 0;

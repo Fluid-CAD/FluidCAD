@@ -1,3 +1,4 @@
+import { SceneObject } from "../../common/scene-object.js";
 import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { rad } from "../../helpers/math-helpers.js";
@@ -52,6 +53,11 @@ export class AngledLine extends GeometrySceneObject {
     if (this.sketch) this.setCurrentPosition(endPoint);
 
     if (this.targetPlane) this.targetPlane.removeShapes(this);
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
+    return new AngledLine(this.length, this.angle, this.centered, targetPlane);
   }
 
   compareTo(other: AngledLine): boolean {

@@ -84,6 +84,11 @@ export class Color extends SceneObject {
     }
   }
 
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const selection = this._selection ? (remap.get(this._selection) || this._selection) : undefined;
+    return new Color(this.color, selection);
+  }
+
   compareTo(other: Color): boolean {
     if (!(other instanceof Color)) {
       return false;

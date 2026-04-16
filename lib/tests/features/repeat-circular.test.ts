@@ -52,6 +52,21 @@ describe("repeat circular", () => {
     expect(countShapes(scene)).toBe(3);
   });
 
+  it("should evenly space 3 instances around full circle", () => {
+    sketch("xy", () => {
+      move([50, 0]);
+      rect(20, 20);
+    });
+    const e = extrude(10).new() as ExtrudeBase;
+
+    // count: 3, angle: 360 → 120° apart
+    repeat("circular", "z", { count: 3, angle: 360 }, e);
+
+    const scene = render();
+    // Original (1) + 2 repeated = 3
+    expect(countShapes(scene)).toBe(3);
+  });
+
   it("should use explicit offset between instances", () => {
     sketch("xy", () => {
       move([50, 0]);

@@ -1,5 +1,6 @@
 import chokidar from 'chokidar';
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
+import { join } from 'path';
 
 /**
  * Creates a file watcher that monitors .fluid.js files in the workspace
@@ -52,4 +53,21 @@ export function createFileWatcher(workspacePath, server) {
   console.log(`Watching for .fluid.js changes in ${workspacePath}`);
 
   return watcher;
+}
+
+/**
+ * Finds `.fluid.js` files in the top level of the workspace directory,
+ * ignoring node_modules and .git.
+ *
+ * @param {string} workspacePath - Absolute path to the workspace directory
+ * @returns {string[]} Absolute paths to discovered `.fluid.js` files
+ */
+export function findFluidFiles(workspacePath) {
+  try {
+    return readdirSync(workspacePath)
+      .filter((f) => f.endsWith('.fluid.js'))
+      .map((f) => join(workspacePath, f));
+  } catch {
+    return [];
+  }
 }

@@ -20,7 +20,7 @@ function part<T = any>(name: string, callback: (options: T) => void): PartHandle
 
   const isDirectEdit = sourceLocation
     && currentFile
-    && sourceLocation.filePath.replace('virtual:live-render:', '') === currentFile;
+    && sourceLocation.filePath === currentFile;
 
   if (isDirectEdit) {
     const scene = getCurrentScene();

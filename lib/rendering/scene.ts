@@ -54,6 +54,10 @@ export class Scene {
   }
 
   addSceneObject(obj: SceneObject): void {
+    if (this.sceneObjects.includes(obj)) {
+      return;
+    }
+
     obj.setOrder(this.sceneObjects.length);
 
     const activeObj = this.getActiveContainer();
@@ -61,10 +65,8 @@ export class Scene {
       activeObj.addChildObject(obj);
     }
 
-    if (!this.sceneObjects.includes(obj)) {
-      this.sceneObjects.push(obj);
-      this.idMap.set(obj.id, obj);
-    }
+    this.sceneObjects.push(obj);
+    this.idMap.set(obj.id, obj);
   }
 
   startProgressiveContainer(obj: SceneObject): void {

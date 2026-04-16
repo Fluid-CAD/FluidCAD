@@ -15,8 +15,13 @@ export function captureSourceLocation(): SourceLocation | null {
   for (const frame of lines) {
     const match = frame.match(/((?:[A-Za-z]:)?\/[^\s]+?\.fluid\.js):(\d+):(\d+)/);
     if (match) {
+      let filePath = match[1];
+      const virtualIdx = filePath.indexOf('virtual:live-render:');
+      if (virtualIdx !== -1) {
+        filePath = filePath.substring(virtualIdx + 'virtual:live-render:'.length);
+      }
       return {
-        filePath: match[1],
+        filePath,
         line: parseInt(match[2], 10),
         column: parseInt(match[3], 10),
       };

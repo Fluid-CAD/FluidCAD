@@ -100,7 +100,7 @@ export class Viewer {
     });
 
     canvas.addEventListener('mouseup', (e) => {
-      if (!this.selectionHandler || this.isTrimming || this.isRegionPicking || this.isBezierDrawing) {
+      if (!this.selectionHandler || this.isTrimming || this.isRegionPicking || this.isBezierDrawing || this.modeManager.isSketchMode) {
         return;
       }
       const dx = e.clientX - downX;
@@ -477,7 +477,7 @@ export class Viewer {
     });
 
     canvas.addEventListener('mousemove', (e) => {
-      if (this.isMouseDown || this.isTrimming || this.isRegionPicking || this.isBezierDrawing) {
+      if (this.isMouseDown || this.isTrimming || this.isRegionPicking || this.isBezierDrawing || this.modeManager.isSketchMode) {
         return;
       }
       if (this.hoverRafId !== null) {

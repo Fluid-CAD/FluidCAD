@@ -1,6 +1,7 @@
 import {
   BufferAttribute,
   BufferGeometry,
+  DoubleSide,
   Group,
   Mesh,
   MeshPhongMaterial,
@@ -37,12 +38,14 @@ export class FaceMesh extends Group {
         polygonOffset: true,
         polygonOffsetFactor: isOverlay ? -1 : 1,
         polygonOffsetUnits: 1,
+        side: DoubleSide
       });
 
       const mesh = new Mesh(geometry, material);
       if (meshData.faceMapping) {
         mesh.userData.faceMapping = meshData.faceMapping;
       }
+
       this.add(mesh);
     }
   }

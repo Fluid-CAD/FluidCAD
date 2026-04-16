@@ -12,6 +12,8 @@ import iconRefresh from '@tabler/icons/outline/refresh.svg?raw';
 import iconWand from '@tabler/icons/outline/wand.svg?raw';
 import iconSun from '@tabler/icons/outline/sun.svg?raw';
 import iconMoon from '@tabler/icons/outline/moon.svg?raw';
+import iconEye from '@tabler/icons/outline/eye.svg?raw';
+import iconEyeOff from '@tabler/icons/outline/eye-off.svg?raw';
 
 export const ICON_FIT = iconAutoFit;
 export const ICON_ORTHO = iconOrthographic;
@@ -27,3 +29,5 @@ export const ICON_REFRESH = iconRefresh;
 export const ICON_WAND = iconWand;
 export const ICON_SUN = iconSun;
 export const ICON_MOON = iconMoon;
+export const ICON_EYE = iconEye;
+export const ICON_EYE_OFF = iconEyeOff;

@@ -72,11 +72,15 @@ onThemeChange(() => viewer.rebuildSceneMesh());
 const shapePropertiesModal = new ShapePropertiesModal(container);
 const selectionInfoOverlay = new SelectionInfoOverlay(container);
 const exportDialog = new ExportDialog(container, viewer.sceneContext);
-const timelinePanel = new TimelinePanel(container, (shapeId) => {
-  viewer.highlightShape(shapeId);
-}, (shapeIds) => {
-  exportDialog.show(shapeIds);
-});
+const timelinePanel = new TimelinePanel(
+  container,
+  (shapeId) => viewer.highlightShape(shapeId),
+  (shapeIds) => exportDialog.show(shapeIds),
+  (shapeId, visible) => viewer.setShapeVisibility(shapeId, visible),
+  (shapeId) => viewer.isShapeHidden(shapeId),
+  (shapeId, opacity) => viewer.setShapeTransparency(shapeId, opacity),
+  (shapeId) => viewer.getShapeTransparency(shapeId),
+);
 
 shapePropertiesModal.setOpenHandler(() => {
   viewer.clearHighlight();

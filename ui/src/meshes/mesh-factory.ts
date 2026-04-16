@@ -117,5 +117,27 @@ export function buildSceneMesh(
     container.add(buildObjectMesh(obj, sceneObjects, activeSketchId, camera, isRegionPicking));
   }
 
+  // Stable per-shape index that mirrors the panel's iteration order:
+  // walk every sceneShape in flat order and tag the matching mesh.
+  // Survives shape-id churn between renders.
+  const shapeIdToFlatIndex = new Map<string, number>();
+  let flatIdx = 0;
+  for (const obj of sceneObjects) {
+    if (!obj.sceneShapes) continue;
+    for (const shape of obj.sceneShapes) {
+      if (shape.isMetaShape) continue;
+      if (shape.shapeId) {
+        shapeIdToFlatIndex.set(shape.shapeId, flatIdx);
+      }
+      flatIdx++;
+    }
+  }
+  container.traverse((child) => {
+    const sid = child.userData.shapeId;
+    if (sid && shapeIdToFlatIndex.has(sid)) {
+      child.userData.shapeIndex = shapeIdToFlatIndex.get(sid);
+    }
+  });
+
   return container;
 }

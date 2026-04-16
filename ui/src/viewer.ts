@@ -55,6 +55,8 @@ export class Viewer {
   private isMouseDown = false;
   private highlightedSub: SubSelection = null;
   private activeSketchId: string | null = null;
+  private hiddenShapeIndices = new Set<number>();
+  private shapeOpacities = new Map<number, number>();
 
   constructor(containerId: string) {
     const container = document.getElementById(containerId)!;
@@ -260,6 +262,8 @@ export class Viewer {
 
     const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking);
     this.ctx.scene.add(mesh);
+    this.applyHiddenShapes();
+    this.applyShapeOpacities();
 
     // Auto-fit on first render or in sketch mode (skip if viewport barely changed or trimming)
     if (!this.hasRendered || (this.modeManager.isSketchMode && !isRollback && !this.isTrimming && !this.isRegionPicking && !this.isBezierDrawing)) {
@@ -767,7 +771,107 @@ export class Viewer {
     this.removeCompiledMesh();
     const mesh = buildSceneMesh(this.sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking);
     this.ctx.scene.add(mesh);
+    this.applyHiddenShapes();
+    this.applyShapeOpacities();
     this.ctx.requestRender();
+  }
+
+  setShapeVisibility(shapeId: string, visible: boolean): void {
+    const shapeIndex = this.findShapeIndexForId(shapeId);
+    if (shapeIndex === undefined) {
+      return;
+    }
+    if (visible) {
+      this.hiddenShapeIndices.delete(shapeIndex);
+    } else {
+      this.hiddenShapeIndices.add(shapeIndex);
+    }
+    this.applyVisibilityForIndex(shapeIndex, visible);
+    this.ctx.requestRender();
+  }
+
+  isShapeHidden(shapeId: string): boolean {
+    const shapeIndex = this.findShapeIndexForId(shapeId);
+    if (shapeIndex === undefined) {
+      return false;
+    }
+    return this.hiddenShapeIndices.has(shapeIndex);
+  }
+
+  private applyVisibilityForIndex(shapeIndex: number, visible: boolean): void {
+    this.ctx.scene.traverse((child) => {
+      if (child.userData.shapeIndex === shapeIndex) {
+        child.visible = visible;
+      }
+    });
+  }
+
+  setShapeTransparency(shapeId: string, opacity: number): void {
+    const shapeIndex = this.findShapeIndexForId(shapeId);
+    if (shapeIndex === undefined) {
+      return;
+    }
+    if (opacity >= 1) {
+      this.shapeOpacities.delete(shapeIndex);
+    } else {
+      this.shapeOpacities.set(shapeIndex, opacity);
+    }
+    this.applyOpacityForIndex(shapeIndex, opacity);
+    this.ctx.requestRender();
+  }
+
+  getShapeTransparency(shapeId: string): number {
+    const shapeIndex = this.findShapeIndexForId(shapeId);
+    if (shapeIndex === undefined) {
+      return 1;
+    }
+    return this.shapeOpacities.get(shapeIndex) ?? 1;
+  }
+
+  private findShapeIndexForId(shapeId: string): number | undefined {
+    let result: number | undefined;
+    this.ctx.scene.traverse((child) => {
+      if (child.userData.shapeId === shapeId && typeof child.userData.shapeIndex === 'number') {
+        result = child.userData.shapeIndex;
+      }
+    });
+    return result;
+  }
+
+  private applyOpacityForIndex(shapeIndex: number, opacity: number): void {
+    const roots: Object3D[] = [];
+    this.ctx.scene.traverse((child) => {
+      if (child.userData.shapeIndex === shapeIndex) {
+        roots.push(child);
+      }
+    });
+    for (const root of roots) {
+      root.traverse((child) => {
+        const mat = (child as any).material;
+        if (!mat) {
+          return;
+        }
+        const materials = Array.isArray(mat) ? mat : [mat];
+        for (const m of materials) {
+          m.transparent = opacity < 1;
+          m.opacity = opacity;
+          m.depthWrite = opacity >= 1;
+          m.needsUpdate = true;
+        }
+      });
+    }
+  }
+
+  private applyShapeOpacities(): void {
+    for (const [shapeIndex, opacity] of this.shapeOpacities) {
+      this.applyOpacityForIndex(shapeIndex, opacity);
+    }
+  }
+
+  private applyHiddenShapes(): void {
+    for (const shapeIndex of this.hiddenShapeIndices) {
+      this.applyVisibilityForIndex(shapeIndex, false);
+    }
   }
 
   /** Remove the previous compiled mesh tree and dispose its GPU resources. */

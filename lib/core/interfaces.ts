@@ -15,6 +15,14 @@ export interface ISceneObject {
    * final geometry output unless explicitly included.
    */
   guide(): this;
+
+  /**
+   * Marks this object as reusable. Reusable objects retain their shapes when
+   * consumed by features (e.g., extrude, revolve), allowing multiple features
+   * to reference the same source geometry. Use `remove(obj)` to force-remove
+   * shapes from a reusable object.
+   */
+  reusable(): this;
 }
 
 export interface IFuseable extends ISceneObject {

@@ -8,7 +8,7 @@ export class Remove extends SceneObject {
 
   build() {
     for (const obj of this.objects) {
-      obj.removeShapes(this);
+      obj.removeShapes(this, true);
     }
   }
 

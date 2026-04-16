@@ -58,8 +58,7 @@
     "chokidar": "^5.0.0",
     "color-name": "^2.1.0",
     "express": "^5.2.1",
-    "occjs-fluidcad": "^2.0.0",
-    "occjs-wrapper": "npm:occjs-fluidcad@2.0.0",
+    "occjs-wrapper": "../occjs-fluidcad/",
     "tsx": "^4.21.0",
     "vite": "^8.0.8",
     "ws": "^8.18.0"

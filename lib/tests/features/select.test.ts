@@ -876,4 +876,75 @@ describe("select", () => {
       expect(sel.getShapes()).toHaveLength(1);
     });
   });
+
+  describe("withTangents", () => {
+    describe("face withTangents", () => {
+      it("should expand to tangent side faces but not perpendicular top/bottom", () => {
+        sketch("xy", () => {
+          rect(200, 100).radius(10);
+        });
+
+        extrude(50);
+
+        // "front" = XZ plane (y=0). Matches one flat side face.
+        // withTangents should follow cylindrical fillets to adjacent side faces,
+        // but NOT cross to top/bottom faces (90° angle = not tangent).
+        const sel = select(face().onPlane("front").withTangents()) as SelectSceneObject;
+
+        render();
+
+        const shapes = sel.getShapes();
+
+        // Rounded rect extrusion has:
+        // - 2 cap faces (top/bottom on XY planes)
+        // - 4 flat side faces
+        // - 4 cylindrical fillet faces connecting adjacent sides
+        // Total = 10 faces
+        //
+        // Starting from front face, tangent expansion should include:
+        // 4 flat side faces + 4 cylindrical fillet faces = 8
+        // (NOT the 2 cap faces which meet at 90°)
+        expect(shapes.length).toBe(8);
+      });
+
+      it("should not expand when no tangent neighbors exist (sharp box)", () => {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+
+        extrude(30);
+
+        // Sharp box: all edges are 90° → no tangent expansion
+        const sel = select(face().onPlane("front").withTangents()) as SelectSceneObject;
+
+        render();
+
+        // Should still be just the 1 front face
+        expect(sel.getShapes()).toHaveLength(1);
+      });
+    });
+
+    describe("edge withTangents", () => {
+      it("should expand to tangent edges along a filleted box bottom", () => {
+        sketch("xy", () => {
+          rect(200, 100).radius(10);
+        });
+
+        extrude(50);
+
+        // Bottom edges on XY plane: 4 line edges + 4 arc edges = 8 edges
+        // All are tangent-connected (line→arc→line→arc→...)
+        // Selecting one line edge on "front" plane + withTangents should get all 8
+        const sel = select(edge().onPlane("xy").onPlane("front").withTangents()) as SelectSceneObject;
+
+        render();
+
+        const shapes = sel.getShapes();
+        // The front-bottom edge is tangent to the 2 corner arcs,
+        // which are tangent to the left/right bottom edges, etc.
+        // All 8 bottom edges form a tangent chain.
+        expect(shapes.length).toBe(8);
+      });
+    });
+  });
 });

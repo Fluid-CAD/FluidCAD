@@ -1,5 +1,6 @@
 import { Shape } from "../common/shapes.js";
 import { FilterBuilderBase } from "./filter-builder-base.js";
+import { TangentExpander } from "./tangent-expander.js";
 
 export class ShapeFilter {
   private builders: FilterBuilderBase[];
@@ -32,6 +33,12 @@ export class ShapeFilter {
           }
         }
       }
+    }
+
+    // Tangent expansion: if any builder requests it, expand result set via BFS
+    const needsExpansion = this.builders.some(b => b.hasTangentExpansion());
+    if (needsExpansion && result.length > 0) {
+      return TangentExpander.expand(result, this.shapes);
     }
 
     return result;

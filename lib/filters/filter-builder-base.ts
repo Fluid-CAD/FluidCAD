@@ -4,10 +4,24 @@ import { FilterBase } from "./filter-base.js";
 
 export class FilterBuilderBase<TShape extends Shape = Shape> {
   protected filters: FilterBase<TShape>[] = [];
+  protected _withTangents: boolean = false;
 
   filter(filter: FilterBase<TShape>) {
     this.filters.push(filter);
     return this;
+  }
+
+  /**
+   * Expands the selection to include all shapes transitively connected
+   * by tangency (G1 continuity) to the initially matched shapes.
+   */
+  withTangents(): this {
+    this._withTangents = true;
+    return this;
+  }
+
+  hasTangentExpansion(): boolean {
+    return this._withTangents;
   }
 
   getFilters() {
@@ -19,10 +33,15 @@ export class FilterBuilderBase<TShape extends Shape = Shape> {
     for (const filter of this.filters) {
       transformedBuilder.filter(filter.transform(matrix) as FilterBase<TShape>);
     }
+    transformedBuilder._withTangents = this._withTangents;
     return transformedBuilder;
   }
 
   equals(other: FilterBuilderBase<TShape>): boolean {
+    if (this._withTangents !== other._withTangents) {
+      return false;
+    }
+
     if (this.filters.length !== other.filters.length) {
       return false;
     }

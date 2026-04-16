@@ -96,6 +96,14 @@ export class MirrorShape2D extends GeometrySceneObject {
     return new LazyVertex(this.generateUniqueName('end-vertex'), () => [this.getState('end')]);
   }
 
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const axis = (remap.get(this.axis) as AxisObjectBase) || this.axis;
+    const targetObjects = this.targetObjects
+      ? this.targetObjects.map(obj => remap.get(obj) || obj)
+      : null;
+    return new MirrorShape2D(axis, targetObjects);
+  }
+
   compareTo(other: MirrorShape2D): boolean {
     if (!(other instanceof MirrorShape2D)) {
       return false;

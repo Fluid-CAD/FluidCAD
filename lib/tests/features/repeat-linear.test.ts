@@ -116,6 +116,34 @@ describe("repeat linear", () => {
     expect(countShapes(scene)).toBe(5);
   });
 
+  it("should center correctly with count 3", () => {
+    sketch("xy", () => {
+      rect(20, 20);
+    });
+    const e = extrude(10).new() as ExtrudeBase;
+
+    // count: 3, centered → one clone on each side of the original
+    repeat("linear", "x", { count: 3, offset: 25, centered: true }, e);
+
+    const scene = render();
+    // Original (1) + 2 repeated = 3
+    expect(countShapes(scene)).toBe(3);
+  });
+
+  it("should center correctly in a multi-axis grid", () => {
+    sketch("xy", () => {
+      rect(10, 10);
+    });
+    const e = extrude(10).new() as ExtrudeBase;
+
+    // 3×3 centered grid → 9 positions, 1 is the center (original) = 8 clones
+    repeat("linear", ["x", "y"], { count: [3, 3], offset: 30, centered: true }, e);
+
+    const scene = render();
+    // Original (1) + 8 repeated = 9
+    expect(countShapes(scene)).toBe(9);
+  });
+
   it("should skip specified index", () => {
     sketch("xy", () => {
       rect(20, 20);

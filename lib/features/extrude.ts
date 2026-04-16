@@ -7,6 +7,7 @@ import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
+import { EdgeOps } from "../oc/edge-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { ExtrudeThroughAll } from "./infinite-extrude.js";
 import { ThinFaceMaker } from "../oc/thin-face-maker.js";
@@ -105,22 +106,24 @@ export class Extrude extends ExtrudeBase {
     const extrusions2 = extruder2.extrude();
     const endFaces = extruder2.getEndFaces();
 
-    const preFusionInternalFaces = [
-      ...extruder1.getInternalFaces(),
-      ...extruder2.getInternalFaces(),
-    ];
-
     const all = [...extrusions1, ...extrusions2];
     const { result: extrusions } = BooleanOps.fuse(all);
 
-    // Collect remaining faces from the fused solid (not start/end)
+    // Collect remaining faces and fused start/end faces from the fused solid.
+    // We need the fused face objects (not pre-fusion) for IsPartner matching.
     const remainingFaces: Face[] = [];
+    const fusedStartFaces: Face[] = [];
+    const fusedEndFaces: Face[] = [];
     for (const solid of extrusions) {
       const allFaces = Explorer.findFacesWrapped(solid);
       for (const f of allFaces) {
         const isStart = startFaces.some(sf => f.getShape().IsSame(sf.getShape()));
         const isEnd = endFaces.some(ef => f.getShape().IsSame(ef.getShape()));
-        if (!isStart && !isEnd) {
+        if (isStart) {
+          fusedStartFaces.push(f as Face);
+        } else if (isEnd) {
+          fusedEndFaces.push(f as Face);
+        } else {
           remainingFaces.push(f as Face);
         }
       }
@@ -133,17 +136,46 @@ export class Extrude extends ExtrudeBase {
     if (inwardEdges && inwardEdges.length > 0) {
       // For thin open profiles: reclassify using 2D midpoint matching on the fused solid
       const result = this.reclassifyThinFaces(
-        remainingFaces, [...startFaces, ...endFaces], plane, inwardEdges, outwardEdges || []
+        remainingFaces, [...fusedStartFaces, ...fusedEndFaces], plane, inwardEdges, outwardEdges || []
       );
       sideFaces = result.sideFaces;
       internalFaces = result.internalFaces;
       capFaces = result.capFaces;
     } else {
-      // For closed profiles: use existing IsSame approach
+      // Detect inner wire edges from the extruder's firstFaces (at the sketch plane,
+      // pre-fusion). These have the same wire orientation the Extruder uses internally.
+      // Then map to fused solid edges using 2D midpoint matching, since SimplifyResult
+      // merges half-faces and breaks TShape identity.
+      const preInnerEdges: Edge[] = [];
+      for (const sf of extruder1.getStartFaces()) {
+        for (const wire of (sf as Face).getWires()) {
+          if (!wire.isCW(plane.normal)) {
+            for (const edge of wire.getEdges()) {
+              preInnerEdges.push(edge as Edge);
+            }
+          }
+        }
+      }
+
+      const fusedInnerEdges: Edge[] = [];
+      if (preInnerEdges.length > 0) {
+        const innerMids = preInnerEdges.map(e => plane.worldToLocal(EdgeOps.getEdgeMidPointRaw(e.getShape())));
+        for (const sf of fusedStartFaces) {
+          for (const sfe of sf.getEdges()) {
+            const mid = plane.worldToLocal(EdgeOps.getEdgeMidPointRaw(sfe.getShape()));
+            if (innerMids.some(im => mid.distanceTo(im) < 1e-4)) {
+              fusedInnerEdges.push(sfe);
+            }
+          }
+        }
+      }
+
       sideFaces = [];
       internalFaces = [];
       for (const f of remainingFaces) {
-        const isInternal = preFusionInternalFaces.some(pf => f.getShape().IsSame(pf.getShape()));
+        const isInternal = fusedInnerEdges.length > 0 && f.getEdges().some(fe =>
+          fusedInnerEdges.some(ie => fe.getShape().IsPartner(ie.getShape()))
+        );
         if (isInternal) {
           internalFaces.push(f);
         } else {

@@ -226,6 +226,39 @@ Selects edges bounding the internal geometry created during extrusion.
 
 ---
 
+### capFaces()
+
+```ts
+capFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+```
+
+Selects the cap faces at the open ends of a thin-walled extrusion from an open profile.
+These are the small faces connecting the inner and outer walls at the profile endpoints.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### capEdges()
+
+```ts
+capEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges on the cap faces of a thin-walled extrusion from an open profile.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
 ### draft()
 
 ```ts

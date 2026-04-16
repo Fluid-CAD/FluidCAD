@@ -117,6 +117,50 @@ FluidCAD ships official extensions for **VS Code** and **Neovim**, but works wit
 
 ---
 
+## Tutorials
+
+Step-by-step tutorials from simple shapes to exam-level parts. [Browse all tutorials &rarr;](https://fluidcad.io/docs/tutorials/)
+
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <a href="https://fluidcad.io/docs/tutorials/lantern">
+        <img src="https://fluidcad.io/img/docs/tutorials/lantern-final.png" alt="Lantern" height="180" /><br />
+        <strong>Lantern</strong>
+      </a>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://fluidcad.io/docs/tutorials/ice-cube-tray">
+        <img src="https://fluidcad.io/img/docs/tutorials/ice-cube-tray-final.png" alt="Ice Cube Tray" height="180" /><br />
+        <strong>Ice Cube Tray</strong>
+      </a>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://fluidcad.io/docs/tutorials/grooved-box">
+        <img src="https://fluidcad.io/img/docs/tutorials/grooved-box-final.png" alt="Grooved Box" height="180" /><br />
+        <strong>Grooved Box</strong>
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <a href="https://fluidcad.io/docs/tutorials/flange-with-notch">
+        <img src="https://fluidcad.io/img/docs/tutorials/flange-with-notch-final.png" alt="Flange With Notch" height="180" /><br />
+        <strong>Flange With Notch</strong>
+      </a>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://fluidcad.io/docs/tutorials/cswp-sample-exam">
+        <img src="https://fluidcad.io/img/docs/tutorials/cswp-sample-exam-final.png" alt="CSWP Sample Exam" height="180" /><br />
+        <strong>CSWP Sample Exam</strong>
+      </a>
+    </td>
+    <td width="33%"></td>
+  </tr>
+</table>
+
+---
+
 ## Getting Started
 
 ### 1. Create a New Project

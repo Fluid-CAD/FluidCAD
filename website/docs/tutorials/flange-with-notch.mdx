@@ -1,0 +1,178 @@
+---
+sidebar_position: 7
+title: "Flange With Notch"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import flangeWithNotchFinal from '!!raw-loader!./_examples/flange-with-notch-final.js';
+
+# Building a Flange With Notch
+
+![Finished flange with notch](/img/docs/tutorials/flange-with-notch-final.png)
+
+In this tutorial, you'll build a flange with a notch from scratch, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=4XeLNQvhoyw). It covers tangent lines and arcs, guide geometry, mirror symmetry, thin-walled extrusions, offset reference planes, and counter bores.
+
+Create a new file called `flange-with-notch.fluid.js` in your project.
+
+## Setup
+
+Start with imports. This model uses tangent geometry and constraints.
+
+```js
+import { circle, cut, extrude, hMove, mirror, plane, rect, sketch,
+    split, tArc, tLine, trim } from "fluidcad/core";
+import { outside } from "fluidcad/constraints";
+```
+
+- **`fluidcad/core`** — all the modeling operations (sketch, extrude, cut, tangent geometry, etc.)
+- **`fluidcad/constraints`** — the `outside` constraint for tangent lines
+
+## Step 1: Base profile circles
+
+The flange profile starts with two concentric circles and a smaller bolt hole circle placed to the side.
+
+### Main circles
+
+```js
+sketch("xy", () => {
+    circle(42);
+    const c2 = circle(70);
+    hMove(50)
+```
+
+`circle(42)` draws the inner bore circle. `circle(70)` draws the outer flange circle — we store it as `c2` because we'll reference it for tangent geometry later. `hMove(50)` moves the cursor 50 units to the right, positioning us at the bolt hole center.
+
+![Base circles](/img/docs/tutorials/flange-with-notch-step1.png)
+
+### Bolt hole and guide circle
+
+```js
+    const c3 = circle(10)
+    const c4 = circle(32).guide()
+```
+
+`circle(10)` draws the bolt hole. `circle(32).guide()` places a larger construction circle — it's visible for reference but won't become part of the solid. This guide circle defines the tangent boundary for the connecting geometry between the flange and the bolt tabs.
+
+![Guide geometry](/img/docs/tutorials/flange-with-notch-step1-guides.png)
+
+## Step 2: Tangent lines and arc
+
+Now we connect the outer flange circle to the guide circle with tangent lines and a closing arc.
+
+### Tangent lines
+
+```js
+    const l1 = tLine(outside(c2), outside(c4))
+    const m = mirror("x", l1)
+```
+
+`tLine(outside(c2), outside(c4))` draws a line tangent to both the outer flange circle and the guide circle, on the outside of each. The `outside` constraint ensures the line runs along the outer edges. `mirror("x", l1)` creates a matching tangent line on the other side, forming a symmetric pair.
+
+![Tangent lines](/img/docs/tutorials/flange-with-notch-step2-tangent.png)
+
+### Closing arc
+
+```js
+    const a = tArc(l1.end())
+```
+
+`tArc(l1.end())` draws an arc that smoothly connects the endpoints of the two tangent lines. The arc is tangent to the line at its end, creating a smooth transition around the bolt tab.
+
+![Tangent arc](/img/docs/tutorials/flange-with-notch-step2-arc.png)
+
+## Step 3: Complete profile and extrude
+
+### Mirror the profile
+
+```js
+    mirror("y", l1, m, a, c3)
+})
+```
+
+`mirror("y", l1, m, a, c3)` mirrors the tangent lines, the arc, and the bolt hole circle across the Y axis. This creates the second bolt tab on the opposite side, completing the symmetric flange profile.
+
+![Complete sketch](/img/docs/tutorials/flange-with-notch-step3-sketch.png)
+
+### Extrude the base
+
+```js
+const base = extrude(12)
+```
+
+`extrude(12)` pushes the profile 12 units to create the solid flange base. We store the result as `base` to reference its faces later for the counter bores.
+
+![Extruded base](/img/docs/tutorials/flange-with-notch-step3.png)
+
+## Step 4: Middle pipe
+
+```js
+circle(70, "xy")
+extrude(46).thin(-14)
+```
+
+`circle(70, "xy")` draws a circle of radius 70 on the XY plane. `extrude(46).thin(-14)` creates a 46-unit tall thin-walled pipe with a wall thickness of 14 units. The negative value means the wall is offset inward from the circle.
+
+![Middle pipe](/img/docs/tutorials/flange-with-notch-step4.png)
+
+## Step 5: Notch
+
+### Sketch the notch rectangle
+
+```js
+rect(30, 70, plane("xy", 46)).centered()
+```
+
+`plane("xy", 46)` creates a reference plane at the top of the pipe (46 units up). `rect(30, 70)` draws a 30 x 70 rectangle on that plane. `.centered()` centers it on the origin so it straddles the pipe wall.
+
+![Notch sketch](/img/docs/tutorials/flange-with-notch-step5-sketch.png)
+
+### Cut the notch
+
+```js
+cut(8)
+```
+
+`cut(8)` removes 8 units of material downward from the rectangle, creating a notch in the top of the pipe.
+
+![Notch cut](/img/docs/tutorials/flange-with-notch-step5.png)
+
+## Step 6: Counter bores
+
+### Sketch the counter bore circles
+
+```js
+sketch(base.endFaces(), () => {
+    hMove(50)
+    circle(20)
+    mirror("y")
+});
+```
+
+`base.endFaces()` gives us the top face of the flange base. `hMove(50)` moves to the bolt hole center. `circle(20)` draws a larger circle for the counter bore. `mirror("y")` mirrors it to the other bolt tab.
+
+![Counter bore sketch](/img/docs/tutorials/flange-with-notch-step6-sketch.png)
+
+### Cut the counter bores
+
+```js
+cut(4)
+```
+
+`cut(4)` removes 4 units of material, creating shallow recesses for bolt heads.
+
+![Finished flange with notch](/img/docs/tutorials/flange-with-notch-final.png)
+
+## Full code
+
+<CodeBlock language="js">{flangeWithNotchFinal}</CodeBlock>
+
+## What you practiced
+
+- **`circle().guide()`** — placing construction geometry that guides tangent lines but isn't part of the solid
+- **`tLine()` with `outside`** — drawing tangent lines between circles with geometric constraints
+- **`tArc()`** — connecting tangent lines with a smooth closing arc
+- **`mirror()` in sketches** — mirroring sketch geometry to create symmetric profiles
+- **`extrude().thin()`** — creating thin-walled pipe extrusions
+- **`plane()`** — creating offset reference planes for sketching
+- **`rect().centered()`** — centering a rectangle on the sketch origin
+- **`.endFaces()`** — referencing the top face of an extrusion for follow-up sketches

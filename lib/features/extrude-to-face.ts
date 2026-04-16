@@ -1,5 +1,5 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
-import { Face, Shape } from "../common/shapes.js";
+import { Edge, Face, Shape } from "../common/shapes.js";
 import { ExtrudeBase } from "./extrude-base.js";
 import { Extruder } from "./simple-extruder.js";
 import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
@@ -42,9 +42,20 @@ export class ExtrudeToFace extends ExtrudeBase {
     const allSideFaces: Face[] = [];
     const allInternalFaces: Face[] = [];
 
-    const faces = this.isThin()
-      ? ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1])
-      : pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane);
+    let faces: Face[];
+    let inwardEdges: Edge[] | undefined;
+    let outwardEdges: Edge[] | undefined;
+
+    if (this.isThin()) {
+      const thinResult = ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]);
+      faces = thinResult.faces;
+      inwardEdges = thinResult.inwardEdges;
+      outwardEdges = thinResult.outwardEdges;
+    } else {
+      faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane);
+    }
+
+    const allCapFaces: Face[] = [];
 
     for (const startFace of faces) {
       if (isPlanar && FaceQuery.areFacePlanesParallel(startFace, targetFace)) {
@@ -52,10 +63,23 @@ export class ExtrudeToFace extends ExtrudeBase {
         for (const s of shapes) {
           solids.push(s);
         }
-        allStartFaces.push(...extruder.getStartFaces());
-        allEndFaces.push(...extruder.getEndFaces());
-        allSideFaces.push(...extruder.getSideFaces());
-        allInternalFaces.push(...extruder.getInternalFaces());
+
+        if (inwardEdges && inwardEdges.length > 0) {
+          const result = this.reclassifyThinFaces(
+            [...extruder.getSideFaces(), ...extruder.getInternalFaces()],
+            extruder.getStartFaces(), plane, inwardEdges, outwardEdges || []
+          );
+          allStartFaces.push(...extruder.getStartFaces());
+          allEndFaces.push(...extruder.getEndFaces());
+          allSideFaces.push(...result.sideFaces);
+          allInternalFaces.push(...result.internalFaces);
+          allCapFaces.push(...result.capFaces);
+        } else {
+          allStartFaces.push(...extruder.getStartFaces());
+          allEndFaces.push(...extruder.getEndFaces());
+          allSideFaces.push(...extruder.getSideFaces());
+          allInternalFaces.push(...extruder.getInternalFaces());
+        }
       }
       else {
         console.log("Creating advanced extrude for face:");
@@ -71,6 +95,7 @@ export class ExtrudeToFace extends ExtrudeBase {
     this.setState('end-faces', allEndFaces);
     this.setState('side-faces', allSideFaces);
     this.setState('internal-faces', allInternalFaces);
+    this.setState('cap-faces', allCapFaces);
 
     this.extrudable.removeShapes(this);
 

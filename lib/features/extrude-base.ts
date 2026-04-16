@@ -15,6 +15,7 @@ import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { Matrix4 } from "../math/matrix4.js";
+import { EdgeOps } from "../oc/edge-ops.js";
 
 export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   protected _extrudable: Extrudable | null = null;
@@ -170,6 +171,29 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
           return this.resolveEdges(edges, args);
         }
         const faces = parent.getState('internal-faces') as Face[] || [];
+        const edges = faces.flatMap(f => f.getEdges());
+        return this.resolveEdges(edges, args);
+      }, this);
+  }
+
+  capFaces(...args: number[] | FaceFilterBuilder[]): SceneObject {
+    const suffix = this.buildSuffix('cap-faces', args);
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
+      (parent) => {
+        const faces = parent.getState('cap-faces') as Face[] || [];
+        const transform = parent.getTransform();
+        const originalFaces = transform
+          ? (this.getState('cap-faces') as Face[] || [])
+          : null;
+        return this.resolveFaces(faces, args, transform, originalFaces);
+      }, this);
+  }
+
+  capEdges(...args: number[] | EdgeFilterBuilder[]): SceneObject {
+    const suffix = this.buildSuffix('cap-edges', args);
+    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
+      (parent) => {
+        const faces = parent.getState('cap-faces') as Face[] || [];
         const edges = faces.flatMap(f => f.getEdges());
         return this.resolveEdges(edges, args);
       }, this);
@@ -387,6 +411,65 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     this._pickPoints = other._pickPoints;
     this._thin = other._thin;
     return this;
+  }
+
+  /**
+   * Reclassifies faces for thin open-profile extrusions into side, internal, and cap faces.
+   * Uses 2D midpoint projection (onto sketch plane) to match reference face edges to
+   * the inward/outward wire edges, then IsPartner within the solid to classify faces.
+   */
+  protected reclassifyThinFaces(
+    remainingFaces: Face[],
+    referenceFaces: Face[],
+    plane: Plane,
+    inwardEdges: Edge[],
+    outwardEdges: Edge[]
+  ): { sideFaces: Face[]; internalFaces: Face[]; capFaces: Face[] } {
+    // Project edge midpoints to 2D on the sketch plane for height-independent matching
+    const to2D = (edge: Edge) => plane.worldToLocal(EdgeOps.getEdgeMidPointRaw(edge.getShape()));
+
+    const inwardMids = inwardEdges.map(to2D);
+    const outwardMids = outwardEdges.map(to2D);
+
+    // Find reference face edges matching inward/outward in 2D
+    const solidInwardEdges: Edge[] = [];
+    const solidOutwardEdges: Edge[] = [];
+
+    for (const rf of referenceFaces) {
+      for (const rfe of rf.getEdges()) {
+        const rfeMid = to2D(rfe);
+        if (inwardMids.some(mp => rfeMid.distanceTo(mp) < 1e-4)) {
+          solidInwardEdges.push(rfe);
+        } else if (outwardMids.some(mp => rfeMid.distanceTo(mp) < 1e-4)) {
+          solidOutwardEdges.push(rfe);
+        }
+      }
+    }
+
+    // Classify remaining faces using IsPartner within the solid
+    const sideFaces: Face[] = [];
+    const internalFaces: Face[] = [];
+    const capFaces: Face[] = [];
+
+    for (const f of remainingFaces) {
+      const faceEdges = f.getEdges();
+      const isInward = solidInwardEdges.length > 0 && faceEdges.some(fe =>
+        solidInwardEdges.some(ie => fe.getShape().IsPartner(ie.getShape()))
+      );
+      const isOutward = solidOutwardEdges.length > 0 && faceEdges.some(fe =>
+        solidOutwardEdges.some(oe => fe.getShape().IsPartner(oe.getShape()))
+      );
+
+      if (isInward) {
+        internalFaces.push(f);
+      } else if (isOutward) {
+        sideFaces.push(f);
+      } else {
+        capFaces.push(f);
+      }
+    }
+
+    return { sideFaces, internalFaces, capFaces };
   }
 
   compareTo(other: ExtrudeBase): boolean {

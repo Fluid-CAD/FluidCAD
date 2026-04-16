@@ -3,6 +3,7 @@ import { ExtrudeBase } from "./extrude-base.js";
 import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { Explorer } from "../oc/explorer.js";
+import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
@@ -28,9 +29,18 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       return;
     }
 
-    const faces = this.isThin()
-      ? ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1])
-      : pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill());
+    let faces: Face[];
+    let inwardEdges: Edge[] | undefined;
+    let outwardEdges: Edge[] | undefined;
+
+    if (this.isThin()) {
+      const thinResult = ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]);
+      faces = thinResult.faces;
+      inwardEdges = thinResult.inwardEdges;
+      outwardEdges = thinResult.outwardEdges;
+    } else {
+      faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill());
+    }
 
     const extruder1 = new Extruder(faces, plane, this.distance1, this.getDraft(), this.getEndOffset());
     const extrusions1 = extruder1.extrude();
@@ -48,20 +58,38 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
     const all = [...extrusions1, ...extrusions2];
     const { result: extrusions } = BooleanOps.fuse(all);
 
-    const sideFaces: Face[] = [];
-    const internalFaces: Face[] = [];
+    const remainingFaces: Face[] = [];
     for (const solid of extrusions) {
       const allFaces = Explorer.findFacesWrapped(solid);
       for (const f of allFaces) {
         const isStart = startFaces.some(sf => f.getShape().IsSame(sf.getShape()));
         const isEnd = endFaces.some(ef => f.getShape().IsSame(ef.getShape()));
         if (!isStart && !isEnd) {
-          const isInternal = preFusionInternalFaces.some(pf => f.getShape().IsSame(pf.getShape()));
-          if (isInternal) {
-            internalFaces.push(f as Face);
-          } else {
-            sideFaces.push(f as Face);
-          }
+          remainingFaces.push(f as Face);
+        }
+      }
+    }
+
+    let sideFaces: Face[];
+    let internalFaces: Face[];
+    let capFaces: Face[] = [];
+
+    if (inwardEdges && inwardEdges.length > 0) {
+      const result = this.reclassifyThinFaces(
+        remainingFaces, [...startFaces, ...endFaces], plane, inwardEdges, outwardEdges || []
+      );
+      sideFaces = result.sideFaces;
+      internalFaces = result.internalFaces;
+      capFaces = result.capFaces;
+    } else {
+      sideFaces = [];
+      internalFaces = [];
+      for (const f of remainingFaces) {
+        const isInternal = preFusionInternalFaces.some(pf => f.getShape().IsSame(pf.getShape()));
+        if (isInternal) {
+          internalFaces.push(f);
+        } else {
+          sideFaces.push(f);
         }
       }
     }
@@ -70,6 +98,7 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
     this.setState('end-faces', endFaces);
     this.setState('side-faces', sideFaces);
     this.setState('internal-faces', internalFaces);
+    this.setState('cap-faces', capFaces);
 
     this.extrudable.removeShapes(this);
 

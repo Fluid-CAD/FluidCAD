@@ -5,6 +5,7 @@ import extrude from "../../core/extrude.js";
 import { circle, rect, line, hLine, vLine } from "../../core/2d/index.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
+import { Face } from "../../common/face.js";
 
 describe("thin extrude", () => {
   setupOC();
@@ -25,6 +26,19 @@ describe("thin extrude", () => {
 
       const bbox = ShapeOps.getBoundingBox(shapes[0]);
       expect(bbox.maxZ - bbox.minZ).toBeCloseTo(30, 0);
+    });
+
+    it("should still classify internal faces for closed profile", () => {
+      sketch("xy", () => {
+        rect(100, 100);
+      });
+
+      const e = extrude(30).thin(5) as ExtrudeBase;
+
+      render();
+
+      const internalFaces = e.getState('internal-faces') as Face[];
+      expect(internalFaces.length).toBeGreaterThan(0);
     });
 
     it("should create a thin-walled solid with dual offset", () => {
@@ -138,6 +152,78 @@ describe("thin extrude", () => {
       const shapes = e.getShapes();
       expect(shapes).toHaveLength(1);
       expect(shapes[0].getType()).toBe('solid');
+    });
+
+    it("should classify side, internal, and cap faces for positive offset", () => {
+      sketch("xy", () => {
+        line([0, 0], [100, 0]);
+      });
+
+      const e = extrude(20).thin(10).new() as ExtrudeBase;
+
+      render();
+
+      const sideFaces = e.getState('side-faces') as Face[];
+      const internalFaces = e.getState('internal-faces') as Face[];
+      const capFaces = e.getState('cap-faces') as Face[];
+
+      expect(sideFaces.length).toBeGreaterThan(0);
+      expect(internalFaces.length).toBeGreaterThan(0);
+      expect(capFaces.length).toBe(2);
+    });
+
+    it("should classify side, internal, and cap faces for negative offset", () => {
+      sketch("xy", () => {
+        line([0, 0], [100, 0]);
+      });
+
+      const e = extrude(20).thin(-10).new() as ExtrudeBase;
+
+      render();
+
+      const sideFaces = e.getState('side-faces') as Face[];
+      const internalFaces = e.getState('internal-faces') as Face[];
+      const capFaces = e.getState('cap-faces') as Face[];
+
+      expect(sideFaces.length).toBeGreaterThan(0);
+      expect(internalFaces.length).toBeGreaterThan(0);
+      expect(capFaces.length).toBe(2);
+    });
+
+    it("should classify side, internal, and cap faces for dual offset", () => {
+      sketch("xy", () => {
+        line([0, 0], [100, 0]);
+      });
+
+      const e = extrude(20).thin(5, -10).new() as ExtrudeBase;
+
+      render();
+
+      const sideFaces = e.getState('side-faces') as Face[];
+      const internalFaces = e.getState('internal-faces') as Face[];
+      const capFaces = e.getState('cap-faces') as Face[];
+
+      expect(sideFaces.length).toBeGreaterThan(0);
+      expect(internalFaces.length).toBeGreaterThan(0);
+      expect(capFaces.length).toBe(2);
+    });
+
+    it("should classify faces correctly with symmetric thin extrude", () => {
+      sketch("xy", () => {
+        line([0, 0], [100, 0]);
+      });
+
+      const e = extrude(20).thin(10).symmetric().new() as ExtrudeBase;
+
+      render();
+
+      const sideFaces = e.getState('side-faces') as Face[];
+      const internalFaces = e.getState('internal-faces') as Face[];
+      const capFaces = e.getState('cap-faces') as Face[];
+
+      expect(sideFaces.length).toBeGreaterThan(0);
+      expect(internalFaces.length).toBeGreaterThan(0);
+      expect(capFaces.length).toBe(2);
     });
   });
 

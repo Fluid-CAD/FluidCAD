@@ -3,6 +3,7 @@ import { Extruder } from "./simple-extruder.js";
 import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
 import { Extrudable } from "../helpers/types.js";
 import { ExtrudeBase } from "./extrude-base.js";
+import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
@@ -23,33 +24,56 @@ export class Extrude extends ExtrudeBase {
       return;
     }
 
-    const faces = this.isThin()
-      ? ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1])
-      : pickedFaces ?? FaceMaker2.getRegions(
+    let faces: Face[];
+    let inwardEdges: Edge[] | undefined;
+    let outwardEdges: Edge[] | undefined;
+
+    if (this.isThin()) {
+      const thinResult = ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]);
+      faces = thinResult.faces;
+      inwardEdges = thinResult.inwardEdges;
+      outwardEdges = thinResult.outwardEdges;
+    } else {
+      faces = pickedFaces ?? FaceMaker2.getRegions(
         this.extrudable.getGeometries(),
         plane,
         this.getDrill()
       );
+    }
 
     if (this._operationMode === 'remove') {
       this.buildRemove(faces, plane, context);
     } else if (this._symmetric) {
-      this.buildSymmetric(faces, plane, context);
+      this.buildSymmetric(faces, plane, context, inwardEdges, outwardEdges);
     } else {
-      this.buildAdd(faces, plane, context);
+      this.buildAdd(faces, plane, context, inwardEdges, outwardEdges);
     }
   }
 
-  private buildAdd(faces: Face[], plane: any, context: BuildSceneObjectContext) {
+  private buildAdd(faces: Face[], plane: any, context: BuildSceneObjectContext, inwardEdges?: Edge[], outwardEdges?: Edge[]) {
     const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
 
     const extruder = new Extruder(faces, plane, this.distance, this.getDraft(), this.getEndOffset());
     let extrusions = extruder.extrude();
 
+    let sideFaces = extruder.getSideFaces();
+    let internalFaces = extruder.getInternalFaces();
+    let capFaces: Face[] = [];
+
+    if (inwardEdges && inwardEdges.length > 0) {
+      const result = this.reclassifyThinFaces(
+        [...sideFaces, ...internalFaces], extruder.getStartFaces(), plane, inwardEdges, outwardEdges || []
+      );
+      sideFaces = result.sideFaces;
+      internalFaces = result.internalFaces;
+      capFaces = result.capFaces;
+    }
+
     this.setState('start-faces', extruder.getStartFaces());
     this.setState('end-faces', extruder.getEndFaces());
-    this.setState('side-faces', extruder.getSideFaces());
-    this.setState('internal-faces', extruder.getInternalFaces());
+    this.setState('side-faces', sideFaces);
+    this.setState('internal-faces', internalFaces);
+    this.setState('cap-faces', capFaces);
 
     this.extrudable.removeShapes(this);
 
@@ -70,7 +94,7 @@ export class Extrude extends ExtrudeBase {
     this.addShapes(fusionResult.newShapes);
   }
 
-  private buildSymmetric(faces: Face[], plane: any, context: BuildSceneObjectContext) {
+  private buildSymmetric(faces: Face[], plane: any, context: BuildSceneObjectContext, inwardEdges?: Edge[], outwardEdges?: Edge[]) {
     const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
 
     const extruder1 = new Extruder(faces, plane, this.distance / 2, this.getDraft(), this.getEndOffset());
@@ -89,20 +113,41 @@ export class Extrude extends ExtrudeBase {
     const all = [...extrusions1, ...extrusions2];
     const { result: extrusions } = BooleanOps.fuse(all);
 
-    const sideFaces: Face[] = [];
-    const internalFaces: Face[] = [];
+    // Collect remaining faces from the fused solid (not start/end)
+    const remainingFaces: Face[] = [];
     for (const solid of extrusions) {
       const allFaces = Explorer.findFacesWrapped(solid);
       for (const f of allFaces) {
         const isStart = startFaces.some(sf => f.getShape().IsSame(sf.getShape()));
         const isEnd = endFaces.some(ef => f.getShape().IsSame(ef.getShape()));
         if (!isStart && !isEnd) {
-          const isInternal = preFusionInternalFaces.some(pf => f.getShape().IsSame(pf.getShape()));
-          if (isInternal) {
-            internalFaces.push(f as Face);
-          } else {
-            sideFaces.push(f as Face);
-          }
+          remainingFaces.push(f as Face);
+        }
+      }
+    }
+
+    let sideFaces: Face[];
+    let internalFaces: Face[];
+    let capFaces: Face[] = [];
+
+    if (inwardEdges && inwardEdges.length > 0) {
+      // For thin open profiles: reclassify using 2D midpoint matching on the fused solid
+      const result = this.reclassifyThinFaces(
+        remainingFaces, [...startFaces, ...endFaces], plane, inwardEdges, outwardEdges || []
+      );
+      sideFaces = result.sideFaces;
+      internalFaces = result.internalFaces;
+      capFaces = result.capFaces;
+    } else {
+      // For closed profiles: use existing IsSame approach
+      sideFaces = [];
+      internalFaces = [];
+      for (const f of remainingFaces) {
+        const isInternal = preFusionInternalFaces.some(pf => f.getShape().IsSame(pf.getShape()));
+        if (isInternal) {
+          internalFaces.push(f);
+        } else {
+          sideFaces.push(f);
         }
       }
     }
@@ -111,6 +156,7 @@ export class Extrude extends ExtrudeBase {
     this.setState('end-faces', endFaces);
     this.setState('side-faces', sideFaces);
     this.setState('internal-faces', internalFaces);
+    this.setState('cap-faces', capFaces);
 
     this.extrudable.removeShapes(this);
 

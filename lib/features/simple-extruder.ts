@@ -1,11 +1,9 @@
 import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";
-import { ExtrudeOptions } from "./extrude-options.js";
 import { Plane } from "../math/plane.js";
 import { Explorer } from "../oc/explorer.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
 import { rad } from "../helpers/math-helpers.js";
-import { ShapeOps } from "../oc/shape-ops.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 
 export class Extruder {

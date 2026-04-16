@@ -287,6 +287,19 @@ export interface IExtrude extends IFuseable {
   internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 
   /**
+   * Selects the cap faces at the open ends of a thin-walled extrusion from an open profile.
+   * These are the small faces connecting the inner and outer walls at the profile endpoints.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  capFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the cap faces of a thin-walled extrusion from an open profile.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
    * Applies a draft (taper) angle to the extrusion walls.
    * @param value - A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft.
    */

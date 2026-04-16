@@ -22,7 +22,7 @@ Start with imports. This model uses three import sources — core operations, ge
 import { aLine, arc, circle, color, connect, copy, cut, extrude,
     fillet, fuse, hLine, hMove, mirror, move, plane, project, rect,
     remove, repeat, rotate, select, shell, sketch, slot, tArc, tLine,
-    vMove, wire } from "fluidcad/core";
+    vMove } from "fluidcad/core";
 import { enclosed, enclosing, outside } from "fluidcad/constraints";
 import { edge, face } from "fluidcad/filters";
 ```
@@ -225,15 +225,6 @@ cut(4).name('Counterbore')
 ```
 
 Larger circles (radius 15) at the same positions create the counterbore — a wider, shallow recess for bolt heads. `cut(4)` removes only 4 units of depth.
-
-### Apply color
-
-```js
-select(face());
-color('#4b8f4b')
-```
-
-`select(face())` selects all faces, and `color()` applies a green finish.
 
 ![Finished upper alignment clamp](/img/docs/tutorials/upper-alignment-clamp-final.png)
 

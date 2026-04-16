@@ -40,6 +40,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _alwaysVisible: boolean = false;
   private _name: string | null = null;
   private _guide: boolean = false;
+  private _reusable: boolean = false;
   private _sourceLocation: SourceLocation | null = null;
   private _error: string | null = null;
   protected _fusionScope?: FusionScope = 'all';
@@ -144,7 +145,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   abstract build(context?: BuildSceneObjectContext): void;
 
   compareTo(other: SceneObject): boolean {
-    const match = this._guide === other._guide;
+    const match = this._guide === other._guide && this._reusable === other._reusable;
 
     if (!match) {
       return false;
@@ -312,11 +313,14 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     })
   }
 
-  removeShapes(removedBy: SceneObject) {
+  removeShapes(removedBy: SceneObject, force?: boolean) {
+    if (this._reusable && !force) {
+      return;
+    }
 
     if (this.isContainer()) {
       for (const child of this.children) {
-        child.removeShapes(removedBy);
+        child.removeShapes(removedBy, force);
       }
       return;
     }
@@ -427,6 +431,15 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   guide() {
     this._guide = true;
     return this;
+  }
+
+  reusable(): this {
+    this._reusable = true;
+    return this;
+  }
+
+  isReusable(): boolean {
+    return this._reusable;
   }
 
   setSourceLocation(loc: SourceLocation) {

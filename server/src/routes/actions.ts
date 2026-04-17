@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import type { FluidCadServer } from '../fluidcad-server.ts';
+import { findBreakpointInsertLine } from '../code-editor.ts';
 
 export function createActionsRouter(
   fluidCadServer: FluidCadServer,
@@ -87,6 +88,20 @@ export function createActionsRouter(
       rollbackStop: data.rollbackStop,
     });
     res.json({ success: true });
+  });
+
+  router.post('/compute-breakpoint-line', async (req, res) => {
+    const { code, referenceRow } = req.body;
+    if (typeof code !== 'string' || typeof referenceRow !== 'number') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const insertLine = await findBreakpointInsertLine(code, referenceRow);
+      res.json({ insertLine });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
   });
 
   router.post('/clear-breakpoints', (_req, res) => {

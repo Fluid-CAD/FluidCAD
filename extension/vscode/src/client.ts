@@ -114,10 +114,21 @@ export class Client {
     }
     const line = bp.location.range.start.line;
     const doc = await vscode.workspace.openTextDocument(uri);
-    if (added) {
-      await this.insertBreakpointText(doc, line, { addNative: false });
-    } else {
+
+    if (!added) {
       await this.removeBreakpointText(doc, line, { removeNative: false });
+      return;
+    }
+
+    // Ask treesitter where the breakpoint() text should actually live
+    // (after the enclosing statement). If the click landed elsewhere,
+    // move the native dot so it coincides with the inserted text.
+    const insertLine = await this.resolveInsertLine(doc.getText(), line);
+    if (insertLine === line) {
+      await this.insertBreakpointText(doc, insertLine, { addNative: false });
+    } else {
+      this.removeNativeBreakpoint(uri, line);
+      await this.insertBreakpointText(doc, insertLine, { addNative: true });
     }
   }
 
@@ -266,6 +277,28 @@ export class Client {
     }
   }
 
+  private async resolveInsertLine(code: string, referenceRow: number): Promise<number> {
+    if (!this.serverUrl) {
+      return referenceRow + 1;
+    }
+    try {
+      const response = await fetch(`${this.serverUrl}/api/compute-breakpoint-line`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, referenceRow }),
+      });
+      if (response.ok) {
+        const data = await response.json() as { insertLine: number };
+        if (typeof data.insertLine === 'number') {
+          return data.insertLine;
+        }
+      }
+    } catch (err) {
+      this.logger.appendLine(`[breakpoint] compute-breakpoint-line failed: ${err}`);
+    }
+    return referenceRow + 1;
+  }
+
   private async toggleBreakpoint() {
     const editor = vscode.window.activeTextEditor;
     if (!editor || !editor.document.fileName.endsWith('.fluid.js')) {
@@ -284,7 +317,8 @@ export class Client {
       await this.removeBreakpointText(doc, afterLine, { removeNative: true });
       return;
     }
-    await this.insertBreakpointText(doc, afterLine, { addNative: true });
+    const insertLine = await this.resolveInsertLine(doc.getText(), cursorLine);
+    await this.insertBreakpointText(doc, insertLine, { addNative: true });
   }
 
   private async handleClearBreakpoints() {
@@ -347,23 +381,19 @@ export class Client {
       return;
     }
 
-    // sourceLocation.line is 1-indexed and may point past the last actual
-    // code line when the file has trailing newlines. Clamp and walk back
-    // over blank lines to find the real source row.
-    let sourceRow = Math.min(line - 1, doc.lineCount - 1);
-    while (sourceRow >= 0 && doc.lineAt(sourceRow).text.trim() === '') {
-      sourceRow--;
-    }
-    if (sourceRow < 0) {
+    // sourceLocation.line is 1-indexed — clamp to a valid row inside the
+    // current doc before asking treesitter to resolve the full statement.
+    const referenceRow = Math.min(Math.max(line - 1, 0), doc.lineCount - 1);
+    const target = await this.resolveInsertLine(doc.getText(), referenceRow);
+    if (target < 0 || target > doc.lineCount) {
       return;
     }
-
-    const sourceText = doc.lineAt(sourceRow).text;
-    const target = sourceRow + 1;
     if (this.lineHasBreakpoint(doc, target)) {
       return;
     }
 
+    const indentRow = Math.min(Math.max(target - 1, 0), doc.lineCount - 1);
+    const sourceText = doc.lineAt(indentRow).text;
     const indentMatch = sourceText.match(/^(\s*)/);
     const indent = indentMatch ? indentMatch[1] : '';
 

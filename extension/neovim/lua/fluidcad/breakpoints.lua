@@ -77,6 +77,43 @@ local function send_live_update(bufnr)
   })
 end
 
+--- Ask the server's treesitter endpoint for the 0-indexed line at which a
+--- breakpoint() call should be inserted given a reference row. Falls back
+--- to reference_row + 1 if the server is unreachable.
+local function resolve_insert_line(bufnr, reference_row)
+  local ok, bridge = pcall(require, 'fluidcad.bridge')
+  if not ok then
+    return reference_row + 1
+  end
+  local url = bridge.get_url()
+  if not url or url == '' then
+    return reference_row + 1
+  end
+
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local body = vim.fn.json_encode({
+    code = table.concat(lines, '\n'),
+    referenceRow = reference_row,
+  })
+
+  local result = vim.fn.system(
+    { 'curl', '-s', '-f', '-X', 'POST',
+      '-H', 'Content-Type: application/json',
+      '--data-binary', '@-',
+      url .. '/api/compute-breakpoint-line' },
+    body
+  )
+  if vim.v.shell_error ~= 0 then
+    return reference_row + 1
+  end
+
+  local decoded_ok, decoded = pcall(vim.fn.json_decode, result)
+  if decoded_ok and type(decoded) == 'table' and type(decoded.insertLine) == 'number' then
+    return decoded.insertLine
+  end
+  return reference_row + 1
+end
+
 function M.refresh(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(bufnr) then
@@ -114,11 +151,17 @@ function M.toggle()
   elseif next_line and next_line:match(BREAKPOINT_PATTERN) then
     vim.api.nvim_buf_set_lines(bufnr, lnum, lnum + 1, false, {})
   else
-    local indent = current:match('^(%s*)') or ''
-    ensure_import(bufnr)
-    -- Cursor tracks line inserts above it, so re-read its position.
-    local new_lnum = vim.api.nvim_win_get_cursor(0)[1]
-    insert_breakpoint_line(bufnr, new_lnum, indent)
+    -- Resolve the statement end via treesitter BEFORE mutating the buffer,
+    -- so the insert line is computed against the current text.
+    local reference_row = lnum - 1
+    local target = resolve_insert_line(bufnr, reference_row)
+
+    local indent_row = math.max(math.min(target - 1, vim.api.nvim_buf_line_count(bufnr) - 1), 0)
+    local indent_source = vim.api.nvim_buf_get_lines(bufnr, indent_row, indent_row + 1, false)[1] or ''
+    local indent = indent_source:match('^(%s*)') or ''
+
+    local shifted = ensure_import(bufnr)
+    insert_breakpoint_line(bufnr, target + shifted, indent)
   end
 
   M.refresh(bufnr)
@@ -171,27 +214,17 @@ function M.add_after(file_path, src_line)
     return
   end
 
-  -- Convert to 0-indexed and walk back over trailing blanks.
-  local source_row = math.min(src_line - 1, line_count - 1)
-  while source_row >= 0 do
-    local text = vim.api.nvim_buf_get_lines(bufnr, source_row, source_row + 1, false)[1] or ''
-    if text:match('%S') then
-      break
-    end
-    source_row = source_row - 1
-  end
-  if source_row < 0 then
-    return
-  end
+  local reference_row = math.max(math.min(src_line - 1, line_count - 1), 0)
+  local target = resolve_insert_line(bufnr, reference_row)
 
-  local target = source_row + 1
   local following = vim.api.nvim_buf_get_lines(bufnr, target, target + 1, false)[1]
   if following and following:match(BREAKPOINT_PATTERN) then
     return
   end
 
-  local source_text = vim.api.nvim_buf_get_lines(bufnr, source_row, source_row + 1, false)[1] or ''
-  local indent = source_text:match('^(%s*)') or ''
+  local indent_row = math.max(math.min(target - 1, line_count - 1), 0)
+  local indent_source = vim.api.nvim_buf_get_lines(bufnr, indent_row, indent_row + 1, false)[1] or ''
+  local indent = indent_source:match('^(%s*)') or ''
 
   local shifted = ensure_import(bufnr)
   insert_breakpoint_line(bufnr, target + shifted, indent)

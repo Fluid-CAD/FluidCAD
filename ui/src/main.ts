@@ -346,7 +346,7 @@ function hasRegionPickingTrigger(sceneObjects: SceneObjectRender[]): {
   }
 
   const obj = lastObj as any;
-  if (!EXTRUDABLE_TYPES.includes(obj.type) || obj.object?.trigger !== 'region-picking') {
+  if (!EXTRUDABLE_TYPES.includes(obj.type) || obj.object?.trigger !== 'region-picking' || obj.object?.thin) {
     return { hasTrigger: false };
   }
 

@@ -288,7 +288,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       pickPoints: this.isPicking()
         ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })
         : undefined,
-      trigger: 'region-picking' as const,
+      trigger: this.isThin() ? undefined : 'region-picking' as const,
       pickPlane: plane ? {
         origin: plane.origin,
         xDirection: plane.xDirection,

@@ -262,6 +262,14 @@ function M.handle_message(msg)
       if ok and msg.filePath and msg.line then
         breakpoints.add_after(msg.filePath, msg.line)
       end
+    elseif msg.type == 'clear-breakpoints' then
+      local ok, breakpoints = pcall(require, 'fluidcad.breakpoints')
+      if ok then
+        -- The active .fluid.js buffer is the target; fall back to the
+        -- current buffer when lookup by path fails.
+        local path = vim.api.nvim_buf_get_name(vim.api.nvim_get_current_buf())
+        breakpoints.clear_all(path)
+      end
     elseif msg.type == 'set-pick-points' then
       local line_idx = msg.sourceLocation.line - 1
       local file_path = msg.sourceLocation.filePath

@@ -15,6 +15,7 @@ import iconMoon from '@tabler/icons/outline/moon.svg?raw';
 import iconEye from '@tabler/icons/outline/eye.svg?raw';
 import iconEyeOff from '@tabler/icons/outline/eye-off.svg?raw';
 import iconCircleHalf2 from '@tabler/icons/outline/circle-half-2.svg?raw';
+import iconPlayerPause from '@tabler/icons/outline/player-pause.svg?raw';
 
 export const ICON_FIT = iconAutoFit;
 export const ICON_ORTHO = iconOrthographic;
@@ -33,3 +34,4 @@ export const ICON_MOON = iconMoon;
 export const ICON_EYE = iconEye;
 export const ICON_EYE_OFF = iconEyeOff;
 export const ICON_SECTION_VIEW = iconCircleHalf2;
+export const ICON_PAUSE = iconPlayerPause;

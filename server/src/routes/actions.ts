@@ -89,6 +89,11 @@ export function createActionsRouter(
     res.json({ success: true });
   });
 
+  router.post('/clear-breakpoints', (_req, res) => {
+    sendToExtension({ type: 'clear-breakpoints' });
+    res.json({ success: true });
+  });
+
   router.post('/add-breakpoint', (req, res) => {
     const { sourceLocation } = req.body;
     console.log('[add-breakpoint] /api received sourceLocation:', sourceLocation);

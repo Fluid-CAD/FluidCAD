@@ -132,6 +132,10 @@ export type AddBreakpointMessage = {
   line: number;
 };
 
+export type ClearBreakpointsMessage = {
+  type: 'clear-breakpoints';
+};
+
 export type ServerToExtensionMessage =
   | ReadyMessage
   | InitCompleteMessage
@@ -143,6 +147,7 @@ export type ServerToExtensionMessage =
   | SetPickPointsMessage
   | AddPickMessage
   | AddBreakpointMessage
+  | ClearBreakpointsMessage
   | ExportCompleteMessage;
 
 // ---------------------------------------------------------------------------
@@ -154,6 +159,7 @@ export type UISceneRenderedMessage = {
   result: any[];
   absPath: string;
   rollbackStop?: number;
+  breakpointHit?: boolean;
 };
 
 export type UIHighlightShapeMessage = {

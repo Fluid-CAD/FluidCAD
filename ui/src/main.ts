@@ -3,6 +3,7 @@ import { ShapePropertiesModal } from './ui/shape-properties-modal';
 import { SelectionInfoOverlay } from './ui/selection-info-overlay';
 import { TimelinePanel } from './ui/timeline-panel';
 import { ExportDialog } from './ui/export-dialog';
+import { BreakpointIndicator } from './ui/breakpoint-indicator';
 import { ICON_SCISSORS, ICON_FILE_IMPORT, ICON_COPY, ICON_WAND } from './ui/icons';
 import { PointPickMode, HighlightInfo } from './interactive/point-pick-mode';
 import { RegionPickMode } from './interactive/region-pick-mode';
@@ -69,6 +70,7 @@ onThemeChange(() => viewer.rebuildSceneMesh());
 const shapePropertiesModal = new ShapePropertiesModal(container);
 const selectionInfoOverlay = new SelectionInfoOverlay(container);
 const exportDialog = new ExportDialog(container, viewer.sceneContext);
+const breakpointIndicator = new BreakpointIndicator(container);
 const timelinePanel = new TimelinePanel(
   container,
   (shapeId) => viewer.highlightShape(shapeId),
@@ -818,6 +820,7 @@ function connectWebSocket() {
         updateRegionPickMode(msg.result);
         updateBezierDrawMode(msg.result);
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1, msg.absPath);
+        breakpointIndicator.setActive(!!msg.breakpointHit);
         break;
       }
       case 'highlight-shape':

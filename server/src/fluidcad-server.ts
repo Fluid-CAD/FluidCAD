@@ -38,6 +38,7 @@ export type SceneRenderedData = {
   absPath: string;
   result: any[];
   rollbackStop: number;
+  breakpointHit?: boolean;
 };
 
 export class FluidCadServer {
@@ -81,11 +82,14 @@ export class FluidCadServer {
       let scene = this.sceneManager.startScene();
       this.sceneManager.setCurrentFile(normalizedFileName);
       this.viteManager.invalidateModule();
+      let breakpointHit = false;
       try {
         await this.viteManager.loadModule(filePath);
       }
       catch (e) {
-        if (!(e instanceof BreakpointHit)) {
+        if (e instanceof BreakpointHit) {
+          breakpointHit = true;
+        } else {
           throw e;
         }
       }
@@ -114,6 +118,7 @@ export class FluidCadServer {
         absPath: normalizedFileName,
         result,
         rollbackStop: result.length - 1,
+        breakpointHit,
       };
     }
     catch (error) {

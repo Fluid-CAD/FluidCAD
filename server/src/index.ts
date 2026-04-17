@@ -191,6 +191,7 @@ async function handleExtensionMessage(msg: any) {
             type: 'scene-rendered',
             result: data.result,
             absPath: data.absPath,
+            breakpointHit: data.breakpointHit,
           });
         }
         break;
@@ -216,6 +217,7 @@ async function handleExtensionMessage(msg: any) {
               type: 'scene-rendered',
               result: data.result,
               absPath: data.absPath,
+              breakpointHit: data.breakpointHit,
             });
           }
         } catch {

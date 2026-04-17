@@ -124,6 +124,36 @@ function M.toggle()
   M.refresh(bufnr)
 end
 
+--- Remove every `breakpoint();` line from the buffer matching `file_path`.
+--- Refreshes the sign column and explicitly sends a live-update since
+--- `TextChanged` does not fire for programmatic edits on non-current buffers.
+function M.clear_all(file_path)
+  local bufnr = find_buffer_for_path(file_path) or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+  local name = vim.api.nvim_buf_get_name(bufnr)
+  if not name:match('%.fluid%.js$') then
+    return
+  end
+
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local removed = false
+  -- Walk bottom-up so row indices remain valid as we delete.
+  for i = #lines, 1, -1 do
+    if lines[i]:match(BREAKPOINT_PATTERN) then
+      vim.api.nvim_buf_set_lines(bufnr, i - 1, i, false, {})
+      removed = true
+    end
+  end
+  if not removed then
+    return
+  end
+
+  M.refresh(bufnr)
+  send_live_update(bufnr)
+end
+
 --- Insert a breakpoint() call on the line immediately after the given
 --- 1-indexed `src_line`, for the buffer matching `file_path`.
 function M.add_after(file_path, src_line)

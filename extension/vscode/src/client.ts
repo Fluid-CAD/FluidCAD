@@ -287,6 +287,47 @@ export class Client {
     await this.insertBreakpointText(doc, afterLine, { addNative: true });
   }
 
+  private async handleClearBreakpoints() {
+    let editor = vscode.window.activeTextEditor;
+    if (!editor || !editor.document.fileName.endsWith('.fluid.js')) {
+      editor = vscode.window.visibleTextEditors.find(
+        e => e.document.fileName === this.currentFileName
+      );
+    }
+    if (!editor) {
+      return;
+    }
+
+    const doc = editor.document;
+    const linesToRemove: number[] = [];
+    for (let i = 0; i < doc.lineCount; i++) {
+      if (BREAKPOINT_LINE.test(doc.lineAt(i).text)) {
+        linesToRemove.push(i);
+      }
+    }
+    if (linesToRemove.length === 0) {
+      return;
+    }
+
+    const applied = await editor.edit(b => {
+      // Delete in reverse so earlier line ranges remain valid.
+      for (let i = linesToRemove.length - 1; i >= 0; i--) {
+        const range = doc.lineAt(linesToRemove[i]).rangeIncludingLineBreak;
+        b.delete(range);
+      }
+    });
+
+    if (!applied) {
+      return;
+    }
+
+    for (const line of linesToRemove) {
+      this.removeNativeBreakpoint(doc.uri, line);
+    }
+
+    this.updateLiveCode(doc.fileName, doc.getText());
+  }
+
   private async handleAddBreakpointAfterLine(filePath: string, line: number) {
     let editor = vscode.window.visibleTextEditors.find(
       e => e.document.fileName === filePath
@@ -495,6 +536,12 @@ export class Client {
       }
       case 'insert-point': {
         this.handleInsertPoint(msg);
+        break;
+      }
+      case 'clear-breakpoints': {
+        this.handleClearBreakpoints().catch((err) => {
+          this.logger.appendLine(`[clear-breakpoints] error: ${err?.stack || err}`);
+        });
         break;
       }
       case 'add-breakpoint': {

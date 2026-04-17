@@ -820,7 +820,12 @@ function connectWebSocket() {
         updateRegionPickMode(msg.result);
         updateBezierDrawMode(msg.result);
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1, msg.absPath);
-        breakpointIndicator.setActive(!!msg.breakpointHit);
+        // Only update the breakpoint indicator when the server sends an
+        // authoritative value — rollback responses don't re-run the module,
+        // so they omit the flag and the last known state should persist.
+        if (msg.breakpointHit !== undefined) {
+          breakpointIndicator.setActive(msg.breakpointHit);
+        }
         break;
       }
       case 'highlight-shape':

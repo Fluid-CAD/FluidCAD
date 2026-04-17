@@ -142,7 +142,7 @@ export class TimelinePanel {
       this.loaded = true;
       this.panel.classList.remove('hidden');
     }
-    this.renderTimeline();
+    this.renderTimeline(true);
     this.renderShapes();
     this.updateHistoryTotal();
   }
@@ -176,7 +176,7 @@ export class TimelinePanel {
   // Timeline section
   // ---------------------------------------------------------------------------
 
-  private renderTimeline(): void {
+  private renderTimeline(scrollToCurrent = false): void {
     const items = this.sceneObjects;
     const rollbackStop = this.rollbackStop;
 
@@ -269,9 +269,11 @@ export class TimelinePanel {
       });
     });
 
-    const currentEl = this.timelineBody.querySelector<HTMLElement>('[data-current="true"]');
-    if (currentEl) {
-      currentEl.scrollIntoView({ block: 'nearest' });
+    if (scrollToCurrent) {
+      const currentEl = this.timelineBody.querySelector<HTMLElement>('[data-current="true"]');
+      if (currentEl) {
+        currentEl.scrollIntoView({ block: 'nearest' });
+      }
     }
   }
 

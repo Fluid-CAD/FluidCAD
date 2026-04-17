@@ -89,6 +89,25 @@ export function createActionsRouter(
     res.json({ success: true });
   });
 
+  router.post('/add-breakpoint', (req, res) => {
+    const { sourceLocation } = req.body;
+    console.log('[add-breakpoint] /api received sourceLocation:', sourceLocation);
+    if (
+      !sourceLocation ||
+      typeof sourceLocation.filePath !== 'string' ||
+      typeof sourceLocation.line !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    sendToExtension({
+      type: 'add-breakpoint',
+      filePath: sourceLocation.filePath,
+      line: sourceLocation.line,
+    });
+    res.json({ success: true });
+  });
+
   router.post('/add-pick', (req, res) => {
     const { sourceLocation } = req.body;
     if (

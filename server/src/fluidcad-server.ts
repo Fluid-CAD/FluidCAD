@@ -2,6 +2,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { ViteManager } from './vite-manager.ts';
 import { normalizePath } from './normalize-path.ts';
+import { BreakpointHit } from '../../lib/dist/common/breakpoint-hit.js';
 
 type SceneManager = {
   startScene(): any;
@@ -80,7 +81,14 @@ export class FluidCadServer {
       let scene = this.sceneManager.startScene();
       this.sceneManager.setCurrentFile(normalizedFileName);
       this.viteManager.invalidateModule();
-      await this.viteManager.loadModule(filePath);
+      try {
+        await this.viteManager.loadModule(filePath);
+      }
+      catch (e) {
+        if (!(e instanceof BreakpointHit)) {
+          throw e;
+        }
+      }
 
       if (this.previousScenes.has(normalizedFileName)) {
         const previousScene = this.previousScenes.get(normalizedFileName);

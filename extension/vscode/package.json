@@ -37,6 +37,18 @@
         "command": "fluidcad.export_file",
         "title": "Export Model (STEP/STL)",
         "icon": "$(file-symlink-file)"
+      },
+      {
+        "command": "fluidcad.toggle_breakpoint",
+        "title": "FluidCAD: Toggle Breakpoint"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "fluidcad.toggle_breakpoint",
+        "key": "ctrl+f9",
+        "mac": "cmd+f9",
+        "when": "editorTextFocus && resourceFilename =~ /\\.fluid\\.js$/"
       }
     ],
     "menus": {

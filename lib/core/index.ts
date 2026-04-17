@@ -35,3 +35,4 @@ export { default as part } from "./part.js";
 export { default as use } from "./use.js";
 export type { PartHandle } from "./part.js";
 export * from "./2d/index.js";
+export { breakpoint } from "./breakpoint.js";

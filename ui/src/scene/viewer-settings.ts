@@ -1,3 +1,5 @@
+import { UserPreferences } from '../preferences';
+
 export interface ViewerSettings {
   cameraMode: 'perspective' | 'orthographic';
   showGrid: boolean;
@@ -28,3 +30,10 @@ class ViewerSettingsStore {
 }
 
 export const viewerSettings = new ViewerSettingsStore();
+
+export function applyPreferences(prefs: UserPreferences): void {
+  viewerSettings.update({
+    showGrid: prefs.showGrid,
+    cameraMode: prefs.cameraMode,
+  });
+}

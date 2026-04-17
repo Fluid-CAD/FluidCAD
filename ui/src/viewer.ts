@@ -65,6 +65,9 @@ export class Viewer {
     this.modeManager = new SceneModeManager(this.ctx);
     this.settingsPanel = new SettingsPanel(container, (mode) => this.ctx.switchCamera(mode));
     this.settingsPanel.setFitHandler(() => this.fitViewToScene());
+    if (viewerSettings.current.cameraMode === 'perspective') {
+      this.ctx.switchCamera('perspective');
+    }
     this.settingsPanel.setSectionViewToggleHandler((enabled) => {
       if (enabled) {
         this.applySectionView();

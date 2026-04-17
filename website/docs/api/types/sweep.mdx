@@ -283,3 +283,69 @@ Restricts the sweep to only the sketch regions containing the given points.
 |-----------|------|-------------|
 | `...points` | [Point2DLike](/docs/api/types/point2dlike)[] | 2D points in the sketch plane identifying regions to sweep. *(optional)* |
 
+---
+
+### thin()
+
+```ts
+thin(offset: number): this
+```
+
+Enables thin sweep mode — offsets the profile edges to create a thin-walled
+swept shell instead of sweeping filled faces. Positive values offset outward,
+negative values offset inward.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `offset` | number | The wall offset distance. Positive = outward, negative = inward. |
+
+---
+
+### thin()
+
+```ts
+thin(offset1: number, offset2: number): this
+```
+
+Enables thin sweep mode with two offset directions.
+The two offsets must go in opposite directions. If both have the same sign,
+the second offset is automatically flipped.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `offset1` | number | The first wall offset distance. Positive = outward, negative = inward. |
+| `offset2` | number | The second wall offset distance, in the opposite direction of offset1. |
+
+---
+
+### capFaces()
+
+```ts
+capFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+```
+
+Selects the cap faces at the open ends of a thin-walled sweep from an open profile.
+These are the small faces connecting the inner and outer walls at the profile endpoints.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### capEdges()
+
+```ts
+capEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges on the cap faces of a thin-walled sweep from an open profile.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+

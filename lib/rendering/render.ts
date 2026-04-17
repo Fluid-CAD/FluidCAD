@@ -7,7 +7,7 @@ import { Sketch } from "../features/2d/sketch.js";
 
 const meshBuilder = new MeshBuilder();
 
-function renderSceneObject(obj: SceneObject, scene: Scene) {
+function renderSceneObject(obj: SceneObject, scene: Scene, buildDurationMs?: number) {
   const hasError = !!obj.getError();
 
   const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false });
@@ -63,6 +63,7 @@ function renderSceneObject(obj: SceneObject, scene: Scene) {
     hasError,
     errorMessage: obj.getError() || undefined,
     sourceLocation: obj.getSourceLocation() || undefined,
+    buildDurationMs,
   });
 }
 
@@ -157,6 +158,7 @@ export function renderScene(scene: Scene) {
   console.log("============ Rendering ==============", sceneObjects.length);
 
   const skippedContainers = new Set<SceneObject>();
+  const buildDurations = new Map<SceneObject, number>();
 
   for (const object of sceneObjects) {
     // Skip descendants of cloned sketches — their edges are already
@@ -172,6 +174,7 @@ export function renderScene(scene: Scene) {
     const isCached = scene.isCached(object);
     if (!isCached) {
       object.clearError();
+      const buildStart = performance.now();
       try {
         object.build({
           getSceneObjects() {
@@ -203,6 +206,7 @@ export function renderScene(scene: Scene) {
 
         object.setError(message);
       }
+      buildDurations.set(object, performance.now() - buildStart);
     }
 
     // After building, mark cloned sketches so their children are skipped
@@ -219,8 +223,29 @@ export function renderScene(scene: Scene) {
     object.clean(scene.getPartScopedAllObjects(object));
   }
 
+  // Roll up container durations: include own build time plus all descendants.
+  // Iterate in reverse so nested containers are aggregated before their parents.
+  for (let i = sceneObjects.length - 1; i >= 0; i--) {
+    const object = sceneObjects[i];
+    if (!object.isContainer()) {
+      continue;
+    }
+    const own = buildDurations.get(object);
+    if (own === undefined) {
+      continue;
+    }
+    let total = own;
+    for (const child of scene.getChildren(object)) {
+      const childDuration = buildDurations.get(child);
+      if (childDuration !== undefined) {
+        total += childDuration;
+      }
+    }
+    buildDurations.set(object, total);
+  }
+
   for (const object of sceneObjects) {
-    renderSceneObject(object, scene);
+    renderSceneObject(object, scene, buildDurations.get(object));
   }
 
   const result = scene.getRenderedObjects();

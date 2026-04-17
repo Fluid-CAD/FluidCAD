@@ -2,6 +2,7 @@ export interface UserPreferences {
   theme: string;
   showGrid: boolean;
   cameraMode: 'perspective' | 'orthographic';
+  showBuildTimings: boolean;
 }
 
 const ENDPOINT = '/api/preferences';

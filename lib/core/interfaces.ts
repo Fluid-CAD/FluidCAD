@@ -430,12 +430,47 @@ export interface IRevolve extends IFuseable {
    */
   pick(...points: Point2DLike[]): this;
 
+  /**
+   * Enables thin revolve mode — offsets the profile edges to create a thin-walled
+   * solid of revolution instead of revolving filled faces. Positive values offset
+   * outward, negative values offset inward.
+   * @param offset - The wall offset distance. Positive = outward, negative = inward.
+   */
   thin(offset: number): this;
+
+  /**
+   * Enables thin revolve mode with two offset directions.
+   * The two offsets must go in opposite directions. If both have the same sign,
+   * the second offset is automatically flipped.
+   * @param offset1 - The first wall offset distance. Positive = outward, negative = inward.
+   * @param offset2 - The second wall offset distance, in the opposite direction of offset1.
+   */
   thin(offset1: number, offset2: number): this;
 
+  /**
+   * Selects faces created inside the solid during revolution (e.g., the inner
+   * wall of a thin-walled revolve from a closed profile).
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
   internalFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges bounding the internal geometry created during revolution.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
   internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects the cap faces at the open ends of a thin-walled revolve from an open profile.
+   * These are the small faces connecting the inner and outer walls at the profile endpoints.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
   capFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the cap faces of a thin-walled revolve from an open profile.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
@@ -476,12 +511,47 @@ export interface ILoft extends IFuseable {
    */
   sideEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 
+  /**
+   * Enables thin loft mode — offsets the profile edges of each section to create a
+   * thin-walled shell instead of lofting filled faces. All profiles must be sketches
+   * and share the same topology. Positive values offset outward, negative offsets inward.
+   * @param offset - The wall offset distance. Positive = outward, negative = inward.
+   */
   thin(offset: number): this;
+
+  /**
+   * Enables thin loft mode with two offset directions.
+   * The two offsets must go in opposite directions. If both have the same sign,
+   * the second offset is automatically flipped.
+   * @param offset1 - The first wall offset distance. Positive = outward, negative = inward.
+   * @param offset2 - The second wall offset distance, in the opposite direction of offset1.
+   */
   thin(offset1: number, offset2: number): this;
 
+  /**
+   * Selects faces created inside the solid during loft (e.g., the inner
+   * wall of a thin-walled loft from closed profiles).
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
   internalFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges bounding the internal geometry created during loft.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
   internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects the cap faces at the open ends of a thin-walled loft from open profiles.
+   * These are the small faces connecting the inner and outer walls at the profile endpoints.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
   capFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the cap faces of a thin-walled loft from open profiles.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
@@ -558,10 +628,34 @@ export interface ISweep extends IFuseable {
    */
   pick(...points: Point2DLike[]): this;
 
+  /**
+   * Enables thin sweep mode — offsets the profile edges to create a thin-walled
+   * swept shell instead of sweeping filled faces. Positive values offset outward,
+   * negative values offset inward.
+   * @param offset - The wall offset distance. Positive = outward, negative = inward.
+   */
   thin(offset: number): this;
+
+  /**
+   * Enables thin sweep mode with two offset directions.
+   * The two offsets must go in opposite directions. If both have the same sign,
+   * the second offset is automatically flipped.
+   * @param offset1 - The first wall offset distance. Positive = outward, negative = inward.
+   * @param offset2 - The second wall offset distance, in the opposite direction of offset1.
+   */
   thin(offset1: number, offset2: number): this;
 
+  /**
+   * Selects the cap faces at the open ends of a thin-walled sweep from an open profile.
+   * These are the small faces connecting the inner and outer walls at the profile endpoints.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
   capFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the cap faces of a thin-walled sweep from an open profile.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 

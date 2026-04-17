@@ -1,10 +1,19 @@
 import type { SceneObjectRender } from '../types';
+import { savePreference } from '../preferences';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_EYE, ICON_EYE_OFF } from './icons';
 
 const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
 const CHEVRON_SVG = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
 const CUBE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
 const DOTS_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
+const CHECK_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) {
+    return `${Math.round(ms)}ms`;
+  }
+  return `${(ms / 1000).toFixed(1)}s`;
+}
 
 export class TimelinePanel {
   private panel: HTMLDivElement;
@@ -28,6 +37,8 @@ export class TimelinePanel {
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
   private activeTransparencyPopover: HTMLDivElement | null = null;
+  private showBuildTimings = false;
+  private historyTotalLabel!: HTMLSpanElement;
 
   constructor(
     container: HTMLElement,
@@ -49,6 +60,7 @@ export class TimelinePanel {
     this.panel = document.createElement('div');
     this.panel.className = 'absolute left-6 top-6 bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
     container.appendChild(this.panel);
+    this.applyPanelWidth();
 
     // Logo above file name
     const logoRow = document.createElement('div');
@@ -70,10 +82,18 @@ export class TimelinePanel {
     const timelineHeader = document.createElement('div');
     timelineHeader.className = SECTION_HEADER;
     timelineHeader.innerHTML = `
-      <span class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${CHEVRON_SVG}</span>
+      <span data-ref="chevron" class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${CHEVRON_SVG}</span>
       <span class="text-sm font-medium text-base-content/70">History</span>
+      <span data-ref="history-total" class="text-xs text-base-content/40 tabular-nums hidden"></span>
+      <button data-ref="history-dots" class="ml-auto btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0">${DOTS_SVG}</button>
     `;
     this.panel.appendChild(timelineHeader);
+    this.historyTotalLabel = timelineHeader.querySelector<HTMLSpanElement>('[data-ref="history-total"]')!;
+    const historyDotsBtn = timelineHeader.querySelector<HTMLButtonElement>('[data-ref="history-dots"]')!;
+    historyDotsBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.showHistoryDropdown(historyDotsBtn);
+    });
 
     this.timelineBody = document.createElement('div');
     this.timelineBody.className = 'py-1 overflow-y-auto min-h-0 flex-[2]';
@@ -96,7 +116,7 @@ export class TimelinePanel {
     timelineHeader.addEventListener('click', () => {
       this.timelineExpanded = !this.timelineExpanded;
       this.timelineBody.classList.toggle('hidden', !this.timelineExpanded);
-      const chevron = timelineHeader.querySelector('span')!;
+      const chevron = timelineHeader.querySelector('[data-ref="chevron"]')!;
       chevron.classList.toggle('rotate-90', this.timelineExpanded);
     });
 
@@ -121,6 +141,32 @@ export class TimelinePanel {
     }
     this.renderTimeline();
     this.renderShapes();
+    this.updateHistoryTotal();
+  }
+
+  private updateHistoryTotal(): void {
+    if (!this.showBuildTimings) {
+      this.historyTotalLabel.classList.add('hidden');
+      return;
+    }
+    let total = 0;
+    let hasAny = false;
+    for (const obj of this.sceneObjects) {
+      if (obj.parentId) {
+        continue;
+      }
+      if (obj.fromCache || obj.buildDurationMs == null) {
+        continue;
+      }
+      total += obj.buildDurationMs;
+      hasAny = true;
+    }
+    if (!hasAny) {
+      this.historyTotalLabel.classList.add('hidden');
+      return;
+    }
+    this.historyTotalLabel.textContent = `· ${formatDuration(total)}`;
+    this.historyTotalLabel.classList.remove('hidden');
   }
 
   // ---------------------------------------------------------------------------
@@ -169,8 +215,7 @@ export class TimelinePanel {
           return;
         }
         const index = parseInt(el.dataset.index!, 10);
-        const isContainer = el.dataset.container === 'true';
-        this.rollbackTo(index, isContainer);
+        this.rollbackTo(index);
       });
     });
 
@@ -232,27 +277,35 @@ export class TimelinePanel {
       chevron = '<span class="w-4"></span>';
     }
 
+    const showDuration = this.showBuildTimings && !obj.fromCache && obj.buildDurationMs != null;
+    const durationSpan = showDuration
+      ? `<span class="ml-auto shrink-0 text-xs text-base-content/40 tabular-nums">${formatDuration(obj.buildDurationMs!)}</span>`
+      : '';
+
+    const statusIconClass = showDuration
+      ? 'shrink-0 text-base-content/40 [&>svg]:w-4 [&>svg]:h-4'
+      : 'ml-auto shrink-0 text-base-content/40 [&>svg]:w-4 [&>svg]:h-4';
     const statusIcon = obj.fromCache
-      ? `<span class="ml-auto shrink-0 text-base-content/40 [&>svg]:w-4 [&>svg]:h-4">${ICON_CIRCLE_CHECK}</span>`
-      : `<span class="ml-auto shrink-0 text-base-content/40 [&>svg]:w-4 [&>svg]:h-4">${ICON_REFRESH}</span>`;
+      ? `<span class="${statusIconClass}">${ICON_CIRCLE_CHECK}</span>`
+      : `<span class="${statusIconClass}">${ICON_REFRESH}</span>`;
 
     return `
       <div class="${itemClass}" data-index="${index}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}">
         ${chevron}
         <img src="${iconSrc}" class="${imgClass}" alt="" />
         <span class="truncate">${name}</span>
+        ${durationSpan}
         ${statusIcon}
       </div>
     `;
   }
 
-  private async rollbackTo(index: number, isContainer: boolean): Promise<void> {
-    const actualIndex = isContainer ? index + 1 : index;
+  private async rollbackTo(index: number): Promise<void> {
     try {
       await fetch('/api/rollback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ index: actualIndex }),
+        body: JSON.stringify({ index }),
       });
     } catch (err) {
       console.error('Rollback failed:', err);
@@ -384,6 +437,69 @@ export class TimelinePanel {
         this.renderShapes();
       });
     });
+  }
+
+  setShowBuildTimings(value: boolean): void {
+    if (this.showBuildTimings === value) {
+      return;
+    }
+    this.showBuildTimings = value;
+    this.applyPanelWidth();
+    this.updateHistoryTotal();
+    if (this.loaded) {
+      this.renderTimeline();
+    }
+  }
+
+  private applyPanelWidth(): void {
+    this.panel.classList.toggle('w-[220px]', !this.showBuildTimings);
+    this.panel.classList.toggle('w-[270px]', this.showBuildTimings);
+  }
+
+  private showHistoryDropdown(anchor: HTMLElement): void {
+    this.closeDropdown();
+
+    const dropdown = document.createElement('div');
+    dropdown.className = 'absolute z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
+
+    const rect = anchor.getBoundingClientRect();
+    const panelRect = this.panel.getBoundingClientRect();
+    dropdown.style.top = `${rect.bottom - panelRect.top + 2}px`;
+    dropdown.style.right = `${panelRect.right - rect.right}px`;
+
+    const checkMark = this.showBuildTimings
+      ? `<span class="text-primary shrink-0">${CHECK_SVG}</span>`
+      : `<span class="w-3 shrink-0"></span>`;
+
+    dropdown.innerHTML = `
+      <ul class="menu menu-xs p-1 min-w-[180px]">
+        <li><button data-action="toggle-timings" class="flex items-center gap-2">
+          ${checkMark}
+          <span>Show execution time</span>
+        </button></li>
+      </ul>
+    `;
+
+    this.panel.appendChild(dropdown);
+    this.activeDropdown = dropdown;
+
+    dropdown.querySelector('[data-action="toggle-timings"]')!.addEventListener('click', () => {
+      const next = !this.showBuildTimings;
+      this.showBuildTimings = next;
+      this.applyPanelWidth();
+      this.updateHistoryTotal();
+      savePreference('showBuildTimings', next);
+      this.closeDropdown();
+      this.renderTimeline();
+    });
+
+    const onClickOutside = (e: MouseEvent) => {
+      if (!dropdown.contains(e.target as Node) && !anchor.contains(e.target as Node)) {
+        this.closeDropdown();
+      }
+    };
+    setTimeout(() => document.addEventListener('click', onClickOutside), 0);
+    this.dropdownCleanup = () => document.removeEventListener('click', onClickOutside);
   }
 
   private showShapeDropdown(anchor: HTMLElement, shapeId: string): void {

@@ -6,6 +6,7 @@ title: "Loft"
 import CodeBlock from '@theme/CodeBlock';
 import loftTwo from '!!raw-loader!./_examples/loft-two-profiles.js';
 import loftThree from '!!raw-loader!./_examples/loft-three-profiles.js';
+import loftThin from '!!raw-loader!./_examples/loft-thin.js';
 
 # Loft
 
@@ -25,6 +26,22 @@ You can loft through more than two profiles:
 
 The profiles must be on different planes (typically parallel planes at different offsets).
 
+## Thin loft
+
+`.thin()` offsets the profile edges on each section to produce a thin-walled shell instead of a filled loft:
+
+<CodeBlock language="js">{loftThin}</CodeBlock>
+
+![Thin loft](/img/docs/3d-operations/loft-thin.png)
+
+```js
+loft(s1, s2).thin(5)     // 5 units outward
+loft(s1, s2).thin(-5)    // 5 units inward
+loft(s1, s2).thin(5, -3) // dual offset
+```
+
+All profiles must be sketches with matching topology (same number of wires).
+
 ## Accessing geometry
 
 ```js
@@ -36,6 +53,8 @@ l.sideFaces()      // the transition surface(s)
 l.endEdges()       // edges at the last profile
 l.startEdges()     // edges at the first profile
 l.sideEdges()      // edges along the sides
+l.internalFaces()  // inner wall face(s) of a thin loft (closed profiles)
+l.capFaces()       // cap face(s) of a thin loft (open profiles)
 ```
 
 ## Fusion scope

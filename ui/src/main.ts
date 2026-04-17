@@ -22,6 +22,7 @@ loadPreferences().then((prefs) => {
   if (prefs) {
     document.documentElement.setAttribute('data-theme', prefs.theme);
     applyPreferences(prefs);
+    timelinePanel.setShowBuildTimings(!!prefs.showBuildTimings);
   }
 });
 

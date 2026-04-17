@@ -6,12 +6,14 @@ export interface Preferences {
   theme: string;
   showGrid: boolean;
   cameraMode: 'perspective' | 'orthographic';
+  showBuildTimings: boolean;
 }
 
 const DEFAULTS: Preferences = {
   theme: 'fluidcad-dark',
   showGrid: true,
   cameraMode: 'orthographic',
+  showBuildTimings: false,
 };
 
 function getConfigDir(): string {

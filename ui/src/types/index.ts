@@ -120,6 +120,7 @@ export type SceneObjectRender = {
   hasError?: boolean;
   errorMessage?: string;
   sourceLocation?: { filePath: string; line: number; column: number };
+  buildDurationMs?: number;
 };
 
 // ---------------------------------------------------------------------------

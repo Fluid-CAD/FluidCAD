@@ -5,6 +5,8 @@ title: "Sweep"
 
 import CodeBlock from '@theme/CodeBlock';
 import sweepBasic from '!!raw-loader!./_examples/sweep-basic.js';
+import sweepThin from '!!raw-loader!./_examples/sweep-thin.js';
+import sweepThinOpen from '!!raw-loader!./_examples/sweep-thin-open.js';
 
 # Sweep
 
@@ -15,6 +17,28 @@ import sweepBasic from '!!raw-loader!./_examples/sweep-basic.js';
 ![Sweep along a curved path](/img/docs/3d-operations/sweep-basic.png)
 
 The first argument is the path (spine), the second is the profile to sweep. The profile and path should be on different planes.
+
+## Thin sweep
+
+`.thin()` offsets the profile edges to create a thin-walled swept shell — useful for pipes and ducts:
+
+<CodeBlock language="js">{sweepThin}</CodeBlock>
+
+![Thin sweep](/img/docs/3d-operations/sweep-thin.png)
+
+```js
+sweep(spine, profile).thin(5)     // 5 units outward
+sweep(spine, profile).thin(-5)    // 5 units inward
+sweep(spine, profile).thin(5, -3) // dual offset
+```
+
+### Open profiles
+
+Thin sweep also works with open profiles. The ends are capped — select them with `capFaces()` / `capEdges()`:
+
+<CodeBlock language="js">{sweepThinOpen}</CodeBlock>
+
+![Thin sweep — open profile](/img/docs/3d-operations/sweep-thin-open.png)
 
 ## Accessing geometry
 
@@ -29,6 +53,8 @@ s.startEdges()     // edges at the start
 s.sideEdges()      // edges along the sides
 s.internalFaces()  // internal faces (if profile has holes)
 s.internalEdges()  // internal edges
+s.capFaces()       // cap face(s) of a thin sweep (open profile)
+s.capEdges()       // cap edges of a thin sweep (open profile)
 ```
 
 ## Fusion scope

@@ -20,6 +20,10 @@ export class RepeatLinear extends SceneObject {
     this.setAlwaysVisible()
   }
 
+  isContainer(): boolean {
+      return true;
+  }
+
   build(context: BuildSceneObjectContext) {
     this.saveShapesSnapshot(context);
   }

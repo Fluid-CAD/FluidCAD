@@ -26,6 +26,9 @@ export function createPreferencesRouter(): Router {
       if (body.cameraMode === 'perspective' || body.cameraMode === 'orthographic') {
         current.cameraMode = body.cameraMode;
       }
+      if (typeof body.showBuildTimings === 'boolean') {
+        current.showBuildTimings = body.showBuildTimings;
+      }
       await savePreferences(current);
       res.json(current);
     } catch (err: any) {

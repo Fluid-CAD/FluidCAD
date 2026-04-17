@@ -195,3 +195,102 @@ Selects edges on the side faces, excluding edges shared with start/end faces.
 |-----------|------|-------------|
 | `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
 
+---
+
+### thin()
+
+```ts
+thin(offset: number): this
+```
+
+Enables thin loft mode — offsets the profile edges of each section to create a
+thin-walled shell instead of lofting filled faces. All profiles must be sketches
+and share the same topology. Positive values offset outward, negative offsets inward.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `offset` | number | The wall offset distance. Positive = outward, negative = inward. |
+
+---
+
+### thin()
+
+```ts
+thin(offset1: number, offset2: number): this
+```
+
+Enables thin loft mode with two offset directions.
+The two offsets must go in opposite directions. If both have the same sign,
+the second offset is automatically flipped.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `offset1` | number | The first wall offset distance. Positive = outward, negative = inward. |
+| `offset2` | number | The second wall offset distance, in the opposite direction of offset1. |
+
+---
+
+### internalFaces()
+
+```ts
+internalFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+```
+
+Selects faces created inside the solid during loft (e.g., the inner
+wall of a thin-walled loft from closed profiles).
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### internalEdges()
+
+```ts
+internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges bounding the internal geometry created during loft.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### capFaces()
+
+```ts
+capFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+```
+
+Selects the cap faces at the open ends of a thin-walled loft from open profiles.
+These are the small faces connecting the inner and outer walls at the profile endpoints.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### capEdges()
+
+```ts
+capEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges on the cap faces of a thin-walled loft from open profiles.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+

@@ -6,6 +6,8 @@ title: "Revolve"
 import CodeBlock from '@theme/CodeBlock';
 import revolvePartial from '!!raw-loader!./_examples/revolve-partial.js';
 import revolveFull from '!!raw-loader!./_examples/revolve-full.js';
+import revolveThin from '!!raw-loader!./_examples/revolve-thin.js';
+import revolveThinOpen from '!!raw-loader!./_examples/revolve-thin-open.js';
 
 # Revolve
 
@@ -28,6 +30,32 @@ revolve("z", 180)              // half turn
 ```
 
 The sketch should be offset from the axis of revolution — otherwise you get a zero-thickness result.
+
+## Thin revolve
+
+`.thin()` offsets the profile edges to create a thin-walled solid of revolution instead of a filled one. The offset distance controls the wall thickness:
+
+<CodeBlock language="js">{revolveThin}</CodeBlock>
+
+![Thin revolve](/img/docs/3d-operations/revolve-thin.png)
+
+Positive values offset outward, negative values offset inward:
+
+```js
+revolve("z").thin(5)     // 5 units outward
+revolve("z").thin(-5)    // 5 units inward
+revolve("z").thin(5, -3) // dual offset in opposite directions
+```
+
+### Open profiles
+
+Thin revolve also works with open profiles. The ends are capped — use `capFaces()` / `capEdges()` to select them:
+
+<CodeBlock language="js">{revolveThinOpen}</CodeBlock>
+
+![Thin revolve — open profile](/img/docs/3d-operations/revolve-thin-open.png)
+
+Thin revolve works with `.symmetric()`, partial revolutions, and `.remove()`.
 
 ## Region picking
 
@@ -55,6 +83,8 @@ const r = revolve("z", 180)
 r.endFaces()       // face(s) at the end of the revolution
 r.startFaces()     // face(s) at the start
 r.sideFaces()      // outer surface(s)
+r.internalFaces()  // inner wall face(s) of a thin revolve (closed profile)
+r.capFaces()       // cap face(s) of a thin revolve (open profile)
 ```
 
 ## Fusion scope

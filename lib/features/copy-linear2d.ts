@@ -24,20 +24,28 @@ export class CopyLinear2D extends GeometrySceneObject {
       objects = allSiblings;
     }
 
-    let length = this.options.length || 1;
     const { count, centered, skip } = this.options;
 
-    // Normalize count to per-axis array
     const counts = Array.isArray(count)
       ? count
       : this.axes.map(() => count);
 
-    let offset: number;
-    if ('offset' in this.options && this.options.offset !== undefined) {
-      offset = this.options.offset;
-    } else {
-      offset = length / Math.max(...counts);
-    }
+    const offsets = 'offset' in this.options && this.options.offset !== undefined
+      ? (Array.isArray(this.options.offset) ? this.options.offset : this.axes.map(() => this.options.offset as number))
+      : null;
+
+    const lengths = 'length' in this.options && this.options.length !== undefined
+      ? (Array.isArray(this.options.length) ? this.options.length : this.axes.map(() => this.options.length as number))
+      : null;
+
+    const axisOffsets = this.axes.map((_, a) => {
+      if (offsets) {
+        return offsets[a] ?? offsets[0];
+      }
+      const len = lengths ? (lengths[a] ?? lengths[0]) : 1;
+      const axisCount = counts[a];
+      return axisCount > 1 ? len / (axisCount - 1) : 0;
+    });
 
     // Build grid positions as cartesian product of per-axis indices (0..counts[a]-1)
     let positions: number[][] = [[]];
@@ -60,8 +68,9 @@ export class CopyLinear2D extends GeometrySceneObject {
       let matrix = Matrix4.identity();
       for (let a = 0; a < this.axes.length; a++) {
         const axisCount = counts[a];
-        const startOffset = centered ? -(axisCount * offset) / 2 : 0;
-        const distance = startOffset + offset * pos[a];
+        const axisOffset = axisOffsets[a];
+        const startOffset = centered ? -(axisCount * axisOffset) / 2 : 0;
+        const distance = startOffset + axisOffset * pos[a];
         const translation = this.axes[a].direction.multiply(distance);
         matrix = matrix.multiply(Matrix4.fromTranslationVector(translation));
       }

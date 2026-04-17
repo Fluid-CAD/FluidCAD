@@ -10,6 +10,7 @@ import { FaceMaker2 } from "../oc/face-maker2.js";
 import { ExtrudeBase } from "./extrude-base.js";
 import { ISweep } from "../core/interfaces.js";
 import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
+import { ThinFaceMaker } from "../oc/thin-face-maker.js";
 
 export class Sweep extends ExtrudeBase implements ISweep {
   private _path: SceneObject;
@@ -38,7 +39,16 @@ export class Sweep extends ExtrudeBase implements ISweep {
     const spineWire = this.getSpineWire(this._path);
 
     // Extract profile faces from extrudable
-    const profileFaces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill());
+    let profileFaces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill());
+    let inwardEdges: Edge[] | undefined;
+    let outwardEdges: Edge[] | undefined;
+
+    if (this.isThin()) {
+      const thinResult = ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]);
+      profileFaces = thinResult.faces;
+      inwardEdges = thinResult.inwardEdges;
+      outwardEdges = thinResult.outwardEdges;
+    }
 
     if (profileFaces.length === 0) {
       throw new Error("Could not extract profile faces from extrudable.");
@@ -51,7 +61,7 @@ export class Sweep extends ExtrudeBase implements ISweep {
     // Classify faces using FirstShape/LastShape from the OC result
     const startFaces: Face[] = [];
     const endFaces: Face[] = [];
-    const sideFaces: Face[] = [];
+    let sideFaces: Face[] = [];
 
     const firstShapeFromOC = sweepResult.firstShape;
     const lastShapeFromOC = sweepResult.lastShape;
@@ -69,9 +79,49 @@ export class Sweep extends ExtrudeBase implements ISweep {
       }
     }
 
+    let internalFaces: Face[] = [];
+    let capFaces: Face[] = [];
+
+    if (inwardEdges && inwardEdges.length > 0) {
+      const result = this.reclassifyThinFaces(
+        sideFaces, startFaces, plane, inwardEdges, outwardEdges || []
+      );
+      sideFaces = result.sideFaces;
+      internalFaces = result.internalFaces;
+      capFaces = result.capFaces;
+    } else {
+      const innerWireEdges: Edge[] = [];
+      for (const sf of startFaces) {
+        for (const wire of sf.getWires()) {
+          if (!wire.isCW(plane.normal)) {
+            for (const edge of wire.getEdges()) {
+              innerWireEdges.push(edge);
+            }
+          }
+        }
+      }
+
+      if (innerWireEdges.length > 0) {
+        const remaining: Face[] = [];
+        for (const f of sideFaces) {
+          const isInternal = f.getEdges().some(fe =>
+            innerWireEdges.some(iwe => fe.getShape().IsPartner(iwe.getShape()))
+          );
+          if (isInternal) {
+            internalFaces.push(f);
+          } else {
+            remaining.push(f);
+          }
+        }
+        sideFaces = remaining;
+      }
+    }
+
     this.setState('start-faces', startFaces);
     this.setState('end-faces', endFaces);
     this.setState('side-faces', sideFaces);
+    this.setState('internal-faces', internalFaces);
+    this.setState('cap-faces', capFaces);
 
     // Remove consumed input shapes
     this.extrudable.removeShapes(this);
@@ -159,6 +209,7 @@ export class Sweep extends ExtrudeBase implements ISweep {
       path: this._path.serialize(),
       extrudable: this.extrudable.serialize(),
       operationMode: this._operationMode !== 'add' ? this._operationMode : undefined,
+      thin: this._thin,
       ...this.serializePickFields(),
     };
   }

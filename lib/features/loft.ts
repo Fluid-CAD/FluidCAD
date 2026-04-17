@@ -3,20 +3,18 @@ import { Explorer } from "../oc/explorer.js";
 import { LoftOps } from "../oc/loft-ops.js";
 import { Wire } from "../common/wire.js";
 import { Face } from "../common/face.js";
-import { Edge } from "../common/edge.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
-import { LazySelectionSceneObject } from "./lazy-scene-object.js";
-import { FaceFilterBuilder } from "../filters/face/face-filter.js";
-import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
-import { ShapeFilter } from "../filters/filter.js";
-import { Matrix4 } from "../math/matrix4.js";
 import { FaceOps } from "../oc/face-ops.js";
+import { BooleanOps } from "../oc/boolean-ops.js";
 import { Plane } from "../math/plane.js";
 import { ILoft } from "../core/interfaces.js";
 import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
+import { ExtrudeBase } from "./extrude-base.js";
+import { ThinFaceMaker } from "../oc/thin-face-maker.js";
+import { Shape } from "../common/shape.js";
 
-export class Loft extends SceneObject implements ILoft {
+export class Loft extends ExtrudeBase implements ILoft {
   private _profiles: SceneObject[] = [];
 
   constructor(...profiles: SceneObject[]) {
@@ -33,21 +31,27 @@ export class Loft extends SceneObject implements ILoft {
       throw new Error("Loft requires at least two profiles.");
     }
 
-    const allWires: Wire[] = [];
+    let newShapes: Shape[];
 
-    for (const profile of this.profiles) {
-      const wires = this.getWiresFromSceneObject(profile);
+    if (this.isThin()) {
+      newShapes = this.buildThinLoft();
+    } else {
+      const allWires: Wire[] = [];
 
-      if (wires.length === 0) {
-        throw new Error("Could not extract wire from profile.");
+      for (const profile of this.profiles) {
+        const wires = this.getWiresFromSceneObject(profile);
+
+        if (wires.length === 0) {
+          throw new Error("Could not extract wire from profile.");
+        }
+
+        for (const wire of wires) {
+          allWires.push(wire);
+        }
       }
 
-      for (const wire of wires) {
-        allWires.push(wire);
-      }
+      newShapes = LoftOps.makeLoft(allWires);
     }
-
-    const newShapes = LoftOps.makeLoft(allWires);
 
     for (const profile of this.profiles) {
       profile.removeShapes(this);
@@ -104,145 +108,46 @@ export class Loft extends SceneObject implements ILoft {
     this.addShapes(fusionResult.newShapes);
   }
 
+  private buildThinLoft(): Shape[] {
+    const outerWires: Wire[] = [];
+    const innerWires: Wire[] = [];
+
+    for (const profile of this.profiles) {
+      if (!profile.isExtrudable()) {
+        throw new Error("Thin loft requires all profiles to be sketches.");
+      }
+      const extrudable = profile as unknown as Extrudable;
+      const profilePlane = extrudable.getPlane();
+      const thinResult = ThinFaceMaker.make(
+        extrudable.getGeometries(), profilePlane, this._thin[0], this._thin[1]
+      );
+      for (const face of thinResult.faces) {
+        const wires = face.getWires();
+        outerWires.push(wires[0]);
+        if (wires.length > 1) {
+          innerWires.push(wires[1]);
+        }
+      }
+    }
+
+    const outerSolids = LoftOps.makeLoft(outerWires);
+
+    if (innerWires.length > 0 && innerWires.length === outerWires.length) {
+      const innerSolids = LoftOps.makeLoft(innerWires);
+      const { result: outerFused } = BooleanOps.fuse(outerSolids);
+      const { result: innerFused } = BooleanOps.fuse(innerSolids);
+      const cutResult = BooleanOps.cutShapes(outerFused[0], innerFused[0]);
+      return [cutResult];
+    }
+
+    return outerSolids;
+  }
+
   private getProfilePlane(profile: SceneObject): Plane | null {
     if ('getPlane' in profile && typeof (profile as any).getPlane === 'function') {
       return (profile as Extrudable).getPlane();
     }
     return null;
-  }
-
-  startFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
-    const suffix = this.buildSuffix('start-faces', args);
-    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
-      (parent) => {
-        const faces = parent.getState('start-faces') as Face[] || [];
-        const transform = parent.getTransform();
-        const originalFaces = transform
-          ? (this.getState('start-faces') as Face[] || [])
-          : null;
-        return this.resolveFaces(faces, args, transform, originalFaces);
-      }, this);
-  }
-
-  endFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
-    const suffix = this.buildSuffix('end-faces', args);
-    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
-      (parent) => {
-        const faces = parent.getState('end-faces') as Face[] || [];
-        const transform = parent.getTransform();
-        const originalFaces = transform
-          ? (this.getState('end-faces') as Face[] || [])
-          : null;
-        return this.resolveFaces(faces, args, transform, originalFaces);
-      }, this);
-  }
-
-  sideFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
-    const suffix = this.buildSuffix('side-faces', args);
-    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
-      (parent) => {
-        const faces = parent.getState('side-faces') as Face[] || [];
-        const transform = parent.getTransform();
-        const originalFaces = transform
-          ? (this.getState('side-faces') as Face[] || [])
-          : null;
-        return this.resolveFaces(faces, args, transform, originalFaces);
-      }, this);
-  }
-
-  startEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
-    const suffix = this.buildSuffix('start-edges', args);
-    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
-      (parent) => {
-        const faces = parent.getState('start-faces') as Face[] || [];
-        const edges = faces.flatMap(f => f.getEdges());
-        const transform = parent.getTransform();
-        const originalEdges = transform
-          ? (this.getState('start-faces') as Face[] || []).flatMap(f => f.getEdges())
-          : null;
-        return this.resolveEdges(edges, args, transform, originalEdges);
-      }, this);
-  }
-
-  endEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
-    const suffix = this.buildSuffix('end-edges', args);
-    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
-      (parent) => {
-        const faces = parent.getState('end-faces') as Face[] || [];
-        const edges = faces.flatMap(f => f.getEdges());
-        const transform = parent.getTransform();
-        const originalEdges = transform
-          ? (this.getState('end-faces') as Face[] || []).flatMap(f => f.getEdges())
-          : null;
-        return this.resolveEdges(edges, args, transform, originalEdges);
-      }, this);
-  }
-
-  sideEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
-    const suffix = this.buildSuffix('side-edges', args);
-    return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
-      (parent) => {
-        const sideFaces = parent.getState('side-faces') as Face[] || [];
-        const startFaces = parent.getState('start-faces') as Face[] || [];
-        const endFaces = parent.getState('end-faces') as Face[] || [];
-        const excludedEdges = [...startFaces, ...endFaces].flatMap(f => f.getEdges());
-        const edges = sideFaces.flatMap(f => f.getEdges())
-          .filter(e => !excludedEdges.some(ex => e.getShape().IsSame(ex.getShape())))
-          .filter((e, i, arr) => arr.findIndex(o => o.getShape().IsSame(e.getShape())) === i);
-        return this.resolveEdges(edges, args);
-      }, this);
-  }
-
-  private buildSuffix(prefix: string, args: any[]): string {
-    if (args.length === 0) {
-      return prefix;
-    }
-    const key = args.map(a => typeof a === 'number' ? a : 'f').join('-');
-    return `${prefix}-${key}`;
-  }
-
-  private resolveEdges(shapes: Edge[], args: (number | EdgeFilterBuilder)[],
-                       transform: Matrix4 = null, originalShapes: Edge[] = null): Edge[] {
-    if (args.length === 0) {
-      return shapes;
-    }
-
-    if (args.every(a => typeof a === 'number')) {
-      const indices = args as number[];
-      let filters = indices.map(i => new EdgeFilterBuilder().atIndex(i, shapes, originalShapes));
-      if (transform) {
-        filters = filters.map(f => f.transform(transform) as EdgeFilterBuilder);
-      }
-      return new ShapeFilter(shapes, ...filters).apply() as Edge[];
-    }
-
-    let filters = args.filter(a => a instanceof EdgeFilterBuilder) as EdgeFilterBuilder[];
-    if (transform) {
-      filters = filters.map(f => f.transform(transform) as EdgeFilterBuilder);
-    }
-    return new ShapeFilter(shapes as any, ...filters).apply() as Edge[];
-  }
-
-  private resolveFaces(shapes: Face[], args: (number | FaceFilterBuilder)[],
-                       transform: Matrix4 = null, originalShapes: Face[] = null): Face[] {
-    if (args.length === 0) {
-      return shapes;
-    }
-
-    if (args.every(a => typeof a === 'number')) {
-      const indices = args as number[];
-      let filters = indices.map(i => new FaceFilterBuilder().atIndex(i, shapes, originalShapes));
-      if (transform) {
-        filters = filters.map(f => f.transform(transform) as FaceFilterBuilder);
-      }
-      return new ShapeFilter(shapes, ...filters).apply() as Face[];
-    }
-
-    let filters = args.filter(a => a instanceof FaceFilterBuilder) as FaceFilterBuilder[];
-    if (transform) {
-      filters = filters.map(f => f.transform(transform) as FaceFilterBuilder);
-    }
-    return new ShapeFilter(shapes as any, ...filters).apply() as Face[];
   }
 
   private getWiresFromSceneObject(obj: SceneObject): Wire[] {
@@ -299,6 +204,15 @@ export class Loft extends SceneObject implements ILoft {
     return [];
   }
 
+  override getDependencies(): SceneObject[] {
+    return [...this._profiles];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const profiles = this._profiles.map(p => remap.get(p) || p);
+    return new Loft(...profiles).syncWith(this);
+  }
+
   compareTo(other: Loft): boolean {
     if (!(other instanceof Loft)) {
       return false;
@@ -329,6 +243,7 @@ export class Loft extends SceneObject implements ILoft {
     return {
       profiles: this.profiles.map(f => f.serialize()),
       operationMode: this._operationMode !== 'add' ? this._operationMode : undefined,
+      thin: this._thin,
     }
   }
 }

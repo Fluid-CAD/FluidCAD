@@ -12,7 +12,9 @@ import { ExtrudeBase } from "./extrude-base.js";
 import { IRevolve } from "../core/interfaces.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { Face } from "../common/face.js";
+import { Edge } from "../common/edge.js";
 import { FaceOps } from "../oc/face-ops.js";
+import { ThinFaceMaker } from "../oc/thin-face-maker.js";
 
 export class Revolve extends ExtrudeBase implements IRevolve {
 
@@ -34,9 +36,21 @@ export class Revolve extends ExtrudeBase implements IRevolve {
     const solids: Solid[] = [];
     const allStartFaces: Face[] = [];
     const allEndFaces: Face[] = [];
-    const allSideFaces: Face[] = [];
-    const allInternalFaces: Face[] = [];
-    const faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane);
+    let allSideFaces: Face[] = [];
+    let allInternalFaces: Face[] = [];
+    let allCapFaces: Face[] = [];
+
+    let faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane);
+    let inwardEdges: Edge[] | undefined;
+    let outwardEdges: Edge[] | undefined;
+
+    if (this.isThin()) {
+      const thinResult = ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]);
+      faces = thinResult.faces;
+      inwardEdges = thinResult.inwardEdges;
+      outwardEdges = thinResult.outwardEdges;
+    }
+
     const { result: fusedFaces } = BooleanOps.fuseFaces(faces);
 
     const axis = this.axis.getAxis();
@@ -44,17 +58,6 @@ export class Revolve extends ExtrudeBase implements IRevolve {
 
     for (const face of fusedFaces as Face[]) {
       const solid = ExtrudeOps.makeRevol(face, axis, rad(this.angle));
-
-      // Collect inner wire edges for internal face detection
-      const innerWireEdges: any[] = [];
-      const wires = face.getWires();
-      for (const wire of wires) {
-        if (!wire.isCW(plane.normal)) {
-          for (const edge of wire.getEdges()) {
-            innerWireEdges.push(edge);
-          }
-        }
-      }
 
       let resultSolid: Solid;
       if (this._symmetric) {
@@ -71,17 +74,7 @@ export class Revolve extends ExtrudeBase implements IRevolve {
         const isOnSourcePlane = FaceOps.faceOnPlaneWrapped(f as Face, plane);
         if (isOnSourcePlane && !isFullRevolution) {
           allStartFaces.push(f as Face);
-        } else if (!isOnSourcePlane) {
-          if (innerWireEdges.length > 0) {
-            const faceEdges = (f as Face).getEdges();
-            const isInternal = faceEdges.some(fe =>
-              innerWireEdges.some(iwe => fe.getShape().IsPartner(iwe.getShape()))
-            );
-            if (isInternal) {
-              allInternalFaces.push(f as Face);
-              continue;
-            }
-          }
+        } else {
           allSideFaces.push(f as Face);
         }
       }
@@ -97,10 +90,46 @@ export class Revolve extends ExtrudeBase implements IRevolve {
       allEndFaces.push(...endSlice);
     }
 
+    if (inwardEdges && inwardEdges.length > 0) {
+      const result = this.reclassifyThinFaces(
+        allSideFaces, allStartFaces, plane, inwardEdges, outwardEdges || []
+      );
+      allSideFaces = result.sideFaces;
+      allInternalFaces = result.internalFaces;
+      allCapFaces = result.capFaces;
+    } else {
+      const innerWireEdges: Edge[] = [];
+      for (const sf of allStartFaces) {
+        for (const wire of sf.getWires()) {
+          if (!wire.isCW(plane.normal)) {
+            for (const edge of wire.getEdges()) {
+              innerWireEdges.push(edge);
+            }
+          }
+        }
+      }
+
+      if (innerWireEdges.length > 0) {
+        const remaining: Face[] = [];
+        for (const f of allSideFaces) {
+          const isInternal = f.getEdges().some(fe =>
+            innerWireEdges.some(iwe => fe.getShape().IsPartner(iwe.getShape()))
+          );
+          if (isInternal) {
+            allInternalFaces.push(f);
+          } else {
+            remaining.push(f);
+          }
+        }
+        allSideFaces = remaining;
+      }
+    }
+
     this.setState('start-faces', allStartFaces);
     this.setState('end-faces', allEndFaces);
     this.setState('side-faces', allSideFaces);
     this.setState('internal-faces', allInternalFaces);
+    this.setState('cap-faces', allCapFaces);
 
     this.extrudable.removeShapes(this);
     this.axis.removeShapes(this);
@@ -174,6 +203,7 @@ export class Revolve extends ExtrudeBase implements IRevolve {
       axis: this.axis.serialize(),
       operationMode: this._operationMode !== 'add' ? this._operationMode : undefined,
       symmetric: this._symmetric || undefined,
+      thin: this._thin,
       ...this.serializePickFields(),
     }
   }

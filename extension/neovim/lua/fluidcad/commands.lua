@@ -1,4 +1,5 @@
 local bridge = require('fluidcad.bridge')
+local breakpoints = require('fluidcad.breakpoints')
 
 local M = {}
 
@@ -96,6 +97,10 @@ function M.setup(_config)
       data = encoded,
     })
   end, { nargs = 1, complete = 'file', desc = 'Import a STEP file' })
+
+  vim.api.nvim_create_user_command('FluidCadToggleBreakpoint', function()
+    breakpoints.toggle()
+  end, { desc = 'Toggle a FluidCAD breakpoint on the current line' })
 
   vim.api.nvim_create_user_command('FluidCadLog', function()
     vim.cmd('botright new')

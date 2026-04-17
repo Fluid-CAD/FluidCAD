@@ -13,17 +13,22 @@ export function captureSourceLocation(): SourceLocation | null {
   }
   const lines = stack.split('\n');
   for (const frame of lines) {
-    const match = frame.match(/((?:[A-Za-z]:)?\/[^\s]+?\.fluid\.js):(\d+):(\d+)/);
-    if (match) {
-      let filePath = match[1];
-      const virtualIdx = filePath.indexOf('virtual:live-render:');
-      if (virtualIdx !== -1) {
-        filePath = filePath.substring(virtualIdx + 'virtual:live-render:'.length);
-      }
+    // Match the Vite live-render virtual prefix first so the path regex
+    // does not accidentally match `r:/…` inside the word `render:`.
+    const virtualMatch = frame.match(/virtual:live-render:((?:[A-Za-z]:)?\/[^\s]+?\.fluid\.js):(\d+):(\d+)/);
+    if (virtualMatch) {
       return {
-        filePath,
-        line: parseInt(match[2], 10),
-        column: parseInt(match[3], 10),
+        filePath: virtualMatch[1],
+        line: parseInt(virtualMatch[2], 10),
+        column: parseInt(virtualMatch[3], 10),
+      };
+    }
+    const realMatch = frame.match(/((?:[A-Za-z]:)?\/[^\s]+?\.fluid\.js):(\d+):(\d+)/);
+    if (realMatch) {
+      return {
+        filePath: realMatch[1],
+        line: parseInt(realMatch[2], 10),
+        column: parseInt(realMatch[3], 10),
       };
     }
   }

@@ -1,4 +1,5 @@
 local bridge = require('fluidcad.bridge')
+local breakpoints = require('fluidcad.breakpoints')
 
 local M = {}
 
@@ -51,6 +52,16 @@ function M.setup(config)
           send_live_update_now()
         end)
       end
+      breakpoints.refresh()
+    end,
+  })
+
+  -- Refresh breakpoint signs after buffer edits
+  vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI', 'BufReadPost' }, {
+    group = group,
+    pattern = '*.fluid.js',
+    callback = function(args)
+      breakpoints.refresh(args.buf)
     end,
   })
 

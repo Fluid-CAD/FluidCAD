@@ -2,6 +2,9 @@ import * as vscode from 'vscode';
 import { join } from 'path';
 import { fork, ChildProcess } from 'child_process';
 
+const BREAKPOINT_LINE = /^(\s*)breakpoint\s*\(\s*\)\s*;?\s*$/;
+const FLUIDCAD_IMPORT = /import\s*\{([^}]*)\}\s*from\s*['"]fluidcad(?:\/core)?['"]\s*;?/;
+
 export class Client {
   panel: vscode.WebviewPanel | undefined = undefined;
 
@@ -9,6 +12,7 @@ export class Client {
   private serverUrl: string = '';
   private diagnosticCollection: vscode.DiagnosticCollection;
   private pendingExportUri: vscode.Uri | undefined;
+  private syncingBreakpoints = false;
 
   currentSceneObjects: any[] = [];
   private currentFileName: string = '';
@@ -46,7 +50,13 @@ export class Client {
       () => this.exportFile()
     ));
 
+    this.context.subscriptions.push(vscode.commands.registerCommand(
+      'fluidcad.toggle_breakpoint',
+      () => this.toggleBreakpoint()
+    ));
+
     this.initLiveRender();
+    this.initDebugBreakpointSync();
 
     const folder = this.getActiveWorkspaceFolder();
     this.logger.appendLine(`Active workspace folder: ${folder}`);
@@ -76,6 +86,299 @@ export class Client {
     });
 
     this.context.subscriptions.push(disposable);
+  }
+
+  private initDebugBreakpointSync() {
+    this.context.subscriptions.push(
+      vscode.debug.onDidChangeBreakpoints((event) => {
+        if (this.syncingBreakpoints) {
+          return;
+        }
+        for (const bp of event.added) {
+          this.mirrorNativeBreakpoint(bp, true);
+        }
+        for (const bp of event.removed) {
+          this.mirrorNativeBreakpoint(bp, false);
+        }
+      })
+    );
+  }
+
+  private async mirrorNativeBreakpoint(bp: vscode.Breakpoint, added: boolean) {
+    if (!(bp instanceof vscode.SourceBreakpoint)) {
+      return;
+    }
+    const uri = bp.location.uri;
+    if (!uri.fsPath.endsWith('.fluid.js')) {
+      return;
+    }
+    const line = bp.location.range.start.line;
+    const doc = await vscode.workspace.openTextDocument(uri);
+    if (added) {
+      await this.insertBreakpointText(doc, line, { addNative: false });
+    } else {
+      await this.removeBreakpointText(doc, line, { removeNative: false });
+    }
+  }
+
+  private lineHasBreakpoint(doc: vscode.TextDocument, line: number): boolean {
+    if (line < 0 || line >= doc.lineCount) {
+      return false;
+    }
+    return BREAKPOINT_LINE.test(doc.lineAt(line).text);
+  }
+
+  private buildImportEdit(doc: vscode.TextDocument): { range: vscode.Range; text: string } | null {
+    const source = doc.getText();
+    const match = source.match(FLUIDCAD_IMPORT);
+
+    if (match) {
+      const names = match[1];
+      if (/\bbreakpoint\b/.test(names)) {
+        return null;
+      }
+      const braceOffset = match.index! + match[0].indexOf('{') + 1;
+      const pos = doc.positionAt(braceOffset);
+      const needsSpace = names.length > 0 && !/^\s/.test(names);
+      return {
+        range: new vscode.Range(pos, pos),
+        text: needsSpace ? ' breakpoint,' : 'breakpoint,',
+      };
+    }
+
+    const topPos = new vscode.Position(0, 0);
+    return {
+      range: new vscode.Range(topPos, topPos),
+      text: `import { breakpoint } from 'fluidcad/core';\n`,
+    };
+  }
+
+  private async insertBreakpointText(
+    doc: vscode.TextDocument,
+    line: number,
+    opts: { addNative: boolean },
+  ): Promise<void> {
+    if (line < 0 || line > doc.lineCount) {
+      return;
+    }
+    if (this.lineHasBreakpoint(doc, line)) {
+      if (opts.addNative) {
+        this.addNativeBreakpoint(doc.uri, line);
+      }
+      return;
+    }
+
+    const referenceLine = line > 0 ? line - 1 : 0;
+    const refText = doc.lineAt(Math.min(referenceLine, doc.lineCount - 1)).text;
+    const indentMatch = refText.match(/^(\s*)/);
+    const indent = indentMatch ? indentMatch[1] : '';
+
+    const edit = new vscode.WorkspaceEdit();
+    const importEdit = this.buildImportEdit(doc);
+    if (importEdit) {
+      edit.replace(doc.uri, importEdit.range, importEdit.text);
+    }
+
+    let insertPos: vscode.Position;
+    let insertText: string;
+    if (line >= doc.lineCount) {
+      const lastLine = doc.lineAt(doc.lineCount - 1);
+      insertPos = lastLine.range.end;
+      insertText = `\n${indent}breakpoint();\n`;
+    } else {
+      const followingText = doc.lineAt(line).text;
+      const needsBlank = followingText.trim() !== '';
+      insertPos = new vscode.Position(line, 0);
+      insertText = needsBlank
+        ? `${indent}breakpoint();\n\n`
+        : `${indent}breakpoint();\n`;
+    }
+    edit.insert(doc.uri, insertPos, insertText);
+
+    const applied = await vscode.workspace.applyEdit(edit);
+    if (!applied) {
+      return;
+    }
+
+    if (opts.addNative) {
+      const nativeLine = importEdit && importEdit.text.includes('\n')
+        ? line + 1
+        : line;
+      this.addNativeBreakpoint(doc.uri, nativeLine);
+    }
+  }
+
+  private async removeBreakpointText(
+    doc: vscode.TextDocument,
+    line: number,
+    opts: { removeNative: boolean },
+  ): Promise<void> {
+    if (!this.lineHasBreakpoint(doc, line)) {
+      return;
+    }
+    const range = doc.lineAt(line).rangeIncludingLineBreak;
+    const edit = new vscode.WorkspaceEdit();
+    edit.delete(doc.uri, range);
+    const applied = await vscode.workspace.applyEdit(edit);
+    if (!applied) {
+      return;
+    }
+
+    if (opts.removeNative) {
+      this.removeNativeBreakpoint(doc.uri, line);
+    }
+  }
+
+  private addNativeBreakpoint(uri: vscode.Uri, line: number): void {
+    const existing = vscode.debug.breakpoints.find(b =>
+      b instanceof vscode.SourceBreakpoint &&
+      b.location.uri.fsPath === uri.fsPath &&
+      b.location.range.start.line === line
+    );
+    if (existing) {
+      return;
+    }
+    const bp = new vscode.SourceBreakpoint(
+      new vscode.Location(uri, new vscode.Position(line, 0)),
+    );
+    this.syncingBreakpoints = true;
+    try {
+      vscode.debug.addBreakpoints([bp]);
+    } finally {
+      this.syncingBreakpoints = false;
+    }
+  }
+
+  private removeNativeBreakpoint(uri: vscode.Uri, line: number): void {
+    const toRemove = vscode.debug.breakpoints.filter(b =>
+      b instanceof vscode.SourceBreakpoint &&
+      b.location.uri.fsPath === uri.fsPath &&
+      b.location.range.start.line === line
+    );
+    if (toRemove.length === 0) {
+      return;
+    }
+    this.syncingBreakpoints = true;
+    try {
+      vscode.debug.removeBreakpoints(toRemove);
+    } finally {
+      this.syncingBreakpoints = false;
+    }
+  }
+
+  private async toggleBreakpoint() {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || !editor.document.fileName.endsWith('.fluid.js')) {
+      return;
+    }
+
+    const cursorLine = editor.selection.active.line;
+    const doc = editor.document;
+
+    if (this.lineHasBreakpoint(doc, cursorLine)) {
+      await this.removeBreakpointText(doc, cursorLine, { removeNative: true });
+      return;
+    }
+    const afterLine = cursorLine + 1;
+    if (this.lineHasBreakpoint(doc, afterLine)) {
+      await this.removeBreakpointText(doc, afterLine, { removeNative: true });
+      return;
+    }
+    await this.insertBreakpointText(doc, afterLine, { addNative: true });
+  }
+
+  private async handleAddBreakpointAfterLine(filePath: string, line: number) {
+    let editor = vscode.window.visibleTextEditors.find(
+      e => e.document.fileName === filePath
+    );
+    if (!editor) {
+      const uri = vscode.Uri.file(filePath);
+      const doc = await vscode.workspace.openTextDocument(uri);
+      editor = await vscode.window.showTextDocument(doc, {
+        viewColumn: vscode.ViewColumn.One,
+        preserveFocus: true,
+        preview: false,
+      });
+    }
+
+    const doc = editor.document;
+    this.logger.appendLine(`[add-breakpoint] fileName=${doc.fileName}, lineCount=${doc.lineCount}, incomingLine=${line}`);
+    if (doc.lineCount === 0) {
+      return;
+    }
+
+    // sourceLocation.line is 1-indexed and may point past the last actual
+    // code line when the file has trailing newlines. Clamp and walk back
+    // over blank lines to find the real source row.
+    let sourceRow = Math.min(line - 1, doc.lineCount - 1);
+    const clampedRow = sourceRow;
+    while (sourceRow >= 0 && doc.lineAt(sourceRow).text.trim() === '') {
+      sourceRow--;
+    }
+    if (sourceRow < 0) {
+      this.logger.appendLine(`[add-breakpoint] aborting: sourceRow < 0 after walkback (clampedRow=${clampedRow})`);
+      return;
+    }
+
+    const sourceText = doc.lineAt(sourceRow).text;
+    this.logger.appendLine(`[add-breakpoint] clampedRow=${clampedRow}, sourceRow=${sourceRow}, sourceText=${JSON.stringify(sourceText)}`);
+
+    const target = sourceRow + 1;
+    if (this.lineHasBreakpoint(doc, target)) {
+      this.logger.appendLine(`[add-breakpoint] line ${target} already has breakpoint, skipping`);
+      return;
+    }
+
+    const indentMatch = sourceText.match(/^(\s*)/);
+    const indent = indentMatch ? indentMatch[1] : '';
+
+    const importEdit = this.buildImportEdit(doc);
+    const followingText = target < doc.lineCount ? doc.lineAt(target).text : '';
+    const needsBlank = followingText.trim() !== '';
+
+    const applied = await editor.edit(b => {
+      if (importEdit) {
+        b.replace(importEdit.range, importEdit.text);
+      }
+      if (target >= doc.lineCount) {
+        const lastLine = doc.lineAt(doc.lineCount - 1);
+        b.insert(lastLine.range.end, `\n${indent}breakpoint();\n`);
+      } else {
+        const insertText = needsBlank
+          ? `${indent}breakpoint();\n\n`
+          : `${indent}breakpoint();\n`;
+        b.insert(new vscode.Position(target, 0), insertText);
+      }
+    });
+
+    this.logger.appendLine(`[add-breakpoint] edit applied=${applied}, target=${target}, importAdded=${!!importEdit}`);
+    if (!applied) {
+      return;
+    }
+
+    // Dump the post-edit buffer around the target so we can see exactly
+    // where the text landed vs what was expected.
+    const windowStart = Math.max(0, sourceRow - 1);
+    const windowEnd = Math.min(doc.lineCount, target + 4);
+    for (let i = windowStart; i < windowEnd; i++) {
+      this.logger.appendLine(`[add-breakpoint] post[${i}]=${JSON.stringify(doc.lineAt(i).text)}`);
+    }
+
+    // Find where breakpoint() actually landed — authoritative rather than
+    // guessing based on import shift.
+    let finalLine = -1;
+    for (let i = Math.max(0, target - 1); i < Math.min(doc.lineCount, target + 3); i++) {
+      if (BREAKPOINT_LINE.test(doc.lineAt(i).text)) {
+        finalLine = i;
+        break;
+      }
+    }
+    this.logger.appendLine(`[add-breakpoint] finalLine=${finalLine}`);
+    if (finalLine >= 0) {
+      this.addNativeBreakpoint(doc.uri, finalLine);
+    }
+
+    this.updateLiveCode(doc.fileName, doc.getText());
   }
 
   private createWebviewPanel() {
@@ -109,7 +412,9 @@ export class Client {
     this.logger.appendLine(`Spawning server on port ${port}: ${serverEntry}`);
 
     const isTs = serverEntry.endsWith('.ts');
-    const execArgv = isTs ? ['--experimental-transform-types', '--no-warnings'] : [];
+    const execArgv = isTs
+      ? ['--experimental-transform-types', '--no-warnings', '--enable-source-maps']
+      : ['--enable-source-maps'];
 
     this.serverProcess = fork(serverEntry, [], {
       env: {
@@ -190,6 +495,18 @@ export class Client {
       }
       case 'insert-point': {
         this.handleInsertPoint(msg);
+        break;
+      }
+      case 'add-breakpoint': {
+        this.logger.appendLine(`[add-breakpoint] msg=${JSON.stringify(msg)}`);
+        const filePath = typeof msg.filePath === 'string' ? msg.filePath : this.currentFileName;
+        if (filePath && typeof msg.line === 'number') {
+          this.handleAddBreakpointAfterLine(filePath, msg.line).catch((err) => {
+            this.logger.appendLine(`[add-breakpoint] error: ${err?.stack || err}`);
+          });
+        } else {
+          this.logger.appendLine(`[add-breakpoint] missing filePath or line; filePath=${filePath}, line=${msg.line}`);
+        }
         break;
       }
       case 'remove-point': {

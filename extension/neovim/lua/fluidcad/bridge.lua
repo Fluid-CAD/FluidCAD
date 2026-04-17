@@ -257,6 +257,11 @@ function M.handle_message(msg)
         fileName = vim.api.nvim_buf_get_name(buf),
         code = code,
       })
+    elseif msg.type == 'add-breakpoint' then
+      local ok, breakpoints = pcall(require, 'fluidcad.breakpoints')
+      if ok and msg.filePath and msg.line then
+        breakpoints.add_after(msg.filePath, msg.line)
+      end
     elseif msg.type == 'set-pick-points' then
       local line_idx = msg.sourceLocation.line - 1
       local file_path = msg.sourceLocation.filePath

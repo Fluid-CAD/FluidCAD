@@ -86,7 +86,7 @@ describe("copy linear", () => {
     });
     const e = extrude(10).new() as ExtrudeBase;
 
-    // 4 copies over length 120 → offset = 120/4 = 30
+    // 4 copies over length 120 → offset = 120/(4-1) = 40
     const c = copy("linear", "x", { count: 4, length: 120 }, e) as SceneObject;
 
     render();
@@ -95,7 +95,7 @@ describe("copy linear", () => {
     expect(shapes).toHaveLength(3);
 
     const bbox = ShapeOps.getBoundingBox(shapes[0]);
-    expect(bbox.minX).toBeCloseTo(30, 0);
+    expect(bbox.minX).toBeCloseTo(40, 0);
   });
 
   it("should create a 2D grid with multiple axes", () => {

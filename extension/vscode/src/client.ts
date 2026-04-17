@@ -343,7 +343,6 @@ export class Client {
     }
 
     const doc = editor.document;
-    this.logger.appendLine(`[add-breakpoint] fileName=${doc.fileName}, lineCount=${doc.lineCount}, incomingLine=${line}`);
     if (doc.lineCount === 0) {
       return;
     }
@@ -352,21 +351,16 @@ export class Client {
     // code line when the file has trailing newlines. Clamp and walk back
     // over blank lines to find the real source row.
     let sourceRow = Math.min(line - 1, doc.lineCount - 1);
-    const clampedRow = sourceRow;
     while (sourceRow >= 0 && doc.lineAt(sourceRow).text.trim() === '') {
       sourceRow--;
     }
     if (sourceRow < 0) {
-      this.logger.appendLine(`[add-breakpoint] aborting: sourceRow < 0 after walkback (clampedRow=${clampedRow})`);
       return;
     }
 
     const sourceText = doc.lineAt(sourceRow).text;
-    this.logger.appendLine(`[add-breakpoint] clampedRow=${clampedRow}, sourceRow=${sourceRow}, sourceText=${JSON.stringify(sourceText)}`);
-
     const target = sourceRow + 1;
     if (this.lineHasBreakpoint(doc, target)) {
-      this.logger.appendLine(`[add-breakpoint] line ${target} already has breakpoint, skipping`);
       return;
     }
 
@@ -392,21 +386,12 @@ export class Client {
       }
     });
 
-    this.logger.appendLine(`[add-breakpoint] edit applied=${applied}, target=${target}, importAdded=${!!importEdit}`);
     if (!applied) {
       return;
     }
 
-    // Dump the post-edit buffer around the target so we can see exactly
-    // where the text landed vs what was expected.
-    const windowStart = Math.max(0, sourceRow - 1);
-    const windowEnd = Math.min(doc.lineCount, target + 4);
-    for (let i = windowStart; i < windowEnd; i++) {
-      this.logger.appendLine(`[add-breakpoint] post[${i}]=${JSON.stringify(doc.lineAt(i).text)}`);
-    }
-
     // Find where breakpoint() actually landed — authoritative rather than
-    // guessing based on import shift.
+    // guessing based on the import-edit shift.
     let finalLine = -1;
     for (let i = Math.max(0, target - 1); i < Math.min(doc.lineCount, target + 3); i++) {
       if (BREAKPOINT_LINE.test(doc.lineAt(i).text)) {
@@ -414,7 +399,6 @@ export class Client {
         break;
       }
     }
-    this.logger.appendLine(`[add-breakpoint] finalLine=${finalLine}`);
     if (finalLine >= 0) {
       this.addNativeBreakpoint(doc.uri, finalLine);
     }
@@ -545,14 +529,11 @@ export class Client {
         break;
       }
       case 'add-breakpoint': {
-        this.logger.appendLine(`[add-breakpoint] msg=${JSON.stringify(msg)}`);
         const filePath = typeof msg.filePath === 'string' ? msg.filePath : this.currentFileName;
         if (filePath && typeof msg.line === 'number') {
           this.handleAddBreakpointAfterLine(filePath, msg.line).catch((err) => {
             this.logger.appendLine(`[add-breakpoint] error: ${err?.stack || err}`);
           });
-        } else {
-          this.logger.appendLine(`[add-breakpoint] missing filePath or line; filePath=${filePath}, line=${msg.line}`);
         }
         break;
       }

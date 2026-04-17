@@ -96,7 +96,6 @@ export function createActionsRouter(
 
   router.post('/add-breakpoint', (req, res) => {
     const { sourceLocation } = req.body;
-    console.log('[add-breakpoint] /api received sourceLocation:', sourceLocation);
     if (
       !sourceLocation ||
       typeof sourceLocation.filePath !== 'string' ||

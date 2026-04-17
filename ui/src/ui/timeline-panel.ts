@@ -3,8 +3,6 @@ import { savePreference } from '../preferences';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_EYE, ICON_EYE_OFF } from './icons';
 import { resolveIconName } from './object-icons';
 
-console.log('[timeline] bundle loaded: breakpoint-debug-v1');
-
 const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
 const CHEVRON_SVG = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
 const CUBE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
@@ -25,7 +23,6 @@ export class TimelinePanel {
   private shapesBody: HTMLDivElement;
   private loaded = false;
   private sceneObjects: SceneObjectRender[] = [];
-  private pendingClickTimer: number | undefined;
   private rollbackStop = -1;
   private collapsedIds = new Set<string>();
   private collapsedShapeGroups = new Set<string>();
@@ -222,36 +219,13 @@ export class TimelinePanel {
           return;
         }
         const index = parseInt(el.dataset.index!, 10);
-        const obj = this.sceneObjects[index];
-        console.log('[timeline] click', {
-          index,
-          name: obj?.name,
-          sourceLocation: obj?.sourceLocation,
-        });
-        if (this.pendingClickTimer !== undefined) {
-          window.clearTimeout(this.pendingClickTimer);
-        }
-        this.pendingClickTimer = window.setTimeout(() => {
-          this.pendingClickTimer = undefined;
-          this.rollbackTo(index);
-        }, 250);
+        this.rollbackTo(index);
       });
       el.addEventListener('dblclick', (e) => {
         if ((e.target as HTMLElement).closest('[data-toggle]')) {
           return;
         }
-        if (this.pendingClickTimer !== undefined) {
-          window.clearTimeout(this.pendingClickTimer);
-          this.pendingClickTimer = undefined;
-        }
         const index = parseInt(el.dataset.index!, 10);
-        const obj = this.sceneObjects[index];
-        console.log('[timeline] dblclick', {
-          index,
-          name: obj?.name,
-          sourceLocation: obj?.sourceLocation,
-          targetEl: el.outerHTML.slice(0, 200),
-        });
         this.addBreakpointAfter(index);
       });
     });
@@ -354,14 +328,8 @@ export class TimelinePanel {
   private async addBreakpointAfter(index: number): Promise<void> {
     const obj = this.sceneObjects[index];
     if (!obj || !obj.sourceLocation) {
-      console.log('[timeline] addBreakpointAfter: skipping, no sourceLocation', { index, obj });
       return;
     }
-    console.log('[timeline] addBreakpointAfter POST', {
-      index,
-      name: obj.name,
-      sourceLocation: obj.sourceLocation,
-    });
     try {
       await fetch('/api/add-breakpoint', {
         method: 'POST',

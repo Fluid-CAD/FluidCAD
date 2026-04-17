@@ -1,6 +1,7 @@
 import type { SceneObjectRender } from '../types';
 import { savePreference } from '../preferences';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_EYE, ICON_EYE_OFF } from './icons';
+import { resolveIconName } from './object-icons';
 
 console.log('[timeline] bundle loaded: breakpoint-debug-v1');
 
@@ -285,7 +286,7 @@ export class TimelinePanel {
     const name = obj.name
       ? obj.name.charAt(0).toUpperCase() + obj.name.slice(1)
       : obj.type || 'Unknown';
-    const iconSrc = obj.type === 'part' ? '/icons/box.png' : `/icons/${obj.type || 'solid'}.png`;
+    const iconSrc = obj.type === 'part' ? '/icons/box.png' : `/icons/${resolveIconName(obj.uniqueType, obj.type)}.png`;
 
     let itemClass = 'flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm';
 

@@ -429,6 +429,14 @@ export interface IRevolve extends IFuseable {
    * @param points - 2D points in the sketch plane identifying regions to revolve.
    */
   pick(...points: Point2DLike[]): this;
+
+  thin(offset: number): this;
+  thin(offset1: number, offset2: number): this;
+
+  internalFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  capFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
 export interface ILoft extends IFuseable {
@@ -467,6 +475,14 @@ export interface ILoft extends IFuseable {
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
   sideEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  thin(offset: number): this;
+  thin(offset1: number, offset2: number): this;
+
+  internalFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  capFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
 export interface ISweep extends IFuseable {
@@ -541,6 +557,12 @@ export interface ISweep extends IFuseable {
    * @param points - 2D points in the sketch plane identifying regions to sweep.
    */
   pick(...points: Point2DLike[]): this;
+
+  thin(offset: number): this;
+  thin(offset1: number, offset2: number): this;
+
+  capFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
 export interface IShell extends ISceneObject {

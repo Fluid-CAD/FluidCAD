@@ -20,6 +20,12 @@ export function createPreferencesRouter(): Router {
       if (body.theme && typeof body.theme === 'string') {
         current.theme = body.theme;
       }
+      if (typeof body.showGrid === 'boolean') {
+        current.showGrid = body.showGrid;
+      }
+      if (body.cameraMode === 'perspective' || body.cameraMode === 'orthographic') {
+        current.cameraMode = body.cameraMode;
+      }
       await savePreferences(current);
       res.json(current);
     } catch (err: any) {

@@ -13,21 +13,17 @@ import { SnapManager } from './snapping/snap-manager';
 import { SnapController } from './snapping/snap-controller';
 import { SceneObjectRender, PlaneData } from './types';
 import { onThemeChange } from './scene/theme-colors';
+import { loadPreferences } from './preferences';
+import { applyPreferences } from './scene/viewer-settings';
 
 const container = document.getElementById('fluidcad-viewer') || document.body;
 
-// Load persisted theme preference from the server and apply it.
-// The default dark theme is set in index.html, so there's no flash of unstyled content.
-fetch('/api/preferences')
-  .then((res) => res.ok ? res.json() : null)
-  .then((prefs) => {
-    if (prefs?.theme) {
-      document.documentElement.setAttribute('data-theme', prefs.theme);
-    }
-  })
-  .catch(() => {
-    // Use default theme
-  });
+loadPreferences().then((prefs) => {
+  if (prefs) {
+    document.documentElement.setAttribute('data-theme', prefs.theme);
+    applyPreferences(prefs);
+  }
+});
 
 /** Check if a scene object is "top-level": either root or a direct child of a Part container. */
 function isTopLevel(obj: SceneObjectRender, sceneObjects: SceneObjectRender[]): boolean {

@@ -4,10 +4,14 @@ import os from 'node:os';
 
 export interface Preferences {
   theme: string;
+  showGrid: boolean;
+  cameraMode: 'perspective' | 'orthographic';
 }
 
 const DEFAULTS: Preferences = {
   theme: 'fluidcad-dark',
+  showGrid: true,
+  cameraMode: 'orthographic',
 };
 
 function getConfigDir(): string {

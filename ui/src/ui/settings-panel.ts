@@ -1,4 +1,5 @@
 import { viewerSettings } from '../scene/viewer-settings';
+import { savePreference } from '../preferences';
 import { ICON_FIT, ICON_ORTHO, ICON_PERSP, ICON_GRID, ICON_SUN, ICON_MOON, ICON_SECTION_VIEW } from './icons';
 
 const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
@@ -69,12 +70,15 @@ export class SettingsPanel {
       btn.addEventListener('click', () => {
         const mode = btn.dataset.mode as 'perspective' | 'orthographic';
         viewerSettings.update({ cameraMode: mode });
+        savePreference('cameraMode', mode);
         this.onCameraSwitch(mode);
       });
     });
 
     this.el.querySelector<HTMLButtonElement>('[data-action="grid"]')?.addEventListener('click', () => {
-      viewerSettings.update({ showGrid: !viewerSettings.current.showGrid });
+      const next = !viewerSettings.current.showGrid;
+      viewerSettings.update({ showGrid: next });
+      savePreference('showGrid', next);
     });
 
     this.sectionViewEl.querySelector<HTMLButtonElement>('[data-action="section-view"]')?.addEventListener('click', () => {
@@ -87,11 +91,7 @@ export class SettingsPanel {
       const next = isDarkTheme() ? 'fluidcad-light' : 'fluidcad-dark';
       document.documentElement.setAttribute('data-theme', next);
       this.syncThemeButton();
-      fetch('/api/preferences', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ theme: next }),
-      });
+      savePreference('theme', next);
     });
   }
 

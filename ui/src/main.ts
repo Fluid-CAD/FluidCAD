@@ -438,6 +438,19 @@ function exitRegionPickMode() {
   viewer.toggleSketchMode(true);
   viewer.rebuildSceneMesh();
 
+  // If we exit with an empty pick() call, strip it from the source so users
+  // aren't left with a stray .pick() they never populated.
+  const extrudeObj = lastRegionPickInfo?.extrudeObj as any;
+  const isPicking = extrudeObj?.object?.picking;
+  const pickPoints = extrudeObj?.object?.pickPoints as [number, number][] | undefined;
+  if (isPicking && (!pickPoints || pickPoints.length === 0) && extrudeObj?.sourceLocation) {
+    fetch('/api/remove-pick', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceLocation: extrudeObj.sourceLocation }),
+    });
+  }
+
   if (lastRegionPickInfo) {
     // Transition back to icon-visible
     regionPickState = 'icon-visible';

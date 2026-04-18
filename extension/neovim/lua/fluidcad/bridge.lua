@@ -185,6 +185,10 @@ function M.handle_message(msg)
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.add_pick(code, msg.sourceLocation.line)
       end)
+    elseif msg.type == 'remove-pick' then
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.remove_pick(code, msg.sourceLocation.line)
+      end)
     elseif msg.type == 'remove-point' then
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.remove_point(code, msg.sourceLocation.line, msg.point)
@@ -197,6 +201,11 @@ function M.handle_message(msg)
       local ok, breakpoints = pcall(require, 'fluidcad.breakpoints')
       if ok and msg.filePath and msg.line then
         breakpoints.add_after(msg.filePath, msg.line)
+      end
+    elseif msg.type == 'goto-source' then
+      local ok, navigation = pcall(require, 'fluidcad.navigation')
+      if ok and msg.filePath and msg.line then
+        navigation.goto_source(msg.filePath, msg.line, msg.column or 0)
       end
     elseif msg.type == 'clear-breakpoints' then
       local ok, breakpoints = pcall(require, 'fluidcad.breakpoints')

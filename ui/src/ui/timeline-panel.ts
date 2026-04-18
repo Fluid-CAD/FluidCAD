@@ -220,6 +220,7 @@ export class TimelinePanel {
         }
         const index = parseInt(el.dataset.index!, 10);
         this.rollbackTo(index);
+        this.gotoSource(this.sceneObjects[index]);
       });
       el.addEventListener('dblclick', (e) => {
         if ((e.target as HTMLElement).closest('[data-toggle]')) {
@@ -227,6 +228,7 @@ export class TimelinePanel {
         }
         const index = parseInt(el.dataset.index!, 10);
         this.addBreakpointAfter(index);
+        this.gotoSource(this.sceneObjects[index]);
       });
     });
 
@@ -338,6 +340,21 @@ export class TimelinePanel {
       });
     } catch (err) {
       console.error('Add breakpoint failed:', err);
+    }
+  }
+
+  private async gotoSource(obj: SceneObjectRender | undefined): Promise<void> {
+    if (!obj || !obj.sourceLocation) {
+      return;
+    }
+    try {
+      await fetch('/api/code/goto-source', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(obj.sourceLocation),
+      });
+    } catch (err) {
+      console.error('Goto source failed:', err);
     }
   }
 

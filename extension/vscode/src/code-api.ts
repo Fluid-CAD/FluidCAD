@@ -61,6 +61,10 @@ export function addPick(serverUrl: string, code: string, sourceLine: number, log
   return postCodeEdit<CodeEditResult>(serverUrl, 'add-pick', { code, sourceLine }, logger);
 }
 
+export function removePick(serverUrl: string, code: string, sourceLine: number, logger: vscode.OutputChannel) {
+  return postCodeEdit<CodeEditResult>(serverUrl, 'remove-pick', { code, sourceLine }, logger);
+}
+
 export function setPickPoints(
   serverUrl: string, code: string, sourceLine: number, points: [number, number][], logger: vscode.OutputChannel,
 ) {

@@ -19,8 +19,10 @@ import {
 import {
   handleInsertPoint,
   handleAddPick,
+  handleRemovePick,
   handleRemovePoint,
   handleSetPickPoints,
+  handleGotoSource,
 } from './code-edits';
 import { updateDiagnostics } from './diagnostics';
 
@@ -127,12 +129,22 @@ export class Client {
         handleRemovePoint(this, msg);
         break;
       }
+      case 'goto-source': {
+        handleGotoSource(this, msg).catch((err) => {
+          this.logger.appendLine(`[goto-source] error: ${err?.stack || err}`);
+        });
+        break;
+      }
       case 'set-pick-points': {
         handleSetPickPoints(this, msg);
         break;
       }
       case 'add-pick': {
         handleAddPick(this, msg);
+        break;
+      }
+      case 'remove-pick': {
+        handleRemovePick(this, msg);
         break;
       }
       case 'export-complete': {

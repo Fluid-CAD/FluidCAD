@@ -1,4 +1,4 @@
-// @screenshot noAutoCrop waitForInput
+// @screenshot waitForInput
 import { axis, circle, color, cut, extrude, fillet, fuse, hMove, loft, move, offset, plane, polygon, project, rect, repeat, revolve, select, shell, sketch, sphere, sweep, translate } from 'fluidcad/core';
 import { edge, face } from 'fluidcad/filters';
 
@@ -40,11 +40,3 @@ fillet(10)
 const spine = select(
     edge().onPlane("top", height).arc(10).withTangents(),
 )
-
-const p = plane(e.sideFaces(0), -10)
-const profile = sketch(p, () => {
-    move([-length/2, height])
-    rect(-2, -3)
-    hMove(2)
-    rect(-5, -2)
-});

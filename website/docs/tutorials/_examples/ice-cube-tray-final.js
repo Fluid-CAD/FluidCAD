@@ -37,9 +37,7 @@ select(edge().verticalTo("top").onPlane("yz", width/2, true))
 fillet(10)
 
 const spine = select(
-    edge().onPlane("top", height).arc(10),
-    edge().onPlane("top", height).onPlane("front", length/2, true),
-    edge().onPlane("top", height).onPlane("left", width/2, true),
+    edge().onPlane("top", height).arc(10).withTangents(),
 )
 
 const p = plane(e.sideFaces(0), -10)

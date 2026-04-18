@@ -13,7 +13,8 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "strictNullChecks": false,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "stripInternal": true
   },
   "esbuild": {
     "drop": [

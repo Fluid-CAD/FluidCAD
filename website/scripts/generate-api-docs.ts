@@ -68,6 +68,21 @@ function getJsDocDescription(node: any): string {
   return jsDocs[0].getDescription?.()?.trim() || '';
 }
 
+function hasInternalTag(node: any): boolean {
+  const jsDocs = node.getJsDocs?.();
+  if (!jsDocs || jsDocs.length === 0) {
+    return false;
+  }
+  for (const doc of jsDocs) {
+    for (const tag of doc.getTags?.() || []) {
+      if (tag.getTagName() === 'internal') {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 function getJsDocParams(node: any): Map<string, string> {
   const params = new Map<string, string>();
   const jsDocs = node.getJsDocs?.();
@@ -145,6 +160,9 @@ function extractMethodsFromInterface(
   const methods: MethodInfo[] = [];
 
   for (const method of iface.getMethods()) {
+    if (hasInternalTag(method)) {
+      continue;
+    }
     const name = method.getName();
     const description = getJsDocDescription(method);
     const jsDocParams = getJsDocParams(method);
@@ -205,6 +223,10 @@ function extractMethodsFromClass(
     }
     // Skip the static build() method
     if (method.hasModifier(SyntaxKind.StaticKeyword)) {
+      continue;
+    }
+    // Skip methods marked @internal
+    if (hasInternalTag(method)) {
       continue;
     }
 

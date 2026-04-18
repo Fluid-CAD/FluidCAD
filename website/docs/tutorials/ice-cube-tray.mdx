@@ -135,13 +135,13 @@ fillet(10)
 
 ```js
 const spine = select(
-    edge().onPlane("top", height).arc(10),
-    edge().onPlane("top", height).onPlane("front", length/2, true),
-    edge().onPlane("top", height).onPlane("left", width/2, true),
+    edge().onPlane("top", height).arc(10).withTangents(),
 )
 ```
 
-This selects three edges along the top rim of the tray to use as the sweep spine. `.onPlane("top", height)` filters to edges at the top of the tray. `.arc(10)` selects the arc we just created with the fillet, while `.onPlane("front", ...)` and `.onPlane("left", ...)` select the front and left top edges. Together they form a continuous path.
+This selects the sweep spine along the top rim of the tray. `.onPlane("top", height)` filters to edges at the top, `.arc(10)` picks the arc we just created with the fillet, and `.withTangents()` expands the selection to include every edge tangent-connected to it. Because a fillet produces G1 continuity with its neighbors, this automatically grabs the front and left top edges, giving us a continuous path from a single filter.
+
+![Spine edges selected along the top rim](/img/docs/tutorials/ice-cube-tray-step5-spine.png)
 
 ### Sketch the profile and sweep
 
@@ -181,4 +181,5 @@ fillet(0.5, s.sideEdges())
 - **`repeat("linear")`** — duplicating geometry in a 2D grid pattern
 - **`shell()`** — hollowing a solid while removing specific faces
 - **`edge()` filters** — selecting edges by orientation and plane position
+- **`.withTangents()`** — expanding a selection to include all tangent-connected shapes
 - **`sweep()`** — extruding a profile along a curved spine path

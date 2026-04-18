@@ -29,6 +29,7 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    * @param index - Zero-based face index.
    * @param shapes - The face array to index into.
    * @param originalShapes - Optional original face array before filtering.
+   * @internal
    */
   atIndex(index: number, shapes: Face[], originalShapes?: Face[]) {
     const filter = new AtIndexFilter(index, shapes, originalShapes);
@@ -41,6 +42,7 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    * @param index - Zero-based face index to exclude.
    * @param shapes - The face array to index into.
    * @param originalShapes - Optional original face array before filtering.
+   * @internal
    */
   notAtIndex(index: number, shapes: Face[], originalShapes?: Face[]) {
     const filter = new NotAtIndexFilter(index, shapes, originalShapes);

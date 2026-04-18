@@ -59,10 +59,14 @@ export class WireOps {
   static makeWireFromEdgesRaw(edges: TopoDS_Edge[]): TopoDS_Wire {
     const oc = getOC();
     const wireMaker = new oc.BRepBuilderAPI_MakeWire();
+    const edgeList = new oc.TopTools_ListOfShape();
 
     for (const edge of edges) {
-      wireMaker.Add(oc.TopoDS.Edge(edge));
+      edgeList.Append(oc.TopoDS.Edge(edge));
     }
+
+    wireMaker.Add(edgeList);
+    edgeList.delete();
 
     if (!wireMaker.IsDone()) {
       wireMaker.delete();

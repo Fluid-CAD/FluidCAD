@@ -70,7 +70,11 @@ onThemeChange(() => viewer.rebuildSceneMesh());
 const shapePropertiesModal = new ShapePropertiesModal(container);
 const selectionInfoOverlay = new SelectionInfoOverlay(container);
 const exportDialog = new ExportDialog(container, viewer.sceneContext);
-const breakpointIndicator = new BreakpointIndicator(container);
+const breakpointIndicator = new BreakpointIndicator(container, () => {
+  if (regionPickState === 'picking-active') {
+    exitRegionPickMode();
+  }
+});
 const timelinePanel = new TimelinePanel(
   container,
   (shapeId) => viewer.highlightShape(shapeId),
@@ -823,15 +827,21 @@ function connectWebSocket() {
       case 'scene-rendered': {
         hideLoading();
         const isRollback = msg.rollbackStop != null && msg.rollbackStop < msg.result.length - 1;
-        viewer.isTrimming = isTrimmingScene(msg.result);
-        viewer.isBezierDrawing = isBezierDrawingScene(msg.result);
+        viewer.isTrimming = !isRollback && isTrimmingScene(msg.result);
+        viewer.isBezierDrawing = !isRollback && isBezierDrawingScene(msg.result);
         viewer.updateView(msg.result, isRollback);
         if (msg.absPath) {
           viewer.setFileName(msg.absPath);
         }
-        updatePointPickMode(msg.result);
-        updateRegionPickMode(msg.result);
-        updateBezierDrawMode(msg.result);
+        if (isRollback) {
+          deactivatePickMode();
+          resetRegionPickMode();
+          deactivateBezierDrawMode();
+        } else {
+          updatePointPickMode(msg.result);
+          updateRegionPickMode(msg.result);
+          updateBezierDrawMode(msg.result);
+        }
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1, msg.absPath);
         // Only update the breakpoint indicator when the server sends an
         // authoritative value — rollback responses don't re-run the module,

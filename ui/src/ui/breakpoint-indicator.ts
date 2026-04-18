@@ -3,7 +3,7 @@ import { ICON_PAUSE } from './icons';
 export class BreakpointIndicator {
   private element: HTMLDivElement;
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, onContinue?: () => void) {
     this.element = document.createElement('div');
     this.element.id = 'fluidcad-breakpoint-indicator';
     this.element.className = 'absolute bottom-6 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto hidden';
@@ -21,6 +21,7 @@ export class BreakpointIndicator {
 
     this.element.querySelector<HTMLButtonElement>('.fluidcad-breakpoint-continue')!
       .addEventListener('click', async () => {
+        onContinue?.();
         try {
           await fetch('/api/clear-breakpoints', { method: 'POST' });
         } catch (err) {

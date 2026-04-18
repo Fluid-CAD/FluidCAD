@@ -5,32 +5,48 @@ import { SceneObject, SourceLocation } from "./common/scene-object.js";
 import { SelectSceneObject } from "./features/select.js";
 import { Sketch } from "./features/2d/sketch.js";
 import { Extrudable } from "./helpers/types.js";
+import { parse as parseStackTrace } from "stacktrace-parser";
 
 export function captureSourceLocation(): SourceLocation | null {
   const stack = new Error().stack;
   if (!stack) {
     return null;
   }
-  const lines = stack.split('\n');
-  for (const frame of lines) {
-    // Match the Vite live-render virtual prefix first so the path regex
-    // does not accidentally match `r:/…` inside the word `render:`.
-    const virtualMatch = frame.match(/virtual:live-render:((?:[A-Za-z]:)?\/[^\s]+?\.fluid\.js):(\d+):(\d+)/);
-    if (virtualMatch) {
-      return {
-        filePath: virtualMatch[1],
-        line: parseInt(virtualMatch[2], 10),
-        column: parseInt(virtualMatch[3], 10),
-      };
+  return extractSourceLocation(stack);
+}
+
+export function extractSourceLocation(stack: string): SourceLocation | null {
+  const frames = parseStackTrace(stack);
+  for (const frame of frames) {
+    if (!frame.file || frame.lineNumber == null) {
+      continue;
     }
-    const realMatch = frame.match(/((?:[A-Za-z]:)?\/[^\s]+?\.fluid\.js):(\d+):(\d+)/);
-    if (realMatch) {
-      return {
-        filePath: realMatch[1],
-        line: parseInt(realMatch[2], 10),
-        column: parseInt(realMatch[3], 10),
-      };
+
+    let filePath = frame.file;
+    const virtualPrefix = 'virtual:live-render:';
+    const virtualIdx = filePath.lastIndexOf(virtualPrefix);
+    if (virtualIdx !== -1) {
+      filePath = filePath.slice(virtualIdx + virtualPrefix.length);
     }
+
+    if (filePath.startsWith('file:///')) {
+      filePath = filePath.slice('file:///'.length);
+      if (!/^[A-Za-z]:/.test(filePath)) {
+        filePath = '/' + filePath;
+      }
+    }
+
+    if (!filePath.endsWith('.fluid.js')) {
+      continue;
+    }
+
+    filePath = filePath.replace(/\\/g, '/');
+
+    return {
+      filePath,
+      line: frame.lineNumber,
+      column: frame.column ?? 0,
+    };
   }
   return null;
 }

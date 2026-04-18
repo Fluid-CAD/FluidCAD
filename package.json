@@ -60,6 +60,7 @@
     "express": "^5.2.1",
     "occjs-fluidcad": "^3.0.0",
     "occjs-wrapper": "npm:occjs-fluidcad@3.0.0",
+    "stacktrace-parser": "^0.1.11",
     "tree-sitter-wasms": "^0.1.13",
     "tsx": "^4.21.0",
     "vite": "^8.0.8",

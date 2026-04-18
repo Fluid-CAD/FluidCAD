@@ -2,7 +2,7 @@ export type {
   ISceneObject, IFuseable, IPlane, IAxis, ISelect,
   IGeometry, IExtrudableGeometry, IRect, ISlot, IPolygon,
   ITwoObjectsTangentLine, ITangentArcTwoObjects,
-  IExtrude, ICut, ICommon, ISweep, ILoft, IRevolve
+  IExtrude, ICut, ICommon, ISweep, ILoft, IRevolve, IDraft
 } from "./interfaces.js";
 export { default as axis } from "./axis.js";
 export { default as plane } from "./plane.js";
@@ -28,6 +28,7 @@ export { default as load } from "./load.js";
 export { default as loft } from "./loft.js";
 export { default as sweep } from "./sweep.js";
 export { default as color } from "./color.js";
+export { default as draft } from "./draft.js";
 export { default as remove } from "./remove.js";
 export { default as split } from "./split.js";
 export { default as trim } from "./trim.js";

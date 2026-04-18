@@ -659,6 +659,8 @@ export interface ISweep extends IFuseable {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
+export interface IDraft extends ISceneObject {}
+
 export interface IShell extends ISceneObject {
   /**
    * Selects the inner wall faces created by the shell operation (from thickness removal).

@@ -1,5 +1,4 @@
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 
 type TSNode = {
   type: string;
@@ -41,11 +40,12 @@ async function getParser(): Promise<TSParser> {
   const TreeSitter = await loadTreeSitter();
   await TreeSitter.init();
   parser = new TreeSitter();
-  const thisDir = dirname(fileURLToPath(import.meta.url));
-  const wasmPath = join(
-    thisDir, '..', '..',
-    'node_modules', 'tree-sitter-wasms', 'out', 'tree-sitter-javascript.wasm',
-  );
+  // Use Node's resolver so the lookup walks up node_modules and finds the
+  // wasm regardless of whether npm hoisted `tree-sitter-wasms` next to or
+  // below `fluidcad`. The relative-path approach broke when fluidcad was
+  // installed from npm.
+  const requireFromHere = createRequire(import.meta.url);
+  const wasmPath = requireFromHere.resolve('tree-sitter-wasms/out/tree-sitter-javascript.wasm');
   const lang = await TreeSitter.Language.load(wasmPath);
   parser.setLanguage(lang);
   return parser;

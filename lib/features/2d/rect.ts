@@ -15,6 +15,14 @@ export class Rect extends ExtrudableGeometryBase implements IRect {
   private _radius?: number | number[];
   private _center: CenteringOptions = false;
 
+  private static normalizeRadius(r: number | number[] | undefined): number[] {
+    if (Array.isArray(r)) {
+      return [r[0] || 0, r[1] || 0, r[2] || 0, r[3] || 0];
+    }
+    const v = r || 0;
+    return [v, v, v, v];
+  }
+
   constructor(
     public width: number,
     public height: number,
@@ -260,15 +268,8 @@ export class Rect extends ExtrudableGeometryBase implements IRect {
       return false;
     }
 
-    const thisRadius = Array.isArray(this._radius) ? this._radius : [this._radius || 0,
-    this._radius || 0,
-    this._radius || 0,
-    this._radius || 0];
-
-    const otherRadius = Array.isArray(other._radius) ? other._radius : [other._radius || 0,
-    other._radius || 0,
-    other._radius || 0,
-    other._radius || 0];
+    const thisRadius = Rect.normalizeRadius(this._radius);
+    const otherRadius = Rect.normalizeRadius(other._radius);
 
     return thisRadius.every((r, i) => r === otherRadius[i]);
   }
@@ -346,8 +347,11 @@ export class Rect extends ExtrudableGeometryBase implements IRect {
   }
 
   radius(...r: number[]): this {
-    if (r.length === 1) {
-      this._radius = r[0]
+    if (r.length === 0) {
+      this._radius = 0;
+    }
+    else if (r.length === 1) {
+      this._radius = r[0];
     }
     else {
       this._radius = r;

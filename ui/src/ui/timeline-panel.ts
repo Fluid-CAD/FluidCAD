@@ -180,6 +180,9 @@ export class TimelinePanel {
 
     const parentIds = new Set<string>();
     for (const obj of items) {
+      if (obj.uniqueType === 'lazy-select') {
+        continue;
+      }
       if (obj.parentId) {
         parentIds.add(obj.parentId);
       }
@@ -192,6 +195,9 @@ export class TimelinePanel {
       if (obj.parentId) {
         continue;
       }
+      if (obj.uniqueType === 'lazy-select') {
+        continue;
+      }
 
       const hasChildren = obj.id != null && parentIds.has(obj.id);
       const isCollapsed = obj.id != null && this.collapsedIds.has(obj.id);
@@ -200,6 +206,9 @@ export class TimelinePanel {
 
       if (hasChildren && !isCollapsed) {
         for (let j = 0; j < items.length; j++) {
+          if (items[j].uniqueType === 'lazy-select') {
+            continue;
+          }
           if (items[j].parentId === obj.id) {
             html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false);
           }

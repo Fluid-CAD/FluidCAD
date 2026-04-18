@@ -72,6 +72,42 @@ describe('addBreakpoint', () => {
   });
 });
 
+describe('addBreakpoint (AST robustness)', () => {
+  it('ignores a commented-out import when looking for the fluidcad import', async () => {
+    const code = `// import { breakpoint } from 'fluidcad/core';\nconst a = 1;\n`;
+    const result = await addBreakpoint(code, 1);
+    // Commented import shouldn't match; a real import line is prepended.
+    expect(result.newCode.startsWith(`import { breakpoint } from 'fluidcad/core';\n`)).toBe(true);
+  });
+
+  it('reuses an import that has trailing inline comments', async () => {
+    const code = `import { line } from 'fluidcad/core'; // note\nconst a = 1;\n`;
+    const result = await addBreakpoint(code, 1);
+    expect(result.newCode).toContain(`import {breakpoint, line } from 'fluidcad/core';`);
+    // No new import line was prepended.
+    expect(result.newCode.split('\n').filter(l => l.startsWith('import')).length).toBe(1);
+  });
+});
+
+describe('removeBreakpoint (AST robustness)', () => {
+  it('does not treat a commented-out breakpoint() as real', async () => {
+    const code = `const a = 1;\n// breakpoint();\nconst b = 2;\n`;
+    const result = await removeBreakpoint(code, 1);
+    // The comment is not a real call expression — nothing to remove.
+    expect(result.newCode).toBe(code);
+  });
+});
+
+describe('clearBreakpoints (AST robustness)', () => {
+  it('skips a commented-out breakpoint() while removing real calls', async () => {
+    const code = `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\n// breakpoint();\nconst b = 2;\n`;
+    const result = await clearBreakpoints(code);
+    expect(result.newCode).toBe(
+      `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\n// breakpoint();\nconst b = 2;\n`,
+    );
+  });
+});
+
 describe('removeBreakpoint', () => {
   it('deletes the breakpoint line', async () => {
     const code = `const a = 1;\nbreakpoint();\nconst b = 2;\n`;

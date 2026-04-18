@@ -126,6 +126,11 @@ export type AddPickMessage = {
   sourceLocation: { line: number; column: number };
 };
 
+export type RemovePickMessage = {
+  type: 'remove-pick';
+  sourceLocation: { line: number; column: number };
+};
+
 export type AddBreakpointMessage = {
   type: 'add-breakpoint';
   filePath: string;
@@ -134,6 +139,13 @@ export type AddBreakpointMessage = {
 
 export type ClearBreakpointsMessage = {
   type: 'clear-breakpoints';
+};
+
+export type GotoSourceMessage = {
+  type: 'goto-source';
+  filePath: string;
+  line: number;
+  column: number;
 };
 
 export type ServerToExtensionMessage =
@@ -146,8 +158,10 @@ export type ServerToExtensionMessage =
   | RemovePointMessage
   | SetPickPointsMessage
   | AddPickMessage
+  | RemovePickMessage
   | AddBreakpointMessage
   | ClearBreakpointsMessage
+  | GotoSourceMessage
   | ExportCompleteMessage;
 
 // ---------------------------------------------------------------------------

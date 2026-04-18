@@ -7,6 +7,7 @@ import {
   insertPoint,
   removePoint,
   addPick,
+  removePick,
   setPickPoints,
 } from '../src/code-editor.ts';
 
@@ -191,6 +192,26 @@ describe('addPick', () => {
   it('is a no-op when .pick( already exists on the line', async () => {
     const code = `line([0, 0]).pick()\n`;
     const result = await addPick(code, 1);
+    expect(result.newCode).toBe(code);
+  });
+});
+
+describe('removePick', () => {
+  it('removes an empty .pick() from the line', async () => {
+    const code = `extrude(sk).pick()\n`;
+    const result = await removePick(code, 1);
+    expect(result.newCode).toBe(`extrude(sk)\n`);
+  });
+
+  it('leaves a .pick() with points untouched', async () => {
+    const code = `extrude(sk).pick([1, 2])\n`;
+    const result = await removePick(code, 1);
+    expect(result.newCode).toBe(code);
+  });
+
+  it('is a no-op when there is no .pick() on the line', async () => {
+    const code = `extrude(sk)\n`;
+    const result = await removePick(code, 1);
     expect(result.newCode).toBe(code);
   });
 });

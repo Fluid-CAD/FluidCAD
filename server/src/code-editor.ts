@@ -400,6 +400,26 @@ export async function addPick(code: string, sourceLine: number): Promise<CodeEdi
   return { newCode: joinLines(lines) };
 }
 
+/**
+ * Remove an empty `.pick()` call from the line. Calls with points are left
+ * untouched so concurrent/stale edits cannot discard user data.
+ */
+export async function removePick(code: string, sourceLine: number): Promise<CodeEditResult> {
+  const lines = splitLines(code);
+  const row = resolveSourceRow(lines, sourceLine);
+  if (row < 0) {
+    return { newCode: code };
+  }
+  const lineText = lines[row];
+  const match = lineText.match(/\.pick\(\s*\)/);
+  if (!match) {
+    return { newCode: code };
+  }
+  const idx = match.index!;
+  lines[row] = lineText.slice(0, idx) + lineText.slice(idx + match[0].length);
+  return { newCode: joinLines(lines) };
+}
+
 export async function removePoint(
   code: string,
   sourceLine: number,

@@ -324,6 +324,17 @@ export class TimelinePanel {
     `;
   }
 
+  private async recomputeScene(): Promise<void> {
+    try {
+      await fetch('/api/recompute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (err) {
+      console.error('Recompute failed:', err);
+    }
+  }
+
   private async rollbackTo(index: number): Promise<void> {
     try {
       await fetch('/api/rollback', {
@@ -522,14 +533,18 @@ export class TimelinePanel {
     dropdown.style.top = `${rect.bottom - panelRect.top + 2}px`;
     dropdown.style.right = `${panelRect.right - rect.right}px`;
 
-    const checkMark = this.showBuildTimings
-      ? `<span class="text-primary shrink-0">${CHECK_SVG}</span>`
-      : `<span class="w-3 shrink-0"></span>`;
+    const checkIcon = this.showBuildTimings
+      ? `<span class="flex items-center justify-center w-4 h-4 shrink-0 text-primary [&>svg]:size-3">${CHECK_SVG}</span>`
+      : `<span class="w-4 h-4 shrink-0"></span>`;
 
     dropdown.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[180px]">
+        <li><button data-action="recompute" class="flex items-center gap-2">
+          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_REFRESH}</span>
+          <span>Recompute scene</span>
+        </button></li>
         <li><button data-action="toggle-timings" class="flex items-center gap-2">
-          ${checkMark}
+          ${checkIcon}
           <span>Show execution time</span>
         </button></li>
       </ul>
@@ -546,6 +561,11 @@ export class TimelinePanel {
       savePreference('showBuildTimings', next);
       this.closeDropdown();
       this.renderTimeline();
+    });
+
+    dropdown.querySelector('[data-action="recompute"]')!.addEventListener('click', () => {
+      this.closeDropdown();
+      this.recomputeScene();
     });
 
     const onClickOutside = (e: MouseEvent) => {

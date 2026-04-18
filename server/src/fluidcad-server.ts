@@ -47,6 +47,7 @@ export class FluidCadServer {
   private previousScenes: Map<string, any> = new Map();
   private renderingCache = new Map<string, any[]>();
   private currentFileName: string = '';
+  private currentFilePath: string = '';
 
   async init(workspacePath: string) {
     await this.viteManager.init(workspacePath);
@@ -66,6 +67,7 @@ export class FluidCadServer {
     filePath = normalizePath(filePath);
     const normalizedFileName = filePath.replace('virtual:live-render:', '');
     this.currentFileName = normalizedFileName;
+    this.currentFilePath = filePath;
 
     if (!ignoreCache) {
       const fromCache = this.renderingCache.get(normalizedFileName);
@@ -138,6 +140,15 @@ export class FluidCadServer {
 
   async rollbackFromUI(index: number): Promise<SceneRenderedData | null> {
     return this.rollback(this.currentFileName, index);
+  }
+
+  async recomputeCurrentFile(): Promise<SceneRenderedData | null> {
+    if (!this.currentFilePath) {
+      return null;
+    }
+    this.previousScenes.delete(this.currentFileName);
+    this.renderingCache.delete(this.currentFileName);
+    return this.processFile(this.currentFilePath, true);
   }
 
   async rollback(fileName: string, index: number): Promise<SceneRenderedData | null> {

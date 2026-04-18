@@ -100,6 +100,27 @@ export function createActionsRouter(
     res.json({ success: true });
   });
 
+  router.post('/recompute', async (_req, res) => {
+    const data = await fluidCadServer.recomputeCurrentFile();
+    if (!data) {
+      res.status(404).json({ error: 'No active scene' });
+      return;
+    }
+    sendToExtension({
+      type: 'scene-rendered',
+      absPath: data.absPath,
+      result: data.result,
+      rollbackStop: data.rollbackStop,
+    });
+    broadcastToUI({
+      type: 'scene-rendered',
+      result: data.result,
+      absPath: data.absPath,
+      breakpointHit: data.breakpointHit,
+    });
+    res.json({ success: true });
+  });
+
   router.post('/clear-breakpoints', (_req, res) => {
     sendToExtension({ type: 'clear-breakpoints' });
     res.json({ success: true });

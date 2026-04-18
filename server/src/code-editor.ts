@@ -3,15 +3,23 @@ import { fileURLToPath } from 'url';
 
 type TSNode = {
   type: string;
+  text: string;
   startPosition: { row: number; column: number };
   endPosition: { row: number; column: number };
+  startIndex: number;
+  endIndex: number;
   parent: TSNode | null;
+  namedChildren: TSNode[];
+  namedChild(i: number): TSNode | null;
+  childForFieldName(name: string): TSNode | null;
   descendantForPosition(pos: { row: number; column: number }): TSNode | null;
 };
 
+type TSTree = { rootNode: TSNode };
+
 type TSParser = {
   setLanguage(lang: any): void;
-  parse(code: string): { rootNode: TSNode };
+  parse(code: string): TSTree;
 };
 
 async function loadTreeSitter() {
@@ -43,8 +51,6 @@ async function getParser(): Promise<TSParser> {
   return parser;
 }
 
-const BREAKPOINT_LINE = /^(\s*)breakpoint\s*\(\s*\)\s*;?\s*$/;
-const FLUIDCAD_IMPORT = /import\s*\{([^}]*)\}\s*from\s*['"]fluidcad(?:\/core)?['"]\s*;?/;
 const POINT_LITERAL = /\[([^\]]+)\]/g;
 
 export type BreakpointEditResult = { newCode: string; breakpointLine: number | null };
@@ -63,13 +69,6 @@ function isBlankRow(lines: string[], row: number): boolean {
   return line === undefined || line.trim() === '';
 }
 
-function lineHasBreakpoint(lines: string[], row: number): boolean {
-  if (row < 0 || row >= lines.length) {
-    return false;
-  }
-  return BREAKPOINT_LINE.test(lines[row]);
-}
-
 function indentOf(lines: string[], row: number): string {
   if (row < 0 || row >= lines.length) {
     return '';
@@ -78,23 +77,90 @@ function indentOf(lines: string[], row: number): string {
   return m ? m[1] : '';
 }
 
+function* walkTree(node: TSNode): Generator<TSNode> {
+  yield node;
+  for (const child of node.namedChildren) {
+    yield* walkTree(child);
+  }
+}
+
 /**
- * Resolve `sourceLine` (1-indexed) to a 0-indexed row containing code.
- * Walks back over blank rows so callers can target the actual statement
- * even when the live-update reported a trailing blank line.
+ * Recognise a `breakpoint();` statement: an expression_statement wrapping a
+ * call_expression to the bare identifier `breakpoint` with zero arguments.
+ * Comments, conditional expressions, or shadowed identifiers all fall out
+ * of this match because the AST disambiguates them for us.
  */
-function resolveSourceRow(lines: string[], sourceLine: number): number {
-  let row = sourceLine - 1;
-  if (row < 0) {
-    return -1;
+function isBreakpointStatement(node: TSNode): boolean {
+  if (node.type !== 'expression_statement') {
+    return false;
   }
-  if (row >= lines.length) {
-    row = lines.length - 1;
+  const call = node.namedChild(0);
+  if (!call || call.type !== 'call_expression') {
+    return false;
   }
-  while (row >= 0 && lines[row].trim() === '') {
-    row--;
+  const fn = call.childForFieldName('function');
+  if (!fn || fn.type !== 'identifier' || fn.text !== 'breakpoint') {
+    return false;
   }
-  return row;
+  const args = call.childForFieldName('arguments');
+  if (!args || args.namedChildren.length !== 0) {
+    return false;
+  }
+  return true;
+}
+
+function findBreakpointStatementAt(tree: TSTree, row: number): TSNode | null {
+  for (const node of walkTree(tree.rootNode)) {
+    if (node.startPosition.row > row) {
+      // Trees are ordered; nothing further down can start at our row.
+      // (A later sibling deeper than expression_statement won't appear at this row.)
+    }
+    if (isBreakpointStatement(node) && node.startPosition.row === row) {
+      return node;
+    }
+  }
+  return null;
+}
+
+function findAllBreakpointStatements(tree: TSTree): TSNode[] {
+  const out: TSNode[] = [];
+  for (const node of walkTree(tree.rootNode)) {
+    if (isBreakpointStatement(node)) {
+      out.push(node);
+    }
+  }
+  return out;
+}
+
+/**
+ * Find a top-level `import { ... } from 'fluidcad'` or `'fluidcad/core'`
+ * statement, regardless of whitespace, comments around it, or quote style.
+ */
+function findFluidCadImport(tree: TSTree): TSNode | null {
+  for (const node of tree.rootNode.namedChildren) {
+    if (node.type !== 'import_statement') {
+      continue;
+    }
+    const source = node.childForFieldName('source');
+    if (!source) {
+      continue;
+    }
+    // `source.text` includes the surrounding quotes.
+    const inner = source.text.slice(1, -1);
+    if (inner === 'fluidcad' || inner === 'fluidcad/core') {
+      return node;
+    }
+  }
+  return null;
+}
+
+function findNamedImports(importNode: TSNode): TSNode | null {
+  for (const node of walkTree(importNode)) {
+    if (node.type === 'named_imports') {
+      return node;
+    }
+  }
+  return null;
 }
 
 /**
@@ -105,12 +171,11 @@ function resolveSourceRow(lines: string[], sourceLine: number): number {
  * breakpoints inside a function body still land after the enclosing
  * statement within that body.
  */
-async function findBreakpointInsertLine(code: string, referenceRow: number): Promise<number> {
-  const p = await getParser();
-  const tree = p.parse(code);
-  const root = tree.rootNode;
-  const lines = splitLines(code);
-
+function findBreakpointInsertLineFromTree(
+  tree: TSTree,
+  lines: string[],
+  referenceRow: number,
+): number {
   let row = referenceRow;
   while (row >= 0 && isBlankRow(lines, row)) {
     row--;
@@ -119,8 +184,8 @@ async function findBreakpointInsertLine(code: string, referenceRow: number): Pro
     return referenceRow + 1;
   }
 
-  const node: TSNode | null = root.descendantForPosition({ row, column: 0 });
-  if (!node || node === root) {
+  const node: TSNode | null = tree.rootNode.descendantForPosition({ row, column: 0 });
+  if (!node || node === tree.rootNode) {
     return referenceRow + 1;
   }
 
@@ -145,21 +210,41 @@ async function findBreakpointInsertLine(code: string, referenceRow: number): Pro
  * statement, or insert a new import line at the top. Returns the new code
  * plus how many lines were added at the top (0 or 1).
  */
-function ensureBreakpointImport(code: string): { newCode: string; lineShift: number } {
-  const match = code.match(FLUIDCAD_IMPORT);
-  if (match) {
-    const names = match[1];
-    if (/\bbreakpoint\b/.test(names)) {
+async function ensureBreakpointImport(code: string): Promise<{ newCode: string; lineShift: number }> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const importNode = findFluidCadImport(tree);
+
+  if (!importNode) {
+    const importLine = `import { breakpoint } from 'fluidcad/core';\n`;
+    return { newCode: importLine + code, lineShift: 1 };
+  }
+
+  const namedImports = findNamedImports(importNode);
+  if (!namedImports) {
+    // `import 'fluidcad/core'` (side-effect) or default-only — leave alone.
+    return { newCode: code, lineShift: 0 };
+  }
+
+  for (const spec of namedImports.namedChildren) {
+    if (spec.type !== 'import_specifier') {
+      continue;
+    }
+    const name = spec.childForFieldName('name') ?? spec.namedChild(0);
+    if (name && name.text === 'breakpoint') {
       return { newCode: code, lineShift: 0 };
     }
-    const braceOffset = match.index! + match[0].indexOf('{') + 1;
-    const needsSpace = names.length > 0 && !/^\s/.test(names);
-    const insertText = needsSpace ? ' breakpoint,' : 'breakpoint,';
-    const newCode = code.slice(0, braceOffset) + insertText + code.slice(braceOffset);
-    return { newCode, lineShift: 0 };
   }
-  const importLine = `import { breakpoint } from 'fluidcad/core';\n`;
-  return { newCode: importLine + code, lineShift: 1 };
+
+  // Insert immediately after the `{` of the named_imports node.
+  const openBraceOffset = namedImports.startIndex + 1;
+  const after = code[openBraceOffset];
+  const needsSpace = after !== ' ' && after !== '\t' && after !== '\n';
+  const insertText = needsSpace ? ' breakpoint,' : 'breakpoint,';
+  return {
+    newCode: code.slice(0, openBraceOffset) + insertText + code.slice(openBraceOffset),
+    lineShift: 0,
+  };
 }
 
 /**
@@ -183,10 +268,12 @@ function insertBreakpointLine(lines: string[], row: number, indent: string): num
 }
 
 export async function addBreakpoint(code: string, referenceRow: number): Promise<BreakpointEditResult> {
-  const insertLine = await findBreakpointInsertLine(code, referenceRow);
+  const p = await getParser();
+  const tree = p.parse(code);
   const lines = splitLines(code);
+  const insertLine = findBreakpointInsertLineFromTree(tree, lines, referenceRow);
 
-  if (lineHasBreakpoint(lines, insertLine)) {
+  if (findBreakpointStatementAt(tree, insertLine)) {
     return { newCode: code, breakpointLine: insertLine };
   }
 
@@ -196,38 +283,53 @@ export async function addBreakpoint(code: string, referenceRow: number): Promise
   const insertedRow = insertBreakpointLine(lines, insertLine, indent);
   const interim = joinLines(lines);
 
-  const { newCode, lineShift } = ensureBreakpointImport(interim);
+  const { newCode, lineShift } = await ensureBreakpointImport(interim);
   return { newCode, breakpointLine: insertedRow + lineShift };
 }
 
 export async function removeBreakpoint(code: string, line: number): Promise<BreakpointEditResult> {
-  const lines = splitLines(code);
-  if (!lineHasBreakpoint(lines, line)) {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const node = findBreakpointStatementAt(tree, line);
+  if (!node) {
     return { newCode: code, breakpointLine: null };
   }
-  lines.splice(line, 1);
+  const lines = splitLines(code);
+  const startRow = node.startPosition.row;
+  const endRow = node.endPosition.row;
+  lines.splice(startRow, endRow - startRow + 1);
   return { newCode: joinLines(lines), breakpointLine: null };
 }
 
 export async function toggleBreakpoint(code: string, cursorRow: number): Promise<BreakpointEditResult> {
-  const lines = splitLines(code);
-  if (lineHasBreakpoint(lines, cursorRow)) {
+  const p = await getParser();
+  const tree = p.parse(code);
+  if (findBreakpointStatementAt(tree, cursorRow)) {
     return removeBreakpoint(code, cursorRow);
   }
-  if (lineHasBreakpoint(lines, cursorRow + 1)) {
+  if (findBreakpointStatementAt(tree, cursorRow + 1)) {
     return removeBreakpoint(code, cursorRow + 1);
   }
   return addBreakpoint(code, cursorRow);
 }
 
 export async function clearBreakpoints(code: string): Promise<CodeEditResult> {
-  const lines = splitLines(code);
-  const filtered: string[] = [];
-  for (const line of lines) {
-    if (!BREAKPOINT_LINE.test(line)) {
-      filtered.push(line);
+  const p = await getParser();
+  const tree = p.parse(code);
+  const stmts = findAllBreakpointStatements(tree);
+  if (stmts.length === 0) {
+    return { newCode: code };
+  }
+
+  const rowsToDelete = new Set<number>();
+  for (const s of stmts) {
+    for (let r = s.startPosition.row; r <= s.endPosition.row; r++) {
+      rowsToDelete.add(r);
     }
   }
+
+  const lines = splitLines(code);
+  const filtered = lines.filter((_, i) => !rowsToDelete.has(i));
   return { newCode: joinLines(filtered) };
 }
 
@@ -235,6 +337,24 @@ export async function clearBreakpoints(code: string): Promise<CodeEditResult> {
 // Point / pick edits — line-level transformations on the function call that
 // ends on the resolved source row.
 // ---------------------------------------------------------------------------
+
+/**
+ * Resolve `sourceLine` (1-indexed) to a 0-indexed row containing code.
+ * Walks back over blank rows to match the existing extension behaviour.
+ */
+function resolveSourceRow(lines: string[], sourceLine: number): number {
+  let row = sourceLine - 1;
+  if (row < 0) {
+    return -1;
+  }
+  if (row >= lines.length) {
+    row = lines.length - 1;
+  }
+  while (row >= 0 && lines[row].trim() === '') {
+    row--;
+  }
+  return row;
+}
 
 export async function insertPoint(
   code: string,

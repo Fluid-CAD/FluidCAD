@@ -26,6 +26,7 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
    * @param index - Zero-based edge index.
    * @param shapes - The edge array to index into.
    * @param originalShapes - Optional original edge array before filtering.
+   * @internal
    */
   atIndex(index: number, shapes: Edge[], originalShapes?: Edge[]) {
     const filter = new AtIndexFilter(index, shapes, originalShapes);
@@ -38,6 +39,7 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
    * @param index - Zero-based edge index to exclude.
    * @param shapes - The edge array to index into.
    * @param originalShapes - Optional original edge array before filtering.
+   * @internal
    */
   notAtIndex(index: number, shapes: Edge[], originalShapes?: Edge[]) {
     const filter = new NotAtIndexFilter(index, shapes, originalShapes);

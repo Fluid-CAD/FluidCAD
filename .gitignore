@@ -10,4 +10,5 @@ out/
 extension/vscode/README.md
 server/dist/
 ui/dist/
+.vscode-test
 

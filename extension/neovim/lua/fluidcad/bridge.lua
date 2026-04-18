@@ -93,6 +93,46 @@ function M.send(msg)
   vim.fn.chansend(job_id, encoded)
 end
 
+--- Locate the buffer for `file_path` (or fall back to the current one),
+--- POST the buffer text through `editor(code_api, code)`, and replace the
+--- buffer with the returned `newCode`. `editor` returns the decoded JSON
+--- response from the server, or nil to skip.
+function M.apply_code_edit(file_path, editor)
+  local code_api = require('fluidcad.code_api')
+
+  local buf = nil
+  if file_path then
+    for _, b in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_is_loaded(b) and vim.api.nvim_buf_get_name(b) == file_path then
+        buf = b
+        break
+      end
+    end
+  end
+  if not buf then
+    buf = vim.api.nvim_get_current_buf()
+  end
+
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local code = table.concat(lines, '\n')
+
+  local result = editor(code_api, code)
+  if not result or type(result.newCode) ~= 'string' then
+    return
+  end
+  if not code_api.replace_buffer(buf, result.newCode) then
+    return
+  end
+
+  -- TextChanged autocmd does not fire for non-current buffers, so push the
+  -- live-update explicitly.
+  M.send({
+    type = 'live-update',
+    fileName = vim.api.nvim_buf_get_name(buf),
+    code = result.newCode,
+  })
+end
+
 function M.handle_message(msg)
   vim.schedule(function()
     if msg.type == 'ready' then
@@ -138,125 +178,21 @@ function M.handle_message(msg)
         vim.print('[fluidcad] File imported successfully')
       end
     elseif msg.type == 'insert-point' then
-      local line_idx = msg.sourceLocation.line - 1
-      local file_path = msg.sourceLocation.filePath
-
-      -- Find the buffer matching the source file
-      local buf = nil
-      if file_path then
-        for _, b in ipairs(vim.api.nvim_list_bufs()) do
-          if vim.api.nvim_buf_is_loaded(b) then
-            local name = vim.api.nvim_buf_get_name(b)
-            if name == file_path then
-              buf = b
-              break
-            end
-          end
-        end
-      end
-      if not buf then
-        buf = vim.api.nvim_get_current_buf()
-      end
-      local line_count = vim.api.nvim_buf_line_count(buf)
-      if line_idx < 0 or line_idx >= line_count then
-        return
-      end
-      local line_text = vim.api.nvim_buf_get_lines(buf, line_idx, line_idx + 1, false)[1]
-      local point_text = string.format('[%s, %s]', msg.point[1], msg.point[2])
-
-      -- Find last ')' on this line
-      local close_paren = nil
-      for i = #line_text, 1, -1 do
-        if line_text:sub(i, i) == ')' then
-          close_paren = i
-          break
-        end
-      end
-      if not close_paren then
-        return
-      end
-
-      -- Find matching '(' before it
-      local open_paren = nil
-      for i = close_paren - 1, 1, -1 do
-        if line_text:sub(i, i) == '(' then
-          open_paren = i
-          break
-        end
-      end
-      if not open_paren then
-        return
-      end
-
-      local between = line_text:sub(open_paren + 1, close_paren - 1)
-      local prefix = ''
-      if between:match('%S') then
-        prefix = ', '
-      end
-
-      -- Insert before the closing paren (0-indexed col for nvim_buf_set_text)
-      vim.api.nvim_buf_set_text(buf, line_idx, close_paren - 1, line_idx, close_paren - 1, { prefix .. point_text })
-
-      -- TextChanged autocmd won't fire for non-current buffers, so send live-update explicitly
-      local updated_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-      local code = table.concat(updated_lines, '\n')
-      M.send({
-        type = 'live-update',
-        fileName = vim.api.nvim_buf_get_name(buf),
-        code = code,
-      })
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.insert_point(code, msg.sourceLocation.line, msg.point)
+      end)
     elseif msg.type == 'add-pick' then
-      local line_idx = msg.sourceLocation.line - 1
-      local file_path = msg.sourceLocation.filePath
-
-      local buf = nil
-      if file_path then
-        for _, b in ipairs(vim.api.nvim_list_bufs()) do
-          if vim.api.nvim_buf_is_loaded(b) then
-            local name = vim.api.nvim_buf_get_name(b)
-            if name == file_path then
-              buf = b
-              break
-            end
-          end
-        end
-      end
-      if not buf then
-        buf = vim.api.nvim_get_current_buf()
-      end
-      local line_count = vim.api.nvim_buf_line_count(buf)
-      if line_idx < 0 or line_idx >= line_count then
-        return
-      end
-      local line_text = vim.api.nvim_buf_get_lines(buf, line_idx, line_idx + 1, false)[1]
-
-      -- If .pick( already exists on this line, do nothing
-      if line_text:find('%.pick%(') then
-        return
-      end
-
-      -- Find last ')' on this line
-      local close_paren = nil
-      for i = #line_text, 1, -1 do
-        if line_text:sub(i, i) == ')' then
-          close_paren = i
-          break
-        end
-      end
-      if not close_paren then
-        return
-      end
-
-      -- Insert .pick() after the last closing paren (Lua 1-indexed → nvim 0-indexed)
-      vim.api.nvim_buf_set_text(buf, line_idx, close_paren, line_idx, close_paren, { '.pick()' })
-
-      local updated_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-      local code = table.concat(updated_lines, '\n')
-      M.send({
-        type = 'live-update',
-        fileName = vim.api.nvim_buf_get_name(buf),
-        code = code,
-      })
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.add_pick(code, msg.sourceLocation.line)
+      end)
+    elseif msg.type == 'remove-point' then
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.remove_point(code, msg.sourceLocation.line, msg.point)
+      end)
+    elseif msg.type == 'set-pick-points' then
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.set_pick_points(code, msg.sourceLocation.line, msg.points)
+      end)
     elseif msg.type == 'add-breakpoint' then
       local ok, breakpoints = pcall(require, 'fluidcad.breakpoints')
       if ok and msg.filePath and msg.line then
@@ -270,74 +206,6 @@ function M.handle_message(msg)
         local path = vim.api.nvim_buf_get_name(vim.api.nvim_get_current_buf())
         breakpoints.clear_all(path)
       end
-    elseif msg.type == 'set-pick-points' then
-      local line_idx = msg.sourceLocation.line - 1
-      local file_path = msg.sourceLocation.filePath
-
-      local buf = nil
-      if file_path then
-        for _, b in ipairs(vim.api.nvim_list_bufs()) do
-          if vim.api.nvim_buf_is_loaded(b) then
-            local name = vim.api.nvim_buf_get_name(b)
-            if name == file_path then
-              buf = b
-              break
-            end
-          end
-        end
-      end
-      if not buf then
-        buf = vim.api.nvim_get_current_buf()
-      end
-      local line_count = vim.api.nvim_buf_line_count(buf)
-      if line_idx < 0 or line_idx >= line_count then
-        return
-      end
-      local line_text = vim.api.nvim_buf_get_lines(buf, line_idx, line_idx + 1, false)[1]
-
-      -- Find last ')' on this line
-      local close_paren = nil
-      for i = #line_text, 1, -1 do
-        if line_text:sub(i, i) == ')' then
-          close_paren = i
-          break
-        end
-      end
-      if not close_paren then
-        return
-      end
-
-      -- Find matching '(' before it
-      local open_paren = nil
-      for i = close_paren - 1, 1, -1 do
-        if line_text:sub(i, i) == '(' then
-          open_paren = i
-          break
-        end
-      end
-      if not open_paren then
-        return
-      end
-
-      -- Build the new arguments string
-      local parts = {}
-      for _, p in ipairs(msg.points) do
-        table.insert(parts, string.format('[%s, %s]', p[1], p[2]))
-      end
-      local new_args = table.concat(parts, ', ')
-
-      -- Replace content between parens (Lua 1-indexed → nvim 0-indexed)
-      -- open_paren is 1-indexed position of '(', so open_paren converts to 0-indexed col after '('
-      -- close_paren is 1-indexed position of ')', so close_paren-1 is 0-indexed col of ')'
-      vim.api.nvim_buf_set_text(buf, line_idx, open_paren, line_idx, close_paren - 1, { new_args })
-
-      local updated_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-      local code = table.concat(updated_lines, '\n')
-      M.send({
-        type = 'live-update',
-        fileName = vim.api.nvim_buf_get_name(buf),
-        code = code,
-      })
     end
   end)
 end

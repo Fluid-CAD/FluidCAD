@@ -1,6 +1,15 @@
 import { Router } from 'express';
 import type { FluidCadServer } from '../fluidcad-server.ts';
-import { findBreakpointInsertLine } from '../code-editor.ts';
+import {
+  addBreakpoint,
+  removeBreakpoint,
+  toggleBreakpoint,
+  clearBreakpoints,
+  insertPoint,
+  removePoint,
+  addPick,
+  setPickPoints,
+} from '../code-editor.ts';
 
 export function createActionsRouter(
   fluidCadServer: FluidCadServer,
@@ -90,20 +99,6 @@ export function createActionsRouter(
     res.json({ success: true });
   });
 
-  router.post('/compute-breakpoint-line', async (req, res) => {
-    const { code, referenceRow } = req.body;
-    if (typeof code !== 'string' || typeof referenceRow !== 'number') {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    try {
-      const insertLine = await findBreakpointInsertLine(code, referenceRow);
-      res.json({ insertLine });
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || String(err) });
-    }
-  });
-
   router.post('/clear-breakpoints', (_req, res) => {
     sendToExtension({ type: 'clear-breakpoints' });
     res.json({ success: true });
@@ -175,6 +170,133 @@ export function createActionsRouter(
 
     const loadName = fileName.replace(/\.(step|stp)$/i, '');
     res.json({ success: true, fileName: loadName });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /api/code/* — extensions send the current buffer text plus operation
+  // params; the server returns the fully edited text. All source-text
+  // manipulation lives here so VSCode and Neovim share one implementation.
+  // ---------------------------------------------------------------------------
+
+  router.post('/code/add-breakpoint', async (req, res) => {
+    const { code, referenceRow } = req.body;
+    if (typeof code !== 'string' || typeof referenceRow !== 'number') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await addBreakpoint(code, referenceRow);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/remove-breakpoint', async (req, res) => {
+    const { code, line } = req.body;
+    if (typeof code !== 'string' || typeof line !== 'number') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await removeBreakpoint(code, line);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/toggle-breakpoint', async (req, res) => {
+    const { code, cursorRow } = req.body;
+    if (typeof code !== 'string' || typeof cursorRow !== 'number') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await toggleBreakpoint(code, cursorRow);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/clear-breakpoints', async (req, res) => {
+    const { code } = req.body;
+    if (typeof code !== 'string') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await clearBreakpoints(code);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/insert-point', async (req, res) => {
+    const { code, sourceLine, point } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      !Array.isArray(point) || point.length !== 2
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await insertPoint(code, sourceLine, point as [number, number]);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/remove-point', async (req, res) => {
+    const { code, sourceLine, point } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      !Array.isArray(point) || point.length !== 2
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await removePoint(code, sourceLine, point as [number, number]);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/add-pick', async (req, res) => {
+    const { code, sourceLine } = req.body;
+    if (typeof code !== 'string' || typeof sourceLine !== 'number') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await addPick(code, sourceLine);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/set-pick-points', async (req, res) => {
+    const { code, sourceLine, points } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      !Array.isArray(points)
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await setPickPoints(code, sourceLine, points as [number, number][]);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
   });
 
   return router;

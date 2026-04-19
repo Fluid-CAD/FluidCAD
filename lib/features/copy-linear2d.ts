@@ -47,6 +47,10 @@ export class CopyLinear2D extends GeometrySceneObject {
       return axisCount > 1 ? len / (axisCount - 1) : 0;
     });
 
+    const centerIndices = this.axes.map((_, a) =>
+      centered ? Math.floor(counts[a] / 2) : 0
+    );
+
     // Build grid positions as cartesian product of per-axis indices (0..counts[a]-1)
     let positions: number[][] = [[]];
     for (let a = 0; a < this.axes.length; a++) {
@@ -60,17 +64,14 @@ export class CopyLinear2D extends GeometrySceneObject {
     }
 
     for (const pos of positions) {
-      if (pos.every(idx => idx === 0)) continue;
+      if (pos.every((idx, a) => idx === centerIndices[a])) continue;
       if (skip?.some(coord => coord.every((v, a) => v === pos[a]))) {
         continue;
       }
 
       let matrix = Matrix4.identity();
       for (let a = 0; a < this.axes.length; a++) {
-        const axisCount = counts[a];
-        const axisOffset = axisOffsets[a];
-        const startOffset = centered ? -(axisCount * axisOffset) / 2 : 0;
-        const distance = startOffset + axisOffset * pos[a];
+        const distance = (pos[a] - centerIndices[a]) * axisOffsets[a];
         const translation = this.axes[a].direction.multiply(distance);
         matrix = matrix.multiply(Matrix4.fromTranslationVector(translation));
       }

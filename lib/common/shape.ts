@@ -1,6 +1,7 @@
 import type { TopoDS_Shape } from "occjs-wrapper";
 import { ShapeType } from "./shape-type.js";
 import { SceneObjectMesh } from "../rendering/scene.js";
+import { Matrix4 } from "../math/matrix4.js";
 import { randomUUID } from "crypto";
 
 export interface ShapeFilter {
@@ -18,6 +19,7 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   colorMap: Array<{ shape: TopoDS_Shape; color: string }> = [];
 
   private meshes: SceneObjectMesh[]
+  private _meshSource: { shape: Shape; matrix: Matrix4 } | null = null;
 
   constructor(private shape: T) {
     this.id = randomUUID()
@@ -102,6 +104,14 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
 
   setMeshes(meshes: SceneObjectMesh[]) {
     this.meshes = meshes;
+  }
+
+  setMeshSource(source: Shape, matrix: Matrix4) {
+    this._meshSource = { shape: source, matrix };
+  }
+
+  getMeshSource(): { shape: Shape; matrix: Matrix4 } | null {
+    return this._meshSource;
   }
 
   setColor(face: TopoDS_Shape, color: string) {

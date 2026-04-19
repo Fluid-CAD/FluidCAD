@@ -20,13 +20,15 @@ export class Mesh {
     return Mesh.discretizeEdgeRaw(edge.getShape());
   }
 
+  static premeshShape(shape: TopoDS_Shape) {
+    const oc = getOC();
+    const inc = new oc.BRepMesh_IncrementalMesh(shape, 0.3, false, 0.3, true);
+    inc.delete();
+  }
+
   // Raw methods (for oc-internal use)
   static triangulateFaceRaw(face: TopoDS_Face, vertexOffset: number = 0): MeshData | null {
     const oc = getOC();
-
-    const vertices: number[] = [];
-    const normals: number[] = [];
-    const indices: number[] = [];
 
     let inc: BRepMesh_IncrementalMesh;
     try {
@@ -35,13 +37,23 @@ export class Mesh {
       console.error("Face mesh failed", e);
       return null;
     }
+    inc.delete();
+
+    return Mesh.extractFaceTriangulationRaw(face, vertexOffset);
+  }
+
+  static extractFaceTriangulationRaw(face: TopoDS_Face, vertexOffset: number = 0): MeshData | null {
+    const oc = getOC();
+
+    const vertices: number[] = [];
+    const normals: number[] = [];
+    const indices: number[] = [];
 
     const aLocation = new oc.TopLoc_Location();
     const myT = oc.BRep_Tool.Triangulation(face, aLocation, 0);
     if (myT.IsNull()) {
       aLocation.delete();
-      inc.delete();
-      throw new Error("No triangulation for face");
+      return null;
     }
 
     const pc = new oc.Poly_Connect(myT);
@@ -90,7 +102,6 @@ export class Mesh {
     triangles.delete();
     myT.delete();
     aLocation.delete();
-    inc.delete();
 
     return { vertices, normals, indices, count: nbNodes };
   }

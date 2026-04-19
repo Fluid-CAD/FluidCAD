@@ -83,6 +83,7 @@ export class CopyLinear extends SceneObject {
       for (const obj of objects) {
         for (const shape of obj.getShapes()) {
           const transformed = ShapeOps.transform(shape, matrix);
+          transformed.setMeshSource(shape, matrix);
           this.addShape(transformed);
         }
       }

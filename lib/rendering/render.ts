@@ -4,6 +4,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
+import { transformMeshes } from "./mesh-transform.js";
 
 const meshBuilder = new MeshBuilder();
 
@@ -19,7 +20,17 @@ function renderSceneObject(obj: SceneObject, scene: Scene, buildDurationMs?: num
     for (const shape of sceneShapes) {
       let meshes = shape.getMeshes();
       if (!meshes) {
-        meshes = meshBuilder.build(shape);
+        const meshSource = shape.getMeshSource();
+        if (meshSource) {
+          let sourceMeshes = meshSource.shape.getMeshes();
+          if (!sourceMeshes) {
+            sourceMeshes = meshBuilder.build(meshSource.shape);
+            meshSource.shape.setMeshes(sourceMeshes);
+          }
+          meshes = sourceMeshes ? transformMeshes(sourceMeshes, meshSource.matrix) : meshBuilder.build(shape);
+        } else {
+          meshes = meshBuilder.build(shape);
+        }
         shape.setMeshes(meshes);
       }
 
@@ -88,7 +99,17 @@ export function renderSceneRollback(scene: Scene, rollbackIndex: number) {
       for (const shape of sceneShapes) {
         let meshes = shape.getMeshes();
         if (!meshes) {
-          meshes = meshBuilder.build(shape);
+          const meshSource = shape.getMeshSource();
+          if (meshSource) {
+            let sourceMeshes = meshSource.shape.getMeshes();
+            if (!sourceMeshes) {
+              sourceMeshes = meshBuilder.build(meshSource.shape);
+              meshSource.shape.setMeshes(sourceMeshes);
+            }
+            meshes = sourceMeshes ? transformMeshes(sourceMeshes, meshSource.matrix) : meshBuilder.build(shape);
+          } else {
+            meshes = meshBuilder.build(shape);
+          }
           shape.setMeshes(meshes);
         }
 

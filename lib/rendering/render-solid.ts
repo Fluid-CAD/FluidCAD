@@ -1,10 +1,12 @@
-import { renderFace } from "./render-face.js";
 import { renderEdge } from "./render-edge.js";
 import { Explorer } from "../oc/explorer.js";
 import { Shape } from "../common/shape.js";
 import { SceneObjectMesh } from "./scene.js";
+import { Mesh } from "../oc/mesh.js";
 
 export function renderSolid(shapeObj: Shape): SceneObjectMesh[] {
+  Mesh.premeshShape(shapeObj.getShape());
+
   const facesMeshes = getFacesMesh(shapeObj);
   const edgesMesh = getEdgesMesh(shapeObj);
 
@@ -37,7 +39,7 @@ function getFacesMesh(shapeObj: Shape): SceneObjectMesh[] {
     const face = faces[faceIdx];
     const color = shapeObj.getColor(face.getShape());
 
-    const faceResult = renderFace(face, 0);
+    const faceResult = Mesh.extractFaceTriangulationRaw(face.getShape(), 0);
 
     if (faceResult) {
       if (!groups.has(color)) {

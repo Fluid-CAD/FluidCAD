@@ -71,7 +71,7 @@ Re-apply modeling features based on matrix transformations. Move, rotate, or mir
 
 ```javascript
 sketch("xy", () => {
-    rect(200, 100). centered()
+    rect(200, 100).centered()
 })
 
 const e1 = extrude(20)

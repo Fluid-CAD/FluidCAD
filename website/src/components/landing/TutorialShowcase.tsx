@@ -33,6 +33,11 @@ const TUTORIALS: Tutorial[] = [
     image: '/img/docs/tutorials/cswp-sample-exam-final.png',
     href: '/docs/tutorials/cswp-sample-exam',
   },
+  {
+    title: 'Hinge Bracket',
+    image: '/img/docs/tutorials/hinge-bracket-final.png',
+    href: '/docs/tutorials/hinge-bracket',
+  },
 ];
 
 export default function TutorialShowcase() {

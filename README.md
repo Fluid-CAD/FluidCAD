@@ -155,7 +155,12 @@ Step-by-step tutorials from simple shapes to exam-level parts. [Browse all tutor
         <strong>CSWP Sample Exam</strong>
       </a>
     </td>
-    <td width="33%"></td>
+    <td align="center" width="33%">
+      <a href="https://fluidcad.io/docs/tutorials/hinge-bracket">
+        <img src="https://fluidcad.io/assets/images/hinge-bracket-final-137547b475db21736d78b5b13f8db48b.png" alt="Hinge Bracket" height="180" /><br />
+        <strong>Hinge Bracket</strong>
+      </a>
+    </td>
   </tr>
 </table>
 

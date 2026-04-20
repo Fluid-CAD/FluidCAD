@@ -1,41 +1,24 @@
 import { captureSourceLocation } from "../index.js";
-import { getCurrentScene, getCurrentFile } from "../scene-manager.js";
+import { getCurrentScene } from "../scene-manager.js";
 import { Part } from "../features/part.js";
+import { ISceneObject } from "./interfaces.js";
 
-export type PartHandle<T = any> = {
-  __fluidcad_part: true;
-  name: string;
-  _callback: (options: T) => void;
-};
-
-function part<T = any>(name: string, callback: (options: T) => void): PartHandle<T> {
-  const handle: PartHandle<T> = {
-    __fluidcad_part: true,
-    name,
-    _callback: callback,
-  };
-
-  const sourceLocation = captureSourceLocation();
-  const currentFile = getCurrentFile();
-
-  const isDirectEdit = sourceLocation
-    && currentFile
-    && sourceLocation.filePath === currentFile;
-
-  if (isDirectEdit) {
-    const scene = getCurrentScene();
-    if (scene) {
-      const partObj = new Part(name);
-      if (sourceLocation) {
-        partObj.setSourceLocation(sourceLocation);
-      }
-      scene.startProgressiveContainer(partObj);
-      callback(undefined);
-      scene.endProgressiveContainer();
-    }
+function part(name: string, callback: () => void): ISceneObject {
+  const scene = getCurrentScene();
+  if (!scene) {
+    throw new Error("part() must be called within a scene context");
   }
 
-  return handle;
+  const sourceLocation = captureSourceLocation();
+  const partObj = new Part(name);
+  if (sourceLocation) {
+    partObj.setSourceLocation(sourceLocation);
+  }
+  scene.startProgressiveContainer(partObj);
+  callback();
+  scene.endProgressiveContainer();
+
+  return partObj;
 }
 
 export default part;

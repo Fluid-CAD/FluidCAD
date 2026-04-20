@@ -116,7 +116,13 @@ export class ViteManager {
   }
 
   async loadModule(filePath: string) {
-    return this.server.ssrLoadModule(filePath);
+    const mod = await this.server.ssrLoadModule(filePath);
+    for (const value of Object.values(mod)) {
+      if (typeof value === 'function') {
+        await value();
+      }
+    }
+    return mod;
   }
 
   invalidateModule() {

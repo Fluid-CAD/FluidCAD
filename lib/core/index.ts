@@ -33,7 +33,5 @@ export { default as remove } from "./remove.js";
 export { default as split } from "./split.js";
 export { default as trim } from "./trim.js";
 export { default as part } from "./part.js";
-export { default as use } from "./use.js";
-export type { PartHandle } from "./part.js";
 export * from "./2d/index.js";
 export { breakpoint } from "./breakpoint.js";

@@ -1,0 +1,59 @@
+---
+sidebar_position: 10
+title: "Reusable Objects"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import reusableCircles from '!!raw-loader!./_examples/reusable-circles.js';
+import reusableSketch from '!!raw-loader!./_examples/reusable-sketch.js';
+
+# Reusable Objects
+
+Most features in FluidCAD **consume** their inputs. When you `extrude()` a sketch, the sketch geometry is removed from the scene so it can't accidentally be picked up by the next feature. The same applies to selections used by `shell()`, `cut()`, `sweep()`, and so on.
+
+Calling `.reusable()` on an object tells FluidCAD to keep that object alive, so a later feature can use it again.
+
+## Extruding parts of a sketch at different heights
+
+A common use case is drawing several shapes in one sketch and extruding each to its own height. Each geometry inside a `sketch()` is its own object, so you can mark some of them `.reusable()` and consume them one at a time:
+
+<CodeBlock language="js">{reusableCircles}</CodeBlock>
+
+The first `extrude()` picks up the 100-unit circle and pushes it to the default height. The 50-unit circle survives because it's marked reusable, so the next `extrude(50)` finds it waiting on the same sketch and extrudes it to 50 units. Without `.reusable()`, the first `extrude()` would consume both circles and the second call would have nothing to work with.
+
+## Reusing a whole sketch
+
+You can also mark an entire sketch as reusable. This is useful when the same profile drives more than one feature — for example, extruding the same outline at two different heights without redrawing it:
+
+<CodeBlock language="js">{reusableSketch}</CodeBlock>
+
+`extrude()` always picks up the most recent sketch, so you don't need to keep a reference — marking the sketch reusable is enough to keep it around for the next call.
+
+## Cleaning up with `remove()`
+
+A reusable object stays in the scene until you explicitly dispose of it. If you need to clean one up before later operations pick it up by accident, keep a reference and call `remove()`:
+
+```js
+const profile = sketch("xy", () => {
+    circle(60)
+}).reusable();
+
+extrude(20);
+extrude(50);
+
+remove(profile);
+```
+
+Without this, a reusable sketch or selection can leak into later operations and cause unexpected results.
+
+## Where `.reusable()` applies
+
+`.reusable()` works on any scene object whose shapes would otherwise be consumed:
+
+- **Sketch geometries** — individual shapes inside a `sketch()` block
+- **Whole sketches** — the object returned by `sketch(...)`
+- **Selections** — the object returned by `select(...)`, when the same selection drives multiple features (e.g. a sketch plane *and* a `project()` source)
+
+:::tip
+If you find yourself re-selecting or re-sketching the same thing twice in a row, that's usually a sign to mark the first one `.reusable()` and pass it to both features instead.
+:::

@@ -60,6 +60,7 @@ require("fluidcad").setup({
 | `:FluidCadProcessFile`    | Send the current `.fluid.js` file to the server           |
 | `:FluidCadRollback <n>`   | Rollback the scene to operation index `n`                 |
 | `:FluidCadImport <path>`  | Import a STEP file (`.step` / `.stp`)                     |
+| `:FluidCadToggleBreakpoint` | Insert or remove a `breakpoint()` on the current line   |
 | `:FluidCadLog`            | Open server logs in a scratch buffer                      |
 
 ## Usage

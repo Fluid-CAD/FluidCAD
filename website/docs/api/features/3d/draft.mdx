@@ -1,0 +1,36 @@
+---
+sidebar_position: 15
+title: "draft"
+description: "Applies a draft angle to the last selected faces."
+---
+
+# draft()
+
+Applies a draft angle to the last selected faces.
+
+**Returns**: [**`Draft`**](/docs/api/types/draft)
+
+## Signatures
+
+```ts
+draft(angle: number): Draft
+```
+
+Applies a draft angle to the last selected faces.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `angle` | number | The draft angle in degrees |
+
+---
+
+```ts
+draft(angle: number, ...selections: SceneObject[]): Draft
+```
+
+Applies a draft angle to the given face selections.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `angle` | number | The draft angle in degrees |
+| `...selections` | [SceneObject](/docs/api/types/scene-object)[] | The face selections to draft *(optional)* |

@@ -1,0 +1,52 @@
+---
+sidebar_position: 29
+title: "Draft"
+description: "The Draft type. Extends SceneObject."
+---
+
+# Draft
+
+Extends [`SceneObject`](/docs/api/types/scene-object)
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### guide()
+
+```ts
+guide(): this
+```
+
+Marks this object as construction geometry. Guide objects are excluded from
+final geometry output unless explicitly included.
+
+---
+
+### reusable()
+
+```ts
+reusable(): this
+```
+
+Marks this object as reusable. Reusable objects retain their shapes when
+consumed by features (e.g., extrude, revolve), allowing multiple features
+to reference the same source geometry. Use `remove(obj)` to force-remove
+shapes from a reusable object.
+
+
+</details>

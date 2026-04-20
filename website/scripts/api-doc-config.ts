@@ -94,6 +94,7 @@ export const features: FeatureEntry[] = [
   { name: 'shell', displayName: 'shell', category: '3d', sourceFile: 'core/shell.ts', interfaceName: 'ShellFunction', returnType: 'IShell', relatedGuide: '/docs/guides/3d-operations/shell', sidebarPosition: 12 },
   { name: 'fillet', displayName: 'fillet', category: '3d', sourceFile: 'core/fillet.ts', interfaceName: 'FilletFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/3d-operations/fillet', sidebarPosition: 13 },
   { name: 'chamfer', displayName: 'chamfer', category: '3d', sourceFile: 'core/chamfer.ts', interfaceName: 'ChamferFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/3d-operations/chamfer', sidebarPosition: 14 },
+  { name: 'draft', displayName: 'draft', category: '3d', sourceFile: 'core/draft.ts', interfaceName: 'DraftFunction', returnType: 'IDraft', sidebarPosition: 15 },
 
   // Transforms
   { name: 'translate', displayName: 'translate', category: 'transforms', sourceFile: 'core/translate.ts', interfaceName: 'TranslateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/transforms', sidebarPosition: 1 },
@@ -128,6 +129,7 @@ export const types: TypeEntry[] = [
   { name: 'ISweep', displayName: 'Sweep', sourceFile: 'core/interfaces.ts', extendsType: 'IFuseable', sidebarPosition: 9 },
   { name: 'ICommon', displayName: 'Common', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 10 },
   { name: 'IShell', displayName: 'Shell', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 11 },
+  { name: 'IDraft', displayName: 'Draft', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 29 },
   { name: 'IArcPoints', displayName: 'ArcPoints', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 12 },
   { name: 'IArcAngles', displayName: 'ArcAngles', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 13 },
   { name: 'IRect', displayName: 'Rect', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 14 },
@@ -215,6 +217,7 @@ export const typeDisplayNameMap: Record<string, string> = {
   'ISweep': 'Sweep',
   'ICommon': 'Common',
   'IShell': 'Shell',
+  'IDraft': 'Draft',
   'IArcPoints': 'ArcPoints',
   'IArcAngles': 'ArcAngles',
   'IRect': 'Rect',

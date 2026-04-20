@@ -79,7 +79,7 @@ function build(context: SceneParserContext): CopyFunction {
     const restObjects = args.slice(3) as SceneObject[];
     const objects = restObjects.length > 0
       ? restObjects
-      : [context.getSceneObjects().at(-1)!];
+      : null;
 
     if (type === 'linear') {
       const axisArg = args[1] as AxisLike | AxisLike[];

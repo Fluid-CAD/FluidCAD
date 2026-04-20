@@ -10,7 +10,7 @@ import flangeWithNotchFinal from '!!raw-loader!./_examples/flange-with-notch-fin
 
 ![Finished flange with notch](/img/docs/tutorials/flange-with-notch-final.png)
 
-In this tutorial, you'll build a flange with a notch from scratch, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=4XeLNQvhoyw). It covers tangent lines and arcs, guide geometry, mirror symmetry, thin-walled extrusions, offset reference planes, and counter bores.
+In this tutorial, you'll build a flange with a notch from scratch, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=4XeLNQvhoyw). It covers tangent lines and arcs, guide geometry, mirror symmetry, reusable sketch geometry, offset reference planes, and counter bores.
 
 Create a new file called `flange-with-notch.fluid.js` in your project.
 
@@ -19,8 +19,8 @@ Create a new file called `flange-with-notch.fluid.js` in your project.
 Start with imports. This model uses tangent geometry and constraints.
 
 ```js
-import { circle, cut, extrude, hMove, mirror, plane, rect, sketch,
-    split, tArc, tLine, trim } from "fluidcad/core";
+import { circle, cut, extrude, hMove, mirror, plane, rect, remove,
+    sketch, split, tArc, tLine, trim } from "fluidcad/core";
 import { outside } from "fluidcad/constraints";
 ```
 
@@ -34,13 +34,17 @@ The flange profile starts with two concentric circles and a smaller bolt hole ci
 ### Main circles
 
 ```js
-sketch("xy", () => {
-    circle(42);
-    const c2 = circle(70);
+const baseSketch = sketch("xy", () => {
+    circle(42).reusable();
+    const c2 = circle(70).reusable();
     hMove(50)
 ```
 
-`circle(42)` draws the inner bore circle. `circle(70)` draws the outer flange circle — we store it as `c2` because we'll reference it for tangent geometry later. `hMove(50)` moves the cursor 50 units to the right, positioning us at the bolt hole center.
+`circle(42)` draws the inner bore circle. `circle(70)` draws the outer flange circle — we store it as `c2` because we'll reference it for tangent geometry later.
+
+Both circles are marked `.reusable()`. Normally an `extrude()` consumes every shape in the sketch, but a reusable shape sticks around so a later feature can pick it up again. We'll use that in Step 4 to build the middle pipe without redrawing anything. We also keep a reference to the whole sketch as `baseSketch` so we can clean it up afterwards.
+
+`hMove(50)` moves the cursor 50 units to the right, positioning us at the bolt hole center.
 
 ![Base circles](/img/docs/tutorials/flange-with-notch-step1.png)
 
@@ -101,16 +105,20 @@ const base = extrude(12)
 
 `extrude(12)` pushes the profile 12 units to create the solid flange base. We store the result as `base` to reference its faces later for the counter bores.
 
+The non-reusable geometry (tangent lines, arc, bolt holes) is consumed by this extrude. The two `.reusable()` circles stay behind on the sketch, ready for the next step.
+
 ![Extruded base](/img/docs/tutorials/flange-with-notch-step3.png)
 
 ## Step 4: Middle pipe
 
 ```js
-circle(70, "xy")
-extrude(46).thin(-14)
+extrude(46);
+remove(baseSketch);
 ```
 
-`circle(70, "xy")` draws a circle of radius 70 on the XY plane. `extrude(46).thin(-14)` creates a 46-unit tall thin-walled pipe with a wall thickness of 14 units. The negative value means the wall is offset inward from the circle.
+`extrude(46)` picks up the two reusable circles left on the base sketch — the inner 42 and the outer 70 — and extrudes the ring between them to 46 units. That gives us the middle pipe at its full height, sharing the same bore as the flange, with no need to redraw the profile.
+
+Once the pipe is built, `remove(baseSketch)` disposes of the sketch so its leftover reusable geometry doesn't accidentally get picked up by later operations. It also cleans up the view, making it easier to select the top face of the pipe for the notch.
 
 ![Middle pipe](/img/docs/tutorials/flange-with-notch-step4.png)
 
@@ -172,7 +180,8 @@ cut(4)
 - **`tLine()` with `outside`** — drawing tangent lines between circles with geometric constraints
 - **`tArc()`** — connecting tangent lines with a smooth closing arc
 - **`mirror()` in sketches** — mirroring sketch geometry to create symmetric profiles
-- **`extrude().thin()`** — creating thin-walled pipe extrusions
+- **`.reusable()`** — keeping sketch geometry alive across multiple features
+- **`remove()`** — disposing of a reusable sketch once you're done with it
 - **`plane()`** — creating offset reference planes for sketching
 - **`rect().centered()`** — centering a rectangle on the sketch origin
 - **`.endFaces()`** — referencing the top face of an extrusion for follow-up sketches

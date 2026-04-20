@@ -21,13 +21,22 @@ export class Remove extends SceneObject {
       return false;
     }
 
-     for (let i = 0; i < this.objects.length; i++) {
+    for (let i = 0; i < this.objects.length; i++) {
       if (!this.objects[i].compareTo(other.objects[i])) {
         return false;
       }
     }
 
     return true;
+  }
+
+  override getDependencies(): SceneObject[] {
+    return this.objects;
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const remappedObjects = this.objects.map(obj => remap.get(obj) || obj);
+    return new Remove(remappedObjects);
   }
 
   getType(): string {

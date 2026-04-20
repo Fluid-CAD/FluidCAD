@@ -97,7 +97,7 @@ export class TimelinePanel {
     });
 
     this.timelineBody = document.createElement('div');
-    this.timelineBody.className = 'py-1 overflow-y-auto min-h-0 flex-[2]';
+    this.timelineBody.className = 'py-1 overflow-y-auto min-h-0';
     this.panel.appendChild(this.timelineBody);
 
     // Shapes accordion section
@@ -110,7 +110,7 @@ export class TimelinePanel {
     this.panel.appendChild(shapesHeader);
 
     this.shapesBody = document.createElement('div');
-    this.shapesBody.className = 'py-1 overflow-y-auto min-h-[120px] flex-1';
+    this.shapesBody.className = 'py-1 overflow-y-auto min-h-[33vh] flex-1';
     this.panel.appendChild(this.shapesBody);
 
     // Bind accordion header toggles

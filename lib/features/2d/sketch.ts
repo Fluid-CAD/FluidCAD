@@ -126,17 +126,16 @@ export class Sketch extends SceneObject implements Extrudable {
 
     // get edges and filter out the ones that were removed by non-siblings
     for (const child of children) {
-      const shapes = child.getAddedShapes();
-      const removedShapes = child.getRemovedShapes();
+      const shapes = child.getShapes();
       for (const shape of shapes) {
         if (shape.isMetaShape() || shape.isGuideShape()) {
           continue;
         }
-        const isRemovedBySibling = removedShapes.some(s => s.shape === shape && s.removedBy?.parentId === this.id);
-
-        if (isRemovedBySibling) {
-          continue;
-        }
+        // const isRemovedBySibling = removedShapes.some(s => s.shape === shape && s.removedBy?.parentId === this.id);
+        //
+        // if (isRemovedBySibling) {
+        //   continue;
+        // }
 
         if (shape instanceof Edge) {
           result.set(shape, child);

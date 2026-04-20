@@ -104,7 +104,7 @@ export class Sketch extends SceneObject implements Extrudable {
     const transform = context?.getTransform();
 
     if (source instanceof Sketch && transform) {
-      const originalEdges = source.getEdges();
+      const originalEdges = source.getAllEdges();
       const transformedEdges = originalEdges.map(
         edge => ShapeOps.transform(edge, transform) as Edge
       );
@@ -124,24 +124,44 @@ export class Sketch extends SceneObject implements Extrudable {
     const children = this.getChildren() as GeometrySceneObject[];
     const result: Map<Edge, GeometrySceneObject> = new Map();
 
-    // get edges and filter out the ones that were removed by non-siblings
     for (const child of children) {
       const shapes = child.getShapes();
       for (const shape of shapes) {
-        if (shape.isMetaShape() || shape.isGuideShape()) {
-          continue;
-        }
-        // const isRemovedBySibling = removedShapes.some(s => s.shape === shape && s.removedBy?.parentId === this.id);
-        //
-        // if (isRemovedBySibling) {
-        //   continue;
-        // }
-
         if (shape instanceof Edge) {
           result.set(shape, child);
         } else if (shape instanceof Wire) {
           for (const edge of shape.getEdges()) {
             result.set(edge, child);
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  getAllEdges(): Edge[] {
+    const children = this.getChildren() as GeometrySceneObject[];
+    const result: Edge[] = [];
+
+    for (const child of children) {
+      const shapes = child.getAddedShapes();
+      const removedShapes = child.getRemovedShapes();
+      for (const shape of shapes) {
+        if (shape.isMetaShape() || shape.isGuideShape()) {
+          continue;
+        }
+
+        const isRemovedBySibling = removedShapes.some(s => s.shape === shape && s.removedBy?.parentId === this.id);
+        if (isRemovedBySibling) {
+          continue;
+        }
+
+        if (shape instanceof Edge) {
+          result.push(shape);
+        } else if (shape instanceof Wire) {
+          for (const edge of shape.getEdges()) {
+            result.push(edge);
           }
         }
       }

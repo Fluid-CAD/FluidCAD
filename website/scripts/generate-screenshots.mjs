@@ -26,8 +26,8 @@
 //   - Run `npm run build` first (server + UI must be built)
 //   - Open a browser to the server URL when prompted
 
-import { fork } from 'child_process';
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'fs';
+import { fork, spawnSync } from 'child_process';
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, statSync } from 'fs';
 import { join, resolve, dirname, basename, relative } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -180,6 +180,19 @@ function waitForIPC(server, type, timeoutMs = 30000) {
     };
     server.on('message', handler);
   });
+}
+
+let optipngWarned = false;
+function optimizePng(filePath) {
+  const result = spawnSync('optipng', ['-o2', '-quiet', '-strip', 'all', filePath]);
+  if (result.error || result.status !== 0) {
+    if (!optipngWarned) {
+      console.warn('\n(optipng unavailable — skipping PNG optimization)');
+      optipngWarned = true;
+    }
+    return null;
+  }
+  return statSync(filePath).size;
 }
 
 async function takeScreenshot(port, options) {
@@ -336,7 +349,14 @@ async function main() {
         };
         const png = await takeScreenshot(PORT, options);
         writeFileSync(outputPath, png);
-        console.log(`OK (${(png.length / 1024).toFixed(1)} KB)`);
+        const optimizedSize = optimizePng(outputPath);
+        if (optimizedSize !== null) {
+          const saved = png.length - optimizedSize;
+          const pct = ((saved / png.length) * 100).toFixed(0);
+          console.log(`OK (${(optimizedSize / 1024).toFixed(1)} KB, -${pct}%)`);
+        } else {
+          console.log(`OK (${(png.length / 1024).toFixed(1)} KB, not optimized)`);
+        }
       } catch (err) {
         console.log(`FAILED: ${err.message}`);
         failed++;

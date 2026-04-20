@@ -113,8 +113,7 @@ export const features: FeatureEntry[] = [
   { name: 'trim', displayName: 'trim', category: '2d', sourceFile: 'core/trim.ts', interfaceName: 'TrimFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/sketching/trim', sidebarPosition: 23 },
   { name: 'project', displayName: 'project', category: '2d', sourceFile: 'core/2d/project.ts', interfaceName: 'ProjectFunction', returnType: 'IExtrudableGeometry', relatedGuide: '/docs/guides/sketching/projection', sidebarPosition: 24 },
   { name: 'intersect', displayName: 'intersect', category: '2d', sourceFile: 'core/2d/intersect.ts', interfaceName: 'IntersectFunction', returnType: 'IExtrudableGeometry', sidebarPosition: 25 },
-  { name: 'part', displayName: 'part', category: 'utilities', sourceFile: 'core/part.ts', interfaceName: null, returnType: 'PartHandle', relatedGuide: '/docs/guides/3d-operations/parts', sidebarPosition: 9 },
-  { name: 'use', displayName: 'use', category: 'utilities', sourceFile: 'core/use.ts', interfaceName: null, returnType: 'ISceneObject', relatedGuide: '/docs/guides/3d-operations/parts', sidebarPosition: 10 },
+  { name: 'part', displayName: 'part', category: 'utilities', sourceFile: 'core/part.ts', interfaceName: null, returnType: 'ISceneObject', relatedGuide: '/docs/guides/3d-operations/parts', sidebarPosition: 9 },
 ];
 
 export const types: TypeEntry[] = [
@@ -236,8 +235,6 @@ export const typeDisplayNameMap: Record<string, string> = {
   'AxisObjectBase': 'AxisLike',
   'LazyVertex': 'Vertex',
   'QualifiedSceneObject': 'QualifiedGeometry',
-  'PartHandle': 'PartHandle',
-  'PartHandle<T>': 'PartHandle',
   'LinearRepeatOptions': 'LinearRepeatOptions',
   'CircularRepeatOptions': 'CircularRepeatOptions',
 };

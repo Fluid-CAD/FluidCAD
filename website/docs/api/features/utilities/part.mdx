@@ -1,14 +1,14 @@
 ---
 sidebar_position: 9
 title: "part"
-description: "Defines a reusable part with a name and a callback containing the geometry."
+description: "Creates an isolation boundary so shapes inside the part stay separate from the rest of the scene."
 ---
 
 # part()
 
-Defines a reusable part with a name and a callback containing the geometry.
+Creates an isolation boundary so shapes inside the part stay separate from the rest of the scene.
 
-**Returns**: **`PartHandle`**
+**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
 
 :::tip
 See the [guide](/docs/guides/3d-operations/parts) for detailed usage examples.
@@ -17,12 +17,12 @@ See the [guide](/docs/guides/3d-operations/parts) for detailed usage examples.
 ## Signatures
 
 ```ts
-part(name: string, callback: (options: T) => void): PartHandle
+part(name: string, callback: () => void): SceneObject
 ```
 
-Defines a reusable part with a name and a callback containing the geometry.
+Creates an isolation boundary so shapes inside the part stay separate from the rest of the scene.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `name` | string | The part name. |
-| `callback` | (options: T) =&gt; void | Callback containing the part geometry. |
+| `callback` | () =&gt; void | Callback containing the part geometry. |

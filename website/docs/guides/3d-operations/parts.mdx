@@ -20,60 +20,39 @@ Shapes inside `"base"` fuse with each other, and shapes inside `"pillar"` fuse w
 
 ![Base and pillar parts](/img/docs/3d-operations/parts-example.png)
 
-## Passing options
+## Creating reusable parts
 
-The `part()` callback receives an `options` object. You pass options when you instantiate the part with `use()`:
+To make a part reusable and parametric, wrap it in a function that accepts parameters and call it from wherever you need it:
 
 ```js
-import { part, use, cylinder, select, color } from 'fluidcad/core';
+// parts/file1.fluid.js
+import { cylinder, select, color, part } from 'fluidcad/core';
 import { face } from 'fluidcad/filters';
 
-const peg = part("peg", (options) => {
-    cylinder(options?.radius || 10, options?.height || 40)
-    select(face())
-    color("orange")
-})
-
-use(peg, { radius: 15, height: 60 })    // custom size
-use(peg)                                  // default size
+export function createPart(diameter = 50, c = "red") {
+    return part("part1", () => {
+        cylinder(diameter, 80);
+        select(face());
+        color(c);
+    });
+}
 ```
 
-Use `options?.property || defaultValue` to provide defaults when an option isn't passed.
-
-## Importing parts from other files
-
-Parts are regular ES module exports. Define a part in one file and import it in another:
+Then import and call the function from another file:
 
 ```js
-// peg.fluid.js
-import { part, cylinder, select, color } from 'fluidcad/core';
-import { face } from 'fluidcad/filters';
+// parts/file2.fluid.js
+import { translate, copy } from 'fluidcad/core';
+import { createPart } from './file1.fluid.js';
 
-export const peg = part("peg", (options) => {
-    cylinder(options?.radius || 10, options?.height || 40)
-    select(face())
-    color("orange")
-})
+createPart(40, "yellow")
+const c1 = translate(100)
+const c2 = createPart(20, "blue")
+
+copy("linear", "y", {
+    count: 5,
+    offset: 100
+}, c1, c2)
 ```
 
-```js
-// assembly.fluid.js
-import { peg } from './peg.fluid.js';
-import { use, sketch, extrude, translate } from 'fluidcad/core';
-import { rect } from 'fluidcad/core';
-
-// Base plate
-sketch("xy", () => {
-    rect(100, 60).centered()
-})
-extrude(5)
-
-// Place pegs with different sizes
-const p1 = use(peg, { radius: 8, height: 30 })
-translate(30, 15, 5)
-
-const p2 = use(peg, { radius: 12, height: 50 })
-translate(-30, -15, 5)
-```
-
-This pattern lets you build libraries of reusable parametric components.
+This pattern lets you build libraries of reusable parametric components. Each call to the function creates a new independent part instance with its own parameters.

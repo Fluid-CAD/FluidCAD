@@ -321,32 +321,10 @@ function extractConstraintInfo(
 function extractPartSignatures(): SignatureInfo[] {
   return [
     {
-      description: 'Defines a reusable part with a name and a callback containing the geometry.',
+      description: 'Creates an isolation boundary so shapes inside the part stay separate from the rest of the scene.',
       params: [
         { name: 'name', type: 'string', description: 'The part name.', optional: false },
-        { name: 'callback', type: '(options: T) => void', description: 'Callback containing the part geometry.', optional: false },
-      ],
-      returnType: 'PartHandle',
-      isPlaneVariant: false,
-    },
-  ];
-}
-
-function extractUseSignatures(): SignatureInfo[] {
-  return [
-    {
-      description: 'Instantiates a part created by `part()`.',
-      params: [
-        { name: 'handle', type: 'PartHandle', description: 'The part handle returned by `part()`.', optional: false },
-      ],
-      returnType: 'ISceneObject',
-      isPlaneVariant: false,
-    },
-    {
-      description: 'Instantiates a part with options.',
-      params: [
-        { name: 'handle', type: 'PartHandle', description: 'The part handle returned by `part()`.', optional: false },
-        { name: 'options', type: 'T', description: 'Options to pass to the part callback.', optional: false },
+        { name: 'callback', type: '() => void', description: 'Callback containing the part geometry.', optional: false },
       ],
       returnType: 'ISceneObject',
       isPlaneVariant: false,
@@ -466,8 +444,6 @@ function generate() {
       }
     } else if (feature.name === 'part') {
       sigs = extractPartSignatures();
-    } else if (feature.name === 'use') {
-      sigs = extractUseSignatures();
     }
 
     const examples = findExamples(feature.name);

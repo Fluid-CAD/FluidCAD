@@ -269,8 +269,5 @@ export function renderScene(scene: Scene) {
     renderSceneObject(object, scene, buildDurations.get(object));
   }
 
-  const result = scene.getRenderedObjects();
-  console.table(result);
-
   return scene;
 }

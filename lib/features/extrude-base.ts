@@ -410,6 +410,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     this._picking = other._picking;
     this._pickPoints = other._pickPoints;
     this._thin = other._thin;
+    this._drill = other._drill;
     return this;
   }
 

@@ -230,8 +230,9 @@ export function renderScene(scene: Scene) {
       buildDurations.set(object, performance.now() - buildStart);
     }
 
-    // After building, mark cloned sketches so their children are skipped
-    if (object instanceof Sketch && object.getState('cloned-edges')) {
+    // After building, mark cloned sketches so their children are skipped —
+    // the sketch's build() already populated them with transformed shapes.
+    if (object instanceof Sketch && object.getCloneSource()) {
       skippedContainers.add(object);
     }
   }

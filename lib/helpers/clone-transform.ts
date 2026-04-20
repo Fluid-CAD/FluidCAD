@@ -49,6 +49,9 @@ export function cloneWithTransform(
     remap.set(obj, copy);
     copy.setTransform(transform);
     copy.setCloneSource(obj);
+    if (obj.isReusable()) {
+      copy.reusable();
+    }
     allCloned.push(copy);
 
     const parent = obj.getParent();

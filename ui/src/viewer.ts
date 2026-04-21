@@ -749,17 +749,15 @@ export class Viewer {
     return result;
   }
 
-  /** Find the last root-level (no parent) visible object — this is the "active" feature.
-   *  Sketches are always considered even when not visible (empty sketch with no shapes yet). */
+  /** Find the last root-level (or Part-child) object — this is the "active" feature.
+   *  Returns regardless of visibility so that a non-sketch last item with no shapes
+   *  doesn't fall through to an earlier sketch and wrongly enter sketch mode. */
   private findActiveObject(objects: SceneObjectRender[]): SceneObjectRender | undefined {
     for (let i = objects.length - 1; i >= 0; i--) {
       const obj = objects[i];
-      if (!obj.parentId && (obj.visible || obj.type === 'sketch')) return obj;
-      // Also consider objects that are direct children of a Part container
-      if (obj.parentId && (obj.visible || obj.type === 'sketch')) {
-        const parent = objects.find(o => o.id === obj.parentId);
-        if (parent?.type === 'part') return obj;
-      }
+      if (!obj.parentId) return obj;
+      const parent = objects.find(o => o.id === obj.parentId);
+      if (parent?.type === 'part') return obj;
     }
     return undefined;
   }

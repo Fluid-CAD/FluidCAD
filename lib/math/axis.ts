@@ -198,7 +198,11 @@ export type StandardAxis = "x" | "y" | "z";
 export type AxisLike = StandardAxis | Axis | IAxis | AxisObjectBase;
 
 export function isAxisLike(value: unknown): value is AxisLike {
-  return value instanceof AxisObjectBase || value instanceof Axis || value === "x" || value === "y" || value === "z";
+  return value instanceof AxisObjectBase || value instanceof Axis || isStandardAxis(value);
+}
+
+export function isStandardAxis(value: unknown): value is StandardAxis {
+  return value === "x" || value === "y" || value === "z";
 }
 
 export function toAxis(value: AxisLike): Axis {

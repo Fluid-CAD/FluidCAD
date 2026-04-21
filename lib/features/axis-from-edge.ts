@@ -14,7 +14,7 @@ export class AxisFromEdge extends AxisObjectBase {
   build() {
     let axis: Axis;
     if (this.sourceObject instanceof SelectSceneObject) {
-      const shapes = this.sourceObject.getShapes();
+      const shapes = this.sourceObject.getShapes({ excludeGuide: false });
       console.log(`Axis: Retrieved ${shapes.length} shapes from selection`);
       if (shapes.length === 0) {
         throw new Error("Axis: Selected object has no shapes to extract axis from");
@@ -40,7 +40,7 @@ export class AxisFromEdge extends AxisObjectBase {
       axis = this.sourceObject.getAxis();
     }
     else if (this.sourceObject instanceof SceneObject) {
-      const shapes = this.sourceObject.getShapes();
+      const shapes = this.sourceObject.getShapes({ excludeGuide: false });
       console.log(`Axis: Retrieved ${shapes.length} shapes from source object`);
       if (shapes.length === 0) {
         throw new Error("Axis: Source object has no shapes to extract axis from");

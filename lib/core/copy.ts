@@ -1,11 +1,11 @@
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { normalizeAxis, normalizePoint2D } from "../helpers/normalize.js";
-import { AxisLike } from "../math/axis.js";
+import { AxisLike, isStandardAxis } from "../math/axis.js";
 import { Point2DLike } from "../math/point.js";
 import { SceneObject } from "../common/scene-object.js";
 import { CopyLinear, LinearCopyOptions } from "../features/copy-linear.js";
 import { CopyCircular, CircularCopyOptions } from "../features/copy-circular.js";
-import { CopyLinear2D } from "../features/copy-linear2d.js";
+import { CopyLinear2D, CopyLinear2DAxis } from "../features/copy-linear2d.js";
 import { CopyCircular2D } from "../features/copy-circular2d.js";
 import { ISceneObject } from "./interfaces.js";
 
@@ -83,16 +83,18 @@ function build(context: SceneParserContext): CopyFunction {
 
     if (type === 'linear') {
       const axisArg = args[1] as AxisLike | AxisLike[];
-      const axes = Array.isArray(axisArg)
-        ? axisArg.map(a => normalizeAxis(a))
-        : [normalizeAxis(axisArg)];
+      const axisList = Array.isArray(axisArg) ? axisArg : [axisArg];
 
       if (activeSketch) {
-        const copy = new CopyLinear2D(axes, options as LinearCopyOptions, restObjects.length > 0 ? restObjects : null);
+        const sketchAxes: CopyLinear2DAxis[] = axisList.map(a =>
+          isStandardAxis(a) ? a : normalizeAxis(a)
+        );
+        const copy = new CopyLinear2D(sketchAxes, options as LinearCopyOptions, restObjects.length > 0 ? restObjects : null);
         context.addSceneObject(copy);
         return copy;
       }
 
+      const axes = axisList.map(a => normalizeAxis(a));
       const copy = new CopyLinear(axes, options as LinearCopyOptions, objects);
       context.addSceneObject(copy);
       return copy;

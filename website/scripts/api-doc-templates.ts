@@ -49,6 +49,11 @@ function escapeAngleBrackets(text: string): string {
 }
 
 function formatParamType(raw: string): string {
+  // Inline object types: wrap in code backticks and escape for MDX
+  if (raw.includes('{')) {
+    return '`' + raw + '`';
+  }
+
   // Handle union types like "number | FaceFilterBuilder"
   if (raw.includes('|')) {
     const parts = raw.split('|').map(p => p.trim());

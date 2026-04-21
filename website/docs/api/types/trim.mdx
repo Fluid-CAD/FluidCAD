@@ -1,0 +1,24 @@
+---
+sidebar_position: 30
+title: "Trim"
+description: "The Trim type."
+---
+
+# Trim
+
+## Methods
+
+### pick()
+
+```ts
+pick(...points: Point2DLike[]): Trim
+```
+
+Enters interactive trimming mode, optionally trimming edges at the given points.
+
+**Returns**: [`Trim`](/docs/api/types/trim)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...points` | [Point2DLike](/docs/api/types/point2dlike)[] | Points where geometry should be trimmed; the nearest edge segment to each point is removed. *(optional)* |
+

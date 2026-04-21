@@ -111,7 +111,7 @@ export const features: FeatureEntry[] = [
   { name: 'axis', displayName: 'axis', category: 'utilities', sourceFile: 'core/axis.ts', interfaceName: 'AxisFunction', returnType: 'IAxis', sidebarPosition: 5 },
   { name: 'plane', displayName: 'plane', category: 'utilities', sourceFile: 'core/plane.ts', interfaceName: 'PlaneFunction', returnType: 'IPlane', sidebarPosition: 6 },
   { name: 'split', displayName: 'split', category: '2d', sourceFile: 'core/split.ts', interfaceName: 'SplitFunction', returnType: 'ISceneObject', sidebarPosition: 22 },
-  { name: 'trim', displayName: 'trim', category: '2d', sourceFile: 'core/trim.ts', interfaceName: 'TrimFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/sketching/trim', sidebarPosition: 23 },
+  { name: 'trim', displayName: 'trim', category: '2d', sourceFile: 'core/trim.ts', interfaceName: 'TrimFunction', returnType: 'ITrim', relatedGuide: '/docs/guides/sketching/trim', sidebarPosition: 23 },
   { name: 'project', displayName: 'project', category: '2d', sourceFile: 'core/2d/project.ts', interfaceName: 'ProjectFunction', returnType: 'IExtrudableGeometry', relatedGuide: '/docs/guides/sketching/projection', sidebarPosition: 24 },
   { name: 'intersect', displayName: 'intersect', category: '2d', sourceFile: 'core/2d/intersect.ts', interfaceName: 'IntersectFunction', returnType: 'IExtrudableGeometry', sidebarPosition: 25 },
   { name: 'part', displayName: 'part', category: 'utilities', sourceFile: 'core/part.ts', interfaceName: null, returnType: 'ISceneObject', relatedGuide: '/docs/guides/3d-operations/parts', sidebarPosition: 9 },
@@ -147,6 +147,7 @@ export const types: TypeEntry[] = [
   { name: 'LazyVertex', displayName: 'Vertex', sourceFile: 'features/lazy-vertex.ts', sidebarPosition: 26 },
   { name: 'LinearRepeatOptions', displayName: 'LinearRepeatOptions', sourceFile: 'features/repeat-linear.ts', sidebarPosition: 27 },
   { name: 'CircularRepeatOptions', displayName: 'CircularRepeatOptions', sourceFile: 'features/repeat-circular.ts', sidebarPosition: 28 },
+  { name: 'ITrim', displayName: 'Trim', sourceFile: 'core/trim.ts', sidebarPosition: 30 },
 ];
 
 export const filters: FilterEntry[] = [
@@ -237,6 +238,7 @@ export const typeDisplayNameMap: Record<string, string> = {
   'AxisLike': 'AxisLike',
   'AxisObjectBase': 'AxisLike',
   'LazyVertex': 'Vertex',
+  'ITrim': 'Trim',
   'QualifiedSceneObject': 'QualifiedGeometry',
   'LinearRepeatOptions': 'LinearRepeatOptions',
   'CircularRepeatOptions': 'CircularRepeatOptions',

@@ -5,6 +5,10 @@ import { Trim2D } from "../features/trim2d.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 
 interface ITrim {
+  /**
+   * Enters interactive trimming mode, optionally trimming edges at the given points.
+   * @param points - Points where geometry should be trimmed; the nearest edge segment to each point is removed.
+   */
   pick(...points: Point2DLike[]): ITrim;
 }
 

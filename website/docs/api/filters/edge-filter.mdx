@@ -17,7 +17,7 @@ import { edge } from 'fluidcad/filters';
 ### .onPlane()
 
 ```ts
-.onPlane(plane: PlaneLike, offset?: number, bothDirections?: boolean): this
+.onPlane(plane: PlaneLike, options?: { offset?: number; bothDirections?: boolean; partial?: boolean; }): this
 ```
 
 Selects edges that lie on the given plane.
@@ -25,13 +25,12 @@ Selects edges that lie on the given plane.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
-| `offset` | number | Optional distance to offset the plane before matching. *(optional)* |
-| `bothDirections` | boolean | When true, also matches the plane offset in the opposite direction. *(optional)* |
+| `options` | `{ offset?: number; bothDirections?: boolean; partial?: boolean; }` | Matching options: `offset` shifts the plane along its normal, `bothDirections` also matches the opposite offset, `partial` matches if at least one vertex lies on the plane. *(optional)* |
 
 ### .notOnPlane()
 
 ```ts
-.notOnPlane(plane: PlaneLike, offset?: number, bothDirections?: boolean): this
+.notOnPlane(plane: PlaneLike, options?: { offset?: number; bothDirections?: boolean; partial?: boolean; }): this
 ```
 
 Excludes edges that lie on the given plane.
@@ -39,8 +38,7 @@ Excludes edges that lie on the given plane.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
-| `offset` | number | Optional distance to offset the plane before matching. *(optional)* |
-| `bothDirections` | boolean | When true, also excludes the plane offset in the opposite direction. *(optional)* |
+| `options` | `{ offset?: number; bothDirections?: boolean; partial?: boolean; }` | Matching options: `offset` shifts the plane along its normal, `bothDirections` also excludes the opposite offset, `partial` excludes if at least one vertex lies on the plane. *(optional)* |
 
 ---
 
@@ -193,4 +191,60 @@ Excludes straight-line edges, optionally matching a specific length.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `...args` | any[] |  *(optional)* |
+
+---
+
+### .intersectsWith()
+
+```ts
+.intersectsWith(sceneObject: SceneObject): this
+```
+
+Selects edges that geometrically intersect with edges of the given scene object.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `sceneObject` | [SceneObject](/docs/api/types/scene-object) | A scene object whose edges are tested for intersection. |
+
+### .notIntersectsWith()
+
+```ts
+.notIntersectsWith(sceneObject: SceneObject): this
+```
+
+Excludes edges that geometrically intersect with edges of the given scene object.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `sceneObject` | [SceneObject](/docs/api/types/scene-object) | A scene object whose edges are tested for intersection. |
+
+---
+
+### .above()
+
+```ts
+.above(plane: PlaneLike, options?: { offset?: number; partial?: boolean; }): this
+```
+
+Selects edges that are entirely above the given plane (in the direction of its normal).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
+| `options` | `{ offset?: number; partial?: boolean; }` | Matching options: `offset` shifts the plane along its normal, `partial` matches if at least one vertex is above the plane. *(optional)* |
+
+---
+
+### .below()
+
+```ts
+.below(plane: PlaneLike, options?: { offset?: number; partial?: boolean; }): this
+```
+
+Selects edges that are entirely below the given plane (opposite to its normal direction).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
+| `options` | `{ offset?: number; partial?: boolean; }` | Matching options: `offset` shifts the plane along its normal, `partial` matches if at least one vertex is below the plane. *(optional)* |
 

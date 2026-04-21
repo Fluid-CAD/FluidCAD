@@ -52,8 +52,7 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   /**
    * Selects edges that lie on the given plane.
    * @param plane - The reference plane.
-   * @param offset - Optional distance to offset the plane before matching.
-   * @param partial - When true, matches edges with at least one vertex on the plane.
+   * @param options - Matching options: `offset` shifts the plane along its normal, `bothDirections` also matches the opposite offset, `partial` matches if at least one vertex lies on the plane.
    */
   onPlane(plane: PlaneLike | PlaneObjectBase, options: { offset?: number; bothDirections?: boolean; partial?: boolean } = {}) {
     if (!plane) {
@@ -89,9 +88,7 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   /**
    * Excludes edges that lie on the given plane.
    * @param plane - The reference plane.
-   * @param options.offset - Optional distance to offset the plane before matching.
-   * @param options.bothDirections - When true, also matches the plane offset in the opposite direction.
-   * @param options.partial - When true, excludes edges with at least one vertex on the plane.
+   * @param options - Matching options: `offset` shifts the plane along its normal, `bothDirections` also excludes the opposite offset, `partial` excludes if at least one vertex lies on the plane.
    */
   notOnPlane(plane: PlaneLike | PlaneObjectBase, options: { offset?: number; bothDirections?: boolean; partial?: boolean } = {}) {
     if (!plane) {
@@ -350,6 +347,7 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   /**
    * Selects edges that are entirely above the given plane (in the direction of its normal).
    * @param plane - The reference plane.
+   * @param options - Matching options: `offset` shifts the plane along its normal, `partial` matches if at least one vertex is above the plane.
    */
   above(plane: PlaneLike | PlaneObjectBase, options: { offset?: number; partial?: boolean } = {}) {
     if (!plane) {
@@ -375,8 +373,7 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   /**
    * Selects edges that are entirely below the given plane (opposite to its normal direction).
    * @param plane - The reference plane.
-   * @param options.offset - Optional distance to offset the plane before matching.
-   * @param options.partial - When true, matches edges that are only partially below the plane.
+   * @param options - Matching options: `offset` shifts the plane along its normal, `partial` matches if at least one vertex is below the plane.
    */
   below(plane: PlaneLike | PlaneObjectBase, options: { offset?: number; partial?: boolean } = {}) {
     if (!plane) {

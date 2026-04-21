@@ -157,6 +157,7 @@ container.appendChild(trimPickActiveBar);
 
 let trimPickState: 'idle' | 'icon-visible' | 'picking-active' = 'idle';
 let lastTrimPickInfo: { trimObj: SceneObjectRender & { sourceLocation?: any }; sketchObj: SceneObjectRender } | null = null;
+let lastTrimSceneObjects: SceneObjectRender[] | null = null;
 let activePointPickMode: PointPickMode | null = null;
 let activePickSourceLine: number | null = null;
 
@@ -250,6 +251,9 @@ function enterTrimPickMode() {
     return;
   }
 
+  if (lastTrimSceneObjects) {
+    activateTrimPickModeInteractive(lastTrimPickInfo, lastTrimSceneObjects);
+  }
   trimPickState = 'picking-active';
   trimPickTriggerBtn.classList.add('hidden');
   trimPickActiveBar.classList.remove('hidden');
@@ -297,6 +301,7 @@ function resetTrimPickMode() {
   trimPickTriggerBtn.classList.add('hidden');
   trimPickActiveBar.classList.add('hidden');
   lastTrimPickInfo = null;
+  lastTrimSceneObjects = null;
   viewer.isTrimming = false;
 }
 
@@ -309,6 +314,7 @@ function updateTrimPickMode(sceneObjects: SceneObjectRender[]) {
   }
 
   lastTrimPickInfo = { trimObj: triggerInfo.trimObj!, sketchObj: triggerInfo.sketchObj! };
+  lastTrimSceneObjects = sceneObjects;
   const hasPicking = (triggerInfo.trimObj as any).object?.picking;
 
   if (trimPickState === 'picking-active') {

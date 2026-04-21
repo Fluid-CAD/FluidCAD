@@ -62,6 +62,10 @@ export class EdgeQuery {
     return EdgeQuery.getCircleDataFromEdgeRaw(edge.getShape());
   }
 
+  static doEdgesIntersect(edge1: Edge, edge2: Edge): boolean {
+    return EdgeQuery.doEdgesIntersectRaw(edge1.getShape(), edge2.getShape());
+  }
+
   // Raw methods (for oc-internal and common/ use)
   static isCircleEdgeRaw(edge: TopoDS_Shape, diameter?: number): boolean {
     const oc = getOC();
@@ -300,5 +304,21 @@ export class EdgeQuery {
     circle.delete();
     curve.delete();
     return result;
+  }
+
+  static doEdgesIntersectRaw(edge1: TopoDS_Edge, edge2: TopoDS_Edge): boolean {
+    const oc = getOC();
+    const tool = new oc.IntTools_EdgeEdge(edge1, edge2);
+    tool.Perform();
+
+    let intersects = false;
+    if (tool.IsDone()) {
+      const parts = tool.CommonParts();
+      intersects = parts.Length() > 0;
+      parts.delete();
+    }
+
+    tool.delete();
+    return intersects;
   }
 }

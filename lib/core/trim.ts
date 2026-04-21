@@ -2,20 +2,23 @@ import { Point2DLike } from "../math/point.js";
 import { normalizePoint2D } from "../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { Trim2D } from "../features/trim2d.js";
-import { ISceneObject } from "./interfaces.js";
+
+interface ITrim {
+  pick(...points: Point2DLike[]): ITrim;
+}
 
 interface TrimFunction {
   /** Trims all sketch geometry segments. */
-  (): ISceneObject;
+  (): ITrim;
   /**
    * Trims sketch geometry segments at the given points.
    * @param points - The points where geometry should be trimmed
    */
-  (...points: Point2DLike[]): ISceneObject;
+  (...points: Point2DLike[]): ITrim;
 }
 
 function build(context: SceneParserContext): TrimFunction {
-  return function trim(...args: Point2DLike[]): ISceneObject {
+  return function trim(...args: Point2DLike[]): ITrim {
     const activeSketch = context.getActiveSketch();
 
     if (!activeSketch) {
@@ -28,7 +31,13 @@ function build(context: SceneParserContext): TrimFunction {
     }
 
     context.addSceneObject(trim2d);
-    return trim2d;
+
+    return {
+      pick(...points: Point2DLike[]): ITrim {
+        trim2d.pick(...points.map(p => normalizePoint2D(p)));
+        return this;
+      },
+    };
   } as TrimFunction;
 }
 

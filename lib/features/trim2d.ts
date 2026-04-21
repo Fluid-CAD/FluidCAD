@@ -7,6 +7,8 @@ import { LazyVertex } from "./lazy-vertex.js";
 
 export class Trim2D extends GeometrySceneObject {
   private _points: LazyVertex[] = [];
+  private _picking = false;
+  private _pickPoints: LazyVertex[] = [];
 
   constructor() {
     super();
@@ -15,6 +17,20 @@ export class Trim2D extends GeometrySceneObject {
   points(...ps: LazyVertex[]): this {
     this._points = ps;
     return this;
+  }
+
+  pick(...ps: LazyVertex[]): this {
+    this._picking = true;
+    this._pickPoints = ps;
+    return this;
+  }
+
+  isPicking(): boolean {
+    return this._picking;
+  }
+
+  getPickPoints(): LazyVertex[] {
+    return this._pickPoints;
   }
 
   get trimPoints(): LazyVertex[] {
@@ -45,6 +61,8 @@ export class Trim2D extends GeometrySceneObject {
       return;
     }
 
+    const activePoints = this._picking ? this._pickPoints : this._points;
+
     const TRIM_TOLERANCE = 50;
 
     // Split all edges at intersection points
@@ -54,8 +72,8 @@ export class Trim2D extends GeometrySceneObject {
 
     // Find split edges to remove
     const splitEdgesToRemove = new Set<number>();
-    if (this._points.length > 0) {
-      for (const lazyPoint of this._points) {
+    if (activePoints.length > 0) {
+      for (const lazyPoint of activePoints) {
         const point2d = lazyPoint.asPoint2D();
         const point3d = plane.localToWorld(point2d);
         for (const idx of EdgeOps.findNearestEdgeIndices(splitEdges, point3d, TRIM_TOLERANCE)) {
@@ -146,6 +164,9 @@ export class Trim2D extends GeometrySceneObject {
     if (this._points.length > 0) {
       copy.points(...this._points);
     }
+    if (this._picking) {
+      copy.pick(...this._pickPoints);
+    }
     return copy;
   }
 
@@ -168,6 +189,20 @@ export class Trim2D extends GeometrySceneObject {
       }
     }
 
+    if (this._picking !== other._picking) {
+      return false;
+    }
+
+    if (this._pickPoints.length !== other._pickPoints.length) {
+      return false;
+    }
+
+    for (let i = 0; i < this._pickPoints.length; i++) {
+      if (!this._pickPoints[i].compareTo(other._pickPoints[i])) {
+        return false;
+      }
+    }
+
     return true;
   }
 
@@ -176,6 +211,12 @@ export class Trim2D extends GeometrySceneObject {
   }
 
   serialize() {
-    return {};
+    return {
+      trigger: this._points.length === 0 ? 'trim-picking' as const : undefined,
+      picking: this._picking || undefined,
+      pickPoints: this._picking
+        ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })
+        : undefined,
+    };
   }
 }

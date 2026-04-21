@@ -74,6 +74,9 @@ const breakpointIndicator = new BreakpointIndicator(container, () => {
   if (regionPickState === 'picking-active') {
     exitRegionPickMode();
   }
+  if (trimPickState === 'picking-active') {
+    exitTrimPickMode();
+  }
 });
 const timelinePanel = new TimelinePanel(
   container,
@@ -125,24 +128,43 @@ viewer.setSelectionHandler((shapeId, sub) => {
 });
 
 // ---------------------------------------------------------------------------
-// Interactive point-pick mode (for trim and future features)
+// Interactive trim-pick mode (magic-button pattern, mirrors region-pick)
 // ---------------------------------------------------------------------------
 
-const trimIndicator = document.createElement('div');
-trimIndicator.id = 'fluidcad-trim-indicator';
-trimIndicator.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-none hidden';
-trimIndicator.innerHTML = `
+const trimPickTriggerBtn = document.createElement('div');
+trimPickTriggerBtn.id = 'fluidcad-trim-pick-trigger';
+trimPickTriggerBtn.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto hidden';
+trimPickTriggerBtn.innerHTML = `
+  <button class="flex items-center gap-3 panel-bg border border-base-content/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none cursor-pointer hover:border-base-content/20 transition-colors">
+    <span class="[&>svg]:size-5">${ICON_SCISSORS}</span>
+    <span>Interactive Trimming</span>
+  </button>
+`;
+container.appendChild(trimPickTriggerBtn);
+
+const trimPickActiveBar = document.createElement('div');
+trimPickActiveBar.id = 'fluidcad-trim-pick-active';
+trimPickActiveBar.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto hidden';
+trimPickActiveBar.innerHTML = `
   <div class="flex items-center gap-3 panel-bg border border-base-content/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none">
     <span class="[&>svg]:size-5">${ICON_SCISSORS}</span>
     <span>Trimming Mode</span>
+    <div class="h-4 w-px bg-base-content/10"></div>
+    <button class="text-base-content/60 hover:text-base-content transition-colors cursor-pointer" id="exit-trim-pick">Exit</button>
   </div>
 `;
-container.appendChild(trimIndicator);
+container.appendChild(trimPickActiveBar);
 
+let trimPickState: 'idle' | 'icon-visible' | 'picking-active' = 'idle';
+let lastTrimPickInfo: { trimObj: SceneObjectRender & { sourceLocation?: any }; sketchObj: SceneObjectRender } | null = null;
 let activePointPickMode: PointPickMode | null = null;
 let activePickSourceLine: number | null = null;
 
-function isTrimmingScene(sceneObjects: SceneObjectRender[]): boolean {
+function hasTrimPickingTrigger(sceneObjects: SceneObjectRender[]): {
+  hasTrigger: boolean;
+  trimObj?: SceneObjectRender & { sourceLocation?: any };
+  sketchObj?: SceneObjectRender;
+} {
   let lastRoot: SceneObjectRender | null = null;
   for (let i = sceneObjects.length - 1; i >= 0; i--) {
     if (isTopLevel(sceneObjects[i], sceneObjects)) {
@@ -150,72 +172,42 @@ function isTrimmingScene(sceneObjects: SceneObjectRender[]): boolean {
       break;
     }
   }
-  if (!lastRoot || lastRoot.type !== 'sketch' || !lastRoot.id) {
-    return false;
+
+  if (!lastRoot || lastRoot.type !== 'sketch' || !lastRoot.id || !lastRoot.object?.plane) {
+    return { hasTrigger: false };
   }
+
+  let lastChild: SceneObjectRender | null = null;
   for (let i = sceneObjects.length - 1; i >= 0; i--) {
     if (sceneObjects[i].parentId === lastRoot.id) {
-      return (sceneObjects[i] as any).type === 'trim2d';
+      lastChild = sceneObjects[i];
+      break;
     }
   }
-  return false;
+
+  const obj = lastChild as any;
+  if (!obj || obj.type !== 'trim2d' || obj.object?.trigger !== 'trim-picking' || !obj.sourceLocation) {
+    return { hasTrigger: false };
+  }
+
+  return { hasTrigger: true, trimObj: lastChild!, sketchObj: lastRoot };
 }
 
-function updatePointPickMode(sceneObjects: SceneObjectRender[]) {
-  // Only activate pick mode if the last top-level object is a sketch
-  // (i.e., the sketch is still the active/open feature)
-  let lastRoot: SceneObjectRender | null = null;
-  for (let i = sceneObjects.length - 1; i >= 0; i--) {
-    if (isTopLevel(sceneObjects[i], sceneObjects)) {
-      lastRoot = sceneObjects[i];
-      break;
-    }
-  }
+function activateTrimPickModeInteractive(info: { trimObj: any; sketchObj: any }, sceneObjects: SceneObjectRender[]) {
+  deactivateTrimPickModeHandler();
 
-  const sketchObj = lastRoot?.type === 'sketch' ? lastRoot : null;
+  const plane: PlaneData = info.sketchObj.object.plane;
+  const sourceLocation = info.trimObj.sourceLocation;
+  const sketchId = info.sketchObj.id;
 
-  if (!sketchObj || !sketchObj.id || !sketchObj.object?.plane) {
-    deactivatePickMode();
-    return;
-  }
-
-  // Find the last child of this sketch
-  let lastChild: (SceneObjectRender & { type?: string; sourceLocation?: any }) | null = null;
-  for (let i = sceneObjects.length - 1; i >= 0; i--) {
-    if (sceneObjects[i].parentId === sketchObj.id) {
-      lastChild = sceneObjects[i] as any;
-      break;
-    }
-  }
-
-  if (!lastChild || (lastChild as any).type !== 'trim2d' || !lastChild.sourceLocation) {
-    deactivatePickMode();
-    return;
-  }
-
-  const srcLine = lastChild.sourceLocation.line;
-
-  // Already in pick mode for this same trim call — rebuild edge index
-  // so newly inserted features become highlightable
-  if (activePointPickMode && activePickSourceLine === srcLine) {
-    activePointPickMode.updateEdges(sceneObjects, sketchObj.id);
-    return;
-  }
-
-  // Activate new pick mode
-  deactivatePickMode();
-
-  const plane: PlaneData = sketchObj.object.plane;
-  const sourceLocation = lastChild.sourceLocation;
-
-  const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchObj.id, plane);
+  const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, plane);
 
   activePointPickMode = new PointPickMode(
     viewer.sceneContext,
     plane,
     snapManager,
     sceneObjects,
-    sketchObj.id,
+    sketchId,
     (point2d) => {
       fetch('/api/insert-point', {
         method: 'POST',
@@ -232,20 +224,117 @@ function updatePointPickMode(sceneObjects: SceneObjectRender[]) {
       }
     },
   );
-  activePickSourceLine = srcLine;
+  activePickSourceLine = sourceLocation.line;
   activePointPickMode.activate();
-  trimIndicator.classList.remove('hidden');
 }
 
-function deactivatePickMode() {
+function enterTrimPickMode() {
+  if (!lastTrimPickInfo) {
+    return;
+  }
+
+  const hasPicking = (lastTrimPickInfo.trimObj as any).object?.picking;
+
+  if (!hasPicking) {
+    fetch('/api/add-pick', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceLocation: (lastTrimPickInfo.trimObj as any).sourceLocation,
+      }),
+    });
+    trimPickState = 'picking-active';
+    trimPickTriggerBtn.classList.add('hidden');
+    trimPickActiveBar.classList.remove('hidden');
+    viewer.isTrimming = true;
+    return;
+  }
+
+  trimPickState = 'picking-active';
+  trimPickTriggerBtn.classList.add('hidden');
+  trimPickActiveBar.classList.remove('hidden');
+  viewer.isTrimming = true;
+}
+
+function exitTrimPickMode() {
+  deactivateTrimPickModeHandler();
+  viewer.isTrimming = false;
+
+  const trimObj = lastTrimPickInfo?.trimObj as any;
+  const isPicking = trimObj?.object?.picking;
+  const pickPoints = trimObj?.object?.pickPoints as [number, number][] | undefined;
+  if (isPicking && (!pickPoints || pickPoints.length === 0) && trimObj?.sourceLocation) {
+    fetch('/api/remove-pick', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceLocation: trimObj.sourceLocation }),
+    });
+  }
+
+  if (lastTrimPickInfo) {
+    trimPickState = 'icon-visible';
+    trimPickActiveBar.classList.add('hidden');
+    trimPickTriggerBtn.classList.remove('hidden');
+  } else {
+    trimPickState = 'idle';
+    trimPickActiveBar.classList.add('hidden');
+    trimPickTriggerBtn.classList.add('hidden');
+  }
+}
+
+function deactivateTrimPickModeHandler() {
   if (activePointPickMode) {
     activePointPickMode.deactivate();
     activePointPickMode = null;
     activePickSourceLine = null;
   }
   clearVertexHighlights();
-  trimIndicator.classList.add('hidden');
 }
+
+function resetTrimPickMode() {
+  deactivateTrimPickModeHandler();
+  trimPickState = 'idle';
+  trimPickTriggerBtn.classList.add('hidden');
+  trimPickActiveBar.classList.add('hidden');
+  lastTrimPickInfo = null;
+  viewer.isTrimming = false;
+}
+
+function updateTrimPickMode(sceneObjects: SceneObjectRender[]) {
+  const triggerInfo = hasTrimPickingTrigger(sceneObjects);
+
+  if (!triggerInfo.hasTrigger) {
+    resetTrimPickMode();
+    return;
+  }
+
+  lastTrimPickInfo = { trimObj: triggerInfo.trimObj!, sketchObj: triggerInfo.sketchObj! };
+  const hasPicking = (triggerInfo.trimObj as any).object?.picking;
+
+  if (trimPickState === 'picking-active') {
+    if (hasPicking) {
+      const srcLine = lastTrimPickInfo.trimObj.sourceLocation!.line;
+      if (activePointPickMode && activePickSourceLine === srcLine) {
+        activePointPickMode.updateEdges(sceneObjects, triggerInfo.sketchObj!.id!);
+        return;
+      }
+      activateTrimPickModeInteractive(lastTrimPickInfo, sceneObjects);
+    }
+    return;
+  }
+
+  trimPickState = 'icon-visible';
+  trimPickTriggerBtn.classList.remove('hidden');
+  trimPickActiveBar.classList.add('hidden');
+}
+
+trimPickTriggerBtn.querySelector('button')!.addEventListener('click', () => {
+  enterTrimPickMode();
+});
+
+trimPickActiveBar.querySelector('#exit-trim-pick')!.addEventListener('click', () => {
+  exitTrimPickMode();
+});
 
 const HIGHLIGHT_COLOR = 0xffc578;
 const VERTEX_MATCH_EPSILON_SQ = 1e-4;
@@ -827,18 +916,18 @@ function connectWebSocket() {
       case 'scene-rendered': {
         hideLoading();
         const isRollback = msg.rollbackStop != null && msg.rollbackStop < msg.result.length - 1;
-        viewer.isTrimming = !isRollback && isTrimmingScene(msg.result);
+        viewer.isTrimming = !isRollback && trimPickState === 'picking-active';
         viewer.isBezierDrawing = !isRollback && isBezierDrawingScene(msg.result);
         viewer.updateView(msg.result, isRollback);
         if (msg.absPath) {
           viewer.setFileName(msg.absPath);
         }
         if (isRollback) {
-          deactivatePickMode();
+          resetTrimPickMode();
           resetRegionPickMode();
           deactivateBezierDrawMode();
         } else {
-          updatePointPickMode(msg.result);
+          updateTrimPickMode(msg.result);
           updateRegionPickMode(msg.result);
           updateBezierDrawMode(msg.result);
         }

@@ -13,6 +13,7 @@ import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { AtIndexFilter, NotAtIndexFilter } from "./at-index.js";
 import { BelongsToFaceFilter, NotBelongsToFaceFilter } from "./belongs-to-face.js";
 import { BelongsToFaceFromSceneObjectFilter, NotBelongsToFaceFromSceneObjectFilter } from "./belongs-to-object.js";
+import { IntersectsWithFilter, NotIntersectsWithFilter } from "./intersects-with.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { ISceneObject } from "../../core/interfaces.js";
 
@@ -319,6 +320,26 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
     if (filterBuilders.length > 0) {
       this.filters.push(new NotBelongsToFaceFilter(filterBuilders));
     }
+    return this;
+  }
+
+  /**
+   * Selects edges that geometrically intersect with edges of the given scene object.
+   * @param sceneObject - A scene object whose edges are tested for intersection.
+   */
+  intersectsWith(sceneObject: ISceneObject) {
+    const filter = new IntersectsWithFilter(sceneObject as SceneObject);
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Excludes edges that geometrically intersect with edges of the given scene object.
+   * @param sceneObject - A scene object whose edges are tested for intersection.
+   */
+  notIntersectsWith(sceneObject: ISceneObject) {
+    const filter = new NotIntersectsWithFilter(sceneObject as SceneObject);
+    this.filters.push(filter);
     return this;
   }
 

@@ -10,7 +10,7 @@ import hingeBracketFinal from '!!raw-loader!./_examples/hinge-bracket-final.js';
 
 ![Finished hinge bracket](/img/docs/tutorials/hinge-bracket-final.png)
 
-In this tutorial, you'll build a hinge bracket from scratch, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=3C-ZpSXfmFo). It covers reusable path sketches, thin symmetric extrusions, projecting edges into a sketch, chamfering and shelling selected features, face-based sketching, and building ribs from a projected spine.
+In this tutorial, you'll build a hinge bracket from scratch, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=3C-ZpSXfmFo). It covers reusable path sketches, thin symmetric extrusions, projecting edges into a sketch, chamfering and shelling selected features, face-based sketching, filter-based trimming, and building ribs from a projected spine.
 
 Create a new file called `hinge-bracket.fluid.js` in your project.
 
@@ -20,12 +20,12 @@ Start with the imports. This model uses core operations together with edge and f
 
 ```js
 import { arc, chamfer, circle, cut, extrude, fillet, hLine, hMove, move,
-    plane, project, remove, select, shell, sketch, trim, vLine } from "fluidcad/core";
+    plane, project, remove, select, shell, sketch, split, trim, vLine } from "fluidcad/core";
 import { edge, face } from "fluidcad/filters";
 ```
 
-- **`fluidcad/core`** — all the modeling operations (sketch, extrude, cut, shell, etc.)
-- **`fluidcad/filters`** — `edge` and `face` selection filters for chamfer, shell, and face-based sketching
+- **`fluidcad/core`** — all the modeling operations (sketch, extrude, cut, shell, split, trim, etc.)
+- **`fluidcad/filters`** — `edge` and `face` selection filters for chamfer, shell, trimming, and face-based sketching
 
 ## Step 1: The spine and base body
 
@@ -45,7 +45,7 @@ const spine = sketch("front", () => {
 }).reusable();
 ```
 
-`hMove(-40)` shifts the cursor 40 units to the left, then the two `hLine` calls trace 40 + 78 = 118 units to the right along the bottom. `vLine(150)` runs up the outside, and the two `hLine(-78)` / `hLine(-40)` calls trace back across the top. `fillet(34)` rounds the two top corners with a 34-unit radius. Since there's no `connect()`, the path stays open — this is what lets `thin()` interpret it as a wall instead of a closed profile.
+`hMove(-40)` shifts the cursor 40 units to the left, then the two `hLine` calls trace 40 + 78 = 118 units to the right along the bottom. `vLine(150)` runs up the outside, and the two `hLine(-78)` / `hLine(-40)` calls trace back across the top. `fillet(34)` rounds the two top corners with a 34-unit radius.
 
 ![Spine profile](/img/docs/tutorials/hinge-bracket-step1-sketch.png)
 
@@ -61,31 +61,32 @@ let base = extrude(80).thin(26).symmetric();
 
 ## Step 2: The top cutout
 
-### Sketch the arc and project the base edges
+### Sketch the arc
 
-The top of the bracket gets a rounded pocket. We build it by placing a centered arc and then projecting the surrounding edges of the base so the cut matches them exactly.
+The top of the bracket gets a rounded pocket. We sketch a centered arc with a guide line to define the cut boundary.
 
 ```js
 const topPlane = plane(base.sideFaces(4))
 
 sketch(topPlane, () => {
+    move([-2, 0])
+    vLine(100, true).guide()
     move([0, 0])
     arc(40).centered();
-    project(base.startEdges(1), base.endEdges(1), base.sideEdges(0, 1));
 });
 ```
 
-`plane(base.sideFaces(4))` builds a sketch plane on the top face of the base. Inside the sketch, `arc(40).centered()` draws a semicircular arc of radius 40 centered on the origin, and `project()` pulls the two end edges (index `1`) and two side edges (`0` and `1`) of the base onto the sketch plane — together they close the arc into a pocket profile.
+`plane(base.sideFaces(4))` builds a sketch plane on the top face of the base. Inside the sketch, `move([-2, 0])` offsets the cursor slightly left, then `vLine(100, true).guide()` draws a tall vertical guide line — this defines where the thin cut boundary will be. `move([0, 0])` resets the cursor to the origin, and `arc(40).centered()` draws a semicircular arc of radius 40.
 
 ![Top cutout sketch](/img/docs/tutorials/hinge-bracket-step2-sketch.png)
 
 ### Cut through
 
 ```js
-cut(26);
+cut(26).thin(50);
 ```
 
-`cut(26)` removes 26 units of material straight down from the sketch, punching the cutout through the top wall of the shell.
+`cut(26)` removes 26 units of material straight down from the sketch. `.thin(50)` gives the open arc a 50-unit wall thickness before cutting — deliberately oversized so the offset fully covers all edges of the arc. Any excess beyond the actual body is harmless.
 
 ![Top cutout](/img/docs/tutorials/hinge-bracket-step2.png)
 
@@ -145,15 +146,16 @@ const faceSelection = select(face().onPlane("xy", 16)).reusable()
 sketch(faceSelection, () => {
     move([0, 0])
     project(faceSelection)
-    circle(50)
     vLine(60, true)
-    trim([44, 0])
+    split()
+    trim(edge().above("yz"))
+    circle([0, 0], 50)
 });
 
 remove(faceSelection);
 ```
 
-Sketching on a face starts at the face center, so `move([0, 0])` resets the cursor to the sketch origin. `project(faceSelection)` pulls the face outline into the sketch. `circle(50)` adds a circle of radius 50 around the origin, and `vLine(60, true)` draws a construction vertical line (the `true` flag marks it as a guide). `trim([44, 0])` trims the circle at the point closest to `[44, 0]`, leaving the half of the profile that extends out past the base. `remove(faceSelection)` clears the reusable selection so it doesn't leak into later operations.
+Sketching on a face starts at the face center, so `move([0, 0])` resets the cursor to the sketch origin. `project(faceSelection)` pulls the face outline into the sketch. `vLine(60, true)` draws a vertical construction line that splits the profile in half. `split()` splits all edges at their intersection points, then `trim(edge().above("yz"))` removes every edge that lies above (to the right of) the YZ plane — keeping only the left half that extends out past the base. Finally, `circle([0, 0], 50)` adds the circle that forms the tab's rounded end. `remove(faceSelection)` clears the reusable selection so it doesn't leak into later operations.
 
 ![Hinge tab sketch](/img/docs/tutorials/hinge-bracket-step5-sketch.png)
 
@@ -174,11 +176,11 @@ extrude(16)
 ```js
 const ribSketch = sketch("front", () => {
     project(spine);
-    trim([-20, 0], [-19, 150])
+    trim(edge().below("yz", { partial: true }))
 });
 ```
 
-On the front plane, `project(spine)` pulls the original spine path back into a new sketch. `trim([-20, 0], [-19, 150])` removes the path segments near those two points — leaving only the corner-and-fillet region that becomes the rib profile.
+On the front plane, `project(spine)` pulls the original spine path back into a new sketch. `trim(edge().below("yz", { partial: true }))` removes every edge that is at least partially below the YZ plane — this strips away the bottom horizontal segments, leaving only the corner-and-fillet region that becomes the rib profile. The `partial: true` option means an edge is removed if even one of its vertices is below the plane, which cleanly catches edges that cross the boundary.
 
 ![Rib profile sketch](/img/docs/tutorials/hinge-bracket-step6-sketch.png)
 
@@ -227,11 +229,14 @@ A larger circle of radius 50, sketched back on `topPlane`, opens up the inside o
 
 - **`sketch().reusable()`** — keeping a sketch alive so later operations can reuse it as a profile or projection source
 - **`extrude().thin().symmetric()`** — turning an open path into a symmetric thin-walled body
+- **`cut().thin()`** — limiting a cut to a specific wall thickness
+- **`vLine().guide()`** — drawing a construction line that guides cut boundaries without appearing in the final geometry
 - **`project()` inside a sketch** — pulling existing edges or a reusable sketch into the active sketch plane
 - **`plane(face)`** — deriving a sketch plane directly from a model face
-- **`edge().verticalTo().line()`** — selecting straight edges by orientation and length
+- **`edge().verticalTo().line()`** �� selecting straight edges by orientation and length
 - **`face().cylinderCurve().withTangents()`** — selecting a cylindrical face by its curvature and expanding to tangent-connected faces
 - **`chamfer()` / `shell()`** — breaking sharp edges and hollowing the body with face removal
 - **`face().onPlane()` + `.reusable()` + `remove()`** — using a face selection twice, then releasing it
-- **`trim()`** — removing unwanted sketch segments at specific points
+- **`split()` + `trim(edge().above())`** — splitting edges at intersections, then removing edges by position with a filter instead of fragile point-based trimming
+- **`trim(edge().below("yz", { partial: true }))`** — removing projected edges by spatial position, using `partial` to catch edges that cross the boundary
 - **`extrude(depth, sketch)`** — extruding a named sketch (the ribs) rather than the most recent one

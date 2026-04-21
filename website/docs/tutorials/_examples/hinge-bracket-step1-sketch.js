@@ -1,5 +1,5 @@
 // @screenshot waitForInput
-import { arc, chamfer, circle, cut, extrude, fillet, hLine, hMove, move, plane, project, remove, select, shell, sketch, trim, vLine } from "fluidcad/core";
+import { arc, chamfer, circle, cut, extrude, fillet, hLine, hMove, move, plane, project, remove, select, shell, sketch, split, trim, vLine } from "fluidcad/core";
 import { edge, face } from "fluidcad/filters";
 
 const spine = sketch("front", () => {

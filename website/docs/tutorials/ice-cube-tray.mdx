@@ -124,12 +124,12 @@ The final step adds a grip detail along the top edge of the tray using edge sele
 ### Fillet the top edge
 
 ```js
-select(edge().verticalTo("top").onPlane("yz", width/2, true))
+select(edge().verticalTo("top").onPlane("yz", { offset: width/2, bothDirections: true }))
 
 fillet(10)
 ```
 
-`edge()` starts a filter chain. `.verticalTo("top")` finds edges that are vertical relative to the top. `.onPlane("yz", width/2, true)` narrows to edges on the YZ plane at half the tray's width (the right-hand end). `fillet(10)` rounds this edge with a 10-unit radius, creating a smooth contour.
+`edge()` starts a filter chain. `.verticalTo("top")` finds edges that are vertical relative to the top. `.onPlane("yz", { offset: width/2, bothDirections: true })` narrows to edges on the YZ plane at half the tray's width (the right-hand end). `fillet(10)` rounds this edge with a 10-unit radius, creating a smooth contour.
 
 ### Define the sweep spine
 

@@ -32,7 +32,7 @@ repeat("linear", ["x", "y"], {
 
 shell(-thickness, e.startFaces(), e.sideFaces());
 
-select(edge().verticalTo("top").onPlane("yz", width/2, true))
+select(edge().verticalTo("top").onPlane("yz", { offset: width / 2, bothDirections: true }))
 
 fillet(10)
 

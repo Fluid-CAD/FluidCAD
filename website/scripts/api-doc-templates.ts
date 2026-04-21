@@ -49,9 +49,9 @@ function escapeAngleBrackets(text: string): string {
 }
 
 function formatParamType(raw: string): string {
-  // Inline object types: wrap in code backticks and escape for MDX
+  // Inline object types: wrap in code backticks and escape pipe for table cells
   if (raw.includes('{')) {
-    return '`' + raw + '`';
+    return '`' + raw.replace(/\|/g, '\\|') + '`';
   }
 
   // Handle union types like "number | FaceFilterBuilder"

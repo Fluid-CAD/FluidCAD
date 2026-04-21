@@ -52,14 +52,15 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   /**
    * Selects edges that lie on the given plane.
    * @param plane - The reference plane.
-   * @param options - Matching options: `offset` shifts the plane along its normal, `bothDirections` also matches the opposite offset, `partial` matches if at least one vertex lies on the plane.
+   * @param offsetOrOptions - Offset distance, or an options object with `offset`, `bothDirections`, and `partial`.
    */
-  onPlane(plane: PlaneLike | PlaneObjectBase, options: { offset?: number; bothDirections?: boolean; partial?: boolean } = {}) {
+  onPlane(plane: PlaneLike | PlaneObjectBase, offsetOrOptions?: number | { offset?: number; bothDirections?: boolean; partial?: boolean }) {
     if (!plane) {
       throw new Error('Plane is required');
     }
 
-    const { offset = 0, bothDirections = false, partial = false } = options;
+    const opts = typeof offsetOrOptions === 'number' ? { offset: offsetOrOptions } : (offsetOrOptions ?? {});
+    const { offset = 0, bothDirections = false, partial = false } = opts;
     let planeObj: PlaneObjectBase;
     let planeObj2: PlaneObjectBase | undefined;
 
@@ -88,14 +89,15 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   /**
    * Excludes edges that lie on the given plane.
    * @param plane - The reference plane.
-   * @param options - Matching options: `offset` shifts the plane along its normal, `bothDirections` also excludes the opposite offset, `partial` excludes if at least one vertex lies on the plane.
+   * @param offsetOrOptions - Offset distance, or an options object with `offset`, `bothDirections`, and `partial`.
    */
-  notOnPlane(plane: PlaneLike | PlaneObjectBase, options: { offset?: number; bothDirections?: boolean; partial?: boolean } = {}) {
+  notOnPlane(plane: PlaneLike | PlaneObjectBase, offsetOrOptions?: number | { offset?: number; bothDirections?: boolean; partial?: boolean }) {
     if (!plane) {
       throw new Error('Plane is required');
     }
 
-    const { offset = 0, bothDirections = false, partial = false } = options;
+    const opts = typeof offsetOrOptions === 'number' ? { offset: offsetOrOptions } : (offsetOrOptions ?? {});
+    const { offset = 0, bothDirections = false, partial = false } = opts;
     let planeObj: PlaneObjectBase;
     let planeObj2: PlaneObjectBase | undefined;
 
@@ -347,14 +349,15 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   /**
    * Selects edges that are entirely above the given plane (in the direction of its normal).
    * @param plane - The reference plane.
-   * @param options - Matching options: `offset` shifts the plane along its normal, `partial` matches if at least one vertex is above the plane.
+   * @param offsetOrOptions - Offset distance, or an options object with `offset` and `partial`.
    */
-  above(plane: PlaneLike | PlaneObjectBase, options: { offset?: number; partial?: boolean } = {}) {
+  above(plane: PlaneLike | PlaneObjectBase, offsetOrOptions?: number | { offset?: number; partial?: boolean }) {
     if (!plane) {
       throw new Error('Plane is required');
     }
 
-    const { offset = 0, partial = false } = options;
+    const opts = typeof offsetOrOptions === 'number' ? { offset: offsetOrOptions } : (offsetOrOptions ?? {});
+    const { offset = 0, partial = false } = opts;
     let planeObj: PlaneObjectBase;
 
     if (plane instanceof PlaneObjectBase) {
@@ -373,14 +376,15 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   /**
    * Selects edges that are entirely below the given plane (opposite to its normal direction).
    * @param plane - The reference plane.
-   * @param options - Matching options: `offset` shifts the plane along its normal, `partial` matches if at least one vertex is below the plane.
+   * @param offsetOrOptions - Offset distance, or an options object with `offset` and `partial`.
    */
-  below(plane: PlaneLike | PlaneObjectBase, options: { offset?: number; partial?: boolean } = {}) {
+  below(plane: PlaneLike | PlaneObjectBase, offsetOrOptions?: number | { offset?: number; partial?: boolean }) {
     if (!plane) {
       throw new Error('Plane is required');
     }
 
-    const { offset = 0, partial = false } = options;
+    const opts = typeof offsetOrOptions === 'number' ? { offset: offsetOrOptions } : (offsetOrOptions ?? {});
+    const { offset = 0, partial = false } = opts;
     let planeObj: PlaneObjectBase;
 
     if (plane instanceof PlaneObjectBase) {

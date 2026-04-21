@@ -20,14 +20,23 @@ export class FilterBuilderBase<TShape extends Shape = Shape> {
     return this;
   }
 
+  /**
+    * @internal
+  */
   hasTangentExpansion(): boolean {
     return this._withTangents;
   }
 
+  /**
+    * @internal
+  */
   getFilters() {
     return this.filters;
   }
 
+  /**
+    * @internal
+  */
   transform(matrix: Matrix4): FilterBuilderBase<TShape> {
     const transformedBuilder = new FilterBuilderBase<TShape>();
     for (const filter of this.filters) {
@@ -37,6 +46,9 @@ export class FilterBuilderBase<TShape extends Shape = Shape> {
     return transformedBuilder;
   }
 
+  /**
+    * @internal
+  */
   equals(other: FilterBuilderBase<TShape>): boolean {
     if (this._withTangents !== other._withTangents) {
       return false;

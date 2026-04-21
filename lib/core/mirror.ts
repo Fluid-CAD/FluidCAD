@@ -24,7 +24,7 @@ interface MirrorFunction {
 
   /**
   * [2D] Mirror all sketch geometries across a given axis.
-  * @param axis The axis to mirror across
+  * @param axis The local axis to mirror across
   */
   (axis: AxisLike): ISceneObject;
 
@@ -37,7 +37,7 @@ interface MirrorFunction {
 
   /**
   * [2D] Mirror given sketch geometries across a given axis.
-  * @param axis The axis to mirror across
+  * @param axis The local axis to mirror across
   * @param geometries The geometries to mirror
   */
   (axis: AxisLike, ...geometries: ISceneObject[]): ISceneObject;

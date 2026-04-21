@@ -170,6 +170,20 @@ function spliceCode(code: string, startIndex: number, endIndex: number, replacem
 }
 
 /**
+ * For point edits (insertPoint / removePoint / setPickPoints), the target is
+ * always the `.pick()` call if one exists in the chain — otherwise the
+ * outermost call itself. Without this, a chain like
+ *   extrude(sk).pick([1, 2]).symmetric([3, 4], [5, 6])
+ * would drop new points into `.symmetric(...)` instead of `.pick(...)`,
+ * because `findEditableCallAt` picks the outermost (largest endIndex) call.
+ * The bezier draw-mode flow has no `.pick()` in its chain, so falling back
+ * to the outermost keeps bezier(...) point edits working.
+ */
+function resolvePointEditTarget(call: TSNode): TSNode {
+  return findPickCallInChain(call) ?? call;
+}
+
+/**
  * Shared setup for the five AST-based edit functions: parse the code once,
  * split it into lines for `resolveSourceRow`, run the caller's transform,
  * and wrap the result. Returning `null` from `fn` means "no edit" and
@@ -509,7 +523,8 @@ export function insertPoint(
     if (!call) {
       return null;
     }
-    const args = getArgumentsNode(call);
+    const target = resolvePointEditTarget(call);
+    const args = getArgumentsNode(target);
     if (!args) {
       return null;
     }
@@ -569,7 +584,8 @@ export function removePoint(
     if (!call) {
       return null;
     }
-    const args = getArgumentsNode(call);
+    const target = resolvePointEditTarget(call);
+    const args = getArgumentsNode(target);
     if (!args || args.namedChildren.length === 0) {
       return null;
     }
@@ -593,9 +609,9 @@ export function removePoint(
       return null;
     }
 
-    const target = args.namedChildren[bestIndex];
-    let deleteStart = target.startIndex;
-    let deleteEnd = target.endIndex;
+    const pointNode = args.namedChildren[bestIndex];
+    let deleteStart = pointNode.startIndex;
+    let deleteEnd = pointNode.endIndex;
 
     if (args.namedChildren.length > 1) {
       if (bestIndex === 0) {
@@ -619,7 +635,8 @@ export function setPickPoints(
     if (!call) {
       return null;
     }
-    const args = getArgumentsNode(call);
+    const target = resolvePointEditTarget(call);
+    const args = getArgumentsNode(target);
     if (!args) {
       return null;
     }

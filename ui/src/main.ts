@@ -633,11 +633,11 @@ bezierIndicator.innerHTML = `
     <div class="h-4 w-px bg-base-content/10"></div>
     <label class="flex items-center gap-1.5 cursor-pointer">
       <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" data-snap="vertex" checked />
-      <span class="text-xs">Vertices</span>
+      <span class="text-xs">Snap to vertices</span>
     </label>
     <label class="flex items-center gap-1.5 cursor-pointer">
       <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" data-snap="grid" checked />
-      <span class="text-xs">Grid</span>
+      <span class="text-xs">Snap to grid</span>
     </label>
   </div>
 `;

@@ -299,7 +299,7 @@ describe("select", () => {
         });
         extrude(30);
 
-        const sel = select(edge().onPlane("xy", 30)) as SelectSceneObject;
+        const sel = select(edge().onPlane("xy", { offset: 30 })) as SelectSceneObject;
 
         render();
 
@@ -318,6 +318,140 @@ describe("select", () => {
         render();
 
         expect(sel.getShapes()).toHaveLength(8);
+      });
+
+      it("should select edges on offset plane with bothDirections", () => {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+        extrude(30);
+
+        // Edges on z=15 or z=-15 — none exist on an extruded box
+        const sel = select(edge().onPlane("xy", { offset: 15, bothDirections: true })) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(0);
+      });
+
+      it("should select edges with partial match", () => {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+        extrude(30);
+
+        // partial: true matches edges with at least one vertex on the plane
+        // Bottom 4 edges are fully on XY, plus the 4 vertical edges each have one vertex on XY
+        const sel = select(edge().onPlane("xy", { partial: true })) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(8);
+      });
+
+      it("should exclude edges with partial notOnPlane", () => {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+        extrude(30);
+
+        // notOnPlane partial: true excludes edges where any vertex touches XY
+        // Only the 4 top edges (z=30) have no vertex on XY
+        const sel = select(edge().notOnPlane("xy", { partial: true })) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(4);
+      });
+    });
+
+    describe("above / below", () => {
+      it("should select edges entirely above a plane", () => {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+        extrude(30);
+
+        // Edges above z=10: the 4 top edges (z=30) have both vertices above
+        // The 4 vertical edges straddle z=10, so they don't match
+        const sel = select(edge().above("xy", { offset: 10 })) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(4);
+      });
+
+      it("should select edges entirely below a plane", () => {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+        extrude(30);
+
+        // Edges below z=10: the 4 bottom edges (z=0) have both vertices below
+        const sel = select(edge().below("xy", { offset: 10 })) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(4);
+      });
+
+      it("should not match edges on the plane itself", () => {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+        extrude(30);
+
+        // Edges above z=0: bottom edges are ON the plane (dist=0), not above
+        // Only top 4 edges are above, vertical edges straddle
+        const sel = select(edge().above("xy")) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(4);
+      });
+
+      it("should select partially above edges", () => {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+        extrude(30);
+
+        // partial: true — match edges where at least one vertex is above z=0
+        // Top 4 edges (both vertices above) + 4 vertical edges (one vertex above)
+        const sel = select(edge().above("xy", { partial: true })) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(8);
+      });
+
+      it("should select partially below edges", () => {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+        extrude(30);
+
+        // partial: true — match edges where at least one vertex is below z=30
+        // Bottom 4 edges (both vertices below) + 4 vertical edges (one vertex below)
+        const sel = select(edge().below("xy", { offset: 30, partial: true })) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(8);
+      });
+
+      it("should return empty when no edges match", () => {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+        extrude(30);
+
+        // Nothing is below z=0 on a box sitting on XY
+        const sel = select(edge().below("xy")) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(0);
       });
     });
 
@@ -506,7 +640,7 @@ describe("select", () => {
 
       // Faces that have both a line edge on XY AND a line edge on XY offset 30
       // The 4 side faces each have edges on both bottom and top planes
-      const sel = select(face().hasEdge(edge().onPlane("xy"), edge().onPlane("xy", 30))) as SelectSceneObject;
+      const sel = select(face().hasEdge(edge().onPlane("xy"), edge().onPlane("xy", { offset: 30 }))) as SelectSceneObject;
 
       render();
 
@@ -632,7 +766,7 @@ describe("select", () => {
       extrude(30);
 
       // Edges on bottom OR edges on top
-      const sel = select(edge().onPlane("xy"), edge().onPlane("xy", 30)) as SelectSceneObject;
+      const sel = select(edge().onPlane("xy"), edge().onPlane("xy", { offset: 30 })) as SelectSceneObject;
 
       render();
 

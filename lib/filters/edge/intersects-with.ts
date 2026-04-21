@@ -10,7 +10,7 @@ export class IntersectsWithFilter extends FilterBase<Edge> {
   }
 
   match(shape: Edge): boolean {
-    const objectEdges = this.sceneObject.getShapes()
+    const objectEdges = this.sceneObject.getShapes({ excludeGuide: false })
       .flatMap(s => s.getSubShapes("edge")) as Edge[];
 
     return objectEdges.some(objEdge =>
@@ -33,7 +33,7 @@ export class NotIntersectsWithFilter extends FilterBase<Edge> {
   }
 
   match(shape: Edge): boolean {
-    const objectEdges = this.sceneObject.getShapes()
+    const objectEdges = this.sceneObject.getShapes({ excludeGuide: false })
       .flatMap(s => s.getSubShapes("edge")) as Edge[];
 
     return !objectEdges.some(objEdge =>

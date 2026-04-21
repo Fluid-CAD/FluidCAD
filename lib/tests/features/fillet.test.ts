@@ -140,7 +140,7 @@ describe("fillet", () => {
       extrude(30);
 
       // Fillet only the top horizontal edges (4 edges)
-      const sel = select(edge().onPlane("xy", 30));
+      const sel = select(edge().onPlane("xy", { offset: 30 }));
       fillet(3, sel);
 
       render();

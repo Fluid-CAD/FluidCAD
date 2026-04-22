@@ -24,7 +24,7 @@ Draws a tangent arc with a given radius and end angle.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `radius` | number | The arc radius (defaults to 100) *(optional)* |
+| `radius` | number | The arc radius (defaults to 100). A negative value flips the sweep direction. *(optional)* |
 | `endAngle` | number | The sweep angle in degrees (defaults to 90) *(optional)* |
 
 ---
@@ -37,7 +37,7 @@ Draws a tangent arc with a given radius, angle, and start tangent direction.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `radius` | number | The arc radius |
+| `radius` | number | The arc radius. A negative value flips the sweep direction. |
 | `angle` | number | The sweep angle in degrees |
 | `tangent` | [Point2DLike](/docs/api/types/point2dlike) | The start tangent direction |
 

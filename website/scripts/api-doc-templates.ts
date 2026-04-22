@@ -775,6 +775,11 @@ An axis reference used by \`revolve()\` and other axis-based operations. Any of 
     'Options for [`repeat("circular", ...)`](/docs/api/features/transforms/repeat).',
   ),
 
+  PlaneTransformOptions: (type) => renderOptionsTypePage(type,
+    'Options for transforming a plane with offset and rotation.',
+    'Options accepted by [`plane()`](/docs/api/features/utilities/plane) to offset and rotate a plane relative to its own axes. Rotations are composed together and applied around the plane\'s origin (after the offset is applied), so the plane tilts in place rather than orbiting the world origin.',
+  ),
+
   Vertex: (type) => `---
 sidebar_position: ${type.sidebarPosition}
 title: "${type.displayName}"

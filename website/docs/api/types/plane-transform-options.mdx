@@ -1,0 +1,19 @@
+---
+sidebar_position: 30
+sidebar_label: "PlaneTransformOptions"
+title: "PlaneTransformOptions"
+description: "Options for transforming a plane with offset and rotation."
+---
+
+# PlaneTransformOptions
+
+Options accepted by [`plane()`](/docs/api/features/utilities/plane) to offset and rotate a plane relative to its own axes. Rotations are composed together and applied around the plane's origin (after the offset is applied), so the plane tilts in place rather than orbiting the world origin.
+
+## Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `offset` | number | Distance to translate the plane along its normal *(optional)* |
+| `rotateX` | number | Rotation around the plane's X axis (in degrees) *(optional)* |
+| `rotateY` | number | Rotation around the plane's Y axis (in degrees) *(optional)* |
+| `rotateZ` | number | Rotation around the plane's Z axis / normal (in degrees) *(optional)* |

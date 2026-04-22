@@ -83,3 +83,76 @@
 [data-theme='dark'] div[class*='codeBlockContent'] {
   background-color: #1e1e1e !important;
 }
+
+/* ===== Center the search button in the navbar (desktop only) ===== */
+@media (min-width: 997px) {
+  .navbar__inner {
+    position: relative;
+  }
+  .navbar__items--right [class*='navbarSearchContainer'] {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* ===== Algolia DocSearch theming ===== */
+:root {
+  --docsearch-primary-color: var(--fluidcad-accent);
+  --docsearch-text-color: var(--fluidcad-text-primary);
+  --docsearch-muted-color: var(--fluidcad-text-tertiary);
+  --docsearch-subtle-color: var(--fluidcad-border);
+  --docsearch-icon-color: var(--fluidcad-text-secondary);
+  --docsearch-search-button-background: var(--fluidcad-bg-surface);
+  --docsearch-search-button-text-color: var(--fluidcad-text-primary);
+  --docsearch-searchbox-background: var(--fluidcad-bg-surface);
+  --docsearch-searchbox-focus-background: var(--fluidcad-bg-surface);
+  --docsearch-searchbox-shadow: inset 0 0 0 1px var(--fluidcad-border);
+  --docsearch-key-background: var(--fluidcad-bg-secondary);
+  --docsearch-key-color: var(--fluidcad-text-secondary);
+  --docsearch-key-gradient: linear-gradient(
+    -225deg,
+    var(--fluidcad-bg-surface),
+    var(--fluidcad-bg-secondary)
+  );
+  --docsearch-key-shadow: inset 0 -1px 0 0 var(--fluidcad-border),
+    inset 0 0 0 1px var(--fluidcad-border), 0 1px 1px 0 rgba(0, 0, 0, 0.04);
+  --docsearch-modal-background: var(--fluidcad-bg-primary);
+  --docsearch-modal-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+  --docsearch-footer-background: var(--fluidcad-bg-secondary);
+  --docsearch-footer-shadow: inset 0 1px 0 0 var(--fluidcad-border);
+  --docsearch-hit-color: var(--fluidcad-text-primary);
+  --docsearch-hit-background: var(--fluidcad-bg-secondary);
+  --docsearch-hit-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --docsearch-hit-active-color: #ffffff;
+}
+
+[data-theme='dark'] {
+  --docsearch-text-color: var(--fluidcad-text-primary);
+  --docsearch-muted-color: var(--fluidcad-text-tertiary);
+  --docsearch-subtle-color: var(--fluidcad-border);
+  --docsearch-icon-color: var(--fluidcad-text-secondary);
+  --docsearch-search-button-background: var(--fluidcad-bg-surface);
+  --docsearch-search-button-text-color: var(--fluidcad-text-primary);
+  --docsearch-searchbox-background: var(--fluidcad-bg-surface);
+  --docsearch-searchbox-focus-background: var(--fluidcad-bg-surface);
+  --docsearch-searchbox-shadow: inset 0 0 0 1px var(--fluidcad-border);
+  --docsearch-key-background: var(--fluidcad-bg-secondary);
+  --docsearch-key-color: var(--fluidcad-text-secondary);
+  --docsearch-key-gradient: linear-gradient(
+    -225deg,
+    var(--fluidcad-bg-surface),
+    var(--fluidcad-bg-secondary)
+  );
+  --docsearch-key-shadow: inset 0 -1px 0 0 rgba(0, 0, 0, 0.4),
+    inset 0 0 0 1px var(--fluidcad-border-strong), 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --docsearch-modal-background: var(--fluidcad-bg-primary);
+  --docsearch-modal-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --docsearch-footer-background: var(--fluidcad-bg-secondary);
+  --docsearch-footer-shadow: inset 0 1px 0 0 var(--fluidcad-border);
+  --docsearch-hit-color: var(--fluidcad-text-primary);
+  --docsearch-hit-background: var(--fluidcad-bg-secondary);
+  --docsearch-hit-shadow: none;
+  --docsearch-hit-active-color: #ffffff;
+}

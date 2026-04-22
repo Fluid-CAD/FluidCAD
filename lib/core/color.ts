@@ -1,20 +1,20 @@
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Color } from "../features/color.js";
-import { ISceneObject } from "./interfaces.js";
+import { ISceneObject, ITransformable } from "./interfaces.js";
 
 interface ColorFunction {
   /**
    * Applies a color to the last selection.
    * @param color - The color value (CSS color string)
    */
-  (color: string): ISceneObject;
+  (color: string): ITransformable;
   /**
    * Applies a color to the given selection.
    * @param color - The color value (CSS color string)
    * @param selection - The face or edge selection to color
    */
-  (color: string, selection: ISceneObject): ISceneObject;
+  (color: string, selection: ISceneObject): ITransformable;
 }
 
 function build(context: SceneParserContext): ColorFunction {

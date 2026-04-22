@@ -5,6 +5,7 @@ import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { transformMeshes } from "./mesh-transform.js";
+import { ShapeOps } from "../oc/shape-ops.js";
 
 const meshBuilder = new MeshBuilder();
 
@@ -221,6 +222,14 @@ export function renderScene(scene: Scene) {
             return null;
           },
         });
+
+        const appliedTransform = object.getAppliedTransform();
+        if (appliedTransform && !object.isContainer()) {
+          const shapes = object.getAddedShapes();
+          for (let i = 0; i < shapes.length; i++) {
+            shapes[i] = ShapeOps.transform(shapes[i], appliedTransform);
+          }
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`Error building object ${object.getUniqueType()}:`, error);

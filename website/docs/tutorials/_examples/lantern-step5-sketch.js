@@ -34,7 +34,7 @@ sketch(middle.sideFaces(0), () => {
 const c = cut(7)
 
 repeat("circular", "z", {
-    count: sides + 1,
+    count: sides,
     offset: 360 / sides
 })
 
@@ -65,6 +65,6 @@ translate([0, 0, 257], s)
 
 const ringAxis = axis("y", { offsetZ: 290 })
 
-sketch("left", () => {
+sketch("yz", () => {
     circle([0, 290 + (65 / 2) - (7 / 2)], 7)
 });

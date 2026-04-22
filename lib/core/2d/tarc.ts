@@ -14,13 +14,13 @@ import { IGeometry, ISceneObject, ITangentArcTwoObjects } from "../interfaces.js
 interface TArcFunction {
   /**
    * Draws a tangent arc with a given radius and end angle.
-   * @param radius - The arc radius (defaults to 100)
+   * @param radius - The arc radius (defaults to 100). A negative value flips the sweep direction.
    * @param endAngle - The sweep angle in degrees (defaults to 90)
    */
   (radius?: number, endAngle?: number): IGeometry;
   /**
    * Draws a tangent arc with a given radius, angle, and start tangent direction.
-   * @param radius - The arc radius
+   * @param radius - The arc radius. A negative value flips the sweep direction.
    * @param angle - The sweep angle in degrees
    * @param tangent - The start tangent direction
    */

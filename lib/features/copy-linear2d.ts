@@ -1,11 +1,12 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
-import { Axis, isStandardAxis, StandardAxis } from "../math/axis.js";
+import { Axis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
 import { LinearCopyOptions } from "./copy-linear.js";
+import { AxisObjectBase } from "./axis-renderable-base.js";
 
-export type CopyLinear2DAxis = Axis | StandardAxis;
+export type CopyLinear2DAxis = Axis | AxisObjectBase;
 
 export class CopyLinear2D extends GeometrySceneObject {
   constructor(
@@ -26,17 +27,9 @@ export class CopyLinear2D extends GeometrySceneObject {
       objects = allSiblings;
     }
 
-    const plane = this.sketch.getPlane();
-    const resolvedAxes: Axis[] = this.axes.map(a => {
-      if (isStandardAxis(a)) {
-        const resolved = plane.normalizeAxis(a);
-        if (!resolved) {
-          throw new Error(`CopyLinear2D: invalid axis direction '${a}'`);
-        }
-        return resolved;
-      }
-      return a;
-    });
+    const resolvedAxes: Axis[] = this.axes.map(a =>
+      a instanceof AxisObjectBase ? a.getAxis() : a
+    );
 
     const { count, centered, skip } = this.options;
 
@@ -116,12 +109,17 @@ export class CopyLinear2D extends GeometrySceneObject {
     for (let i = 0; i < this.axes.length; i++) {
       const a = this.axes[i];
       const b = other.axes[i];
-      if (isStandardAxis(a) || isStandardAxis(b)) {
-        if (a !== b) {
+      const aIsObj = a instanceof AxisObjectBase;
+      const bIsObj = b instanceof AxisObjectBase;
+      if (aIsObj !== bIsObj) {
+        return false;
+      }
+      if (aIsObj) {
+        if (!a.compareTo(b as AxisObjectBase)) {
           return false;
         }
       }
-      else if (!a.equals(b)) {
+      else if (!(a as Axis).equals(b as Axis)) {
         return false;
       }
     }

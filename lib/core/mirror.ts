@@ -5,13 +5,12 @@ import { PlaneLike } from "../math/plane.js";
 import { MirrorShape } from "../features/mirror-shape.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { PlaneObject } from "../features/plane.js";
-import { AxisLike, isAxisLike, isStandardAxis } from "../math/axis.js";
+import { AxisLike, isAxisLike } from "../math/axis.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { MirrorShape2D } from "../features/mirror-shape2d.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisObject } from "../features/axis.js";
 import { AxisFromEdge } from "../features/axis-from-edge.js";
-import { AxisFromSketch } from "../features/axis-from-sketch.js";
 import { ISceneObject } from "./interfaces.js";
 
 interface MirrorFunction {
@@ -62,8 +61,6 @@ function build(context: SceneParserContext): MirrorFunction {
 
     if (arguments.length === 1) {
       if (isAxisLike(arguments[0] || arguments[0] instanceof SceneObject)) {
-        const activeSketch = context.getActiveSketch();
-
         let axis: AxisObjectBase = null;
         if (arguments[0] instanceof AxisObjectBase) {
           axis = arguments[0] as AxisObjectBase;
@@ -71,10 +68,6 @@ function build(context: SceneParserContext): MirrorFunction {
         else if (arguments[0] instanceof SceneObject) {
           const line = arguments[0] as SceneObject;
           axis = new AxisFromEdge(line);
-          context.addSceneObject(axis);
-        }
-        else if (activeSketch && isStandardAxis(arguments[0])) {
-          axis = new AxisFromSketch(activeSketch, arguments[0]);
           context.addSceneObject(axis);
         }
         else {
@@ -110,8 +103,6 @@ function build(context: SceneParserContext): MirrorFunction {
 
       // 2D mirror with target objects: mirror(axis/line, geometries[])
       if (isAxisLike(args[0]) || args[0] instanceof SceneObject) {
-        const activeSketch = context.getActiveSketch();
-
         let axis: AxisObjectBase = null;
         if (args[0] instanceof AxisObjectBase) {
           axis = args[0] as AxisObjectBase;
@@ -119,10 +110,6 @@ function build(context: SceneParserContext): MirrorFunction {
         else if (args[0] instanceof SceneObject) {
           const line = args[0] as SceneObject;
           axis = new AxisFromEdge(line);
-          context.addSceneObject(axis);
-        }
-        else if (activeSketch && isStandardAxis(args[0])) {
-          axis = new AxisFromSketch(activeSketch, args[0]);
           context.addSceneObject(axis);
         }
         else {

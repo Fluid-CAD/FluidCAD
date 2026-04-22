@@ -1,25 +1,12 @@
 import { registerBuilder, SceneParserContext } from "../index.js";
-import { AxisLike, AxisTransformOptions, isAxisLike, isStandardAxis } from "../math/axis.js";
+import { AxisLike, AxisTransformOptions, isAxisLike } from "../math/axis.js";
 import { AxisObject } from "../features/axis.js";
 import { normalizeAxis } from "../helpers/normalize.js";
 import { AxisFromEdge } from "../features/axis-from-edge.js";
-import { AxisFromSketch } from "../features/axis-from-sketch.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisMiddle } from "../features/axis-mid.js";
-import { Sketch } from "../features/2d/sketch.js";
 import { SceneObject } from "../common/scene-object.js";
 import { IAxis, ISceneObject } from "./interfaces.js";
-
-function makeAxisFromArg(
-  arg: AxisLike,
-  sketch: Sketch | null,
-  options?: AxisTransformOptions): AxisObjectBase {
-  if (sketch && isStandardAxis(arg)) {
-    return new AxisFromSketch(sketch, arg, options);
-  }
-  const a = normalizeAxis(arg);
-  return new AxisObject(a, options);
-}
 
 interface AxisFunction {
   /**
@@ -68,8 +55,6 @@ interface AxisFunction {
 
 function build(context: SceneParserContext): AxisFunction {
   return function axis() {
-    const activeSketch = context.getActiveSketch();
-
     if (arguments.length === 1) {
       if (arguments[0] instanceof SceneObject) {
         context.addSceneObject(arguments[0]);
@@ -78,7 +63,8 @@ function build(context: SceneParserContext): AxisFunction {
         return a;
       }
       else {
-        const a = makeAxisFromArg(arguments[0], activeSketch);
+        const axis = normalizeAxis(arguments[0]);
+        const a = new AxisObject(axis);
         context.addSceneObject(a);
         return a;
       }
@@ -95,14 +81,16 @@ function build(context: SceneParserContext): AxisFunction {
           a1 = arguments[0] as AxisObjectBase;
         }
         else {
-          a1 = makeAxisFromArg(arguments[0], activeSketch);
+          const axis = normalizeAxis(arguments[0]);
+          a1 = new AxisObject(axis);
         }
 
         if (arguments[1] instanceof AxisObjectBase) {
           a2 = arguments[1] as AxisObjectBase;
         }
         else {
-          a2 = makeAxisFromArg(arguments[1], activeSketch);
+          const axis = normalizeAxis(arguments[1]);
+          a2 = new AxisObject(axis);
         }
 
         context.addSceneObject(a1);
@@ -129,8 +117,9 @@ function build(context: SceneParserContext): AxisFunction {
       }
 
       if (isAxisLike(arguments[0])) {
+        const axis1 = normalizeAxis(arguments[0]);
         const options: AxisTransformOptions = arguments[1];
-        const a = makeAxisFromArg(arguments[0], activeSketch, options);
+        const a = new AxisObject(axis1, options);
         context.addSceneObject(a);
         return a;
       }
@@ -148,14 +137,16 @@ function build(context: SceneParserContext): AxisFunction {
           a1 = arguments[0] as AxisObjectBase;
         }
         else {
-          a1 = makeAxisFromArg(arguments[0], activeSketch);
+          const axis = normalizeAxis(arguments[0]);
+          a1 = new AxisObject(axis);
         }
 
         if (arguments[1] instanceof AxisObjectBase) {
           a2 = arguments[1] as AxisObjectBase;
         }
         else {
-          a2 = makeAxisFromArg(arguments[1], activeSketch);
+          const axis = normalizeAxis(arguments[1]);
+          a2 = new AxisObject(axis);
         }
 
         const options = arguments[2] as AxisTransformOptions;

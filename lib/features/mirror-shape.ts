@@ -89,6 +89,19 @@ export class MirrorShape extends SceneObject {
       return false;
     }
 
+    const thisTargetObjects = this.targetObjects || [];
+    const otherTargetObjects = other.targetObjects || [];
+
+    if (thisTargetObjects.length !== otherTargetObjects.length) {
+      return false;
+    }
+
+    for (let i = 0; i < thisTargetObjects.length; i++) {
+      if (!thisTargetObjects[i].compareTo(otherTargetObjects[i])) {
+        return false;
+      }
+    }
+
     return true;
   }
 

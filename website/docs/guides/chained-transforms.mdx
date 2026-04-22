@@ -1,0 +1,103 @@
+---
+sidebar_position: 5
+title: "Chained Transforms"
+---
+
+# Chained Transforms
+
+Every builder that returns a shape — `extrude`, `revolve`, `sweep`, `loft`, `cylinder`, `sphere`, `cut`, boolean ops, fillets, chamfers, 2D geometry, and more — exposes chainable `.translate()`, `.rotate()`, `.mirror()`, and `.transform()` methods. Use them when you want to place a shape in one expression instead of wrapping a separate `translate(...)` or `rotate(...)` call around it.
+
+```js
+// Chained — no separate history entry for the transform
+extrude(10).translate(100);
+
+// Free-function — adds a distinct Translate step to scene history
+const o = extrude(10);
+translate(100, o);
+```
+
+Both styles coexist — choose based on what you want in scene history.
+
+## When to use chained vs. free-function form
+
+| Choose... | When |
+|---|---|
+| **Chained** — `foo().translate(...)` | You just want to place this shape. Keeps history concise — the transform rides on the object and doesn't create a separate step. |
+| **Free function** — `translate(..., foo)` | You want an explicit `Translate` / `Rotate` / `Mirror` entry in scene history, or you're copying with `translate([x,y,z], true, foo)`, or you want to transform multiple objects at once. |
+
+The chained form always **moves** the object — it never copies. For copies, use the free-function form with `true` as a `copy` argument, or use `copy(...)`.
+
+## Method reference
+
+All methods return `this` so they chain. Angles are in degrees.
+
+```ts
+transform(matrix: Matrix4): this
+
+translate(x: number): this
+translate(x: number, y: number): this
+translate(x: number, y: number, z: number): this
+translate(offset: PointLike): this
+
+rotate(angle: number): this                   // around world Z through origin
+rotate(axis: AxisLike, angle: number): this   // around any axis
+
+mirror(plane: PlaneLike): this
+mirror(axis: AxisLike): this                  // primarily useful for 2D geometry
+```
+
+## Composition order
+
+Chained calls compose **left-to-right = inside-out**: the first call runs first, then each subsequent call is applied on top.
+
+```js
+// Translate by (5, 0, 0), then rotate 90° around Z → final center at (0, 5, 0)
+sphere(1).translate(5, 0, 0).rotate("z", 90);
+```
+
+Swapping the order swaps the result:
+
+```js
+// Rotate 90° around Z (a no-op for a sphere at origin), then translate → (5, 0, 0)
+sphere(1).rotate("z", 90).translate(5, 0, 0);
+```
+
+Internally this is the standard "matrices on the right apply first" composition — `.translate(T).rotate(R)` composes to `R · T`.
+
+## World vs. sketch-local coordinates
+
+Arguments are always interpreted in **world space**. On the default XY sketch that matches the sketch's own axes, but on other sketch planes it doesn't. Use [`local()`](/docs/api/features/utilities/local) to name a sketch-local axis:
+
+```js
+sketch("front", () => {
+    // Rotate the slot 45° around the sketch's own Z axis (world +Y on "front"),
+    // not around the world Z axis.
+    slot(100, 20).rotate(local("z"), 45);
+});
+```
+
+See the [2D Transforms guide](./sketching/transforms.mdx#when-sketch-axes-dont-match-world-axes) for the full mapping between sketch and world axes.
+
+## Container objects are excluded
+
+`sketch(...)`, `part(...)`, and `repeat(...)` return an [`SceneObject`](/docs/api/types/scene-object) that does **not** expose `.translate` / `.rotate` / `.mirror` / `.transform` — transforming a container has ambiguous semantics. Apply transforms to the contents instead, or use the free-function forms on the container's result.
+
+## Limitation: not compatible with `.pick()`
+
+Feature builders that accept `.pick()` for interactive region picking — `extrude`, `revolve`, `sweep`, `loft`, and `cut` — do **not** currently support a chained transform on the same call. The transform is applied after fusion, which breaks picking in two ways:
+
+1. Clicking a rendered pick region stores the pick in the original (pre-transform) sketch-local coordinates, so the wrong cell — or none — gets selected.
+2. Fusion happens at the pre-transform position, so unrelated scene objects that overlap the sketch plane get absorbed into the feature and "jump" along with it.
+
+Until this is fixed, **don't combine `.pick()` with a chained transform** on these features. Workarounds:
+
+- Use the free-function form after the feature: `translate(..., extrude(10).pick([x, y]))`
+- Place the sketch on the desired plane to begin with — no transform needed.
+
+Cylinders, spheres, loads, and other non-fusing / non-pick builders are unaffected.
+
+## What accepts chained transforms
+
+Every non-container builder: `extrude`, `revolve`, `sweep`, `loft`, `cylinder`, `sphere`, `fuse`, `subtract`, `common`, `cut`, `chamfer`, `fillet`, `shell`, `draft`, `mirror` (shape form), `translate`, `rotate`, `color`, `remove`, `load`, `copy`, and all 2D geometry / planes / axes.
+
+At the type level these now implement the [`Transformable`](/docs/api/types/transformable) interface — `Fuseable`, `Geometry`, `Plane`, `Axis`, `Common`, `Cut`, `Draft`, and `Shell` all extend it.

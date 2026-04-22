@@ -9,7 +9,10 @@ import transformMirror from '!!raw-loader!./_examples/transform-mirror.js';
 
 # Transforms
 
-Transforms move, rotate, and mirror existing geometry in 3D space.
+Transforms move, rotate, and mirror existing geometry in 3D space. They come in two flavors:
+
+- **Free-function form** — `translate(...)`, `rotate(...)`, `mirror(...)`. Adds a distinct entry to scene history and can copy with the `true` flag. Covered on this page.
+- **Chained form** — `foo().translate(...).rotate(...)` on any builder's return value. Places a shape in one expression without adding a separate history entry. See the [Chained Transforms guide](./chained-transforms.mdx).
 
 ## Translate
 

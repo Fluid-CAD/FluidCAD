@@ -17,7 +17,7 @@ See the [guide](/docs/guides/3d-operations/chamfer) for detailed usage examples.
 ## Signatures
 
 ```ts
-chamfer(distance?: number): SceneObject
+chamfer(distance?: number): Transformable
 ```
 
 Chamfers selected edges with the given distance.
@@ -29,7 +29,7 @@ Chamfers selected edges with the given distance.
 ---
 
 ```ts
-chamfer(distance: number, ...sceneObjects: SceneObject[]): SceneObject
+chamfer(distance: number, ...sceneObjects: SceneObject[]): Transformable
 ```
 
 Chamfers the given edge selections with the given distance.
@@ -42,7 +42,7 @@ Chamfers the given edge selections with the given distance.
 ---
 
 ```ts
-chamfer(distance: number, distance2: number, isAngle?: boolean): SceneObject
+chamfer(distance: number, distance2: number, isAngle?: boolean): Transformable
 ```
 
 Chamfers selected edges with two distances or a distance and angle.
@@ -56,7 +56,7 @@ Chamfers selected edges with two distances or a distance and angle.
 ---
 
 ```ts
-chamfer(distance: number, distance2: number, isAngle: boolean, ...sceneObjects: SceneObject[]): SceneObject
+chamfer(distance: number, distance2: number, isAngle: boolean, ...sceneObjects: SceneObject[]): Transformable
 ```
 
 Chamfers the given edge selections with two distances or a distance and angle.

@@ -13,7 +13,7 @@ Creates a plane with transform options.
 ## Signatures
 
 ```ts
-plane(plane: PlaneLike, options: PlaneRenderableOptions): Plane
+plane(plane: PlaneLike, options: PlaneTransformOptions): Plane
 ```
 
 Creates a plane with transform options.
@@ -21,7 +21,16 @@ Creates a plane with transform options.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `plane` | [PlaneLike](/docs/api/types/plane-like) | The standard plane or normal vector |
-| `options` | PlaneRenderableOptions | Transform options (offset, flip, sticky, etc.) |
+| `options` | [PlaneTransformOptions](/docs/api/types/plane-transform-options) | Transform options (offset, rotate, etc.) |
+
+#### PlaneTransformOptions
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `offset` | number | Distance to translate the plane along its normal *(optional)* |
+| `rotateX` | number | Rotation around the plane's X axis (in degrees) *(optional)* |
+| `rotateY` | number | Rotation around the plane's Y axis (in degrees) *(optional)* |
+| `rotateZ` | number | Rotation around the plane's Z axis / normal (in degrees) *(optional)* |
 
 ---
 
@@ -51,7 +60,7 @@ Creates a plane from a face selection.
 ---
 
 ```ts
-plane(selection: SceneObject, options: PlaneRenderableOptions): Plane
+plane(selection: SceneObject, options: PlaneTransformOptions): Plane
 ```
 
 Creates a plane from a face selection with transform options.
@@ -59,7 +68,7 @@ Creates a plane from a face selection with transform options.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `selection` | [SceneObject](/docs/api/types/scene-object) | The selected face to create a plane from |
-| `options` | PlaneRenderableOptions | Transform options (offset, flip, sticky, etc.) |
+| `options` | [PlaneTransformOptions](/docs/api/types/plane-transform-options) | Transform options (offset, rotate, etc.) |
 
 ---
 
@@ -77,7 +86,7 @@ Creates a plane from a face selection with an offset.
 ---
 
 ```ts
-plane(plane: Plane, options: PlaneRenderableOptions): Plane
+plane(plane: Plane, options: PlaneTransformOptions): Plane
 ```
 
 Transforms an existing plane with options.
@@ -85,12 +94,12 @@ Transforms an existing plane with options.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `plane` | [Plane](/docs/api/types/plane) | The existing plane to transform |
-| `options` | PlaneRenderableOptions | Transform options (offset, flip, sticky, etc.) |
+| `options` | [PlaneTransformOptions](/docs/api/types/plane-transform-options) | Transform options (offset, rotate, etc.) |
 
 ---
 
 ```ts
-plane(p1: PlaneLike, p2: PlaneLike, options?: PlaneRenderableOptions): Plane
+plane(p1: PlaneLike, p2: PlaneLike, options?: PlaneTransformOptions): Plane
 ```
 
 Creates a plane midway between two standard planes or normal vectors.
@@ -99,12 +108,12 @@ Creates a plane midway between two standard planes or normal vectors.
 |-----------|------|-------------|
 | `p1` | [PlaneLike](/docs/api/types/plane-like) | The first standard plane or normal vector |
 | `p2` | [PlaneLike](/docs/api/types/plane-like) | The second standard plane or normal vector |
-| `options` | PlaneRenderableOptions | Transform options (offset, flip, sticky, etc.) *(optional)* |
+| `options` | [PlaneTransformOptions](/docs/api/types/plane-transform-options) | Transform options (offset, rotate, etc.) *(optional)* |
 
 ---
 
 ```ts
-plane(p1: Plane, p2: Plane, options?: PlaneRenderableOptions): Plane
+plane(p1: Plane, p2: Plane, options?: PlaneTransformOptions): Plane
 ```
 
 Creates a plane midway between two existing Plane objects.
@@ -113,7 +122,7 @@ Creates a plane midway between two existing Plane objects.
 |-----------|------|-------------|
 | `p1` | [Plane](/docs/api/types/plane) | The first Plane object |
 | `p2` | [Plane](/docs/api/types/plane) | The second Plane object |
-| `options` | PlaneRenderableOptions | Transform options (offset, flip, sticky, etc.) *(optional)* |
+| `options` | [PlaneTransformOptions](/docs/api/types/plane-transform-options) | Transform options (offset, flip, sticky, etc.) *(optional)* |
 
 
 :::note

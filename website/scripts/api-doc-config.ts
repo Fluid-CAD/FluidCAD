@@ -149,6 +149,7 @@ export const types: TypeEntry[] = [
   { name: 'LazyVertex', displayName: 'Vertex', sourceFile: 'features/lazy-vertex.ts', sidebarPosition: 27 },
   { name: 'LinearRepeatOptions', displayName: 'LinearRepeatOptions', sourceFile: 'features/repeat-linear.ts', sidebarPosition: 28 },
   { name: 'CircularRepeatOptions', displayName: 'CircularRepeatOptions', sourceFile: 'features/repeat-circular.ts', sidebarPosition: 29 },
+  { name: 'PlaneTransformOptions', displayName: 'PlaneTransformOptions', sourceFile: 'math/plane.ts', sidebarPosition: 30 },
   { name: 'ITrim', displayName: 'Trim', sourceFile: 'core/trim.ts', sidebarPosition: 31 },
 ];
 
@@ -205,6 +206,12 @@ export const optionsTypeProperties: Record<string, OptionsProperty[]> = {
     { name: 'centered', type: 'boolean', description: 'When `true`, centers the pattern around the original object\'s position', optional: true },
     { name: 'skip', type: 'number[]', description: 'Indices to skip (e.g. `[2, 4]` to skip the 3rd and 5th instances)', optional: true },
   ],
+  PlaneTransformOptions: [
+    { name: 'offset', type: 'number', description: 'Distance to translate the plane along its normal', optional: true },
+    { name: 'rotateX', type: 'number', description: 'Rotation around the plane\'s X axis (in degrees)', optional: true },
+    { name: 'rotateY', type: 'number', description: 'Rotation around the plane\'s Y axis (in degrees)', optional: true },
+    { name: 'rotateZ', type: 'number', description: 'Rotation around the plane\'s Z axis / normal (in degrees)', optional: true },
+  ],
 };
 
 /** Maps internal type names to display names for the docs */
@@ -245,6 +252,8 @@ export const typeDisplayNameMap: Record<string, string> = {
   'QualifiedSceneObject': 'QualifiedGeometry',
   'LinearRepeatOptions': 'LinearRepeatOptions',
   'CircularRepeatOptions': 'CircularRepeatOptions',
+  'PlaneTransformOptions': 'PlaneTransformOptions',
+  'PlaneRenderableOptions': 'PlaneTransformOptions',
 };
 
 /** Maps type display names to their docs URL slug */

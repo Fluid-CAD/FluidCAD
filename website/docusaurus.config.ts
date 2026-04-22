@@ -116,6 +116,12 @@ const config: Config = {
       theme: prismThemes.github,
       darkTheme: prismThemes.vsDark,
     },
+    algolia: {
+      appId: process.env.ALGOLIA_APP_ID ?? 'YOUR_APP_ID',
+      apiKey: process.env.ALGOLIA_SEARCH_API_KEY ?? 'YOUR_SEARCH_API_KEY',
+      indexName: process.env.ALGOLIA_INDEX_NAME ?? 'fluidcad',
+      contextualSearch: true,
+    },
   } satisfies Preset.ThemeConfig,
 };
 

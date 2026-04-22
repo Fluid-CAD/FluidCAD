@@ -17,7 +17,10 @@ export class TangentArcWithTangent extends GeometrySceneObject {
 
   build(): void {
     const plane = this.sketch.getPlane();
-    const radius = this.radius;
+
+    // Negative radius flips the sweep direction.
+    const radius = Math.abs(this.radius);
+    const signedEndAngle = this.radius < 0 ? -this.endAngle : this.endAngle;
 
     const tangent = this.startTangent.asPoint2D();
 
@@ -26,7 +29,7 @@ export class TangentArcWithTangent extends GeometrySceneObject {
     // so θ = atan2(-tx, ty).
     const baseAngle = Math.atan2(-tangent.x, tangent.y);
 
-    const clampedEndAngle = Math.max(this.endAngle, -359.9999);
+    const clampedEndAngle = Math.max(signedEndAngle, -359.9999);
     const cw = clampedEndAngle < 0;
     const startAngleRad = cw ? baseAngle + Math.PI : baseAngle;
     const endAngleRad = startAngleRad + rad(clampedEndAngle);

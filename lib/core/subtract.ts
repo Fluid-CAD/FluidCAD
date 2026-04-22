@@ -4,7 +4,7 @@ import { Subtract } from "../features/subtract.js";
 import { Subtract2D } from "../features/subtract2d.js";
 import { SceneObject } from "../common/scene-object.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
-import { ISceneObject } from "./interfaces.js";
+import { ISceneObject, ITransformable } from "./interfaces.js";
 
 interface SubtractFunction {
   /**
@@ -13,11 +13,11 @@ interface SubtractFunction {
    * @param object1 - The base shape
    * @param object2 - The shape to subtract
    */
-  (object1: ISceneObject, object2: ISceneObject): ISceneObject;
+  (object1: ISceneObject, object2: ISceneObject): ITransformable;
 }
 
 function build(context: SceneParserContext): SubtractFunction {
-  return function subtract(object1: ISceneObject, object2: ISceneObject): ISceneObject {
+  return function subtract(object1: ISceneObject, object2: ISceneObject): ITransformable {
     const activeSketch = context.getActiveSketch();
 
     if (activeSketch) {

@@ -1,5 +1,5 @@
 export type {
-  ISceneObject, IFuseable, IPlane, IAxis, ISelect,
+  ISceneObject, ITransformable, IFuseable, IPlane, IAxis, ISelect,
   IGeometry, IExtrudableGeometry, IRect, ISlot, IPolygon,
   ITwoObjectsTangentLine, ITangentArcTwoObjects,
   IExtrude, ICut, ICommon, ISweep, ILoft, IRevolve, IDraft

@@ -1,7 +1,10 @@
-import { LazyVertex } from "../features/lazy-vertex.js";
-import { Point2DLike } from "../math/point.js";
-import { FaceFilterBuilder } from "../filters/face/face-filter.js";
-import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
+import type { LazyVertex } from "../features/lazy-vertex.js";
+import type { Point2DLike, PointLike } from "../math/point.js";
+import type { FaceFilterBuilder } from "../filters/face/face-filter.js";
+import type { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
+import type { Matrix4 } from "../math/matrix4.js";
+import type { AxisLike } from "../math/axis.js";
+import type { PlaneLike } from "../math/plane.js";
 
 export interface ISceneObject {
   /**
@@ -25,7 +28,7 @@ export interface ISceneObject {
   reusable(): this;
 }
 
-export interface IFuseable extends ISceneObject {
+export interface IFuseable extends ITransformable {
   /**
    * Additive boolean operation — fuses the result with existing shapes.
    * When called with no arguments, fuses with all intersecting scene objects.
@@ -49,13 +52,70 @@ export interface IFuseable extends ISceneObject {
   remove(...objects: ISceneObject[]): this;
 }
 
-export interface IPlane extends ISceneObject {}
+/**
+ * Scene objects that can be chained with world-space transformations.
+ * The chained form `obj.translate(...)` / `obj.rotate(...)` / `obj.mirror(...)`
+ * applies the transform to the object's built shapes; it does not create
+ * a separate history entry like the free-function `translate()` does.
+ *
+ * Container objects (sketches, parts, repeat/mirror features) deliberately
+ * do not expose this interface — apply transforms to their contents instead.
+ */
+export interface ITransformable extends ISceneObject {
+  /**
+   * Composes a 4x4 transformation matrix onto this object. Applied to the
+   * object's own shapes after build. Chained calls compose left-to-right:
+   * `.translate(T).rotate(R)` applies translation first, then rotation.
+   */
+  transform(matrix: Matrix4): this;
 
-export interface IAxis extends ISceneObject {}
+  /**
+   * Translate along X.
+   * @param x - Distance along world X.
+   */
+  translate(x: number): this;
+  /**
+   * Translate along X and Y.
+   */
+  translate(x: number, y: number): this;
+  /**
+   * Translate along X, Y, and Z.
+   */
+  translate(x: number, y: number, z: number): this;
+  /**
+   * Translate by a point-like offset in world space.
+   */
+  translate(offset: PointLike): this;
+
+  /**
+   * Rotate by an angle around world Z through the origin.
+   * @param angle - Rotation in degrees.
+   */
+  rotate(angle: number): this;
+  /**
+   * Rotate around an axis by an angle.
+   * @param axis - The axis to rotate around. Use `local(...)` to reference a sketch-local axis.
+   * @param angle - Rotation in degrees.
+   */
+  rotate(axis: AxisLike, angle: number): this;
+
+  /**
+   * Mirror across a plane.
+   */
+  mirror(plane: PlaneLike): this;
+  /**
+   * Mirror across an axis (primarily useful for 2D geometry).
+   */
+  mirror(axis: AxisLike): this;
+}
+
+export interface IPlane extends ITransformable {}
+
+export interface IAxis extends ITransformable {}
 
 export interface ISelect extends ISceneObject {}
 
-export interface IGeometry extends ISceneObject {
+export interface IGeometry extends ITransformable {
   /**
    * Returns a lazy-evaluated vertex at the start point of this geometry element.
    */
@@ -182,12 +242,6 @@ export interface ISlot extends IExtrudableGeometry {
    * @param value - `true` to center, `false` (default) to start from the current position.
    */
   centered(value?: boolean): this;
-
-  /**
-   * Sets the rotation angle of the slot's primary axis.
-   * @param angle - Rotation in degrees.
-   */
-  rotate(angle: number): this;
 }
 
 export interface IPolygon extends IExtrudableGeometry {
@@ -232,7 +286,7 @@ export interface ITangentArcTwoObjects extends IGeometry {
   end(index?: number): LazyVertex;
 }
 
-export interface ICommon extends ISceneObject {
+export interface ICommon extends ITransformable {
   /**
    * Controls whether the original objects involved in the boolean intersection
    * are retained or removed after the operation.
@@ -349,7 +403,7 @@ export interface IExtrude extends IFuseable {
   thin(offset1: number, offset2: number): this;
 }
 
-export interface ICut extends ISceneObject {
+export interface ICut extends ITransformable {
   /**
    * Enables symmetric mode — cuts equally in both directions from the sketch plane.
    */
@@ -659,9 +713,9 @@ export interface ISweep extends IFuseable {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
-export interface IDraft extends ISceneObject {}
+export interface IDraft extends ITransformable {}
 
-export interface IShell extends ISceneObject {
+export interface IShell extends ITransformable {
   /**
    * Selects the inner wall faces created by the shell operation (from thickness removal).
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.

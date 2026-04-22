@@ -3,14 +3,12 @@ import { Sketch } from "./sketch.js";
 import { Geometry } from "../../oc/geometry.js";
 import { Edge } from "../../common/edge.js";
 import { SceneObject } from "../../common/scene-object.js";
-import { rad } from "../../helpers/math-helpers.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
 import { ISlot } from "../../core/interfaces.js";
 
 export class Slot extends ExtrudableGeometryBase implements ISlot {
   private _center: boolean = false;
-  private _angle: number = 0;
 
   constructor(
     public distance: number,
@@ -22,11 +20,6 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
 
   centered(value: boolean = true): this {
     this._center = value;
-    return this;
-  }
-
-  rotate(angle: number): this {
-    this._angle = angle;
     return this;
   }
 
@@ -43,48 +36,19 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
       : this.getCurrentPosition();
 
     if (this._center) {
-      const angleRad = rad(this._angle);
-      const cos = Math.cos(angleRad);
-      const sin = Math.sin(angleRad);
-      leftCenter = leftCenter.translate(
-        -this.distance / 2 * cos,
-        -this.distance / 2 * sin
-      );
+      leftCenter = leftCenter.translate(-this.distance / 2, 0);
     }
 
-    const angleRad = rad(this._angle);
-    const cos = Math.cos(angleRad);
-    const sin = Math.sin(angleRad);
-
-    // Direction along the slot axis
-    const dirX = cos;
-    const dirY = sin;
-    // Perpendicular direction (90 degrees CCW)
-    const perpX = -sin;
-    const perpY = cos;
-
     const rightCenter = new Point2D(
-      leftCenter.x + this.distance * dirX,
-      leftCenter.y + this.distance * dirY
+      leftCenter.x + this.distance,
+      leftCenter.y
     );
 
     // Four key points where lines meet arcs
-    const topLeft = new Point2D(
-      leftCenter.x + this.radius * perpX,
-      leftCenter.y + this.radius * perpY
-    );
-    const topRight = new Point2D(
-      rightCenter.x + this.radius * perpX,
-      rightCenter.y + this.radius * perpY
-    );
-    const bottomRight = new Point2D(
-      rightCenter.x - this.radius * perpX,
-      rightCenter.y - this.radius * perpY
-    );
-    const bottomLeft = new Point2D(
-      leftCenter.x - this.radius * perpX,
-      leftCenter.y - this.radius * perpY
-    );
+    const topLeft = new Point2D(leftCenter.x, leftCenter.y + this.radius);
+    const topRight = new Point2D(rightCenter.x, rightCenter.y + this.radius);
+    const bottomRight = new Point2D(rightCenter.x, rightCenter.y - this.radius);
+    const bottomLeft = new Point2D(leftCenter.x, leftCenter.y - this.radius);
 
     // Top line: topLeft -> topRight
     const topSegment = Geometry.makeSegment(
@@ -150,7 +114,6 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
     const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
     const s = new Slot(this.distance, this.radius, targetPlane);
     s.centered(this._center);
-    s.rotate(this._angle);
     return s;
   }
 
@@ -173,8 +136,7 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
 
     return this.distance === other.distance &&
       this.radius === other.radius &&
-      this._center === other._center &&
-      this._angle === other._angle;
+      this._center === other._center;
   }
 
   serialize() {
@@ -182,7 +144,6 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
       distance: this.distance,
       radius: this.radius,
       centered: this._center,
-      angle: this._angle,
     };
   }
 }

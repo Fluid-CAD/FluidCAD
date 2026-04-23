@@ -14,11 +14,6 @@ const SELECT_OPTIONS: MeshRenderOptions = {
   face: { color: '#5c9fcc', opacity: 1 },
 };
 
-const SKETCH_TRANSPARENT_OPTIONS: MeshRenderOptions = {
-  edge: { opacity: 0.3 },
-  face: { opacity: 0.3 },
-};
-
 // ---------------------------------------------------------------------------
 // Option resolution
 // ---------------------------------------------------------------------------
@@ -27,17 +22,17 @@ const SKETCH_TRANSPARENT_OPTIONS: MeshRenderOptions = {
  * Determine the render options for a given object.  Priority:
  *  1. Inherited options from a parent (e.g. a `select` ancestor).
  *  2. Per-type overrides (`select` → selection highlight colours).
- *  3. Mode-based overrides (sketch mode → ghost non-sketch objects).
+ *
+ * Sketch-mode ghosting is applied as a runtime color-tint pass in the viewer
+ * (see Viewer.applySketchModeGhosting) rather than baked into materials here,
+ * to avoid the three.js transparency cost on complex scenes.
  */
 function resolveOptions(
   uniqueType: string | undefined,
-  activeSketchId: string | null,
-  type: string | undefined,
   inherited?: MeshRenderOptions,
 ): MeshRenderOptions | undefined {
   if (inherited) return inherited;
   if (uniqueType === 'select') return SELECT_OPTIONS;
-  if (activeSketchId && type !== 'sketch') return SKETCH_TRANSPARENT_OPTIONS;
   return undefined;
 }
 
@@ -75,7 +70,7 @@ export function buildObjectMesh(
 
   // --- generic objects: resolve options and recurse into children ---
   const isSelect = obj.uniqueType === 'select';
-  const options = resolveOptions(obj.uniqueType, activeSketchId, obj.type, inherited);
+  const options = resolveOptions(obj.uniqueType, inherited);
   const children = allObjects.filter(o => o.parentId === obj.id);
 
   let result: Object3D;

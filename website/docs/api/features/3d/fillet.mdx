@@ -17,7 +17,7 @@ See the [guide](/docs/guides/3d-operations/fillet) for detailed usage examples.
 ## Signatures
 
 ```ts
-fillet(radius?: number): Transformable
+fillet(radius?: number): SceneObject
 ```
 
 Fillets selected edges with the given radius.
@@ -29,7 +29,7 @@ Fillets selected edges with the given radius.
 ---
 
 ```ts
-fillet(radius: number, ...sceneObjects: SceneObject[]): Transformable
+fillet(radius: number, ...sceneObjects: SceneObject[]): SceneObject
 ```
 
 Fillets the given edge selections with the given radius.
@@ -42,7 +42,7 @@ Fillets the given edge selections with the given radius.
 ---
 
 ```ts
-fillet(objects: Geometry[]): Transformable
+fillet(objects: Geometry[]): SceneObject
 ```
 
 [2D] Fillets corners between the given geometries.
@@ -54,7 +54,7 @@ fillet(objects: Geometry[]): Transformable
 ---
 
 ```ts
-fillet(objects: Geometry[], radius: number): Transformable
+fillet(objects: Geometry[], radius: number): SceneObject
 ```
 
 [2D] Fillets corners between the given geometries with a radius.
@@ -67,7 +67,7 @@ fillet(objects: Geometry[], radius: number): Transformable
 ---
 
 ```ts
-fillet(radius: number, ...objects: Geometry[]): Transformable
+fillet(radius: number, ...objects: Geometry[]): SceneObject
 ```
 
 [2D] Fillets corners at the given radius and geometries.

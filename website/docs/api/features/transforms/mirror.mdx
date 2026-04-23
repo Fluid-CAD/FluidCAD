@@ -17,7 +17,7 @@ See the [guide](/docs/guides/transforms) for detailed usage examples.
 ## Signatures
 
 ```ts
-mirror(line: SceneObject): Transformable
+mirror(line: SceneObject): SceneObject
 ```
 
 [2D] Mirror all sketch geometries across a given line.
@@ -29,7 +29,7 @@ mirror(line: SceneObject): Transformable
 ---
 
 ```ts
-mirror(axis: AxisLike): Transformable
+mirror(axis: AxisLike): SceneObject
 ```
 
 [2D] Mirror all sketch geometries across a given axis.
@@ -41,7 +41,7 @@ mirror(axis: AxisLike): Transformable
 ---
 
 ```ts
-mirror(line: SceneObject, ...geometries: SceneObject[]): Transformable
+mirror(line: SceneObject, ...geometries: SceneObject[]): SceneObject
 ```
 
 [2D] Mirror given sketch geometries across a given line.
@@ -54,7 +54,7 @@ mirror(line: SceneObject, ...geometries: SceneObject[]): Transformable
 ---
 
 ```ts
-mirror(axis: AxisLike, ...geometries: SceneObject[]): Transformable
+mirror(axis: AxisLike, ...geometries: SceneObject[]): SceneObject
 ```
 
 [2D] Mirror given sketch geometries across a given axis.
@@ -67,7 +67,7 @@ mirror(axis: AxisLike, ...geometries: SceneObject[]): Transformable
 ---
 
 ```ts
-mirror(plane: PlaneLike, ...objects: SceneObject[]): Transformable
+mirror(plane: PlaneLike, ...objects: SceneObject[]): SceneObject
 ```
 
 [3D] Mirror given shapes across a given plane.

@@ -11,7 +11,7 @@ const config: Config = {
     v4: true,
   },
 
-  url: 'https://fluidcad.dev',
+  url: 'https://fluidcad.io',
   baseUrl: '/',
 
   onBrokenLinks: 'throw',

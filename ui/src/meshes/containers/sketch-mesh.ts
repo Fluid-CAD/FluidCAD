@@ -233,14 +233,16 @@ export class SketchMesh extends Group {
       color: TANGENT_ARROW_COLOR,
       transparent: true,
       opacity: TANGENT_ARROW_OPACITY,
+      side: DoubleSide,
       depthTest: false,
+      depthWrite: false,
     });
 
-    const shaftGeometry = new CylinderGeometry(TANGENT_SHAFT_RADIUS, TANGENT_SHAFT_RADIUS, TANGENT_SHAFT_LENGTH, 8);
+    const shaftGeometry = new CylinderGeometry(TANGENT_SHAFT_RADIUS, TANGENT_SHAFT_RADIUS, TANGENT_SHAFT_LENGTH, 16);
     shaftGeometry.translate(0, TANGENT_SHAFT_LENGTH / 2, 0);
     const shaft = new Mesh(shaftGeometry, material);
 
-    const headGeometry = new ConeGeometry(TANGENT_HEAD_WIDTH, TANGENT_HEAD_LENGTH, 8);
+    const headGeometry = new ConeGeometry(TANGENT_HEAD_WIDTH, TANGENT_HEAD_LENGTH, 16);
     headGeometry.translate(0, TANGENT_SHAFT_LENGTH + TANGENT_HEAD_LENGTH / 2, 0);
     const head = new Mesh(headGeometry, material);
 

@@ -22,7 +22,7 @@ describe("subtract", () => {
       });
       const box = extrude(50).new() as ExtrudeBase;
 
-      const cyl = cylinder(20, 50) as SceneObject;
+      const cyl = cylinder(20, 50) as unknown as SceneObject;
 
       const s = subtract(box, cyl) as Subtract;
 
@@ -43,7 +43,7 @@ describe("subtract", () => {
       });
       const box = extrude(50).new() as ExtrudeBase;
 
-      const cyl = cylinder(20, 50) as SceneObject;
+      const cyl = cylinder(20, 50) as unknown as SceneObject;
 
       subtract(box, cyl);
 
@@ -59,7 +59,7 @@ describe("subtract", () => {
       });
       const box = extrude(50).new() as ExtrudeBase;
 
-      const cyl = cylinder(20, 50) as SceneObject;
+      const cyl = cylinder(20, 50) as unknown as SceneObject;
 
       subtract(box, cyl);
 
@@ -76,7 +76,7 @@ describe("subtract", () => {
       });
       const box = extrude(50).new() as ExtrudeBase;
 
-      const cyl = cylinder(20, 50) as SceneObject;
+      const cyl = cylinder(20, 50) as unknown as SceneObject;
 
       const s = subtract(box, cyl) as Subtract;
 

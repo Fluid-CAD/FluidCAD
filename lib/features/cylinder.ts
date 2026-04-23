@@ -1,7 +1,7 @@
-import { SceneObject } from "../common/scene-object.js";
+import { TransformablePrimitive } from "../common/transformable-primitive.js";
 import { Primitives } from "../oc/primitives.js";
 
-export class Cylinder extends SceneObject  {
+export class Cylinder extends TransformablePrimitive  {
 
   constructor(public radius: number, public height: number) {
     super();

@@ -28,7 +28,7 @@ export interface ISceneObject {
   reusable(): this;
 }
 
-export interface IFuseable extends ITransformable {
+export interface IFuseable extends ISceneObject {
   /**
    * Additive boolean operation — fuses the result with existing shapes.
    * When called with no arguments, fuses with all intersecting scene objects.
@@ -109,13 +109,13 @@ export interface ITransformable extends ISceneObject {
   mirror(axis: AxisLike): this;
 }
 
-export interface IPlane extends ITransformable {}
+export interface IPlane extends ISceneObject {}
 
-export interface IAxis extends ITransformable {}
+export interface IAxis extends ISceneObject {}
 
 export interface ISelect extends ISceneObject {}
 
-export interface IGeometry extends ITransformable {
+export interface IGeometry extends ISceneObject {
   /**
    * Returns a lazy-evaluated vertex at the start point of this geometry element.
    */
@@ -242,6 +242,12 @@ export interface ISlot extends IExtrudableGeometry {
    * @param value - `true` to center, `false` (default) to start from the current position.
    */
   centered(value?: boolean): this;
+
+  /**
+   * Sets the rotation angle of the slot's primary axis.
+   * @param angle - Rotation in degrees.
+   */
+  rotate(angle: number): this;
 }
 
 export interface IPolygon extends IExtrudableGeometry {
@@ -286,7 +292,7 @@ export interface ITangentArcTwoObjects extends IGeometry {
   end(index?: number): LazyVertex;
 }
 
-export interface ICommon extends ITransformable {
+export interface ICommon extends ISceneObject {
   /**
    * Controls whether the original objects involved in the boolean intersection
    * are retained or removed after the operation.
@@ -403,7 +409,7 @@ export interface IExtrude extends IFuseable {
   thin(offset1: number, offset2: number): this;
 }
 
-export interface ICut extends ITransformable {
+export interface ICut extends ISceneObject {
   /**
    * Enables symmetric mode — cuts equally in both directions from the sketch plane.
    */
@@ -713,9 +719,9 @@ export interface ISweep extends IFuseable {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
-export interface IDraft extends ITransformable {}
+export interface IDraft extends ISceneObject {}
 
-export interface IShell extends ITransformable {
+export interface IShell extends ISceneObject {
   /**
    * Selects the inner wall faces created by the shell operation (from thickness removal).
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.

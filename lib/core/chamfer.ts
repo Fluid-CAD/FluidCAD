@@ -1,27 +1,27 @@
 import { Chamfer } from "../features/chamfer.js";
 import { SceneObject } from "../common/scene-object.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
-import { ISceneObject, ITransformable } from "./interfaces.js";
+import { ISceneObject } from "./interfaces.js";
 
 interface ChamferFunction {
   /**
    * Chamfers selected edges with the given distance.
    * @param distance - The chamfer distance (defaults to 1)
    */
-  (distance?: number): ITransformable;
+  (distance?: number): ISceneObject;
   /**
    * Chamfers the given edge selections with the given distance.
    * @param distance - The chamfer distance
    * @param sceneObjects - The edge selections to chamfer
    */
-  (distance: number, ...sceneObjects: ISceneObject[]): ITransformable;
+  (distance: number, ...sceneObjects: ISceneObject[]): ISceneObject;
   /**
    * Chamfers selected edges with two distances or a distance and angle.
    * @param distance - The first chamfer distance
    * @param distance2 - The second distance, or angle if `isAngle` is true
    * @param isAngle - Whether `distance2` is an angle
    */
-  (distance: number, distance2: number, isAngle?: boolean): ITransformable;
+  (distance: number, distance2: number, isAngle?: boolean): ISceneObject;
   /**
    * Chamfers the given edge selections with two distances or a distance and angle.
    * @param distance - The first chamfer distance
@@ -29,7 +29,7 @@ interface ChamferFunction {
    * @param isAngle - Whether `distance2` is an angle
    * @param sceneObjects - The edge selections to chamfer
    */
-  (distance: number, distance2: number, isAngle: boolean, ...sceneObjects: ISceneObject[]): ITransformable;
+  (distance: number, distance2: number, isAngle: boolean, ...sceneObjects: ISceneObject[]): ISceneObject;
 }
 
 function build(context: SceneParserContext): ChamferFunction {

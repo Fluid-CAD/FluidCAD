@@ -6,7 +6,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisObject } from "../features/axis.js";
 import { Rotate2D } from "../features/rotate2d.js";
-import { ISceneObject, ITransformable } from "./interfaces.js";
+import { ISceneObject } from "./interfaces.js";
 
 interface RotateFunction {
   /**
@@ -14,14 +14,14 @@ interface RotateFunction {
    * @param angle - The rotation angle in degrees
    * @param targets - The geometries to rotate (defaults to last object)
    */
-  (angle: number, ...targets: ISceneObject[]): ITransformable;
+  (angle: number, ...targets: ISceneObject[]): ISceneObject;
   /**
    * [2D] Rotates geometry by an angle inside a sketch, optionally making a copy.
    * @param angle - The rotation angle in degrees
    * @param copy - Whether to copy instead of move
    * @param targets - The geometries to rotate (defaults to last object)
    */
-  (angle: number, copy: boolean, ...targets: ISceneObject[]): ITransformable;
+  (angle: number, copy: boolean, ...targets: ISceneObject[]): ISceneObject;
 
   /**
    * [3D] Rotates objects around an axis by an angle.
@@ -29,7 +29,7 @@ interface RotateFunction {
    * @param angle - The rotation angle in degrees
    * @param targets - The objects to rotate (defaults to last object)
    */
-  (axis: AxisLike, angle: number, ...targets: ISceneObject[]): ITransformable;
+  (axis: AxisLike, angle: number, ...targets: ISceneObject[]): ISceneObject;
   /**
    * [3D] Rotates objects around an axis by an angle, optionally making a copy.
    * @param axis - The axis to rotate around
@@ -37,7 +37,7 @@ interface RotateFunction {
    * @param copy - Whether to copy instead of move
    * @param targets - The objects to rotate (defaults to last object)
    */
-  (axis: AxisLike, angle: number, copy: boolean, ...targets: ISceneObject[]): ITransformable;
+  (axis: AxisLike, angle: number, copy: boolean, ...targets: ISceneObject[]): ISceneObject;
 }
 
 function build(context: SceneParserContext): RotateFunction {

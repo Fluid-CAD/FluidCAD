@@ -3,37 +3,37 @@ import { Fillet } from "../features/fillet.js";
 import { Fillet2D } from "../features/fillet2d.js";
 import { SceneObject } from "../common/scene-object.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
-import { IGeometry, ISceneObject, ITransformable } from "./interfaces.js";
+import { IGeometry, ISceneObject } from "./interfaces.js";
 
 interface FilletFunction {
   /**
    * Fillets selected edges with the given radius.
    * @param radius - The fillet radius (defaults to 1)
    */
-  (radius?: number): ITransformable;
+  (radius?: number): ISceneObject;
   /**
    * Fillets the given edge selections with the given radius.
    * @param radius - The fillet radius
    * @param sceneObjects - The edge selections to fillet
    */
-  (radius: number, ...sceneObjects: ISceneObject[]): ITransformable;
+  (radius: number, ...sceneObjects: ISceneObject[]): ISceneObject;
   /**
    * [2D] Fillets corners between the given geometries.
    * @param objects - The geometries whose corners to fillet
    */
-  (objects: IGeometry[]): ITransformable;
+  (objects: IGeometry[]): ISceneObject;
   /**
    * [2D] Fillets corners between the given geometries with a radius.
    * @param objects - The geometries whose corners to fillet
    * @param radius - The fillet radius
    */
-  (objects: IGeometry[], radius: number): ITransformable;
+  (objects: IGeometry[], radius: number): ISceneObject;
   /**
    * [2D] Fillets corners at the given radius and geometries.
    * @param radius - The fillet radius
    * @param objects - The geometries whose corners to fillet
    */
-  (radius: number, ...objects: IGeometry[]): ITransformable;
+  (radius: number, ...objects: IGeometry[]): ISceneObject;
 }
 
 function build(context: SceneParserContext): FilletFunction {

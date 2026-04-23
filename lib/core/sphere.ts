@@ -1,7 +1,7 @@
 import { Sphere } from "../features/sphere.js";
 import { rad } from "../helpers/math-helpers.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
-import { ISceneObject, ITransformable } from "./interfaces.js";
+import { ITransformable } from "./interfaces.js";
 
 interface SphereFunction {
   /**

@@ -1,6 +1,6 @@
 import { Cylinder } from "../features/cylinder.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
-import { ISceneObject, ITransformable } from "./interfaces.js";
+import { ITransformable } from "./interfaces.js";
 
 interface CylinderFunction {
   /**

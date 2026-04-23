@@ -3,7 +3,6 @@ import { Edge, Face, Shape } from "../common/shapes.js";
 import { ExtrudeBase } from "./extrude-base.js";
 import { Extruder } from "./simple-extruder.js";
 import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
-import { SelectSceneObject } from "./select.js";
 import { FaceQuery } from "../oc/face-query.js";
 import { FaceOps } from "../oc/face-ops.js";
 import { BooleanOps } from "../oc/boolean-ops.js";

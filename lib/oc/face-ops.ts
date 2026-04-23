@@ -260,21 +260,6 @@ export class FaceOps {
     return isInside;
   }
 
-  static getFreeBoundsWire(compound: any): TopoDS_Wire | null {
-    const oc = getOC();
-    const freeBounds = new oc.ShapeAnalysis_FreeBounds(compound, oc.Precision.Confusion(), true, true);
-    const closedWiresCompound = freeBounds.GetClosedWires();
-
-    const explorer = new oc.TopExp_Explorer(closedWiresCompound, oc.TopAbs_ShapeEnum.TopAbs_WIRE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
-    let result: TopoDS_Wire | null = null;
-    if (explorer.More()) {
-      result = oc.TopoDS.Wire(explorer.Current());
-    }
-    explorer.delete();
-    freeBounds.delete();
-    return result;
-  }
-
   static makeFaceFromPlane2(plane: gp_Pln): TopoDS_Face {
     const oc = getOC();
     const faceMaker = new oc.BRepBuilderAPI_MakeFace(plane,

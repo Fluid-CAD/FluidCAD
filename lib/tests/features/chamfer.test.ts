@@ -137,7 +137,7 @@ describe("chamfer", () => {
       });
       extrude(30);
 
-      const sel = select(edge().onPlane("xy", 30));
+      const sel = select(edge().onPlane("xy", { offset: 30 }));
       chamfer(3, sel);
 
       render();

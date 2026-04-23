@@ -5,57 +5,98 @@ title: "Trimming"
 
 # Trimming
 
-`trim()` removes parts of intersecting geometry in a sketch. Draw overlapping shapes, then trim away the segments you don't need.
+`trim()` removes sketch edges — either by matching edge filters or by interactively picking segments.
 
-In practice, trimming is **rarely needed** — sketch geometries that overlap are automatically fused together when extruded or cut. Trimming is mainly useful when you need precise control over which segments form the final profile, such as creating a specific outline from intersecting curves.
+In practice, trimming is **rarely needed** — overlapping sketch geometries are automatically fused when extruded or cut. Trimming is mainly useful when you need precise control over which segments form the final profile.
 
-## Basic usage
+## Removing edges with filters
 
-```js
-sketch("xy", () => {
-    circle([25, 0], 120)
-    circle([-25, 0], 100)
-    trim()
-})
-```
-
-FluidCAD splits all edges at their intersection points, then you select which segments to remove.
-
-## Trimming at specific points
-
-Pass 2D points to specify which edge segments to remove — the segment nearest to each point gets trimmed:
+Pass [edge filters](/docs/api/filters/edge-filter) to `trim()` to remove all matching edges entirely:
 
 ```js
 sketch("xy", () => {
     circle([25, 0], 120)
     circle([-25, 0], 100)
-    trim([50, 10], [30, -20])  // remove segments near these points
+    rect(200, 10).centered()
+
+    // Remove all circle edges
+    trim(edge().circle())
 })
 ```
 
-:::tip[Interactive mode]
-Call `trim()` with no arguments to enter interactive mode. Hover over edge segments to highlight them, then click to remove them. This is often easier than calculating point coordinates by hand.
+You can match specific sizes or pass multiple filters (each filter is OR'd):
+
+```js
+// Remove circles with a specific diameter
+trim(edge().circle(120))
+
+// Remove all arcs and all lines
+trim(edge().arc(), edge().line())
+
+// Remove arcs with a specific radius
+trim(edge().arc(30))
+```
+
+:::note
+Filter-based trimming removes matching edges **entirely** — it does not split edges at intersection points. Splitting only happens in interactive mode (`.pick()`).
 :::
+
+## Interactive trimming with `.pick()`
+
+Chain `.pick()` to enter interactive trimming mode. FluidCAD splits all edges at their intersection points, then you select which segments to remove:
+
+```js
+sketch("xy", () => {
+    circle([25, 0], 120)
+    circle([-25, 0], 100)
+    trim().pick()
+})
+```
+
+Pass points to `.pick()` to trim specific segments — the segment nearest to each point gets removed:
+
+```js
+sketch("xy", () => {
+    circle([25, 0], 120)
+    circle([-25, 0], 100)
+    trim().pick([50, 10], [30, -20])
+})
+```
+
+### How interactive mode works in the UI
+
+1. When `trim()` is the last call in a sketch, an **"Interactive Trimming"** button appears at the top of the viewport.
+2. Clicking the button appends `.pick()` and enters trimming mode.
+3. Hover over edge segments to highlight them, then click to remove — each click adds a point to `.pick()`.
+4. Click **"Exit"** to finish. If no edges were trimmed, the empty `.pick()` is removed automatically.
+
+## Combining filters and interactive picking
+
+Filters and `.pick()` can be combined. The filter removes matching edges first, then interactive picking operates on the remaining edges:
+
+```js
+sketch("xy", () => {
+    circle([25, 0], 120)
+    circle([-25, 0], 100)
+    rect(200, 10).centered()
+
+    // Remove all circles, then interactively pick from remaining edges
+    trim(edge().circle()).pick([50, 0])
+})
+```
 
 :::caution[Point-based trim can be fragile]
 When you trim by passing coordinates (or by clicking in interactive mode), those coordinates are saved in your code. If the model dimensions change later, the trim points may fall outside the resized geometry, breaking the model.
 
-This makes `trim()` great for **fast prototyping** or models with fixed dimensions. For parametric models where dimensions are likely to change, prefer building profiles from individual primitives and constrained geometry instead of trimming overlapping shapes.
+This makes `trim()` great for **fast prototyping** or models with fixed dimensions. For parametric models, prefer building profiles from individual primitives and constrained geometry.
 :::
 
-## Example: creating a profile from overlapping circles
+## Quick reference
 
-```js
-sketch("xy", () => {
-    rect(100, 50).centered()
-    circle([0, 25], 40)        // overlaps the top edge
-
-    // Trim away the parts you don't want
-    trim([0, 50])              // remove the top edge of the rect inside the circle
-    trim([0, 30])              // remove the bottom arc of the circle inside the rect
-})
-
-extrude(20)
-```
-
-By trimming the overlapping segments, you're left with a single closed profile that combines the rectangle and the circular bump — ready to extrude.
+| Code | Effect |
+|------|--------|
+| `trim(edge().circle())` | Removes all circle edges |
+| `trim(edge().arc(), edge().line())` | Removes all arcs and lines |
+| `trim()` | Shows interactive trimming button |
+| `trim().pick([x, y])` | Splits edges at intersections, removes segment near `[x, y]` |
+| `trim(edge().circle()).pick([x, y])` | Removes circles, then splits and trims remaining edges |

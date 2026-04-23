@@ -81,9 +81,8 @@ export class SelectSceneObject extends SceneObject implements ISelect {
     return new SelectSceneObject(this.filters, remappedConstraint);
   }
 
-  transform(matrix: Matrix4) {
+  transform(matrix: Matrix4): SelectSceneObject {
     const mirroredFilters = this.filters.map(f => f.transform(matrix));
-    console.log('SelectSceneObject: transform applied to selection filters.', mirroredFilters);
     return new SelectSceneObject(mirroredFilters, this.constraintObject);
   }
 

@@ -123,6 +123,11 @@ export class SceneModeManager {
     cc.getTarget(this.ctx.controls.target);
     this.ctx.gizmo.target = this.ctx.controls.target;
 
+    this.showSketchAxes(plane);
+
+    const origin = toVec3(plane.origin);
+    this.setupGrid(normal, origin.add(normal.clone().multiplyScalar(-0.01)));
+
     this.createSectionPlane(plane);
   }
 

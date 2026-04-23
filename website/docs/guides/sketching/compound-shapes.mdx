@@ -53,6 +53,12 @@ An obround shape (rectangle with rounded ends):
 
 ![Slot shape](/img/docs/sketching/compound-slot.png)
 
+Slots always build along the sketch's local X axis. To orient them differently, pass a rotation angle in degrees:
+
+```js
+slot(100, 20).rotate(45);   // rotate the slot's primary axis by 45°
+```
+
 ### Slot from edge
 
 You can create a slot that follows an existing edge or arc. Pass the geometry as the first argument and the width as the second:

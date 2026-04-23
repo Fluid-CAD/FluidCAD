@@ -1,7 +1,7 @@
-import { SceneObject } from "../common/scene-object.js";
+import { TransformablePrimitive } from "../common/transformable-primitive.js";
 import { Primitives } from "../oc/primitives.js";
 
-export class Sphere extends SceneObject {
+export class Sphere extends TransformablePrimitive {
 
   constructor(public radius: number, public angle: number) {
     super();

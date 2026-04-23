@@ -1,6 +1,6 @@
 import { Cylinder } from "../features/cylinder.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
-import { ISceneObject } from "./interfaces.js";
+import { ITransformable } from "./interfaces.js";
 
 interface CylinderFunction {
   /**
@@ -8,11 +8,11 @@ interface CylinderFunction {
    * @param radius - The cylinder radius
    * @param height - The cylinder height
    */
-  (radius: number, height: number): ISceneObject;
+  (radius: number, height: number): ITransformable;
 }
 
 function build(context: SceneParserContext): CylinderFunction {
-  return function cylinder(radius: number, height: number): ISceneObject {
+  return function cylinder(radius: number, height: number): ITransformable {
     const cylinder = new Cylinder(radius, height);
     context.addSceneObject(cylinder);
     return cylinder;

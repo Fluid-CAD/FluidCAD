@@ -34,6 +34,6 @@ sketch(middle.sideFaces(0), () => {
 const c = cut(7)
 
 repeat("circular", "z", {
-    count: sides + 1,
+    count: sides,
     offset: 360 / sides
 })

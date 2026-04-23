@@ -1,5 +1,5 @@
 // @screenshot waitForInput
-import { arc, chamfer, circle, cut, extrude, fillet, hLine, hMove, move, plane, project, remove, select, shell, sketch, trim, vLine } from "fluidcad/core";
+import { arc, chamfer, circle, cut, extrude, fillet, hLine, hMove, move, plane, project, remove, select, shell, sketch, split, trim, vLine } from "fluidcad/core";
 import { edge, face } from "fluidcad/filters";
 
 const spine = sketch("front", () => {
@@ -17,12 +17,13 @@ let base = extrude(80).thin(26).symmetric();
 const topPlane = plane(base.sideFaces(4))
 
 sketch(topPlane, () => {
+    move([-2, 0])
+    vLine(100, true).guide()
     move([0, 0])
     arc(40).centered();
-    project(base.startEdges(1), base.endEdges(1), base.sideEdges(0, 1));
 });
 
-cut(26);
+cut(26).thin(50);
 
 select(edge().verticalTo("top").line(26))
 chamfer(28);
@@ -40,9 +41,10 @@ const faceSelection = select(face().onPlane("xy", 16)).reusable()
 sketch(faceSelection, () => {
     move([0, 0])
     project(faceSelection)
-    circle(50)
     vLine(60, true)
-    trim([44, 0])
+    split()
+    trim(edge().above("yz"))
+    circle([0, 0], 50)
 });
 
 remove(faceSelection);
@@ -51,5 +53,5 @@ extrude(16)
 
 const ribSketch = sketch("front", () => {
     project(spine);
-    trim([-20, 0], [-19, 150])
+    trim(edge().below("yz", { partial: true }))
 });

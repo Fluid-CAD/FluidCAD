@@ -253,3 +253,123 @@ describe('setPickPoints', () => {
     expect(result.newCode).toBe(`line()\n`);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Multi-line call coverage — the AST-based editor must handle calls that
+// span several rows (e.g. `trim(\n  edge().circle()\n)`) identically to
+// single-line calls.
+// ---------------------------------------------------------------------------
+
+describe('multi-line calls', () => {
+  describe('addPick', () => {
+    it('appends .pick() after the closing paren on a later line', async () => {
+      const code = `trim(\n  edge().circle()\n)\n`;
+      const result = await addPick(code, 1);
+      expect(result.newCode).toBe(`trim(\n  edge().circle()\n).pick()\n`);
+    });
+
+    it('is a no-op when .pick() already exists on a later line', async () => {
+      const code = `trim(\n  edge().circle()\n).pick()\n`;
+      const result = await addPick(code, 1);
+      expect(result.newCode).toBe(code);
+    });
+
+    it('finds the trim call when it is nested inside sk.add on a different row', async () => {
+      const code = `sk.add(\n  trim(\n    edge().circle()\n  )\n)\n`;
+      const result = await addPick(code, 2);
+      expect(result.newCode).toBe(
+        `sk.add(\n  trim(\n    edge().circle()\n  ).pick()\n)\n`,
+      );
+    });
+  });
+
+  describe('insertPoint', () => {
+    it('inserts into an empty multi-line call', async () => {
+      const code = `trim(\n  edge().circle()\n).pick()\n`;
+      const result = await insertPoint(code, 1, [5, 6]);
+      expect(result.newCode).toBe(
+        `trim(\n  edge().circle()\n).pick([5, 6])\n`,
+      );
+    });
+
+    it('appends to an existing point in a multi-line call', async () => {
+      const code = `trim(\n  edge().circle()\n).pick([1, 2])\n`;
+      const result = await insertPoint(code, 1, [3, 4]);
+      expect(result.newCode).toBe(
+        `trim(\n  edge().circle()\n).pick([1, 2], [3, 4])\n`,
+      );
+    });
+  });
+
+  describe('removePick', () => {
+    it('strips a trailing .pick() when the chain spans multiple lines', async () => {
+      const code = `extrude(\n  sk\n).pick()\n`;
+      const result = await removePick(code, 1);
+      expect(result.newCode).toBe(`extrude(\n  sk\n)\n`);
+    });
+
+    it('leaves a multi-line .pick() with points untouched', async () => {
+      const code = `trim(\n  edge().circle()\n).pick([1, 2])\n`;
+      const result = await removePick(code, 1);
+      expect(result.newCode).toBe(code);
+    });
+  });
+
+  describe('removePoint', () => {
+    it('removes the closest point when the call spans multiple lines', async () => {
+      const code = `trim(\n  edge().circle()\n).pick([0, 0], [10, 10])\n`;
+      const result = await removePoint(code, 1, [10, 10]);
+      expect(result.newCode).toBe(
+        `trim(\n  edge().circle()\n).pick([0, 0])\n`,
+      );
+    });
+  });
+
+  describe('setPickPoints', () => {
+    it('replaces the argument span of a multi-line call', async () => {
+      const code = `trim(\n  edge().circle()\n).pick([1, 1])\n`;
+      const result = await setPickPoints(code, 1, [[2, 2], [3, 3]]);
+      expect(result.newCode).toBe(
+        `trim(\n  edge().circle()\n).pick([2, 2], [3, 3])\n`,
+      );
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// When `.pick()` is not the last call in the chain (e.g. followed by
+// `.symmetric(...)`), point edits must still target `.pick()` — the
+// outermost call is the wrong destination.
+// ---------------------------------------------------------------------------
+
+describe('point edits target .pick() inside a longer chain', () => {
+  it('insertPoint adds to .pick(), not to a trailing .symmetric()', async () => {
+    const code = `extrude(sk).pick([1, 2]).symmetric([5, 6], [7, 8])\n`;
+    const result = await insertPoint(code, 1, [9, 10]);
+    expect(result.newCode).toBe(
+      `extrude(sk).pick([1, 2], [9, 10]).symmetric([5, 6], [7, 8])\n`,
+    );
+  });
+
+  it('removePoint removes from .pick(), not from a trailing .symmetric()', async () => {
+    const code = `extrude(sk).pick([1, 2], [3, 4]).symmetric([5, 6], [7, 8])\n`;
+    const result = await removePoint(code, 1, [1, 2]);
+    expect(result.newCode).toBe(
+      `extrude(sk).pick([3, 4]).symmetric([5, 6], [7, 8])\n`,
+    );
+  });
+
+  it('setPickPoints replaces .pick() args, not a trailing .symmetric() args', async () => {
+    const code = `extrude(sk).pick([1, 2]).symmetric([5, 6], [7, 8])\n`;
+    const result = await setPickPoints(code, 1, [[9, 9], [10, 10]]);
+    expect(result.newCode).toBe(
+      `extrude(sk).pick([9, 9], [10, 10]).symmetric([5, 6], [7, 8])\n`,
+    );
+  });
+
+  it('insertPoint falls back to the outer call for non-pick chains (e.g. bezier)', async () => {
+    const code = `bezier([0, 0], [1, 1])\n`;
+    const result = await insertPoint(code, 1, [2, 2]);
+    expect(result.newCode).toBe(`bezier([0, 0], [1, 1], [2, 2])\n`);
+  });
+});

@@ -11,6 +11,10 @@ import transformMirror from '!!raw-loader!./_examples/transform-mirror.js';
 
 Transforms move, rotate, and mirror existing geometry in 3D space.
 
+:::tip[Primitive shortcut]
+`cylinder()` and `sphere()` also expose chainable `.translate()`, `.rotate()`, and `.mirror()` methods for placing a primitive in a single expression. See the [Chained Transforms guide](./chained-transforms.mdx).
+:::
+
 ## Translate
 
 Move a solid to a new position:
@@ -62,3 +66,7 @@ Mirror geometry across a plane:
 ![Mirrored shape](/img/docs/guides/transform-mirror.png)
 
 You can use any plane name (`"xy"`, `"xz"`, `"yz"`, `"front"`, `"top"`, `"right"`, etc.) or a custom `plane()` object.
+
+:::info[Inside a sketch?]
+`mirror()` and `rotate()` also have 2D variants that transform sketch geometry directly, and `copy()` works inside a sketch too. See the [2D Transforms guide](./sketching/transforms).
+:::

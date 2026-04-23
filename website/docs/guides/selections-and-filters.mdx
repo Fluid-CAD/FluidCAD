@@ -62,8 +62,8 @@ edge().parallelTo("xz")        // edges parallel to the XZ plane
 ### By position
 
 ```js
-edge().onPlane("xy", 30)       // edges that lie on the XY plane at height 30
-edge().onPlane("yz", 50, true) // edges on YZ plane at offset 50 (approximate match)
+edge().onPlane("xy", 30)                   // edges that lie on the XY plane at height 30
+edge().onPlane("yz", { offset: 50, bothDirections: true }) // edges on YZ plane at offset ±50
 ```
 
 ### By shape
@@ -89,7 +89,7 @@ edge().belongsToFace(topFaces)                // edges belonging to those faces
 ### Negation
 
 ```js
-edge().notOnPlane("xy", 0)     // edges NOT on the ground plane
+edge().notOnPlane("xy")        // edges NOT on the ground plane
 edge().notCircle()             // edges that aren't circular
 edge().notBelongsToFace(face().cylinder())  // edges NOT on cylindrical faces
 ```

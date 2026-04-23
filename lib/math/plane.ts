@@ -7,14 +7,11 @@ import { rad } from "../helpers/math-helpers.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { IPlane } from "../core/interfaces.js";
 
-export type RotationSpace = 'local' | 'global';
-
 export interface PlaneTransformOptions {
   offset?: number;
   rotateX?: number;
   rotateY?: number;
   rotateZ?: number;
-  rotationSpace?: RotationSpace;
 }
 
 export class Plane {
@@ -52,43 +49,42 @@ export class Plane {
   }
 
   transform(options: PlaneTransformOptions): Plane {
-    let result: Plane = this;
+    return this.applyMatrix(this.getTransformMatrix(options));
+  }
 
-    if (options.offset) {
-      result = result.offset(options.offset);
-    }
+  getTransformMatrix(options: PlaneTransformOptions): Matrix4 {
+    const offset = options.offset || 0;
+    const offsetVec = this.normal.multiply(offset);
+    const offsetMatrix = offset
+      ? Matrix4.fromTranslation(offsetVec.x, offsetVec.y, offsetVec.z)
+      : Matrix4.identity();
 
     const hasRotation = options.rotateX || options.rotateY || options.rotateZ;
     if (!hasRotation) {
-      return result;
+      return offsetMatrix;
     }
 
-    const useGlobal = options.rotationSpace === 'global';
-
-    // Determine rotation axes based on rotation space
-    const xAxis = useGlobal ? Vector3d.unitX() : result.xDirection;
-    const yAxis = useGlobal ? Vector3d.unitY() : result.yDirection;
-    const zAxis = useGlobal ? Vector3d.unitZ() : result.normal;
-
-    // Compose all rotations into a single quaternion to avoid gimbal lock
+    // Compose all rotations into a single quaternion to avoid gimbal lock.
+    // Axes are taken from the current plane (offset doesn't change orientation).
     let q = Quaternion.identity();
     if (options.rotateX) {
-      q = q.multiply(Quaternion.fromAxisAngle(xAxis, rad(options.rotateX)));
+      q = q.multiply(Quaternion.fromAxisAngle(this.xDirection, rad(options.rotateX)));
     }
     if (options.rotateY) {
-      q = q.multiply(Quaternion.fromAxisAngle(yAxis, rad(options.rotateY)));
+      q = q.multiply(Quaternion.fromAxisAngle(this.yDirection, rad(options.rotateY)));
     }
     if (options.rotateZ) {
-      q = q.multiply(Quaternion.fromAxisAngle(zAxis, rad(options.rotateZ)));
+      q = q.multiply(Quaternion.fromAxisAngle(this.normal, rad(options.rotateZ)));
     }
 
-    // Apply the composed rotation around the plane's origin
-    const toOrigin = Matrix4.fromTranslation(-result.origin.x, -result.origin.y, -result.origin.z);
+    // Rotate around the offset-applied origin (the plane's origin after offset).
+    const pivot = this.origin.add(offsetVec);
+    const toOrigin = Matrix4.fromTranslation(-pivot.x, -pivot.y, -pivot.z);
     const rotation = Matrix4.fromQuaternion(q);
-    const fromOrigin = Matrix4.fromTranslation(result.origin.x, result.origin.y, result.origin.z);
-    const matrix = fromOrigin.multiply(rotation).multiply(toOrigin);
+    const fromOrigin = Matrix4.fromTranslation(pivot.x, pivot.y, pivot.z);
+    const rotationMatrix = fromOrigin.multiply(rotation).multiply(toOrigin);
 
-    return result.applyMatrix(matrix);
+    return rotationMatrix.multiply(offsetMatrix);
   }
 
   applyMatrix(matrix: Matrix4): Plane {

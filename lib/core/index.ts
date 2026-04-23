@@ -1,10 +1,11 @@
 export type {
-  ISceneObject, IFuseable, IPlane, IAxis, ISelect,
+  ISceneObject, ITransformable, IBooleanOperation, IPlane, IAxis, ISelect,
   IGeometry, IExtrudableGeometry, IRect, ISlot, IPolygon,
   ITwoObjectsTangentLine, ITangentArcTwoObjects,
   IExtrude, ICut, ICommon, ISweep, ILoft, IRevolve, IDraft
 } from "./interfaces.js";
 export { default as axis } from "./axis.js";
+export { default as local } from "./local.js";
 export { default as plane } from "./plane.js";
 export { default as sketch } from "./sketch.js";
 export { default as fuse } from "./fuse.js";

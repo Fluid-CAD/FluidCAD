@@ -35,6 +35,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _id: string;
   private _order: number = 0;
   private _transform: Matrix4 | null = null;
+  private _appliedTransform: Matrix4 | null = null;
   private _cloneSource: SceneObject | null = null;
   private _parent: SceneObject | null = null;
   private _alwaysVisible: boolean = false;
@@ -144,6 +145,16 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   abstract getType(): string;
   abstract build(context?: BuildSceneObjectContext): void;
 
+  getAppliedTransform(): Matrix4 | null {
+    return this._appliedTransform;
+  }
+
+  protected composeAppliedTransform(matrix: Matrix4): void {
+    this._appliedTransform = this._appliedTransform
+      ? matrix.multiply(this._appliedTransform)
+      : matrix;
+  }
+
   compareTo(other: SceneObject): boolean {
     const match = this._guide === other._guide && this._reusable === other._reusable;
 
@@ -156,6 +167,14 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     }
 
     if (this._symmetric !== other._symmetric) {
+      return false;
+    }
+
+    if (!this._appliedTransform !== !other._appliedTransform) {
+      return false;
+    }
+    if (this._appliedTransform && other._appliedTransform
+        && !this._appliedTransform.equals(other._appliedTransform)) {
       return false;
     }
 
@@ -223,6 +242,9 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
     for (const obj of ordered) {
       const copy = obj.createCopy(remap);
+      if (obj._appliedTransform) {
+        copy._appliedTransform = obj._appliedTransform;
+      }
       remap.set(obj, copy);
       result.push(copy);
 
@@ -486,15 +508,9 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return sceneObjects;
   }
 
-  add(...objects: ISceneObject[]): this {
+  add(): this {
     this._operationMode = 'add';
-    if (objects.length === 0) {
-      this._fusionScope = 'all';
-    } else if (objects.length === 1) {
-      this._fusionScope = objects[0] as SceneObject;
-    } else {
-      this._fusionScope = objects as SceneObject[];
-    }
+    this._fusionScope = 'all';
     return this;
   }
 
@@ -504,13 +520,16 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this;
   }
 
-  remove(...objects: ISceneObject[]): this {
+  remove(): this {
     this._operationMode = 'remove';
-    if (objects.length === 0) {
-      this._fusionScope = 'all';
-    } else if (objects.length === 1) {
+    this._fusionScope = 'all';
+    return this;
+  }
+
+  scope(...objects: ISceneObject[]): this {
+    if (objects.length === 1) {
       this._fusionScope = objects[0] as SceneObject;
-    } else {
+    } else if (objects.length > 1) {
       this._fusionScope = objects as SceneObject[];
     }
     return this;

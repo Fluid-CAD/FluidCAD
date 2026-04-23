@@ -51,8 +51,6 @@ async function getParser(): Promise<TSParser> {
   return parser;
 }
 
-const POINT_LITERAL = /\[([^\]]+)\]/g;
-
 export type BreakpointEditResult = { newCode: string; breakpointLine: number | null };
 export type CodeEditResult = { newCode: string };
 
@@ -82,6 +80,124 @@ function* walkTree(node: TSNode): Generator<TSNode> {
   for (const child of node.namedChildren) {
     yield* walkTree(child);
   }
+}
+
+/**
+ * Resolve a 1-indexed `sourceLine` (captured from a V8 stack trace) to the
+ * outermost `call_expression` node whose invocation starts on that row.
+ *
+ * "Outermost" means: of all call_expression nodes starting on the resolved
+ * row, return the one with the largest endIndex. That picks the whole
+ * `.pick()` chain for `extrude(sk).pick()` and the only call on the row for
+ * the multi-line case
+ *   trim(
+ *     edge().circle()
+ *   )
+ * — both match how the old line-based code (which found the last `)` on
+ * the line) behaved for the cases it handled.
+ *
+ * Returns `null` when no call starts on that row, preserving the existing
+ * silent-no-op contract of the edit functions.
+ */
+function findEditableCallAt(tree: TSTree, lines: string[], sourceLine: number): TSNode | null {
+  const row = resolveSourceRow(lines, sourceLine);
+  if (row < 0) {
+    return null;
+  }
+  let best: TSNode | null = null;
+  for (const node of walkTree(tree.rootNode)) {
+    if (node.type !== 'call_expression') {
+      continue;
+    }
+    if (node.startPosition.row !== row) {
+      continue;
+    }
+    if (!best || node.endIndex > best.endIndex) {
+      best = node;
+    }
+  }
+  return best;
+}
+
+function getArgumentsNode(call: TSNode): TSNode | null {
+  return call.childForFieldName('arguments');
+}
+
+/**
+ * If `call` or any call in its `function` chain invokes `.pick(...)`, return
+ * the call_expression for that `.pick()` invocation. Centralises the
+ * "is this chain already picked?" check for addPick and removePick.
+ */
+function findPickCallInChain(call: TSNode): TSNode | null {
+  let current: TSNode | null = call;
+  while (current && current.type === 'call_expression') {
+    const fn = current.childForFieldName('function');
+    if (fn && fn.type === 'member_expression') {
+      const prop = fn.childForFieldName('property');
+      if (prop && prop.text === 'pick') {
+        return current;
+      }
+      const object = fn.childForFieldName('object');
+      current = object;
+      continue;
+    }
+    break;
+  }
+  return null;
+}
+
+/**
+ * Extract `[x, y]` from an `array` node with exactly two numeric children.
+ * Handles unary minus (`-5`) because tree-sitter wraps it in a `unary_expression`.
+ */
+function parsePointLiteral(node: TSNode): [number, number] | null {
+  if (node.type !== 'array' || node.namedChildren.length !== 2) {
+    return null;
+  }
+  const parts: number[] = [];
+  for (const child of node.namedChildren) {
+    const value = parseFloat(child.text);
+    if (Number.isNaN(value)) {
+      return null;
+    }
+    parts.push(value);
+  }
+  return [parts[0], parts[1]];
+}
+
+function spliceCode(code: string, startIndex: number, endIndex: number, replacement: string): string {
+  return code.slice(0, startIndex) + replacement + code.slice(endIndex);
+}
+
+/**
+ * For point edits (insertPoint / removePoint / setPickPoints), the target is
+ * always the `.pick()` call if one exists in the chain — otherwise the
+ * outermost call itself. Without this, a chain like
+ *   extrude(sk).pick([1, 2]).symmetric([3, 4], [5, 6])
+ * would drop new points into `.symmetric(...)` instead of `.pick(...)`,
+ * because `findEditableCallAt` picks the outermost (largest endIndex) call.
+ * The bezier draw-mode flow has no `.pick()` in its chain, so falling back
+ * to the outermost keeps bezier(...) point edits working.
+ */
+function resolvePointEditTarget(call: TSNode): TSNode {
+  return findPickCallInChain(call) ?? call;
+}
+
+/**
+ * Shared setup for the five AST-based edit functions: parse the code once,
+ * split it into lines for `resolveSourceRow`, run the caller's transform,
+ * and wrap the result. Returning `null` from `fn` means "no edit" and
+ * yields the original code verbatim.
+ */
+async function withParsedCode(
+  code: string,
+  fn: (tree: TSTree, lines: string[]) => string | null,
+): Promise<CodeEditResult> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const lines = splitLines(code);
+  const next = fn(tree, lines);
+  return { newCode: next ?? code };
 }
 
 /**
@@ -334,8 +450,9 @@ export async function clearBreakpoints(code: string): Promise<CodeEditResult> {
 }
 
 // ---------------------------------------------------------------------------
-// Point / pick edits — line-level transformations on the function call that
-// ends on the resolved source row.
+// Point / pick edits — AST-driven transformations. `sourceLine` locates the
+// outermost call_expression on that row; edits operate on the node's
+// startIndex/endIndex so multi-line calls are handled the same as single-line.
 // ---------------------------------------------------------------------------
 
 /**
@@ -356,157 +473,174 @@ function resolveSourceRow(lines: string[], sourceLine: number): number {
   return row;
 }
 
-export async function insertPoint(
-  code: string,
-  sourceLine: number,
-  point: [number, number],
-): Promise<CodeEditResult> {
-  const lines = splitLines(code);
-  const row = resolveSourceRow(lines, sourceLine);
-  if (row < 0) {
-    return { newCode: code };
+/**
+ * Walk forward from `from` over whitespace; if a `,` follows, consume it
+ * and any trailing whitespace. Returns the index up to which to delete
+ * when stripping a non-last argument.
+ */
+function consumeTrailingSeparator(code: string, from: number): number {
+  let i = from;
+  while (i < code.length && /\s/.test(code[i])) {
+    i++;
   }
-  const lineText = lines[row];
-  const closeParen = lineText.lastIndexOf(')');
-  if (closeParen < 0) {
-    return { newCode: code };
+  if (i < code.length && code[i] === ',') {
+    i++;
+    while (i < code.length && /\s/.test(code[i])) {
+      i++;
+    }
+    return i;
   }
-  const openParen = lineText.lastIndexOf('(', closeParen);
-  if (openParen < 0) {
-    return { newCode: code };
-  }
-  const between = lineText.substring(openParen + 1, closeParen).trim();
-  const prefix = between.length > 0 ? ', ' : '';
-  const pointText = `[${point[0]}, ${point[1]}]`;
-  lines[row] = lineText.slice(0, closeParen) + `${prefix}${pointText}` + lineText.slice(closeParen);
-  return { newCode: joinLines(lines) };
-}
-
-export async function addPick(code: string, sourceLine: number): Promise<CodeEditResult> {
-  const lines = splitLines(code);
-  const row = resolveSourceRow(lines, sourceLine);
-  if (row < 0) {
-    return { newCode: code };
-  }
-  const lineText = lines[row];
-  if (lineText.includes('.pick(')) {
-    return { newCode: code };
-  }
-  const closeParen = lineText.lastIndexOf(')');
-  if (closeParen < 0) {
-    return { newCode: code };
-  }
-  lines[row] = lineText.slice(0, closeParen + 1) + '.pick()' + lineText.slice(closeParen + 1);
-  return { newCode: joinLines(lines) };
+  return from;
 }
 
 /**
- * Remove an empty `.pick()` call from the line. Calls with points are left
- * untouched so concurrent/stale edits cannot discard user data.
+ * Walk backward from `to` over whitespace; if a `,` precedes, consume it
+ * and any preceding whitespace. Returns the index from which to start
+ * deleting when stripping a non-first argument.
  */
-export async function removePick(code: string, sourceLine: number): Promise<CodeEditResult> {
-  const lines = splitLines(code);
-  const row = resolveSourceRow(lines, sourceLine);
-  if (row < 0) {
-    return { newCode: code };
+function consumeLeadingSeparator(code: string, to: number): number {
+  let i = to;
+  while (i > 0 && /\s/.test(code[i - 1])) {
+    i--;
   }
-  const lineText = lines[row];
-  const match = lineText.match(/\.pick\(\s*\)/);
-  if (!match) {
-    return { newCode: code };
+  if (i > 0 && code[i - 1] === ',') {
+    i--;
+    while (i > 0 && /\s/.test(code[i - 1])) {
+      i--;
+    }
+    return i;
   }
-  const idx = match.index!;
-  lines[row] = lineText.slice(0, idx) + lineText.slice(idx + match[0].length);
-  return { newCode: joinLines(lines) };
+  return to;
 }
 
-export async function removePoint(
+export function insertPoint(
   code: string,
   sourceLine: number,
   point: [number, number],
 ): Promise<CodeEditResult> {
-  const lines = splitLines(code);
-  const row = resolveSourceRow(lines, sourceLine);
-  if (row < 0) {
-    return { newCode: code };
-  }
-  const lineText = lines[row];
-  const closeParen = lineText.lastIndexOf(')');
-  if (closeParen < 0) {
-    return { newCode: code };
-  }
-  const openParen = lineText.lastIndexOf('(', closeParen);
-  if (openParen < 0) {
-    return { newCode: code };
-  }
-  const argsStr = lineText.substring(openParen + 1, closeParen);
-  const matches = [...argsStr.matchAll(POINT_LITERAL)];
-  if (matches.length === 0) {
-    return { newCode: code };
-  }
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const target = resolvePointEditTarget(call);
+    const args = getArgumentsNode(target);
+    if (!args) {
+      return null;
+    }
+    const pointText = `[${point[0]}, ${point[1]}]`;
+    if (args.namedChildren.length === 0) {
+      return spliceCode(code, args.startIndex + 1, args.endIndex - 1, pointText);
+    }
+    return spliceCode(code, args.endIndex - 1, args.endIndex - 1, `, ${pointText}`);
+  });
+}
 
-  let bestIndex = 0;
-  let bestDist = Infinity;
-  for (let i = 0; i < matches.length; i++) {
-    const parts = matches[i][1].split(',').map((s) => parseFloat(s.trim()));
-    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-      const dx = parts[0] - point[0];
-      const dy = parts[1] - point[1];
+export function addPick(code: string, sourceLine: number): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call || findPickCallInChain(call)) {
+      return null;
+    }
+    return spliceCode(code, call.endIndex, call.endIndex, '.pick()');
+  });
+}
+
+/**
+ * Remove an empty `.pick()` call from the chain on the resolved row.
+ * Calls with points are left untouched so concurrent/stale edits cannot
+ * discard user data.
+ */
+export function removePick(code: string, sourceLine: number): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const pickCall = findPickCallInChain(call);
+    if (!pickCall) {
+      return null;
+    }
+    const pickArgs = getArgumentsNode(pickCall);
+    if (!pickArgs || pickArgs.namedChildren.length !== 0) {
+      return null;
+    }
+    const member = pickCall.childForFieldName('function');
+    const object = member ? member.childForFieldName('object') : null;
+    if (!object) {
+      return null;
+    }
+    return spliceCode(code, object.endIndex, pickCall.endIndex, '');
+  });
+}
+
+export function removePoint(
+  code: string,
+  sourceLine: number,
+  point: [number, number],
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const target = resolvePointEditTarget(call);
+    const args = getArgumentsNode(target);
+    if (!args || args.namedChildren.length === 0) {
+      return null;
+    }
+
+    let bestIndex = -1;
+    let bestDist = Infinity;
+    for (let i = 0; i < args.namedChildren.length; i++) {
+      const parsed = parsePointLiteral(args.namedChildren[i]);
+      if (!parsed) {
+        continue;
+      }
+      const dx = parsed[0] - point[0];
+      const dy = parsed[1] - point[1];
       const dist = dx * dx + dy * dy;
       if (dist < bestDist) {
         bestDist = dist;
         bestIndex = i;
       }
     }
-  }
-
-  const match = matches[bestIndex];
-  const matchStart = openParen + 1 + match.index!;
-  const matchEnd = matchStart + match[0].length;
-
-  let deleteStart = matchStart;
-  let deleteEnd = matchEnd;
-
-  if (matches.length === 1) {
-    // Only point — strip just the literal.
-  } else if (bestIndex === 0) {
-    const rest = lineText.substring(deleteEnd);
-    const commaMatch = rest.match(/^,\s*/);
-    if (commaMatch) {
-      deleteEnd += commaMatch[0].length;
+    if (bestIndex < 0) {
+      return null;
     }
-  } else {
-    const before = lineText.substring(0, matchStart);
-    const commaMatch = before.match(/,\s*$/);
-    if (commaMatch) {
-      deleteStart = matchStart - commaMatch[0].length;
-    }
-  }
 
-  lines[row] = lineText.slice(0, deleteStart) + lineText.slice(deleteEnd);
-  return { newCode: joinLines(lines) };
+    const pointNode = args.namedChildren[bestIndex];
+    let deleteStart = pointNode.startIndex;
+    let deleteEnd = pointNode.endIndex;
+
+    if (args.namedChildren.length > 1) {
+      if (bestIndex === 0) {
+        deleteEnd = consumeTrailingSeparator(code, deleteEnd);
+      } else {
+        deleteStart = consumeLeadingSeparator(code, deleteStart);
+      }
+    }
+
+    return spliceCode(code, deleteStart, deleteEnd, '');
+  });
 }
 
-export async function setPickPoints(
+export function setPickPoints(
   code: string,
   sourceLine: number,
   points: [number, number][],
 ): Promise<CodeEditResult> {
-  const lines = splitLines(code);
-  const row = resolveSourceRow(lines, sourceLine);
-  if (row < 0) {
-    return { newCode: code };
-  }
-  const lineText = lines[row];
-  const closeParen = lineText.lastIndexOf(')');
-  if (closeParen < 0) {
-    return { newCode: code };
-  }
-  const openParen = lineText.lastIndexOf('(', closeParen);
-  if (openParen < 0) {
-    return { newCode: code };
-  }
-  const newArgs = points.map((p) => `[${p[0]}, ${p[1]}]`).join(', ');
-  lines[row] = lineText.slice(0, openParen + 1) + newArgs + lineText.slice(closeParen);
-  return { newCode: joinLines(lines) };
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const target = resolvePointEditTarget(call);
+    const args = getArgumentsNode(target);
+    if (!args) {
+      return null;
+    }
+    const newArgs = points.map((p) => `[${p[0]}, ${p[1]}]`).join(', ');
+    return spliceCode(code, args.startIndex + 1, args.endIndex - 1, newArgs);
+  });
 }

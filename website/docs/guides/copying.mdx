@@ -1,5 +1,5 @@
 ---
-sidebar_position: 5
+sidebar_position: 6
 title: "Copying"
 ---
 
@@ -53,4 +53,8 @@ Options:
 
 :::info[Copy vs. Repeat]
 `copy()` duplicates the finished shape. If you need to re-apply a modeling operation (like a cut or extrude) at multiple positions — so it interacts with the underlying solid at each location — use [`repeat()`](./patterns) instead.
+:::
+
+:::info[Inside a sketch?]
+`copy()` called inside `sketch(...)` duplicates **sketch geometry** rather than solids, and circular copy takes a 2D center point instead of an axis. See the [2D Transforms guide](./sketching/transforms).
 :::

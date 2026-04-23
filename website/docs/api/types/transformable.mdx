@@ -1,0 +1,185 @@
+---
+sidebar_position: 2
+title: "Transformable"
+description: "The Transformable type. Extends SceneObject."
+---
+
+# Transformable
+
+Extends [`SceneObject`](/docs/api/types/scene-object)
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### guide()
+
+```ts
+guide(): this
+```
+
+Marks this object as construction geometry. Guide objects are excluded from
+final geometry output unless explicitly included.
+
+---
+
+### reusable()
+
+```ts
+reusable(): this
+```
+
+Marks this object as reusable. Reusable objects retain their shapes when
+consumed by features (e.g., extrude, revolve), allowing multiple features
+to reference the same source geometry. Use `remove(obj)` to force-remove
+shapes from a reusable object.
+
+
+</details>
+
+## Methods
+
+### transform()
+
+```ts
+transform(matrix: Matrix4): this
+```
+
+Composes a 4x4 transformation matrix onto this object. Applied to the
+object's own shapes after build. Chained calls compose left-to-right:
+`.translate(T).rotate(R)` applies translation first, then rotation.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `matrix` | Matrix4 |  |
+
+---
+
+### translate()
+
+```ts
+translate(x: number): this
+```
+
+Translate along X.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `x` | number | Distance along world X. |
+
+---
+
+### translate()
+
+```ts
+translate(x: number, y: number): this
+```
+
+Translate along X and Y.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `x` | number |  |
+| `y` | number |  |
+
+---
+
+### translate()
+
+```ts
+translate(x: number, y: number, z: number): this
+```
+
+Translate along X, Y, and Z.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `x` | number |  |
+| `y` | number |  |
+| `z` | number |  |
+
+---
+
+### translate()
+
+```ts
+translate(offset: PointLike): this
+```
+
+Translate by a point-like offset in world space.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `offset` | [PointLike](/docs/api/types/point-like) |  |
+
+---
+
+### rotate()
+
+```ts
+rotate(angle: number): this
+```
+
+Rotate by an angle around world Z through the origin.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `angle` | number | Rotation in degrees. |
+
+---
+
+### rotate()
+
+```ts
+rotate(axis: AxisLike, angle: number): this
+```
+
+Rotate around an axis by an angle.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to rotate around. Use `local(...)` to reference a sketch-local axis. |
+| `angle` | number | Rotation in degrees. |
+
+---
+
+### mirror()
+
+```ts
+mirror(plane: PlaneLike): this
+```
+
+Mirror across a plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [PlaneLike](/docs/api/types/plane-like) |  |
+
+---
+
+### mirror()
+
+```ts
+mirror(axis: AxisLike): this
+```
+
+Mirror across an axis (primarily useful for 2D geometry).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `axis` | [AxisLike](/docs/api/types/axis-like) |  |
+

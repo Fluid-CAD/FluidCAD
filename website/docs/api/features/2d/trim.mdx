@@ -8,7 +8,7 @@ description: "Trims all sketch geometry segments."
 
 Trims all sketch geometry segments.
 
-**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+**Returns**: [**`Trim`**](/docs/api/types/trim)
 
 :::tip
 See the [guide](/docs/guides/sketching/trim) for detailed usage examples.
@@ -17,7 +17,7 @@ See the [guide](/docs/guides/sketching/trim) for detailed usage examples.
 ## Signatures
 
 ```ts
-trim(): SceneObject
+trim(): Trim
 ```
 
 Trims all sketch geometry segments.
@@ -25,11 +25,11 @@ Trims all sketch geometry segments.
 ---
 
 ```ts
-trim(...points: Point2DLike[]): SceneObject
+trim(...filters: EdgeFilter[]): Trim
 ```
 
-Trims sketch geometry segments at the given points.
+Trims sketch geometry segments matching the given edge filters.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...points` | [Point2DLike](/docs/api/types/point2dlike)[] | The points where geometry should be trimmed *(optional)* |
+| `...filters` | EdgeFilter[] | Edge filters that select which edges to remove *(optional)* |

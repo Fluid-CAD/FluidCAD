@@ -1,7 +1,10 @@
-import { LazyVertex } from "../features/lazy-vertex.js";
-import { Point2DLike } from "../math/point.js";
-import { FaceFilterBuilder } from "../filters/face/face-filter.js";
-import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
+import type { LazyVertex } from "../features/lazy-vertex.js";
+import type { Point2DLike, PointLike } from "../math/point.js";
+import type { FaceFilterBuilder } from "../filters/face/face-filter.js";
+import type { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
+import type { Matrix4 } from "../math/matrix4.js";
+import type { AxisLike } from "../math/axis.js";
+import type { PlaneLike } from "../math/plane.js";
 
 export interface ISceneObject {
   /**
@@ -25,14 +28,12 @@ export interface ISceneObject {
   reusable(): this;
 }
 
-export interface IFuseable extends ISceneObject {
+export interface IBooleanOperation extends ISceneObject {
   /**
-   * Additive boolean operation — fuses the result with existing shapes.
-   * When called with no arguments, fuses with all intersecting scene objects.
-   * When called with specific objects, fuses only with those objects.
-   * @param objects - Optional target objects to fuse with.
+   * Additive boolean operation — fuses the result with all intersecting scene objects.
+   * Use `.scope()` to target specific objects.
    */
-  add(...objects: ISceneObject[]): this;
+  add(): this;
 
   /**
    * No boolean operation — keeps the result as a standalone shape,
@@ -41,12 +42,74 @@ export interface IFuseable extends ISceneObject {
   'new'(): this;
 
   /**
-   * Subtractive boolean operation — cuts the result from existing shapes.
-   * When called with no arguments, cuts from all intersecting scene objects.
-   * When called with specific objects, cuts only from those objects.
-   * @param objects - Optional target objects to cut from.
+   * Subtractive boolean operation — cuts the result from all intersecting scene objects.
+   * Use `.scope()` to target specific objects.
    */
-  remove(...objects: ISceneObject[]): this;
+  remove(): this;
+
+  /**
+   * Narrows the boolean operation scope to specific target objects.
+   * Must be chained after `.add()` or `.remove()`.
+   * @param objects - The target objects to operate on.
+   */
+  scope(...objects: ISceneObject[]): this;
+}
+
+/**
+ * Scene objects that can be chained with world-space transformations.
+ * The chained form `obj.translate(...)` / `obj.rotate(...)` / `obj.mirror(...)`
+ * applies the transform to the object's built shapes; it does not create
+ * a separate history entry like the free-function `translate()` does.
+ *
+ * Container objects (sketches, parts, repeat/mirror features) deliberately
+ * do not expose this interface — apply transforms to their contents instead.
+ */
+export interface ITransformable extends ISceneObject {
+  /**
+   * Composes a 4x4 transformation matrix onto this object. Applied to the
+   * object's own shapes after build. Chained calls compose left-to-right:
+   * `.translate(T).rotate(R)` applies translation first, then rotation.
+   */
+  transform(matrix: Matrix4): this;
+
+  /**
+   * Translate along X.
+   * @param x - Distance along world X.
+   */
+  translate(x: number): this;
+  /**
+   * Translate along X and Y.
+   */
+  translate(x: number, y: number): this;
+  /**
+   * Translate along X, Y, and Z.
+   */
+  translate(x: number, y: number, z: number): this;
+  /**
+   * Translate by a point-like offset in world space.
+   */
+  translate(offset: PointLike): this;
+
+  /**
+   * Rotate by an angle around world Z through the origin.
+   * @param angle - Rotation in degrees.
+   */
+  rotate(angle: number): this;
+  /**
+   * Rotate around an axis by an angle.
+   * @param axis - The axis to rotate around. Use `local(...)` to reference a sketch-local axis.
+   * @param angle - Rotation in degrees.
+   */
+  rotate(axis: AxisLike, angle: number): this;
+
+  /**
+   * Mirror across a plane.
+   */
+  mirror(plane: PlaneLike): this;
+  /**
+   * Mirror across an axis (primarily useful for 2D geometry).
+   */
+  mirror(axis: AxisLike): this;
 }
 
 export interface IPlane extends ISceneObject {}
@@ -241,7 +304,7 @@ export interface ICommon extends ISceneObject {
   keepOriginal(value?: boolean): this;
 }
 
-export interface IExtrude extends IFuseable {
+export interface IExtrude extends IBooleanOperation {
   /**
    * Enables symmetric mode — extrudes equally in both directions from the sketch plane.
    */
@@ -356,10 +419,11 @@ export interface ICut extends ISceneObject {
   symmetric(): this;
 
   /**
-   * Narrows the cut scope to specific objects instead of all scene objects.
+   * Narrows the cut scope to specific target objects.
+   * Must be chained after `.remove()`.
    * @param objects - The target objects to cut from.
    */
-  remove(...objects: ISceneObject[]): this;
+  scope(...objects: ISceneObject[]): this;
   /**
    * Applies a draft (taper) angle to the cut walls.
    * @param value - A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft.
@@ -419,7 +483,7 @@ export interface ICut extends ISceneObject {
   thin(offset1: number, offset2: number): this;
 }
 
-export interface IRevolve extends IFuseable {
+export interface IRevolve extends IBooleanOperation {
   /**
    * Enables symmetric mode — revolves equally in both directions from the sketch plane.
    */
@@ -474,7 +538,7 @@ export interface IRevolve extends IFuseable {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
-export interface ILoft extends IFuseable {
+export interface ILoft extends IBooleanOperation {
   /**
    * Selects faces on the first profile plane of the loft.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
@@ -555,7 +619,7 @@ export interface ILoft extends IFuseable {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
-export interface ISweep extends IFuseable {
+export interface ISweep extends IBooleanOperation {
   /**
    * Selects faces at the start (profile plane) of the sweep.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.

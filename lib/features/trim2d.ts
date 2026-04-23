@@ -4,28 +4,46 @@ import { Edge } from "../common/edge.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { LazyVertex } from "./lazy-vertex.js";
+import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
+import { ShapeFilter } from "../filters/filter.js";
+import { Plane } from "../math/plane.js";
 
 export class Trim2D extends GeometrySceneObject {
-  private _points: LazyVertex[] = [];
+  private _filters: EdgeFilterBuilder[] = [];
+  private _picking = false;
+  private _pickPoints: LazyVertex[] = [];
 
   constructor() {
     super();
   }
 
-  points(...ps: LazyVertex[]): this {
-    this._points = ps;
+  setFilters(...fs: EdgeFilterBuilder[]): this {
+    this._filters = fs;
     return this;
   }
 
-  get trimPoints(): LazyVertex[] {
-    return this._points;
+  pick(...ps: LazyVertex[]): this {
+    this._picking = true;
+    this._pickPoints = ps;
+    return this;
+  }
+
+  isPicking(): boolean {
+    return this._picking;
+  }
+
+  getPickPoints(): LazyVertex[] {
+    return this._pickPoints;
+  }
+
+  get filters(): EdgeFilterBuilder[] {
+    return this._filters;
   }
 
   build() {
     const plane = this.sketch.getPlane();
     const sourceWires = this.sketch.getGeometriesWithOwner();
 
-    // Collect all individual edges from wires/edges in the sketch
     const allEdges: Edge[] = [];
     const edgeToOwner = new Map<Edge, { wire: Wire | Edge; owner: SceneObject }>();
 
@@ -45,17 +63,46 @@ export class Trim2D extends GeometrySceneObject {
       return;
     }
 
+    if (this._filters.length > 0) {
+      this.buildWithFilters(allEdges, edgeToOwner);
+    }
+
+    if (this._picking) {
+      let pickableEdges: Edge[];
+      if (this._filters.length > 0) {
+        const matched = new Set(new ShapeFilter(allEdges, ...this._filters).apply());
+        pickableEdges = allEdges.filter(e => !matched.has(e));
+      } else {
+        pickableEdges = allEdges;
+      }
+      this.buildWithPicking(pickableEdges, edgeToOwner, plane);
+    }
+  }
+
+  private buildWithFilters(allEdges: Edge[], edgeToOwner: Map<Edge, { wire: Wire | Edge; owner: SceneObject }>) {
+    const matchedEdges = new ShapeFilter(allEdges, ...this._filters).apply() as Edge[];
+
+    const removedWires = new Set<Wire | Edge>();
+    for (const edge of matchedEdges) {
+      const entry = edgeToOwner.get(edge)!;
+      if (!removedWires.has(entry.wire)) {
+        removedWires.add(entry.wire);
+        entry.owner.removeShape(entry.wire, this);
+      }
+    }
+  }
+
+  private buildWithPicking(pickableEdges: Edge[], edgeToOwner: Map<Edge, { wire: Wire | Edge; owner: SceneObject }>, plane: Plane) {
+
     const TRIM_TOLERANCE = 50;
 
-    // Split all edges at intersection points
-    const splitResult = EdgeOps.splitEdgesWithMapping(allEdges);
+    const splitResult = EdgeOps.splitEdgesWithMapping(pickableEdges);
     const splitEdges = splitResult.edges;
     const sourceIndex = splitResult.sourceIndex;
 
-    // Find split edges to remove
     const splitEdgesToRemove = new Set<number>();
-    if (this._points.length > 0) {
-      for (const lazyPoint of this._points) {
+    if (this._pickPoints.length > 0) {
+      for (const lazyPoint of this._pickPoints) {
         const point2d = lazyPoint.asPoint2D();
         const point3d = plane.localToWorld(point2d);
         for (const idx of EdgeOps.findNearestEdgeIndices(splitEdges, point3d, TRIM_TOLERANCE)) {
@@ -63,10 +110,9 @@ export class Trim2D extends GeometrySceneObject {
         }
       }
 
-      // Remove affected original wires and re-add surviving split edges
       const removedWires = new Set<Wire | Edge>();
       for (const idx of splitEdgesToRemove) {
-        const origEdge = allEdges[sourceIndex[idx]];
+        const origEdge = pickableEdges[sourceIndex[idx]];
         const entry = edgeToOwner.get(origEdge)!;
         if (!removedWires.has(entry.wire)) {
           removedWires.add(entry.wire);
@@ -78,7 +124,7 @@ export class Trim2D extends GeometrySceneObject {
         if (splitEdgesToRemove.has(i)) {
           continue;
         }
-        const origEdge = allEdges[sourceIndex[i]];
+        const origEdge = pickableEdges[sourceIndex[i]];
         const entry = edgeToOwner.get(origEdge)!;
         if (removedWires.has(entry.wire)) {
           this.addShape(splitEdges[i]);
@@ -87,12 +133,8 @@ export class Trim2D extends GeometrySceneObject {
     }
 
     // --- Meta shapes for segment-level hover ---
-    // Originals with trims need the first-pass split (to preserve trim boundaries).
-    // Originals without trims are re-split against only surviving edges
-    // (so ghost intersections from fully-removed edges disappear).
-
     const origSurvives = new Set<number>();
-    const origHasTrim = new Array(allEdges.length).fill(false);
+    const origHasTrim = new Array(pickableEdges.length).fill(false);
     for (let i = 0; i < splitEdges.length; i++) {
       if (!splitEdgesToRemove.has(i)) {
         origSurvives.add(sourceIndex[i]);
@@ -101,18 +143,16 @@ export class Trim2D extends GeometrySceneObject {
       }
     }
 
-    // Re-split only surviving originals (for clean meta shapes of untrimmed edges)
     const metaInputEdges: Edge[] = [];
     const metaInputToOrig: number[] = [];
-    for (let i = 0; i < allEdges.length; i++) {
+    for (let i = 0; i < pickableEdges.length; i++) {
       if (origSurvives.has(i)) {
-        metaInputEdges.push(allEdges[i]);
+        metaInputEdges.push(pickableEdges[i]);
         metaInputToOrig.push(i);
       }
     }
     const metaSplit = EdgeOps.splitEdgesWithMapping(metaInputEdges);
 
-    // Untrimmed originals: use re-split result (clean, no ghost intersections)
     for (let i = 0; i < metaSplit.edges.length; i++) {
       const origIdx = metaInputToOrig[metaSplit.sourceIndex[i]];
       if (origHasTrim[origIdx]) {
@@ -123,7 +163,6 @@ export class Trim2D extends GeometrySceneObject {
       this.addShape(metaEdge);
     }
 
-    // Trimmed originals: use first-pass surviving split edges (preserve boundaries)
     for (let i = 0; i < splitEdges.length; i++) {
       if (splitEdgesToRemove.has(i)) {
         continue;
@@ -143,8 +182,11 @@ export class Trim2D extends GeometrySceneObject {
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const copy = new Trim2D();
-    if (this._points.length > 0) {
-      copy.points(...this._points);
+    if (this._filters.length > 0) {
+      copy.setFilters(...this._filters);
+    }
+    if (this._picking) {
+      copy.pick(...this._pickPoints);
     }
     return copy;
   }
@@ -158,12 +200,26 @@ export class Trim2D extends GeometrySceneObject {
       return false;
     }
 
-    if (this._points.length !== other._points.length) {
+    if (this._filters.length !== other._filters.length) {
       return false;
     }
 
-    for (let i = 0; i < this._points.length; i++) {
-      if (!this._points[i].compareTo(other._points[i])) {
+    for (let i = 0; i < this._filters.length; i++) {
+      if (!this._filters[i].equals(other._filters[i])) {
+        return false;
+      }
+    }
+
+    if (this._picking !== other._picking) {
+      return false;
+    }
+
+    if (this._pickPoints.length !== other._pickPoints.length) {
+      return false;
+    }
+
+    for (let i = 0; i < this._pickPoints.length; i++) {
+      if (!this._pickPoints[i].compareTo(other._pickPoints[i])) {
         return false;
       }
     }
@@ -176,6 +232,12 @@ export class Trim2D extends GeometrySceneObject {
   }
 
   serialize() {
-    return {};
+    return {
+      trigger: 'trim-picking' as const,
+      picking: this._picking || undefined,
+      pickPoints: this._picking
+        ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })
+        : undefined,
+    };
   }
 }

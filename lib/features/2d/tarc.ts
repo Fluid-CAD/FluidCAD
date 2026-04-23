@@ -19,7 +19,10 @@ export class TangentArc extends GeometrySceneObject {
     }
 
     const plane = this.sketch.getPlane();
-    const radius = this.radius;
+
+    // Negative radius flips the sweep direction.
+    const radius = Math.abs(this.radius);
+    const signedEndAngle = this.radius < 0 ? -this.endAngle : this.endAngle;
 
     // Derive the base angle from the previous sibling's tangent.
     // Tangent at angle θ on a circle is (-sin θ, cos θ),
@@ -29,7 +32,7 @@ export class TangentArc extends GeometrySceneObject {
     // For CW (negative endAngle), flip the center to the opposite side
     // and negate the normal so makeArc sweeps in reverse
     // Clamp to avoid coincident start/end points at exactly ±360°
-    const clampedEndAngle = Math.max(this.endAngle, -359.9999);
+    const clampedEndAngle = Math.max(signedEndAngle, -359.9999);
     const cw = clampedEndAngle < 0;
     const startAngleRad = cw ? baseAngle + Math.PI : baseAngle;
     const endAngleRad = startAngleRad + rad(clampedEndAngle);

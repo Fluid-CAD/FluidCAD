@@ -1,0 +1,56 @@
+---
+sidebar_position: 5
+title: "Chained Transforms"
+---
+
+# Chained Transforms
+
+Primitive shapes — `cylinder()` and `sphere()` — expose chainable `.translate()`, `.rotate()`, `.mirror()`, and `.transform()` methods so you can place them in a single expression.
+
+```js
+cylinder(5, 10).translate(20, 0, 0);
+sphere(1).translate(5, 0, 0).rotate("z", 90);
+```
+
+For every other builder (extrude, cut, fuse, fillet, chamfer, etc.) use the free-function forms — [`translate(...)`](/docs/api/features/transforms/translate), [`rotate(...)`](/docs/api/features/transforms/rotate), [`mirror(...)`](/docs/api/features/transforms/mirror) — which wrap the target object and add a distinct step to scene history.
+
+```js
+translate(100, extrude(10));
+```
+
+## Method reference
+
+All methods return `this` so they chain. Angles are in degrees.
+
+```ts
+transform(matrix: Matrix4): this
+
+translate(x: number): this
+translate(x: number, y: number): this
+translate(x: number, y: number, z: number): this
+translate(offset: PointLike): this
+
+rotate(angle: number): this                   // around world Z through origin
+rotate(axis: AxisLike, angle: number): this   // around any axis
+
+mirror(plane: PlaneLike): this
+mirror(axis: AxisLike): this
+```
+
+## Composition order
+
+Chained calls compose **left-to-right**: the first call runs first, then each subsequent call is applied on top.
+
+```js
+// Translate by (5, 0, 0), then rotate 90° around Z → final center at (0, 5, 0)
+sphere(1).translate(5, 0, 0).rotate("z", 90);
+
+// Rotate 90° around Z (a no-op for a sphere at origin), then translate → (5, 0, 0)
+sphere(1).rotate("z", 90).translate(5, 0, 0);
+```
+
+Internally this is the standard "matrices on the right apply first" composition — `.translate(T).rotate(R)` composes to `R · T`.
+
+## Why only primitives?
+
+Chained transforms apply the transform to the object's final built shapes, bypassing scene history. That works cleanly for a standalone primitive but interacts badly with features that participate in history, fusion, or interactive picking — for example an extruded sketch region. Keeping the chain API narrow avoids those edge cases. For every non-primitive, use the free-function form.

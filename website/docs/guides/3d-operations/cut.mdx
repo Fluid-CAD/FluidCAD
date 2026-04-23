@@ -77,8 +77,8 @@ c.internalFaces()      // faces inside the cut pocket
 
 ## Fusion scope
 
-By default, cut removes material from all intersecting solids. Control this with:
+By default, cut removes material from all intersecting solids. Use `.scope()` to narrow it:
 
 ```js
-cut().remove(box)              // cut only from the box, leaving other solids untouched
+cut().remove().scope(box)      // cut only from the box, leaving other solids untouched
 ```

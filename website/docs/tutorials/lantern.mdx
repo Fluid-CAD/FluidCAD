@@ -57,7 +57,7 @@ const middle = extrude(middleHeight).draft(draft).new()
 
 ![Hexagon sketch](/img/docs/tutorials/lantern-step1-sketch.png)
 
-The draft angle makes the hexagon slightly narrower at the top than the bottom, giving the lantern its characteristic tapered shape.
+The draft angle makes the hexagon slightly wider at the top than the bottom, giving the lantern its characteristic tapered shape.
 
 ![Tapered hexagonal prism](/img/docs/tutorials/lantern-step1.png)
 
@@ -110,12 +110,12 @@ Cut through the wall, then repeat the cut for all sides:
 const c = cut(7)
 
 repeat("circular", "z", {
-    count: sides + 1,
+    count: sides,
     offset: 360 / sides
 })
 ```
 
-`cut(7)` removes 7 units of material (matching the wall thickness). The `repeat("circular")` re-applies this cut around the Z axis, once for each side of the hexagon. We use `sides + 1` because `count` includes the original.
+`cut(7)` removes 7 units of material (matching the wall thickness). The `repeat("circular")` re-applies this cut around the Z axis, once for each side of the hexagon. `count` includes the original, so `sides` gives us one cut per face.
 
 ![Lantern body with windows](/img/docs/tutorials/lantern-step2.png)
 
@@ -188,7 +188,7 @@ A small sphere (diameter 12.5) is placed at the very top of the lantern at heigh
 ```js
 const ringAxis = axis("y", { offsetZ: 290 })
 
-sketch("left", () => {
+sketch("yz", () => {
     circle([0, 290 + (65 / 2) - (7 / 2)], 7)
 });
 
@@ -196,13 +196,17 @@ revolve(ringAxis).new()
 ```
 
 - `axis("y", { offsetZ: 290 })` creates a Y-axis shifted up to height 290 — this is the center of the ring.
-- A small circle (diameter 7) is sketched on the left plane, positioned to form the ring's cross-section.
+- A small circle (diameter 7) is sketched on the YZ plane, positioned to form the ring's cross-section.
 
 ![Ring cross-section sketch](/img/docs/tutorials/lantern-step5-sketch.png)
 
 - `revolve(ringAxis)` rotates this circle around the offset axis, creating a torus (ring). The `.new()` keeps it separate from the rest.
 
 ![Finished lantern](/img/docs/tutorials/lantern-final.png)
+
+:::tip[Try it parametric]
+Change the `sides` variable to any even number ≥ 4 (e.g. `4`, `6`, `8`) and the whole lantern — body, windows, base, top, and loft — adapts automatically.
+:::
 
 ## Full code
 

@@ -4,10 +4,11 @@
   "private": true,
   "scripts": {
     "docusaurus": "docusaurus",
-    "start": "docusaurus start",
+    "start": "dotenv -e .env.local -- docusaurus start",
     "build": "docusaurus build",
+    "build:local": "dotenv -e .env.local -- docusaurus build",
     "swizzle": "docusaurus swizzle",
-    "deploy": "docusaurus deploy",
+    "deploy": "npm run build:local && npx wrangler pages deploy --branch main",
     "clear": "docusaurus clear",
     "serve": "docusaurus serve",
     "write-translations": "docusaurus write-translations",
@@ -36,6 +37,7 @@
     "@docusaurus/types": "3.10.0",
     "@types/node": "^25.5.2",
     "@types/react": "^19.0.0",
+    "dotenv-cli": "^11.0.0",
     "ts-morph": "^28.0.0",
     "typescript": "~6.0.2"
   },

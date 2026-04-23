@@ -31,17 +31,19 @@ export class PlaneFromObject extends PlaneObjectBase {
 
     this.sourceObject.removeShapes(this);
 
-    if (this.options) {
-      plane = plane.transform(this.options);
-    }
-
     if (sourceFace) {
       const bbox = ShapeOps.getBoundingBox(sourceFace.getShape());
       center = new Point(bbox.centerX, bbox.centerY, bbox.centerZ);
     }
 
-    if (center) {
-      this.setState('plane-center', center);
+    if (this.options) {
+      // Apply the same transform to the center so the preview face stays on
+      // the rotated plane instead of floating at its pre-rotation position.
+      const matrix = plane.getTransformMatrix(this.options);
+      plane = plane.applyMatrix(matrix);
+      if (center) {
+        center = center.transform(matrix);
+      }
     }
 
     const transform = context?.getTransform() ?? null;
@@ -50,8 +52,11 @@ export class PlaneFromObject extends PlaneObjectBase {
 
       if (center) {
         center = center.transform(transform);
-        this.setState('plane-center', center);
       }
+    }
+
+    if (center) {
+      this.setState('plane-center', center);
     }
 
     this.setState('plane', plane);

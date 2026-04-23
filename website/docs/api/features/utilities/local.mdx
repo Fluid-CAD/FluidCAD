@@ -1,0 +1,27 @@
+---
+sidebar_position: 7
+title: "local"
+description: "Creates an axis in the active sketch's local coordinate system."
+---
+
+# local()
+
+Creates an axis in the active sketch's local coordinate system.
+
+**Returns**: [**`Axis`**](/docs/api/types/axis)
+
+:::tip
+See the [guide](/docs/guides/sketching/transforms) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+local(axis: StandardAxis): Axis
+```
+
+Creates an axis in the active sketch's local coordinate system.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `axis` | StandardAxis | One of the standard axes ('x', 'y', 'z') to interpret relative to the active sketch's plane. |

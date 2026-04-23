@@ -13,6 +13,8 @@ import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { AtIndexFilter, NotAtIndexFilter } from "./at-index.js";
 import { BelongsToFaceFilter, NotBelongsToFaceFilter } from "./belongs-to-face.js";
 import { BelongsToFaceFromSceneObjectFilter, NotBelongsToFaceFromSceneObjectFilter } from "./belongs-to-object.js";
+import { IntersectsWithFilter, NotIntersectsWithFilter } from "./intersects-with.js";
+import { AbovePlaneFilter, BelowPlaneFilter } from "./above-below.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { ISceneObject } from "../../core/interfaces.js";
 
@@ -50,14 +52,15 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   /**
    * Selects edges that lie on the given plane.
    * @param plane - The reference plane.
-   * @param offset - Optional distance to offset the plane before matching.
-   * @param bothDirections - When true, also matches the plane offset in the opposite direction.
+   * @param offsetOrOptions - Offset distance, or an options object with `offset`, `bothDirections`, and `partial`.
    */
-  onPlane(plane: PlaneLike | PlaneObjectBase, offset = 0, bothDirections = false) {
+  onPlane(plane: PlaneLike | PlaneObjectBase, offsetOrOptions?: number | { offset?: number; bothDirections?: boolean; partial?: boolean }) {
     if (!plane) {
       throw new Error('Plane is required');
     }
 
+    const opts = typeof offsetOrOptions === 'number' ? { offset: offsetOrOptions } : (offsetOrOptions ?? {});
+    const { offset = 0, bothDirections = false, partial = false } = opts;
     let planeObj: PlaneObjectBase;
     let planeObj2: PlaneObjectBase | undefined;
 
@@ -78,7 +81,7 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
       }
     }
 
-    const filter = new OnPlaneFilter(planeObj, planeObj2);
+    const filter = new OnPlaneFilter(planeObj, planeObj2, partial);
     this.filters.push(filter);
     return this;
   }
@@ -86,14 +89,15 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   /**
    * Excludes edges that lie on the given plane.
    * @param plane - The reference plane.
-   * @param offset - Optional distance to offset the plane before matching.
-   * @param bothDirections - When true, also excludes the plane offset in the opposite direction.
+   * @param offsetOrOptions - Offset distance, or an options object with `offset`, `bothDirections`, and `partial`.
    */
-  notOnPlane(plane: PlaneLike | PlaneObjectBase, offset = 0, bothDirections = false) {
+  notOnPlane(plane: PlaneLike | PlaneObjectBase, offsetOrOptions?: number | { offset?: number; bothDirections?: boolean; partial?: boolean }) {
     if (!plane) {
       throw new Error('Plane is required');
     }
 
+    const opts = typeof offsetOrOptions === 'number' ? { offset: offsetOrOptions } : (offsetOrOptions ?? {});
+    const { offset = 0, bothDirections = false, partial = false } = opts;
     let planeObj: PlaneObjectBase;
     let planeObj2: PlaneObjectBase | undefined;
 
@@ -114,7 +118,7 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
       }
     }
 
-    const filter = new NotOnPlaneFilter(planeObj, planeObj2);
+    const filter = new NotOnPlaneFilter(planeObj, planeObj2, partial);
     this.filters.push(filter);
     return this;
   }
@@ -319,6 +323,80 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
     if (filterBuilders.length > 0) {
       this.filters.push(new NotBelongsToFaceFilter(filterBuilders));
     }
+    return this;
+  }
+
+  /**
+   * Selects edges that geometrically intersect with edges of the given scene object.
+   * @param sceneObject - A scene object whose edges are tested for intersection.
+   */
+  intersectsWith(sceneObject: ISceneObject) {
+    const filter = new IntersectsWithFilter(sceneObject as SceneObject);
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Excludes edges that geometrically intersect with edges of the given scene object.
+   * @param sceneObject - A scene object whose edges are tested for intersection.
+   */
+  notIntersectsWith(sceneObject: ISceneObject) {
+    const filter = new NotIntersectsWithFilter(sceneObject as SceneObject);
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Selects edges that are entirely above the given plane (in the direction of its normal).
+   * @param plane - The reference plane.
+   * @param offsetOrOptions - Offset distance, or an options object with `offset` and `partial`.
+   */
+  above(plane: PlaneLike | PlaneObjectBase, offsetOrOptions?: number | { offset?: number; partial?: boolean }) {
+    if (!plane) {
+      throw new Error('Plane is required');
+    }
+
+    const opts = typeof offsetOrOptions === 'number' ? { offset: offsetOrOptions } : (offsetOrOptions ?? {});
+    const { offset = 0, partial = false } = opts;
+    let planeObj: PlaneObjectBase;
+
+    if (plane instanceof PlaneObjectBase) {
+      planeObj = plane;
+    }
+    else {
+      let normalized = normalizePlane(plane);
+      planeObj = offset ? new PlaneObject(normalized.offset(offset)) : new PlaneObject(normalized);
+    }
+
+    const filter = new AbovePlaneFilter(planeObj, partial);
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Selects edges that are entirely below the given plane (opposite to its normal direction).
+   * @param plane - The reference plane.
+   * @param offsetOrOptions - Offset distance, or an options object with `offset` and `partial`.
+   */
+  below(plane: PlaneLike | PlaneObjectBase, offsetOrOptions?: number | { offset?: number; partial?: boolean }) {
+    if (!plane) {
+      throw new Error('Plane is required');
+    }
+
+    const opts = typeof offsetOrOptions === 'number' ? { offset: offsetOrOptions } : (offsetOrOptions ?? {});
+    const { offset = 0, partial = false } = opts;
+    let planeObj: PlaneObjectBase;
+
+    if (plane instanceof PlaneObjectBase) {
+      planeObj = plane;
+    }
+    else {
+      let normalized = normalizePlane(plane);
+      planeObj = offset ? new PlaneObject(normalized.offset(offset)) : new PlaneObject(normalized);
+    }
+
+    const filter = new BelowPlaneFilter(planeObj, partial);
+    this.filters.push(filter);
     return this;
   }
 

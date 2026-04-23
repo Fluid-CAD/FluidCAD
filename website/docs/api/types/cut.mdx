@@ -1,5 +1,5 @@
 ---
-sidebar_position: 6
+sidebar_position: 7
 title: "Cut"
 description: "The Cut type. Extends SceneObject."
 ---
@@ -66,10 +66,22 @@ Enables symmetric mode — cuts equally in both directions from the sketch plane
 ### remove()
 
 ```ts
-remove(...objects: SceneObject[]): this
+remove(): this
 ```
 
-Narrows the cut scope to specific objects instead of all scene objects.
+Subtractive boolean operation — cuts from all intersecting scene objects.
+Use `.scope()` to target specific objects.
+
+---
+
+### scope()
+
+```ts
+scope(...objects: SceneObject[]): this
+```
+
+Narrows the cut scope to specific target objects.
+Must be chained after `.remove()`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

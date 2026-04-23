@@ -1,0 +1,119 @@
+---
+sidebar_position: 9
+title: "Transforms"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import transform2dMirror from '!!raw-loader!./_examples/transform-2d-mirror.js';
+import transform2dCopyLinear from '!!raw-loader!./_examples/transform-2d-copy-linear.js';
+import transform2dCopyCircular from '!!raw-loader!./_examples/transform-2d-copy-circular.js';
+import transform2dLocal from '!!raw-loader!./_examples/transform-2d-local.js';
+
+# Transforms
+
+`mirror()`, `copy()`, and `rotate()` also have **2D variants** that run *inside* a sketch. They transform the sketch geometry you've drawn — not the finished solid — which means the transformed curves participate in the same face-building step as the rest of the sketch.
+
+:::info[2D vs. 3D]
+The same function names work in both contexts. Called inside `sketch(...)`, they transform sketch geometry. Called outside, they transform solids — see the [3D Transforms guide](/docs/guides/transforms) and [Copying guide](/docs/guides/copying).
+:::
+
+## mirror
+
+Mirror sketch geometry across a line or an axis:
+
+<CodeBlock language="js">{transform2dMirror}</CodeBlock>
+
+Signatures inside a sketch:
+
+```js
+mirror(line)                            // mirror all sketch geometry across a line
+mirror(line, g1, g2, ...)               // mirror specific geometries across a line
+mirror("x")                             // mirror across an axis (string or AxisLike)
+mirror("y", g1, g2, ...)                // mirror specific geometries across an axis
+```
+
+Any sketched line segment can serve as the mirror line — including construction lines you don't intend to keep in the final face.
+
+## copy
+
+### Linear copy
+
+Duplicate sketch geometry along one or more axes:
+
+<CodeBlock language="js">{transform2dCopyLinear}</CodeBlock>
+
+```js
+copy("linear", "x", { count: 4, offset: 40 }, g)          // along X
+copy("linear", ["x", "y"], { count: 3, offset: 30 }, g)   // grid along X and Y
+```
+
+Options (same as the 3D form): `count`, `offset`, `skip`.
+
+### Circular copy
+
+Duplicate sketch geometry around a **2D center point** (not an axis — that's the 3D form):
+
+<CodeBlock language="js">{transform2dCopyCircular}</CodeBlock>
+
+```js
+copy("circular", [0, 0], { count: 8, angle: 360 }, g)
+```
+
+Options: `count`, `angle`, `skip`.
+
+## rotate
+
+Rotate sketch geometry around the sketch origin:
+
+```js
+sketch("xy", () => {
+    const r = rect(60, 20)
+    rotate(30, true, r)        // rotate a copy by 30°, keep the original
+})
+```
+
+The 2D form takes an angle only — it always rotates around the sketch's local Z axis (the plane normal). To rotate a copy instead of moving the original, pass `true` as the second argument.
+
+## When sketch axes don't match world axes
+
+Bare axis strings like `"x"` and `"y"` always refer to **world** axes. On the XY plane that matches the sketch's own axes, but on other planes it doesn't:
+
+```js
+// ❌ fails: world Y is the front plane's normal — the mirror plane collapses
+sketch("front", () => {
+    const b = bezier([200, 200], [-120, 380], [200, 450], [0, 600])
+    mirror("y", b)
+})
+```
+
+Use [`local()`](/docs/api/features/utilities/local) to resolve an axis string against the active sketch's local coordinate system instead:
+
+<CodeBlock language="js">{transform2dLocal}</CodeBlock>
+
+`local("y")` on `sketch("front")` resolves to world +Z (the sketch's vertical), so the mirror works as expected.
+
+| Sketch plane | `local("x")` | `local("y")` |
+|---|---|---|
+| `"xy"` / `"top"` | world +X | world +Y |
+| `"xz"` / `"front"` | world +X | world +Z |
+| `"yz"` / `"right"` | world +Y | world +Z |
+
+`local()` also works with face-based sketches and custom `plane()` objects.
+
+### Mixing with bare strings
+
+`local()` is opt-in per argument — bare strings stay world-relative:
+
+```js
+sketch("front", () => {
+    // local("y") → sketch-local Y (world Z); "x" → world X (also the
+    // sketch's local X on "front").
+    copy("linear", [local("y"), "x"], { count: 2, offset: 30 }, shape)
+})
+```
+
+### When you don't need it
+
+- `rotate(angle)` inside a sketch already rotates around the sketch's local Z — no axis argument, no `local()` needed.
+- On `sketch("xy")`, the world and local axes match, so bare strings work.
+- When you pass a **sketched line** (e.g. a construction line) to `mirror()`, the geometry already lives on the sketch plane.

@@ -196,7 +196,7 @@ describe("cut", () => {
         move([25, 25]);
         rect(50, 50);
       });
-      cut(20).remove(e1);
+      cut(20).scope(e1);
 
       const scene = render();
 

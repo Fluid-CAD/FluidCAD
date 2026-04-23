@@ -124,7 +124,7 @@ describe("cut two distances", () => {
         move([25, 25]);
         rect(50, 50);
       });
-      cut(20, 10).remove(e1);
+      cut(20, 10).scope(e1);
 
       const scene = render();
 

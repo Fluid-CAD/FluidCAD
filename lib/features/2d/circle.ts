@@ -28,7 +28,9 @@ export class Circle extends ExtrudableGeometryBase {
     let edge = Geometry.makeEdgeFromCircle(circle);
 
     this.addShape(edge);
-    if (this.sketch) this.setCurrentPosition(center);
+    if (this.sketch) {
+      this.setCurrentPosition(center);
+    }
 
     if (this.targetPlane) {
       this.targetPlane.removeShapes(this);

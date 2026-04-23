@@ -53,12 +53,13 @@ export class Extruder {
     let internalFaces: Face[] = [];
 
     console.log("Fusing faces before extrusion...", this.faces.length);
+    const tFuseFaces = performance.now();
     const fusedFaces = BooleanOps.fuseFaces(this.faces)
-    console.log("Fused faces result:", fusedFaces.result.length);
+    console.log(`[perf] Extruder.fuseFaces (in=${this.faces.length}, out=${fusedFaces.result.length}): ${(performance.now() - tFuseFaces).toFixed(1)} ms`);
     for (const face of fusedFaces.result) {
       const time = performance.now();
       let { solid, firstFace, lastFace } = ExtrudeOps.makePrismFromVec(face, vec);
-      console.log(`Extrusion of face took ${performance.now() - time} ms`);
+      console.log(`[perf] Extruder.makePrismFromVec: ${(performance.now() - time).toFixed(1)} ms`);
 
       if (this.draft) {
         const draftResult = this.applyDraft(solid, firstFace, lastFace, this.plane);
@@ -67,50 +68,48 @@ export class Extruder {
         lastFace = draftResult.lastFace;
       }
 
-      extrusions.push(solid);
+      const solidFaces = Explorer.findFacesWrapped(solid);
+      const remainingFaces: Face[] = [];
+      for (const f of solidFaces) {
+        if (f.getShape().IsSame(firstFace.getShape())) {
+          firstFace = f;
+        } else if (f.getShape().IsSame(lastFace.getShape())) {
+          lastFace = f;
+        } else {
+          remainingFaces.push(f as Face);
+        }
+      }
 
-      // const solidFaces = Explorer.findFacesWrapped(solid);
-      // const remainingFaces: Face[] = [];
-      // for (const f of solidFaces) {
-      //   if (f.getShape().IsSame(firstFace.getShape())) {
-      //     firstFace = f;
-      //   } else if (f.getShape().IsSame(lastFace.getShape())) {
-      //     lastFace = f;
-      //   } else {
-      //     remainingFaces.push(f as Face);
-      //   }
-      // }
-      //
-      // // Use the firstFace from the solid to detect inner wires
-      // // Inner wires (CCW) indicate holes — side faces sharing edges with them are internal
-      // const resolvedFirst = firstFace as Face;
-      // const innerWireEdgeShapes: Shape[] = [];
-      // const wires = resolvedFirst.getWires();
-      // for (const wire of wires) {
-      //   if (!wire.isCW(this.plane.normal)) {
-      //     for (const edge of wire.getEdges()) {
-      //       innerWireEdgeShapes.push(edge);
-      //     }
-      //   }
-      // }
-      //
-      // for (const f of remainingFaces) {
-      //   if (innerWireEdgeShapes.length > 0 && this.isInternalFace(f, innerWireEdgeShapes)) {
-      //     internalFaces.push(f);
-      //   } else {
-      //     sideFaces.push(f);
-      //   }
-      // }
-      //
-      // extrusions.push(solid);
-      // firstFaces.push(firstFace as Face);
-      // lastFaces.push(lastFace as Face);
+      // Use the firstFace from the solid to detect inner wires
+      // Inner wires (CCW) indicate holes — side faces sharing edges with them are internal
+      const resolvedFirst = firstFace as Face;
+      const innerWireEdgeShapes: Shape[] = [];
+      const wires = resolvedFirst.getWires();
+      for (const wire of wires) {
+        if (!wire.isCW(this.plane.normal)) {
+          for (const edge of wire.getEdges()) {
+            innerWireEdgeShapes.push(edge);
+          }
+        }
+      }
+
+      for (const f of remainingFaces) {
+        if (innerWireEdgeShapes.length > 0 && this.isInternalFace(f, innerWireEdgeShapes)) {
+          internalFaces.push(f);
+        } else {
+          sideFaces.push(f);
+        }
+      }
+
+      extrusions.push(solid);
+      firstFaces.push(firstFace as Face);
+      lastFaces.push(lastFace as Face);
     }
 
-    // this.firstFaces = firstFaces;
-    // this.lastFaces = lastFaces;
-    // this.sideFaces = sideFaces;
-    // this._internalFaces = internalFaces;
+    this.firstFaces = firstFaces;
+    this.lastFaces = lastFaces;
+    this.sideFaces = sideFaces;
+    this._internalFaces = internalFaces;
 
     return extrusions;
   }

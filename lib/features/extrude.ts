@@ -62,27 +62,28 @@ export class Extrude extends ExtrudeBase {
     const extruder = new Extruder(faces, plane, this.distance, this.getDraft(), this.getEndOffset());
     let extrusions = extruder.extrude();
 
-    let sideFaces = extruder.getSideFaces();
-    let internalFaces = extruder.getInternalFaces();
-    let capFaces: Face[] = [];
-
-    if (inwardEdges && inwardEdges.length > 0) {
-      const result = this.reclassifyThinFaces(
-        [...sideFaces, ...internalFaces], extruder.getStartFaces(), plane, inwardEdges, outwardEdges || []
-      );
-      sideFaces = result.sideFaces;
-      internalFaces = result.internalFaces;
-      capFaces = result.capFaces;
-    }
-
-    this.setState('start-faces', extruder.getStartFaces());
-    this.setState('end-faces', extruder.getEndFaces());
-    this.setState('side-faces', sideFaces);
-    this.setState('internal-faces', internalFaces);
-    this.setState('cap-faces', capFaces);
+    // let sideFaces = extruder.getSideFaces();
+    // let internalFaces = extruder.getInternalFaces();
+    // let capFaces: Face[] = [];
+    //
+    // if (inwardEdges && inwardEdges.length > 0) {
+    //   const result = this.reclassifyThinFaces(
+    //     [...sideFaces, ...internalFaces], extruder.getStartFaces(), plane, inwardEdges, outwardEdges || []
+    //   );
+    //   sideFaces = result.sideFaces;
+    //   internalFaces = result.internalFaces;
+    //   capFaces = result.capFaces;
+    // }
+    //
+    // this.setState('start-faces', extruder.getStartFaces());
+    // this.setState('end-faces', extruder.getEndFaces());
+    // this.setState('side-faces', sideFaces);
+    // this.setState('internal-faces', internalFaces);
+    // this.setState('cap-faces', capFaces);
 
     this.getSource()?.removeShapes(this);
 
+    console.log("Extrusions before fusion:", extrusions.length);
     if (extrusions.length === 0 || sceneObjects.length === 0) {
       this.addShapes(extrusions);
       return;

@@ -1,11 +1,11 @@
-import { renderEdge } from "./render-edge.js";
 import { Explorer } from "../oc/explorer.js";
 import { Shape } from "../common/shape.js";
 import { SceneObjectMesh } from "./scene.js";
 import { Mesh } from "../oc/mesh.js";
+import { getOC } from "../oc/init.js";
 
 export function renderSolid(shapeObj: Shape): SceneObjectMesh[] {
-  Mesh.premeshShape(shapeObj.getShape());
+  Mesh.ensureTriangulated(shapeObj.getShape());
 
   const facesMeshes = getFacesMesh(shapeObj);
   const edgesMesh = getEdgesMesh(shapeObj);
@@ -13,20 +13,42 @@ export function renderSolid(shapeObj: Shape): SceneObjectMesh[] {
   return [...facesMeshes, ...edgesMesh];
 }
 
-function getEdgesMesh(shapeObj: Shape) {
+function getEdgesMesh(shapeObj: Shape): SceneObjectMesh[] {
+  const oc = getOC();
   const result: SceneObjectMesh[] = [];
+
+  const edgeToFaces = new oc.TopTools_IndexedDataMapOfShapeListOfShape();
+  oc.TopExp.MapShapesAndAncestors(
+    shapeObj.getShape(),
+    oc.TopAbs_ShapeEnum.TopAbs_EDGE,
+    oc.TopAbs_ShapeEnum.TopAbs_FACE,
+    edgeToFaces,
+  );
 
   const edges = Explorer.findEdgesWrapped(shapeObj);
 
   for (let edgeIdx = 0; edgeIdx < edges.length; edgeIdx++) {
-    const edgeResult = renderEdge(edges[edgeIdx]);
+    const edgeShape = edges[edgeIdx].getShape();
+
+    const parents = edgeToFaces.Seek(edgeShape);
+    if (!parents || parents.Size() === 0) {
+      continue;
+    }
+
+    const parentFace = oc.TopoDS.Face(parents.First());
+    const edgeResult = Mesh.discretizeEdgeOnFace(edgeShape, parentFace);
+    parentFace.delete();
+
     if (edgeResult) {
-      edgeResult.label = 'solid-edges';
-      edgeResult.edgeIndex = edgeIdx;
-      result.push(edgeResult);
+      result.push({
+        ...edgeResult,
+        label: 'solid-edges',
+        edgeIndex: edgeIdx,
+      });
     }
   }
 
+  edgeToFaces.delete();
   return result;
 }
 

@@ -3,7 +3,9 @@ import { getCurrentScene } from "../scene-manager.js";
 import { Part } from "../features/part.js";
 import { ISceneObject } from "./interfaces.js";
 
-function part(name: string, callback: () => void): ISceneObject {
+type Extend<T> = T extends object ? T : {};
+
+function part<T>(name: string, callback: () => T): ISceneObject & Extend<T> {
   const scene = getCurrentScene();
   if (!scene) {
     throw new Error("part() must be called within a scene context");
@@ -15,10 +17,14 @@ function part(name: string, callback: () => void): ISceneObject {
     partObj.setSourceLocation(sourceLocation);
   }
   scene.startProgressiveContainer(partObj);
-  callback();
+  const extensions = callback();
   scene.endProgressiveContainer();
 
-  return partObj;
+  if (extensions && typeof extensions === 'object') {
+    Object.assign(partObj, extensions);
+  }
+
+  return partObj as unknown as ISceneObject & Extend<T>;
 }
 
 export default part;

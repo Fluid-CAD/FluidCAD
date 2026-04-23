@@ -28,14 +28,12 @@ export interface ISceneObject {
   reusable(): this;
 }
 
-export interface IFuseable extends ISceneObject {
+export interface IBooleanOperation extends ISceneObject {
   /**
-   * Additive boolean operation — fuses the result with existing shapes.
-   * When called with no arguments, fuses with all intersecting scene objects.
-   * When called with specific objects, fuses only with those objects.
-   * @param objects - Optional target objects to fuse with.
+   * Additive boolean operation — fuses the result with all intersecting scene objects.
+   * Use `.scope()` to target specific objects.
    */
-  add(...objects: ISceneObject[]): this;
+  add(): this;
 
   /**
    * No boolean operation — keeps the result as a standalone shape,
@@ -44,12 +42,17 @@ export interface IFuseable extends ISceneObject {
   'new'(): this;
 
   /**
-   * Subtractive boolean operation — cuts the result from existing shapes.
-   * When called with no arguments, cuts from all intersecting scene objects.
-   * When called with specific objects, cuts only from those objects.
-   * @param objects - Optional target objects to cut from.
+   * Subtractive boolean operation — cuts the result from all intersecting scene objects.
+   * Use `.scope()` to target specific objects.
    */
-  remove(...objects: ISceneObject[]): this;
+  remove(): this;
+
+  /**
+   * Narrows the boolean operation scope to specific target objects.
+   * Must be chained after `.add()` or `.remove()`.
+   * @param objects - The target objects to operate on.
+   */
+  scope(...objects: ISceneObject[]): this;
 }
 
 /**
@@ -301,7 +304,7 @@ export interface ICommon extends ISceneObject {
   keepOriginal(value?: boolean): this;
 }
 
-export interface IExtrude extends IFuseable {
+export interface IExtrude extends IBooleanOperation {
   /**
    * Enables symmetric mode — extrudes equally in both directions from the sketch plane.
    */
@@ -416,10 +419,11 @@ export interface ICut extends ISceneObject {
   symmetric(): this;
 
   /**
-   * Narrows the cut scope to specific objects instead of all scene objects.
+   * Narrows the cut scope to specific target objects.
+   * Must be chained after `.remove()`.
    * @param objects - The target objects to cut from.
    */
-  remove(...objects: ISceneObject[]): this;
+  scope(...objects: ISceneObject[]): this;
   /**
    * Applies a draft (taper) angle to the cut walls.
    * @param value - A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft.
@@ -479,7 +483,7 @@ export interface ICut extends ISceneObject {
   thin(offset1: number, offset2: number): this;
 }
 
-export interface IRevolve extends IFuseable {
+export interface IRevolve extends IBooleanOperation {
   /**
    * Enables symmetric mode — revolves equally in both directions from the sketch plane.
    */
@@ -534,7 +538,7 @@ export interface IRevolve extends IFuseable {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
-export interface ILoft extends IFuseable {
+export interface ILoft extends IBooleanOperation {
   /**
    * Selects faces on the first profile plane of the loft.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
@@ -615,7 +619,7 @@ export interface ILoft extends IFuseable {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
-export interface ISweep extends IFuseable {
+export interface ISweep extends IBooleanOperation {
   /**
    * Selects faces at the start (profile plane) of the sweep.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.

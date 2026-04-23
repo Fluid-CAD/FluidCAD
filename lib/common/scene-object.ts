@@ -508,15 +508,9 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return sceneObjects;
   }
 
-  add(...objects: ISceneObject[]): this {
+  add(): this {
     this._operationMode = 'add';
-    if (objects.length === 0) {
-      this._fusionScope = 'all';
-    } else if (objects.length === 1) {
-      this._fusionScope = objects[0] as SceneObject;
-    } else {
-      this._fusionScope = objects as SceneObject[];
-    }
+    this._fusionScope = 'all';
     return this;
   }
 
@@ -526,13 +520,16 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this;
   }
 
-  remove(...objects: ISceneObject[]): this {
+  remove(): this {
     this._operationMode = 'remove';
-    if (objects.length === 0) {
-      this._fusionScope = 'all';
-    } else if (objects.length === 1) {
+    this._fusionScope = 'all';
+    return this;
+  }
+
+  scope(...objects: ISceneObject[]): this {
+    if (objects.length === 1) {
       this._fusionScope = objects[0] as SceneObject;
-    } else {
+    } else if (objects.length > 1) {
       this._fusionScope = objects as SceneObject[];
     }
     return this;

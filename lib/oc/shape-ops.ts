@@ -1,21 +1,13 @@
 import type {
   TopTools_ListOfShape,
-  TopoDS_Edge,
-  TopoDS_Face,
   TopoDS_Shape,
-  TopoDS_Solid,
-  gp_Ax1,
 } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Matrix4 } from "../math/matrix4.js";
-import { Vector3d } from "../math/vector3d.js";
 import { Shape } from "../common/shape.js";
-import { Face } from "../common/face.js";
-import { Solid } from "../common/solid.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { BoundingBox } from "../helpers/types.js";
-import { Axis } from "../math/axis.js";
 
 export class ShapeOps {
   static transform(shape: Shape, matrix: Matrix4): Shape {
@@ -130,130 +122,6 @@ export class ShapeOps {
     return fixed;
   }
 
-  static getSolidOutwardNormal(face: Face, solid: Solid): Vector3d {
-    return ShapeOps.getSolidOutwardNormalRaw(face.getShape() as TopoDS_Face, solid.getShape() as TopoDS_Solid);
-  }
-
-  static getSolidOutwardNormalRaw(face: TopoDS_Face, solid: TopoDS_Solid): Vector3d {
-    const oc = getOC();
-
-    const surfaceAdaptor = new oc.BRepAdaptor_Surface(face, true);
-    const type = surfaceAdaptor.GetType();
-
-    if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
-      surfaceAdaptor.delete();
-      throw new Error("Non-planar faces not supported for normal calculation");
-    }
-
-    const uFirst = surfaceAdaptor.FirstUParameter();
-    const uLast = surfaceAdaptor.LastUParameter();
-    const vFirst = surfaceAdaptor.FirstVParameter();
-    const vLast = surfaceAdaptor.LastVParameter();
-
-    const u = (uFirst + uLast) / 2.0;
-    const v = (vFirst + vLast) / 2.0;
-
-    const testPoint = new oc.gp_Pnt();
-    const du = new oc.gp_Vec();
-    const dv = new oc.gp_Vec();
-
-    surfaceAdaptor.D1(u, v, testPoint, du, dv);
-
-    const geometricNormal = surfaceAdaptor.Plane().Position().Direction();
-
-    if (face.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED) {
-      geometricNormal.Reverse();
-    }
-
-    const offset = 1e-6;
-    const testPointOffset = new oc.gp_Pnt(
-      testPoint.X() + geometricNormal.X() * offset,
-      testPoint.Y() + geometricNormal.Y() * offset,
-      testPoint.Z() + geometricNormal.Z() * offset
-    );
-
-    const classifier = new oc.BRepClass3d_SolidClassifier(solid, testPointOffset, oc.Precision.Confusion());
-    const state = classifier.State();
-
-    let result: Vector3d;
-
-    if (state === oc.TopAbs_State.TopAbs_IN) {
-      result = new Vector3d(
-        -geometricNormal.X(),
-        -geometricNormal.Y(),
-        -geometricNormal.Z()
-      );
-    } else {
-      result = new Vector3d(
-        geometricNormal.X(),
-        geometricNormal.Y(),
-        geometricNormal.Z()
-      );
-    }
-
-    classifier.delete();
-    testPointOffset.delete();
-    geometricNormal.delete();
-    du.delete();
-    dv.delete();
-    testPoint.delete();
-    surfaceAdaptor.delete();
-
-    return result;
-  }
-
-  static mirrorShape(shape: Shape, mirrorPoint: { x: number; y: number; z: number }): Shape {
-    const result = ShapeOps.mirrorShapeRaw(shape.getShape(), mirrorPoint);
-    return ShapeFactory.fromShape(result);
-  }
-
-  static mirrorShapeRaw(shape: TopoDS_Shape, mirrorPoint: { x: number; y: number; z: number }): TopoDS_Shape {
-    const oc = getOC();
-    const point = new oc.gp_Pnt(mirrorPoint.x, mirrorPoint.y, mirrorPoint.z);
-    const trsf = new oc.gp_Trsf();
-    trsf.SetMirror(point);
-    const transformer = new oc.BRepBuilderAPI_Transform(trsf);
-    transformer.Perform(shape, true);
-    const result = transformer.Shape();
-    transformer.delete();
-    trsf.delete();
-    point.delete();
-    return result;
-  }
-
-  static translateShape(shape: Shape, direction: Vector3d): Shape {
-    const result = ShapeOps.translateShapeRaw(shape.getShape(), direction);
-    return ShapeFactory.fromShape(result);
-  }
-
-  static translateShapeRaw(shape: TopoDS_Shape, direction: Vector3d): TopoDS_Shape {
-    const oc = getOC();
-    const [vec, disposeVec] = Convert.toGpVec(direction);
-    const trsf = new oc.gp_Trsf();
-    trsf.SetTranslation(vec);
-    const transformer = new oc.BRepBuilderAPI_Transform(trsf);
-    transformer.Perform(shape, false);
-    const result = transformer.Shape();
-    transformer.delete();
-    trsf.delete();
-    disposeVec();
-    return result;
-  }
-
-  static rotateShape(shape: TopoDS_Shape, axis: Axis, angle: number): TopoDS_Shape {
-    const oc = getOC();
-    const trsf = new oc.gp_Trsf();
-    const [gpAxis, disposeGpAxis] = Convert.toGpAx1(axis);
-    trsf.SetRotation(gpAxis, angle);
-    const transformer = new oc.BRepBuilderAPI_Transform(trsf);
-    transformer.Perform(shape, false);
-    const result = transformer.Shape();
-    transformer.delete();
-    trsf.delete();
-    disposeGpAxis();
-    return result;
-  }
-
   static shapeListToArray(list: TopTools_ListOfShape) {
     let res: TopoDS_Shape[] = [];
     while (list.Size() > 0) {
@@ -262,20 +130,5 @@ export class ShapeOps {
     }
     list.delete();
     return res;
-  }
-
-  static edgeMiddlePoint(edge: TopoDS_Edge) {
-    const oc = getOC();
-    const curveAdaptor = new oc.BRepAdaptor_Curve(oc.TopoDS.Edge(edge));
-    const curve = curveAdaptor.Curve();
-
-    const midParam = (curve.FirstParameter() + curve.LastParameter()) / 2.0;
-    const midPoint = curve.Value(midParam);
-
-    const result = new oc.gp_Pnt(midPoint.X(), midPoint.Y(), midPoint.Z());
-
-    curveAdaptor.delete();
-
-    return result;
   }
 }

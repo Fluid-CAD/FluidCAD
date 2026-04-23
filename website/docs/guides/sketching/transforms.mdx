@@ -17,10 +17,6 @@ import transform2dLocal from '!!raw-loader!./_examples/transform-2d-local.js';
 The same function names work in both contexts. Called inside `sketch(...)`, they transform sketch geometry. Called outside, they transform solids — see the [3D Transforms guide](/docs/guides/transforms) and [Copying guide](/docs/guides/copying).
 :::
 
-:::tip[Chained form]
-Sketch primitives (`rect`, `circle`, `slot`, `polygon`, `bezier`, `line`, …) also expose chainable `.translate()`, `.rotate()`, and `.mirror()` methods — e.g. `rect(60, 20).rotate(30)` rotates just that rectangle without touching the rest of the sketch. See the [Chained Transforms guide](/docs/guides/chained-transforms) for the full reference.
-:::
-
 ## mirror
 
 Mirror sketch geometry across a line or an axis:

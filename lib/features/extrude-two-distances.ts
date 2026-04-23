@@ -16,14 +16,14 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
   constructor(
     public distance1: number,
     public distance2: number,
-    extrudable?: Extrudable) {
+    source?: Extrudable | SceneObject) {
 
-    super(extrudable);
+    super(source);
   }
 
   build(context: BuildSceneObjectContext) {
     const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
-    const plane = this.extrudable.getPlane();
+    const plane = this.getSourcePlane();
 
     const pickedFaces = this.resolvePickedFaces(plane);
     if (pickedFaces !== null && pickedFaces.length === 0) {
@@ -34,7 +34,12 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
     let inwardEdges: Edge[] | undefined;
     let outwardEdges: Edge[] | undefined;
 
-    if (this.isThin()) {
+    if (this.isFaceSourced()) {
+      if (this.isThin()) {
+        throw new Error("thin() is not supported with a face-sourced extrude");
+      }
+      faces = pickedFaces ?? this.getSourceFaces();
+    } else if (this.isThin()) {
       const thinResult = ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]);
       faces = thinResult.faces;
       inwardEdges = thinResult.inwardEdges;
@@ -132,7 +137,7 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
     this.setState('internal-faces', internalFaces);
     this.setState('cap-faces', capFaces);
 
-    this.extrudable.removeShapes(this);
+    this.getSource()?.removeShapes(this);
 
     if (this._operationMode === 'remove') {
       const scope = this.resolveFusionScope(context.getSceneObjects());
@@ -159,14 +164,14 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
   }
 
   override getDependencies(): SceneObject[] {
-    return this.extrudable ? [this.extrudable] : [];
+    const source = this.getSource();
+    return source ? [source] : [];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const extrudable = this.extrudable
-      ? (remap.get(this.extrudable) || this.extrudable) as Extrudable
-      : undefined;
-    return new ExtrudeTwoDistances(this.distance1, this.distance2, extrudable).syncWith(this);
+    const source = this.getSource();
+    const remapped = source ? (remap.get(source) || source) : undefined;
+    return new ExtrudeTwoDistances(this.distance1, this.distance2, remapped).syncWith(this);
   }
 
   compareTo(other: ExtrudeTwoDistances): boolean {
@@ -182,7 +187,12 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       return false;
     }
 
-    if (!this.extrudable.compareTo(other.extrudable)) {
+    const thisSource = this.getSource();
+    const otherSource = other.getSource();
+    if (!thisSource !== !otherSource) {
+      return false;
+    }
+    if (thisSource && otherSource && !thisSource.compareTo(otherSource)) {
       return false;
     }
 
@@ -198,7 +208,7 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
 
   serialize() {
     return {
-      extrudable: this.extrudable.serialize(),
+      extrudable: this.getSource()?.serialize(),
       distance1: this.distance1,
       distance2: this.distance2,
       operationMode: this._operationMode !== 'add' ? this._operationMode : undefined,

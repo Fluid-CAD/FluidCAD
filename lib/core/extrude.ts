@@ -11,45 +11,44 @@ import { IExtrude, ISceneObject } from "./interfaces.js";
 interface ExtrudeFunction {
   /**
    * Extrudes the last sketch with a default distance.
-   * @param target - The sketch to extrude
+   * @param target - The sketch or face-bearing scene object to extrude
    */
   (target?: ISceneObject): IExtrude;
   /**
-   * Extrudes the last sketch by a given distance.
+   * Extrudes by a given distance.
    * @param distance - The extrusion distance
-   * @param target - The sketch to extrude
+   * @param target - The sketch or face-bearing scene object to extrude
    */
   (distance: number, target?: ISceneObject): IExtrude;
   /**
-   * Extrudes the last sketch between two distances.
+   * Extrudes between two distances.
    * @param distance1 - The first extrusion distance
    * @param distance2 - The second extrusion distance
-   * @param target - The sketch to extrude
    */
   (distance1: number, distance2: number): IExtrude;
   /**
-   * Extrudes the given sketch between two distances.
+   * Extrudes between two distances.
    * @param distance1 - The first extrusion distance
    * @param distance2 - The second extrusion distance
-   * @param target - The sketch to extrude
+   * @param target - The sketch or face-bearing scene object to extrude
    */
   (distance1: number, distance2: number, target: ISceneObject): IExtrude;
   /**
-   * Extrudes the last sketch up to a specific face.
+   * Extrudes up to a specific face.
    * @param face - A face selection to extrude up to
-   * @param target - The sketch to extrude
+   * @param target - The sketch or face-bearing scene object to extrude
    */
   (face: ISceneObject, target?: ISceneObject): IExtrude;
   /**
-   * Extrudes the last sketch up to the first intersecting face.
+   * Extrudes up to the first intersecting face.
    * @param face - The literal `'first-face'`
-   * @param target - The sketch to extrude
+   * @param target - The sketch or face-bearing scene object to extrude
    */
   (face: 'first-face', target?: ISceneObject): IExtrude;
   /**
-   * Extrudes the last sketch up to the last intersecting face.
+   * Extrudes up to the last intersecting face.
    * @param face - The literal `'last-face'`
-   * @param target - The sketch to extrude
+   * @param target - The sketch or face-bearing scene object to extrude
    */
   (face: 'last-face', target?: ISceneObject): IExtrude;
 }
@@ -58,9 +57,22 @@ function isExtrudable(obj: any): obj is Extrudable {
   return obj instanceof SceneObject && obj.isExtrudable();
 }
 
+function isFaceSource(obj: any): boolean {
+  if (!(obj instanceof SceneObject)) {
+    return false;
+  }
+  if (isExtrudable(obj)) {
+    return false;
+  }
+  if (obj instanceof SelectSceneObject) {
+    return obj.shapeType() === 'face';
+  }
+  return true;
+}
+
 function build(context: SceneParserContext): ExtrudeFunction {
 
-  function doExtrude(params: any[], extrudable?: Extrudable): ExtrudeBase {
+  function doExtrude(params: any[], extrudable?: Extrudable | SceneObject): ExtrudeBase {
     const defaultDistance = 25;
 
     if (params.length === 0) {
@@ -97,9 +109,13 @@ function build(context: SceneParserContext): ExtrudeFunction {
   return function extrude() {
     const args = [...arguments];
 
-    let extrudable: Extrudable | undefined;
-    if (args.length > 0 && isExtrudable(args[args.length - 1])) {
+    let extrudable: Extrudable | SceneObject | undefined;
+    const last = args.length > 0 ? args[args.length - 1] : undefined;
+    if (last !== undefined && isExtrudable(last)) {
       extrudable = args.pop() as Extrudable;
+    } else if (last !== undefined && args.length >= 2 && isFaceSource(last)) {
+      extrudable = args.pop() as SceneObject;
+      context.addSceneObject(extrudable);
     } else {
       extrudable = context.getLastExtrudable() || undefined;
     }

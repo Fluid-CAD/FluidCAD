@@ -19,6 +19,7 @@ import { EdgeOps } from "../oc/edge-ops.js";
 
 export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   protected _extrudable: Extrudable | null = null;
+  protected _faceSource: SceneObject | null = null;
   protected _draft?: number | [number, number];
   protected _endOffset?: number;
   protected _drill?: boolean = true;
@@ -26,13 +27,48 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   protected _pickPoints: LazyVertex[] = [];
   protected _thin?: [number] | [number, number];
 
-  constructor(extrudable?: Extrudable) {
+  constructor(source?: Extrudable | SceneObject) {
     super();
-    this._extrudable = extrudable ?? null;
+    if (source) {
+      if (source.isExtrudable()) {
+        this._extrudable = source as Extrudable;
+      } else {
+        this._faceSource = source;
+      }
+    }
   }
 
   get extrudable(): Extrudable {
     return this._extrudable;
+  }
+
+  get faceSource(): SceneObject | null {
+    return this._faceSource;
+  }
+
+  isFaceSourced(): boolean {
+    return this._faceSource !== null;
+  }
+
+  getSource(): SceneObject | null {
+    return this._extrudable ?? this._faceSource;
+  }
+
+  getSourcePlane(): Plane | null {
+    if (this._extrudable) {
+      return this._extrudable.getPlane();
+    }
+    const faces = this.getSourceFaces();
+    return faces.length > 0 ? faces[0].getPlane() : null;
+  }
+
+  getSourceFaces(): Face[] {
+    if (!this._faceSource) {
+      return [];
+    }
+    return this._faceSource.getShapes()
+      .flatMap(s => s.getSubShapes('face'))
+      .filter((f): f is Face => f instanceof Face);
   }
 
   startFaces(...args: number[] | FaceFilterBuilder[]): SceneObject {
@@ -282,7 +318,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   }
 
   protected serializePickFields() {
-    const plane = this._extrudable?.getPlane();
+    const plane = this.getSourcePlane();
     return {
       picking: this.isPicking() || undefined,
       pickPoints: this.isPicking()

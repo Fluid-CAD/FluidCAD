@@ -13,6 +13,8 @@ import cylinder from "../../core/cylinder.js";
 import { Cylinder } from "../../features/cylinder.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
+import select from "../../core/select.js";
+import { edge } from "../../filters/index.js";
 
 describe("extrude", () => {
   setupOC();
@@ -838,6 +840,94 @@ describe("extrude", () => {
       // Filter by a plane-parallel filter — all side faces of a rect extrude
       // are vertical, so filtering parallel to XY should return none
       expect(parallelXY.getShapes()).toHaveLength(0);
+    });
+  });
+
+  describe("face-source extrudable", () => {
+    it("should extrude from a face selection built on an existing solid", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const base = extrude(20) as Extrude;
+
+      const selection = select(face().onPlane("xy"));
+      const e = extrude(10, selection) as Extrude;
+
+      render();
+
+      expect(e.extrudable).not.toBe(base.extrudable);
+      const shapes = e.getShapes();
+      expect(shapes.length).toBeGreaterThan(0);
+      const bbox = ShapeOps.getBoundingBox(shapes[0]);
+      // base is z=0..20; face-xy selection is at z=0, extruding +10 should fuse back into base
+      // so the total solid stays z=0..20 (the new +10 is inside the base)
+      expect(bbox.maxZ).toBeCloseTo(20, 0);
+    });
+
+    it("should extrude from endFaces() of a previous extrude", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e1 = extrude(10) as Extrude;
+
+      const e2 = extrude(50, e1.endFaces()) as Extrude;
+
+      render();
+
+      const shapes = e2.getShapes();
+      expect(shapes).toHaveLength(1);
+      const bbox = ShapeOps.getBoundingBox(shapes[0]);
+      expect(bbox.minZ).toBeCloseTo(0, 0);
+      expect(bbox.maxZ).toBeCloseTo(60, 0);
+    });
+
+    it("should use all faces when the source has multiple", () => {
+      // two separate rectangles on xy plane -> two faces on xy
+      sketch("xy", () => {
+        rect(40, 40);
+      });
+      extrude(5).new();
+
+      sketch("xy", () => {
+        move([100, 0]);
+        rect(40, 40);
+      });
+      extrude(5).new();
+
+      // This selects both z=0 base faces.
+      const selection = select(face().onPlane("xy"));
+      const e = extrude(10, selection) as Extrude;
+
+      render();
+
+      const shapes = e.getShapes();
+      // two disjoint prisms -> fused with existing solids, still two solids
+      expect(shapes.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("should set an error on the extrude when combined with .thin()", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e1 = extrude(10) as Extrude;
+
+      const e2 = extrude(20, e1.endFaces()).thin(2) as Extrude;
+
+      render();
+
+      expect(e2.getError()).toMatch(/thin\(\) is not supported/);
+    });
+
+    it("should throw when the selection produces no faces", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      extrude(10);
+
+      const edgeSelection = select(edge());
+      // edge selection has shapeType 'edge', so it won't be taken as a face source
+      // and the core builder will reject the param shape.
+      expect(() => extrude(20, edgeSelection as any)).toThrow();
     });
   });
 });

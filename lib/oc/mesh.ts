@@ -22,7 +22,7 @@ export class Mesh {
 
   static premeshShape(shape: TopoDS_Shape) {
     const oc = getOC();
-    const inc = new oc.BRepMesh_IncrementalMesh(shape, 0.3, false, 0.3, true);
+    const inc = new oc.BRepMesh_IncrementalMesh(shape, 0.8, false, 0.8, true);
     inc.delete();
   }
 
@@ -32,7 +32,7 @@ export class Mesh {
 
     let inc: BRepMesh_IncrementalMesh;
     try {
-      inc = new oc.BRepMesh_IncrementalMesh(face, 0.3, false, 0.3, true);
+      inc = new oc.BRepMesh_IncrementalMesh(face, 0.8, false, 0.8, true);
     } catch (e) {
       console.error("Face mesh failed", e);
       return null;

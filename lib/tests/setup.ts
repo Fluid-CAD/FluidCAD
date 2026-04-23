@@ -1,8 +1,10 @@
 import { beforeEach } from "vitest";
 import { getSceneManager, getCurrentScene } from "../scene-manager.js";
-import { renderScene } from "../rendering/render.js";
+import { SceneRenderer } from "../rendering/render.js";
 import { Scene } from "../rendering/scene.js";
 import { SceneObject } from "../common/scene-object.js";
+
+const renderer = new SceneRenderer();
 
 export function setupOC() {
   beforeEach(() => {
@@ -11,7 +13,7 @@ export function setupOC() {
 }
 
 export function render(): Scene {
-  return renderScene(getCurrentScene());
+  return renderer.render(getCurrentScene());
 }
 
 export function addToScene(obj: SceneObject): void {

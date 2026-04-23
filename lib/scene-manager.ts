@@ -1,5 +1,5 @@
 import { Scene } from "./rendering/scene.js";
-import { renderScene, renderSceneRollback } from "./rendering/render.js";
+import { SceneRenderer } from "./rendering/render.js";
 import { SceneCompare } from "./rendering/scene-compare.js";
 import { FileImport } from "./io/file-import.js";
 import { FileExport } from "./io/file-export.js";
@@ -18,6 +18,7 @@ import type { HitTestResult } from "./oc/hit-test.js";
 class SceneManager {
   currentScene: Scene = new Scene();
   currentFile: string = '';
+  renderer = new SceneRenderer();
 
   constructor(public rootPath: string) {
   }
@@ -33,11 +34,11 @@ class SceneManager {
   }
 
   renderScene(scene: Scene) {
-    return renderScene(scene);
+    return this.renderer.render(scene);
   }
 
   rollbackScene(scene: Scene, rollbackIndex: number) {
-    return renderSceneRollback(scene, rollbackIndex);
+    return this.renderer.renderRollback(scene, rollbackIndex);
   }
 
   compare(previous: Scene, current: Scene) {

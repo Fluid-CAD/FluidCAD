@@ -62,5 +62,6 @@ l.capFaces()       // cap face(s) of a thin loft (open profiles)
 ```js
 loft(s1, s2).new()             // create a separate solid
 loft(s1, s2).add()             // fuse with touching solids (default)
-loft(s1, s2).remove(box)       // subtract the lofted shape from the box
+loft(s1, s2).remove()          // subtract from all intersecting solids
+loft(s1, s2).remove().scope(box)  // subtract only from the box
 ```

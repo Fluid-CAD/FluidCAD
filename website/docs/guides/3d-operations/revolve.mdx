@@ -92,5 +92,6 @@ r.capFaces()       // cap face(s) of a thin revolve (open profile)
 ```js
 revolve("z").new()             // create a separate solid
 revolve("z").add()             // fuse with touching solids (default)
-revolve("z").remove(box)       // subtract the revolved shape from the box
+revolve("z").remove()          // subtract from all intersecting solids
+revolve("z").remove().scope(box)  // subtract only from the box
 ```

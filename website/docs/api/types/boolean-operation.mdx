@@ -1,10 +1,10 @@
 ---
 sidebar_position: 3
-title: "Fuseable"
-description: "The Fuseable type. Extends SceneObject."
+title: "BooleanOperation"
+description: "The BooleanOperation type. Extends SceneObject."
 ---
 
-# Fuseable
+# BooleanOperation
 
 Extends [`SceneObject`](/docs/api/types/scene-object)
 
@@ -56,16 +56,11 @@ shapes from a reusable object.
 ### add()
 
 ```ts
-add(...objects: SceneObject[]): this
+add(): this
 ```
 
-Additive boolean operation — fuses the result with existing shapes.
-When called with no arguments, fuses with all intersecting scene objects.
-When called with specific objects, fuses only with those objects.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | Optional target objects to fuse with. *(optional)* |
+Additive boolean operation — fuses the result with all intersecting scene objects.
+Use `.scope()` to target specific objects.
 
 ---
 
@@ -83,14 +78,24 @@ separate from all other scene objects.
 ### remove()
 
 ```ts
-remove(...objects: SceneObject[]): this
+remove(): this
 ```
 
-Subtractive boolean operation — cuts the result from existing shapes.
-When called with no arguments, cuts from all intersecting scene objects.
-When called with specific objects, cuts only from those objects.
+Subtractive boolean operation — cuts the result from all intersecting scene objects.
+Use `.scope()` to target specific objects.
+
+---
+
+### scope()
+
+```ts
+scope(...objects: SceneObject[]): this
+```
+
+Narrows the boolean operation scope to specific target objects.
+Must be chained after `.add()` or `.remove()`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | Optional target objects to cut from. *(optional)* |
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The target objects to operate on. *(optional)* |
 

@@ -62,5 +62,6 @@ s.capEdges()       // cap edges of a thin sweep (open profile)
 ```js
 sweep(spine, profile).new()    // create a separate solid
 sweep(spine, profile).add()    // fuse with touching solids (default)
-sweep(spine, profile).remove(box)  // subtract the swept shape from the box
+sweep(spine, profile).remove()     // subtract from all intersecting solids
+sweep(spine, profile).remove().scope(box)  // subtract only from the box
 ```

@@ -63,7 +63,8 @@ Operations that create or remove material — extrude, cut, revolve, loft, sweep
 
 - **`.add()`** — fuse with all touching solids (default for additive operations)
 - **`.new()`** — create a separate solid, don't fuse with anything
-- **`.remove(target1, target2, ...)`** — for cut operations, remove only from specific solids
+- **`.remove()`** — cut from all intersecting solids
+- **`.scope(target1, target2, ...)`** — narrow the operation to specific solids (chain after `.add()` or `.remove()`)
 
 ```js
 const box = extrude(30)
@@ -72,7 +73,7 @@ sketch("xy", () => { circle(20) })
 extrude(50).new()              // separate solid — no fusion with the box
 
 sketch("xy", () => { circle(10) })
-cut().remove(box)              // cut only from the box, not from other solids
+cut().remove().scope(box)      // cut only from the box, not from other solids
 ```
 
 Each operation's page notes which fusion scope methods it supports.

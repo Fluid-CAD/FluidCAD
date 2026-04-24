@@ -1,5 +1,6 @@
 import type {
   TopTools_ListOfShape,
+  TopAbs_ShapeEnum,
   TopoDS_Shape,
 } from "occjs-wrapper";
 import { getOC } from "./init.js";
@@ -7,7 +8,28 @@ import { Convert } from "./convert.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { Shape } from "../common/shape.js";
 import { ShapeFactory } from "../common/shape-factory.js";
+import { Face } from "../common/face.js";
+import { Edge } from "../common/edge.js";
+import { Explorer } from "./explorer.js";
 import { BoundingBox } from "../helpers/types.js";
+
+/**
+ * A cleanShape result that preserves UnifySameDomain lineage so callers can
+ * chain pre-clean → post-clean face/edge remapping. `remapFace(pf)` returns
+ * the post-clean face(s) corresponding to a pre-clean face, or `null` if the
+ * cleanup didn't process it. Caller must invoke `dispose()` exactly once.
+ *
+ * When the post-clean shape fails validation and ShapeFix_Shape has to run,
+ * the UnifySameDomain history is discarded (ShapeFix_Shape creates more new
+ * TShapes without recording lineage). In that case remap returns `[face]`
+ * for any face the cleanup saw, which is best-effort.
+ */
+export type CleanShapeLineage = {
+  shape: Shape;
+  remapFace: (face: Face) => Face[] | null;
+  remapEdge: (edge: Edge) => Edge[] | null;
+  dispose: () => void;
+};
 
 export class ShapeOps {
   static transform(shape: Shape, matrix: Matrix4): Shape {
@@ -92,6 +114,117 @@ export class ShapeOps {
 
   static cleanShape(shape: Shape): Shape {
     return ShapeFactory.fromShape(ShapeOps.cleanShapeRaw(shape.getShape()));
+  }
+
+  /**
+   * Variant of `cleanShape` that preserves UnifySameDomain lineage via
+   * `BRepTools_History`. Caller must call `dispose()` exactly once to free
+   * the OC wrappers.
+   */
+  static cleanShapeWithLineage(shape: Shape): CleanShapeLineage {
+    const oc = getOC();
+    const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
+    const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
+
+    const unify = new oc.ShapeUpgrade_UnifySameDomain(shape.getShape(), false, true, false);
+    unify.Build();
+    const cleanedRaw = unify.Shape();
+
+    // Pre-compute which faces/edges this cleanup saw so the remap can
+    // distinguish "didn't know about this shape" (return null) from
+    // "saw but didn't modify" (return [original]).
+    const knownFaces = new oc.TopTools_MapOfShape();
+    const knownEdges = new oc.TopTools_MapOfShape();
+    for (const raw of Explorer.findShapes(shape.getShape(), FACE)) {
+      knownFaces.Add(raw);
+    }
+    for (const raw of Explorer.findShapes(shape.getShape(), EDGE)) {
+      knownEdges.Add(raw);
+    }
+
+    const checker = new oc.BRepCheck_Analyzer(cleanedRaw, true, true);
+    const valid = checker.IsValid();
+    checker.delete();
+
+    if (!valid) {
+      // ShapeFix_Shape creates new TShapes without recording history.
+      // Lineage is lost here — remap returns [face] best-effort for
+      // faces the cleanup saw, null otherwise.
+      unify.delete();
+      const fixer = new oc.ShapeFix_Shape(cleanedRaw);
+      const progress = new oc.Message_ProgressRange();
+      fixer.Perform(progress);
+      const fixed = fixer.Shape();
+      fixer.delete();
+      progress.delete();
+
+      const wrapped = ShapeFactory.fromShape(fixed);
+      let disposed = false;
+      const dispose = () => {
+        if (disposed) {
+          return;
+        }
+        disposed = true;
+        knownFaces.delete();
+        knownEdges.delete();
+      };
+      return {
+        shape: wrapped,
+        remapFace: (face) => (knownFaces.Contains(face.getShape()) ? [face] : null),
+        remapEdge: (edge) => (knownEdges.Contains(edge.getShape()) ? [edge] : null),
+        dispose,
+      };
+    }
+
+    const historyHandle = unify.History();
+    const history = historyHandle.get();
+
+    let disposed = false;
+    const dispose = () => {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      historyHandle.delete();
+      unify.delete();
+      knownFaces.delete();
+      knownEdges.delete();
+    };
+
+    return {
+      shape: ShapeFactory.fromShape(cleanedRaw),
+      remapFace: (face) => {
+        const raw = face.getShape();
+        if (!knownFaces.Contains(raw)) {
+          return null;
+        }
+        if (history.IsRemoved(raw)) {
+          return [];
+        }
+        const list = ShapeOps.shapeListToArray(history.Modified(raw))
+          .filter(s => s.ShapeType() === FACE);
+        if (list.length === 0) {
+          return [face];
+        }
+        return list.map(r => Face.fromTopoDSFace(Explorer.toFace(r)));
+      },
+      remapEdge: (edge) => {
+        const raw = edge.getShape();
+        if (!knownEdges.Contains(raw)) {
+          return null;
+        }
+        if (history.IsRemoved(raw)) {
+          return [];
+        }
+        const list = ShapeOps.shapeListToArray(history.Modified(raw))
+          .filter(s => s.ShapeType() === EDGE);
+        if (list.length === 0) {
+          return [edge];
+        }
+        return list.map(r => Edge.fromTopoDSEdge(Explorer.toEdge(r)));
+      },
+      dispose,
+    };
   }
 
   static cleanShapeRaw(shape: TopoDS_Shape) {

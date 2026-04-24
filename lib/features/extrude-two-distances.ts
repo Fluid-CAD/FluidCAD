@@ -141,16 +141,24 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
 
     if (this._operationMode === 'remove') {
       const scope = this.resolveFusionScope(context.getSceneObjects());
-      cutWithSceneObjects(scope, extrusions, plane, this.distance1 + this.distance2, this);
+      cutWithSceneObjects(scope, extrusions, plane, this.distance1 + this.distance2, this, {
+        recordHistoryFor: this,
+      });
+      this.setFinalShapes(this.getShapes());
       return;
     }
 
     if (extrusions.length === 0 || sceneObjects.length === 0) {
       this.addShapes(extrusions);
+      this.recordShapeFacesAndEdgesAsAdditions(extrusions);
+      this.classifyExtrudeEdges();
+      this.setFinalShapes(this.getShapes());
       return;
     }
 
-    const fusionResult = fuseWithSceneObjects(sceneObjects, extrusions);
+    const fusionResult = fuseWithSceneObjects(sceneObjects, extrusions, {
+      recordHistoryFor: this,
+    });
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
       if (!modifiedShape.object) {
@@ -161,6 +169,12 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
     }
 
     this.addShapes(fusionResult.newShapes);
+
+    if (fusionResult.toolHistory) {
+      this.remapClassifiedFaces(fusionResult.toolHistory);
+    }
+    this.classifyExtrudeEdges();
+    this.setFinalShapes(this.getShapes());
   }
 
   override getDependencies(): SceneObject[] {

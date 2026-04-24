@@ -1,5 +1,7 @@
 import { randomUUID } from "crypto";
 import { Shape, ShapeFilter } from "./shape.js";
+import { Face } from "./face.js";
+import { Edge } from "./edge.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { ISceneObject } from "../core/interfaces.js";
 import { FusionScope, OperationMode } from "../features/extrude-options.js";
@@ -9,6 +11,22 @@ export type SourceLocation = {
   filePath: string;
   line: number;
   column: number;
+};
+
+export type AdditionRecord<T> = {
+  shape: T;
+  addedBy: SceneObject;
+};
+
+export type RemovalRecord<T> = {
+  shape: T;
+  removedBy: SceneObject;
+};
+
+export type ModificationRecord<T> = {
+  sources: T[];
+  results: T[];
+  modifiedBy: SceneObject;
 };
 
 export interface Comparable<T> {
@@ -52,6 +70,14 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     this.state = new Map();
     this.state.set('addedShapes', [])
     this.state.set('removedShapes', [])
+
+    this.state.set('addedFaces', [])
+    this.state.set('modifiedFaces', [])
+    this.state.set('removedFaces', [])
+    this.state.set('addedEdges', [])
+    this.state.set('modifiedEdges', [])
+    this.state.set('removedEdges', [])
+    this.state.set('finalShapes', [])
 
     this._id = randomUUID().toString();
   }
@@ -300,6 +326,62 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     this.state.set('removedShapes', shapes);
   }
 
+  private get addedFaces() {
+    return this.state.get('addedFaces') as AdditionRecord<Face>[];
+  }
+
+  private set addedFaces(records: AdditionRecord<Face>[]) {
+    this.state.set('addedFaces', records);
+  }
+
+  private get modifiedFaces() {
+    return this.state.get('modifiedFaces') as ModificationRecord<Face>[];
+  }
+
+  private set modifiedFaces(records: ModificationRecord<Face>[]) {
+    this.state.set('modifiedFaces', records);
+  }
+
+  private get removedFaces() {
+    return this.state.get('removedFaces') as RemovalRecord<Face>[];
+  }
+
+  private set removedFaces(records: RemovalRecord<Face>[]) {
+    this.state.set('removedFaces', records);
+  }
+
+  private get addedEdges() {
+    return this.state.get('addedEdges') as AdditionRecord<Edge>[];
+  }
+
+  private set addedEdges(records: AdditionRecord<Edge>[]) {
+    this.state.set('addedEdges', records);
+  }
+
+  private get modifiedEdges() {
+    return this.state.get('modifiedEdges') as ModificationRecord<Edge>[];
+  }
+
+  private set modifiedEdges(records: ModificationRecord<Edge>[]) {
+    this.state.set('modifiedEdges', records);
+  }
+
+  private get removedEdges() {
+    return this.state.get('removedEdges') as RemovalRecord<Edge>[];
+  }
+
+  private set removedEdges(records: RemovalRecord<Edge>[]) {
+    this.state.set('removedEdges', records);
+  }
+
+  private get finalShapes() {
+    return this.state.get('finalShapes') as Shape[];
+  }
+
+  private set finalShapes(shapes: Shape[]) {
+    this.state.set('finalShapes', shapes);
+  }
+
   getUniqueType() {
     return this.getType() as string;
   }
@@ -350,6 +432,96 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     for (const shape of this.addedShapes) {
       this.removeShape(shape, removedBy);
     }
+  }
+
+  recordAddedFace(face: Face, addedBy: SceneObject) {
+    this.addedFaces.push({ shape: face, addedBy });
+  }
+
+  recordAddedEdge(edge: Edge, addedBy: SceneObject) {
+    this.addedEdges.push({ shape: edge, addedBy });
+  }
+
+  recordModifiedFaces(sources: Face[], results: Face[], modifiedBy: SceneObject) {
+    this.modifiedFaces.push({ sources, results, modifiedBy });
+  }
+
+  recordModifiedEdges(sources: Edge[], results: Edge[], modifiedBy: SceneObject) {
+    this.modifiedEdges.push({ sources, results, modifiedBy });
+  }
+
+  recordRemovedFace(face: Face, removedBy: SceneObject) {
+    if (this.isContainer()) {
+      for (const child of this.children) {
+        if (child.ownsFace(face)) {
+          child.recordRemovedFace(face, removedBy);
+        }
+      }
+      return;
+    }
+
+    this.removedFaces.push({ shape: face, removedBy });
+  }
+
+  recordRemovedEdge(edge: Edge, removedBy: SceneObject) {
+    if (this.isContainer()) {
+      for (const child of this.children) {
+        if (child.ownsEdge(edge)) {
+          child.recordRemovedEdge(edge, removedBy);
+        }
+      }
+      return;
+    }
+
+    this.removedEdges.push({ shape: edge, removedBy });
+  }
+
+  private ownsFace(face: Face): boolean {
+    return this.addedFaces.some(r => r.shape === face);
+  }
+
+  private ownsEdge(edge: Edge): boolean {
+    return this.addedEdges.some(r => r.shape === edge);
+  }
+
+  getAddedFaces(scope?: Set<SceneObject>): Face[] {
+    return this.addedFaces
+      .filter(r => !scope || scope.has(r.addedBy))
+      .map(r => r.shape);
+  }
+
+  getModifiedFaces(scope?: Set<SceneObject>): ModificationRecord<Face>[] {
+    return this.modifiedFaces.filter(r => !scope || scope.has(r.modifiedBy));
+  }
+
+  getRemovedFaces(scope?: Set<SceneObject>): Face[] {
+    return this.removedFaces
+      .filter(r => !scope || scope.has(r.removedBy))
+      .map(r => r.shape);
+  }
+
+  getAddedEdges(scope?: Set<SceneObject>): Edge[] {
+    return this.addedEdges
+      .filter(r => !scope || scope.has(r.addedBy))
+      .map(r => r.shape);
+  }
+
+  getModifiedEdges(scope?: Set<SceneObject>): ModificationRecord<Edge>[] {
+    return this.modifiedEdges.filter(r => !scope || scope.has(r.modifiedBy));
+  }
+
+  getRemovedEdges(scope?: Set<SceneObject>): Edge[] {
+    return this.removedEdges
+      .filter(r => !scope || scope.has(r.removedBy))
+      .map(r => r.shape);
+  }
+
+  setFinalShapes(shapes: Shape[]) {
+    this.finalShapes = shapes;
+  }
+
+  getFinalShapes(): Shape[] {
+    return this.finalShapes;
   }
 
   getOwnShapes(filter?: ShapeFilter, scope?: Set<SceneObject>): Shape[] {

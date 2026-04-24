@@ -61,6 +61,8 @@ export class Extrude extends ExtrudeBase {
     } else {
       this.buildAdd(faces, plane, context, inwardEdges, outwardEdges);
     }
+
+    this.setFinalShapes(this.getShapes());
     console.log(`[perf] Extrude.build TOTAL: ${(performance.now() - tBuild).toFixed(1)} ms`);
   }
 
@@ -98,6 +100,8 @@ export class Extrude extends ExtrudeBase {
     console.log("Extrusions before fusion:", extrusions.length);
     if (extrusions.length === 0 || sceneObjects.length === 0) {
       this.addShapes(extrusions);
+      this.recordShapeFacesAndEdgesAsAdditions(extrusions);
+      this.classifyExtrudeEdges();
       return;
     }
 
@@ -105,7 +109,10 @@ export class Extrude extends ExtrudeBase {
     const fusionResult = fuseWithSceneObjects(
       sceneObjects,
       extrusions,
-      this.isFaceSourced() ? { glue: 'full' } : undefined,
+      {
+        glue: this.isFaceSourced() ? 'full' : undefined,
+        recordHistoryFor: this,
+      },
     );
     console.log(`[perf] Extrude.buildAdd.fuseWithSceneObjects: ${(performance.now() - tFuse).toFixed(1)} ms`);
 
@@ -117,6 +124,11 @@ export class Extrude extends ExtrudeBase {
     }
 
     this.addShapes(fusionResult.newShapes);
+
+    if (fusionResult.toolHistory) {
+      this.remapClassifiedFaces(fusionResult.toolHistory);
+    }
+    this.classifyExtrudeEdges();
   }
 
   private buildSymmetric(faces: Face[], plane: any, context: BuildSceneObjectContext, inwardEdges?: Edge[], outwardEdges?: Edge[]) {
@@ -218,10 +230,14 @@ export class Extrude extends ExtrudeBase {
 
     if (extrusions.length === 0 || sceneObjects.length === 0) {
       this.addShapes(extrusions);
+      this.recordShapeFacesAndEdgesAsAdditions(extrusions);
+      this.classifyExtrudeEdges();
       return;
     }
 
-    const fusionResult = fuseWithSceneObjects(sceneObjects, extrusions);
+    const fusionResult = fuseWithSceneObjects(sceneObjects, extrusions, {
+      recordHistoryFor: this,
+    });
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
       if (!modifiedShape.object) {
@@ -231,6 +247,11 @@ export class Extrude extends ExtrudeBase {
     }
 
     this.addShapes(fusionResult.newShapes);
+
+    if (fusionResult.toolHistory) {
+      this.remapClassifiedFaces(fusionResult.toolHistory);
+    }
+    this.classifyExtrudeEdges();
   }
 
   private buildRemove(faces: Face[], plane: any, context: BuildSceneObjectContext) {
@@ -270,7 +291,9 @@ export class Extrude extends ExtrudeBase {
 
     this.getSource()?.removeShapes(this);
 
-    cutWithSceneObjects(scope, toolShapes, plane, this.distance, this);
+    cutWithSceneObjects(scope, toolShapes, plane, this.distance, this, {
+      recordHistoryFor: this,
+    });
   }
 
   override getDependencies(): SceneObject[] {

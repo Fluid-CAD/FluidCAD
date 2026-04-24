@@ -86,7 +86,8 @@ export class Loft extends ExtrudeBase implements ILoft {
     if (this._operationMode === 'remove') {
       const scope = this.resolveFusionScope(context.getSceneObjects());
       const plane = firstPlane || lastPlane;
-      cutWithSceneObjects(scope, newShapes, plane, 0, this);
+      cutWithSceneObjects(scope, newShapes, plane, 0, this, { recordHistoryFor: this });
+      this.setFinalShapes(this.getShapes());
       return;
     }
 
@@ -94,10 +95,15 @@ export class Loft extends ExtrudeBase implements ILoft {
 
     if (sceneObjects.length === 0) {
       this.addShapes(newShapes);
+      this.recordShapeFacesAndEdgesAsAdditions(newShapes);
+      this.classifyExtrudeEdges();
+      this.setFinalShapes(this.getShapes());
       return;
     }
 
-    const fusionResult = fuseWithSceneObjects(sceneObjects, newShapes);
+    const fusionResult = fuseWithSceneObjects(sceneObjects, newShapes, {
+      recordHistoryFor: this,
+    });
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
       if (modifiedShape.object) {
@@ -106,6 +112,12 @@ export class Loft extends ExtrudeBase implements ILoft {
     }
 
     this.addShapes(fusionResult.newShapes);
+
+    if (fusionResult.toolHistory) {
+      this.remapClassifiedFaces(fusionResult.toolHistory);
+    }
+    this.classifyExtrudeEdges();
+    this.setFinalShapes(this.getShapes());
   }
 
   private buildThinLoft(): Shape[] {

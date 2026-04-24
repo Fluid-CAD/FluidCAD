@@ -3,7 +3,6 @@ import { Edge, Face, Shape } from "../common/shapes.js";
 import { ExtrudeBase } from "./extrude-base.js";
 import { Extruder } from "./simple-extruder.js";
 import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
-import { SelectSceneObject } from "./select.js";
 import { FaceQuery } from "../oc/face-query.js";
 import { FaceOps } from "../oc/face-ops.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
@@ -18,15 +17,15 @@ import { Point } from "../math/point.js";
 export class ExtrudeToFace extends ExtrudeBase {
   constructor(
     public face: SceneObject | 'first-face' | 'last-face',
-    extrudable?: Extrudable) {
+    source?: Extrudable | SceneObject) {
 
-    super(extrudable);
+    super(source);
   }
 
   build(context: BuildSceneObjectContext) {
     const allSceneObjects = context.getSceneObjects();
     const sceneObjects = this.resolveFusionScope(allSceneObjects);
-    const plane = this.extrudable.getPlane();
+    const plane = this.getSourcePlane();
 
     const pickedFaces = this.resolvePickedFaces(plane);
     if (pickedFaces !== null && pickedFaces.length === 0) {
@@ -46,7 +45,12 @@ export class ExtrudeToFace extends ExtrudeBase {
     let inwardEdges: Edge[] | undefined;
     let outwardEdges: Edge[] | undefined;
 
-    if (this.isThin()) {
+    if (this.isFaceSourced()) {
+      if (this.isThin()) {
+        throw new Error("thin() is not supported with a face-sourced extrude");
+      }
+      faces = pickedFaces ?? this.getSourceFaces();
+    } else if (this.isThin()) {
       const thinResult = ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]);
       faces = thinResult.faces;
       inwardEdges = thinResult.inwardEdges;
@@ -97,7 +101,7 @@ export class ExtrudeToFace extends ExtrudeBase {
     this.setState('internal-faces', allInternalFaces);
     this.setState('cap-faces', allCapFaces);
 
-    this.extrudable.removeShapes(this);
+    this.getSource()?.removeShapes(this);
 
     if (this.face instanceof SceneObject) {
       this.face.removeShapes(this);
@@ -158,7 +162,7 @@ export class ExtrudeToFace extends ExtrudeBase {
   private resizePlanarFace(targetFace: Face): Face {
     const endOffset = this.getEndOffset();
     if (endOffset) {
-      const dir = this.extrudable.getPlane().normal.reverse();
+      const dir = this.getSourcePlane().normal.reverse();
       return FaceQuery.makeInfinitePlanarFace(targetFace, endOffset, dir);
     }
 
@@ -202,7 +206,7 @@ export class ExtrudeToFace extends ExtrudeBase {
   private splitShapesByFace(extrusions: Shape[], targetFace: Face): Shape[] {
     const result: Shape[] = [];
 
-    const sourcePlane = this.extrudable.getPlane();
+    const sourcePlane = this.getSourcePlane();
 
     for (const shape of extrusions) {
       const solids = BooleanOps.splitShape(shape, targetFace);
@@ -267,11 +271,12 @@ export class ExtrudeToFace extends ExtrudeBase {
   }
 
   private getFirstOrLastFace(sceneObjects: SceneObject[], mode: 'first' | 'last'): Face {
-    const plane = this.extrudable.getPlane();
+    const plane = this.getSourcePlane();
+    const source = this.getSource();
     const allFaces: Face[] = [];
 
     for (const obj of sceneObjects) {
-      if (obj === this.extrudable) {
+      if (obj === source) {
         continue;
       }
       for (const shape of obj.getShapes()) {
@@ -291,8 +296,9 @@ export class ExtrudeToFace extends ExtrudeBase {
 
   override getDependencies(): SceneObject[] {
     const deps: SceneObject[] = [];
-    if (this.extrudable) {
-      deps.push(this.extrudable);
+    const source = this.getSource();
+    if (source) {
+      deps.push(source);
     }
     if (this.face instanceof SceneObject) {
       deps.push(this.face);
@@ -304,10 +310,9 @@ export class ExtrudeToFace extends ExtrudeBase {
     const newFace = this.face instanceof SceneObject
       ? (remap.get(this.face) || this.face)
       : this.face;
-    const extrudable = this.extrudable
-      ? (remap.get(this.extrudable) || this.extrudable) as Extrudable
-      : undefined;
-    return new ExtrudeToFace(newFace, extrudable).syncWith(this);
+    const source = this.getSource();
+    const remapped = source ? (remap.get(source) || source) : undefined;
+    return new ExtrudeToFace(newFace, remapped).syncWith(this);
   }
 
   compareTo(other: ExtrudeToFace): boolean {
@@ -319,7 +324,12 @@ export class ExtrudeToFace extends ExtrudeBase {
       return false;
     }
 
-    if (!this.extrudable.compareTo(other.extrudable)) {
+    const thisSource = this.getSource();
+    const otherSource = other.getSource();
+    if (!thisSource !== !otherSource) {
+      return false;
+    }
+    if (thisSource && otherSource && !thisSource.compareTo(otherSource)) {
       return false;
     }
 
@@ -348,7 +358,7 @@ export class ExtrudeToFace extends ExtrudeBase {
   serialize() {
     return {
       sheptType: 'wire',
-      extrudable: this.extrudable.serialize(),
+      extrudable: this.getSource()?.serialize(),
       draft: this.getDraft(),
       endOffset: this.getEndOffset(),
       face: typeof (this.face) === 'string' ? this.face : 'selection',

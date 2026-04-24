@@ -1,4 +1,4 @@
-import type { BRepMesh_IncrementalMesh, TopoDS_Face, TopoDS_Shape } from "occjs-wrapper";
+import type { TopoDS_Edge, TopoDS_Face, TopoDS_Shape } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";
@@ -10,6 +10,18 @@ export interface MeshData {
   count?: number;
 }
 
+export interface EnsureTriangulatedOptions {
+  linDefl?: number;
+  angDefl?: number;
+  parallel?: boolean;
+  relative?: boolean;
+  checkFreeEdges?: boolean;
+}
+
+// Flip to false to benchmark single-threaded meshing.
+const DEFAULT_LIN_DEFLECTION = 0.1;
+const DEFAULT_ANG_DEFLECTION = 0.5;
+
 export class Mesh {
   // Wrapper methods (public API for external callers)
   static triangulateFace(face: Face, vertexOffset: number = 0): MeshData | null {
@@ -20,24 +32,35 @@ export class Mesh {
     return Mesh.discretizeEdgeRaw(edge.getShape());
   }
 
-  static premeshShape(shape: TopoDS_Shape) {
+  /**
+   * Triangulates `shape` only if it doesn't already have an up-to-date
+   * triangulation at the requested deflection. Returns true when a fresh
+   * mesh was built, false when the stored one was reused.
+   */
+  static ensureTriangulated(shape: TopoDS_Shape, opts: EnsureTriangulatedOptions = {}): boolean {
     const oc = getOC();
-    const inc = new oc.BRepMesh_IncrementalMesh(shape, 0.3, false, 0.3, true);
+    const linDefl = opts.linDefl ?? DEFAULT_LIN_DEFLECTION;
+    const angDefl = opts.angDefl ?? DEFAULT_ANG_DEFLECTION;
+    const relative = opts.relative ?? false;
+    const checkFreeEdges = opts.checkFreeEdges ?? true;
+
+    if (oc.BRepTools.Triangulation(shape, linDefl, checkFreeEdges)) {
+      return false;
+    }
+
+    const inc = new oc.BRepMesh_IncrementalMesh(shape, linDefl, relative, angDefl, false);
     inc.delete();
+    return true;
   }
 
   // Raw methods (for oc-internal use)
   static triangulateFaceRaw(face: TopoDS_Face, vertexOffset: number = 0): MeshData | null {
-    const oc = getOC();
-
-    let inc: BRepMesh_IncrementalMesh;
     try {
-      inc = new oc.BRepMesh_IncrementalMesh(face, 0.3, false, 0.3, true);
+      Mesh.ensureTriangulated(face);
     } catch (e) {
       console.error("Face mesh failed", e);
       return null;
     }
-    inc.delete();
 
     return Mesh.extractFaceTriangulationRaw(face, vertexOffset);
   }
@@ -106,46 +129,119 @@ export class Mesh {
     return { vertices, normals, indices, count: nbNodes };
   }
 
+  /**
+   * Reads the polyline stored for `edge` as a polygon-on-triangulation of
+   * `face`. Node indices point into the face's triangulation, so the edge
+   * samples coincide exactly with the face mesh vertices (watertight).
+   */
+  static discretizeEdgeOnFace(edge: TopoDS_Edge, face: TopoDS_Face): MeshData | null {
+    const oc = getOC();
+    if (oc.BRep_Tool.Degenerated(edge)) {
+      return null;
+    }
+
+    const loc = new oc.TopLoc_Location();
+    const triHandle = oc.BRep_Tool.Triangulation(face, loc, 0);
+    if (triHandle.IsNull()) {
+      triHandle.delete();
+      loc.delete();
+      return null;
+    }
+
+    const polyHandle = oc.BRep_Tool.PolygonOnTriangulation(edge, triHandle, loc);
+    if (polyHandle.IsNull()) {
+      polyHandle.delete();
+      triHandle.delete();
+      loc.delete();
+      return null;
+    }
+
+    const tri = triHandle.get();
+    const poly = polyHandle.get();
+    const nbNodes = poly.NbNodes();
+    const tx = loc.Transformation();
+
+    const vertices: number[] = new Array(nbNodes * 3);
+    for (let i = 1; i <= nbNodes; i++) {
+      const nodeIdx = poly.Node(i);
+      const p = tri.Node(nodeIdx);
+      const pT = p.Transformed(tx);
+      const base = (i - 1) * 3;
+      vertices[base] = pT.X();
+      vertices[base + 1] = pT.Y();
+      vertices[base + 2] = pT.Z();
+      p.delete();
+      pT.delete();
+    }
+
+    const indices: number[] = new Array((nbNodes - 1) * 2);
+    for (let i = 0; i < nbNodes - 1; i++) {
+      indices[i * 2] = i;
+      indices[i * 2 + 1] = i + 1;
+    }
+
+    tx.delete();
+    polyHandle.delete();
+    triHandle.delete();
+    loc.delete();
+
+    return { vertices, normals: [], indices };
+  }
+
+  /**
+   * Reads the stored 3D polygon for a free edge (one not attached to a
+   * meshed face). Caller must have already run `ensureTriangulated` on the
+   * edge or its parent wire.
+   */
   static discretizeEdgeRaw(edge: TopoDS_Shape): MeshData {
     const oc = getOC();
     const ocEdge = oc.TopoDS.Edge(edge);
-    const adaptor = new oc.BRepAdaptor_Curve(ocEdge);
-    const type = adaptor.GetType();
 
-    const first = adaptor.FirstParameter();
-    const last = adaptor.LastParameter();
-
-    const points: number[] = [];
-
-    if (type === oc.GeomAbs_CurveType.GeomAbs_Line) {
-      const startPnt = adaptor.Value(first);
-      const endPnt = adaptor.Value(last);
-      points.push(startPnt.X(), startPnt.Y(), startPnt.Z());
-      points.push(endPnt.X(), endPnt.Y(), endPnt.Z());
-      startPnt.delete();
-      endPnt.delete();
-    } else {
-      const numSegments = Math.max(1, Math.floor((last - first) / 0.01));
-
-      for (let i = 0; i <= numSegments; i++) {
-        const t = first + ((last - first) * i) / numSegments;
-        const pnt = adaptor.Value(t);
-        points.push(pnt.X(), pnt.Y(), pnt.Z());
-        pnt.delete();
-      }
+    if (oc.BRep_Tool.Degenerated(ocEdge)) {
+      ocEdge.delete();
+      return { vertices: [], normals: [], indices: [] };
     }
 
-    adaptor.delete();
+    Mesh.ensureTriangulated(edge);
+
+    const loc = new oc.TopLoc_Location();
+    const polyHandle = oc.BRep_Tool.Polygon3D(ocEdge, loc);
+    if (polyHandle.IsNull()) {
+      polyHandle.delete();
+      loc.delete();
+      ocEdge.delete();
+      console.warn("Edge has no stored Polygon3D after meshing; returning empty polyline.");
+      return { vertices: [], normals: [], indices: [] };
+    }
+
+    const poly = polyHandle.get();
+    const nbNodes = poly.NbNodes();
+    const nodes = poly.Nodes();
+    const tx = loc.Transformation();
+
+    const vertices: number[] = new Array(nbNodes * 3);
+    for (let i = 1; i <= nbNodes; i++) {
+      const p = nodes.Value(i);
+      const pT = p.Transformed(tx);
+      const base = (i - 1) * 3;
+      vertices[base] = pT.X();
+      vertices[base + 1] = pT.Y();
+      vertices[base + 2] = pT.Z();
+      p.delete();
+      pT.delete();
+    }
+
+    const indices: number[] = new Array((nbNodes - 1) * 2);
+    for (let i = 0; i < nbNodes - 1; i++) {
+      indices[i * 2] = i;
+      indices[i * 2 + 1] = i + 1;
+    }
+
+    tx.delete();
+    polyHandle.delete();
+    loc.delete();
     ocEdge.delete();
 
-    const pointCount = points.length / 3;
-    const indices: number[] = [];
-
-    for (let i = 0; i < pointCount - 1; i++) {
-      indices[2 * i] = i;
-      indices[2 * i + 1] = i + 1;
-    }
-
-    return { vertices: points, normals: [], indices };
+    return { vertices, normals: [], indices };
   }
 }

@@ -1,4 +1,4 @@
-import { Mesh, MeshBasicMaterial, Object3D, Raycaster, Vector2, Vector3 } from 'three';
+import { Mesh, MeshBasicMaterial, Object3D, Vector3 } from 'three';
 import { SceneContext } from '../scene/scene-context';
 import { PlaneData } from '../types';
 
@@ -175,13 +175,11 @@ export class RegionPickMode {
   /** Raycast against pick-region meta face meshes and return the closest hit Mesh + world point. */
   private raycastRegions(clientX: number, clientY: number): { mesh: Mesh; point: Vector3 } | null {
     const renderer = this.ctx.renderer;
-    const camera = this.ctx.camera;
     const rect = renderer.domElement.getBoundingClientRect();
     const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
     const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
 
-    const raycaster = new Raycaster();
-    raycaster.setFromCamera(new Vector2(ndcX, ndcY), camera);
+    const raycaster = this.ctx.createPickingRaycaster(ndcX, ndcY);
 
     // Collect all pick-region meshes from the scene
     const regionMeshes: Mesh[] = [];
@@ -209,13 +207,11 @@ export class RegionPickMode {
   /** Project screen coordinates to 2D sketch plane coordinates. */
   private projectToSketch(clientX: number, clientY: number): [number, number] | null {
     const renderer = this.ctx.renderer;
-    const camera = this.ctx.camera;
     const rect = renderer.domElement.getBoundingClientRect();
     const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
     const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
 
-    const raycaster = new Raycaster();
-    raycaster.setFromCamera(new Vector2(ndcX, ndcY), camera);
+    const raycaster = this.ctx.createPickingRaycaster(ndcX, ndcY);
 
     const rayOrigin = raycaster.ray.origin;
     const rayDir = raycaster.ray.direction;

@@ -15,6 +15,7 @@ import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { FaceOps } from "../oc/face-ops.js";
 import { ThinFaceMaker } from "../oc/thin-face-maker.js";
+import { Matrix4 } from "../math/matrix4.js";
 
 export class Revolve extends ExtrudeBase implements IRevolve {
 
@@ -61,8 +62,9 @@ export class Revolve extends ExtrudeBase implements IRevolve {
 
       let resultSolid: Solid;
       if (this._symmetric) {
-        const rotated = ShapeOps.rotateShape(solid.getShape(), axis, -rad(this.angle) / 2);
-        resultSolid = Solid.fromTopoDSSolid(Explorer.toSolid(rotated));
+        const matrix = Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, -rad(this.angle) / 2);
+        const rotated = ShapeOps.transform(solid, matrix);
+        resultSolid = Solid.fromTopoDSSolid(Explorer.toSolid(rotated.getShape()));
       } else {
         resultSolid = Solid.fromTopoDSSolid(Explorer.toSolid(solid.getShape()));
       }

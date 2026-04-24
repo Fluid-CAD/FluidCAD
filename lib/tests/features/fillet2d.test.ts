@@ -3,7 +3,8 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import fillet from "../../core/fillet.js";
-import { circle, rect } from "../../core/2d/index.js";
+import fuse from "../../core/fuse.js";
+import { hMove, rect } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { Sketch } from "../../features/2d/sketch.js";
@@ -89,5 +90,22 @@ describe("fillet2d", () => {
     });
   });
 
+  describe("wire orientation", () => {
+    it("fillets a fused shape built from CW rectangles (negative height)", () => {
+      const s = sketch("xz", () => {
+        rect(2, -2);
+        hMove(-2);
+        rect(4, -2);
+
+        fuse();
+        fillet(1);
+      }) as Sketch;
+
+      render();
+
+      const arcs = getEdgesByType(s.getEdges(), "arc");
+      expect(arcs.length).toBeGreaterThan(0);
+    });
+  });
 
 });

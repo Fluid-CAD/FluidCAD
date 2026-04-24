@@ -1,4 +1,4 @@
-import { Box3, BufferAttribute, BufferGeometry, LineSegments, Mesh, MeshPhongMaterial, Object3D, Raycaster, Vector2, Vector3 } from 'three';
+import { Box3, BufferAttribute, BufferGeometry, Color, LineSegments, Mesh, MeshPhongMaterial, Object3D, Vector3 } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { SceneModeManager } from './scene/scene-mode';
 import { buildSceneMesh } from './meshes/mesh-factory';
@@ -6,6 +6,7 @@ import { SceneObjectPart, SceneObjectRender, SubSelection } from './types';
 import { SettingsPanel } from './ui/settings-panel';
 import { CentroidIndicator } from './scene/centroid-indicator';
 import { viewerSettings } from './scene/viewer-settings';
+import { themeColors } from './scene/theme-colors';
 
 /** Recursively expand `box` to include `object`, skipping meta-shape subtrees. */
 function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
@@ -28,6 +29,11 @@ const HIGHLIGHT_EDGE_COLOR = '#ffc578';
 const HOVER_FACE_COLOR = '#64B5F6';
 const HOVER_EDGE_COLOR = '#64B5F6';
 const HOVER_FACE_OPACITY = 0.3;
+
+// How much to blend non-sketch object colors toward the scene background while
+// sketch mode is active. Higher = more faded. Opaque tint avoids the three.js
+// transparency sort/overdraw cost on complex scenes.
+const SKETCH_GHOST_TINT_FACTOR = 0.75;
 
 
 /**
@@ -132,8 +138,7 @@ export class Viewer {
     const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
     const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
 
-    const raycaster = new Raycaster();
-    raycaster.setFromCamera(new Vector2(ndcX, ndcY), camera);
+    const raycaster = this.ctx.createPickingRaycaster(ndcX, ndcY);
     raycaster.params.Line = { threshold: this.computeEdgePickThreshold() };
 
     const faceCandidates: Mesh[] = [];
@@ -275,6 +280,10 @@ export class Viewer {
     this.ctx.scene.add(mesh);
     this.applyHiddenShapes();
     this.applyShapeOpacities();
+
+    if (this.activeSketchId) {
+      this.applySketchModeGhosting();
+    }
 
     // Section view: apply clipping when in sketch mode
     this.settingsPanel.setSectionViewVisible(this.modeManager.isSketchMode);
@@ -892,6 +901,41 @@ export class Viewer {
   private applyHiddenShapes(): void {
     for (const shapeIndex of this.hiddenShapeIndices) {
       this.applyVisibilityForIndex(shapeIndex, false);
+    }
+  }
+
+  // Fake transparency for sketch mode by tinting non-sketch materials toward
+  // the scene background. Materials stay fully opaque, so the renderer skips
+  // the transparency sort and overdraw blending that was crippling complex
+  // scenes. Active sketch subtrees and selection overlays are left untouched.
+  private applySketchModeGhosting(): void {
+    const compiled = this.ctx.scene.getObjectByName('compiledMesh');
+    if (!compiled) { return; }
+
+    const bg = themeColors.backgroundColor;
+    for (const child of compiled.children) {
+      this.tintForGhosting(child, bg);
+    }
+  }
+
+  private tintForGhosting(node: Object3D, bg: Color): void {
+    if (node.userData.isSketchRoot) { return; }
+    if (node.renderOrder >= 999) { return; }
+
+    const mat = (node as any).material;
+    if (mat) {
+      const materials = Array.isArray(mat) ? mat : [mat];
+      for (const m of materials) {
+        if (!m.color || !(m.color instanceof Color)) { continue; }
+        if (!m.userData.ghostOriginalColor) {
+          m.userData.ghostOriginalColor = m.color.clone();
+        }
+        m.color.copy(m.userData.ghostOriginalColor).lerp(bg, SKETCH_GHOST_TINT_FACTOR);
+      }
+    }
+
+    for (const c of node.children) {
+      this.tintForGhosting(c, bg);
     }
   }
 

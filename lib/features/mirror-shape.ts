@@ -59,6 +59,7 @@ export class MirrorShape extends SceneObject {
       for (const shape of shapes) {
         const matrix = Matrix4.mirrorPlane(plane.normal, plane.origin);
         const transformed = ShapeOps.transform(shape, matrix);
+        transformed.setMeshSource(shape, matrix);
         transformedShapes.push(transformed);
       }
     }
@@ -115,7 +116,7 @@ export class MirrorShape extends SceneObject {
 
   serialize() {
     return {
-      plane: this.plane,
+      // plane: this.plane,
     }
   }
 }

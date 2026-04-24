@@ -51,6 +51,7 @@ const TANGENT_HEAD_WIDTH = 2.5;
 export class SketchMesh extends Group {
   constructor(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], activeSketchId: string | null, camera: Camera) {
     super();
+    this.userData.isSketchRoot = true;
     this.buildEdges(sceneObject, allObjects);
     this.buildVertices(sceneObject, allObjects, camera);
     if (activeSketchId && sceneObject.id === activeSketchId) {

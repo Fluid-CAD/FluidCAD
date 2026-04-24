@@ -140,7 +140,7 @@ export class BooleanOps {
     return { result: wrappedResult, modified, sectionEdges, startEdges, endEdges, internalEdges, internalFaces };
   }
 
-  static fuse(args: Shape[]): {
+  static fuse(args: Shape[], opts?: { glue?: 'full' | 'shift' }): {
     result: Shape[];
     modifiedShapes: Shape[];
     newShapes: Shape[];
@@ -150,6 +150,11 @@ export class BooleanOps {
     builder.SetNonDestructive(true);
     builder.SetCheckInverted(true);
     builder.SetRunParallel(true);
+    if (opts?.glue === 'full') {
+      builder.SetGlue((oc as any).BOPAlgo_GlueEnum.BOPAlgo_GlueFull);
+    } else if (opts?.glue === 'shift') {
+      builder.SetGlue((oc as any).BOPAlgo_GlueEnum.BOPAlgo_GlueShift);
+    }
 
     const argsList = new oc.TopTools_ListOfShape();
     for (const arg of args) {
@@ -164,13 +169,18 @@ export class BooleanOps {
 
 
     const progress = new oc.Message_ProgressRange();
+    const tBuild = performance.now();
     builder.Build(progress);
+    console.log(`[perf] BooleanOps.fuse.Build (args=${args.length}): ${(performance.now() - tBuild).toFixed(1)} ms`);
+    const tSimplify = performance.now();
     builder.SimplifyResult(false, true, oc.Precision.Angular());
+    console.log(`[perf] BooleanOps.fuse.SimplifyResult: ${(performance.now() - tSimplify).toFixed(1)} ms`);
 
     const resultShape = builder.Shape();
 
+    const tExplore = performance.now();
     const rawShapes = Explorer.findAllShapes(resultShape);
-    console.log('FuseMultiShape: Result shapes count:', rawShapes.length);
+    console.log(`[perf] BooleanOps.fuse.findAllShapes (count=${rawShapes.length}): ${(performance.now() - tExplore).toFixed(1)} ms`);
     const result = rawShapes.map(s => ShapeFactory.fromShape(s));
 
     const modifiedShapes: Shape[] = [];
@@ -185,6 +195,7 @@ export class BooleanOps {
 
     const newShapes: Shape[] = [];
 
+    const tPartner = performance.now();
     for (const s of result) {
       const existsInArgs = args.some(arg => arg.getShape().IsPartner(s.getShape()));
 
@@ -192,6 +203,7 @@ export class BooleanOps {
         newShapes.push(s);
       }
     }
+    console.log(`[perf] BooleanOps.fuse.IsPartner check (result=${result.length} x args=${args.length}): ${(performance.now() - tPartner).toFixed(1)} ms`);
 
     return { result, newShapes, modifiedShapes };
   }

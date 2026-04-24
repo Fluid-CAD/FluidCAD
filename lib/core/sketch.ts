@@ -8,29 +8,31 @@ import { SceneObject } from "../common/scene-object.js";
 import { PlaneFromObject } from "../features/plane-from-object.js";
 import { IPlane, ISceneObject } from "./interfaces.js";
 
+type Extend<T> = T extends object ? T : {};
+
 interface SketchFunction {
   /**
    * Draws 2D geometry on a standard plane.
    * @param plane - The plane to sketch on
    * @param sketcher - Callback containing sketch operations
    */
-  (plane: PlaneLike, sketcher: () => void): ISceneObject;
+  <T>(plane: PlaneLike, sketcher: () => T): ISceneObject & Extend<T>;
   /**
    * Draws 2D geometry on a face selection.
    * @param face - The face to sketch on
    * @param sketcher - Callback containing sketch operations
    */
-  (face: ISceneObject, sketcher: () => void): ISceneObject;
+  <T>(face: ISceneObject, sketcher: () => T): ISceneObject & Extend<T>;
   /**
    * Draws 2D geometry on an existing Plane object.
    * @param plane - The Plane object to sketch on
    * @param sketcher - Callback containing sketch operations
    */
-  (plane: IPlane, sketcher: () => void): ISceneObject;
+  <T>(plane: IPlane, sketcher: () => T): ISceneObject & Extend<T>;
 }
 
 function build(context: SceneParserContext): SketchFunction {
-  return function sketch(p: PlaneLike | SceneObject, sketcher: () => void): ISceneObject {
+  return function sketch<T>(p: PlaneLike | SceneObject, sketcher: () => T): ISceneObject & Extend<T> {
     let planeObj: PlaneObjectBase;
 
     if (p instanceof PlaneObjectBase) {
@@ -52,10 +54,14 @@ function build(context: SceneParserContext): SketchFunction {
     const sketch = new Sketch(planeObj);
 
     context.startProgressiveContainer(sketch);
-    sketcher();
+    const extensions = sketcher();
     context.endProgressiveContainer();
 
-    return sketch;
+    if (extensions && typeof extensions === 'object') {
+      Object.assign(sketch, extensions);
+    }
+
+    return sketch as unknown as ISceneObject & Extend<T>;
   } as unknown as SketchFunction;
 }
 

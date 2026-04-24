@@ -52,9 +52,14 @@ export class Extruder {
     let sideFaces: Face[] = [];
     let internalFaces: Face[] = [];
 
+    console.log("Fusing faces before extrusion...", this.faces.length);
+    const tFuseFaces = performance.now();
     const fusedFaces = BooleanOps.fuseFaces(this.faces)
+    console.log(`[perf] Extruder.fuseFaces (in=${this.faces.length}, out=${fusedFaces.result.length}): ${(performance.now() - tFuseFaces).toFixed(1)} ms`);
     for (const face of fusedFaces.result) {
+      const time = performance.now();
       let { solid, firstFace, lastFace } = ExtrudeOps.makePrismFromVec(face, vec);
+      console.log(`[perf] Extruder.makePrismFromVec: ${(performance.now() - time).toFixed(1)} ms`);
 
       if (this.draft) {
         const draftResult = this.applyDraft(solid, firstFace, lastFace, this.plane);

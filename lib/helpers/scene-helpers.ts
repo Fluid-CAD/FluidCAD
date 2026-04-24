@@ -5,9 +5,10 @@ import { ShapeOps } from "../oc/shape-ops.js";
 import { Plane } from "../math/plane.js";
 import { classifyCutResult } from "./cut-helpers.js";
 
-export function fuseWithSceneObjects(sceneObjects: SceneObject[], extrusions: Shape<any>[]) {
+export function fuseWithSceneObjects(sceneObjects: SceneObject[], extrusions: Shape<any>[], opts?: { glue?: 'full' | 'shift' }) {
   const modified: { shape: Shape<any>, object: SceneObject }[] = [];
 
+  const tCollect = performance.now();
   const objShapeMap = new Map<Shape<any>, SceneObject>();
   for (const obj of sceneObjects) {
     const shapes = obj.getShapes({}, 'solid');
@@ -17,9 +18,11 @@ export function fuseWithSceneObjects(sceneObjects: SceneObject[], extrusions: Sh
   }
 
   let sceneShapes = Array.from(objShapeMap.keys());
-  console.log("Fusing extrusions with scene objects. Extrusions:", extrusions.length, "Scene object shapes:", sceneShapes.length);
+  console.log(`[perf] fuseWithSceneObjects.collect (scenes=${sceneShapes.length}, extrusions=${extrusions.length}): ${(performance.now() - tCollect).toFixed(1)} ms`);
   const all = [...sceneShapes, ...extrusions];
-  const { result, newShapes, modifiedShapes } = BooleanOps.fuse(all);
+  const tFuse = performance.now();
+  const { result, newShapes, modifiedShapes } = BooleanOps.fuse(all, opts);
+  console.log(`[perf] fuseWithSceneObjects.BooleanOps.fuse (glue=${opts?.glue ?? 'off'}): ${(performance.now() - tFuse).toFixed(1)} ms`);
 
   if (newShapes.length === 0 && modifiedShapes.length === 0) {
     console.log("No fusions were made.");

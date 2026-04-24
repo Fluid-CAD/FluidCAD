@@ -108,21 +108,34 @@ export class SceneRenderer {
     const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false });
     const renderedSceneShapes: RenderedShape[] = [];
 
-    if (sceneShapes.length) {
-      console.log(` - Scene shapes: ${sceneShapes.length}`);
-      for (const shape of sceneShapes) {
-        renderedSceneShapes.push(this.toRenderedShape(shape));
+    try {
+      if (sceneShapes.length) {
+        console.log(` - Scene shapes: ${sceneShapes.length}`);
+        for (const shape of sceneShapes) {
+          renderedSceneShapes.push(this.toRenderedShape(shape));
+        }
       }
-    }
 
-    const errorMessage = obj.getError();
-    this.emitRendered(obj, scene, {
-      sceneShapes: renderedSceneShapes,
-      visible: this.computeVisibility(obj, scene, sceneShapes.length),
-      hasError: !!errorMessage,
-      errorMessage: errorMessage || undefined,
-      buildDurationMs,
-    });
+      const errorMessage = obj.getError();
+      this.emitRendered(obj, scene, {
+        sceneShapes: renderedSceneShapes,
+        visible: this.computeVisibility(obj, scene, sceneShapes.length),
+        hasError: !!errorMessage,
+        errorMessage: errorMessage || undefined,
+        buildDurationMs,
+      });
+    }
+    catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Error rendering object ${obj.getUniqueType()}:`, error);
+      this.emitRendered(obj, scene, {
+        sceneShapes: renderedSceneShapes,
+        visible: false,
+        hasError: true,
+        errorMessage: message,
+        buildDurationMs,
+      });
+    }
   }
 
   private buildObject(object: SceneObject, scene: Scene): number {

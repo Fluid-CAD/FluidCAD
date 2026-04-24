@@ -19,7 +19,6 @@ export interface EnsureTriangulatedOptions {
 }
 
 // Flip to false to benchmark single-threaded meshing.
-const MESH_PARALLEL = true;
 const DEFAULT_LIN_DEFLECTION = 0.1;
 const DEFAULT_ANG_DEFLECTION = 0.5;
 
@@ -42,7 +41,6 @@ export class Mesh {
     const oc = getOC();
     const linDefl = opts.linDefl ?? DEFAULT_LIN_DEFLECTION;
     const angDefl = opts.angDefl ?? DEFAULT_ANG_DEFLECTION;
-    const parallel = opts.parallel ?? MESH_PARALLEL;
     const relative = opts.relative ?? false;
     const checkFreeEdges = opts.checkFreeEdges ?? true;
 
@@ -50,9 +48,7 @@ export class Mesh {
       return false;
     }
 
-    const timeStart = performance.now();
-    const inc = new oc.BRepMesh_IncrementalMesh(shape, linDefl, relative, angDefl, parallel);
-    console.debug(`Meshing took ${(performance.now() - timeStart).toFixed(2)} ms (linDefl=${linDefl}, angDefl=${angDefl}, parallel=${parallel})`);
+    const inc = new oc.BRepMesh_IncrementalMesh(shape, linDefl, relative, angDefl, false);
     inc.delete();
     return true;
   }

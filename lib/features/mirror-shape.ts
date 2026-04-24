@@ -116,7 +116,7 @@ export class MirrorShape extends SceneObject {
 
   serialize() {
     return {
-      plane: this.plane,
+      // plane: this.plane,
     }
   }
 }

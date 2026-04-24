@@ -26,6 +26,10 @@ export class FaceQuery {
     return FaceQuery.isCylinderCurveFaceRaw(face.getShape(), diameter);
   }
 
+  static isTorusFace(face: Shape, majorRadius?: number, minorRadius?: number): boolean {
+    return FaceQuery.isTorusFaceRaw(face.getShape(), majorRadius, minorRadius);
+  }
+
   static isFaceOnPlane(face: Shape, plane: Plane): boolean {
     const [gpPln, dispose] = Convert.toGpPln(plane);
     const result = FaceQuery.isFaceOnPlaneRaw(face.getShape(), gpPln);
@@ -246,6 +250,38 @@ export class FaceQuery {
     }
 
     return false;
+  }
+
+  static isTorusFaceRaw(face: TopoDS_Shape, majorRadius?: number, minorRadius?: number): boolean {
+    const oc = getOC();
+    const ocFace = oc.TopoDS.Face(face);
+    const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
+    const type = faceAdaptor.GetType();
+
+    if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Torus) {
+      faceAdaptor.delete();
+      return false;
+    }
+
+    if (majorRadius === undefined && minorRadius === undefined) {
+      faceAdaptor.delete();
+      return true;
+    }
+
+    const torus = faceAdaptor.Torus();
+    const actualMajor = torus.MajorRadius();
+    const actualMinor = torus.MinorRadius();
+    torus.delete();
+    faceAdaptor.delete();
+
+    const tol = oc.Precision.Confusion();
+    if (majorRadius !== undefined && Math.abs(actualMajor - majorRadius) > tol) {
+      return false;
+    }
+    if (minorRadius !== undefined && Math.abs(actualMinor - minorRadius) > tol) {
+      return false;
+    }
+    return true;
   }
 
   static isFaceOnPlaneRaw(face: TopoDS_Shape, plane: gp_Pln): boolean {

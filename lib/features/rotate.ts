@@ -49,6 +49,7 @@ export class Rotate extends SceneObject {
       const shapes = obj.getShapes();
       for (const shape of shapes) {
         const transformed = ShapeOps.transform(shape, matrix);
+        transformed.setMeshSource(shape, matrix);
         this.addShape(transformed);
         if (!this.copy) {
           obj.removeShape(shape, this);

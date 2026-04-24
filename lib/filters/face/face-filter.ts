@@ -6,6 +6,7 @@ import { CircleFilter, NotCircleFilter } from "./circle-filter.js";
 import { ConeFilter, NotConeFilter } from "./cone-filter.js";
 import { CylinderCurveFilter, NotCylinderCurveFilter } from "./cylinder-curve.js";
 import { CylinderFilter, NotCylinderFilter } from "./cylinder.js";
+import { TorusFilter, NotTorusFilter } from "./torus-filter.js";
 import { NotOnPlaneFilter, OnPlaneFilter } from "./on-plane.js";
 import { NotParallelFilter, ParallelFilter } from "./parallel.js";
 import { PlaneObject } from "../../features/plane.js";
@@ -212,6 +213,28 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
     }
 
     const filter = new NotParallelFilter(planeObj);
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Selects toroidal faces, optionally matching major and/or minor radius.
+   * @param majorRadius - Optional radius from the torus axis to the tube center.
+   * @param minorRadius - Optional radius of the tube itself.
+   */
+  torus(majorRadius?: number, minorRadius?: number) {
+    const filter = new TorusFilter(majorRadius, minorRadius);
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Excludes toroidal faces, optionally matching major and/or minor radius.
+   * @param majorRadius - Optional radius from the torus axis to the tube center.
+   * @param minorRadius - Optional radius of the tube itself.
+   */
+  notTorus(majorRadius?: number, minorRadius?: number) {
+    const filter = new NotTorusFilter(majorRadius, minorRadius);
     this.filters.push(filter);
     return this;
   }

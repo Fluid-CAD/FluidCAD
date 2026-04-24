@@ -4,6 +4,7 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import select from "../../core/select.js";
 import cylinder from "../../core/cylinder.js";
+import fillet from "../../core/fillet.js";
 import { circle, move, rect } from "../../core/2d/index.js";
 import { SelectSceneObject } from "../../features/select.js";
 import { face, edge } from "../../filters/index.js";
@@ -238,6 +239,80 @@ describe("select", () => {
         // Top and bottom circular faces are not cylindrical surfaces
         const shapes = sel.getShapes();
         expect(shapes).toHaveLength(2);
+      });
+    });
+
+    describe("torus / notTorus", () => {
+      // Filleting the top edge of a cylinder produces a canonical GeomAbs_Torus face.
+      // For cylinder(radius=30, height=50) with fillet(5): major=25, minor=5.
+      const makeFilletedCylinder = () => {
+        cylinder(30, 50);
+        select(edge().onPlane("xy", 50));
+        fillet(5);
+      };
+
+      it("should select the toroidal face from a filleted cylinder edge", () => {
+        makeFilletedCylinder();
+
+        const sel = select(face().torus()) as SelectSceneObject;
+
+        render();
+
+        const shapes = sel.getShapes();
+        expect(shapes).toHaveLength(1);
+        expect(shapes[0].getType()).toBe("face");
+      });
+
+      it("should match a torus by both major and minor radius", () => {
+        makeFilletedCylinder();
+
+        const sel = select(face().torus(25, 5)) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(1);
+      });
+
+      it("should match a torus by major radius only", () => {
+        makeFilletedCylinder();
+
+        const sel = select(face().torus(25)) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(1);
+      });
+
+      it("should match a torus by minor radius only", () => {
+        makeFilletedCylinder();
+
+        const sel = select(face().torus(undefined, 5)) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(1);
+      });
+
+      it("should not match a torus with the wrong major radius", () => {
+        makeFilletedCylinder();
+
+        const sel = select(face().torus(999)) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(0);
+      });
+
+      it("should exclude toroidal faces via notTorus", () => {
+        makeFilletedCylinder();
+
+        const sel = select(face().notTorus()) as SelectSceneObject;
+
+        render();
+
+        // Filleted cylinder has 4 faces (side cylinder, top/bottom circles, torus fillet).
+        // Excluding the torus leaves 3.
+        expect(sel.getShapes()).toHaveLength(3);
       });
     });
 

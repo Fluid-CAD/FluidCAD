@@ -12,9 +12,7 @@ import {
   MeshBasicMaterial,
   OrthographicCamera,
   PerspectiveCamera,
-  Raycaster,
   ShaderMaterial,
-  Vector2,
   Vector3,
 } from 'three';
 import { SceneContext } from '../scene/scene-context';
@@ -606,13 +604,11 @@ export class BezierDrawMode {
 
   private projectToSketch(clientX: number, clientY: number): [number, number] | null {
     const renderer = this.ctx.renderer;
-    const camera = this.ctx.camera;
     const rect = renderer.domElement.getBoundingClientRect();
     const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
     const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
 
-    const raycaster = new Raycaster();
-    raycaster.setFromCamera(new Vector2(ndcX, ndcY), camera);
+    const raycaster = this.ctx.createPickingRaycaster(ndcX, ndcY);
 
     const rayOrigin = raycaster.ray.origin;
     const rayDir = raycaster.ray.direction;

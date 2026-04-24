@@ -158,6 +158,36 @@ export class SceneContext {
     return this.activeCamera === 'orthographic' ? this.orthoCamera : this.perspCamera;
   }
 
+  /**
+   * Build a Raycaster for screen-space picking against the active camera.
+   *
+   * Orthographic note: the ortho camera uses a negative `near` so the view frustum
+   * extends behind the camera's position. `Raycaster.setFromCamera` puts the ray
+   * origin at NDC z=0 — on the camera plane — and `Ray.intersectTriangle` filters
+   * hits with t < 0, so any face sitting behind that plane (still inside the visible
+   * frustum) is silently missed, and a face/edge further back may win instead. We
+   * push the ray origin back along -direction by the full frustum depth so every
+   * visible triangle lies at t > 0. Switching camera modes works around this only
+   * because `switchCamera` moves the camera position far back to match the
+   * perspective FOV and keeps it there on the return trip.
+   */
+  createPickingRaycaster(ndcX: number, ndcY: number): Raycaster {
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+    cam.updateProjectionMatrix();
+
+    const raycaster = new Raycaster();
+    raycaster.setFromCamera(new Vector2(ndcX, ndcY), cam);
+
+    if ((cam as OrthographicCamera).isOrthographicCamera) {
+      const ortho = cam as OrthographicCamera;
+      const frustumDepth = Math.max(Math.abs(ortho.far - ortho.near), 1);
+      raycaster.ray.origin.addScaledVector(raycaster.ray.direction, -frustumDepth);
+    }
+
+    return raycaster;
+  }
+
   /** Direct access to the CameraControls instance. */
   get cameraControls(): CameraControls {
     return this._cc;

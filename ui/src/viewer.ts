@@ -1,4 +1,4 @@
-import { Box3, BufferAttribute, BufferGeometry, Color, LineSegments, Mesh, MeshPhongMaterial, Object3D, Raycaster, Vector2, Vector3 } from 'three';
+import { Box3, BufferAttribute, BufferGeometry, Color, LineSegments, Mesh, MeshPhongMaterial, Object3D, Vector3 } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { SceneModeManager } from './scene/scene-mode';
 import { buildSceneMesh } from './meshes/mesh-factory';
@@ -138,8 +138,7 @@ export class Viewer {
     const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
     const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
 
-    const raycaster = new Raycaster();
-    raycaster.setFromCamera(new Vector2(ndcX, ndcY), camera);
+    const raycaster = this.ctx.createPickingRaycaster(ndcX, ndcY);
     raycaster.params.Line = { threshold: this.computeEdgePickThreshold() };
 
     const faceCandidates: Mesh[] = [];

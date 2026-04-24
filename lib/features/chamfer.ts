@@ -3,6 +3,7 @@ import { Edge, Face, Shape, Solid } from "../common/shapes.js";
 import { FilletOps } from "../oc/fillet-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { ShapeOps } from "../oc/shape-ops.js";
+import { ColorTransfer } from "../oc/color-transfer.js";
 
 export class Chamfer extends SceneObject {
   private _selections: SceneObject[] = [];
@@ -69,9 +70,9 @@ export class Chamfer extends SceneObject {
       edges = edges.filter(e => !targetEdges.includes(e));
 
       try {
-        let newShape;
+        let preCleanSolids: Solid[];
         if (!this.distance2) {
-          newShape = FilletOps.makeChamfer(solid, targetEdges, this.distance);
+          preCleanSolids = FilletOps.makeChamfer(solid, targetEdges, this.distance);
         } else {
           const faces = solid.getFaces();
           const commonFaces: Face[] = [];
@@ -86,15 +87,20 @@ export class Chamfer extends SceneObject {
             commonFaces.push(firstCommonFace);
           }
 
-          newShape = FilletOps.makeChamferTwoDistances(solid, targetEdges, this.distance, this.distance2, commonFaces, this.isAngle);
+          preCleanSolids = FilletOps.makeChamferTwoDistances(solid, targetEdges, this.distance, this.distance2, commonFaces, this.isAngle);
         }
 
         const obj = shapeObjectMap.get(shape);
         obj.removeShape(shape, this);
 
-        const subShapes = Explorer.findSolidsWrapped(ShapeOps.cleanShape(newShape));
-        for (const subShape of subShapes) {
-          newShapes.push(subShape);
+        // Clean each chamfer result and chain colors through the cleanup's
+        // UnifySameDomain history so any merged faces keep their colors.
+        for (const preClean of preCleanSolids) {
+          const cleanup = ShapeOps.cleanShapeWithLineage(preClean);
+          ColorTransfer.applyThroughCleanup(preClean, cleanup);
+          const cleaned = cleanup.shape as Solid;
+          cleanup.dispose();
+          newShapes.push(cleaned);
         }
       } catch {
         console.error("Fillet: Failed to create chamfer.");

@@ -4,7 +4,9 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import color from "../../core/color.js";
 import select from "../../core/select.js";
-import { rect } from "../../core/2d/index.js";
+import fillet from "../../core/fillet.js";
+import chamfer from "../../core/chamfer.js";
+import { circle, rect } from "../../core/2d/index.js";
 import { face } from "../../filters/index.js";
 import { Color } from "../../features/color.js";
 import { Extrude } from "../../features/extrude.js";
@@ -121,5 +123,44 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     const finalSolids = cut.getShapes() as Solid[];
     const anyRed = finalSolids.some(hasRed);
     expect(anyRed).toBe(true);
+  });
+
+  it("color on a cylinder end face survives a fillet on the top edge", () => {
+    sketch("xy", () => {
+      circle(40);
+    });
+    const e = extrude(50) as Extrude;
+
+    select(face().onPlane("xy", 50));
+    color("orange");
+
+    const f = fillet(5, e.endFaces()) as unknown as { getShapes(): Solid[] };
+    render();
+
+    // The color op is followed by a fillet on the top edge. The fillet must
+    // propagate the orange color from the pre-fillet top face to the
+    // post-fillet top face.
+    const filleted = f.getShapes()[0] as Solid;
+    expect(filleted).toBeDefined();
+    const hasOrange = filleted.colorMap.some(e => e.color === '#ffa500');
+    expect(hasOrange).toBe(true);
+  });
+
+  it("color survives a chamfer", () => {
+    sketch("xy", () => {
+      circle(40);
+    });
+    const e = extrude(50) as Extrude;
+
+    select(face().onPlane("xy", 50));
+    color("orange");
+
+    const ch = chamfer(5, e.endFaces()) as unknown as { getShapes(): Solid[] };
+    render();
+
+    const chamfered = ch.getShapes()[0] as Solid;
+    expect(chamfered).toBeDefined();
+    const hasOrange = chamfered.colorMap.some(e => e.color === '#ffa500');
+    expect(hasOrange).toBe(true);
   });
 });

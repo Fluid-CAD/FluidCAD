@@ -48,7 +48,7 @@ export class Mesh {
       return false;
     }
 
-    const inc = new oc.BRepMesh_IncrementalMesh(shape, linDefl, relative, angDefl, false);
+    const inc = new oc.BRepMesh_IncrementalMesh(shape, linDefl, relative, angDefl, true);
     inc.delete();
     return true;
   }

@@ -4,14 +4,16 @@ import { Convert } from "./convert.js";
 import { Shape } from "../common/shape.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
+import { Solid } from "../common/solid.js";
 import { Wire } from "../common/wire.js";
-import { ShapeFactory } from "../common/shape-factory.js";
 import { Plane } from "../math/plane.js";
 import { WireOps } from "./wire-ops.js";
 import { rad } from "../helpers/math-helpers.js";
+import { ColorTransfer } from "./color-transfer.js";
+import { Explorer } from "./explorer.js";
 
 export class FilletOps {
-  static makeFillet(solid: Shape, edges: Edge[], radius: number): Shape {
+  static makeFillet(solid: Shape, edges: Edge[], radius: number): Solid[] {
     const oc = getOC();
     const maker = new oc.BRepFilletAPI_MakeFillet(solid.getShape(), oc.ChFi3d_FilletShape.ChFi3d_Rational);
 
@@ -29,11 +31,13 @@ export class FilletOps {
     }
 
     const result = maker.Shape();
+    const solids = FilletOps.wrapResultSolids(result);
+    ColorTransfer.applyThroughMaker([solid], solids, maker);
     maker.delete();
-    return ShapeFactory.fromShape(result);
+    return solids;
   }
 
-  static makeChamfer(solid: Shape, edges: Edge[], distance: number): Shape {
+  static makeChamfer(solid: Shape, edges: Edge[], distance: number): Solid[] {
     const oc = getOC();
     const maker = new oc.BRepFilletAPI_MakeChamfer(solid.getShape());
 
@@ -51,11 +55,22 @@ export class FilletOps {
     }
 
     const result = maker.Shape();
+    const solids = FilletOps.wrapResultSolids(result);
+    ColorTransfer.applyThroughMaker([solid], solids, maker);
     maker.delete();
-    return ShapeFactory.fromShape(result);
+    return solids;
   }
 
-  static makeChamferTwoDistances(solid: Shape, edges: Edge[], distance1: number, distance2: number, faces: Face[], isAngle: boolean = false): Shape {
+  private static wrapResultSolids(result: any): Solid[] {
+    const oc = getOC();
+    if (Explorer.isSolid(result)) {
+      return [Solid.fromTopoDSSolid(Explorer.toSolid(result))];
+    }
+    const solidRaws = Explorer.findShapes(result, oc.TopAbs_ShapeEnum.TopAbs_SOLID as any);
+    return solidRaws.map(r => Solid.fromTopoDSSolid(Explorer.toSolid(r)));
+  }
+
+  static makeChamferTwoDistances(solid: Shape, edges: Edge[], distance1: number, distance2: number, faces: Face[], isAngle: boolean = false): Solid[] {
     const oc = getOC();
     const maker = new oc.BRepFilletAPI_MakeChamfer(solid.getShape());
 
@@ -82,8 +97,10 @@ export class FilletOps {
     }
 
     const result = maker.Shape();
+    const solids = FilletOps.wrapResultSolids(result);
+    ColorTransfer.applyThroughMaker([solid], solids, maker);
     maker.delete();
-    return ShapeFactory.fromShape(result);
+    return solids;
   }
 
   static fillet2d(shape: Wire | Edge, plane: Plane, radius: number): Wire {

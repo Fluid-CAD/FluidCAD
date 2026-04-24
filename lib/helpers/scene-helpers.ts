@@ -9,7 +9,8 @@ import { Explorer } from "../oc/explorer.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { getOC } from "../oc/init.js";
-import type { TopAbs_ShapeEnum, TopoDS_Shape } from "occjs-wrapper";
+import { ColorTransfer } from "../oc/color-transfer.js";
+import type { TopAbs_ShapeEnum } from "occjs-wrapper";
 
 export function fuseWithSceneObjects(
   sceneObjects: SceneObject[],
@@ -153,52 +154,10 @@ function recordFusionHistory(
     }
   }
 
-  propagateFaceColorsViaMaker(sceneShapes, newShapes, maker);
+  ColorTransfer.applyThroughMaker(sceneShapes, newShapes, maker);
 
   claimedFaces.delete();
   claimedEdges.delete();
-}
-
-/**
- * For each colored scene shape, find where each colored face landed in the
- * result shapes via the maker's `Modified()` lineage and transfer the color
- * to the owning result shape. Faces that passed through unchanged
- * (NonDestructive fuse preserves TShape) keep their color on whichever
- * result shape now contains them.
- */
-function propagateFaceColorsViaMaker(sceneShapes: Shape<any>[], newShapes: Shape<any>[], maker: any) {
-  const oc = getOC();
-  const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
-
-  for (const sceneShape of sceneShapes) {
-    if (!sceneShape.hasColors()) {
-      continue;
-    }
-
-    for (const entry of sceneShape.colorMap) {
-      const modifiedRaws = ShapeOps.shapeListToArray(maker.Modified(entry.shape))
-        .filter(s => s.ShapeType() === FACE);
-
-      let targets: TopoDS_Shape[];
-      if (modifiedRaws.length > 0) {
-        targets = modifiedRaws;
-      } else if (!maker.IsDeleted(entry.shape)) {
-        targets = [entry.shape];
-      } else {
-        continue;
-      }
-
-      for (const target of targets) {
-        for (const newShape of newShapes) {
-          const faces = Explorer.findShapes(newShape.getShape(), FACE);
-          if (faces.some(f => f.IsSame(target))) {
-            newShape.setColor(target, entry.color);
-            break;
-          }
-        }
-      }
-    }
-  }
 }
 
 export function cutWithSceneObjects(

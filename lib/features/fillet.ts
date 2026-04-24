@@ -86,14 +86,13 @@ export class Fillet extends SceneObject {
       edges = edges.filter(e => !targetEdges.includes(e));
 
       try {
-        const newShape = FilletOps.makeFillet(solid, targetEdges, this.radius);
+        const newSolids = FilletOps.makeFillet(solid, targetEdges, this.radius);
 
         const obj = sceneShapeObjectMap.get(shape);
         removedShapes.push({ shape: solid, owner: obj });
 
-        const subShapes = Explorer.findSolidsWrapped(newShape);
-        for (const subShape of subShapes) {
-          addedShapes.push(subShape);
+        for (const newSolid of newSolids) {
+          addedShapes.push(newSolid);
         }
       } catch {
         console.error("Fillet: Failed to create fillet.");

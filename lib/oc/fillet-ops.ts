@@ -1,4 +1,4 @@
-import type { gp_Pln, TopoDS_Wire } from "occjs-wrapper";
+import type { gp_Pln, TopoDS_Edge, TopoDS_Wire } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Shape } from "../common/shape.js";
@@ -96,93 +96,110 @@ export class FilletOps {
 
   static fillet2dRaw(wire: TopoDS_Wire, plane: gp_Pln, radius: number): TopoDS_Wire {
     const oc = getOC();
-    let currentWire = wire;
-    let cornerIndex = 0;
     const isClosed = wire.Closed();
+    const ownedEdges: TopoDS_Edge[] = [];
 
-    try {
-      while (true) {
-        const edges = [];
-        const explorer = new oc.BRepTools_WireExplorer(currentWire);
-        while (explorer.More()) {
-          edges.push(oc.TopoDS.Edge(explorer.Current()));
-          explorer.Next();
+    // Extract edges in wire traversal order and canonicalize: for each REVERSED edge,
+    // build a new FORWARD edge whose natural parameterization matches the wire traversal.
+    // ChFi2d_FilletAPI returns modified edges whose natural direction matches the input's
+    // natural direction, so aligning natural direction with wire traversal makes the
+    // modEdges directly usable when rebuilding the final wire.
+    const wireEdges: TopoDS_Edge[] = [];
+    {
+      const explorer = new oc.BRepTools_WireExplorer(wire);
+      while (explorer.More()) {
+        const raw = oc.TopoDS.Edge(explorer.Current());
+        const isReversed = raw.Orientation().value === oc.TopAbs_Orientation.TopAbs_REVERSED.value;
+        if (!isReversed) {
+          wireEdges.push(raw);
+          ownedEdges.push(raw);
+        } else {
+          const adaptor = new oc.BRepAdaptor_Curve(raw);
+          const edgeFirst = adaptor.FirstParameter();
+          const edgeLast = adaptor.LastParameter();
+          adaptor.delete();
+
+          const curveHandle = oc.BRep_Tool.Curve(raw, 0, 1);
+          if (!curveHandle || curveHandle.IsNull()) {
+            raw.delete();
+            explorer.delete();
+            ownedEdges.forEach(e => e.delete());
+            throw new Error("fillet2d: edge has no 3D curve");
+          }
+          const curve = curveHandle.get();
+          const reversedHandle = curve.Reversed();
+          const newFirst = curve.ReversedParameter(edgeLast);
+          const newLast = curve.ReversedParameter(edgeFirst);
+          const maker = new oc.BRepBuilderAPI_MakeEdge(reversedHandle, newFirst, newLast);
+          const newEdge = oc.TopoDS.Edge(maker.Edge());
+          maker.delete();
+          reversedHandle.delete();
+          curveHandle.delete();
+          raw.delete();
+          wireEdges.push(newEdge);
+          ownedEdges.push(newEdge);
         }
-        explorer.delete();
+        explorer.Next();
+      }
+      explorer.delete();
+    }
 
-        const maxCorners = isClosed ? edges.length : edges.length - 1;
-        if (cornerIndex >= maxCorners) {
-          edges.forEach(e => e.delete());
-          break;
-        }
+    const currentEdges: TopoDS_Edge[] = wireEdges.slice();
+    const filletArcs = new Map<number, TopoDS_Edge>();
+    const maxCorners = isClosed ? currentEdges.length : currentEdges.length - 1;
 
-        const edge1 = edges[cornerIndex];
-        const edge2 = edges[(cornerIndex + 1) % edges.length];
+    for (let cornerIndex = 0; cornerIndex < maxCorners; cornerIndex++) {
+      const nextIndex = (cornerIndex + 1) % currentEdges.length;
+      const edge1 = currentEdges[cornerIndex];
+      const edge2 = currentEdges[nextIndex];
 
-        const sharedVertex = oc.TopExp.LastVertex(edge1, false);
-        const sharedPoint = oc.BRep_Tool.Pnt(sharedVertex);
-        sharedVertex.delete();
+      const sharedVertex = oc.TopExp.LastVertex(edge1, true);
+      const sharedPoint = oc.BRep_Tool.Pnt(sharedVertex);
+      sharedVertex.delete();
 
-        const pairWireBuilder = new oc.BRepBuilderAPI_MakeWire(edge1, edge2);
-        const pairWire = pairWireBuilder.Wire();
+      const filletAPI = new oc.ChFi2d_FilletAPI(edge1, edge2, plane);
+      const success = filletAPI.Perform(radius);
 
-        const filletAPI = new oc.ChFi2d_FilletAPI(pairWire, plane);
-        const success = filletAPI.Perform(radius);
-
-        if (!success) {
-          filletAPI.delete();
-          pairWire.delete();
-          pairWireBuilder.delete();
-          edges.forEach(e => e.delete());
-          cornerIndex++;
-          continue;
-        }
-
-        const modEdge1 = new oc.TopoDS_Edge();
-        const modEdge2 = new oc.TopoDS_Edge();
-        const filletEdge = filletAPI.Result(sharedPoint, modEdge1, modEdge2, -1);
-
+      if (!success || filletAPI.NbResults(sharedPoint) === 0) {
         sharedPoint.delete();
         filletAPI.delete();
-        pairWire.delete();
-        pairWireBuilder.delete();
-
-        const newWireBuilder = new oc.BRepBuilderAPI_MakeWire();
-        const nextIndex = (cornerIndex + 1) % edges.length;
-
-        for (let i = 0; i < edges.length; i++) {
-          if (i === cornerIndex) {
-            newWireBuilder.Add(modEdge1);
-            newWireBuilder.Add(filletEdge);
-          } else if (i === nextIndex) {
-            newWireBuilder.Add(modEdge2);
-          } else {
-            newWireBuilder.Add(edges[i]);
-          }
-        }
-
-        const prevWire = currentWire;
-        currentWire = newWireBuilder.Wire();
-        newWireBuilder.delete();
-
-        if (prevWire !== wire) {
-          prevWire.delete();
-        }
-
-        modEdge1.delete();
-        modEdge2.delete();
-        filletEdge.delete();
-        edges.forEach(e => e.delete());
-
-        cornerIndex += 2;
+        continue;
       }
 
-      return currentWire;
-    } catch (e) {
-      if (currentWire !== wire) {
-        currentWire.delete();
-      }
-      throw e;
+      const modEdge1 = new oc.TopoDS_Edge();
+      const modEdge2 = new oc.TopoDS_Edge();
+      const filletEdge = filletAPI.Result(sharedPoint, modEdge1, modEdge2, -1);
+      sharedPoint.delete();
+      filletAPI.delete();
+
+      currentEdges[cornerIndex] = modEdge1;
+      currentEdges[nextIndex] = modEdge2;
+      filletArcs.set(cornerIndex, filletEdge);
+      ownedEdges.push(modEdge1, modEdge2, filletEdge);
     }
+
+    const edgeList = new oc.TopTools_ListOfShape();
+    for (let i = 0; i < currentEdges.length; i++) {
+      edgeList.Append(oc.TopoDS.Edge(currentEdges[i]));
+      const arc = filletArcs.get(i);
+      if (arc) {
+        edgeList.Append(oc.TopoDS.Edge(arc));
+      }
+    }
+
+    const wireBuilder = new oc.BRepBuilderAPI_MakeWire();
+    wireBuilder.Add(edgeList);
+    edgeList.delete();
+
+    if (!wireBuilder.IsDone()) {
+      wireBuilder.delete();
+      ownedEdges.forEach(e => e.delete());
+      throw new Error("fillet2d: failed to build filleted wire");
+    }
+
+    const result = wireBuilder.Wire();
+    wireBuilder.delete();
+    ownedEdges.forEach(e => e.delete());
+    return result;
   }
 }

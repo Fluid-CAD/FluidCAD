@@ -27,7 +27,9 @@ export class Translate extends SceneObject {
 
         const amount = this.amount.asPoint();
 
-        let transformed = ShapeOps.transform(shape, Matrix4.fromTranslation(amount.x, amount.y, amount.z));
+        const matrix = Matrix4.fromTranslation(amount.x, amount.y, amount.z);
+        const transformed = ShapeOps.transform(shape, matrix);
+        transformed.setMeshSource(shape, matrix);
         this.addShape(transformed);
         if (!this.copy) {
           obj.removeShape(shape, this)

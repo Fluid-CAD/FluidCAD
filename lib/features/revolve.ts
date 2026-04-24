@@ -138,7 +138,8 @@ export class Revolve extends ExtrudeBase implements IRevolve {
 
     if (this._operationMode === 'remove') {
       const scope = this.resolveFusionScope(context.getSceneObjects());
-      cutWithSceneObjects(scope, solids, plane, 0, this);
+      cutWithSceneObjects(scope, solids, plane, 0, this, { recordHistoryFor: this });
+      this.setFinalShapes(this.getShapes());
       return;
     }
 
@@ -146,10 +147,15 @@ export class Revolve extends ExtrudeBase implements IRevolve {
 
     if (sceneObjects.length === 0) {
       this.addShapes(solids);
+      this.recordShapeFacesAndEdgesAsAdditions(solids);
+      this.classifyExtrudeEdges();
+      this.setFinalShapes(this.getShapes());
       return;
     }
 
-    const fusionResult = fuseWithSceneObjects(sceneObjects, solids);
+    const fusionResult = fuseWithSceneObjects(sceneObjects, solids, {
+      recordHistoryFor: this,
+    });
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
       if (modifiedShape.object) {
@@ -158,6 +164,12 @@ export class Revolve extends ExtrudeBase implements IRevolve {
     }
 
     this.addShapes(fusionResult.newShapes);
+
+    if (fusionResult.toolHistory) {
+      this.remapClassifiedFaces(fusionResult.toolHistory);
+    }
+    this.classifyExtrudeEdges();
+    this.setFinalShapes(this.getShapes());
   }
 
   override getDependencies(): SceneObject[] {

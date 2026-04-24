@@ -127,7 +127,12 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
       throw new Error("Cannot set color on vertex shape");
     }
 
-    this.colorMap.push({ shape: face, color });
+    const existing = this.colorMap.findIndex(c => c.shape.IsSame(face));
+    if (existing >= 0) {
+      this.colorMap[existing] = { shape: face, color };
+    } else {
+      this.colorMap.push({ shape: face, color });
+    }
   }
 
   getColor(face: TopoDS_Shape): string | undefined {

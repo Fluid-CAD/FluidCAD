@@ -79,7 +79,11 @@ export class Solid extends Shape<TopoDS_Solid> {
   }
 
   override copy(): Shape {
-      return new Solid(this.getShape());
+    const copied = new Solid(this.getShape());
+    for (const entry of this.colorMap) {
+      copied.colorMap.push({ shape: entry.shape, color: entry.color });
+    }
+    return copied;
   }
 
   static fromTopoDSSolid(solid: TopoDS_Solid): Solid {

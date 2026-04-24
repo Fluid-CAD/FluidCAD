@@ -16,6 +16,20 @@ import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { EdgeOps } from "../oc/edge-ops.js";
+import { Explorer } from "../oc/explorer.js";
+import { getOC } from "../oc/init.js";
+import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
+import type { TopAbs_ShapeEnum } from "occjs-wrapper";
+
+function dedupEdgesByIsSame(edges: Edge[]): Edge[] {
+  const result: Edge[] = [];
+  for (const edge of edges) {
+    if (!result.some(r => r.getShape().IsSame(edge.getShape()))) {
+      result.push(edge);
+    }
+  }
+  return result;
+}
 
 export abstract class ExtrudeBase extends SceneObject implements IExtrude {
   protected _extrudable: Extrudable | null = null;
@@ -101,19 +115,10 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     const suffix = this.buildSuffix('start-edges', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
-        if (this._operationMode === 'remove') {
-          const edges = parent.getState('start-edges') as Edge[] || [];
-          const transform = parent.getTransform();
-          const originalEdges = transform
-            ? (this.getState('start-edges') as Edge[] || [])
-            : null;
-          return this.resolveEdges(edges, args, transform, originalEdges);
-        }
-        const faces = parent.getState('start-faces') as Face[] || [];
-        const edges = faces.flatMap(f => f.getEdges());
+        const edges = this.getClassifiedEdges(parent, 'start-edges', 'start-faces');
         const transform = parent.getTransform();
         const originalEdges = transform
-          ? (this.getState('start-faces') as Face[] || []).flatMap(f => f.getEdges())
+          ? this.getClassifiedEdges(this, 'start-edges', 'start-faces')
           : null;
         return this.resolveEdges(edges, args, transform, originalEdges);
       }, this);
@@ -123,19 +128,10 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     const suffix = this.buildSuffix('end-edges', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
-        if (this._operationMode === 'remove') {
-          const edges = parent.getState('end-edges') as Edge[] || [];
-          const transform = parent.getTransform();
-          const originalEdges = transform
-            ? (this.getState('end-edges') as Edge[] || [])
-            : null;
-          return this.resolveEdges(edges, args, transform, originalEdges);
-        }
-        const faces = parent.getState('end-faces') as Face[] || [];
-        const edges = faces.flatMap(f => f.getEdges());
+        const edges = this.getClassifiedEdges(parent, 'end-edges', 'end-faces');
         const transform = parent.getTransform();
         const originalEdges = transform
-          ? (this.getState('end-faces') as Face[] || []).flatMap(f => f.getEdges())
+          ? this.getClassifiedEdges(this, 'end-edges', 'end-faces')
           : null;
         return this.resolveEdges(edges, args, transform, originalEdges);
       }, this);
@@ -158,13 +154,19 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     const suffix = this.buildSuffix('side-edges', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
+        const classified = parent.getState('side-edges') as Edge[] | undefined;
+        if (classified !== undefined) {
+          return this.resolveEdges(classified, args);
+        }
+        // Fallback for peer ops that haven't called classifyExtrudeEdges: derive on the fly.
         const sideFaces = parent.getState('side-faces') as Face[] || [];
         const startFaces = parent.getState('start-faces') as Face[] || [];
         const endFaces = parent.getState('end-faces') as Face[] || [];
         const excludedEdges = [...startFaces, ...endFaces].flatMap(f => f.getEdges());
-        const edges = sideFaces.flatMap(f => f.getEdges())
-          .filter(e => !excludedEdges.some(ex => e.getShape().IsSame(ex.getShape())))
-          .filter((e, i, arr) => arr.findIndex(o => o.getShape().IsSame(e.getShape())) === i);
+        const edges = dedupEdgesByIsSame(
+          sideFaces.flatMap(f => f.getEdges())
+            .filter(e => !excludedEdges.some(ex => e.getShape().IsSame(ex.getShape()))),
+        );
         return this.resolveEdges(edges, args);
       }, this);
   }
@@ -202,12 +204,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     const suffix = this.buildSuffix('internal-edges', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
-        if (this._operationMode === 'remove') {
-          const edges = parent.getState('internal-edges') as Edge[] || [];
-          return this.resolveEdges(edges, args);
-        }
-        const faces = parent.getState('internal-faces') as Face[] || [];
-        const edges = faces.flatMap(f => f.getEdges());
+        const edges = this.getClassifiedEdges(parent, 'internal-edges', 'internal-faces');
         return this.resolveEdges(edges, args);
       }, this);
   }
@@ -229,10 +226,98 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     const suffix = this.buildSuffix('cap-edges', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
-        const faces = parent.getState('cap-faces') as Face[] || [];
-        const edges = faces.flatMap(f => f.getEdges());
+        const edges = this.getClassifiedEdges(parent, 'cap-edges', 'cap-faces');
         return this.resolveEdges(edges, args);
       }, this);
+  }
+
+  /**
+   * Read edges for a classification category, preferring the pre-computed
+   * state key (set by `classifyExtrudeEdges` during build) and falling back
+   * to deriving from the corresponding face-category state (for peer ops that
+   * haven't opted into the unified classification step yet).
+   */
+  private getClassifiedEdges(source: SceneObject, edgeKey: string, faceKey: string): Edge[] {
+    const classified = source.getState(edgeKey) as Edge[] | undefined;
+    if (classified !== undefined) {
+      return classified;
+    }
+    const faces = source.getState(faceKey) as Face[] || [];
+    return dedupEdgesByIsSame(faces.flatMap(f => f.getEdges()));
+  }
+
+  /**
+   * Remap the state-stored face category arrays through a fusion's tool-side
+   * history so each face reference points at the actual post-fusion face in
+   * the final solid. Call after `fuseWithSceneObjects` returns a `toolHistory`.
+   */
+  protected remapClassifiedFaces(history: ShapeHistory) {
+    const keys = ['start-faces', 'end-faces', 'side-faces', 'internal-faces', 'cap-faces'];
+    for (const key of keys) {
+      const faces = this.getState(key) as Face[] | undefined;
+      if (faces && faces.length > 0) {
+        this.setState(key, ShapeHistoryTracker.remapFaces(faces, history));
+      }
+    }
+  }
+
+  /**
+   * Record every face/edge of the given shapes as additions on this operation.
+   * Used by 3D ops in the "no scene fusion" path — when the tools land
+   * unchanged in the scene, every face/edge is brand new from this op's POV.
+   */
+  protected recordShapeFacesAndEdgesAsAdditions(shapes: Shape[]) {
+    const oc = getOC();
+    const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
+    const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
+    for (const shape of shapes) {
+      for (const raw of Explorer.findShapes(shape.getShape(), FACE)) {
+        this.recordAddedFace(Face.fromTopoDSFace(Explorer.toFace(raw)), this);
+      }
+      for (const raw of Explorer.findShapes(shape.getShape(), EDGE)) {
+        this.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), this);
+      }
+    }
+  }
+
+  /**
+   * One-shot edge classification: derive start/end/side/internal/cap edges
+   * from the already-classified face arrays in state and store them as
+   * `start-edges`, `end-edges`, `side-edges`, `internal-edges`, `cap-edges`.
+   *
+   * Call this once after face classification (and after any post-fusion
+   * face remapping) so that the selection accessors can just read the
+   * pre-computed arrays instead of re-deriving on every access. Matches
+   * the classification step from the spec: "Classify the new edges and
+   * faces created by the operation".
+   *
+   * Side edges are the edges of side faces minus any edge that's also on
+   * a start/end face (those already belong to start-edges / end-edges).
+   */
+  protected classifyExtrudeEdges() {
+    const startFaces = this.getState('start-faces') as Face[] || [];
+    const endFaces = this.getState('end-faces') as Face[] || [];
+    const sideFaces = this.getState('side-faces') as Face[] || [];
+    const internalFaces = this.getState('internal-faces') as Face[] || [];
+    const capFaces = this.getState('cap-faces') as Face[] || [];
+
+    const startEdges = dedupEdgesByIsSame(startFaces.flatMap(f => f.getEdges()));
+    const endEdges = dedupEdgesByIsSame(endFaces.flatMap(f => f.getEdges()));
+
+    const excludedForSide = [...startEdges, ...endEdges];
+    const sideEdges = dedupEdgesByIsSame(
+      sideFaces.flatMap(f => f.getEdges())
+        .filter(e => !excludedForSide.some(ex => ex.getShape().IsSame(e.getShape()))),
+    );
+
+    const internalEdges = dedupEdgesByIsSame(internalFaces.flatMap(f => f.getEdges()));
+    const capEdges = dedupEdgesByIsSame(capFaces.flatMap(f => f.getEdges()));
+
+    this.setState('start-edges', startEdges);
+    this.setState('end-edges', endEdges);
+    this.setState('side-edges', sideEdges);
+    this.setState('internal-edges', internalEdges);
+    this.setState('cap-edges', capEdges);
   }
 
   private buildSuffix(prefix: string, args: any[]): string {

@@ -133,11 +133,115 @@ export class BooleanOps {
 
     stockEdgeMap.delete();
     stockFaceMap.delete();
-    progress.delete();
     stockList.delete();
     toolList.delete();
 
-    return { result: wrappedResult, modified, sectionEdges, startEdges, endEdges, internalEdges, internalFaces };
+    let disposed = false;
+    const dispose = () => {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      cutMaker.delete();
+      progress.delete();
+    };
+
+    return {
+      result: wrappedResult,
+      modified,
+      sectionEdges,
+      startEdges,
+      endEdges,
+      internalEdges,
+      internalFaces,
+      maker: cutMaker,
+      dispose,
+    };
+  }
+
+  /**
+   * Fuse with proper OpenCascade argument-vs-tool separation. Use this for
+   * operations that fuse newly built geometry into an existing scene (extrude,
+   * revolve, sweep, loft) where we need `maker.Modified(stockFace)` lineage to
+   * track which existing face became which result face.
+   *
+   * Returns the underlying `BRepAlgoAPI_Fuse` so the caller can query
+   * `Modified()` / `Generated()` / `IsDeleted()` for history tracking. The
+   * caller MUST invoke `dispose()` exactly once to release the maker.
+   *
+   * Do not use this for the user-facing `Fuse` scene object (keep
+   * `BooleanOps.fuse` for that — it treats all inputs as symmetric peers).
+   */
+  static fuseStockAndTools(
+    stock: Shape[],
+    tools: Shape[],
+    opts?: { glue?: 'full' | 'shift' }
+  ): {
+    result: Shape[];
+    modifiedShapes: Shape[];
+    newShapes: Shape[];
+    maker: any;
+    dispose: () => void;
+  } {
+    const oc = getOC();
+    const builder = new oc.BRepAlgoAPI_Fuse();
+    builder.SetNonDestructive(true);
+    builder.SetCheckInverted(true);
+    builder.SetRunParallel(true);
+    if (opts?.glue === 'full') {
+      builder.SetGlue((oc as any).BOPAlgo_GlueEnum.BOPAlgo_GlueFull);
+    } else if (opts?.glue === 'shift') {
+      builder.SetGlue((oc as any).BOPAlgo_GlueEnum.BOPAlgo_GlueShift);
+    }
+
+    const stockList = new oc.TopTools_ListOfShape();
+    for (const s of stock) {
+      stockList.Append(s.getShape());
+    }
+
+    const toolList = new oc.TopTools_ListOfShape();
+    for (const t of tools) {
+      toolList.Append(t.getShape());
+    }
+
+    builder.SetArguments(stockList);
+    builder.SetTools(toolList);
+
+    const progress = new oc.Message_ProgressRange();
+    builder.Build(progress);
+    builder.SimplifyResult(false, true, oc.Precision.Angular());
+
+    const resultShape = builder.Shape();
+    const rawShapes = Explorer.findAllShapes(resultShape);
+    const result = rawShapes.map(s => ShapeFactory.fromShape(s));
+
+    const allInputs = [...stock, ...tools];
+    const modifiedShapes: Shape[] = [];
+    for (const shape of allInputs) {
+      if (builder.IsDeleted(shape.getShape())) {
+        modifiedShapes.push(shape);
+      }
+    }
+
+    const newShapes: Shape[] = [];
+    for (const s of result) {
+      const existsInArgs = allInputs.some(arg => arg.getShape().IsPartner(s.getShape()));
+      if (!existsInArgs) {
+        newShapes.push(s);
+      }
+    }
+
+    let disposed = false;
+    const dispose = () => {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      builder.delete();
+      progress.delete();
+    };
+
+    return { result, newShapes, modifiedShapes, maker: builder, dispose };
   }
 
   static fuse(args: Shape[], opts?: { glue?: 'full' | 'shift' }): {

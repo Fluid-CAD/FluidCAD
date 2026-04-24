@@ -109,16 +109,22 @@ export class ExtrudeToFace extends ExtrudeBase {
 
     if (this._operationMode === 'remove') {
       const scope = this.resolveFusionScope(allSceneObjects);
-      cutWithSceneObjects(scope, solids, plane, 0, this);
+      cutWithSceneObjects(scope, solids, plane, 0, this, { recordHistoryFor: this });
+      this.setFinalShapes(this.getShapes());
       return;
     }
 
     if (sceneObjects.length === 0) {
       this.addShapes(solids);
+      this.recordShapeFacesAndEdgesAsAdditions(solids);
+      this.classifyExtrudeEdges();
+      this.setFinalShapes(this.getShapes());
       return;
     }
 
-    const fusionResult = fuseWithSceneObjects(sceneObjects, solids);
+    const fusionResult = fuseWithSceneObjects(sceneObjects, solids, {
+      recordHistoryFor: this,
+    });
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
       if (modifiedShape.object) {
@@ -127,6 +133,12 @@ export class ExtrudeToFace extends ExtrudeBase {
     }
 
     this.addShapes(fusionResult.newShapes);
+
+    if (fusionResult.toolHistory) {
+      this.remapClassifiedFaces(fusionResult.toolHistory);
+    }
+    this.classifyExtrudeEdges();
+    this.setFinalShapes(this.getShapes());
   }
 
   private createAdvancedExtrude(sourceFace: Face, targetFace: Face, isPlanar: boolean, sketchPlane: Plane): Shape[] {

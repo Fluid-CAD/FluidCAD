@@ -42,9 +42,12 @@ export class ProjectionOps {
     }
 
     if (wirePlane && wirePlane.isParallelTo(targetPlane)) {
-      const distance = wirePlane.distanceToPlane(targetPlane);
-      console.log('Wire is coplanar with plane, applying translation if necessary');
-      const translation = targetPlane.normal.multiply(-distance);
+      // Translation along the target normal that moves a point from the wire
+      // plane onto the target plane. Use the *signed* distance — `distanceToPlane`
+      // is abs-valued and picks the wrong direction when the wire sits on the
+      // negative side of the target normal.
+      const signedDist = targetPlane.signedDistanceToPoint(wirePlane.origin);
+      const translation = targetPlane.normal.multiply(-signedDist);
       const matrix = Matrix4.fromTranslation(translation.x, translation.y, translation.z);
       const transformed = ShapeOps.transform(wire, matrix) as Wire;
       return [transformed];

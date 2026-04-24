@@ -130,7 +130,8 @@ export class Sweep extends ExtrudeBase implements ISweep {
     // Handle boolean operation based on operation mode
     if (this._operationMode === 'remove') {
       const scope = this.resolveFusionScope(context.getSceneObjects());
-      cutWithSceneObjects(scope, newShapes, plane, 0, this);
+      cutWithSceneObjects(scope, newShapes, plane, 0, this, { recordHistoryFor: this });
+      this.setFinalShapes(this.getShapes());
       return;
     }
 
@@ -138,10 +139,15 @@ export class Sweep extends ExtrudeBase implements ISweep {
 
     if (sceneObjects.length === 0) {
       this.addShapes(newShapes);
+      this.recordShapeFacesAndEdgesAsAdditions(newShapes);
+      this.classifyExtrudeEdges();
+      this.setFinalShapes(this.getShapes());
       return;
     }
 
-    const fusionResult = fuseWithSceneObjects(sceneObjects, newShapes);
+    const fusionResult = fuseWithSceneObjects(sceneObjects, newShapes, {
+      recordHistoryFor: this,
+    });
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
       if (modifiedShape.object) {
@@ -150,6 +156,12 @@ export class Sweep extends ExtrudeBase implements ISweep {
     }
 
     this.addShapes(fusionResult.newShapes);
+
+    if (fusionResult.toolHistory) {
+      this.remapClassifiedFaces(fusionResult.toolHistory);
+    }
+    this.classifyExtrudeEdges();
+    this.setFinalShapes(this.getShapes());
   }
 
   private getSpineWire(pathObj: SceneObject): Wire {

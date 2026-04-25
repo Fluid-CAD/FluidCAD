@@ -31,13 +31,41 @@ export type ClassifiedFaces = {
   capFaces: Face[];
 };
 
-function dedupEdgesByIsSame(edges: Edge[]): Edge[] {
+function dedupEdgesByMap(edges: Edge[]): Edge[] {
+  if (edges.length === 0) {
+    return [];
+  }
+  const oc = getOC();
+  const seen = new oc.TopTools_MapOfShape();
   const result: Edge[] = [];
   for (const edge of edges) {
-    if (!result.some(r => r.getShape().IsSame(edge.getShape()))) {
+    if (seen.Add(edge.getShape())) {
       result.push(edge);
     }
   }
+  seen.delete();
+  return result;
+}
+
+// Dedup `edges` by TShape pointer while also excluding any edge that shares a
+// TShape with one in `excluded`. Single TopTools_MapOfShape pre-seeded with the
+// excluded set; Add returns false for duplicates and for already-excluded edges.
+function dedupEdgesByMapExcluding(edges: Edge[], excluded: Edge[]): Edge[] {
+  if (edges.length === 0) {
+    return [];
+  }
+  const oc = getOC();
+  const map = new oc.TopTools_MapOfShape();
+  for (const e of excluded) {
+    map.Add(e.getShape());
+  }
+  const result: Edge[] = [];
+  for (const edge of edges) {
+    if (map.Add(edge.getShape())) {
+      result.push(edge);
+    }
+  }
+  map.delete();
   return result;
 }
 
@@ -173,10 +201,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         const startFaces = parent.getState('start-faces') as Face[] || [];
         const endFaces = parent.getState('end-faces') as Face[] || [];
         const excludedEdges = [...startFaces, ...endFaces].flatMap(f => f.getEdges());
-        const edges = dedupEdgesByIsSame(
-          sideFaces.flatMap(f => f.getEdges())
-            .filter(e => !excludedEdges.some(ex => e.getShape().IsSame(ex.getShape()))),
-        );
+        const edges = dedupEdgesByMapExcluding(sideFaces.flatMap(f => f.getEdges()), excludedEdges);
         return this.resolveEdges(edges, args);
       }, this);
   }
@@ -253,7 +278,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       return classified;
     }
     const faces = source.getState(faceKey) as Face[] || [];
-    return dedupEdgesByIsSame(faces.flatMap(f => f.getEdges()));
+    return dedupEdgesByMap(faces.flatMap(f => f.getEdges()));
   }
 
   /**
@@ -361,17 +386,16 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     const internalFaces = this.getState('internal-faces') as Face[] || [];
     const capFaces = this.getState('cap-faces') as Face[] || [];
 
-    const startEdges = dedupEdgesByIsSame(startFaces.flatMap(f => f.getEdges()));
-    const endEdges = dedupEdgesByIsSame(endFaces.flatMap(f => f.getEdges()));
+    const startEdges = dedupEdgesByMap(startFaces.flatMap(f => f.getEdges()));
+    const endEdges = dedupEdgesByMap(endFaces.flatMap(f => f.getEdges()));
 
-    const excludedForSide = [...startEdges, ...endEdges];
-    const sideEdges = dedupEdgesByIsSame(
-      sideFaces.flatMap(f => f.getEdges())
-        .filter(e => !excludedForSide.some(ex => ex.getShape().IsSame(e.getShape()))),
+    const sideEdges = dedupEdgesByMapExcluding(
+      sideFaces.flatMap(f => f.getEdges()),
+      [...startEdges, ...endEdges],
     );
 
-    const internalEdges = dedupEdgesByIsSame(internalFaces.flatMap(f => f.getEdges()));
-    const capEdges = dedupEdgesByIsSame(capFaces.flatMap(f => f.getEdges()));
+    const internalEdges = dedupEdgesByMap(internalFaces.flatMap(f => f.getEdges()));
+    const capEdges = dedupEdgesByMap(capFaces.flatMap(f => f.getEdges()));
 
     this.setState('start-edges', startEdges);
     this.setState('end-edges', endEdges);

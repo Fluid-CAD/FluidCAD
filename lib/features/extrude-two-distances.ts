@@ -61,7 +61,9 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
     const endFaces = extruder2.getEndFaces();
 
     const all = [...extrusions1, ...extrusions2];
-    const { result: extrusions } = BooleanOps.fuse(all);
+    const halvesFuse = BooleanOps.fuse(all);
+    const extrusions = halvesFuse.result;
+    halvesFuse.dispose();
 
     const remainingFaces: Face[] = [];
     const fusedStartFaces: Face[] = [];

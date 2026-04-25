@@ -6,10 +6,12 @@ import color from "../../core/color.js";
 import select from "../../core/select.js";
 import fillet from "../../core/fillet.js";
 import chamfer from "../../core/chamfer.js";
+import fuse from "../../core/fuse.js";
 import { circle, rect } from "../../core/2d/index.js";
 import { face } from "../../filters/index.js";
 import { Color } from "../../features/color.js";
 import { Extrude } from "../../features/extrude.js";
+import { Fuse } from "../../features/fuse.js";
 import { Solid } from "../../common/solid.js";
 
 function hasRed(solid: Solid): boolean {
@@ -146,6 +148,54 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     expect(hasOrange).toBe(true);
   });
 
+  it("color bleeds: fusing an uncolored cylinder with a colored cylinder makes the new faces inherit the color", () => {
+    sketch("xy", () => {
+      circle([0, 0], 80);
+    });
+    extrude(50);
+
+    select(face().cylinder());
+    color("red");
+
+    sketch("xy", () => {
+      circle([50, 0], 40);
+    });
+    const e = extrude(25) as Extrude;
+    render();
+
+    const result = e.getShapes()[0] as Solid;
+    expect(result).toBeDefined();
+    // Every face in the fused result should now carry the red color, since
+    // the only colored input was red and the second cylinder fully merged
+    // into it. (Faces from the original colored cylinder that the user left
+    // uncolored, e.g. its top and bottom, still propagate as uncolored — the
+    // bleed only applies to faces that came from tool inputs / new geometry.)
+    const facesWithColor = result.colorMap.length;
+    // At minimum, the cylinder2's surviving side face should be red — that's
+    // the new face the user expects to inherit.
+    expect(facesWithColor).toBeGreaterThan(1);
+    expect(result.colorMap.every(e => e.color === '#ff0000')).toBe(true);
+  });
+
+  it("color bleeds: a filleted edge's new arc face inherits color from its neighbor", () => {
+    sketch("xy", () => {
+      circle(40);
+    });
+    const e = extrude(50) as Extrude;
+
+    select(face().onPlane("xy", 50));
+    color("orange");
+
+    const f = fillet(5, e.endFaces()) as unknown as { getShapes(): Solid[] };
+    render();
+
+    const filleted = f.getShapes()[0] as Solid;
+    // The arc face created by the fillet should also be orange via bleeding
+    // from its adjacent (orange) top face.
+    const orangeFaces = filleted.colorMap.filter(e => e.color === '#ffa500');
+    expect(orangeFaces.length).toBeGreaterThanOrEqual(2);
+  });
+
   it("color survives a chamfer", () => {
     sketch("xy", () => {
       circle(40);
@@ -162,5 +212,53 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     expect(chamfered).toBeDefined();
     const hasOrange = chamfered.colorMap.some(e => e.color === '#ffa500');
     expect(hasOrange).toBe(true);
+  });
+
+  it("explicit fuse(): first input is colored, second uncolored → result inherits color", () => {
+    sketch("xy", () => {
+      circle([0, 0], 80);
+    });
+    extrude(50);
+
+    select(face().cylinder());
+    color("red");
+
+    sketch("xy", () => {
+      circle([50, 0], 40);
+    });
+    extrude(25).new();
+
+    const f = fuse() as Fuse;
+    render();
+
+    const result = f.getShapes()[0] as Solid;
+    expect(result).toBeDefined();
+    expect(result.colorMap.length).toBeGreaterThan(0);
+    expect(result.colorMap.every(e => e.color === '#ff0000')).toBe(true);
+  });
+
+  it("explicit fuse(): first input is uncolored → result has no color even if other inputs are colored", () => {
+    sketch("xy", () => {
+      circle([0, 0], 80);
+    });
+    extrude(50).new();
+
+    sketch("xy", () => {
+      circle([50, 0], 40);
+    });
+    extrude(25).new();
+
+    // Color the SECOND solid (which became cylinder2 above), not the first.
+    select(face().onPlane("xy", 25));
+    color("red");
+
+    const f = fuse() as Fuse;
+    render();
+
+    const result = f.getShapes()[0] as Solid;
+    expect(result).toBeDefined();
+    // First input has no color → result inherits no color, even though
+    // another input was red.
+    expect(result.colorMap).toEqual([]);
   });
 });

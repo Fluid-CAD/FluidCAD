@@ -146,9 +146,11 @@ export class Loft extends ExtrudeBase implements ILoft {
 
     if (innerWires.length > 0 && innerWires.length === outerWires.length) {
       const innerSolids = LoftOps.makeLoft(innerWires);
-      const { result: outerFused } = BooleanOps.fuse(outerSolids);
-      const { result: innerFused } = BooleanOps.fuse(innerSolids);
-      const cutResult = BooleanOps.cutShapes(outerFused[0], innerFused[0]);
+      const outerFuse = BooleanOps.fuse(outerSolids);
+      const innerFuse = BooleanOps.fuse(innerSolids);
+      const cutResult = BooleanOps.cutShapes(outerFuse.result[0], innerFuse.result[0]);
+      outerFuse.dispose();
+      innerFuse.dispose();
       return [cutResult];
     }
 

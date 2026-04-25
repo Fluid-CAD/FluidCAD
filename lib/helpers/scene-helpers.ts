@@ -155,6 +155,7 @@ function recordFusionHistory(
   }
 
   ColorTransfer.applyThroughMaker(sceneShapes, newShapes, maker);
+  ColorTransfer.applyBleeding(sceneShapes, newShapes, maker);
 
   claimedFaces.delete();
   claimedEdges.delete();

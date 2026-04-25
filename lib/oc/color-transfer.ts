@@ -55,6 +55,85 @@ export class ColorTransfer {
   }
 
   /**
+   * Color bleed pass: spreads colors to result faces that came from new
+   * geometry (tool inputs, generated faces, or just brand-new) by walking
+   * face-edge adjacency in each result solid.
+   *
+   * Faces that came from `sceneSources` (whether modified or unchanged) are
+   * NOT bled — those represent existing geometry whose color state the user
+   * explicitly chose. Faces NOT from any sceneSource are eligible: this
+   * covers tool extrusions, fillet/chamfer-generated surfaces, and cut
+   * section faces.
+   *
+   * Iterates until stable so newly-bled faces can spread color further.
+   * Call AFTER `applyThroughMaker` so the colored seeds are in place.
+   */
+  static applyBleeding(
+    sceneSources: Shape[],
+    results: Shape[],
+    maker: BRepBuilderAPI_MakeShape,
+  ) {
+    const oc = getOC();
+    const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
+    const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
+
+    const protectedFaces = new oc.TopTools_MapOfShape();
+    for (const scene of sceneSources) {
+      for (const inputFace of Explorer.findShapes(scene.getShape(), FACE)) {
+        const modified = ShapeOps.shapeListToArray(maker.Modified(inputFace))
+          .filter(s => s.ShapeType() === FACE);
+        if (modified.length > 0) {
+          for (const r of modified) {
+            protectedFaces.Add(r);
+          }
+        } else if (!maker.IsDeleted(inputFace)) {
+          protectedFaces.Add(inputFace);
+        }
+      }
+    }
+
+    for (const result of results) {
+      const allFaces = Explorer.findShapes(result.getShape(), FACE);
+      // Cache edges per face — repeated `findShapes` is expensive.
+      const faceEdges = allFaces.map(f => Explorer.findShapes(f, EDGE));
+
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (let i = 0; i < allFaces.length; i++) {
+          const face = allFaces[i];
+          if (protectedFaces.Contains(face)) {
+            continue;
+          }
+          if (result.getColor(face)) {
+            continue;
+          }
+
+          const myEdges = faceEdges[i];
+          for (let j = 0; j < allFaces.length; j++) {
+            if (i === j) {
+              continue;
+            }
+            const otherEdges = faceEdges[j];
+            const adjacent = myEdges.some(me => otherEdges.some(oe => me.IsSame(oe)));
+            if (!adjacent) {
+              continue;
+            }
+            const otherColor = result.getColor(allFaces[j]);
+            if (otherColor) {
+              result.setColor(face, otherColor);
+              changed = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    protectedFaces.delete();
+  }
+
+  /**
    * Transfer colors from a pre-clean source shape through a `cleanShapeWithLineage`
    * cleanup's `BRepTools_History` onto the post-clean result. Use this when an
    * op is chained as `maker → cleanShape` — first apply `applyThroughMaker` to

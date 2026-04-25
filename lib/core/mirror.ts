@@ -14,8 +14,6 @@ import { AxisObject } from "../features/axis.js";
 import { AxisFromEdge } from "../features/axis-from-edge.js";
 import { ISceneObject } from "./interfaces.js";
 
-const axisToPlaneName: Record<string, string> = { x: "yz", y: "xz", z: "xy" };
-
 interface MirrorFunction {
 
   /**
@@ -97,6 +95,8 @@ function build(context: SceneParserContext): MirrorFunction {
       }
     } else if (firstArg instanceof SceneObject && !(firstArg instanceof PlaneObjectBase)) {
       throw new Error("mirror(line) is only valid inside a sketch. For 3D mirroring, specify a plane: mirror(plane).");
+    } else if (isStandardAxis(firstArg)) {
+      throw new Error("Cannot specify an axis for mirror outside a sketch. For 3D mirroring, specify a plane: mirror(plane).");
     }
 
     if (arguments.length === 1) {
@@ -107,11 +107,7 @@ function build(context: SceneParserContext): MirrorFunction {
         return mirror;
       }
 
-      let planeArg = arguments[0];
-      if (isStandardAxis(planeArg)) {
-        planeArg = axisToPlaneName[planeArg];
-      }
-      const planeObj = resolvePlane(planeArg, context);
+      const planeObj = resolvePlane(arguments[0], context);
       const mirror = new MirrorShape(planeObj);
       context.addSceneObject(mirror);
       return mirror;
@@ -128,11 +124,7 @@ function build(context: SceneParserContext): MirrorFunction {
         return mirror;
       }
 
-      let planeArg = args[0];
-      if (isStandardAxis(planeArg)) {
-        planeArg = axisToPlaneName[planeArg];
-      }
-      const planeObj = resolvePlane(planeArg, context);
+      const planeObj = resolvePlane(args[0], context);
       const targetObjects = args.slice(1) as SceneObject[];
       const mirror = new MirrorShape(planeObj, targetObjects);
       context.addSceneObject(mirror);

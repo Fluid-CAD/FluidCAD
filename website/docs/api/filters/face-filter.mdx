@@ -264,3 +264,18 @@ Excludes faces with the given number of edges.
 |-----------|------|-------------|
 | `count` | number | The number of edges to exclude. |
 
+---
+
+### .from()
+
+```ts
+.from(...sceneObjects: SceneObject[][]): this
+```
+
+Restricts the selection to faces originating from the given scene objects.
+Recursive: passing a container picks up faces from its descendants.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...sceneObjects` | [SceneObject](/docs/api/types/scene-object)[] | Scene objects whose faces (and faces of their sub-shapes) are matched against. *(optional)* |
+

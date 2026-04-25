@@ -2,6 +2,7 @@ import type { TopoDS_Edge, TopoDS_Face, TopoDS_Shape } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";
+import { Explorer } from "./explorer.js";
 
 export interface MeshData {
   vertices: number[];
@@ -48,6 +49,7 @@ export class Mesh {
       return false;
     }
 
+    console.log('Triangulating shape of type', Explorer.getShapeType(shape))
     const inc = new oc.BRepMesh_IncrementalMesh(shape, linDefl, relative, angDefl, true);
     inc.delete();
     return true;
@@ -73,14 +75,14 @@ export class Mesh {
     const indices: number[] = [];
 
     const aLocation = new oc.TopLoc_Location();
-    const myT = oc.BRep_Tool.Triangulation(face, aLocation, 0);
-    if (myT.IsNull()) {
+    const faceTriangulation = oc.BRep_Tool.Triangulation(face, aLocation, 0);
+    if (faceTriangulation.IsNull()) {
       aLocation.delete();
       return null;
     }
 
-    const pc = new oc.Poly_Connect(myT);
-    const triangulation = myT.get();
+    const pc = new oc.Poly_Connect(faceTriangulation);
+    const triangulation = faceTriangulation.get();
     const nbNodes = triangulation.NbNodes();
 
     for (let i = 1; i <= nbNodes; i++) {
@@ -93,12 +95,12 @@ export class Mesh {
       t1.delete();
     }
 
-    const myNormal = new oc.TColgp_Array1OfDir(1, nbNodes);
-    oc.StdPrs_ToolTriangulatedShape.Normal(face, pc, myNormal);
+    const faceNormals = new oc.TColgp_Array1OfDir(1, nbNodes);
+    oc.StdPrs_ToolTriangulatedShape.Normal(face, pc, faceNormals);
 
     for (let i = 1; i <= nbNodes; i++) {
       const t1 = aLocation.Transformation();
-      const d1 = myNormal.Value(i);
+      const d1 = faceNormals.Value(i);
       const d = d1.Transformed(t1);
       normals.push(d.X(), d.Y(), d.Z());
       d1.delete();
@@ -121,9 +123,9 @@ export class Mesh {
     }
 
     pc.delete();
-    myNormal.delete();
+    faceNormals.delete();
     triangles.delete();
-    myT.delete();
+    faceTriangulation.delete();
     aLocation.delete();
 
     return { vertices, normals, indices, count: nbNodes };

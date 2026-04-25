@@ -303,6 +303,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     context: BuildSceneObjectContext,
     fuseOpts?: { glue?: 'full' | 'shift' },
   ) {
+    const p = context.getProfiler();
     const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
 
     this.setState('start-faces', classified.startFaces);
@@ -313,14 +314,15 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
 
     if (shapes.length === 0 || sceneObjects.length === 0) {
       this.addShapes(shapes);
-      this.recordShapeFacesAndEdgesAsAdditions(shapes);
-      this.classifyExtrudeEdges();
+      p.record('Record additions', () => this.recordShapeFacesAndEdgesAsAdditions(shapes));
+      p.record('Classify edges', () => this.classifyExtrudeEdges());
       return;
     }
 
     const fusionResult = fuseWithSceneObjects(sceneObjects, shapes, {
       ...fuseOpts,
       recordHistoryFor: this,
+      profiler: p,
     });
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
@@ -333,9 +335,9 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     this.addShapes(fusionResult.newShapes);
 
     if (fusionResult.toolHistory) {
-      this.remapClassifiedFaces(fusionResult.toolHistory);
+      p.record('Remap classified faces', () => this.remapClassifiedFaces(fusionResult.toolHistory!));
     }
-    this.classifyExtrudeEdges();
+    p.record('Classify edges', () => this.classifyExtrudeEdges());
   }
 
   /**

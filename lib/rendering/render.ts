@@ -61,10 +61,28 @@ export class SceneRenderer {
       object.clean(scene.getPartScopedAllObjects(object));
     }
 
+    const prepared = new Map<SceneObject, { renderedSceneShapes: RenderedShape[]; ownShapeCount: number; prepError?: string }>();
+    for (const object of sceneObjects) {
+      const profiler = profilers.get(object);
+      const start = performance.now();
+      prepared.set(object, this.prepareRenderedShapes(object, profiler));
+      const meshMs = performance.now() - start;
+      const existing = buildDurations.get(object);
+      if (existing !== undefined) {
+        buildDurations.set(object, existing + meshMs);
+      }
+    }
+
     this.aggregateContainerDurations(sceneObjects, scene, buildDurations);
 
     for (const object of sceneObjects) {
-      this.renderObject(object, scene, buildDurations.get(object), profilers.get(object));
+      this.emitRenderObject(
+        object,
+        scene,
+        prepared.get(object) ?? { renderedSceneShapes: [], ownShapeCount: 0 },
+        buildDurations.get(object),
+        profilers.get(object),
+      );
     }
 
     return scene;
@@ -109,40 +127,55 @@ export class SceneRenderer {
     return scene;
   }
 
-  private renderObject(obj: SceneObject, scene: Scene, buildDurationMs: number | undefined, profiler: Profiler | undefined): void {
-    const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false });
+  private prepareRenderedShapes(
+    obj: SceneObject,
+    profiler: Profiler | undefined,
+  ): { renderedSceneShapes: RenderedShape[]; ownShapeCount: number; prepError?: string } {
     const renderedSceneShapes: RenderedShape[] = [];
-
     try {
+      const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false });
       if (sceneShapes.length) {
         console.log(` - Scene shapes: ${sceneShapes.length}`);
         for (const shape of sceneShapes) {
-          renderedSceneShapes.push(this.toRenderedShape(shape));
+          renderedSceneShapes.push(this.toRenderedShape(shape, profiler));
         }
       }
-
-      const errorMessage = obj.getError();
-      this.emitRendered(obj, scene, {
-        sceneShapes: renderedSceneShapes,
-        visible: this.computeVisibility(obj, scene, sceneShapes.length),
-        hasError: !!errorMessage,
-        errorMessage: errorMessage || undefined,
-        buildDurationMs,
-        profiler,
-      });
-    }
-    catch (error) {
+      return { renderedSceneShapes, ownShapeCount: sceneShapes.length };
+    } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`Error rendering object ${obj.getUniqueType()}:`, error);
+      return { renderedSceneShapes, ownShapeCount: renderedSceneShapes.length, prepError: message };
+    }
+  }
+
+  private emitRenderObject(
+    obj: SceneObject,
+    scene: Scene,
+    prepared: { renderedSceneShapes: RenderedShape[]; ownShapeCount: number; prepError?: string },
+    buildDurationMs: number | undefined,
+    profiler: Profiler | undefined,
+  ): void {
+    if (prepared.prepError) {
       this.emitRendered(obj, scene, {
-        sceneShapes: renderedSceneShapes,
+        sceneShapes: prepared.renderedSceneShapes,
         visible: false,
         hasError: true,
-        errorMessage: message,
+        errorMessage: prepared.prepError,
         buildDurationMs,
         profiler,
       });
+      return;
     }
+
+    const errorMessage = obj.getError();
+    this.emitRendered(obj, scene, {
+      sceneShapes: prepared.renderedSceneShapes,
+      visible: this.computeVisibility(obj, scene, prepared.ownShapeCount),
+      hasError: !!errorMessage,
+      errorMessage: errorMessage || undefined,
+      buildDurationMs,
+      profiler,
+    });
   }
 
   private buildObject(object: SceneObject, scene: Scene): { totalMs: number; profiler: Profiler } {
@@ -186,33 +219,38 @@ export class SceneRenderer {
     return { totalMs, profiler };
   }
 
-  private getOrBuildMeshes(shape: Shape): SceneObjectMesh[] | null {
+  private getOrBuildMeshes(shape: Shape, profiler?: Profiler): SceneObjectMesh[] | null {
     const existing = shape.getMeshes();
     if (existing) {
       return existing;
     }
 
-    let meshes: SceneObjectMesh[] | null;
-    const meshSource = shape.getMeshSource();
-    if (meshSource) {
-      let sourceMeshes = meshSource.shape.getMeshes();
-      if (!sourceMeshes) {
-        sourceMeshes = this.meshBuilder.build(meshSource.shape);
-        meshSource.shape.setMeshes(sourceMeshes);
+    profiler?.start("Triangulation");
+    try {
+      let meshes: SceneObjectMesh[] | null;
+      const meshSource = shape.getMeshSource();
+      if (meshSource) {
+        let sourceMeshes = meshSource.shape.getMeshes();
+        if (!sourceMeshes) {
+          sourceMeshes = this.meshBuilder.build(meshSource.shape);
+          meshSource.shape.setMeshes(sourceMeshes);
+        }
+        meshes = sourceMeshes ? transformMeshes(sourceMeshes, meshSource.matrix) : this.meshBuilder.build(shape);
+      } else {
+        meshes = this.meshBuilder.build(shape);
       }
-      meshes = sourceMeshes ? transformMeshes(sourceMeshes, meshSource.matrix) : this.meshBuilder.build(shape);
-    } else {
-      meshes = this.meshBuilder.build(shape);
-    }
 
-    shape.setMeshes(meshes);
-    return meshes;
+      shape.setMeshes(meshes);
+      return meshes;
+    } finally {
+      profiler?.end("Triangulation");
+    }
   }
 
-  private toRenderedShape(shape: Shape): RenderedShape {
+  private toRenderedShape(shape: Shape, profiler?: Profiler): RenderedShape {
     return {
       shapeId: shape.id,
-      meshes: this.getOrBuildMeshes(shape),
+      meshes: this.getOrBuildMeshes(shape, profiler),
       shapeType: shape.getType(),
       isMetaShape: shape.isMetaShape() || undefined,
       isGuide: shape.isGuideShape() || undefined,

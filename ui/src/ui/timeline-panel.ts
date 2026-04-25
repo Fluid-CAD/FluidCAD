@@ -651,7 +651,6 @@ export class TimelinePanel {
   ): void {
     this.closeProfilePopover();
 
-    const maxDuration = Math.max(...categories.map(c => c.durationMs), 0.1);
     const popover = document.createElement('div');
     popover.className = 'absolute z-[201] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)] p-3 min-w-[200px] max-w-[280px]';
 
@@ -660,10 +659,23 @@ export class TimelinePanel {
     popover.style.left = `${rect.right - panelRect.left + 8}px`;
     popover.style.top = `${Math.max(0, rect.top - panelRect.top - 4)}px`;
 
+    const profiledTotal = categories.reduce((sum, c) => sum + c.durationMs, 0);
+    const displayRows: { category: string; durationMs: number; isOther?: boolean }[] = categories.map(c => ({ ...c }));
+    if (totalBuildMs !== undefined && totalBuildMs - profiledTotal > 0.5) {
+      displayRows.push({
+        category: 'Other',
+        durationMs: Math.round((totalBuildMs - profiledTotal) * 10) / 10,
+        isOther: true,
+      });
+    }
+    const maxDuration = Math.max(...displayRows.map(c => c.durationMs), 0.1);
+
     let rowsHtml = '';
-    for (const cat of categories) {
+    for (const cat of displayRows) {
       const pct = maxDuration > 0 ? (cat.durationMs / maxDuration) * 100 : 0;
-      const barColor = pct > 60 ? 'bg-warning/60' : 'bg-primary/40';
+      const barColor = cat.isOther
+        ? 'bg-base-content/25'
+        : pct > 60 ? 'bg-warning/60' : 'bg-primary/40';
       rowsHtml += `
         <div class="mb-1.5">
           <div class="flex justify-between text-xs mb-0.5">
@@ -677,10 +689,10 @@ export class TimelinePanel {
       `;
     }
 
-    const profiledTotal = categories.reduce((sum, c) => sum + c.durationMs, 0);
-    const footerHtml = totalBuildMs !== undefined && Math.abs(profiledTotal - totalBuildMs) > 0.5
-      ? `<div class="text-xs text-base-content/40 mt-1 pt-1 border-t border-base-content/10">
-           Tracked: ${formatDuration(profiledTotal)} / Total: ${formatDuration(totalBuildMs)}
+    const footerHtml = totalBuildMs !== undefined
+      ? `<div class="flex justify-between text-xs text-base-content/40 mt-1 pt-1 border-t border-base-content/10">
+           <span>Total</span>
+           <span class="tabular-nums">${formatDuration(totalBuildMs)}</span>
          </div>`
       : '';
 

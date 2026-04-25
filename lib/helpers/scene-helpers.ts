@@ -11,15 +11,16 @@ import { Edge } from "../common/edge.js";
 import { getOC } from "../oc/init.js";
 import { ColorTransfer } from "../oc/color-transfer.js";
 import type { TopAbs_ShapeEnum } from "occjs-wrapper";
+import { Profiler } from "../common/profiler.js";
 
 export function fuseWithSceneObjects(
   sceneObjects: SceneObject[],
   extrusions: Shape<any>[],
-  opts?: { glue?: 'full' | 'shift'; recordHistoryFor?: SceneObject },
+  opts?: { glue?: 'full' | 'shift'; recordHistoryFor?: SceneObject; profiler?: Profiler },
 ) {
+  const p = opts?.profiler;
   const modified: { shape: Shape<any>, object: SceneObject }[] = [];
 
-  const tCollect = performance.now();
   const objShapeMap = new Map<Shape<any>, SceneObject>();
   for (const obj of sceneObjects) {
     const shapes = obj.getShapes({}, 'solid');
@@ -29,16 +30,16 @@ export function fuseWithSceneObjects(
   }
 
   let sceneShapes = Array.from(objShapeMap.keys());
-  console.log(`[perf] fuseWithSceneObjects.collect (scenes=${sceneShapes.length}, extrusions=${extrusions.length}): ${(performance.now() - tCollect).toFixed(1)} ms`);
-  const tFuse = performance.now();
-  const { result, newShapes, modifiedShapes, maker, dispose } = BooleanOps.fuseStockAndTools(sceneShapes, extrusions, opts);
-  console.log(`[perf] fuseWithSceneObjects.BooleanOps.fuseStockAndTools (glue=${opts?.glue ?? 'off'}): ${(performance.now() - tFuse).toFixed(1)} ms`);
+  const fuseRun = () => BooleanOps.fuseStockAndTools(sceneShapes, extrusions, opts);
+  const { result, newShapes, modifiedShapes, maker, dispose } = p
+    ? p.record('Boolean fuse', fuseRun)
+    : fuseRun();
 
   if (newShapes.length === 0 && modifiedShapes.length === 0) {
-    console.log("No fusions were made.");
     dispose();
     if (opts?.recordHistoryFor) {
-      recordShapesAsAdditions(opts.recordHistoryFor, extrusions);
+      const run = () => recordShapesAsAdditions(opts.recordHistoryFor!, extrusions);
+      p ? p.record('Record fusion history', run) : run();
     }
     return {
       newShapes: extrusions,
@@ -61,12 +62,15 @@ export function fuseWithSceneObjects(
 
   let toolHistory: ShapeHistory | undefined;
   if (opts?.recordHistoryFor) {
-    recordFusionHistory(opts.recordHistoryFor, sceneShapes, objShapeMap, shapesToAdd, maker);
-    // Separately track tool-side (extrusion) lineage so callers can remap
-    // pre-fusion categorizations (start/end/side/…) onto the post-fusion
-    // faces. We don't store these as modifications on any scene object —
-    // from the user's POV they are additions on the caller already.
-    toolHistory = ShapeHistoryTracker.collect(maker, extrusions);
+    const recordHistory = () => {
+      recordFusionHistory(opts.recordHistoryFor!, sceneShapes, objShapeMap, shapesToAdd, maker);
+      // Separately track tool-side (extrusion) lineage so callers can remap
+      // pre-fusion categorizations (start/end/side/…) onto the post-fusion
+      // faces. We don't store these as modifications on any scene object —
+      // from the user's POV they are additions on the caller already.
+      toolHistory = ShapeHistoryTracker.collect(maker, extrusions);
+    };
+    p ? p.record('Record fusion history', recordHistory) : recordHistory();
   }
 
   dispose();

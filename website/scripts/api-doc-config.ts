@@ -77,7 +77,7 @@ export const features: FeatureEntry[] = [
   { name: 'tArc', displayName: 'tArc', category: '2d', sourceFile: 'core/2d/tarc.ts', interfaceName: 'TArcFunction', returnType: 'IGeometry', relatedGuide: '/docs/guides/sketching/constrained-geometry', sidebarPosition: 19 },
   { name: 'connect', displayName: 'connect', category: '2d', sourceFile: 'core/2d/connect.ts', interfaceName: 'ConnectFunction', returnType: 'IGeometry', sidebarPosition: 20 },
   // 2D Sketching — Advanced Operations
-  { name: 'offset', displayName: 'offset', category: '2d', sourceFile: 'core/2d/offset.ts', interfaceName: 'OffsetFunction', returnType: 'IExtrudableGeometry', relatedGuide: '/docs/guides/sketching/offset', sidebarPosition: 21 },
+  { name: 'offset', displayName: 'offset', category: '2d', sourceFile: 'core/2d/offset.ts', interfaceName: 'OffsetFunction', returnType: 'IOffset', relatedGuide: '/docs/guides/sketching/offset', sidebarPosition: 21 },
 
   // 3D Operations
   { name: 'sketch', displayName: 'sketch', category: '3d', sourceFile: 'core/sketch.ts', interfaceName: 'SketchFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/sketching/introduction', sidebarPosition: 1 },
@@ -137,6 +137,7 @@ export const types: TypeEntry[] = [
   { name: 'IRect', displayName: 'Rect', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 15 },
   { name: 'ISlot', displayName: 'Slot', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 16 },
   { name: 'IPolygon', displayName: 'Polygon', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 17 },
+  { name: 'IOffset', displayName: 'Offset', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 32 },
   { name: 'IPlane', displayName: 'Plane', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 18 },
   { name: 'IAxis', displayName: 'Axis', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 19 },
   { name: 'ISelect', displayName: 'Select', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 20 },
@@ -234,6 +235,7 @@ export const typeDisplayNameMap: Record<string, string> = {
   'IRect': 'Rect',
   'ISlot': 'Slot',
   'IPolygon': 'Polygon',
+  'IOffset': 'Offset',
   'IPlane': 'Plane',
   'IAxis': 'Axis',
   'ISelect': 'Select',

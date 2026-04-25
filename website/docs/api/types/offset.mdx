@@ -1,0 +1,107 @@
+---
+sidebar_position: 32
+title: "Offset"
+description: "The Offset type. Extends ExtrudableGeometry."
+---
+
+# Offset
+
+Extends [`ExtrudableGeometry`](/docs/api/types/extrudable-geometry)
+
+
+<details>
+<summary>Inherited from [`Geometry`](/docs/api/types/geometry)</summary>
+
+### start()
+
+```ts
+start(): Vertex
+```
+
+Returns a lazy-evaluated vertex at the start point of this geometry element.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### end()
+
+```ts
+end(): Vertex
+```
+
+Returns a lazy-evaluated vertex at the end point of this geometry element.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### tangent()
+
+```ts
+tangent(): Vertex
+```
+
+Returns a lazy-evaluated vertex representing the tangent direction at the end
+of this geometry. Used to determine the direction of subsequent geometry elements.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+
+</details>
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### guide()
+
+```ts
+guide(): this
+```
+
+Marks this object as construction geometry. Guide objects are excluded from
+final geometry output unless explicitly included.
+
+---
+
+### reusable()
+
+```ts
+reusable(): this
+```
+
+Marks this object as reusable. Reusable objects retain their shapes when
+consumed by features (e.g., extrude, revolve), allowing multiple features
+to reference the same source geometry. Use `remove(obj)` to force-remove
+shapes from a reusable object.
+
+
+</details>
+
+## Methods
+
+### close()
+
+```ts
+close(): this
+```
+
+Closes an open offset by joining it back to the source wire with
+straight cap edges at each endpoint. Has no effect when the offset
+is already closed. Cannot be combined with `removeOriginal=true`.
+

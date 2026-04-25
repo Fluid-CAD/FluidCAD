@@ -55,7 +55,10 @@ function build(context: SceneParserContext): RotateFunction {
     const copy = typeof args[args.length - 1] === 'boolean' ? args.pop() as boolean : false;
 
     // 2D: rotate(angle, copy?, ...targets)
-    if (args.length === 1 && activeSketch) {
+    if (args.length === 1) {
+      if (!activeSketch) {
+        throw new Error("rotate(angle) is only valid inside a sketch. For 3D rotation, specify an axis: rotate(axis, angle).");
+      }
       const angle = args[0] as number;
       const rotate = new Rotate2D(angle, copy, ...targets);
       context.addSceneObject(rotate);

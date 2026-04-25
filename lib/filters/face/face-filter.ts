@@ -14,6 +14,7 @@ import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { AtIndexFilter, NotAtIndexFilter } from "./at-index.js";
 import { HasEdgeFilter, NotHasEdgeFilter } from "./has-edge.js";
 import { HasEdgeFromSceneObjectFilter, NotHasEdgeFromSceneObjectFilter } from "./has-object.js";
+import { FromSceneObjectFilter } from "../from-object.js";
 import { EdgeCountFilter, NotEdgeCountFilter } from "./edge-count.js";
 import { IntersectsWithFilter, NotIntersectsWithFilter } from "./intersects-with.js";
 import { EdgeFilterBuilder } from "../edge/edge-filter.js";
@@ -370,6 +371,17 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    */
   notEdgeCount(count: number) {
     const filter = new NotEdgeCountFilter(count);
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Restricts the selection to faces originating from the given scene objects.
+   * Recursive: passing a container picks up faces from its descendants.
+   * @param sceneObjects - Scene objects whose faces (and faces of their sub-shapes) are matched against.
+   */
+  from(...sceneObjects: ISceneObject[]): this {
+    const filter = new FromSceneObjectFilter<Face>(sceneObjects as SceneObject[], "face");
     this.filters.push(filter);
     return this;
   }

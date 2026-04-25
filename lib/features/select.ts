@@ -78,7 +78,8 @@ export class SelectSceneObject extends SceneObject implements ISelect {
     const remappedConstraint = this.constraintObject
       ? (remap.get(this.constraintObject) || this.constraintObject)
       : undefined;
-    return new SelectSceneObject(this.filters, remappedConstraint);
+    const remappedFilters = this.filters.map(f => f.remap(remap));
+    return new SelectSceneObject(remappedFilters, remappedConstraint);
   }
 
   transform(matrix: Matrix4): SelectSceneObject {

@@ -13,6 +13,7 @@ import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { AtIndexFilter, NotAtIndexFilter } from "./at-index.js";
 import { BelongsToFaceFilter, NotBelongsToFaceFilter } from "./belongs-to-face.js";
 import { BelongsToFaceFromSceneObjectFilter, NotBelongsToFaceFromSceneObjectFilter } from "./belongs-to-object.js";
+import { FromSceneObjectFilter } from "../from-object.js";
 import { IntersectsWithFilter, NotIntersectsWithFilter } from "./intersects-with.js";
 import { AbovePlaneFilter, BelowPlaneFilter } from "./above-below.js";
 import { SceneObject } from "../../common/scene-object.js";
@@ -396,6 +397,17 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
     }
 
     const filter = new BelowPlaneFilter(planeObj, partial);
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Restricts the selection to edges originating from the given scene objects.
+   * Recursive: passing a container picks up edges from its descendants.
+   * @param sceneObjects - Scene objects whose edges (and edges of their sub-shapes) are matched against.
+   */
+  from(...sceneObjects: ISceneObject[]): this {
+    const filter = new FromSceneObjectFilter<Edge>(sceneObjects as SceneObject[], "edge");
     this.filters.push(filter);
     return this;
   }

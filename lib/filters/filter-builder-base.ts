@@ -1,5 +1,6 @@
 import { Matrix4 } from "../math/matrix4.js";
 import { Shape } from "../common/shapes.js";
+import { SceneObject } from "../common/scene-object.js";
 import { FilterBase } from "./filter-base.js";
 
 export class FilterBuilderBase<TShape extends Shape = Shape> {
@@ -44,6 +45,18 @@ export class FilterBuilderBase<TShape extends Shape = Shape> {
     }
     transformedBuilder._withTangents = this._withTangents;
     return transformedBuilder;
+  }
+
+  /**
+    * @internal
+  */
+  remap(remap: Map<SceneObject, SceneObject>): FilterBuilderBase<TShape> {
+    const remappedBuilder = new FilterBuilderBase<TShape>();
+    for (const filter of this.filters) {
+      remappedBuilder.filter(filter.remap(remap) as FilterBase<TShape>);
+    }
+    remappedBuilder._withTangents = this._withTangents;
+    return remappedBuilder;
   }
 
   /**

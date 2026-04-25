@@ -1,21 +1,22 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { rad } from "../helpers/math-helpers.js";
 import { Solid } from "../common/shapes.js";
-import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
+import { cutWithSceneObjects } from "../helpers/scene-helpers.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { Extrudable } from "../helpers/types.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
-import { ExtrudeBase } from "./extrude-base.js";
+import { ClassifiedFaces, ExtrudeBase } from "./extrude-base.js";
 import { IRevolve } from "../core/interfaces.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { FaceOps } from "../oc/face-ops.js";
-import { ThinFaceMaker } from "../oc/thin-face-maker.js";
+import { ThinFaceMaker, ThinFaceResult } from "../oc/thin-face-maker.js";
 import { Matrix4 } from "../math/matrix4.js";
+import { Plane } from "../math/plane.js";
 
 export class Revolve extends ExtrudeBase implements IRevolve {
 
@@ -35,28 +36,74 @@ export class Revolve extends ExtrudeBase implements IRevolve {
       return;
     }
 
-    const solids: Solid[] = [];
-    const allStartFaces: Face[] = [];
-    const allEndFaces: Face[] = [];
-    let allSideFaces: Face[] = [];
-    let allInternalFaces: Face[] = [];
-    let allCapFaces: Face[] = [];
-
-    let faces = pickedFaces ?? p.record('Resolve faces', () => FaceMaker2.getRegions(this.extrudable.getGeometries(), plane));
-    let inwardEdges: Edge[] | undefined;
-    let outwardEdges: Edge[] | undefined;
-
     if (this.isThin()) {
-      const thinResult = p.record('Make thin faces', () => ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]));
-      faces = thinResult.faces;
-      inwardEdges = thinResult.inwardEdges;
-      outwardEdges = thinResult.outwardEdges;
+      const thinResult = p.record('Make thin faces', () => ThinFaceMaker.make(
+        this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1],
+      ));
+      this.buildRevolveThin(thinResult, plane, context);
+    } else {
+      const faces = pickedFaces ?? p.record('Resolve faces', () =>
+        FaceMaker2.getRegions(this.extrudable.getGeometries(), plane),
+      );
+      this.buildRevolve(faces, plane, context);
     }
 
+    this.setFinalShapes(this.getShapes());
+  }
+
+  /** Plain revolve: classify by inner-wire detection on the source plane. */
+  private buildRevolve(faces: Face[], plane: Plane, context: BuildSceneObjectContext) {
+    const revolved = this.runRevolutions(faces, plane, context);
+    const classified = this.classifyRevolveByInnerWires(revolved, plane);
+    this.dispatchFinalize(revolved.solids, classified, plane, context);
+  }
+
+  /** Thin revolve: shell-like profile with inward/outward offsets. */
+  private buildRevolveThin(thinResult: ThinFaceResult, plane: Plane, context: BuildSceneObjectContext) {
+    const revolved = this.runRevolutions(thinResult.faces, plane, context);
+
+    let classified: ClassifiedFaces;
+    if (thinResult.inwardEdges.length > 0) {
+      // Open profile: reclassify side/internal/cap via inward/outward edges.
+      const reclass = this.reclassifyThinFaces(
+        revolved.sideFaces,
+        revolved.startFaces,
+        plane,
+        thinResult.inwardEdges,
+        thinResult.outwardEdges,
+      );
+      classified = {
+        startFaces: revolved.startFaces,
+        endFaces: revolved.endFaces,
+        sideFaces: reclass.sideFaces,
+        internalFaces: reclass.internalFaces,
+        capFaces: reclass.capFaces,
+      };
+    } else {
+      // Closed profile: regular inner-wire detection.
+      classified = this.classifyRevolveByInnerWires(revolved, plane);
+    }
+
+    this.dispatchFinalize(revolved.solids, classified, plane, context);
+  }
+
+  /**
+   * Run the revolutions for each fused profile face and return the resulting
+   * solids with start/end/side faces split out (start = faces still on the
+   * source plane for partial revolutions, side = everything else). Caller
+   * then refines side → side/internal/cap.
+   */
+  private runRevolutions(faces: Face[], plane: Plane, context: BuildSceneObjectContext) {
+    const p = context.getProfiler();
     const { result: fusedFaces } = p.record('Fuse faces', () => BooleanOps.fuseFaces(faces));
 
     const axis = this.axis.getAxis();
     const isFullRevolution = Math.abs(this.angle) >= 360;
+
+    const solids: Solid[] = [];
+    const startFaces: Face[] = [];
+    const endFaces: Face[] = [];
+    const sideFaces: Face[] = [];
 
     for (const face of fusedFaces as Face[]) {
       const solid = p.record('Revolve face', () => ExtrudeOps.makeRevol(face, axis, rad(this.angle)));
@@ -71,108 +118,95 @@ export class Revolve extends ExtrudeBase implements IRevolve {
       }
       solids.push(resultSolid);
 
-      // Classify faces of the revolved solid
-      const solidFaces = Explorer.findFacesWrapped(resultSolid);
-      for (const f of solidFaces) {
+      for (const f of Explorer.findFacesWrapped(resultSolid)) {
         const isOnSourcePlane = FaceOps.faceOnPlaneWrapped(f as Face, plane);
         if (isOnSourcePlane && !isFullRevolution) {
-          allStartFaces.push(f as Face);
+          startFaces.push(f as Face);
         } else {
-          allSideFaces.push(f as Face);
+          sideFaces.push(f as Face);
         }
       }
     }
 
-    // For partial revolves with symmetric, classify start/end by plane offset
-    if (!isFullRevolution && allStartFaces.length > 1) {
-      const half = Math.floor(allStartFaces.length / 2);
-      const startSlice = allStartFaces.splice(0, half);
-      const endSlice = allStartFaces.splice(0);
-      allStartFaces.length = 0;
-      allStartFaces.push(...startSlice);
-      allEndFaces.push(...endSlice);
+    // Partial revolutions produce two source-plane caps; the second half are
+    // the "end" faces. Split by index halves.
+    if (!isFullRevolution && startFaces.length > 1) {
+      const half = Math.floor(startFaces.length / 2);
+      endFaces.push(...startFaces.splice(half));
     }
 
-    if (inwardEdges && inwardEdges.length > 0) {
-      const result = this.reclassifyThinFaces(
-        allSideFaces, allStartFaces, plane, inwardEdges, outwardEdges || []
-      );
-      allSideFaces = result.sideFaces;
-      allInternalFaces = result.internalFaces;
-      allCapFaces = result.capFaces;
+    return { solids, startFaces, endFaces, sideFaces };
+  }
+
+  /** Inner-wire classification used by both regular revolve and closed thin profiles. */
+  private classifyRevolveByInnerWires(
+    revolved: ReturnType<Revolve['runRevolutions']>,
+    plane: Plane,
+  ): ClassifiedFaces {
+    const innerWireEdges: Edge[] = [];
+    for (const sf of revolved.startFaces) {
+      for (const wire of sf.getWires()) {
+        if (!wire.isCW(plane.normal)) {
+          for (const edge of wire.getEdges()) {
+            innerWireEdges.push(edge);
+          }
+        }
+      }
+    }
+
+    const sideFaces: Face[] = [];
+    const internalFaces: Face[] = [];
+
+    if (innerWireEdges.length === 0) {
+      sideFaces.push(...revolved.sideFaces);
     } else {
-      const innerWireEdges: Edge[] = [];
-      for (const sf of allStartFaces) {
-        for (const wire of sf.getWires()) {
-          if (!wire.isCW(plane.normal)) {
-            for (const edge of wire.getEdges()) {
-              innerWireEdges.push(edge);
-            }
-          }
+      for (const f of revolved.sideFaces) {
+        const isInternal = f.getEdges().some(fe =>
+          innerWireEdges.some(iwe => fe.getShape().IsPartner(iwe.getShape()))
+        );
+        if (isInternal) {
+          internalFaces.push(f);
+        } else {
+          sideFaces.push(f);
         }
-      }
-
-      if (innerWireEdges.length > 0) {
-        const remaining: Face[] = [];
-        for (const f of allSideFaces) {
-          const isInternal = f.getEdges().some(fe =>
-            innerWireEdges.some(iwe => fe.getShape().IsPartner(iwe.getShape()))
-          );
-          if (isInternal) {
-            allInternalFaces.push(f);
-          } else {
-            remaining.push(f);
-          }
-        }
-        allSideFaces = remaining;
       }
     }
 
-    this.setState('start-faces', allStartFaces);
-    this.setState('end-faces', allEndFaces);
-    this.setState('side-faces', allSideFaces);
-    this.setState('internal-faces', allInternalFaces);
-    this.setState('cap-faces', allCapFaces);
+    return {
+      startFaces: revolved.startFaces,
+      endFaces: revolved.endFaces,
+      sideFaces,
+      internalFaces,
+      capFaces: [],
+    };
+  }
 
+  /** Remove source + axis, then dispatch to cut or fuse path. */
+  private dispatchFinalize(
+    solids: Solid[],
+    classified: ClassifiedFaces,
+    plane: Plane,
+    context: BuildSceneObjectContext,
+  ) {
     this.extrudable.removeShapes(this);
     this.axis.removeShapes(this);
 
     if (this._operationMode === 'remove') {
-      const scope = p.record('Resolve fusion scope', () => this.resolveFusionScope(context.getSceneObjects()));
-      p.record('Cut with scene objects', () => {
-        cutWithSceneObjects(scope, solids, plane, 0, this, { recordHistoryFor: this });
-      });
-      this.setFinalShapes(this.getShapes());
+      const scope = this.resolveFusionScope(context.getSceneObjects());
+      // Note: stash classification state up front — cutWithSceneObjects /
+      // classifyCutResult writes its own state keys, but the pre-classified
+      // faces are useful for the remove path's selection accessors when no
+      // cut-specific edges exist for that category.
+      this.setState('start-faces', classified.startFaces);
+      this.setState('end-faces', classified.endFaces);
+      this.setState('side-faces', classified.sideFaces);
+      this.setState('internal-faces', classified.internalFaces);
+      this.setState('cap-faces', classified.capFaces);
+      cutWithSceneObjects(scope, solids, plane, 0, this, { recordHistoryFor: this });
       return;
     }
 
-    const sceneObjects = p.record('Resolve fusion scope', () => this.resolveFusionScope(context.getSceneObjects()));
-
-    if (sceneObjects.length === 0) {
-      this.addShapes(solids);
-      this.recordShapeFacesAndEdgesAsAdditions(solids);
-      this.classifyExtrudeEdges();
-      this.setFinalShapes(this.getShapes());
-      return;
-    }
-
-    const fusionResult = p.record('Fuse with scene objects', () => fuseWithSceneObjects(sceneObjects, solids, {
-      recordHistoryFor: this,
-    }));
-
-    for (const modifiedShape of fusionResult.modifiedShapes) {
-      if (modifiedShape.object) {
-        modifiedShape.object.removeShape(modifiedShape.shape, this);
-      }
-    }
-
-    this.addShapes(fusionResult.newShapes);
-
-    if (fusionResult.toolHistory) {
-      this.remapClassifiedFaces(fusionResult.toolHistory);
-    }
-    this.classifyExtrudeEdges();
-    this.setFinalShapes(this.getShapes());
+    this.finalizeAndFuse(solids, classified, context);
   }
 
   override getDependencies(): SceneObject[] {

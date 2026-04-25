@@ -5,12 +5,14 @@ import { WireOps } from "../oc/wire-ops.js";
 import { Wire } from "../common/wire.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
+import { Shape } from "../common/shape.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
-import { ExtrudeBase } from "./extrude-base.js";
+import { ClassifiedFaces, ExtrudeBase } from "./extrude-base.js";
 import { ISweep } from "../core/interfaces.js";
-import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
-import { ThinFaceMaker } from "../oc/thin-face-maker.js";
+import { cutWithSceneObjects } from "../helpers/scene-helpers.js";
+import { ThinFaceMaker, ThinFaceResult } from "../oc/thin-face-maker.js";
+import { Plane } from "../math/plane.js";
 
 export class Sweep extends ExtrudeBase implements ISweep {
   private _path: SceneObject;
@@ -36,43 +38,82 @@ export class Sweep extends ExtrudeBase implements ISweep {
       return;
     }
 
-    // Extract spine wire from path
-    const spineWire = p.record('Get spine wire', () => this.getSpineWire(this._path));
-
-    // Extract profile faces from extrudable
-    let profileFaces = pickedFaces ?? p.record('Resolve faces', () => FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill()));
-    let inwardEdges: Edge[] | undefined;
-    let outwardEdges: Edge[] | undefined;
-
     if (this.isThin()) {
-      const thinResult = p.record('Make thin faces', () => ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]));
-      profileFaces = thinResult.faces;
-      inwardEdges = thinResult.inwardEdges;
-      outwardEdges = thinResult.outwardEdges;
+      const thinResult = p.record('Make thin faces', () => ThinFaceMaker.make(
+        this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1],
+      ));
+      this.buildSweepThin(thinResult, plane, context);
+    } else {
+      const profileFaces = pickedFaces ?? p.record('Resolve faces', () =>
+        FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill()),
+      );
+      this.buildSweep(profileFaces, plane, context);
     }
 
+    this.setFinalShapes(this.getShapes());
+  }
+
+  /** Plain sweep: classify by inner-wire detection on the start face. */
+  private buildSweep(profileFaces: Face[], plane: Plane, context: BuildSceneObjectContext) {
+    const swept = this.runSweep(profileFaces, context);
+    const classified = this.classifySweepByInnerWires(swept, plane);
+    this.dispatchFinalize(swept.solids, classified, plane, context);
+  }
+
+  /** Thin sweep: shell-like profile with inward/outward offsets. */
+  private buildSweepThin(thinResult: ThinFaceResult, plane: Plane, context: BuildSceneObjectContext) {
+    const swept = this.runSweep(thinResult.faces, context);
+
+    let classified: ClassifiedFaces;
+    if (thinResult.inwardEdges.length > 0) {
+      const reclass = this.reclassifyThinFaces(
+        swept.sideFaces,
+        swept.startFaces,
+        plane,
+        thinResult.inwardEdges,
+        thinResult.outwardEdges,
+      );
+      classified = {
+        startFaces: swept.startFaces,
+        endFaces: swept.endFaces,
+        sideFaces: reclass.sideFaces,
+        internalFaces: reclass.internalFaces,
+        capFaces: reclass.capFaces,
+      };
+    } else {
+      classified = this.classifySweepByInnerWires(swept, plane);
+    }
+
+    this.dispatchFinalize(swept.solids, classified, plane, context);
+  }
+
+  /**
+   * Run the sweep and split the resulting faces using OC's `FirstShape` /
+   * `LastShape` (the profile at each end of the spine). Anything else is a
+   * side face for the caller to refine.
+   */
+  private runSweep(profileFaces: Face[], context: BuildSceneObjectContext) {
     if (profileFaces.length === 0) {
       throw new Error("Could not extract profile faces from extrudable.");
     }
 
-    // Perform sweep
+    const p = context.getProfiler();
+    const spineWire = p.record('Get spine wire', () => this.getSpineWire(this._path));
     const sweepResult = p.record('Make sweep', () => SweepOps.makeSweep(spineWire, profileFaces));
-    const newShapes = sweepResult.solids;
+    const solids = sweepResult.solids;
 
-    // Classify faces using FirstShape/LastShape from the OC result
     const startFaces: Face[] = [];
     const endFaces: Face[] = [];
-    let sideFaces: Face[] = [];
-
+    const sideFaces: Face[] = [];
     const firstShapeFromOC = sweepResult.firstShape;
     const lastShapeFromOC = sweepResult.lastShape;
 
-    for (const shape of newShapes) {
-      const shapeFaces = Explorer.findFacesWrapped(shape);
-      for (const f of shapeFaces) {
-        if (firstShapeFromOC && f.getShape().IsSame(firstShapeFromOC)) {
+    for (const shape of solids) {
+      for (const f of Explorer.findFacesWrapped(shape)) {
+        const raw = f.getShape();
+        if (firstShapeFromOC && raw.IsSame(firstShapeFromOC)) {
           startFaces.push(f as Face);
-        } else if (lastShapeFromOC && f.getShape().IsSame(lastShapeFromOC)) {
+        } else if (lastShapeFromOC && raw.IsSame(lastShapeFromOC)) {
           endFaces.push(f as Face);
         } else {
           sideFaces.push(f as Face);
@@ -80,91 +121,74 @@ export class Sweep extends ExtrudeBase implements ISweep {
       }
     }
 
-    let internalFaces: Face[] = [];
-    let capFaces: Face[] = [];
+    return { solids, startFaces, endFaces, sideFaces };
+  }
 
-    if (inwardEdges && inwardEdges.length > 0) {
-      const result = this.reclassifyThinFaces(
-        sideFaces, startFaces, plane, inwardEdges, outwardEdges || []
-      );
-      sideFaces = result.sideFaces;
-      internalFaces = result.internalFaces;
-      capFaces = result.capFaces;
-    } else {
-      const innerWireEdges: Edge[] = [];
-      for (const sf of startFaces) {
-        for (const wire of sf.getWires()) {
-          if (!wire.isCW(plane.normal)) {
-            for (const edge of wire.getEdges()) {
-              innerWireEdges.push(edge);
-            }
+  /** Inner-wire classification used by both regular sweep and closed thin profiles. */
+  private classifySweepByInnerWires(
+    swept: ReturnType<Sweep['runSweep']>,
+    plane: Plane,
+  ): ClassifiedFaces {
+    const innerWireEdges: Edge[] = [];
+    for (const sf of swept.startFaces) {
+      for (const wire of sf.getWires()) {
+        if (!wire.isCW(plane.normal)) {
+          for (const edge of wire.getEdges()) {
+            innerWireEdges.push(edge);
           }
         }
-      }
-
-      if (innerWireEdges.length > 0) {
-        const remaining: Face[] = [];
-        for (const f of sideFaces) {
-          const isInternal = f.getEdges().some(fe =>
-            innerWireEdges.some(iwe => fe.getShape().IsPartner(iwe.getShape()))
-          );
-          if (isInternal) {
-            internalFaces.push(f);
-          } else {
-            remaining.push(f);
-          }
-        }
-        sideFaces = remaining;
       }
     }
 
-    this.setState('start-faces', startFaces);
-    this.setState('end-faces', endFaces);
-    this.setState('side-faces', sideFaces);
-    this.setState('internal-faces', internalFaces);
-    this.setState('cap-faces', capFaces);
+    const sideFaces: Face[] = [];
+    const internalFaces: Face[] = [];
 
-    // Remove consumed input shapes
+    if (innerWireEdges.length === 0) {
+      sideFaces.push(...swept.sideFaces);
+    } else {
+      for (const f of swept.sideFaces) {
+        const isInternal = f.getEdges().some(fe =>
+          innerWireEdges.some(iwe => fe.getShape().IsPartner(iwe.getShape()))
+        );
+        if (isInternal) {
+          internalFaces.push(f);
+        } else {
+          sideFaces.push(f);
+        }
+      }
+    }
+
+    return {
+      startFaces: swept.startFaces,
+      endFaces: swept.endFaces,
+      sideFaces,
+      internalFaces,
+      capFaces: [],
+    };
+  }
+
+  /** Remove source + path, then dispatch to cut or fuse path. */
+  private dispatchFinalize(
+    solids: Shape[],
+    classified: ClassifiedFaces,
+    plane: Plane,
+    context: BuildSceneObjectContext,
+  ) {
     this.extrudable.removeShapes(this);
     this._path.removeShapes(this);
 
-    // Handle boolean operation based on operation mode
     if (this._operationMode === 'remove') {
-      const scope = p.record('Resolve fusion scope', () => this.resolveFusionScope(context.getSceneObjects()));
-      p.record('Cut with scene objects', () => {
-        cutWithSceneObjects(scope, newShapes, plane, 0, this, { recordHistoryFor: this });
-      });
-      this.setFinalShapes(this.getShapes());
+      const scope = this.resolveFusionScope(context.getSceneObjects());
+      this.setState('start-faces', classified.startFaces);
+      this.setState('end-faces', classified.endFaces);
+      this.setState('side-faces', classified.sideFaces);
+      this.setState('internal-faces', classified.internalFaces);
+      this.setState('cap-faces', classified.capFaces);
+      cutWithSceneObjects(scope, solids, plane, 0, this, { recordHistoryFor: this });
       return;
     }
 
-    const sceneObjects = p.record('Resolve fusion scope', () => this.resolveFusionScope(context.getSceneObjects()));
-
-    if (sceneObjects.length === 0) {
-      this.addShapes(newShapes);
-      this.recordShapeFacesAndEdgesAsAdditions(newShapes);
-      this.classifyExtrudeEdges();
-      this.setFinalShapes(this.getShapes());
-      return;
-    }
-
-    const fusionResult = p.record('Fuse with scene objects', () => fuseWithSceneObjects(sceneObjects, newShapes, {
-      recordHistoryFor: this,
-    }));
-
-    for (const modifiedShape of fusionResult.modifiedShapes) {
-      if (modifiedShape.object) {
-        modifiedShape.object.removeShape(modifiedShape.shape, this);
-      }
-    }
-
-    this.addShapes(fusionResult.newShapes);
-
-    if (fusionResult.toolHistory) {
-      this.remapClassifiedFaces(fusionResult.toolHistory);
-    }
-    this.classifyExtrudeEdges();
-    this.setFinalShapes(this.getShapes());
+    this.finalizeAndFuse(solids, classified, context);
   }
 
   private getSpineWire(pathObj: SceneObject): Wire {

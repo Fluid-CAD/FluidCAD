@@ -1,7 +1,7 @@
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { Shape } from "../common/shape.js";
-import { SceneObject } from "../common/scene-object.js";
+import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { LazySelectionSceneObject } from "./lazy-scene-object.js";
 import { Extrudable } from "../helpers/types.js";
 import { IExtrude } from "../core/interfaces.js";
@@ -19,7 +19,17 @@ import { EdgeOps } from "../oc/edge-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { getOC } from "../oc/init.js";
 import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
+import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
 import type { TopAbs_ShapeEnum } from "occjs-wrapper";
+
+/** A 3D op's classified face buckets. Each is empty if the op doesn't produce that category. */
+export type ClassifiedFaces = {
+  startFaces: Face[];
+  endFaces: Face[];
+  sideFaces: Face[];
+  internalFaces: Face[];
+  capFaces: Face[];
+};
 
 function dedupEdgesByIsSame(edges: Edge[]): Edge[] {
   const result: Edge[] = [];
@@ -278,6 +288,54 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         this.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), this);
       }
     }
+  }
+
+  /**
+   * Shared post-extrude bookkeeping: store classified face state, fuse with
+   * the scene (recording history + remapping classification), and finalize
+   * with edge classification. Caller is responsible for removing source
+   * shapes (they vary across ops — Revolve also removes the axis, etc.)
+   * BEFORE calling this.
+   */
+  protected finalizeAndFuse(
+    shapes: Shape[],
+    classified: ClassifiedFaces,
+    context: BuildSceneObjectContext,
+    fuseOpts?: { glue?: 'full' | 'shift' },
+  ) {
+    const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
+
+    this.setState('start-faces', classified.startFaces);
+    this.setState('end-faces', classified.endFaces);
+    this.setState('side-faces', classified.sideFaces);
+    this.setState('internal-faces', classified.internalFaces);
+    this.setState('cap-faces', classified.capFaces);
+
+    if (shapes.length === 0 || sceneObjects.length === 0) {
+      this.addShapes(shapes);
+      this.recordShapeFacesAndEdgesAsAdditions(shapes);
+      this.classifyExtrudeEdges();
+      return;
+    }
+
+    const fusionResult = fuseWithSceneObjects(sceneObjects, shapes, {
+      ...fuseOpts,
+      recordHistoryFor: this,
+    });
+
+    for (const modifiedShape of fusionResult.modifiedShapes) {
+      if (!modifiedShape.object) {
+        continue;
+      }
+      modifiedShape.object.removeShape(modifiedShape.shape, this);
+    }
+
+    this.addShapes(fusionResult.newShapes);
+
+    if (fusionResult.toolHistory) {
+      this.remapClassifiedFaces(fusionResult.toolHistory);
+    }
+    this.classifyExtrudeEdges();
   }
 
   /**

@@ -31,15 +31,16 @@ export class Loft extends ExtrudeBase implements ILoft {
       throw new Error("Loft requires at least two profiles.");
     }
 
+    const p = context.getProfiler();
     let newShapes: Shape[];
 
     if (this.isThin()) {
-      newShapes = this.buildThinLoft();
+      newShapes = p.record('Build thin loft', () => this.buildThinLoft());
     } else {
       const allWires: Wire[] = [];
 
       for (const profile of this.profiles) {
-        const wires = this.getWiresFromSceneObject(profile);
+        const wires = p.record('Get profile wires', () => this.getWiresFromSceneObject(profile));
 
         if (wires.length === 0) {
           throw new Error("Could not extract wire from profile.");
@@ -50,7 +51,7 @@ export class Loft extends ExtrudeBase implements ILoft {
         }
       }
 
-      newShapes = LoftOps.makeLoft(allWires);
+      newShapes = p.record('Make loft', () => LoftOps.makeLoft(allWires));
     }
 
     for (const profile of this.profiles) {
@@ -84,14 +85,16 @@ export class Loft extends ExtrudeBase implements ILoft {
 
     // Handle boolean operation based on operation mode
     if (this._operationMode === 'remove') {
-      const scope = this.resolveFusionScope(context.getSceneObjects());
+      const scope = p.record('Resolve fusion scope', () => this.resolveFusionScope(context.getSceneObjects()));
       const plane = firstPlane || lastPlane;
-      cutWithSceneObjects(scope, newShapes, plane, 0, this, { recordHistoryFor: this });
+      p.record('Cut with scene objects', () => {
+        cutWithSceneObjects(scope, newShapes, plane, 0, this, { recordHistoryFor: this });
+      });
       this.setFinalShapes(this.getShapes());
       return;
     }
 
-    const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
+    const sceneObjects = p.record('Resolve fusion scope', () => this.resolveFusionScope(context.getSceneObjects()));
 
     if (sceneObjects.length === 0) {
       this.addShapes(newShapes);
@@ -101,9 +104,9 @@ export class Loft extends ExtrudeBase implements ILoft {
       return;
     }
 
-    const fusionResult = fuseWithSceneObjects(sceneObjects, newShapes, {
+    const fusionResult = p.record('Fuse with scene objects', () => fuseWithSceneObjects(sceneObjects, newShapes, {
       recordHistoryFor: this,
-    });
+    }));
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
       if (modifiedShape.object) {

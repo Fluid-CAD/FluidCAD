@@ -38,7 +38,6 @@ export class Profiler {
     for (const [category, durationMs] of this.categories.entries()) {
       result.push({ category, durationMs: Math.round(durationMs * 10) / 10 });
     }
-    result.sort((a, b) => b.durationMs - a.durationMs);
     return result;
   }
 }

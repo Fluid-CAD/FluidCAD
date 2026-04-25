@@ -22,10 +22,11 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
   }
 
   build(context: BuildSceneObjectContext) {
-    const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
-    const plane = this.getSourcePlane();
+    const p = context.getProfiler();
 
-    const pickedFaces = this.resolvePickedFaces(plane);
+    const plane = p.record('Get source plane', () => this.getSourcePlane());
+
+    const pickedFaces = p.record('Resolve picked faces', () => this.resolvePickedFaces(plane));
     if (pickedFaces !== null && pickedFaces.length === 0) {
       return;
     }
@@ -34,34 +35,36 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
     let inwardEdges: Edge[] | undefined;
     let outwardEdges: Edge[] | undefined;
 
-    if (this.isFaceSourced()) {
-      if (this.isThin()) {
-        throw new Error("thin() is not supported with a face-sourced extrude");
+    faces = p.record('Resolve faces', () => {
+      if (this.isFaceSourced()) {
+        if (this.isThin()) {
+          throw new Error("thin() is not supported with a face-sourced extrude");
+        }
+        return pickedFaces ?? this.getSourceFaces();
+      } else if (this.isThin()) {
+        const thinResult = ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]);
+        inwardEdges = thinResult.inwardEdges;
+        outwardEdges = thinResult.outwardEdges;
+        return thinResult.faces;
+      } else {
+        return pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill());
       }
-      faces = pickedFaces ?? this.getSourceFaces();
-    } else if (this.isThin()) {
-      const thinResult = ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]);
-      faces = thinResult.faces;
-      inwardEdges = thinResult.inwardEdges;
-      outwardEdges = thinResult.outwardEdges;
-    } else {
-      faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill());
-    }
+    });
 
     const draft = this.getDraft();
     const draft1 = draft ? [draft[0], draft[0]] as [number, number] : undefined;
     const draft2 = draft ? [draft[1], draft[1]] as [number, number] : undefined;
 
-    const extruder1 = new Extruder(faces, plane, this.distance1, draft1, this.getEndOffset());
-    const extrusions1 = extruder1.extrude();
+    const extruder1 = new Extruder(faces, plane, this.distance1, draft1, this.getEndOffset(), p);
+    const extrusions1 = p.record('Extrude direction 1', () => extruder1.extrude());
     const startFaces = extruder1.getEndFaces();
 
-    const extruder2 = new Extruder(faces, plane, -this.distance2, draft2, this.getEndOffset());
-    const extrusions2 = extruder2.extrude();
+    const extruder2 = new Extruder(faces, plane, -this.distance2, draft2, this.getEndOffset(), p);
+    const extrusions2 = p.record('Extrude direction 2', () => extruder2.extrude());
     const endFaces = extruder2.getEndFaces();
 
     const all = [...extrusions1, ...extrusions2];
-    const halvesFuse = BooleanOps.fuse(all);
+    const halvesFuse = p.record('Fuse halves', () => BooleanOps.fuse(all));
     const extrusions = halvesFuse.result;
     halvesFuse.dispose();
 
@@ -142,13 +145,17 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
     this.getSource()?.removeShapes(this);
 
     if (this._operationMode === 'remove') {
-      const scope = this.resolveFusionScope(context.getSceneObjects());
-      cutWithSceneObjects(scope, extrusions, plane, this.distance1 + this.distance2, this, {
-        recordHistoryFor: this,
+      const scope = p.record('Resolve fusion scope', () => this.resolveFusionScope(context.getSceneObjects()));
+      p.record('Cut with scene objects', () => {
+        cutWithSceneObjects(scope, extrusions, plane, this.distance1 + this.distance2, this, {
+          recordHistoryFor: this,
+        });
       });
       this.setFinalShapes(this.getShapes());
       return;
     }
+
+    const sceneObjects = p.record('Resolve fusion scope', () => this.resolveFusionScope(context.getSceneObjects()));
 
     if (extrusions.length === 0 || sceneObjects.length === 0) {
       this.addShapes(extrusions);
@@ -158,9 +165,9 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       return;
     }
 
-    const fusionResult = fuseWithSceneObjects(sceneObjects, extrusions, {
+    const fusionResult = p.record('Fuse with scene objects', () => fuseWithSceneObjects(sceneObjects, extrusions, {
       recordHistoryFor: this,
-    });
+    }));
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
       if (!modifiedShape.object) {

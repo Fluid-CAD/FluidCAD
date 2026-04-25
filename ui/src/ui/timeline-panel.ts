@@ -257,19 +257,21 @@ export class TimelinePanel {
     });
 
     // Bind hover popover for items with profile categories
-    this.timelineBody.querySelectorAll<HTMLElement>('[data-index]').forEach((el) => {
-      const index = parseInt(el.dataset.index!, 10);
-      const obj = this.sceneObjects[index];
-      if (!obj || !obj.profileCategories || obj.profileCategories.length === 0) {
-        return;
-      }
-      el.addEventListener('mouseenter', () => {
-        this.showProfilePopover(el, obj.profileCategories!, obj.buildDurationMs);
+    if (this.showBuildTimings) {
+      this.timelineBody.querySelectorAll<HTMLElement>('[data-index]').forEach((el) => {
+        const index = parseInt(el.dataset.index!, 10);
+        const obj = this.sceneObjects[index];
+        if (!obj || !obj.profileCategories || obj.profileCategories.length === 0) {
+          return;
+        }
+        el.addEventListener('mouseenter', () => {
+          this.showProfilePopover(el, obj.profileCategories!, obj.buildDurationMs);
+        });
+        el.addEventListener('mouseleave', () => {
+          this.closeProfilePopover();
+        });
       });
-      el.addEventListener('mouseleave', () => {
-        this.closeProfilePopover();
-      });
-    });
+    }
 
     if (scrollToCurrent) {
       const currentEl = this.timelineBody.querySelector<HTMLElement>('[data-current="true"]');
@@ -649,7 +651,7 @@ export class TimelinePanel {
   ): void {
     this.closeProfilePopover();
 
-    const maxDuration = categories[0]?.durationMs ?? 1;
+    const maxDuration = Math.max(...categories.map(c => c.durationMs), 0.1);
     const popover = document.createElement('div');
     popover.className = 'absolute z-[201] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)] p-3 min-w-[200px] max-w-[280px]';
 

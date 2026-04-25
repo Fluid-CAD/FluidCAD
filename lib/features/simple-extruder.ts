@@ -5,6 +5,7 @@ import { Explorer } from "../oc/explorer.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
 import { rad } from "../helpers/math-helpers.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
+import { Profiler } from "../common/profiler.js";
 
 export class Extruder {
   private firstFaces: Face[];
@@ -17,7 +18,9 @@ export class Extruder {
     private plane: Plane,
     public distance: number,
     public draft?: [number, number],
-    public endOffset?: number) {
+    public endOffset?: number,
+    private profiler?: Profiler,
+  ) {
   }
 
   getStartFaces() {
@@ -52,17 +55,19 @@ export class Extruder {
     let sideFaces: Face[] = [];
     let internalFaces: Face[] = [];
 
-    console.log("Fusing faces before extrusion...", this.faces.length);
-    const tFuseFaces = performance.now();
-    const fusedFaces = BooleanOps.fuseFaces(this.faces)
-    console.log(`[perf] Extruder.fuseFaces (in=${this.faces.length}, out=${fusedFaces.result.length}): ${(performance.now() - tFuseFaces).toFixed(1)} ms`);
+    const p = this.profiler;
+    const fusedFaces = p
+      ? p.record('Fuse profile faces', () => BooleanOps.fuseFaces(this.faces))
+      : BooleanOps.fuseFaces(this.faces);
     for (const face of fusedFaces.result) {
-      const time = performance.now();
-      let { solid, firstFace, lastFace } = ExtrudeOps.makePrismFromVec(face, vec);
-      console.log(`[perf] Extruder.makePrismFromVec: ${(performance.now() - time).toFixed(1)} ms`);
+      let { solid, firstFace, lastFace } = p
+        ? p.record('Make prism from face', () => ExtrudeOps.makePrismFromVec(face, vec))
+        : ExtrudeOps.makePrismFromVec(face, vec);
 
       if (this.draft) {
-        const draftResult = this.applyDraft(solid, firstFace, lastFace, this.plane);
+        const draftResult = p
+          ? p.record('Apply draft', () => this.applyDraft(solid, firstFace, lastFace, this.plane))
+          : this.applyDraft(solid, firstFace, lastFace, this.plane);
         solid = draftResult.solid;
         firstFace = draftResult.firstFace;
         lastFace = draftResult.lastFace;

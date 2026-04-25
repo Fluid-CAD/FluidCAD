@@ -22,6 +22,7 @@ export class Common extends SceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
+    const p = context.getProfiler();
     let sceneObjects = this.sceneObjects;
 
     if (sceneObjects?.length === 0) {
@@ -40,7 +41,7 @@ export class Common extends SceneObject {
       return;
     }
 
-    const { newShapes, modifiedShapes, result } = BooleanOps.common(allShapes);
+    const { newShapes, modifiedShapes, result } = p.record('Common solids', () => BooleanOps.common(allShapes));
 
     if (!modifiedShapes.length && newShapes.length === 0) {
       return;

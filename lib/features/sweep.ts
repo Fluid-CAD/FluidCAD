@@ -28,23 +28,24 @@ export class Sweep extends ExtrudeBase implements ISweep {
   }
 
   build(context: BuildSceneObjectContext) {
+    const p = context.getProfiler();
     const plane = this.extrudable.getPlane();
 
-    const pickedFaces = this.resolvePickedFaces(plane);
+    const pickedFaces = p.record('Resolve picked faces', () => this.resolvePickedFaces(plane));
     if (pickedFaces !== null && pickedFaces.length === 0) {
       return;
     }
 
     // Extract spine wire from path
-    const spineWire = this.getSpineWire(this._path);
+    const spineWire = p.record('Get spine wire', () => this.getSpineWire(this._path));
 
     // Extract profile faces from extrudable
-    let profileFaces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill());
+    let profileFaces = pickedFaces ?? p.record('Resolve faces', () => FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill()));
     let inwardEdges: Edge[] | undefined;
     let outwardEdges: Edge[] | undefined;
 
     if (this.isThin()) {
-      const thinResult = ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]);
+      const thinResult = p.record('Make thin faces', () => ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]));
       profileFaces = thinResult.faces;
       inwardEdges = thinResult.inwardEdges;
       outwardEdges = thinResult.outwardEdges;
@@ -55,7 +56,7 @@ export class Sweep extends ExtrudeBase implements ISweep {
     }
 
     // Perform sweep
-    const sweepResult = SweepOps.makeSweep(spineWire, profileFaces);
+    const sweepResult = p.record('Make sweep', () => SweepOps.makeSweep(spineWire, profileFaces));
     const newShapes = sweepResult.solids;
 
     // Classify faces using FirstShape/LastShape from the OC result
@@ -129,13 +130,15 @@ export class Sweep extends ExtrudeBase implements ISweep {
 
     // Handle boolean operation based on operation mode
     if (this._operationMode === 'remove') {
-      const scope = this.resolveFusionScope(context.getSceneObjects());
-      cutWithSceneObjects(scope, newShapes, plane, 0, this, { recordHistoryFor: this });
+      const scope = p.record('Resolve fusion scope', () => this.resolveFusionScope(context.getSceneObjects()));
+      p.record('Cut with scene objects', () => {
+        cutWithSceneObjects(scope, newShapes, plane, 0, this, { recordHistoryFor: this });
+      });
       this.setFinalShapes(this.getShapes());
       return;
     }
 
-    const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
+    const sceneObjects = p.record('Resolve fusion scope', () => this.resolveFusionScope(context.getSceneObjects()));
 
     if (sceneObjects.length === 0) {
       this.addShapes(newShapes);
@@ -145,9 +148,9 @@ export class Sweep extends ExtrudeBase implements ISweep {
       return;
     }
 
-    const fusionResult = fuseWithSceneObjects(sceneObjects, newShapes, {
+    const fusionResult = p.record('Fuse with scene objects', () => fuseWithSceneObjects(sceneObjects, newShapes, {
       recordHistoryFor: this,
-    });
+    }));
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
       if (modifiedShape.object) {

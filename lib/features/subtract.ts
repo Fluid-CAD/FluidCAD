@@ -1,4 +1,4 @@
-import { SceneObject } from "../common/scene-object.js";
+import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { ShapeOps } from "../oc/shape-ops.js";
@@ -10,17 +10,16 @@ export class Subtract extends SceneObject {
     super();
   }
 
-  build() {
+  build(context: BuildSceneObjectContext) {
+    const p = context.getProfiler();
     const stock = this.solid1.getShapes();
     const toBeRemoved = this.solid2.getShapes();
 
     const stockCompound = ShapeOps.makeCompound(stock);
     const toBeRemovedCompound = ShapeOps.makeCompound(toBeRemoved);
 
-    const result = BooleanOps.cutShapes(stockCompound, toBeRemovedCompound);
+    const result = p.record('Cut solids', () => BooleanOps.cutShapes(stockCompound, toBeRemovedCompound));
     const shapes = Explorer.findShapes(result.getShape(), Explorer.getOcShapeType("solid"));
-
-    console.log('Subtract Result:::::', shapes.length)
 
     const newShapes = shapes.map(s => ShapeOps.cleanShapeRaw(s)).map(s => Solid.fromTopoDSSolid(Explorer.toSolid(s)));
 

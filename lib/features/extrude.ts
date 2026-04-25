@@ -20,9 +20,9 @@ export class Extrude extends ExtrudeBase {
   build(context: BuildSceneObjectContext) {
     const p = context.getProfiler();
 
-    const plane = p.record('getSourcePlane', () => this.getSourcePlane());
+    const plane = p.record('Get source plane', () => this.getSourcePlane());
 
-    const pickedFaces = p.record('resolvePickedFaces', () => this.resolvePickedFaces(plane));
+    const pickedFaces = p.record('Resolve picked faces', () => this.resolvePickedFaces(plane));
     if (pickedFaces !== null && pickedFaces.length === 0) {
       return;
     }
@@ -31,7 +31,7 @@ export class Extrude extends ExtrudeBase {
     let inwardEdges: Edge[] | undefined;
     let outwardEdges: Edge[] | undefined;
 
-    faces = p.record('resolveFaces', () => {
+    faces = p.record('Resolve faces', () => {
       if (this.isFaceSourced()) {
         if (this.isThin()) {
           throw new Error("thin() is not supported with a face-sourced extrude");
@@ -65,10 +65,10 @@ export class Extrude extends ExtrudeBase {
   private buildAdd(faces: Face[], plane: any, context: BuildSceneObjectContext, inwardEdges?: Edge[], outwardEdges?: Edge[]) {
     const p = context.getProfiler();
 
-    const sceneObjects = p.record('resolveFusionScope', () => this.resolveFusionScope(context.getSceneObjects()));
+    const sceneObjects = p.record('Resolve fusion scope', () => this.resolveFusionScope(context.getSceneObjects()));
 
-    const extruder = new Extruder(faces, plane, this.distance, this.getDraft(), this.getEndOffset());
-    let extrusions = p.record('extruder.extrude', () => extruder.extrude());
+    const extruder = new Extruder(faces, plane, this.distance, this.getDraft(), this.getEndOffset(), p);
+    let extrusions = p.record('Extrude faces', () => extruder.extrude());
 
     let sideFaces = extruder.getSideFaces();
     let internalFaces = extruder.getInternalFaces();
@@ -99,7 +99,7 @@ export class Extrude extends ExtrudeBase {
       return;
     }
 
-    const fusionResult = p.record('fuseWithSceneObjects', () => fuseWithSceneObjects(
+    const fusionResult = p.record('Fuse with scene objects', () => fuseWithSceneObjects(
       sceneObjects,
       extrusions,
       {
@@ -124,18 +124,19 @@ export class Extrude extends ExtrudeBase {
   }
 
   private buildSymmetric(faces: Face[], plane: any, context: BuildSceneObjectContext, inwardEdges?: Edge[], outwardEdges?: Edge[]) {
-    const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
+    const p = context.getProfiler();
+    const sceneObjects = p.record('Resolve fusion scope', () => this.resolveFusionScope(context.getSceneObjects()));
 
-    const extruder1 = new Extruder(faces, plane, this.distance / 2, this.getDraft(), this.getEndOffset());
-    const extrusions1 = extruder1.extrude();
+    const extruder1 = new Extruder(faces, plane, this.distance / 2, this.getDraft(), this.getEndOffset(), p);
+    const extrusions1 = p.record('Extrude direction 1', () => extruder1.extrude());
     const startFaces = extruder1.getEndFaces();
 
-    const extruder2 = new Extruder(faces, plane, -this.distance / 2, this.getDraft(), this.getEndOffset());
-    const extrusions2 = extruder2.extrude();
+    const extruder2 = new Extruder(faces, plane, -this.distance / 2, this.getDraft(), this.getEndOffset(), p);
+    const extrusions2 = p.record('Extrude direction 2', () => extruder2.extrude());
     const endFaces = extruder2.getEndFaces();
 
     const all = [...extrusions1, ...extrusions2];
-    const halvesFuse = BooleanOps.fuse(all);
+    const halvesFuse = p.record('Fuse halves', () => BooleanOps.fuse(all));
     const extrusions = halvesFuse.result;
     halvesFuse.dispose();
 
@@ -229,9 +230,9 @@ export class Extrude extends ExtrudeBase {
       return;
     }
 
-    const fusionResult = fuseWithSceneObjects(sceneObjects, extrusions, {
+    const fusionResult = p.record('Fuse with scene objects', () => fuseWithSceneObjects(sceneObjects, extrusions, {
       recordHistoryFor: this,
-    });
+    }));
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
       if (!modifiedShape.object) {

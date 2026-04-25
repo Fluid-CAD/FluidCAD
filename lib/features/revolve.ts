@@ -27,9 +27,10 @@ export class Revolve extends ExtrudeBase implements IRevolve {
   }
 
   build(context: BuildSceneObjectContext) {
+    const p = context.getProfiler();
     const plane = this.extrudable.getPlane();
 
-    const pickedFaces = this.resolvePickedFaces(plane);
+    const pickedFaces = p.record('Resolve picked faces', () => this.resolvePickedFaces(plane));
     if (pickedFaces !== null && pickedFaces.length === 0) {
       return;
     }
@@ -41,24 +42,24 @@ export class Revolve extends ExtrudeBase implements IRevolve {
     let allInternalFaces: Face[] = [];
     let allCapFaces: Face[] = [];
 
-    let faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane);
+    let faces = pickedFaces ?? p.record('Resolve faces', () => FaceMaker2.getRegions(this.extrudable.getGeometries(), plane));
     let inwardEdges: Edge[] | undefined;
     let outwardEdges: Edge[] | undefined;
 
     if (this.isThin()) {
-      const thinResult = ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]);
+      const thinResult = p.record('Make thin faces', () => ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]));
       faces = thinResult.faces;
       inwardEdges = thinResult.inwardEdges;
       outwardEdges = thinResult.outwardEdges;
     }
 
-    const { result: fusedFaces } = BooleanOps.fuseFaces(faces);
+    const { result: fusedFaces } = p.record('Fuse faces', () => BooleanOps.fuseFaces(faces));
 
     const axis = this.axis.getAxis();
     const isFullRevolution = Math.abs(this.angle) >= 360;
 
     for (const face of fusedFaces as Face[]) {
-      const solid = ExtrudeOps.makeRevol(face, axis, rad(this.angle));
+      const solid = p.record('Revolve face', () => ExtrudeOps.makeRevol(face, axis, rad(this.angle)));
 
       let resultSolid: Solid;
       if (this._symmetric) {
@@ -137,13 +138,15 @@ export class Revolve extends ExtrudeBase implements IRevolve {
     this.axis.removeShapes(this);
 
     if (this._operationMode === 'remove') {
-      const scope = this.resolveFusionScope(context.getSceneObjects());
-      cutWithSceneObjects(scope, solids, plane, 0, this, { recordHistoryFor: this });
+      const scope = p.record('Resolve fusion scope', () => this.resolveFusionScope(context.getSceneObjects()));
+      p.record('Cut with scene objects', () => {
+        cutWithSceneObjects(scope, solids, plane, 0, this, { recordHistoryFor: this });
+      });
       this.setFinalShapes(this.getShapes());
       return;
     }
 
-    const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
+    const sceneObjects = p.record('Resolve fusion scope', () => this.resolveFusionScope(context.getSceneObjects()));
 
     if (sceneObjects.length === 0) {
       this.addShapes(solids);
@@ -153,9 +156,9 @@ export class Revolve extends ExtrudeBase implements IRevolve {
       return;
     }
 
-    const fusionResult = fuseWithSceneObjects(sceneObjects, solids, {
+    const fusionResult = p.record('Fuse with scene objects', () => fuseWithSceneObjects(sceneObjects, solids, {
       recordHistoryFor: this,
-    });
+    }));
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
       if (modifiedShape.object) {

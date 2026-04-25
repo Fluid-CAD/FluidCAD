@@ -16,6 +16,7 @@ export class Fuse extends SceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
+    const p = context.getProfiler();
     let sceneObjects = this.sceneObjects;
 
     if (sceneObjects?.length === 0) {
@@ -34,7 +35,7 @@ export class Fuse extends SceneObject {
       return;
     }
 
-    const fuseResult = BooleanOps.fuse(allShapes);
+    const fuseResult = p.record('Fuse solids', () => BooleanOps.fuse(allShapes));
 
     if (fuseResult.result.length === allShapes.length) {
       fuseResult.dispose();

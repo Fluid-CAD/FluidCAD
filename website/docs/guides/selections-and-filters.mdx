@@ -86,6 +86,20 @@ const topFaces = select(face().onPlane("xy", 30));
 edge().belongsToFace(topFaces)                // edges belonging to those faces
 ```
 
+### By source object
+
+Restrict the selection to edges that come from one or more specific scene objects. Useful when several solids share the same scene and you only want to filter geometry from a subset of them.
+
+```js
+const a = extrude(40, rect(20, 20, "xy"))
+const b = extrude(40, circle(15, "xy"))
+
+select(edge().from(a).line())                 // only line edges from `a`
+select(edge().from(a, b).circle())            // circle edges from either `a` or `b`
+```
+
+`from()` composes with the rest of the chain (AND), so `edge().from(a).onPlane("xy", 0)` returns edges from `a` that also lie on the XY plane.
+
 ### Negation
 
 ```js
@@ -134,6 +148,20 @@ face().hasEdge(edge().circle(10))  // faces with a circular edge of diameter 10
 const circularEdges = select(edge().circle());
 face().hasEdge(circularEdges)  // faces that share an edge with the selection
 ```
+
+### By source object
+
+Restrict the selection to faces that come from one or more specific scene objects:
+
+```js
+const a = extrude(40, rect(20, 20, "xy"))
+const b = extrude(40, circle(15, "xy"))
+
+select(face().from(a).parallelTo("xy"))       // top/bottom faces of `a`
+select(face().from(a, b).cylinder())          // cylindrical faces from either object
+```
+
+`from()` composes with other filters as AND. When the surrounding `select()` is cloned by `repeat()` or `mirror()`, the references are remapped to the cloned objects automatically.
 
 ### Negation
 

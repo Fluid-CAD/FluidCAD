@@ -248,3 +248,18 @@ Selects edges that are entirely below the given plane (opposite to its normal di
 | `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
 | `offsetOrOptions` | `number \| { offset?: number; partial?: boolean; }` | Offset distance, or an options object with `offset` and `partial`. *(optional)* |
 
+---
+
+### .from()
+
+```ts
+.from(...sceneObjects: SceneObject[][]): this
+```
+
+Restricts the selection to edges originating from the given scene objects.
+Recursive: passing a container picks up edges from its descendants.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...sceneObjects` | [SceneObject](/docs/api/types/scene-object)[] | Scene objects whose edges (and edges of their sub-shapes) are matched against. *(optional)* |
+

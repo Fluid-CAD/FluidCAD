@@ -1,7 +1,6 @@
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { Wire } from "../common/wire.js";
-import { Point } from "../math/point.js";
 import { Plane } from "../math/plane.js";
 import { WireOps } from "./wire-ops.js";
 import { FaceOps } from "./face-ops.js";
@@ -199,26 +198,6 @@ export class ThinFaceMaker {
     });
   }
 
-  private static makeLineEdge(p1: Point, p2: Point): Edge {
-    const oc = getOC();
-    const [gp1, dispose1] = Convert.toGpPnt(p1);
-    const [gp2, dispose2] = Convert.toGpPnt(p2);
-    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(gp1, gp2);
-
-    if (!edgeMaker.IsDone()) {
-      edgeMaker.delete();
-      dispose1();
-      dispose2();
-      throw new Error("Failed to create cap edge for thin extrude");
-    }
-
-    const edge = edgeMaker.Edge();
-    edgeMaker.delete();
-    dispose1();
-    dispose2();
-    return Edge.fromTopoDSEdge(edge);
-  }
-
   /**
    * Creates a closed face from two open wires by capping the ends with straight lines.
    * wire1 goes A->B, wire2 goes C->D.
@@ -230,8 +209,8 @@ export class ThinFaceMaker {
     const wire2End = wire2.getLastVertex().toPoint();
     const wire1Start = wire1.getFirstVertex().toPoint();
 
-    const cap1 = this.makeLineEdge(wire1End, wire2End);
-    const cap2 = this.makeLineEdge(wire2Start, wire1Start);
+    const cap1 = EdgeOps.makeLineEdge(wire1End, wire2End);
+    const cap2 = EdgeOps.makeLineEdge(wire2Start, wire1Start);
 
     const reversedWire2 = WireOps.reverseWire(wire2);
 

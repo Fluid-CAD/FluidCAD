@@ -138,6 +138,15 @@ export interface IGeometry extends ISceneObject {
 
 export interface IExtrudableGeometry extends IGeometry {}
 
+export interface IOffset extends IExtrudableGeometry {
+  /**
+   * Closes an open offset by joining it back to the source wire with
+   * straight cap edges at each endpoint. Has no effect when the offset
+   * is already closed. Cannot be combined with `removeOriginal=true`.
+   */
+  close(): this;
+}
+
 export interface IArcPoints extends IExtrudableGeometry {
   /**
    * Sets the bulge radius for point-to-point arcs.

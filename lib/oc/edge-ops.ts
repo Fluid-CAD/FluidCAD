@@ -27,6 +27,26 @@ export class EdgeOps {
     return Edge.fromTopoDSEdge(EdgeOps.axisToEdgeRaw(axis));
   }
 
+  static makeLineEdge(p1: Point, p2: Point): Edge {
+    const oc = getOC();
+    const [gp1, dispose1] = Convert.toGpPnt(p1);
+    const [gp2, dispose2] = Convert.toGpPnt(p2);
+    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(gp1, gp2);
+
+    if (!edgeMaker.IsDone()) {
+      edgeMaker.delete();
+      dispose1();
+      dispose2();
+      throw new Error("Failed to create line edge");
+    }
+
+    const edge = edgeMaker.Edge();
+    edgeMaker.delete();
+    dispose1();
+    dispose2();
+    return Edge.fromTopoDSEdge(edge);
+  }
+
   static getVertexPoint(vertex: Vertex): Point {
     return EdgeOps.getVertexPointRaw(vertex.getShape() as TopoDS_Vertex);
   }

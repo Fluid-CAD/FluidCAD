@@ -1,10 +1,9 @@
 import { Offset } from "../../features/2d/offset.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
 import { PlaneLike } from "../../math/plane.js";
-import { SceneObject } from "../../common/scene-object.js";
 import { GeometrySceneObject } from "../../features/2d/geometry.js";
 import { resolvePlane } from "../../helpers/resolve.js";
-import { IExtrudableGeometry, IGeometry, ISceneObject } from "../interfaces.js";
+import { IOffset, ISceneObject } from "../interfaces.js";
 import { Extrudable } from "../../helpers/types.js";
 
 interface OffsetFunction {
@@ -13,7 +12,7 @@ interface OffsetFunction {
    * @param distance - The offset distance (defaults to 1)
    * @param removeOriginal - Whether to remove the original geometry
    */
-  (distance?: number, removeOriginal?: boolean): IExtrudableGeometry;
+  (distance?: number, removeOriginal?: boolean): IOffset;
   /**
    * Offsets source geometries onto a target plane.
    * @param distance - The offset distance
@@ -21,7 +20,7 @@ interface OffsetFunction {
    * @param targetPlane - The plane to offset onto
    * @param sourceGeometries - The geometries to offset
    */
-  (distance: number, removeOriginal: boolean, targetPlane: PlaneLike | ISceneObject, ...sourceGeometries: Extrudable[]): IExtrudableGeometry;
+  (distance: number, removeOriginal: boolean, targetPlane: PlaneLike | ISceneObject, ...sourceGeometries: Extrudable[]): IOffset;
 }
 
 function build(context: SceneParserContext): OffsetFunction {

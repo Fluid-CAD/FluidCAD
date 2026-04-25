@@ -1,4 +1,5 @@
 import { WireOps } from "../../oc/wire-ops.js";
+import { EdgeOps } from "../../oc/edge-ops.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { Edge } from "../../common/edge.js";
@@ -7,6 +8,8 @@ import { Wire } from "../../common/wire.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
 
 export class Offset extends ExtrudableGeometryBase {
+
+  private _close: boolean = false;
 
   constructor(
     private distance: number,
@@ -17,7 +20,16 @@ export class Offset extends ExtrudableGeometryBase {
     super(targetPlane);
   }
 
+  close(): this {
+    this._close = true;
+    return this;
+  }
+
   build() {
+    if (this._close && this.removeOriginal) {
+      throw new Error("Offset.close() cannot be used with removeOriginal");
+    }
+
     let sourceObjects: Map<Edge, SceneObject>;
     if (this.sketch) {
       sourceObjects = this.sketch.getEdgesWithOwner();
@@ -68,6 +80,16 @@ export class Offset extends ExtrudableGeometryBase {
         this.addShape(edge);
       }
 
+      if (this._close && !offsetWire.isClosed()) {
+        const originalStart = wireInfo.wire.getFirstVertex().toPoint();
+        const originalEnd = wireInfo.wire.getLastVertex().toPoint();
+        const offsetStart = offsetWire.getFirstVertex().toPoint();
+        const offsetEnd = offsetWire.getLastVertex().toPoint();
+
+        this.addShape(EdgeOps.makeLineEdge(originalEnd, offsetEnd));
+        this.addShape(EdgeOps.makeLineEdge(offsetStart, originalStart));
+      }
+
       if (this.removeOriginal) {
         for (const [edge, owner] of wireInfo.edges) {
           owner.removeShape(edge, this);
@@ -101,7 +123,11 @@ export class Offset extends ExtrudableGeometryBase {
     const geometriesClone = this.sourceGeometries
       ? this.sourceGeometries.map(obj => remap.get(obj) || obj)
       : null;
-    return new Offset(this.distance, this.removeOriginal, geometriesClone, targetPlane);
+    const copy = new Offset(this.distance, this.removeOriginal, geometriesClone, targetPlane);
+    if (this._close) {
+      copy._close = true;
+    }
+    return copy;
   }
 
   compareTo(other: Offset): boolean {
@@ -139,7 +165,9 @@ export class Offset extends ExtrudableGeometryBase {
       }
     }
 
-    return this.distance === other.distance && this.removeOriginal === other.removeOriginal;
+    return this.distance === other.distance
+      && this.removeOriginal === other.removeOriginal
+      && this._close === other._close;
   }
 
   getType(): string {
@@ -149,7 +177,8 @@ export class Offset extends ExtrudableGeometryBase {
   serialize() {
     return {
       distance: this.distance,
-      removeOriginal: this.removeOriginal
+      removeOriginal: this.removeOriginal,
+      close: this._close
     };
   }
 }

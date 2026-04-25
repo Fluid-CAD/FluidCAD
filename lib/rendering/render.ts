@@ -110,7 +110,7 @@ export class SceneRenderer {
         continue;
       }
 
-      const sceneShapes = obj.getOwnShapes({ excludeMeta: false }, scope);
+      const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false }, scope);
       const renderedSceneShapes = sceneShapes.map(s => this.toRenderedShape(s));
 
       this.emitRendered(obj, scene, {

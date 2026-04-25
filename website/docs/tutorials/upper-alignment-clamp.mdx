@@ -119,7 +119,7 @@ const p = plane("front", { offset: 20 })
 
 ```js
 sketch(p, () => {
-    const arc = project(circleExtrude.endEdges(1)).guide()
+    const arc = project(circleExtrude.endEdges(edge().arc())).guide()
     vMove(45)
     const c = circle(16).guide()
     const l1 = tLine(outside(arc), outside(c))
@@ -131,7 +131,7 @@ sketch(p, () => {
 
 This sketch builds the pipe mount profile in several steps:
 
-- `project(circleExtrude.endEdges(1)).guide()` projects the bore's end edge onto the sketch plane as a construction (guide) arc — it's visible for reference but won't become part of the solid
+- `project(circleExtrude.endEdges(edge().arc())).guide()` projects the bore's end edge onto the sketch plane as a construction (guide) arc — it's visible for reference but won't become part of the solid
 - `vMove(45)` moves the cursor up 45 units, then `circle(16).guide()` places a guide circle there — this defines the pipe position
 - `tLine(outside(arc), outside(c))` draws a tangent line on the outer sides of both circles using the `outside` constraint
 - `tLine(enclosing(arc), enclosing(c))` draws a tangent line on the inner (enclosing) sides using the `enclosing` constraint

@@ -27,7 +27,7 @@ cut(66, circle(36, "front")).symmetric();
 const p = plane("front", { offset: 20 })
 
 sketch(p, () => {
-    const arc = project(circleExtrude.endEdges(1)).guide()
+    const arc = project(circleExtrude.endEdges(edge().arc())).guide()
     vMove(45)
     const c = circle(16).guide()
     const l1 = tLine(outside(arc), outside(c))

@@ -146,6 +146,34 @@ Excludes faces whose normal is parallel to the given plane.
 
 ---
 
+### .torus()
+
+```ts
+.torus(majorRadius?: number, minorRadius?: number): this
+```
+
+Selects toroidal faces, optionally matching major and/or minor radius.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `majorRadius` | number | Optional radius from the torus axis to the tube center. *(optional)* |
+| `minorRadius` | number | Optional radius of the tube itself. *(optional)* |
+
+### .notTorus()
+
+```ts
+.notTorus(majorRadius?: number, minorRadius?: number): this
+```
+
+Excludes toroidal faces, optionally matching major and/or minor radius.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `majorRadius` | number | Optional radius from the torus axis to the tube center. *(optional)* |
+| `minorRadius` | number | Optional radius of the tube itself. *(optional)* |
+
+---
+
 ### .cone()
 
 ```ts

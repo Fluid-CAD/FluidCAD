@@ -138,14 +138,14 @@ cut();
 
 ![Slot and bolt hole](/img/docs/tutorials/gear-housing-step4.png)
 
-## Step 5: Side Ribs
+## Step 5: Side Bosses
 
-### Sketch the rib profile
+### Sketch the boss profile
 
 On the side face of the upper section, sketch a profile made of two stacked rectangles with rounded corners. `.radius(8, 8, 0, 0)` rounds the top corners of the lower rectangle, while `.radius(0, 0, 8, 8)` rounds the bottom corners of the upper one, creating a smooth transition.
 
 ```js
-sketch(e3.sideFaces(0), () => {
+sketch(e2.sideFaces(0), () => {
     const rect1Width = 77;
     const offset = 90;
     const rect1Height = 130 - offset;
@@ -164,18 +164,18 @@ sketch(e3.sideFaces(0), () => {
 });
 ```
 
-![Rib profile sketch](/img/docs/tutorials/gear-housing-step5-sketch.png)
+![Boss profile sketch](/img/docs/tutorials/gear-housing-step5-sketch.png)
 
 ### Extrude and mirror
 
-Extrude the rib by `(128 - 116) / 2 = 6mm`. `.drill(false)` prevents the extrusion from cutting into the existing body. Then `mirror("yz")` creates the matching rib on the opposite side.
+Extrude the boss by `(128 - 116) / 2 = 6mm`. `.drill(false)` prevents the extrusion from cutting into the existing body. Then `mirror("yz")` creates the matching boss on the opposite side.
 
 ```js
 const e5 = extrude((128 - 116)/2).drill(false)
 mirror("yz")
 ```
 
-![Side ribs mirrored](/img/docs/tutorials/gear-housing-step5.png)
+![Side bosses mirrored](/img/docs/tutorials/gear-housing-step5.png)
 
 ## Step 6: Bearing Bore and Counterbore
 

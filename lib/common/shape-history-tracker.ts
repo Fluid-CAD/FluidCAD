@@ -64,14 +64,25 @@ export class ShapeHistoryTracker {
     return result;
   }
 
-  static collect(maker: BRepBuilderAPI_MakeShape, inputs: Shape[]): ShapeHistory {
+  /**
+   * Collect history for `inputs` against `maker`'s output. When `opts.skipAdded`
+   * is set, the added* fields come back empty — callers that compute additions
+   * themselves (e.g. `recordFusionHistory` aggregates across all scene shapes)
+   * skip the per-call output traversal and per-result claimed-map updates.
+   */
+  static collect(
+    maker: BRepBuilderAPI_MakeShape,
+    inputs: Shape[],
+    opts: { skipAdded?: boolean } = {},
+  ): ShapeHistory {
     const oc = getOC();
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
     const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
 
-    const output = maker.Shape();
-    const outputFaces = Explorer.findShapes(output, FACE);
-    const outputEdges = Explorer.findShapes(output, EDGE);
+    const skipAdded = opts.skipAdded === true;
+    const output = skipAdded ? null : maker.Shape();
+    const outputFaces = output ? Explorer.findShapes(output, FACE) : [];
+    const outputEdges = output ? Explorer.findShapes(output, EDGE) : [];
 
     const faces = ShapeHistoryTracker.collectForType(
       maker,
@@ -79,6 +90,7 @@ export class ShapeHistoryTracker {
       FACE,
       outputFaces,
       (raw) => Face.fromTopoDSFace(Explorer.toFace(raw)),
+      skipAdded,
     );
     const edges = ShapeHistoryTracker.collectForType(
       maker,
@@ -86,6 +98,7 @@ export class ShapeHistoryTracker {
       EDGE,
       outputEdges,
       (raw) => Edge.fromTopoDSEdge(Explorer.toEdge(raw)),
+      skipAdded,
     );
 
     return {
@@ -106,6 +119,7 @@ export class ShapeHistoryTracker {
     type: TopAbs_ShapeEnum,
     outputRaws: TopoDS_Shape[],
     wrap: (raw: TopoDS_Shape) => T,
+    skipAdded: boolean,
   ) {
     const oc = getOC();
 
@@ -113,9 +127,10 @@ export class ShapeHistoryTracker {
     const generated: ShapeHistoryRecord<T>[] = [];
     const removed: T[] = [];
 
-    // Collect every output raw that was either Modified or Generated from an input,
-    // so we can later classify the remaining outputs as pure additions.
-    const claimed = new oc.TopTools_MapOfShape();
+    // Track which output raws are claimed by a Modified/Generated record so the
+    // remaining outputs can be reported as pure additions. When `skipAdded`,
+    // we don't compute additions, so skip the bookkeeping entirely.
+    const claimed = skipAdded ? null : new oc.TopTools_MapOfShape();
 
     const isOfType = (raw: TopoDS_Shape) => raw.ShapeType() === type;
 
@@ -125,15 +140,16 @@ export class ShapeHistoryTracker {
       for (const inputRaw of inputRaws) {
         const modifiedRaws = ShapeOps.shapeListToArray(maker.Modified(inputRaw)).filter(isOfType);
         const generatedRaws = ShapeOps.shapeListToArray(maker.Generated(inputRaw)).filter(isOfType);
-        const isDeleted = maker.IsDeleted(inputRaw);
 
         if (modifiedRaws.length > 0) {
           modified.push({
             sources: [wrap(inputRaw)],
             results: modifiedRaws.map(wrap),
           });
-          for (const r of modifiedRaws) {
-            claimed.Add(r);
+          if (claimed) {
+            for (const r of modifiedRaws) {
+              claimed.Add(r);
+            }
           }
         }
 
@@ -142,28 +158,32 @@ export class ShapeHistoryTracker {
             sources: [wrap(inputRaw)],
             results: generatedRaws.map(wrap),
           });
-          for (const r of generatedRaws) {
-            claimed.Add(r);
+          if (claimed) {
+            for (const r of generatedRaws) {
+              claimed.Add(r);
+            }
           }
         }
 
-        // An input that is deleted with no successor is a removal. If it was
-        // Modified into something, the modification record already captures
-        // its fate — don't double-count as removed.
-        if (isDeleted && modifiedRaws.length === 0 && generatedRaws.length === 0) {
+        // IsDeleted is only meaningful when the input has no successor. If
+        // Modified or Generated produced anything, that record already
+        // captures its fate — skip the (relatively expensive) IsDeleted call.
+        if (modifiedRaws.length === 0 && generatedRaws.length === 0
+          && maker.IsDeleted(inputRaw)) {
           removed.push(wrap(inputRaw));
         }
       }
     }
 
     const added: T[] = [];
-    for (const raw of outputRaws) {
-      if (!claimed.Contains(raw)) {
-        added.push(wrap(raw));
+    if (claimed) {
+      for (const raw of outputRaws) {
+        if (!claimed.Contains(raw)) {
+          added.push(wrap(raw));
+        }
       }
+      claimed.delete();
     }
-
-    claimed.delete();
 
     return { added, modified, generated, removed };
   }

@@ -63,12 +63,15 @@ export function fuseWithSceneObjects(
   let toolHistory: ShapeHistory | undefined;
   if (opts?.recordHistoryFor) {
     const recordHistory = () => {
-      recordFusionHistory(opts.recordHistoryFor!, sceneShapes, objShapeMap, shapesToAdd, maker);
+      recordFusionHistory(opts.recordHistoryFor!, sceneShapes, objShapeMap, shapesToAdd, maker, p);
       // Separately track tool-side (extrusion) lineage so callers can remap
       // pre-fusion categorizations (start/end/side/…) onto the post-fusion
       // faces. We don't store these as modifications on any scene object —
       // from the user's POV they are additions on the caller already.
-      toolHistory = ShapeHistoryTracker.collect(maker, extrusions);
+      // Tool-side history is only consumed by `remapClassifiedFaces`, which
+      // touches modifiedFaces only — skip the added* output traversal.
+      const collectTools = () => ShapeHistoryTracker.collect(maker, extrusions, { skipAdded: true });
+      toolHistory = p ? p.record('Collect tool history', collectTools) : collectTools();
     };
     p ? p.record('Record fusion history', recordHistory) : recordHistory();
   }
@@ -110,6 +113,7 @@ function recordFusionHistory(
   owners: Map<Shape<any>, SceneObject>,
   newShapes: Shape<any>[],
   maker: any,
+  p?: Profiler,
 ) {
   const oc = getOC();
   const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
@@ -118,48 +122,60 @@ function recordFusionHistory(
   const claimedFaces = new oc.TopTools_MapOfShape();
   const claimedEdges = new oc.TopTools_MapOfShape();
 
-  for (const sceneShape of sceneShapes) {
-    const owner = owners.get(sceneShape);
-    if (!owner) {
-      continue;
-    }
-    const history = ShapeHistoryTracker.collect(maker, [sceneShape]);
+  const collectScene = () => {
+    for (const sceneShape of sceneShapes) {
+      const owner = owners.get(sceneShape);
+      if (!owner) {
+        continue;
+      }
+      // recordFusionHistory aggregates additions across the full result via
+      // `claimedFaces`/`claimedEdges` below — each per-shape collect doesn't
+      // need to compute its own added* sets.
+      const history = ShapeHistoryTracker.collect(maker, [sceneShape], { skipAdded: true });
 
-    for (const record of history.modifiedFaces) {
-      owner.recordModifiedFaces(record.sources, record.results, caller);
-      for (const r of record.results) {
-        claimedFaces.Add(r.getShape());
+      for (const record of history.modifiedFaces) {
+        owner.recordModifiedFaces(record.sources, record.results, caller);
+        for (const r of record.results) {
+          claimedFaces.Add(r.getShape());
+        }
+      }
+      for (const record of history.modifiedEdges) {
+        owner.recordModifiedEdges(record.sources, record.results, caller);
+        for (const r of record.results) {
+          claimedEdges.Add(r.getShape());
+        }
+      }
+      for (const face of history.removedFaces) {
+        owner.recordRemovedFace(face, caller);
+      }
+      for (const edge of history.removedEdges) {
+        owner.recordRemovedEdge(edge, caller);
       }
     }
-    for (const record of history.modifiedEdges) {
-      owner.recordModifiedEdges(record.sources, record.results, caller);
-      for (const r of record.results) {
-        claimedEdges.Add(r.getShape());
-      }
-    }
-    for (const face of history.removedFaces) {
-      owner.recordRemovedFace(face, caller);
-    }
-    for (const edge of history.removedEdges) {
-      owner.recordRemovedEdge(edge, caller);
-    }
-  }
+  };
+  p ? p.record('Collect scene history', collectScene) : collectScene();
 
-  for (const newShape of newShapes) {
-    for (const raw of Explorer.findShapes(newShape.getShape(), FACE)) {
-      if (!claimedFaces.Contains(raw)) {
-        caller.recordAddedFace(Face.fromTopoDSFace(Explorer.toFace(raw)), caller);
+  const recordAdditions = () => {
+    for (const newShape of newShapes) {
+      for (const raw of Explorer.findShapes(newShape.getShape(), FACE)) {
+        if (!claimedFaces.Contains(raw)) {
+          caller.recordAddedFace(Face.fromTopoDSFace(Explorer.toFace(raw)), caller);
+        }
+      }
+      for (const raw of Explorer.findShapes(newShape.getShape(), EDGE)) {
+        if (!claimedEdges.Contains(raw)) {
+          caller.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), caller);
+        }
       }
     }
-    for (const raw of Explorer.findShapes(newShape.getShape(), EDGE)) {
-      if (!claimedEdges.Contains(raw)) {
-        caller.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), caller);
-      }
-    }
-  }
+  };
+  p ? p.record('Record additions', recordAdditions) : recordAdditions();
 
-  ColorTransfer.applyThroughMaker(sceneShapes, newShapes, maker);
-  ColorTransfer.applyBleeding(sceneShapes, newShapes, maker);
+  const colorThrough = () => ColorTransfer.applyThroughMaker(sceneShapes, newShapes, maker);
+  p ? p.record('Color through maker', colorThrough) : colorThrough();
+
+  const colorBleed = () => ColorTransfer.applyBleeding(sceneShapes, newShapes, maker);
+  p ? p.record('Color bleeding', colorBleed) : colorBleed();
 
   claimedFaces.delete();
   claimedEdges.delete();
@@ -292,7 +308,10 @@ function recordCutHistory(
     if (!owner) {
       continue;
     }
-    const history = ShapeHistoryTracker.collect(maker, [stockShape]);
+    // Same as the fuse path: additions are aggregated below across the full
+    // cleaned result via `claimedFaces`/`claimedEdges`, so each per-shape
+    // collect can skip its own added* output traversal.
+    const history = ShapeHistoryTracker.collect(maker, [stockShape], { skipAdded: true });
 
     for (const record of history.modifiedFaces) {
       const postCleanResults = remapPreCleanFaces(record.results);

@@ -73,6 +73,13 @@ export class ColorTransfer {
     results: Shape[],
     maker: BRepBuilderAPI_MakeShape,
   ) {
+    // No colors anywhere on the source side means the bleed loop will iterate
+    // every result face only to find nothing to spread. Short-circuit before
+    // building maps or running the O(N²·E²) adjacency scan.
+    if (!sceneSources.some(s => s.hasColors())) {
+      return;
+    }
+
     const oc = getOC();
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
     const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;

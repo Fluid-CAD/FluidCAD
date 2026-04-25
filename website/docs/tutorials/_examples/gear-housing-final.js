@@ -55,7 +55,7 @@ sketch(rightPlane, () => {
 
 cut();
 
-sketch(e3.sideFaces(0), () => {
+sketch(e2.sideFaces(0), () => {
     const rect1Width = 77;
     const offset = 90;
     const rect1Height = 130 - offset;

@@ -17,7 +17,7 @@ See the [guide](/docs/guides/sketching/introduction) for detailed usage examples
 ## Signatures
 
 ```ts
-sketch(plane: PlaneLike, sketcher: () => void): SceneObject
+sketch(plane: PlaneLike, sketcher: () => T): ISceneObject & Extend<T>
 ```
 
 Draws 2D geometry on a standard plane.
@@ -25,12 +25,12 @@ Draws 2D geometry on a standard plane.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `plane` | [PlaneLike](/docs/api/types/plane-like) | The plane to sketch on |
-| `sketcher` | () =&gt; void | Callback containing sketch operations |
+| `sketcher` | () =&gt; T | Callback containing sketch operations |
 
 ---
 
 ```ts
-sketch(face: SceneObject, sketcher: () => void): SceneObject
+sketch(face: SceneObject, sketcher: () => T): ISceneObject & Extend<T>
 ```
 
 Draws 2D geometry on a face selection.
@@ -38,12 +38,12 @@ Draws 2D geometry on a face selection.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `face` | [SceneObject](/docs/api/types/scene-object) | The face to sketch on |
-| `sketcher` | () =&gt; void | Callback containing sketch operations |
+| `sketcher` | () =&gt; T | Callback containing sketch operations |
 
 ---
 
 ```ts
-sketch(plane: Plane, sketcher: () => void): SceneObject
+sketch(plane: Plane, sketcher: () => T): ISceneObject & Extend<T>
 ```
 
 Draws 2D geometry on an existing Plane object.
@@ -51,4 +51,4 @@ Draws 2D geometry on an existing Plane object.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `plane` | [Plane](/docs/api/types/plane) | The Plane object to sketch on |
-| `sketcher` | () =&gt; void | Callback containing sketch operations |
+| `sketcher` | () =&gt; T | Callback containing sketch operations |

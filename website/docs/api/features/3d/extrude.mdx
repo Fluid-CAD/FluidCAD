@@ -24,7 +24,7 @@ Extrudes the last sketch with a default distance.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to extrude *(optional)* |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch or face-bearing scene object to extrude *(optional)* |
 
 ---
 
@@ -32,12 +32,12 @@ Extrudes the last sketch with a default distance.
 extrude(distance: number, target?: SceneObject): Extrude
 ```
 
-Extrudes the last sketch by a given distance.
+Extrudes by a given distance.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `distance` | number | The extrusion distance |
-| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to extrude *(optional)* |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch or face-bearing scene object to extrude *(optional)* |
 
 ---
 
@@ -45,7 +45,7 @@ Extrudes the last sketch by a given distance.
 extrude(distance1: number, distance2: number): Extrude
 ```
 
-Extrudes the last sketch between two distances.
+Extrudes between two distances.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -58,13 +58,13 @@ Extrudes the last sketch between two distances.
 extrude(distance1: number, distance2: number, target: SceneObject): Extrude
 ```
 
-Extrudes the given sketch between two distances.
+Extrudes between two distances.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `distance1` | number | The first extrusion distance |
 | `distance2` | number | The second extrusion distance |
-| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to extrude |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch or face-bearing scene object to extrude |
 
 ---
 
@@ -72,12 +72,12 @@ Extrudes the given sketch between two distances.
 extrude(face: SceneObject, target?: SceneObject): Extrude
 ```
 
-Extrudes the last sketch up to a specific face.
+Extrudes up to a specific face.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `face` | [SceneObject](/docs/api/types/scene-object) | A face selection to extrude up to |
-| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to extrude *(optional)* |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch or face-bearing scene object to extrude *(optional)* |
 
 ---
 
@@ -85,12 +85,12 @@ Extrudes the last sketch up to a specific face.
 extrude(face: "first-face", target?: SceneObject): Extrude
 ```
 
-Extrudes the last sketch up to the first intersecting face.
+Extrudes up to the first intersecting face.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `face` | "first-face" | The literal `'first-face'` |
-| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to extrude *(optional)* |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch or face-bearing scene object to extrude *(optional)* |
 
 ---
 
@@ -98,9 +98,9 @@ Extrudes the last sketch up to the first intersecting face.
 extrude(face: "last-face", target?: SceneObject): Extrude
 ```
 
-Extrudes the last sketch up to the last intersecting face.
+Extrudes up to the last intersecting face.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `face` | "last-face" | The literal `'last-face'` |
-| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to extrude *(optional)* |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch or face-bearing scene object to extrude *(optional)* |

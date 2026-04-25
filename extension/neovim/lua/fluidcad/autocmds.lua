@@ -8,6 +8,7 @@ function M.setup(config)
 
   local pending_timer = nil
   local last_sent_code = {}
+  local last_sent_file = nil
 
   local function cancel_pending()
     if pending_timer then
@@ -25,9 +26,10 @@ function M.setup(config)
     end
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
     local code = table.concat(lines, '\n')
-    if last_sent_code[name] == code then
+    if name == last_sent_file and last_sent_code[name] == code then
       return
     end
+    last_sent_file = name
     last_sent_code[name] = code
     bridge.send({
       type = 'live-update',

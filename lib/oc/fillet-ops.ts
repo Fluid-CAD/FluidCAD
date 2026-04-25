@@ -33,6 +33,7 @@ export class FilletOps {
     const result = maker.Shape();
     const solids = FilletOps.wrapResultSolids(result);
     ColorTransfer.applyThroughMaker([solid], solids, maker);
+    ColorTransfer.applyBleeding([solid], solids, maker);
     maker.delete();
     return solids;
   }
@@ -57,6 +58,7 @@ export class FilletOps {
     const result = maker.Shape();
     const solids = FilletOps.wrapResultSolids(result);
     ColorTransfer.applyThroughMaker([solid], solids, maker);
+    ColorTransfer.applyBleeding([solid], solids, maker);
     maker.delete();
     return solids;
   }
@@ -99,6 +101,7 @@ export class FilletOps {
     const result = maker.Shape();
     const solids = FilletOps.wrapResultSolids(result);
     ColorTransfer.applyThroughMaker([solid], solids, maker);
+    ColorTransfer.applyBleeding([solid], solids, maker);
     maker.delete();
     return solids;
   }

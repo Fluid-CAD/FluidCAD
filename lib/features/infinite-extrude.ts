@@ -51,12 +51,13 @@ export class ExtrudeThroughAll {
         // because `BRepAlgoAPI_Cut` silently drops infinite shapes.
         const positive = ExtrudeOps.makePrism(face, bigDir, 1);
         const negative = ExtrudeOps.makePrism(face, bigDir, -1);
-        const { result } = BooleanOps.fuse([positive, negative]);
-        const fusedSolid = result.find(s => s.getType() === 'solid')
-          ?? this.firstSolidOf(result);
+        const fuseResult = BooleanOps.fuse([positive, negative]);
+        const fusedSolid = fuseResult.result.find(s => s.getType() === 'solid')
+          ?? this.firstSolidOf(fuseResult.result);
         if (fusedSolid) {
           solids.push(fusedSolid as Solid);
         }
+        fuseResult.dispose();
         if (shouldDispose) { face.dispose(); }
       }
     } else {

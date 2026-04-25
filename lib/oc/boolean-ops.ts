@@ -248,6 +248,8 @@ export class BooleanOps {
     result: Shape[];
     modifiedShapes: Shape[];
     newShapes: Shape[];
+    maker: any;
+    dispose: () => void;
   } {
     const oc = getOC();
     const builder = new oc.BRepAlgoAPI_Fuse();
@@ -294,9 +296,6 @@ export class BooleanOps {
       }
     }
 
-    builder.delete();
-    progress.delete();
-
     const newShapes: Shape[] = [];
 
     const tPartner = performance.now();
@@ -309,7 +308,17 @@ export class BooleanOps {
     }
     console.log(`[perf] BooleanOps.fuse.IsPartner check (result=${result.length} x args=${args.length}): ${(performance.now() - tPartner).toFixed(1)} ms`);
 
-    return { result, newShapes, modifiedShapes };
+    let disposed = false;
+    const dispose = () => {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      builder.delete();
+      progress.delete();
+    };
+
+    return { result, newShapes, modifiedShapes, maker: builder, dispose };
   }
 
   static fuseFaces(args: Shape[]): {

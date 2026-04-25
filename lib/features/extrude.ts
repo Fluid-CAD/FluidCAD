@@ -143,7 +143,9 @@ export class Extrude extends ExtrudeBase {
     const endFaces = extruder2.getEndFaces();
 
     const all = [...extrusions1, ...extrusions2];
-    const { result: extrusions } = BooleanOps.fuse(all);
+    const halvesFuse = BooleanOps.fuse(all);
+    const extrusions = halvesFuse.result;
+    halvesFuse.dispose();
 
     // Collect remaining faces and fused start/end faces from the fused solid.
     // We need the fused face objects (not pre-fusion) for IsPartner matching.
@@ -274,8 +276,9 @@ export class Extrude extends ExtrudeBase {
         const extruder2 = new Extruder(faces, plane, this.distance / 2, this.getDraft(), this.getEndOffset());
         const extrusions2 = extruder2.extrude();
         const all = [...extrusions1, ...extrusions2];
-        const { result } = BooleanOps.fuse(all);
-        toolShapes = result;
+        const halvesFuse = BooleanOps.fuse(all);
+        toolShapes = halvesFuse.result;
+        halvesFuse.dispose();
       }
     } else if (isThroughAll) {
       if (this.isFaceSourced()) {

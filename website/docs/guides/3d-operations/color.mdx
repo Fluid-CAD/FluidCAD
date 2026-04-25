@@ -5,6 +5,10 @@ title: "Color"
 
 import CodeBlock from '@theme/CodeBlock';
 import colorExample from '!!raw-loader!./_examples/color-example.js';
+import colorSurvivesFillet from '!!raw-loader!./_examples/color-survives-fillet.js';
+import colorBleeding from '!!raw-loader!./_examples/color-bleeding.js';
+import colorFuseFirstInput from '!!raw-loader!./_examples/color-fuse-first-input.js';
+import colorFuseFirstUncolored from '!!raw-loader!./_examples/color-fuse-first-uncolored.js';
 
 # Color
 
@@ -26,18 +30,43 @@ select(face().cylinder())
 color("silver")                // color cylindrical faces
 ```
 
-:::warning[Color is fragile]
-Any operation that modifies the shape after coloring will remove the color. This means `color()` should be the **last operation** you apply to a shape — after all fillets, chamfers, booleans, and other modifications are done.
+## Color preservation
 
-```js
-const e = extrude(30)
-fillet(5, e.endEdges())        // modify first
-color("blue", e.endFaces())   // color last ✅
+Colors are preserved across modifications. You can color a face and then keep modifying the shape — fillet, chamfer, fuse, cut, and other operations all carry colors forward to the resulting faces.
 
-// ❌ Don't do this — the fillet will remove the color:
-// color("blue", e.endFaces())
-// fillet(5, e.endEdges())
-```
+<CodeBlock language="js">{colorSurvivesFillet}</CodeBlock>
 
-This behavior will be improved in future versions.
-:::
+![Color preserved through fillet](/img/docs/3d-operations/color-survives-fillet.png)
+
+In this example the orange color is applied to the top face *before* the fillet. After the fillet runs, the new top face is still orange, and so is the fillet's arc face — colors transfer onto modified faces and bleed onto adjacent new geometry.
+
+When a colored face is split (for example by a cut that bisects it), every surviving piece keeps the color. When a colored face is fully removed, its color is dropped.
+
+## Color bleeding
+
+When new geometry is fused or merged into a colored shape, the new faces inherit the color from the surrounding colored faces:
+
+<CodeBlock language="js">{colorBleeding}</CodeBlock>
+
+![Color bleeding onto fused geometry](/img/docs/3d-operations/color-bleeding.png)
+
+Bleeding only spreads onto faces that came from new geometry — faces that already existed on a shape and were intentionally left uncolored stay uncolored. The same rule applies to fillet arcs, chamfer surfaces, and cut section faces.
+
+## Explicit `fuse()` color rule
+
+When you call `fuse()` directly, the **first input is dominant**:
+
+- If the first input has any colors, they propagate to the result (and bleed onto the other inputs).
+- If the first input has no colors, the result stays uncolored even if other inputs are colored.
+
+<CodeBlock language="js">{colorFuseFirstInput}</CodeBlock>
+
+![fuse() first input dominates](/img/docs/3d-operations/color-fuse-first-input.png)
+
+If the first input is uncolored, no color is propagated — coloring later inputs has no effect on the result:
+
+<CodeBlock language="js">{colorFuseFirstUncolored}</CodeBlock>
+
+![fuse() first input uncolored — result stays uncolored](/img/docs/3d-operations/color-fuse-first-uncolored.png)
+
+This gives you a predictable way to choose which input's coloring wins when merging solids explicitly: put the input whose coloring you want to keep first.

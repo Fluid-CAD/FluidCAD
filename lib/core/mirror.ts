@@ -6,6 +6,7 @@ import { MirrorShape } from "../features/mirror-shape.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { PlaneObject } from "../features/plane.js";
 import { AxisLike, isAxisLike, isStandardAxis } from "../math/axis.js";
+import { isPlaneLike } from "../math/plane.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { MirrorShape2D } from "../features/mirror-shape2d.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
@@ -86,6 +87,17 @@ function resolvePlane(arg: any, context: SceneParserContext): PlaneObjectBase {
 function build(context: SceneParserContext): MirrorFunction {
   return function mirror(): any {
     const activeSketch = context.getActiveSketch();
+    const firstArg = arguments[0];
+
+    if (activeSketch) {
+      const isPlaneArg = firstArg instanceof PlaneObjectBase
+        || (!isAxisLike(firstArg) && !(firstArg instanceof SceneObject) && isPlaneLike(firstArg));
+      if (isPlaneArg) {
+        throw new Error("Cannot specify a plane for mirror inside a sketch. Use mirror(axis) or mirror(line) instead.");
+      }
+    } else if (firstArg instanceof SceneObject && !(firstArg instanceof PlaneObjectBase)) {
+      throw new Error("mirror(line) is only valid inside a sketch. For 3D mirroring, specify a plane: mirror(plane).");
+    }
 
     if (arguments.length === 1) {
       if (activeSketch && (isAxisLike(arguments[0]) || arguments[0] instanceof SceneObject)) {

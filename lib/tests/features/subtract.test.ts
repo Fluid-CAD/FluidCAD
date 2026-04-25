@@ -4,10 +4,14 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import subtract from "../../core/subtract.js";
 import cylinder from "../../core/cylinder.js";
+import sphere from "../../core/sphere.js";
+import axis from "../../core/axis.js";
+import revolve from "../../core/revolve.js";
 import { circle, move, rect } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Subtract } from "../../features/subtract.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
+import { Revolve } from "../../features/revolve.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
@@ -136,6 +140,27 @@ describe("subtract", () => {
 
       const solid = shapes[0] as Solid;
       expect(solid.getFaces()).toHaveLength(6);
+    });
+
+    // Repro for issue #46: a torus revolved on the -yz plane produced an
+    // inside-out solid that caused subtract() to silently fail.
+    it("should subtract a revolved torus built on the -yz plane", () => {
+      const s = sphere(10) as unknown as SceneObject;
+      const a = axis("y", { offsetZ: 20 });
+      sketch("-yz", () => {
+        circle([0, 1], 5);
+      });
+      const ringHole = revolve(a).new() as Revolve;
+
+      const result = subtract(s, ringHole) as Subtract;
+
+      render();
+
+      // Sphere (r=10) and torus (centered at z=20, tube r=5) don't intersect,
+      // so the subtract should leave the sphere intact.
+      const shapes = result.getShapes();
+      expect(shapes).toHaveLength(1);
+      expect(shapes[0].getType()).toBe("solid");
     });
   });
 });

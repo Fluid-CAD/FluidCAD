@@ -1,4 +1,4 @@
-import type { TopoDS_Face, TopoDS_Shape, TopoDS_Wire } from "occjs-wrapper";
+import type { BRepAlgoAPI_Cut, TopoDS_Face, TopoDS_Shape, TopoDS_Wire } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { ShapeOps } from "./shape-ops.js";
@@ -19,13 +19,19 @@ export class BooleanOps {
   static cutShapesRaw(shape: TopoDS_Shape, tool: TopoDS_Shape): TopoDS_Shape {
     const oc = getOC();
     const progress = new oc.Message_ProgressRange();
-    const cutter = new oc.BRepAlgoAPI_Cut(shape, tool, progress);
-    cutter.Build(progress);
+    let cutter: BRepAlgoAPI_Cut;
+    try {
+      cutter = new oc.BRepAlgoAPI_Cut(shape, tool, progress);
+      cutter.Build(progress);
+    } catch {
+      progress.delete();
+      throw new Error("Cut failed");
+    }
 
-    if (!cutter.IsDone()) {
+    if (!cutter.IsDone() || cutter.HasErrors()) {
       cutter.delete();
       progress.delete();
-      throw new Error("Cut operation failed");
+      throw new Error("Cut failed");
     }
 
     const result = cutter.Shape();

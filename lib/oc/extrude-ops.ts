@@ -1,4 +1,4 @@
-import type { gp_Pln, gp_Vec, TopoDS_Face, TopoDS_Shape } from "occjs-wrapper";
+import type { BRepPrimAPI_MakeRevol, gp_Pln, gp_Vec, TopoDS_Face, TopoDS_Shape } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Vector3d } from "../math/vector3d.js";
@@ -69,13 +69,34 @@ export class ExtrudeOps {
   static makeRevol(shape: Shape, axis: Axis, angle: number): Shape {
     const oc = getOC();
     const [ax1, disposeAx1] = Convert.toGpAx1(axis);
-    const revol = new oc.BRepPrimAPI_MakeRevol(shape.getShape(), ax1, angle, true);
-    const result = revol.Shape();
+    let revol: BRepPrimAPI_MakeRevol;
+    try {
+      revol = new oc.BRepPrimAPI_MakeRevol(shape.getShape(), ax1, angle, true);
+    } catch {
+      disposeAx1();
+      throw new Error("Revolution failed");
+    }
+    if (!revol.IsDone()) {
+      revol.delete();
+      disposeAx1();
+      throw new Error("Revolution failed");
+    }
+    const rawResult = revol.Shape();
     revol.delete();
     disposeAx1();
 
-    const clean = ShapeOps.cleanShapeRaw(result);
+    // A profile face whose normal points "backwards" relative to the axis
+    // produces a closed solid with inverted shell orientation. Volume can
+    // still be positive but downstream boolean ops fail. OrientClosedSolid
+    // flips the shell to outward-facing when needed.
+    let oriented = rawResult;
+    if (Explorer.isSolid(rawResult)) {
+      const solid = Explorer.toSolid(rawResult);
+      oc.BRepLib.OrientClosedSolid(solid);
+      oriented = solid;
+    }
 
+    const clean = ShapeOps.cleanShapeRaw(oriented);
     return ShapeFactory.fromShape(clean);
   }
 

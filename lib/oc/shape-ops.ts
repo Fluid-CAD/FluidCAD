@@ -230,11 +230,19 @@ export class ShapeOps {
   static cleanShapeRaw(shape: TopoDS_Shape) {
     const oc = getOC();
 
-    // Full unification: merge redundant edges AND co-surface faces
-    const unify = new oc.ShapeUpgrade_UnifySameDomain(shape, false, true, false);
-    unify.Build();
-    let cleaned = unify.Shape();
-    unify.delete();
+    // Full unification: merge redundant edges AND co-surface faces.
+    // UnifySameDomain can throw on shapes with subtle topology issues
+    // (e.g. boolean output from a profile with reversed face normal).
+    // Fall back to the input shape on failure rather than aborting.
+    let cleaned: TopoDS_Shape;
+    try {
+      const unify = new oc.ShapeUpgrade_UnifySameDomain(shape, false, true, false);
+      unify.Build();
+      cleaned = unify.Shape();
+      unify.delete();
+    } catch {
+      return shape;
+    }
 
     // Validate — UnifySameDomain can corrupt periodic surfaces (e.g. cylinders)
     const checker = new oc.BRepCheck_Analyzer(cleaned, true, true);
@@ -245,14 +253,17 @@ export class ShapeOps {
     checker.delete();
 
     // Repair with ShapeFix_Shape (fixes seam edges, wire orientation, SameParameter)
-    const fixer = new oc.ShapeFix_Shape(cleaned);
-    const progress = new oc.Message_ProgressRange();
-    fixer.Perform(progress);
-    const fixed = fixer.Shape();
-    fixer.delete();
-    progress.delete();
-
-    return fixed;
+    try {
+      const fixer = new oc.ShapeFix_Shape(cleaned);
+      const progress = new oc.Message_ProgressRange();
+      fixer.Perform(progress);
+      const fixed = fixer.Shape();
+      fixer.delete();
+      progress.delete();
+      return fixed;
+    } catch {
+      return cleaned;
+    }
   }
 
   static shapeListToArray(list: TopTools_ListOfShape) {

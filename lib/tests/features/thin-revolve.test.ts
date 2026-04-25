@@ -3,7 +3,7 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import revolve from "../../core/revolve.js";
 import extrude from "../../core/extrude.js";
-import { move, rect, circle, line } from "../../core/2d/index.js";
+import { move, rect, circle, line, vLine } from "../../core/2d/index.js";
 import { Revolve } from "../../features/revolve.js";
 import { Face } from "../../common/face.js";
 import { Edge } from "../../common/edge.js";
@@ -169,6 +169,50 @@ describe("thin revolve", () => {
 
       expect(sideFaces.length).toBeGreaterThan(0);
       expect(internalFaces.length).toBeGreaterThan(0);
+      expect(capFaces.length).toBe(2);
+    });
+
+    it("should classify cap faces for vertical line profile parallel to axis (90 deg)", () => {
+      sketch("xy", () => {
+        move([50, 0]);
+        vLine(100, true);
+      });
+
+      const r = revolve("y", -90).thin(20).new() as Revolve;
+      render();
+
+      const startFaces = r.getState('start-faces') as Face[];
+      const endFaces = r.getState('end-faces') as Face[];
+      const sideFaces = r.getState('side-faces') as Face[];
+      const internalFaces = r.getState('internal-faces') as Face[];
+      const capFaces = r.getState('cap-faces') as Face[];
+
+      expect(startFaces.length).toBe(1);
+      expect(endFaces.length).toBe(1);
+      expect(sideFaces.length).toBe(1);
+      expect(internalFaces.length).toBe(1);
+      expect(capFaces.length).toBe(2);
+    });
+
+    it("should classify cap faces for vertical line profile parallel to axis (180 deg)", () => {
+      sketch("xy", () => {
+        move([50, 0]);
+        vLine(100, true);
+      });
+
+      const r = revolve("y", 180).thin(20).new() as Revolve;
+      render();
+
+      const startFaces = r.getState('start-faces') as Face[];
+      const endFaces = r.getState('end-faces') as Face[];
+      const sideFaces = r.getState('side-faces') as Face[];
+      const internalFaces = r.getState('internal-faces') as Face[];
+      const capFaces = r.getState('cap-faces') as Face[];
+
+      expect(startFaces.length).toBe(1);
+      expect(endFaces.length).toBe(1);
+      expect(sideFaces.length).toBe(1);
+      expect(internalFaces.length).toBe(1);
       expect(capFaces.length).toBe(2);
     });
   });

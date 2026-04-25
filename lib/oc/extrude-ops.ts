@@ -1,4 +1,4 @@
-import type { BRepPrimAPI_MakeRevol, gp_Pln, gp_Vec, TopoDS_Face, TopoDS_Shape } from "occjs-wrapper";
+import type { BRepPrimAPI_MakeRevol, gp_Pln, gp_Vec, TopAbs_ShapeEnum, TopoDS_Face, TopoDS_Shape } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Vector3d } from "../math/vector3d.js";
@@ -6,8 +6,23 @@ import { Plane } from "../math/plane.js";
 import { Axis } from "../math/axis.js";
 import { Explorer } from "./explorer.js";
 import { Shape } from "../common/shape.js";
+import { Face } from "../common/face.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { ShapeOps } from "./shape-ops.js";
+
+/**
+ * History-based result of a `BRepPrimAPI_MakeRevol` operation. `firstFace` /
+ * `lastFace` come from the maker's `FirstShape` / `LastShape` (null on full
+ * revolution where the source face is absorbed). `edgeFaces` maps each edge
+ * of the input face to the swept face it generated, so callers can classify
+ * by input-edge category instead of geometric heuristics.
+ */
+export interface MakeRevolResult {
+  solid: Shape;
+  firstFace: Face | null;
+  lastFace: Face | null;
+  edgeFaces: { edge: TopoDS_Shape; face: Face | null }[];
+}
 
 export class ExtrudeOps {
   static makePrism(shape: Shape, direction: Vector3d, distance: number): Shape {
@@ -66,7 +81,7 @@ export class ExtrudeOps {
     return ShapeFactory.fromShape(result);
   }
 
-  static makeRevol(shape: Shape, axis: Axis, angle: number): Shape {
+  static makeRevol(shape: Shape, axis: Axis, angle: number): MakeRevolResult {
     const oc = getOC();
     const [ax1, disposeAx1] = Convert.toGpAx1(axis);
     let revol: BRepPrimAPI_MakeRevol;
@@ -82,6 +97,23 @@ export class ExtrudeOps {
       throw new Error("Revolution failed");
     }
     const rawResult = revol.Shape();
+
+    // Capture history while the maker is alive. For full revolution the
+    // source face is absorbed (IsDeleted), so first/last are meaningless.
+    const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
+    const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
+    const sourceDeleted = revol.IsDeleted(shape.getShape());
+    const firstShapeRaw = sourceDeleted ? null : revol.FirstShape();
+    const lastShapeRaw = sourceDeleted ? null : revol.LastShape();
+
+    const inputEdgesRaw = Explorer.findShapes(shape.getShape(), EDGE);
+    const edgeFacesRaw: { edge: TopoDS_Shape; face: TopoDS_Shape | null }[] = [];
+    for (const edge of inputEdgesRaw) {
+      const generated = ShapeOps.shapeListToArray(revol.Generated(edge))
+        .filter(s => s.ShapeType() === FACE);
+      edgeFacesRaw.push({ edge, face: generated[0] ?? null });
+    }
+
     revol.delete();
     disposeAx1();
 
@@ -97,7 +129,27 @@ export class ExtrudeOps {
     }
 
     const clean = ShapeOps.cleanShapeRaw(oriented);
-    return ShapeFactory.fromShape(clean);
+    const cleanedFaceRaws = Explorer.findShapes(clean, FACE);
+    const wrappedFaces = cleanedFaceRaws.map(f => Face.fromTopoDSFace(Explorer.toFace(f)));
+
+    const findFace = (raw: TopoDS_Shape | null): Face | null => {
+      if (!raw) {
+        return null;
+      }
+      for (let i = 0; i < cleanedFaceRaws.length; i++) {
+        if (cleanedFaceRaws[i].IsSame(raw)) {
+          return wrappedFaces[i];
+        }
+      }
+      return null;
+    };
+
+    return {
+      solid: ShapeFactory.fromShape(clean),
+      firstFace: findFace(firstShapeRaw),
+      lastFace: findFace(lastShapeRaw),
+      edgeFaces: edgeFacesRaw.map(({ edge, face }) => ({ edge, face: findFace(face) })),
+    };
   }
 
   static applyDraftOnSideFaces(

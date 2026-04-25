@@ -121,6 +121,7 @@ export type SceneObjectRender = {
   errorMessage?: string;
   sourceLocation?: { filePath: string; line: number; column: number };
   buildDurationMs?: number;
+  profileCategories?: { category: string; durationMs: number }[];
 };
 
 // ---------------------------------------------------------------------------

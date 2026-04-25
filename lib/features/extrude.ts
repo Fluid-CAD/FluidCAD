@@ -18,14 +18,11 @@ export class Extrude extends ExtrudeBase {
   }
 
   build(context: BuildSceneObjectContext) {
-    const tBuild = performance.now();
-    let t = performance.now();
-    const plane = this.getSourcePlane();
-    console.log(`[perf] Extrude.getSourcePlane: ${(performance.now() - t).toFixed(1)} ms`);
+    const p = context.getProfiler();
 
-    t = performance.now();
-    const pickedFaces = this.resolvePickedFaces(plane);
-    console.log(`[perf] Extrude.resolvePickedFaces: ${(performance.now() - t).toFixed(1)} ms`);
+    const plane = p.record('getSourcePlane', () => this.getSourcePlane());
+
+    const pickedFaces = p.record('resolvePickedFaces', () => this.resolvePickedFaces(plane));
     if (pickedFaces !== null && pickedFaces.length === 0) {
       return;
     }
@@ -34,25 +31,25 @@ export class Extrude extends ExtrudeBase {
     let inwardEdges: Edge[] | undefined;
     let outwardEdges: Edge[] | undefined;
 
-    t = performance.now();
-    if (this.isFaceSourced()) {
-      if (this.isThin()) {
-        throw new Error("thin() is not supported with a face-sourced extrude");
+    faces = p.record('resolveFaces', () => {
+      if (this.isFaceSourced()) {
+        if (this.isThin()) {
+          throw new Error("thin() is not supported with a face-sourced extrude");
+        }
+        return pickedFaces ?? this.getSourceFaces();
+      } else if (this.isThin()) {
+        const thinResult = ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]);
+        inwardEdges = thinResult.inwardEdges;
+        outwardEdges = thinResult.outwardEdges;
+        return thinResult.faces;
+      } else {
+        return pickedFaces ?? FaceMaker2.getRegions(
+          this.extrudable.getGeometries(),
+          plane,
+          this.getDrill()
+        );
       }
-      faces = pickedFaces ?? this.getSourceFaces();
-    } else if (this.isThin()) {
-      const thinResult = ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]);
-      faces = thinResult.faces;
-      inwardEdges = thinResult.inwardEdges;
-      outwardEdges = thinResult.outwardEdges;
-    } else {
-      faces = pickedFaces ?? FaceMaker2.getRegions(
-        this.extrudable.getGeometries(),
-        plane,
-        this.getDrill()
-      );
-    }
-    console.log(`[perf] Extrude.resolveFaces (faces=${faces.length}, faceSourced=${this.isFaceSourced()}): ${(performance.now() - t).toFixed(1)} ms`);
+    });
 
     if (this._operationMode === 'remove') {
       this.buildRemove(faces, plane, context);
@@ -63,18 +60,15 @@ export class Extrude extends ExtrudeBase {
     }
 
     this.setFinalShapes(this.getShapes());
-    console.log(`[perf] Extrude.build TOTAL: ${(performance.now() - tBuild).toFixed(1)} ms`);
   }
 
   private buildAdd(faces: Face[], plane: any, context: BuildSceneObjectContext, inwardEdges?: Edge[], outwardEdges?: Edge[]) {
-    let t = performance.now();
-    const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
-    console.log(`[perf] Extrude.buildAdd.resolveFusionScope (n=${sceneObjects.length}): ${(performance.now() - t).toFixed(1)} ms`);
+    const p = context.getProfiler();
 
-    t = performance.now();
+    const sceneObjects = p.record('resolveFusionScope', () => this.resolveFusionScope(context.getSceneObjects()));
+
     const extruder = new Extruder(faces, plane, this.distance, this.getDraft(), this.getEndOffset());
-    let extrusions = extruder.extrude();
-    console.log(`[perf] Extrude.buildAdd.extruder.extrude (extrusions=${extrusions.length}): ${(performance.now() - t).toFixed(1)} ms`);
+    let extrusions = p.record('extruder.extrude', () => extruder.extrude());
 
     let sideFaces = extruder.getSideFaces();
     let internalFaces = extruder.getInternalFaces();
@@ -105,16 +99,14 @@ export class Extrude extends ExtrudeBase {
       return;
     }
 
-    const tFuse = performance.now();
-    const fusionResult = fuseWithSceneObjects(
+    const fusionResult = p.record('fuseWithSceneObjects', () => fuseWithSceneObjects(
       sceneObjects,
       extrusions,
       {
         glue: this.isFaceSourced() ? 'full' : undefined,
         recordHistoryFor: this,
       },
-    );
-    console.log(`[perf] Extrude.buildAdd.fuseWithSceneObjects: ${(performance.now() - tFuse).toFixed(1)} ms`);
+    ));
 
     for (const modifiedShape of fusionResult.modifiedShapes) {
       if (!modifiedShape.object) {

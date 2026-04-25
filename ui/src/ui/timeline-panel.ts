@@ -40,6 +40,7 @@ export class TimelinePanel {
   private activeTransparencyPopover: HTMLDivElement | null = null;
   private showBuildTimings = false;
   private historyTotalLabel!: HTMLSpanElement;
+  private hoverPopover: HTMLDivElement | null = null;
 
   constructor(
     container: HTMLElement,
@@ -252,6 +253,21 @@ export class TimelinePanel {
           this.collapsedIds.add(id);
         }
         this.renderTimeline();
+      });
+    });
+
+    // Bind hover popover for items with profile categories
+    this.timelineBody.querySelectorAll<HTMLElement>('[data-index]').forEach((el) => {
+      const index = parseInt(el.dataset.index!, 10);
+      const obj = this.sceneObjects[index];
+      if (!obj || !obj.profileCategories || obj.profileCategories.length === 0) {
+        return;
+      }
+      el.addEventListener('mouseenter', () => {
+        this.showProfilePopover(el, obj.profileCategories!, obj.buildDurationMs);
+      });
+      el.addEventListener('mouseleave', () => {
+        this.closeProfilePopover();
       });
     });
 
@@ -624,6 +640,69 @@ export class TimelinePanel {
     };
     setTimeout(() => document.addEventListener('click', onClickOutside), 0);
     this.dropdownCleanup = () => document.removeEventListener('click', onClickOutside);
+  }
+
+  private showProfilePopover(
+    anchor: HTMLElement,
+    categories: { category: string; durationMs: number }[],
+    totalBuildMs?: number,
+  ): void {
+    this.closeProfilePopover();
+
+    const maxDuration = categories[0]?.durationMs ?? 1;
+    const popover = document.createElement('div');
+    popover.className = 'absolute z-[201] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)] p-3 min-w-[200px] max-w-[280px]';
+
+    const rect = anchor.getBoundingClientRect();
+    const panelRect = this.panel.getBoundingClientRect();
+    popover.style.left = `${rect.right - panelRect.left + 8}px`;
+    popover.style.top = `${Math.max(0, rect.top - panelRect.top - 4)}px`;
+
+    let rowsHtml = '';
+    for (const cat of categories) {
+      const pct = maxDuration > 0 ? (cat.durationMs / maxDuration) * 100 : 0;
+      const barColor = pct > 60 ? 'bg-warning/60' : 'bg-primary/40';
+      rowsHtml += `
+        <div class="mb-1.5">
+          <div class="flex justify-between text-xs mb-0.5">
+            <span class="text-base-content/80 truncate mr-2">${this.escapeHtml(cat.category)}</span>
+            <span class="text-base-content/50 tabular-nums shrink-0">${formatDuration(cat.durationMs)}</span>
+          </div>
+          <div class="h-1 rounded-full bg-base-content/10 overflow-hidden">
+            <div class="h-full rounded-full ${barColor}" style="width:${pct}%"></div>
+          </div>
+        </div>
+      `;
+    }
+
+    const profiledTotal = categories.reduce((sum, c) => sum + c.durationMs, 0);
+    const footerHtml = totalBuildMs !== undefined && Math.abs(profiledTotal - totalBuildMs) > 0.5
+      ? `<div class="text-xs text-base-content/40 mt-1 pt-1 border-t border-base-content/10">
+           Tracked: ${formatDuration(profiledTotal)} / Total: ${formatDuration(totalBuildMs)}
+         </div>`
+      : '';
+
+    popover.innerHTML = `
+      <div class="text-xs font-medium text-base-content/60 mb-2">Build Time Breakdown</div>
+      ${rowsHtml}
+      ${footerHtml}
+    `;
+
+    this.panel.appendChild(popover);
+    this.hoverPopover = popover;
+  }
+
+  private closeProfilePopover(): void {
+    if (this.hoverPopover) {
+      this.hoverPopover.remove();
+      this.hoverPopover = null;
+    }
+  }
+
+  private escapeHtml(text: string): string {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   private closeDropdown(): void {

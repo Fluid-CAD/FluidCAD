@@ -6,6 +6,7 @@ import { Matrix4 } from "../math/matrix4.js";
 import { ISceneObject } from "../core/interfaces.js";
 import { FusionScope, OperationMode } from "../features/extrude-options.js";
 import { ShapeType } from "./shape-type.js";
+import { Profiler } from "./profiler.js";
 
 export type SourceLocation = {
   filePath: string;
@@ -43,6 +44,7 @@ export type BuildSceneObjectContext = {
   getSceneObjectsFromTo(obj: SceneObject, to: SceneObject, type?: string): SceneObject[];
   getTransform(): Matrix4 | null;
   getLastObject(): SceneObject | null;
+  getProfiler(): Profiler;
 }
 
 export abstract class SceneObject implements Comparable<SceneObject>, Serializable, ISceneObject {

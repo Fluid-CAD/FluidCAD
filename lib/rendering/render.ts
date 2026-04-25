@@ -7,6 +7,7 @@ import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { transformMeshes } from "./mesh-transform.js";
 import { ShapeOps } from "../oc/shape-ops.js";
+import { Profiler } from "../common/profiler.js";
 
 type RenderEmit = {
   sceneShapes: RenderedShape[];
@@ -14,6 +15,7 @@ type RenderEmit = {
   hasError: boolean;
   errorMessage?: string;
   buildDurationMs?: number;
+  profiler?: Profiler;
   scope?: Set<SceneObject>;
 };
 
@@ -26,6 +28,7 @@ export class SceneRenderer {
 
     const skippedContainers = new Set<SceneObject>();
     const buildDurations = new Map<SceneObject, number>();
+    const profilers = new Map<SceneObject, Profiler>();
 
     for (const object of sceneObjects) {
       // Skip descendants of cloned sketches — their edges are already
@@ -39,7 +42,9 @@ export class SceneRenderer {
       console.log("Rendering object:", object.getUniqueType());
 
       if (!scene.isCached(object)) {
-        buildDurations.set(object, this.buildObject(object, scene));
+        const result = this.buildObject(object, scene);
+        buildDurations.set(object, result.totalMs);
+        profilers.set(object, result.profiler);
       }
 
       // After building, mark cloned sketches so their children are skipped —
@@ -59,7 +64,7 @@ export class SceneRenderer {
     this.aggregateContainerDurations(sceneObjects, scene, buildDurations);
 
     for (const object of sceneObjects) {
-      this.renderObject(object, scene, buildDurations.get(object));
+      this.renderObject(object, scene, buildDurations.get(object), profilers.get(object));
     }
 
     return scene;
@@ -104,7 +109,7 @@ export class SceneRenderer {
     return scene;
   }
 
-  private renderObject(obj: SceneObject, scene: Scene, buildDurationMs: number | undefined): void {
+  private renderObject(obj: SceneObject, scene: Scene, buildDurationMs: number | undefined, profiler: Profiler | undefined): void {
     const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false });
     const renderedSceneShapes: RenderedShape[] = [];
 
@@ -123,6 +128,7 @@ export class SceneRenderer {
         hasError: !!errorMessage,
         errorMessage: errorMessage || undefined,
         buildDurationMs,
+        profiler,
       });
     }
     catch (error) {
@@ -134,13 +140,15 @@ export class SceneRenderer {
         hasError: true,
         errorMessage: message,
         buildDurationMs,
+        profiler,
       });
     }
   }
 
-  private buildObject(object: SceneObject, scene: Scene): number {
+  private buildObject(object: SceneObject, scene: Scene): { totalMs: number; profiler: Profiler } {
     object.clearError();
     const start = performance.now();
+    const profiler = new Profiler();
 
     try {
       object.build({
@@ -158,6 +166,7 @@ export class SceneRenderer {
           }
           return null;
         },
+        getProfiler: () => profiler,
       });
 
       const appliedTransform = object.getAppliedTransform();
@@ -173,7 +182,8 @@ export class SceneRenderer {
       object.setError(message);
     }
 
-    return performance.now() - start;
+    const totalMs = performance.now() - start;
+    return { totalMs, profiler };
   }
 
   private getOrBuildMeshes(shape: Shape): SceneObjectMesh[] | null {
@@ -261,6 +271,9 @@ export class SceneRenderer {
   }
 
   private emitRendered(obj: SceneObject, scene: Scene, opts: RenderEmit): void {
+    const categories = opts.profiler?.getCategories();
+    const profileCategories = categories && categories.length > 0 ? categories : undefined;
+
     const rendered: SceneObjectRender = {
       id: obj.id,
       name: obj.getName(),
@@ -276,6 +289,7 @@ export class SceneRenderer {
       errorMessage: opts.errorMessage,
       sourceLocation: obj.getSourceLocation() || undefined,
       buildDurationMs: opts.buildDurationMs,
+      profileCategories,
     };
 
     scene.addRenderedObject(obj, rendered);

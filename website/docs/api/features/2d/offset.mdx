@@ -8,7 +8,7 @@ description: "Offsets the current sketch geometry by the given distance."
 
 Offsets the current sketch geometry by the given distance.
 
-**Returns**: [**`ExtrudableGeometry`**](/docs/api/types/extrudable-geometry)
+**Returns**: [**`Offset`**](/docs/api/types/offset)
 
 :::tip
 See the [guide](/docs/guides/sketching/offset) for detailed usage examples.
@@ -17,7 +17,7 @@ See the [guide](/docs/guides/sketching/offset) for detailed usage examples.
 ## Signatures
 
 ```ts
-offset(distance?: number, removeOriginal?: boolean): ExtrudableGeometry
+offset(distance?: number, removeOriginal?: boolean): Offset
 ```
 
 Offsets the current sketch geometry by the given distance.
@@ -30,7 +30,7 @@ Offsets the current sketch geometry by the given distance.
 ---
 
 ```ts
-offset(distance: number, removeOriginal: boolean, targetPlane: SceneObject | PlaneLike, ...sourceGeometries: Extrudable[]): ExtrudableGeometry
+offset(distance: number, removeOriginal: boolean, targetPlane: SceneObject | PlaneLike, ...sourceGeometries: Extrudable[]): Offset
 ```
 
 Offsets source geometries onto a target plane.

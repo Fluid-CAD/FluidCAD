@@ -6,6 +6,7 @@ title: "Offset"
 import CodeBlock from '@theme/CodeBlock';
 import offsetBasic from '!!raw-loader!./_examples/offset-basic.js';
 import offsetRemove from '!!raw-loader!./_examples/offset-remove.js';
+import offsetClose from '!!raw-loader!./_examples/offset-close.js';
 
 # Offset
 
@@ -28,6 +29,19 @@ Pass `true` as the second argument to remove the original geometry and keep only
 <CodeBlock language="js">{offsetRemove}</CodeBlock>
 
 ![Offset inward with removal](/img/docs/sketching/offset-remove.png)
+
+## Closing an open offset
+
+Chaining `.close()` connects the offset back to the original profile with two
+straight cap edges, producing a closed loop you can extrude or fill:
+
+<CodeBlock language="js">{offsetClose}</CodeBlock>
+
+![Offset closed against original](/img/docs/sketching/offset-close.png)
+
+For profiles that are already closed (e.g. a circle or a closed rectangle),
+`.close()` is a no-op. Combining `.close()` with `removeOriginal=true` throws,
+since there is no original profile left to cap to.
 
 ## Combining with other shapes
 

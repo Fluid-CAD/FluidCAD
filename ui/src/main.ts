@@ -924,7 +924,7 @@ function connectWebSocket() {
         const isRollback = msg.rollbackStop != null && msg.rollbackStop < msg.result.length - 1;
         viewer.isTrimming = !isRollback && trimPickState === 'picking-active';
         viewer.isBezierDrawing = !isRollback && isBezierDrawingScene(msg.result);
-        viewer.updateView(msg.result, isRollback);
+        viewer.updateView(msg.result, isRollback, msg.rollbackStop);
         if (msg.absPath) {
           viewer.setFileName(msg.absPath);
         }

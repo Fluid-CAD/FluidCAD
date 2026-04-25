@@ -245,7 +245,7 @@ export class Viewer {
     // File name is now shown in the timeline panel header
   }
 
-  updateView(sceneObjects: SceneObjectRender[], isRollback = false): void {
+  updateView(sceneObjects: SceneObjectRender[], isRollback = false, rollbackStop?: number): void {
     this.sceneObjects = sceneObjects;
     this.highlightedShapeId = null;
     this.highlightedSub = null;
@@ -274,6 +274,8 @@ export class Viewer {
         this.settingsPanel.setFitButtonVisible(true);
         this.lastFitBox = null;
       }
+    } else {
+      this.activeSketchId = this.findRollbackActiveSketchId(sceneObjects, rollbackStop);
     }
 
     const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking);
@@ -769,6 +771,26 @@ export class Viewer {
       if (parent?.type === 'part') return obj;
     }
     return undefined;
+  }
+
+  /** During rollback the current "active" sketch is the rolled-back target's
+   *  sketch ancestor (or the target itself if it is a sketch). Returns null
+   *  when the target isn't inside a sketch. */
+  private findRollbackActiveSketchId(objects: SceneObjectRender[], rollbackStop?: number): string | null {
+    if (rollbackStop == null || rollbackStop < 0 || rollbackStop >= objects.length) {
+      return null;
+    }
+    let current: SceneObjectRender | undefined = objects[rollbackStop];
+    while (current) {
+      if (current.type === 'sketch') {
+        return current.id;
+      }
+      if (!current.parentId) {
+        return null;
+      }
+      current = objects.find(o => o.id === current!.parentId);
+    }
+    return null;
   }
 
   /** Check if a new bounding box is still fully visible within the last fitted (padded) sphere.

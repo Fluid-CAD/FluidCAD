@@ -70,13 +70,13 @@ const topPlane = plane(base.sideFaces(4))
 
 sketch(topPlane, () => {
     move([-2, 0])
-    vLine(100, true).guide()
+    vLine(100).centered().guide()
     move([0, 0])
     arc(40).centered();
 });
 ```
 
-`plane(base.sideFaces(4))` builds a sketch plane on the top face of the base. Inside the sketch, `move([-2, 0])` offsets the cursor slightly left, then `vLine(100, true).guide()` draws a tall vertical guide line — this defines where the thin cut boundary will be. `move([0, 0])` resets the cursor to the origin, and `arc(40).centered()` draws a semicircular arc of radius 40.
+`plane(base.sideFaces(4))` builds a sketch plane on the top face of the base. Inside the sketch, `move([-2, 0])` offsets the cursor slightly left, then `vLine(100).centered().guide()` draws a tall vertical guide line — this defines where the thin cut boundary will be. `move([0, 0])` resets the cursor to the origin, and `arc(40).centered()` draws a semicircular arc of radius 40.
 
 ![Top cutout sketch](/img/docs/tutorials/hinge-bracket-step2-sketch.png)
 
@@ -146,7 +146,7 @@ const faceSelection = select(face().onPlane("xy", 16)).reusable()
 sketch(faceSelection, () => {
     move([0, 0])
     project(faceSelection)
-    vLine(60, true)
+    vLine(60).centered()
     split()
     trim(edge().above("yz"))
     circle([0, 0], 50)
@@ -155,7 +155,7 @@ sketch(faceSelection, () => {
 remove(faceSelection);
 ```
 
-Sketching on a face starts at the face center, so `move([0, 0])` resets the cursor to the sketch origin. `project(faceSelection)` pulls the face outline into the sketch. `vLine(60, true)` draws a vertical construction line that splits the profile in half. `split()` splits all edges at their intersection points, then `trim(edge().above("yz"))` removes every edge that lies above (to the right of) the YZ plane — keeping only the left half that extends out past the base. Finally, `circle([0, 0], 50)` adds the circle that forms the tab's rounded end. `remove(faceSelection)` clears the reusable selection so it doesn't leak into later operations.
+Sketching on a face starts at the face center, so `move([0, 0])` resets the cursor to the sketch origin. `project(faceSelection)` pulls the face outline into the sketch. `vLine(60).centered()` draws a vertical construction line that splits the profile in half. `split()` splits all edges at their intersection points, then `trim(edge().above("yz"))` removes every edge that lies above (to the right of) the YZ plane — keeping only the left half that extends out past the base. Finally, `circle([0, 0], 50)` adds the circle that forms the tab's rounded end. `remove(faceSelection)` clears the reusable selection so it doesn't leak into later operations.
 
 ![Hinge tab sketch](/img/docs/tutorials/hinge-bracket-step5-sketch.png)
 

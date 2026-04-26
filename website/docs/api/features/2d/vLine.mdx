@@ -1,46 +1,47 @@
 ---
 sidebar_position: 10
 title: "vLine"
-description: "Draws a vertical line of the given distance."
+description: "Draws a vertical line of the given distance. Chain `.centered()` to center the line on the current position."
 ---
 
 # vLine()
 
 Draws a vertical line of the given distance.
+Chain `.centered()` to center the line on the current position.
 
-**Returns**: [**`Geometry`**](/docs/api/types/geometry)
+**Returns**: [**`VLine`**](/docs/api/types/vline)
 
 ## Signatures
 
 ```ts
-vLine(distance: number, centered?: boolean): Geometry
+vLine(distance: number): VLine
 ```
 
 Draws a vertical line of the given distance.
+Chain `.centered()` to center the line on the current position.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `distance` | number | The line length |
-| `centered` | boolean | Whether to center the line on the current position *(optional)* |
 
 ---
 
 ```ts
-vLine(start: Point2DLike, distance: number, centered?: boolean): Geometry
+vLine(start: Point2DLike, distance: number): VLine
 ```
 
 Draws a vertical line from a start point.
+Chain `.centered()` to center the line on the start point.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `start` | [Point2DLike](/docs/api/types/point2dlike) | The start point |
 | `distance` | number | The line length |
-| `centered` | boolean | Whether to center the line on the start point *(optional)* |
 
 ---
 
 ```ts
-vLine(targetPlane: SceneObject | PlaneLike, distance: number): Geometry
+vLine(targetPlane: SceneObject | PlaneLike, distance: number): VLine
 ```
 
 Draws a vertical line on a specific plane.
@@ -49,17 +50,3 @@ Draws a vertical line on a specific plane.
 |-----------|------|-------------|
 | `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
 | `distance` | number | The line length |
-
----
-
-```ts
-vLine(targetPlane: SceneObject | PlaneLike, distance: number, centered: boolean): Geometry
-```
-
-Draws a vertical line with centering on a specific plane.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
-| `distance` | number | The line length |
-| `centered` | boolean | Whether to center the line on the current position |

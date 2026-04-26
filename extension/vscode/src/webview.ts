@@ -12,12 +12,13 @@ function getNonce(): string {
 
 function getHTML(serverUrl: string): string {
   const nonce = getNonce();
+  const expectedOrigin = new URL(serverUrl).origin;
   return `
 			<!DOCTYPE html>
 			<html lang="en">
 			<head>
 				<meta charset="UTF-8">
-				<meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src http://localhost:*; style-src 'nonce-${nonce}';">
+				<meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src http://localhost:*; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
 				<meta name="viewport" content="width=device-width, initial-scale=1.0">
 				<title>FluidCAD</title>
       <style nonce="${nonce}">
@@ -34,6 +35,28 @@ function getHTML(serverUrl: string): string {
 			</head>
 			<body>
 				<iframe src="${serverUrl}"></iframe>
+				<script nonce="${nonce}">
+				(function () {
+					var EXPECTED_ORIGIN = ${JSON.stringify(expectedOrigin)};
+					window.addEventListener('message', function (e) {
+						if (e.origin !== EXPECTED_ORIGIN) return;
+						var d = e.data;
+						if (!d || d.type !== 'fluidcad-keydown') return;
+						var ke = new KeyboardEvent('keydown', {
+							key: d.key,
+							code: d.code,
+							ctrlKey: !!d.ctrlKey,
+							shiftKey: !!d.shiftKey,
+							altKey: !!d.altKey,
+							metaKey: !!d.metaKey,
+							repeat: !!d.repeat,
+							bubbles: true,
+							cancelable: true,
+						});
+						window.dispatchEvent(ke);
+					});
+				})();
+				</script>
 			</body>
 			</html>
   `;

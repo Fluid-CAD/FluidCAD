@@ -8,7 +8,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { PlaneFromObject } from "../features/plane-from-object.js";
 import { IPlane, ISceneObject } from "./interfaces.js";
 
-type Extend<T> = T extends object ? T : {};
+type Extend<T> = T extends object ? { regions: T } : {};
 
 interface SketchFunction {
   /**
@@ -58,7 +58,7 @@ function build(context: SceneParserContext): SketchFunction {
     context.endProgressiveContainer();
 
     if (extensions && typeof extensions === 'object') {
-      Object.assign(sketch, extensions);
+      (sketch as any).regions = extensions;
     }
 
     return sketch as unknown as ISceneObject & Extend<T>;

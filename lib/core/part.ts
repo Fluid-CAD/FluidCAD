@@ -3,7 +3,7 @@ import { getCurrentScene } from "../scene-manager.js";
 import { Part } from "../features/part.js";
 import { ISceneObject } from "./interfaces.js";
 
-type Extend<T> = T extends object ? T : {};
+type Extend<T> = T extends object ? { features: T } : {};
 
 function part<T>(name: string, callback: () => T): ISceneObject & Extend<T> {
   const scene = getCurrentScene();
@@ -21,7 +21,7 @@ function part<T>(name: string, callback: () => T): ISceneObject & Extend<T> {
   scene.endProgressiveContainer();
 
   if (extensions && typeof extensions === 'object') {
-    Object.assign(partObj, extensions);
+    (partObj as any).features = extensions;
   }
 
   return partObj as unknown as ISceneObject & Extend<T>;

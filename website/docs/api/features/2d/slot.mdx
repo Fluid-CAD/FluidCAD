@@ -26,6 +26,20 @@ Draws a slot with the given length and end radius.
 ---
 
 ```ts
+slot(targetPlane: SceneObject | PlaneLike, distance: number, radius: number): Slot
+```
+
+Draws a slot on a specific plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
+| `distance` | number | The slot length |
+| `radius` | number | The end cap radius |
+
+---
+
+```ts
 slot(start: Point2DLike, distance: number, radius: number): Slot
 ```
 
@@ -51,7 +65,31 @@ Creates a slot from a geometry edge with the given radius.
 | `radius` | number | The end cap radius |
 | `deleteSource` | boolean | Whether to delete the source geometry (defaults to true) *(optional)* |
 
+---
 
-:::note
-All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
-:::
+```ts
+slot(targetPlane: SceneObject | PlaneLike, geometry: SceneObject, radius: number): Slot
+```
+
+Creates a slot from a geometry edge on a specific plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
+| `geometry` | [SceneObject](/docs/api/types/scene-object) | The source geometry edge |
+| `radius` | number | The end cap radius |
+
+---
+
+```ts
+slot(targetPlane: SceneObject | PlaneLike, geometry: SceneObject, radius: number, deleteSource: boolean): Slot
+```
+
+Creates a slot from a geometry edge, optionally keeping the source, on a specific plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
+| `geometry` | [SceneObject](/docs/api/types/scene-object) | The source geometry edge |
+| `radius` | number | The end cap radius |
+| `deleteSource` | boolean | Whether to delete the source geometry |

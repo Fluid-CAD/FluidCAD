@@ -24,7 +24,31 @@ Draws a line at the given angle with the given length.
 | `angle` | number | The angle in degrees |
 | `centered` | boolean | Whether to center the line on the current position *(optional)* |
 
+---
 
-:::note
-All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
-:::
+```ts
+aLine(targetPlane: SceneObject | PlaneLike, length: number, angle: number): Geometry
+```
+
+Draws a line at the given angle on a specific plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
+| `length` | number | The line length |
+| `angle` | number | The angle in degrees |
+
+---
+
+```ts
+aLine(targetPlane: SceneObject | PlaneLike, length: number, angle: number, centered: boolean): Geometry
+```
+
+Draws a centered line at the given angle on a specific plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
+| `length` | number | The line length |
+| `angle` | number | The angle in degrees |
+| `centered` | boolean | Whether to center the line on the current position |

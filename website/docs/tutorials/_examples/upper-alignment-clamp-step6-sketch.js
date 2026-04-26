@@ -2,7 +2,7 @@ import { aLine, arc, circle, color, connect, copy, cut, extrude, fillet, fuse, h
 import { enclosed, enclosing, outside } from "fluidcad/constraints";
 import { edge, face } from "fluidcad/filters";
 
-rect(120, 66, "top").centered().radius(13)
+rect("top", 120, 66).centered().radius(13)
 let e = extrude(13)
 
 sketch(e.endFaces(), () => {
@@ -22,7 +22,7 @@ sketch("front", () => {
 });
 
 const circleExtrude = extrude(66).symmetric();
-cut(66, circle(36, "front")).symmetric();
+cut(66, circle("front", 36)).symmetric();
 
 const p = plane("front", { offset: 20 })
 
@@ -47,7 +47,7 @@ sketch(plane("front", { offset: 35 }), () => {
 const pipeLength = -35 + 20;
 const e2 = extrude(pipeLength).drill(false);
 
-cut(-pipeLength, circle(10, e2.startFaces()));
+cut(-pipeLength, circle(e2.startFaces(), 10));
 
 mirror("front")
 

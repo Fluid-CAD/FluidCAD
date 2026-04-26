@@ -60,7 +60,7 @@ extrude(10, ribSketch).thin(16).symmetric()
 
 remove(spine)
 
-circle(16, "top")
+circle("top", 16)
 cut(-26)
 
 sketch(topPlane, () => {

@@ -41,7 +41,16 @@ Draws a rectangle at a given start point.
 | `width` | number | The rectangle width |
 | `height` | number | The rectangle height (defaults to width) *(optional)* |
 
+---
 
-:::note
-All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
-:::
+```ts
+rect(targetPlane: SceneObject | PlaneLike, width: number, height: number): Rect
+```
+
+Draws a rectangle with given dimensions on a specific plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
+| `width` | number | The rectangle width |
+| `height` | number | The rectangle height |

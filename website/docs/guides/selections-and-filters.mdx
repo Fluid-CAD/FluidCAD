@@ -91,8 +91,8 @@ edge().belongsToFace(topFaces)                // edges belonging to those faces
 Restrict the selection to edges that come from one or more specific scene objects. Useful when several solids share the same scene and you only want to filter geometry from a subset of them.
 
 ```js
-const a = extrude(40, rect(20, 20, "xy"))
-const b = extrude(40, circle(15, "xy"))
+const a = extrude(40, rect("xy", 20, 20))
+const b = extrude(40, circle("xy", 15))
 
 select(edge().from(a).line())                 // only line edges from `a`
 select(edge().from(a, b).circle())            // circle edges from either `a` or `b`
@@ -154,8 +154,8 @@ face().hasEdge(circularEdges)  // faces that share an edge with the selection
 Restrict the selection to faces that come from one or more specific scene objects:
 
 ```js
-const a = extrude(40, rect(20, 20, "xy"))
-const b = extrude(40, circle(15, "xy"))
+const a = extrude(40, rect("xy", 20, 20))
+const b = extrude(40, circle("xy", 15))
 
 select(face().from(a).parallelTo("xy"))       // top/bottom faces of `a`
 select(face().from(a, b).cylinder())          // cylindrical faces from either object

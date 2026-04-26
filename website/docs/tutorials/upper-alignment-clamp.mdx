@@ -36,11 +36,11 @@ import { edge, face } from "fluidcad/filters";
 The clamp starts as a rounded rectangular block.
 
 ```js
-rect(120, 66, "top").centered().radius(13)
+rect("top", 120, 66).centered().radius(13)
 let e = extrude(13)
 ```
 
-`rect(120, 66, "top")` draws a 120 x 66 rectangle on the top plane. `.centered()` centers it on the origin. `.radius(13)` rounds all four corners with a 13-unit fillet. `extrude(13)` pushes it up 13 units. We store the result in `e` to reference its faces later.
+`rect("top", 120, 66)` draws a 120 x 66 rectangle on the top plane. `.centered()` centers it on the origin. `.radius(13)` rounds all four corners with a 13-unit fillet. `extrude(13)` pushes it up 13 units. We store the result in `e` to reference its faces later.
 
 ![Base body](/img/docs/tutorials/upper-alignment-clamp-step1.png)
 
@@ -96,10 +96,10 @@ sketch("front", () => {
 
 ```js
 const circleExtrude = extrude(66).symmetric();
-cut(66, circle(36, "front")).symmetric();
+cut(66, circle("front", 36)).symmetric();
 ```
 
-`extrude(66).symmetric()` extrudes the semicircle 33 units in both directions (66 total, centered). We store it as `circleExtrude` because we'll reference its edges later. `cut(66, circle(36, "front")).symmetric()` then bores a 36-diameter hole through the center, also symmetric. This creates the clamp's main bore.
+`extrude(66).symmetric()` extrudes the semicircle 33 units in both directions (66 total, centered). We store it as `circleExtrude` because we'll reference its edges later. `cut(66, circle("front", 36)).symmetric()` then bores a 36-diameter hole through the center, also symmetric. This creates the clamp's main bore.
 
 ![Cylindrical bore](/img/docs/tutorials/upper-alignment-clamp-step3.png)
 
@@ -174,10 +174,10 @@ On a plane 35 units from the front, two concentric circles are drawn at the pipe
 const pipeLength = -35 + 20;
 const e2 = extrude(pipeLength).drill(false);
 
-cut(-pipeLength, circle(10, e2.startFaces()));
+cut(-pipeLength, circle(e2.startFaces(), 10));
 ```
 
-`extrude(pipeLength)` extends the pipe backward (negative direction). `.drill(false)` creates a hollow extrusion — the inner circle becomes a hole, but `false` means it doesn't drill into existing geometry below. Then `cut(-pipeLength, circle(10, e2.startFaces()))` bores the inner hole through, using a circle sketched on the start face.
+`extrude(pipeLength)` extends the pipe backward (negative direction). `.drill(false)` creates a hollow extrusion — the inner circle becomes a hole, but `false` means it doesn't drill into existing geometry below. Then `cut(-pipeLength, circle(e2.startFaces(), 10))` bores the inner hole through, using a circle sketched on the start face.
 
 ### Mirror everything
 

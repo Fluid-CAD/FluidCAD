@@ -37,7 +37,29 @@ Draws a vertical line from a start point.
 | `distance` | number | The line length |
 | `centered` | boolean | Whether to center the line on the start point *(optional)* |
 
+---
 
-:::note
-All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
-:::
+```ts
+vLine(targetPlane: SceneObject | PlaneLike, distance: number): Geometry
+```
+
+Draws a vertical line on a specific plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
+| `distance` | number | The line length |
+
+---
+
+```ts
+vLine(targetPlane: SceneObject | PlaneLike, distance: number, centered: boolean): Geometry
+```
+
+Draws a vertical line with centering on a specific plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
+| `distance` | number | The line length |
+| `centered` | boolean | Whether to center the line on the current position |

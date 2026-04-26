@@ -39,21 +39,21 @@ repeat("circular", "z", {
 })
 
 // Base
-polygon(sides, 150, "xy");
+polygon("xy", sides, 150);
 
 const pl1 = extrude(12)
 
-polygon(sides, 115, pl1.endFaces());
+polygon(pl1.endFaces(), sides, 115);
 
 extrude(12)
 
 // Top
 const topPlane = plane("xy", { offset: middleHeight + 24 });
-polygon(sides, 165, topPlane);
+polygon(topPlane, sides, 165);
 
 const top = extrude(12)
 
-polygon(sides, 50, plane(topPlane, { offset: 52 + 12 }));
+polygon(plane(topPlane, { offset: 52 + 12 }), sides, 50);
 
 const tip = extrude(12)
 

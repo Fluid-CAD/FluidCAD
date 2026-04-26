@@ -2,7 +2,7 @@ import { aLine, arc, circle, color, connect, copy, cut, extrude, fillet, fuse, h
 import { enclosed, enclosing, outside } from "fluidcad/constraints";
 import { edge, face } from "fluidcad/filters";
 
-rect(120, 66, "top").centered().radius(13)
+rect("top", 120, 66).centered().radius(13)
 let e = extrude(13)
 
 sketch(e.endFaces(), () => {
@@ -22,4 +22,4 @@ sketch("front", () => {
 });
 
 const circleExtrude = extrude(66).symmetric();
-cut(66, circle(36, "front")).symmetric();
+cut(66, circle("front", 36)).symmetric();

@@ -47,7 +47,7 @@ sketch(p1, () => {
 });
 
 const cylBody1 = extrude(-D)
-circle(E, cylBody1.startFaces())
+circle(cylBody1.startFaces(), E)
 const cylCut1 = cut()
 
 chamfer(2, 30, true, cylCut1.startEdges(), cylCut1.endEdges())
@@ -61,7 +61,7 @@ sketch(p2, () => {
 });
 
 const cylBody2 = extrude(-D)
-circle(E, cylBody2.startFaces())
+circle(cylBody2.startFaces(), E)
 const cylCut2 = cut()
 
 chamfer(2, 30, true, cylCut2.startEdges(), cylCut2.endEdges())

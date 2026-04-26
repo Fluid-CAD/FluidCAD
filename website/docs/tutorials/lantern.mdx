@@ -124,16 +124,16 @@ repeat("circular", "z", {
 The base is two stacked hexagonal layers — a wider bottom tier and a narrower upper tier.
 
 ```js
-polygon(sides, 150, "xy");
+polygon("xy", sides, 150);
 
 const pl1 = extrude(12)
 
-polygon(sides, 115, pl1.endFaces());
+polygon(pl1.endFaces(), sides, 115);
 
 extrude(12)
 ```
 
-- The first `polygon(sides, 150, "xy")` draws a hexagon with diameter 150 directly on the XY plane (no sketch block needed — the plane is passed as the last argument).
+- The first `polygon("xy", sides, 150)` draws a hexagon with diameter 150 directly on the XY plane (no sketch block needed — the plane is passed as the first argument).
 - `extrude(12)` creates a 12-unit tall base slab. It auto-fuses since we didn't use `.new()`.
 - The second hexagon (diameter 115) is drawn on the top face of the first layer (`pl1.endFaces()`), then extruded another 12 units. This creates a stepped base.
 
@@ -147,11 +147,11 @@ The top mirrors the base with a wider cap, then lofts up to a narrow tip.
 
 ```js
 const topPlane = plane("xy", { offset: middleHeight + 24 });
-polygon(sides, 165, topPlane);
+polygon(topPlane, sides, 165);
 
 const top = extrude(12)
 
-polygon(sides, 50, plane(topPlane, { offset: 52 + 12 }));
+polygon(plane(topPlane, { offset: 52 + 12 }), sides, 50);
 
 const tip = extrude(12)
 ```

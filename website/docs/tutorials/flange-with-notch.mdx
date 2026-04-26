@@ -127,7 +127,7 @@ Once the pipe is built, `remove(baseSketch)` disposes of the sketch so its lefto
 ### Sketch the notch rectangle
 
 ```js
-rect(30, 70, plane("xy", 46)).centered()
+rect(plane("xy", 46), 30, 70).centered()
 ```
 
 `plane("xy", 46)` creates a reference plane at the top of the pipe (46 units up). `rect(30, 70)` draws a 30 x 70 rectangle on that plane. `.centered()` centers it on the origin so it straddles the pipe wall.

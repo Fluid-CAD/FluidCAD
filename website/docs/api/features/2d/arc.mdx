@@ -54,7 +54,44 @@ Chain `.centered()` to center the arc symmetrically around the start angle.
 | `startAngle` | number | The start angle in degrees (defaults to 0) *(optional)* |
 | `endAngle` | number | The end angle in degrees (defaults to 180) *(optional)* |
 
+---
 
-:::note
-All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
-:::
+```ts
+arc(targetPlane: SceneObject | PlaneLike, endPoint: Point2DLike): ArcPoints
+```
+
+Draws an arc to an end point on a specific plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
+| `endPoint` | [Point2DLike](/docs/api/types/point2dlike) | The end point of the arc |
+
+---
+
+```ts
+arc(targetPlane: SceneObject | PlaneLike, startPoint: Point2DLike, endPoint: Point2DLike): ArcPoints
+```
+
+Draws an arc between two points on a specific plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
+| `startPoint` | [Point2DLike](/docs/api/types/point2dlike) | The start point of the arc |
+| `endPoint` | [Point2DLike](/docs/api/types/point2dlike) | The end point of the arc |
+
+---
+
+```ts
+arc(targetPlane: SceneObject | PlaneLike, radius: number, startAngle: number, endAngle: number): ArcAngles
+```
+
+Draws an arc by radius and angle range on a specific plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
+| `radius` | number | The arc radius |
+| `startAngle` | number | The start angle in degrees |
+| `endAngle` | number | The end angle in degrees |

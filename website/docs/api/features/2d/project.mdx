@@ -26,7 +26,15 @@ Projects 3D objects onto the current sketch plane.
 |-----------|------|-------------|
 | `...sourceObjects` | [SceneObject](/docs/api/types/scene-object)[] | The 3D objects to project *(optional)* |
 
+---
 
-:::note
-All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
-:::
+```ts
+project(targetPlane: SceneObject | PlaneLike, sourceObjects: SceneObject[]): ExtrudableGeometry
+```
+
+Projects 3D objects onto a target plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to project onto |
+| `sourceObjects` | [SceneObject](/docs/api/types/scene-object)[] | The 3D objects to project |

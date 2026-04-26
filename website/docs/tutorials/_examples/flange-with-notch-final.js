@@ -21,7 +21,7 @@ extrude(46);
 remove(baseSketch);
 
 // notch
-rect(30, 70, plane("xy", 46)).centered()
+rect(plane("xy", 46), 30, 70).centered()
 cut(8)
 
 // counter bores

@@ -39,7 +39,31 @@ Draws a regular polygon at a given center point.
 | `diameter` | number | The circumscribed or inscribed diameter |
 | `mode` | PolygonMode | `'inscribed'` or `'circumscribed'` (defaults to `'inscribed'`) *(optional)* |
 
+---
 
-:::note
-All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
-:::
+```ts
+polygon(targetPlane: SceneObject | PlaneLike, numberOfSides: number, diameter: number): Polygon
+```
+
+Draws a regular polygon on a specific plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
+| `numberOfSides` | number | The number of sides |
+| `diameter` | number | The circumscribed or inscribed diameter |
+
+---
+
+```ts
+polygon(targetPlane: SceneObject | PlaneLike, numberOfSides: number, diameter: number, mode: PolygonMode): Polygon
+```
+
+Draws a regular polygon with a given mode on a specific plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
+| `numberOfSides` | number | The number of sides |
+| `diameter` | number | The circumscribed or inscribed diameter |
+| `mode` | PolygonMode | `'inscribed'` or `'circumscribed'` |

@@ -39,7 +39,15 @@ Draws a line between two points.
 | `start` | [Point2DLike](/docs/api/types/point2dlike) | The start point |
 | `end` | [Point2DLike](/docs/api/types/point2dlike) | The end point |
 
+---
 
-:::note
-All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
-:::
+```ts
+line(targetPlane: SceneObject | PlaneLike, end: Point2DLike): Geometry
+```
+
+Draws a line to the given point on a specific plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
+| `end` | [Point2DLike](/docs/api/types/point2dlike) | The end point |

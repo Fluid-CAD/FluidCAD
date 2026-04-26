@@ -47,7 +47,7 @@ sketch(p1, () => {
 });
 
 const cylBody1 = extrude(-D)
-circle(E, cylBody1.startFaces())
+circle(cylBody1.startFaces(), E)
 const cylCut1 = cut()
 
 chamfer(2, cylCut1.startEdges(), cylCut1.endEdges())
@@ -61,7 +61,7 @@ sketch(p2, () => {
 });
 
 const cylBody2 = extrude(-D)
-circle(E, cylBody2.startFaces())
+circle(cylBody2.startFaces(), E)
 const cylCut2 = cut()
 
 chamfer(2, cylCut2.startEdges(), cylCut2.endEdges())
@@ -75,9 +75,9 @@ sketch("xy", () => {
 const corner = extrude(35);
 
 // Through-all hole
-circle(15, corner.endFaces())
+circle(corner.endFaces(), 15)
 cut()
 
 // Counterbore
-circle(30, corner.endFaces())
+circle(corner.endFaces(), 30)
 cut(10)

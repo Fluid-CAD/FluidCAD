@@ -142,14 +142,14 @@ sketch(p1, () => {
 
 ```js
 const cylBody1 = extrude(-D)
-circle(E, cylBody1.startFaces())
+circle(cylBody1.startFaces(), E)
 const cylCut1 = cut()
 
 chamfer(2, cylCut1.startEdges(), cylCut1.endEdges())
 ```
 
 - `extrude(-D)` extends the pipe backward (away from the viewer) by `D` (130mm) — the negative direction pushes it into and through the support
-- `circle(E, cylBody1.startFaces())` sketches a smaller circle of diameter `E` (41mm) on the pipe's far end face
+- `circle(cylBody1.startFaces(), E)` sketches a smaller circle of diameter `E` (41mm) on the pipe's far end face
 - `cut()` bores through the entire pipe, making it hollow
 - `chamfer(2, ...)` adds a 2mm chamfer to both the start and end edges of the bore
 
@@ -168,7 +168,7 @@ sketch(p2, () => {
 });
 
 const cylBody2 = extrude(-D)
-circle(E, cylBody2.startFaces())
+circle(cylBody2.startFaces(), E)
 const cylCut2 = cut()
 
 chamfer(2, cylCut2.startEdges(), cylCut2.endEdges())
@@ -210,15 +210,15 @@ The block is extruded 35mm, taller than the 25mm base plate.
 #### Through-all hole and counterbore
 
 ```js
-circle(15, corner.endFaces())
+circle(corner.endFaces(), 15)
 cut()
 
-circle(30, corner.endFaces())
+circle(corner.endFaces(), 30)
 cut(10)
 ```
 
-- `circle(15, corner.endFaces())` sketches a 15mm radius circle on the top face of the corner block, and `cut()` with no depth argument cuts through the entire block
-- `circle(30, corner.endFaces())` adds a larger 30mm radius circle on the same face, and `cut(10)` cuts only 10mm deep — creating the counterbore recess
+- `circle(corner.endFaces(), 15)` sketches a 15mm radius circle on the top face of the corner block, and `cut()` with no depth argument cuts through the entire block
+- `circle(corner.endFaces(), 30)` adds a larger 30mm radius circle on the same face, and `cut(10)` cuts only 10mm deep — creating the counterbore recess
 
 ![Corner block with counterbore](/img/docs/tutorials/cswp-sample-exam-step4.png)
 

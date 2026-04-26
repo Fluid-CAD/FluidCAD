@@ -22,7 +22,15 @@ Intersects 3D objects with the current sketch plane, producing cross-section edg
 |-----------|------|-------------|
 | `...sourceObjects` | [SceneObject](/docs/api/types/scene-object)[] | The 3D objects to intersect *(optional)* |
 
+---
 
-:::note
-All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
-:::
+```ts
+intersect(targetPlane: SceneObject | PlaneLike, sourceObjects: SceneObject[]): ExtrudableGeometry
+```
+
+Intersects 3D objects with a target plane, producing cross-section edges.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to intersect with |
+| `sourceObjects` | [SceneObject](/docs/api/types/scene-object)[] | The 3D objects to intersect |

@@ -39,7 +39,15 @@ Draws a circle at the origin with an optional diameter.
 |-----------|------|-------------|
 | `diameter` | number | The circle diameter (defaults to 40) *(optional)* |
 
+---
 
-:::note
-All signatures also accept an optional `targetPlane` parameter as the last argument to draw on a specific plane.
-:::
+```ts
+circle(targetPlane: SceneObject | PlaneLike, diameter: number): ExtrudableGeometry
+```
+
+Draws a circle with a given diameter on a specific plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
+| `diameter` | number | The circle diameter |

@@ -64,7 +64,7 @@ export const features: FeatureEntry[] = [
   // 2D Sketching — Line Shortcuts
   { name: 'hLine', displayName: 'hLine', category: '2d', sourceFile: 'core/2d/hline.ts', interfaceName: 'HLineFunction', returnType: 'IGeometry', sidebarPosition: 9 },
   { name: 'vLine', displayName: 'vLine', category: '2d', sourceFile: 'core/2d/vline.ts', interfaceName: 'VLineFunction', returnType: 'IGeometry', sidebarPosition: 10 },
-  { name: 'aLine', displayName: 'aLine', category: '2d', sourceFile: 'core/2d/aline.ts', interfaceName: 'ALineFunction', returnType: 'IGeometry', sidebarPosition: 11 },
+  { name: 'aLine', displayName: 'aLine', category: '2d', sourceFile: 'core/2d/aline.ts', interfaceName: 'ALineFunction', returnType: 'IALine', sidebarPosition: 11 },
   // 2D Sketching — Positioning
   { name: 'center', displayName: 'center', category: '2d', sourceFile: 'core/2d/center.ts', interfaceName: 'CenterFunction', returnType: 'IGeometry', sidebarPosition: 12 },
   { name: 'move', displayName: 'move', category: '2d', sourceFile: 'core/2d/move.ts', interfaceName: 'MoveFunction', returnType: 'IGeometry', sidebarPosition: 13 },
@@ -137,6 +137,7 @@ export const types: TypeEntry[] = [
   { name: 'IArcAngles', displayName: 'ArcAngles', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 14 },
   { name: 'IRect', displayName: 'Rect', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 15 },
   { name: 'ISlot', displayName: 'Slot', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 16 },
+  { name: 'IALine', displayName: 'ALine', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 16.5 },
   { name: 'IPolygon', displayName: 'Polygon', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 17 },
   { name: 'IOffset', displayName: 'Offset', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 32 },
   { name: 'IPlane', displayName: 'Plane', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 18 },
@@ -235,6 +236,7 @@ export const typeDisplayNameMap: Record<string, string> = {
   'IArcAngles': 'ArcAngles',
   'IRect': 'Rect',
   'ISlot': 'Slot',
+  'IALine': 'ALine',
   'IPolygon': 'Polygon',
   'IOffset': 'Offset',
   'IPlane': 'Plane',

@@ -181,7 +181,7 @@ sketch("xy", () => {
 
 ```js
 sketch("xy", () => {
-    const l = aLine(150, 45)
+    const l = aLine(45, 150)
     const c = circle([100, 0], 40)
 
     tArc(c, l, 50).guide()    // radius 50, tangent to both
@@ -192,7 +192,7 @@ sketch("xy", () => {
 
 ```js
 sketch("xy", () => {
-    const l1 = aLine(150, 45)
+    const l1 = aLine(45, 150)
     move([-50, 0])
     const l2 = vLine(100)
 
@@ -242,7 +242,7 @@ sketch("xy", () => {
 
 ```js
 sketch("xy", () => {
-    const l1 = aLine(300, 45)
+    const l1 = aLine(45, 300)
     move([-50, 0])
     const l2 = vLine(300)
 
@@ -256,7 +256,7 @@ The fourth argument is [`mustTouch`](#the-musttouch-option) — when `true`, onl
 
 ```js
 sketch("xy", () => {
-    const l = aLine(150, 45)
+    const l = aLine(45, 150)
     const c = circle([100, 0], 60)
 
     tCircle(c, l, 100).guide()

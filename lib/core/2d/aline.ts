@@ -16,38 +16,42 @@ interface ALineFunction {
   (length: number, angle: number, centered?: boolean): IGeometry;
   /**
    * Draws a line at the given angle on a specific plane.
+   * @param targetPlane - The plane to draw on
    * @param length - The line length
    * @param angle - The angle in degrees
-   * @param targetPlane - The plane to draw on
    */
-  (length: number, angle: number, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  (targetPlane: PlaneLike | ISceneObject, length: number, angle: number): IGeometry;
   /**
    * Draws a centered line at the given angle on a specific plane.
+   * @param targetPlane - The plane to draw on
    * @param length - The line length
    * @param angle - The angle in degrees
    * @param centered - Whether to center the line on the current position
-   * @param targetPlane - The plane to draw on
    */
-  (length: number, angle: number, centered: boolean, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  (targetPlane: PlaneLike | ISceneObject, length: number, angle: number, centered: boolean): IGeometry;
 }
 
 function build(context: SceneParserContext): ALineFunction {
   return function line() {
     let planeObj: PlaneObjectBase | null = null;
-    let argCount = arguments.length;
+    let argOffset = 0;
 
-    // Detect plane as last argument
-    if (argCount > 0) {
-      const lastArg = arguments[argCount - 1];
-      if (isPlaneLike(lastArg) || lastArg instanceof SceneObject) {
-        planeObj = resolvePlane(lastArg, context);
-        argCount--;
+    // Detect plane as first argument (only valid outside a sketch)
+    if (arguments.length > 0) {
+      const firstArg = arguments[0];
+      if (isPlaneLike(firstArg) || firstArg instanceof SceneObject) {
+        if (context.getActiveSketch() !== null) {
+          throw new Error("aLine(plane, ...) cannot be used inside a sketch. Use aLine(...) instead.");
+        }
+        planeObj = resolvePlane(firstArg, context);
+        argOffset = 1;
       }
     }
 
-    const length: number = arguments[0];
-    const angle: number = arguments[1];
-    const centered = argCount >= 3 ? (arguments[2] as boolean) : false;
+    const argCount = arguments.length - argOffset;
+    const length: number = arguments[argOffset];
+    const angle: number = arguments[argOffset + 1];
+    const centered = argCount >= 3 ? (arguments[argOffset + 2] as boolean) : false;
 
     const aline = new AngledLine(length, angle, centered, planeObj);
     context.addSceneObject(aline);

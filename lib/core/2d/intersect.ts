@@ -15,18 +15,22 @@ interface IntersectFunction {
 
   /**
    * Intersects 3D objects with a target plane, producing cross-section edges.
-   * @param sourceObjects - The 3D objects to intersect
    * @param targetPlane - The plane to intersect with
+   * @param sourceObjects - The 3D objects to intersect
    */
-  (sourceObjects: ISceneObject[], targetPlane: PlaneLike | ISceneObject): IExtrudableGeometry;
+  (targetPlane: PlaneLike | ISceneObject, sourceObjects: ISceneObject[]): IExtrudableGeometry;
 }
 
 function build(context: SceneParserContext): IntersectFunction {
   return function intersect(...args: any[]) {
-    if (Array.isArray(args[0])) {
-      const sourceObjects = args[0] as SceneObject[];
+    // Plane-first mode: intersect(plane, sources[])
+    if (args.length === 2 && Array.isArray(args[1])) {
+      if (context.getActiveSketch() !== null) {
+        throw new Error("intersect(plane, sources[]) cannot be used inside a sketch. Use intersect(...sources) instead.");
+      }
+      const planeObj: PlaneObjectBase = resolvePlane(args[0], context);
+      const sourceObjects = args[1] as SceneObject[];
       context.addSceneObjects(sourceObjects);
-      const planeObj: PlaneObjectBase = resolvePlane(args[1], context);
 
       const result = new Intersect(sourceObjects, planeObj);
       context.addSceneObject(result);

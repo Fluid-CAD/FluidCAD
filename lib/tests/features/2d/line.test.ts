@@ -42,7 +42,7 @@ describe("line functions", () => {
     });
 
     it("should support standalone mode with targetPlane", () => {
-      hLine(50, "xy");
+      hLine("xy", 50);
       render();
       // Just verify no error — standalone line doesn't form a closed shape
     });

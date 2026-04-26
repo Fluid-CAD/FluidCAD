@@ -66,7 +66,7 @@ describe("rect", () => {
 
   describe("standalone with targetPlane", () => {
     it("should create a rectangle on a specific plane", () => {
-      rect(80, 40, "xy");
+      rect("xy", 80, 40);
       const e = extrude(10) as ExtrudeBase;
       render();
 

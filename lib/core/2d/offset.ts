@@ -15,21 +15,25 @@ interface OffsetFunction {
   (distance?: number, removeOriginal?: boolean): IOffset;
   /**
    * Offsets source geometries onto a target plane.
+   * @param targetPlane - The plane to offset onto
    * @param distance - The offset distance
    * @param removeOriginal - Whether to remove the original geometry
-   * @param targetPlane - The plane to offset onto
    * @param sourceGeometries - The geometries to offset
    */
-  (distance: number, removeOriginal: boolean, targetPlane: PlaneLike | ISceneObject, ...sourceGeometries: Extrudable[]): IOffset;
+  (targetPlane: PlaneLike | ISceneObject, distance: number, removeOriginal: boolean, ...sourceGeometries: Extrudable[]): IOffset;
 }
 
 function build(context: SceneParserContext): OffsetFunction {
   return function offset(...args: any[]) {
-    // Outside-sketch mode: offset(distance, removeOriginal, plane, ...sourceGeometries)
-    if (args.length >= 3 && !Array.isArray(args[0])) {
-      const distance = args[0] as number ?? 1;
-      const removeOriginal = args[1] as boolean ?? false;
-      const planeObj = resolvePlane(args[2], context);
+    // Plane-first mode: offset(plane, distance, removeOriginal, ...sourceGeometries)
+    // Detected when first arg is not a number/undefined.
+    if (args.length > 0 && args[0] !== undefined && typeof args[0] !== 'number' && typeof args[0] !== 'boolean') {
+      if (context.getActiveSketch() !== null) {
+        throw new Error("offset(plane, ...) cannot be used inside a sketch. Use offset(...) instead.");
+      }
+      const planeObj = resolvePlane(args[0], context);
+      const distance = args[1] as number ?? 1;
+      const removeOriginal = args[2] as boolean ?? false;
       const sourceObjects = args.slice(3) as GeometrySceneObject[];
 
       const off = new Offset(distance, removeOriginal, sourceObjects, planeObj);

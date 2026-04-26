@@ -20,11 +20,11 @@ interface SlotFunction {
   (distance: number, radius: number): ISlot;
   /**
    * Draws a slot on a specific plane.
+   * @param targetPlane - The plane to draw on
    * @param distance - The slot length
    * @param radius - The end cap radius
-   * @param targetPlane - The plane to draw on
    */
-  (distance: number, radius: number, targetPlane: PlaneLike | ISceneObject): ISlot;
+  (targetPlane: PlaneLike | ISceneObject, distance: number, radius: number): ISlot;
   /**
    * Draws a slot from a start point with the given length and end radius.
    * @param start - The start point
@@ -41,43 +41,49 @@ interface SlotFunction {
   (geometry: ISceneObject, radius: number, deleteSource?: boolean): ISlot;
   /**
    * Creates a slot from a geometry edge on a specific plane.
+   * @param targetPlane - The plane to draw on
    * @param geometry - The source geometry edge
    * @param radius - The end cap radius
-   * @param targetPlane - The plane to draw on
    */
-  (geometry: ISceneObject, radius: number, targetPlane: PlaneLike | ISceneObject): ISlot;
+  (targetPlane: PlaneLike | ISceneObject, geometry: ISceneObject, radius: number): ISlot;
   /**
    * Creates a slot from a geometry edge, optionally keeping the source, on a specific plane.
+   * @param targetPlane - The plane to draw on
    * @param geometry - The source geometry edge
    * @param radius - The end cap radius
    * @param deleteSource - Whether to delete the source geometry
-   * @param targetPlane - The plane to draw on
    */
-  (geometry: ISceneObject, radius: number, deleteSource: boolean, targetPlane: PlaneLike | ISceneObject): ISlot;
+  (targetPlane: PlaneLike | ISceneObject, geometry: ISceneObject, radius: number, deleteSource: boolean): ISlot;
 }
 
 function build(context: SceneParserContext): SlotFunction {
   return function slot() {
-    // SlotFromEdge path: first arg is a SceneObject (geometry)
-    if (arguments[0] instanceof SceneObject) {
-      const geometry = arguments[0] as GeometrySceneObject;
-      const radius = arguments[1] as number;
-      let deleteSource = true;
-      let planeObj: PlaneObjectBase | null = null;
-      let argIdx = 2;
+    const inSketch = context.getActiveSketch() !== null;
 
-      // Check if there's a deleteSource boolean before a potential plane
-      if (argIdx < arguments.length && typeof arguments[argIdx] === 'boolean') {
-        deleteSource = arguments[argIdx] as boolean;
-        argIdx++;
-      }
-
-      // Check if there's a plane arg remaining
-      if (argIdx < arguments.length) {
-        const planeArg = arguments[argIdx];
-        if (isPlaneLike(planeArg) || planeArg instanceof SceneObject) {
-          planeObj = resolvePlane(planeArg, context);
+    // Detect plane as first argument (only valid outside a sketch).
+    // Inside a sketch, a SceneObject at position 0 means SlotFromEdge geometry, not plane.
+    let planeObj: PlaneObjectBase | null = null;
+    let argOffset = 0;
+    if (arguments.length > 0) {
+      const firstArg = arguments[0];
+      const looksLikePlane = isPlaneLike(firstArg) ||
+        (firstArg instanceof SceneObject && !isPoint2DLike(firstArg) && !inSketch);
+      if (looksLikePlane) {
+        if (inSketch) {
+          throw new Error("slot(plane, ...) cannot be used inside a sketch. Use slot(...) instead.");
         }
+        planeObj = resolvePlane(firstArg, context);
+        argOffset = 1;
+      }
+    }
+
+    // SlotFromEdge path: first non-plane arg is a SceneObject (geometry)
+    if (arguments[argOffset] instanceof SceneObject && !isPoint2DLike(arguments[argOffset])) {
+      const geometry = arguments[argOffset] as GeometrySceneObject;
+      const radius = arguments[argOffset + 1] as number;
+      let deleteSource = true;
+      if (arguments.length > argOffset + 2 && typeof arguments[argOffset + 2] === 'boolean') {
+        deleteSource = arguments[argOffset + 2] as boolean;
       }
 
       const slotFromEdge = new SlotFromEdge(geometry, radius, deleteSource, planeObj);
@@ -85,29 +91,19 @@ function build(context: SceneParserContext): SlotFunction {
       return slotFromEdge;
     }
 
-    let planeObj: PlaneObjectBase | null = null;
-    let argCount = arguments.length;
-
-    // Detect plane as last argument
-    if (argCount > 0) {
-      const lastArg = arguments[argCount - 1];
-      if (isPlaneLike(lastArg) || (lastArg instanceof SceneObject && !isPoint2DLike(lastArg))) {
-        planeObj = resolvePlane(lastArg, context);
-        argCount--;
-      }
-    }
+    const argCount = arguments.length - argOffset;
 
     // slot(distance, radius)
-    if (argCount === 2 && typeof arguments[0] === 'number') {
-      const distance = arguments[0] as number;
-      const radius = arguments[1] as number;
+    if (argCount === 2 && typeof arguments[argOffset] === 'number') {
+      const distance = arguments[argOffset] as number;
+      const radius = arguments[argOffset + 1] as number;
       const s = new Slot(distance, radius, planeObj);
       context.addSceneObject(s);
       return s;
     }
 
-    // slot(start, distance, radius)
-    if (argCount === 3) {
+    // slot(start, distance, radius) — in-sketch only
+    if (argCount === 3 && argOffset === 0) {
       const start = normalizePoint2D(arguments[0]);
       const distance = arguments[1] as number;
       const radius = arguments[2] as number;

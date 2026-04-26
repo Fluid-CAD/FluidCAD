@@ -166,7 +166,7 @@ describe("polygon", () => {
 
   describe("standalone with targetPlane", () => {
     it("should create a polygon on a specific plane", () => {
-      polygon(5, 50, "xy");
+      polygon("xy", 5, 50);
       const e = extrude(10) as ExtrudeBase;
       render();
 
@@ -175,7 +175,7 @@ describe("polygon", () => {
     });
 
     it("should create a circumscribed polygon on a specific plane", () => {
-      polygon(6, 60, "circumscribed", "xy");
+      polygon("xy", 6, 60, "circumscribed");
       const e = extrude(10) as ExtrudeBase;
       render();
 

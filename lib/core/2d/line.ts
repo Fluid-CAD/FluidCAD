@@ -23,36 +23,41 @@ interface LineFunction {
   (start: Point2DLike, end: Point2DLike): IGeometry;
   /**
    * Draws a line to the given point on a specific plane.
-   * @param end - The end point
    * @param targetPlane - The plane to draw on
+   * @param end - The end point
    */
-  (end: Point2DLike, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  (targetPlane: PlaneLike | ISceneObject, end: Point2DLike): IGeometry;
 }
 
 function build(context: SceneParserContext): LineFunction {
   return function line() {
     let line: LineTo;
     let planeObj: PlaneObjectBase | null = null;
-    let argCount = arguments.length;
+    let argOffset = 0;
 
-    // Detect plane as last argument
+    // Detect plane as first argument (only valid outside a sketch)
     // Point2DLike is not plane-like so no conflict
-    if (argCount > 0) {
-      const lastArg = arguments[argCount - 1];
-      if (isPlaneLike(lastArg) || (lastArg instanceof SceneObject && !isPoint2DLike(lastArg))) {
-        planeObj = resolvePlane(lastArg, context);
-        argCount--;
+    if (arguments.length > 0) {
+      const firstArg = arguments[0];
+      if (isPlaneLike(firstArg) || (firstArg instanceof SceneObject && !isPoint2DLike(firstArg))) {
+        if (context.getActiveSketch() !== null) {
+          throw new Error("line(plane, ...) cannot be used inside a sketch. Use line(...) instead.");
+        }
+        planeObj = resolvePlane(firstArg, context);
+        argOffset = 1;
       }
     }
 
+    const argCount = arguments.length - argOffset;
+
     if (argCount === 1) {
-      const vertex = normalizePoint2D(arguments[0])
+      const vertex = normalizePoint2D(arguments[argOffset])
       line = new LineTo(vertex, planeObj);
       context.addSceneObject(line)
     }
     else if (argCount === 2) {
-      const start = normalizePoint2D(arguments[0]);
-      const end = normalizePoint2D(arguments[1]);
+      const start = normalizePoint2D(arguments[argOffset]);
+      const end = normalizePoint2D(arguments[argOffset + 1]);
       line = new LineTo(end, planeObj);
       context.addSceneObjects([new Move(start), line]);
     }

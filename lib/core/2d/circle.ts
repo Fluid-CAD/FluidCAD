@@ -24,10 +24,10 @@ interface CircleFunction {
   (diameter?: number): IExtrudableGeometry;
   /**
    * Draws a circle with a given diameter on a specific plane.
-   * @param diameter - The circle diameter
    * @param targetPlane - The plane to draw on
+   * @param diameter - The circle diameter
    */
-  (diameter: number, targetPlane: PlaneLike | ISceneObject): IExtrudableGeometry;
+  (targetPlane: PlaneLike | ISceneObject, diameter: number): IExtrudableGeometry;
 }
 
 function build(context: SceneParserContext): CircleFunction {
@@ -36,16 +36,21 @@ function build(context: SceneParserContext): CircleFunction {
     let center: LazyVertex;
     let circle: Circle;
     let planeObj: PlaneObjectBase | null = null;
-    let argCount = arguments.length;
+    let argOffset = 0;
 
-    // Detect plane as last argument
-    if (argCount > 0) {
-      const lastArg = arguments[argCount - 1];
-      if (isPlaneLike(lastArg) || (lastArg instanceof SceneObject && !isPoint2DLike(lastArg))) {
-        planeObj = resolvePlane(lastArg, context);
-        argCount--;
+    // Detect plane as first argument (only valid outside a sketch)
+    if (arguments.length > 0) {
+      const firstArg = arguments[0];
+      if (isPlaneLike(firstArg) || (firstArg instanceof SceneObject && !isPoint2DLike(firstArg))) {
+        if (context.getActiveSketch() !== null) {
+          throw new Error("circle(plane, ...) cannot be used inside a sketch. Use circle(...) instead.");
+        }
+        planeObj = resolvePlane(firstArg, context);
+        argOffset = 1;
       }
     }
+
+    const argCount = arguments.length - argOffset;
 
     if (argCount === 0) {
       diameter = 40;
@@ -53,13 +58,13 @@ function build(context: SceneParserContext): CircleFunction {
       context.addSceneObject(circle);
     }
     else if (argCount === 1) {
-      diameter = arguments[0] as number || 40;
+      diameter = arguments[argOffset] as number || 40;
       circle = new Circle(diameter, null, planeObj);
       context.addSceneObject(circle);
     }
     else {
-      center = normalizePoint2D(arguments[0]);
-      diameter = arguments[1] as number || 40;
+      center = normalizePoint2D(arguments[argOffset]);
+      diameter = arguments[argOffset + 1] as number || 40;
       circle = new Circle(diameter, null, planeObj);
       const move = new Move(center);
       context.addSceneObjects([move, circle]);

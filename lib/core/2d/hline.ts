@@ -25,34 +25,39 @@ interface HLineFunction {
   (start: Point2DLike, distance: number, centered?: boolean): IGeometry;
   /**
    * Draws a horizontal line on a specific plane.
-   * @param distance - The line length
    * @param targetPlane - The plane to draw on
+   * @param distance - The line length
    */
-  (distance: number, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  (targetPlane: PlaneLike | ISceneObject, distance: number): IGeometry;
   /**
    * Draws a horizontal line with centering on a specific plane.
+   * @param targetPlane - The plane to draw on
    * @param distance - The line length
    * @param centered - Whether to center the line on the current position
-   * @param targetPlane - The plane to draw on
    */
-  (distance: number, centered: boolean, targetPlane: PlaneLike | ISceneObject): IGeometry;
+  (targetPlane: PlaneLike | ISceneObject, distance: number, centered: boolean): IGeometry;
 }
 
 function build(context: SceneParserContext): HLineFunction {
   return function line() {
     let planeObj: PlaneObjectBase | null = null;
-    let argCount = arguments.length;
+    let argOffset = 0;
 
-    // Detect plane as last argument
-    if (argCount > 0) {
-      const lastArg = arguments[argCount - 1];
-      if (isPlaneLike(lastArg) || (lastArg instanceof SceneObject && !isPoint2DLike(lastArg))) {
-        planeObj = resolvePlane(lastArg, context);
-        argCount--;
+    // Detect plane as first argument (only valid outside a sketch)
+    if (arguments.length > 0) {
+      const firstArg = arguments[0];
+      if (isPlaneLike(firstArg) || (firstArg instanceof SceneObject && !isPoint2DLike(firstArg))) {
+        if (context.getActiveSketch() !== null) {
+          throw new Error("hLine(plane, ...) cannot be used inside a sketch. Use hLine(...) instead.");
+        }
+        planeObj = resolvePlane(firstArg, context);
+        argOffset = 1;
       }
     }
 
-    if (typeof arguments[0] !== 'number') {
+    const argCount = arguments.length - argOffset;
+
+    if (argOffset === 0 && typeof arguments[0] !== 'number') {
       // hline(start, distance) or hline(start, distance, centered)
       const start = normalizePoint2D(arguments[0]);
       const distance: number = arguments[1];
@@ -62,8 +67,8 @@ function build(context: SceneParserContext): HLineFunction {
       return hline;
     }
 
-    const distance: number = arguments[0];
-    const centered = argCount >= 2 ? (arguments[1] as boolean) : false;
+    const distance: number = arguments[argOffset];
+    const centered = argCount >= 2 ? (arguments[argOffset + 1] as boolean) : false;
 
     const hline = new HorizontalLine(distance, centered, planeObj);
     context.addSceneObject(hline);

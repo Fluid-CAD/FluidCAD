@@ -34,62 +34,67 @@ interface ArcFunction {
 
   /**
    * Draws an arc to an end point on a specific plane.
-   * @param endPoint - The end point of the arc
    * @param targetPlane - The plane to draw on
+   * @param endPoint - The end point of the arc
    */
-  (endPoint: Point2DLike, targetPlane: PlaneLike | ISceneObject): IArcPoints;
+  (targetPlane: PlaneLike | ISceneObject, endPoint: Point2DLike): IArcPoints;
   /**
    * Draws an arc between two points on a specific plane.
+   * @param targetPlane - The plane to draw on
    * @param startPoint - The start point of the arc
    * @param endPoint - The end point of the arc
-   * @param targetPlane - The plane to draw on
    */
-  (startPoint: Point2DLike, endPoint: Point2DLike, targetPlane: PlaneLike | ISceneObject): IArcPoints;
+  (targetPlane: PlaneLike | ISceneObject, startPoint: Point2DLike, endPoint: Point2DLike): IArcPoints;
   /**
    * Draws an arc by radius and angle range on a specific plane.
+   * @param targetPlane - The plane to draw on
    * @param radius - The arc radius
    * @param startAngle - The start angle in degrees
    * @param endAngle - The end angle in degrees
-   * @param targetPlane - The plane to draw on
    */
-  (radius: number, startAngle: number, endAngle: number, targetPlane: PlaneLike | ISceneObject): IArcAngles;
+  (targetPlane: PlaneLike | ISceneObject, radius: number, startAngle: number, endAngle: number): IArcAngles;
 }
 
 function build(context: SceneParserContext): ArcFunction {
   return function arc() {
     let planeObj: PlaneObjectBase | null = null;
-    let argCount = arguments.length;
+    let argOffset = 0;
 
-    // Detect plane as last argument
-    if (argCount > 0) {
-      const lastArg = arguments[argCount - 1];
-      if (isPlaneLike(lastArg) || (lastArg instanceof SceneObject && !isPoint2DLike(lastArg))) {
-        planeObj = resolvePlane(lastArg, context);
-        argCount--;
+    // Detect plane as first argument (only valid outside a sketch)
+    if (arguments.length > 0) {
+      const firstArg = arguments[0];
+      if (isPlaneLike(firstArg) || (firstArg instanceof SceneObject && !isPoint2DLike(firstArg))) {
+        if (context.getActiveSketch() !== null) {
+          throw new Error("arc(plane, ...) cannot be used inside a sketch. Use arc(...) instead.");
+        }
+        planeObj = resolvePlane(firstArg, context);
+        argOffset = 1;
       }
     }
 
+    const argCount = arguments.length - argOffset;
+
     // (startPoint, endPoint) — two Point2DLike args, default center = current position
-    if (argCount >= 2 && isPoint2DLike(arguments[0]) && isPoint2DLike(arguments[1])) {
-      const start = normalizePoint2D(arguments[0] as Point2DLike);
-      const end = normalizePoint2D(arguments[1] as Point2DLike);
+    if (argCount >= 2 && isPoint2DLike(arguments[argOffset]) && isPoint2DLike(arguments[argOffset + 1])) {
+      const start = normalizePoint2D(arguments[argOffset] as Point2DLike);
+      const end = normalizePoint2D(arguments[argOffset + 1] as Point2DLike);
       const arcObj = Arc.twoPoints(start, end, planeObj);
       context.addSceneObject(arcObj);
       return arcObj;
     }
 
     // (endPoint) — single Point2DLike arg
-    if (isPoint2DLike(arguments[0])) {
-      const end = normalizePoint2D(arguments[0] as Point2DLike);
+    if (isPoint2DLike(arguments[argOffset])) {
+      const end = normalizePoint2D(arguments[argOffset] as Point2DLike);
       const arcObj = Arc.toPoint(end, planeObj);
       context.addSceneObject(arcObj);
       return arcObj;
     }
 
     // (radius, startAngle?, endAngle?) — all numeric args
-    const radius = arguments[0] as number || 100;
-    const startAngle = arguments[1] as number || 0;
-    const endAngle = argCount >= 3 ? arguments[2] as number : 180;
+    const radius = arguments[argOffset] as number || 100;
+    const startAngle = arguments[argOffset + 1] as number || 0;
+    const endAngle = argCount >= 3 ? arguments[argOffset + 2] as number : 180;
 
     const arcObj = Arc.fromAngles(radius, startAngle, endAngle, planeObj);
     context.addSceneObject(arcObj);

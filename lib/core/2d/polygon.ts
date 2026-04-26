@@ -28,19 +28,19 @@ interface PolygonFunction {
   (center: Point2DLike, numberOfSides: number, diameter: number, mode?: PolygonMode): IPolygon;
   /**
    * Draws a regular polygon on a specific plane.
+   * @param targetPlane - The plane to draw on
    * @param numberOfSides - The number of sides
    * @param diameter - The circumscribed or inscribed diameter
-   * @param targetPlane - The plane to draw on
    */
-  (numberOfSides: number, diameter: number, targetPlane: PlaneLike | ISceneObject): IPolygon;
+  (targetPlane: PlaneLike | ISceneObject, numberOfSides: number, diameter: number): IPolygon;
   /**
    * Draws a regular polygon with a given mode on a specific plane.
+   * @param targetPlane - The plane to draw on
    * @param numberOfSides - The number of sides
    * @param diameter - The circumscribed or inscribed diameter
    * @param mode - `'inscribed'` or `'circumscribed'`
-   * @param targetPlane - The plane to draw on
    */
-  (numberOfSides: number, diameter: number, mode: PolygonMode, targetPlane: PlaneLike | ISceneObject): IPolygon;
+  (targetPlane: PlaneLike | ISceneObject, numberOfSides: number, diameter: number, mode: PolygonMode): IPolygon;
 }
 
 function build(context: SceneParserContext): PolygonFunction {
@@ -51,39 +51,44 @@ function build(context: SceneParserContext): PolygonFunction {
     let center: LazyVertex;
     let poly: Polygon;
     let planeObj: PlaneObjectBase | null = null;
-    let argCount = arguments.length;
+    let argOffset = 0;
 
-    // Detect plane as last argument
+    // Detect plane as first argument (only valid outside a sketch)
     // PolygonMode strings ('inscribed'/'circumscribed') don't overlap with StandardPlane strings
-    if (argCount > 0) {
-      const lastArg = arguments[argCount - 1];
-      if (isPlaneLike(lastArg) || (lastArg instanceof SceneObject && !isPoint2DLike(lastArg))) {
-        planeObj = resolvePlane(lastArg, context);
+    if (arguments.length > 0) {
+      const firstArg = arguments[0];
+      if (isPlaneLike(firstArg) || (firstArg instanceof SceneObject && !isPoint2DLike(firstArg))) {
+        if (context.getActiveSketch() !== null) {
+          throw new Error("polygon(plane, ...) cannot be used inside a sketch. Use polygon(...) instead.");
+        }
+        planeObj = resolvePlane(firstArg, context);
         context.addSceneObject(planeObj);
-        argCount--;
+        argOffset = 1;
       }
     }
 
+    const argCount = arguments.length - argOffset;
+
     if (argCount === 2) {
-      numberOfSides = arguments[0] as number;
-      diameter = arguments[1] as number;
+      numberOfSides = arguments[argOffset] as number;
+      diameter = arguments[argOffset + 1] as number;
       mode = 'inscribed';
 
       poly = new Polygon(numberOfSides, diameter, mode, planeObj);
       context.addSceneObject(poly);
     }
     else if (argCount === 3) {
-      if (typeof arguments[0] === 'number') {
-        numberOfSides = arguments[0] as number;
-        diameter = arguments[1] as number;
-        mode = arguments[2] as PolygonMode;
+      if (typeof arguments[argOffset] === 'number') {
+        numberOfSides = arguments[argOffset] as number;
+        diameter = arguments[argOffset + 1] as number;
+        mode = arguments[argOffset + 2] as PolygonMode;
 
         poly = new Polygon(numberOfSides, diameter, mode, planeObj);
         context.addSceneObject(poly);
       } else {
-        center = normalizePoint2D(arguments[0]);
-        numberOfSides = arguments[1] as number;
-        diameter = arguments[2] as number;
+        center = normalizePoint2D(arguments[argOffset]);
+        numberOfSides = arguments[argOffset + 1] as number;
+        diameter = arguments[argOffset + 2] as number;
         mode = 'inscribed';
 
         poly = new Polygon(numberOfSides, diameter, mode, planeObj);
@@ -91,10 +96,10 @@ function build(context: SceneParserContext): PolygonFunction {
       }
     }
     else if (argCount === 4) {
-      center = normalizePoint2D(arguments[0]);
-      numberOfSides = arguments[1] as number;
-      diameter = arguments[2] as number;
-      mode = arguments[3] as PolygonMode;
+      center = normalizePoint2D(arguments[argOffset]);
+      numberOfSides = arguments[argOffset + 1] as number;
+      diameter = arguments[argOffset + 2] as number;
+      mode = arguments[argOffset + 3] as PolygonMode;
 
       poly = new Polygon(numberOfSides, diameter, mode, planeObj);
       context.addSceneObjects([new Move(center), poly]);

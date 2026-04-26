@@ -43,7 +43,7 @@ describe("slot", () => {
 
   describe("standalone with targetPlane", () => {
     it("should create a slot on a specific plane", () => {
-      slot(60, 10, "xy");
+      slot("xy", 60, 10);
       const e = extrude(10) as ExtrudeBase;
       render();
 

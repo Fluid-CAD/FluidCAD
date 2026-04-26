@@ -15,18 +15,22 @@ interface ProjectFunction {
 
   /**
    * Projects 3D objects onto a target plane.
-   * @param sourceObjects - The 3D objects to project
    * @param targetPlane - The plane to project onto
+   * @param sourceObjects - The 3D objects to project
    */
-  (sourceObjects: ISceneObject[], targetPlane: PlaneLike | ISceneObject): IExtrudableGeometry;
+  (targetPlane: PlaneLike | ISceneObject, sourceObjects: ISceneObject[]): IExtrudableGeometry;
 }
 
 function build(context: SceneParserContext): ProjectFunction {
   return function project(...args: any[]) {
-    if (Array.isArray(args[0])) {
-      const sourceObjects = args[0] as SceneObject[];
+    // Plane-first mode: project(plane, sources[])
+    if (args.length === 2 && Array.isArray(args[1])) {
+      if (context.getActiveSketch() !== null) {
+        throw new Error("project(plane, sources[]) cannot be used inside a sketch. Use project(...sources) instead.");
+      }
+      const planeObj: PlaneObjectBase = resolvePlane(args[0], context);
+      const sourceObjects = args[1] as SceneObject[];
       context.addSceneObjects(sourceObjects);
-      const planeObj: PlaneObjectBase = resolvePlane(args[1], context);
 
       const projection = new Projection(sourceObjects, planeObj);
       context.addSceneObject(projection);

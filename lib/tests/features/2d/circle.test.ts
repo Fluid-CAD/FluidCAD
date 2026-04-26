@@ -65,7 +65,7 @@ describe("circle", () => {
 
   describe("standalone with targetPlane", () => {
     it("should create a circle on a specific plane", () => {
-      circle(60, "xy");
+      circle("xy", 60);
       const e = extrude(10) as ExtrudeBase;
       render();
 

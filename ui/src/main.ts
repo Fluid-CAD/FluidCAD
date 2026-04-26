@@ -16,6 +16,9 @@ import { SceneObjectRender, PlaneData } from './types';
 import { onThemeChange } from './scene/theme-colors';
 import { loadPreferences } from './preferences';
 import { applyPreferences } from './scene/viewer-settings';
+import { installVSCodeKeyboardBridge } from './keyboard-bridge';
+
+installVSCodeKeyboardBridge();
 
 const container = document.getElementById('fluidcad-viewer') || document.body;
 

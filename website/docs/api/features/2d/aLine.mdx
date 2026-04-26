@@ -1,33 +1,34 @@
 ---
 sidebar_position: 11
 title: "aLine"
-description: "Draws a line at the given angle with the given length."
+description: "Draws a line at the given angle with the given length. Chain `.centered()` to center the line on the current position."
 ---
 
 # aLine()
 
 Draws a line at the given angle with the given length.
+Chain `.centered()` to center the line on the current position.
 
-**Returns**: [**`Geometry`**](/docs/api/types/geometry)
+**Returns**: [**`ALine`**](/docs/api/types/aline)
 
 ## Signatures
 
 ```ts
-aLine(length: number, angle: number, centered?: boolean): Geometry
+aLine(angle: number, length: number): ALine
 ```
 
 Draws a line at the given angle with the given length.
+Chain `.centered()` to center the line on the current position.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `length` | number | The line length |
 | `angle` | number | The angle in degrees |
-| `centered` | boolean | Whether to center the line on the current position *(optional)* |
+| `length` | number | The line length |
 
 ---
 
 ```ts
-aLine(targetPlane: SceneObject | PlaneLike, length: number, angle: number): Geometry
+aLine(targetPlane: SceneObject | PlaneLike, angle: number, length: number): ALine
 ```
 
 Draws a line at the given angle on a specific plane.
@@ -35,20 +36,5 @@ Draws a line at the given angle on a specific plane.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
-| `length` | number | The line length |
 | `angle` | number | The angle in degrees |
-
----
-
-```ts
-aLine(targetPlane: SceneObject | PlaneLike, length: number, angle: number, centered: boolean): Geometry
-```
-
-Draws a centered line at the given angle on a specific plane.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
 | `length` | number | The line length |
-| `angle` | number | The angle in degrees |
-| `centered` | boolean | Whether to center the line on the current position |

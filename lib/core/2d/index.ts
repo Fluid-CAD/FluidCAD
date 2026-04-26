@@ -1,5 +1,6 @@
 export { default as line } from './line.js';
 export { default as circle } from './circle.js';
+export { default as ellipse } from './ellipse.js';
 export { default as rect } from './rect.js';
 export { default as hMove } from './hmove.js';
 export { default as vMove } from './vmove.js';

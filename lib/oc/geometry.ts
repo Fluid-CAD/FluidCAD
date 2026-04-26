@@ -170,6 +170,43 @@ export class Geometry {
     throw new Error('Failed to create circle edge: ' + status);
   }
 
+  static makeEllipseEdge(
+    center: Point,
+    majorRadius: number,
+    minorRadius: number,
+    normal: Vector3d,
+    majorAxisDir: Vector3d,
+  ): Edge {
+    const oc = getOC();
+    const [gpCenter, disposeCenter] = Convert.toGpPnt(center);
+    const [gpNormal, disposeNormal] = Convert.toGpDir(normal);
+    const [gpAxisDir, disposeAxisDir] = Convert.toGpDir(majorAxisDir);
+    const ax2 = new oc.gp_Ax2(gpCenter, gpNormal, gpAxisDir);
+    const gpEllipse = new oc.gp_Elips(ax2, majorRadius, minorRadius);
+    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(gpEllipse);
+
+    if (edgeMaker.IsDone()) {
+      const edge = edgeMaker.Edge();
+      edgeMaker.delete();
+      gpEllipse.delete();
+      ax2.delete();
+      disposeAxisDir();
+      disposeNormal();
+      disposeCenter();
+      return Edge.fromTopoDSEdge(edge);
+    }
+
+    const status = edgeMaker.Error();
+    edgeMaker.delete();
+    gpEllipse.delete();
+    ax2.delete();
+    disposeAxisDir();
+    disposeNormal();
+    disposeCenter();
+
+    throw new Error('Failed to create ellipse edge: ' + status);
+  }
+
   static makeBezierCurve(poles: Point[]): Geom_BezierCurve {
     const oc = getOC();
     const polesArray = new oc.TColgp_Array1OfPnt(1, poles.length);

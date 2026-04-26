@@ -272,6 +272,26 @@ export interface IALine extends IGeometry {
   centered(value?: boolean): this;
 }
 
+export interface IHLine extends IGeometry {
+  /**
+   * Controls whether the line is centered on the current position.
+   * When `true`, the line is offset backward by half its length so that the
+   * current position falls at its midpoint.
+   * @param value - `true` to center, `false` (default) to start from the current position.
+   */
+  centered(value?: boolean): this;
+}
+
+export interface IVLine extends IGeometry {
+  /**
+   * Controls whether the line is centered on the current position.
+   * When `true`, the line is offset backward by half its length so that the
+   * current position falls at its midpoint.
+   * @param value - `true` to center, `false` (default) to start from the current position.
+   */
+  centered(value?: boolean): this;
+}
+
 export interface IPolygon extends IExtrudableGeometry {
   /**
    * Returns a specific edge of the polygon by index.

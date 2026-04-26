@@ -7,35 +7,28 @@ import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
-import { IGeometry, ISceneObject } from "../interfaces.js";
+import { IVLine, ISceneObject } from "../interfaces.js";
 
 interface VLineFunction {
   /**
    * Draws a vertical line of the given distance.
+   * Chain `.centered()` to center the line on the current position.
    * @param distance - The line length
-   * @param centered - Whether to center the line on the current position
    */
-  (distance: number, centered?: boolean): IGeometry;
+  (distance: number): IVLine;
   /**
    * Draws a vertical line from a start point.
+   * Chain `.centered()` to center the line on the start point.
    * @param start - The start point
    * @param distance - The line length
-   * @param centered - Whether to center the line on the start point
    */
-  (start: Point2DLike, distance: number, centered?: boolean): IGeometry;
+  (start: Point2DLike, distance: number): IVLine;
   /**
    * Draws a vertical line on a specific plane.
    * @param targetPlane - The plane to draw on
    * @param distance - The line length
    */
-  (targetPlane: PlaneLike | ISceneObject, distance: number): IGeometry;
-  /**
-   * Draws a vertical line with centering on a specific plane.
-   * @param targetPlane - The plane to draw on
-   * @param distance - The line length
-   * @param centered - Whether to center the line on the current position
-   */
-  (targetPlane: PlaneLike | ISceneObject, distance: number, centered: boolean): IGeometry;
+  (targetPlane: PlaneLike | ISceneObject, distance: number): IVLine;
 }
 
 function build(context: SceneParserContext): VLineFunction {
@@ -55,22 +48,18 @@ function build(context: SceneParserContext): VLineFunction {
       }
     }
 
-    const argCount = arguments.length - argOffset;
-
     if (argOffset === 0 && typeof arguments[0] !== 'number') {
-      // vline(start, distance) or vline(start, distance, centered)
+      // vline(start, distance)
       const start = normalizePoint2D(arguments[0]);
       const distance: number = arguments[1];
-      const centered = argCount >= 3 ? (arguments[2] as boolean) : false;
-      const vline = new VerticalLine(distance, centered, planeObj);
+      const vline = new VerticalLine(distance, planeObj);
       context.addSceneObjects([new Move(start), vline]);
       return vline;
     }
 
     const distance: number = arguments[argOffset];
-    const centered = argCount >= 2 ? (arguments[argOffset + 1] as boolean) : false;
 
-    const vline = new VerticalLine(distance, centered, planeObj);
+    const vline = new VerticalLine(distance, planeObj);
     context.addSceneObject(vline);
 
     return vline;

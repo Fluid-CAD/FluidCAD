@@ -175,7 +175,7 @@ describe("thin revolve", () => {
     it("should classify cap faces for vertical line profile parallel to axis (90 deg)", () => {
       sketch("xy", () => {
         move([50, 0]);
-        vLine(100, true);
+        vLine(100).centered();
       });
 
       const r = revolve("y", -90).thin(20).new() as Revolve;
@@ -197,7 +197,7 @@ describe("thin revolve", () => {
     it("should classify cap faces for vertical line profile parallel to axis (180 deg)", () => {
       sketch("xy", () => {
         move([50, 0]);
-        vLine(100, true);
+        vLine(100).centered();
       });
 
       const r = revolve("y", 180).thin(20).new() as Revolve;

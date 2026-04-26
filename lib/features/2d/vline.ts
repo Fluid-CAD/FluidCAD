@@ -1,14 +1,21 @@
 import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { Point2D } from "../../math/point.js";
-import { LazyVertex } from "../lazy-vertex.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { GeometrySceneObject } from "./geometry.js";
+import { IVLine } from "../../core/interfaces.js";
 
-export class VerticalLine extends GeometrySceneObject {
+export class VerticalLine extends GeometrySceneObject implements IVLine {
 
-  constructor(public distance: number, public centered: boolean = false, private targetPlane: PlaneObjectBase = null) {
+  private _centered: boolean = false;
+
+  constructor(public distance: number, private targetPlane: PlaneObjectBase = null) {
     super();
+  }
+
+  centered(value: boolean = true): this {
+    this._centered = value;
+    return this;
   }
 
   build() {
@@ -17,7 +24,7 @@ export class VerticalLine extends GeometrySceneObject {
     const currentPos = this.targetPlane
       ? plane.worldToLocal(this.targetPlane.getPlaneCenter())
       : this.getCurrentPosition();
-    const startPoint = this.centered
+    const startPoint = this._centered
       ? currentPos.translate(0, -this.distance / 2)
       : currentPos;
     const endPoint = startPoint.translate(0, this.distance);
@@ -35,9 +42,13 @@ export class VerticalLine extends GeometrySceneObject {
 
     const sign = Math.sign(this.distance) || 1;
     this.setTangent(new Point2D(0, sign));
-    if (this.sketch) this.setCurrentPosition(endPoint);
+    if (this.sketch) {
+      this.setCurrentPosition(endPoint);
+    }
 
-    if (this.targetPlane) this.targetPlane.removeShapes(this);
+    if (this.targetPlane) {
+      this.targetPlane.removeShapes(this);
+    }
   }
 
   compareTo(other: VerticalLine): boolean {
@@ -56,7 +67,7 @@ export class VerticalLine extends GeometrySceneObject {
       return false;
     }
 
-    return this.distance === other.distance && this.centered === other.centered;
+    return this.distance === other.distance && this._centered === other._centered;
   }
 
   getType(): string {
@@ -70,7 +81,7 @@ export class VerticalLine extends GeometrySceneObject {
   serialize() {
     return {
       distance: this.distance,
-      centered: this.centered
+      centered: this._centered
     }
   }
 }

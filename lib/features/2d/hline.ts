@@ -1,14 +1,21 @@
 import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { Point2D } from "../../math/point.js";
-import { LazyVertex } from "../lazy-vertex.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { GeometrySceneObject } from "./geometry.js";
+import { IHLine } from "../../core/interfaces.js";
 
-export class HorizontalLine extends GeometrySceneObject {
+export class HorizontalLine extends GeometrySceneObject implements IHLine {
 
-  constructor(public distance: number, public centered: boolean = false, private targetPlane: PlaneObjectBase = null) {
+  private _centered: boolean = false;
+
+  constructor(public distance: number, private targetPlane: PlaneObjectBase = null) {
     super();
+  }
+
+  centered(value: boolean = true): this {
+    this._centered = value;
+    return this;
   }
 
   build() {
@@ -17,7 +24,7 @@ export class HorizontalLine extends GeometrySceneObject {
     const currentPos = this.targetPlane
       ? plane.worldToLocal(this.targetPlane.getPlaneCenter())
       : this.getCurrentPosition();
-    const startPoint = this.centered
+    const startPoint = this._centered
       ? currentPos.translate(-this.distance / 2, 0)
       : currentPos;
     const endPoint = startPoint.translate(this.distance, 0);
@@ -39,7 +46,9 @@ export class HorizontalLine extends GeometrySceneObject {
       this.setCurrentPosition(endPoint);
     }
 
-    if (this.targetPlane) this.targetPlane.removeShapes(this);
+    if (this.targetPlane) {
+      this.targetPlane.removeShapes(this);
+    }
   }
 
   compareTo(other: HorizontalLine): boolean {
@@ -58,7 +67,7 @@ export class HorizontalLine extends GeometrySceneObject {
       return false;
     }
 
-    return this.distance === other.distance && this.centered === other.centered;
+    return this.distance === other.distance && this._centered === other._centered;
   }
 
   getType(): string {
@@ -72,7 +81,7 @@ export class HorizontalLine extends GeometrySceneObject {
   serialize() {
     return {
       distance: this.distance,
-      centered: this.centered
+      centered: this._centered
     }
   }
 }

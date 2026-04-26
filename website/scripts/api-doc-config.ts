@@ -62,8 +62,8 @@ export const features: FeatureEntry[] = [
   { name: 'polygon', displayName: 'polygon', category: '2d', sourceFile: 'core/2d/polygon.ts', interfaceName: 'PolygonFunction', returnType: 'IPolygon', sidebarPosition: 7 },
   { name: 'bezier', displayName: 'bezier', category: '2d', sourceFile: 'core/2d/bezier.ts', interfaceName: 'BezierFunction', returnType: 'IGeometry', sidebarPosition: 8 },
   // 2D Sketching — Line Shortcuts
-  { name: 'hLine', displayName: 'hLine', category: '2d', sourceFile: 'core/2d/hline.ts', interfaceName: 'HLineFunction', returnType: 'IGeometry', sidebarPosition: 9 },
-  { name: 'vLine', displayName: 'vLine', category: '2d', sourceFile: 'core/2d/vline.ts', interfaceName: 'VLineFunction', returnType: 'IGeometry', sidebarPosition: 10 },
+  { name: 'hLine', displayName: 'hLine', category: '2d', sourceFile: 'core/2d/hline.ts', interfaceName: 'HLineFunction', returnType: 'IHLine', sidebarPosition: 9 },
+  { name: 'vLine', displayName: 'vLine', category: '2d', sourceFile: 'core/2d/vline.ts', interfaceName: 'VLineFunction', returnType: 'IVLine', sidebarPosition: 10 },
   { name: 'aLine', displayName: 'aLine', category: '2d', sourceFile: 'core/2d/aline.ts', interfaceName: 'ALineFunction', returnType: 'IALine', sidebarPosition: 11 },
   // 2D Sketching — Positioning
   { name: 'center', displayName: 'center', category: '2d', sourceFile: 'core/2d/center.ts', interfaceName: 'CenterFunction', returnType: 'IGeometry', sidebarPosition: 12 },
@@ -138,6 +138,8 @@ export const types: TypeEntry[] = [
   { name: 'IRect', displayName: 'Rect', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 15 },
   { name: 'ISlot', displayName: 'Slot', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 16 },
   { name: 'IALine', displayName: 'ALine', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 16.5 },
+  { name: 'IHLine', displayName: 'HLine', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 16.6 },
+  { name: 'IVLine', displayName: 'VLine', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 16.7 },
   { name: 'IPolygon', displayName: 'Polygon', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 17 },
   { name: 'IOffset', displayName: 'Offset', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 32 },
   { name: 'IPlane', displayName: 'Plane', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 18 },
@@ -237,6 +239,8 @@ export const typeDisplayNameMap: Record<string, string> = {
   'IRect': 'Rect',
   'ISlot': 'Slot',
   'IALine': 'ALine',
+  'IHLine': 'HLine',
+  'IVLine': 'VLine',
   'IPolygon': 'Polygon',
   'IOffset': 'Offset',
   'IPlane': 'Plane',

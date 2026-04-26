@@ -18,7 +18,7 @@ const topPlane = plane(base.sideFaces(4))
 
 sketch(topPlane, () => {
     move([-2, 0])
-    vLine(100, true).guide()
+    vLine(100).centered().guide()
     move([0, 0])
     arc(40).centered();
 });
@@ -41,7 +41,7 @@ const faceSelection = select(face().onPlane("xy", 16)).reusable()
 sketch(faceSelection, () => {
     move([0, 0])
     project(faceSelection)
-    vLine(60, true)
+    vLine(60).centered()
     split()
     trim(edge().above("yz"))
     circle([0, 0], 50)

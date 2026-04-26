@@ -4,31 +4,23 @@ import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
-import { IGeometry, ISceneObject } from "../interfaces.js";
+import { IALine, ISceneObject } from "../interfaces.js";
 
 interface ALineFunction {
   /**
    * Draws a line at the given angle with the given length.
-   * @param length - The line length
+   * Chain `.centered()` to center the line on the current position.
    * @param angle - The angle in degrees
-   * @param centered - Whether to center the line on the current position
+   * @param length - The line length
    */
-  (length: number, angle: number, centered?: boolean): IGeometry;
+  (angle: number, length: number): IALine;
   /**
    * Draws a line at the given angle on a specific plane.
    * @param targetPlane - The plane to draw on
-   * @param length - The line length
    * @param angle - The angle in degrees
-   */
-  (targetPlane: PlaneLike | ISceneObject, length: number, angle: number): IGeometry;
-  /**
-   * Draws a centered line at the given angle on a specific plane.
-   * @param targetPlane - The plane to draw on
    * @param length - The line length
-   * @param angle - The angle in degrees
-   * @param centered - Whether to center the line on the current position
    */
-  (targetPlane: PlaneLike | ISceneObject, length: number, angle: number, centered: boolean): IGeometry;
+  (targetPlane: PlaneLike | ISceneObject, angle: number, length: number): IALine;
 }
 
 function build(context: SceneParserContext): ALineFunction {
@@ -48,12 +40,10 @@ function build(context: SceneParserContext): ALineFunction {
       }
     }
 
-    const argCount = arguments.length - argOffset;
-    const length: number = arguments[argOffset];
-    const angle: number = arguments[argOffset + 1];
-    const centered = argCount >= 3 ? (arguments[argOffset + 2] as boolean) : false;
+    const angle: number = arguments[argOffset];
+    const length: number = arguments[argOffset + 1];
 
-    const aline = new AngledLine(length, angle, centered, planeObj);
+    const aline = new AngledLine(angle, length, planeObj);
     context.addSceneObject(aline);
 
     return aline;

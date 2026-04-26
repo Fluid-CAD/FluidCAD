@@ -108,7 +108,7 @@ describe("constrained geometries", () => {
   describe("tCircle between circle and line", () => {
     it("should create a tangent circle to a circle and a line", () => {
       const s = sketch("xy", () => {
-        const l = aLine(150, 45);
+        const l = aLine(45, 150);
         const c = circle([100, 0], 60);
         tCircle(c, l, 100).guide();
       }) as Sketch;
@@ -122,7 +122,7 @@ describe("constrained geometries", () => {
   describe("tCircle between two lines", () => {
     it("should create a tangent circle between two lines", () => {
       const s = sketch("xy", () => {
-        const l1 = aLine(300, 45);
+        const l1 = aLine(45, 300);
         move([-50, 0]);
         const l2 = vLine(300);
         tCircle(l1, l2, 200, true).guide();
@@ -163,7 +163,7 @@ describe("constrained geometries", () => {
   describe("tArc between circle and line", () => {
     it("should create a tangent arc to a circle and a line", () => {
       const s = sketch("xy", () => {
-        const l = aLine(150, 45);
+        const l = aLine(45, 150);
         const c = circle([100, 0], 40);
         tArc(c, l, 50).guide();
       }) as Sketch;
@@ -177,7 +177,7 @@ describe("constrained geometries", () => {
   describe("tArc between two lines", () => {
     it("should create a fillet arc between two lines", () => {
       const s = sketch("xy", () => {
-        const l1 = aLine(150, 45);
+        const l1 = aLine(45, 150);
         move([-50, 0]);
         const l2 = vLine(100);
         tArc(l1, l2, 50).guide();

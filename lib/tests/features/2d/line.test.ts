@@ -70,7 +70,7 @@ describe("line functions", () => {
     it("should create an angled line", () => {
       sketch("xy", () => {
         hLine(50);
-        aLine(50, 90);
+        aLine(90, 50);
         hLine(-50);
         vLine(-50);
       });

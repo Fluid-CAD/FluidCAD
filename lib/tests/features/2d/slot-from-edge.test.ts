@@ -21,7 +21,7 @@ describe("slot from edge", () => {
 
   it("should create a slot from an angled line", () => {
     const s = sketch("xy", () => {
-      const l = aLine(60, 45);
+      const l = aLine(45, 60);
       slot(l, 10);
     }) as Sketch;
     render();

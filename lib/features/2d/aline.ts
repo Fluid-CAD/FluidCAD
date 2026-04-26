@@ -3,14 +3,21 @@ import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { rad } from "../../helpers/math-helpers.js";
 import { Point2D } from "../../math/point.js";
-import { LazyVertex } from "../lazy-vertex.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { GeometrySceneObject } from "./geometry.js";
+import { IALine } from "../../core/interfaces.js";
 
-export class AngledLine extends GeometrySceneObject {
+export class AngledLine extends GeometrySceneObject implements IALine {
 
-  constructor(public length: number, public angle: number, public centered: boolean = false, private targetPlane: PlaneObjectBase = null) {
+  private _centered: boolean = false;
+
+  constructor(public angle: number, public length: number, private targetPlane: PlaneObjectBase = null) {
     super();
+  }
+
+  centered(value: boolean = true): this {
+    this._centered = value;
+    return this;
   }
 
   build() {
@@ -32,7 +39,7 @@ export class AngledLine extends GeometrySceneObject {
     const currentPos = this.targetPlane
       ? plane.worldToLocal(this.targetPlane.getPlaneCenter())
       : this.getCurrentPosition();
-    const startPoint = this.centered
+    const startPoint = this._centered
       ? currentPos.translate(-direction.x * this.length / 2, -direction.y * this.length / 2)
       : currentPos;
     const start = plane.localToWorld(startPoint);
@@ -50,14 +57,20 @@ export class AngledLine extends GeometrySceneObject {
     this.addShape(edge);
 
     this.setTangent(direction.normalize());
-    if (this.sketch) this.setCurrentPosition(endPoint);
+    if (this.sketch) {
+      this.setCurrentPosition(endPoint);
+    }
 
-    if (this.targetPlane) this.targetPlane.removeShapes(this);
+    if (this.targetPlane) {
+      this.targetPlane.removeShapes(this);
+    }
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
-    return new AngledLine(this.length, this.angle, this.centered, targetPlane);
+    const copy = new AngledLine(this.angle, this.length, targetPlane);
+    copy.centered(this._centered);
+    return copy;
   }
 
   compareTo(other: AngledLine): boolean {
@@ -76,7 +89,7 @@ export class AngledLine extends GeometrySceneObject {
       return false;
     }
 
-    return this.length === other.length && this.angle === other.angle && this.centered === other.centered;
+    return this.length === other.length && this.angle === other.angle && this._centered === other._centered;
   }
 
   getType(): string {
@@ -89,9 +102,9 @@ export class AngledLine extends GeometrySceneObject {
 
   serialize() {
     return {
-      length: this.length,
       angle: this.angle,
-      centered: this.centered
+      length: this.length,
+      centered: this._centered
     }
   }
 }

@@ -1,0 +1,71 @@
+---
+sidebar_position: 4
+title: "ellipse"
+description: "Draws an ellipse at the current position."
+---
+
+# ellipse()
+
+Draws an ellipse at the current position.
+
+**Returns**: [**`ExtrudableGeometry`**](/docs/api/types/extrudable-geometry)
+
+:::tip
+See the [guide](/docs/guides/sketching/primitive-shapes) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+ellipse(rx: number, ry: number): ExtrudableGeometry
+```
+
+Draws an ellipse at the current position.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `rx` | number | Semi-radius along the plane's X axis |
+| `ry` | number | Semi-radius along the plane's Y axis |
+
+---
+
+```ts
+ellipse(center: Point2DLike, rx: number, ry: number): ExtrudableGeometry
+```
+
+Draws an ellipse at a given center.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `center` | [Point2DLike](/docs/api/types/point2dlike) | The center point |
+| `rx` | number | Semi-radius along the plane's X axis |
+| `ry` | number | Semi-radius along the plane's Y axis |
+
+---
+
+```ts
+ellipse(targetPlane: SceneObject | PlaneLike, rx: number, ry: number): ExtrudableGeometry
+```
+
+Draws an ellipse on a specific plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
+| `rx` | number | Semi-radius along the plane's X axis |
+| `ry` | number | Semi-radius along the plane's Y axis |
+
+---
+
+```ts
+ellipse(targetPlane: SceneObject | PlaneLike, center: Point2DLike, rx: number, ry: number): ExtrudableGeometry
+```
+
+Draws an ellipse at a given center on a specific plane.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
+| `center` | [Point2DLike](/docs/api/types/point2dlike) | The center point in plane-local coordinates |
+| `rx` | number | Semi-radius along the plane's X axis |
+| `ry` | number | Semi-radius along the plane's Y axis |

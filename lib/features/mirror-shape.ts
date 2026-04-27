@@ -4,7 +4,7 @@ import { Matrix4 } from "../math/matrix4.js";
 import { Plane } from "../math/plane.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { PlaneObjectBase } from "./plane-renderable-base.js";
-import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
+import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
 
 export class MirrorShape extends SceneObject {
   private _excludedObjects: SceneObject[] = [];
@@ -75,16 +75,26 @@ export class MirrorShape extends SceneObject {
       }
     }
 
-    const fusionResult = fuseWithSceneObjects(allSceneObjects, transformedShapes)
+    const scope = this.resolveFusionScope(allSceneObjects);
 
-    for (const modifiedShape of fusionResult.modifiedShapes) {
-      if (modifiedShape.object) {
-        modifiedShape.object.removeShape(modifiedShape.shape, this)
+    if (this._operationMode === 'new') {
+      this.addShapes(transformedShapes);
+    } else if (this._operationMode === 'remove') {
+      cutWithSceneObjects(scope, transformedShapes, plane, 0, this, {
+        recordHistoryFor: this,
+      });
+    } else {
+      const fusionResult = fuseWithSceneObjects(scope, transformedShapes);
+
+      for (const modifiedShape of fusionResult.modifiedShapes) {
+        if (modifiedShape.object) {
+          modifiedShape.object.removeShape(modifiedShape.shape, this)
+        }
       }
-    }
 
-    for (const shape of fusionResult.newShapes) {
-      this.addShape(shape);
+      for (const shape of fusionResult.newShapes) {
+        this.addShape(shape);
+      }
     }
   }
 

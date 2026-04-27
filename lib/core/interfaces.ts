@@ -762,7 +762,7 @@ export interface ISweep extends IBooleanOperation {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
-export interface IMirror extends ISceneObject {
+export interface IMirror extends IBooleanOperation {
   /**
    * Excludes the given objects from the mirror operation. Useful when
    * mirroring "everything" but a few specific objects should be skipped,

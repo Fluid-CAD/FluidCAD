@@ -3,7 +3,7 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import mirror from "../../core/mirror.js";
-import { move, rect, circle } from "../../core/2d/index.js";
+import { move, rect } from "../../core/2d/index.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { countShapes } from "../utils.js";
@@ -143,6 +143,96 @@ describe("mirror (3D)", () => {
       const scene = render();
 
       expect(countShapes(scene)).toBe(1);
+    });
+  });
+
+  describe("mirror with .new()", () => {
+    it("should not fuse the mirrored copy with overlapping objects", () => {
+      // Centered cube — mirror across YZ produces a copy that overlaps the original.
+      // Default .add() would fuse to a single solid; .new() must keep them separate.
+      sketch("xy", () => {
+        rect(30, 30);
+      });
+      extrude(20).new();
+
+      mirror("yz").new();
+
+      const scene = render();
+      expect(countShapes(scene)).toBe(2);
+    });
+  });
+
+  describe("mirror with .remove()", () => {
+    it("should cut the mirrored copy out of the scene", () => {
+      // Solid spans y=-5..25 — mirroring across XZ overlaps in the y=-5..5 strip.
+      // .remove() uses the mirrored copy as a cut tool, leaving y=5..25.
+      sketch("xy", () => {
+        move([0, -5]);
+        rect(30, 30);
+      });
+      extrude(20).new();
+
+      mirror("xz").remove();
+
+      const scene = render();
+      expect(countShapes(scene)).toBe(1);
+
+      const solid = scene.getAllSceneObjects()
+        .flatMap(o => o.getShapes())
+        .find(s => s.getType() === "solid");
+      const bbox = ShapeOps.getBoundingBox(solid);
+      expect(bbox.minY).toBeCloseTo(5, 0);
+      expect(bbox.maxY).toBeCloseTo(25, 0);
+    });
+  });
+
+  describe("mirror with .scope()", () => {
+    it("should narrow .add() fusion to scoped objects only", () => {
+      // e1 is centered (mirror would overlap it); e2 is far away.
+      sketch("xy", () => {
+        rect(30, 30);
+      });
+      const e1 = extrude(20).new() as ExtrudeBase;
+
+      sketch("xy", () => {
+        move([60, 0]);
+        rect(30, 30);
+      });
+      const e2 = extrude(20).new() as ExtrudeBase;
+
+      // Mirror only e1 across YZ, but scope fusion to e2 (which doesn't intersect).
+      // The mirrored copy of e1 stays standalone; e1 and e2 are untouched.
+      mirror("yz", e1).add().scope(e2);
+
+      const scene = render();
+      // e1 + e2 + standalone mirrored-e1 = 3
+      expect(countShapes(scene)).toBe(3);
+    });
+
+    it("should narrow .remove() cut to scoped objects only", () => {
+      // Both solids cross the XZ plane — mirror across XZ would cut both by default.
+      sketch("xy", () => {
+        move([0, -5]);
+        rect(30, 30);
+      });
+      const e1 = extrude(20).new() as ExtrudeBase;
+
+      sketch("xy", () => {
+        move([60, -5]);
+        rect(30, 30);
+      });
+      const e2 = extrude(20).new() as ExtrudeBase;
+
+      // Cut only e1, leave e2 untouched.
+      mirror("xz", e1).remove().scope(e1);
+
+      const scene = render();
+      expect(countShapes(scene)).toBe(2);
+
+      const e2Shapes = (e2 as unknown as SceneObject).getShapes();
+      const e2Bbox = ShapeOps.getBoundingBox(e2Shapes[0]);
+      expect(e2Bbox.minY).toBeCloseTo(-5, 0);
+      expect(e2Bbox.maxY).toBeCloseTo(25, 0);
     });
   });
 

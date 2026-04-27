@@ -91,6 +91,15 @@ export async function spawnServer(client: Client, workspacePath: string): Promis
     client.handleServerMessage(msg);
   });
 
+  // Persistent exit handler — fires on any server crash/restart, not just
+  // during initial startup. Clears stale diagnostics so the editor doesn't
+  // show outdated squigglies after the server dies.
+  client.serverProcess.on('exit', () => {
+    client.diagnosticCollection.clear();
+    client.currentSceneObjects = [];
+    client.currentCompileError = null;
+  });
+
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Server startup timed out')), 30000);
 

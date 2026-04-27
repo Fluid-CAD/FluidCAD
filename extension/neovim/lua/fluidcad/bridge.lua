@@ -57,6 +57,7 @@ function M.start(workspace_path)
         server_url = nil
         ready = false
         pending_callbacks = {}
+        vim.diagnostic.reset(ns)
         if code ~= 0 then
           vim.notify('[fluidcad] Server exited with code ' .. code, vim.log.levels.ERROR)
         end
@@ -165,7 +166,7 @@ function M.handle_message(msg)
         vim.notify('[fluidcad] Init failed: ' .. first_line .. '  (:FluidCadLog for details)', vim.log.levels.ERROR)
       end
     elseif msg.type == 'scene-rendered' then
-      M.update_diagnostics(msg.result)
+      M.update_diagnostics(msg.result, msg.compileError)
     elseif msg.type == 'error' then
       local full = msg.message or 'unknown'
       for sub in ('[error] ' .. full .. '\n'):gmatch('([^\n]*)\n') do
@@ -173,6 +174,10 @@ function M.handle_message(msg)
       end
       local first_line = full:match('%S[^\n]*') or 'unknown error'
       vim.notify('[fluidcad] ' .. first_line .. '  (:FluidCadLog for details)', vim.log.levels.ERROR)
+      local current_path = vim.api.nvim_buf_get_name(vim.api.nvim_get_current_buf())
+      if current_path and current_path ~= '' then
+        M.update_diagnostics({}, { message = full, filePath = current_path })
+      end
     elseif msg.type == 'import-complete' then
       if msg.success then
         vim.print('[fluidcad] File imported successfully')
@@ -219,7 +224,19 @@ function M.handle_message(msg)
   end)
 end
 
-function M.update_diagnostics(result)
+local function find_buffer_for_path(file_path)
+  if not file_path then
+    return nil
+  end
+  for _, b in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(b) and vim.api.nvim_buf_get_name(b) == file_path then
+      return b
+    end
+  end
+  return nil
+end
+
+function M.update_diagnostics(result, compile_error)
   local by_file = {}
 
   for _, obj in ipairs(result) do
@@ -238,12 +255,29 @@ function M.update_diagnostics(result)
     end
   end
 
+  if compile_error then
+    local loc = compile_error.sourceLocation
+    local fp = (loc and loc.filePath) or compile_error.filePath
+    if fp then
+      if not by_file[fp] then
+        by_file[fp] = {}
+      end
+      table.insert(by_file[fp], {
+        lnum = math.max(0, ((loc and loc.line) or 1) - 1),
+        col = math.max(0, ((loc and loc.column) or 1) - 1),
+        message = compile_error.message,
+        severity = vim.diagnostic.severity.ERROR,
+        source = 'FluidCAD',
+      })
+    end
+  end
+
   -- clear diagnostics for all buffers in this namespace
   vim.diagnostic.reset(ns)
 
   for fp, diagnostics in pairs(by_file) do
-    local bufnr = vim.fn.bufnr(fp)
-    if bufnr ~= -1 then
+    local bufnr = find_buffer_for_path(fp)
+    if bufnr then
       vim.diagnostic.set(ns, bufnr, diagnostics)
     end
   end

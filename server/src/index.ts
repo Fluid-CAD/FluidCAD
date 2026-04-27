@@ -10,7 +10,8 @@ import { createExportRouter } from './routes/export.ts';
 import { createScreenshotRouter } from './routes/screenshot.ts';
 import { createPreferencesRouter } from './routes/preferences.ts';
 import { normalizePath } from './normalize-path.ts';
-import type { ServerToUIMessage } from './ws-protocol.ts';
+import type { CompileError, ServerToUIMessage } from './ws-protocol.ts';
+import { extractSourceLocation } from '../../lib/dist/index.js';
 
 const PORT = parseInt(process.env.FLUIDCAD_SERVER_PORT || '3100', 10);
 const WORKSPACE_PATH = normalizePath(process.env.FLUIDCAD_WORKSPACE_PATH || '');
@@ -170,6 +171,65 @@ wss.on('connection', (ws) => {
 
 let currentFile: string | null = null;
 let renderVersion = 0;
+const lastSceneByFile = new Map<string, { result: any[]; rollbackStop: number }>();
+
+function emitSuccess(absPath: string, result: any[], rollbackStop: number, breakpointHit?: boolean) {
+  lastSceneByFile.set(absPath, { result, rollbackStop });
+  sendToExtension({
+    type: 'scene-rendered',
+    absPath,
+    result,
+    rollbackStop,
+  });
+  broadcastToUI({
+    type: 'scene-rendered',
+    result,
+    absPath,
+    rollbackStop,
+    breakpointHit,
+  });
+}
+
+function buildCompileError(filePath: string, err: any): CompileError {
+  const message = err?.message || String(err);
+  const stack = typeof err?.stack === 'string' ? err.stack : '';
+  let sourceLocation = stack ? extractSourceLocation(stack) : null;
+  const normalized = normalizePath(filePath).replace('virtual:live-render:', '');
+  if (sourceLocation) {
+    sourceLocation = {
+      filePath: sourceLocation.filePath.replace('virtual:live-render:', ''),
+      line: sourceLocation.line,
+      column: sourceLocation.column,
+    };
+  }
+  return {
+    message,
+    filePath: normalized,
+    sourceLocation: sourceLocation ?? undefined,
+  };
+}
+
+function emitCompileError(filePath: string, err: any) {
+  const compileError = buildCompileError(filePath, err);
+  const key = compileError.filePath ?? normalizePath(filePath).replace('virtual:live-render:', '');
+  const prev = lastSceneByFile.get(key);
+  const result = prev?.result ?? [];
+  const rollbackStop = prev?.rollbackStop ?? -1;
+  sendToExtension({
+    type: 'scene-rendered',
+    absPath: key,
+    result,
+    rollbackStop,
+    compileError,
+  });
+  broadcastToUI({
+    type: 'scene-rendered',
+    result,
+    absPath: key,
+    rollbackStop,
+    compileError,
+  });
+}
 
 async function handleExtensionMessage(msg: any) {
   try {
@@ -178,21 +238,15 @@ async function handleExtensionMessage(msg: any) {
         const myVersion = ++renderVersion;
         broadcastToUI({ type: 'processing-file' });
         currentFile = msg.filePath;
-        const data = await fluidCadServer.processFile(msg.filePath);
-        if (myVersion !== renderVersion) { return; }
-        if (data) {
-          sendToExtension({
-            type: 'scene-rendered',
-            absPath: data.absPath,
-            result: data.result,
-            rollbackStop: data.rollbackStop,
-          });
-          broadcastToUI({
-            type: 'scene-rendered',
-            result: data.result,
-            absPath: data.absPath,
-            breakpointHit: data.breakpointHit,
-          });
+        try {
+          const data = await fluidCadServer.processFile(msg.filePath);
+          if (myVersion !== renderVersion) { return; }
+          if (data) {
+            emitSuccess(data.absPath, data.result, data.rollbackStop, data.breakpointHit);
+          }
+        } catch (err) {
+          if (myVersion !== renderVersion) { return; }
+          emitCompileError(msg.filePath, err);
         }
         break;
       }
@@ -207,24 +261,11 @@ async function handleExtensionMessage(msg: any) {
           const data = await fluidCadServer.updateLiveCode(msg.fileName, msg.code);
           if (myVersion !== renderVersion) { return; }
           if (data) {
-            sendToExtension({
-              type: 'scene-rendered',
-              absPath: data.absPath,
-              result: data.result,
-              rollbackStop: data.rollbackStop,
-            });
-            broadcastToUI({
-              type: 'scene-rendered',
-              result: data.result,
-              absPath: data.absPath,
-              breakpointHit: data.breakpointHit,
-            });
+            emitSuccess(data.absPath, data.result, data.rollbackStop, data.breakpointHit);
           }
-        } catch {
-          // Silently ignore errors during live-update (syntax errors, incomplete
-          // expressions, etc. while the user is typing). The last successful
-          // render remains visible. Model-building errors are delivered separately
-          // via scene-rendered object properties and are not affected.
+        } catch (err) {
+          if (myVersion !== renderVersion) { return; }
+          emitCompileError(msg.fileName, err);
         }
         break;
       }
@@ -234,18 +275,7 @@ async function handleExtensionMessage(msg: any) {
         const data = await fluidCadServer.rollback(msg.fileName, msg.index);
         if (myVersion !== renderVersion) { return; }
         if (data) {
-          sendToExtension({
-            type: 'scene-rendered',
-            absPath: data.absPath,
-            result: data.result,
-            rollbackStop: data.rollbackStop,
-          });
-          broadcastToUI({
-            type: 'scene-rendered',
-            result: data.result,
-            absPath: data.absPath,
-            rollbackStop: data.rollbackStop,
-          });
+          emitSuccess(data.absPath, data.result, data.rollbackStop);
         }
         break;
       }

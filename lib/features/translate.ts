@@ -5,6 +5,7 @@ import { LazyVertex } from "./lazy-vertex.js";
 
 export class Translate extends SceneObject {
   private _targetObjects: SceneObject[] | null = null;
+  private _excludedObjects: SceneObject[] = [];
 
   constructor(private amount: LazyVertex, private copy: boolean = false, ...targets: SceneObject[]) {
     super();
@@ -15,8 +16,17 @@ export class Translate extends SceneObject {
     return this._targetObjects;
   }
 
+  exclude(...objects: SceneObject[]): this {
+    this._excludedObjects.push(...objects);
+    return this;
+  }
+
   build(context: BuildSceneObjectContext) {
-    const objects = this.targetObjects || context.getSceneObjects()
+    let objects = this.targetObjects || context.getSceneObjects()
+
+    if (this._excludedObjects.length > 0) {
+      objects = objects.filter(obj => !this._excludedObjects.includes(obj));
+    }
 
     for (const obj of objects) {
       const shapes = obj.getShapes();
@@ -46,7 +56,12 @@ export class Translate extends SceneObject {
     const targets = this.targetObjects
       ? this.targetObjects.map(obj => remap.get(obj) || obj)
       : [];
-    return new Translate(this.amount, this.copy, ...targets);
+    const copy = new Translate(this.amount, this.copy, ...targets);
+    if (this._excludedObjects.length > 0) {
+      const remappedExcluded = this._excludedObjects.map(obj => remap.get(obj) || obj);
+      copy.exclude(...remappedExcluded);
+    }
+    return copy;
   }
 
   compareTo(other: Translate): boolean {
@@ -75,6 +90,16 @@ export class Translate extends SceneObject {
 
     for (let i = 0; i < thisTargetObjects.length; i++) {
       if (!thisTargetObjects[i].compareTo(otherTargetObjects[i])) {
+        return false;
+      }
+    }
+
+    if (this._excludedObjects.length !== other._excludedObjects.length) {
+      return false;
+    }
+
+    for (let i = 0; i < this._excludedObjects.length; i++) {
+      if (!this._excludedObjects[i].compareTo(other._excludedObjects[i])) {
         return false;
       }
     }

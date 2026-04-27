@@ -62,8 +62,8 @@ export class Viewer {
   private isMouseDown = false;
   private highlightedSub: SubSelection = null;
   private activeSketchId: string | null = null;
-  private hiddenShapeIndices = new Set<number>();
-  private shapeOpacities = new Map<number, number>();
+  private hiddenShapeIds = new Set<string>();
+  private shapeOpacities = new Map<string, number>();
 
   constructor(containerId: string) {
     const container = document.getElementById(containerId)!;
@@ -280,8 +280,7 @@ export class Viewer {
 
     const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking);
     this.ctx.scene.add(mesh);
-    this.applyHiddenShapes();
-    this.applyShapeOpacities();
+    this.applyShapeOverridesAndPrune(sceneObjects);
 
     if (this.activeSketchId) {
       this.applySketchModeGhosting();
@@ -820,8 +819,7 @@ export class Viewer {
     this.removeCompiledMesh();
     const mesh = buildSceneMesh(this.sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking);
     this.ctx.scene.add(mesh);
-    this.applyHiddenShapes();
-    this.applyShapeOpacities();
+    this.applyShapeOverridesAndPrune(this.sceneObjects);
     if (this.modeManager.isSketchMode && viewerSettings.current.sectionView) {
       this.applySectionView();
     }
@@ -829,101 +827,97 @@ export class Viewer {
   }
 
   setShapeVisibility(shapeId: string, visible: boolean): void {
-    const shapeIndex = this.findShapeIndexForId(shapeId);
-    if (shapeIndex === undefined) {
-      return;
-    }
     if (visible) {
-      this.hiddenShapeIndices.delete(shapeIndex);
+      this.hiddenShapeIds.delete(shapeId);
     } else {
-      this.hiddenShapeIndices.add(shapeIndex);
+      this.hiddenShapeIds.add(shapeId);
     }
-    this.applyVisibilityForIndex(shapeIndex, visible);
+    this.applyVisibilityForId(shapeId, visible);
     this.ctx.requestRender();
   }
 
   isShapeHidden(shapeId: string): boolean {
-    const shapeIndex = this.findShapeIndexForId(shapeId);
-    if (shapeIndex === undefined) {
-      return false;
-    }
-    return this.hiddenShapeIndices.has(shapeIndex);
+    return this.hiddenShapeIds.has(shapeId);
   }
 
-  private applyVisibilityForIndex(shapeIndex: number, visible: boolean): void {
+  private applyVisibilityForId(shapeId: string, visible: boolean): void {
     this.ctx.scene.traverse((child) => {
-      if (child.userData.shapeIndex === shapeIndex) {
+      if (child.userData.shapeId === shapeId) {
         child.visible = visible;
       }
     });
   }
 
   setShapeTransparency(shapeId: string, opacity: number): void {
-    const shapeIndex = this.findShapeIndexForId(shapeId);
-    if (shapeIndex === undefined) {
-      return;
-    }
     if (opacity >= 1) {
-      this.shapeOpacities.delete(shapeIndex);
+      this.shapeOpacities.delete(shapeId);
     } else {
-      this.shapeOpacities.set(shapeIndex, opacity);
+      this.shapeOpacities.set(shapeId, opacity);
     }
-    this.applyOpacityForIndex(shapeIndex, opacity);
+    this.applyOpacityForId(shapeId, opacity);
     this.ctx.requestRender();
   }
 
   getShapeTransparency(shapeId: string): number {
-    const shapeIndex = this.findShapeIndexForId(shapeId);
-    if (shapeIndex === undefined) {
-      return 1;
-    }
-    return this.shapeOpacities.get(shapeIndex) ?? 1;
+    return this.shapeOpacities.get(shapeId) ?? 1;
   }
 
-  private findShapeIndexForId(shapeId: string): number | undefined {
-    let result: number | undefined;
-    this.ctx.scene.traverse((child) => {
-      if (child.userData.shapeId === shapeId && typeof child.userData.shapeIndex === 'number') {
-        result = child.userData.shapeIndex;
-      }
-    });
-    return result;
-  }
-
-  private applyOpacityForIndex(shapeIndex: number, opacity: number): void {
+  private applyOpacityForId(shapeId: string, opacity: number): void {
     const roots: Object3D[] = [];
     this.ctx.scene.traverse((child) => {
-      if (child.userData.shapeIndex === shapeIndex) {
+      if (child.userData.shapeId === shapeId) {
         roots.push(child);
       }
     });
     for (const root of roots) {
-      root.traverse((child) => {
-        const mat = (child as any).material;
-        if (!mat) {
-          return;
-        }
-        const materials = Array.isArray(mat) ? mat : [mat];
-        for (const m of materials) {
-          m.transparent = opacity < 1;
-          m.opacity = opacity;
-          m.depthWrite = opacity >= 1;
-          m.needsUpdate = true;
-        }
-      });
+      this.applyOpacityToSubtree(root, opacity);
     }
   }
 
-  private applyShapeOpacities(): void {
-    for (const [shapeIndex, opacity] of this.shapeOpacities) {
-      this.applyOpacityForIndex(shapeIndex, opacity);
-    }
+  private applyOpacityToSubtree(root: Object3D, opacity: number): void {
+    root.traverse((child) => {
+      const mat = (child as any).material;
+      if (!mat) {
+        return;
+      }
+      const materials = Array.isArray(mat) ? mat : [mat];
+      for (const m of materials) {
+        m.transparent = opacity < 1;
+        m.opacity = opacity;
+        m.depthWrite = opacity >= 1;
+        m.needsUpdate = true;
+      }
+    });
   }
 
-  private applyHiddenShapes(): void {
-    for (const shapeIndex of this.hiddenShapeIndices) {
-      this.applyVisibilityForIndex(shapeIndex, false);
+  private applyShapeOverridesAndPrune(sceneObjects: SceneObjectRender[]): void {
+    const presentIds = new Set<string>();
+    for (const obj of sceneObjects) {
+      if (!obj.sceneShapes) continue;
+      for (const shape of obj.sceneShapes) {
+        if (shape.isMetaShape) continue;
+        if (shape.shapeId) presentIds.add(shape.shapeId);
+      }
     }
+
+    for (const id of this.hiddenShapeIds) {
+      if (!presentIds.has(id)) this.hiddenShapeIds.delete(id);
+    }
+    for (const id of this.shapeOpacities.keys()) {
+      if (!presentIds.has(id)) this.shapeOpacities.delete(id);
+    }
+
+    this.ctx.scene.traverse((child) => {
+      const sid = child.userData.shapeId;
+      if (typeof sid !== 'string') return;
+      if (this.hiddenShapeIds.has(sid)) {
+        child.visible = false;
+      }
+      const opacity = this.shapeOpacities.get(sid);
+      if (opacity !== undefined) {
+        this.applyOpacityToSubtree(child, opacity);
+      }
+    });
   }
 
   // Fake transparency for sketch mode by tinting non-sketch materials toward

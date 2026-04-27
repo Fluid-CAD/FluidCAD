@@ -19,7 +19,7 @@ describe("translate", () => {
       });
       const e = extrude(10).new() as ExtrudeBase;
 
-      const t = translate(50, e) as SceneObject;
+      const t = translate(50, e) as unknown as SceneObject;
 
       render();
 
@@ -37,7 +37,7 @@ describe("translate", () => {
       });
       const e = extrude(10).new() as ExtrudeBase;
 
-      const t = translate(30, 40, e) as SceneObject;
+      const t = translate(30, 40, e) as unknown as SceneObject;
 
       render();
 
@@ -53,7 +53,7 @@ describe("translate", () => {
       });
       const e = extrude(10).new() as ExtrudeBase;
 
-      const t = translate(10, 20, 30, e) as SceneObject;
+      const t = translate(10, 20, 30, e) as unknown as SceneObject;
 
       render();
 
@@ -72,7 +72,7 @@ describe("translate", () => {
       });
       const e = extrude(10).new() as ExtrudeBase;
 
-      const t = translate([15, 25, 35], e) as SceneObject;
+      const t = translate([15, 25, 35], e) as unknown as SceneObject;
 
       render();
 
@@ -150,6 +150,87 @@ describe("translate", () => {
 
       const bbox = ShapeOps.getBoundingBox(e2.getShapes()[0]);
       expect(bbox.minX).toBeCloseTo(0, 0);
+    });
+  });
+
+  describe("translate with .exclude()", () => {
+    it("should skip excluded objects when translating everything", () => {
+      sketch("xy", () => {
+        rect(20, 20);
+      });
+      const e1 = extrude(10).new() as ExtrudeBase;
+
+      sketch("xy", () => {
+        rect(20, 20);
+      });
+      const e2 = extrude(10).new() as ExtrudeBase;
+
+      // No explicit target → translate all, exclude e1 → only e2 moves
+      translate(100, true).exclude(e1);
+
+      render();
+
+      // e1 stays at origin
+      expect(e1.getShapes()).toHaveLength(1);
+      const e1Bbox = ShapeOps.getBoundingBox(e1.getShapes()[0]);
+      expect(e1Bbox.minX).toBeCloseTo(0, 0);
+
+      // e2 was copied to x=100 (original still present because copy=true)
+      expect(e2.getShapes()).toHaveLength(1);
+    });
+
+    it("should narrow an explicit target list with exclude", () => {
+      sketch("xy", () => {
+        rect(20, 20);
+      });
+      const e1 = extrude(10).new() as ExtrudeBase;
+
+      sketch("xy", () => {
+        rect(20, 20);
+      });
+      const e2 = extrude(10).new() as ExtrudeBase;
+
+      // Explicit targets [e1, e2], exclude e2 → only e1 moves
+      translate(100, e1, e2).exclude(e2);
+
+      render();
+
+      // e1 moved (removed from source), e2 stays
+      expect(e1.getShapes()).toHaveLength(0);
+      expect(e2.getShapes()).toHaveLength(1);
+      const e2Bbox = ShapeOps.getBoundingBox(e2.getShapes()[0]);
+      expect(e2Bbox.minX).toBeCloseTo(0, 0);
+    });
+
+    it("should accumulate exclusions across chained calls", () => {
+      sketch("xy", () => {
+        rect(20, 20);
+      });
+      const e1 = extrude(10).new() as ExtrudeBase;
+
+      sketch("xy", () => {
+        rect(20, 20);
+      });
+      const e2 = extrude(10).new() as ExtrudeBase;
+
+      sketch("xy", () => {
+        rect(20, 20);
+      });
+      const e3 = extrude(10).new() as ExtrudeBase;
+
+      // Translate all (copy), exclude e1 and e2 across two calls → only e3 copied
+      translate(200, true).exclude(e1).exclude(e2);
+
+      render();
+
+      // All originals preserved (copy=true)
+      expect(e1.getShapes()).toHaveLength(1);
+      expect(e2.getShapes()).toHaveLength(1);
+      expect(e3.getShapes()).toHaveLength(1);
+
+      // e1 and e2 still at origin
+      expect(ShapeOps.getBoundingBox(e1.getShapes()[0]).minX).toBeCloseTo(0, 0);
+      expect(ShapeOps.getBoundingBox(e2.getShapes()[0]).minX).toBeCloseTo(0, 0);
     });
   });
 });

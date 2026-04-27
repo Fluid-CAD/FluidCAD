@@ -105,6 +105,12 @@ export type SceneObjectPart = {
   metaData?: Record<string, any>;
 };
 
+export type CompileError = {
+  message: string;
+  filePath?: string;
+  sourceLocation?: { filePath: string; line: number; column: number };
+};
+
 export type SceneObjectRender = {
   id?: string;
   name?: string;

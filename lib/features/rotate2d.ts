@@ -8,6 +8,7 @@ import { GeometrySceneObject } from "./2d/geometry.js";
 
 export class Rotate2D extends GeometrySceneObject {
   private _targetObjects: SceneObject[] | null = null;
+  private _excludedObjects: SceneObject[] = [];
 
   constructor(
     public angle: number,
@@ -19,6 +20,11 @@ export class Rotate2D extends GeometrySceneObject {
 
   get targetObjects(): SceneObject[] | null {
     return this._targetObjects;
+  }
+
+  exclude(...objects: SceneObject[]): this {
+    this._excludedObjects.push(...objects);
+    return this;
   }
 
   build(context: BuildSceneObjectContext) {
@@ -33,6 +39,10 @@ export class Rotate2D extends GeometrySceneObject {
     }
     else {
       targetObjects = objects;
+    }
+
+    if (this._excludedObjects.length > 0) {
+      targetObjects = targetObjects.filter(obj => !this._excludedObjects.includes(obj));
     }
 
     const plane = this.sketch.getPlane();
@@ -81,6 +91,16 @@ export class Rotate2D extends GeometrySceneObject {
 
     for (let i = 0; i < thisTargetObjects.length; i++) {
       if (!thisTargetObjects[i].compareTo(otherTargetObjects[i])) {
+        return false;
+      }
+    }
+
+    if (this._excludedObjects.length !== other._excludedObjects.length) {
+      return false;
+    }
+
+    for (let i = 0; i < this._excludedObjects.length; i++) {
+      if (!this._excludedObjects[i].compareTo(other._excludedObjects[i])) {
         return false;
       }
     }

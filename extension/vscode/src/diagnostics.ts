@@ -1,6 +1,12 @@
 import * as vscode from 'vscode';
 import type { Client } from './client';
 
+export type CompileError = {
+  message: string;
+  filePath?: string;
+  sourceLocation?: { filePath: string; line: number; column: number };
+};
+
 export function updateDiagnostics(client: Client) {
   client.diagnosticCollection.clear();
 
@@ -21,6 +27,27 @@ export function updateDiagnostics(client: Client) {
       diagnostic.source = 'FluidCAD';
 
       const filePath = loc.filePath;
+      if (!diagnosticsByFile.has(filePath)) {
+        diagnosticsByFile.set(filePath, []);
+      }
+      diagnosticsByFile.get(filePath)!.push(diagnostic);
+    }
+  }
+
+  if (client.currentCompileError) {
+    const ce = client.currentCompileError;
+    const loc = ce.sourceLocation;
+    const filePath = loc?.filePath ?? ce.filePath;
+    if (filePath) {
+      const line = Math.max(0, (loc?.line ?? 1) - 1);
+      const col = Math.max(0, (loc?.column ?? 1) - 1);
+      const range = new vscode.Range(line, col, line, Number.MAX_SAFE_INTEGER);
+      const diagnostic = new vscode.Diagnostic(
+        range,
+        ce.message,
+        vscode.DiagnosticSeverity.Error,
+      );
+      diagnostic.source = 'FluidCAD';
       if (!diagnosticsByFile.has(filePath)) {
         diagnosticsByFile.set(filePath, []);
       }

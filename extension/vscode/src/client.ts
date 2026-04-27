@@ -24,7 +24,7 @@ import {
   handleSetPickPoints,
   handleGotoSource,
 } from './code-edits';
-import { updateDiagnostics } from './diagnostics';
+import { updateDiagnostics, type CompileError } from './diagnostics';
 
 export class Client {
   panel: vscode.WebviewPanel | undefined = undefined;
@@ -35,6 +35,7 @@ export class Client {
   syncingBreakpoints = false;
 
   currentSceneObjects: any[] = [];
+  currentCompileError: CompileError | null = null;
   currentFileName: string = '';
   debounceTimer: NodeJS.Timeout | undefined;
 
@@ -91,6 +92,7 @@ export class Client {
     switch (msg.type) {
       case 'scene-rendered': {
         this.currentSceneObjects = msg.result;
+        this.currentCompileError = msg.compileError ?? null;
         updateDiagnostics(this);
         this.logger.appendLine(`Scene rendered: ${msg.absPath}`);
         break;
@@ -98,6 +100,13 @@ export class Client {
       case 'error': {
         this.logger.appendLine(`Server error: ${msg.message}`);
         vscode.window.showErrorMessage(`FluidCAD: ${msg.message}`);
+        if (this.currentFileName) {
+          this.currentCompileError = {
+            message: msg.message,
+            filePath: this.currentFileName,
+          };
+          updateDiagnostics(this);
+        }
         break;
       }
       case 'import-complete': {
@@ -186,6 +195,7 @@ export class Client {
   }
 
   dispose() {
+    this.diagnosticCollection.clear();
     this.panel?.dispose();
     this.serverProcess?.kill();
   }

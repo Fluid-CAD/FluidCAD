@@ -18,6 +18,10 @@ export class LazySelectionSceneObject extends SceneObject {
     this.addShapes(shapes);
   }
 
+  override isLazy(): boolean {
+    return true;
+  }
+
   override getDependencies(): SceneObject[] {
     return [this.sourceParent];
   }

@@ -78,11 +78,18 @@ export type InitCompleteMessage = {
   error?: string;
 };
 
+export type CompileError = {
+  message: string;
+  filePath?: string;
+  sourceLocation?: { filePath: string; line: number; column: number };
+};
+
 export type SceneRenderedMessage = {
   type: 'scene-rendered';
   absPath: string;
   result: any[];
   rollbackStop: number;
+  compileError?: CompileError;
 };
 
 export type ErrorMessage = {
@@ -174,6 +181,7 @@ export type UISceneRenderedMessage = {
   absPath: string;
   rollbackStop?: number;
   breakpointHit?: boolean;
+  compileError?: CompileError;
 };
 
 export type UIHighlightShapeMessage = {

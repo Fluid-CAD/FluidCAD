@@ -8,6 +8,7 @@ const CHEVRON_SVG = '<svg width="14" height="14" viewBox="0 0 10 10" fill="curre
 const CUBE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
 const DOTS_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
 const CHECK_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+const ALERT_DOT_SVG = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>';
 
 function formatDuration(ms: number): string {
   if (ms < 1000) {
@@ -180,12 +181,16 @@ export class TimelinePanel {
     const rollbackStop = this.rollbackStop;
 
     const parentIds = new Set<string>();
+    const childErrorByParent = new Map<string, boolean>();
     for (const obj of items) {
       if (obj.uniqueType === 'lazy-select') {
         continue;
       }
       if (obj.parentId) {
         parentIds.add(obj.parentId);
+        if (obj.hasError) {
+          childErrorByParent.set(obj.parentId, true);
+        }
       }
     }
 
@@ -202,8 +207,10 @@ export class TimelinePanel {
 
       const hasChildren = obj.id != null && parentIds.has(obj.id);
       const isCollapsed = obj.id != null && this.collapsedIds.has(obj.id);
+      const childHasError = obj.id != null && childErrorByParent.get(obj.id) === true;
+      const effectiveError = obj.hasError === true || childHasError;
 
-      html += this.renderTimelineItem(obj, i, rollbackStop, false, hasChildren, isCollapsed);
+      html += this.renderTimelineItem(obj, i, rollbackStop, false, hasChildren, isCollapsed, effectiveError);
 
       if (hasChildren && !isCollapsed) {
         for (let j = 0; j < items.length; j++) {
@@ -211,7 +218,7 @@ export class TimelinePanel {
             continue;
           }
           if (items[j].parentId === obj.id) {
-            html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false);
+            html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false, items[j].hasError === true);
           }
         }
       }
@@ -281,11 +288,10 @@ export class TimelinePanel {
     }
   }
 
-  private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, isChild: boolean, hasChildren: boolean, isCollapsed: boolean): string {
+  private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, isChild: boolean, hasChildren: boolean, isCollapsed: boolean, effectiveError: boolean): string {
     const isCurrent = index === rollbackStop;
     const isPast = index > rollbackStop;
     const isInvisible = obj.visible === false;
-    const hasError = obj.hasError === true;
     const name = obj.name
       ? obj.name.charAt(0).toUpperCase() + obj.name.slice(1)
       : obj.type || 'Unknown';
@@ -298,9 +304,12 @@ export class TimelinePanel {
     }
 
     if (isCurrent) {
-      itemClass += ' border-l-2 border-primary bg-primary/10 text-primary';
-    } else if (hasError) {
+      itemClass += ' border-l-2 border-primary bg-primary/10';
+    }
+    if (effectiveError) {
       itemClass += ' text-error';
+    } else if (isCurrent) {
+      itemClass += ' text-primary';
     } else if (isPast || isInvisible) {
       itemClass += ' text-base-content/60';
     } else {
@@ -308,6 +317,9 @@ export class TimelinePanel {
     }
 
     const imgClass = isInvisible ? 'w-4 h-4 object-contain grayscale opacity-60' : 'w-4 h-4 object-contain';
+    const errorDot = effectiveError
+      ? `<span class="text-error shrink-0 [&>svg]:w-2.5 [&>svg]:h-2.5">${ALERT_DOT_SVG}</span>`
+      : '';
 
     let chevron = '';
     if (hasChildren) {
@@ -334,6 +346,7 @@ export class TimelinePanel {
     return `
       <div class="${itemClass}" data-index="${index}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}">
         ${chevron}
+        ${errorDot}
         <img src="${iconSrc}" class="${imgClass}" alt="" />
         <span class="truncate">${name}</span>
         ${durationSpan}

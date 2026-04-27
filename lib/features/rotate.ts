@@ -6,6 +6,7 @@ import { AxisObjectBase } from "./axis-renderable-base.js";
 
 export class Rotate extends SceneObject {
   private _targetObjects: SceneObject[] | null = null;
+  private _excludedObjects: SceneObject[] = [];
 
   constructor(
     public axis: AxisObjectBase,
@@ -18,6 +19,11 @@ export class Rotate extends SceneObject {
 
   get targetObjects(): SceneObject[] {
     return this._targetObjects;
+  }
+
+  exclude(...objects: SceneObject[]): this {
+    this._excludedObjects.push(...objects);
+    return this;
   }
 
   build(context: BuildSceneObjectContext) {
@@ -38,6 +44,10 @@ export class Rotate extends SceneObject {
     }
     else {
       targetObjects = objects;
+    }
+
+    if (this._excludedObjects.length > 0) {
+      targetObjects = targetObjects.filter(obj => !this._excludedObjects.includes(obj));
     }
 
     this.axis.removeShapes(this)
@@ -90,6 +100,16 @@ export class Rotate extends SceneObject {
 
     for (let i = 0; i < thisTargetObjects.length; i++) {
       if (thisTargetObjects[i] !== otherTargetObjects[i]) {
+        return false;
+      }
+    }
+
+    if (this._excludedObjects.length !== other._excludedObjects.length) {
+      return false;
+    }
+
+    for (let i = 0; i < this._excludedObjects.length; i++) {
+      if (this._excludedObjects[i] !== other._excludedObjects[i]) {
         return false;
       }
     }

@@ -4,6 +4,7 @@ import { SelectionInfoOverlay } from './ui/selection-info-overlay';
 import { TimelinePanel } from './ui/timeline-panel';
 import { ExportDialog } from './ui/export-dialog';
 import { BreakpointIndicator } from './ui/breakpoint-indicator';
+import { ErrorBanner } from './ui/error-banner';
 import { ICON_SCISSORS, ICON_FILE_IMPORT, ICON_COPY, ICON_WAND } from './ui/icons';
 import { PointPickMode, HighlightInfo } from './interactive/point-pick-mode';
 import { RegionPickMode } from './interactive/region-pick-mode';
@@ -80,6 +81,13 @@ const breakpointIndicator = new BreakpointIndicator(container, () => {
   if (trimPickState === 'picking-active') {
     exitTrimPickMode();
   }
+});
+const errorBanner = new ErrorBanner(container, (loc) => {
+  fetch('/api/code/goto-source', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(loc),
+  }).catch((err) => console.error('Goto source failed:', err));
 });
 const timelinePanel = new TimelinePanel(
   container,
@@ -941,6 +949,7 @@ function connectWebSocket() {
           updateBezierDrawMode(msg.result);
         }
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1, msg.absPath);
+        errorBanner.update(msg.result, msg.compileError ?? null);
         // Only update the breakpoint indicator when the server sends an
         // authoritative value — rollback responses don't re-run the module,
         // so they omit the flag and the last known state should persist.
@@ -970,6 +979,7 @@ function connectWebSocket() {
   });
 
   ws.addEventListener('close', () => {
+    errorBanner.update([], null);
     setTimeout(connectWebSocket, 1000);
   });
 }

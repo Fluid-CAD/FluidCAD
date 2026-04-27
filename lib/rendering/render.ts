@@ -100,7 +100,7 @@ export class SceneRenderer {
     scene.clearRenderedObjects();
 
     for (const obj of allObjects) {
-      if (!scope.has(obj)) {
+      if (!scope.has(obj) || obj.isLazy()) {
         this.emitRendered(obj, scene, {
           sceneShapes: [],
           visible: false,
@@ -132,6 +132,9 @@ export class SceneRenderer {
     profiler: Profiler | undefined,
   ): { renderedSceneShapes: RenderedShape[]; ownShapeCount: number; prepError?: string } {
     const renderedSceneShapes: RenderedShape[] = [];
+    if (obj.isLazy()) {
+      return { renderedSceneShapes, ownShapeCount: 0 };
+    }
     try {
       const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false });
       if (sceneShapes.length) {

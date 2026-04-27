@@ -74,6 +74,22 @@ export class Sketch extends SceneObject implements Extrudable {
     return this.getStartPoint();
   }
 
+  getPreviousPosition(currentObj: GeometrySceneObject, count: number = 1): Point2D {
+    const children = this.getChildren() as GeometrySceneObject[];
+    const previous = children.slice(0, children.indexOf(currentObj));
+    let remaining = count;
+    for (let i = previous.length - 1; i >= 0; i--) {
+      const pos = previous[i].getState('current-position') as Point2D;
+      if (pos) {
+        if (remaining === 0) {
+          return pos;
+        }
+        remaining--;
+      }
+    }
+    return this.getStartPoint();
+  }
+
   getLastPosition(scope?: Set<SceneObject>): Point2D {
     let children = this.getChildren().slice() as GeometrySceneObject[];
     if (scope) {

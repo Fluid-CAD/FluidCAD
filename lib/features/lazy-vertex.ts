@@ -25,6 +25,10 @@ export class LazyVertex extends SceneObject {
     this.addShapes(shapes);
   }
 
+  override isLazy(): boolean {
+    return true;
+  }
+
   override getShapes(filter?: ShapeFilter, type?: ShapeType): Shape[] {
     if (this._isBuilt) {
       return super.getShapes(filter, type);

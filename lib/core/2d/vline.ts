@@ -17,12 +17,26 @@ interface VLineFunction {
    */
   (distance: number): IVLine;
   /**
+   * Draws a vertical line that ends where it intersects the target geometry.
+   * The nearest intersection (in either direction along the Y axis) is used.
+   * @param target - The geometry to intersect with
+   */
+  (target: ISceneObject): IVLine;
+  /**
    * Draws a vertical line from a start point.
    * Chain `.centered()` to center the line on the start point.
    * @param start - The start point
    * @param distance - The line length
    */
   (start: Point2DLike, distance: number): IVLine;
+  /**
+   * Draws a vertical line from a start point that ends where it intersects
+   * the target geometry. The nearest intersection (in either direction along
+   * the Y axis) is used.
+   * @param start - The start point
+   * @param target - The geometry to intersect with
+   */
+  (start: Point2DLike, target: ISceneObject): IVLine;
   /**
    * Draws a vertical line on a specific plane.
    * @param targetPlane - The plane to draw on
@@ -35,24 +49,37 @@ function build(context: SceneParserContext): VLineFunction {
   return function line() {
     let planeObj: PlaneObjectBase | null = null;
     let argOffset = 0;
+    const inSketch = context.getActiveSketch() !== null;
 
-    // Detect plane as first argument (only valid outside a sketch)
     if (arguments.length > 0) {
       const firstArg = arguments[0];
-      if (isPlaneLike(firstArg) || (firstArg instanceof SceneObject && !isPoint2DLike(firstArg))) {
-        if (context.getActiveSketch() !== null) {
+      if (isPlaneLike(firstArg)) {
+        if (inSketch) {
           throw new Error("vLine(plane, ...) cannot be used inside a sketch. Use vLine(...) instead.");
         }
+        planeObj = resolvePlane(firstArg, context);
+        argOffset = 1;
+      } else if (!inSketch && firstArg instanceof SceneObject && !isPoint2DLike(firstArg)) {
         planeObj = resolvePlane(firstArg, context);
         argOffset = 1;
       }
     }
 
+    if (argOffset === 0 && inSketch && arguments[0] instanceof SceneObject && !isPoint2DLike(arguments[0])) {
+      // vLine(target)
+      const vline = new VerticalLine(arguments[0] as SceneObject, null);
+      context.addSceneObject(vline);
+      return vline;
+    }
+
     if (argOffset === 0 && typeof arguments[0] !== 'number') {
-      // vline(start, distance)
+      // vLine(start, distance) or vLine(start, target)
       const start = normalizePoint2D(arguments[0]);
-      const distance: number = arguments[1];
-      const vline = new VerticalLine(distance, planeObj);
+      const second = arguments[1];
+      const distanceOrTarget: number | SceneObject = second instanceof SceneObject
+        ? second
+        : (second as number);
+      const vline = new VerticalLine(distanceOrTarget, planeObj);
       context.addSceneObjects([new Move(start), vline]);
       return vline;
     }

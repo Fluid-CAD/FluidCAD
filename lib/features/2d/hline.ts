@@ -4,12 +4,17 @@ import { Point2D } from "../../math/point.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { GeometrySceneObject } from "./geometry.js";
 import { IHLine } from "../../core/interfaces.js";
+import { SceneObject } from "../../common/scene-object.js";
+import { findNearestRayIntersection } from "../../oc/ray-intersect.js";
 
 export class HorizontalLine extends GeometrySceneObject implements IHLine {
 
   private _centered: boolean = false;
 
-  constructor(public distance: number, private targetPlane: PlaneObjectBase = null) {
+  constructor(
+    public distanceOrTarget: number | SceneObject,
+    private targetPlane: PlaneObjectBase = null
+  ) {
     super();
   }
 
@@ -24,10 +29,26 @@ export class HorizontalLine extends GeometrySceneObject implements IHLine {
     const currentPos = this.targetPlane
       ? plane.worldToLocal(this.targetPlane.getPlaneCenter())
       : this.getCurrentPosition();
-    const startPoint = this._centered
-      ? currentPos.translate(-this.distance / 2, 0)
-      : currentPos;
-    const endPoint = startPoint.translate(this.distance, 0);
+
+    let startPoint: Point2D;
+    let endPoint: Point2D;
+    let signedLength: number;
+
+    if (typeof this.distanceOrTarget === 'number') {
+      const distance = this.distanceOrTarget;
+      startPoint = this._centered
+        ? currentPos.translate(-distance / 2, 0)
+        : currentPos;
+      endPoint = startPoint.translate(distance, 0);
+      signedLength = distance;
+    } else {
+      if (this._centered) {
+        throw new Error('hLine: .centered() cannot be combined with a target geometry');
+      }
+      startPoint = currentPos;
+      endPoint = findNearestRayIntersection(plane, startPoint, new Point2D(1, 0), this.distanceOrTarget);
+      signedLength = endPoint.x - startPoint.x;
+    }
 
     const start = plane.localToWorld(startPoint);
     const end = plane.localToWorld(endPoint);
@@ -40,7 +61,7 @@ export class HorizontalLine extends GeometrySceneObject implements IHLine {
     this.setState('end', Vertex.fromPoint2D(endPoint));
     this.addShape(edge);
 
-    const sign = Math.sign(this.distance) || 1;
+    const sign = Math.sign(signedLength) || 1;
     this.setTangent(new Point2D(sign, 0));
     if (this.sketch) {
       this.setCurrentPosition(endPoint);
@@ -49,6 +70,27 @@ export class HorizontalLine extends GeometrySceneObject implements IHLine {
     if (this.targetPlane) {
       this.targetPlane.removeShapes(this);
     }
+  }
+
+  override getDependencies(): SceneObject[] {
+    const deps: SceneObject[] = [];
+    if (this.targetPlane) {
+      deps.push(this.targetPlane);
+    }
+    if (this.distanceOrTarget instanceof SceneObject) {
+      deps.push(this.distanceOrTarget);
+    }
+    return deps;
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
+    const distanceOrTarget = this.distanceOrTarget instanceof SceneObject
+      ? (remap.get(this.distanceOrTarget) || this.distanceOrTarget)
+      : this.distanceOrTarget;
+    const copy = new HorizontalLine(distanceOrTarget, targetPlane);
+    copy.centered(this._centered);
+    return copy;
   }
 
   compareTo(other: HorizontalLine): boolean {
@@ -67,7 +109,18 @@ export class HorizontalLine extends GeometrySceneObject implements IHLine {
       return false;
     }
 
-    return this.distance === other.distance && this._centered === other._centered;
+    if (typeof this.distanceOrTarget !== typeof other.distanceOrTarget) {
+      return false;
+    }
+    if (this.distanceOrTarget instanceof SceneObject && other.distanceOrTarget instanceof SceneObject) {
+      if (!this.distanceOrTarget.compareTo(other.distanceOrTarget)) {
+        return false;
+      }
+    } else if (this.distanceOrTarget !== other.distanceOrTarget) {
+      return false;
+    }
+
+    return this._centered === other._centered;
   }
 
   getType(): string {
@@ -80,7 +133,7 @@ export class HorizontalLine extends GeometrySceneObject implements IHLine {
 
   serialize() {
     return {
-      distance: this.distance,
+      distance: typeof this.distanceOrTarget === 'number' ? this.distanceOrTarget : null,
       centered: this._centered
     }
   }

@@ -152,6 +152,10 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return false;
   }
 
+  isLazy(): boolean {
+    return false;
+  }
+
   // called by containers to save the shapes state up to this object
   saveShapesSnapshot(context: BuildSceneObjectContext) {
     const upToHere = context.getSceneObjects()

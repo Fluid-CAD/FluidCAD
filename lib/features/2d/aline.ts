@@ -6,12 +6,17 @@ import { Point2D } from "../../math/point.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { GeometrySceneObject } from "./geometry.js";
 import { IALine } from "../../core/interfaces.js";
+import { findNearestRayIntersection } from "../../oc/ray-intersect.js";
 
 export class AngledLine extends GeometrySceneObject implements IALine {
 
   private _centered: boolean = false;
 
-  constructor(public angle: number, public length: number, private targetPlane: PlaneObjectBase = null) {
+  constructor(
+    public angle: number,
+    public lengthOrTarget: number | SceneObject,
+    private targetPlane: PlaneObjectBase = null
+  ) {
     super();
   }
 
@@ -39,14 +44,26 @@ export class AngledLine extends GeometrySceneObject implements IALine {
     const currentPos = this.targetPlane
       ? plane.worldToLocal(this.targetPlane.getPlaneCenter())
       : this.getCurrentPosition();
-    const startPoint = this._centered
-      ? currentPos.translate(-direction.x * this.length / 2, -direction.y * this.length / 2)
-      : currentPos;
-    const start = plane.localToWorld(startPoint);
 
-    const worldDir = plane.xDirection.multiply(direction.x).add(plane.yDirection.multiply(direction.y));
-    const end = start.add(worldDir.multiply(this.length));
-    const endPoint = plane.worldToLocal(end);
+    let startPoint: Point2D;
+    let endPoint: Point2D;
+
+    if (typeof this.lengthOrTarget === 'number') {
+      const length = this.lengthOrTarget;
+      startPoint = this._centered
+        ? currentPos.translate(-direction.x * length / 2, -direction.y * length / 2)
+        : currentPos;
+      endPoint = startPoint.translate(direction.x * length, direction.y * length);
+    } else {
+      if (this._centered) {
+        throw new Error('aLine: .centered() cannot be combined with a target geometry');
+      }
+      startPoint = currentPos;
+      endPoint = findNearestRayIntersection(plane, startPoint, direction, this.lengthOrTarget);
+    }
+
+    const start = plane.localToWorld(startPoint);
+    const end = plane.localToWorld(endPoint);
 
     let segment = Geometry.makeSegment(start, end);
 
@@ -56,7 +73,14 @@ export class AngledLine extends GeometrySceneObject implements IALine {
     this.setState('end', Vertex.fromPoint2D(endPoint));
     this.addShape(edge);
 
-    this.setTangent(direction.normalize());
+    // Tangent at end points from start to end (sign-aware when target is behind start)
+    const endTangent = endPoint.subtract(startPoint);
+    const endLen = Math.hypot(endTangent.x, endTangent.y);
+    if (endLen > 1e-12) {
+      this.setTangent(new Point2D(endTangent.x / endLen, endTangent.y / endLen));
+    } else {
+      this.setTangent(direction.normalize());
+    }
     if (this.sketch) {
       this.setCurrentPosition(endPoint);
     }
@@ -66,9 +90,23 @@ export class AngledLine extends GeometrySceneObject implements IALine {
     }
   }
 
+  override getDependencies(): SceneObject[] {
+    const deps: SceneObject[] = [];
+    if (this.targetPlane) {
+      deps.push(this.targetPlane);
+    }
+    if (this.lengthOrTarget instanceof SceneObject) {
+      deps.push(this.lengthOrTarget);
+    }
+    return deps;
+  }
+
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
-    const copy = new AngledLine(this.angle, this.length, targetPlane);
+    const lengthOrTarget = this.lengthOrTarget instanceof SceneObject
+      ? (remap.get(this.lengthOrTarget) || this.lengthOrTarget)
+      : this.lengthOrTarget;
+    const copy = new AngledLine(this.angle, lengthOrTarget, targetPlane);
     copy.centered(this._centered);
     return copy;
   }
@@ -89,7 +127,18 @@ export class AngledLine extends GeometrySceneObject implements IALine {
       return false;
     }
 
-    return this.length === other.length && this.angle === other.angle && this._centered === other._centered;
+    if (typeof this.lengthOrTarget !== typeof other.lengthOrTarget) {
+      return false;
+    }
+    if (this.lengthOrTarget instanceof SceneObject && other.lengthOrTarget instanceof SceneObject) {
+      if (!this.lengthOrTarget.compareTo(other.lengthOrTarget)) {
+        return false;
+      }
+    } else if (this.lengthOrTarget !== other.lengthOrTarget) {
+      return false;
+    }
+
+    return this.angle === other.angle && this._centered === other._centered;
   }
 
   getType(): string {
@@ -103,7 +152,7 @@ export class AngledLine extends GeometrySceneObject implements IALine {
   serialize() {
     return {
       angle: this.angle,
-      length: this.length,
+      length: typeof this.lengthOrTarget === 'number' ? this.lengthOrTarget : null,
       centered: this._centered
     }
   }

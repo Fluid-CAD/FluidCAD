@@ -15,6 +15,14 @@ interface ALineFunction {
    */
   (angle: number, length: number): IALine;
   /**
+   * Draws a line at the given angle that ends where it intersects the target
+   * geometry. The nearest intersection along the line's direction (in either
+   * sign) is used.
+   * @param angle - The angle in degrees
+   * @param target - The geometry to intersect with
+   */
+  (angle: number, target: ISceneObject): IALine;
+  /**
    * Draws a line at the given angle on a specific plane.
    * @param targetPlane - The plane to draw on
    * @param angle - The angle in degrees
@@ -27,23 +35,29 @@ function build(context: SceneParserContext): ALineFunction {
   return function line() {
     let planeObj: PlaneObjectBase | null = null;
     let argOffset = 0;
+    const inSketch = context.getActiveSketch() !== null;
 
-    // Detect plane as first argument (only valid outside a sketch)
     if (arguments.length > 0) {
       const firstArg = arguments[0];
-      if (isPlaneLike(firstArg) || firstArg instanceof SceneObject) {
-        if (context.getActiveSketch() !== null) {
+      if (isPlaneLike(firstArg)) {
+        if (inSketch) {
           throw new Error("aLine(plane, ...) cannot be used inside a sketch. Use aLine(...) instead.");
         }
+        planeObj = resolvePlane(firstArg, context);
+        argOffset = 1;
+      } else if (!inSketch && firstArg instanceof SceneObject) {
         planeObj = resolvePlane(firstArg, context);
         argOffset = 1;
       }
     }
 
     const angle: number = arguments[argOffset];
-    const length: number = arguments[argOffset + 1];
+    const second = arguments[argOffset + 1];
+    const lengthOrTarget: number | SceneObject = second instanceof SceneObject
+      ? second
+      : (second as number);
 
-    const aline = new AngledLine(angle, length, planeObj);
+    const aline = new AngledLine(angle, lengthOrTarget, planeObj);
     context.addSceneObject(aline);
 
     return aline;

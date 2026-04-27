@@ -7,11 +7,18 @@ import { PlaneObjectBase } from "./plane-renderable-base.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
 
 export class MirrorShape extends SceneObject {
+  private _excludedObjects: SceneObject[] = [];
+
   constructor(
     private plane: PlaneObjectBase,
     public targetObjects: SceneObject[] | null = null
     ) {
     super();
+  }
+
+  exclude(...objects: SceneObject[]): this {
+    this._excludedObjects.push(...objects);
+    return this;
   }
 
   build(context: BuildSceneObjectContext) {
@@ -36,6 +43,10 @@ export class MirrorShape extends SceneObject {
     }
     else {
       targetObjects = lastObj ? [lastObj] : objects;
+    }
+
+    if (this._excludedObjects.length > 0) {
+      targetObjects = targetObjects.filter(obj => !this._excludedObjects.includes(obj));
     }
 
     if (this.plane) {
@@ -99,6 +110,16 @@ export class MirrorShape extends SceneObject {
 
     for (let i = 0; i < thisTargetObjects.length; i++) {
       if (!thisTargetObjects[i].compareTo(otherTargetObjects[i])) {
+        return false;
+      }
+    }
+
+    if (this._excludedObjects.length !== other._excludedObjects.length) {
+      return false;
+    }
+
+    for (let i = 0; i < this._excludedObjects.length; i++) {
+      if (!this._excludedObjects[i].compareTo(other._excludedObjects[i])) {
         return false;
       }
     }

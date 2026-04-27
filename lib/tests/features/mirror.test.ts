@@ -35,7 +35,7 @@ describe("mirror (3D)", () => {
       });
       const e = extrude(10).new() as ExtrudeBase;
 
-      const m = mirror("yz", e) as SceneObject;
+      const m = mirror("yz", e) as unknown as SceneObject;
 
       render();
 
@@ -55,7 +55,7 @@ describe("mirror (3D)", () => {
       });
       const e = extrude(10).new() as ExtrudeBase;
 
-      const m = mirror("xz", e) as SceneObject;
+      const m = mirror("xz", e) as unknown as SceneObject;
 
       render();
 
@@ -143,6 +143,80 @@ describe("mirror (3D)", () => {
       const scene = render();
 
       expect(countShapes(scene)).toBe(1);
+    });
+  });
+
+  describe("mirror with .exclude()", () => {
+    it("should skip excluded objects when mirroring everything", () => {
+      sketch("xy", () => {
+        move([20, 0]);
+        rect(30, 30);
+      });
+      const e1 = extrude(10).new() as ExtrudeBase;
+
+      sketch("xy", () => {
+        move([50, 50]);
+        rect(30, 30);
+      });
+      extrude(10).new();
+
+      // mirror all, but exclude e1 → only e2 gets mirrored
+      // e1 + e2 + mirror(e2) = 3 shapes (e2 is well clear of YZ plane, no fusion)
+      mirror("yz").exclude(e1);
+
+      const scene = render();
+
+      expect(countShapes(scene)).toBe(3);
+    });
+
+    it("should narrow an explicit target list with exclude", () => {
+      sketch("xy", () => {
+        move([20, 0]);
+        rect(30, 30);
+      });
+      const e1 = extrude(10).new() as ExtrudeBase;
+
+      sketch("xy", () => {
+        move([50, 50]);
+        rect(30, 30);
+      });
+      const e2 = extrude(10).new() as ExtrudeBase;
+
+      // explicit target [e1, e2], exclude e2 → only e1 mirrored
+      // e1 + e2 + mirror(e1) = 3
+      mirror("yz", e1, e2).exclude(e2);
+
+      const scene = render();
+
+      expect(countShapes(scene)).toBe(3);
+    });
+
+    it("should accumulate exclusions across chained calls", () => {
+      sketch("xy", () => {
+        move([20, 0]);
+        rect(30, 30);
+      });
+      const e1 = extrude(10).new() as ExtrudeBase;
+
+      sketch("xy", () => {
+        move([50, 50]);
+        rect(30, 30);
+      });
+      const e2 = extrude(10).new() as ExtrudeBase;
+
+      sketch("xy", () => {
+        move([100, 100]);
+        rect(30, 30);
+      });
+      extrude(10).new();
+
+      // mirror everything but exclude e1 and e2 across two chained .exclude() calls
+      // e1 + e2 + e3 + mirror(e3) = 4 (all on +X side, mirror lands on -X side)
+      mirror("yz").exclude(e1).exclude(e2);
+
+      const scene = render();
+
+      expect(countShapes(scene)).toBe(4);
     });
   });
 });

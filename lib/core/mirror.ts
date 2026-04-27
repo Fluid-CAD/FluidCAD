@@ -12,7 +12,7 @@ import { MirrorShape2D } from "../features/mirror-shape2d.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisObject } from "../features/axis.js";
 import { AxisFromEdge } from "../features/axis-from-edge.js";
-import { ISceneObject } from "./interfaces.js";
+import { IMirror, ISceneObject } from "./interfaces.js";
 
 interface MirrorFunction {
 
@@ -20,40 +20,40 @@ interface MirrorFunction {
   * [2D] Mirror all sketch geometries across a given line.
   * @param line The line to mirror across
   */
-  (line: ISceneObject): ISceneObject;
+  (line: ISceneObject): IMirror;
 
   /**
   * [2D] Mirror all sketch geometries across a given axis.
   * @param axis The local axis to mirror across
   */
-  (axis: AxisLike): ISceneObject;
+  (axis: AxisLike): IMirror;
 
   /**
   * [2D] Mirror given sketch geometries across a given line.
   * @param line The line to mirror across
   * @param geometries The geometries to mirror
   */
-  (line: ISceneObject, ...geometries: ISceneObject[]): ISceneObject;
+  (line: ISceneObject, ...geometries: ISceneObject[]): IMirror;
 
   /**
   * [2D] Mirror given sketch geometries across a given axis.
   * @param axis The local axis to mirror across
   * @param geometries The geometries to mirror
   */
-  (axis: AxisLike, ...geometries: ISceneObject[]): ISceneObject;
+  (axis: AxisLike, ...geometries: ISceneObject[]): IMirror;
 
   /**
   * [3D] Mirror all scene shapes across a given plane.
   * @param plane The plane to mirror across
   */
-  (plane: PlaneLike): ISceneObject;
+  (plane: PlaneLike): IMirror;
 
   /**
   * [3D] Mirror given shapes across a given plane.
   * @param plane The plane to mirror across
   * @param objects The shapes to mirror
   */
-  (plane: PlaneLike, ...objects: ISceneObject[]): ISceneObject;
+  (plane: PlaneLike, ...objects: ISceneObject[]): IMirror;
 
 }
 

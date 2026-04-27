@@ -12,11 +12,17 @@ import { LazyVertex } from "./lazy-vertex.js";
 import { Vertex } from "../common/vertex.js";
 
 export class MirrorShape2D extends GeometrySceneObject {
+  private _excludedObjects: SceneObject[] = [];
 
   constructor(
     private axis: AxisObjectBase,
     private targetObjects: SceneObject[] = null) {
     super();
+  }
+
+  exclude(...objects: SceneObject[]): this {
+    this._excludedObjects.push(...objects);
+    return this;
   }
 
   build(context: BuildSceneObjectContext) {
@@ -31,6 +37,10 @@ export class MirrorShape2D extends GeometrySceneObject {
     }
     else {
       targetObjects = objects;
+    }
+
+    if (this._excludedObjects.length > 0) {
+      targetObjects = targetObjects.filter(obj => !this._excludedObjects.includes(obj));
     }
 
     this.axis.removeShapes(this)
@@ -101,7 +111,12 @@ export class MirrorShape2D extends GeometrySceneObject {
     const targetObjects = this.targetObjects
       ? this.targetObjects.map(obj => remap.get(obj) || obj)
       : null;
-    return new MirrorShape2D(axis, targetObjects);
+    const copy = new MirrorShape2D(axis, targetObjects);
+    if (this._excludedObjects.length > 0) {
+      const remappedExcluded = this._excludedObjects.map(obj => remap.get(obj) || obj);
+      copy.exclude(...remappedExcluded);
+    }
+    return copy;
   }
 
   compareTo(other: MirrorShape2D): boolean {
@@ -126,6 +141,16 @@ export class MirrorShape2D extends GeometrySceneObject {
 
     for (let i = 0; i < thisTargetObjects.length; i++) {
       if (!thisTargetObjects[i].compareTo(otherTargetObjects[i])) {
+        return false;
+      }
+    }
+
+    if (this._excludedObjects.length !== other._excludedObjects.length) {
+      return false;
+    }
+
+    for (let i = 0; i < this._excludedObjects.length; i++) {
+      if (!this._excludedObjects[i].compareTo(other._excludedObjects[i])) {
         return false;
       }
     }

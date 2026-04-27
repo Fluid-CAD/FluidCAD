@@ -22,3 +22,4 @@ export { default as project } from './project.js';
 export { default as intersect } from './intersect.js';
 export { default as bezier } from './bezier.js';
 export { default as center } from './center.js';
+export { default as back } from './back.js';

@@ -17,12 +17,26 @@ interface HLineFunction {
    */
   (distance: number): IHLine;
   /**
+   * Draws a horizontal line that ends where it intersects the target geometry.
+   * The nearest intersection (in either direction along the X axis) is used.
+   * @param target - The geometry to intersect with
+   */
+  (target: ISceneObject): IHLine;
+  /**
    * Draws a horizontal line from a start point.
    * Chain `.centered()` to center the line on the start point.
    * @param start - The start point
    * @param distance - The line length
    */
   (start: Point2DLike, distance: number): IHLine;
+  /**
+   * Draws a horizontal line from a start point that ends where it intersects
+   * the target geometry. The nearest intersection (in either direction along
+   * the X axis) is used.
+   * @param start - The start point
+   * @param target - The geometry to intersect with
+   */
+  (start: Point2DLike, target: ISceneObject): IHLine;
   /**
    * Draws a horizontal line on a specific plane.
    * @param targetPlane - The plane to draw on
@@ -35,24 +49,41 @@ function build(context: SceneParserContext): HLineFunction {
   return function line() {
     let planeObj: PlaneObjectBase | null = null;
     let argOffset = 0;
+    const inSketch = context.getActiveSketch() !== null;
 
-    // Detect plane as first argument (only valid outside a sketch)
+    // Detect plane as first argument (only valid outside a sketch).
+    // Inside a sketch, a SceneObject in the first position is a target geometry,
+    // and a true PlaneLike is an error since drawing on another plane mid-sketch
+    // is not supported.
     if (arguments.length > 0) {
       const firstArg = arguments[0];
-      if (isPlaneLike(firstArg) || (firstArg instanceof SceneObject && !isPoint2DLike(firstArg))) {
-        if (context.getActiveSketch() !== null) {
+      if (isPlaneLike(firstArg)) {
+        if (inSketch) {
           throw new Error("hLine(plane, ...) cannot be used inside a sketch. Use hLine(...) instead.");
         }
+        planeObj = resolvePlane(firstArg, context);
+        argOffset = 1;
+      } else if (!inSketch && firstArg instanceof SceneObject && !isPoint2DLike(firstArg)) {
         planeObj = resolvePlane(firstArg, context);
         argOffset = 1;
       }
     }
 
+    if (argOffset === 0 && inSketch && arguments[0] instanceof SceneObject && !isPoint2DLike(arguments[0])) {
+      // hLine(target)
+      const hline = new HorizontalLine(arguments[0] as SceneObject, null);
+      context.addSceneObject(hline);
+      return hline;
+    }
+
     if (argOffset === 0 && typeof arguments[0] !== 'number') {
-      // hline(start, distance)
+      // hLine(start, distance) or hLine(start, target)
       const start = normalizePoint2D(arguments[0]);
-      const distance: number = arguments[1];
-      const hline = new HorizontalLine(distance, planeObj);
+      const second = arguments[1];
+      const distanceOrTarget: number | SceneObject = second instanceof SceneObject
+        ? second
+        : (second as number);
+      const hline = new HorizontalLine(distanceOrTarget, planeObj);
       context.addSceneObjects([new Move(start), hline]);
       return hline;
     }

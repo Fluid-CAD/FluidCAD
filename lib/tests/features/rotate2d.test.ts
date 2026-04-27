@@ -6,6 +6,7 @@ import rotate from "../../core/rotate.js";
 import { move, rect, circle } from "../../core/2d/index.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { Sketch } from "../../features/2d/sketch.js";
+import { Rotate2D } from "../../features/rotate2d.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 
 describe("rotate 2D", () => {
@@ -91,6 +92,62 @@ describe("rotate 2D", () => {
       // Both rects produce solids (one rotated, one not)
       const shapes = e.getShapes();
       expect(shapes.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe("rotate (2D) with .exclude()", () => {
+    it("should skip an excluded geometry when rotating all sketch siblings", () => {
+      let rot: Rotate2D;
+      sketch("xy", () => {
+        move([30, 0]);
+        const r1 = rect(20, 10);
+        move([30, 50]);
+        const r2 = rect(20, 10);
+        rot = rotate(90, true).exclude(r2) as Rotate2D;
+        void r1;
+      });
+
+      render();
+
+      // Only r1 should have been rotated (r2 excluded)
+      // 1 rotated rect = 4 edges
+expect(rot.getAddedShapes()).toHaveLength(4);
+    });
+
+    it("should narrow an explicit target list with exclude", () => {
+      let rot: Rotate2D;
+      sketch("xy", () => {
+        move([30, 0]);
+        const r1 = rect(20, 10);
+        move([30, 50]);
+        const r2 = rect(20, 10);
+        rot = rotate(90, true, r1, r2).exclude(r2) as Rotate2D;
+      });
+
+      render();
+
+      // 1 rotated rect = 4 edges
+expect(rot.getAddedShapes()).toHaveLength(4);
+    });
+
+    it("should accumulate exclusions across chained calls", () => {
+      let rot: Rotate2D;
+      sketch("xy", () => {
+        move([30, 0]);
+        const r1 = rect(20, 10);
+        move([30, 50]);
+        const r2 = rect(20, 10);
+        move([30, 100]);
+        const r3 = rect(20, 10);
+        rot = rotate(90, true).exclude(r1).exclude(r2) as Rotate2D;
+        void r3;
+      });
+
+      render();
+
+      // Only r3 rotated; r1 and r2 excluded
+      // 1 rotated rect = 4 edges
+expect(rot.getAddedShapes()).toHaveLength(4);
     });
   });
 });

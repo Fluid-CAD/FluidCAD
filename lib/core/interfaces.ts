@@ -762,6 +762,36 @@ export interface ISweep extends IBooleanOperation {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
+export interface IMirror extends ISceneObject {
+  /**
+   * Excludes the given objects from the mirror operation. Useful when
+   * mirroring "everything" but a few specific objects should be skipped,
+   * or when narrowing an explicit target list.
+   * @param objects - The objects to exclude from mirroring.
+   */
+  exclude(...objects: ISceneObject[]): this;
+}
+
+export interface ITranslate extends ISceneObject {
+  /**
+   * Excludes the given objects from the translate operation. Useful when
+   * translating "everything" but a few specific objects should be skipped,
+   * or when narrowing an explicit target list.
+   * @param objects - The objects to exclude from translating.
+   */
+  exclude(...objects: ISceneObject[]): this;
+}
+
+export interface IRotate extends ISceneObject {
+  /**
+   * Excludes the given objects from the rotate operation. Useful when
+   * rotating "everything" but a few specific objects should be skipped,
+   * or when narrowing an explicit target list.
+   * @param objects - The objects to exclude from rotating.
+   */
+  exclude(...objects: ISceneObject[]): this;
+}
+
 export interface IDraft extends ISceneObject {}
 
 export interface IShell extends ISceneObject {

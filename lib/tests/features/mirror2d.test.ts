@@ -137,4 +137,81 @@ describe("mirror (2D)", () => {
       expect(() => local("y")).toThrow();
     });
   });
+
+  describe("mirror with .exclude()", () => {
+    it("should skip an excluded geometry when mirroring all sketch siblings", () => {
+      sketch("xy", () => {
+        move([30, 0]);
+        const c1 = circle(10);
+        move([30, 50]);
+        const c2 = circle(10);
+        // mirror everything in the sketch but skip c2
+        mirror("y").exclude(c2);
+
+        // sanity: keep references referenced
+        void c1;
+      });
+
+      const e = extrude(5) as ExtrudeBase;
+
+      render();
+
+      const shapes = e.getShapes();
+      expect(shapes.length).toBeGreaterThanOrEqual(3);
+
+      const bboxes = shapes.map(s => ShapeOps.getBoundingBox(s));
+      // the c2 mirror would have minX < -10 AND minY > 40 — should NOT exist
+      const c2MirrorPresent = bboxes.some(b => b.minX < -10 && b.minY > 40);
+      expect(c2MirrorPresent).toBe(false);
+    });
+
+    it("should narrow an explicit target list with exclude", () => {
+      sketch("xy", () => {
+        move([30, 0]);
+        const c1 = circle(10);
+        move([30, 50]);
+        const c2 = circle(10);
+        // explicit targets [c1, c2], then exclude c2 → only c1 is mirrored
+        mirror("y", c1, c2).exclude(c2);
+      });
+
+      const e = extrude(5) as ExtrudeBase;
+
+      render();
+
+      const shapes = e.getShapes();
+      const bboxes = shapes.map(s => ShapeOps.getBoundingBox(s));
+      // c2 mirror at (-30, 50) should be absent
+      const c2MirrorPresent = bboxes.some(b => b.minX < -10 && b.minY > 40);
+      expect(c2MirrorPresent).toBe(false);
+      // c1 mirror at (-30, 0) should be present
+      const c1MirrorPresent = bboxes.some(b => b.minX < -10 && b.maxY < 40);
+      expect(c1MirrorPresent).toBe(true);
+    });
+
+    it("should accumulate exclusions across chained calls", () => {
+      sketch("xy", () => {
+        move([30, 0]);
+        const c1 = circle(10);
+        move([30, 50]);
+        const c2 = circle(10);
+        move([30, 100]);
+        const c3 = circle(10);
+        // exclude c1 and c2 in two calls; only c3 should be mirrored
+        mirror("y").exclude(c1).exclude(c2);
+        void c3;
+      });
+
+      const e = extrude(5) as ExtrudeBase;
+
+      render();
+
+      const shapes = e.getShapes();
+      const bboxes = shapes.map(s => ShapeOps.getBoundingBox(s));
+      // c1 mirror (-30, 0) absent
+      expect(bboxes.some(b => b.minX < -10 && b.maxY < 40)).toBe(false);
+      // c3 mirror (-30, 100) present
+      expect(bboxes.some(b => b.minX < -10 && b.minY > 90)).toBe(true);
+    });
+  });
 });

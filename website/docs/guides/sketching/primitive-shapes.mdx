@@ -5,7 +5,9 @@ title: "Primitive Geometries"
 
 import CodeBlock from '@theme/CodeBlock';
 import primitiveCircle from '!!raw-loader!./_examples/primitive-circle.js';
-import primitiveLines from '!!raw-loader!./_examples/primitive-lines.js';
+import primitiveLinesCentered from '!!raw-loader!./_examples/primitive-lines-centered.js';
+import primitiveLinesTarget from '!!raw-loader!./_examples/primitive-lines-target.js';
+import primitiveAlineTarget from '!!raw-loader!./_examples/primitive-aline-target.js';
 import primitiveArc from '!!raw-loader!./_examples/primitive-arc.js';
 
 # Primitive Geometries
@@ -30,23 +32,83 @@ sketch("xy", () => {
 })
 ```
 
-## Directional lines
+## hLine
 
-<CodeBlock language="js">{primitiveLines}</CodeBlock>
+`hLine(distance)` draws a horizontal line from the current position. Positive
+distances go right, negative go left.
 
-![Directional lines](/img/docs/sketching/primitive-lines.png)
+```js
+hLine(50)             // 50 units right
+hLine(-30)            // 30 units left
+hLine([10, 20], 50)   // jump to [10, 20], then 50 right
+```
 
-- **`hLine(distance)`** — horizontal line (positive = right, negative = left)
-- **`vLine(distance)`** — vertical line (positive = up, negative = down)
-- **`aLine(angle, distance)`** — line at an angle (degrees) for a given distance
+### Centered
+
+Chain `.centered()` to center the line on the current position instead of
+starting from it. The pen still ends at the segment's end, so the line spans
+`±distance/2` around the start:
+
+<CodeBlock language="js">{primitiveLinesCentered}</CodeBlock>
+
+![Centered horizontal and vertical lines](/img/docs/sketching/primitive-lines-centered.png)
+
+This makes symmetric features easy to build without doing the half-distance
+math by hand.
+
+### Up to a target
+
+Pass a sketch object instead of a distance to extend the line until it meets
+that target. The nearest intersection along the line's direction (in either
+sign) is used:
+
+<CodeBlock language="js">{primitiveLinesTarget}</CodeBlock>
+
+![Lines up to target geometry](/img/docs/sketching/primitive-lines-target.png)
+
+The line throws if the ray never meets the target. `.centered()` cannot be
+combined with the target form.
+
+## vLine
+
+`vLine(distance)` draws a vertical line. Positive distances go up, negative go
+down. Like `hLine`, it supports `.centered()` and target-geometry intersection
+(see the screenshots above — they use `vLine` too).
+
+```js
+vLine(40)             // 40 units up
+vLine(-20)            // 20 units down
+vLine(60).centered()  // centered on the current position
+vLine(targetGuide)    // up/down to the nearest intersection
+```
+
+## aLine
+
+`aLine(angle, distance)` draws a line at the given angle (in degrees), measured
+from the **current tangent** — not the X axis. After a previous segment the
+pen's heading rotates with it, so the angle is always relative:
 
 ```js
 sketch("xy", () => {
     line([0, 0], [50, 0])
-    aLine(60, 40)              // 60° angle, 40 units long
-    line([0, 0])
+    aLine(60, 40)              // 60° from the +X tangent, 40 units long
 })
 ```
+
+`.centered()` works the same way as on `hLine` / `vLine`.
+
+### Up to a target
+
+Pass a target geometry as the second argument to extend the angled ray until
+it meets the target:
+
+<CodeBlock language="js">{primitiveAlineTarget}</CodeBlock>
+
+![Angled line up to a guide](/img/docs/sketching/primitive-aline-target.png)
+
+Here a centered horizontal guide is placed at `y = 50`, the cursor is rewound
+to the origin with `back(2)`, and the 45° line extends from the origin until
+it meets the guide.
 
 ## arc
 

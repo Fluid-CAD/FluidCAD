@@ -8,7 +8,7 @@
     "build": "docusaurus build",
     "build:local": "dotenv -e .env.local -- docusaurus build",
     "swizzle": "docusaurus swizzle",
-    "deploy": "npm run build:local && npx wrangler pages deploy --branch main",
+    "deploy": "npm run generate-api-docs && npm run build:local && npx wrangler pages deploy --branch main",
     "clear": "docusaurus clear",
     "serve": "docusaurus serve",
     "write-translations": "docusaurus write-translations",

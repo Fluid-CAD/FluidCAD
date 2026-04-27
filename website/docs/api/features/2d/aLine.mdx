@@ -28,6 +28,21 @@ Chain `.centered()` to center the line on the current position.
 ---
 
 ```ts
+aLine(angle: number, target: SceneObject): ALine
+```
+
+Draws a line at the given angle that ends where it intersects the target
+geometry. The nearest intersection along the line's direction (in either
+sign) is used.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `angle` | number | The angle in degrees |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The geometry to intersect with |
+
+---
+
+```ts
 aLine(targetPlane: SceneObject | PlaneLike, angle: number, length: number): ALine
 ```
 

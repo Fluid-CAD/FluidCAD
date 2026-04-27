@@ -17,7 +17,7 @@ See the [guide](/docs/guides/transforms) for detailed usage examples.
 ## Signatures
 
 ```ts
-rotate(angle: number, ...targets: SceneObject[]): SceneObject
+rotate(angle: number, ...targets: SceneObject[]): IRotate
 ```
 
 [2D] Rotates geometry by an angle inside a sketch.
@@ -30,7 +30,7 @@ rotate(angle: number, ...targets: SceneObject[]): SceneObject
 ---
 
 ```ts
-rotate(angle: number, copy: boolean, ...targets: SceneObject[]): SceneObject
+rotate(angle: number, copy: boolean, ...targets: SceneObject[]): IRotate
 ```
 
 [2D] Rotates geometry by an angle inside a sketch, optionally making a copy.
@@ -44,7 +44,7 @@ rotate(angle: number, copy: boolean, ...targets: SceneObject[]): SceneObject
 ---
 
 ```ts
-rotate(axis: AxisLike, angle: number, ...targets: SceneObject[]): SceneObject
+rotate(axis: AxisLike, angle: number, ...targets: SceneObject[]): IRotate
 ```
 
 [3D] Rotates objects around an axis by an angle.
@@ -58,7 +58,7 @@ rotate(axis: AxisLike, angle: number, ...targets: SceneObject[]): SceneObject
 ---
 
 ```ts
-rotate(axis: AxisLike, angle: number, copy: boolean, ...targets: SceneObject[]): SceneObject
+rotate(axis: AxisLike, angle: number, copy: boolean, ...targets: SceneObject[]): IRotate
 ```
 
 [3D] Rotates objects around an axis by an angle, optionally making a copy.

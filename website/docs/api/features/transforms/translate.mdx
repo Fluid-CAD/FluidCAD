@@ -17,7 +17,7 @@ See the [guide](/docs/guides/transforms) for detailed usage examples.
 ## Signatures
 
 ```ts
-translate(x: number, ...targets: SceneObject[]): SceneObject
+translate(x: number, ...targets: SceneObject[]): ITranslate
 ```
 
 Translates objects along the X axis.
@@ -30,7 +30,7 @@ Translates objects along the X axis.
 ---
 
 ```ts
-translate(x: number, copy: boolean, ...targets: SceneObject[]): SceneObject
+translate(x: number, copy: boolean, ...targets: SceneObject[]): ITranslate
 ```
 
 Translates objects along the X axis, optionally making a copy.
@@ -44,7 +44,7 @@ Translates objects along the X axis, optionally making a copy.
 ---
 
 ```ts
-translate(x: number, y: number, ...targets: SceneObject[]): SceneObject
+translate(x: number, y: number, ...targets: SceneObject[]): ITranslate
 ```
 
 Translates objects along the X and Y axes.
@@ -58,7 +58,7 @@ Translates objects along the X and Y axes.
 ---
 
 ```ts
-translate(x: number, y: number, copy: boolean, ...targets: SceneObject[]): SceneObject
+translate(x: number, y: number, copy: boolean, ...targets: SceneObject[]): ITranslate
 ```
 
 Translates objects along the X and Y axes, optionally making a copy.
@@ -73,7 +73,7 @@ Translates objects along the X and Y axes, optionally making a copy.
 ---
 
 ```ts
-translate(x: number, y: number, z: number, ...targets: SceneObject[]): SceneObject
+translate(x: number, y: number, z: number, ...targets: SceneObject[]): ITranslate
 ```
 
 Translates objects along all three axes.
@@ -88,7 +88,7 @@ Translates objects along all three axes.
 ---
 
 ```ts
-translate(x: number, y: number, z: number, copy: boolean, ...targets: SceneObject[]): SceneObject
+translate(x: number, y: number, z: number, copy: boolean, ...targets: SceneObject[]): ITranslate
 ```
 
 Translates objects along all three axes, optionally making a copy.
@@ -104,7 +104,7 @@ Translates objects along all three axes, optionally making a copy.
 ---
 
 ```ts
-translate(distance: PointLike, ...targets: SceneObject[]): SceneObject
+translate(distance: PointLike, ...targets: SceneObject[]): ITranslate
 ```
 
 Translates objects by a point-like offset.
@@ -117,7 +117,7 @@ Translates objects by a point-like offset.
 ---
 
 ```ts
-translate(distance: PointLike, copy: boolean, ...targets: SceneObject[]): SceneObject
+translate(distance: PointLike, copy: boolean, ...targets: SceneObject[]): ITranslate
 ```
 
 Translates objects by a point-like offset, optionally making a copy.

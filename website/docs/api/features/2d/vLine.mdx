@@ -27,6 +27,19 @@ Chain `.centered()` to center the line on the current position.
 ---
 
 ```ts
+vLine(target: SceneObject): VLine
+```
+
+Draws a vertical line that ends where it intersects the target geometry.
+The nearest intersection (in either direction along the Y axis) is used.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `target` | [SceneObject](/docs/api/types/scene-object) | The geometry to intersect with |
+
+---
+
+```ts
 vLine(start: Point2DLike, distance: number): VLine
 ```
 
@@ -37,6 +50,21 @@ Chain `.centered()` to center the line on the start point.
 |-----------|------|-------------|
 | `start` | [Point2DLike](/docs/api/types/point2dlike) | The start point |
 | `distance` | number | The line length |
+
+---
+
+```ts
+vLine(start: Point2DLike, target: SceneObject): VLine
+```
+
+Draws a vertical line from a start point that ends where it intersects
+the target geometry. The nearest intersection (in either direction along
+the Y axis) is used.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `start` | [Point2DLike](/docs/api/types/point2dlike) | The start point |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The geometry to intersect with |
 
 ---
 

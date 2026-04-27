@@ -27,6 +27,19 @@ Chain `.centered()` to center the line on the current position.
 ---
 
 ```ts
+hLine(target: SceneObject): HLine
+```
+
+Draws a horizontal line that ends where it intersects the target geometry.
+The nearest intersection (in either direction along the X axis) is used.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `target` | [SceneObject](/docs/api/types/scene-object) | The geometry to intersect with |
+
+---
+
+```ts
 hLine(start: Point2DLike, distance: number): HLine
 ```
 
@@ -37,6 +50,21 @@ Chain `.centered()` to center the line on the start point.
 |-----------|------|-------------|
 | `start` | [Point2DLike](/docs/api/types/point2dlike) | The start point |
 | `distance` | number | The line length |
+
+---
+
+```ts
+hLine(start: Point2DLike, target: SceneObject): HLine
+```
+
+Draws a horizontal line from a start point that ends where it intersects
+the target geometry. The nearest intersection (in either direction along
+the X axis) is used.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `start` | [Point2DLike](/docs/api/types/point2dlike) | The start point |
+| `target` | [SceneObject](/docs/api/types/scene-object) | The geometry to intersect with |
 
 ---
 

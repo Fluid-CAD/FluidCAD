@@ -22,6 +22,7 @@ function readAll() {
   themeColors.edgeColor.set(readCssVar('--scene-edge-color', '#000000'));
   themeColors.gridColor.set(readCssVar('--scene-grid-color', '#6f6f6f'));
   themeColors.metaEdgeColor.set(readCssVar('--scene-meta-edge-color', '#b0b0b0'));
+  themeColors.highlightColor.set(readCssVar('--scene-highlight-color', '#ffb433'));
   themeColors.backgroundColor.set(readCssVar('--color-base-100', '#1e1e1e'));
 }
 
@@ -30,6 +31,7 @@ export const themeColors = {
   edgeColor: new Color('#000000'),
   gridColor: new Color('#6f6f6f'),
   metaEdgeColor: new Color('#b0b0b0'),
+  highlightColor: new Color('#ffb433'),
   backgroundColor: new Color('#1e1e1e'),
 };
 

@@ -23,12 +23,8 @@ function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
   }
 }
 
-const HIGHLIGHT_FACE_COLOR = '#ffc578';
-const HIGHLIGHT_EDGE_COLOR = '#ffc578';
-
-const HOVER_FACE_COLOR = '#64B5F6';
-const HOVER_EDGE_COLOR = '#64B5F6';
-const HOVER_FACE_OPACITY = 0.3;
+const HIGHLIGHT_EDGE_LINE_WIDTH = 2;
+const HOVER_EDGE_LINE_WIDTH = 2;
 
 // How much to blend non-sketch object colors toward the scene background while
 // sketch mode is active. Higher = more faded. Opaque tint avoids the three.js
@@ -324,11 +320,20 @@ export class Viewer {
       if (!(child as any).material) return;
 
       if (isFaceHighlight && child instanceof Mesh) {
-        child.userData.originalColor = (child as any).material.color.getHex();
-        (child as any).material.color.set(HIGHLIGHT_FACE_COLOR);
+        const mat = (child as any).material;
+        child.userData.originalColor = mat.color.getHex();
+        mat.color.set(themeColors.highlightColor);
+        if (mat.opacity < 1 || mat.transparent) {
+          child.userData.originalOpacity = mat.opacity;
+          child.userData.originalTransparent = mat.transparent;
+          mat.opacity = 1;
+          mat.transparent = false;
+        }
       } else if (!isFaceHighlight && child instanceof LineSegments) {
         child.userData.originalColor = (child as any).material.color.getHex();
-        (child as any).material.color.set(HIGHLIGHT_EDGE_COLOR);
+        (child as any).material.color.set(themeColors.highlightColor);
+        child.userData.originalLineWidth = (child as any).material.linewidth;
+        (child as any).material.linewidth = HIGHLIGHT_EDGE_LINE_WIDTH;
         if ((child as any).material.opacity < 1) {
           child.userData.originalOpacity = (child as any).material.opacity;
           (child as any).material.opacity = 1;
@@ -354,6 +359,14 @@ export class Viewer {
       if (child.userData.originalOpacity !== undefined) {
         (child as any).material.opacity = child.userData.originalOpacity;
         delete child.userData.originalOpacity;
+      }
+      if (child.userData.originalTransparent !== undefined) {
+        (child as any).material.transparent = child.userData.originalTransparent;
+        delete child.userData.originalTransparent;
+      }
+      if (child.userData.originalLineWidth !== undefined) {
+        (child as any).material.linewidth = child.userData.originalLineWidth;
+        delete child.userData.originalLineWidth;
       }
     });
 
@@ -424,7 +437,7 @@ export class Viewer {
       overlayGeo.setAttribute('position', new BufferAttribute(new Float32Array(newPositions), 3));
 
       const overlayMat = new MeshPhongMaterial({
-        color: HIGHLIGHT_FACE_COLOR,
+        color: themeColors.highlightColor,
         polygonOffset: true,
         polygonOffsetFactor: -2,
         polygonOffsetUnits: -1,
@@ -465,7 +478,9 @@ export class Viewer {
       }
 
       obj.userData.originalColor = (obj as any).material.color.getHex();
-      (obj as any).material.color.set(HIGHLIGHT_EDGE_COLOR);
+      (obj as any).material.color.set(themeColors.highlightColor);
+      obj.userData.originalLineWidth = (obj as any).material.linewidth;
+      (obj as any).material.linewidth = HIGHLIGHT_EDGE_LINE_WIDTH;
     });
 
     this.highlightedShapeId = shapeId;
@@ -566,6 +581,10 @@ export class Viewer {
         (child as any).material.color.setHex(child.userData.hoverOriginalColor);
         delete child.userData.hoverOriginalColor;
       }
+      if (child.userData.hoverOriginalLineWidth !== undefined) {
+        (child as any).material.linewidth = child.userData.hoverOriginalLineWidth;
+        delete child.userData.hoverOriginalLineWidth;
+      }
     });
 
     this.hoverState = null;
@@ -626,10 +645,7 @@ export class Viewer {
       overlayGeo.setAttribute('position', new BufferAttribute(new Float32Array(newPositions), 3));
 
       const overlayMat = new MeshPhongMaterial({
-        color: HOVER_FACE_COLOR,
-        transparent: true,
-        opacity: HOVER_FACE_OPACITY,
-        depthWrite: false,
+        color: themeColors.highlightColor,
         polygonOffset: true,
         polygonOffsetFactor: -2,
         polygonOffsetUnits: -1,
@@ -666,7 +682,9 @@ export class Viewer {
       }
 
       obj.userData.hoverOriginalColor = (obj as any).material.color.getHex();
-      (obj as any).material.color.set(HOVER_EDGE_COLOR);
+      (obj as any).material.color.set(themeColors.highlightColor);
+      obj.userData.hoverOriginalLineWidth = (obj as any).material.linewidth;
+      (obj as any).material.linewidth = HOVER_EDGE_LINE_WIDTH;
     });
 
     this.ctx.requestRender();

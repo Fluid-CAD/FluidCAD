@@ -4,15 +4,19 @@ import { SketchMesh } from './containers/sketch-mesh';
 import { PlaneMesh } from './containers/plane-mesh';
 import { AxisMesh } from './containers/axis-mesh';
 import { ShapeGroup } from './containers/shape-group';
+import { themeColors } from '../scene/theme-colors';
 
 // ---------------------------------------------------------------------------
 // Preset render options for special object types
 // ---------------------------------------------------------------------------
 
-const SELECT_OPTIONS: MeshRenderOptions = {
-  edge: { color: '#11a4ed', lineWidth: 3, depthWrite: false },
-  face: { color: '#5c9fcc', opacity: 1 },
-};
+function getSelectOptions(): MeshRenderOptions {
+  const color = '#' + themeColors.highlightColor.getHexString();
+  return {
+    edge: { color, lineWidth: 3, depthWrite: false },
+    face: { color, opacity: 1 },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Option resolution
@@ -32,7 +36,7 @@ function resolveOptions(
   inherited?: MeshRenderOptions,
 ): MeshRenderOptions | undefined {
   if (inherited) return inherited;
-  if (uniqueType === 'select') return SELECT_OPTIONS;
+  if (uniqueType === 'select') return getSelectOptions();
   return undefined;
 }
 

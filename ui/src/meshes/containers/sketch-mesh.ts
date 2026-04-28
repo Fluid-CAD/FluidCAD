@@ -77,7 +77,8 @@ export class SketchMesh extends Group {
           }
           continue;
         }
-        const edgeMesh = new EdgeMesh(shape, { color: SKETCH_EDGE_COLOR, lineWidth: 2 });
+        const edgeMesh = new EdgeMesh(shape, { color: SKETCH_EDGE_COLOR, lineWidth: 2, depthWrite: false });
+        edgeMesh.traverse(child => { child.renderOrder = 1; });
         if (shape.shapeId) {
           edgeMesh.userData.shapeId = shape.shapeId;
         }

@@ -46,13 +46,15 @@ arc(radius: number, startAngle?: number, endAngle?: number): ArcAngles
 ```
 
 Draws an arc by radius and angle range at the current position.
+Angles are measured relative to the current tangent (the tangent of the previous
+geometry, or +X when there is none).
 Chain `.centered()` to center the arc symmetrically around the start angle.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `radius` | number | The arc radius |
-| `startAngle` | number | The start angle in degrees (defaults to 0) *(optional)* |
-| `endAngle` | number | The end angle in degrees (defaults to 180) *(optional)* |
+| `startAngle` | number | The start angle in degrees, relative to the current tangent (defaults to 0) *(optional)* |
+| `endAngle` | number | The end angle in degrees, relative to the current tangent (defaults to 180) *(optional)* |
 
 ---
 

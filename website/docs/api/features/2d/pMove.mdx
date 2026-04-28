@@ -1,12 +1,14 @@
 ---
 sidebar_position: 17
 title: "pMove"
-description: "Moves the cursor by polar coordinates."
+description: "Moves the cursor by polar coordinates, relative to the current tangent. The angle is measured from the tangent of the previous geometry (defaults to +X when there is none)."
 ---
 
 # pMove()
 
-Moves the cursor by polar coordinates.
+Moves the cursor by polar coordinates, relative to the current tangent.
+The angle is measured from the tangent of the previous geometry (defaults to +X
+when there is none).
 
 **Returns**: [**`Geometry`**](/docs/api/types/geometry)
 
@@ -16,9 +18,26 @@ Moves the cursor by polar coordinates.
 pMove(radius: number, angle: number): Geometry
 ```
 
-Moves the cursor by polar coordinates.
+Moves the cursor by polar coordinates, relative to the current tangent.
+The angle is measured from the tangent of the previous geometry (defaults to +X
+when there is none).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `radius` | number | The distance to move |
-| `angle` | number | The angle in degrees |
+| `angle` | number | The angle in degrees, relative to the current tangent |
+
+---
+
+```ts
+pMove(target: SceneObject, angle: number): Geometry
+```
+
+Moves the cursor along the given angle (relative to the current tangent) to the
+nearest intersection with the target geometry. The nearest intersection (in either
+direction along the ray) is used.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `target` | [SceneObject](/docs/api/types/scene-object) | The geometry to intersect with |
+| `angle` | number | The angle in degrees, relative to the current tangent |

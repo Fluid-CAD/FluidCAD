@@ -11,7 +11,7 @@ Moves the cursor vertically by the given distance.
 ## Signatures
 
 ```ts
-vMove(distance: number): void
+vMove(distance: number): Geometry
 ```
 
 Moves the cursor vertically by the given distance.
@@ -19,3 +19,16 @@ Moves the cursor vertically by the given distance.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `distance` | number | The vertical distance to move |
+
+---
+
+```ts
+vMove(target: SceneObject): Geometry
+```
+
+Moves the cursor vertically to the nearest intersection with the target geometry.
+The nearest intersection (in either direction along the Y axis) is used.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `target` | [SceneObject](/docs/api/types/scene-object) | The geometry to intersect with |

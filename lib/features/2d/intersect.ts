@@ -3,6 +3,7 @@ import { ShapeOps } from "../../oc/shape-ops.js";
 import { Edge } from "../../common/edge.js";
 import { Vertex } from "../../common/vertex.js";
 import { SectionOps } from "../../oc/section-ops.js";
+import { WireOps } from "../../oc/wire-ops.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
 
@@ -17,22 +18,27 @@ export class Intersect extends ExtrudableGeometryBase {
     const shapes = this.sourceObjects.flatMap(obj => obj.getShapes());
     const transform = context?.getTransform() ?? null;
 
-    let lastEdge: Edge = null;
-
-    for (let shape of shapes) {
+    const allEdges: Edge[] = [];
+    for (const shape of shapes) {
       const edges = SectionOps.sectionShapeWithPlane(plane, shape);
-      for (const edge of edges) {
-        lastEdge = edge;
-      }
+      allEdges.push(...edges);
       this.addShapes(edges);
     }
 
-    if (lastEdge) {
-      const localStart = plane.worldToLocal(lastEdge.getFirstVertex().toPoint());
-      const localEnd = plane.worldToLocal(lastEdge.getLastVertex().toPoint());
+    // Section across multiple source faces yields an unordered edge set that
+    // may form one connected chain, several disjoint chains, or closed loops.
+    // Take the first connected group and use its actual chain endpoints —
+    // not an arbitrary edge's vertices, which can land on interior junctions.
+    if (allEdges.length > 0) {
+      const groups = WireOps.groupConnectedEdges(allEdges);
+      const endpoints = WireOps.findChainEndpoints(groups[0]);
+      if (endpoints) {
+        const localStart = plane.worldToLocal(endpoints.start.toPoint());
+        const localEnd = plane.worldToLocal(endpoints.end.toPoint());
 
-      this.setState('start', Vertex.fromPoint2D(localStart));
-      this.setState('end', Vertex.fromPoint2D(localEnd));
+        this.setState('start', Vertex.fromPoint2D(localStart));
+        this.setState('end', Vertex.fromPoint2D(localEnd));
+      }
     }
 
     for (const obj of this.sourceObjects) {

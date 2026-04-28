@@ -140,6 +140,51 @@ export class WireOps {
     return oc.TopoDS.Wire(fixed);
   }
 
+  /**
+   * Returns the two chain-end vertices of a connected edge set, or a single
+   * vertex (start === end) for a closed loop. Returns null if branching is
+   * detected (more than two unique endpoints).
+   *
+   * "Chain end" is a vertex that appears in exactly one edge; interior junction
+   * vertices appear in two or more. Vertex equivalence is tolerance-based so
+   * boundary representations with separately-built endpoints still match.
+   */
+  static findChainEndpoints(edges: Edge[]): { start: Vertex, end: Vertex } | null {
+    if (edges.length === 0) {
+      return null;
+    }
+
+    const entries: { vertex: Vertex, count: number }[] = [];
+    const findOrAdd = (vertex: Vertex) => {
+      for (const entry of entries) {
+        if (WireOps.verticesMatch(entry.vertex, vertex)) {
+          return entry;
+        }
+      }
+      const created = { vertex, count: 0 };
+      entries.push(created);
+      return created;
+    };
+
+    for (const edge of edges) {
+      findOrAdd(edge.getFirstVertex()).count++;
+      findOrAdd(edge.getLastVertex()).count++;
+    }
+
+    const ends = entries.filter(e => e.count === 1);
+
+    if (ends.length === 0) {
+      const v = edges[0].getFirstVertex();
+      return { start: v, end: v };
+    }
+
+    if (ends.length === 2) {
+      return { start: ends[0].vertex, end: ends[1].vertex };
+    }
+
+    return null;
+  }
+
   static groupConnectedEdges(edges: Edge[]): Edge[][] {
     if (edges.length === 0) {
       return [];

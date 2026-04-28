@@ -3,6 +3,7 @@ import { Face } from "../../common/face.js";
 import { Edge } from "../../common/edge.js";
 import { Vertex } from "../../common/vertex.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
+import { WireOps } from "../../oc/wire-ops.js";
 import { ProjectionOps } from "../../oc/intersection.js";
 import { Wire } from "../../common/wire.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
@@ -35,19 +36,24 @@ export class Projection extends ExtrudableGeometryBase {
       allWires.push(...wires);
     }
 
-    // Capture the sketch-cursor endpoints from the last projected wire BEFORE
-    // dedup. unifyCoincident may split/drop edges and the wire structure is
-    // discarded anyway, but the original wire's endpoints are still the right
-    // anchor for the sketch's current position.
-    const lastWire = allWires.length > 0 ? allWires[allWires.length - 1] : null;
-
+    // Capture the sketch-cursor endpoints BEFORE dedup. unifyCoincident may
+    // split/drop edges and the wire structure is discarded anyway, but the
+    // chain endpoints of the first connected group are still the right anchor
+    // for the sketch's current position. When multiple disjoint pieces are
+    // projected, we use the first as a stable convention.
     const allEdges: Edge[] = allWires.flatMap(w => w.getEdges());
+    let endpoints: { start: Vertex, end: Vertex } | null = null;
+    if (allEdges.length > 0) {
+      const groups = WireOps.groupConnectedEdges(allEdges);
+      endpoints = WireOps.findChainEndpoints(groups[0]);
+    }
+
     const uniqueEdges = EdgeOps.unifyCoincident(allEdges);
     this.addShapes(uniqueEdges);
 
-    if (lastWire) {
-      const localStart = plane.worldToLocal(lastWire.getFirstVertex().toPoint());
-      const localEnd = plane.worldToLocal(lastWire.getLastVertex().toPoint());
+    if (endpoints) {
+      const localStart = plane.worldToLocal(endpoints.start.toPoint());
+      const localEnd = plane.worldToLocal(endpoints.end.toPoint());
 
       this.setState('start', Vertex.fromPoint2D(localStart));
       this.setState('end', Vertex.fromPoint2D(localEnd));

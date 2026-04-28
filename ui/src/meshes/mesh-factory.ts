@@ -11,10 +11,11 @@ import { themeColors } from '../scene/theme-colors';
 // ---------------------------------------------------------------------------
 
 function getSelectOptions(): MeshRenderOptions {
-  const color = '#' + themeColors.highlightColor.getHexString();
+  const edgeColor = '#' + themeColors.selectEdgeColor.getHexString();
+  const faceColor = '#' + themeColors.selectFaceColor.getHexString();
   return {
-    edge: { color, lineWidth: 3, depthWrite: false },
-    face: { color, opacity: 1 },
+    edge: { color: edgeColor, lineWidth: 3, depthWrite: false },
+    face: { color: faceColor, opacity: 1 },
   };
 }
 

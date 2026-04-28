@@ -217,7 +217,6 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
     const sign = cw ? -1 : 1;
     const centerPoint = new Point2D(mx + sign * d * px, my + sign * d * py);
 
-    const startAngle = Math.atan2(startPoint.y - centerPoint.y, startPoint.x - centerPoint.x);
     const endAngle = Math.atan2(targetPoint.y - centerPoint.y, targetPoint.x - centerPoint.x);
 
     const normal = cw ? plane.normal.negate() : plane.normal;
@@ -295,6 +294,11 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
       ? plane.worldToLocal(this._targetPlane.getPlaneCenter())
       : this.getCurrentPosition();
 
+    // Angles are measured relative to the current tangent (defaults to +X).
+    const tangent = (this._targetPlane ? null : this.sketch?.getTangentAt(this))
+      ?? new Point2D(1, 0);
+    const tangentAngle = Math.atan2(tangent.y, tangent.x);
+
     const cw = this._endAngle < 0;
     const absStartAngle = Math.abs(this._startAngle);
     const absEndAngle = Math.abs(this._endAngle);
@@ -311,6 +315,9 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
       startAngleRad = rad(absStartAngle);
       endAngleRad = rad(absEndAngle);
     }
+
+    startAngleRad += tangentAngle;
+    endAngleRad += tangentAngle;
 
     const normal = cw ? plane.normal.negate() : plane.normal;
 

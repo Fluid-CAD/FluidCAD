@@ -17,8 +17,8 @@ let base = extrude(80).thin(26).symmetric();
 const topPlane = plane(base.sideFaces(4))
 
 sketch(topPlane, () => {
+    move([0, 0])
+    arc(40).centered()
     move([-2, 0])
     vLine(100).centered().guide()
-    move([0, 0])
-    arc(40).centered();
 });

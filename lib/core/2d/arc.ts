@@ -25,10 +25,12 @@ interface ArcFunction {
   (startPoint: Point2DLike, endPoint: Point2DLike): IArcPoints;
   /**
    * Draws an arc by radius and angle range at the current position.
+   * Angles are measured relative to the current tangent (the tangent of the previous
+   * geometry, or +X when there is none).
    * Chain `.centered()` to center the arc symmetrically around the start angle.
    * @param radius - The arc radius
-   * @param startAngle - The start angle in degrees (defaults to 0)
-   * @param endAngle - The end angle in degrees (defaults to 180)
+   * @param startAngle - The start angle in degrees, relative to the current tangent (defaults to 0)
+   * @param endAngle - The end angle in degrees, relative to the current tangent (defaults to 180)
    */
   (radius: number, startAngle?: number, endAngle?: number): IArcAngles;
 

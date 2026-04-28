@@ -14,7 +14,13 @@ export class PolarMove extends GeometrySceneObject {
 
   build() {
     const pos = this.getCurrentPosition();
-    const direction = new Point2D(Math.cos(this.angle), Math.sin(this.angle));
+    const tangent = (this.sketch?.getTangentAt(this) ?? new Point2D(1, 0)).normalize();
+    const cos = Math.cos(this.angle);
+    const sin = Math.sin(this.angle);
+    const direction = new Point2D(
+      cos * tangent.x - sin * tangent.y,
+      sin * tangent.x + cos * tangent.y
+    );
     let newPos: Point2D;
 
     if (typeof this.radiusOrTarget === 'number') {
@@ -32,6 +38,14 @@ export class PolarMove extends GeometrySceneObject {
     }
 
     this.setCurrentPosition(newPos);
+
+    const moveVec = newPos.subtract(pos);
+    const moveLen = Math.hypot(moveVec.x, moveVec.y);
+    if (moveLen > 1e-12) {
+      this.setTangent(new Point2D(moveVec.x / moveLen, moveVec.y / moveLen));
+    } else {
+      this.setTangent(direction);
+    }
   }
 
   override getDependencies(): SceneObject[] {

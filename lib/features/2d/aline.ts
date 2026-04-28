@@ -59,7 +59,11 @@ export class AngledLine extends GeometrySceneObject implements IALine {
         throw new Error('aLine: .centered() cannot be combined with a target geometry');
       }
       startPoint = currentPos;
-      endPoint = findNearestRayIntersection(plane, startPoint, direction, this.lengthOrTarget);
+      const hit = findNearestRayIntersection(plane, startPoint, direction, this.lengthOrTarget);
+      if (!hit) {
+        throw new Error("Line does not intersect target geometry");
+      }
+      endPoint = hit;
     }
 
     const start = plane.localToWorld(startPoint);

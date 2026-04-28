@@ -46,7 +46,11 @@ export class VerticalLine extends GeometrySceneObject implements IVLine {
         throw new Error('vLine: .centered() cannot be combined with a target geometry');
       }
       startPoint = currentPos;
-      endPoint = findNearestRayIntersection(plane, startPoint, new Point2D(0, 1), this.distanceOrTarget);
+      const hit = findNearestRayIntersection(plane, startPoint, new Point2D(0, 1), this.distanceOrTarget);
+      if (!hit) {
+        throw new Error("Line does not intersect target geometry");
+      }
+      endPoint = hit;
       signedLength = endPoint.y - startPoint.y;
     }
 

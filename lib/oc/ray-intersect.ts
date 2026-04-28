@@ -19,14 +19,15 @@ const ON_TARGET_EPSILON = 1e-7;
  * `start` (within tolerance) are skipped so a start point already on the
  * target is not picked.
  *
- * Throws if the target produces no usable edge hits.
+ * Returns null when no intersection is found. Callers should throw a
+ * context-appropriate error.
  */
 export function findNearestRayIntersection(
   plane: Plane,
   start: Point2D,
   direction: Point2D,
   target: SceneObject
-): Point2D {
+): Point2D | null {
   const oc = getOC();
 
   const dirLen = Math.hypot(direction.x, direction.y);
@@ -116,10 +117,6 @@ export function findNearestRayIntersection(
 
   probeAdaptor.delete();
   probeEdge.delete();
-
-  if (!bestHit) {
-    throw new Error("Line does not intersect target geometry");
-  }
 
   return bestHit;
 }

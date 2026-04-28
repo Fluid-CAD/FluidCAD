@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../../setup.js";
 import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
-import { move, hMove, vMove, rect, circle } from "../../../core/2d/index.js";
+import { move, hMove, vMove, pMove, hLine, rect, circle } from "../../../core/2d/index.js";
 import { ExtrudeBase } from "../../../features/extrude-base.js";
 import { Solid } from "../../../common/solid.js";
 import { ShapeOps } from "../../../oc/shape-ops.js";
@@ -66,6 +66,87 @@ describe("move functions", () => {
       const bbox = ShapeOps.getBoundingBox(e.getShapes()[0]);
       expect(bbox.minX).toBeCloseTo(0, 0);
       expect(bbox.minY).toBeCloseTo(50, 0);
+    });
+  });
+
+  describe("hMove to target geometry", () => {
+    it("should move cursor to nearest intersection with a circle", () => {
+      sketch("xy", () => {
+        const c = circle([100, 0], 50).guide();
+        move([0, 0]);
+        hMove(c);
+        rect(10, 10);
+      });
+      const e = extrude(5) as ExtrudeBase;
+      render();
+
+      const bbox = ShapeOps.getBoundingBox(e.getShapes()[0]);
+      expect(bbox.minX).toBeCloseTo(75, 1);
+      expect(bbox.minY).toBeCloseTo(0, 1);
+    });
+
+    it("should pick nearest intersection when target is behind start", () => {
+      sketch("xy", () => {
+        const c = circle([-100, 0], 50).guide();
+        move([0, 0]);
+        hMove(c);
+        rect(10, 10);
+      });
+      const e = extrude(5) as ExtrudeBase;
+      render();
+
+      const bbox = ShapeOps.getBoundingBox(e.getShapes()[0]);
+      expect(bbox.minX).toBeCloseTo(-75, 1);
+      expect(bbox.minY).toBeCloseTo(0, 1);
+    });
+  });
+
+  describe("vMove to target geometry", () => {
+    it("should move cursor to nearest intersection with a circle above", () => {
+      sketch("xy", () => {
+        const c = circle([0, 100], 50).guide();
+        move([0, 0]);
+        vMove(c);
+        rect(10, 10);
+      });
+      const e = extrude(5) as ExtrudeBase;
+      render();
+
+      const bbox = ShapeOps.getBoundingBox(e.getShapes()[0]);
+      expect(bbox.minX).toBeCloseTo(0, 1);
+      expect(bbox.minY).toBeCloseTo(75, 1);
+    });
+  });
+
+  describe("pMove to target geometry", () => {
+    it("should move cursor along angle to nearest intersection", () => {
+      sketch("xy", () => {
+        const h = hLine([-100, 50], 200).guide();
+        move([0, 0]);
+        pMove(h, 90);
+        rect(10, 10);
+      });
+      const e = extrude(5) as ExtrudeBase;
+      render();
+
+      const bbox = ShapeOps.getBoundingBox(e.getShapes()[0]);
+      expect(bbox.minX).toBeCloseTo(0, 1);
+      expect(bbox.minY).toBeCloseTo(50, 1);
+    });
+
+    it("should support 45° intersection with a horizontal line", () => {
+      sketch("xy", () => {
+        const h = hLine([-100, 50], 200).guide();
+        move([0, 0]);
+        pMove(h, 45);
+        rect(10, 10);
+      });
+      const e = extrude(5) as ExtrudeBase;
+      render();
+
+      const bbox = ShapeOps.getBoundingBox(e.getShapes()[0]);
+      expect(bbox.minX).toBeCloseTo(50, 1);
+      expect(bbox.minY).toBeCloseTo(50, 1);
     });
   });
 

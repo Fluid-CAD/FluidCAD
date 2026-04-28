@@ -42,6 +42,8 @@
   --scene-grid-color: #6f6f6f;
   --scene-meta-edge-color: #b0b0b0;
   --scene-highlight-color: #ffb433;
+  --scene-select-edge-color: #11a4ed;
+  --scene-select-face-color: #5c9fcc;
 }
 
 @plugin "daisyui/theme" {
@@ -80,6 +82,8 @@
   --scene-grid-color: #e8e8e8;
   --scene-meta-edge-color: #888888;
   --scene-highlight-color: #ffb433;
+  --scene-select-edge-color: #11a4ed;
+  --scene-select-face-color: #5c9fcc;
 }
 
 @utility panel-bg {

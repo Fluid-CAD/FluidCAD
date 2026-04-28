@@ -23,6 +23,8 @@ function readAll() {
   themeColors.gridColor.set(readCssVar('--scene-grid-color', '#6f6f6f'));
   themeColors.metaEdgeColor.set(readCssVar('--scene-meta-edge-color', '#b0b0b0'));
   themeColors.highlightColor.set(readCssVar('--scene-highlight-color', '#ffb433'));
+  themeColors.selectEdgeColor.set(readCssVar('--scene-select-edge-color', '#11a4ed'));
+  themeColors.selectFaceColor.set(readCssVar('--scene-select-face-color', '#5c9fcc'));
   themeColors.backgroundColor.set(readCssVar('--color-base-100', '#1e1e1e'));
 }
 
@@ -32,6 +34,8 @@ export const themeColors = {
   gridColor: new Color('#6f6f6f'),
   metaEdgeColor: new Color('#b0b0b0'),
   highlightColor: new Color('#ffb433'),
+  selectEdgeColor: new Color('#11a4ed'),
+  selectFaceColor: new Color('#5c9fcc'),
   backgroundColor: new Color('#1e1e1e'),
 };
 

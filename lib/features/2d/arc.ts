@@ -7,6 +7,7 @@ import { GeometrySceneObject } from "./geometry.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { IArcPoints, IArcAngles } from "../../core/interfaces.js";
+import { SceneObject } from "../../common/scene-object.js";
 
 export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
   // Two-point mode state (set by factory)
@@ -341,6 +342,31 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
 
   getType(): string {
     return 'arc';
+  }
+
+  override getDependencies(): SceneObject[] {
+    return this._targetPlane ? [this._targetPlane] : [];
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const targetPlane = this._targetPlane
+      ? (remap.get(this._targetPlane) as PlaneObjectBase || this._targetPlane)
+      : null;
+
+    let copy: Arc;
+    if (this._startPoint && this._endPoint) {
+      copy = Arc.twoPoints(this._startPoint, this._endPoint, targetPlane);
+    } else if (this._endPoint) {
+      copy = Arc.toPoint(this._endPoint, targetPlane);
+    } else {
+      copy = Arc.fromAngles(this._arcRadius, this._startAngle, this._endAngle, targetPlane);
+    }
+
+    copy._bulgeRadius = this._bulgeRadius;
+    copy._centerPoint = this._centerPoint;
+    copy._centered = this._centered;
+
+    return copy;
   }
 
   compareTo(other: Arc): boolean {

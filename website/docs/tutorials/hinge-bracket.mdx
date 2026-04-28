@@ -69,10 +69,10 @@ The top of the bracket gets a rounded pocket. We sketch a centered arc with a gu
 const topPlane = plane(base.sideFaces(4))
 
 sketch(topPlane, () => {
+    move([0, 0])
+    arc(40).centered()
     move([-2, 0])
     vLine(100).centered().guide()
-    move([0, 0])
-    arc(40).centered();
 });
 ```
 

@@ -36,7 +36,13 @@ export class ThinFaceMaker {
     const outwardEdges: Edge[] = [];
 
     for (const group of groups) {
-      const wire = WireOps.makeWireFromEdges(group);
+      const rawWire = WireOps.makeWireFromEdges(group);
+      // ShapeUpgrade_UnifySameDomain merges adjacent edges that share the
+      // same underlying curve into single edges. Without this,
+      // BRepOffsetAPI_MakeOffset can choke on wires whose corners are split
+      // into multiple same-curve segments (e.g. wires returned by `offset()`
+      // over a drafted body's filleted bottom).
+      const wire = this.unifyWireEdges(rawWire);
       const isClosed = wire.isClosed();
 
       if (offset2 !== undefined) {
@@ -126,19 +132,54 @@ export class ThinFaceMaker {
    * For closed wires, WireOps.offsetWire handles negative distances natively.
    * For open wires, negative distances are handled by reversing the wire,
    * offsetting with the absolute value, then reversing back.
+   *
+   * If the wire-only offset throws (e.g. "Offset wire is not closed." on
+   * wires whose corners are GeomAbs_OffsetCurve segments from `offset()` over
+   * a drafted body's filleted bottom), retries with a planar face as the
+   * offset spine — that path supplies an explicit normal which keeps the
+   * algorithm stable on the same input.
    */
   private static doOffset(wire: Wire, plane: Plane, distance: number, isClosed: boolean): Wire {
-    if (isClosed) {
+    if (!isClosed) {
+      if (distance < 0) {
+        const reversed = WireOps.reverseWire(wire);
+        const offsetResult = this.offsetWireOnPlane(reversed, plane, -distance, true);
+        return WireOps.reverseWire(offsetResult);
+      }
+      return this.offsetWireOnPlane(wire, plane, distance, true);
+    }
+
+    try {
       return WireOps.offsetWire(wire, distance, false);
+    } catch {
+      return this.offsetWireOnPlane(wire, plane, distance, false);
     }
+  }
 
-    if (distance < 0) {
-      const reversed = WireOps.reverseWire(wire);
-      const offsetResult = this.offsetWireOnPlane(reversed, plane, -distance, true);
-      return WireOps.reverseWire(offsetResult);
+  /**
+   * Merges adjacent edges that share the same underlying curve into a single
+   * edge (e.g. two conic-arc segments at a filleted corner produced by
+   * `offset()` over the section of a drafted body's fillets). Without this,
+   * BRepOffsetAPI_MakeOffset chokes on such split arcs with
+   * "Offset wire is not closed." Falls back to the original wire if the
+   * upgrader produces no usable result.
+   */
+  private static unifyWireEdges(wire: Wire): Wire {
+    const oc = getOC();
+    const upgrader = new oc.ShapeUpgrade_UnifySameDomain(wire.getShape(), true, false, true);
+    upgrader.AllowInternalEdges(true);
+    upgrader.Build();
+    const result = upgrader.Shape();
+    upgrader.delete();
+
+    if (Explorer.isWire(result)) {
+      return Wire.fromTopoDSWire(oc.TopoDS.Wire(result));
     }
-
-    return this.offsetWireOnPlane(wire, plane, distance, true);
+    const wires = Explorer.findShapes<TopoDS_Wire>(result, oc.TopAbs_ShapeEnum.TopAbs_WIRE as TopAbs_ShapeEnum);
+    if (wires.length === 0) {
+      return wire;
+    }
+    return Wire.fromTopoDSWire(oc.TopoDS.Wire(wires[0]));
   }
 
   /**

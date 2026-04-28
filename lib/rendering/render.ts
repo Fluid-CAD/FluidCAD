@@ -8,6 +8,7 @@ import { Sketch } from "../features/2d/sketch.js";
 import { transformMeshes } from "./mesh-transform.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { Profiler } from "../common/profiler.js";
+import { describeError } from "../common/describe-error.js";
 
 type RenderEmit = {
   sceneShapes: RenderedShape[];
@@ -145,8 +146,8 @@ export class SceneRenderer {
       }
       return { renderedSceneShapes, ownShapeCount: sceneShapes.length };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`Error rendering object ${obj.getUniqueType()}:`, error);
+      const message = describeError(error);
+      console.error(`Error rendering object ${obj.getUniqueType()}:`, message);
       return { renderedSceneShapes, ownShapeCount: renderedSceneShapes.length, prepError: message };
     }
   }
@@ -213,8 +214,8 @@ export class SceneRenderer {
         }
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`Error building object ${object.getUniqueType()}:`, error);
+      const message = describeError(error);
+      console.error(`Error building object ${object.getUniqueType()}:`, message);
       object.setError(message);
     }
 

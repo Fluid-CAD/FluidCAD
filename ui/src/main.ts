@@ -97,6 +97,7 @@ const timelinePanel = new TimelinePanel(
   (shapeId) => viewer.isShapeHidden(shapeId),
   (shapeId, opacity) => viewer.setShapeTransparency(shapeId, opacity),
   (shapeId) => viewer.getShapeTransparency(shapeId),
+  () => viewer.resetAllTransparency(),
 );
 
 shapePropertiesModal.setOpenHandler(() => {

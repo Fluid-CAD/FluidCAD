@@ -862,6 +862,18 @@ export class Viewer {
     return this.shapeOpacities.get(shapeId) ?? 1;
   }
 
+  resetAllTransparency(): void {
+    if (this.shapeOpacities.size === 0) {
+      return;
+    }
+    const ids = Array.from(this.shapeOpacities.keys());
+    this.shapeOpacities.clear();
+    for (const id of ids) {
+      this.applyOpacityForId(id, 1);
+    }
+    this.ctx.requestRender();
+  }
+
   private applyOpacityForId(shapeId: string, opacity: number): void {
     const roots: Object3D[] = [];
     this.ctx.scene.traverse((child) => {

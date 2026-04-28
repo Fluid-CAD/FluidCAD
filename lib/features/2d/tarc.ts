@@ -14,10 +14,6 @@ export class TangentArc extends GeometrySceneObject {
 
   build(): void {
     const tangent = this.sketch.getTangentAt(this);
-    if (!tangent) {
-      throw new Error('TangentArc requires a previous sibling with a tangent');
-    }
-
     const plane = this.sketch.getPlane();
 
     // Negative radius flips the sweep direction.

@@ -36,11 +36,17 @@ export class Sketch extends SceneObject implements Extrudable {
     return new Point2D(0, 0);
   }
 
-  getTangentAt(currentObj: GeometrySceneObject): Point2D | null {
-    const children = this.getChildren() as GeometrySceneObject[];
+  getTangentAt(currentObj: GeometrySceneObject): Point2D {
+    const children = this.getChildren();
     const previous = children.slice(0, children.indexOf(currentObj));
     let last = previous[previous.length - 1];
     while (last) {
+      if (!(last instanceof GeometrySceneObject)) {
+        previous.pop();
+        last = previous[previous.length - 1];
+        continue;
+      }
+
       const tangent = last.getTangent();
       if (tangent) {
         return tangent;
@@ -50,7 +56,7 @@ export class Sketch extends SceneObject implements Extrudable {
       last = previous[previous.length - 1];
     }
 
-    return null;
+    return new Point2D(1, 0);
   }
 
   getPositionAt(currentObj: GeometrySceneObject): Point2D {
@@ -114,6 +120,7 @@ export class Sketch extends SceneObject implements Extrudable {
   }
 
   build(context?: BuildSceneObjectContext) {
+    this.setState('tangent', new Point2D(1, 0));
     this.planeObj.removeShapes(this);
 
     const source = this.getCloneSource();
@@ -209,13 +216,13 @@ export class Sketch extends SceneObject implements Extrudable {
     return true;
   }
 
-  getTangent(scope?: Set<SceneObject>): Point2D | null {
+  getTangent(scope?: Set<SceneObject>): Point2D {
     let children = this.getChildren()?.slice() as GeometrySceneObject[];
     if (scope) {
       children = children.filter(c => scope.has(c));
     }
     if (children.length === 0) {
-      return null;
+      return new Point2D(1, 0);
     }
 
     let last = children[children.length - 1];
@@ -235,7 +242,7 @@ export class Sketch extends SceneObject implements Extrudable {
       last = children[children.length - 1];
     }
 
-    return null;
+    return new Point2D(1, 0);
   }
 
   getType(): string {
@@ -247,7 +254,7 @@ export class Sketch extends SceneObject implements Extrudable {
     const tangent = this.getTangent(scope);
     return {
       currentPosition: plane.localToWorld(this.getLastPosition(scope)),
-      currentTangent: tangent ? plane.localToWorld(tangent) : null,
+      currentTangent: plane.localToWorld(tangent),
       plane: this.planeObj.serialize(),
     }
   }

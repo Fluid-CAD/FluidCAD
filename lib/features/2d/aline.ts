@@ -28,7 +28,7 @@ export class AngledLine extends GeometrySceneObject implements IALine {
   build() {
     const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
 
-    let tangent = this.sketch?.getTangentAt(this) || new Point2D(1, 0);
+    let tangent = this.sketch?.getTangentAt(this) ?? new Point2D(1, 0);
 
     tangent = tangent.normalize();
 

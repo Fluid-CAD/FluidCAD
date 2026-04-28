@@ -36,6 +36,7 @@ export class TimelinePanel {
   private isShapeHidden: (shapeId: string) => boolean;
   private onSetShapeTransparency: (shapeId: string, opacity: number) => void;
   private getShapeTransparency: (shapeId: string) => number;
+  private onResetAllTransparency: () => void;
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
   private activeTransparencyPopover: HTMLDivElement | null = null;
@@ -51,6 +52,7 @@ export class TimelinePanel {
     isShapeHidden: (shapeId: string) => boolean,
     onSetShapeTransparency: (shapeId: string, opacity: number) => void,
     getShapeTransparency: (shapeId: string) => number,
+    onResetAllTransparency: () => void,
   ) {
     this.onHighlightShape = onHighlightShape;
     this.onExportShapes = onExportShapes;
@@ -58,6 +60,7 @@ export class TimelinePanel {
     this.isShapeHidden = isShapeHidden;
     this.onSetShapeTransparency = onSetShapeTransparency;
     this.getShapeTransparency = getShapeTransparency;
+    this.onResetAllTransparency = onResetAllTransparency;
 
     // Panel — hidden until first scene load
     this.panel = document.createElement('div');
@@ -791,6 +794,7 @@ export class TimelinePanel {
     if (this.activeTransparencyPopover) {
       this.activeTransparencyPopover.remove();
       this.activeTransparencyPopover = null;
+      this.onResetAllTransparency();
     }
   }
 }

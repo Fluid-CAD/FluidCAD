@@ -222,34 +222,37 @@ export class FaceQuery {
     const ocFace = oc.TopoDS.Face(face);
     const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
     const type = faceAdaptor.GetType();
-    faceAdaptor.delete();
 
     if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Cylinder) {
+      faceAdaptor.delete();
       return false;
     }
 
-    const edges = Explorer.findShapes(ocFace, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum);
+    const cylinder = faceAdaptor.Cylinder();
+    const radius = cylinder.Radius();
+    cylinder.delete();
+    faceAdaptor.delete();
 
+    if (diameter !== undefined && Math.abs(radius - diameter / 2) > oc.Precision.Confusion()) {
+      return false;
+    }
+
+    // A "cylinder curve" is a partial cylinder: it does not wrap fully around its axis.
+    // A full cylinder has at least one closed circular edge (the rim); a fillet/partial
+    // cylinder does not. Bounding edges may be lines, arcs, ellipses, or B-splines
+    // depending on adjacent geometry (e.g. drafted faces produce ellipse boundaries).
+    const edges = Explorer.findShapes(ocFace, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum);
     for (const edge of edges) {
       const curveAdaptor = new oc.BRepAdaptor_Curve(oc.TopoDS.Edge(edge));
       const curveType = curveAdaptor.GetType();
-      if (curveType === oc.GeomAbs_CurveType.GeomAbs_Circle && !curveAdaptor.IsClosed()) {
-        if (diameter === undefined) {
-          curveAdaptor.delete();
-          return true;
-        }
-
-        const circle = curveAdaptor.Circle();
-        const r = circle.Radius();
-        circle.delete();
-        curveAdaptor.delete();
-        return Math.abs(r - diameter / 2) <= oc.Precision.Confusion();
-      }
-
+      const isClosedCircle = curveType === oc.GeomAbs_CurveType.GeomAbs_Circle && curveAdaptor.IsClosed();
       curveAdaptor.delete();
+      if (isClosedCircle) {
+        return false;
+      }
     }
 
-    return false;
+    return true;
   }
 
   static isTorusFaceRaw(face: TopoDS_Shape, majorRadius?: number, minorRadius?: number): boolean {

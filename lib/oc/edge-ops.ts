@@ -6,7 +6,6 @@ import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Edge } from "../common/edge.js";
 import { Vertex } from "../common/vertex.js";
-import { ShapeOps } from "./shape-ops.js";
 import { Explorer } from "./explorer.js";
 
 export class EdgeOps {
@@ -412,5 +411,77 @@ export class EdgeOps {
     const closed = adaptor.IsClosed();
     adaptor.delete();
     return closed;
+  }
+
+  /**
+   * Removes coincident edges from an edge set and splits any pairs that
+   * intersect, while preserving each input edge's original boundaries.
+   *
+   * Uses OCCT's General Fuse: it splits inputs at mutual intersections and
+   * detects same-domain (coincident) pieces, keeping a single representative
+   * per group. `SimplifyResult` is intentionally not called — its
+   * edge-unification step concatenates tangent-continuous chains (line + arc
+   * fillets, etc.) into single BSpline curves, which destroys the per-edge
+   * structure callers need for downstream filter/trim operations.
+   *
+   * `fuzzy` overrides the matching tolerance — defaults to a value loose enough
+   * to absorb the vertex-tolerance drift produced by `BRepAlgo_NormalProjection`
+   * on coincident edges from independent face projections.
+   */
+  static unifyCoincident(edges: Edge[], fuzzy?: number): Edge[] {
+    const raw = edges.map(e => e.getShape() as TopoDS_Edge);
+    const unique = EdgeOps.unifyCoincidentRaw(raw, fuzzy);
+    return unique.map(e => Edge.fromTopoDSEdge(e));
+  }
+
+  static unifyCoincidentRaw(edges: TopoDS_Edge[], fuzzy?: number): TopoDS_Edge[] {
+    const oc = getOC();
+
+    // Filter out degenerate edges (e.g. projection of an edge parallel to the
+    // projection direction collapses to zero length). These confuse the fuse.
+    const live = edges.filter(e => !oc.BRep_Tool.Degenerated(e));
+
+    if (live.length <= 1) {
+      return live;
+    }
+
+    const fuzzValue = fuzzy ?? Math.max(oc.Precision.Confusion() * 100, 1e-6);
+
+    const args = new oc.TopTools_ListOfShape();
+    let builder: any = null;
+    let progress: any = null;
+
+    try {
+      for (const e of live) {
+        args.Append(e);
+      }
+
+      builder = new oc.BRepAlgoAPI_BuilderAlgo();
+      builder.SetArguments(args);
+      builder.SetNonDestructive(true);
+      builder.SetFuzzyValue(fuzzValue);
+
+      progress = new oc.Message_ProgressRange();
+      builder.Build(progress);
+
+      const result = builder.Shape();
+      const unique = Explorer.findShapes<TopoDS_Edge>(
+        result,
+        oc.TopAbs_ShapeEnum.TopAbs_EDGE
+      ).map(s => oc.TopoDS.Edge(s));
+
+      return unique;
+    } catch (err) {
+      console.error('EdgeOps.unifyCoincidentRaw failed, falling back to input edges:', err);
+      return live;
+    } finally {
+      args.delete();
+      if (builder) {
+        builder.delete();
+      }
+      if (progress) {
+        progress.delete();
+      }
+    }
   }
 }

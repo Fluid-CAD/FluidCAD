@@ -1,8 +1,8 @@
 import { BuildSceneObjectContext, SceneObject } from "../../common/scene-object.js";
 import { Face } from "../../common/face.js";
-import { ShapeOps } from "../../oc/shape-ops.js";
 import { Edge } from "../../common/edge.js";
 import { Vertex } from "../../common/vertex.js";
+import { EdgeOps } from "../../oc/edge-ops.js";
 import { ProjectionOps } from "../../oc/intersection.js";
 import { Wire } from "../../common/wire.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
@@ -14,36 +14,36 @@ export class Projection extends ExtrudableGeometryBase {
     super(targetPlane);
   }
 
-  build(context?: BuildSceneObjectContext) {
+  build(_context?: BuildSceneObjectContext) {
     const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
     const shapes = this.sourceObjects.flatMap(obj => obj.getShapes());
-    const transform = context?.getTransform() ?? null;
 
-    let lastWire: Wire = null;
-
-    console.log('Projection: building with shapes:', shapes.length);
-    for (let shape of shapes) {
-      // if (transform) {
-      //   shape = ShapeOps.transform(shape, transform);
-      // }
-
+    // Project every source first; collect all resulting wires before any dedup
+    // or scene-graph mutation. We need the full set up-front so the General Fuse
+    // in unifyCoincident can detect overlaps across sources, not just within one.
+    const allWires: Wire[] = [];
+    for (const shape of shapes) {
       let wires: Wire[] = [];
       if (shape instanceof Face) {
         wires = ProjectionOps.projectFaceOntoPlane(plane, shape as Face);
-      }
-      else if (shape instanceof Wire) {
+      } else if (shape instanceof Wire) {
         const firstEdge = shape.getEdges()[0];
         wires = ProjectionOps.projectEdgeOntoPlane(plane, firstEdge);
-      }
-      else if (shape instanceof Edge) {
+      } else if (shape instanceof Edge) {
         wires = ProjectionOps.projectEdgeOntoPlane(plane, shape);
       }
-
-      for (const wire of wires) {
-        lastWire = wire;
-        this.addShapes(wire.getEdges());
-      }
+      allWires.push(...wires);
     }
+
+    // Capture the sketch-cursor endpoints from the last projected wire BEFORE
+    // dedup. unifyCoincident may split/drop edges and the wire structure is
+    // discarded anyway, but the original wire's endpoints are still the right
+    // anchor for the sketch's current position.
+    const lastWire = allWires.length > 0 ? allWires[allWires.length - 1] : null;
+
+    const allEdges: Edge[] = allWires.flatMap(w => w.getEdges());
+    const uniqueEdges = EdgeOps.unifyCoincident(allEdges);
+    this.addShapes(uniqueEdges);
 
     if (lastWire) {
       const localStart = plane.worldToLocal(lastWire.getFirstVertex().toPoint());

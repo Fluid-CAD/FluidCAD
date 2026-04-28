@@ -10,10 +10,6 @@ export class TangentLine extends GeometrySceneObject {
 
   build() {
     const tangent = this.sketch.getTangentAt(this);
-    if (!tangent) {
-      throw new Error('TangentLine requires a previous sibling with a tangent');
-    }
-
     const plane = this.sketch.getPlane();
 
     const startPoint = this.getCurrentPosition();

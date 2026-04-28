@@ -13,9 +13,6 @@ export class TangentArcToPoint extends GeometrySceneObject {
 
   build(): void {
     const tangent = this.sketch.getTangentAt(this);
-    if (!tangent) {
-      throw new Error('TangentArcToPoint requires a previous sibling with a tangent');
-    }
     const plane = this.sketch.getPlane();
     const startPoint = this.getCurrentPosition();
     const targetPoint = this.endPoint.asPoint2D();

@@ -7,6 +7,7 @@ import { ConeFilter, NotConeFilter } from "./cone-filter.js";
 import { CylinderCurveFilter, NotCylinderCurveFilter } from "./cylinder-curve.js";
 import { CylinderFilter, NotCylinderFilter } from "./cylinder.js";
 import { TorusFilter, NotTorusFilter } from "./torus-filter.js";
+import { PlanarFilter, NotPlanarFilter } from "./planar-filter.js";
 import { NotOnPlaneFilter, OnPlaneFilter } from "./on-plane.js";
 import { NotParallelFilter, ParallelFilter } from "./parallel.js";
 import { PlaneObject } from "../../features/plane.js";
@@ -237,6 +238,24 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    */
   notTorus(majorRadius?: number, minorRadius?: number) {
     const filter = new NotTorusFilter(majorRadius, minorRadius);
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Selects planar (flat) faces.
+   */
+  planar() {
+    const filter = new PlanarFilter();
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Excludes planar (flat) faces.
+   */
+  notPlanar() {
+    const filter = new NotPlanarFilter();
     this.filters.push(filter);
     return this;
   }

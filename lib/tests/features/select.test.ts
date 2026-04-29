@@ -317,6 +317,38 @@ describe("select", () => {
       });
     });
 
+    describe("planar / notPlanar", () => {
+      it("should select planar faces from a drafted extrusion", () => {
+        sketch("xy", () => {
+          circle(60);
+        });
+        extrude(50).draft(10);
+
+        const sel = select(face().planar()) as SelectSceneObject;
+
+        render();
+
+        // Drafted cylinder: top + bottom flat circles are planar (1 cone side is not)
+        const shapes = sel.getShapes();
+        expect(shapes).toHaveLength(2);
+      });
+
+      it("should exclude planar faces", () => {
+        sketch("xy", () => {
+          circle(60);
+        });
+        extrude(50).draft(10);
+
+        const sel = select(face().notPlanar()) as SelectSceneObject;
+
+        render();
+
+        // Only the conical side face is non-planar
+        const shapes = sel.getShapes();
+        expect(shapes).toHaveLength(1);
+      });
+    });
+
     describe("cone / notCone", () => {
       it("should select conical faces from a drafted extrusion", () => {
         sketch("xy", () => {

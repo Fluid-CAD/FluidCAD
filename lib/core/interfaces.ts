@@ -14,12 +14,6 @@ export interface ISceneObject {
   name(value: string): this;
 
   /**
-   * Marks this object as construction geometry. Guide objects are excluded from
-   * final geometry output unless explicitly included.
-   */
-  guide(): this;
-
-  /**
    * Marks this object as reusable. Reusable objects retain their shapes when
    * consumed by features (e.g., extrude, revolve), allowing multiple features
    * to reference the same source geometry. Use `remove(obj)` to force-remove
@@ -119,6 +113,13 @@ export interface IAxis extends ISceneObject {}
 export interface ISelect extends ISceneObject {}
 
 export interface IGeometry extends ISceneObject {
+  /**
+   * Marks this sketch geometry as construction geometry. Guide geometries are
+   * excluded from the final sketch output (e.g., extrude, revolve) unless
+   * explicitly included.
+   */
+  guide(): this;
+
   /**
    * Returns a lazy-evaluated vertex at the start point of this geometry element.
    */

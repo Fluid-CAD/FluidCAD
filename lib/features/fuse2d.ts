@@ -5,6 +5,7 @@ import { GeometrySceneObject } from "./2d/geometry.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { Face } from "../common/face.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
+import { requireShapes } from "../common/operand-check.js";
 
 export class Fuse2D extends GeometrySceneObject {
   private _targetObjects: GeometrySceneObject[] | null = null;
@@ -16,6 +17,15 @@ export class Fuse2D extends GeometrySceneObject {
 
   get targetObjects(): GeometrySceneObject[] | null {
     return this._targetObjects;
+  }
+
+  override validate() {
+    if (!this._targetObjects) {
+      return;
+    }
+    for (let i = 0; i < this._targetObjects.length; i++) {
+      requireShapes(this._targetObjects[i], `operand ${i + 1}`, "fuse2d");
+    }
   }
 
   build(context: BuildSceneObjectContext) {

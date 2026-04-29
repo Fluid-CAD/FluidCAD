@@ -177,6 +177,17 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   abstract getType(): string;
   abstract build(context?: BuildSceneObjectContext): void;
 
+  /**
+   * Pre-build validation hook. The renderer calls this before `build()` so
+   * features can fail fast with a clear diagnostic (typically a `BuildError`)
+   * before any OC work runs. Default is a no-op; overrides should not mutate
+   * state. Existing per-feature checks inside `build()` are intentionally not
+   * removed — this hook is additive.
+   */
+  validate(): void {
+    // Override in subclasses to add operand checks via `requireShapes` etc.
+  }
+
   getAppliedTransform(): Matrix4 | null {
     return this._appliedTransform;
   }

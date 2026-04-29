@@ -2,6 +2,7 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Shape } from "../common/shape.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { ShapeOps } from "../oc/shape-ops.js";
+import { requireShapes } from "../common/operand-check.js";
 
 export class Common extends SceneObject {
   private _sceneObjects: SceneObject[] = [];
@@ -19,6 +20,15 @@ export class Common extends SceneObject {
 
   get sceneObjects(): SceneObject[] {
     return this._sceneObjects;
+  }
+
+  override validate() {
+    // Scene-wide mode (no explicit operands) has nothing to fault — let build
+    // pick up whatever is in the scene. Only validate when the user named
+    // specific operands.
+    for (let i = 0; i < this._sceneObjects.length; i++) {
+      requireShapes(this._sceneObjects[i], `operand ${i + 1}`, "common");
+    }
   }
 
   build(context: BuildSceneObjectContext) {

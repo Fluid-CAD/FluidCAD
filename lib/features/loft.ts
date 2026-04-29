@@ -13,6 +13,7 @@ import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-help
 import { ExtrudeBase } from "./extrude-base.js";
 import { ThinFaceMaker } from "../oc/thin-face-maker.js";
 import { Shape } from "../common/shape.js";
+import { requireShapes } from "../common/operand-check.js";
 
 export class Loft extends ExtrudeBase implements ILoft {
   private _profiles: SceneObject[] = [];
@@ -24,6 +25,12 @@ export class Loft extends ExtrudeBase implements ILoft {
 
   get profiles(): SceneObject[] {
     return this._profiles;
+  }
+
+  override validate() {
+    for (let i = 0; i < this._profiles.length; i++) {
+      requireShapes(this._profiles[i], `profile ${i + 1}`, "loft");
+    }
   }
 
   build(context: BuildSceneObjectContext) {

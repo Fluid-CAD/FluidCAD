@@ -7,10 +7,16 @@ import { BooleanOps } from "../oc/boolean-ops.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
+import { requireShapes } from "../common/operand-check.js";
 
 export class Subtract2D extends GeometrySceneObject {
   constructor(public target1: GeometrySceneObject, public target2: GeometrySceneObject) {
     super();
+  }
+
+  override validate() {
+    requireShapes(this.target1, "first operand", "subtract2d");
+    requireShapes(this.target2, "second operand", "subtract2d");
   }
 
   private collectEdges(target: GeometrySceneObject): Map<Edge, SceneObject> {

@@ -13,6 +13,7 @@ import { ISweep } from "../core/interfaces.js";
 import { cutWithSceneObjects } from "../helpers/scene-helpers.js";
 import { ThinFaceMaker, ThinFaceResult } from "../oc/thin-face-maker.js";
 import { Plane } from "../math/plane.js";
+import { requireShapes } from "../common/operand-check.js";
 
 export class Sweep extends ExtrudeBase implements ISweep {
   private _path: SceneObject;
@@ -27,6 +28,10 @@ export class Sweep extends ExtrudeBase implements ISweep {
 
   get path(): SceneObject {
     return this._path;
+  }
+
+  override validate() {
+    requireShapes(this._path, "path", "sweep");
   }
 
   build(context: BuildSceneObjectContext) {

@@ -4,6 +4,7 @@ import { SelectSceneObject } from "./select.js";
 import { FusionScope } from "./extrude-options.js";
 import { FilletOps } from "../oc/fillet-ops.js";
 import { Explorer } from "../oc/explorer.js";
+import { requireShapes } from "../common/operand-check.js";
 
 export class Fillet extends SceneObject {
   private _targetEdges: SceneObject[] = [];
@@ -15,6 +16,12 @@ export class Fillet extends SceneObject {
 
   get targetEdges(): SceneObject[] {
     return this._targetEdges;
+  }
+
+  override validate() {
+    for (let i = 0; i < this._targetEdges.length; i++) {
+      requireShapes(this._targetEdges[i], `edge selection ${i + 1}`, "fillet");
+    }
   }
 
   build(context: BuildSceneObjectContext) {

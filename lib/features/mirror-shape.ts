@@ -5,6 +5,7 @@ import { Plane } from "../math/plane.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { PlaneObjectBase } from "./plane-renderable-base.js";
 import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
+import { requireShapes } from "../common/operand-check.js";
 
 export class MirrorShape extends SceneObject {
   private _excludedObjects: SceneObject[] = [];
@@ -19,6 +20,15 @@ export class MirrorShape extends SceneObject {
   exclude(...objects: SceneObject[]): this {
     this._excludedObjects.push(...objects);
     return this;
+  }
+
+  override validate() {
+    if (!this.targetObjects || this.targetObjects.length === 0) {
+      return;
+    }
+    for (let i = 0; i < this.targetObjects.length; i++) {
+      requireShapes(this.targetObjects[i], `target ${i + 1}`, "mirror");
+    }
   }
 
   build(context: BuildSceneObjectContext) {

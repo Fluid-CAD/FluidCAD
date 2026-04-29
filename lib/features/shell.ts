@@ -13,6 +13,7 @@ import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { IShell } from "../core/interfaces.js";
+import { requireShapes } from "../common/operand-check.js";
 
 export class Shell extends SceneObject implements IShell {
 
@@ -25,6 +26,12 @@ export class Shell extends SceneObject implements IShell {
 
   get faceSelections(): SelectSceneObject[] {
     return this._faceSelections;
+  }
+
+  override validate() {
+    for (let i = 0; i < this._faceSelections.length; i++) {
+      requireShapes(this._faceSelections[i], `face selection ${i + 1}`, "shell");
+    }
   }
 
   build(context: BuildSceneObjectContext): void {

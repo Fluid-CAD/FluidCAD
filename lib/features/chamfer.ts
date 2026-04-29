@@ -4,6 +4,7 @@ import { FilletOps } from "../oc/fillet-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { ColorTransfer } from "../oc/color-transfer.js";
+import { requireShapes } from "../common/operand-check.js";
 
 export class Chamfer extends SceneObject {
   private _selections: SceneObject[] = [];
@@ -15,6 +16,12 @@ export class Chamfer extends SceneObject {
 
   get selections(): SceneObject[] {
     return this._selections;
+  }
+
+  override validate() {
+    for (let i = 0; i < this._selections.length; i++) {
+      requireShapes(this._selections[i], `edge selection ${i + 1}`, "chamfer");
+    }
   }
 
   build(context: BuildSceneObjectContext): void {

@@ -23,11 +23,11 @@ export class ErrorBanner {
     this.element.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[1001] pointer-events-auto hidden max-w-[600px]';
     this.element.innerHTML = `
       <div class="panel-bg border border-error/40 rounded-lg shadow-md overflow-hidden">
-        <div class="flex items-center gap-3 px-5 py-2.5 text-sm leading-none select-none">
-          <span class="text-error shrink-0 [&>svg]:size-5">${ICON_ALERT_TRIANGLE}</span>
-          <span data-ref="message" class="text-base-content/90 truncate cursor-pointer hover:underline"></span>
-          <span data-ref="count" class="text-base-content/40 tabular-nums shrink-0 hidden"></span>
-          <button data-ref="toggle" class="text-base-content/40 hover:text-base-content/70 shrink-0 hidden cursor-pointer transition-transform" aria-label="Toggle error list">
+        <div class="flex items-start gap-3 px-5 py-2.5 text-sm select-none">
+          <span class="text-error shrink-0 mt-0.5 [&>svg]:size-5">${ICON_ALERT_TRIANGLE}</span>
+          <span data-ref="message" class="text-base-content/90 whitespace-pre-line break-words cursor-pointer hover:underline grow min-w-0"></span>
+          <span data-ref="count" class="text-base-content/40 tabular-nums shrink-0 hidden mt-0.5"></span>
+          <button data-ref="toggle" class="text-base-content/40 hover:text-base-content/70 shrink-0 hidden cursor-pointer transition-transform mt-0.5" aria-label="Toggle error list">
             ${CHEVRON_DOWN_SVG}
           </button>
         </div>
@@ -109,7 +109,7 @@ export class ErrorBanner {
           <span class="text-error/70 shrink-0 mt-1">•</span>
           <div class="min-w-0">
             <div class="text-base-content/60 text-xs mb-0.5">${escapedName}</div>
-            <div class="text-base-content/90 break-words">${escapedMsg}</div>
+            <div class="text-base-content/90 break-words whitespace-pre-line">${escapedMsg}</div>
           </div>
         </div>
       `;

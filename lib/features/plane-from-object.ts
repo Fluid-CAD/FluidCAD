@@ -7,11 +7,20 @@ import { SelectSceneObject } from "./select.js";
 import { Face } from "../common/face.js";
 import { Point } from "../math/point.js";
 import { Plane } from "../math/plane.js";
+import { requireShapes } from "../common/operand-check.js";
 
 export class PlaneFromObject extends PlaneObjectBase {
 
   constructor(public sourceObject: SceneObject, public options?: PlaneRenderableOptions) {
     super();
+  }
+
+  override validate() {
+    // PlaneObjectBase sources expose the plane directly — no shapes required.
+    if (this.sourceObject instanceof PlaneObjectBase) {
+      return;
+    }
+    requireShapes(this.sourceObject, "source", "plane");
   }
 
   build(context?: BuildSceneObjectContext) {

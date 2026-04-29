@@ -2,6 +2,7 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Shape } from "../common/shape.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { ColorTransfer } from "../oc/color-transfer.js";
+import { requireShapes } from "../common/operand-check.js";
 
 export class Fuse extends SceneObject {
   private _sceneObjects: SceneObject[] = [];
@@ -13,6 +14,12 @@ export class Fuse extends SceneObject {
 
   get sceneObjects(): SceneObject[] {
     return this._sceneObjects;
+  }
+
+  override validate() {
+    for (let i = 0; i < this._sceneObjects.length; i++) {
+      requireShapes(this._sceneObjects[i], `operand ${i + 1}`, "fuse");
+    }
   }
 
   build(context: BuildSceneObjectContext) {

@@ -4,11 +4,20 @@ import { AxisObjectBase } from "./axis-renderable-base.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Edge } from "../common/edge.js";
 import { SceneObject } from "../common/scene-object.js";
+import { requireShapes } from "../common/operand-check.js";
 
 export class AxisFromEdge extends AxisObjectBase {
 
   constructor(private sourceObject: SceneObject, private options?: AxisTransformOptions) {
     super();
+  }
+
+  override validate() {
+    // AxisObjectBase sources expose the axis directly — no shapes required.
+    if (this.sourceObject instanceof AxisObjectBase) {
+      return;
+    }
+    requireShapes(this.sourceObject, "source", "axis");
   }
 
   build() {

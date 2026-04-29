@@ -4,6 +4,7 @@ import { GeometrySceneObject } from "./2d/geometry.js";
 import { FilletOps } from "../oc/fillet-ops.js";
 import { Edge } from "../common/edge.js";
 import { WireOps } from "../oc/wire-ops.js";
+import { requireShapes } from "../common/operand-check.js";
 
 export class Fillet2D extends GeometrySceneObject {
   private _targetObjects: GeometrySceneObject[] | null = null;
@@ -15,6 +16,15 @@ export class Fillet2D extends GeometrySceneObject {
 
   get targetObjects(): GeometrySceneObject[] | null {
     return this._targetObjects;
+  }
+
+  override validate() {
+    if (!this._targetObjects) {
+      return;
+    }
+    for (let i = 0; i < this._targetObjects.length; i++) {
+      requireShapes(this._targetObjects[i], `target ${i + 1}`, "fillet2d");
+    }
   }
 
   build(context: BuildSceneObjectContext) {

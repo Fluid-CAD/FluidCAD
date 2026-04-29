@@ -3,6 +3,7 @@ import { Matrix4 } from "../math/matrix4.js";
 import { rad } from "../helpers/math-helpers.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
+import { requireShapes } from "../common/operand-check.js";
 
 export class Rotate extends SceneObject {
   private _targetObjects: SceneObject[] | null = null;
@@ -24,6 +25,15 @@ export class Rotate extends SceneObject {
   exclude(...objects: SceneObject[]): this {
     this._excludedObjects.push(...objects);
     return this;
+  }
+
+  override validate() {
+    if (!this._targetObjects) {
+      return;
+    }
+    for (let i = 0; i < this._targetObjects.length; i++) {
+      requireShapes(this._targetObjects[i], `target ${i + 1}`, "rotate");
+    }
   }
 
   build(context: BuildSceneObjectContext) {

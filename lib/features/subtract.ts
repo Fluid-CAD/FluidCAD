@@ -3,11 +3,17 @@ import { BooleanOps } from "../oc/boolean-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { Solid } from "../common/shapes.js";
+import { requireShapes } from "../common/operand-check.js";
 
 export class Subtract extends SceneObject {
 
   constructor(public solid1: SceneObject, public solid2: SceneObject) {
     super();
+  }
+
+  override validate() {
+    requireShapes(this.solid1, "first operand", "subtract");
+    requireShapes(this.solid2, "second operand", "subtract");
   }
 
   build(context: BuildSceneObjectContext) {

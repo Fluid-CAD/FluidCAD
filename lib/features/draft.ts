@@ -2,6 +2,7 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Face, Shape } from "../common/shapes.js";
 import { IDraft } from "../core/interfaces.js";
 import { DraftOps } from "../oc/draft-ops.js";
+import { requireShapes } from "../common/operand-check.js";
 
 export class Draft extends SceneObject implements IDraft {
 
@@ -10,6 +11,12 @@ export class Draft extends SceneObject implements IDraft {
   constructor(private angle: number, selections: SceneObject[]) {
     super();
     this._selections = selections;
+  }
+
+  override validate() {
+    for (let i = 0; i < this._selections.length; i++) {
+      requireShapes(this._selections[i], `selection ${i + 1}`, "draft");
+    }
   }
 
   build(context: BuildSceneObjectContext): void {

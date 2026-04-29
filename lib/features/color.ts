@@ -3,6 +3,7 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
 import { SelectSceneObject } from "./select.js";
+import { requireShapes } from "../common/operand-check.js";
 import cssColorNames from "color-name";
 
 function toHex(color: string): string {
@@ -27,6 +28,12 @@ export class Color extends SceneObject {
 
   get selection(): SceneObject {
     return this._selection;
+  }
+
+  override validate() {
+    if (this._selection) {
+      requireShapes(this._selection, "selection", "color");
+    }
   }
 
   build(context: BuildSceneObjectContext) {

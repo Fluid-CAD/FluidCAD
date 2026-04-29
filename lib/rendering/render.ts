@@ -188,6 +188,7 @@ export class SceneRenderer {
     const profiler = new Profiler();
 
     try {
+      object.validate();
       object.build({
         getSceneObjects: () => scene.getPartScopedObjectsUpTo(object),
         getActiveSceneObjects: () => scene.getPartScopedActiveObjectsUpTo(object),

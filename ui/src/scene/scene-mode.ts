@@ -262,7 +262,7 @@ export class SceneModeManager {
 
   private createSectionPlane(plane: PlaneData): void {
     const normal = toVec3(plane.normal).negate();
-    const origin = toVec3(plane.origin).add(toVec3(plane.normal).multiplyScalar(0.1));
+    const origin = toVec3(plane.origin);
     if (!this._sectionPlane) {
       this._sectionPlane = new Plane();
     }

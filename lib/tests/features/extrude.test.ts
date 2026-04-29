@@ -120,6 +120,32 @@ describe("extrude", () => {
 
       expect(countShapes(scene)).toBe(2);
     });
+
+    it("should only fuse with scene objects the new extrusion actually touches", () => {
+      // C1: cylinder at origin, z = 0..50
+      sketch("top", () => {
+        circle(50);
+      });
+      const e = extrude(50) as Extrude;
+
+      // C2: cylinder stacked on C1, z = 50..100, kept as a separate scene object
+      sketch(e.endFaces(), () => {
+        circle(50);
+      });
+      extrude(50).new();
+
+      // C3: cylinder at [100, 0] radius 50, externally tangent to C1, doesn't touch C2 at all
+      sketch("top", () => {
+        circle([100, 0], 50);
+      });
+      extrude();
+
+      const scene = render();
+
+      // C1 and C2 must remain separate solids — the third extrude should not
+      // pull them into a fusion with each other.
+      expect(countShapes(scene)).toBe(3);
+    });
   });
 
   describe("startFaces / endFaces", () => {

@@ -200,10 +200,15 @@ export class BooleanOps {
       builder.SetGlue((oc as any).BOPAlgo_GlueEnum.BOPAlgo_GlueShift);
     }
 
+    // Wrap all stocks in a single compound argument. OCC's pave-filling step
+    // computes intersections between distinct arguments — so two touching
+    // stocks passed as separate args end up merged with each other even when
+    // the tool doesn't touch them. Bundling them under one TopoDS_Compound
+    // keeps stock-to-stock relationships out of the result; only stock↔tool
+    // interactions are computed.
+    const stockCompound = ShapeOps.makeCompoundRaw(stock.map(s => s.getShape()));
     const stockList = new oc.TopTools_ListOfShape();
-    for (const s of stock) {
-      stockList.Append(s.getShape());
-    }
+    stockList.Append(stockCompound);
 
     const toolList = new oc.TopTools_ListOfShape();
     for (const t of tools) {

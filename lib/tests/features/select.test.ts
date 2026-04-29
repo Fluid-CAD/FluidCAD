@@ -8,6 +8,7 @@ import fillet from "../../core/fillet.js";
 import { circle, move, rect } from "../../core/2d/index.js";
 import { SelectSceneObject } from "../../features/select.js";
 import { face, edge } from "../../filters/index.js";
+import part from "../../core/part.js";
 
 describe("select", () => {
   setupOC();
@@ -1154,6 +1155,72 @@ describe("select", () => {
         // All 8 bottom edges form a tangent chain.
         expect(shapes.length).toBe(8);
       });
+    });
+  });
+
+  describe("cross-part selection", () => {
+    it("should select faces from another part via from()", () => {
+      const p1 = part("p1", () => {
+        cylinder(50, 100);
+      });
+
+      let sel: SelectSceneObject | undefined;
+      part("p2", () => {
+        sel = select(face().from(p1)) as SelectSceneObject;
+      });
+
+      render();
+
+      // A cylinder has 3 faces (top, bottom, lateral)
+      expect(sel!.getShapes()).toHaveLength(3);
+    });
+
+    it("should narrow cross-part selection by additional filters", () => {
+      const p1 = part("p1", () => {
+        cylinder(50, 100);
+      });
+
+      let sel: SelectSceneObject | undefined;
+      part("p2", () => {
+        sel = select(face().cylinder().from(p1)) as SelectSceneObject;
+      });
+
+      render();
+
+      // Only the lateral cylindrical face
+      expect(sel!.getShapes()).toHaveLength(1);
+    });
+
+    it("should select edges from another part via edge().from()", () => {
+      const p1 = part("p1", () => {
+        cylinder(50, 100);
+      });
+
+      let sel: SelectSceneObject | undefined;
+      part("p2", () => {
+        sel = select(edge().from(p1)) as SelectSceneObject;
+      });
+
+      render();
+
+      // A cylinder has 3 edges (top circle, bottom circle, seam)
+      expect(sel!.getShapes()).toHaveLength(3);
+    });
+
+    it("should narrow cross-part edge selection by additional filters", () => {
+      const p1 = part("p1", () => {
+        cylinder(50, 100);
+      });
+
+      let sel: SelectSceneObject | undefined;
+      part("p2", () => {
+        sel = select(edge().circle().from(p1)) as SelectSceneObject;
+      });
+
+      render();
+
+      // The two circular edges (top + bottom) — seam is excluded
+      expect(sel!.getShapes()).toHaveLength(2);
     });
   });
 });

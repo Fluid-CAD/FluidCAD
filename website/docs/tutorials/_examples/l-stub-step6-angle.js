@@ -1,6 +1,6 @@
 // @screenshot waitForInput
 import { enclosing } from "fluidcad/constraints";
-import { aLine, back, circle, cut, extrude, fillet, fuse, hLine, hMove, intersect, line, mirror, move, rect, sketch, slot, subtract, tLine, vLine, vMove } from "fluidcad/core";
+import { aLine, back, circle, cut, extrude, fillet, fuse, hLine, hMove, intersect, mirror, move, pMove, rect, sketch, slot, subtract, tLine, vLine, vMove } from "fluidcad/core";
 
 sketch("top", () => {
     const s = slot(82, 26);
@@ -65,7 +65,8 @@ sketch("front", () => {
     const vl = vLine(30).centered();
 
     move([0, 70]);
-    hMove(26 + thickness);
-    const l1 = aLine(-90 - 70, hl)
+    hMove(26)
+    pMove(7, -90+20)
+    aLine(-90, hl)
     hLine(vl)
 }).name("Rib Sketch");

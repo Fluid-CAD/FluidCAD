@@ -1,3 +1,4 @@
+import { SceneObject } from "../../common/scene-object.js";
 import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { LazyVertex } from "../lazy-vertex.js";
@@ -38,6 +39,11 @@ export class LineTo extends GeometrySceneObject {
     if (this.targetPlane) {
       this.targetPlane.removeShapes(this);
     }
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
+    return new LineTo(this.endPoint, targetPlane);
   }
 
   compareTo(other: LineTo): boolean {

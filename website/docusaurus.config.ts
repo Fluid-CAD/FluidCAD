@@ -38,6 +38,13 @@ const config: Config = {
         theme: {
           customCss: './src/css/custom.css',
         },
+        googleTagManager: {
+          containerId: 'GTM-TB3P23FS',
+        },
+        gtag: {
+          trackingID: 'G-0R7TSFFQTC',
+          anonymizeIP: true,
+        },
       } satisfies Preset.Options,
     ],
   ],

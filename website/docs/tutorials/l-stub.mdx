@@ -249,12 +249,13 @@ sketch("front", () => {
 
 ```js
     move([0, 70]);
-    hMove(26 + thickness);
-    const l1 = aLine(-90 - 70, hl)
+    hMove(26)
+    pMove(7, -90+20)
+    aLine(-90, hl)
     hLine(vl)
 ```
 
-`move([0, 70])` and `hMove(26 + thickness)` position the cursor at the top of the rib, just clear of the angled split wall. `aLine(-90 - 70, hl)` draws an angled line at -160° down toward the horizontal guide `hl` — it stops automatically when it hits `hl`. `hLine(vl)` then runs across to the back edge `vl`, again stopping where it meets the line.
+`move([0, 70])` and `hMove(26)` position the cursor at the top of the rib, against the angled split wall. `pMove(7, -90+20)` then steps `thickness` perpendicular to the split wall (the wall runs at -90+20°, so this offset clears it by exactly the rib thickness). `aLine(-90, hl)` draws a vertical line down to the horizontal guide `hl` — it stops automatically when it hits `hl`. `hLine(vl)` then runs across to the back edge `vl`, again stopping where it meets the line.
 
 ![Rib angle and connector](/img/docs/tutorials/l-stub-step6-angle.png)
 
@@ -262,10 +263,11 @@ sketch("front", () => {
 
 ```js
     fillet(24)
-    line(l1.start(), i.end())
+    move(i.end());
+    hLine(10)
 ```
 
-`fillet(24)` rounds the corner where the angled line meets the horizontal connector with a 24-unit radius. `line(l1.start(), i.end())` draws the closing edge from the start of the angled line back to the end of the projected internal-face geometry — sealing the rib profile against the existing split wall.
+`fillet(24)` rounds the corner where the angled line meets the horizontal connector with a 24-unit radius. `move(i.end())` jumps the cursor to the end of the projected internal-face geometry, and `hLine(10)` draws the closing horizontal edge back into the rib profile — sealing it against the existing split wall.
 
 ![Rib sketch complete](/img/docs/tutorials/l-stub-step6-sketch.png)
 
@@ -294,4 +296,5 @@ extrude(10).symmetric().name("Rib")
 - **`mirror("x").exclude(c1)`** — mirroring sketch geometry while leaving a specific shape out of the duplicate
 - **`intersect(c.internalFaces())`** — projecting the internal faces of a cut into the active sketch as construction edges
 - **`back()`** — undoing the last cursor move so the next line starts from the previous position
-- **`line(p1, p2)`** — drawing a closing line by referencing endpoints from earlier sketch geometry
+- **`pMove(distance, angle)`** — stepping the cursor perpendicular-style at a specific angle (used here to offset by the rib thickness along the angled split wall)
+- **`move(point)`** — repositioning the cursor to a specific endpoint (like `i.end()`) before continuing the path

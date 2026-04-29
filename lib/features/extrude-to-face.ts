@@ -377,16 +377,17 @@ export class ExtrudeToFace extends ExtrudeBase {
       return false;
     }
 
-    if (typeof (this.face) !== typeof (other.face)) {
-      return false;
-    }
-
-    if (this.face instanceof SceneObject && other.face instanceof SceneObject && !this.face.compareTo(other.face)) {
-      return false;
-    }
-
-    if (this.face !== other.face) {
-      return false;
+    if (this.face instanceof SceneObject) {
+      if (!(other.face instanceof SceneObject)) {
+        return false;
+      }
+      if (!this.face.compareTo(other.face)) {
+        return false;
+      }
+    } else {
+      if (this.face !== other.face) {
+        return false;
+      }
     }
 
     if (this.faceFilters.length !== other.faceFilters.length) {

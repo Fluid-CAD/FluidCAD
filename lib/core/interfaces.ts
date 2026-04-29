@@ -772,6 +772,16 @@ export interface IMirror extends IBooleanOperation {
   exclude(...objects: ISceneObject[]): this;
 }
 
+export interface IMirror2D extends IGeometry {
+  /**
+   * Excludes the given sketch geometries from the mirror operation. Useful
+   * when mirroring "everything" but a few specific geometries should be
+   * skipped, or when narrowing an explicit target list.
+   * @param objects - The sketch geometries to exclude from mirroring.
+   */
+  exclude(...objects: ISceneObject[]): this;
+}
+
 export interface ITranslate extends ISceneObject {
   /**
    * Excludes the given objects from the translate operation. Useful when

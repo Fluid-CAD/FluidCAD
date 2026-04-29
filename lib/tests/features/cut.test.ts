@@ -10,7 +10,6 @@ import { Solid } from "../../common/solid.js";
 import { Extrude } from "../../features/extrude.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
-import { ShapeOps } from "../../oc/shape-ops.js";
 import { SceneObject } from "../../common/scene-object.js";
 
 describe("cut", () => {
@@ -104,6 +103,58 @@ describe("cut", () => {
       expect(getFacesByType(solid, "cylinder")).toHaveLength(1);
       // Circle edges at top and bottom of the hole
       expect(getEdgesByType(solid, "circle").length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("should apply draft to a through-all cut", () => {
+      sketch("xy", () => {
+        rect(100, 100);
+      });
+      const e = extrude(50) as Extrude;
+
+      sketch(e.endFaces(), () => {
+        move([50, 50]);
+        circle(40);
+      });
+      cut().draft(-5);
+
+      const scene = render();
+
+      expect(countShapes(scene)).toBe(1);
+
+      const solid = scene.getAllSceneObjects()
+        .flatMap(o => o.getShapes())
+        .find(s => s.getType() === "solid") as Solid;
+
+      // Drafted through-all cut: hole wall is a cone, not a cylinder
+      expect(getFacesByType(solid, "cone").length).toBeGreaterThanOrEqual(1);
+      expect(getFacesByType(solid, "cylinder")).toHaveLength(0);
+    });
+
+    it("should apply draft to a through-all cut on a small profile", () => {
+      // Mirrors the user's repro: small radius (1.5) and steep draft (-8°).
+      // With THROUGH_ALL_LENGTH=100000, lateral draft = 100000 * tan(8°) ≈ 14054
+      // would invert a 1.5-radius profile if applied over the full prism length.
+      sketch("xy", () => {
+        rect(7, 5).centered();
+      });
+      const e = extrude(1.5) as Extrude;
+
+      sketch(e.endFaces(), () => {
+        circle(1.5);
+      });
+      cut().draft(-8);
+
+      const scene = render();
+
+      expect(countShapes(scene)).toBe(1);
+
+      const solid = scene.getAllSceneObjects()
+        .flatMap(o => o.getShapes())
+        .find(s => s.getType() === "solid") as Solid;
+
+      // Drafted through-all cut: hole wall is a cone, not a cylinder
+      expect(getFacesByType(solid, "cone").length).toBeGreaterThanOrEqual(1);
+      expect(getFacesByType(solid, "cylinder")).toHaveLength(0);
     });
   });
 

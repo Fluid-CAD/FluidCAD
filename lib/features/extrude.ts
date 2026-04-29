@@ -9,9 +9,13 @@ import { FaceMaker2 } from "../oc/face-maker2.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Explorer } from "../oc/explorer.js";
-import { ExtrudeThroughAll } from "./infinite-extrude.js";
 import { ThinFaceMaker, ThinFaceResult } from "../oc/thin-face-maker.js";
 import { Plane } from "../math/plane.js";
+
+/** Finite stand-in for "infinity" in through-all cuts. Truly infinite prisms
+ *  (via OC's `Inf=true` flag) silently fail inside `BRepAlgoAPI_Cut` — verified
+ *  experimentally — so use a large finite extrusion instead. */
+const THROUGH_ALL_LENGTH = 100000;
 
 export class Extrude extends ExtrudeBase {
   constructor(public distance: number, source?: Extrudable | SceneObject) {
@@ -330,34 +334,25 @@ export class Extrude extends ExtrudeBase {
 
     let toolShapes: any[];
     const isThroughAll = this.distance === 0;
+    const draft = this.getDraft();
+
+    if (isThroughAll && this.isFaceSourced()) {
+      throw new Error("through-all is not supported with a face-sourced extrude");
+    }
 
     if (this._symmetric) {
-      // Symmetric cut: create tool centered on sketch plane
-      if (isThroughAll) {
-        if (this.isFaceSourced()) {
-          throw new Error("through-all is not supported with a face-sourced extrude");
-        }
-        const extrudeThroughAll = new ExtrudeThroughAll(this.extrudable, true, true, faces);
-        toolShapes = extrudeThroughAll.build();
-      } else {
-        const extruder1 = new Extruder(faces, plane, -this.distance / 2, this.getDraft(), this.getEndOffset());
-        const extrusions1 = extruder1.extrude();
-        const extruder2 = new Extruder(faces, plane, this.distance / 2, this.getDraft(), this.getEndOffset());
-        const extrusions2 = extruder2.extrude();
-        const all = [...extrusions1, ...extrusions2];
-        const halvesFuse = BooleanOps.fuse(all);
-        toolShapes = halvesFuse.result;
-        halvesFuse.dispose();
-      }
-    } else if (isThroughAll) {
-      if (this.isFaceSourced()) {
-        throw new Error("through-all is not supported with a face-sourced extrude");
-      }
-      const extrudeThroughAll = new ExtrudeThroughAll(this.extrudable, false, true, faces);
-      toolShapes = extrudeThroughAll.build();
+      // Symmetric cut: create tool centered on sketch plane, fusing two halves
+      // (one on each side). For through-all, each half uses THROUGH_ALL_LENGTH.
+      const halfDistance = isThroughAll ? THROUGH_ALL_LENGTH : this.distance / 2;
+      const extruder1 = new Extruder(faces, plane, -halfDistance, draft, this.getEndOffset());
+      const extruder2 = new Extruder(faces, plane, halfDistance, draft, this.getEndOffset());
+      const all = [...extruder1.extrude(), ...extruder2.extrude()];
+      const halvesFuse = BooleanOps.fuse(all);
+      toolShapes = halvesFuse.result;
+      halvesFuse.dispose();
     } else {
-      const distance = -this.distance;
-      const extruder = new Extruder(faces, plane, distance, this.getDraft(), this.getEndOffset());
+      const distance = isThroughAll ? -THROUGH_ALL_LENGTH : -this.distance;
+      const extruder = new Extruder(faces, plane, distance, draft, this.getEndOffset());
       toolShapes = extruder.extrude();
     }
 

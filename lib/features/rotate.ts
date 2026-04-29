@@ -109,7 +109,7 @@ export class Rotate extends SceneObject {
     }
 
     for (let i = 0; i < thisTargetObjects.length; i++) {
-      if (thisTargetObjects[i] !== otherTargetObjects[i]) {
+      if (!thisTargetObjects[i].compareTo(otherTargetObjects[i])) {
         return false;
       }
     }
@@ -119,7 +119,7 @@ export class Rotate extends SceneObject {
     }
 
     for (let i = 0; i < this._excludedObjects.length; i++) {
-      if (this._excludedObjects[i] !== other._excludedObjects[i]) {
+      if (!this._excludedObjects[i].compareTo(other._excludedObjects[i])) {
         return false;
       }
     }

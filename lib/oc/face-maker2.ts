@@ -2,6 +2,7 @@ import { TopoDS_Shape } from "occjs-wrapper";
 import { Edge } from "../common/edge.js";
 import { Wire } from "../common/wire.js";
 import { Plane } from "../math/plane.js";
+import { Point } from "../math/point.js";
 import { Explorer } from "./explorer.js";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
@@ -82,7 +83,7 @@ export class FaceMaker2 {
   private static getFaces(edges: Edge[], plane: Plane) {
     const [gpPln, dispose] = Convert.toGpPln(plane);
     const oc = getOC();
-    const planeFace = FaceOps.makeFaceFromPlane2(gpPln);
+    const planeFace = FaceOps.makeFaceFromPlane2(gpPln, this.computePlaneFaceBounds(edges, plane));
 
     // Collect boundary edges of the big face before splitting
     const boundaryEdges = Explorer.findShapes(planeFace, oc.TopAbs_ShapeEnum.TopAbs_EDGE);
@@ -136,6 +137,42 @@ export class FaceMaker2 {
     dispose();
 
     return filtered.map(f => Face.fromTopoDSFace(oc.TopoDS.Face(f)));
+  }
+
+  /**
+   * Sizes the bounded plane face used by `getFaces`'s splitter so it always
+   * encloses the input edges with margin. The default ±1000 face used to
+   * silently swallow sketches placed far from origin: edges that crossed the
+   * boundary produced regions touching `boundaryEdges`, which the filter at
+   * the end of `getFaces` then dropped — leaving an extrude with zero faces.
+   */
+  private static computePlaneFaceBounds(edges: Edge[], plane: Plane) {
+    let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity;
+    for (const edge of edges) {
+      const bbox = ShapeOps.getBoundingBox(edge);
+      const corners = [
+        new Point(bbox.minX, bbox.minY, bbox.minZ),
+        new Point(bbox.maxX, bbox.minY, bbox.minZ),
+        new Point(bbox.minX, bbox.maxY, bbox.minZ),
+        new Point(bbox.maxX, bbox.maxY, bbox.minZ),
+        new Point(bbox.minX, bbox.minY, bbox.maxZ),
+        new Point(bbox.maxX, bbox.minY, bbox.maxZ),
+        new Point(bbox.minX, bbox.maxY, bbox.maxZ),
+        new Point(bbox.maxX, bbox.maxY, bbox.maxZ),
+      ];
+      for (const c of corners) {
+        const uv = plane.worldToLocal(c);
+        if (uv.x < uMin) { uMin = uv.x; }
+        if (uv.x > uMax) { uMax = uv.x; }
+        if (uv.y < vMin) { vMin = uv.y; }
+        if (uv.y > vMax) { vMax = uv.y; }
+      }
+    }
+
+    const half = Math.max(
+      Math.abs(uMin), Math.abs(uMax), Math.abs(vMin), Math.abs(vMax), 1000,
+    ) * 1.5;
+    return { uMin: -half, uMax: half, vMin: -half, vMax: half };
   }
 
   private static getSplitEdges(shapes: Array<Wire | Edge>) {

@@ -260,10 +260,13 @@ export class FaceOps {
     return isInside;
   }
 
-  static makeFaceFromPlane2(plane: gp_Pln): TopoDS_Face {
+  static makeFaceFromPlane2(
+    plane: gp_Pln,
+    bounds?: { uMin: number; uMax: number; vMin: number; vMax: number },
+  ): TopoDS_Face {
     const oc = getOC();
-    const faceMaker = new oc.BRepBuilderAPI_MakeFace(plane,
-                                                    -1000, 1000, -1000, 1000);
+    const b = bounds ?? { uMin: -1000, uMax: 1000, vMin: -1000, vMax: 1000 };
+    const faceMaker = new oc.BRepBuilderAPI_MakeFace(plane, b.uMin, b.uMax, b.vMin, b.vMax);
     const face = faceMaker.Face();
     faceMaker.delete();
     return face;

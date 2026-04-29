@@ -611,21 +611,18 @@ describe("extrude", () => {
     it("should not include guide shapes in getShapes()", () => {
       sketch("xy", () => {
         rect(100, 50);
+        circle([50, 25], 20).guide();
       });
 
-      const e = extrude(30).guide() as Extrude;
+      const e = extrude(30) as Extrude;
 
       render();
 
+      // The guide circle is excluded from the extrusion — the result is a
+      // plain box (6 faces), not a box with a circular hole (8 faces).
       const shapes = e.getShapes();
-      expect(shapes).toHaveLength(0);
-
-      // All added shapes should be marked as guide
-      const allShapes = e.getAddedShapes();
-      expect(allShapes.length).toBeGreaterThan(0);
-      for (const shape of allShapes) {
-        expect(shape.isGuideShape()).toBe(true);
-      }
+      expect(shapes).toHaveLength(1);
+      expect((shapes[0] as Solid).getFaces()).toHaveLength(6);
     });
 
     it("should include meta shapes when filter is disabled", () => {

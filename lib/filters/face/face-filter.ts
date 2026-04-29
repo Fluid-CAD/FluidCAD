@@ -17,6 +17,7 @@ import { HasEdgeFromSceneObjectFilter, NotHasEdgeFromSceneObjectFilter } from ".
 import { FromSceneObjectFilter } from "../from-object.js";
 import { EdgeCountFilter, NotEdgeCountFilter } from "./edge-count.js";
 import { IntersectsWithFilter, NotIntersectsWithFilter } from "./intersects-with.js";
+import { AboveFacePlaneFilter, BelowFacePlaneFilter } from "./above-below.js";
 import { EdgeFilterBuilder } from "../edge/edge-filter.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { ISceneObject } from "../../core/interfaces.js";
@@ -371,6 +372,60 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    */
   notEdgeCount(count: number) {
     const filter = new NotEdgeCountFilter(count);
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Selects faces that are entirely above the given plane (in the direction of its normal).
+   * @param plane - The reference plane.
+   * @param offsetOrOptions - Offset distance, or an options object with `offset` and `partial`.
+   */
+  above(plane: PlaneLike | PlaneObjectBase, offsetOrOptions?: number | { offset?: number; partial?: boolean }) {
+    if (!plane) {
+      throw new Error('Plane is required');
+    }
+
+    const opts = typeof offsetOrOptions === 'number' ? { offset: offsetOrOptions } : (offsetOrOptions ?? {});
+    const { offset = 0, partial = false } = opts;
+    let planeObj: PlaneObjectBase;
+
+    if (plane instanceof PlaneObjectBase) {
+      planeObj = plane;
+    }
+    else {
+      let normalized = normalizePlane(plane);
+      planeObj = offset ? new PlaneObject(normalized.offset(offset)) : new PlaneObject(normalized);
+    }
+
+    const filter = new AboveFacePlaneFilter(planeObj, partial);
+    this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Selects faces that are entirely below the given plane (opposite to its normal direction).
+   * @param plane - The reference plane.
+   * @param offsetOrOptions - Offset distance, or an options object with `offset` and `partial`.
+   */
+  below(plane: PlaneLike | PlaneObjectBase, offsetOrOptions?: number | { offset?: number; partial?: boolean }) {
+    if (!plane) {
+      throw new Error('Plane is required');
+    }
+
+    const opts = typeof offsetOrOptions === 'number' ? { offset: offsetOrOptions } : (offsetOrOptions ?? {});
+    const { offset = 0, partial = false } = opts;
+    let planeObj: PlaneObjectBase;
+
+    if (plane instanceof PlaneObjectBase) {
+      planeObj = plane;
+    }
+    else {
+      let normalized = normalizePlane(plane);
+      planeObj = offset ? new PlaneObject(normalized.offset(offset)) : new PlaneObject(normalized);
+    }
+
+    const filter = new BelowFacePlaneFilter(planeObj, partial);
     this.filters.push(filter);
     return this;
   }

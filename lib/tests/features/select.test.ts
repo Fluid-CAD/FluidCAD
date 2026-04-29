@@ -348,6 +348,96 @@ describe("select", () => {
         expect(shapes).toHaveLength(2);
       });
     });
+
+    describe("above / below", () => {
+      it("should select faces entirely above a plane", () => {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+        extrude(30);
+
+        // Faces above z=15: only the top face (all verts at z=30) qualifies.
+        // Side faces have 2 verts at z=0 (not above), so they don't match.
+        const sel = select(face().above("xy", { offset: 15 })) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(1);
+      });
+
+      it("should select faces entirely below a plane", () => {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+        extrude(30);
+
+        // Faces below z=15: only the bottom face (all verts at z=0) qualifies.
+        const sel = select(face().below("xy", { offset: 15 })) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(1);
+      });
+
+      it("should not match faces on the plane itself", () => {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+        extrude(30);
+
+        // Faces above z=0: bottom face is ON the plane (dist=0), not above.
+        // Side faces straddle (2 verts on plane). Only top face qualifies.
+        const sel = select(face().above("xy")) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(1);
+      });
+
+      it("should select partially above faces", () => {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+        extrude(30);
+
+        // partial: true — match faces with at least one vertex above z=0.
+        // Top face + 4 side faces (each has 2 verts at z=30) = 5.
+        const sel = select(face().above("xy", { partial: true })) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(5);
+      });
+
+      it("should select partially below faces", () => {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+        extrude(30);
+
+        // partial: true — match faces with at least one vertex below z=30.
+        // Bottom face + 4 side faces (each has 2 verts at z=0) = 5.
+        const sel = select(face().below("xy", { offset: 30, partial: true })) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(5);
+      });
+
+      it("should return empty when no faces match", () => {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+        extrude(30);
+
+        // Nothing is below z=0 on a box sitting on XY.
+        const sel = select(face().below("xy")) as SelectSceneObject;
+
+        render();
+
+        expect(sel.getShapes()).toHaveLength(0);
+      });
+    });
   });
 
   describe("edge filters", () => {

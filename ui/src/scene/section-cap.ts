@@ -26,6 +26,11 @@ const Z_AXIS = new Vector3(0, 0, 1);
 const FALLBACK_CAP_SIZE = 10000;
 const STENCIL_RENDER_ORDER = -2;
 const CAP_RENDER_ORDER = -1;
+// Push the cap slightly behind the sketch plane (into the body) so it doesn't
+// z-fight with sketch edges drawn on that plane. The body is clipped at the
+// sketch plane, so there's nothing in front of the cap to make this offset
+// visible.
+const CAP_DEPTH_OFFSET = 0.05;
 
 /**
  * Returns true only for meshes that represent solid body faces — the things we
@@ -175,7 +180,7 @@ export class SectionCapManager {
     mesh.frustumCulled = false;
     mesh.raycast = () => {};
 
-    const center = plane.normal.clone().multiplyScalar(-plane.constant);
+    const center = plane.normal.clone().multiplyScalar(-plane.constant + CAP_DEPTH_OFFSET);
     const orientation = new Quaternion().setFromUnitVectors(Z_AXIS, plane.normal);
     mesh.position.copy(center);
     mesh.quaternion.copy(orientation);

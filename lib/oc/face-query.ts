@@ -417,8 +417,8 @@ export class FaceQuery {
     let bestDistance = mode === 'first' ? Infinity : -Infinity;
 
     for (const face of faces) {
-      const distance = plane.distanceToPoint(face.center());
-      if (distance < tolerance) {
+      const distance = plane.signedDistanceToPoint(face.center());
+      if (distance <= tolerance) {
         continue;
       }
       if (mode === 'first' ? distance < bestDistance : distance > bestDistance) {

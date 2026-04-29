@@ -7,11 +7,13 @@ import select from "../../core/select.js";
 import fillet from "../../core/fillet.js";
 import chamfer from "../../core/chamfer.js";
 import fuse from "../../core/fuse.js";
+import shell from "../../core/shell.js";
 import { circle, rect } from "../../core/2d/index.js";
 import { face } from "../../filters/index.js";
 import { Color } from "../../features/color.js";
 import { Extrude } from "../../features/extrude.js";
 import { Fuse } from "../../features/fuse.js";
+import { Shell } from "../../features/shell.js";
 import { Solid } from "../../common/solid.js";
 
 function hasRed(solid: Solid): boolean {
@@ -260,5 +262,34 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     // First input has no color → result inherits no color, even though
     // another input was red.
     expect(result.colorMap).toEqual([]);
+  });
+
+  it("shell preserves colored side faces and does not paint the new internal walls", () => {
+    sketch("xy", () => {
+      rect(100, 50).centered().radius(8);
+    });
+    const e = extrude(20) as Extrude;
+
+    color("orange", e.sideFaces());
+
+    const sh = shell(-2, e.endFaces()) as Shell;
+    render();
+
+    const result = sh.getShapes()[0] as Solid;
+    expect(result).toBeDefined();
+
+    // The original side faces of the extrusion were orange. After shell, the
+    // outer side walls should still be orange (history-mapped through
+    // BRepOffsetAPI_MakeThickSolid). Internal walls are new geometry — the
+    // user only colored the outside, so they must NOT be painted.
+    const orangeFaces = result.colorMap.filter(e => e.color === '#ffa500');
+    expect(orangeFaces.length).toBeGreaterThan(0);
+
+    // None of the shell's internal faces should carry the orange color.
+    const internalFaces = sh.getState('internal-faces') as { getShape(): any }[] || [];
+    expect(internalFaces.length).toBeGreaterThan(0);
+    for (const f of internalFaces) {
+      expect(result.getColor(f.getShape())).toBeUndefined();
+    }
   });
 });

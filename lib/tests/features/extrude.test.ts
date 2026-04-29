@@ -346,6 +346,29 @@ describe("extrude", () => {
       expect(bbox.minZ).toBeCloseTo(0, 0);
       expect(bbox.maxZ).toBeCloseTo(30, 0);
     });
+
+    it("reverse-direction extrude classifies side/internal faces correctly", () => {
+      sketch("xy", () => {
+        rect(7, 5).centered();
+      });
+
+      const e = extrude(-1.5) as Extrude;
+      const sf = e.sideFaces();
+      const inf = e.internalFaces();
+      const se = e.sideEdges();
+      const ine = e.internalEdges();
+      addToScene(sf);
+      addToScene(inf);
+      addToScene(se);
+      addToScene(ine);
+
+      render();
+
+      expect(sf.getShapes()).toHaveLength(4);
+      expect(inf.getShapes()).toHaveLength(0);
+      expect(se.getShapes()).toHaveLength(4);
+      expect(ine.getShapes()).toHaveLength(0);
+    });
   });
 
   describe("startEdges / endEdges", () => {

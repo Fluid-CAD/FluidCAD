@@ -85,13 +85,16 @@ export class Extruder {
         }
       }
 
-      // Use the firstFace from the solid to detect inner wires
-      // Inner wires (CCW) indicate holes — side faces sharing edges with them are internal
+      // Use the firstFace from the solid to detect inner wires. Test against
+      // the face's actual outward normal — for negative-distance extrudes the
+      // firstFace's outward normal flips relative to plane.normal, which would
+      // otherwise invert outer/inner detection and swap side/internal faces.
       const resolvedFirst = firstFace as Face;
+      const outwardNormal = resolvedFirst.calculateNormal();
       const innerWireEdgeShapes: Shape[] = [];
       const wires = resolvedFirst.getWires();
       for (const wire of wires) {
-        if (!wire.isCW(this.plane.normal)) {
+        if (wire.isCW(outwardNormal)) {
           for (const edge of wire.getEdges()) {
             innerWireEdgeShapes.push(edge);
           }

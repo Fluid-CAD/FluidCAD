@@ -7,6 +7,7 @@ import { SelectSceneObject } from "../features/select.js";
 import { ExtrudeBase } from "../features/extrude-base.js";
 import { Extrudable } from "../helpers/types.js";
 import { IExtrude, ISceneObject } from "./interfaces.js";
+import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 
 interface ExtrudeFunction {
   /**
@@ -42,15 +43,27 @@ interface ExtrudeFunction {
   /**
    * Extrudes up to the first intersecting face.
    * @param face - The literal `'first-face'`
-   * @param target - The sketch or face-bearing scene object to extrude
+   * @param filters - Optional face filters to narrow the candidate set
    */
-  (face: 'first-face', target?: ISceneObject): IExtrude;
+  (face: 'first-face', ...filters: FaceFilterBuilder[]): IExtrude;
+  /**
+   * Extrudes up to the first intersecting face.
+   * @param face - The literal `'first-face'`
+   * @param filtersAndTarget - Optional face filters followed by the target to extrude
+   */
+  (face: 'first-face', ...filtersAndTarget: [...FaceFilterBuilder[], ISceneObject]): IExtrude;
   /**
    * Extrudes up to the last intersecting face.
    * @param face - The literal `'last-face'`
-   * @param target - The sketch or face-bearing scene object to extrude
+   * @param filters - Optional face filters to narrow the candidate set
    */
-  (face: 'last-face', target?: ISceneObject): IExtrude;
+  (face: 'last-face', ...filters: FaceFilterBuilder[]): IExtrude;
+  /**
+   * Extrudes up to the last intersecting face.
+   * @param face - The literal `'last-face'`
+   * @param filtersAndTarget - Optional face filters followed by the target to extrude
+   */
+  (face: 'last-face', ...filtersAndTarget: [...FaceFilterBuilder[], ISceneObject]): IExtrude;
 }
 
 function isExtrudable(obj: any): obj is Extrudable {
@@ -78,15 +91,18 @@ function build(context: SceneParserContext): ExtrudeFunction {
     if (params.length === 0) {
       return new Extrude(defaultDistance, extrudable);
     }
+
+    if (params[0] === 'first-face' || params[0] === 'last-face') {
+      const rest = params.slice(1);
+      if (!rest.every(a => a instanceof FaceFilterBuilder)) {
+        throw new Error("Invalid parameter for extrude function.");
+      }
+      return new ExtrudeToFace(params[0], extrudable, rest as FaceFilterBuilder[]);
+    }
+
     if (params.length === 1) {
       if (typeof params[0] === 'number') {
         return new Extrude(params[0], extrudable);
-      }
-      else if (params[0] === 'first-face') {
-        return new ExtrudeToFace('first-face', extrudable);
-      }
-      else if (params[0] === 'last-face') {
-        return new ExtrudeToFace('last-face', extrudable);
       }
       else if (params[0] instanceof SceneObject) {
         context.addSceneObject(params[0] as SceneObject);

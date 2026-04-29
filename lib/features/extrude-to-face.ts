@@ -13,11 +13,15 @@ import { FaceMaker2 } from "../oc/face-maker2.js";
 import { ThinFaceMaker } from "../oc/thin-face-maker.js";
 import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
+import { FaceFilterBuilder } from "../filters/face/face-filter.js";
+import { ShapeFilter } from "../filters/filter.js";
+import { FromSceneObjectFilter } from "../filters/from-object.js";
 
 export class ExtrudeToFace extends ExtrudeBase {
   constructor(
     public face: SceneObject | 'first-face' | 'last-face',
-    source?: Extrudable | SceneObject) {
+    source?: Extrudable | SceneObject,
+    private faceFilters: FaceFilterBuilder[] = []) {
 
     super(source);
   }
@@ -299,11 +303,32 @@ export class ExtrudeToFace extends ExtrudeBase {
       }
     }
 
-    const result = FaceQuery.findFaceByDistance(allFaces, plane, mode);
+    let candidates: Face[] = allFaces;
+    if (this.faceFilters.length > 0) {
+      candidates = new ShapeFilter(allFaces, ...this.faceFilters).apply() as Face[];
+    }
+
+    const result = FaceQuery.findFaceByDistance(candidates, plane, mode);
     if (!result) {
       throw new Error(`No face found for '${mode}-face' extrusion`);
     }
     return result;
+  }
+
+  private collectFromSceneObjects(): SceneObject[] {
+    const objects: SceneObject[] = [];
+    for (const builder of this.faceFilters) {
+      for (const filter of builder.getFilters()) {
+        if (filter instanceof FromSceneObjectFilter) {
+          for (const obj of filter.getSceneObjects()) {
+            if (!objects.includes(obj)) {
+              objects.push(obj);
+            }
+          }
+        }
+      }
+    }
+    return objects;
   }
 
   override getDependencies(): SceneObject[] {
@@ -315,6 +340,11 @@ export class ExtrudeToFace extends ExtrudeBase {
     if (this.face instanceof SceneObject) {
       deps.push(this.face);
     }
+    for (const obj of this.collectFromSceneObjects()) {
+      if (!deps.includes(obj)) {
+        deps.push(obj);
+      }
+    }
     return deps;
   }
 
@@ -324,7 +354,8 @@ export class ExtrudeToFace extends ExtrudeBase {
       : this.face;
     const source = this.getSource();
     const remapped = source ? (remap.get(source) || source) : undefined;
-    return new ExtrudeToFace(newFace, remapped).syncWith(this);
+    const remappedFilters = this.faceFilters.map(f => f.remap(remap) as FaceFilterBuilder);
+    return new ExtrudeToFace(newFace, remapped, remappedFilters).syncWith(this);
   }
 
   compareTo(other: ExtrudeToFace): boolean {
@@ -341,6 +372,7 @@ export class ExtrudeToFace extends ExtrudeBase {
     if (!thisSource !== !otherSource) {
       return false;
     }
+
     if (thisSource && otherSource && !thisSource.compareTo(otherSource)) {
       return false;
     }
@@ -355,6 +387,16 @@ export class ExtrudeToFace extends ExtrudeBase {
 
     if (this.face !== other.face) {
       return false;
+    }
+
+    if (this.faceFilters.length !== other.faceFilters.length) {
+      return false;
+    }
+
+    for (let i = 0; i < this.faceFilters.length; i++) {
+      if (!this.faceFilters[i].equals(other.faceFilters[i])) {
+        return false;
+      }
     }
 
     return true;
@@ -374,6 +416,7 @@ export class ExtrudeToFace extends ExtrudeBase {
       draft: this.getDraft(),
       endOffset: this.getEndOffset(),
       face: typeof (this.face) === 'string' ? this.face : 'selection',
+      faceFilterCount: this.faceFilters.length,
       thin: this._thin,
       ...this.serializePickFields(),
     }

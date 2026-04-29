@@ -157,6 +157,73 @@ describe("extrude to face", () => {
     });
   });
 
+  describe("first-face / last-face with filters", () => {
+    it("should narrow the candidate set with a face filter", () => {
+      // Cylinder at origin and a planar slab nearby. Without a filter,
+      // 'first-face' would pick the slab's top (at z=20). The cylinder
+      // filter forces selection of the cylindrical side face (z=40).
+      cylinder(50, 80);
+
+      sketch("xy", () => {
+        move([200, 0]);
+        rect(50, 50);
+      });
+      extrude(20).new();
+
+      sketch("xy", () => {
+        move([200, 100]);
+        rect(30, 30);
+      });
+      const e = extrude("first-face", face().cylinder()) as ExtrudeToFace;
+
+      render();
+
+      const shapes = e.getShapes();
+      expect(shapes).toHaveLength(1);
+      expect(shapes[0].getType()).toBe("solid");
+    });
+
+    it("should record an error when the filter eliminates all candidate faces", () => {
+      // Scene contains only planar geometry — cylinder filter matches nothing
+      sketch("xy", () => {
+        move([200, 0]);
+        rect(50, 50);
+      });
+      extrude(30).new();
+
+      sketch("xy", () => {
+        rect(20, 20);
+      });
+      const e = extrude("first-face", face().cylinder()) as ExtrudeToFace;
+
+      render();
+
+      expect(e.getError()).toMatch(/No face found for 'first-face' extrusion/);
+    });
+
+    it("should accept a filter together with an explicit target", () => {
+      cylinder(50, 80);
+
+      const target = sketch("xy", () => {
+        move([200, 100]);
+        rect(20, 20);
+      }) as Sketch;
+
+      // Some other sketch in scope so the sketch context is non-trivial.
+      sketch("xy", () => {
+        rect(10, 10);
+      });
+
+      const e = extrude("first-face", face().cylinder(), target) as ExtrudeToFace;
+
+      render();
+
+      const shapes = e.getShapes();
+      expect(shapes).toHaveLength(1);
+      expect(shapes[0].getType()).toBe("solid");
+    });
+  });
+
   describe("non-parallel planar face", () => {
     it("should extrude up to a drafted side face", () => {
       // Create a box with drafted sides — side faces are inclined planes

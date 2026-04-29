@@ -17,7 +17,7 @@ See the [guide](/docs/guides/transforms) for detailed usage examples.
 ## Signatures
 
 ```ts
-mirror(line: SceneObject): IMirror
+mirror(line: SceneObject): IMirror2D
 ```
 
 [2D] Mirror all sketch geometries across a given line.
@@ -29,7 +29,7 @@ mirror(line: SceneObject): IMirror
 ---
 
 ```ts
-mirror(axis: AxisLike): IMirror
+mirror(axis: AxisLike): IMirror2D
 ```
 
 [2D] Mirror all sketch geometries across a given axis.
@@ -41,7 +41,7 @@ mirror(axis: AxisLike): IMirror
 ---
 
 ```ts
-mirror(line: SceneObject, ...geometries: SceneObject[]): IMirror
+mirror(line: SceneObject, ...geometries: SceneObject[]): IMirror2D
 ```
 
 [2D] Mirror given sketch geometries across a given line.
@@ -54,7 +54,7 @@ mirror(line: SceneObject, ...geometries: SceneObject[]): IMirror
 ---
 
 ```ts
-mirror(axis: AxisLike, ...geometries: SceneObject[]): IMirror
+mirror(axis: AxisLike, ...geometries: SceneObject[]): IMirror2D
 ```
 
 [2D] Mirror given sketch geometries across a given axis.

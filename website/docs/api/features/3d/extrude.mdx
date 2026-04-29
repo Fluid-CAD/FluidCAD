@@ -82,7 +82,7 @@ Extrudes up to a specific face.
 ---
 
 ```ts
-extrude(face: "first-face", target?: SceneObject): Extrude
+extrude(face: "first-face", ...filters: FaceFilter[]): Extrude
 ```
 
 Extrudes up to the first intersecting face.
@@ -90,12 +90,25 @@ Extrudes up to the first intersecting face.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `face` | "first-face" | The literal `'first-face'` |
-| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch or face-bearing scene object to extrude *(optional)* |
+| `...filters` | FaceFilter[] | Optional face filters to narrow the candidate set *(optional)* |
 
 ---
 
 ```ts
-extrude(face: "last-face", target?: SceneObject): Extrude
+extrude(face: "first-face", ...filtersAndTarget: [...FaceFilterBuilder[], ISceneObject]): Extrude
+```
+
+Extrudes up to the first intersecting face.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `face` | "first-face" | The literal `'first-face'` |
+| `...filtersAndTarget` | [...FaceFilterBuilder[], ISceneObject] | Optional face filters followed by the target to extrude *(optional)* |
+
+---
+
+```ts
+extrude(face: "last-face", ...filters: FaceFilter[]): Extrude
 ```
 
 Extrudes up to the last intersecting face.
@@ -103,4 +116,17 @@ Extrudes up to the last intersecting face.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `face` | "last-face" | The literal `'last-face'` |
-| `target` | [SceneObject](/docs/api/types/scene-object) | The sketch or face-bearing scene object to extrude *(optional)* |
+| `...filters` | FaceFilter[] | Optional face filters to narrow the candidate set *(optional)* |
+
+---
+
+```ts
+extrude(face: "last-face", ...filtersAndTarget: [...FaceFilterBuilder[], ISceneObject]): Extrude
+```
+
+Extrudes up to the last intersecting face.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `face` | "last-face" | The literal `'last-face'` |
+| `...filtersAndTarget` | [...FaceFilterBuilder[], ISceneObject] | Optional face filters followed by the target to extrude *(optional)* |

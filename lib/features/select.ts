@@ -4,10 +4,11 @@ import { FilterBuilderBase } from "../filters/filter-builder-base.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { ISelect } from "../core/interfaces.js";
-import { Shape, ShapeFilter as ShapeFilterType } from "../common/shape.js";
+import { Shape } from "../common/shape.js";
 import { ShapeType } from "../common/shape-type.js";
 import { Face } from "../common/face.js";
 import { BelongsToFaceFilter, NotBelongsToFaceFilter } from "../filters/edge/belongs-to-face.js";
+import { FromSceneObjectFilter } from "../filters/from-object.js";
 
 export class SelectSceneObject extends SceneObject implements ISelect {
 
@@ -43,35 +44,61 @@ export class SelectSceneObject extends SceneObject implements ISelect {
       }
     }
 
+    // Objects passed explicitly via `from(...)` bypass the part scope so that
+    // cross-part selection works (e.g. select(face().from(p1)) from inside p2).
+    if (!this.constraintObject) {
+      const fromObjects = this.collectFromSceneObjects(filters);
+      if (fromObjects.length > 0) {
+        sceneObjects = sceneObjects.slice();
+        for (const obj of fromObjects) {
+          if (!sceneObjects.includes(obj)) {
+            sceneObjects.push(obj);
+          }
+        }
+      }
+    }
+
     const allShapes = this.constraintObject ? this.constraintObject.getShapes() : this.getAllShapes(sceneObjects, excludedObjects);
     if (this.type === "edge") {
       this.injectScopeFaces(filters, sceneObjects);
     }
     const filteredShapes = this.applyFilters(allShapes, filters);
-    console.log(`SelectSceneObject: shapes after filtering: ${filteredShapes[0]}`);
     this.addShapes(filteredShapes);
+  }
+
+  private collectFromSceneObjects(filters: FilterBuilderBase<Shape>[]): SceneObject[] {
+    const objects: SceneObject[] = [];
+    for (const builder of filters) {
+      for (const filter of builder.getFilters()) {
+        if (filter instanceof FromSceneObjectFilter) {
+          for (const obj of filter.getSceneObjects()) {
+            if (!objects.includes(obj)) {
+              objects.push(obj);
+            }
+          }
+        }
+      }
+    }
+    return objects;
   }
 
   private getAllShapes(scope: SceneObject[], exludedShapes: Shape[]) {
     const scopeShapes = scope.flatMap(obj => obj.getShapes({}, 'solid').map(s => s.getSubShapes(this.type)).flat());
     exludedShapes = exludedShapes.flatMap(s => s.getSubShapes(this.type));
-    const finalShapes = scopeShapes.filter(shape => !exludedShapes.some(exShape => exShape.isSame(shape)));
-
-    console.log('=== Scope Objects:', scope.length, ' Shapes:', scopeShapes.length)
-    console.log('=== Excluded Shapes:', exludedShapes.length)
-    console.log('=== Final Shapes after exclusion:', finalShapes.length)
-
-    let allShapes: Shape[] = [];
-    for (const shape of finalShapes) {
-      allShapes.push(shape);
-    }
-
-    console.log('SelectSceneObject: total shapes collected for filtering:', allShapes.length);
-    return allShapes;
+    return scopeShapes.filter(shape => !exludedShapes.some(exShape => exShape.isSame(shape)));
   }
 
   override getDependencies(): SceneObject[] {
-    return this.constraintObject ? [this.constraintObject] : [];
+    const deps: SceneObject[] = [];
+    if (this.constraintObject) {
+      deps.push(this.constraintObject);
+    }
+    for (const obj of this.collectFromSceneObjects(this.filters)) {
+      if (!deps.includes(obj)) {
+        deps.push(obj);
+      }
+    }
+    return deps;
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {

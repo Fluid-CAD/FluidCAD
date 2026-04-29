@@ -12,6 +12,10 @@ export class FromSceneObjectFilter<TShape extends Shape> extends FilterBase<TSha
     super();
   }
 
+  getSceneObjects(): SceneObject[] {
+    return this.sceneObjects;
+  }
+
   match(shape: TShape): boolean {
     for (const obj of this.sceneObjects) {
       const subShapes = obj.getShapes().flatMap(s => s.getSubShapes(this.shapeType));

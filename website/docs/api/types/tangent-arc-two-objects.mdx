@@ -12,6 +12,18 @@ Extends [`Geometry`](/docs/api/types/geometry)
 <details>
 <summary>Inherited from [`Geometry`](/docs/api/types/geometry)</summary>
 
+### guide()
+
+```ts
+guide(): this
+```
+
+Marks this sketch geometry as construction geometry. Guide geometries are
+excluded from the final sketch output (e.g., extrude, revolve) unless
+explicitly included.
+
+---
+
 ### start()
 
 ```ts
@@ -65,17 +77,6 @@ Sets a custom display name for this object, overriding the default type-based na
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `value` | string | The display name to assign. |
-
----
-
-### guide()
-
-```ts
-guide(): this
-```
-
-Marks this object as construction geometry. Guide objects are excluded from
-final geometry output unless explicitly included.
 
 ---
 

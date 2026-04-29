@@ -26,17 +26,6 @@ Sets a custom display name for this object, overriding the default type-based na
 
 ---
 
-### guide()
-
-```ts
-guide(): this
-```
-
-Marks this object as construction geometry. Guide objects are excluded from
-final geometry output unless explicitly included.
-
----
-
 ### reusable()
 
 ```ts
@@ -52,6 +41,18 @@ shapes from a reusable object.
 </details>
 
 ## Methods
+
+### guide()
+
+```ts
+guide(): this
+```
+
+Marks this sketch geometry as construction geometry. Guide geometries are
+excluded from the final sketch output (e.g., extrude, revolve) unless
+explicitly included.
+
+---
 
 ### start()
 

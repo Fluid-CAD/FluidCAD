@@ -1,5 +1,6 @@
 import { Explorer } from "../oc/explorer.js";
 import { Shape } from "../common/shape.js";
+import { Solid } from "../common/solid.js";
 import { SceneObjectMesh } from "./scene.js";
 import { Mesh } from "../oc/mesh.js";
 import { getOC } from "../oc/init.js";
@@ -17,13 +18,7 @@ function getEdgesMesh(shapeObj: Shape): SceneObjectMesh[] {
   const oc = getOC();
   const result: SceneObjectMesh[] = [];
 
-  const edgeToFaces = new oc.TopTools_IndexedDataMapOfShapeListOfShape();
-  oc.TopExp.MapShapesAndAncestors(
-    shapeObj.getShape(),
-    oc.TopAbs_ShapeEnum.TopAbs_EDGE,
-    oc.TopAbs_ShapeEnum.TopAbs_FACE,
-    edgeToFaces,
-  );
+  const edgeToFaces = (shapeObj as Solid).getEdgeToFacesIndex();
 
   const edges = Explorer.findEdgesWrapped(shapeObj);
 
@@ -48,7 +43,6 @@ function getEdgesMesh(shapeObj: Shape): SceneObjectMesh[] {
     }
   }
 
-  edgeToFaces.delete();
   return result;
 }
 

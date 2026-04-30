@@ -1,3 +1,4 @@
+import type { TopoDS_Shape, TopTools_MapOfShape } from "occjs-wrapper";
 import { Matrix4 } from "../math/matrix4.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { FilterBuilderBase } from "../filters/filter-builder-base.js";
@@ -5,10 +6,12 @@ import { ShapeFilter } from "../filters/filter.js";
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { ISelect } from "../core/interfaces.js";
 import { Shape } from "../common/shape.js";
+import { Solid } from "../common/solid.js";
 import { ShapeType } from "../common/shape-type.js";
 import { Face } from "../common/face.js";
 import { BelongsToFaceFilter, NotBelongsToFaceFilter } from "../filters/edge/belongs-to-face.js";
 import { FromSceneObjectFilter } from "../filters/from-object.js";
+import { TopologyIndex } from "../oc/topology-index.js";
 
 export class SelectSceneObject extends SceneObject implements ISelect {
 
@@ -62,8 +65,39 @@ export class SelectSceneObject extends SceneObject implements ISelect {
     if (this.type === "edge") {
       this.injectScopeFaces(filters, sceneObjects);
     }
-    const filteredShapes = this.applyFilters(allShapes, filters);
-    this.addShapes(filteredShapes);
+    const fromFilters = this.injectFromMembershipSets(filters);
+    try {
+      const filteredShapes = this.applyFilters(allShapes, filters);
+      this.addShapes(filteredShapes);
+    } finally {
+      for (const { filter, set } of fromFilters) {
+        filter.setMembershipSet(null);
+        set.delete();
+      }
+    }
+  }
+
+  private injectFromMembershipSets(filters: FilterBuilderBase<Shape>[]): { filter: FromSceneObjectFilter<Shape>; set: TopTools_MapOfShape }[] {
+    const allocated: { filter: FromSceneObjectFilter<Shape>; set: TopTools_MapOfShape }[] = [];
+    for (const builder of filters) {
+      for (const filter of builder.getFilters()) {
+        if (filter instanceof FromSceneObjectFilter) {
+          const shapeType = filter.getShapeType();
+          const rawShapes: TopoDS_Shape[] = [];
+          for (const obj of filter.getSceneObjects()) {
+            for (const owner of obj.getShapes()) {
+              for (const sub of owner.getSubShapes(shapeType)) {
+                rawShapes.push(sub.getShape());
+              }
+            }
+          }
+          const set = TopologyIndex.buildShapeSet(rawShapes);
+          filter.setMembershipSet(set);
+          allocated.push({ filter, set });
+        }
+      }
+    }
+    return allocated;
   }
 
   private collectFromSceneObjects(filters: FilterBuilderBase<Shape>[]): SceneObject[] {
@@ -84,8 +118,17 @@ export class SelectSceneObject extends SceneObject implements ISelect {
 
   private getAllShapes(scope: SceneObject[], exludedShapes: Shape[]) {
     const scopeShapes = scope.flatMap(obj => obj.getShapes({}, 'solid').map(s => s.getSubShapes(this.type)).flat());
-    exludedShapes = exludedShapes.flatMap(s => s.getSubShapes(this.type));
-    return scopeShapes.filter(shape => !exludedShapes.some(exShape => exShape.isSame(shape)));
+    const flatExcluded = exludedShapes.flatMap(s => s.getSubShapes(this.type));
+    if (flatExcluded.length === 0) {
+      return scopeShapes;
+    }
+
+    const excludedSet = TopologyIndex.buildShapeSet(flatExcluded.map(s => s.getShape()));
+    try {
+      return scopeShapes.filter(shape => !excludedSet.Contains(shape.getShape()));
+    } finally {
+      excludedSet.delete();
+    }
   }
 
   override getDependencies(): SceneObject[] {
@@ -115,18 +158,38 @@ export class SelectSceneObject extends SceneObject implements ISelect {
   }
 
   private injectScopeFaces(filters: FilterBuilderBase<Shape>[], sceneObjects: SceneObject[]) {
-    let scopeFaces: Face[] | null = null;
+    let scopeSolids: Solid[] | null = null;
+    let extraFaces: Face[] | null = null;
+    let faceByHash: Map<number, Face[]> | null = null;
+
     for (const builder of filters) {
       for (const filter of builder.getFilters()) {
         if (filter instanceof BelongsToFaceFilter || filter instanceof NotBelongsToFaceFilter) {
-          if (!scopeFaces) {
-            scopeFaces = this.constraintObject
-              ? this.constraintObject.getShapes().flatMap(s => s.getSubShapes("face")) as Face[]
-              : sceneObjects.flatMap(obj =>
-                  obj.getShapes({}, 'solid').flatMap(s => s.getSubShapes("face"))
-                ) as Face[];
+          if (!scopeSolids) {
+            if (this.constraintObject) {
+              const constraintShapes = this.constraintObject.getShapes();
+              scopeSolids = constraintShapes.filter(s => s.isSolid()) as Solid[];
+              // Faces directly in the constraint (not part of a solid) need the
+              // legacy linear-scan path since they don't have a cached index.
+              extraFaces = constraintShapes
+                .filter(s => !s.isSolid())
+                .flatMap(s => s.getSubShapes("face")) as Face[];
+            } else {
+              scopeSolids = sceneObjects.flatMap(obj => obj.getShapes({}, 'solid')) as Solid[];
+              extraFaces = [];
+            }
+
+            faceByHash = new Map<number, Face[]>();
+            for (const solid of scopeSolids) {
+              for (const face of solid.getFaces()) {
+                addToBucket(faceByHash, face);
+              }
+            }
+            for (const face of extraFaces) {
+              addToBucket(faceByHash, face);
+            }
           }
-          filter.setScopeFaces(scopeFaces);
+          filter.setScopeIndex(scopeSolids, extraFaces!, faceByHash!);
         }
       }
     }
@@ -188,5 +251,15 @@ export class SelectSceneObject extends SceneObject implements ISelect {
       type: this.type
     }
   }
+}
+
+function addToBucket(faceByHash: Map<number, Face[]>, face: Face) {
+  const hash = face.getShape().HashCode(2147483647);
+  let bucket = faceByHash.get(hash);
+  if (!bucket) {
+    bucket = [];
+    faceByHash.set(hash, bucket);
+  }
+  bucket.push(face);
 }
 

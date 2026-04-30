@@ -1,5 +1,11 @@
-import type { TopoDS_Edge, TopoDS_Face, TopoDS_Solid } from "occjs-wrapper";
+import type {
+  TopoDS_Edge,
+  TopoDS_Face,
+  TopoDS_Solid,
+  TopTools_IndexedDataMapOfShapeListOfShape,
+} from "occjs-wrapper";
 import { Explorer } from "../oc/explorer.js";
+import { TopologyIndex } from "../oc/topology-index.js";
 import { ShapeType } from "./shape-type.js";
 import { Shape } from "./shape.js";
 import { Face } from "./face.js";
@@ -8,6 +14,7 @@ import { Edge } from "./edge.js";
 export class Solid extends Shape<TopoDS_Solid> {
   private faces: Face[] = null;
   private edges: Edge[] = null;
+  private edgeToFacesIndex: TopTools_IndexedDataMapOfShapeListOfShape | null = null;
 
   constructor(solid: TopoDS_Solid) {
     super(solid);
@@ -76,6 +83,19 @@ export class Solid extends Shape<TopoDS_Solid> {
     }
 
     return null;
+  }
+
+  getEdgeToFacesIndex(): TopTools_IndexedDataMapOfShapeListOfShape {
+    if (!this.edgeToFacesIndex) {
+      this.edgeToFacesIndex = TopologyIndex.buildEdgeToFaces(this.getShape());
+    }
+    return this.edgeToFacesIndex;
+  }
+
+  override dispose() {
+    this.edgeToFacesIndex?.delete();
+    this.edgeToFacesIndex = null;
+    super.dispose();
   }
 
   override copy(): Shape {

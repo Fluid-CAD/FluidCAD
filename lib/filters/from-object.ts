@@ -1,3 +1,4 @@
+import type { TopTools_MapOfShape } from "occjs-wrapper";
 import { Matrix4 } from "../math/matrix4.js";
 import { Shape } from "../common/shapes.js";
 import { ShapeType } from "../common/shape-type.js";
@@ -5,6 +6,8 @@ import { SceneObject } from "../common/scene-object.js";
 import { FilterBase } from "./filter-base.js";
 
 export class FromSceneObjectFilter<TShape extends Shape> extends FilterBase<TShape> {
+  private membershipSet: TopTools_MapOfShape | null = null;
+
   constructor(
     private sceneObjects: SceneObject[],
     private shapeType: ShapeType,
@@ -16,7 +19,18 @@ export class FromSceneObjectFilter<TShape extends Shape> extends FilterBase<TSha
     return this.sceneObjects;
   }
 
+  getShapeType(): ShapeType {
+    return this.shapeType;
+  }
+
+  setMembershipSet(set: TopTools_MapOfShape | null) {
+    this.membershipSet = set;
+  }
+
   match(shape: TShape): boolean {
+    if (this.membershipSet) {
+      return this.membershipSet.Contains(shape.getShape());
+    }
     for (const obj of this.sceneObjects) {
       const subShapes = obj.getShapes().flatMap(s => s.getSubShapes(this.shapeType));
       if (subShapes.some(sub => sub.isSame(shape))) {

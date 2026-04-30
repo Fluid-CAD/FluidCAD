@@ -15,9 +15,12 @@ export class ShapeFilter {
       return this.shapes;
     }
 
-    const result: Shape[] = [];
+    const result = new Set<Shape>();
     for (const shape of this.shapes) {
       for (const filter of this.builders) {
+        if (result.has(shape)) {
+          break;
+        }
         const filters = filter.getFilters();
         if (filters.every(f => {
           try {
@@ -28,20 +31,20 @@ export class ShapeFilter {
             return false;
           }
         })) {
-          if (!result.includes(shape)) {
-            result.push(shape);
-          }
+          result.add(shape);
         }
       }
     }
 
+    const resultArr = [...result];
+
     // Tangent expansion: if any builder requests it, expand result set via BFS
     const needsExpansion = this.builders.some(b => b.hasTangentExpansion());
-    if (needsExpansion && result.length > 0) {
-      return TangentExpander.expand(result, this.shapes);
+    if (needsExpansion && resultArr.length > 0) {
+      return TangentExpander.expand(resultArr, this.shapes);
     }
 
-    return result;
+    return resultArr;
   }
 }
 

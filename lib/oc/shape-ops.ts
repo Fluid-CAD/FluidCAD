@@ -121,12 +121,19 @@ export class ShapeOps {
    * `BRepTools_History`. Caller must call `dispose()` exactly once to free
    * the OC wrappers.
    */
-  static cleanShapeWithLineage(shape: Shape): CleanShapeLineage {
+  static cleanShapeWithLineage(shape: Shape, opts?: { skipSimplify?: boolean }): CleanShapeLineage {
     const oc = getOC();
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
     const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
 
-    const unify = new oc.ShapeUpgrade_UnifySameDomain(shape.getShape(), false, true, false);
+    // skipSimplify: pass unifyFaces=false to avoid the slow face-merging step
+    // that hangs on tangent contact along curves (e.g., helix sweep + cylinder).
+    const unify = new oc.ShapeUpgrade_UnifySameDomain(
+      shape.getShape(),
+      false,
+      opts?.skipSimplify ? false : true,
+      false,
+    );
     unify.Build();
     const cleanedRaw = unify.Shape();
 

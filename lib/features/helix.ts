@@ -18,6 +18,7 @@ const DEFAULT_RADIUS = 20;
 const DEFAULT_HEIGHT = 50;
 const DEFAULT_TURNS = 1;
 const EPS = 1e-7;
+const TANGENCY_BREAK_EPSILON = 1e-6;
 
 type SourceKind =
   | { kind: 'axis'; axis: Axis }
@@ -106,12 +107,17 @@ export class Helix extends SceneObject implements IHelix {
           console.warn("helix: .endRadius() is ignored when source is a cylindrical face — for a tapered helix, use a conical face or axis input.");
         }
         cs = resolved.cs;
-        // Allow .radius() to override the face's radius. Useful for fuse/cut
-        // workflows where the spring tube needs to actually overlap the cylinder
-        // volumetrically: a helix exactly on the surface produces a tube tangent
-        // to it, which OCC's boolean ops can't merge. Offset by ~1mm inward or
-        // outward to get a clean intersection.
-        startRadius = this._radius ?? resolved.radius;
+        // Nudge inward by TANGENCY_BREAK_EPSILON when falling back to the
+        // face's natural radius. A helix exactly on the cylinder's surface
+        // produces a swept tube that's tangent to the cylinder along helical
+        // curves, and OCC's BOPAlgo (BRepAlgoAPI_Fuse/Cut) silently fails on
+        // tangent contact along curves — fuse returns the inputs as a
+        // compound, cut is a no-op. The 1e-6mm nudge is sub-nanometer
+        // (visually identical) but produces transversal intersections that
+        // BOPAlgo handles cleanly. Sweep also passes skipSimplify=true to
+        // avoid SimplifyResult/UnifySameDomain hanging on the resulting
+        // tangent-curve topology.
+        startRadius = this._radius ?? (resolved.radius - TANGENCY_BREAK_EPSILON);
         endRadius = startRadius;
         if (this._height !== undefined) {
           zStart = 0;

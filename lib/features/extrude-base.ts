@@ -326,7 +326,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     shapes: Shape[],
     classified: ClassifiedFaces,
     context: BuildSceneObjectContext,
-    fuseOpts?: { glue?: 'full' | 'shift' },
+    fuseOpts?: { glue?: 'full' | 'shift'; skipSimplify?: boolean },
   ) {
     const p = context.getProfiler();
     const sceneObjects = this.resolveFusionScope(context.getSceneObjects());

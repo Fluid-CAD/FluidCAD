@@ -181,7 +181,7 @@ export class BooleanOps {
   static fuseStockAndTools(
     stock: Shape[],
     tools: Shape[],
-    opts?: { glue?: 'full' | 'shift' }
+    opts?: { glue?: 'full' | 'shift'; skipSimplify?: boolean }
   ): {
     result: Shape[];
     modifiedShapes: Shape[];
@@ -220,7 +220,9 @@ export class BooleanOps {
 
     const progress = new oc.Message_ProgressRange();
     builder.Build(progress);
-    builder.SimplifyResult(false, true, oc.Precision.Angular());
+    if (!opts?.skipSimplify) {
+      builder.SimplifyResult(false, true, oc.Precision.Angular());
+    }
 
     const resultShape = builder.Shape();
     const rawShapes = Explorer.findAllShapes(resultShape);

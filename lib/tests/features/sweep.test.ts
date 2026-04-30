@@ -3,8 +3,10 @@ import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import sweep from "../../core/sweep.js";
 import extrude from "../../core/extrude.js";
-import { circle, rect, vLine, hLine, arc } from "../../core/2d/index.js";
+import helix from "../../core/helix.js";
+import { circle, rect, vLine, hLine, arc, move } from "../../core/2d/index.js";
 import { Sweep } from "../../features/sweep.js";
+import { Extrude } from "../../features/extrude.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
@@ -409,6 +411,52 @@ describe("sweep", () => {
 
       // Fused result should be a single shape
       expect(countShapes(scene)).toBe(1);
+    });
+  });
+
+  describe("helix sweep with cylinder fuse/cut", () => {
+    it(".add() with helix on cylinder face fuses to a single solid", () => {
+      sketch("xy", () => { circle(30); });
+      const c = extrude(50) as Extrude;
+      const path = helix(c.sideFaces()).turns(10).startOffset(-10).endOffset(10);
+      const profile = sketch("xz", () => {
+        move([15, -10]);
+        circle(2);
+      });
+      const s = sweep(path, profile).add() as Sweep;
+      render();
+
+      const sShapes = s.getShapes();
+      const totalVol = sShapes.reduce(
+        (acc, sh) => acc + ShapeProps.getProperties(sh.getShape()).volumeMm3,
+        0,
+      );
+      expect(c.getShapes().length).toBe(0);
+      expect(sShapes.length).toBe(1);
+      expect(totalVol).toBeGreaterThan(35343);
+      expect(totalVol).toBeLessThan(38303);
+    });
+
+    it(".remove() with helix on cylinder face cuts a groove", () => {
+      sketch("xy", () => { circle(30); });
+      const c = extrude(50) as Extrude;
+      const path = helix(c.sideFaces()).turns(10).startOffset(-10).endOffset(10);
+      const profile = sketch("xz", () => {
+        move([15, -10]);
+        circle(2);
+      });
+      const s = sweep(path, profile).remove() as Sweep;
+      render();
+
+      const sShapes = s.getShapes();
+      const totalVol = sShapes.reduce(
+        (acc, sh) => acc + ShapeProps.getProperties(sh.getShape()).volumeMm3,
+        0,
+      );
+      expect(c.getShapes().length).toBe(0);
+      expect(sShapes.length).toBe(1);
+      expect(totalVol).toBeLessThan(35342);
+      expect(totalVol).toBeGreaterThan(34000);
     });
   });
 });

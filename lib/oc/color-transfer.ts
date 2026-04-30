@@ -56,16 +56,27 @@ export class ColorTransfer {
 
   /**
    * Color bleed pass: spreads colors to result faces that came from new
-   * geometry (tool inputs, generated faces, or just brand-new) by walking
-   * face-edge adjacency in each result solid.
+   * geometry (tool inputs, generated faces, or just brand-new).
    *
-   * Faces that came from `sceneSources` (whether modified or unchanged) are
-   * NOT bled — those represent existing geometry whose color state the user
-   * explicitly chose. Faces NOT from any sceneSource are eligible: this
-   * covers tool extrusions, fillet/chamfer-generated surfaces, and cut
-   * section faces.
+   * Two passes, in order:
    *
-   * Iterates until stable so newly-bled faces can spread color further.
+   *   1. Lineage-based propagation. For each scene-source EDGE / VERTEX,
+   *      ask `maker.Generated(input)` for the new face(s) it produced and
+   *      color each generated face from the source face(s) that *contained*
+   *      that input. This is what makes a fillet on a cylinder's top edge
+   *      inherit the top face's color (the edge belongs to the top face) but
+   *      a fillet on a box's vertical edge stay uncolored even when the top
+   *      face is colored (the vertical edge belongs to two side faces only).
+   *      Faces touched by this pass — colored OR not — are marked as
+   *      lineage-resolved and excluded from pass 2.
+   *
+   *   2. Adjacency-based fallback for result faces that have no Generated
+   *      lineage from any scene source (e.g. a fuse's tool-side faces, or
+   *      brand-new section faces). These spread color via face-edge
+   *      adjacency, iterating until stable. Faces that came from
+   *      `sceneSources` (whether modified or unchanged) stay protected from
+   *      both passes — those are explicit user choices.
+   *
    * Call AFTER `applyThroughMaker` so the colored seeds are in place.
    */
   static applyBleeding(
@@ -73,9 +84,6 @@ export class ColorTransfer {
     results: Shape[],
     maker: BRepBuilderAPI_MakeShape,
   ) {
-    // No colors anywhere on the source side means the bleed loop will iterate
-    // every result face only to find nothing to spread. Short-circuit before
-    // building maps or running the O(N²·E²) adjacency scan.
     if (!sceneSources.some(s => s.hasColors())) {
       return;
     }
@@ -83,6 +91,7 @@ export class ColorTransfer {
     const oc = getOC();
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
     const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
+    const VERTEX = oc.TopAbs_ShapeEnum.TopAbs_VERTEX as TopAbs_ShapeEnum;
 
     const protectedFaces = new oc.TopTools_MapOfShape();
     for (const scene of sceneSources) {
@@ -101,7 +110,59 @@ export class ColorTransfer {
 
     for (const result of results) {
       const allFaces = Explorer.findShapes(result.getShape(), FACE);
-      // Cache edges per face — repeated `findShapes` is expensive.
+
+      // ── Pass 1: lineage via Generated(edge|vertex) ──
+      const lineageResolved = new oc.TopTools_MapOfShape();
+
+      for (const scene of sceneSources) {
+        const sceneFaces = Explorer.findShapes(scene.getShape(), FACE);
+
+        for (const subType of [EDGE, VERTEX] as TopAbs_ShapeEnum[]) {
+          // Cache scene-face → contained subshapes so we can find which faces
+          // own a given edge/vertex without re-walking each time.
+          const sceneFaceSubs = sceneFaces.map(f => Explorer.findShapes(f, subType));
+
+          for (const sub of Explorer.findShapes(scene.getShape(), subType)) {
+            const generatedFaces = ShapeOps.shapeListToArray(maker.Generated(sub))
+              .filter(s => s.ShapeType() === FACE);
+            if (generatedFaces.length === 0) {
+              continue;
+            }
+
+            // Color the generated face from the first colored owner-face of
+            // this edge/vertex. Owners with no color don't contribute, so a
+            // fillet on a vertical box edge (owned only by uncolored sides)
+            // stays uncolored even though the new fillet face touches a
+            // colored top via adjacency.
+            let pickedColor: string | undefined;
+            for (let i = 0; i < sceneFaces.length; i++) {
+              if (!sceneFaceSubs[i].some(s => s.IsSame(sub))) {
+                continue;
+              }
+              const c = scene.getColor(sceneFaces[i]);
+              if (c) {
+                pickedColor = c;
+                break;
+              }
+            }
+
+            for (const g of generatedFaces) {
+              if (!allFaces.some(rf => rf.IsSame(g))) {
+                continue;
+              }
+              if (protectedFaces.Contains(g)) {
+                continue;
+              }
+              lineageResolved.Add(g);
+              if (pickedColor && !result.getColor(g)) {
+                result.setColor(g, pickedColor);
+              }
+            }
+          }
+        }
+      }
+
+      // ── Pass 2: adjacency fallback for faces with no Generated lineage ──
       const faceEdges = allFaces.map(f => Explorer.findShapes(f, EDGE));
 
       let changed = true;
@@ -110,6 +171,9 @@ export class ColorTransfer {
         for (let i = 0; i < allFaces.length; i++) {
           const face = allFaces[i];
           if (protectedFaces.Contains(face)) {
+            continue;
+          }
+          if (lineageResolved.Contains(face)) {
             continue;
           }
           if (result.getColor(face)) {
@@ -135,6 +199,8 @@ export class ColorTransfer {
           }
         }
       }
+
+      lineageResolved.delete();
     }
 
     protectedFaces.delete();

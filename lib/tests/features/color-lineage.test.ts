@@ -198,6 +198,28 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     expect(orangeFaces.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("color does NOT bleed: filleting a side edge of a colored-top box leaves fillet faces uncolored", () => {
+    // The colored top face does NOT own the side (vertical) edges. Filleting
+    // those edges generates new corner faces whose lineage traces back to the
+    // side faces — so they must not inherit the top's color, even though
+    // their top arc is adjacent to the (still-orange) top face.
+    sketch("top", () => {
+      rect(100, 50).centered();
+    });
+    const e = extrude(20) as Extrude;
+
+    color("orange", e.endFaces());
+
+    const f = fillet(10, e.sideEdges()) as unknown as { getShapes(): Solid[] };
+    render();
+
+    const filleted = f.getShapes()[0] as Solid;
+    // Only the (Modified) top face should still be orange. The fillet faces
+    // came from side edges (uncolored), and the bottom was never colored.
+    const orangeCount = filleted.colorMap.filter(e => e.color === '#ffa500').length;
+    expect(orangeCount).toBe(1);
+  });
+
   it("color survives a chamfer", () => {
     sketch("xy", () => {
       circle(40);

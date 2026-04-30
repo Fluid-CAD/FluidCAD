@@ -295,9 +295,7 @@ export class TimelinePanel {
     const isCurrent = index === rollbackStop;
     const isPast = index > rollbackStop;
     const isInvisible = obj.visible === false;
-    const name = obj.name
-      ? obj.name.charAt(0).toUpperCase() + obj.name.slice(1)
-      : obj.type || 'Unknown';
+    const name = obj.name || 'Unknown';
     const iconSrc = obj.type === 'part' ? '/icons/box.png' : `/icons/${resolveIconName(obj.uniqueType, obj.type)}.png`;
 
     let itemClass = 'flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm';
@@ -417,7 +415,7 @@ export class TimelinePanel {
   // ---------------------------------------------------------------------------
 
   private renderShapes(): void {
-    const groups = new Map<string, { shapeId: string; shapeType: string }[]>();
+    const groups = new Map<string, { shapeId: string; shapeType: string; sceneObjectName: string }[]>();
 
     for (const obj of this.sceneObjects) {
       for (const shape of obj.sceneShapes) {
@@ -431,6 +429,7 @@ export class TimelinePanel {
         groups.get(type)!.push({
           shapeId: shape.shapeId || '',
           shapeType: type,
+          sceneObjectName: obj.name,
         });
       }
     }
@@ -453,8 +452,17 @@ export class TimelinePanel {
       `;
 
       if (!isCollapsed) {
+        const nameTotals = new Map<string, number>();
+        for (const shape of shapes) {
+          nameTotals.set(shape.sceneObjectName, (nameTotals.get(shape.sceneObjectName) ?? 0) + 1);
+        }
+        const nameCounts = new Map<string, number>();
         for (let i = 0; i < shapes.length; i++) {
           const shape = shapes[i];
+          const nameIndex = (nameCounts.get(shape.sceneObjectName) ?? 0) + 1;
+          nameCounts.set(shape.sceneObjectName, nameIndex);
+          const total = nameTotals.get(shape.sceneObjectName) ?? 1;
+          const label = total > 1 ? `${shape.sceneObjectName} ${nameIndex}` : shape.sceneObjectName;
           const isSelected = this.selectedShapeIds.has(shape.shapeId);
           const selectedClass = isSelected ? ' bg-primary/10' : '';
           const hidden = this.isShapeHidden(shape.shapeId);
@@ -465,7 +473,7 @@ export class TimelinePanel {
           html += `
             <div class="group flex items-center gap-2 pl-9 pr-3 py-1 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/70${selectedClass}" data-shape-id="${shape.shapeId}" data-shape-type="${shape.shapeType}">
               <img src="/icons/${shape.shapeType}.png" class="w-4 h-4 object-contain" alt="" />
-              <span class="truncate">${capitalized} ${i + 1}</span>
+              <span class="truncate">${label}</span>
               ${eyeBtn}
               ${dotsBtn}
             </div>

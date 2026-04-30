@@ -638,6 +638,10 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this._name ?? this.getType();
   }
 
+  hasCustomName(): boolean {
+    return this._name !== null;
+  }
+
   name(value: string) {
     this._name = value;
     return this;

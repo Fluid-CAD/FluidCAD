@@ -317,9 +317,13 @@ export class SceneRenderer {
     const categories = opts.profiler?.getCategories();
     const profileCategories = categories && categories.length > 0 ? categories : undefined;
 
+    const displayName = obj.hasCustomName()
+      ? obj.getName()
+      : obj.getType().charAt(0).toUpperCase() + obj.getType().slice(1);
+
     const rendered: SceneObjectRender = {
       id: obj.id,
-      name: obj.getName(),
+      name: displayName,
       parentId: obj.parentId,
       object: obj.serialize(opts.scope),
       sceneShapes: opts.sceneShapes,

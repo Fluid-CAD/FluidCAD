@@ -68,8 +68,16 @@ function getFacesMesh(shapeObj: Shape): SceneObjectMesh[] {
         group.faceMapping.push(faceIdx);
       }
 
-      group.vertices.push(...faceResult.vertices);
-      group.normals.push(...faceResult.normals);
+      // Avoid spread on potentially huge arrays — JS argument count is
+      // capped (~65K) and would throw "Maximum call stack size exceeded".
+      const verts = faceResult.vertices;
+      for (let i = 0; i < verts.length; i++) {
+        group.vertices.push(verts[i]);
+      }
+      const norms = faceResult.normals;
+      for (let i = 0; i < norms.length; i++) {
+        group.normals.push(norms[i]);
+      }
       for (const idx of faceResult.indices) {
         group.indices.push(group.vertexOffset + idx);
       }

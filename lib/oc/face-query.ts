@@ -1,4 +1,4 @@
-import type { gp_Pln, gp_Cylinder, TopAbs_ShapeEnum, TopoDS_Shape } from "occjs-wrapper";
+import type { gp_Pln, gp_Cylinder, gp_Cone, TopAbs_ShapeEnum, TopoDS_Shape } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { FaceOps } from "./face-ops.js";
@@ -354,6 +354,30 @@ export class FaceQuery {
     const cylinder = adaptor.Cylinder();
     adaptor.delete();
     return cylinder;
+  }
+
+  static getSurfaceAdaptorConeRaw(face: TopoDS_Shape): gp_Cone {
+    const oc = getOC();
+    const ocFace = oc.TopoDS.Face(face);
+    const adaptor = new oc.BRepAdaptor_Surface(ocFace, true);
+    const cone = adaptor.Cone();
+    adaptor.delete();
+    return cone;
+  }
+
+  /**
+   * Returns the parametric V-bounds of `face`'s underlying surface. For a
+   * cylindrical surface V is the axial coordinate; for a conical surface V is
+   * along the slant (caller multiplies by `cos(semiAngle)` to get axial Z).
+   */
+  static getSurfaceVBoundsRaw(face: TopoDS_Shape): { vMin: number; vMax: number } {
+    const oc = getOC();
+    const ocFace = oc.TopoDS.Face(face);
+    const adaptor = new oc.BRepAdaptor_Surface(ocFace, true);
+    const vMin = adaptor.FirstVParameter();
+    const vMax = adaptor.LastVParameter();
+    adaptor.delete();
+    return { vMin, vMax };
   }
 
   static findFarthestCornerDistanceRaw(face: TopoDS_Shape, plane: gp_Pln): number {

@@ -22,4 +22,5 @@ export { OcIO } from "./io.js";
 export { ShapeProps } from './props.js';
 export { SweepOps } from "./sweep-ops.js";
 export { SectionOps } from "./section-ops.js";
+export { HelixOps } from "./helix-ops.js";
 export type { ShapeProperties } from './props.js';

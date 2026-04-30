@@ -48,6 +48,10 @@ export class SceneCompare {
 
       newObj.restoreState(oldSttate);
 
+      const staleId = newObj.id;
+      newObj.inheritIdentityFrom(oldObj);
+      newScene.reindexObject(newObj, staleId);
+
       const oldError = oldObj.getError();
       if (oldError) {
         newObj.setError(oldError);

@@ -92,6 +92,10 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this._parent?.id || null;
   }
 
+  inheritIdentityFrom(other: SceneObject): void {
+    this._id = other._id;
+  }
+
   private setParent(parent: SceneObject) {
     this._parent = parent;
   }

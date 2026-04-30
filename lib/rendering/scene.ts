@@ -288,6 +288,11 @@ export class Scene {
     return this.idMap.get(id) || null;
   }
 
+  reindexObject(obj: SceneObject, oldId: string): void {
+    this.idMap.delete(oldId);
+    this.idMap.set(obj.id, obj);
+  }
+
   getChildren(parent: SceneObject): SceneObject[] {
     return this.sceneObjects.filter(obj => obj.parentId === parent.id);
   }

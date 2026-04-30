@@ -1,7 +1,6 @@
 import { Box3, BufferAttribute, BufferGeometry, Color, LineSegments, Mesh, MeshPhongMaterial, Object3D, Vector3 } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { SceneModeManager } from './scene/scene-mode';
-import { SectionCapManager } from './scene/section-cap';
 import { buildSceneMesh } from './meshes/mesh-factory';
 import { SceneObjectPart, SceneObjectRender, SubSelection } from './types';
 import { SettingsPanel } from './ui/settings-panel';
@@ -41,7 +40,6 @@ const SKETCH_GHOST_TINT_FACTOR = 0.75;
 export class Viewer {
   private ctx: SceneContext;
   private modeManager: SceneModeManager;
-  private sectionCap: SectionCapManager;
   private settingsPanel: SettingsPanel;
   private sceneObjects: SceneObjectRender[] = [];
   private highlightedShapeId: string | null = null;
@@ -67,7 +65,6 @@ export class Viewer {
     const container = document.getElementById(containerId)!;
     this.ctx = new SceneContext(container);
     this.modeManager = new SceneModeManager(this.ctx);
-    this.sectionCap = new SectionCapManager(this.ctx);
     this.settingsPanel = new SettingsPanel(container, (mode) => this.ctx.switchCamera(mode));
     this.settingsPanel.setFitHandler(() => this.fitViewToScene());
     if (viewerSettings.current.cameraMode === 'perspective') {
@@ -1004,14 +1001,10 @@ export class Viewer {
       }
     });
 
-    this.sectionCap.apply(compiled, plane);
-
     this.ctx.requestRender();
   }
 
   private clearSectionView(): void {
-    this.sectionCap.clear();
-
     const compiled = this.ctx.scene.getObjectByName('compiledMesh');
     if (!compiled) { return; }
 
@@ -1029,8 +1022,6 @@ export class Viewer {
 
   /** Remove the previous compiled mesh tree and dispose its GPU resources. */
   private removeCompiledMesh(): void {
-    this.sectionCap.clear();
-
     const existing = this.ctx.scene.getObjectByName('compiledMesh');
     if (!existing) return;
 

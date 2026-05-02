@@ -7,6 +7,7 @@ import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { transformMeshes } from "./mesh-transform.js";
 import { ShapeOps } from "../oc/shape-ops.js";
+import { Mesh } from "../oc/mesh.js";
 import { Profiler } from "../common/profiler.js";
 import { describeError } from "../common/describe-error.js";
 
@@ -61,6 +62,8 @@ export class SceneRenderer {
       }
       object.clean(scene.getPartScopedAllObjects(object));
     }
+
+    this.batchTriangulate(sceneObjects, skippedContainers);
 
     const prepared = new Map<SceneObject, { renderedSceneShapes: RenderedShape[]; ownShapeCount: number; prepError?: string }>();
     for (const object of sceneObjects) {
@@ -126,6 +129,50 @@ export class SceneRenderer {
     console.table(result);
 
     return scene;
+  }
+
+  // Mesh every shape that still needs triangulation in a single
+  // BRepMesh_IncrementalMesh call. OC's parallel mode then balances faces
+  // across all shapes at once instead of running per-shape sequentially.
+  // The triangulation lives on each TFace, so the existing per-shape
+  // extraction in prepareRenderedShapes finds it cached and short-circuits
+  // its own ensureTriangulated call.
+  private batchTriangulate(
+    sceneObjects: SceneObject[],
+    skippedContainers: Set<SceneObject>,
+  ): void {
+    const targets = new Set<Shape>();
+
+    for (const object of sceneObjects) {
+      if (skippedContainers.has(object) || object.isLazy()) {
+        continue;
+      }
+      const shapes = object.getOwnShapes({ excludeMeta: false, excludeGuide: false });
+      for (const shape of shapes) {
+        if (shape.getMeshes()) {
+          continue;
+        }
+        const source = shape.getMeshSource();
+        const target = source ? source.shape : shape;
+        if (target.getMeshes()) {
+          continue;
+        }
+        targets.add(target);
+      }
+    }
+
+    if (targets.size <= 1) {
+      return;
+    }
+
+    const compound = ShapeOps.makeCompoundRaw([...targets].map(s => s.getShape()));
+    try {
+      const t0 = performance.now();
+      Mesh.ensureTriangulated(compound);
+      console.log(`Batched mesh: ${targets.size} shapes in ${(performance.now() - t0).toFixed(1)}ms`);
+    } finally {
+      compound.delete();
+    }
   }
 
   private prepareRenderedShapes(

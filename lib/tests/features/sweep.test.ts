@@ -414,13 +414,13 @@ describe("sweep", () => {
     });
   });
 
-  describe("helix sweep with cylinder fuse/cut", () => {
-    it(".add() with helix on cylinder face fuses to a single solid", () => {
+  describe("helix sweep with cone fuse/cut", () => {
+    it(".add() with helix on cone face fuses to a single solid", () => {
       sketch("xy", () => { circle(30); });
-      const c = extrude(50) as Extrude;
-      const path = helix(c.sideFaces()).turns(10).startOffset(-10).endOffset(10);
+      const c = extrude(50).draft(10) as Extrude;
+      const path = helix(c.sideFaces()).turns(10);
       const profile = sketch("xz", () => {
-        move([15, -10]);
+        move([15, 0]);
         circle(2);
       });
       const s = sweep(path, profile).add() as Sweep;
@@ -433,16 +433,41 @@ describe("sweep", () => {
       );
       expect(c.getShapes().length).toBe(0);
       expect(sShapes.length).toBe(1);
-      expect(totalVol).toBeGreaterThan(35343);
-      expect(totalVol).toBeLessThan(38303);
+      expect(totalVol).toBeGreaterThan(60000);
+      expect(totalVol).toBeLessThan(64000);
     });
 
-    it(".remove() with helix on cylinder face cuts a groove", () => {
+    it("user repro: helix(\"z\") on Z axis with left-plane profile carves a screw thread", () => {
+      // Profile straddles the cylinder surface (centered at radius 30,
+      // tube radius 1) so the cut produces a clean groove. Profile in
+      // `left` plane (YZ) — face normal is anti-parallel to the spine
+      // tangent at start, exercising the 180° flip case.
       sketch("xy", () => { circle(30); });
       const c = extrude(50) as Extrude;
-      const path = helix(c.sideFaces()).turns(10).startOffset(-10).endOffset(10);
+      const path = helix("z").height(50).radius(30).pitch(5).startOffset(-10).endOffset(10);
+      const profile = sketch("left", () => {
+        move([30, -10]);
+        circle(1);
+      });
+      const s = sweep(path, profile).remove() as Sweep;
+      render();
+
+      const sShapes = s.getShapes();
+      const totalVol = sShapes.reduce(
+        (acc, sh) => acc + ShapeProps.getProperties(sh.getShape()).volumeMm3,
+        0,
+      );
+      expect(c.getShapes().length).toBe(0);
+      expect(sShapes.length).toBe(1);
+      expect(totalVol).toBeGreaterThan(0);
+    });
+
+    it(".remove() with helix on cone face cuts a groove", () => {
+      sketch("xy", () => { circle(30); });
+      const c = extrude(50).draft(10) as Extrude;
+      const path = helix(c.sideFaces()).turns(10);
       const profile = sketch("xz", () => {
-        move([15, -10]);
+        move([15, 0]);
         circle(2);
       });
       const s = sweep(path, profile).remove() as Sweep;
@@ -455,8 +480,8 @@ describe("sweep", () => {
       );
       expect(c.getShapes().length).toBe(0);
       expect(sShapes.length).toBe(1);
-      expect(totalVol).toBeLessThan(35342);
-      expect(totalVol).toBeGreaterThan(34000);
+      expect(totalVol).toBeGreaterThan(56000);
+      expect(totalVol).toBeLessThan(62000);
     });
   });
 });

@@ -149,4 +149,26 @@ describe("mate scope and validation", () => {
     mate("cylindrical", a.connectors.top, b.connectors.top).offset(0, 0, 5);
     expect(scene.getMates()[0].options?.offset).toEqual([0, 0, 5]);
   });
+
+  it("planar mate rejects XY offsets", () => {
+    const { p } = startAssembly();
+    const a = insert(p);
+    const b = insert(p);
+    expect(() =>
+      mate("planar", a.connectors.top, b.connectors.top).offset(1, 0, 0),
+    ).toThrow(/along Z/i);
+    const c = insert(p);
+    const d = insert(p);
+    expect(() =>
+      mate("planar", c.connectors.top, d.connectors.top).offset(0, 2, 5),
+    ).toThrow(/along Z/i);
+  });
+
+  it("planar mate accepts Z-only offsets", () => {
+    const { p, scene } = startAssembly();
+    const a = insert(p);
+    const b = insert(p);
+    mate("planar", a.connectors.top, b.connectors.top).offset(0, 0, 5);
+    expect(scene.getMates()[0].options?.offset).toEqual([0, 0, 5]);
+  });
 });

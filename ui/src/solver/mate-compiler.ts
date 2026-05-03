@@ -10,6 +10,7 @@ import { compileFastened } from './mates/fastened.js';
 import { compileRevolute } from './mates/revolute.js';
 import { compileSlider } from './mates/slider.js';
 import { compileCylindrical } from './mates/cylindrical.js';
+import { compilePlanar } from './mates/planar.js';
 
 export const FREE_IN_3D = 0;
 
@@ -55,7 +56,7 @@ const COMPILERS: Record<MateRecord['type'], MateCompiler> = {
   revolute: compileRevolute,
   slider: compileSlider,
   cylindrical: compileCylindrical,
-  planar: notYet('planar'),
+  planar: compilePlanar,
   parallel: notYet('parallel'),
   'pin-slot': notYet('pin-slot'),
 };

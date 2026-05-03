@@ -803,6 +803,256 @@ function currentSliderZOffset(
 }
 
 /**
+ * Planar warm-start.
+ *
+ * A planar mate locks 3 of the 6 relative DOFs between two connectors:
+ * the follower-connector origin lies in the driver's connector XY
+ * plane (or, with `.offset(0, 0, d)`, in the plane parallel-shifted by
+ * `d` along the driver's Z), and the two Z axes are parallel
+ * (face-to-face by default; back-to-back on `.flip()`). The 3 free
+ * DOFs are 2 in-plane translations + 1 rotation about the shared Z.
+ *
+ * `.offset(0, 0, d)` is a *hard* constant — the plane gap stays at
+ * `d` regardless of drag (matches the spec: "lifts the book a fixed
+ * distance above the table"). XY components are forbidden upstream
+ * in `MateBuilder.offset()`. `.rotate(deg)` is a *hint* that seeds
+ * the angle when the mate isn't currently satisfied.
+ *
+ * Like the other mates, planar is solved JS-side. The follower's
+ * full pose is computed analytically as
+ * `computeFastenedTargetPose(driver, ..., { rotate: angle,
+ * offset: [xLocal, yLocal, d], flip })` and both `lockPosition` and
+ * `lockOrientation` are set; the 3 free DOFs are added back into
+ * `out.dof` by `Solver.solve()`.
+ *
+ * Drag-of-cluster is handled by translating the follower in-plane so
+ * the grab tracks the cursor's projection onto the plane: `(cursor −
+ * grabWorld)` is decomposed onto the driver's connector X and Y axes
+ * and added to `(xLocal, yLocal)`. Cursor motion perpendicular to
+ * the plane is ignored — that's the "snap cursor onto the shared
+ * plane" projection the spec calls for. Rotation-by-drag is not
+ * derived from cursor motion in this phase (3 DOFs vs 2 cursor DOFs
+ * after projection); a Shift-modifier rotate-only mode is listed as
+ * a follow-up alongside cylindrical's.
+ */
+export type PlanarDragInfo = {
+  draggedInstanceId?: string;
+  /** Raw cursor world position on the drag plane. */
+  draggedCursorWorld?: Vector3;
+  /** Grab point in body-local frame. */
+  draggedGrabLocal?: Vector3;
+};
+
+const PLANAR_EPS = 1e-4;
+
+export function applyPlanarWarmStarts(
+  bodies: BodyState[],
+  mates: MateRecord[],
+  drag: PlanarDragInfo = {},
+): void {
+  const { draggedInstanceId, draggedCursorWorld, draggedGrabLocal } = drag;
+  const byId = new Map(bodies.map(b => [b.instanceId, b]));
+  for (const mate of mates) {
+    if (mate.type !== 'planar') continue;
+    const aBody = byId.get(mate.connectorA.instanceId);
+    const bBody = byId.get(mate.connectorB.instanceId);
+    if (!aBody || !bBody) continue;
+    const aConn = aBody.connectors.find(c => c.connectorId === mate.connectorA.connectorId);
+    const bConn = bBody.connectors.find(c => c.connectorId === mate.connectorB.connectorId);
+    if (!aConn || !bConn) continue;
+
+    const roles = pickRoles(aBody, bBody, aConn, bConn, mate, draggedInstanceId, mates);
+    if (!roles) continue;
+    const { driver, follower, driverConn, followerConn } = roles;
+    const options = mate.options ?? {};
+    const dz = options.offset?.[2] ?? 0;
+    const seedAngle = options.rotate ?? 0;
+
+    let xLocal: number;
+    let yLocal: number;
+    let angle: number;
+    if (isPlanarSatisfied(driver, follower, driverConn, followerConn, dz)) {
+      // Mate currently satisfied — preserve the running (x, y, angle) so
+      // user drags persist across solves.
+      const state = currentPlanarState(
+        driver, follower, driverConn, followerConn, dz,
+      );
+      xLocal = state.x;
+      yLocal = state.y;
+      angle = state.angle;
+    } else {
+      xLocal = 0;
+      yLocal = 0;
+      angle = seedAngle;
+    }
+
+    // Drag-of-cluster: translate the follower in-plane so the grab tracks
+    // the cursor's projection onto the plane. The grab point's world
+    // position is computed from the dragged body's pose, so this works
+    // whether the dragged body is the follower itself or another body
+    // fastened to it.
+    if (
+      draggedCursorWorld
+      && draggedGrabLocal
+      && draggedInstanceId
+      && !follower.grounded
+    ) {
+      const cluster = findFastenedCluster(follower.instanceId, mates);
+      if (cluster.has(draggedInstanceId)) {
+        const draggedBody = byId.get(draggedInstanceId);
+        if (draggedBody) {
+          const grabWorld = draggedGrabLocal.clone()
+            .applyQuaternion(draggedBody.quaternion)
+            .add(draggedBody.position);
+          const dX = driverConn.localXDirection.clone()
+            .applyQuaternion(driver.quaternion).normalize();
+          const dZ = driverConn.localNormal.clone()
+            .applyQuaternion(driver.quaternion).normalize();
+          const dY = new Vector3().crossVectors(dZ, dX).normalize();
+          const delta = draggedCursorWorld.clone().sub(grabWorld);
+          xLocal += delta.dot(dX);
+          yLocal += delta.dot(dY);
+        }
+      }
+    }
+
+    const target = computeFastenedTargetPose(driver, driverConn, followerConn, {
+      flip: options.flip,
+      rotate: angle,
+      offset: [xLocal, yLocal, dz],
+    });
+    follower.position = target.position;
+    follower.quaternion = target.quaternion;
+    follower.lockPosition = true;
+    follower.lockOrientation = true;
+  }
+}
+
+/**
+ * Re-derive each planar follower's pose from the *solved* driver pose.
+ * The (x, y, angle) values are read back from the warm-started follower
+ * pose (which was mutated in place), so a drag of the driver carries
+ * the follower in-plane with the same relative offset and angle.
+ */
+export function applyPlanarFixup(
+  inputBodies: BodyState[],
+  out: SolvedBody[],
+  mates: MateRecord[],
+  draggedInstanceId?: string,
+): void {
+  const inputById = new Map(inputBodies.map(b => [b.instanceId, b]));
+  const outById = new Map(out.map(b => [b.instanceId, b]));
+  for (const mate of mates) {
+    if (mate.type !== 'planar') continue;
+    const aInput = inputById.get(mate.connectorA.instanceId);
+    const bInput = inputById.get(mate.connectorB.instanceId);
+    if (!aInput || !bInput) continue;
+    const aConn = aInput.connectors.find(c => c.connectorId === mate.connectorA.connectorId);
+    const bConn = bInput.connectors.find(c => c.connectorId === mate.connectorB.connectorId);
+    if (!aConn || !bConn) continue;
+
+    const roles = pickRoles(aInput, bInput, aConn, bConn, mate, draggedInstanceId, mates);
+    if (!roles) continue;
+    const driverOut = outById.get(roles.driver.instanceId);
+    const followerOut = outById.get(roles.follower.instanceId);
+    if (!driverOut || !followerOut) continue;
+
+    const dz = mate.options?.offset?.[2] ?? 0;
+    const state = currentPlanarState(
+      roles.driver, roles.follower, roles.driverConn, roles.followerConn, dz,
+    );
+    const driverState: BodyState = {
+      ...roles.driver,
+      position: driverOut.position,
+      quaternion: driverOut.quaternion,
+    };
+    const target = computeFastenedTargetPose(
+      driverState, roles.driverConn, roles.followerConn,
+      {
+        flip: mate.options?.flip,
+        rotate: state.angle,
+        offset: [state.x, state.y, dz],
+      },
+    );
+    followerOut.position = target.position;
+    followerOut.quaternion = target.quaternion;
+  }
+}
+
+/**
+ * True iff the follower's connector origin lies in the driver's connector
+ * plane (origin shifted by `dz` along driver Z), within ε perpendicular,
+ * AND the two Z axes are parallel or anti-parallel within ε. Used to
+ * decide whether the running (x, y, angle) read from the current state
+ * is meaningful or we need to seed from `options.rotate`.
+ */
+function isPlanarSatisfied(
+  driver: BodyState,
+  follower: BodyState,
+  driverConn: ConnectorState,
+  followerConn: ConnectorState,
+  dz: number,
+): boolean {
+  const dOrigin = driverConn.localOrigin.clone()
+    .applyQuaternion(driver.quaternion).add(driver.position);
+  const dZ = driverConn.localNormal.clone()
+    .applyQuaternion(driver.quaternion).normalize();
+  const planeOrigin = dOrigin.clone().addScaledVector(dZ, dz);
+  const fOrigin = followerConn.localOrigin.clone()
+    .applyQuaternion(follower.quaternion).add(follower.position);
+  const fZ = followerConn.localNormal.clone()
+    .applyQuaternion(follower.quaternion).normalize();
+  const along = Math.abs(fOrigin.clone().sub(planeOrigin).dot(dZ));
+  if (along > PLANAR_EPS) return false;
+  return Math.abs(Math.abs(fZ.dot(dZ)) - 1) < PLANAR_EPS;
+}
+
+/**
+ * Extract the running (x, y, angle) of a planar mate from the current
+ * driver/follower poses. `(x, y)` is the follower-connector origin's
+ * offset from the (potentially Z-shifted) driver-connector origin,
+ * measured in the driver's connector X/Y axes. `angle` (degrees) is
+ * the rotation about the driver Z that maps driver's connector X to
+ * the follower's connector X, after projecting follower X into the
+ * plane perpendicular to driver Z so `.flip()` doesn't perturb the
+ * reading.
+ */
+function currentPlanarState(
+  driver: BodyState,
+  follower: BodyState,
+  driverConn: ConnectorState,
+  followerConn: ConnectorState,
+  dz: number,
+): { x: number; y: number; angle: number } {
+  const dOrigin = driverConn.localOrigin.clone()
+    .applyQuaternion(driver.quaternion).add(driver.position);
+  const dX = driverConn.localXDirection.clone()
+    .applyQuaternion(driver.quaternion).normalize();
+  const dZ = driverConn.localNormal.clone()
+    .applyQuaternion(driver.quaternion).normalize();
+  const dY = new Vector3().crossVectors(dZ, dX).normalize();
+  const planeOrigin = dOrigin.clone().addScaledVector(dZ, dz);
+  const fOrigin = followerConn.localOrigin.clone()
+    .applyQuaternion(follower.quaternion).add(follower.position);
+  const fX = followerConn.localXDirection.clone()
+    .applyQuaternion(follower.quaternion).normalize();
+
+  const diff = fOrigin.clone().sub(planeOrigin);
+  const x = diff.dot(dX);
+  const y = diff.dot(dY);
+
+  const fXInPlane = fX.clone().sub(dZ.clone().multiplyScalar(fX.dot(dZ)));
+  if (fXInPlane.length() < 1e-9) {
+    return { x, y, angle: 0 };
+  }
+  fXInPlane.normalize();
+  const cos = Math.min(1, Math.max(-1, fXInPlane.dot(dX)));
+  const sin = new Vector3().crossVectors(dX, fXInPlane).dot(dZ);
+  const angle = (Math.atan2(sin, cos) * 180) / Math.PI;
+  return { x, y, angle };
+}
+
+/**
  * Mutates each follower body in `bodies` so its pose is consistent with
  * its driver's pose under the fastened mate semantics. Sets
  * `lockOrientation = true` on every follower so the solver freezes its

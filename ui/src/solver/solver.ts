@@ -14,6 +14,8 @@ import {
   applyCylindricalWarmStarts,
   applyFastenedFixup,
   applyFastenedWarmStarts,
+  applyPlanarFixup,
+  applyPlanarWarmStarts,
   applyRevoluteFixup,
   applyRevoluteWarmStarts,
   applySliderFixup,
@@ -78,6 +80,15 @@ export class Solver {
       draggedCursorWorld: input.draggedCursorWorld,
       draggedGrabLocal: input.draggedGrabLocal,
     });
+    // Planar: 3 DOF (in-plane translation + rotation about Z). The
+    // .offset(0,0,d) Z gap stays fixed; (xLocal, yLocal, angle) are
+    // preserved across solves. Drag decomposes the cursor projection
+    // onto driver X/Y. The 3 free DOFs are added back below.
+    applyPlanarWarmStarts(input.bodies, input.mates, {
+      draggedInstanceId: input.draggedInstanceId,
+      draggedCursorWorld: input.draggedCursorWorld,
+      draggedGrabLocal: input.draggedGrabLocal,
+    });
     const built = buildSystem(this.api, input);
 
     if (input.draggedInstanceId && input.draggedTargetOrigin) {
@@ -106,14 +117,16 @@ export class Solver {
     applyRevoluteFixup(input.bodies, out.bodies, input.mates, input.draggedInstanceId);
     applySliderFixup(input.bodies, out.bodies, input.mates, input.draggedInstanceId);
     applyCylindricalFixup(input.bodies, out.bodies, input.mates, input.draggedInstanceId);
+    applyPlanarFixup(input.bodies, out.bodies, input.mates, input.draggedInstanceId);
     applyFastenedFixup(input.bodies, out.bodies, input.mates, input.draggedInstanceId);
-    // Each non-both-grounded revolute / slider / cylindrical mate
-    // contributes free DOFs (1, 1, 2 respectively) that slvs can't see
-    // — the followers are JS-side locked. Add them in so the footer
-    // reads the geometric DOF rather than slvs's accounting.
+    // Each non-both-grounded revolute / slider / cylindrical / planar
+    // mate contributes free DOFs (1, 1, 2, 3 respectively) that slvs
+    // can't see — the followers are JS-side locked. Add them in so
+    // the footer reads the geometric DOF rather than slvs's accounting.
     out.dof += countRevoluteFreeDof(input);
     out.dof += countSliderFreeDof(input);
     out.dof += countCylindricalFreeDof(input);
+    out.dof += countPlanarFreeDof(input);
     return out;
   }
 
@@ -236,6 +249,23 @@ function countCylindricalFreeDof(input: SolverInput): number {
     if (!a || !b) continue;
     if (a.grounded && b.grounded) continue;
     extra += 2;
+  }
+  return extra;
+}
+
+/** Sum the free DOF contributed by planar mates (3 per mate where at
+ *  least one of the two bodies is non-grounded). Both-grounded planars
+ *  carry no DOF (immovable pair). */
+function countPlanarFreeDof(input: SolverInput): number {
+  const byId = new Map(input.bodies.map(b => [b.instanceId, b]));
+  let extra = 0;
+  for (const mate of input.mates) {
+    if (mate.type !== 'planar') continue;
+    const a = byId.get(mate.connectorA.instanceId);
+    const b = byId.get(mate.connectorB.instanceId);
+    if (!a || !b) continue;
+    if (a.grounded && b.grounded) continue;
+    extra += 3;
   }
   return extra;
 }

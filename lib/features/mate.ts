@@ -25,6 +25,11 @@ export class MateBuilder {
         `mate('${this.mate.type}').offset(${x}, ${y}, ${z}) — ${this.mate.type} offsets must be along Z (0, 0, d). The connectors share an axis (PT_ON_LINE along Z); an XY offset would contradict that on-axis constraint.`,
       );
     }
+    if (this.mate.type === "planar" && (x !== 0 || y !== 0)) {
+      throw new Error(
+        `mate('planar').offset(${x}, ${y}, ${z}) — planar offsets must be along Z (0, 0, d). The XY directions are the mate's free in-plane DOFs; pinning them with an offset would conflict with the slide/spin the user can drag.`,
+      );
+    }
     this.ensureOptions().offset = [x, y, z];
     return this;
   }

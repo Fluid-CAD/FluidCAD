@@ -22,7 +22,7 @@
 // Per-mate residuals enforce the kinematic relations; the drag
 // residual is the soft cursor pin.
 
-import type { Vector3 } from 'three';
+import { Vector3 } from 'three';
 import type { Component } from './graph.js';
 import { runLM } from './relaxation.js';
 import {
@@ -106,6 +106,16 @@ function relaxComponent(
   const variableBodies = component.bodies.filter(b => !b.grounded);
   if (variableBodies.length === 0) return;
 
+  // Project the cursor onto the dragged body's kinematic plane. The
+  // controller sets its drag plane perpendicular to the camera, so an
+  // angled view gives the cursor a 3D motion the planar mechanism
+  // can't satisfy — LM tries to chase an unreachable Z component and
+  // fights itself frame-to-frame. Projecting onto the plane
+  // perpendicular to the dragged body's first-connector world normal
+  // (typically the mate's rotation axis) drops that unreachable
+  // component before LM ever sees it.
+  const projectedDrag = projectDragOntoBodyPlane(drag, bodyById);
+
   const n = variableBodies.length * 7;
   const x0 = new Float64Array(n);
   packBodies(variableBodies, x0);
@@ -118,7 +128,7 @@ function relaxComponent(
 
   const evaluate = (x: Float64Array): Float64Array => {
     unpackBodies(variableBodies, x);
-    return computeResiduals(componentMates, variableBodies, drag);
+    return computeResiduals(componentMates, variableBodies, projectedDrag);
   };
 
   const normalize = (x: Float64Array): void => {
@@ -139,8 +149,14 @@ function relaxComponent(
 
   const result = runLM(x0, evaluate, normalize);
 
-  const acceptable = result.converged || result.residualNorm < 1e-2;
-  if (acceptable) {
+  // Always accept finite LM output. `runLM` only commits steps that
+  // strictly reduce the squared residual, so the final state is
+  // monotonically improved over the initial state. Restoring on
+  // "didn't reach a tight tolerance" caused jitter during drag: any
+  // frame that landed slightly above the threshold would snap back to
+  // the warm-start pose, then LM would re-converge the next frame —
+  // visible fighting.
+  if (Number.isFinite(result.residualNorm)) {
     unpackBodies(variableBodies, result.x);
   } else {
     for (let i = 0; i < variableBodies.length; i++) {
@@ -148,6 +164,45 @@ function relaxComponent(
       variableBodies[i].quaternion.copy(originals[i].quat);
     }
   }
+}
+
+/**
+ * Drop the component of `cursor - grab` parallel to the dragged
+ * body's primary kinematic axis (its first connector's world normal).
+ * For planar mechanisms with all-Z connectors, this strips the Z
+ * component of the drag delta — making the drag target reachable
+ * regardless of camera angle.
+ *
+ * Returns the original drag info unchanged when there's no drag, no
+ * dragged body, or no projection axis to apply.
+ */
+function projectDragOntoBodyPlane(
+  drag: LoopDragInfo,
+  bodyById: Map<string, BodyState>,
+): LoopDragInfo {
+  if (
+    drag.draggedInstanceId === undefined
+    || drag.draggedCursorWorld === undefined
+    || drag.draggedGrabLocal === undefined
+  ) {
+    return drag;
+  }
+  const dragged = bodyById.get(drag.draggedInstanceId);
+  if (!dragged || dragged.connectors.length === 0) return drag;
+
+  const axis = dragged.connectors[0].localNormal.clone()
+    .applyQuaternion(dragged.quaternion).normalize();
+  if (axis.lengthSq() < 1e-12) return drag;
+
+  const grabWorld = drag.draggedGrabLocal.clone()
+    .applyQuaternion(dragged.quaternion).add(dragged.position);
+  const offset = drag.draggedCursorWorld.clone().sub(grabWorld);
+  const along = offset.dot(axis);
+  if (Math.abs(along) < 1e-9) return drag;
+
+  const projected = drag.draggedCursorWorld.clone()
+    .addScaledVector(axis, -along);
+  return { ...drag, draggedCursorWorld: projected };
 }
 
 /**

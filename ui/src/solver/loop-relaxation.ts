@@ -14,7 +14,14 @@
 import type { Vector3 } from 'three';
 import type { Component } from './graph.js';
 import { runLM } from './relaxation.js';
-import { residualDrag, residualRevolute } from './residuals.js';
+import {
+  residualCylindrical,
+  residualDrag,
+  residualFastened,
+  residualPlanar,
+  residualRevolute,
+  residualSlider,
+} from './residuals.js';
 import type { BodyState, ConnectorState, MateRecord } from './types.js';
 
 export type LoopDragInfo = {
@@ -166,9 +173,17 @@ function collectLoopMates(
 }
 
 function hasResidual(type: MateRecord['type']): boolean {
-  // Stage 2: revolute only. Stages 3+ widen this set as residuals
-  // for fastened, slider, cylindrical, planar are added.
-  return type === 'revolute';
+  switch (type) {
+    case 'fastened':
+    case 'revolute':
+    case 'slider':
+    case 'cylindrical':
+    case 'planar':
+      return true;
+    // 'parallel' and 'pin-slot' arrive in phases 11/12.
+    default:
+      return false;
+  }
 }
 
 function computeResiduals(
@@ -216,12 +231,18 @@ function residualDimension(type: MateRecord['type']): number {
 }
 
 function matchResidual(lm: LoopMate): number[] {
+  const opts = lm.mate.options ?? {};
   switch (lm.mate.type) {
+    case 'fastened':
+      return residualFastened(lm.parent, lm.child, lm.parentConn, lm.childConn, opts);
     case 'revolute':
-      return residualRevolute(
-        lm.parent, lm.child, lm.parentConn, lm.childConn, lm.mate.options ?? {},
-      );
-    // Stages 3+: add fastened, slider, cylindrical, planar.
+      return residualRevolute(lm.parent, lm.child, lm.parentConn, lm.childConn, opts);
+    case 'slider':
+      return residualSlider(lm.parent, lm.child, lm.parentConn, lm.childConn, opts);
+    case 'cylindrical':
+      return residualCylindrical(lm.parent, lm.child, lm.parentConn, lm.childConn, opts);
+    case 'planar':
+      return residualPlanar(lm.parent, lm.child, lm.parentConn, lm.childConn, opts);
     default:
       return [];
   }

@@ -42,6 +42,21 @@ function revolute(
   };
 }
 
+function fastened(
+  mateId: string,
+  a: { i: string; c: string },
+  b: { i: string; c: string },
+  options?: MateRecord['options'],
+): MateRecord {
+  return {
+    mateId,
+    type: 'fastened',
+    connectorA: { instanceId: a.i, connectorId: a.c },
+    connectorB: { instanceId: b.i, connectorId: b.c },
+    options,
+  };
+}
+
 // Quaternion for rotation about world Z by `degrees`.
 function quatZ(degrees: number): Quaternion {
   const half = (degrees * Math.PI) / 360;
@@ -154,6 +169,87 @@ describe('mate-loops — closed loops via LM relaxation', () => {
     expect(connectorWorld(C, setup.cH1).distanceTo(connectorWorld(B, setup.bH2))).toBeLessThan(1e-3);
     expect(connectorWorld(D, setup.dH1).distanceTo(connectorWorld(C, setup.cH2))).toBeLessThan(1e-3);
     expect(connectorWorld(A, setup.aH2).distanceTo(connectorWorld(D, setup.dH2))).toBeLessThan(1e-3);
+  });
+
+  it('two-body revolute + slider closure stays satisfied', async () => {
+    // Tree pick: revolute (more rigid) becomes the tree edge; slider
+    // becomes the closure. The connectors are arranged so the
+    // warm-start lands directly on the closure-satisfying config; the
+    // point is to exercise `residualSlider` in the LM dispatcher and
+    // verify it agrees with zero at a known-good pose.
+    const aH1 = flatConnector('h1', 0, 0); aH1.localOrigin.set(0, 0, 0);
+    const aH2 = flatConnector('h2', 0, 0); aH2.localOrigin.set(0, 0, 30);
+    const bH1 = flatConnector('h1', 0, 0); bH1.localOrigin.set(0, 0, 0);
+    const bH2 = flatConnector('h2', 0, 0); bH2.localOrigin.set(0, 0, -30);
+    // Pre-place B at the face-to-face pose (180° around X) so the
+    // tree-edge warm-start is a no-op and LM exercises the slider
+    // residual at a known-good state. LM convergence from a 180° rotation
+    // away is a stage 4+ concern (better drag handling / warm-start
+    // priors).
+    const bodies = [
+      body('A', true,  new Vector3(0, 0, 0), new Quaternion(),         [aH1, aH2]),
+      body('B', false, new Vector3(0, 0, 0), new Quaternion(1, 0, 0, 0), [bH1, bH2]),
+    ];
+    const mates: MateRecord[] = [
+      revolute('m1', { i: 'A', c: 'h1' }, { i: 'B', c: 'h1' }),
+      {
+        mateId: 'm2', type: 'slider',
+        connectorA: { instanceId: 'A', connectorId: 'h2' },
+        connectorB: { instanceId: 'B', connectorId: 'h2' },
+      },
+    ];
+    const solver = new Solver();
+    await solver.ensureReady();
+    const out = solver.solve({ bodies, mates });
+    expect(out.result).toBe('okay');
+
+    const get = (id: string) => out.bodies.find(b => b.instanceId === id)!;
+    const A = get('A'), B = get('B');
+    // Revolute (tree) closure.
+    expect(connectorWorld(B, bH1).distanceTo(connectorWorld(A, aH1))).toBeLessThan(1e-4);
+    // Slider (closure) — origin must lie on driver Z-axis through A.h2.
+    const dZ = aH2.localNormal.clone().applyQuaternion(A.quaternion).normalize();
+    const dOrigin = connectorWorld(A, aH2);
+    const fOrigin = connectorWorld(B, bH2);
+    const diff = fOrigin.sub(dOrigin);
+    const along = diff.dot(dZ);
+    const perp = diff.sub(dZ.clone().multiplyScalar(along)).length();
+    expect(perp).toBeLessThan(1e-4);
+  });
+
+  it('triangle of fastened mates: consistent closure', async () => {
+    // Three bodies pinned together at a single connector each, with all
+    // three pairs fastened. This is over-constrained but consistent
+    // (loop_dof = 0). The orientation parity around the loop forces
+    // back-to-back (.flip()) on every edge so the three "Z anti-parallel"
+    // rotations cancel on closure. The point is to exercise
+    // `residualFastened` (the 6-D residual) inside the LM pass.
+    const h: ConnectorState = {
+      connectorId: 'h',
+      localOrigin: new Vector3(0, 0, 0),
+      localXDirection: new Vector3(1, 0, 0),
+      localNormal: new Vector3(0, 0, 1),
+    };
+    const bodies = [
+      body('A', true,  new Vector3(0, 0, 0), new Quaternion(), [h]),
+      body('B', false, new Vector3(0, 0, 0), new Quaternion(), [h]),
+      body('C', false, new Vector3(0, 0, 0), new Quaternion(), [h]),
+    ];
+    const mates: MateRecord[] = [
+      fastened('m1', { i: 'A', c: 'h' }, { i: 'B', c: 'h' }, { flip: true }),
+      fastened('m2', { i: 'B', c: 'h' }, { i: 'C', c: 'h' }, { flip: true }),
+      fastened('m3', { i: 'A', c: 'h' }, { i: 'C', c: 'h' }, { flip: true }),
+    ];
+    const solver = new Solver();
+    await solver.ensureReady();
+    const out = solver.solve({ bodies, mates });
+    expect(out.result).toBe('okay');
+
+    const get = (id: string) => out.bodies.find(b => b.instanceId === id)!;
+    const A = get('A'), B = get('B'), C = get('C');
+    expect(connectorWorld(B, h).distanceTo(connectorWorld(A, h))).toBeLessThan(1e-4);
+    expect(connectorWorld(C, h).distanceTo(connectorWorld(B, h))).toBeLessThan(1e-4);
+    expect(connectorWorld(C, h).distanceTo(connectorWorld(A, h))).toBeLessThan(1e-4);
   });
 
   it('planar 4-bar drag a coupler joint preserves closure', async () => {

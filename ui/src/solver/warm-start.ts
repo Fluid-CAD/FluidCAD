@@ -1,68 +1,45 @@
-// Warm-start + post-solve fixup for fastened mates.
+// Per-mate warm-start + post-solve fixup, dispatched in BFS spanning-tree
+// order over the mate graph.
 //
-// Slvs has no primitive for "Q_B = Q_A · R_fixed", and its 2D-in-workplane
-// connector entities project onto the body's xy plane (the connector's
-// local Z component is dropped), so POINTS_COINCIDENT can't faithfully
-// represent a connector that lives on a face above/below the body's
-// origin. Both problems disappear if we keep the fastened follower fully
+// Background: slvs has no primitive for "Q_B = Q_A · R_fixed", and its
+// 2D-in-workplane connector entities project onto the body's xy plane
+// (the connector's local Z component is dropped). So `POINTS_COINCIDENT`
+// can't faithfully represent a connector that lives on a face above or
+// below the body's origin, and `PARALLEL` on body normals only matches
+// connector Z-axis parallelism when each connector's local Z aligns with
+// its body's Z. Both problems disappear if we keep the mate's follower
 // outside the solver's hands:
 //
-//   1. **Warm-start** (pre-solve, `applyFastenedWarmStarts`): pick a
-//      driver/follower from each fastened mate, compute the follower's
-//      full target pose (origin + quat) analytically, and write it back
-//      into the BodyState that buildSystem will consume. Set
-//      `lockPosition` and `lockOrientation` so all 7 of the follower's
-//      params are placed in GROUP_GROUND — the solver does not touch
-//      them, and DOF count is correct (a grounded driver + fastened
-//      follower → 0 DOF).
+//   1. **Warm-start** (pre-solve, `seed<Mate>Edge`): given a tree edge
+//      `parent→child`, compute the child's full target pose
+//      (origin + quat) analytically and write it back into the BodyState
+//      that buildSystem will consume. Set `lockPosition` and
+//      `lockOrientation` on the child so all 7 of its params are placed
+//      in `GROUP_GROUND` — slvs does not touch them, and the DOF count
+//      stays correct (a grounded driver + fastened follower → 0 DOF).
 //
-//   2. **Fixup** (post-solve, `applyFastenedFixup`): after the solver
-//      runs, the driver's pose may have changed (drag, other constraint).
-//      Recompute the follower's target from the *solved* driver pose
-//      and overwrite `out.bodies[follower]`. State.group then reflects
-//      the correct face-to-face relation in every frame.
+//   2. **Fixup** (post-solve, `fixup<Mate>Edge`): after the solver
+//      runs, the parent's pose may have changed (drag, other
+//      constraint). Recompute the child's target from the *solved*
+//      parent pose and overwrite `out.bodies[child]`. State.group then
+//      reflects the correct relation in every frame.
 //
-// Driver/follower picking (`pickRoles`):
-//   - Two grounded bodies → null (no warm-start; immovable pair, mate is
-//     either pre-satisfied or permanently violated).
-//   - One grounded → grounded body is driver.
-//   - Both free → dragged body is driver if a drag is in flight;
-//     otherwise mate-author order picks `connectorA`'s body.
+// Driver/follower is fixed by graph topology: for a tree edge
+// `parent → child`, parent is the driver and child is the follower.
+// The graph builder picks the seed (grounded body if any, then dragged,
+// then first by input order) and orders edges by BFS depth, so chains
+// like `A grounded → revolute → B → fastened → C` propagate correctly
+// in a single pass without role-replay logic.
 //
-// Phase 06 supports trees only. Closed loops or chains require ordering
-// the warm-start by graph topology and are deferred.
+// Closed loops are still hard: tree-edge warm-starts cover the spanning
+// tree, but closure mates are skipped here. They get enforced by an
+// LM relaxation pass (stage 2 of the closed-loop solver plan).
 
 import { Matrix4, Quaternion, Vector3 } from 'three';
+import type { Component, TreeEdge } from './graph.js';
 import type { BodyState, ConnectorState, MateRecord, SolvedBody } from './types.js';
 
-/**
- * Revolute warm-start.
- *
- * Like fastened, revolute is solved analytically in JS rather than via
- * slvs. The motivation is the same: slvs's POINT_IN_2D entities project
- * the connector's local Z component to zero, which silently breaks face
- * coincidence for any connector that lives above/below the body's xy
- * plane (top/bottom/side faces — the common case in user-authored parts).
- *
- * Per solve:
- *   1. Pick a driver / follower for each revolute mate.
- *   2. If the follower is being dragged, convert the cursor target into
- *      the corresponding rotation angle about the driver's connector Z
- *      axis. This is what lets the user "spin" the follower with the
- *      mouse without slvs ever seeing a constraint.
- *   3. Recompute the follower's body pose from the (possibly rotated)
- *      orientation so the connector frames meet (face-to-face by default,
- *      back-to-back on `.flip()`, with `.rotate()` as the initial seed
- *      for fresh assemblies).
- *   4. Set `lockPosition` and `lockOrientation` so slvs treats the
- *      follower's params as constants. The 1 free DOF the revolute
- *      contributes is added back to slvs's reported DOF in `Solver.solve()`.
- *
- * The post-solve fixup (`applyRevoluteFixup`) reapplies the analytical
- * relation against the *solved* driver pose so a drag of the driver
- * pulls the follower along.
- */
-export type RevoluteDragInfo = {
+export type TreeDragInfo = {
   draggedInstanceId?: string;
   /** Raw cursor world position on the drag plane. */
   draggedCursorWorld?: Vector3;
@@ -70,138 +47,235 @@ export type RevoluteDragInfo = {
   draggedGrabLocal?: Vector3;
 };
 
-export function applyRevoluteWarmStarts(
+/**
+ * Walk every component's tree edges in BFS order, applying the
+ * appropriate per-mate warm-start to each. After this returns, every
+ * follower body in a tree edge has `lockPosition + lockOrientation`
+ * set; `buildSystem` will place those params in GROUP_GROUND.
+ *
+ * Closure edges are skipped — they're enforced by the LM relaxation
+ * pass (stage 2+).
+ */
+export function applyTreeWarmStarts(
   bodies: BodyState[],
+  components: Component[],
   mates: MateRecord[],
-  drag: RevoluteDragInfo = {},
-  priorlyLockedIds?: Set<string>,
-  decisions?: RoleDecisions,
+  drag: TreeDragInfo = {},
 ): void {
-  const { draggedInstanceId, draggedCursorWorld, draggedGrabLocal } = drag;
-  const byId = new Map(bodies.map(b => [b.instanceId, b]));
-  for (const mate of mates) {
-    if (mate.type !== 'revolute') continue;
-    const aBody = byId.get(mate.connectorA.instanceId);
-    const bBody = byId.get(mate.connectorB.instanceId);
-    if (!aBody || !bBody) continue;
-    const aConn = aBody.connectors.find(c => c.connectorId === mate.connectorA.connectorId);
-    const bConn = bBody.connectors.find(c => c.connectorId === mate.connectorB.connectorId);
-    if (!aConn || !bConn) continue;
-
-    const roles = pickRoles(
-      aBody, bBody, aConn, bConn, mate, draggedInstanceId, mates,
-      priorlyLockedIds, decisions,
-    );
-    if (!roles) continue;
-    const { driver, follower, driverConn, followerConn } = roles;
-    const options = mate.options ?? {};
-
-    // Initial seed (face-to-face / flipped chirality, plus `.rotate()`
-    // angle) only when current pose doesn't satisfy the mate. After that
-    // we preserve the orientation across solves so drags are persistent
-    // and `.rotate()` truly is a hint, not a snap-back.
-    if (!isRevoluteSatisfied(driver, follower, driverConn, followerConn, options)) {
-      const seed = computeFastenedTargetPose(driver, driverConn, followerConn, options);
-      follower.position = seed.position;
-      follower.quaternion = seed.quaternion;
+  const bodyById = new Map(bodies.map(b => [b.instanceId, b]));
+  for (const component of components) {
+    for (const edge of component.treeEdges) {
+      seedTreeEdge(edge, mates, drag, bodyById);
     }
-
-    // Drag-of-cluster: rotate the follower about the pivot Z by the angle
-    // that brings the *grab point* to the cursor. The grab point may live
-    // on the follower itself, or on any body fastened-connected to it
-    // (the rigid cluster pivots as one), so the dragged body counts as
-    // long as it's in the follower's fastened cluster. Computing the
-    // grab world from the dragged body's pose makes the angle correct
-    // for both cases (drag-self and drag-cluster-mate).
-    if (
-      draggedCursorWorld
-      && draggedGrabLocal
-      && draggedInstanceId
-      && !follower.grounded
-    ) {
-      const cluster = findFastenedCluster(follower.instanceId, mates);
-      if (cluster.has(draggedInstanceId)) {
-        const draggedBody = byId.get(draggedInstanceId);
-        if (draggedBody) {
-          const grabWorld = draggedGrabLocal.clone()
-            .applyQuaternion(draggedBody.quaternion)
-            .add(draggedBody.position);
-          rotateFollowerTowardWorld(
-            driver, follower, driverConn, draggedCursorWorld, grabWorld,
-          );
-        }
-      }
-    }
-
-    // Re-derive position from the (possibly rotated) orientation so the
-    // connector frames truly coincide in world space, regardless of which
-    // path set the orientation above.
-    follower.position = followerPositionFromOrientation(
-      driver, driverConn, followerConn, follower.quaternion, options,
-    );
-
-    // Slvs treats revolute followers as constants; the 1 free DOF is
-    // added to the reported DOF count by Solver.solve().
-    follower.lockPosition = true;
-    follower.lockOrientation = true;
-    priorlyLockedIds?.add(follower.instanceId);
   }
 }
 
 /**
- * Re-derive each revolute follower's pose from the *solved* driver pose.
- * This is what carries a drag of the driver through to the follower —
- * slvs only saw the driver's params; the follower stayed wherever the
- * warm-start put it. The fixup snaps the follower onto the manifold
- * defined by the now-current driver pose.
- *
- * Runs before the fastened fixup so a chain of revolute → fastened
- * propagates correctly (the fastened side reads the revolute follower's
- * fixed-up pose, not its stale warm-started pose).
+ * Re-derive every tree-edge follower from the SOLVED driver pose.
+ * Runs in BFS forward order so chained mates propagate: edge 1's
+ * fixup updates the second body, then edge 2's fixup reads that
+ * second body as its driver.
  */
-export function applyRevoluteFixup(
-  inputBodies: BodyState[],
+export function applyTreeFixups(
+  components: Component[],
   out: SolvedBody[],
-  mates: MateRecord[],
-  draggedInstanceId?: string,
-  decisions?: RoleDecisions,
 ): void {
-  const inputById = new Map(inputBodies.map(b => [b.instanceId, b]));
   const outById = new Map(out.map(b => [b.instanceId, b]));
-  for (const mate of mates) {
-    if (mate.type !== 'revolute') continue;
-    const aInput = inputById.get(mate.connectorA.instanceId);
-    const bInput = inputById.get(mate.connectorB.instanceId);
-    if (!aInput || !bInput) continue;
-    const aConn = aInput.connectors.find(c => c.connectorId === mate.connectorA.connectorId);
-    const bConn = bInput.connectors.find(c => c.connectorId === mate.connectorB.connectorId);
-    if (!aConn || !bConn) continue;
-
-    const roles = pickRoles(
-      aInput, bInput, aConn, bConn, mate, draggedInstanceId, mates,
-      undefined, decisions,
-    );
-    if (!roles) continue;
-    const driverOut = outById.get(roles.driver.instanceId);
-    const followerOut = outById.get(roles.follower.instanceId);
-    if (!driverOut || !followerOut) continue;
-
-    const driverState: BodyState = {
-      ...roles.driver,
-      position: driverOut.position,
-      quaternion: driverOut.quaternion,
-    };
-    // Keep the follower's solved orientation (which equals warm-start's
-    // because we locked it) and re-derive position from the driver's
-    // possibly-updated pose.
-    followerOut.position = followerPositionFromOrientation(
-      driverState, roles.driverConn, roles.followerConn, followerOut.quaternion,
-      mate.options ?? {},
-    );
+  for (const component of components) {
+    for (const edge of component.treeEdges) {
+      fixupTreeEdge(edge, outById);
+    }
   }
 }
 
+function seedTreeEdge(
+  edge: TreeEdge,
+  mates: MateRecord[],
+  drag: TreeDragInfo,
+  bodyById: Map<string, BodyState>,
+): void {
+  const { parent, child, parentConn, childConn, mate } = edge;
+  switch (mate.type) {
+    case 'fastened':
+      seedFastenedEdge(parent, child, parentConn, childConn, mate);
+      break;
+    case 'revolute':
+      seedRevoluteEdge(parent, child, parentConn, childConn, mate, mates, drag, bodyById);
+      break;
+    case 'slider':
+      seedSliderEdge(parent, child, parentConn, childConn, mate, mates, drag, bodyById);
+      break;
+    case 'cylindrical':
+      seedCylindricalEdge(parent, child, parentConn, childConn, mate, mates, drag, bodyById);
+      break;
+    case 'planar':
+      seedPlanarEdge(parent, child, parentConn, childConn, mate, mates, drag, bodyById);
+      break;
+    // 'parallel' and 'pin-slot' have no warm-start yet; their tree edges
+    // are no-ops (the child stays at its input pose). They'll be handled
+    // by phase 11 / 12 alongside the LM relaxation.
+    default:
+      break;
+  }
+}
+
+function fixupTreeEdge(edge: TreeEdge, outById: Map<string, SolvedBody>): void {
+  const { parent, child, parentConn, childConn, mate } = edge;
+  const parentOut = outById.get(parent.instanceId);
+  const childOut = outById.get(child.instanceId);
+  if (!parentOut || !childOut) return;
+  switch (mate.type) {
+    case 'fastened':
+      fixupFastenedEdge(parent, parentConn, childConn, mate, parentOut, childOut);
+      break;
+    case 'revolute':
+      fixupRevoluteEdge(parent, parentConn, childConn, mate, parentOut, childOut);
+      break;
+    case 'slider':
+      fixupSliderEdge(parent, child, parentConn, childConn, mate, parentOut, childOut);
+      break;
+    case 'cylindrical':
+      fixupCylindricalEdge(parent, child, parentConn, childConn, mate, parentOut, childOut);
+      break;
+    case 'planar':
+      fixupPlanarEdge(parent, child, parentConn, childConn, mate, parentOut, childOut);
+      break;
+    default:
+      break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Fastened
+// ---------------------------------------------------------------------------
+
+function seedFastenedEdge(
+  driver: BodyState,
+  follower: BodyState,
+  driverConn: ConnectorState,
+  followerConn: ConnectorState,
+  mate: MateRecord,
+): void {
+  // Both bodies grounded → mate is either pre-satisfied or permanently
+  // violated; the warm-start can't help. Skip without locking.
+  if (driver.grounded && follower.grounded) return;
+  const target = computeFastenedTargetPose(
+    driver, driverConn, followerConn, mate.options ?? {},
+  );
+  follower.position = target.position;
+  follower.quaternion = target.quaternion;
+  follower.lockPosition = true;
+  follower.lockOrientation = true;
+}
+
+function fixupFastenedEdge(
+  inputDriver: BodyState,
+  driverConn: ConnectorState,
+  followerConn: ConnectorState,
+  mate: MateRecord,
+  driverOut: SolvedBody,
+  followerOut: SolvedBody,
+): void {
+  const driverState: BodyState = {
+    ...inputDriver,
+    position: driverOut.position,
+    quaternion: driverOut.quaternion,
+  };
+  const target = computeFastenedTargetPose(
+    driverState, driverConn, followerConn, mate.options ?? {},
+  );
+  followerOut.position = target.position;
+  followerOut.quaternion = target.quaternion;
+}
+
+// ---------------------------------------------------------------------------
+// Revolute
+// ---------------------------------------------------------------------------
+
 const REVOLUTE_EPS = 1e-4;
+
+function seedRevoluteEdge(
+  driver: BodyState,
+  follower: BodyState,
+  driverConn: ConnectorState,
+  followerConn: ConnectorState,
+  mate: MateRecord,
+  allMates: MateRecord[],
+  drag: TreeDragInfo,
+  bodyById: Map<string, BodyState>,
+): void {
+  if (driver.grounded && follower.grounded) return;
+  const options = mate.options ?? {};
+
+  // Initial seed (face-to-face / flipped chirality, plus `.rotate()`
+  // angle) only when current pose doesn't satisfy the mate. After that
+  // we preserve the orientation across solves so drags are persistent
+  // and `.rotate()` truly is a hint, not a snap-back.
+  if (!isRevoluteSatisfied(driver, follower, driverConn, followerConn, options)) {
+    const seed = computeFastenedTargetPose(driver, driverConn, followerConn, options);
+    follower.position = seed.position;
+    follower.quaternion = seed.quaternion;
+  }
+
+  // Drag-of-cluster: rotate the follower about the pivot Z by the angle
+  // that brings the *grab point* to the cursor. The grab point may live
+  // on the follower itself, or on any body fastened-connected to it
+  // (the rigid cluster pivots as one).
+  applyRevoluteDragRotation(driver, follower, driverConn, allMates, drag, bodyById);
+
+  // Re-derive position from the (possibly rotated) orientation so the
+  // connector frames truly coincide in world space, regardless of which
+  // path set the orientation above.
+  follower.position = followerPositionFromOrientation(
+    driver, driverConn, followerConn, follower.quaternion, options,
+  );
+
+  follower.lockPosition = true;
+  follower.lockOrientation = true;
+}
+
+function fixupRevoluteEdge(
+  inputDriver: BodyState,
+  driverConn: ConnectorState,
+  followerConn: ConnectorState,
+  mate: MateRecord,
+  driverOut: SolvedBody,
+  followerOut: SolvedBody,
+): void {
+  const driverState: BodyState = {
+    ...inputDriver,
+    position: driverOut.position,
+    quaternion: driverOut.quaternion,
+  };
+  // Keep the follower's solved orientation (which equals warm-start's
+  // because we locked it) and re-derive position from the driver's
+  // possibly-updated pose.
+  followerOut.position = followerPositionFromOrientation(
+    driverState, driverConn, followerConn, followerOut.quaternion,
+    mate.options ?? {},
+  );
+}
+
+function applyRevoluteDragRotation(
+  driver: BodyState,
+  follower: BodyState,
+  driverConn: ConnectorState,
+  allMates: MateRecord[],
+  drag: TreeDragInfo,
+  bodyById: Map<string, BodyState>,
+): void {
+  const { draggedInstanceId, draggedCursorWorld, draggedGrabLocal } = drag;
+  if (!draggedCursorWorld || !draggedGrabLocal || !draggedInstanceId) return;
+  if (follower.grounded) return;
+  const cluster = findFastenedCluster(follower.instanceId, allMates);
+  if (!cluster.has(draggedInstanceId)) return;
+  const draggedBody = bodyById.get(draggedInstanceId);
+  if (!draggedBody) return;
+  const grabWorld = draggedGrabLocal.clone()
+    .applyQuaternion(draggedBody.quaternion)
+    .add(draggedBody.position);
+  rotateFollowerTowardWorld(driver, follower, driverConn, draggedCursorWorld, grabWorld);
+}
 
 function isRevoluteSatisfied(
   driver: BodyState,
@@ -231,34 +305,9 @@ function isRevoluteSatisfied(
   }
 
   if (fOriginWorld.distanceTo(target) > REVOLUTE_EPS) return false;
-  // The two valid chiralities (parallel vs anti-parallel Z) both count as
-  // satisfied here — the chirality is set by the initial seed and
-  // preserved by the warm-start preserving the follower's quaternion.
   return Math.abs(Math.abs(fZWorld.dot(dZWorld)) - 1) < REVOLUTE_EPS;
 }
 
-/**
- * Rotate the follower about the driver-connector Z axis by the angle
- * that makes the *grab point* track the cursor.
- *
- * Why grab point and not body origin: when the user clicks on a part
- * far from the body's coordinate origin (e.g., the right-hand end of a
- * long bar mated at its center), the body origin and the grab point
- * are on opposite sides of the pivot. A rotation that moves the body
- * origin to "cursor + grabOffset" then moves the grab point in the
- * *opposite* direction along its arc — visibly rotating the body the
- * wrong way under the cursor. Measuring the angle from the grab
- * point's current world position to the cursor's world position
- * eliminates this sign error regardless of where on the body the user
- * grabbed.
- */
-/**
- * World-frame variant: rotate the follower about the driver-connector Z
- * axis by the angle that takes `grabWorld` to `cursorWorld` along the
- * arc. `grabWorld` is the current world position of whatever point is
- * being dragged (which may live on the follower or on a body
- * fastened-connected to it).
- */
 function rotateFollowerTowardWorld(
   driver: BodyState,
   follower: BodyState,
@@ -278,15 +327,12 @@ function rotateFollowerTowardWorld(
   const toInPlane = toVec.clone()
     .sub(axis.clone().multiplyScalar(toVec.dot(axis)));
 
-  if (fromInPlane.length() < 1e-9 || toInPlane.length() < 1e-9) {
-    return;
-  }
+  if (fromInPlane.length() < 1e-9 || toInPlane.length() < 1e-9) return;
   fromInPlane.normalize();
   toInPlane.normalize();
 
   const cos = Math.min(1, Math.max(-1, fromInPlane.dot(toInPlane)));
   const cross = new Vector3().crossVectors(fromInPlane, toInPlane);
-  // Sign of the angle: positive when cross is in the +axis direction.
   const sin = cross.dot(axis);
   const angle = Math.atan2(sin, cos);
   if (Math.abs(angle) < 1e-9) return;
@@ -295,11 +341,6 @@ function rotateFollowerTowardWorld(
   follower.quaternion = dq.multiply(follower.quaternion);
 }
 
-/**
- * Returns the follower body position that would make follower-connector
- * world position equal to (driver-connector world position + offset),
- * given a fixed follower orientation.
- */
 function followerPositionFromOrientation(
   driver: BodyState,
   driverConn: ConnectorState,
@@ -326,402 +367,259 @@ function followerPositionFromOrientation(
   );
 }
 
-/**
- * Slider warm-start.
- *
- * A slider mate locks 5 of the 6 relative DOFs between two connectors:
- * origins lie on the same line, both Z axes are parallel (face-to-face by
- * default; back-to-back on `.flip()`), both X axes are parallel (or rotated
- * by `.rotate(deg)`). The single free DOF is translation along the shared
- * line.
- *
- * Like fastened and revolute, the entire mate is solved JS-side. The
- * follower's full pose is computed analytically from the driver and the
- * current "slide value" (signed distance along the driver's connector Z
- * axis). Slvs sees both `lockPosition` and `lockOrientation` on the
- * follower and treats it as a known; the 1 free DOF is added back into
- * `out.dof` by `Solver.solve()`.
- *
- * Per solve:
- *   1. Pick a driver / follower for each slider mate (grounded /
- *      already-locked bodies preferred).
- *   2. Determine the effective Z offset (the total signed distance from
- *      driver-connector origin to follower-connector origin along the
- *      driver's Z axis):
- *        - If the mate is currently satisfied (follower-connector origin
- *          lies on the driver's axis line, within ε), preserve the
- *          current slide value so user-dragged offsets persist.
- *        - Otherwise, seed at `options.offset.z` (zero slide + the
- *          author's stop-block constant).
- *   3. If the dragged body is in the follower's fastened cluster,
- *      project the cursor target onto the axis to update the slide
- *      value. Cursor motion perpendicular to the axis is ignored —
- *      that's the line-projection drag behaviour the spec calls for.
- *   4. Recompute the follower's body pose so its connector frame meets
- *      the driver's connector frame at the chosen position along the
- *      axis (with `flip` and `rotate` applied to orientation).
- *   5. Lock both position and orientation.
- *
- * `applySliderFixup` re-runs step 4 after the solver has moved the
- * driver, propagating drag-of-driver motion to the follower while the
- * slide value (read back from the warm-started follower position) is
- * preserved.
- */
-export type SliderDragInfo = {
-  draggedInstanceId?: string;
-  /** Raw cursor world position on the drag plane. */
-  draggedCursorWorld?: Vector3;
-  /** Grab point in body-local frame. */
-  draggedGrabLocal?: Vector3;
-};
+// ---------------------------------------------------------------------------
+// Slider
+// ---------------------------------------------------------------------------
 
 const SLIDER_EPS = 1e-4;
 
-export function applySliderWarmStarts(
-  bodies: BodyState[],
-  mates: MateRecord[],
-  drag: SliderDragInfo = {},
-  priorlyLockedIds?: Set<string>,
-  decisions?: RoleDecisions,
+function seedSliderEdge(
+  driver: BodyState,
+  follower: BodyState,
+  driverConn: ConnectorState,
+  followerConn: ConnectorState,
+  mate: MateRecord,
+  allMates: MateRecord[],
+  drag: TreeDragInfo,
+  bodyById: Map<string, BodyState>,
 ): void {
+  if (driver.grounded && follower.grounded) return;
+  const options = mate.options ?? {};
+  const seedOffsetZ = options.offset?.[2] ?? 0;
+
+  let effectiveZ: number;
+  if (isSliderOnAxis(driver, follower, driverConn, followerConn)) {
+    effectiveZ = currentSliderZOffset(driver, driverConn, follower, followerConn);
+  } else {
+    effectiveZ = seedOffsetZ;
+  }
+
+  effectiveZ += sliderDragDelta(driver, follower, driverConn, allMates, drag, bodyById);
+
+  const target = computeFastenedTargetPose(driver, driverConn, followerConn, {
+    ...options,
+    offset: [0, 0, effectiveZ],
+  });
+  follower.position = target.position;
+  follower.quaternion = target.quaternion;
+  follower.lockPosition = true;
+  follower.lockOrientation = true;
+}
+
+function fixupSliderEdge(
+  inputDriver: BodyState,
+  inputFollower: BodyState,
+  driverConn: ConnectorState,
+  followerConn: ConnectorState,
+  mate: MateRecord,
+  driverOut: SolvedBody,
+  followerOut: SolvedBody,
+): void {
+  // Read the slide value from the warm-started follower (input) relative
+  // to the input driver. The warm-started follower is consistent with
+  // the input driver, so projecting back gives the value the warm-start
+  // chose (preserved or freshly seeded).
+  const effectiveZ = currentSliderZOffset(
+    inputDriver, driverConn, inputFollower, followerConn,
+  );
+  const driverState: BodyState = {
+    ...inputDriver,
+    position: driverOut.position,
+    quaternion: driverOut.quaternion,
+  };
+  const target = computeFastenedTargetPose(
+    driverState, driverConn, followerConn,
+    { ...(mate.options ?? {}), offset: [0, 0, effectiveZ] },
+  );
+  followerOut.position = target.position;
+  followerOut.quaternion = target.quaternion;
+}
+
+function sliderDragDelta(
+  driver: BodyState,
+  follower: BodyState,
+  driverConn: ConnectorState,
+  allMates: MateRecord[],
+  drag: TreeDragInfo,
+  bodyById: Map<string, BodyState>,
+): number {
   const { draggedInstanceId, draggedCursorWorld, draggedGrabLocal } = drag;
-  const byId = new Map(bodies.map(b => [b.instanceId, b]));
-  for (const mate of mates) {
-    if (mate.type !== 'slider') continue;
-    const aBody = byId.get(mate.connectorA.instanceId);
-    const bBody = byId.get(mate.connectorB.instanceId);
-    if (!aBody || !bBody) continue;
-    const aConn = aBody.connectors.find(c => c.connectorId === mate.connectorA.connectorId);
-    const bConn = bBody.connectors.find(c => c.connectorId === mate.connectorB.connectorId);
-    if (!aConn || !bConn) continue;
-
-    const roles = pickRoles(
-      aBody, bBody, aConn, bConn, mate, draggedInstanceId, mates,
-      priorlyLockedIds, decisions,
-    );
-    if (!roles) continue;
-    const { driver, follower, driverConn, followerConn } = roles;
-    const options = mate.options ?? {};
-    const seedOffsetZ = options.offset?.[2] ?? 0;
-
-    let effectiveZ: number;
-    if (isSliderOnAxis(driver, follower, driverConn, followerConn)) {
-      // Preserve the current slide value across solves so a user drag
-      // stays where they left it. The signed distance along the driver Z
-      // already includes any author offset, so we read it directly.
-      effectiveZ = currentSliderZOffset(driver, driverConn, follower, followerConn);
-    } else {
-      effectiveZ = seedOffsetZ;
-    }
-
-    // Drag-of-cluster: shift the slide value by the axial component of
-    // (cursor - grabWorld). The grab point's world position is computed
-    // from the dragged body's pose, so this works whether the dragged
-    // body is the follower itself or another body fastened to it.
-    if (
-      draggedCursorWorld
-      && draggedGrabLocal
-      && draggedInstanceId
-      && !follower.grounded
-    ) {
-      const cluster = findFastenedCluster(follower.instanceId, mates);
-      if (cluster.has(draggedInstanceId)) {
-        const draggedBody = byId.get(draggedInstanceId);
-        if (draggedBody) {
-          const grabWorld = draggedGrabLocal.clone()
-            .applyQuaternion(draggedBody.quaternion)
-            .add(draggedBody.position);
-          const axis = driverConn.localNormal.clone()
-            .applyQuaternion(driver.quaternion).normalize();
-          const delta = draggedCursorWorld.clone().sub(grabWorld).dot(axis);
-          effectiveZ += delta;
-        }
-      }
-    }
-
-    const target = computeFastenedTargetPose(driver, driverConn, followerConn, {
-      ...options,
-      offset: [0, 0, effectiveZ],
-    });
-    follower.position = target.position;
-    follower.quaternion = target.quaternion;
-    follower.lockPosition = true;
-    follower.lockOrientation = true;
-    priorlyLockedIds?.add(follower.instanceId);
-  }
+  if (!draggedCursorWorld || !draggedGrabLocal || !draggedInstanceId) return 0;
+  if (follower.grounded) return 0;
+  const cluster = findFastenedCluster(follower.instanceId, allMates);
+  if (!cluster.has(draggedInstanceId)) return 0;
+  const draggedBody = bodyById.get(draggedInstanceId);
+  if (!draggedBody) return 0;
+  const grabWorld = draggedGrabLocal.clone()
+    .applyQuaternion(draggedBody.quaternion)
+    .add(draggedBody.position);
+  const axis = driverConn.localNormal.clone()
+    .applyQuaternion(driver.quaternion).normalize();
+  return draggedCursorWorld.clone().sub(grabWorld).dot(axis);
 }
 
-/**
- * Re-derive each slider follower's pose from the *solved* driver pose.
- * The slide value is read back from the warm-started follower position
- * (which was mutated in place by `applySliderWarmStarts`), so a drag of
- * the driver carries the follower along the axis with the same relative
- * offset.
- */
-export function applySliderFixup(
-  inputBodies: BodyState[],
-  out: SolvedBody[],
-  mates: MateRecord[],
-  draggedInstanceId?: string,
-  decisions?: RoleDecisions,
-): void {
-  const inputById = new Map(inputBodies.map(b => [b.instanceId, b]));
-  const outById = new Map(out.map(b => [b.instanceId, b]));
-  for (const mate of mates) {
-    if (mate.type !== 'slider') continue;
-    const aInput = inputById.get(mate.connectorA.instanceId);
-    const bInput = inputById.get(mate.connectorB.instanceId);
-    if (!aInput || !bInput) continue;
-    const aConn = aInput.connectors.find(c => c.connectorId === mate.connectorA.connectorId);
-    const bConn = bInput.connectors.find(c => c.connectorId === mate.connectorB.connectorId);
-    if (!aConn || !bConn) continue;
-
-    const roles = pickRoles(
-      aInput, bInput, aConn, bConn, mate, draggedInstanceId, mates,
-      undefined, decisions,
-    );
-    if (!roles) continue;
-    const driverOut = outById.get(roles.driver.instanceId);
-    const followerOut = outById.get(roles.follower.instanceId);
-    if (!driverOut || !followerOut) continue;
-
-    // Read the slide value from the warm-started follower (input) relative
-    // to the input driver. The warm-started follower is consistent with
-    // the input driver, so projecting back gives the value the warm-start
-    // chose (preserved or freshly seeded).
-    const effectiveZ = currentSliderZOffset(
-      roles.driver, roles.driverConn, roles.follower, roles.followerConn,
-    );
-    const driverState: BodyState = {
-      ...roles.driver,
-      position: driverOut.position,
-      quaternion: driverOut.quaternion,
-    };
-    const target = computeFastenedTargetPose(
-      driverState, roles.driverConn, roles.followerConn,
-      { ...(mate.options ?? {}), offset: [0, 0, effectiveZ] },
-    );
-    followerOut.position = target.position;
-    followerOut.quaternion = target.quaternion;
-  }
+function isSliderOnAxis(
+  driver: BodyState,
+  follower: BodyState,
+  driverConn: ConnectorState,
+  followerConn: ConnectorState,
+): boolean {
+  const dOrigin = driverConn.localOrigin.clone()
+    .applyQuaternion(driver.quaternion).add(driver.position);
+  const dZ = driverConn.localNormal.clone()
+    .applyQuaternion(driver.quaternion).normalize();
+  const fOrigin = followerConn.localOrigin.clone()
+    .applyQuaternion(follower.quaternion).add(follower.position);
+  const diff = fOrigin.clone().sub(dOrigin);
+  const along = diff.dot(dZ);
+  const perp = diff.clone().sub(dZ.clone().multiplyScalar(along));
+  return perp.length() < SLIDER_EPS;
 }
 
-/**
- * Cylindrical warm-start.
- *
- * A cylindrical mate locks 4 of the 6 relative DOFs between two
- * connectors: origins lie on the same line and both Z axes are
- * parallel (face-to-face by default; back-to-back on `.flip()`). The
- * two free DOFs are translation along the shared line **and** rotation
- * about it. Both `.offset(0, 0, d)` and `.rotate(deg)` are *hints*
- * (warm-start seeds), not hard constraints — once the user drags the
- * follower, the running (slide, angle) is preserved across solves.
- *
- * Like the other mates, cylindrical is solved JS-side. The follower's
- * full pose is computed analytically from the driver, the slide value,
- * and the angle; both `lockPosition` and `lockOrientation` are set on
- * the follower so slvs treats it as a constant. The 2 free DOFs are
- * added back into `out.dof` by `Solver.solve()`.
- *
- * Per solve:
- *   1. Pick a driver / follower for each cylindrical mate.
- *   2. Determine the running (slide, angle):
- *        - If the mate is currently satisfied (origin on axis line and
- *          Z parallel/anti-parallel within ε), preserve the current
- *          values so user-applied drags persist.
- *        - Otherwise seed at `options.offset.z` / `options.rotate`.
- *   3. If the dragged body is in the follower's fastened cluster,
- *      decompose `(cursor - grabWorld)` into:
- *        - axial component along the driver Z → adds to slide;
- *        - in-plane rotation about the slid pivot → adds to angle.
- *      Unlike slider's line-projection (perpendicular cursor motion is
- *      ignored), cylindrical absorbs perpendicular motion as rotation —
- *      that's the second DOF.
- *   4. Recompute the follower's pose so its connector frame meets the
- *      driver's connector frame at (slide, angle), with `flip` applied.
- *   5. Lock both position and orientation.
- *
- * `applyCylindricalFixup` re-runs step 4 after the solver moves the
- * driver, propagating drag-of-driver motion to the follower while the
- * (slide, angle) read back from the warm-started follower pose are
- * preserved.
- */
-export type CylindricalDragInfo = {
-  draggedInstanceId?: string;
-  /** Raw cursor world position on the drag plane. */
-  draggedCursorWorld?: Vector3;
-  /** Grab point in body-local frame. */
-  draggedGrabLocal?: Vector3;
-};
+function currentSliderZOffset(
+  driver: BodyState,
+  driverConn: ConnectorState,
+  follower: BodyState,
+  followerConn: ConnectorState,
+): number {
+  const dOrigin = driverConn.localOrigin.clone()
+    .applyQuaternion(driver.quaternion).add(driver.position);
+  const dZ = driverConn.localNormal.clone()
+    .applyQuaternion(driver.quaternion).normalize();
+  const fOrigin = followerConn.localOrigin.clone()
+    .applyQuaternion(follower.quaternion).add(follower.position);
+  return fOrigin.clone().sub(dOrigin).dot(dZ);
+}
+
+// ---------------------------------------------------------------------------
+// Cylindrical
+// ---------------------------------------------------------------------------
 
 const CYLINDRICAL_EPS = 1e-4;
 
-export function applyCylindricalWarmStarts(
-  bodies: BodyState[],
-  mates: MateRecord[],
-  drag: CylindricalDragInfo = {},
-  priorlyLockedIds?: Set<string>,
-  decisions?: RoleDecisions,
+function seedCylindricalEdge(
+  driver: BodyState,
+  follower: BodyState,
+  driverConn: ConnectorState,
+  followerConn: ConnectorState,
+  mate: MateRecord,
+  allMates: MateRecord[],
+  drag: TreeDragInfo,
+  bodyById: Map<string, BodyState>,
 ): void {
+  if (driver.grounded && follower.grounded) return;
+  const options = mate.options ?? {};
+  const seedSlide = options.offset?.[2] ?? 0;
+  const seedAngle = options.rotate ?? 0;
+
+  let slide: number;
+  let angle: number;
+  if (isCylindricalSatisfied(driver, follower, driverConn, followerConn)) {
+    const state = currentCylindricalState(driver, follower, driverConn, followerConn);
+    slide = state.slide;
+    angle = state.angle;
+  } else {
+    slide = seedSlide;
+    angle = seedAngle;
+  }
+
+  const drag2 = cylindricalDragDeltas(
+    driver, follower, driverConn, allMates, drag, slide, bodyById,
+  );
+  slide += drag2.slideDelta;
+  angle += drag2.angleDelta;
+
+  const target = computeFastenedTargetPose(driver, driverConn, followerConn, {
+    flip: options.flip,
+    rotate: angle,
+    offset: [0, 0, slide],
+  });
+  follower.position = target.position;
+  follower.quaternion = target.quaternion;
+  follower.lockPosition = true;
+  follower.lockOrientation = true;
+}
+
+function fixupCylindricalEdge(
+  inputDriver: BodyState,
+  inputFollower: BodyState,
+  driverConn: ConnectorState,
+  followerConn: ConnectorState,
+  mate: MateRecord,
+  driverOut: SolvedBody,
+  followerOut: SolvedBody,
+): void {
+  const state = currentCylindricalState(
+    inputDriver, inputFollower, driverConn, followerConn,
+  );
+  const driverState: BodyState = {
+    ...inputDriver,
+    position: driverOut.position,
+    quaternion: driverOut.quaternion,
+  };
+  const target = computeFastenedTargetPose(
+    driverState, driverConn, followerConn,
+    {
+      flip: mate.options?.flip,
+      rotate: state.angle,
+      offset: [0, 0, state.slide],
+    },
+  );
+  followerOut.position = target.position;
+  followerOut.quaternion = target.quaternion;
+}
+
+function cylindricalDragDeltas(
+  driver: BodyState,
+  follower: BodyState,
+  driverConn: ConnectorState,
+  allMates: MateRecord[],
+  drag: TreeDragInfo,
+  currentSlide: number,
+  bodyById: Map<string, BodyState>,
+): { slideDelta: number; angleDelta: number } {
   const { draggedInstanceId, draggedCursorWorld, draggedGrabLocal } = drag;
-  const byId = new Map(bodies.map(b => [b.instanceId, b]));
-  for (const mate of mates) {
-    if (mate.type !== 'cylindrical') continue;
-    const aBody = byId.get(mate.connectorA.instanceId);
-    const bBody = byId.get(mate.connectorB.instanceId);
-    if (!aBody || !bBody) continue;
-    const aConn = aBody.connectors.find(c => c.connectorId === mate.connectorA.connectorId);
-    const bConn = bBody.connectors.find(c => c.connectorId === mate.connectorB.connectorId);
-    if (!aConn || !bConn) continue;
+  const noDelta = { slideDelta: 0, angleDelta: 0 };
+  if (!draggedCursorWorld || !draggedGrabLocal || !draggedInstanceId) return noDelta;
+  if (follower.grounded) return noDelta;
+  const cluster = findFastenedCluster(follower.instanceId, allMates);
+  if (!cluster.has(draggedInstanceId)) return noDelta;
+  const draggedBody = bodyById.get(draggedInstanceId);
+  if (!draggedBody) return noDelta;
 
-    const roles = pickRoles(
-      aBody, bBody, aConn, bConn, mate, draggedInstanceId, mates,
-      priorlyLockedIds, decisions,
-    );
-    if (!roles) continue;
-    const { driver, follower, driverConn, followerConn } = roles;
-    const options = mate.options ?? {};
-    const seedSlide = options.offset?.[2] ?? 0;
-    const seedAngle = options.rotate ?? 0;
+  const grabWorld = draggedGrabLocal.clone()
+    .applyQuaternion(draggedBody.quaternion)
+    .add(draggedBody.position);
+  const dOrigin = driverConn.localOrigin.clone()
+    .applyQuaternion(driver.quaternion).add(driver.position);
+  const dZ = driverConn.localNormal.clone()
+    .applyQuaternion(driver.quaternion).normalize();
 
-    let slide: number;
-    let angle: number;
-    if (isCylindricalSatisfied(driver, follower, driverConn, followerConn)) {
-      const state = currentCylindricalState(
-        driver, follower, driverConn, followerConn,
-      );
-      slide = state.slide;
-      angle = state.angle;
-    } else {
-      slide = seedSlide;
-      angle = seedAngle;
-    }
+  const slideDelta = draggedCursorWorld.clone().sub(grabWorld).dot(dZ);
 
-    // Drag-of-cluster: split (cursor - grabWorld) into axial (slide
-    // delta) and in-plane (angle delta) components. The grab point's
-    // world position is computed from the dragged body's pose, so this
-    // works whether the dragged body is the follower itself or another
-    // body fastened to it.
-    if (
-      draggedCursorWorld
-      && draggedGrabLocal
-      && draggedInstanceId
-      && !follower.grounded
-    ) {
-      const cluster = findFastenedCluster(follower.instanceId, mates);
-      if (cluster.has(draggedInstanceId)) {
-        const draggedBody = byId.get(draggedInstanceId);
-        if (draggedBody) {
-          const grabWorld = draggedGrabLocal.clone()
-            .applyQuaternion(draggedBody.quaternion)
-            .add(draggedBody.position);
-          const dOrigin = driverConn.localOrigin.clone()
-            .applyQuaternion(driver.quaternion).add(driver.position);
-          const dZ = driverConn.localNormal.clone()
-            .applyQuaternion(driver.quaternion).normalize();
-
-          const axialDelta = draggedCursorWorld.clone().sub(grabWorld).dot(dZ);
-          slide += axialDelta;
-
-          // After the slide, the grab moves with the body by `axialDelta * dZ`.
-          // Compute the in-plane rotation about the slid pivot that takes
-          // grabAfterSlide → cursor. Same arc-angle formulation as revolute.
-          const grabAfterSlide = grabWorld.clone().addScaledVector(dZ, axialDelta);
-          const pivotAfterSlide = dOrigin.clone().addScaledVector(dZ, slide);
-          const fromVec = grabAfterSlide.clone().sub(pivotAfterSlide);
-          const toVec = draggedCursorWorld.clone().sub(pivotAfterSlide);
-          const fromInPlane = fromVec.clone()
-            .sub(dZ.clone().multiplyScalar(fromVec.dot(dZ)));
-          const toInPlane = toVec.clone()
-            .sub(dZ.clone().multiplyScalar(toVec.dot(dZ)));
-          if (fromInPlane.length() > 1e-9 && toInPlane.length() > 1e-9) {
-            fromInPlane.normalize();
-            toInPlane.normalize();
-            const cos = Math.min(1, Math.max(-1, fromInPlane.dot(toInPlane)));
-            const sin = new Vector3()
-              .crossVectors(fromInPlane, toInPlane).dot(dZ);
-            const angleDeltaRad = Math.atan2(sin, cos);
-            angle += (angleDeltaRad * 180) / Math.PI;
-          }
-        }
-      }
-    }
-
-    const target = computeFastenedTargetPose(driver, driverConn, followerConn, {
-      flip: options.flip,
-      rotate: angle,
-      offset: [0, 0, slide],
-    });
-    follower.position = target.position;
-    follower.quaternion = target.quaternion;
-    follower.lockPosition = true;
-    follower.lockOrientation = true;
-    priorlyLockedIds?.add(follower.instanceId);
+  // After the slide, the grab moves with the body by `slideDelta * dZ`.
+  // Compute the in-plane rotation about the slid pivot that takes
+  // grabAfterSlide → cursor.
+  const grabAfterSlide = grabWorld.clone().addScaledVector(dZ, slideDelta);
+  const pivotAfterSlide = dOrigin.clone()
+    .addScaledVector(dZ, currentSlide + slideDelta);
+  const fromVec = grabAfterSlide.clone().sub(pivotAfterSlide);
+  const toVec = draggedCursorWorld.clone().sub(pivotAfterSlide);
+  const fromInPlane = fromVec.clone()
+    .sub(dZ.clone().multiplyScalar(fromVec.dot(dZ)));
+  const toInPlane = toVec.clone()
+    .sub(dZ.clone().multiplyScalar(toVec.dot(dZ)));
+  if (fromInPlane.length() < 1e-9 || toInPlane.length() < 1e-9) {
+    return { slideDelta, angleDelta: 0 };
   }
+  fromInPlane.normalize();
+  toInPlane.normalize();
+  const cos = Math.min(1, Math.max(-1, fromInPlane.dot(toInPlane)));
+  const sin = new Vector3().crossVectors(fromInPlane, toInPlane).dot(dZ);
+  const angleDelta = (Math.atan2(sin, cos) * 180) / Math.PI;
+  return { slideDelta, angleDelta };
 }
 
-/**
- * Re-derive each cylindrical follower's pose from the *solved* driver
- * pose. The (slide, angle) values are read back from the warm-started
- * follower pose (which was mutated in place), so a drag of the driver
- * carries the follower along the axis with the same relative offset
- * and angle.
- */
-export function applyCylindricalFixup(
-  inputBodies: BodyState[],
-  out: SolvedBody[],
-  mates: MateRecord[],
-  draggedInstanceId?: string,
-  decisions?: RoleDecisions,
-): void {
-  const inputById = new Map(inputBodies.map(b => [b.instanceId, b]));
-  const outById = new Map(out.map(b => [b.instanceId, b]));
-  for (const mate of mates) {
-    if (mate.type !== 'cylindrical') continue;
-    const aInput = inputById.get(mate.connectorA.instanceId);
-    const bInput = inputById.get(mate.connectorB.instanceId);
-    if (!aInput || !bInput) continue;
-    const aConn = aInput.connectors.find(c => c.connectorId === mate.connectorA.connectorId);
-    const bConn = bInput.connectors.find(c => c.connectorId === mate.connectorB.connectorId);
-    if (!aConn || !bConn) continue;
-
-    const roles = pickRoles(
-      aInput, bInput, aConn, bConn, mate, draggedInstanceId, mates,
-      undefined, decisions,
-    );
-    if (!roles) continue;
-    const driverOut = outById.get(roles.driver.instanceId);
-    const followerOut = outById.get(roles.follower.instanceId);
-    if (!driverOut || !followerOut) continue;
-
-    const state = currentCylindricalState(
-      roles.driver, roles.follower, roles.driverConn, roles.followerConn,
-    );
-    const driverState: BodyState = {
-      ...roles.driver,
-      position: driverOut.position,
-      quaternion: driverOut.quaternion,
-    };
-    const target = computeFastenedTargetPose(
-      driverState, roles.driverConn, roles.followerConn,
-      {
-        flip: mate.options?.flip,
-        rotate: state.angle,
-        offset: [0, 0, state.slide],
-      },
-    );
-    followerOut.position = target.position;
-    followerOut.quaternion = target.quaternion;
-  }
-}
-
-/**
- * True iff the follower's connector origin lies on the driver's
- * connector Z axis line (perpendicular distance < ε) AND their Z axes
- * are parallel or anti-parallel within ε. Used to decide whether
- * (slide, angle) read from the current state are meaningful or we need
- * to seed from `.offset` / `.rotate`.
- */
 function isCylindricalSatisfied(
   driver: BodyState,
   follower: BodyState,
@@ -743,15 +641,6 @@ function isCylindricalSatisfied(
   return Math.abs(Math.abs(fZ.dot(dZ)) - 1) < CYLINDRICAL_EPS;
 }
 
-/**
- * Extract the running (slide, angle) of a cylindrical mate from the
- * current driver/follower poses. `slide` is the signed distance along
- * the driver's connector Z axis from driver origin to follower origin.
- * `angle` (degrees) is the rotation about the driver Z that maps
- * driver's connector X to the follower's connector X (after projecting
- * follower X into the plane perpendicular to driver Z so that .flip()
- * doesn't perturb the reading).
- */
 function currentCylindricalState(
   driver: BodyState,
   follower: BodyState,
@@ -771,11 +660,6 @@ function currentCylindricalState(
 
   const slide = fOrigin.clone().sub(dOrigin).dot(dZ);
 
-  // Project follower X into the plane perpendicular to driver Z.
-  // computeFastenedTargetPose re-orthogonalizes targetX against targetZ
-  // (which is ±dZ depending on flip), and dZ is perpendicular to dX, so
-  // the resulting targetX always lies in the dZ-perp plane; reading
-  // the angle there cancels the .flip() sign.
   const fXInPlane = fX.clone().sub(dZ.clone().multiplyScalar(fX.dot(dZ)));
   if (fXInPlane.length() < 1e-9) {
     return { slide, angle: 0 };
@@ -787,245 +671,115 @@ function currentCylindricalState(
   return { slide, angle };
 }
 
-/**
- * True iff the follower's connector origin lies on the driver's connector
- * Z axis line (perpendicular distance < ε). Orientation is intentionally
- * not checked — the slider warm-start always re-imposes orientation from
- * the driver, so any drift would be corrected anyway. The point of this
- * check is to decide whether the *slide value* is meaningful or we need
- * to seed from `options.offset.z` for a fresh assembly.
- */
-function isSliderOnAxis(
-  driver: BodyState,
-  follower: BodyState,
-  driverConn: ConnectorState,
-  followerConn: ConnectorState,
-): boolean {
-  const dOrigin = driverConn.localOrigin.clone()
-    .applyQuaternion(driver.quaternion).add(driver.position);
-  const dZ = driverConn.localNormal.clone()
-    .applyQuaternion(driver.quaternion).normalize();
-  const fOrigin = followerConn.localOrigin.clone()
-    .applyQuaternion(follower.quaternion).add(follower.position);
-  const diff = fOrigin.clone().sub(dOrigin);
-  const along = diff.dot(dZ);
-  const perp = diff.clone().sub(dZ.clone().multiplyScalar(along));
-  return perp.length() < SLIDER_EPS;
-}
-
-/** Signed distance from driver-connector origin to follower-connector
- *  origin along the driver's connector Z axis (in world). Positive when
- *  follower is on the +Z side of driver. Caller guarantees the follower
- *  is on-axis (otherwise the perpendicular component is silently lost). */
-function currentSliderZOffset(
-  driver: BodyState,
-  driverConn: ConnectorState,
-  follower: BodyState,
-  followerConn: ConnectorState,
-): number {
-  const dOrigin = driverConn.localOrigin.clone()
-    .applyQuaternion(driver.quaternion).add(driver.position);
-  const dZ = driverConn.localNormal.clone()
-    .applyQuaternion(driver.quaternion).normalize();
-  const fOrigin = followerConn.localOrigin.clone()
-    .applyQuaternion(follower.quaternion).add(follower.position);
-  return fOrigin.clone().sub(dOrigin).dot(dZ);
-}
-
-/**
- * Planar warm-start.
- *
- * A planar mate locks 3 of the 6 relative DOFs between two connectors:
- * the follower-connector origin lies in the driver's connector XY
- * plane (or, with `.offset(0, 0, d)`, in the plane parallel-shifted by
- * `d` along the driver's Z), and the two Z axes are parallel
- * (face-to-face by default; back-to-back on `.flip()`). The 3 free
- * DOFs are 2 in-plane translations + 1 rotation about the shared Z.
- *
- * `.offset(0, 0, d)` is a *hard* constant — the plane gap stays at
- * `d` regardless of drag (matches the spec: "lifts the book a fixed
- * distance above the table"). XY components are forbidden upstream
- * in `MateBuilder.offset()`. `.rotate(deg)` is a *hint* that seeds
- * the angle when the mate isn't currently satisfied.
- *
- * Like the other mates, planar is solved JS-side. The follower's
- * full pose is computed analytically as
- * `computeFastenedTargetPose(driver, ..., { rotate: angle,
- * offset: [xLocal, yLocal, d], flip })` and both `lockPosition` and
- * `lockOrientation` are set; the 3 free DOFs are added back into
- * `out.dof` by `Solver.solve()`.
- *
- * Drag-of-cluster is handled by translating the follower in-plane so
- * the grab tracks the cursor's projection onto the plane: `(cursor −
- * grabWorld)` is decomposed onto the driver's connector X and Y axes
- * and added to `(xLocal, yLocal)`. Cursor motion perpendicular to
- * the plane is ignored — that's the "snap cursor onto the shared
- * plane" projection the spec calls for. Rotation-by-drag is not
- * derived from cursor motion in this phase (3 DOFs vs 2 cursor DOFs
- * after projection); a Shift-modifier rotate-only mode is listed as
- * a follow-up alongside cylindrical's.
- */
-export type PlanarDragInfo = {
-  draggedInstanceId?: string;
-  /** Raw cursor world position on the drag plane. */
-  draggedCursorWorld?: Vector3;
-  /** Grab point in body-local frame. */
-  draggedGrabLocal?: Vector3;
-};
+// ---------------------------------------------------------------------------
+// Planar
+// ---------------------------------------------------------------------------
 
 const PLANAR_EPS = 1e-4;
 
-export function applyPlanarWarmStarts(
-  bodies: BodyState[],
-  mates: MateRecord[],
-  drag: PlanarDragInfo = {},
-  priorlyLockedIds?: Set<string>,
-  decisions?: RoleDecisions,
+function seedPlanarEdge(
+  driver: BodyState,
+  follower: BodyState,
+  driverConn: ConnectorState,
+  followerConn: ConnectorState,
+  mate: MateRecord,
+  allMates: MateRecord[],
+  drag: TreeDragInfo,
+  bodyById: Map<string, BodyState>,
 ): void {
+  if (driver.grounded && follower.grounded) return;
+  const options = mate.options ?? {};
+  const dz = options.offset?.[2] ?? 0;
+  const seedAngle = options.rotate ?? 0;
+
+  let xLocal: number;
+  let yLocal: number;
+  let angle: number;
+  if (isPlanarSatisfied(driver, follower, driverConn, followerConn, dz)) {
+    const state = currentPlanarState(driver, follower, driverConn, followerConn, dz);
+    xLocal = state.x;
+    yLocal = state.y;
+    angle = state.angle;
+  } else {
+    xLocal = 0;
+    yLocal = 0;
+    angle = seedAngle;
+  }
+
+  const planarDelta = planarDragDelta(driver, follower, driverConn, allMates, drag, bodyById);
+  xLocal += planarDelta.x;
+  yLocal += planarDelta.y;
+
+  const target = computeFastenedTargetPose(driver, driverConn, followerConn, {
+    flip: options.flip,
+    rotate: angle,
+    offset: [xLocal, yLocal, dz],
+  });
+  follower.position = target.position;
+  follower.quaternion = target.quaternion;
+  follower.lockPosition = true;
+  follower.lockOrientation = true;
+}
+
+function fixupPlanarEdge(
+  inputDriver: BodyState,
+  inputFollower: BodyState,
+  driverConn: ConnectorState,
+  followerConn: ConnectorState,
+  mate: MateRecord,
+  driverOut: SolvedBody,
+  followerOut: SolvedBody,
+): void {
+  const dz = mate.options?.offset?.[2] ?? 0;
+  const state = currentPlanarState(
+    inputDriver, inputFollower, driverConn, followerConn, dz,
+  );
+  const driverState: BodyState = {
+    ...inputDriver,
+    position: driverOut.position,
+    quaternion: driverOut.quaternion,
+  };
+  const target = computeFastenedTargetPose(
+    driverState, driverConn, followerConn,
+    {
+      flip: mate.options?.flip,
+      rotate: state.angle,
+      offset: [state.x, state.y, dz],
+    },
+  );
+  followerOut.position = target.position;
+  followerOut.quaternion = target.quaternion;
+}
+
+function planarDragDelta(
+  driver: BodyState,
+  follower: BodyState,
+  driverConn: ConnectorState,
+  allMates: MateRecord[],
+  drag: TreeDragInfo,
+  bodyById: Map<string, BodyState>,
+): { x: number; y: number } {
   const { draggedInstanceId, draggedCursorWorld, draggedGrabLocal } = drag;
-  const byId = new Map(bodies.map(b => [b.instanceId, b]));
-  for (const mate of mates) {
-    if (mate.type !== 'planar') continue;
-    const aBody = byId.get(mate.connectorA.instanceId);
-    const bBody = byId.get(mate.connectorB.instanceId);
-    if (!aBody || !bBody) continue;
-    const aConn = aBody.connectors.find(c => c.connectorId === mate.connectorA.connectorId);
-    const bConn = bBody.connectors.find(c => c.connectorId === mate.connectorB.connectorId);
-    if (!aConn || !bConn) continue;
+  const noDelta = { x: 0, y: 0 };
+  if (!draggedCursorWorld || !draggedGrabLocal || !draggedInstanceId) return noDelta;
+  if (follower.grounded) return noDelta;
+  const cluster = findFastenedCluster(follower.instanceId, allMates);
+  if (!cluster.has(draggedInstanceId)) return noDelta;
+  const draggedBody = bodyById.get(draggedInstanceId);
+  if (!draggedBody) return noDelta;
 
-    const roles = pickRoles(
-      aBody, bBody, aConn, bConn, mate, draggedInstanceId, mates,
-      priorlyLockedIds, decisions,
-    );
-    if (!roles) continue;
-    const { driver, follower, driverConn, followerConn } = roles;
-    const options = mate.options ?? {};
-    const dz = options.offset?.[2] ?? 0;
-    const seedAngle = options.rotate ?? 0;
-
-    let xLocal: number;
-    let yLocal: number;
-    let angle: number;
-    if (isPlanarSatisfied(driver, follower, driverConn, followerConn, dz)) {
-      // Mate currently satisfied — preserve the running (x, y, angle) so
-      // user drags persist across solves.
-      const state = currentPlanarState(
-        driver, follower, driverConn, followerConn, dz,
-      );
-      xLocal = state.x;
-      yLocal = state.y;
-      angle = state.angle;
-    } else {
-      xLocal = 0;
-      yLocal = 0;
-      angle = seedAngle;
-    }
-
-    // Drag-of-cluster: translate the follower in-plane so the grab tracks
-    // the cursor's projection onto the plane. The grab point's world
-    // position is computed from the dragged body's pose, so this works
-    // whether the dragged body is the follower itself or another body
-    // fastened to it.
-    if (
-      draggedCursorWorld
-      && draggedGrabLocal
-      && draggedInstanceId
-      && !follower.grounded
-    ) {
-      const cluster = findFastenedCluster(follower.instanceId, mates);
-      if (cluster.has(draggedInstanceId)) {
-        const draggedBody = byId.get(draggedInstanceId);
-        if (draggedBody) {
-          const grabWorld = draggedGrabLocal.clone()
-            .applyQuaternion(draggedBody.quaternion)
-            .add(draggedBody.position);
-          const dX = driverConn.localXDirection.clone()
-            .applyQuaternion(driver.quaternion).normalize();
-          const dZ = driverConn.localNormal.clone()
-            .applyQuaternion(driver.quaternion).normalize();
-          const dY = new Vector3().crossVectors(dZ, dX).normalize();
-          const delta = draggedCursorWorld.clone().sub(grabWorld);
-          xLocal += delta.dot(dX);
-          yLocal += delta.dot(dY);
-        }
-      }
-    }
-
-    const target = computeFastenedTargetPose(driver, driverConn, followerConn, {
-      flip: options.flip,
-      rotate: angle,
-      offset: [xLocal, yLocal, dz],
-    });
-    follower.position = target.position;
-    follower.quaternion = target.quaternion;
-    follower.lockPosition = true;
-    follower.lockOrientation = true;
-    priorlyLockedIds?.add(follower.instanceId);
-  }
+  const grabWorld = draggedGrabLocal.clone()
+    .applyQuaternion(draggedBody.quaternion)
+    .add(draggedBody.position);
+  const dX = driverConn.localXDirection.clone()
+    .applyQuaternion(driver.quaternion).normalize();
+  const dZ = driverConn.localNormal.clone()
+    .applyQuaternion(driver.quaternion).normalize();
+  const dY = new Vector3().crossVectors(dZ, dX).normalize();
+  const delta = draggedCursorWorld.clone().sub(grabWorld);
+  return { x: delta.dot(dX), y: delta.dot(dY) };
 }
 
-/**
- * Re-derive each planar follower's pose from the *solved* driver pose.
- * The (x, y, angle) values are read back from the warm-started follower
- * pose (which was mutated in place), so a drag of the driver carries
- * the follower in-plane with the same relative offset and angle.
- */
-export function applyPlanarFixup(
-  inputBodies: BodyState[],
-  out: SolvedBody[],
-  mates: MateRecord[],
-  draggedInstanceId?: string,
-  decisions?: RoleDecisions,
-): void {
-  const inputById = new Map(inputBodies.map(b => [b.instanceId, b]));
-  const outById = new Map(out.map(b => [b.instanceId, b]));
-  for (const mate of mates) {
-    if (mate.type !== 'planar') continue;
-    const aInput = inputById.get(mate.connectorA.instanceId);
-    const bInput = inputById.get(mate.connectorB.instanceId);
-    if (!aInput || !bInput) continue;
-    const aConn = aInput.connectors.find(c => c.connectorId === mate.connectorA.connectorId);
-    const bConn = bInput.connectors.find(c => c.connectorId === mate.connectorB.connectorId);
-    if (!aConn || !bConn) continue;
-
-    const roles = pickRoles(
-      aInput, bInput, aConn, bConn, mate, draggedInstanceId, mates,
-      undefined, decisions,
-    );
-    if (!roles) continue;
-    const driverOut = outById.get(roles.driver.instanceId);
-    const followerOut = outById.get(roles.follower.instanceId);
-    if (!driverOut || !followerOut) continue;
-
-    const dz = mate.options?.offset?.[2] ?? 0;
-    const state = currentPlanarState(
-      roles.driver, roles.follower, roles.driverConn, roles.followerConn, dz,
-    );
-    const driverState: BodyState = {
-      ...roles.driver,
-      position: driverOut.position,
-      quaternion: driverOut.quaternion,
-    };
-    const target = computeFastenedTargetPose(
-      driverState, roles.driverConn, roles.followerConn,
-      {
-        flip: mate.options?.flip,
-        rotate: state.angle,
-        offset: [state.x, state.y, dz],
-      },
-    );
-    followerOut.position = target.position;
-    followerOut.quaternion = target.quaternion;
-  }
-}
-
-/**
- * True iff the follower's connector origin lies in the driver's connector
- * plane (origin shifted by `dz` along driver Z), within ε perpendicular,
- * AND the two Z axes are parallel or anti-parallel within ε. Used to
- * decide whether the running (x, y, angle) read from the current state
- * is meaningful or we need to seed from `options.rotate`.
- */
 function isPlanarSatisfied(
   driver: BodyState,
   follower: BodyState,
@@ -1047,16 +801,6 @@ function isPlanarSatisfied(
   return Math.abs(Math.abs(fZ.dot(dZ)) - 1) < PLANAR_EPS;
 }
 
-/**
- * Extract the running (x, y, angle) of a planar mate from the current
- * driver/follower poses. `(x, y)` is the follower-connector origin's
- * offset from the (potentially Z-shifted) driver-connector origin,
- * measured in the driver's connector X/Y axes. `angle` (degrees) is
- * the rotation about the driver Z that maps driver's connector X to
- * the follower's connector X, after projecting follower X into the
- * plane perpendicular to driver Z so `.flip()` doesn't perturb the
- * reading.
- */
 function currentPlanarState(
   driver: BodyState,
   follower: BodyState,
@@ -1092,257 +836,16 @@ function currentPlanarState(
   return { x, y, angle };
 }
 
-/**
- * Mutates each follower body in `bodies` so its pose is consistent with
- * its driver's pose under the fastened mate semantics. Sets
- * `lockOrientation = true` on every follower so the solver freezes its
- * quaternion params.
- */
-export function applyFastenedWarmStarts(
-  bodies: BodyState[],
-  mates: MateRecord[],
-  draggedInstanceId?: string,
-  priorlyLockedIds?: Set<string>,
-  decisions?: RoleDecisions,
-): void {
-  const byId = new Map(bodies.map(b => [b.instanceId, b]));
-  for (const mate of mates) {
-    if (mate.type !== 'fastened') continue;
-    const aBody = byId.get(mate.connectorA.instanceId);
-    const bBody = byId.get(mate.connectorB.instanceId);
-    if (!aBody || !bBody) continue;
-    const aConn = aBody.connectors.find(c => c.connectorId === mate.connectorA.connectorId);
-    const bConn = bBody.connectors.find(c => c.connectorId === mate.connectorB.connectorId);
-    if (!aConn || !bConn) continue;
-
-    const roles = pickRoles(
-      aBody, bBody, aConn, bConn, mate, draggedInstanceId, mates,
-      priorlyLockedIds, decisions,
-    );
-    if (!roles) continue;
-    const { driver, follower, driverConn, followerConn } = roles;
-
-    const target = computeFastenedTargetPose(
-      driver, driverConn, followerConn, mate.options ?? {},
-    );
-    follower.position = target.position;
-    follower.quaternion = target.quaternion;
-    follower.lockPosition = true;
-    follower.lockOrientation = true;
-    priorlyLockedIds?.add(follower.instanceId);
-  }
-}
-
-/**
- * After the solver runs, the driver's pose may have moved (a drag pin or
- * another constraint resolved its position). Recompute each follower's
- * pose from the SOLVED driver pose and overwrite the corresponding entry
- * in `out`. This is what keeps a fastened pair rigid during a drag — the
- * follower tracks the driver every frame, regardless of whether slvs
- * happened to look at the constraint.
- */
-export function applyFastenedFixup(
-  inputBodies: BodyState[],
-  out: SolvedBody[],
-  mates: MateRecord[],
-  draggedInstanceId?: string,
-  decisions?: RoleDecisions,
-): void {
-  const inputById = new Map(inputBodies.map(b => [b.instanceId, b]));
-  const outById = new Map(out.map(b => [b.instanceId, b]));
-  for (const mate of mates) {
-    if (mate.type !== 'fastened') continue;
-    const aInput = inputById.get(mate.connectorA.instanceId);
-    const bInput = inputById.get(mate.connectorB.instanceId);
-    if (!aInput || !bInput) continue;
-    const aConn = aInput.connectors.find(c => c.connectorId === mate.connectorA.connectorId);
-    const bConn = bInput.connectors.find(c => c.connectorId === mate.connectorB.connectorId);
-    if (!aConn || !bConn) continue;
-
-    const roles = pickRoles(
-      aInput, bInput, aConn, bConn, mate, draggedInstanceId, mates,
-      undefined, decisions,
-    );
-    if (!roles) continue;
-    const driverOut = outById.get(roles.driver.instanceId);
-    const followerOut = outById.get(roles.follower.instanceId);
-    if (!driverOut || !followerOut) continue;
-
-    // Re-derive the follower's pose from the driver's solved pose. The
-    // driver's solved pose may differ from its input pose if a drag pin
-    // or another constraint moved it.
-    const driverState: BodyState = {
-      ...roles.driver,
-      position: driverOut.position,
-      quaternion: driverOut.quaternion,
-    };
-    const target = computeFastenedTargetPose(
-      driverState, roles.driverConn, roles.followerConn, mate.options ?? {},
-    );
-    followerOut.position = target.position;
-    followerOut.quaternion = target.quaternion;
-  }
-}
-
-type Roles = {
-  driver: BodyState;
-  follower: BodyState;
-  driverConn: ConnectorState;
-  followerConn: ConnectorState;
-};
-
-/**
- * Records the role pick (driver instance id, or `null` for "skip this
- * mate") for each mate during the warm-start phase, so the fixup phase
- * can replay the same decisions. Without this, fixups would re-pick from
- * scratch — and because warm-start uses chained-lock awareness while
- * fixup must not, the two phases would disagree on driver/follower for
- * the same mate, propagating relations backwards and breaking earlier
- * mates in a chain.
- */
-export type RoleDecisions = Map<string, string | null>;
-
-function pickRoles(
-  aBody: BodyState,
-  bBody: BodyState,
-  aConn: ConnectorState,
-  bConn: ConnectorState,
-  mate: MateRecord,
-  draggedInstanceId?: string,
-  allMates?: MateRecord[],
-  priorlyLockedIds?: Set<string>,
-  decisions?: RoleDecisions,
-): Roles | null {
-  // Replay path (fixup phase). If the warm-start already decided this
-  // mate's roles, honor that decision verbatim — fixup must propagate the
-  // exact same driver→follower relation, otherwise a chain mateK → mateN
-  // (sharing a body) would have one phase pick mateN's follower and the
-  // other phase pick its driver, breaking mateK.
-  if (decisions && decisions.has(mate.mateId)) {
-    const driverId = decisions.get(mate.mateId);
-    if (driverId === null) return null;
-    if (driverId === aBody.instanceId) {
-      return { driver: aBody, follower: bBody, driverConn: aConn, followerConn: bConn };
-    }
-    if (driverId === bBody.instanceId) {
-      return { driver: bBody, follower: aBody, driverConn: bConn, followerConn: aConn };
-    }
-    // Stale decision — the recorded driver no longer matches either body.
-    // Fall through to fresh logic so we don't return a corrupt role pair.
-  }
-
-  const result = computeRoles(
-    aBody, bBody, aConn, bConn, mate, draggedInstanceId, allMates,
-    priorlyLockedIds,
-  );
-  if (decisions) {
-    decisions.set(mate.mateId, result === null ? null : result.driver.instanceId);
-  }
-  return result;
-}
-
-function computeRoles(
-  aBody: BodyState,
-  bBody: BodyState,
-  aConn: ConnectorState,
-  bConn: ConnectorState,
-  mate: MateRecord,
-  draggedInstanceId?: string,
-  allMates?: MateRecord[],
-  priorlyLockedIds?: Set<string>,
-): Roles | null {
-  // A body that's grounded OR has been fully locked by an *earlier* mate's
-  // warm-start in this same solve pass is "fixed" — its pose is already
-  // determined and a later mate must follow it, not overwrite it. Without
-  // this check, two mates that share a body (e.g. a chain
-  // ground → mate1 → middle → mate2 → tip) would have mate2 silently
-  // clobber the pose mate1 chose for `middle`, breaking mate1.
-  const aFixed = isFixed(aBody, priorlyLockedIds);
-  const bFixed = isFixed(bBody, priorlyLockedIds);
-  if (aFixed && bFixed) {
-    return null;
-  }
-  if (aFixed) {
-    return { driver: aBody, follower: bBody, driverConn: aConn, followerConn: bConn };
-  }
-  if (bFixed) {
-    return { driver: bBody, follower: aBody, driverConn: bConn, followerConn: aConn };
-  }
-
-  // Constraint-aware role pick for fastened: a body that has a non-fastened
-  // mate (e.g. revolute) is more constrained than one that doesn't, and
-  // should drive the fastened pair so the rigid cluster pivots correctly.
-  // Without this, a chain like "i1 grounded → revolute → i2 → fastened →
-  // i3", when the user drags i3, would pick i3 as the fastened driver
-  // (drag-aware tiebreak), and the fastened fixup would clobber the
-  // revolute relation with i2 → i3 ends up moving freely instead of
-  // rotating around i1's pivot.
-  if (mate.type === 'fastened' && allMates) {
-    const aHasOther = hasNonFastenedMateOther(aBody.instanceId, mate.mateId, allMates);
-    const bHasOther = hasNonFastenedMateOther(bBody.instanceId, mate.mateId, allMates);
-    if (aHasOther && !bHasOther) {
-      return { driver: aBody, follower: bBody, driverConn: aConn, followerConn: bConn };
-    }
-    if (bHasOther && !aHasOther) {
-      return { driver: bBody, follower: aBody, driverConn: bConn, followerConn: aConn };
-    }
-  }
-
-  // Neither grounded, no constraint-asymmetry signal: the dragged body
-  // is the driver, since the user is steering it. With no drag,
-  // mate-author order picks A as driver.
-  if (draggedInstanceId === bBody.instanceId) {
-    return { driver: bBody, follower: aBody, driverConn: bConn, followerConn: aConn };
-  }
-  return { driver: aBody, follower: bBody, driverConn: aConn, followerConn: bConn };
-}
-
-/**
- * A body is "fixed" for warm-start role-picking if it's grounded or if a
- * previous mate's warm-start (tracked in `priorlyLockedIds`) has already
- * fixed its pose. Fixed bodies must drive subsequent mates so their pose
- * isn't overwritten — the chain ground → mateN → tip propagates correctly
- * only when each link in turn is treated as the driver of the next mate.
- *
- * Note: we deliberately do NOT consult `body.lockPosition` /
- * `body.lockOrientation`. Those flags are set by warm-start as it
- * processes each mate, so they're true for the *current* mate's follower
- * at fixup time. Reading them in pickRoles would cause fixups to swap
- * driver/follower roles and propagate the relation backwards.
- */
-function isFixed(body: BodyState, priorlyLockedIds?: Set<string>): boolean {
-  if (body.grounded) return true;
-  if (priorlyLockedIds && priorlyLockedIds.has(body.instanceId)) return true;
-  return false;
-}
-
-/**
- * True if `instanceId` participates in any mate other than `excludeMateId`
- * whose type isn't fastened. Used by `pickRoles` to give bodies with
- * external (non-fastened) constraints priority as the fastened driver.
- */
-function hasNonFastenedMateOther(
-  instanceId: string,
-  excludeMateId: string,
-  mates: MateRecord[],
-): boolean {
-  for (const m of mates) {
-    if (m.mateId === excludeMateId) continue;
-    if (m.type === 'fastened') continue;
-    if (m.connectorA.instanceId === instanceId
-        || m.connectorB.instanceId === instanceId) {
-      return true;
-    }
-  }
-  return false;
-}
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
 
 /**
  * Set of instance ids that are fastened-connected to `rootId` (transitively).
  * A fastened cluster moves as a single rigid body, so a drag of any cluster
  * member is equivalent to dragging the cluster as a whole — relevant for
- * revolute warm-start, where the dragged body need not be the revolute
- * follower itself for the rotation to apply.
+ * the non-fastened tree-edge warm-starts where the dragged body need not
+ * be the immediate follower.
  */
 function findFastenedCluster(rootId: string, mates: MateRecord[]): Set<string> {
   const cluster = new Set<string>([rootId]);
@@ -1365,6 +868,11 @@ function findFastenedCluster(rootId: string, mates: MateRecord[]): Set<string> {
   return cluster;
 }
 
+// ---------------------------------------------------------------------------
+// Fastened target-pose computation (the analytical kernel reused by all
+// non-fastened mate types as their face-to-face/anti-parallel base pose).
+// ---------------------------------------------------------------------------
+
 /**
  * Compute the follower body's world pose (origin + quat) so that the
  * follower's connector lines up face-to-face with the driver's connector,
@@ -1376,7 +884,6 @@ export function computeFastenedTargetPose(
   followerConn: ConnectorState,
   options: { rotate?: number; flip?: boolean; offset?: [number, number, number] },
 ): { position: Vector3; quaternion: Quaternion } {
-  // Driver's connector world frame.
   const dOriginWorld = driverConn.localOrigin.clone()
     .applyQuaternion(driver.quaternion)
     .add(driver.position);
@@ -1386,7 +893,6 @@ export function computeFastenedTargetPose(
     .applyQuaternion(driver.quaternion).normalize();
   const dYWorld = new Vector3().crossVectors(dZWorld, dXWorld).normalize();
 
-  // Optional offset: shift the target origin in the driver-connector frame.
   let targetOriginWorld = dOriginWorld.clone();
   if (options.offset) {
     const [ox, oy, oz] = options.offset;
@@ -1396,27 +902,18 @@ export function computeFastenedTargetPose(
       .addScaledVector(dZWorld, oz);
   }
 
-  // Default fastened semantics is face-to-face: follower's Z = -driver's Z.
-  // .flip() toggles to back-to-back (Z parallel) for cases where the user
-  // explicitly wants that.
   const faceToFace = !options.flip;
   const targetZ = faceToFace ? dZWorld.clone().negate() : dZWorld.clone();
 
-  // Rotate driver X around the driver Z axis by `rotate` degrees. The
-  // follower's X should land there. Rotating around dZ rather than targetZ
-  // matches Onshape semantics — flip is "anti-parallel Z" only, not a
-  // re-axis of the rotation.
   let targetX = dXWorld.clone();
   if (options.rotate) {
     targetX.applyAxisAngle(dZWorld, options.rotate * Math.PI / 180);
   }
-  // Re-orthogonalize against targetZ in case targetZ flipped the chirality.
   targetX.sub(targetZ.clone().multiplyScalar(targetX.dot(targetZ))).normalize();
   const targetY = new Vector3().crossVectors(targetZ, targetX).normalize();
 
   const targetMatrix = new Matrix4().makeBasis(targetX, targetY, targetZ);
 
-  // Follower's local frame as a basis matrix.
   const fLocalY = new Vector3().crossVectors(followerConn.localNormal, followerConn.localXDirection).normalize();
   const fLocalMatrix = new Matrix4().makeBasis(
     followerConn.localXDirection.clone().normalize(),
@@ -1424,14 +921,45 @@ export function computeFastenedTargetPose(
     followerConn.localNormal.clone().normalize(),
   );
 
-  // body_quat = target_world * follower_local^(-1) (rotation transpose).
   const fLocalInverse = fLocalMatrix.clone().transpose();
   const bodyMatrix = new Matrix4().multiplyMatrices(targetMatrix, fLocalInverse);
   const bodyQuat = new Quaternion().setFromRotationMatrix(bodyMatrix);
 
-  // body_pos = target_origin - body_quat · follower.localOrigin.
   const localOriginRotated = followerConn.localOrigin.clone().applyQuaternion(bodyQuat);
   const bodyPos = targetOriginWorld.clone().sub(localOriginRotated);
 
   return { position: bodyPos, quaternion: bodyQuat };
+}
+
+// ---------------------------------------------------------------------------
+// DOF accounting (called by Solver.solve to add geometric DOF that slvs
+// can't see because tree-mate followers have lockPosition+lockOrientation).
+// ---------------------------------------------------------------------------
+
+const PER_TYPE_FREE_DOF: Record<MateRecord['type'], number> = {
+  fastened: 0,
+  revolute: 1,
+  slider: 1,
+  cylindrical: 2,
+  planar: 3,
+  parallel: 5,
+  'pin-slot': 2,
+};
+
+/**
+ * Sum the geometric DOF contributed by tree-edge mates. Each non-both-
+ * grounded tree edge of type `revolute` (1), `slider` (1), `cylindrical`
+ * (2), `planar` (3), `parallel` (5), `pin-slot` (2) contributes that
+ * many DOFs that slvs can't see — the followers are locked by the
+ * warm-start. Closure-edge mates and fastened mates contribute 0.
+ */
+export function countTreeFreeDof(components: Component[]): number {
+  let extra = 0;
+  for (const component of components) {
+    for (const edge of component.treeEdges) {
+      if (edge.parent.grounded && edge.child.grounded) continue;
+      extra += PER_TYPE_FREE_DOF[edge.mate.type] ?? 0;
+    }
+  }
+  return extra;
 }

@@ -22,6 +22,13 @@ export type CompileCtx = {
   newH: () => number;
   /** Maps constraint handle → mateId, populated as compilers add constraints. */
   constraintToMate: Map<number, string>;
+  /**
+   * Mate ids whose compiler should emit real slvs constraints (the slvs-
+   * solvable loop path). Mates not in this set return `[]` — the JS-side
+   * warm-start + lock pattern handles them. Default: empty (every mate
+   * returns `[]`, matching mate-implementation-pattern.md §2's tree path).
+   */
+  slvsEmitMates: Set<string>;
 };
 
 export type MateCompiler = (ctx: CompileCtx, mate: MateRecord) => number[];

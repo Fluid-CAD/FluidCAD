@@ -355,6 +355,121 @@ describe('mate-loops — closed loops via LM relaxation', () => {
     expect(connectorWorld(C, h).distanceTo(connectorWorld(A, h))).toBeLessThan(1e-4);
   });
 
+  // Regression for the rhombus 4-bar from
+  // ~/projects/sample-cad/assembly/example1.assembly.js — original
+  // symptom was a visible ~5–10 mm gap at the closure corner during
+  // drag, plus visible body wiggle frame-to-frame. Both came from LM
+  // balancing the soft drag residual against the closure mate
+  // residuals: with a positive DRAG_WEIGHT, LM compromised drag-vs-
+  // closure and converged to a state where neither was zero. The fix
+  // is to set CLOSURE_DRAG_WEIGHT = 0 in `loop-relaxation.ts` —
+  // warm-start's mate-aware drag rotation already places the dragged
+  // body's grab at the cursor analytically, so LM only needs to
+  // close the loop. Both happen exactly.
+  //
+  // Connectors at local Z = 5 (top-face connectors, like the user's
+  // extruded slot part) — the original failure mode required this
+  // out-of-XY-plane offset for the LM to misconverge.
+  //
+  // Topology:
+  //   bottom — left  (m1, .rotate(-45))   tree
+  //   top    — left  (m2)                 tree (left → top)
+  //   bottom — right (m3)                 tree
+  //   top    — right (m4, .rotate(45))    closure
+  // BFS from `bottom`: layer-1 picks {left via m1, right via m3}; layer-2
+  // picks top via m2 (from left); m4 becomes the closure.
+  it('rhombus 4-bar drag steps preserve closure (regression)', async () => {
+    const c1 = (): ConnectorState => ({
+      connectorId: 'handle1',
+      localOrigin: new Vector3(0, 0, 5),
+      localXDirection: new Vector3(1, 0, 0),
+      localNormal: new Vector3(0, 0, 1),
+    });
+    const c2 = (): ConnectorState => ({
+      connectorId: 'handle2',
+      localOrigin: new Vector3(50, 0, 5),
+      localXDirection: new Vector3(1, 0, 0),
+      localNormal: new Vector3(0, 0, 1),
+    });
+
+    const solver = new Solver();
+    await solver.ensureReady();
+
+    // Settle from the user's seed: bottom grounded at origin; top, left,
+    // right placed with meaningful offsets so the warm-start has work to
+    // do but the closure has a valid configuration.
+    let bodies: BodyState[] = [
+      body('bottom', true,  new Vector3(0, 0, 0),     new Quaternion(),       [c1(), c2()]),
+      body('top',    false, new Vector3(0, 50, 0),    new Quaternion(),       [c1(), c2()]),
+      body('left',   false, new Vector3(0, 100, 0),   new Quaternion(),       [c1(), c2()]),
+      body('right',  false, new Vector3(0, 100, 0),   new Quaternion(),       [c1(), c2()]),
+    ];
+    const mates: MateRecord[] = [
+      revolute('m1', { i: 'bottom', c: 'handle1' }, { i: 'left',  c: 'handle1' }, { rotate: -45 }),
+      revolute('m2', { i: 'top',    c: 'handle1' }, { i: 'left',  c: 'handle2' }),
+      revolute('m3', { i: 'bottom', c: 'handle2' }, { i: 'right', c: 'handle1' }),
+      revolute('m4', { i: 'top',    c: 'handle2' }, { i: 'right', c: 'handle2' }, { rotate: 45 }),
+    ];
+
+    const settle = solver.solve({ bodies, mates });
+    expect(settle.result).toBe('okay');
+
+    // Closure-corner check helper. The closure mate (m4) coincides
+    // top.handle2 with right.handle2; the headline bug was a 5–10 mm
+    // gap here during drag.
+    const closureGap = (out: { bodies: { instanceId: string; position: Vector3; quaternion: Quaternion }[] }): number => {
+      const top = out.bodies.find(b => b.instanceId === 'top')!;
+      const right = out.bodies.find(b => b.instanceId === 'right')!;
+      const topH2 = c2().localOrigin.applyQuaternion(top.quaternion).add(top.position);
+      const rightH2 = c2().localOrigin.applyQuaternion(right.quaternion).add(right.position);
+      return topH2.distanceTo(rightH2);
+    };
+    expect(closureGap(settle)).toBeLessThan(0.1);
+
+    // Drag `left` in 10 mm cursor steps along +x for 10 frames. The
+    // direction is partly radial (cursor often unreachable past the
+    // kinematic limit), which is the exact case that used to break
+    // closure in pre-fix LM. Closure must hold at every frame
+    // regardless of whether the cursor is reachable — the body just
+    // stops at the boundary while the loop stays exactly closed.
+    bodies = settle.bodies.map(b => ({
+      instanceId: b.instanceId,
+      position: b.position.clone(),
+      quaternion: b.quaternion.clone(),
+      grounded: b.instanceId === 'bottom',
+      connectors: [c1(), c2()],
+    }));
+    const grabLocal = new Vector3(25, 0, 0); // mid-link on `left`
+
+    for (let step = 0; step < 10; step++) {
+      const leftIn = bodies.find(b => b.instanceId === 'left')!;
+      const grabBefore = grabLocal.clone()
+        .applyQuaternion(leftIn.quaternion).add(leftIn.position);
+      const cursor = grabBefore.clone().add(new Vector3(10, 0, 0));
+
+      const out = solver.solve({
+        bodies,
+        mates,
+        draggedInstanceId: 'left',
+        draggedCursorWorld: cursor,
+        draggedGrabLocal: grabLocal.clone(),
+      });
+      expect(out.result).toBe('okay');
+      // Closure stays within 0.1 mm even after 100mm of cumulative
+      // cursor motion through partially-radial drag steps. The
+      // original failure mode produced 1–10 mm gaps here.
+      expect(closureGap(out)).toBeLessThan(0.1);
+
+      bodies = out.bodies.map(b => ({
+        instanceId: b.instanceId,
+        position: b.position.clone(),
+        quaternion: b.quaternion.clone(),
+        grounded: b.instanceId === 'bottom',
+        connectors: [c1(), c2()],
+      }));
+    }
+  });
+
   it('planar 4-bar drag a coupler joint preserves closure', async () => {
     // Settle the parallelogram, then drag B's tip (which carries C
     // along) by a small cursor delta. After the drag-solve, all four

@@ -55,12 +55,19 @@ export type TreeDragInfo = {
  *
  * Closure edges are skipped — they're enforced by the LM relaxation
  * pass (stage 2+).
+ *
+ * `slvsLoopBodies` flags bodies that participate in a slvs-solvable
+ * closed loop (see slvs-loop.ts). Tree edges still seed those bodies'
+ * poses — slvs gets a good initial guess — but the lockPosition /
+ * lockOrientation flags are cleared at the end so slvs sees the params
+ * as free and can solve the closure natively.
  */
 export function applyTreeWarmStarts(
   bodies: BodyState[],
   components: Component[],
   mates: MateRecord[],
   drag: TreeDragInfo = {},
+  slvsLoopBodies: Set<string> = new Set(),
 ): void {
   const bodyById = new Map(bodies.map(b => [b.instanceId, b]));
   // Snapshot the input poses so per-edge warm-starts can decide
@@ -83,6 +90,17 @@ export function applyTreeWarmStarts(
       seedTreeEdge(edge, mates, drag, bodyById, prevPoses);
     }
   }
+  // Loop bodies in slvs-solvable components stay free at the slvs
+  // level — clear the lock flags the per-edge seeders set above. The
+  // pose remains as initial guess for slvs.
+  if (slvsLoopBodies.size > 0) {
+    for (const body of bodies) {
+      if (slvsLoopBodies.has(body.instanceId)) {
+        body.lockPosition = false;
+        body.lockOrientation = false;
+      }
+    }
+  }
 }
 
 /**
@@ -90,14 +108,21 @@ export function applyTreeWarmStarts(
  * Runs in BFS forward order so chained mates propagate: edge 1's
  * fixup updates the second body, then edge 2's fixup reads that
  * second body as its driver.
+ *
+ * Tree edges whose child is a slvs-solvable loop body are skipped —
+ * slvs already solved the child's pose against the closure constraints,
+ * and re-deriving from the parent here would overwrite that solution
+ * with a single-edge fastened-style guess that ignores the closure.
  */
 export function applyTreeFixups(
   components: Component[],
   out: SolvedBody[],
+  slvsLoopBodies: Set<string> = new Set(),
 ): void {
   const outById = new Map(out.map(b => [b.instanceId, b]));
   for (const component of components) {
     for (const edge of component.treeEdges) {
+      if (slvsLoopBodies.has(edge.child.instanceId)) continue;
       fixupTreeEdge(edge, outById);
     }
   }
@@ -1019,12 +1044,20 @@ const PER_TYPE_FREE_DOF: Record<MateRecord['type'], number> = {
  * (2), `planar` (3), `parallel` (5), `pin-slot` (2) contributes that
  * many DOFs that slvs can't see — the followers are locked by the
  * warm-start. Closure-edge mates and fastened mates contribute 0.
+ *
+ * Tree edges whose child is in `slvsLoopBodies` are skipped: those
+ * followers are NOT locked, so slvs already accounts for the joint's
+ * free DOF in its own per-group DOF reading.
  */
-export function countTreeFreeDof(components: Component[]): number {
+export function countTreeFreeDof(
+  components: Component[],
+  slvsLoopBodies: Set<string> = new Set(),
+): number {
   let extra = 0;
   for (const component of components) {
     for (const edge of component.treeEdges) {
       if (edge.parent.grounded && edge.child.grounded) continue;
+      if (slvsLoopBodies.has(edge.child.instanceId)) continue;
       extra += PER_TYPE_FREE_DOF[edge.mate.type] ?? 0;
     }
   }

@@ -86,8 +86,17 @@ const Z_EPS = 1e-9;
  * Walks the input and returns a fresh, fully-populated System ready to solve.
  * The handle tables let the caller (drag setup, mate compilation) reach back
  * into specific params/entities without re-walking the input.
+ *
+ * `slvsEmitMates` is the set of mate ids whose compilers should emit real
+ * slvs constraints (the slvs-solvable loop path; see slvs-loop.ts). Empty
+ * by default — every mate compiles to `[]`, matching the JS-side tree
+ * pattern.
  */
-export function buildSystem(api: SolveSpaceApi, input: SolverInput): BuiltSystem {
+export function buildSystem(
+  api: SolveSpaceApi,
+  input: SolverInput,
+  slvsEmitMates: Set<string> = new Set(),
+): BuiltSystem {
   const sys = new api.System(api.module);
   const bodies: BodyHandles[] = [];
   let nextH = 1;
@@ -157,6 +166,7 @@ export function buildSystem(api: SolveSpaceApi, input: SolverInput): BuiltSystem
       bodies,
       newH,
       constraintToMate,
+      slvsEmitMates,
     };
     for (const mate of input.mates) {
       compileMate(ctx, mate);

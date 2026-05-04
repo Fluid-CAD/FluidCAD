@@ -49,33 +49,48 @@ type LoopMate = {
   childConn: ConnectorState;
 };
 
-// Drag is a SOFT cursor pin; closure / mate residuals are hard. With
-// equal weights, a 10 mm unreachable drag would produce drag-cost 100,
-// while breaking a closure by 1 mm produces cost 1 per residual scalar
-// (×5 for revolute = 5). LM would prefer the cheaper option (break
-// closure). Weighting drag ×0.5 keeps closure dominant when the cursor
-// is unreachable while still letting LM reach reachable cursors. This
-// matters mostly for closures (master plan §3.4); for chains the drag
-// is generally reachable and weight has little effect.
-const DRAG_WEIGHT = 0.5;
+// Drag enters the LM cost differently depending on the component shape:
+//
+// - **Chain (no closure)**: the warm-start's mate-aware drag rotation
+//   only places the dragged body's IMMEDIATE follower; for chains
+//   like A → B → C with C dragged, B has to rotate too, and that
+//   rotation only happens here in LM via a drag residual. Use a
+//   moderate weight (0.5) so LM converges to a config where C's grab
+//   is at the cursor.
+//
+// - **Closure (4-bar / scissor / triangle)**: the warm-start has
+//   already placed the dragged body's grab at the cursor analytically.
+//   LM's only remaining job is to close the loop. Adding a drag
+//   residual here makes LM compromise between "grab at cursor" and
+//   "loop closed" — visibly opening the closure gap during drag. Use
+//   weight 0; the warm-start handles the drag, LM handles the loop.
+const CHAIN_DRAG_WEIGHT = 0.5;
+const CLOSURE_DRAG_WEIGHT = 0.05;
 
 /**
  * For every component that needs LM (closure or drag-in-chain), run a
  * relaxation pass. Mutates body poses in-place when LM converges (or
  * settles on a low-residual config); leaves them at warm-start poses
  * on outright failure.
+ *
+ * `skipComponentIndices` enumerates components that the slvs-solvable
+ * path is handling natively (see slvs-loop.ts). Those components have
+ * had their loop bodies' lock flags cleared and emit real slvs
+ * constraints, so the JS-side LM would just fight slvs.
  */
 export function applyLoopRelaxations(
   bodies: BodyState[],
   components: Component[],
   drag: LoopDragInfo = {},
+  skipComponentIndices: Set<number> = new Set(),
 ): void {
   if (components.length === 0) return;
   const bodyById = new Map(bodies.map(b => [b.instanceId, b]));
-  for (const component of components) {
-    if (!shouldRelax(component, drag)) continue;
+  components.forEach((component, idx) => {
+    if (skipComponentIndices.has(idx)) return;
+    if (!shouldRelax(component, drag)) return;
     relaxComponent(component, bodyById, drag);
-  }
+  });
 }
 
 function shouldRelax(component: Component, drag: LoopDragInfo): boolean {
@@ -98,6 +113,10 @@ function relaxComponent(
   const componentMates = collectComponentMates(component, bodyById);
   if (componentMates === null) return; // unsupported mate type
   if (componentMates.length === 0) return;
+
+  const dragWeight = component.closureEdges.length > 0
+    ? CLOSURE_DRAG_WEIGHT
+    : CHAIN_DRAG_WEIGHT;
 
   // Variables: 7 floats per non-grounded body in this component.
   // Includes both loop bodies and chain bodies — the LM doesn't need
@@ -128,7 +147,7 @@ function relaxComponent(
 
   const evaluate = (x: Float64Array): Float64Array => {
     unpackBodies(variableBodies, x);
-    return computeResiduals(componentMates, variableBodies, projectedDrag);
+    return computeResiduals(componentMates, variableBodies, projectedDrag, dragWeight);
   };
 
   const normalize = (x: Float64Array): void => {
@@ -264,11 +283,13 @@ function computeResiduals(
   componentMates: LoopMate[],
   variableBodies: BodyState[],
   drag: LoopDragInfo,
+  dragWeight: number,
 ): Float64Array {
   let total = 0;
   for (const lm of componentMates) total += residualDimension(lm.mate.type);
   const dragApplies =
-    drag.draggedInstanceId !== undefined
+    dragWeight > 0
+    && drag.draggedInstanceId !== undefined
     && drag.draggedCursorWorld !== undefined
     && drag.draggedGrabLocal !== undefined
     && variableBodies.some(b => b.instanceId === drag.draggedInstanceId);
@@ -286,7 +307,7 @@ function computeResiduals(
     const dragged = variableBodies.find(b => b.instanceId === drag.draggedInstanceId)!;
     const r = residualDrag(dragged, drag.draggedGrabLocal!, drag.draggedCursorWorld!);
     for (const v of r) {
-      out[i++] = v * DRAG_WEIGHT;
+      out[i++] = v * dragWeight;
     }
   }
   return out;

@@ -125,15 +125,14 @@ function relaxComponent(
   const variableBodies = component.bodies.filter(b => !b.grounded);
   if (variableBodies.length === 0) return;
 
-  // Project the cursor onto the dragged body's kinematic plane. The
-  // controller sets its drag plane perpendicular to the camera, so an
-  // angled view gives the cursor a 3D motion the planar mechanism
-  // can't satisfy — LM tries to chase an unreachable Z component and
-  // fights itself frame-to-frame. Projecting onto the plane
-  // perpendicular to the dragged body's first-connector world normal
-  // (typically the mate's rotation axis) drops that unreachable
-  // component before LM ever sees it.
-  const projectedDrag = projectDragOntoBodyPlane(drag, bodyById);
+  // Project the cursor onto the dragged body's reachable manifold so
+  // LM doesn't chase an unreachable target — see `projectDrag` for the
+  // per-mate-type rules. The controller's drag plane is camera-aligned,
+  // so an angled view always gives the cursor a 3D motion that may not
+  // be reachable through the body's mate constraints; without this
+  // projection LM would fight itself frame-to-frame trying to satisfy
+  // a fundamentally unreachable cursor.
+  const projectedDrag = projectDrag(drag, bodyById, component);
 
   const n = variableBodies.length * 7;
   const x0 = new Float64Array(n);
@@ -186,18 +185,36 @@ function relaxComponent(
 }
 
 /**
- * Drop the component of `cursor - grab` parallel to the dragged
- * body's primary kinematic axis (its first connector's world normal).
- * For planar mechanisms with all-Z connectors, this strips the Z
- * component of the drag delta — making the drag target reachable
- * regardless of camera angle.
+ * Project the cursor onto the dragged body's reachable manifold. The
+ * shape of that manifold depends on the dragged body's parent tree
+ * edge — i.e., the mate that connects it to its tree-parent:
+ *
+ *   - `slider` (1 DOF along axis): project onto the axis line through
+ *     the grab. The body can only slide along the axis, so the only
+ *     reachable point is the closest one on that line. Without this,
+ *     a perp cursor component (always present from camera-aligned drag
+ *     planes) makes LM compromise on the perp residual by nudging the
+ *     parent body — which drags every sibling slider follower along
+ *     the rail. That's the "two carriages on one rail and one follows
+ *     the other" bug.
+ *
+ *   - `revolute` / `planar` (perpendicular-plane DOFs): project onto
+ *     the plane perpendicular to the connector axis through the grab.
+ *     This is the original behavior — drops the unreachable axial
+ *     component, keeps the rotation/in-plane direction LM needs.
+ *
+ *   - other (`cylindrical`, `fastened`, no parent edge): no projection.
+ *     Cylindrical is full 3D-reachable for small steps (axis translate
+ *     + axis rotate); fastened-to-grounded shouldn't drag anyway, and
+ *     a free root body legitimately wants 3D drag.
  *
  * Returns the original drag info unchanged when there's no drag, no
- * dragged body, or no projection axis to apply.
+ * dragged body, or no parent mate to consult.
  */
-function projectDragOntoBodyPlane(
+function projectDrag(
   drag: LoopDragInfo,
   bodyById: Map<string, BodyState>,
+  component: Component,
 ): LoopDragInfo {
   if (
     drag.draggedInstanceId === undefined
@@ -207,21 +224,45 @@ function projectDragOntoBodyPlane(
     return drag;
   }
   const dragged = bodyById.get(drag.draggedInstanceId);
-  if (!dragged || dragged.connectors.length === 0) return drag;
+  if (!dragged) return drag;
 
-  const axis = dragged.connectors[0].localNormal.clone()
-    .applyQuaternion(dragged.quaternion).normalize();
+  const parentEdge = component.treeEdges
+    .find(e => e.child.instanceId === drag.draggedInstanceId);
+  if (!parentEdge) return drag;
+
+  const parent = parentEdge.parent;
+  const parentConn = parentEdge.parentConn;
+  const axis = parentConn.localNormal.clone()
+    .applyQuaternion(parent.quaternion).normalize();
   if (axis.lengthSq() < 1e-12) return drag;
 
   const grabWorld = drag.draggedGrabLocal.clone()
     .applyQuaternion(dragged.quaternion).add(dragged.position);
   const offset = drag.draggedCursorWorld.clone().sub(grabWorld);
-  const along = offset.dot(axis);
-  if (Math.abs(along) < 1e-9) return drag;
 
-  const projected = drag.draggedCursorWorld.clone()
-    .addScaledVector(axis, -along);
-  return { ...drag, draggedCursorWorld: projected };
+  switch (parentEdge.mate.type) {
+    case 'slider': {
+      // Reachable manifold: line through grab parallel to axis. Project
+      // cursor onto that line — drops the perpendicular component the
+      // mate forbids, keeps the axial component the warm-start has
+      // already moved the body along.
+      const along = offset.dot(axis);
+      const projected = grabWorld.clone().addScaledVector(axis, along);
+      return { ...drag, draggedCursorWorld: projected };
+    }
+    case 'revolute':
+    case 'planar': {
+      // Reachable manifold: plane through grab perpendicular to axis.
+      // Drop the axial component the mate forbids.
+      const along = offset.dot(axis);
+      if (Math.abs(along) < 1e-9) return drag;
+      const projected = drag.draggedCursorWorld.clone()
+        .addScaledVector(axis, -along);
+      return { ...drag, draggedCursorWorld: projected };
+    }
+    default:
+      return drag;
+  }
 }
 
 /**

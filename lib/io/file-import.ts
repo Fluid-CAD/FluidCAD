@@ -72,36 +72,51 @@ export class FileImport {
     return solids;
   }
 
-  static deserializeShapesWithMetadata(fileName: string): Solid[] {
+  static deserializeShapesWithMetadata(
+    fileName: string,
+    options?: { noColors?: boolean; include?: Set<number>; exclude?: Set<number> },
+  ): Solid[] {
     // Read geometry from .brep
     const brepFileName = fileName.replace(/\.(step|stp|brep)$/i, '');
     const shapes = FileImport.deserializeShapes(brepFileName);
 
-    // Read color metadata from JSON sidecar
-    const sceneManager = getSceneManager();
-    const jsonPath = join(sceneManager.rootPath, 'imports', brepFileName + '.colors.json');
-
+    // Read color metadata from JSON sidecar (skipped when noColors is set)
     let colorData: SolidColorData[] = [];
-    if (fs.existsSync(jsonPath)) {
-      colorData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-      console.log(`Loaded color metadata from ${jsonPath}`);
+    if (!options?.noColors) {
+      const sceneManager = getSceneManager();
+      const jsonPath = join(sceneManager.rootPath, 'imports', brepFileName + '.colors.json');
+      if (fs.existsSync(jsonPath)) {
+        colorData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+        console.log(`Loaded color metadata from ${jsonPath}`);
+      }
     }
 
-    // Build Solid objects and apply colors by face index
-    const solids: Solid[] = shapes.map((shape, solidIndex) => {
-      const solid = shape;
-      const solidColors = colorData[solidIndex];
-      if (!solidColors) return solid;
+    const include = options?.include;
+    const exclude = options?.exclude;
 
-      const faces = OcIO.findFaces(solid);
-      for (const entry of solidColors.faces) {
-        if (entry.faceIndex < faces.length) {
-          solid.setColor(faces[entry.faceIndex].getShape(), entry.color);
+    // Build Solid objects, filter by original index, and apply colors by face index.
+    const solids: Solid[] = [];
+    for (let solidIndex = 0; solidIndex < shapes.length; solidIndex++) {
+      if (include && !include.has(solidIndex)) {
+        continue;
+      }
+      if (exclude && exclude.has(solidIndex)) {
+        continue;
+      }
+
+      const solid = shapes[solidIndex];
+      const solidColors = colorData[solidIndex];
+      if (solidColors) {
+        const faces = OcIO.findFaces(solid);
+        for (const entry of solidColors.faces) {
+          if (entry.faceIndex < faces.length) {
+            solid.setColor(faces[entry.faceIndex].getShape(), entry.color);
+          }
         }
       }
 
-      return solid;
-    });
+      solids.push(solid);
+    }
 
     console.log(`Deserialized ${solids.length} solids with color metadata`);
     return solids;

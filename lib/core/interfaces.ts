@@ -22,6 +22,28 @@ export interface ISceneObject {
   reusable(): this;
 }
 
+export interface ILoadFile extends ISceneObject {
+  /**
+   * Skip applying colors from the imported file's color metadata sidecar.
+   */
+  noColors(): this;
+
+  /**
+   * Keep only the solids at the given 0-based indices (in load order).
+   * Combined with {@link exclude} by applying include first, then exclude.
+   * Repeated calls accumulate.
+   * @param indices - The 0-based solid indices to keep.
+   */
+  include(...indices: number[]): this;
+
+  /**
+   * Drop the solids at the given 0-based indices. Applied after {@link include}.
+   * Repeated calls accumulate.
+   * @param indices - The 0-based solid indices to drop.
+   */
+  exclude(...indices: number[]): this;
+}
+
 export interface IBooleanOperation extends ISceneObject {
   /**
    * Additive boolean operation — fuses the result with all intersecting scene objects.

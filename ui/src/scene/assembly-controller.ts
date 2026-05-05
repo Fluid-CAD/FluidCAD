@@ -118,18 +118,30 @@ export class AssemblyController {
     for (const inst of assembly.instances) {
       const connectors = this.collectConnectorStates(inst.partId);
       const existing = this.instances.get(inst.instanceId);
-      if (existing) {
+      // SceneCompare flips `fromCache` to false on any object it had to
+      // rebuild — including when a parameter change shifts a partName (and
+      // its whole subtree) into fresh ids. The pose-only fast path below
+      // would keep showing the previous mesh, so check the part's subtree
+      // and force a rebuild if anything in it was re-built this render.
+      const subtreeFresh = this.partSubtreeWasRebuilt(inst.partId);
+      const isDragging = this.dragState?.instanceId === inst.instanceId;
+      if (existing && (!subtreeFresh || isDragging)) {
         existing.data = inst;
         existing.connectors = connectors;
         existing.group.userData.grounded = inst.grounded;
         existing.group.userData.draggable = !inst.grounded;
-        if (this.dragState?.instanceId !== inst.instanceId) {
+        if (!isDragging) {
           existing.group.position.set(inst.position.x, inst.position.y, inst.position.z);
           existing.group.quaternion.set(
             inst.quaternion.x, inst.quaternion.y, inst.quaternion.z, inst.quaternion.w,
           );
         }
         continue;
+      }
+      if (existing) {
+        this.container.remove(existing.group);
+        this.disposeGroup(existing.group);
+        this.instances.delete(inst.instanceId);
       }
       const group = this.buildInstanceGroup(inst);
       if (!group) continue;
@@ -173,6 +185,40 @@ export class AssemblyController {
       if (next) setConnectorsVisible(next.group, true);
     }
     this.requestRender();
+  }
+
+  /**
+   * True if any SceneObjectRender in `partId`'s subtree has `fromCache: false`
+   * — i.e. the lib-side SceneCompare had to rebuild it this render. The
+   * partTemplate itself is included in the walk so a partName change (which
+   * breaks compare at the part) also counts.
+   */
+  private partSubtreeWasRebuilt(partId: string): boolean {
+    const childrenByParent = new Map<string, SceneObjectRender[]>();
+    const objById = new Map<string, SceneObjectRender>();
+    for (const obj of this.allObjects) {
+      if (obj.id) objById.set(obj.id, obj);
+      if (!obj.parentId) continue;
+      const list = childrenByParent.get(obj.parentId);
+      if (list) list.push(obj);
+      else childrenByParent.set(obj.parentId, [obj]);
+    }
+    const stack: string[] = [partId];
+    const visited = new Set<string>();
+    while (stack.length > 0) {
+      const id = stack.pop()!;
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const obj = objById.get(id);
+      if (obj && !obj.fromCache) return true;
+      const children = childrenByParent.get(id);
+      if (children) {
+        for (const c of children) {
+          if (c.id) stack.push(c.id);
+        }
+      }
+    }
+    return false;
   }
 
   private collectConnectorStates(partId: string): ConnectorState[] {

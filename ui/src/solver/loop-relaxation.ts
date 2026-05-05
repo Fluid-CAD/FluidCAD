@@ -23,7 +23,7 @@
 // residual is the soft cursor pin.
 
 import { Vector3 } from 'three';
-import type { Component } from './graph.js';
+import { isFullyLocked, type Component } from './graph.js';
 import { runLM } from './relaxation.js';
 import {
   residualCylindrical,
@@ -275,28 +275,6 @@ function projectDrag(
     }
     default:
       return drag;
-  }
-}
-
-/**
- * True iff the dragged body's path to the BFS seed is entirely fastened
- * tree edges AND the seed is grounded — i.e., the body has zero
- * effective DOFs and any drag on it should be ignored.
- */
-function isFullyLocked(instanceId: string, component: Component): boolean {
-  const parentByChild = new Map<string, { edge: typeof component.treeEdges[number] }>();
-  for (const edge of component.treeEdges) {
-    parentByChild.set(edge.child.instanceId, { edge });
-  }
-  let current = instanceId;
-  while (true) {
-    const entry = parentByChild.get(current);
-    if (!entry) {
-      // Reached the seed. Locked iff the seed is grounded.
-      return component.seed.instanceId === current && component.seed.grounded;
-    }
-    if (entry.edge.mate.type !== 'fastened') return false;
-    current = entry.edge.parent.instanceId;
   }
 }
 

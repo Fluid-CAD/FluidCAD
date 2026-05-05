@@ -1,6 +1,7 @@
 export { Solver, isUsableSolution } from './solver.js';
 export { loadSolveSpace, getLoadedSolveSpace } from './solvespace-loader.js';
 export { buildSystem, readBackPoses, GROUP_GROUND, GROUP_ACTIVE } from './system-builder.js';
+export { buildMateGraph, isInstanceFullyLocked } from './graph.js';
 export type {
   SolverInput,
   SolverOutput,

@@ -1,7 +1,7 @@
 import { Box3, Camera, Group, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3, WebGLRenderer } from 'three';
 import { ConnectorData, SceneObjectRender, SerializedAssembly, SerializedAssemblyInstance, SerializedAssemblyMate } from '../types';
 import { buildObjectMesh } from '../meshes/mesh-factory';
-import { Solver } from '../solver';
+import { Solver, buildMateGraph, isInstanceFullyLocked } from '../solver';
 import type { BodyState, ConnectorState, MateRecord, SolverInput, SolverOutput } from '../solver';
 
 const DRAG_THRESHOLD_PX = 4;
@@ -266,6 +266,37 @@ export class AssemblyController {
     return out;
   }
 
+  /**
+   * Set of instance ids that are immovable in the current assembly: a body
+   * is "locked" iff its tree-path to its component seed is entirely
+   * fastened mates AND the seed is grounded. A grounded body trivially
+   * qualifies (it is its own seed). Drags that target one of these must
+   * bubble to camera navigation instead of being claimed — same behavior
+   * grounded already had, extended to bodies whose constraints leave them
+   * with zero DOFs. Built fresh per pointerdown so it reflects any mate /
+   * grounded changes since the last gesture.
+   */
+  private computeLockedInstanceIds(): Set<string> {
+    const bodies: BodyState[] = [];
+    for (const state of this.instances.values()) {
+      bodies.push({
+        instanceId: state.data.instanceId,
+        position: state.group.position.clone(),
+        quaternion: state.group.quaternion.clone(),
+        grounded: state.data.grounded,
+        connectors: state.connectors,
+      });
+    }
+    const graph = buildMateGraph(bodies, this.mates);
+    const locked = new Set<string>();
+    for (const body of bodies) {
+      if (isInstanceFullyLocked(body.instanceId, graph)) {
+        locked.add(body.instanceId);
+      }
+    }
+    return locked;
+  }
+
   private buildSolverInput(
     draggedInstanceId?: string,
     draggedTargetOrigin?: Vector3,
@@ -387,11 +418,17 @@ export class AssemblyController {
     if (e.button !== 0) return;
     const ndc = this.toNDC(e);
     const raycaster = this.createPickingRaycaster(ndc.x, ndc.y);
-    const hit = this.raycastInstances(raycaster);
+    // Compute the locked set once: both the precise pick (mustn't claim a
+    // locked body) and the bounding-box fallback (mustn't poach near-by
+    // locked bodies) need it. Locked = grounded OR fastened-only chain to
+    // a grounded seed — same notion the solver uses to zero-drag locked
+    // bodies. Drags on these must bubble so camera nav handles them.
+    const lockedIds = this.computeLockedInstanceIds();
+    const hit = this.raycastInstances(raycaster, lockedIds);
     if (!hit) return;
 
     const state = this.instances.get(hit.instanceId);
-    if (!state || state.data.grounded) return;
+    if (!state || lockedIds.has(hit.instanceId)) return;
 
     this.dragClaimHandler?.();
 
@@ -523,7 +560,10 @@ export class AssemblyController {
     );
   }
 
-  private raycastInstances(raycaster: Raycaster): { instanceId: string; worldPoint: Vector3 } | null {
+  private raycastInstances(
+    raycaster: Raycaster,
+    lockedIds: Set<string>,
+  ): { instanceId: string; worldPoint: Vector3 } | null {
     const hits = raycaster.intersectObject(this.container, true);
     for (const hit of hits) {
       let cur: Object3D | null = hit.object;
@@ -539,13 +579,15 @@ export class AssemblyController {
     // (or nips an edge between facets) won't produce a precise mesh hit, but
     // the user clearly meant to grab the part. Without this, the click falls
     // through to the viewer's selection handler and leaves a stray face
-    // highlight on drop. Grounded instances are skipped so a near-by ground
-    // doesn't poach the drag from the actually-draggable instance behind it.
+    // highlight on drop. Locked instances (grounded or fastened-chained to
+    // ground) are skipped so a near-by immovable doesn't poach the drag from
+    // the actually-draggable instance behind it — and so a near-miss on a
+    // locked part bubbles to camera navigation instead of being absorbed.
     const box = new Box3();
     const target = new Vector3();
     let best: { instanceId: string; worldPoint: Vector3; dist: number } | null = null;
     for (const [id, state] of this.instances) {
-      if (state.data.grounded) continue;
+      if (lockedIds.has(id)) continue;
       box.setFromObject(state.group);
       if (box.isEmpty()) continue;
       if (!raycaster.ray.intersectBox(box, target)) continue;

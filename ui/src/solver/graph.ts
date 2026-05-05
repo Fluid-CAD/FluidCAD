@@ -212,6 +212,41 @@ export function buildMateGraph(
 }
 
 /**
+ * True iff the body's path through the component's spanning tree to the
+ * seed is entirely fastened tree edges AND the seed is grounded — i.e.,
+ * the body has zero effective DOFs upstream and any drag on it would
+ * drift its (non-locked) followers without moving the body itself. A
+ * grounded body trivially qualifies (it is its own seed). Bodies in a
+ * component whose seed is not grounded are not locked.
+ */
+export function isFullyLocked(instanceId: string, component: Component): boolean {
+  const parentByChild = new Map<string, TreeEdge>();
+  for (const edge of component.treeEdges) {
+    parentByChild.set(edge.child.instanceId, edge);
+  }
+  let current = instanceId;
+  while (true) {
+    const edge = parentByChild.get(current);
+    if (!edge) {
+      return component.seed.instanceId === current && component.seed.grounded;
+    }
+    if (edge.mate.type !== 'fastened') return false;
+    current = edge.parent.instanceId;
+  }
+}
+
+/**
+ * Convenience wrapper: looks up the body's component in the graph and
+ * returns whether it is fully locked. Returns `false` for instance ids
+ * not in the graph.
+ */
+export function isInstanceFullyLocked(instanceId: string, graph: MateGraph): boolean {
+  const idx = graph.bodyComponent.get(instanceId);
+  if (idx === undefined) return false;
+  return isFullyLocked(instanceId, graph.components[idx]);
+}
+
+/**
  * Identify the bodies that lie on at least one cycle in the component.
  * Walks parent links from each closure-edge endpoint up to their LCA.
  */

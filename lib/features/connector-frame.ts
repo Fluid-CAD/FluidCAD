@@ -67,9 +67,9 @@ function frameFromSelection(
 
 function frameFromFace(face: Face, options: ConnectorOptions): Plane {
   const rawFace = face.getShape() as TopoDS_Face;
-  const centroid = computeFaceCentroid(rawFace);
+  const center = computeFaceBoundingBoxCenter(rawFace);
   const normal = FaceOps.calculateNormalRaw(rawFace).normalize();
-  return buildOrthonormalFrame(centroid, normal, options);
+  return buildOrthonormalFrame(center, normal, options);
 }
 
 function frameFromEdge(edge: Edge, options: ConnectorOptions): Plane {
@@ -147,14 +147,20 @@ function autoXFromZ(z: Vector3d): Vector3d {
   return y.cross(z).normalize();
 }
 
-function computeFaceCentroid(face: TopoDS_Face): Point {
+function computeFaceBoundingBoxCenter(face: TopoDS_Face): Point {
   const oc = getOC();
-  const props = new oc.GProp_GProps();
-  oc.BRepGProp.SurfaceProperties(face, props, false, false);
-  const cog = props.CentreOfMass();
-  const result = new Point(cog.X(), cog.Y(), cog.Z());
-  cog.delete();
-  props.delete();
+  const bbox = new oc.Bnd_Box();
+  oc.BRepBndLib.Add(face, bbox, true);
+  const minPnt = bbox.CornerMin();
+  const maxPnt = bbox.CornerMax();
+  const result = new Point(
+    (minPnt.X() + maxPnt.X()) / 2,
+    (minPnt.Y() + maxPnt.Y()) / 2,
+    (minPnt.Z() + maxPnt.Z()) / 2,
+  );
+  minPnt.delete();
+  maxPnt.delete();
+  bbox.delete();
   return result;
 }
 

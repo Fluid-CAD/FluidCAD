@@ -42,7 +42,7 @@ export class Connector extends SceneObject implements IConnector {
     return this;
   }
 
-  offset(x: number = 0, y: number = 0, z: number = 0): this {
+  offset(x: number, y: number = 0, z: number = 0): this {
     this.transforms.push({ kind: "offset", x, y, z });
     return this;
   }

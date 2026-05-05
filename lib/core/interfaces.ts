@@ -132,10 +132,10 @@ export interface IConnector extends ISceneObject {
 
   /**
    * Translate the connector origin along its own local axes:
-   * `x · xDirection + y · yDirection + z · normal`. Omitted components
+   * `x · xDirection + y · yDirection + z · normal`. Omitted `y` / `z`
    * default to 0. Axes are unchanged.
    */
-  offset(x?: number, y?: number, z?: number): this;
+  offset(x: number, y?: number, z?: number): this;
 }
 
 /**

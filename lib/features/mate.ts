@@ -16,7 +16,7 @@ export class MateBuilder {
     return this;
   }
 
-  offset(x: number, y: number, z: number): this {
+  offset(x: number, y: number = 0, z: number = 0): this {
     if (
       (this.mate.type === "slider" || this.mate.type === "cylindrical")
       && (x !== 0 || y !== 0)

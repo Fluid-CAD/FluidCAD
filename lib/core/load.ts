@@ -1,13 +1,13 @@
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { LoadFile } from "../features/load.js";
-import { ISceneObject } from "./interfaces.js";
+import { ILoadFile } from "./interfaces.js";
 
 interface LoadFunction {
   /**
    * Loads a 3D model file (STEP, STL, etc.) by filename.
    * @param fileName - The path to the model file
    */
-  (fileName: string): ISceneObject;
+  (fileName: string): ILoadFile;
 }
 
 function build(context: SceneParserContext): LoadFunction {

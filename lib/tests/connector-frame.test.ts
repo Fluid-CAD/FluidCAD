@@ -39,9 +39,98 @@ describe("connector frame", () => {
     expect(frame.normal.y).toBeCloseTo(0, 5);
     expect(frame.normal.z).toBeCloseTo(1, 5);
 
-    // X must be unit and perpendicular to Z.
-    expect(Math.hypot(frame.xDirection.x, frame.xDirection.y, frame.xDirection.z)).toBeCloseTo(1, 5);
-    expect(frame.xDirection.dot(frame.normal)).toBeCloseTo(0, 6);
+    // Horizontal-face fallback: Y = +Y (worldUp lies along Z), X = Y × Z = +X.
+    expect(frame.xDirection.x).toBeCloseTo(1, 5);
+    expect(frame.xDirection.y).toBeCloseTo(0, 5);
+    expect(frame.xDirection.z).toBeCloseTo(0, 5);
+    expect(frame.yDirection.x).toBeCloseTo(0, 5);
+    expect(frame.yDirection.y).toBeCloseTo(1, 5);
+    expect(frame.yDirection.z).toBeCloseTo(0, 5);
+  });
+
+  it("yields the same auto-frame regardless of the sketch plane that produced the face", () => {
+    // The same physical face (same outward normal) must get the same connector
+    // frame whether the box was sketched in 'front' or in 'right'. The
+    // worldUp-anchored rule depends only on Z, so picking the +X face of each
+    // box gives identical X/Y axes despite different construction histories.
+    let frontConn!: Connector;
+    part("auto-frame-front", () => {
+      // 'front' = XZ plane (normal -Y); rect lives in (-40..40, 0, 0..120),
+      // extrude(-50) sweeps along +Y → box (-40..40, 0..50, 0..120).
+      sketch("front", () => rect(80, 120).centered("horizontal"));
+      extrude(-50);
+      frontConn = connector(select(face().planar().onPlane("yz", 40))) as Connector;
+    });
+    render();
+
+    let rightConn!: Connector;
+    part("auto-frame-right", () => {
+      // 'right' = YZ plane (normal +X); rect lives in (0, -40..40, 0..120),
+      // extrude(-50) sweeps along -X → box (-50..0, -40..40, 0..120).
+      sketch("right", () => rect(80, 120).centered("horizontal"));
+      extrude(-50);
+      rightConn = connector(select(face().planar().onPlane("yz", 0))) as Connector;
+    });
+    render();
+
+    const frontFrame = frontConn.getFrame();
+    const rightFrame = rightConn.getFrame();
+
+    expect(frontFrame.normal.x).toBeCloseTo(1, 5);
+    expect(rightFrame.normal.x).toBeCloseTo(1, 5);
+
+    // Same normal → same auto X (worldUp rule fixes X = +Z × +X = +Y).
+    expect(frontFrame.xDirection.x).toBeCloseTo(rightFrame.xDirection.x, 5);
+    expect(frontFrame.xDirection.y).toBeCloseTo(rightFrame.xDirection.y, 5);
+    expect(frontFrame.xDirection.z).toBeCloseTo(rightFrame.xDirection.z, 5);
+    expect(frontFrame.xDirection.y).toBeCloseTo(1, 5);
+
+    // And Y is world up for both.
+    expect(frontFrame.yDirection.z).toBeCloseTo(1, 5);
+    expect(rightFrame.yDirection.z).toBeCloseTo(1, 5);
+  });
+
+  it("anchors the auto-frame Y axis to world up for non-horizontal faces", () => {
+    // Build one box and check every vertical side face: Y must be +Z, X is
+    // determined by right-handed Y × Z. This locks in the new convention.
+    // rect(100, 60).centered() on 'xy' extruded 40 → box (-50..50, -30..30, 0..40).
+    let conns!: { right: Connector; left: Connector; front: Connector; back: Connector };
+    part("up-anchored-frame", () => {
+      sketch("xy", () => rect(100, 60).centered());
+      extrude(40);
+      conns = {
+        right: connector(select(face().planar().onPlane("yz", 50))) as Connector,
+        left: connector(select(face().planar().onPlane("yz", -50))) as Connector,
+        front: connector(select(face().planar().onPlane("xz", 30))) as Connector,
+        back: connector(select(face().planar().onPlane("xz", -30))) as Connector,
+      };
+    });
+
+    render();
+
+    const right = conns.right.getFrame();
+    const left = conns.left.getFrame();
+    const front = conns.front.getFrame();
+    const back = conns.back.getFrame();
+
+    for (const f of [right, left, front, back]) {
+      expect(f.yDirection.x).toBeCloseTo(0, 5);
+      expect(f.yDirection.y).toBeCloseTo(0, 5);
+      expect(f.yDirection.z).toBeCloseTo(1, 5);
+    }
+
+    // Right (Z=+X)  → X = +Z × +X = +Y
+    expect(right.normal.x).toBeCloseTo(1, 5);
+    expect(right.xDirection.y).toBeCloseTo(1, 5);
+    // Left (Z=-X)   → X = +Z × -X = -Y
+    expect(left.normal.x).toBeCloseTo(-1, 5);
+    expect(left.xDirection.y).toBeCloseTo(-1, 5);
+    // Front (Z=-Y)  → X = +Z × -Y = +X
+    expect(front.normal.y).toBeCloseTo(-1, 5);
+    expect(front.xDirection.x).toBeCloseTo(1, 5);
+    // Back (Z=+Y)   → X = +Z × +Y = -X
+    expect(back.normal.y).toBeCloseTo(1, 5);
+    expect(back.xDirection.x).toBeCloseTo(-1, 5);
   });
 
   it("derives center + axis from a circular edge selection", () => {

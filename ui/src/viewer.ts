@@ -339,6 +339,9 @@ export class Viewer {
       if (container.parent) {
         container.parent.remove(container);
       }
+      // Drop any per-instance hover-revealed connectors so they don't
+      // resurface when the user re-enters assembly mode.
+      this.assemblyController.setHoveredInstance(null);
     }
 
     if (!isRollback) {
@@ -717,6 +720,10 @@ export class Viewer {
 
     canvas.addEventListener('mouseleave', () => {
       this.clearHover();
+      // Hide assembly connectors when the cursor leaves the canvas. They're
+      // revealed per-instance by updateHover; without this, a connector left
+      // visible by the last hit would linger until the cursor re-enters.
+      this.assemblyController?.setHoveredInstance(null);
     });
   }
 
@@ -733,6 +740,13 @@ export class Viewer {
     }
 
     const result = this.pickAt(clientX, clientY);
+
+    // Reveal connectors for whichever instance the cursor is on, hide them
+    // otherwise. Done unconditionally — independent of the face/edge hover
+    // dedup paths below — so connectors stay visible while the user moves
+    // around within the same part (including over the currently-selected
+    // face, which short-circuits the rest of this method).
+    this.assemblyController?.setHoveredInstance(result?.instanceId ?? null);
 
     // Per-instance post-drop suppression: if the user just released the
     // drag and their cursor is still on the dropped instance, don't paint

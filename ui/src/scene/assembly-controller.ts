@@ -32,6 +32,13 @@ export class AssemblyController {
   private solverUpdateHandler: SolverUpdateHandler | null = null;
   private solver = new Solver();
   /**
+   * Instance whose connectors are currently revealed by hover. Connectors
+   * are hidden by default in assembly mode and only shown for the part the
+   * cursor is on. Tracking the id (not a Group ref) keeps it valid across
+   * diff updates that may replace the underlying group.
+   */
+  private hoveredInstanceId: string | null = null;
+  /**
    * Set on pointerup to the instanceId whose drag just ended (or `null`
    * once consumed / between gestures). Read via {@link consumeRecentDrag}:
    * if non-null, the viewer's mouseup-as-click handler suppresses the
@@ -102,6 +109,9 @@ export class AssemblyController {
         this.container.remove(state.group);
         this.disposeGroup(state.group);
         this.instances.delete(id);
+        if (this.hoveredInstanceId === id) {
+          this.hoveredInstanceId = null;
+        }
       }
     }
 
@@ -142,6 +152,27 @@ export class AssemblyController {
     this.partTemplates.clear();
     this.allObjects = [];
     this.mates = [];
+    this.hoveredInstanceId = null;
+  }
+
+  /**
+   * Reveal connectors for the instance the cursor is on, hiding any
+   * previously-revealed set. Connectors are hidden by default in assembly
+   * mode (see {@link buildInstanceGroup}); the viewer's hover handler drives
+   * this method based on pick results. Pass `null` to hide all.
+   */
+  setHoveredInstance(instanceId: string | null): void {
+    if (this.hoveredInstanceId === instanceId) return;
+    if (this.hoveredInstanceId) {
+      const prev = this.instances.get(this.hoveredInstanceId);
+      if (prev) setConnectorsVisible(prev.group, false);
+    }
+    this.hoveredInstanceId = instanceId;
+    if (instanceId) {
+      const next = this.instances.get(instanceId);
+      if (next) setConnectorsVisible(next.group, true);
+    }
+    this.requestRender();
   }
 
   private collectConnectorStates(partId: string): ConnectorState[] {
@@ -246,6 +277,7 @@ export class AssemblyController {
 
     const partMesh = buildObjectMesh(partTemplate, this.allObjects, null, this.camera, false);
     group.add(partMesh);
+    setConnectorsVisible(group, false);
     return group;
   }
 
@@ -546,6 +578,14 @@ export class AssemblyController {
 
 // Avoid unused import flagged by tsc
 void Quaternion;
+
+function setConnectorsVisible(root: Object3D, visible: boolean): void {
+  root.traverse((child) => {
+    if (child.userData?.isConnector) {
+      child.visible = visible;
+    }
+  });
+}
 
 function toMateRecord(m: SerializedAssemblyMate): MateRecord {
   return {

@@ -105,11 +105,14 @@ export class JointsPanel {
       const bName = this.instancesById.get(mate.connectorB.instanceId)?.name ?? '?';
       const dotColor = STATUS_COLORS[mate.status];
       html += `
-        <div class="group flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/80" data-mate-id="${mate.mateId}">
+        <div class="group flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-base-content/80" data-mate-id="${mate.mateId}">
           <span class="shrink-0 inline-block w-2 h-2 rounded-full ${dotColor}"></span>
-          <span class="text-base-content/60 shrink-0">${escapeHtml(mate.type)}</span>
-          <span class="truncate text-base-content/80">${escapeHtml(aName)} ↔ ${escapeHtml(bName)}</span>
-          <button class="opacity-0 group-hover:opacity-100 ml-auto btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${mate.mateId}">${DOTS_SVG}</button>
+          <div class="flex-1 min-w-0 flex flex-col leading-tight">
+            <span class="text-sm">${escapeHtml(mate.type)}</span>
+            <span class="text-[10px] text-base-content/50 truncate">${escapeHtml(aName)}</span>
+            <span class="text-[10px] text-base-content/50 truncate">${escapeHtml(bName)}</span>
+          </div>
+          <button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${mate.mateId}">${DOTS_SVG}</button>
         </div>
       `;
     }

@@ -152,9 +152,10 @@ export class PartsPanel {
     for (const inst of this.instances) {
       const selected = this.selectedId === inst.instanceId;
       const selectedClass = selected ? ' bg-primary/10' : '';
-      const groundSlot = inst.grounded
-        ? `<span class="shrink-0 text-warning [&>svg]:size-3.5" title="Grounded">${ICON_GROUND}</span>`
-        : `<span class="shrink-0 w-3.5 h-3.5"></span>`;
+      const groundOverlay = inst.grounded
+        ? `<span class="absolute -bottom-1 -right-1 text-warning leading-none [&>svg]:size-3.5" title="Grounded">${ICON_GROUND}</span>`
+        : '';
+      const groundSlot = `<span class="relative shrink-0 inline-flex items-center justify-center w-4 h-4 text-base-content/60 [&>svg]:size-4">${CUBE_SVG}${groundOverlay}</span>`;
       const eyeIcon = inst.visible ? ICON_EYE : ICON_EYE_OFF;
       const eyeVisibility = inst.visible
         ? 'opacity-0 group-hover:opacity-100 text-base-content/40'

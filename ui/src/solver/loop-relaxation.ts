@@ -203,10 +203,18 @@ function relaxComponent(
  *     This is the original behavior — drops the unreachable axial
  *     component, keeps the rotation/in-plane direction LM needs.
  *
- *   - other (`cylindrical`, `fastened`, no parent edge): no projection.
- *     Cylindrical is full 3D-reachable for small steps (axis translate
- *     + axis rotate); fastened-to-grounded shouldn't drag anyway, and
- *     a free root body legitimately wants 3D drag.
+ *   - body fully locked (path to a grounded ancestor is all fastened
+ *     edges): zero drag. The body has no DOFs upstream so any drag
+ *     residual just makes LM perturb it pointlessly — the fastened
+ *     fixup snaps it back, but the perturbed pose is what the slider /
+ *     revolute / etc. fixups for *its followers* read, dragging them
+ *     along. That's the "drag the rail and the carriages slide" bug.
+ *
+ *   - other (`cylindrical`, `fastened`-to-non-locked, no parent edge):
+ *     no projection. Cylindrical is full 3D-reachable for small steps
+ *     (axis translate + axis rotate); fastened-to-non-locked legitimately
+ *     wants the drag to propagate up the chain via LM IK; and a free
+ *     root body legitimately wants 3D drag.
  *
  * Returns the original drag info unchanged when there's no drag, no
  * dragged body, or no parent mate to consult.
@@ -230,14 +238,19 @@ function projectDrag(
     .find(e => e.child.instanceId === drag.draggedInstanceId);
   if (!parentEdge) return drag;
 
+  const grabWorld = drag.draggedGrabLocal.clone()
+    .applyQuaternion(dragged.quaternion).add(dragged.position);
+
+  if (isFullyLocked(drag.draggedInstanceId, component)) {
+    return { ...drag, draggedCursorWorld: grabWorld };
+  }
+
   const parent = parentEdge.parent;
   const parentConn = parentEdge.parentConn;
   const axis = parentConn.localNormal.clone()
     .applyQuaternion(parent.quaternion).normalize();
   if (axis.lengthSq() < 1e-12) return drag;
 
-  const grabWorld = drag.draggedGrabLocal.clone()
-    .applyQuaternion(dragged.quaternion).add(dragged.position);
   const offset = drag.draggedCursorWorld.clone().sub(grabWorld);
 
   switch (parentEdge.mate.type) {
@@ -262,6 +275,28 @@ function projectDrag(
     }
     default:
       return drag;
+  }
+}
+
+/**
+ * True iff the dragged body's path to the BFS seed is entirely fastened
+ * tree edges AND the seed is grounded — i.e., the body has zero
+ * effective DOFs and any drag on it should be ignored.
+ */
+function isFullyLocked(instanceId: string, component: Component): boolean {
+  const parentByChild = new Map<string, { edge: typeof component.treeEdges[number] }>();
+  for (const edge of component.treeEdges) {
+    parentByChild.set(edge.child.instanceId, { edge });
+  }
+  let current = instanceId;
+  while (true) {
+    const entry = parentByChild.get(current);
+    if (!entry) {
+      // Reached the seed. Locked iff the seed is grounded.
+      return component.seed.instanceId === current && component.seed.grounded;
+    }
+    if (entry.edge.mate.type !== 'fastened') return false;
+    current = entry.edge.parent.instanceId;
   }
 }
 

@@ -432,6 +432,86 @@ describe('mate(slider) — phase 08', () => {
     expect(c3.position.z).toBeCloseTo(0, 4);
   });
 
+  it('dragging a rail fastened to a grounded beam does not slide its carriages', async () => {
+    // Rail is fully locked (fastened path to a grounded ancestor), so a drag
+    // on the rail has no DOFs to consume. Without the fully-locked short-
+    // circuit, LM perturbed the rail's pose chasing the drag; the rail
+    // itself snapped back via the fastened fixup, but the slider fixup for
+    // each carriage projected the perturbed rail pose onto its slide value
+    // and the carriages walked along the rail every frame.
+    const solver = new Solver();
+    await solver.ensureReady();
+
+    const beamConn: ConnectorState = {
+      connectorId: 'attach',
+      localOrigin: new Vector3(0, 0, 0),
+      localXDirection: new Vector3(1, 0, 0),
+      localNormal: new Vector3(0, 1, 0),
+    };
+    const railStart: ConnectorState = {
+      connectorId: 'start',
+      localOrigin: new Vector3(0, 0, 0),
+      localXDirection: new Vector3(1, 0, 0),
+      localNormal: new Vector3(0, 1, 0),
+    };
+    const railTop: ConnectorState = {
+      connectorId: 'top',
+      localOrigin: new Vector3(0, 0, 0),
+      localXDirection: new Vector3(1, 0, 0),
+      localNormal: new Vector3(0, 0, 1),
+    };
+    const carrConn: ConnectorState = {
+      connectorId: 'main',
+      localOrigin: new Vector3(0, 0, 0),
+      localXDirection: new Vector3(1, 0, 0),
+      localNormal: new Vector3(0, 0, 1),
+    };
+    const mates: MateRecord[] = [
+      { mateId: 'fasten', type: 'fastened',
+        connectorA: { instanceId: 'beam', connectorId: 'attach' },
+        connectorB: { instanceId: 'rail', connectorId: 'start' } },
+      { mateId: 'sl1', type: 'slider',
+        connectorA: { instanceId: 'rail', connectorId: 'top' },
+        connectorB: { instanceId: 'c1', connectorId: 'main' } },
+      { mateId: 'sl3', type: 'slider',
+        connectorA: { instanceId: 'rail', connectorId: 'top' },
+        connectorB: { instanceId: 'c3', connectorId: 'main' } },
+    ];
+
+    let bodies: BodyState[] = [
+      { instanceId: 'beam', grounded: true, position: new Vector3(0, 0, 0), quaternion: new Quaternion(), connectors: [beamConn] },
+      { instanceId: 'rail', grounded: false, position: new Vector3(0, 0, 0), quaternion: new Quaternion(), connectors: [railStart, railTop] },
+      { instanceId: 'c1', grounded: false, position: new Vector3(0, 0, 0), quaternion: new Quaternion(), connectors: [carrConn] },
+      { instanceId: 'c3', grounded: false, position: new Vector3(0, 0, 0), quaternion: new Quaternion(), connectors: [carrConn] },
+    ];
+
+    const settle = solver.solve({ bodies, mates });
+    expect(settle.result).toBe('okay');
+    bodies = bodies.map(b => {
+      const s = settle.bodies.find(x => x.instanceId === b.instanceId)!;
+      return { ...b, position: s.position.clone(), quaternion: s.quaternion.clone() };
+    });
+
+    for (let step = 1; step <= 5; step++) {
+      const out = solver.solve({
+        bodies, mates,
+        draggedInstanceId: 'rail',
+        draggedCursorWorld: new Vector3(3, 0, step * 5),
+        draggedGrabLocal: new Vector3(0, 0, 0),
+      });
+      expect(out.result).toBe('okay');
+      bodies = bodies.map(b => {
+        const s = out.bodies.find(x => x.instanceId === b.instanceId)!;
+        return { ...b, position: s.position.clone(), quaternion: s.quaternion.clone() };
+      });
+    }
+
+    const c1 = bodies.find(b => b.instanceId === 'c1')!;
+    const c3 = bodies.find(b => b.instanceId === 'c3')!;
+    expect(c1.position.z).toBeCloseTo(0, 4);
+    expect(c3.position.z).toBeCloseTo(0, 4);
+  });
+
   it('grab-offset drag projects correctly along the axis', async () => {
     // Grab the carriage at a point off its body origin (grab on +X face).
     // Cursor moves along +Z; the grab point should track the cursor and

@@ -16,23 +16,49 @@ export class ShapeFilter {
     }
 
     const result = new Set<Shape>();
-    for (const shape of this.shapes) {
-      for (const filter of this.builders) {
-        if (result.has(shape)) {
-          break;
-        }
-        const filters = filter.getFilters();
-        if (filters.every(f => {
+
+    for (const builder of this.builders) {
+      const filters = builder.getFilters();
+      // Per-builder ordered match list — preserves input (OCC iteration) order
+      // so positional selectors (.first/.last/.at) are deterministic.
+      const matched: Shape[] = [];
+      for (const shape of this.shapes) {
+        let ok = true;
+        for (const f of filters) {
           try {
-            return f.match(shape)
+            if (!f.match(shape)) {
+              ok = false;
+              break;
+            }
           }
           catch (e) {
             console.error('Error applying filter:', e, f);
-            return false;
+            ok = false;
+            break;
           }
-        })) {
-          result.add(shape);
         }
+        if (ok) {
+          matched.push(shape);
+        }
+      }
+
+      const sel = builder.getIndexSelector();
+      let selected: Shape[];
+      if (!sel) {
+        selected = matched;
+      }
+      else if (sel.type === 'first') {
+        selected = matched.length > 0 ? [matched[0]] : [];
+      }
+      else if (sel.type === 'last') {
+        selected = matched.length > 0 ? [matched[matched.length - 1]] : [];
+      }
+      else {
+        selected = sel.index < matched.length ? [matched[sel.index]] : [];
+      }
+
+      for (const s of selected) {
+        result.add(s);
       }
     }
 

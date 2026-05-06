@@ -4,6 +4,8 @@ import { Shape } from "../common/shape.js";
 import { Edge } from "../common/edge.js";
 import { Point } from "../math/point.js";
 import { Plane } from "../math/plane.js";
+import { Vector3d } from "../math/vector3d.js";
+import { Matrix4 } from "../math/matrix4.js";
 import { WireOps } from "./wire-ops.js";
 import { FaceOps } from "./face-ops.js";
 import { EdgeOps } from "./edge-ops.js";
@@ -24,6 +26,52 @@ export class RibOps {
     const wire2 = RibOps.offsetWireOnPlane(spineWire, plane, -halfThickness);
 
     return RibOps.makeOpenFaceWithCaps(wire1, wire2);
+  }
+
+  static makeRibProfileParallel(spineWire: Wire, thickness: number, plane: Plane): Face {
+    const halfThickness = Math.abs(thickness) / 2;
+    const offset1 = plane.normal.multiply(halfThickness);
+    const offset2 = plane.normal.multiply(-halfThickness);
+
+    const wire1 = ShapeOps.transform(spineWire, Matrix4.fromTranslationVector(offset1)) as Wire;
+    const wire2 = ShapeOps.transform(spineWire, Matrix4.fromTranslationVector(offset2)) as Wire;
+
+    return RibOps.makeOpenFaceWithCaps(wire1, wire2);
+  }
+
+  static computeSpinePerpendicularDirection(spineWire: Wire, plane: Plane): Vector3d {
+    const start = spineWire.getFirstVertex().toPoint().toVector3d();
+    const end = spineWire.getLastVertex().toPoint().toVector3d();
+    const spineDir = end.subtract(start).normalize();
+    return plane.normal.cross(spineDir).normalize();
+  }
+
+  static computeExtrudeDistanceAlongDirection(direction: Vector3d, origin: Point, scopeShapes: Shape[]): number {
+    let maxDist = 0;
+
+    for (const shape of scopeShapes) {
+      const bbox = ShapeOps.getBoundingBox(shape);
+      const corners = [
+        new Point(bbox.minX, bbox.minY, bbox.minZ),
+        new Point(bbox.maxX, bbox.minY, bbox.minZ),
+        new Point(bbox.minX, bbox.maxY, bbox.minZ),
+        new Point(bbox.maxX, bbox.maxY, bbox.minZ),
+        new Point(bbox.minX, bbox.minY, bbox.maxZ),
+        new Point(bbox.maxX, bbox.minY, bbox.maxZ),
+        new Point(bbox.minX, bbox.maxY, bbox.maxZ),
+        new Point(bbox.maxX, bbox.maxY, bbox.maxZ),
+      ];
+
+      for (const corner of corners) {
+        const offset = origin.vectorTo(corner);
+        const dist = Math.abs(offset.dot(direction));
+        if (dist > maxDist) {
+          maxDist = dist;
+        }
+      }
+    }
+
+    return maxDist + 1e-3;
   }
 
   static computeExtrudeDistance(plane: Plane, scopeShapes: Shape[]): number {

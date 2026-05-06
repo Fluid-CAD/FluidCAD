@@ -46,7 +46,8 @@ export class RibOps {
     return plane.normal.cross(spineDir).normalize();
   }
 
-  static extendSpineWire(spineWire: Wire, extensionAmount: number): Wire {
+  static extendSpineWire(spineWire: Wire, scopeShapes: Shape[]): Wire {
+    const oc = getOC();
     const edges = spineWire.getEdges();
     if (edges.length === 0) {
       return spineWire;
@@ -62,29 +63,53 @@ export class RibOps {
     const firstEdgeEnd = EdgeOps.getLastVertex(firstEdge).toPoint();
     const startTangent = firstVertex.vectorTo(firstEdgeEnd).normalize();
 
-    const extendedStart = firstVertex.add(startTangent.multiply(-extensionAmount));
-    const extendedEnd = lastVertex.add(endTangent.multiply(extensionAmount));
+    const scopeCompound = ShapeOps.makeCompound(scopeShapes);
 
-    const startExtEdge = EdgeOps.makeLineEdge(extendedStart, firstVertex);
-    const endExtEdge = EdgeOps.makeLineEdge(lastVertex, extendedEnd);
+    const startExt = RibOps.rayDistanceToShape(
+      oc, firstVertex, startTangent.multiply(-1), scopeCompound,
+    );
+    const endExt = RibOps.rayDistanceToShape(
+      oc, lastVertex, endTangent, scopeCompound,
+    );
 
-    const allEdges: Edge[] = [startExtEdge, ...edges, endExtEdge];
-    return WireOps.makeWireFromEdges(allEdges);
+    const newEdges: Edge[] = [];
+
+    if (startExt > 0) {
+      const extPoint = firstVertex.add(startTangent.multiply(-startExt));
+      newEdges.push(EdgeOps.makeLineEdge(extPoint, firstVertex));
+    }
+
+    newEdges.push(...edges);
+
+    if (endExt > 0) {
+      const extPoint = lastVertex.add(endTangent.multiply(endExt));
+      newEdges.push(EdgeOps.makeLineEdge(lastVertex, extPoint));
+    }
+
+    return WireOps.makeWireFromEdges(newEdges);
   }
 
-  static computeExtensionAmount(scopeShapes: Shape[]): number {
-    let maxExtent = 0;
-    for (const shape of scopeShapes) {
-      const bbox = ShapeOps.getBoundingBox(shape);
-      const dx = bbox.maxX - bbox.minX;
-      const dy = bbox.maxY - bbox.minY;
-      const dz = bbox.maxZ - bbox.minZ;
-      const diag = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      if (diag > maxExtent) {
-        maxExtent = diag;
-      }
+  private static rayDistanceToShape(
+    oc: any, origin: Point, direction: Vector3d, shape: Shape,
+  ): number {
+    const line = new oc.gp_Lin(
+      new oc.gp_Pnt(origin.x, origin.y, origin.z),
+      new oc.gp_Dir(direction.x, direction.y, direction.z),
+    );
+
+    const intersector = new oc.IntCurvesFace_ShapeIntersector();
+    intersector.Load(shape.getShape(), 1e-7);
+    intersector.PerformNearest(line, 0, 1e10);
+
+    let dist = 0;
+    if (intersector.IsDone() && intersector.NbPnt() > 0) {
+      dist = intersector.WParameter(1);
     }
-    return maxExtent;
+
+    intersector.delete();
+    line.delete();
+
+    return dist > 0 ? dist : 0;
   }
 
   static computeExtrudeDistanceAlongDirection(direction: Vector3d, origin: Point, scopeShapes: Shape[]): number {

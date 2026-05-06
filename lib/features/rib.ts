@@ -65,11 +65,8 @@ export class Rib extends ExtrudeBase implements IRib {
     }
 
     if (this._extend) {
-      const extensionAmount = p.record('Compute extension', () =>
-        RibOps.computeExtensionAmount(scopeShapes),
-      );
       spineWire = p.record('Extend spine', () =>
-        RibOps.extendSpineWire(spineWire, extensionAmount),
+        RibOps.extendSpineWire(spineWire, scopeShapes),
       );
     }
 
@@ -127,10 +124,11 @@ export class Rib extends ExtrudeBase implements IRib {
       this._spine.removeShapes(this);
     }
 
+    const trimmed = p.record('Trim rib', () =>
+      RibOps.trimRibToScope(ribSolid, scopeShapes),
+    );
+
     if (this._operationMode === 'new') {
-      const trimmed = p.record('Trim rib', () =>
-        RibOps.trimRibToScope(ribSolid, scopeShapes),
-      );
       this.setState('start-faces', classified.startFaces);
       this.setState('end-faces', classified.endFaces);
       this.setState('side-faces', classified.sideFaces);
@@ -142,7 +140,7 @@ export class Rib extends ExtrudeBase implements IRib {
       return;
     }
 
-    this.finalizeAndFuse([ribSolid], classified, context);
+    this.finalizeAndFuse(trimmed, classified, context);
   }
 
   private getSpineWire(pathObj: SceneObject): Wire {

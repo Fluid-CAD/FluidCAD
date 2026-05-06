@@ -64,6 +64,15 @@ export function buildObjectMesh(
   isRegionPicking: boolean,
   inherited?: MeshRenderOptions,
 ): Object3D {
+  // Drop invisible objects (e.g. children of a part hidden by `remove(part)`).
+  // The container types — connector/plane/axis/sketch — build their visuals
+  // from `obj.object` rather than `obj.sceneShapes`, so they need this guard
+  // to honor the `visible` flag the renderer set. Active-sketch edit mode
+  // keeps sketches visible regardless, mirroring `buildSceneMesh` above.
+  if (!obj.visible && !(activeSketchId && obj.type === 'sketch')) {
+    return new Group();
+  }
+
   // --- dedicated mesh classes for construction geometry ---
   switch (obj.type) {
     case 'sketch':

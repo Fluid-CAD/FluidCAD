@@ -39,9 +39,9 @@ function build(context: SceneParserContext): ConnectorFunction {
     // Ensure the source is registered with the scene so it builds before the
     // connector — `addSceneObject` is idempotent, so already-registered
     // sources (e.g., from `select(...)`) are unaffected.
-    context.addSceneObject(source as unknown as SceneObject);
+    context.addSceneObject(source);
 
-    const obj = new Connector(source as ConnectorInput, options);
+    const obj = new Connector(source, options);
     context.addSceneObject(obj);
     return obj;
   };

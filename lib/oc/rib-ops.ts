@@ -46,6 +46,47 @@ export class RibOps {
     return plane.normal.cross(spineDir).normalize();
   }
 
+  static extendSpineWire(spineWire: Wire, extensionAmount: number): Wire {
+    const edges = spineWire.getEdges();
+    if (edges.length === 0) {
+      return spineWire;
+    }
+
+    const firstVertex = spineWire.getFirstVertex().toPoint();
+    const lastVertex = spineWire.getLastVertex().toPoint();
+
+    const lastEdge = edges[edges.length - 1];
+    const endTangent = EdgeOps.getEdgeTangentAtEnd(lastEdge).normalize();
+
+    const firstEdge = edges[0];
+    const firstEdgeEnd = EdgeOps.getLastVertex(firstEdge).toPoint();
+    const startTangent = firstVertex.vectorTo(firstEdgeEnd).normalize();
+
+    const extendedStart = firstVertex.add(startTangent.multiply(-extensionAmount));
+    const extendedEnd = lastVertex.add(endTangent.multiply(extensionAmount));
+
+    const startExtEdge = EdgeOps.makeLineEdge(extendedStart, firstVertex);
+    const endExtEdge = EdgeOps.makeLineEdge(lastVertex, extendedEnd);
+
+    const allEdges: Edge[] = [startExtEdge, ...edges, endExtEdge];
+    return WireOps.makeWireFromEdges(allEdges);
+  }
+
+  static computeExtensionAmount(scopeShapes: Shape[]): number {
+    let maxExtent = 0;
+    for (const shape of scopeShapes) {
+      const bbox = ShapeOps.getBoundingBox(shape);
+      const dx = bbox.maxX - bbox.minX;
+      const dy = bbox.maxY - bbox.minY;
+      const dz = bbox.maxZ - bbox.minZ;
+      const diag = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (diag > maxExtent) {
+        maxExtent = diag;
+      }
+    }
+    return maxExtent;
+  }
+
   static computeExtrudeDistanceAlongDirection(direction: Vector3d, origin: Point, scopeShapes: Shape[]): number {
     let maxDist = 0;
 

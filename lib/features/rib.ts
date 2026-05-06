@@ -66,7 +66,7 @@ export class Rib extends ExtrudeBase implements IRib {
 
     if (this._extend) {
       spineWire = p.record('Extend spine', () =>
-        RibOps.extendSpineWire(spineWire, scopeShapes),
+        RibOps.extendSpineWire(spineWire, scopeShapes, this._thickness, plane),
       );
     }
 

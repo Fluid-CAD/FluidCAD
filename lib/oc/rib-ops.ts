@@ -46,7 +46,7 @@ export class RibOps {
     return plane.normal.cross(spineDir).normalize();
   }
 
-  static extendSpineWire(spineWire: Wire, scopeShapes: Shape[]): Wire {
+  static extendSpineWire(spineWire: Wire, scopeShapes: Shape[], _thickness: number, _plane: Plane): Wire {
     const oc = getOC();
     const edges = spineWire.getEdges();
     if (edges.length === 0) {
@@ -65,12 +65,9 @@ export class RibOps {
 
     const scopeCompound = ShapeOps.makeCompound(scopeShapes);
 
-    const startExt = RibOps.rayDistanceToShape(
-      oc, firstVertex, startTangent.multiply(-1), scopeCompound,
-    );
-    const endExt = RibOps.rayDistanceToShape(
-      oc, lastVertex, endTangent, scopeCompound,
-    );
+    const startDir = startTangent.multiply(-1);
+    const startExt = RibOps.rayDistanceToShape(oc, firstVertex, startDir, scopeCompound);
+    const endExt = RibOps.rayDistanceToShape(oc, lastVertex, endTangent, scopeCompound);
 
     const newEdges: Edge[] = [];
 
@@ -99,11 +96,16 @@ export class RibOps {
 
     const intersector = new oc.IntCurvesFace_ShapeIntersector();
     intersector.Load(shape.getShape(), 1e-7);
-    intersector.PerformNearest(line, 0, 1e10);
+    intersector.Perform(line, 0, 1e10);
 
     let dist = 0;
-    if (intersector.IsDone() && intersector.NbPnt() > 0) {
-      dist = intersector.WParameter(1);
+    if (intersector.IsDone()) {
+      for (let i = 1; i <= intersector.NbPnt(); i++) {
+        const w = intersector.WParameter(i);
+        if (w > dist) {
+          dist = w;
+        }
+      }
     }
 
     intersector.delete();

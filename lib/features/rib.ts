@@ -57,7 +57,9 @@ export class Rib extends ExtrudeBase implements IRib {
 
     const spineWire = p.record('Get spine wire', () => this.getSpineWire(this._spine));
     const profileFace = p.record('Make rib profile', () =>
-      RibOps.makeRibProfile(spineWire, this._thickness, plane),
+      this._parallel
+        ? RibOps.makeRibProfileParallel(spineWire, this._thickness, plane)
+        : RibOps.makeRibProfile(spineWire, this._thickness, plane),
     );
 
     const scopeObjects = this.resolveFusionScope(context.getSceneObjects());
@@ -67,10 +69,20 @@ export class Rib extends ExtrudeBase implements IRib {
       throw new Error("Rib requires target solids in the scene or via .scope()");
     }
 
-    const direction = plane.normal.multiply(Math.sign(this._thickness));
-    const distance = p.record('Compute extrude distance', () =>
-      RibOps.computeExtrudeDistance(plane, scopeShapes),
-    );
+    let direction: Vector3d;
+    let distance: number;
+    if (this._parallel) {
+      const perpDir = RibOps.computeSpinePerpendicularDirection(spineWire, plane);
+      direction = perpDir.multiply(Math.sign(this._thickness));
+      distance = p.record('Compute extrude distance', () =>
+        RibOps.computeExtrudeDistanceAlongDirection(direction, plane.origin, scopeShapes),
+      );
+    } else {
+      direction = plane.normal.multiply(Math.sign(this._thickness));
+      distance = p.record('Compute extrude distance', () =>
+        RibOps.computeExtrudeDistance(plane, scopeShapes),
+      );
+    }
 
     const vec = direction.multiply(distance);
     const { solid, firstFace, lastFace } = p.record('Extrude rib', () =>

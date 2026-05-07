@@ -157,7 +157,7 @@ export class ExtrudeOps {
     firstFace: Shape,
     lastFace: Shape,
     plane: Plane,
-    angle: number
+    angle: number,
   ): { solid: Shape; firstFace: Shape; lastFace: Shape } {
     const oc = getOC();
     const [dir, disposeDir] = Convert.toGpDir(plane.normal);
@@ -173,6 +173,23 @@ export class ExtrudeOps {
     );
 
     for (const face of sideFaces) {
+      // Skip faces whose surface normal is parallel to the draft pull
+      // direction — drafting them is geometrically degenerate (you can't
+      // tilt a face around an axis parallel to the face's own normal) and
+      // OCC fails the whole Build() if any such face is added. Non-planar
+      // faces get drafted unconditionally.
+      const adaptor = new oc.BRepAdaptor_Surface(Explorer.toFace(face), true);
+      if (adaptor.GetType() === oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
+        const facePlane = adaptor.Plane();
+        const ax = facePlane.Axis().Direction();
+        const dot = Math.abs(ax.Dot(dir));
+        adaptor.delete();
+        if (dot > 0.999) {
+          continue;
+        }
+      } else {
+        adaptor.delete();
+      }
       draftMaker.Add(Explorer.toFace(face), dir, angle, pln, true);
     }
 

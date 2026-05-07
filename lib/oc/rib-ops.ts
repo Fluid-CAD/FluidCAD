@@ -9,7 +9,7 @@ import { Matrix4 } from "../math/matrix4.js";
 import { WireOps } from "./wire-ops.js";
 import { FaceOps } from "./face-ops.js";
 import { EdgeOps } from "./edge-ops.js";
-import { ShapeOps } from "./shape-ops.js";
+import { CleanShapeLineage, ShapeOps } from "./shape-ops.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { Explorer } from "./explorer.js";
 import { BooleanOps } from "./boolean-ops.js";
@@ -364,12 +364,58 @@ export class RibOps {
     toolList.delete();
     progress.delete();
 
+    // Final pass: ShapeUpgrade_UnifySameDomain merges adjacent coplanar faces
+    // and redundant edges left by the cut sequence (slab clips split flat
+    // walls into multiple sub-faces with extraneous seam edges). The lineage
+    // returned by cleanShapeWithLineage maps each pre-clean face to its
+    // post-clean image so the start / end / side / internal buckets remain
+    // valid for downstream face-selection queries.
+    const cleanedSolids: Shape[] = [];
+    const lineages: CleanShapeLineage[] = [];
+    for (const solid of resultSolids) {
+      const lineage = ShapeOps.cleanShapeWithLineage(solid);
+      cleanedSolids.push(lineage.shape);
+      lineages.push(lineage);
+    }
+
+    const remapBucket = (faces: Face[]): Face[] => {
+      const out: Face[] = [];
+      const seenOut = new oc.TopTools_MapOfShape();
+      for (const f of faces) {
+        let mapped: Face[] | null = null;
+        for (const lineage of lineages) {
+          const r = lineage.remapFace(f);
+          if (r !== null) {
+            mapped = r;
+            break;
+          }
+        }
+        const kept = mapped ?? [f];
+        for (const m of kept) {
+          if (seenOut.Add(m.getShape())) {
+            out.push(m);
+          }
+        }
+      }
+      seenOut.delete();
+      return out;
+    };
+
+    const finalStart = remapBucket(startFaces);
+    const finalEnd = remapBucket(endFaces);
+    const finalSide = remapBucket(sideFaces);
+    const finalInternal = remapBucket(internalFaces);
+
+    for (const lineage of lineages) {
+      lineage.dispose();
+    }
+
     return {
-      solids: resultSolids,
-      startFaces,
-      endFaces,
-      sideFaces,
-      internalFaces,
+      solids: cleanedSolids,
+      startFaces: finalStart,
+      endFaces: finalEnd,
+      sideFaces: finalSide,
+      internalFaces: finalInternal,
     };
   }
 

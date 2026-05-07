@@ -1,6 +1,4 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
-import { Shape } from "../common/shape.js";
-import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { Wire } from "../common/wire.js";
 import { Extrudable } from "../helpers/types.js";
@@ -10,7 +8,6 @@ import { Vector3d } from "../math/vector3d.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
 import { RibOps } from "../oc/rib-ops.js";
 import { WireOps } from "../oc/wire-ops.js";
-import { Explorer } from "../oc/explorer.js";
 import { requireShapes } from "../common/operand-check.js";
 
 export class Rib extends ExtrudeBase implements IRib {
@@ -55,7 +52,8 @@ export class Rib extends ExtrudeBase implements IRib {
     const p = context.getProfiler();
     const plane = this.extrudable.getPlane();
 
-    let spineWire = p.record('Get spine wire', () => this.getSpineWire(this._spine));
+    const originalSpineWire = p.record('Get spine wire', () => this.getSpineWire(this._spine));
+    let spineWire = originalSpineWire;
 
     const scopeObjects = this.resolveFusionScope(context.getSceneObjects());
     const scopeShapes = scopeObjects.flatMap(o => o.getShapes({}, 'solid'));
@@ -66,7 +64,7 @@ export class Rib extends ExtrudeBase implements IRib {
 
     if (this._extend) {
       spineWire = p.record('Extend spine', () =>
-        RibOps.extendSpineWire(spineWire, scopeShapes, this._thickness, plane),
+        RibOps.extendSpineWire(spineWire, scopeShapes, plane),
       );
     }
 
@@ -115,18 +113,22 @@ export class Rib extends ExtrudeBase implements IRib {
       ribLastFace = draftResult.lastFace;
     }
 
-    const classified = p.record('Classify faces', () =>
-      this.classifyRibFaces(ribSolid, ribFirstFace, ribLastFace, spineWire),
-    );
-
     this.extrudable.removeShapes(this);
     if (this._spine !== (this.extrudable as unknown as SceneObject)) {
       this._spine.removeShapes(this);
     }
 
-    const trimmed = p.record('Trim rib', () =>
-      RibOps.trimRibToScope(ribSolid, scopeShapes),
+    const conformed = p.record('Conform rib', () =>
+      RibOps.conformRibToScope(ribSolid, scopeShapes, originalSpineWire, ribFirstFace, ribLastFace),
     );
+
+    const classified: ClassifiedFaces = {
+      startFaces: conformed.startFaces,
+      endFaces: conformed.endFaces,
+      sideFaces: conformed.sideFaces,
+      internalFaces: conformed.internalFaces,
+      capFaces: [],
+    };
 
     if (this._operationMode === 'new') {
       this.setState('start-faces', classified.startFaces);
@@ -134,67 +136,19 @@ export class Rib extends ExtrudeBase implements IRib {
       this.setState('side-faces', classified.sideFaces);
       this.setState('internal-faces', classified.internalFaces);
       this.setState('cap-faces', classified.capFaces);
-      this.addShapes(trimmed);
-      this.recordShapeFacesAndEdgesAsAdditions(trimmed);
+      this.addShapes(conformed.solids);
+      this.recordShapeFacesAndEdgesAsAdditions(conformed.solids);
       this.classifyExtrudeEdges();
       return;
     }
 
-    this.finalizeAndFuse(trimmed, classified, context);
+    this.finalizeAndFuse(conformed.solids, classified, context);
   }
 
   private getSpineWire(pathObj: SceneObject): Wire {
     const shapes = pathObj.getShapes({ excludeMeta: false });
     const edges = shapes.flatMap(s => s.getSubShapes('edge')) as Edge[];
     return WireOps.makeWireFromEdges(edges);
-  }
-
-  private classifyRibFaces(
-    solid: Shape,
-    firstFace: Shape,
-    lastFace: Shape,
-    spineWire: Wire,
-  ): ClassifiedFaces {
-    const allFaces = Explorer.findFacesWrapped(solid);
-    const startFaces: Face[] = [];
-    const endFaces: Face[] = [];
-    const sideFaces: Face[] = [];
-    const capFaces: Face[] = [];
-
-    const spineStartPt = spineWire.getFirstVertex().toPoint().toVector3d();
-    const spineEndPt = spineWire.getLastVertex().toPoint().toVector3d();
-
-    for (const f of allFaces) {
-      const raw = f.getShape();
-      if (raw.IsSame(firstFace.getShape())) {
-        startFaces.push(f as Face);
-      } else if (raw.IsSame(lastFace.getShape())) {
-        endFaces.push(f as Face);
-      } else {
-        const bbox = f.getBoundingBox();
-        const center = new Vector3d(bbox.centerX, bbox.centerY, bbox.centerZ);
-        const distToStart = center.subtract(spineStartPt).length();
-        const distToEnd = center.subtract(spineEndPt).length();
-        const faceSize = Math.max(
-          bbox.maxX - bbox.minX,
-          bbox.maxY - bbox.minY,
-          bbox.maxZ - bbox.minZ,
-        );
-
-        // Cap faces are small and near spine endpoints; side faces are larger
-        const isSmall = faceSize < Math.abs(this._thickness) * 1.5;
-        const isNearEndpoint = distToStart < Math.abs(this._thickness) * 2
-          || distToEnd < Math.abs(this._thickness) * 2;
-
-        if (isSmall && isNearEndpoint) {
-          capFaces.push(f as Face);
-        } else {
-          sideFaces.push(f as Face);
-        }
-      }
-    }
-
-    return { startFaces, endFaces, sideFaces, internalFaces: [], capFaces };
   }
 
   override getDependencies(): SceneObject[] {

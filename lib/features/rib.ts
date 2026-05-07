@@ -102,21 +102,24 @@ export class Rib extends ExtrudeBase implements IRib {
     if (this.getDraft()) {
       const draft = this.getDraft()!;
       let angle = draft[0];
-      if (this._thickness > 0) {
-        angle = -angle;
-      }
-      const rad = (deg: number) => deg * Math.PI / 180;
 
       // The draft "neutral plane" must be perpendicular to the extrude
-      // direction. In normal mode that's the sketch plane (extrude dir =
-      // plane.normal). In parallel mode the prism extrudes along perpDir
-      // (a direction inside the sketch plane), so we synthesize a neutral
-      // plane whose normal is the extrude direction. Without this, OCC
-      // tries to draft the rib's wall faces whose normals are parallel to
-      // the chosen draft dir — a degenerate case that throws.
+      // direction. Normal mode: that's the sketch plane. Parallel mode:
+      // synthesize a plane whose normal is the signed extrude direction.
       const draftPlane = this._parallel
         ? new Plane(plane.origin, plane.normal, direction.normalize())
         : plane;
+
+      // OCC's BRepOffsetAPI_DraftAngle uses an "outward bias" — positive
+      // angle widens the part on the dir side. We want the user-facing
+      // convention "positive draft tapers the rib inward as it extends",
+      // so we negate when the dir we hand OCC matches the extrude sign:
+      //   - normal mode: matches only when thickness > 0
+      //   - parallel mode: always (draftPlane is built from signed direction)
+      if (this._parallel || this._thickness > 0) {
+        angle = -angle;
+      }
+      const rad = (deg: number) => deg * Math.PI / 180;
 
       const draftResult = p.record('Apply draft', () =>
         ExtrudeOps.applyDraftOnSideFaces(ribSolid, ribFirstFace, ribLastFace, draftPlane, rad(angle)),

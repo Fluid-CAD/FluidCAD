@@ -4,6 +4,7 @@ import { Wire } from "../common/wire.js";
 import { Extrudable } from "../helpers/types.js";
 import { ClassifiedFaces, ExtrudeBase } from "./extrude-base.js";
 import { IRib } from "../core/interfaces.js";
+import { Plane } from "../math/plane.js";
 import { Vector3d } from "../math/vector3d.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
 import { RibOps } from "../oc/rib-ops.js";
@@ -105,8 +106,20 @@ export class Rib extends ExtrudeBase implements IRib {
         angle = -angle;
       }
       const rad = (deg: number) => deg * Math.PI / 180;
+
+      // The draft "neutral plane" must be perpendicular to the extrude
+      // direction. In normal mode that's the sketch plane (extrude dir =
+      // plane.normal). In parallel mode the prism extrudes along perpDir
+      // (a direction inside the sketch plane), so we synthesize a neutral
+      // plane whose normal is the extrude direction. Without this, OCC
+      // tries to draft the rib's wall faces whose normals are parallel to
+      // the chosen draft dir — a degenerate case that throws.
+      const draftPlane = this._parallel
+        ? new Plane(plane.origin, plane.normal, direction.normalize())
+        : plane;
+
       const draftResult = p.record('Apply draft', () =>
-        ExtrudeOps.applyDraftOnSideFaces(ribSolid, ribFirstFace, ribLastFace, plane, rad(angle)),
+        ExtrudeOps.applyDraftOnSideFaces(ribSolid, ribFirstFace, ribLastFace, draftPlane, rad(angle)),
       );
       ribSolid = draftResult.solid;
       ribFirstFace = draftResult.firstFace;

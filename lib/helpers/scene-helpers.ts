@@ -60,24 +60,108 @@ export function fuseWithSceneObjects(
     !unconsumed.some(u => u.getShape().IsPartner(s.getShape()))
   );
 
+  // Clean each addition with UnifySameDomain so that coplanar wall pieces
+  // split by the boolean fuse merge back into single faces (the visible
+  // "artifact seams" on the target solid). Lineage is captured per cleanup
+  // so downstream history can be remapped onto post-clean faces.
+  const cleanedShapesToAdd: Shape<any>[] = [];
+  const cleanups: CleanShapeLineage[] = [];
+  const runCleanups = () => {
+    for (const shape of shapesToAdd) {
+      const cleanup = ShapeOps.cleanShapeWithLineage(shape);
+      cleanedShapesToAdd.push(cleanup.shape);
+      cleanups.push(cleanup);
+    }
+  };
+  p ? p.record('Clean fuse result', runCleanups) : runCleanups();
+
   let toolHistory: ShapeHistory | undefined;
   if (opts?.recordHistoryFor) {
     const recordHistory = () => {
-      recordFusionHistory(opts.recordHistoryFor!, sceneShapes, objShapeMap, shapesToAdd, maker, p);
+      recordFusionHistory(opts.recordHistoryFor!, sceneShapes, objShapeMap, cleanedShapesToAdd, maker, cleanups, p);
       // Separately track tool-side (extrusion) lineage so callers can remap
       // pre-fusion categorizations (start/end/side/…) onto the post-fusion
-      // faces. We don't store these as modifications on any scene object —
-      // from the user's POV they are additions on the caller already.
-      // Tool-side history is only consumed by `remapClassifiedFaces`, which
-      // touches modifiedFaces only — skip the added* output traversal.
+      // faces. Tool-side history is only consumed by `remapClassifiedFaces`,
+      // which touches modifiedFaces only — skip the added* output traversal.
       const collectTools = () => ShapeHistoryTracker.collect(maker, extrusions, { skipAdded: true });
-      toolHistory = p ? p.record('Collect tool history', collectTools) : collectTools();
+      const rawToolHistory = p ? p.record('Collect tool history', collectTools) : collectTools();
+      toolHistory = remapHistoryThroughCleanups(rawToolHistory, cleanups);
     };
     p ? p.record('Record fusion history', recordHistory) : recordHistory();
   }
 
+  for (const cleanup of cleanups) {
+    cleanup.dispose();
+  }
   dispose();
-  return { newShapes: shapesToAdd, modifiedShapes: modified, toolHistory };
+  return { newShapes: cleanedShapesToAdd, modifiedShapes: modified, toolHistory };
+}
+
+// Remap a pre-clean history through a set of cleanup lineages. Modified
+// records get their result faces/edges replaced with the post-clean image;
+// records whose results entirely vanish during cleanup are dropped (the
+// caller will have already recorded removals for the corresponding sources).
+function remapHistoryThroughCleanups(history: ShapeHistory, cleanups: CleanShapeLineage[]): ShapeHistory {
+  const remapFaces = (faces: Face[]): Face[] => {
+    const out: Face[] = [];
+    for (const f of faces) {
+      let mapped: Face[] | null = null;
+      for (const c of cleanups) {
+        const r = c.remapFace(f);
+        if (r !== null) {
+          mapped = r;
+          break;
+        }
+      }
+      if (mapped) {
+        out.push(...mapped);
+      } else {
+        out.push(f);
+      }
+    }
+    return out;
+  };
+
+  const remapEdges = (edges: Edge[]): Edge[] => {
+    const out: Edge[] = [];
+    for (const e of edges) {
+      let mapped: Edge[] | null = null;
+      for (const c of cleanups) {
+        const r = c.remapEdge(e);
+        if (r !== null) {
+          mapped = r;
+          break;
+        }
+      }
+      if (mapped) {
+        out.push(...mapped);
+      } else {
+        out.push(e);
+      }
+    }
+    return out;
+  };
+
+  return {
+    addedFaces: remapFaces(history.addedFaces),
+    modifiedFaces: history.modifiedFaces
+      .map(r => ({ sources: r.sources, results: remapFaces(r.results) }))
+      .filter(r => r.results.length > 0),
+    generatedFaces: history.generatedFaces.map(r => ({
+      sources: r.sources,
+      results: remapFaces(r.results),
+    })),
+    removedFaces: history.removedFaces,
+    addedEdges: remapEdges(history.addedEdges),
+    modifiedEdges: history.modifiedEdges
+      .map(r => ({ sources: r.sources, results: remapEdges(r.results) }))
+      .filter(r => r.results.length > 0),
+    generatedEdges: history.generatedEdges.map(r => ({
+      sources: r.sources,
+      results: remapEdges(r.results),
+    })),
+    removedEdges: history.removedEdges,
+  };
 }
 
 /**
@@ -113,6 +197,7 @@ function recordFusionHistory(
   owners: Map<Shape<any>, SceneObject>,
   newShapes: Shape<any>[],
   maker: any,
+  cleanups: CleanShapeLineage[],
   p?: Profiler,
 ) {
   const oc = getOC();
@@ -121,6 +206,46 @@ function recordFusionHistory(
 
   const claimedFaces = new oc.TopTools_MapOfShape();
   const claimedEdges = new oc.TopTools_MapOfShape();
+
+  // Remap pre-clean faces/edges through whichever cleanup handled them,
+  // mirroring the cut-side helper. Faces no cleanup knew about pass through.
+  const remapFaces = (faces: Face[]): Face[] => {
+    const out: Face[] = [];
+    for (const face of faces) {
+      let matched = false;
+      for (const cleanup of cleanups) {
+        const remapped = cleanup.remapFace(face);
+        if (remapped !== null) {
+          out.push(...remapped);
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        out.push(face);
+      }
+    }
+    return out;
+  };
+
+  const remapEdges = (edges: Edge[]): Edge[] => {
+    const out: Edge[] = [];
+    for (const edge of edges) {
+      let matched = false;
+      for (const cleanup of cleanups) {
+        const remapped = cleanup.remapEdge(edge);
+        if (remapped !== null) {
+          out.push(...remapped);
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        out.push(edge);
+      }
+    }
+    return out;
+  };
 
   const collectScene = () => {
     for (const sceneShape of sceneShapes) {
@@ -134,14 +259,28 @@ function recordFusionHistory(
       const history = ShapeHistoryTracker.collect(maker, [sceneShape], { skipAdded: true });
 
       for (const record of history.modifiedFaces) {
-        owner.recordModifiedFaces(record.sources, record.results, caller);
-        for (const r of record.results) {
+        const postCleanResults = remapFaces(record.results);
+        if (postCleanResults.length === 0) {
+          for (const src of record.sources) {
+            owner.recordRemovedFace(src, caller);
+          }
+          continue;
+        }
+        owner.recordModifiedFaces(record.sources, postCleanResults, caller);
+        for (const r of postCleanResults) {
           claimedFaces.Add(r.getShape());
         }
       }
       for (const record of history.modifiedEdges) {
-        owner.recordModifiedEdges(record.sources, record.results, caller);
-        for (const r of record.results) {
+        const postCleanResults = remapEdges(record.results);
+        if (postCleanResults.length === 0) {
+          for (const src of record.sources) {
+            owner.recordRemovedEdge(src, caller);
+          }
+          continue;
+        }
+        owner.recordModifiedEdges(record.sources, postCleanResults, caller);
+        for (const r of postCleanResults) {
           claimedEdges.Add(r.getShape());
         }
       }

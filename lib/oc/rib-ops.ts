@@ -240,7 +240,7 @@ export class RibOps {
     // Pick the connected component(s) that contain the original spine. Outer
     // fragments left behind by over-extension fall out here.
     const tol = oc.Precision.Confusion() * 10;
-    const keptSolids: Shape[] = [];
+    const candidates: { solid: Shape; volume: number }[] = [];
     for (const solid of allSolids) {
       const distCalc = new oc.BRepExtrema_DistShapeShape(
         solid.getShape(),
@@ -251,10 +251,27 @@ export class RibOps {
       );
       const d = distCalc.IsDone() ? distCalc.Value() : Infinity;
       distCalc.delete();
-      if (d <= tol) {
-        keptSolids.push(solid);
+      if (d > tol) {
+        continue;
       }
+      const vp = new oc.GProp_GProps();
+      oc.BRepGProp.VolumeProperties(solid.getShape(), vp, false, false, false);
+      const volume = vp.Mass();
+      vp.delete();
+      candidates.push({ solid, volume });
     }
+
+    // Drop degenerate slivers: BOP can leave near-zero-volume fragments at
+    // wall corners that touch the original spine within tolerance but are
+    // orders of magnitude smaller than the real rib body. Threshold at
+    // 0.1% of the largest kept volume keeps legitimate split pieces (e.g.
+    // a rib spine that threads past a cone, producing two halves of
+    // comparable volume) but drops the artifacts.
+    const maxVolume = candidates.reduce((m, c) => Math.max(m, c.volume), 0);
+    const volumeMin = maxVolume * 1e-3;
+    const keptSolids: Shape[] = candidates
+      .filter(c => c.volume >= volumeMin)
+      .map(c => c.solid);
 
     let resultSolids = keptSolids;
     if (resultSolids.length === 0 && allSolids.length > 0) {

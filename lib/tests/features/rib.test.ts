@@ -350,6 +350,97 @@ describe("rib", () => {
       expect(sideFaces?.length ?? 0).toBeGreaterThan(0);
     });
 
+    it("parallel + extend + draft should not throw an OCC error", () => {
+      // Reported case: parallel rib with extend and a -5° draft on a shelled
+      // box with filleted internals throws an OCC exception during build.
+      sketch("top", () => {
+        rect(100, 50).centered();
+      });
+      const box = extrude(30);
+      const shelled = shell(-4, box.endFaces());
+      const s = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
+
+      sketch("front", () => {
+        move([-40, 20]);
+        aLine(-45, 20);
+      });
+
+      const r = rib(-5).parallel().new().scope(s).extend().draft(-5) as Rib;
+      render();
+
+      const shapes = r.getShapes();
+      expect(shapes.length).toBeGreaterThan(0);
+
+      // Cleanup must apply to drafted ribs too — slab-cut artifact faces
+      // remain coplanar after the draft (just tilted as a group), so
+      // UnifySameDomain should still merge them.
+      const faceCount = Explorer.findShapes(
+        shapes[0].getShape(),
+        Explorer.getOcShapeType('face'),
+      ).length;
+      expect(faceCount).toBeLessThan(30);
+    });
+
+    it("rib with .add() and draft fuses cleanly into the target solid", async () => {
+      // Reported case: with .add() (default) and .draft(), the rib fuses
+      // into the box but coplanar wall pieces split by the boolean fuse
+      // appear as visible "artifact seams" on the box's outer side and
+      // bottom faces. UnifySameDomain on the fuse output unifies them.
+      sketch("top", () => {
+        rect(100, 50).centered();
+      });
+      const box = extrude(30);
+      const shelled = shell(-4, box.endFaces());
+      const s = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
+
+      sketch("front", () => {
+        move([-40, 20]);
+        aLine(-45, 20);
+      });
+
+      rib(-5).parallel().scope(s).extend().draft(-5);
+      render();
+
+      // After fuse, the result lives on the rib's caller side. Pull all
+      // solid shapes from the scene and confirm none of them carry a wild
+      // face count — a typical pre-cleanup shape would have 60+ faces from
+      // slab + fuse splits; cleaned should be well under that.
+      const sceneMod = await import("../../scene-manager.js");
+      const scene = (sceneMod as { getCurrentScene: () => { getSceneObjects: () => SceneObject[] } }).getCurrentScene();
+      let totalFaces = 0;
+      for (const obj of scene.getSceneObjects()) {
+        for (const shape of obj.getShapes({}, 'solid')) {
+          totalFaces += Explorer.findShapes(shape.getShape(), Explorer.getOcShapeType('face')).length;
+        }
+      }
+      expect(totalFaces).toBeGreaterThan(0);
+      expect(totalFaces).toBeLessThan(60);
+    });
+
+    it("normal-mode rib with .draft() and .new() should not produce a degenerate sliver solid", () => {
+      // Reported case: normal-mode rib drafted at 4° with .new() and a
+      // spine starting at the box wall (x=-50) produces a main rib plus a
+      // thin L-shaped sliver next to it. The sliver is a separate solid
+      // that survives the spine-proximity filter.
+      sketch("top", () => {
+        rect(100, 50).centered();
+      });
+      const box = extrude(30);
+      const shelled = shell(-4, box.endFaces());
+      const filleted = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
+
+      sketch(box.endFaces(), () => {
+        hLine([-50, 0], 30);
+      });
+
+      const r = rib(-5).draft(4).new().scope(filleted) as Rib;
+      render();
+
+      const shapes = r.getShapes();
+      // Should be exactly one solid — no sliver fragments.
+      expect(shapes.length).toBe(1);
+    });
+
     it("rib without .extend() does not over-extend the spine", () => {
       // Same scope as the basic parallel rib, but no .extend(). The rib must
       // stay within the original spine extents (the +bbox-diagonal extension

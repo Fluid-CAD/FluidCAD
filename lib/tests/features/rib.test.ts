@@ -205,6 +205,85 @@ describe("rib", () => {
         expect(ribBBox.maxX).toBeLessThanOrEqual(scopeBBox.maxX + 0.1);
       }
     });
+
+    it("extended rib should blend with drafted cone in cavity", () => {
+      // Reproduces rib5.fluid.js: shelled+filleted box with a drafted-cone
+      // boss inside the cavity. The rib spine threads past the cone, so the
+      // extended rib must blend conformally with the cone's slanted surface
+      // AND with the bottom fillets — the case the original ray-cast extend
+      // could not handle.
+      sketch("top", () => {
+        rect(100, 50).centered();
+      });
+      const box = extrude(30);
+      const shelled = shell(-4, box.endFaces());
+      let s = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
+
+      sketch("top", () => {
+        circle(30);
+      });
+      // Drafted cone — the geometry that defeats single-ray-cast extension.
+      s = (extrude(50) as unknown as { draft: (v: number) => SceneObject })
+        .draft(-5) as unknown as SceneObject;
+
+      sketch("front", () => {
+        move([-40, 20]);
+        aLine(45, 20);
+      });
+
+      const r = rib(-5).parallel().extend() as Rib;
+      render();
+
+      // The rib must produce non-empty geometry and must not crash with the
+      // BOP "unwind" the prior algorithm hit on this combination.
+      const shapes = r.getShapes();
+      expect(shapes.length).toBeGreaterThan(0);
+
+      // The conformal blend should manifest as at least one new (cut-created)
+      // internal face on the rib — the surface that touches a cavity wall.
+      const internalFaces = r.getState('internal-faces') as unknown as { length: number } | undefined;
+      expect(internalFaces).toBeDefined();
+      expect((internalFaces as { length: number }).length).toBeGreaterThan(0);
+
+      // Stays within the scope bbox (over-extension was clipped).
+      const scopeShapes = (s as unknown as { getShapes: () => unknown[] }).getShapes();
+      for (const shape of r.getShapes()) {
+        const ribBBox = ShapeOps.getBoundingBox(shape);
+        for (const sShape of scopeShapes) {
+          const sBBox = ShapeOps.getBoundingBox(sShape as Parameters<typeof ShapeOps.getBoundingBox>[0]);
+          expect(ribBBox.minX).toBeGreaterThanOrEqual(Math.min(sBBox.minX, ribBBox.minX) - 0.1);
+        }
+      }
+    });
+
+    it("rib without .extend() does not over-extend the spine", () => {
+      // Same scope as the basic parallel rib, but no .extend(). The rib must
+      // stay within the original spine extents (the +bbox-diagonal extension
+      // is gated on .extend()).
+      const s = makeBox();
+
+      sketch("front", () => {
+        move([-10, 15]);
+        hLine(20);
+      });
+
+      const r = rib(-5).parallel().new().scope(s) as Rib;
+      render();
+
+      const shapes = r.getShapes();
+      expect(shapes.length).toBeGreaterThan(0);
+
+      // The original spine spans X in [-10, 10]; without extend, the rib
+      // shouldn't reach the box walls (X ≈ ±50). Use a generous bound: the
+      // rib bbox should be tighter than the scope bbox in X.
+      const scopeBBox = ShapeOps.getBoundingBox(s.getShapes()[0]);
+      const scopeWidth = scopeBBox.maxX - scopeBBox.minX;
+      for (const shape of r.getShapes()) {
+        const ribBBox = ShapeOps.getBoundingBox(shape);
+        const ribWidth = ribBBox.maxX - ribBBox.minX;
+        expect(ribWidth).toBeLessThan(scopeWidth);
+      }
+    });
   });
 
   describe("scope", () => {

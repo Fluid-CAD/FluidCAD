@@ -316,6 +316,40 @@ describe("rib", () => {
       }
     });
 
+    it("extended rib in .new() mode unifies coplanar artifact faces", () => {
+      // The slab clips and scope cut leave coplanar sub-faces and seam edges
+      // on flat walls of the rib. UnifySameDomain post-pass should merge
+      // them. For this geometry (parallel rib in a shelled box), the rib
+      // should have well under 30 faces — the unmerged version had 40+.
+      const s = makeBox();
+
+      sketch("front", () => {
+        move([-40, 20]);
+        aLine(45, 20);
+      });
+
+      const r = rib(-5).parallel().new().scope(s).extend() as Rib;
+      render();
+
+      const shapes = r.getShapes();
+      expect(shapes.length).toBeGreaterThan(0);
+
+      // Count distinct faces on the rib shape; should be well below the
+      // pre-cleanup count.
+      const faceCount = Explorer.findShapes(
+        shapes[0].getShape(),
+        Explorer.getOcShapeType('face'),
+      ).length;
+      expect(faceCount).toBeLessThan(30);
+
+      // Side and start/end face buckets must still be populated after the
+      // cleanup remapping (i.e. lineage was applied correctly).
+      const startFaces = r.getState('start-faces') as unknown as { length: number } | undefined;
+      const sideFaces = r.getState('side-faces') as unknown as { length: number } | undefined;
+      expect(startFaces?.length ?? 0).toBeGreaterThan(0);
+      expect(sideFaces?.length ?? 0).toBeGreaterThan(0);
+    });
+
     it("rib without .extend() does not over-extend the spine", () => {
       // Same scope as the basic parallel rib, but no .extend(). The rib must
       // stay within the original spine extents (the +bbox-diagonal extension

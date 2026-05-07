@@ -98,14 +98,17 @@ export class RibOps {
     intersector.Load(shape.getShape(), 1e-7);
     intersector.Perform(line, 0, 1e10);
 
-    let dist = 0;
+    let dist = Infinity;
     if (intersector.IsDone()) {
       for (let i = 1; i <= intersector.NbPnt(); i++) {
         const w = intersector.WParameter(i);
-        if (w > dist) {
+        if (w > 1e-6 && w < dist) {
           dist = w;
         }
       }
+    }
+    if (!isFinite(dist)) {
+      dist = 0;
     }
 
     intersector.delete();
@@ -173,13 +176,70 @@ export class RibOps {
   }
 
   static trimRibToScope(ribSolid: Shape, scopeShapes: Shape[]): Shape[] {
+    // Step 1: clip to scope bounding box using axis-aligned half-space slabs.
+    // This handles material that protrudes through openings in the scope.
+    let trimmed = ribSolid;
+    const slabs = RibOps.buildBoundingBoxSlabs(scopeShapes);
+    for (const slab of slabs) {
+      trimmed = BooleanOps.cutShapes(trimmed, slab);
+    }
+
+    // Step 2: cut wall material from the rib (blends rib with scope walls).
     const scopeCompound = ShapeOps.makeCompound(scopeShapes);
-    const result = BooleanOps.cutShapes(ribSolid, scopeCompound);
+    const result = BooleanOps.cutShapes(trimmed, scopeCompound);
     const solids = Explorer.findShapes(result.getShape(), Explorer.getOcShapeType("solid"));
     if (solids.length === 0) {
       return [result];
     }
     return solids.map(s => ShapeFactory.fromShape(s));
+  }
+
+  private static buildBoundingBoxSlabs(scopeShapes: Shape[]): Shape[] {
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (const s of scopeShapes) {
+      const bbox = ShapeOps.getBoundingBox(s);
+      minX = Math.min(minX, bbox.minX); minY = Math.min(minY, bbox.minY); minZ = Math.min(minZ, bbox.minZ);
+      maxX = Math.max(maxX, bbox.maxX); maxY = Math.max(maxY, bbox.maxY); maxZ = Math.max(maxZ, bbox.maxZ);
+    }
+
+    const BIG = 10000;
+    return [
+      RibOps.makeAxisAlignedSlab(minX - BIG, -BIG, -BIG, minX, BIG, BIG),
+      RibOps.makeAxisAlignedSlab(maxX, -BIG, -BIG, maxX + BIG, BIG, BIG),
+      RibOps.makeAxisAlignedSlab(-BIG, minY - BIG, -BIG, BIG, minY, BIG),
+      RibOps.makeAxisAlignedSlab(-BIG, maxY, -BIG, BIG, maxY + BIG, BIG),
+      RibOps.makeAxisAlignedSlab(-BIG, -BIG, minZ - BIG, BIG, BIG, minZ),
+      RibOps.makeAxisAlignedSlab(-BIG, -BIG, maxZ, BIG, BIG, maxZ + BIG),
+    ];
+  }
+
+  private static makeAxisAlignedSlab(
+    x1: number, y1: number, z1: number,
+    x2: number, y2: number, z2: number,
+  ): Shape {
+    const c1 = new Point(x1, y1, z1);
+    const c2 = new Point(x2, y1, z1);
+    const c3 = new Point(x2, y2, z1);
+    const c4 = new Point(x1, y2, z1);
+
+    const wire = WireOps.makeWireFromEdges([
+      EdgeOps.makeLineEdge(c1, c2),
+      EdgeOps.makeLineEdge(c2, c3),
+      EdgeOps.makeLineEdge(c3, c4),
+      EdgeOps.makeLineEdge(c4, c1),
+    ]);
+    const face = Face.fromTopoDSFace(
+      FaceOps.makeFaceFromWires([wire.getShape() as TopoDS_Wire]),
+    );
+    const oc = getOC();
+    const dz = z2 - z1;
+    const [vec, dispose] = Convert.toGpVec(new Vector3d(0, 0, dz));
+    const prism = new oc.BRepPrimAPI_MakePrism(face.getShape(), vec, false, true);
+    const result = prism.Shape();
+    prism.delete();
+    dispose();
+    return ShapeFactory.fromShape(result);
   }
 
   private static offsetWireOnPlane(wire: Wire, plane: Plane, distance: number): Wire {

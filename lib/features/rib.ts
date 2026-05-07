@@ -167,7 +167,10 @@ export class Rib extends ExtrudeBase implements IRib {
       ? (remap.get(this.extrudable) || this.extrudable) as Extrudable
       : undefined;
     const spine = remap.get(this._spine) || this._spine;
-    return new Rib(this._thickness, spine, extrudable).syncWith(this);
+    const copy = new Rib(this._thickness, spine, extrudable).syncWith(this) as Rib;
+    copy._parallel = this._parallel;
+    copy._extend = this._extend;
+    return copy;
   }
 
   compareTo(other: Rib): boolean {

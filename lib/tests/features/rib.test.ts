@@ -256,6 +256,66 @@ describe("rib", () => {
       }
     });
 
+    it("repeat circular on extended rib should produce valid copies", async () => {
+      const repeatModule = await import("../../core/repeat.js");
+      const repeat = (repeatModule as { default: (...args: unknown[]) => SceneObject }).default;
+
+      sketch("top", () => {
+        rect(100, 50).centered();
+      });
+      const box = extrude(30);
+      const shelled = shell(-4, box.endFaces());
+      let s = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
+
+      sketch("top", () => {
+        circle(30);
+      });
+      s = (extrude(50) as unknown as { draft: (v: number) => SceneObject })
+        .draft(-5) as unknown as SceneObject;
+
+      sketch("front", () => {
+        move([-40, 20]);
+        aLine(45, 20);
+      });
+
+      const r = rib(-5).parallel().new().scope(s).extend() as Rib;
+
+      repeat("circular", "z", { count: 4, angle: 360 }, r);
+      render();
+
+      // The original rib must still produce geometry.
+      expect(r.getShapes().length).toBeGreaterThan(0);
+      const origBBox = ShapeOps.getBoundingBox(r.getShapes()[0]);
+      const origDx = origBBox.maxX - origBBox.minX;
+      const origDy = origBBox.maxY - origBBox.minY;
+      const origDz = origBBox.maxZ - origBBox.minZ;
+      const origVol = origDx * origDy * origDz;
+
+      // Find all rib clones in the scene.
+      const sceneMod = await import("../../scene-manager.js");
+      const scene = (sceneMod as { getCurrentScene: () => { getSceneObjects: () => SceneObject[] } }).getCurrentScene();
+      const allObjs = scene.getSceneObjects();
+      const ribClones = allObjs.filter(o =>
+        o instanceof Rib && o !== r && (o as unknown as { getCloneSource: () => SceneObject | null }).getCloneSource() === r
+      );
+
+      // 3 clones expected (count=4 minus the original).
+      expect(ribClones.length).toBe(3);
+
+      // Each clone must produce a solid of similar bbox volume to the
+      // original — rotation around Z preserves the rib's geometry, so any
+      // significant size mismatch means a build flag (e.g. parallel/extend)
+      // wasn't propagated through createCopy.
+      for (const clone of ribClones) {
+        const cloneShapes = clone.getShapes();
+        expect(cloneShapes.length).toBeGreaterThan(0);
+        const cBBox = ShapeOps.getBoundingBox(cloneShapes[0]);
+        const cVol = (cBBox.maxX - cBBox.minX) * (cBBox.maxY - cBBox.minY) * (cBBox.maxZ - cBBox.minZ);
+        expect(cVol / origVol).toBeGreaterThan(0.7);
+        expect(cVol / origVol).toBeLessThan(1.3);
+      }
+    });
+
     it("rib without .extend() does not over-extend the spine", () => {
       // Same scope as the basic parallel rib, but no .extend(). The rib must
       // stay within the original spine extents (the +bbox-diagonal extension

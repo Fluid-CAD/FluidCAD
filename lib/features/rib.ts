@@ -150,15 +150,22 @@ export class Rib extends ExtrudeBase implements IRib {
         // OPPOSITE direction of the extrude. This places the entire rib
         // body on the +dir side of the neutral plane, so OCC's draft
         // tilts walls coherently around a pivot OUTSIDE the rib.
-        // Empirically OCC's BRepOffsetAPI_DraftAngle returns IsDone=true
-        // but does nothing when the neutral plane is at the wall
-        // boundary; placing it 0.1mm "above" the spine (in -direction)
-        // gives OCC a stable pivot while keeping the spine face
-        // effectively unchanged (movement at the spine = 0.1*tan(angle)
-        // which is sub-precision for any reasonable draft angle).
+        // Empirically BRepOffsetAPI_DraftAngle returns IsDone=true but
+        // does nothing when the neutral plane sits exactly at the wall
+        // boundary; placing it just past the spine gives OCC a stable
+        // pivot.
+        //
+        // The shift is scaled to the rib thickness (2%) so the
+        // induced spine-plane movement (= shift * tan(angle)) is
+        // sub-precision relative to the rib's own size. A fixed shift
+        // would either fail to register with OCC for very thick ribs
+        // or produce visible thickness artifacts on very thin ones
+        // (e.g. a 0.1mm shift on a 0.25mm-thick rib changed the
+        // start-face thickness from 0.250 to 0.278 — visibly wrong).
+        const shiftMag = Math.max(Math.abs(this._thickness) * 0.02, 1e-4);
         const spineOrigin = originalSpineWire.getFirstVertex().toPoint();
         const dn = direction.normalize();
-        const shifted = spineOrigin.add(dn.multiply(-0.1));
+        const shifted = spineOrigin.add(dn.multiply(-shiftMag));
         draftPlane = new Plane(shifted, plane.normal, dn);
       } else {
         draftPlane = plane;

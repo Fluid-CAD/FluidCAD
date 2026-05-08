@@ -109,7 +109,7 @@ export class Rib extends ExtrudeBase implements IRib {
     }
 
     const conformed = p.record('Conform rib', () =>
-      RibOps.conformRibToScope(ribSolid, scopeShapes, originalSpineWire, ribFirstFace, ribLastFace),
+      RibOps.conformRibToScope(ribSolid, scopeShapes, originalSpineWire, ribFirstFace, ribLastFace, direction),
     );
 
     let classified: ClassifiedFaces = {

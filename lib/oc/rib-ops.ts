@@ -43,6 +43,49 @@ function planesEqual(
   return d <= distTol;
 }
 
+// Linearly samples points along a polyline wire by edge length. Used by
+// the rib conformance to test which output solid encloses the spine
+// (real rib) vs. only touches its boundary (phantom fragment).
+function sampleSpinePoints(spineWire: Wire, count: number): Point[] {
+  const edges = spineWire.getEdges();
+  if (edges.length === 0) {
+    return [];
+  }
+  const verts: Point[] = [edges[0].getFirstVertex().toPoint()];
+  for (const e of edges) {
+    verts.push(e.getLastVertex().toPoint());
+  }
+  // Cumulative arc length along the polyline.
+  const cum: number[] = [0];
+  for (let i = 1; i < verts.length; i++) {
+    cum.push(cum[i - 1] + verts[i - 1].vectorTo(verts[i]).length());
+  }
+  const total = cum[cum.length - 1];
+  if (total <= 0) {
+    return [verts[0]];
+  }
+  const out: Point[] = [];
+  // Skip pure endpoints — they often coincide with cut boundaries and
+  // classify as TopAbs_ON. Sample at fractions 1/(N+1) … N/(N+1).
+  for (let i = 1; i <= count; i++) {
+    const target = (total * i) / (count + 1);
+    let seg = 1;
+    while (seg < cum.length - 1 && cum[seg] < target) {
+      seg++;
+    }
+    const segLen = cum[seg] - cum[seg - 1];
+    const t = segLen > 0 ? (target - cum[seg - 1]) / segLen : 0;
+    const a = verts[seg - 1];
+    const b = verts[seg];
+    out.push(new Point(
+      a.x + (b.x - a.x) * t,
+      a.y + (b.y - a.y) * t,
+      a.z + (b.z - a.z) * t,
+    ));
+  }
+  return out;
+}
+
 export class RibOps {
 
   static makeRibProfile(spineWire: Wire, thickness: number, plane: Plane): Face {
@@ -195,6 +238,7 @@ export class RibOps {
     originalSpineWire: Wire,
     prismFirstFace: Shape,
     prismLastFace: Shape,
+    extrudeDirection: Vector3d,
   ): RibConformResult {
     const oc = getOC();
 
@@ -237,48 +281,63 @@ export class RibOps {
     const rawSolids = Explorer.findShapes(cutResult, Explorer.getOcShapeType("solid"));
     const allSolids = rawSolids.map(s => ShapeFactory.fromShape(s));
 
-    // Pick the connected component(s) that contain the original spine. Outer
-    // fragments left behind by over-extension fall out here.
-    const tol = oc.Precision.Confusion() * 10;
-    const candidates: { solid: Shape; volume: number }[] = [];
+    // Pick the solid(s) whose interior contains the original spine. The
+    // rib was built by extruding a profile centred on the spine, so the
+    // spine lies inside the rib's volume by construction. Phantom
+    // fragments left by the boolean cut (thin shells tracing cavity
+    // walls, slivers at wall corners, outer over-extension leftovers)
+    // touch the spine on their boundary at most — never enclose it.
+    //
+    // We sample multiple points along the spine and use OCC's
+    // BRepClass3d_SolidClassifier to test interior containment. A solid
+    // is kept iff at least one sampled point classifies as TopAbs_IN
+    // (= strictly inside, not on the boundary). This naturally handles
+    // every threshold-prone case the previous distance + volume filter
+    // missed:
+    //   - L-shaped wall-trace phantoms (boundary contact, no interior
+    //     containment) → dropped.
+    //   - sub-mm³ corner slivers → dropped.
+    //   - rib that legitimately splits past a cone into two halves →
+    //     each half contains its own portion of the spine, both kept.
+    const tolPoint = oc.Precision.Confusion() * 10;
+    // The spine itself lies ON the prism's start face, so testing
+    // raw spine points returns TopAbs_ON for the real rib too. Nudge
+    // each sample point a small distance along the extrude direction
+    // (= into the rib body, away from the start face) so an interior
+    // hit means the solid encloses the spine plus a thin ribbon
+    // forward of it — characteristic of the real rib but not of
+    // wall-trace phantoms or boundary slivers.
+    const dn = extrudeDirection.normalize();
+    const nudge = 1e-2;
+    const samplePoints = sampleSpinePoints(originalSpineWire, 7).map(pt =>
+      pt.add(dn.multiply(nudge)),
+    );
+    const keptSolids: Shape[] = [];
     for (const solid of allSolids) {
-      const distCalc = new oc.BRepExtrema_DistShapeShape(
-        solid.getShape(),
-        originalSpineWire.getShape(),
-        oc.Extrema_ExtFlag.Extrema_ExtFlag_MIN,
-        oc.Extrema_ExtAlgo.Extrema_ExtAlgo_Grad,
-        progress,
-      );
-      const d = distCalc.IsDone() ? distCalc.Value() : Infinity;
-      distCalc.delete();
-      if (d > tol) {
-        continue;
+      let containsSpine = false;
+      for (const pt of samplePoints) {
+        const [gpPnt, dispose] = Convert.toGpPnt(pt);
+        const classifier = new oc.BRepClass3d_SolidClassifier(
+          solid.getShape(), gpPnt, tolPoint,
+        );
+        const state = classifier.State();
+        classifier.delete();
+        dispose();
+        if (state === oc.TopAbs_State.TopAbs_IN) {
+          containsSpine = true;
+          break;
+        }
       }
-      const vp = new oc.GProp_GProps();
-      oc.BRepGProp.VolumeProperties(solid.getShape(), vp, false, false, false);
-      const volume = vp.Mass();
-      vp.delete();
-      candidates.push({ solid, volume });
+      if (containsSpine) {
+        keptSolids.push(solid);
+      }
     }
-
-    // Drop degenerate / phantom fragments: BOP can leave thin slivers at
-    // wall corners that touch the original spine within tolerance but are
-    // orders of magnitude smaller than the real rib body. Threshold at
-    // 1% of the largest kept volume catches:
-    //   - sub-mm³ slivers (typical: 0.5 mm³ vs 5000 mm³ rib, factor 1e4)
-    //   - L-shaped phantoms tracing cavity walls (typical: a few mm³ vs
-    //     hundreds of mm³ rib, factor ~100)
-    // and is still permissive enough for legitimate split pieces (e.g. a
-    // rib spine threading past a cone produces two halves of comparable
-    // volume, a factor < 10).
-    const maxVolume = candidates.reduce((m, c) => Math.max(m, c.volume), 0);
-    const volumeMin = maxVolume * 0.01;
-    const keptSolids: Shape[] = candidates
-      .filter(c => c.volume >= volumeMin)
-      .map(c => c.solid);
 
     let resultSolids = keptSolids;
     if (resultSolids.length === 0 && allSolids.length > 0) {
+      // Fallback: if no solid contained any sampled spine point (rare —
+      // would mean every sample landed exactly on a face), keep the
+      // largest by volume. Defensive — shouldn't trip in practice.
       let best: Shape | null = null;
       let bestVol = -Infinity;
       for (const s of allSolids) {

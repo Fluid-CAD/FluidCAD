@@ -1,5 +1,6 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Edge } from "../common/edge.js";
+import { Face } from "../common/face.js";
 import { Wire } from "../common/wire.js";
 import { Extrudable } from "../helpers/types.js";
 import { ClassifiedFaces, ExtrudeBase } from "./extrude-base.js";
@@ -95,39 +96,9 @@ export class Rib extends ExtrudeBase implements IRib {
       ExtrudeOps.makePrismFromVec(profileFace, vec),
     );
 
-    let ribSolid = solid;
-    let ribFirstFace = firstFace;
-    let ribLastFace = lastFace;
-
-    if (this.getDraft()) {
-      const draft = this.getDraft()!;
-      let angle = draft[0];
-
-      // The draft "neutral plane" must be perpendicular to the extrude
-      // direction. Normal mode: that's the sketch plane. Parallel mode:
-      // synthesize a plane whose normal is the signed extrude direction.
-      const draftPlane = this._parallel
-        ? new Plane(plane.origin, plane.normal, direction.normalize())
-        : plane;
-
-      // OCC's BRepOffsetAPI_DraftAngle uses an "outward bias" — positive
-      // angle widens the part on the dir side. We want the user-facing
-      // convention "positive draft tapers the rib inward as it extends",
-      // so we negate when the dir we hand OCC matches the extrude sign:
-      //   - normal mode: matches only when thickness > 0
-      //   - parallel mode: always (draftPlane is built from signed direction)
-      if (this._parallel || this._thickness > 0) {
-        angle = -angle;
-      }
-      const rad = (deg: number) => deg * Math.PI / 180;
-
-      const draftResult = p.record('Apply draft', () =>
-        ExtrudeOps.applyDraftOnSideFaces(ribSolid, ribFirstFace, ribLastFace, draftPlane, rad(angle)),
-      );
-      ribSolid = draftResult.solid;
-      ribFirstFace = draftResult.firstFace;
-      ribLastFace = draftResult.lastFace;
-    }
+    const ribSolid = solid;
+    const ribFirstFace = firstFace;
+    const ribLastFace = lastFace;
 
     this.extrudable.removeShapes(this);
     if (this._spine !== (this.extrudable as unknown as SceneObject)) {
@@ -138,13 +109,100 @@ export class Rib extends ExtrudeBase implements IRib {
       RibOps.conformRibToScope(ribSolid, scopeShapes, originalSpineWire, ribFirstFace, ribLastFace),
     );
 
-    const classified: ClassifiedFaces = {
+    let classified: ClassifiedFaces = {
       startFaces: conformed.startFaces,
       endFaces: conformed.endFaces,
       sideFaces: conformed.sideFaces,
       internalFaces: conformed.internalFaces,
       capFaces: [],
     };
+    let conformedSolids = conformed.solids;
+
+    // Draft is applied AFTER conformance so the prism walls are already
+    // bounded by the cavity. Drafting the over-extended pre-conform
+    // prism caused OCC to fail (walls would cross within the over-
+    // extension); the conformed rib is finite, so OCC handles strong
+    // drafts cleanly.
+    //
+    // The neutral plane (= where draft = 0) is anchored at the spine
+    // plane in parallel mode so the face the user originally drew stays
+    // at the original thickness; in normal mode the sketch plane
+    // already coincides with the prism base.
+    if (this.getDraft() && conformedSolids.length === 1 && classified.startFaces.length > 0) {
+      const draft = this.getDraft()!;
+      let angle = draft[0];
+
+      let draftPlane: Plane;
+      if (this._parallel) {
+        // Anchor the neutral plane just past the spine plane in the
+        // OPPOSITE direction of the extrude. This places the entire rib
+        // body on the +dir side of the neutral plane, so OCC's draft
+        // tilts walls coherently around a pivot OUTSIDE the rib.
+        // Empirically OCC's BRepOffsetAPI_DraftAngle returns IsDone=true
+        // but does nothing when the neutral plane is at the wall
+        // boundary; placing it 0.1mm "above" the spine (in -direction)
+        // gives OCC a stable pivot while keeping the spine face
+        // effectively unchanged (movement at the spine = 0.1*tan(angle)
+        // which is sub-precision for any reasonable draft angle).
+        const spineOrigin = originalSpineWire.getFirstVertex().toPoint();
+        const dn = direction.normalize();
+        const shifted = spineOrigin.add(dn.multiply(-0.1));
+        draftPlane = new Plane(shifted, plane.normal, dn);
+      } else {
+        draftPlane = plane;
+      }
+
+      if (this._thickness > 0) {
+        angle = -angle;
+      }
+      const rad = (deg: number) => deg * Math.PI / 180;
+
+      const draftResult = p.record('Apply draft', () => {
+        // Use the first start face as the OCC "firstFace" param (pivot
+        // anchor). When the conformance trimmed the original end face
+        // into the cavity (so endFaces is empty), the tip is already
+        // captured as an internal face — we pass startFaces[0] as the
+        // "lastFace" placeholder so its IsSame check is a no-op (it'll
+        // also match firstFace and so be excluded once). The actual tip
+        // surface stays excluded via the internalFaces argument.
+        const startRep = classified.startFaces[0];
+        const endRep = classified.endFaces[0] ?? startRep;
+        // Anything in start/end beyond the chosen rep gets excluded too,
+        // so OCC won't try to tilt the other start / end pieces.
+        const excludes = [
+          ...classified.startFaces.slice(1),
+          ...classified.endFaces.slice(classified.endFaces[0] === endRep ? 1 : 0),
+          ...classified.internalFaces,
+        ];
+        return ExtrudeOps.applyDraftOnSideFaces(
+          conformedSolids[0],
+          startRep,
+          endRep,
+          draftPlane,
+          rad(angle),
+          excludes,
+        );
+      });
+
+      const remap = (faces: Face[]): Face[] => {
+        const out: Face[] = [];
+        for (const f of faces) {
+          for (const r of draftResult.remapFace(f)) {
+            out.push(r as Face);
+          }
+        }
+        return out;
+      };
+
+      classified = {
+        startFaces: remap(classified.startFaces),
+        endFaces: remap(classified.endFaces),
+        sideFaces: remap(classified.sideFaces),
+        internalFaces: remap(classified.internalFaces),
+        capFaces: [],
+      };
+      conformedSolids = [draftResult.solid];
+    }
 
     if (this._operationMode === 'new') {
       this.setState('start-faces', classified.startFaces);
@@ -152,13 +210,13 @@ export class Rib extends ExtrudeBase implements IRib {
       this.setState('side-faces', classified.sideFaces);
       this.setState('internal-faces', classified.internalFaces);
       this.setState('cap-faces', classified.capFaces);
-      this.addShapes(conformed.solids);
-      this.recordShapeFacesAndEdgesAsAdditions(conformed.solids);
+      this.addShapes(conformedSolids);
+      this.recordShapeFacesAndEdgesAsAdditions(conformedSolids);
       this.classifyExtrudeEdges();
       return;
     }
 
-    this.finalizeAndFuse(conformed.solids, classified, context);
+    this.finalizeAndFuse(conformedSolids, classified, context);
   }
 
   private getSpineWire(pathObj: SceneObject): Wire {

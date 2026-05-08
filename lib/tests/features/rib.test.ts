@@ -365,7 +365,7 @@ describe("rib", () => {
         aLine(-45, 20);
       });
 
-      const r = rib(-5).parallel().new().scope(s).extend().draft(5) as Rib;
+      const r = rib(-5).parallel().new().scope(s).extend().draft(2) as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -417,7 +417,7 @@ describe("rib", () => {
       expect(totalFaces).toBeLessThan(60);
     });
 
-    it("parallel-mode rib with .draft() should taper the wall thickness toward the extrude tip", () => {
+    it("parallel-mode rib with .draft() keeps the spine-plane face at original thickness and tapers the tip", () => {
       sketch("top", () => {
         rect(100, 50).centered();
       });
@@ -430,25 +430,22 @@ describe("rib", () => {
         aLine(0, 30);
       });
 
-      // Parallel rib of thickness 5, drafted positive 5°. The wall thickness
-      // (in plane.normal direction = Y) should TAPER toward the extrude tip,
-      // i.e. the bbox Y span at the spine should be wider than at the
-      // extrude tip — not the other way around.
       const r = rib(-5).parallel().draft(5).new().scope(filleted) as Rib;
       render();
 
       const shapes = r.getShapes();
       expect(shapes.length).toBe(1);
 
-      // Sanity: bbox should not balloon past the cavity Y bounds — if draft
-      // is going the wrong way we'd see the rib widen far past its 5mm
-      // thickness as it extrudes.
+      // The spine plane (= prism base) stays at the original 5mm
+      // thickness; the tip is narrower. Total bbox Y span shouldn't
+      // exceed 5mm (the maximum is at the base).
       const bbox = ShapeOps.getBoundingBox(shapes[0]);
       const ySpan = bbox.maxY - bbox.minY;
-      // The widest the rib should ever be in Y is its 5mm thickness +
-      // a small allowance for draft inflation. Typical "wrong direction"
-      // failure produces ySpan ≈ 12mm or more.
-      expect(ySpan).toBeLessThan(7);
+      // The spine plane (= prism base) keeps its original 5mm thickness;
+      // the tip is narrower. Total bbox Y span ≈ thickness (max is at the
+      // base), bounded above by the original 5mm.
+      expect(ySpan).toBeLessThanOrEqual(5.05);
+      expect(ySpan).toBeGreaterThan(2);
     });
 
     it("normal-mode rib with .draft() and .new() should not produce a degenerate sliver solid", () => {

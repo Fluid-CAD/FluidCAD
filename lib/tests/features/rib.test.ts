@@ -472,6 +472,54 @@ describe("rib", () => {
       expect(shapes.length).toBe(1);
     });
 
+    it("repeat circular preserves draft on every rotated clone", async () => {
+      const repeatModule = await import("../../core/repeat.js");
+      const repeat = (repeatModule as { default: (...args: unknown[]) => SceneObject }).default;
+
+      sketch("top", () => {
+        rect(100).centered();
+      });
+      const box = extrude(30);
+      const shelled = shell(-4, box.endFaces());
+      let s = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
+
+      sketch("top", () => {
+        circle(30);
+      });
+      s = (extrude(50) as unknown as { draft: (v: number) => SceneObject })
+        .draft(-5) as unknown as SceneObject;
+
+      sketch("front", () => {
+        move([-40, 20]);
+        aLine(45, 20);
+      });
+
+      const r = rib(-5).parallel().extend().new().scope(s).draft(-4) as Rib;
+      repeat("circular", "z", { count: 4, angle: 360 }, r);
+      render();
+
+      const sceneMod = await import("../../scene-manager.js");
+      const scene = (sceneMod as { getCurrentScene: () => { getSceneObjects: () => SceneObject[] } }).getCurrentScene();
+      const ribClones = scene.getSceneObjects().filter(o =>
+        o instanceof Rib && o !== r && (o as unknown as { getCloneSource: () => SceneObject | null }).getCloneSource() === r
+      );
+      expect(ribClones.length).toBe(3);
+
+      // Original has draft → its bbox spans more in plane.normal than
+      // the slab thickness 5mm at one end. Each clone must show the same
+      // draft signature: the post-conform ribs all came from the same
+      // build, so their bbox volumes must agree within ~5%.
+      const origVol = ShapeOps.getBoundingBox(r.getShapes()[0]);
+      const origBboxVol = (origVol.maxX - origVol.minX) * (origVol.maxY - origVol.minY) * (origVol.maxZ - origVol.minZ);
+      for (const clone of ribClones) {
+        const cBBox = ShapeOps.getBoundingBox(clone.getShapes()[0]);
+        const cBboxVol = (cBBox.maxX - cBBox.minX) * (cBBox.maxY - cBBox.minY) * (cBBox.maxZ - cBBox.minZ);
+        const ratio = cBboxVol / origBboxVol;
+        expect(ratio).toBeGreaterThan(0.95);
+        expect(ratio).toBeLessThan(1.05);
+      }
+    });
+
     it("normal-mode rib spine starting at cavity wall: positive draft must not throw", () => {
       // Reported case: rib spine starts AT the inner cavity wall (X=-46
       // after shell -4 from a box centred at X=0, half-width 50). With

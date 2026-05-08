@@ -6,6 +6,7 @@ import { Extrudable } from "../helpers/types.js";
 import { ClassifiedFaces, ExtrudeBase } from "./extrude-base.js";
 import { IRib } from "../core/interfaces.js";
 import { Plane } from "../math/plane.js";
+import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
 import { Explorer } from "../oc/explorer.js";
@@ -306,27 +307,37 @@ export class Rib extends ExtrudeBase implements IRib {
 // tilt to extend into.
 function findScopeCoincidentFaces(ribSideFaces: Face[], scopeShapes: Shape[]): Face[] {
   const out: Face[] = [];
-  // Pre-compute every planar scope face once.
-  const scopePlanarFaces: Face[] = [];
+  const scopePlanarFaces: { face: Face; origin: Point; normal: Vector3d }[] = [];
   for (const scope of scopeShapes) {
     const rawFaces = Explorer.findShapes(scope.getShape(), Explorer.getOcShapeType("face"));
     for (const rf of rawFaces) {
       const wrapped = Face.fromTopoDSFace(Explorer.toFace(rf));
-      if (FaceQuery.getSurfaceType(wrapped) === "plane") {
-        scopePlanarFaces.push(wrapped);
+      if (FaceQuery.getSurfaceType(wrapped) !== "plane") {
+        continue;
       }
+      const pl = FaceQuery.getSurfacePlane(wrapped);
+      scopePlanarFaces.push({ face: wrapped, origin: pl.origin, normal: pl.normal });
     }
   }
+  const tol = 1e-4;
   for (const rf of ribSideFaces) {
     if (FaceQuery.getSurfaceType(rf) !== "plane") {
       continue;
     }
-    for (const sf of scopePlanarFaces) {
-      if (!FaceQuery.areFacePlanesParallel(rf, sf)) {
+    const rPl = FaceQuery.getSurfacePlane(rf);
+    for (const { origin: sOrigin, normal: sNormal } of scopePlanarFaces) {
+      // Parallel test: |normal · normal'| ≈ 1
+      if (1 - Math.abs(rPl.normal.dot(sNormal)) > 1e-6) {
         continue;
       }
-      const dist = Math.abs(FaceQuery.getSignedPlaneDistance(rf, sf));
-      if (dist < 1e-4) {
+      // Coincidence test: perpendicular distance from one plane's origin
+      // to the other plane is below tolerance. (FaceQuery.getSignedPlaneDistance
+      // routes through gp_Pln.Distance, which returns 0 for parallel-but-
+      // separated planes — useless for coincidence — so we compute it
+      // directly here.)
+      const offset = sOrigin.vectorTo(rPl.origin);
+      const d = Math.abs(offset.dot(sNormal));
+      if (d <= tol) {
         out.push(rf);
         break;
       }

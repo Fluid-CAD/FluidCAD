@@ -1,0 +1,171 @@
+---
+sidebar_position: 12
+title: "Fork"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import forkFinal from '!!raw-loader!./_examples/fork-final.js';
+
+# Building a Fork
+
+![Finished fork](/img/docs/tutorials/fork-final.png)
+
+In this tutorial, you'll build a forked yoke from scratch, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=XuXgomMWouw). It covers offset arc profiles, sketch-local mirror axes, side-mounted bosses with through-holes, and using `.thin()` annular cuts to leave central features standing.
+
+Create a new file called `fork.fluid.js` in your project.
+
+## Setup
+
+Start with imports — everything comes from `fluidcad/core`.
+
+```js
+import { arc, circle, cut, extrude, local, mirror, move, offset,
+    plane, polygon, rect, sketch, vMove } from "fluidcad/core";
+```
+
+## Step 1: The fork silhouette
+
+The whole side profile is built up in a single sketch on the front plane: a U-shaped arch wall at the bottom, two rectangular legs flanking it, and a tall column on top.
+
+### Sketch the profile
+
+```js
+sketch("front", () => {
+    arc(18)
+    offset(-36 + 18).close()
+    move([18, 0])
+    const r = rect(18, -40)
+    mirror(local("y"), r)
+    move([0, 18])
+    rect(36, 129 - 18).centered('horizontal')
+});
+```
+
+`arc(18)` draws a semicircular arc of radius 18 from the origin — this is the inner edge of the arch. `offset(-36 + 18).close()` adds a parallel arc 18 units away and closes both ends, giving the arch a wall thickness of 18.
+
+`move([18, 0])` jumps the cursor to the right side of the arch, and `rect(18, -40)` drops an 18 x 40 leg straight down. `mirror(local("y"), r)` reflects that leg across the sketch's local Y-axis to produce the matching left leg.
+
+Finally `move([0, 18])` recenters the cursor on top of the arch and `rect(36, 129 - 18).centered('horizontal')` draws the 36-wide column going up to a total height of 129.
+
+![Fork silhouette sketch](/img/docs/tutorials/fork-step1-sketch.png)
+
+### Extrude the body
+
+```js
+extrude(36).symmetric();
+```
+
+`extrude(36).symmetric()` pushes the profile 18 units forward and 18 units back — a 36-deep body centered on the front plane.
+
+![Fork body](/img/docs/tutorials/fork-step1.png)
+
+## Step 2: The side bosses
+
+Each leg has a cylindrical boss sticking out the side. We'll model one and mirror it.
+
+### Sketch the boss
+
+```js
+sketch(plane("right", 18), () => {
+    vMove(-(167 - 129))
+    circle(60);
+});
+```
+
+`plane("right", 18)` creates a sketch plane on the right side of the column (x = 18). `vMove(-(167 - 129))` moves the cursor down 38 units on that plane, placing the boss center inside the leg region. `circle(60)` draws a 60-diameter circle at that point.
+
+![Boss sketch](/img/docs/tutorials/fork-step2-sketch.png)
+
+### Extrude and mirror
+
+```js
+const distance = (80 - 36) / 2
+const e = extrude(distance);
+
+mirror("right")
+```
+
+`extrude(distance)` pushes the circle outward by 22 units — the gap between the body's 36-wide footprint and the model's 80-wide overall span, divided by two. We capture the result in `e` so we can sketch on its end face later. `mirror("right")` reflects the new boss across the right plane to produce the matching one on the left side.
+
+![Both side bosses](/img/docs/tutorials/fork-step2.png)
+
+## Step 3: Bore through the bosses
+
+```js
+sketch(e.endFaces(), () => {
+    circle(30)
+});
+
+cut();
+```
+
+`e.endFaces()` returns the outer circular face of the right boss, and `circle(30)` draws a 30-diameter circle on it. `cut()` with no argument removes material straight through everything in line with the sketch — including both bosses thanks to the earlier mirror — leaving a clean through-hole on each side.
+
+![Bored bosses](/img/docs/tutorials/fork-step3.png)
+
+## Step 4: The cylindrical post
+
+The top of the column tapers down through two stages. The first cut leaves a small cylindrical post standing on top.
+
+### Sketch the post
+
+```js
+sketch(plane("top", 129), () => {
+    circle(30)
+});
+```
+
+`plane("top", 129)` is the top plane raised to z = 129, sitting flush with the top face of the column. `circle(30)` draws a 30-diameter circle there — this defines the *inside* edge of the cut, the part we want to keep.
+
+![Post circle](/img/docs/tutorials/fork-step4-sketch.png)
+
+### Cut the surrounding material
+
+```js
+extrude(20).thin(20).remove()
+```
+
+`.thin(20)` widens the circle into a 20-thick annular ring around it, `extrude(20)` gives that ring a 20-unit depth, and `.remove()` subtracts the result from the body. Because the ring is wider than the column's half-width, it sweeps every corner away and leaves only the central cylinder standing.
+
+![Cylindrical post](/img/docs/tutorials/fork-step4.png)
+
+## Step 5: The square boss
+
+The same trick works with a polygon. We use a 4-sided polygon to leave a rotated square section between the post and the main body.
+
+### Sketch the polygon
+
+```js
+sketch(plane("top", 129 - 20), () => {
+    polygon(4, 36, 'circumscribed')
+});
+```
+
+`plane("top", 129 - 20)` is the top plane offset to z = 109, exactly where the previous cut ended. `polygon(4, 36, 'circumscribed')` draws a 4-sided polygon circumscribed around a 36-diameter inscribed circle — a 36 x 36 square, oriented with its corners on the X and Y axes (rotated 45° relative to the main body).
+
+![Square sketch](/img/docs/tutorials/fork-step5-sketch.png)
+
+### Cut the surrounding material
+
+```js
+extrude(45).thin(20).remove()
+```
+
+Same pattern as the post: a 20-thick annular ring around the square, extruded down 45 units and removed. The body's outer corners — which extend further out than the square's edges — get sliced away, leaving a clean rotated-square cross-section through that portion of the column.
+
+![Finished fork](/img/docs/tutorials/fork-final.png)
+
+## Full code
+
+<CodeBlock language="js">{forkFinal}</CodeBlock>
+
+## What you practiced
+
+- **`arc()` + `offset().close()`** — building a U-shaped wall from a single semicircle
+- **`local("y")`** — mirroring sketch geometry across the sketch's local axes
+- **`plane("right", n)` / `plane("top", n)`** — creating offset reference planes for side and top features
+- **`vMove()`** — moving the cursor vertically inside a sketch
+- **`extrude(d)` then `mirror("right")`** — modeling a single side feature and reflecting it
+- **`.endFaces()`** — selecting the outer face of an extrusion to sketch on
+- **`extrude().thin().remove()`** — cutting an annular ring around a profile to leave the central shape standing
+- **`polygon(sides, diameter, 'circumscribed')`** — drawing a regular polygon around a target inscribed circle

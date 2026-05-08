@@ -34,7 +34,7 @@ describe("rib", () => {
         hLine(40);
       });
 
-      const r = rib(-5).scope(s) as Rib;
+      const r = rib(5).scope(s) as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -49,7 +49,7 @@ describe("rib", () => {
         hLine(40);
       });
 
-      const r = rib(-5).new().scope(s) as Rib;
+      const r = rib(5).new().scope(s) as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -67,7 +67,7 @@ describe("rib", () => {
         hLine(40);
       });
 
-      const r = rib(-5).new().scope(s) as Rib;
+      const r = rib(5).new().scope(s) as Rib;
       render();
 
       const scopeBBox = ShapeOps.getBoundingBox(s.getShapes()[0]);
@@ -92,7 +92,7 @@ describe("rib", () => {
         hLine(40);
       });
 
-      const r = rib(-5).parallel().new().scope(s) as Rib;
+      const r = rib(5).parallel().new().scope(s) as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -107,7 +107,7 @@ describe("rib", () => {
         hLine(40);
       });
 
-      const r = rib(-5).parallel().add().scope(s) as Rib;
+      const r = rib(5).parallel().add().scope(s) as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -122,7 +122,7 @@ describe("rib", () => {
         aLine(45, 20);
       });
 
-      const r = rib(-5).parallel().new().scope(s) as Rib;
+      const r = rib(5).parallel().new().scope(s) as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -146,7 +146,7 @@ describe("rib", () => {
         aLine(45, 20);
       });
 
-      const r = rib(-5).parallel().new().scope(s).extend() as Rib;
+      const r = rib(5).parallel().new().scope(s).extend() as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -172,7 +172,7 @@ describe("rib", () => {
         aLine(45, 20);
       });
 
-      const r = rib(-5).parallel().add().scope(s).extend() as Rib;
+      const r = rib(5).parallel().add().scope(s).extend() as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -192,7 +192,7 @@ describe("rib", () => {
         aLine(-45, 20);
       });
 
-      const r = rib(-5).parallel().new().scope(s).extend() as Rib;
+      const r = rib(5).parallel().new().scope(s).extend() as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -231,7 +231,7 @@ describe("rib", () => {
         aLine(45, 20);
       });
 
-      const r = rib(-5).parallel().extend() as Rib;
+      const r = rib(5).parallel().extend() as Rib;
       render();
 
       // The rib must produce non-empty geometry and must not crash with the
@@ -278,7 +278,7 @@ describe("rib", () => {
         aLine(45, 20);
       });
 
-      const r = rib(-5).parallel().new().scope(s).extend() as Rib;
+      const r = rib(5).parallel().new().scope(s).extend() as Rib;
 
       repeat("circular", "z", { count: 4, angle: 360 }, r);
       render();
@@ -328,7 +328,7 @@ describe("rib", () => {
         aLine(45, 20);
       });
 
-      const r = rib(-5).parallel().new().scope(s).extend() as Rib;
+      const r = rib(5).parallel().new().scope(s).extend() as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -365,7 +365,7 @@ describe("rib", () => {
         aLine(-45, 20);
       });
 
-      const r = rib(-5).parallel().new().scope(s).extend().draft(2) as Rib;
+      const r = rib(5).parallel().new().scope(s).extend().draft(2) as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -398,7 +398,7 @@ describe("rib", () => {
         aLine(-45, 20);
       });
 
-      rib(-5).parallel().scope(s).extend().draft(-5);
+      rib(5).parallel().scope(s).extend().draft(-5);
       render();
 
       // After fuse, the result lives on the rib's caller side. Pull all
@@ -430,7 +430,7 @@ describe("rib", () => {
         aLine(0, 30);
       });
 
-      const r = rib(-5).parallel().draft(5).new().scope(filleted) as Rib;
+      const r = rib(5).parallel().draft(5).new().scope(filleted) as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -465,7 +465,7 @@ describe("rib", () => {
         aLine(-45, 20);
       });
 
-      const r = rib(-5).parallel().extend().draft(3).new().scope(filleted) as Rib;
+      const r = rib(5).parallel().extend().draft(3).new().scope(filleted) as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -494,7 +494,7 @@ describe("rib", () => {
         aLine(45, 20);
       });
 
-      const r = rib(-5).parallel().extend().new().scope(s).draft(-4) as Rib;
+      const r = rib(5).parallel().extend().new().scope(s).draft(-4) as Rib;
       repeat("circular", "z", { count: 4, angle: 360 }, r);
       render();
 
@@ -537,7 +537,7 @@ describe("rib", () => {
         hLine([-50 + 4, 0], 30);
       });
 
-      const r = rib(-5).draft(2).new().scope(filleted) as Rib;
+      const r = rib(5).draft(2).new().scope(filleted) as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -568,7 +568,7 @@ describe("rib", () => {
         hLine([-50 + 4, 0], 30);
       });
 
-      const r = rib(-5).draft(1).new().scope(filleted) as Rib;
+      const r = rib(5).draft(1).new().scope(filleted) as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -590,7 +590,7 @@ describe("rib", () => {
         hLine([-50 + 4, 0], 30);
       });
 
-      const r = rib(-5).draft(-1).new().scope(filleted) as Rib;
+      const r = rib(5).draft(-1).new().scope(filleted) as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -621,7 +621,7 @@ describe("rib", () => {
         hLine([-50, 0], 30);
       });
 
-      const r = rib(-5).draft(4).new().scope(filleted) as Rib;
+      const r = rib(5).draft(4).new().scope(filleted) as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -640,7 +640,7 @@ describe("rib", () => {
         hLine(20);
       });
 
-      const r = rib(-5).parallel().new().scope(s) as Rib;
+      const r = rib(5).parallel().new().scope(s) as Rib;
       render();
 
       const shapes = r.getShapes();
@@ -673,7 +673,7 @@ describe("rib", () => {
         hLine(40);
       });
 
-      const r = rib(-5).new().scope(s) as Rib;
+      const r = rib(5).new().scope(s) as Rib;
       render();
 
       const shapes = r.getShapes();

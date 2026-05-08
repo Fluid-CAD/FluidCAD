@@ -20,8 +20,8 @@ export interface EnsureTriangulatedOptions {
 }
 
 // Flip to false to benchmark single-threaded meshing.
-const DEFAULT_LIN_DEFLECTION = 0.1;
-const DEFAULT_ANG_DEFLECTION = 0.5;
+const DEFAULT_LIN_DEFLECTION = 0.01;
+const DEFAULT_ANG_DEFLECTION = 0.1;
 
 export class Mesh {
   // Wrapper methods (public API for external callers)

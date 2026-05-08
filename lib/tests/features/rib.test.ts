@@ -448,6 +448,30 @@ describe("rib", () => {
       expect(ySpan).toBeGreaterThan(2);
     });
 
+    it("parallel + extend + draft on cylindrical scope produces a single rib (no phantom shell)", () => {
+      // Reported case: cylinder with shell+fillet, parallel+extend rib
+      // with draft(3°). Conformance was emitting an L-shaped second
+      // solid that traced part of the cavity outer + bottom alongside
+      // the actual rib.
+      sketch("top", () => {
+        circle(80);
+      });
+      const box = extrude(30);
+      const shelled = shell(-4, box.endFaces());
+      const filleted = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
+
+      sketch("front", () => {
+        move([-40, 20]);
+        aLine(-45, 20);
+      });
+
+      const r = rib(-5).parallel().extend().draft(3).new().scope(filleted) as Rib;
+      render();
+
+      const shapes = r.getShapes();
+      expect(shapes.length).toBe(1);
+    });
+
     it("normal-mode rib spine starting at cavity wall: positive draft must not throw", () => {
       // Reported case: rib spine starts AT the inner cavity wall (X=-46
       // after shell -4 from a box centred at X=0, half-width 50). With

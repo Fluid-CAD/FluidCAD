@@ -20,6 +20,7 @@
 //
 // Screenshot options:
 //   Add "// @screenshot showAxes" as the first line of a .js file to enable axes.
+//   Add "// @screenshot hideGrid" to hide the ground grid in the screenshot.
 //   Add "// @screenshot skip" to skip screenshot generation for that file.
 //
 // Prerequisites:
@@ -89,6 +90,9 @@ function discoverExamples(docsDir) {
     // Determine noAutoCrop from annotation
     const noAutoCrop = firstLines.includes('noAutoCrop');
 
+    // Determine hideGrid from annotation
+    const hideGrid = firstLines.includes('hideGrid');
+
     // Determine waitForInput from annotation (pause before screenshot for manual camera adjustment)
     const waitForInput = firstLines.includes('waitForInput');
 
@@ -111,6 +115,7 @@ function discoverExamples(docsDir) {
       outputPath,
       showAxes,
       noAutoCrop,
+      hideGrid,
       waitForInput,
       emptyScene,
       aspectRatio,
@@ -302,7 +307,7 @@ async function main() {
     let done = 0;
     let failed = 0;
     for (const config of allScreenshots) {
-      const { id, outputPath, code, showAxes, noAutoCrop, waitForInput, emptyScene, aspectRatio } = config;
+      const { id, outputPath, code, showAxes, noAutoCrop, hideGrid, waitForInput, emptyScene, aspectRatio } = config;
 
       mkdirSync(dirname(outputPath), { recursive: true });
 
@@ -344,6 +349,7 @@ async function main() {
         const options = {
           ...DEFAULT_SCREENSHOT_OPTIONS,
           ...(showAxes ? { showAxes: true } : {}),
+          ...(hideGrid ? { showGrid: false } : {}),
           ...(noAutoCrop ? { autoCrop: false, fitToModel: false, transparent: false } : {}),
           ...arSize,
         };

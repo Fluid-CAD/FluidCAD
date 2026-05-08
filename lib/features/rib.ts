@@ -80,16 +80,24 @@ export class Rib extends ExtrudeBase implements IRib {
         : RibOps.makeRibProfile(spineWire, this._thickness, plane),
     );
 
+    // Sign convention:
+    //   thickness > 0 → extrude OPPOSITE to the sketch normal (typical
+    //                    "into the cavity" direction when the sketch sits
+    //                    on top of a parent face).
+    //   thickness < 0 → extrude IN the sketch normal direction.
+    // Same applies for parallel mode (the perpendicular-in-plane direction
+    // gets the same sign flip).
+    const dirSign = -Math.sign(this._thickness);
     let direction: Vector3d;
     let distance: number;
     if (this._parallel) {
       const perpDir = RibOps.computeSpinePerpendicularDirection(spineWire, plane);
-      direction = perpDir.multiply(Math.sign(this._thickness));
+      direction = perpDir.multiply(dirSign);
       distance = p.record('Compute extrude distance', () =>
         RibOps.computeExtrudeDistanceAlongDirection(direction, plane.origin, scopeShapes),
       );
     } else {
-      direction = plane.normal.multiply(Math.sign(this._thickness));
+      direction = plane.normal.multiply(dirSign);
       distance = p.record('Compute extrude distance', () =>
         RibOps.computeExtrudeDistance(plane, scopeShapes),
       );
@@ -156,7 +164,13 @@ export class Rib extends ExtrudeBase implements IRib {
         draftPlane = plane;
       }
 
-      if (this._thickness > 0) {
+      // Mirrors the dirSign reversal above: in normal mode the OCC
+      // pull direction is the unsigned plane.normal, which now matches
+      // the extrude direction only when thickness < 0 (since extrude
+      // direction = plane.normal * -sign(thickness)). Negate the angle
+      // to flip OCC's outward bias to the user-facing "+ draft narrows
+      // the tip" convention.
+      if (this._thickness < 0) {
         angle = -angle;
       }
       const rad = (deg: number) => deg * Math.PI / 180;

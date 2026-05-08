@@ -10,3 +10,15 @@ const base = extrude(-1.5).draft(-8);
 
 fillet(.750, base.sideEdges())
 fillet(.50, select(edge().onPlane("top")))
+
+shell(-.250, select(face().onPlane("top", 1.5)))
+
+sketch(plane("top", 2), () => {
+    circle(2)
+});
+
+const pipeBody = extrude(-2).draft(8);
+
+sketch(pipeBody.startFaces(), () => {
+    circle(1.5)
+});

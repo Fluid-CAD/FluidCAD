@@ -4,9 +4,10 @@ import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { ColorTransfer } from "./color-transfer.js";
+import { ShellJoinType } from "../core/interfaces.js";
 
 export class ShellOps {
-  static makeThickSolid(solid: Shape, faces: Face[], thickness: number): Shape {
+  static makeThickSolid(solid: Shape, faces: Face[], thickness: number, joinType: ShellJoinType = 'arc'): Shape {
     const oc = getOC();
     const listOfFaces = new oc.TopTools_ListOfShape();
 
@@ -14,9 +15,13 @@ export class ShellOps {
       listOfFaces.Append(f.getShape());
     }
 
+    const ocJoinType = joinType === 'intersection' ? oc.GeomAbs_JoinType.GeomAbs_Intersection
+      : joinType === 'tangent' ? oc.GeomAbs_JoinType.GeomAbs_Tangent
+      : oc.GeomAbs_JoinType.GeomAbs_Arc;
+
     const maker = new oc.BRepOffsetAPI_MakeThickSolid();
     const progress = new oc.Message_ProgressRange();
-    maker.MakeThickSolidByJoin(oc.TopoDS.Solid(solid.getShape()), listOfFaces, thickness, oc.Precision.Confusion(), oc.BRepOffset_Mode.BRepOffset_Skin, false, false, oc.GeomAbs_JoinType.GeomAbs_Arc, false, progress);
+    maker.MakeThickSolidByJoin(oc.TopoDS.Solid(solid.getShape()), listOfFaces, thickness, oc.Precision.Confusion(), oc.BRepOffset_Mode.BRepOffset_Skin, false, false, ocJoinType, false, progress);
 
     progress.delete();
 

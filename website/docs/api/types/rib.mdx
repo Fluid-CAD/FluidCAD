@@ -1,0 +1,259 @@
+---
+sidebar_position: 12.5
+title: "Rib"
+description: "The Rib type. Extends BooleanOperation."
+---
+
+# Rib
+
+Extends [`BooleanOperation`](/docs/api/types/boolean-operation)
+
+
+<details>
+<summary>Inherited from [`BooleanOperation`](/docs/api/types/boolean-operation)</summary>
+
+### add()
+
+```ts
+add(): this
+```
+
+Additive boolean operation — fuses the result with all intersecting scene objects.
+Use `.scope()` to target specific objects.
+
+---
+
+### 'new'()
+
+```ts
+'new'(): this
+```
+
+No boolean operation — keeps the result as a standalone shape,
+separate from all other scene objects.
+
+---
+
+### remove()
+
+```ts
+remove(): this
+```
+
+Subtractive boolean operation — cuts the result from all intersecting scene objects.
+Use `.scope()` to target specific objects.
+
+---
+
+### scope()
+
+```ts
+scope(...objects: SceneObject[]): this
+```
+
+Narrows the boolean operation scope to specific target objects.
+Must be chained after `.add()` or `.remove()`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The target objects to operate on. *(optional)* |
+
+
+</details>
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### reusable()
+
+```ts
+reusable(): this
+```
+
+Marks this object as reusable. Reusable objects retain their shapes when
+consumed by features (e.g., extrude, revolve), allowing multiple features
+to reference the same source geometry. Use `remove(obj)` to force-remove
+shapes from a reusable object.
+
+
+</details>
+
+## Methods
+
+### startFaces()
+
+```ts
+startFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+```
+
+Selects faces at the start (base) of the rib — the profile face at the sketch plane.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### endFaces()
+
+```ts
+endFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+```
+
+Selects faces at the end (top) of the rib — where the rib meets the boundary.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### sideFaces()
+
+```ts
+sideFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+```
+
+Selects the lateral wall faces of the rib.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### capFaces()
+
+```ts
+capFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+```
+
+Selects the small cap faces at the spine endpoints.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### startEdges()
+
+```ts
+startEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges on the start faces.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### endEdges()
+
+```ts
+endEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges on the end faces.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### sideEdges()
+
+```ts
+sideEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges on the side faces, excluding edges shared with start/end faces.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### capEdges()
+
+```ts
+capEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges on the cap faces.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### draft()
+
+```ts
+draft(value: number | [number, number]): this
+```
+
+Applies a draft (taper) angle to the rib walls.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | number \| [number, number] | A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft. |
+
+---
+
+### parallel()
+
+```ts
+parallel(): this
+```
+
+Switches the extrusion direction to parallel to the sketch plane
+(perpendicular to the spine within the plane) instead of normal to it.
+
+---
+
+### extend()
+
+```ts
+extend(): this
+```
+
+Extends the rib's side faces at the spine endpoints outward to blend
+with the target solids' walls.
+

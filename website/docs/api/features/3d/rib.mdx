@@ -1,0 +1,44 @@
+---
+sidebar_position: 16
+title: "rib"
+description: "Creates a rib from the last sketch with the given thickness. The rib extends in the sketch normal direction until it reaches surrounding solids. Positive thickness = forward, negative = reverse."
+---
+
+# rib()
+
+Creates a rib from the last sketch with the given thickness.
+The rib extends in the sketch normal direction until it reaches
+surrounding solids. Positive thickness = forward, negative = reverse.
+
+**Returns**: [**`Rib`**](/docs/api/types/rib)
+
+:::tip
+See the [guide](/docs/guides/3d-operations/rib) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+rib(thickness: number): Rib
+```
+
+Creates a rib from the last sketch with the given thickness.
+The rib extends in the sketch normal direction until it reaches
+surrounding solids. Positive thickness = forward, negative = reverse.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `thickness` | number | Wall thickness (sign controls direction) |
+
+---
+
+```ts
+rib(thickness: number, spine: SceneObject): Rib
+```
+
+Creates a rib from an explicit sketch spine with the given thickness.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `thickness` | number | Wall thickness (sign controls direction) |
+| `spine` | [SceneObject](/docs/api/types/scene-object) | The sketch providing the rib spine wire and plane |

@@ -520,6 +520,38 @@ describe("rib", () => {
       }
     });
 
+    it("normal-mode draft does not tilt the rib's end cap (perpendicular to spine)", () => {
+      // Reported case: rib ends inside the cavity (spine endpoint at
+      // X=-16, not at any wall). The cap face at X=-16 (perpendicular
+      // to the spine direction) should stay flat — only the rib's
+      // long side walls should taper. Currently OCC tilts every
+      // non-first/last face that isn't excluded, so the cap drifts.
+      sketch("top", () => {
+        rect(100, 50).centered();
+      });
+      const box = extrude(30);
+      const shelled = shell(-4, box.endFaces());
+      const filleted = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
+
+      sketch(box.endFaces(), () => {
+        hLine([-50 + 4, 0], 30);
+      });
+
+      const r = rib(-5).draft(2).new().scope(filleted) as Rib;
+      render();
+
+      const shapes = r.getShapes();
+      expect(shapes.length).toBe(1);
+
+      // The rib's spine ends at X = -50 + 4 + 30 = -16. The end cap
+      // (perpendicular to the X spine direction) should stay at X=-16
+      // throughout the prism's depth — its bbox maxX should match -16
+      // within tolerance regardless of draft.
+      const bbox = ShapeOps.getBoundingBox(shapes[0]);
+      expect(bbox.maxX).toBeLessThanOrEqual(-16 + 0.05);
+      expect(bbox.maxX).toBeGreaterThanOrEqual(-16 - 0.05);
+    });
+
     it("normal-mode rib spine starting at cavity wall: positive draft must not throw", () => {
       // Reported case: rib spine starts AT the inner cavity wall (X=-46
       // after shell -4 from a box centred at X=0, half-width 50). With

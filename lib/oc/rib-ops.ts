@@ -261,14 +261,18 @@ export class RibOps {
       candidates.push({ solid, volume });
     }
 
-    // Drop degenerate slivers: BOP can leave near-zero-volume fragments at
+    // Drop degenerate / phantom fragments: BOP can leave thin slivers at
     // wall corners that touch the original spine within tolerance but are
     // orders of magnitude smaller than the real rib body. Threshold at
-    // 0.1% of the largest kept volume keeps legitimate split pieces (e.g.
-    // a rib spine that threads past a cone, producing two halves of
-    // comparable volume) but drops the artifacts.
+    // 1% of the largest kept volume catches:
+    //   - sub-mm³ slivers (typical: 0.5 mm³ vs 5000 mm³ rib, factor 1e4)
+    //   - L-shaped phantoms tracing cavity walls (typical: a few mm³ vs
+    //     hundreds of mm³ rib, factor ~100)
+    // and is still permissive enough for legitimate split pieces (e.g. a
+    // rib spine threading past a cone produces two halves of comparable
+    // volume, a factor < 10).
     const maxVolume = candidates.reduce((m, c) => Math.max(m, c.volume), 0);
-    const volumeMin = maxVolume * 1e-3;
+    const volumeMin = maxVolume * 0.01;
     const keptSolids: Shape[] = candidates
       .filter(c => c.volume >= volumeMin)
       .map(c => c.solid);

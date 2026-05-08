@@ -895,6 +895,8 @@ export interface IRib extends IBooleanOperation {
   extend(): this;
 }
 
+export type ShellJoinType = 'arc' | 'intersection' | 'tangent';
+
 export interface IShell extends ISceneObject {
   /**
    * Selects the inner wall faces created by the shell operation (from thickness removal).
@@ -908,4 +910,11 @@ export interface IShell extends ISceneObject {
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
   internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Sets the join type used at inner-wall corners.
+   * @param type - `'arc'` (default) for rounded blends, `'intersection'` for sharp corners,
+   *   or `'tangent'` for tangent-continuous blends.
+   */
+  join(type: ShellJoinType): this;
 }

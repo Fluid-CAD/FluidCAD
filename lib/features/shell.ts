@@ -12,12 +12,13 @@ import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { Matrix4 } from "../math/matrix4.js";
-import { IShell } from "../core/interfaces.js";
+import { IShell, ShellJoinType } from "../core/interfaces.js";
 import { requireShapes } from "../common/operand-check.js";
 
 export class Shell extends SceneObject implements IShell {
 
   private _faceSelections: SelectSceneObject[] = [];
+  private _joinType: ShellJoinType = 'arc';
 
   constructor(private thickness: number, faceSelections?: SelectSceneObject[]) {
     super();
@@ -26,6 +27,11 @@ export class Shell extends SceneObject implements IShell {
 
   get faceSelections(): SelectSceneObject[] {
     return this._faceSelections;
+  }
+
+  join(type: ShellJoinType): this {
+    this._joinType = type;
+    return this;
   }
 
   override validate() {
@@ -68,7 +74,7 @@ export class Shell extends SceneObject implements IShell {
       }
 
       try {
-        const newShape = ShellOps.makeThickSolid(shape, targetFaces, this.thickness);
+        const newShape = ShellOps.makeThickSolid(shape, targetFaces, this.thickness, this._joinType);
         newShapes.push(newShape);
 
         const originalObj = shapeObjMap.get(shape);
@@ -238,6 +244,10 @@ export class Shell extends SceneObject implements IShell {
       return false;
     }
 
+    if (this._joinType !== other._joinType) {
+      return false;
+    }
+
     if (this._faceSelections.length !== other._faceSelections.length) {
       return false;
     }
@@ -258,7 +268,9 @@ export class Shell extends SceneObject implements IShell {
     const faceSelections = this._faceSelections.map(
       sel => (remap.get(sel) || sel) as SelectSceneObject
     );
-    return new Shell(this.thickness, faceSelections.length > 0 ? faceSelections : undefined);
+    const copy = new Shell(this.thickness, faceSelections.length > 0 ? faceSelections : undefined);
+    copy._joinType = this._joinType;
+    return copy;
   }
 
   getType(): string {
@@ -267,7 +279,8 @@ export class Shell extends SceneObject implements IShell {
 
   serialize() {
     return {
-      thickness: this.thickness
+      thickness: this.thickness,
+      joinType: this._joinType !== 'arc' ? this._joinType : undefined
     }
   }
 }

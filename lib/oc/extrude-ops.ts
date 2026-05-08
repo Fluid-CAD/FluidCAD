@@ -158,7 +158,8 @@ export class ExtrudeOps {
     lastFace: Shape,
     plane: Plane,
     angle: number,
-  ): { solid: Shape; firstFace: Shape; lastFace: Shape } {
+    excludeFaces: Shape[] = [],
+  ): { solid: Shape; firstFace: Shape; lastFace: Shape; remapFace: (face: Shape) => Shape[] } {
     const oc = getOC();
     const [dir, disposeDir] = Convert.toGpDir(plane.normal);
     const [pln, disposePln] = Convert.toGpPln(plane);
@@ -166,10 +167,14 @@ export class ExtrudeOps {
     const solidRaw = solid.getShape();
     const firstFaceRaw = firstFace.getShape();
     const lastFaceRaw = lastFace.getShape();
+    const excludeRaw = excludeFaces.map(s => s.getShape());
 
     const draftMaker = new oc.BRepOffsetAPI_DraftAngle(solidRaw);
     const sideFaces = Explorer.findShapes(solidRaw, Explorer.getOcShapeType("face")).filter(
-      f => !f.IsSame(firstFaceRaw) && !f.IsSame(lastFaceRaw)
+      f =>
+        !f.IsSame(firstFaceRaw)
+        && !f.IsSame(lastFaceRaw)
+        && !excludeRaw.some(e => f.IsSame(e))
     );
 
     for (const face of sideFaces) {
@@ -214,14 +219,45 @@ export class ExtrudeOps {
       ? ShapeFactory.fromShape(modifiedLast[0])
       : lastFace;
 
+    // Capture the post-draft images of every input face we care about
+    // BEFORE deleting the maker. This lets the caller remap pre-draft
+    // face buckets onto the drafted result.
+    const remapMap = new Map<TopoDS_Shape, Shape[]>();
+    const captureRemap = (raw: TopoDS_Shape) => {
+      const list = ShapeOps.shapeListToArray(draftMaker.Modified(raw));
+      remapMap.set(raw, list.length > 0
+        ? list.map(r => ShapeFactory.fromShape(r))
+        : [ShapeFactory.fromShape(raw)]);
+    };
+    captureRemap(firstFaceRaw);
+    captureRemap(lastFaceRaw);
+    for (const ex of excludeRaw) {
+      captureRemap(ex);
+    }
+    for (const sf of sideFaces) {
+      captureRemap(sf);
+    }
+
     const result = draftMaker.Shape();
     draftMaker.delete();
     disposeDir();
     disposePln();
+
+    const remapFace = (face: Shape): Shape[] => {
+      const raw = face.getShape();
+      for (const [k, v] of remapMap) {
+        if (k.IsSame(raw)) {
+          return v;
+        }
+      }
+      return [face];
+    };
+
     return {
       solid: ShapeFactory.fromShape(result),
       firstFace: newFirstFace,
       lastFace: newLastFace,
+      remapFace,
     };
   }
 

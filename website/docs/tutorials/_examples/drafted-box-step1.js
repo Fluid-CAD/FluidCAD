@@ -1,5 +1,5 @@
 // @screenshot waitForInput
-import { aLine, back, circle, cut, extrude, fillet, hLine, line, local, mirror, plane, rect, remove, repeat, select, shell, sketch, vMove } from "fluidcad/core";
+import { circle, cut, extrude, fillet, hLine, move, plane, rect, repeat, rib, select, shell, sketch } from "fluidcad/core";
 import { edge, face } from "fluidcad/filters";
 
 sketch(plane("top", 1.50), () => {

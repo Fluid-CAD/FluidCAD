@@ -263,6 +263,46 @@ describe("shell", () => {
     });
   });
 
+  describe("join type", () => {
+    const buildShelledBox = (apply: (s: Shell) => void) => {
+      sketch("xy", () => {
+        rect(100, 100);
+      });
+      extrude(50);
+      select(face().onPlane("xy", 50));
+      const s = shell(5) as Shell;
+      apply(s);
+      const scene = render();
+      return scene.getAllSceneObjects()
+        .flatMap(o => o.getShapes())
+        .find(sh => sh.getType() === "solid") as Solid;
+    };
+
+    it("should produce a valid solid with default join type (arc)", () => {
+      const solid = buildShelledBox(() => {});
+      expect(solid).toBeDefined();
+      expect(ShapeProps.getProperties(solid.getShape()).volumeMm3).toBeGreaterThan(0);
+    });
+
+    it("should produce a valid solid with join('intersection')", () => {
+      const solid = buildShelledBox(s => s.join('intersection'));
+      expect(solid).toBeDefined();
+      expect(ShapeProps.getProperties(solid.getShape()).volumeMm3).toBeGreaterThan(0);
+    });
+
+    it("should produce a valid solid with join('tangent')", () => {
+      const solid = buildShelledBox(s => s.join('tangent'));
+      expect(solid).toBeDefined();
+      expect(ShapeProps.getProperties(solid.getShape()).volumeMm3).toBeGreaterThan(0);
+    });
+
+    it("should treat shells with different join types as not equal", () => {
+      const a = new Shell(5);
+      const b = new Shell(5).join('intersection');
+      expect(a.compareTo(b)).toBe(false);
+    });
+  });
+
   describe("shell with multiple selections", () => {
     it("should shell a box by removing two faces", () => {
       sketch("xy", () => {

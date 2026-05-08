@@ -157,8 +157,9 @@ export class ExtrudeOps {
     firstFace: Shape,
     lastFace: Shape,
     plane: Plane,
-    angle: number
-  ): { solid: Shape; firstFace: Shape; lastFace: Shape } {
+    angle: number,
+    excludeFaces: Shape[] = [],
+  ): { solid: Shape; firstFace: Shape; lastFace: Shape; remapFace: (face: Shape) => Shape[] } {
     const oc = getOC();
     const [dir, disposeDir] = Convert.toGpDir(plane.normal);
     const [pln, disposePln] = Convert.toGpPln(plane);
@@ -166,13 +167,34 @@ export class ExtrudeOps {
     const solidRaw = solid.getShape();
     const firstFaceRaw = firstFace.getShape();
     const lastFaceRaw = lastFace.getShape();
+    const excludeRaw = excludeFaces.map(s => s.getShape());
 
     const draftMaker = new oc.BRepOffsetAPI_DraftAngle(solidRaw);
     const sideFaces = Explorer.findShapes(solidRaw, Explorer.getOcShapeType("face")).filter(
-      f => !f.IsSame(firstFaceRaw) && !f.IsSame(lastFaceRaw)
+      f =>
+        !f.IsSame(firstFaceRaw)
+        && !f.IsSame(lastFaceRaw)
+        && !excludeRaw.some(e => f.IsSame(e))
     );
 
     for (const face of sideFaces) {
+      // Skip faces whose surface normal is parallel to the draft pull
+      // direction — drafting them is geometrically degenerate (you can't
+      // tilt a face around an axis parallel to the face's own normal) and
+      // OCC fails the whole Build() if any such face is added. Non-planar
+      // faces get drafted unconditionally.
+      const adaptor = new oc.BRepAdaptor_Surface(Explorer.toFace(face), true);
+      if (adaptor.GetType() === oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
+        const facePlane = adaptor.Plane();
+        const ax = facePlane.Axis().Direction();
+        const dot = Math.abs(ax.Dot(dir));
+        adaptor.delete();
+        if (dot > 0.999) {
+          continue;
+        }
+      } else {
+        adaptor.delete();
+      }
       draftMaker.Add(Explorer.toFace(face), dir, angle, pln, true);
     }
 
@@ -197,14 +219,45 @@ export class ExtrudeOps {
       ? ShapeFactory.fromShape(modifiedLast[0])
       : lastFace;
 
+    // Capture the post-draft images of every input face we care about
+    // BEFORE deleting the maker. This lets the caller remap pre-draft
+    // face buckets onto the drafted result.
+    const remapMap = new Map<TopoDS_Shape, Shape[]>();
+    const captureRemap = (raw: TopoDS_Shape) => {
+      const list = ShapeOps.shapeListToArray(draftMaker.Modified(raw));
+      remapMap.set(raw, list.length > 0
+        ? list.map(r => ShapeFactory.fromShape(r))
+        : [ShapeFactory.fromShape(raw)]);
+    };
+    captureRemap(firstFaceRaw);
+    captureRemap(lastFaceRaw);
+    for (const ex of excludeRaw) {
+      captureRemap(ex);
+    }
+    for (const sf of sideFaces) {
+      captureRemap(sf);
+    }
+
     const result = draftMaker.Shape();
     draftMaker.delete();
     disposeDir();
     disposePln();
+
+    const remapFace = (face: Shape): Shape[] => {
+      const raw = face.getShape();
+      for (const [k, v] of remapMap) {
+        if (k.IsSame(raw)) {
+          return v;
+        }
+      }
+      return [face];
+    };
+
     return {
       solid: ShapeFactory.fromShape(result),
       firstFace: newFirstFace,
       lastFace: newLastFace,
+      remapFace,
     };
   }
 

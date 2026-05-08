@@ -1,0 +1,180 @@
+---
+sidebar_position: 11
+title: "3D Printable Desk Organizer"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import deskOrganizerFinal from '!!raw-loader!./_examples/desk-organizer-final.js';
+
+# Building a 3D Printable Desk Organizer
+
+![Finished desk organizer](/img/docs/tutorials/desk-organizer-final.png)
+
+In this tutorial, you'll build a four-compartment octagonal desk organizer with a square inner pocket, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=6pThupmIU0c). It covers polygon sketches with circumscribed sizing, sketch-level rotate and fillet, chamfering and shelling by extrude faces, multi-loop sketches via `offset`, ribs on a rotated reference plane, circular patterning, and a thin revolve cut for trimming.
+
+Create a new file called `desk-organizer.fluid.js` in your project.
+
+## Setup
+
+A single import line covers every operation used in this model.
+
+```js
+import { plane, sketch, extrude, fillet, rect, chamfer, move, repeat, rotate, arc, shell, polygon, offset, aLine, rib, revolve } from 'fluidcad/core';
+```
+
+Everything comes from `fluidcad/core` — no filters needed. Selections in this model use the extrude handle (`outer.startEdges()`, `outer.endFaces()`) instead of plane-based filters.
+
+## Step 1: Octagonal base
+
+### Sketch the footprint
+
+```js
+sketch("top", () => {
+    polygon(8, 140, 'circumscribed')
+    rotate(45 / 2)
+    fillet(20)
+});
+```
+
+`polygon(8, 140, 'circumscribed')` draws an 8-sided polygon **circumscribed** around a circle of radius 140 — meaning 140 is the apothem (the perpendicular distance from center to a face), not the circumradius. This makes the flats of the octagon land on the 140 mark.
+
+`rotate(45 / 2)` spins the polygon by 22.5° within the sketch so a flat face — not a vertex — sits on the X axis. That orientation matters in step 4: it lines up the inner square's diagonals with four of the octagon's flats.
+
+`fillet(20)` rounds each of the eight polygon corners with a 20-unit radius, softening what would otherwise be sharp vertical edges on the body.
+
+![Octagon sketch with fillets](/img/docs/tutorials/desk-organizer-step1-sketch.png)
+
+### Extrude upward
+
+```js
+const outer = extrude(110);
+```
+
+`extrude(110)` pushes the octagon 110 units along the top plane's normal (upward), creating a tall octagonal prism. Storing the result as `outer` gives us a handle for selecting the start/end edges and faces of this extrude in the next steps.
+
+![Octagonal prism](/img/docs/tutorials/desk-organizer-step1.png)
+
+## Step 2: Chamfer the bottom and shell from the top
+
+```js
+chamfer(8, outer.startEdges())
+
+shell(-5, outer.endFaces())
+```
+
+`outer.startEdges()` returns the edges around the **start** of the extrude — the bottom of the prism, where the sketch lived. `chamfer(8, ...)` bevels them with an 8-unit chamfer, giving the body a clean foot.
+
+`outer.endFaces()` returns the **end** face of the extrude — the top of the prism. `shell(-5, ...)` hollows the body inward with 5-unit walls and removes the top face, opening the prism into a cup with a 5-thick floor and walls.
+
+![Chamfered and shelled body](/img/docs/tutorials/desk-organizer-step2.png)
+
+## Step 3: Inner square pocket
+
+### Sketch a square ring
+
+```js
+sketch("top", () => {
+    rect(50).centered();
+    offset(-5);
+});
+```
+
+`rect(50).centered()` draws a 50×50 square centered on the origin. `offset(-5)` adds an inset profile 5 units inside the square, leaving both loops in the sketch — outer 50×50 and inner 40×40. A sketch with a closed inner loop inside a closed outer loop extrudes as an annular profile (a frame), not a solid block.
+
+![Square ring sketch](/img/docs/tutorials/desk-organizer-step3-sketch.png)
+
+### Extrude the inner column
+
+```js
+extrude(160);
+```
+
+`extrude(160)` pushes the square ring 160 units upward — taller than the outer prism's 110, so it pokes up above the open top. With no `.new()` call, the new solid auto-fuses with the existing body, fusing through the floor of the cup so the inner square wall stands as a continuous part of the organizer.
+
+![Inner square column added](/img/docs/tutorials/desk-organizer-step3.png)
+
+## Step 4: Add a rib and pattern it around
+
+### Build a rotated reference plane
+
+```js
+const p = plane("front", { rotateY: 45 })
+```
+
+`plane("front", { rotateY: 45 })` takes the front plane (XZ) and rotates it 45° around the Y axis. Inside this rotated plane, drawing along the X axis traces a path running diagonally between the inner square corners and the surrounding octagon — exactly where we want the first rib to sit.
+
+### Sketch the rib spine
+
+```js
+sketch(p, () => {
+    move([(-140 / 2) + 5, 110]);
+    aLine(45, 20)
+});
+```
+
+`move([(-140 / 2) + 5, 110])` parks the cursor at x=−65 (just inside the polygon's left flat) and y=110 (the height of the outer body's open top). `aLine(45, 20)` draws an angled line at 45° with length 20 — a short seed for the rib. The line itself doesn't need to span the full gap; `.extend()` will stretch it to the surrounding solids.
+
+![Rib spine on rotated plane](/img/docs/tutorials/desk-organizer-step4-sketch.png)
+
+### Build and pattern the rib
+
+```js
+rib(5).parallel().extend();
+
+repeat("circular", "z", {
+    count: 4,
+    angle: 360
+})
+```
+
+`rib(5)` builds a 5-thick rib from the spine. The chained calls do the heavy lifting:
+
+- **`.parallel()`** — extrudes the rib *in-plane* (perpendicular to the spine within the rotated plane) instead of normal to the sketch, so the rib stands up as a wall connecting the inner square to the outer shell.
+- **`.extend()`** — stretches the spine endpoints outward until they meet surrounding solids: the inner square wall on one side, the outer octagon's inside wall on the other.
+
+`repeat("circular", "z", { count: 4, angle: 360 })` rotates the most recent operation — the rib — around the Z axis four times for a full revolution, producing four rib walls 90° apart that divide the cavity into four compartments.
+
+![Four ribs added](/img/docs/tutorials/desk-organizer-step4.png)
+
+## Step 5: Trim the top with a thin revolve cut
+
+### Sketch the trim arc
+
+```js
+sketch("front", () => {
+    arc(140, 0, 90)
+});
+```
+
+`arc(140, 0, 90)` draws a quarter arc on the front plane: radius 140, sweeping from 0° to 90° — from (140, 0) up to (0, 140). Because the arc is centered on the Z axis, revolving it around Z sweeps every point on the arc through a full circle, generating a **hemispherical surface** of radius 140 sitting on top of the model. That's the surface that will dome off the inner column and trim everything above it.
+
+![Trim arc sketch](/img/docs/tutorials/desk-organizer-step5-sketch.png)
+
+### Revolve as a thin cut
+
+```js
+revolve("z").thin(30).remove()
+```
+
+`revolve("z")` revolves around the Z axis to build that hemisphere. `.thin(30)` turns the open arc into a 30-thick shell rather than a closed solid — without it, the open arc couldn't define a watertight body to revolve. `.remove()` subtracts the revolved shell from the model.
+
+The result is a hemispherical trim surface that domes the top of the inner square column — clipping the four corners of the column down to a smooth spherical cap — and slices any material that pokes above the hemisphere off the outer rim. The 30 thickness is intentionally exaggerated; it just needs to be thick enough to fully consume the excess material from the inner extrude.
+
+![Finished desk organizer](/img/docs/tutorials/desk-organizer-final.png)
+
+## Full code
+
+<CodeBlock language="js">{deskOrganizerFinal}</CodeBlock>
+
+## What you practiced
+
+- **`polygon(sides, size, 'circumscribed')`** — sizing a polygon by its apothem rather than its circumradius
+- **`rotate()` and `fillet()` inside a sketch** — orienting and rounding a sketch profile before extruding
+- **Extrude handles (`startEdges`, `endFaces`)** — selecting bottom edges and top face of an extrude without plane filters
+- **`chamfer()`** — beveling edges by an absolute distance
+- **`shell()` with a face selection** — hollowing a body and removing one face to open it
+- **`rect()` + `offset()` for an annular sketch** — keeping both loops in the sketch to extrude a frame instead of a block
+- **`plane("front", { rotateY: ... })`** — rotating a reference plane to angle a rib path diagonally
+- **`rib().parallel().extend()`** — building a stiffening wall from a short seed line that extends to surrounding solids
+- **`repeat("circular", "z", ...)`** — circular-patterning the previous operation around an axis
+- **`revolve().thin().remove()`** — using a thin-walled revolve as a trim cut to clean up a profile

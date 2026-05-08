@@ -861,6 +861,76 @@ export interface IRotate extends ISceneObject {
 
 export interface IDraft extends ISceneObject {}
 
+export interface IRib extends IBooleanOperation {
+  /**
+   * Selects faces at the start (base) of the rib — the profile face at the sketch plane.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  startFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects faces at the end (top) of the rib — where the rib meets the boundary.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  endFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects the lateral wall faces of the rib.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  sideFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects the small cap faces at the spine endpoints.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  capFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the start faces.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  startEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the end faces.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  endEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the side faces, excluding edges shared with start/end faces.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  sideEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the cap faces.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Applies a draft (taper) angle to the rib walls.
+   * @param value - A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft.
+   */
+  draft(value: number | [number, number]): this;
+
+  /**
+   * Switches the extrusion direction to parallel to the sketch plane
+   * (perpendicular to the spine within the plane) instead of normal to it.
+   */
+  parallel(): this;
+
+  /**
+   * Extends the rib's side faces at the spine endpoints outward to blend
+   * with the target solids' walls.
+   */
+  extend(): this;
+}
+
+export type ShellJoinType = 'arc' | 'intersection' | 'tangent';
+
 export interface IShell extends ISceneObject {
   /**
    * Selects the inner wall faces created by the shell operation (from thickness removal).
@@ -874,4 +944,11 @@ export interface IShell extends ISceneObject {
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
   internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Sets the join type used at inner-wall corners.
+   * @param type - `'arc'` (default) for rounded blends, `'intersection'` for sharp corners,
+   *   or `'tangent'` for tangent-continuous blends.
+   */
+  join(type: ShellJoinType): this;
 }

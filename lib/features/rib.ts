@@ -8,8 +8,11 @@ import { IRib } from "../core/interfaces.js";
 import { Plane } from "../math/plane.js";
 import { Vector3d } from "../math/vector3d.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
+import { Explorer } from "../oc/explorer.js";
+import { FaceQuery } from "../oc/face-query.js";
 import { RibOps } from "../oc/rib-ops.js";
 import { WireOps } from "../oc/wire-ops.js";
+import { Shape } from "../common/shape.js";
 import { requireShapes } from "../common/operand-check.js";
 
 export class Rib extends ExtrudeBase implements IRib {
@@ -167,12 +170,18 @@ export class Rib extends ExtrudeBase implements IRib {
         // surface stays excluded via the internalFaces argument.
         const startRep = classified.startFaces[0];
         const endRep = classified.endFaces[0] ?? startRep;
-        // Anything in start/end beyond the chosen rep gets excluded too,
-        // so OCC won't try to tilt the other start / end pieces.
+        // Faces of the rib that sit flush with a scope face (the rib's
+        // mounting face — typically a cap that meets the cavity wall)
+        // must not be tilted. Drafting them either tears the rib away
+        // from the parent (negative draft) or makes OCC fail outright
+        // (positive draft) because there's no material outside the wall
+        // for the tilt to extend into.
+        const wallTouchingFaces = findScopeCoincidentFaces(classified.sideFaces, scopeShapes);
         const excludes = [
           ...classified.startFaces.slice(1),
           ...classified.endFaces.slice(classified.endFaces[0] === endRep ? 1 : 0),
           ...classified.internalFaces,
+          ...wallTouchingFaces,
         ];
         return ExtrudeOps.applyDraftOnSideFaces(
           conformedSolids[0],
@@ -287,4 +296,41 @@ export class Rib extends ExtrudeBase implements IRib {
       draft: this._draft,
     };
   }
+}
+
+// Faces of the rib whose surface sits flush with a face of any scope
+// shape (planar coincidence). These are the rib's mounting faces — they
+// must not be tilted by draft; tilting them either tears the rib away
+// from the parent (negative draft) or makes OCC's draft fail (positive
+// draft), since there's no material outside the parent wall for the
+// tilt to extend into.
+function findScopeCoincidentFaces(ribSideFaces: Face[], scopeShapes: Shape[]): Face[] {
+  const out: Face[] = [];
+  // Pre-compute every planar scope face once.
+  const scopePlanarFaces: Face[] = [];
+  for (const scope of scopeShapes) {
+    const rawFaces = Explorer.findShapes(scope.getShape(), Explorer.getOcShapeType("face"));
+    for (const rf of rawFaces) {
+      const wrapped = Face.fromTopoDSFace(Explorer.toFace(rf));
+      if (FaceQuery.getSurfaceType(wrapped) === "plane") {
+        scopePlanarFaces.push(wrapped);
+      }
+    }
+  }
+  for (const rf of ribSideFaces) {
+    if (FaceQuery.getSurfaceType(rf) !== "plane") {
+      continue;
+    }
+    for (const sf of scopePlanarFaces) {
+      if (!FaceQuery.areFacePlanesParallel(rf, sf)) {
+        continue;
+      }
+      const dist = Math.abs(FaceQuery.getSignedPlaneDistance(rf, sf));
+      if (dist < 1e-4) {
+        out.push(rf);
+        break;
+      }
+    }
+  }
+  return out;
 }

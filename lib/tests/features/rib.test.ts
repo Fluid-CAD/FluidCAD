@@ -448,6 +448,59 @@ describe("rib", () => {
       expect(ySpan).toBeGreaterThan(2);
     });
 
+    it("normal-mode rib spine starting at cavity wall: positive draft must not throw", () => {
+      // Reported case: rib spine starts AT the inner cavity wall (X=-46
+      // after shell -4 from a box centred at X=0, half-width 50). With
+      // positive draft, OCC's BRepOffsetAPI_DraftAngle fails because it
+      // tries to tilt the rib's cap face that sits flush with the wall.
+      sketch("top", () => {
+        rect(100, 50).centered();
+      });
+      const box = extrude(30);
+      const shelled = shell(-4, box.endFaces());
+      const filleted = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
+
+      sketch(box.endFaces(), () => {
+        hLine([-50 + 4, 0], 30);
+      });
+
+      const r = rib(-5).draft(1).new().scope(filleted) as Rib;
+      render();
+
+      const shapes = r.getShapes();
+      expect(shapes.length).toBeGreaterThan(0);
+    });
+
+    it("normal-mode rib spine at cavity wall: negative draft does not tilt the wall-touching face", () => {
+      // The cap face flush with the cavity wall should keep its X
+      // position (= -46) before AND after draft. Drafting it would push
+      // it inward, leaving a gap between the rib and the wall.
+      sketch("top", () => {
+        rect(100, 50).centered();
+      });
+      const box = extrude(30);
+      const shelled = shell(-4, box.endFaces());
+      const filleted = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
+
+      sketch(box.endFaces(), () => {
+        hLine([-50 + 4, 0], 30);
+      });
+
+      const r = rib(-5).draft(-1).new().scope(filleted) as Rib;
+      render();
+
+      const shapes = r.getShapes();
+      expect(shapes.length).toBeGreaterThan(0);
+
+      // The wall-touching cap is at X = -46 (= -50 + 4 shell thickness).
+      // After draft it must STILL touch the wall — bbox minX should sit
+      // at -46 within tolerance, not be pushed inward by the draft.
+      const bbox = ShapeOps.getBoundingBox(shapes[0]);
+      // -46.012 in practice (numerical precision around the wall plane).
+      expect(bbox.minX).toBeLessThanOrEqual(-46 + 0.05);
+      expect(bbox.minX).toBeGreaterThanOrEqual(-46 - 0.05);
+    });
+
     it("normal-mode rib with .draft() and .new() should not produce a degenerate sliver solid", () => {
       // Reported case: normal-mode rib drafted at 4° with .new() and a
       // spine starting at the box wall (x=-50) produces a main rib plus a

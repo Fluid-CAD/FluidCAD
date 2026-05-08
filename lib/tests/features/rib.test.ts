@@ -552,6 +552,38 @@ describe("rib", () => {
       expect(bbox.maxX).toBeGreaterThanOrEqual(-16 - 0.05);
     });
 
+    it("thin parallel rib draft preserves the spine-plane thickness within a few % of nominal", () => {
+      // Reported case: a 0.25mm-thick rib drafted at 8°. With a fixed
+      // 0.1mm neutral-plane shift the start-face thickness drifted from
+      // 0.250 to 0.278 (11% off). Scaling the shift to the rib
+      // thickness keeps the start-face artifact sub-precision.
+      sketch("top", () => {
+        rect(7, 5).centered();
+      });
+      const box = extrude(-1.5);
+      const shelled = shell(-0.25, box.endFaces());
+      const filleted = fillet(0.5, shelled.internalEdges()) as unknown as SceneObject;
+
+      sketch("front", () => {
+        move([-2, 1.250]);
+        hLine(0.5);
+      });
+
+      const r = rib(0.25).parallel().extend().draft(-8).new().scope(filleted) as Rib;
+      render();
+
+      const shapes = r.getShapes();
+      expect(shapes.length).toBeGreaterThan(0);
+
+      // Bbox in the slab thickness direction (= plane.normal of front
+      // sketch = Y) must not exceed the nominal 0.25mm thickness by
+      // more than 1% — i.e. the start-face thickness drift stays
+      // below CAD precision.
+      const bbox = ShapeOps.getBoundingBox(shapes[0]);
+      const ySpan = bbox.maxY - bbox.minY;
+      expect(ySpan).toBeLessThanOrEqual(0.25 * 1.01);
+    });
+
     it("normal-mode rib spine starting at cavity wall: positive draft must not throw", () => {
       // Reported case: rib spine starts AT the inner cavity wall (X=-46
       // after shell -4 from a box centred at X=0, half-width 50). With

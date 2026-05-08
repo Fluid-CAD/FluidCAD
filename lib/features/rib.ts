@@ -178,11 +178,21 @@ export class Rib extends ExtrudeBase implements IRib {
         // (positive draft) because there's no material outside the wall
         // for the tilt to extend into.
         const wallTouchingFaces = findScopeCoincidentFaces(classified.sideFaces, scopeShapes);
+        // The rib's "cap" faces (perpendicular to the spine direction)
+        // close the slab at the spine endpoints. Drafting them tilts
+        // them inward and shrinks the rib's length along the spine,
+        // which the user doesn't expect — only the long wall faces
+        // (perpendicular to spine direction) should taper.
+        const spineStart = originalSpineWire.getFirstVertex().toPoint();
+        const spineEnd = originalSpineWire.getLastVertex().toPoint();
+        const spineDir = spineStart.vectorTo(spineEnd).normalize();
+        const capFaces = findFacesAlignedWith(classified.sideFaces, spineDir);
         const excludes = [
           ...classified.startFaces.slice(1),
           ...classified.endFaces.slice(classified.endFaces[0] === endRep ? 1 : 0),
           ...classified.internalFaces,
           ...wallTouchingFaces,
+          ...capFaces,
         ];
         return ExtrudeOps.applyDraftOnSideFaces(
           conformedSolids[0],
@@ -305,6 +315,25 @@ export class Rib extends ExtrudeBase implements IRib {
 // from the parent (negative draft) or makes OCC's draft fail (positive
 // draft), since there's no material outside the parent wall for the
 // tilt to extend into.
+// Rib faces whose surface normal is parallel to `direction` — for the
+// rib's draft step this picks out the "cap" faces at the spine endpoints
+// (perpendicular to the spine direction). They cap the slab length and
+// shouldn't tilt under draft; only the wall faces, whose normals are
+// perpendicular to spineDir, take the taper.
+function findFacesAlignedWith(faces: Face[], direction: Vector3d): Face[] {
+  const out: Face[] = [];
+  for (const f of faces) {
+    if (FaceQuery.getSurfaceType(f) !== "plane") {
+      continue;
+    }
+    const pl = FaceQuery.getSurfacePlane(f);
+    if (1 - Math.abs(pl.normal.dot(direction)) < 1e-4) {
+      out.push(f);
+    }
+  }
+  return out;
+}
+
 function findScopeCoincidentFaces(ribSideFaces: Face[], scopeShapes: Shape[]): Face[] {
   const out: Face[] = [];
   const scopePlanarFaces: { face: Face; origin: Point; normal: Vector3d }[] = [];

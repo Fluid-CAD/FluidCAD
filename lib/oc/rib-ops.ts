@@ -98,6 +98,17 @@ export class RibOps {
   }
 
   static makeRibProfileParallel(spineWire: Wire, thickness: number, plane: Plane): Face {
+    const closedWire = RibOps.makeParallelRibClosedWire(spineWire, thickness, plane);
+    return Face.fromTopoDSFace(
+      FaceOps.makeFaceFromWires([closedWire.getShape() as TopoDS_Wire]),
+    );
+  }
+
+  // Closed boundary wire for the parallel-mode rib profile: spine offset
+  // by ±halfThickness along plane.normal with two cap edges joining the
+  // ends. Used as a section wire for `makeTaperedRibPrism` and as the
+  // outer boundary of `makeRibProfileParallel`.
+  static makeParallelRibClosedWire(spineWire: Wire, thickness: number, plane: Plane): Wire {
     const halfThickness = Math.abs(thickness) / 2;
     const offset1 = plane.normal.multiply(halfThickness);
     const offset2 = plane.normal.multiply(-halfThickness);
@@ -105,7 +116,72 @@ export class RibOps {
     const wire1 = ShapeOps.transform(spineWire, Matrix4.fromTranslationVector(offset1)) as Wire;
     const wire2 = ShapeOps.transform(spineWire, Matrix4.fromTranslationVector(offset2)) as Wire;
 
-    return RibOps.makeOpenFaceWithCaps(wire1, wire2);
+    return RibOps.makeClosedWireWithCaps(wire1, wire2);
+  }
+
+  // Lofts a tapered prism between two parallel-mode rib profile wires:
+  // the base on the spine plane (full thickness) and the tip translated
+  // along `direction × extrudeLength` with thickness shrunk by
+  // `extrudeLength × tan(draftAngleRad)`. The base profile face is the
+  // returned `firstFace`, exact by construction — no draft API is
+  // involved, so the spine-plane face stays at the original thickness
+  // with zero drift. Use this in place of an extrude + post-draft when
+  // exact start-face preservation matters.
+  //
+  // `draftAngleRad` follows the user-facing convention: positive tapers
+  // the tip inward, negative widens it. For very large positive angles
+  // the tip would invert past the spine; the tip half-thickness is
+  // clamped to a sub-precision positive value and conformance trims
+  // anything past the cavity.
+  static makeTaperedRibPrism(
+    spineWire: Wire,
+    thickness: number,
+    plane: Plane,
+    direction: Vector3d,
+    extrudeLength: number,
+    draftAngleRad: number,
+  ): { solid: Shape; firstFace: Shape; lastFace: Shape } {
+    const oc = getOC();
+
+    const halfThickness = Math.abs(thickness) / 2;
+    const baseClosedWire = RibOps.makeParallelRibClosedWire(spineWire, thickness, plane);
+
+    const minHalf = oc.Precision.Confusion() * 100;
+    let tipHalfThickness = halfThickness - extrudeLength * Math.tan(draftAngleRad);
+    if (tipHalfThickness <= 0) {
+      tipHalfThickness = minHalf;
+    }
+    const tipFullThickness = tipHalfThickness * 2;
+    const tipBaseWire = RibOps.makeParallelRibClosedWire(spineWire, tipFullThickness, plane);
+    const translation = direction.multiply(extrudeLength);
+    const tipClosedWire = ShapeOps.transform(
+      tipBaseWire,
+      Matrix4.fromTranslationVector(translation),
+    ) as Wire;
+
+    const loft = new oc.BRepOffsetAPI_ThruSections(true, true, oc.Precision.Confusion());
+    loft.AddWire(baseClosedWire.getShape() as TopoDS_Wire);
+    loft.AddWire(tipClosedWire.getShape() as TopoDS_Wire);
+
+    const progress = new oc.Message_ProgressRange();
+    loft.Build(progress);
+    progress.delete();
+
+    if (!loft.IsDone()) {
+      loft.delete();
+      throw new Error("Tapered rib loft failed");
+    }
+
+    const solid = loft.Shape();
+    const firstFace = loft.FirstShape();
+    const lastFace = loft.LastShape();
+    loft.delete();
+
+    return {
+      solid: ShapeFactory.fromShape(solid),
+      firstFace: ShapeFactory.fromShape(firstFace),
+      lastFace: ShapeFactory.fromShape(lastFace),
+    };
   }
 
   static computeSpinePerpendicularDirection(spineWire: Wire, plane: Plane): Vector3d {
@@ -628,6 +704,13 @@ export class RibOps {
   }
 
   private static makeOpenFaceWithCaps(wire1: Wire, wire2: Wire): Face {
+    const closedWire = RibOps.makeClosedWireWithCaps(wire1, wire2);
+    return Face.fromTopoDSFace(
+      FaceOps.makeFaceFromWires([closedWire.getShape() as TopoDS_Wire]),
+    );
+  }
+
+  private static makeClosedWireWithCaps(wire1: Wire, wire2: Wire): Wire {
     const wire1End = wire1.getLastVertex().toPoint();
     const wire2Start = wire2.getFirstVertex().toPoint();
     const wire2End = wire2.getLastVertex().toPoint();
@@ -645,9 +728,6 @@ export class RibOps {
       cap2,
     ];
 
-    const closedWire = WireOps.makeWireFromEdges(allEdges);
-    return Face.fromTopoDSFace(
-      FaceOps.makeFaceFromWires([closedWire.getShape() as TopoDS_Wire]),
-    );
+    return WireOps.makeWireFromEdges(allEdges);
   }
 }

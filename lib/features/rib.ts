@@ -5,7 +5,6 @@ import { Wire } from "../common/wire.js";
 import { Extrudable } from "../helpers/types.js";
 import { ClassifiedFaces, ExtrudeBase } from "./extrude-base.js";
 import { IRib } from "../core/interfaces.js";
-import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { ExtrudeOps } from "../oc/extrude-ops.js";
@@ -74,12 +73,6 @@ export class Rib extends ExtrudeBase implements IRib {
       );
     }
 
-    const profileFace = p.record('Make rib profile', () =>
-      this._parallel
-        ? RibOps.makeRibProfileParallel(spineWire, this._thickness, plane)
-        : RibOps.makeRibProfile(spineWire, this._thickness, plane),
-    );
-
     // Sign convention:
     //   thickness > 0 → extrude OPPOSITE to the sketch normal (typical
     //                    "into the cavity" direction when the sketch sits
@@ -103,10 +96,30 @@ export class Rib extends ExtrudeBase implements IRib {
       );
     }
 
+    // Parallel + draft uses a tapered loft (firstFace lies on the spine
+    // plane by construction, exact thickness preserved). Everything else
+    // builds a plain prism from the rib profile face.
+    const useTaperedLoft = this._parallel && this.getDraft() !== null;
+    const profileFace = useTaperedLoft
+      ? null
+      : p.record('Make rib profile', () =>
+          this._parallel
+            ? RibOps.makeRibProfileParallel(spineWire, this._thickness, plane)
+            : RibOps.makeRibProfile(spineWire, this._thickness, plane),
+        );
+
     const vec = direction.multiply(distance);
-    const { solid, firstFace, lastFace } = p.record('Extrude rib', () =>
-      ExtrudeOps.makePrismFromVec(profileFace, vec),
-    );
+    const { solid, firstFace, lastFace } = p.record('Extrude rib', () => {
+      if (useTaperedLoft) {
+        const draft = this.getDraft()!;
+        const angleRad = (draft[0] * Math.PI) / 180;
+        return RibOps.makeTaperedRibPrism(
+          spineWire, this._thickness, plane,
+          direction, distance, angleRad,
+        );
+      }
+      return ExtrudeOps.makePrismFromVec(profileFace!, vec);
+    });
 
     const ribSolid = solid;
     const ribFirstFace = firstFace;
@@ -136,40 +149,17 @@ export class Rib extends ExtrudeBase implements IRib {
     // extension); the conformed rib is finite, so OCC handles strong
     // drafts cleanly.
     //
-    // The neutral plane (= where draft = 0) is anchored at the spine
-    // plane in parallel mode so the face the user originally drew stays
-    // at the original thickness; in normal mode the sketch plane
-    // already coincides with the prism base.
-    if (this.getDraft() && conformedSolids.length === 1 && classified.startFaces.length > 0) {
+    // Parallel mode skips this entirely — its prism was built tapered
+    // by `RibOps.makeTaperedRibPrism`, so the conformed result is
+    // already drafted with an exact (no-drift) start-face thickness.
+    // Normal mode uses OCC's draft with the sketch plane as the neutral
+    // plane (which already coincides with the prism base, so no shift
+    // is required).
+    if (!this._parallel && this.getDraft() && conformedSolids.length === 1 && classified.startFaces.length > 0) {
       const draft = this.getDraft()!;
       let angle = draft[0];
 
-      let draftPlane: Plane;
-      if (this._parallel) {
-        // Anchor the neutral plane just past the spine plane in the
-        // OPPOSITE direction of the extrude. This places the entire rib
-        // body on the +dir side of the neutral plane, so OCC's draft
-        // tilts walls coherently around a pivot OUTSIDE the rib.
-        // Empirically BRepOffsetAPI_DraftAngle returns IsDone=true but
-        // does nothing when the neutral plane sits exactly at the wall
-        // boundary; placing it just past the spine gives OCC a stable
-        // pivot.
-        //
-        // The shift is scaled to the rib thickness (2%) so the
-        // induced spine-plane movement (= shift * tan(angle)) is
-        // sub-precision relative to the rib's own size. A fixed shift
-        // would either fail to register with OCC for very thick ribs
-        // or produce visible thickness artifacts on very thin ones
-        // (e.g. a 0.1mm shift on a 0.25mm-thick rib changed the
-        // start-face thickness from 0.250 to 0.278 — visibly wrong).
-        const shiftMag = Math.max(Math.abs(this._thickness) * 0.02, 1e-4);
-        const spineOrigin = originalSpineWire.getFirstVertex().toPoint();
-        const dn = direction.normalize();
-        const shifted = spineOrigin.add(dn.multiply(-shiftMag));
-        draftPlane = new Plane(shifted, plane.normal, dn);
-      } else {
-        draftPlane = plane;
-      }
+      const draftPlane = plane;
 
       // Mirrors the dirSign reversal above: in normal mode the OCC
       // pull direction is the unsigned plane.normal, which now matches

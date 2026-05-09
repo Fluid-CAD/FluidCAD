@@ -23,6 +23,8 @@ import {
   handleRemovePoint,
   handleSetPickPoints,
   handleGotoSource,
+  handleInsertGeometry,
+  handleUpdatePosition,
 } from './code-edits';
 import { updateDiagnostics, type CompileError } from './diagnostics';
 
@@ -154,6 +156,14 @@ export class Client {
       }
       case 'remove-pick': {
         handleRemovePick(this, msg);
+        break;
+      }
+      case 'insert-geometry': {
+        handleInsertGeometry(this, msg);
+        break;
+      }
+      case 'update-position': {
+        handleUpdatePosition(this, msg);
         break;
       }
       case 'export-complete': {

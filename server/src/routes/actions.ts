@@ -10,6 +10,8 @@ import {
   addPick,
   removePick,
   setPickPoints,
+  insertGeometryCall,
+  updateGeometryPosition,
 } from '../code-editor.ts';
 
 export function createActionsRouter(
@@ -358,6 +360,74 @@ export function createActionsRouter(
     }
     try {
       const result = await setPickPoints(code, sourceLine, points as [number, number][]);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/insert-geometry', (req, res) => {
+    const { statement, sketchSourceLocation } = req.body;
+    if (
+      typeof statement !== 'string' ||
+      !sketchSourceLocation || typeof sketchSourceLocation.line !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    sendToExtension({
+      type: 'insert-geometry',
+      statement,
+      sketchSourceLocation,
+    });
+    res.json({ success: true });
+  });
+
+  router.post('/code/insert-geometry', async (req, res) => {
+    const { code, sketchSourceLine, statement } = req.body;
+    if (
+      typeof code !== 'string' || typeof sketchSourceLine !== 'number' ||
+      typeof statement !== 'string'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await insertGeometryCall(code, sketchSourceLine, statement);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/update-position', (req, res) => {
+    const { newPosition, sourceLocation } = req.body;
+    if (
+      !Array.isArray(newPosition) || newPosition.length !== 2 ||
+      !sourceLocation || typeof sourceLocation.line !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    sendToExtension({
+      type: 'update-position',
+      newPosition: newPosition as [number, number],
+      sourceLocation,
+    });
+    res.json({ success: true });
+  });
+
+  router.post('/code/update-position', async (req, res) => {
+    const { code, sourceLine, newPosition } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      !Array.isArray(newPosition) || newPosition.length !== 2
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await updateGeometryPosition(code, sourceLine, newPosition as [number, number]);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

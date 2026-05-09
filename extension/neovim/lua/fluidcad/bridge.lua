@@ -202,6 +202,14 @@ function M.handle_message(msg)
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.set_pick_points(code, msg.sourceLocation.line, msg.points)
       end)
+    elseif msg.type == 'insert-geometry' then
+      M.apply_code_edit(msg.sketchSourceLocation.filePath, function(code_api, code)
+        return code_api.insert_geometry(code, msg.sketchSourceLocation.line, msg.statement)
+      end)
+    elseif msg.type == 'update-position' then
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.update_position(code, msg.sourceLocation.line, msg.newPosition)
+      end)
     elseif msg.type == 'add-breakpoint' then
       local ok, breakpoints = pcall(require, 'fluidcad.breakpoints')
       if ok and msg.filePath and msg.line then

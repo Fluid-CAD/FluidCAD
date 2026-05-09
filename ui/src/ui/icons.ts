@@ -17,6 +17,9 @@ import iconEyeOff from '@tabler/icons/outline/eye-off.svg?raw';
 import iconCircleHalf2 from '@tabler/icons/outline/circle-half-2.svg?raw';
 import iconPlayerPause from '@tabler/icons/outline/player-pause.svg?raw';
 import iconAlertTriangle from '@tabler/icons/outline/alert-triangle.svg?raw';
+import iconLine from '@tabler/icons/outline/line.svg?raw';
+import iconCircle from '@tabler/icons/outline/circle.svg?raw';
+import iconPointer from '@tabler/icons/outline/pointer.svg?raw';
 
 export const ICON_FIT = iconAutoFit;
 export const ICON_ORTHO = iconOrthographic;
@@ -37,3 +40,6 @@ export const ICON_EYE_OFF = iconEyeOff;
 export const ICON_SECTION_VIEW = iconCircleHalf2;
 export const ICON_PAUSE = iconPlayerPause;
 export const ICON_ALERT_TRIANGLE = iconAlertTriangle;
+export const ICON_LINE = iconLine;
+export const ICON_CIRCLE = iconCircle;
+export const ICON_POINTER = iconPointer;

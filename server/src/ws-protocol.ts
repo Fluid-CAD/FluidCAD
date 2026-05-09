@@ -155,6 +155,18 @@ export type GotoSourceMessage = {
   column: number;
 };
 
+export type InsertGeometryMessage = {
+  type: 'insert-geometry';
+  statement: string;
+  sketchSourceLocation: { line: number; column: number };
+};
+
+export type UpdatePositionMessage = {
+  type: 'update-position';
+  newPosition: [number, number];
+  sourceLocation: { line: number; column: number };
+};
+
 export type ServerToExtensionMessage =
   | ReadyMessage
   | InitCompleteMessage
@@ -169,7 +181,9 @@ export type ServerToExtensionMessage =
   | AddBreakpointMessage
   | ClearBreakpointsMessage
   | GotoSourceMessage
-  | ExportCompleteMessage;
+  | ExportCompleteMessage
+  | InsertGeometryMessage
+  | UpdatePositionMessage;
 
 // ---------------------------------------------------------------------------
 // WebSocket: Server → UI messages

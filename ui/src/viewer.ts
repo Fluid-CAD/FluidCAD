@@ -49,6 +49,7 @@ export class Viewer {
   isTrimming = false;
   isRegionPicking = false;
   isBezierDrawing = false;
+  isDrawing = false;
 
   private selectionHandler: ((shapeId: string | null, sub: SubSelection) => void) | null = null;
   private centroidIndicator = new CentroidIndicator();
@@ -292,7 +293,7 @@ export class Viewer {
     }
 
     // Auto-fit on first render or in sketch mode (skip if viewport barely changed or trimming)
-    if (!this.hasRendered || (this.modeManager.isSketchMode && !isRollback && !this.isTrimming && !this.isRegionPicking && !this.isBezierDrawing)) {
+    if (!this.hasRendered || (this.modeManager.isSketchMode && !isRollback && !this.isTrimming && !this.isRegionPicking && !this.isBezierDrawing && !this.isDrawing)) {
       const box = new Box3();
       expandBoxExcludingMeta(box, mesh);
       if (!box.isEmpty() && !this.isBoxContained(box)) {

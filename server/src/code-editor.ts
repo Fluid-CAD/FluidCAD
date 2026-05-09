@@ -644,3 +644,143 @@ export function setPickPoints(
     return spliceCode(code, args.startIndex + 1, args.endIndex - 1, newArgs);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Geometry insertion — insert a new call expression at the end of a sketch body
+// ---------------------------------------------------------------------------
+
+/**
+ * Find the callback body (statement_block) inside a sketch() call.
+ * Looks for the last arrow_function or function argument.
+ */
+function findSketchBody(call: TSNode): TSNode | null {
+  const args = getArgumentsNode(call);
+  if (!args) {
+    return null;
+  }
+  for (let i = args.namedChildren.length - 1; i >= 0; i--) {
+    const child = args.namedChildren[i];
+    if (child.type === 'arrow_function' || child.type === 'function') {
+      const body = child.childForFieldName('body');
+      if (body && body.type === 'statement_block') {
+        return body;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Ensure a symbol is present in the `import { ... } from 'fluidcad'` or
+ * `'fluidcad/core'` statement. Returns modified code if the symbol was added.
+ */
+async function ensureSymbolImport(code: string, symbol: string): Promise<string> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const importNode = findFluidCadImport(tree);
+  if (!importNode) {
+    return code;
+  }
+  const namedImports = findNamedImports(importNode);
+  if (!namedImports) {
+    return code;
+  }
+  for (const spec of namedImports.namedChildren) {
+    if (spec.type !== 'import_specifier') {
+      continue;
+    }
+    const name = spec.childForFieldName('name') ?? spec.namedChild(0);
+    if (name && name.text === symbol) {
+      return code;
+    }
+  }
+  const openBraceOffset = namedImports.startIndex + 1;
+  const after = code[openBraceOffset];
+  const needsSpace = after !== ' ' && after !== '\t' && after !== '\n';
+  const insertText = needsSpace ? ` ${symbol},` : `${symbol},`;
+  return code.slice(0, openBraceOffset) + insertText + code.slice(openBraceOffset);
+}
+
+/**
+ * Insert a new geometry call expression at the end of a sketch's callback body.
+ *
+ * @param code - Full source code
+ * @param sketchSourceLine - 1-indexed line where the sketch() call starts
+ * @param statement - The call to insert, e.g. "line([5, 10], [20, 30])"
+ */
+export async function insertGeometryCall(
+  code: string,
+  sketchSourceLine: number,
+  statement: string,
+): Promise<CodeEditResult> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const lines = splitLines(code);
+  const call = findEditableCallAt(tree, lines, sketchSourceLine);
+  if (!call) {
+    return { newCode: code };
+  }
+
+  const body = findSketchBody(call);
+  if (!body) {
+    return { newCode: code };
+  }
+
+  const bodyChildren = body.namedChildren;
+  let insertRow: number;
+  let indent: string;
+
+  if (bodyChildren.length > 0) {
+    const lastStmt = bodyChildren[bodyChildren.length - 1];
+    insertRow = lastStmt.endPosition.row + 1;
+    indent = indentOf(lines, lastStmt.startPosition.row);
+  } else {
+    insertRow = body.startPosition.row + 1;
+    indent = indentOf(lines, body.startPosition.row) + '  ';
+  }
+
+  const newLine = `${indent}${statement}`;
+  lines.splice(insertRow, 0, newLine);
+  let result = joinLines(lines);
+
+  const funcName = statement.match(/^(\w+)\s*\(/)?.[1];
+  if (funcName) {
+    result = await ensureSymbolImport(result, funcName);
+  }
+
+  return { newCode: result };
+}
+
+/**
+ * Update the position (first point argument) of a geometry call.
+ *
+ * @param code - Full source code
+ * @param sourceLine - 1-indexed line of the geometry call
+ * @param newPosition - New [x, y] position
+ */
+export async function updateGeometryPosition(
+  code: string,
+  sourceLine: number,
+  newPosition: [number, number],
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const args = getArgumentsNode(call);
+    if (!args) {
+      return null;
+    }
+    const pointText = `[${newPosition[0]}, ${newPosition[1]}]`;
+    const firstArg = args.namedChildren[0];
+    if (!firstArg) {
+      return spliceCode(code, args.startIndex + 1, args.startIndex + 1, pointText);
+    }
+    const parsed = parsePointLiteral(firstArg);
+    if (parsed) {
+      return spliceCode(code, firstArg.startIndex, firstArg.endIndex, pointText);
+    }
+    return spliceCode(code, args.startIndex + 1, args.startIndex + 1, pointText + ', ');
+  });
+}

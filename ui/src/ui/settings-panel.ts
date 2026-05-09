@@ -16,11 +16,8 @@ function isDarkTheme(): boolean {
 export class SettingsPanel {
   private el: HTMLDivElement;
   private sectionViewEl: HTMLDivElement;
-  private snapEl: HTMLDivElement;
   private onFitView: (() => void) | null = null;
   private onSectionViewToggle: ((enabled: boolean) => void) | null = null;
-  onSnapVerticesChange: ((checked: boolean) => void) | null = null;
-  onSnapGridChange: ((checked: boolean) => void) | null = null;
 
   constructor(
     container: HTMLElement,
@@ -30,29 +27,6 @@ export class SettingsPanel {
     const wrapper = document.createElement('div');
     wrapper.className = 'absolute right-6 top-1/2 -translate-y-1/2 z-[100] flex flex-col items-end gap-2 select-none';
     container.appendChild(wrapper);
-
-    // Snap toggles — shown during sketch mode when a tool is active
-    this.snapEl = document.createElement('div');
-    this.snapEl.className = 'flex flex-col gap-1.5 panel-bg border border-base-content/10 rounded-md px-2 py-2';
-    this.snapEl.style.display = 'none';
-    this.snapEl.innerHTML = `
-      <label class="flex items-center gap-1.5 cursor-pointer" title="Snap to vertices">
-        <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" data-snap="vertex" checked />
-        <span class="text-xs text-base-content/70">Vertices</span>
-      </label>
-      <label class="flex items-center gap-1.5 cursor-pointer" title="Snap to grid">
-        <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" data-snap="grid" checked />
-        <span class="text-xs text-base-content/70">Grid</span>
-      </label>
-    `;
-    wrapper.appendChild(this.snapEl);
-
-    this.snapEl.querySelector<HTMLInputElement>('[data-snap="vertex"]')!.addEventListener('change', (e) => {
-      this.onSnapVerticesChange?.((e.target as HTMLInputElement).checked);
-    });
-    this.snapEl.querySelector<HTMLInputElement>('[data-snap="grid"]')!.addEventListener('change', (e) => {
-      this.onSnapGridChange?.((e.target as HTMLInputElement).checked);
-    });
 
     // Section view button — own container, hidden by default
     this.sectionViewEl = document.createElement('div');
@@ -145,9 +119,6 @@ export class SettingsPanel {
     if (btn) { btn.className = active ? BTN_ACTIVE : BTN_BASE; }
   }
 
-  setSnapVisible(visible: boolean): void {
-    this.snapEl.style.display = visible ? '' : 'none';
-  }
 
   setProjectionLocked(locked: boolean): void {
     this.el.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) => {

@@ -829,12 +829,12 @@ const sketchToolbar = new SketchToolbar(container, (toolId) => {
   handleToolSelect(toolId);
 });
 
-viewer.settingsPanel.onSnapVerticesChange = (checked: boolean) => {
+sketchToolbar.onSnapVerticesChange = (checked: boolean) => {
   if (activeDrawingTool) {
     activeDrawingTool['snapController'].snapToVertices = checked;
   }
 };
-viewer.settingsPanel.onSnapGridChange = (checked: boolean) => {
+sketchToolbar.onSnapGridChange = (checked: boolean) => {
   if (activeDrawingTool) {
     activeDrawingTool['snapController'].snapToGrid = checked;
   }
@@ -897,7 +897,6 @@ function handleToolSelect(toolId: ToolId | null): void {
   }
 
   sketchToolbar.setActiveTool(toolId);
-  viewer.settingsPanel.setSnapVisible(toolId !== null);
 
   if (!toolId || !activeSketchInfo) {
     if (!toolId && activeSketchInfo) {
@@ -1020,7 +1019,7 @@ function updateSketchToolbar(sceneObjects: SceneObjectRender[]): void {
     deactivateDragHandler();
     activeSketchInfo = null;
     sketchToolbar.hide();
-    viewer.settingsPanel.setSnapVisible(false);
+
   }
 }
 

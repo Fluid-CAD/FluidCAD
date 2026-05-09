@@ -17,11 +17,7 @@ export class SketchToolbar {
   private onToolSelect: (toolId: ToolId | null) => void;
   private activeToolId: ToolId | null = null;
   private buttons = new Map<ToolId, HTMLButtonElement>();
-  private snapEl: HTMLDivElement;
   private boundKeyDown: (e: KeyboardEvent) => void;
-
-  onSnapVerticesChange: ((checked: boolean) => void) | null = null;
-  onSnapGridChange: ((checked: boolean) => void) | null = null;
 
   constructor(container: HTMLElement, onToolSelect: (toolId: ToolId | null) => void) {
     this.onToolSelect = onToolSelect;
@@ -43,28 +39,6 @@ export class SketchToolbar {
     }
 
     this.el.appendChild(inner);
-
-    this.snapEl = document.createElement('div');
-    this.snapEl.className = 'flex items-center gap-3 panel-bg border border-base-content/10 rounded-lg px-4 py-2 mt-2 hidden';
-    this.snapEl.innerHTML = `
-      <label class="flex items-center gap-1.5 cursor-pointer">
-        <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" data-snap="vertex" checked />
-        <span class="text-xs text-base-content/70">Snap to vertices</span>
-      </label>
-      <label class="flex items-center gap-1.5 cursor-pointer">
-        <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" data-snap="grid" checked />
-        <span class="text-xs text-base-content/70">Snap to grid</span>
-      </label>
-    `;
-    this.el.appendChild(this.snapEl);
-
-    this.snapEl.querySelector<HTMLInputElement>('[data-snap="vertex"]')!.addEventListener('change', (e) => {
-      this.onSnapVerticesChange?.((e.target as HTMLInputElement).checked);
-    });
-    this.snapEl.querySelector<HTMLInputElement>('[data-snap="grid"]')!.addEventListener('change', (e) => {
-      this.onSnapGridChange?.((e.target as HTMLInputElement).checked);
-    });
-
     container.appendChild(this.el);
 
     this.boundKeyDown = this.handleKeyDown.bind(this);
@@ -95,11 +69,6 @@ export class SketchToolbar {
       btn.className = id === toolId ? BTN_ACTIVE : BTN_BASE;
     }
     this.activeToolId = toolId;
-    if (toolId) {
-      this.snapEl.classList.remove('hidden');
-    } else {
-      this.snapEl.classList.add('hidden');
-    }
   }
 
   get activeTool(): ToolId | null {

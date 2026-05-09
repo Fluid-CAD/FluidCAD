@@ -40,7 +40,7 @@ const SKETCH_GHOST_TINT_FACTOR = 0.75;
 export class Viewer {
   private ctx: SceneContext;
   private modeManager: SceneModeManager;
-  private settingsPanel: SettingsPanel;
+  readonly settingsPanel: SettingsPanel;
   private sceneObjects: SceneObjectRender[] = [];
   private highlightedShapeId: string | null = null;
   private faceHighlightMeshes: Mesh[] = [];

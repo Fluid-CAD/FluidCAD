@@ -24,7 +24,7 @@ import { LineTool } from './interactive/tools/line-tool';
 import { CircleTool } from './interactive/tools/circle-tool';
 import { DragMoveHandler } from './interactive/drag-move-handler';
 import { DimensionInput } from './ui/dimension-input';
-import { projectToSketch as projectToSketchUtil } from './interactive/sketch-plane-utils';
+import { projectToSketch as projectToSketchUtil, pixelToSketchThreshold as pixelToSketchThresholdUtil } from './interactive/sketch-plane-utils';
 
 installVSCodeKeyboardBridge();
 
@@ -881,7 +881,7 @@ viewer.sceneContext.renderer.domElement.addEventListener('dblclick', (e: MouseEv
     if (!uniqueType || !EDITABLE_TYPES[uniqueType] || !child.sourceLocation) {
       continue;
     }
-    for (const part of child.ownShapes) {
+    for (const part of child.sceneShapes) {
       for (const mesh of part.meshes) {
         const verts = mesh.vertices;
         for (let i = 0; i < verts.length; i += 3) {
@@ -902,7 +902,8 @@ viewer.sceneContext.renderer.domElement.addEventListener('dblclick', (e: MouseEv
     }
   }
 
-  if (!bestObj || bestDist > 25) {
+  const hitThreshold = pixelToSketchThresholdUtil(viewer.sceneContext, 12);
+  if (!bestObj || bestDist > hitThreshold * hitThreshold) {
     return;
   }
 

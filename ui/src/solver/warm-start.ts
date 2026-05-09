@@ -68,6 +68,7 @@ export function applyTreeWarmStarts(
   mates: MateRecord[],
   drag: TreeDragInfo = {},
   slvsLoopBodies: Set<string> = new Set(),
+  clusters?: FastenedClusterCache,
 ): void {
   const bodyById = new Map(bodies.map(b => [b.instanceId, b]));
   // Snapshot the input poses so per-edge warm-starts can decide
@@ -87,7 +88,7 @@ export function applyTreeWarmStarts(
   }
   for (const component of components) {
     for (const edge of component.treeEdges) {
-      seedTreeEdge(edge, mates, drag, bodyById, prevPoses);
+      seedTreeEdge(edge, mates, drag, bodyById, prevPoses, clusters);
     }
   }
   // Loop bodies in slvs-solvable components stay free at the slvs
@@ -152,6 +153,7 @@ function seedTreeEdge(
   drag: TreeDragInfo,
   bodyById: Map<string, BodyState>,
   prevPoses: PrevPoses,
+  clusters: FastenedClusterCache | undefined,
 ): void {
   const { parent, child, parentConn, childConn, mate } = edge;
   switch (mate.type) {
@@ -159,16 +161,16 @@ function seedTreeEdge(
       seedFastenedEdge(parent, child, parentConn, childConn, mate);
       break;
     case 'revolute':
-      seedRevoluteEdge(parent, child, parentConn, childConn, mate, mates, drag, bodyById, prevPoses);
+      seedRevoluteEdge(parent, child, parentConn, childConn, mate, mates, drag, bodyById, prevPoses, clusters);
       break;
     case 'slider':
-      seedSliderEdge(parent, child, parentConn, childConn, mate, mates, drag, bodyById, prevPoses);
+      seedSliderEdge(parent, child, parentConn, childConn, mate, mates, drag, bodyById, prevPoses, clusters);
       break;
     case 'cylindrical':
-      seedCylindricalEdge(parent, child, parentConn, childConn, mate, mates, drag, bodyById, prevPoses);
+      seedCylindricalEdge(parent, child, parentConn, childConn, mate, mates, drag, bodyById, prevPoses, clusters);
       break;
     case 'planar':
-      seedPlanarEdge(parent, child, parentConn, childConn, mate, mates, drag, bodyById, prevPoses);
+      seedPlanarEdge(parent, child, parentConn, childConn, mate, mates, drag, bodyById, prevPoses, clusters);
       break;
     // 'parallel' and 'pin-slot' have no warm-start yet; their tree edges
     // are no-ops (the child stays at its input pose). They'll be handled
@@ -263,6 +265,7 @@ function seedRevoluteEdge(
   drag: TreeDragInfo,
   bodyById: Map<string, BodyState>,
   prevPoses: PrevPoses,
+  clusters: FastenedClusterCache | undefined,
 ): void {
   if (driver.grounded && follower.grounded) return;
   const options = mate.options ?? {};
@@ -290,7 +293,7 @@ function seedRevoluteEdge(
   // that brings the *grab point* to the cursor. The grab point may live
   // on the follower itself, or on any body fastened-connected to it
   // (the rigid cluster pivots as one).
-  applyRevoluteDragRotation(driver, follower, driverConn, allMates, drag, bodyById);
+  applyRevoluteDragRotation(driver, follower, driverConn, allMates, drag, bodyById, clusters);
 
   // Re-derive position from the (possibly rotated) orientation so the
   // connector frames truly coincide in world space, regardless of which
@@ -332,11 +335,13 @@ function applyRevoluteDragRotation(
   allMates: MateRecord[],
   drag: TreeDragInfo,
   bodyById: Map<string, BodyState>,
+  clusters: FastenedClusterCache | undefined,
 ): void {
   const { draggedInstanceId, draggedCursorWorld, draggedGrabLocal } = drag;
   if (!draggedCursorWorld || !draggedGrabLocal || !draggedInstanceId) return;
   if (follower.grounded) return;
-  const cluster = findFastenedCluster(follower.instanceId, allMates);
+  const cluster = clusters?.get(follower.instanceId)
+    ?? findFastenedCluster(follower.instanceId, allMates);
   if (!cluster.has(draggedInstanceId)) return;
   const draggedBody = bodyById.get(draggedInstanceId);
   if (!draggedBody) return;
@@ -452,6 +457,7 @@ function seedSliderEdge(
   drag: TreeDragInfo,
   bodyById: Map<string, BodyState>,
   prevPoses: PrevPoses,
+  clusters: FastenedClusterCache | undefined,
 ): void {
   if (driver.grounded && follower.grounded) return;
   const options = mate.options ?? {};
@@ -472,7 +478,7 @@ function seedSliderEdge(
     effectiveZ = seedOffsetZ;
   }
 
-  effectiveZ += sliderDragDelta(driver, follower, driverConn, allMates, drag, bodyById);
+  effectiveZ += sliderDragDelta(driver, follower, driverConn, allMates, drag, bodyById, clusters);
 
   const target = computeFastenedTargetPose(driver, driverConn, followerConn, {
     ...options,
@@ -520,11 +526,13 @@ function sliderDragDelta(
   allMates: MateRecord[],
   drag: TreeDragInfo,
   bodyById: Map<string, BodyState>,
+  clusters: FastenedClusterCache | undefined,
 ): number {
   const { draggedInstanceId, draggedCursorWorld, draggedGrabLocal } = drag;
   if (!draggedCursorWorld || !draggedGrabLocal || !draggedInstanceId) return 0;
   if (follower.grounded) return 0;
-  const cluster = findFastenedCluster(follower.instanceId, allMates);
+  const cluster = clusters?.get(follower.instanceId)
+    ?? findFastenedCluster(follower.instanceId, allMates);
   if (!cluster.has(draggedInstanceId)) return 0;
   const draggedBody = bodyById.get(draggedInstanceId);
   if (!draggedBody) return 0;
@@ -585,6 +593,7 @@ function seedCylindricalEdge(
   drag: TreeDragInfo,
   bodyById: Map<string, BodyState>,
   prevPoses: PrevPoses,
+  clusters: FastenedClusterCache | undefined,
 ): void {
   if (driver.grounded && follower.grounded) return;
   const options = mate.options ?? {};
@@ -609,7 +618,7 @@ function seedCylindricalEdge(
   }
 
   const drag2 = cylindricalDragDeltas(
-    driver, follower, driverConn, allMates, drag, slide, bodyById,
+    driver, follower, driverConn, allMates, drag, slide, bodyById, clusters,
   );
   slide += drag2.slideDelta;
   angle += drag2.angleDelta;
@@ -662,12 +671,14 @@ function cylindricalDragDeltas(
   drag: TreeDragInfo,
   currentSlide: number,
   bodyById: Map<string, BodyState>,
+  clusters: FastenedClusterCache | undefined,
 ): { slideDelta: number; angleDelta: number } {
   const { draggedInstanceId, draggedCursorWorld, draggedGrabLocal } = drag;
   const noDelta = { slideDelta: 0, angleDelta: 0 };
   if (!draggedCursorWorld || !draggedGrabLocal || !draggedInstanceId) return noDelta;
   if (follower.grounded) return noDelta;
-  const cluster = findFastenedCluster(follower.instanceId, allMates);
+  const cluster = clusters?.get(follower.instanceId)
+    ?? findFastenedCluster(follower.instanceId, allMates);
   if (!cluster.has(draggedInstanceId)) return noDelta;
   const draggedBody = bodyById.get(draggedInstanceId);
   if (!draggedBody) return noDelta;
@@ -772,6 +783,7 @@ function seedPlanarEdge(
   drag: TreeDragInfo,
   bodyById: Map<string, BodyState>,
   prevPoses: PrevPoses,
+  clusters: FastenedClusterCache | undefined,
 ): void {
   if (driver.grounded && follower.grounded) return;
   const options = mate.options ?? {};
@@ -798,7 +810,7 @@ function seedPlanarEdge(
     angle = seedAngle;
   }
 
-  const planarDelta = planarDragDelta(driver, follower, driverConn, allMates, drag, bodyById);
+  const planarDelta = planarDragDelta(driver, follower, driverConn, allMates, drag, bodyById, clusters);
   xLocal += planarDelta.x;
   yLocal += planarDelta.y;
 
@@ -850,12 +862,14 @@ function planarDragDelta(
   allMates: MateRecord[],
   drag: TreeDragInfo,
   bodyById: Map<string, BodyState>,
+  clusters: FastenedClusterCache | undefined,
 ): { x: number; y: number } {
   const { draggedInstanceId, draggedCursorWorld, draggedGrabLocal } = drag;
   const noDelta = { x: 0, y: 0 };
   if (!draggedCursorWorld || !draggedGrabLocal || !draggedInstanceId) return noDelta;
   if (follower.grounded) return noDelta;
-  const cluster = findFastenedCluster(follower.instanceId, allMates);
+  const cluster = clusters?.get(follower.instanceId)
+    ?? findFastenedCluster(follower.instanceId, allMates);
   if (!cluster.has(draggedInstanceId)) return noDelta;
   const draggedBody = bodyById.get(draggedInstanceId);
   if (!draggedBody) return noDelta;
@@ -958,6 +972,54 @@ function findFastenedCluster(rootId: string, mates: MateRecord[]): Set<string> {
     }
   }
   return cluster;
+}
+
+/**
+ * id → set of all instance ids fastened-connected to it (transitively).
+ * Bodies in the same fastened cluster share the same Set instance, so the
+ * map is O(N_bodies) entries pointing at O(N_components) underlying sets.
+ *
+ * Built ONCE per `Solver.solve()` and threaded through the warm-start so
+ * the per-edge drag helpers do an O(1) lookup instead of recomputing
+ * `findFastenedCluster` (O(N_mates × N_cluster)) per non-fastened tree
+ * edge per frame. Without this, dragging a body in a heavy fastened
+ * cluster pegs the CPU because every tree-edge drag-helper rescans the
+ * full mates list to discover whether the dragged body is fastened-
+ * equivalent to that edge's follower.
+ */
+export type FastenedClusterCache = Map<string, Set<string>>;
+
+export function buildFastenedClusterCache(
+  bodies: BodyState[],
+  mates: MateRecord[],
+): FastenedClusterCache {
+  const adj = new Map<string, string[]>();
+  for (const b of bodies) adj.set(b.instanceId, []);
+  for (const m of mates) {
+    if (m.type !== 'fastened') continue;
+    const a = m.connectorA.instanceId;
+    const b = m.connectorB.instanceId;
+    adj.get(a)?.push(b);
+    adj.get(b)?.push(a);
+  }
+  const compOf = new Map<string, Set<string>>();
+  for (const b of bodies) {
+    if (compOf.has(b.instanceId)) continue;
+    const set = new Set<string>();
+    const stack = [b.instanceId];
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      if (set.has(cur)) continue;
+      set.add(cur);
+      const neighbors = adj.get(cur);
+      if (!neighbors) continue;
+      for (const nb of neighbors) {
+        if (!set.has(nb)) stack.push(nb);
+      }
+    }
+    for (const id of set) compOf.set(id, set);
+  }
+  return compOf;
 }
 
 // ---------------------------------------------------------------------------

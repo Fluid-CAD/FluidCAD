@@ -19,10 +19,11 @@ import { buildMateGraph } from './graph.js';
 import { applyLoopRelaxations } from './loop-relaxation.js';
 import { classifySlvsSolvable } from './slvs-loop.js';
 import { loadSolveSpace, type SolveSpaceApi } from './solvespace-loader.js';
-import type { SolverInput, SolverOutput, SolverResult } from './types.js';
+import type { BodyState, SolverInput, SolverOutput, SolverResult } from './types.js';
 import {
   applyTreeFixups,
   applyTreeWarmStarts,
+  buildFastenedClusterCache,
   countTreeFreeDof,
 } from './warm-start.js';
 
@@ -66,11 +67,17 @@ export class Solver {
     // follows the JS-side warm-start + lock + LM pattern.
     const slvs = classifySlvsSolvable(graph.components, input.bodies);
 
+    // Precompute fastened-cluster membership once per solve. Without
+    // this, every non-fastened tree edge's drag helper recomputes its
+    // follower's cluster by scanning the full mates list — pegging the
+    // CPU when the dragged body sits inside a heavy fastened cluster.
+    const fastenedClusters = buildFastenedClusterCache(input.bodies, input.mates);
+
     applyTreeWarmStarts(input.bodies, graph.components, input.mates, {
       draggedInstanceId: input.draggedInstanceId,
       draggedCursorWorld: input.draggedCursorWorld,
       draggedGrabLocal: input.draggedGrabLocal,
-    }, slvs.loopBodies);
+    }, slvs.loopBodies, fastenedClusters);
 
     // Loop relaxation: per-component LM pass that brings loop bodies
     // onto the closure manifold. Skip components handled natively by
@@ -80,6 +87,31 @@ export class Solver {
       draggedCursorWorld: input.draggedCursorWorld,
       draggedGrabLocal: input.draggedGrabLocal,
     }, slvs.componentIndices);
+
+    // WASM-rebuild short-circuit: when every body is grounded or fully
+    // locked by warm-start (the common tree-only case — every non-seed
+    // body becomes a fastened-or-mate-locked follower), no params will
+    // land in GROUP_ACTIVE, so libslvs would have nothing to do. Skip
+    // `buildSystem` (which otherwise allocates 7 params + several
+    // entities per body and ~9 GROUP_GROUND params per connector every
+    // call) and synthesize the output directly from the warm-started
+    // poses. Without this, dragging a body in a heavily-fastened cluster
+    // burns the per-frame budget on WASM allocations alone.
+    if (!hasFreeBody(input.bodies)) {
+      const out: SolverOutput = {
+        bodies: input.bodies.map(b => ({
+          instanceId: b.instanceId,
+          position: b.position.clone(),
+          quaternion: b.quaternion.clone(),
+        })),
+        result: 'okay',
+        dof: 0,
+        failed: [],
+      };
+      applyTreeFixups(graph.components, out.bodies, slvs.loopBodies);
+      out.dof += countTreeFreeDof(graph.components, slvs.loopBodies);
+      return out;
+    }
 
     const built = buildSystem(this.api, input, slvs.emitMates);
 
@@ -212,6 +244,23 @@ function hasActiveParamsImpl(sys: any): boolean {
   const params = sys.params as { group: number }[];
   for (const p of params) {
     if (p.group === GROUP_ACTIVE) return true;
+  }
+  return false;
+}
+
+/**
+ * After warm-start + loop relaxation, returns true iff at least one body
+ * would emit any GROUP_ACTIVE params in `buildSystem`. This mirrors the
+ * grouping rule in system-builder.ts: a body's origin params are ground
+ * iff `body.grounded || body.lockPosition`, and its quat params are
+ * ground iff `body.grounded || body.lockOrientation`. When every body is
+ * fully accounted for by the warm-start, libslvs has nothing to solve
+ * and the WASM system rebuild is wasted work.
+ */
+function hasFreeBody(bodies: BodyState[]): boolean {
+  for (const b of bodies) {
+    if (b.grounded) continue;
+    if (!b.lockPosition || !b.lockOrientation) return true;
   }
   return false;
 }

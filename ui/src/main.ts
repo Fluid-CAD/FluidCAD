@@ -343,9 +343,14 @@ viewer.setInstanceDragReleaseHandler((instanceId, position) => {
 
 viewer.setSolverUpdateHandler((output) => {
   if (currentRail?.kind !== 'assembly') return;
-  // Update tracked failures *before* both panels read them, so DOF footer
-  // and joints panel agree.
-  lastFailedMateIds = new Set(output.failed);
+  // Diff the failed set against the previous frame BEFORE replacing it.
+  // The joints panel only re-renders when this set changes, and during a
+  // drag the solver fires per pointermove (1000+ Hz on modern mice) — a
+  // full panel re-render every event pegs the CPU. The DOF readout still
+  // updates every frame since it's a single text node.
+  const newFailed = new Set(output.failed);
+  const failedChanged = failedSetsDiffer(lastFailedMateIds, newFailed);
+  lastFailedMateIds = newFailed;
   if (output.result === 'okay') {
     currentRail.dof.update({ result: 'okay', dof: output.dof });
   } else if (output.result === 'inconsistent') {
@@ -359,7 +364,7 @@ viewer.setSolverUpdateHandler((output) => {
     // user sees the assembly is unhealthy. No mate-specific failure list.
     currentRail.dof.update({ result: 'inconsistent', dof: output.dof, failed: [] });
   }
-  if (lastAssemblyPayload) {
+  if (failedChanged && lastAssemblyPayload) {
     const rendered: RenderedInstance[] = lastAssemblyPayload.instances.map(i => ({
       ...i,
       visible: currentRail!.kind === 'assembly'
@@ -372,6 +377,12 @@ viewer.setSolverUpdateHandler((output) => {
     );
   }
 });
+
+function failedSetsDiffer(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return true;
+  for (const v of a) if (!b.has(v)) return true;
+  return false;
+}
 
 function formatMateLabel(mate: { type: string; mateId: string }): string {
   return `${mate.type} (${mate.mateId})`;

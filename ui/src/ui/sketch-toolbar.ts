@@ -14,16 +14,41 @@ const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
 
 export class SketchToolbar {
   private el: HTMLDivElement;
+  private snapEl: HTMLDivElement;
   private onToolSelect: (toolId: ToolId | null) => void;
   private activeToolId: ToolId | null = null;
   private buttons = new Map<ToolId, HTMLButtonElement>();
   private boundKeyDown: (e: KeyboardEvent) => void;
 
+  onSnapVerticesChange: ((checked: boolean) => void) | null = null;
+  onSnapGridChange: ((checked: boolean) => void) | null = null;
+
   constructor(container: HTMLElement, onToolSelect: (toolId: ToolId | null) => void) {
     this.onToolSelect = onToolSelect;
 
     this.el = document.createElement('div');
-    this.el.className = 'absolute bottom-6 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto hidden select-none';
+    this.el.className = 'absolute bottom-6 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto hidden select-none flex flex-col items-center gap-2';
+
+    this.snapEl = document.createElement('div');
+    this.snapEl.className = 'flex items-center gap-3 panel-bg border border-base-content/10 rounded-lg px-3 py-1.5 hidden';
+    this.snapEl.innerHTML = `
+      <label class="flex items-center gap-1.5 cursor-pointer" title="Snap to vertices">
+        <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" data-snap="vertex" checked />
+        <span class="text-xs text-base-content/70">Vertices</span>
+      </label>
+      <label class="flex items-center gap-1.5 cursor-pointer" title="Snap to grid">
+        <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" data-snap="grid" checked />
+        <span class="text-xs text-base-content/70">Grid</span>
+      </label>
+    `;
+    this.el.appendChild(this.snapEl);
+
+    this.snapEl.querySelector<HTMLInputElement>('[data-snap="vertex"]')!.addEventListener('change', (e) => {
+      this.onSnapVerticesChange?.((e.target as HTMLInputElement).checked);
+    });
+    this.snapEl.querySelector<HTMLInputElement>('[data-snap="grid"]')!.addEventListener('change', (e) => {
+      this.onSnapGridChange?.((e.target as HTMLInputElement).checked);
+    });
 
     const inner = document.createElement('div');
     inner.className = 'flex items-center gap-1 panel-bg border border-base-content/10 rounded-lg p-1';
@@ -69,6 +94,11 @@ export class SketchToolbar {
       btn.className = id === toolId ? BTN_ACTIVE : BTN_BASE;
     }
     this.activeToolId = toolId;
+    if (toolId) {
+      this.snapEl.classList.remove('hidden');
+    } else {
+      this.snapEl.classList.add('hidden');
+    }
   }
 
   get activeTool(): ToolId | null {

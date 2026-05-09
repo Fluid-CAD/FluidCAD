@@ -121,3 +121,43 @@ export async function handleSetPickPoints(client: Client, msg: { points: [number
     client.updateLiveCode(doc.fileName, doc.getText());
   }
 }
+
+export async function handleInsertGeometry(
+  client: Client,
+  msg: { statement: string; sketchSourceLocation: { line: number } },
+) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.insertGeometry(
+    client.serverUrl, doc.getText(), msg.sketchSourceLocation.line, msg.statement, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
+export async function handleUpdatePosition(
+  client: Client,
+  msg: { newPosition: [number, number]; sourceLocation: { line: number } },
+) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.updatePosition(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.newPosition, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}

@@ -18,6 +18,11 @@ import { onThemeChange } from './scene/theme-colors';
 import { loadPreferences } from './preferences';
 import { applyPreferences } from './scene/viewer-settings';
 import { installVSCodeKeyboardBridge } from './keyboard-bridge';
+import { SketchToolbar } from './ui/sketch-toolbar';
+import { SketchTool, ToolId } from './interactive/sketch-tool';
+import { LineTool } from './interactive/tools/line-tool';
+import { CircleTool } from './interactive/tools/circle-tool';
+import { DragMoveHandler } from './interactive/drag-move-handler';
 
 installVSCodeKeyboardBridge();
 
@@ -172,6 +177,7 @@ let lastTrimPickInfo: { trimObj: SceneObjectRender & { sourceLocation?: any }; s
 let lastTrimSceneObjects: SceneObjectRender[] | null = null;
 let activePointPickMode: PointPickMode | null = null;
 let activePickSourceLine: number | null = null;
+let pendingTrimActivation = false;
 
 function hasTrimPickingTrigger(sceneObjects: SceneObjectRender[]): {
   hasTrigger: boolean;
@@ -798,6 +804,160 @@ function deactivateBezierDrawMode() {
 }
 
 // ---------------------------------------------------------------------------
+// Sketch toolbar — unified drawing tool selection
+// ---------------------------------------------------------------------------
+
+let activeSketchInfo: {
+  sketchObj: SceneObjectRender;
+  plane: PlaneData;
+  sourceLocation: { filePath: string; line: number; column: number };
+} | null = null;
+let activeDrawingTool: SketchTool | null = null;
+let activeDragHandler: DragMoveHandler | null = null;
+
+const sketchToolbar = new SketchToolbar(container, (toolId) => {
+  handleToolSelect(toolId);
+});
+
+sketchToolbar.onSnapVerticesChange = (checked) => {
+  if (activeDrawingTool) {
+    activeDrawingTool['snapController'].snapToVertices = checked;
+  }
+};
+sketchToolbar.onSnapGridChange = (checked) => {
+  if (activeDrawingTool) {
+    activeDrawingTool['snapController'].snapToGrid = checked;
+  }
+};
+
+function createTool(toolId: ToolId, plane: PlaneData, sceneObjects: SceneObjectRender[], sketchId: string): SketchTool | null {
+  const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, plane);
+  const snapCtrl = new SnapController(snapManager, plane);
+
+  const insertGeometry = (statement: string) => {
+    if (!activeSketchInfo) {
+      return;
+    }
+    fetch('/api/insert-geometry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        statement,
+        sketchSourceLocation: activeSketchInfo.sourceLocation,
+      }),
+    });
+  };
+
+  switch (toolId) {
+    case 'line':
+      return new LineTool(viewer.sceneContext, plane, snapCtrl, insertGeometry);
+    case 'circle':
+      return new CircleTool(viewer.sceneContext, plane, snapCtrl, insertGeometry);
+    default:
+      return null;
+  }
+}
+
+function activateDragHandler(): void {
+  if (activeDragHandler || !activeSketchInfo) {
+    return;
+  }
+  const snapManager = SnapManager.fromSceneObjects(viewer.currentSceneObjects, activeSketchInfo.sketchObj.id!, activeSketchInfo.plane);
+  const snapCtrl = new SnapController(snapManager, activeSketchInfo.plane);
+  activeDragHandler = new DragMoveHandler(viewer.sceneContext, activeSketchInfo.plane, snapCtrl);
+  activeDragHandler.updateSceneData(viewer.currentSceneObjects, activeSketchInfo.sketchObj.id!);
+  activeDragHandler.activate();
+}
+
+function deactivateDragHandler(): void {
+  if (activeDragHandler) {
+    activeDragHandler.deactivate();
+    activeDragHandler = null;
+  }
+}
+
+function handleToolSelect(toolId: ToolId | null): void {
+  if (activeDrawingTool) {
+    activeDrawingTool.deactivate();
+    activeDrawingTool = null;
+  }
+
+  sketchToolbar.setActiveTool(toolId);
+
+  if (!toolId || !activeSketchInfo) {
+    if (!toolId && activeSketchInfo) {
+      activateDragHandler();
+    }
+    return;
+  }
+
+  deactivateDragHandler();
+
+  const tool = createTool(toolId, activeSketchInfo.plane, viewer.currentSceneObjects, activeSketchInfo.sketchObj.id!);
+  if (!tool) {
+    return;
+  }
+
+  if (activeSketchInfo.sketchObj.object?.currentPosition) {
+    tool.updateCurrentPosition(activeSketchInfo.sketchObj.object.currentPosition);
+  }
+
+  tool.activate();
+  activeDrawingTool = tool;
+}
+
+function updateSketchToolbar(sceneObjects: SceneObjectRender[]): void {
+  let lastRoot: SceneObjectRender | null = null;
+  for (let i = sceneObjects.length - 1; i >= 0; i--) {
+    if (isTopLevel(sceneObjects[i], sceneObjects)) {
+      lastRoot = sceneObjects[i];
+      break;
+    }
+  }
+
+  if (lastRoot?.type === 'sketch' && lastRoot.id && lastRoot.object?.plane && lastRoot.sourceLocation) {
+    const plane: PlaneData = lastRoot.object.plane;
+    const prevSketchId = activeSketchInfo?.sketchObj.id;
+    activeSketchInfo = {
+      sketchObj: lastRoot,
+      plane,
+      sourceLocation: lastRoot.sourceLocation,
+    };
+
+    if (!sketchToolbar.isVisible) {
+      sketchToolbar.show();
+    }
+
+    if (activeDrawingTool) {
+      if (prevSketchId !== lastRoot.id) {
+        handleToolSelect(sketchToolbar.activeTool);
+      } else {
+        activeDrawingTool.updatePlane(plane);
+        activeDrawingTool.onSceneUpdate(sceneObjects, lastRoot.id);
+        if (lastRoot.object?.currentPosition) {
+          activeDrawingTool.updateCurrentPosition(lastRoot.object.currentPosition);
+        }
+      }
+    } else if (activeDragHandler) {
+      activeDragHandler.updatePlane(plane);
+      const snapManager = SnapManager.fromSceneObjects(sceneObjects, lastRoot.id, plane);
+      activeDragHandler.updateSnapController(new SnapController(snapManager, plane));
+      activeDragHandler.updateSceneData(sceneObjects, lastRoot.id);
+    } else if (!sketchToolbar.activeTool) {
+      activateDragHandler();
+    }
+  } else {
+    if (activeDrawingTool) {
+      activeDrawingTool.deactivate();
+      activeDrawingTool = null;
+    }
+    deactivateDragHandler();
+    activeSketchInfo = null;
+    sketchToolbar.hide();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Import file button
 // ---------------------------------------------------------------------------
 
@@ -936,6 +1096,7 @@ function connectWebSocket() {
         const isRollback = msg.rollbackStop != null && msg.rollbackStop < msg.result.length - 1;
         viewer.isTrimming = !isRollback && trimPickState === 'picking-active';
         viewer.isBezierDrawing = !isRollback && isBezierDrawingScene(msg.result);
+        viewer.isDrawing = !isRollback && activeDrawingTool !== null;
         viewer.updateView(msg.result, isRollback, msg.rollbackStop);
         if (msg.absPath) {
           viewer.setFileName(msg.absPath);
@@ -944,10 +1105,12 @@ function connectWebSocket() {
           resetTrimPickMode();
           resetRegionPickMode();
           deactivateBezierDrawMode();
+          updateSketchToolbar([]);
         } else {
           updateTrimPickMode(msg.result);
           updateRegionPickMode(msg.result);
           updateBezierDrawMode(msg.result);
+          updateSketchToolbar(msg.result);
         }
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1, msg.absPath);
         errorBanner.update(msg.result, msg.compileError ?? null);

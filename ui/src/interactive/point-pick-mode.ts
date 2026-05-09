@@ -1,7 +1,7 @@
-import { Vector3 } from 'three';
 import { SceneContext } from '../scene/scene-context';
 import { SnapManager } from '../snapping/snap-manager';
 import { PlaneData, SceneObjectRender } from '../types';
+import { projectToSketch as projectToSketchShared, pixelToSketchThreshold, roundPoint } from './sketch-plane-utils';
 
 /** Pre-computed edge data for fast 2D distance queries. */
 type EdgeEntry = {
@@ -119,11 +119,7 @@ export class PointPickMode {
     const onEdge = this.projectOntoEdge(point2d, this.highlightedShapeId);
     const final = onEdge ?? point2d;
 
-    const rounded: [number, number] = [
-      Math.round(final[0] * 100) / 100,
-      Math.round(final[1] * 100) / 100,
-    ];
-    this.onPick(rounded);
+    this.onPick(roundPoint(final));
   }
 
   private handleMouseMove(e: MouseEvent): void {
@@ -150,25 +146,8 @@ export class PointPickMode {
     }
   }
 
-  /** Convert a screen-pixel threshold to sketch-plane units. */
   private computeSketchThreshold(): number {
-    const camera = this.ctx.camera;
-    const rect = this.ctx.renderer.domElement.getBoundingClientRect();
-    const canvasHeight = rect.height || 1;
-
-    let worldHeight: number;
-    const cam = camera as any;
-    if (cam.isOrthographicCamera) {
-      worldHeight = (cam.top - cam.bottom) / (cam.zoom || 1);
-    } else {
-      const target = new Vector3();
-      this.ctx.cameraControls.getTarget(target);
-      const d = camera.position.distanceTo(target);
-      const fovRad = (cam.fov * Math.PI) / 180;
-      worldHeight = 2 * d * Math.tan(fovRad / 2);
-    }
-
-    return (worldHeight / canvasHeight) * HIGHLIGHT_THRESHOLD_PX;
+    return pixelToSketchThreshold(this.ctx, HIGHLIGHT_THRESHOLD_PX);
   }
 
   /** Find the shapeId of the nearest edge within threshold, using 2D sketch distances. */
@@ -212,36 +191,7 @@ export class PointPickMode {
   }
 
   private projectToSketch(clientX: number, clientY: number): [number, number] | null {
-    const renderer = this.ctx.renderer;
-    const rect = renderer.domElement.getBoundingClientRect();
-    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
-
-    const raycaster = this.ctx.createPickingRaycaster(ndcX, ndcY);
-
-    const rayOrigin = raycaster.ray.origin;
-    const rayDir = raycaster.ray.direction;
-
-    const planeOrigin = new Vector3(this.plane.origin.x, this.plane.origin.y, this.plane.origin.z);
-    const planeNormal = new Vector3(this.plane.normal.x, this.plane.normal.y, this.plane.normal.z);
-
-    const denom = rayDir.dot(planeNormal);
-    if (Math.abs(denom) < 1e-6) {
-      return null;
-    }
-
-    const t = planeOrigin.clone().sub(rayOrigin).dot(planeNormal) / denom;
-    if (t < 0) {
-      return null;
-    }
-
-    const worldPoint = rayOrigin.clone().add(rayDir.clone().multiplyScalar(t));
-
-    const rel = worldPoint.clone().sub(planeOrigin);
-    const xDir = new Vector3(this.plane.xDirection.x, this.plane.xDirection.y, this.plane.xDirection.z);
-    const yDir = new Vector3(this.plane.yDirection.x, this.plane.yDirection.y, this.plane.yDirection.z);
-
-    return [rel.dot(xDir), rel.dot(yDir)];
+    return projectToSketchShared(this.ctx, this.plane, clientX, clientY);
   }
 }
 

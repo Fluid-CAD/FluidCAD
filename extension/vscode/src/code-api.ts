@@ -71,6 +71,18 @@ export function setPickPoints(
   return postCodeEdit<CodeEditResult>(serverUrl, 'set-pick-points', { code, sourceLine, points }, logger);
 }
 
+export function insertGeometry(
+  serverUrl: string, code: string, sketchSourceLine: number, statement: string, logger: vscode.OutputChannel,
+) {
+  return postCodeEdit<CodeEditResult>(serverUrl, 'insert-geometry', { code, sketchSourceLine, statement }, logger);
+}
+
+export function updatePosition(
+  serverUrl: string, code: string, sourceLine: number, newPosition: [number, number], logger: vscode.OutputChannel,
+) {
+  return postCodeEdit<CodeEditResult>(serverUrl, 'update-position', { code, sourceLine, newPosition }, logger);
+}
+
 /**
  * Replace the entire contents of `doc` with `newCode` in a single workspace
  * edit. Returns true on success.

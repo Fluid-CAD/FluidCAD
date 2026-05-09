@@ -9,6 +9,8 @@ import {
   addPick,
   removePick,
   setPickPoints,
+  insertGeometryCall,
+  updateGeometryPosition,
 } from '../src/code-editor.ts';
 
 describe('addBreakpoint', () => {
@@ -371,5 +373,90 @@ describe('point edits target .pick() inside a longer chain', () => {
     const code = `bezier([0, 0], [1, 1])\n`;
     const result = await insertPoint(code, 1, [2, 2]);
     expect(result.newCode).toBe(`bezier([0, 0], [1, 1], [2, 2])\n`);
+  });
+});
+
+describe('insertGeometryCall', () => {
+  it('inserts a geometry call at the end of a sketch body', async () => {
+    const code = [
+      `import { sketch, line } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'line([10, 10], [20, 20])');
+    expect(result.newCode).toBe([
+      `import { sketch, line } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `  line([10, 10], [20, 20])`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('inserts into an empty sketch body', async () => {
+    const code = [
+      `import { sketch } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'circle([5, 5], 10)');
+    expect(result.newCode).toBe([
+      `import {circle, sketch } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  circle([5, 5], 10)`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('adds missing import symbol', async () => {
+    const code = [
+      `import { sketch, line } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'hLine(15)');
+    expect(result.newCode).toContain('hLine,');
+    expect(result.newCode).toContain('hLine(15)');
+  });
+
+  it('does not duplicate existing import symbol', async () => {
+    const code = [
+      `import { sketch, line } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'line([20, 20], [30, 30])');
+    const importLine = result.newCode.split('\n')[0];
+    const importMatches = importLine.match(/line/g);
+    expect(importMatches!.length).toBe(1);
+  });
+});
+
+describe('updateGeometryPosition', () => {
+  it('replaces an existing point argument', async () => {
+    const code = `line([5, 10], [20, 30])\n`;
+    const result = await updateGeometryPosition(code, 1, [15, 25]);
+    expect(result.newCode).toBe(`line([15, 25], [20, 30])\n`);
+  });
+
+  it('replaces the first point even in single-arg overload', async () => {
+    const code = `line([20, 30])\n`;
+    const result = await updateGeometryPosition(code, 1, [5, 10]);
+    expect(result.newCode).toBe(`line([5, 10])\n`);
+  });
+
+  it('inserts position before a non-point argument', async () => {
+    const code = `circle(40)\n`;
+    const result = await updateGeometryPosition(code, 1, [10, 20]);
+    expect(result.newCode).toBe(`circle([10, 20], 40)\n`);
   });
 });

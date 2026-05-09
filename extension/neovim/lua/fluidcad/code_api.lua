@@ -69,6 +69,14 @@ function M.set_pick_points(code, source_line, points)
   return post('set-pick-points', { code = code, sourceLine = source_line, points = points })
 end
 
+function M.insert_geometry(code, sketch_source_line, statement)
+  return post('insert-geometry', { code = code, sketchSourceLine = sketch_source_line, statement = statement })
+end
+
+function M.update_position(code, source_line, new_position)
+  return post('update-position', { code = code, sourceLine = source_line, newPosition = new_position })
+end
+
 --- Replace the entire contents of `bufnr` with `new_code`. Returns true on
 --- success.
 function M.replace_buffer(bufnr, new_code)

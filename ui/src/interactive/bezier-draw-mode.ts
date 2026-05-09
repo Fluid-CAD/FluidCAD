@@ -19,6 +19,13 @@ import { SceneContext } from '../scene/scene-context';
 import { PlaneData } from '../types';
 import { SnapController } from '../snapping/snap-controller';
 import { SnapType } from '../snapping/types';
+import {
+  projectToSketch as projectToSketchShared,
+  localToWorld as localToWorldShared,
+  pixelToSketchThreshold as pixelToSketchThresholdShared,
+  dist2D as dist2DShared,
+  roundPoint,
+} from './sketch-plane-utils';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -94,25 +101,8 @@ function computeViewScale(camera: Camera, position: Vector3, factor: number): nu
   return 1;
 }
 
-/** Convert a pixel threshold to sketch-plane units. */
 function pixelToSketchThreshold(ctx: SceneContext): number {
-  const camera = ctx.camera;
-  const rect = ctx.renderer.domElement.getBoundingClientRect();
-  const canvasHeight = rect.height || 1;
-
-  let worldHeight: number;
-  const cam = camera as any;
-  if (cam.isOrthographicCamera) {
-    worldHeight = (cam.top - cam.bottom) / (cam.zoom || 1);
-  } else {
-    const target = new Vector3();
-    ctx.cameraControls.getTarget(target);
-    const d = camera.position.distanceTo(target);
-    const fovRad = (cam.fov * Math.PI) / 180;
-    worldHeight = 2 * d * Math.tan(fovRad / 2);
-  }
-
-  return (worldHeight / canvasHeight) * CP_HIT_THRESHOLD_PX;
+  return pixelToSketchThresholdShared(ctx, CP_HIT_THRESHOLD_PX);
 }
 
 /** Evaluate a bezier curve at parameter t using De Casteljau's algorithm. */
@@ -132,20 +122,11 @@ function deCasteljau(poles: [number, number][], t: number): [number, number] {
 }
 
 function localToWorld(point2d: [number, number], plane: PlaneData): Vector3 {
-  const o = plane.origin;
-  const x = plane.xDirection;
-  const y = plane.yDirection;
-  return new Vector3(
-    o.x + x.x * point2d[0] + y.x * point2d[1],
-    o.y + x.y * point2d[0] + y.y * point2d[1],
-    o.z + x.z * point2d[0] + y.z * point2d[1],
-  );
+  return localToWorldShared(point2d, plane);
 }
 
 function dist2D(a: [number, number], b: [number, number]): number {
-  const dx = a[0] - b[0];
-  const dy = a[1] - b[1];
-  return Math.sqrt(dx * dx + dy * dy);
+  return dist2DShared(a, b);
 }
 
 // ---------------------------------------------------------------------------
@@ -310,9 +291,7 @@ export class BezierDrawMode {
     if (this.isDragging) {
       // Commit the drag
       if (this.dragPoles && this.onSetPoints) {
-        const args = this.dragPoles.slice(1).map(
-          p => [Math.round(p[0] * 100) / 100, Math.round(p[1] * 100) / 100] as [number, number],
-        );
+        const args = this.dragPoles.slice(1).map(p => roundPoint(p));
         this.onSetPoints(args);
       }
       this.endDrag();
@@ -331,11 +310,7 @@ export class BezierDrawMode {
     }
 
     const result = this.snapController.snap(raw);
-    const rounded: [number, number] = [
-      Math.round(result.point2d[0] * 100) / 100,
-      Math.round(result.point2d[1] * 100) / 100,
-    ];
-    this.onPick(rounded);
+    this.onPick(roundPoint(result.point2d));
   }
 
   private handleMouseMove(e: MouseEvent): void {
@@ -603,35 +578,6 @@ export class BezierDrawMode {
   // ── Projection ──────────────────────────────────────────────────────────
 
   private projectToSketch(clientX: number, clientY: number): [number, number] | null {
-    const renderer = this.ctx.renderer;
-    const rect = renderer.domElement.getBoundingClientRect();
-    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
-
-    const raycaster = this.ctx.createPickingRaycaster(ndcX, ndcY);
-
-    const rayOrigin = raycaster.ray.origin;
-    const rayDir = raycaster.ray.direction;
-
-    const planeOrigin = new Vector3(this.plane.origin.x, this.plane.origin.y, this.plane.origin.z);
-    const planeNormal = new Vector3(this.plane.normal.x, this.plane.normal.y, this.plane.normal.z);
-
-    const denom = rayDir.dot(planeNormal);
-    if (Math.abs(denom) < 1e-6) {
-      return null;
-    }
-
-    const t = planeOrigin.clone().sub(rayOrigin).dot(planeNormal) / denom;
-    if (t < 0) {
-      return null;
-    }
-
-    const worldPoint = rayOrigin.clone().add(rayDir.clone().multiplyScalar(t));
-
-    const rel = worldPoint.clone().sub(planeOrigin);
-    const xDir = new Vector3(this.plane.xDirection.x, this.plane.xDirection.y, this.plane.xDirection.z);
-    const yDir = new Vector3(this.plane.yDirection.x, this.plane.yDirection.y, this.plane.yDirection.z);
-
-    return [rel.dot(xDir), rel.dot(yDir)];
+    return projectToSketchShared(this.ctx, this.plane, clientX, clientY);
   }
 }

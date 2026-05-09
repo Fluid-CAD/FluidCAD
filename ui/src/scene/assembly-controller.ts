@@ -519,6 +519,10 @@ export class AssemblyController {
       // whenever the grab is on the opposite side of the pivot from
       // the body origin; the grab-point formulation never does.
       const debugPerf = (globalThis as any).__solverPerf === true;
+      if (debugPerf && !(globalThis as any).__solverPerfArmed) {
+        (globalThis as any).__solverPerfArmed = true;
+        console.warn('[solverPerf] ARMED — drag, then summary prints every 20 events');
+      }
       const tBuild0 = debugPerf ? performance.now() : 0;
       const input: SolverInput = {
         ...this.buildSolverInput(this.dragState.instanceId, targetOrigin),
@@ -541,9 +545,9 @@ export class AssemblyController {
         const tDone = performance.now();
         const buf = (globalThis as any).__solverPerfBuf ??= [];
         buf.push({ build: +(tBuild1 - tBuild0).toFixed(3), solve: +(tSolve1 - tBuild1).toFixed(3), apply: +(tDone - tSolve1).toFixed(3) });
-        if (buf.length >= 100) {
+        if (buf.length >= 20) {
           const avg = (k: 'build' | 'solve' | 'apply') => +(buf.reduce((s: number, x: any) => s + x[k], 0) / buf.length).toFixed(3);
-          console.log(`[solverPerf] over last 100 events: build=${avg('build')}ms solve=${avg('solve')}ms apply=${avg('apply')}ms`);
+          console.warn(`[solverPerf] last ${buf.length} events: build=${avg('build')}ms solve=${avg('solve')}ms apply=${avg('apply')}ms`);
           buf.length = 0;
         }
       }

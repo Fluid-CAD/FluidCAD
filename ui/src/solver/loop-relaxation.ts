@@ -112,7 +112,39 @@ function shouldRelax(component: Component, drag: LoopDragInfo): boolean {
   const hasFreedom = component.bodies.some(b => !b.grounded);
   const hasMates = component.treeEdges.length > 0
     || component.closureEdges.length > 0;
-  return hasFreedom && hasMates;
+  if (!hasFreedom || !hasMates) return false;
+
+  // Skip LM when the dragged body's tree path to the seed contains at
+  // most one non-fastened edge AND the seed is grounded. The warm-start
+  // already runs the per-mate-type drag delta for that single non-
+  // fastened edge (sliderDragDelta / applyRevoluteDragRotation /
+  // cylindricalDragDeltas / planarDragDelta), placing the dragged body's
+  // grab on the reachable manifold — LM cannot improve on that, but
+  // running it on a heavy fastened cluster (e.g. CNC gantry's slider+
+  // fastened-cluster topology) burns ~85ms per pointermove fighting
+  // mate residuals against the unreachable perpendicular component of
+  // the cursor delta. Multi-non-fastened chains (e.g. chained-revolute
+  // IK) genuinely need LM and fall through.
+  if (component.seed.grounded) {
+    const parentByChild = new Map<string, typeof component.treeEdges[number]>();
+    for (const edge of component.treeEdges) {
+      parentByChild.set(edge.child.instanceId, edge);
+    }
+    let nonFastened = 0;
+    let cur: string | undefined = drag.draggedInstanceId;
+    while (cur !== undefined) {
+      const edge = parentByChild.get(cur);
+      if (!edge) break;
+      if (edge.mate.type !== 'fastened') {
+        nonFastened++;
+        if (nonFastened > 1) break;
+      }
+      cur = edge.parent.instanceId;
+    }
+    if (nonFastened <= 1) return false;
+  }
+
+  return true;
 }
 
 function relaxComponent(

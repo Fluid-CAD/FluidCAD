@@ -130,9 +130,9 @@ export class Solver {
           tail: +(tEnd - tLM).toFixed(3),
           total: +(tEnd - t0).toFixed(3),
         });
-        if (buf.length >= 100) {
+        if (buf.length >= 20) {
           const avg = (k: string) => +(buf.reduce((s: number, x: any) => s + x[k], 0) / buf.length).toFixed(3);
-          console.log(`[solverPerf:internal] over last 100 events (no-op path): graph=${avg('graph')} slvs=${avg('slvs')} cluster=${avg('cluster')} warm=${avg('warm')} lm=${avg('lm')} tail=${avg('tail')} total=${avg('total')} ms`);
+          console.warn(`[solverPerf:internal] last ${buf.length} events (no-op path): graph=${avg('graph')} slvs=${avg('slvs')} cluster=${avg('cluster')} warm=${avg('warm')} lm=${avg('lm')} tail=${avg('tail')} total=${avg('total')} ms`);
           buf.length = 0;
         }
       }

@@ -71,6 +71,14 @@ export class AssemblyController {
     moved: boolean;
     downX: number;
     downY: number;
+    /** Last solved cursor position, in client coords. Pointer events
+     *  often arrive faster than the cursor visibly moves (high-rate
+     *  mice + browser smoothing); skipping a solve when (clientX,
+     *  clientY) is identical to the previous one drops a meaningful
+     *  fraction of redundant work without introducing latency, since
+     *  the result would be identical. */
+    lastSolvedClientX: number;
+    lastSolvedClientY: number;
   } | null = null;
 
   constructor(
@@ -451,6 +459,8 @@ export class AssemblyController {
       moved: false,
       downX: e.clientX,
       downY: e.clientY,
+      lastSolvedClientX: Number.NaN,
+      lastSolvedClientY: Number.NaN,
     };
     (this.renderer.domElement as HTMLElement).setPointerCapture(e.pointerId);
     // Block camera-controls and any other pointerdown listeners on the canvas.
@@ -467,6 +477,19 @@ export class AssemblyController {
     if (!this.dragState.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) {
       return;
     }
+    // Skip the solve when the cursor hasn't moved since the last sample.
+    // High-rate mice + browser smoothing produce a non-trivial number of
+    // pointermove events at the same (clientX, clientY); the result of
+    // a re-solve would be identical, so skipping costs nothing visually.
+    if (
+      e.clientX === this.dragState.lastSolvedClientX
+      && e.clientY === this.dragState.lastSolvedClientY
+    ) {
+      e.stopImmediatePropagation();
+      return;
+    }
+    this.dragState.lastSolvedClientX = e.clientX;
+    this.dragState.lastSolvedClientY = e.clientY;
     this.dragState.moved = true;
 
     const state = this.instances.get(this.dragState.instanceId);

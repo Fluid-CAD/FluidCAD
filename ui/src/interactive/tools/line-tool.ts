@@ -25,6 +25,7 @@ import {
   roundPoint,
 } from '../sketch-plane-utils';
 import { ICON_LINE } from '../../ui/icons';
+import { DimensionInput } from '../../ui/dimension-input';
 
 const START_POINT_COLOR = 0x22cc66;
 const GUIDE_COLOR = 0xb0b0b0;
@@ -57,6 +58,9 @@ export class LineTool extends SketchTool {
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private shiftHeld = false;
+  private dimensionInput: DimensionInput;
+  private lastClientX = 0;
+  private lastClientY = 0;
 
   private boundMouseDown: (e: MouseEvent) => void;
   private boundMouseUp: (e: MouseEvent) => void;
@@ -71,8 +75,10 @@ export class LineTool extends SketchTool {
     plane: PlaneData,
     snapController: SnapController,
     insertGeometry: InsertGeometryFn,
+    container: HTMLElement,
   ) {
     super(ctx, plane, snapController, insertGeometry);
+    this.dimensionInput = new DimensionInput(container);
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
@@ -98,6 +104,7 @@ export class LineTool extends SketchTool {
     this.startPoint = null;
     this.mousePoint = null;
     this.shiftHeld = false;
+    this.dimensionInput.hide();
     this.removePreviewFromScene();
   }
 
@@ -132,12 +139,20 @@ export class LineTool extends SketchTool {
       return;
     }
 
-    this.commitLine(this.startPoint, point);
+    if (this.shiftHeld && this.dimensionInput.isVisible) {
+      this.dimensionInput.commitCurrentValue();
+    } else {
+      this.commitLine(this.startPoint, point);
+    }
+    this.dimensionInput.hide();
     this.startPoint = point;
     this.rebuildPreview();
   }
 
   private handleMouseMove(e: MouseEvent): void {
+    this.lastClientX = e.clientX;
+    this.lastClientY = e.clientY;
+
     const raw = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
     if (!raw) {
       this.mousePoint = null;
@@ -150,16 +165,19 @@ export class LineTool extends SketchTool {
     this.mousePoint = result.point2d;
     this.lastSnapType = result.snapType;
     this.rebuildPreview();
+    this.updateDimensionInput();
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
     if (e.key === 'Shift') {
       this.shiftHeld = true;
       this.rebuildPreview();
+      this.updateDimensionInput();
     }
     if (e.key === 'Escape') {
       if (this.startPoint) {
         this.startPoint = null;
+        this.dimensionInput.hide();
         this.rebuildPreview();
       }
     }
@@ -168,6 +186,7 @@ export class LineTool extends SketchTool {
   private handleKeyUp(e: KeyboardEvent): void {
     if (e.key === 'Shift') {
       this.shiftHeld = false;
+      this.dimensionInput.hide();
       this.rebuildPreview();
     }
   }
@@ -188,6 +207,61 @@ export class LineTool extends SketchTool {
     }
 
     return this.mousePoint;
+  }
+
+  private updateDimensionInput(): void {
+    if (!this.startPoint || !this.mousePoint || !this.shiftHeld) {
+      this.dimensionInput.hide();
+      return;
+    }
+
+    const dx = this.mousePoint[0] - this.startPoint[0];
+    const dy = this.mousePoint[1] - this.startPoint[1];
+    const isHorizontal = Math.abs(dx) >= Math.abs(dy);
+    const distance = Math.abs(isHorizontal ? dx : dy);
+
+    if (!this.dimensionInput.isVisible) {
+      this.dimensionInput.show(
+        isHorizontal ? 'H:' : 'V:',
+        distance,
+        this.lastClientX,
+        this.lastClientY,
+        (value) => this.commitWithDimension(value),
+      );
+    } else {
+      this.dimensionInput.updateValue(distance);
+      this.dimensionInput.updatePosition(this.lastClientX, this.lastClientY);
+    }
+  }
+
+  private commitWithDimension(value: number): void {
+    if (!this.startPoint || !this.mousePoint) {
+      return;
+    }
+    const roundedStart = roundPoint(this.startPoint);
+    const atCurrent = this.isAtCurrentPosition(roundedStart);
+    const dx = this.mousePoint[0] - this.startPoint[0];
+    const dy = this.mousePoint[1] - this.startPoint[1];
+    const isHorizontal = Math.abs(dx) >= Math.abs(dy);
+    const sign = isHorizontal ? Math.sign(dx) : Math.sign(dy);
+    const distance = Math.round(sign * value * 100) / 100;
+
+    if (isHorizontal) {
+      if (atCurrent) {
+        this.insertGeometry(`hLine(${distance})`);
+      } else {
+        this.insertGeometry(`hLine(${this.formatPoint(roundedStart)}, ${distance})`);
+      }
+    } else {
+      if (atCurrent) {
+        this.insertGeometry(`vLine(${distance})`);
+      } else {
+        this.insertGeometry(`vLine(${this.formatPoint(roundedStart)}, ${distance})`);
+      }
+    }
+    this.dimensionInput.hide();
+    this.startPoint = null;
+    this.rebuildPreview();
   }
 
   private commitLine(start: [number, number], end: [number, number]): void {

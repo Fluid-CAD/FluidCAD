@@ -210,6 +210,10 @@ function M.handle_message(msg)
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.update_position(code, msg.sourceLocation.line, msg.newPosition)
       end)
+    elseif msg.type == 'update-dimension' then
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.update_dimension(code, msg.sourceLocation.line, msg.newValue)
+      end)
     elseif msg.type == 'add-breakpoint' then
       local ok, breakpoints = pcall(require, 'fluidcad.breakpoints')
       if ok and msg.filePath and msg.line then

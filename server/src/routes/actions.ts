@@ -12,6 +12,7 @@ import {
   setPickPoints,
   insertGeometryCall,
   updateGeometryPosition,
+  updateDimension,
 } from '../code-editor.ts';
 
 export function createActionsRouter(
@@ -428,6 +429,40 @@ export function createActionsRouter(
     }
     try {
       const result = await updateGeometryPosition(code, sourceLine, newPosition as [number, number]);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/update-dimension', (req, res) => {
+    const { newValue, sourceLocation } = req.body;
+    if (
+      typeof newValue !== 'number' ||
+      !sourceLocation || typeof sourceLocation.line !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    sendToExtension({
+      type: 'update-dimension',
+      newValue,
+      sourceLocation,
+    });
+    res.json({ success: true });
+  });
+
+  router.post('/code/update-dimension', async (req, res) => {
+    const { code, sourceLine, newValue } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      typeof newValue !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await updateDimension(code, sourceLine, newValue);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

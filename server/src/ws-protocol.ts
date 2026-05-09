@@ -167,6 +167,12 @@ export type UpdatePositionMessage = {
   sourceLocation: { line: number; column: number };
 };
 
+export type UpdateDimensionMessage = {
+  type: 'update-dimension';
+  newValue: number;
+  sourceLocation: { line: number; column: number };
+};
+
 export type ServerToExtensionMessage =
   | ReadyMessage
   | InitCompleteMessage
@@ -183,7 +189,8 @@ export type ServerToExtensionMessage =
   | GotoSourceMessage
   | ExportCompleteMessage
   | InsertGeometryMessage
-  | UpdatePositionMessage;
+  | UpdatePositionMessage
+  | UpdateDimensionMessage;
 
 // ---------------------------------------------------------------------------
 // WebSocket: Server → UI messages

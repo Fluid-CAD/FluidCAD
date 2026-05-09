@@ -11,6 +11,7 @@ import {
   setPickPoints,
   insertGeometryCall,
   updateGeometryPosition,
+  updateDimension,
 } from '../src/code-editor.ts';
 
 describe('addBreakpoint', () => {
@@ -458,5 +459,37 @@ describe('updateGeometryPosition', () => {
     const code = `circle(40)\n`;
     const result = await updateGeometryPosition(code, 1, [10, 20]);
     expect(result.newCode).toBe(`circle([10, 20], 40)\n`);
+  });
+});
+
+describe('updateDimension', () => {
+  it('updates the distance of hLine', async () => {
+    const code = `hLine(15)\n`;
+    const result = await updateDimension(code, 1, 25);
+    expect(result.newCode).toBe(`hLine(25)\n`);
+  });
+
+  it('updates the distance of vLine with start point', async () => {
+    const code = `vLine([5, 10], 20)\n`;
+    const result = await updateDimension(code, 1, 35);
+    expect(result.newCode).toBe(`vLine([5, 10], 35)\n`);
+  });
+
+  it('updates the diameter of circle', async () => {
+    const code = `circle([0, 0], 40)\n`;
+    const result = await updateDimension(code, 1, 60);
+    expect(result.newCode).toBe(`circle([0, 0], 60)\n`);
+  });
+
+  it('updates circle with only diameter', async () => {
+    const code = `circle(40)\n`;
+    const result = await updateDimension(code, 1, 50);
+    expect(result.newCode).toBe(`circle(50)\n`);
+  });
+
+  it('updates negative distance', async () => {
+    const code = `hLine(-15)\n`;
+    const result = await updateDimension(code, 1, -25);
+    expect(result.newCode).toBe(`hLine(-25)\n`);
   });
 });

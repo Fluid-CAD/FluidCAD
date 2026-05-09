@@ -2,6 +2,7 @@ import { Scene } from "./rendering/scene.js";
 import { AssemblyScene, SerializedInstance, SerializedMate } from "./rendering/assembly-scene.js";
 import { SceneRenderer } from "./rendering/render.js";
 import { SceneCompare } from "./rendering/scene-compare.js";
+import { AssemblyCompare } from "./rendering/assembly-compare.js";
 import { FileImport } from "./io/file-import.js";
 import { FileExport } from "./io/file-export.js";
 import type { ExportOptions } from "./io/file-export.js";
@@ -60,6 +61,9 @@ class SceneManager {
   }
 
   compare(previous: Scene, current: Scene) {
+    if (previous instanceof AssemblyScene && current instanceof AssemblyScene) {
+      return AssemblyCompare.compare(previous, current);
+    }
     return SceneCompare.compare(previous, current);
   }
 

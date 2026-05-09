@@ -2,8 +2,7 @@ export type {
   ISceneObject, ITransformable, IBooleanOperation, IPlane, IAxis, ISelect,
   IGeometry, IExtrudableGeometry, IRect, ISlot, IPolygon,
   ITwoObjectsTangentLine, ITangentArcTwoObjects,
-  IExtrude, ICut, ICommon, ISweep, ILoft, IRevolve, IDraft,
-  IConnector, IPart
+  IConnector, IPart,
   IExtrude, ICut, ICommon, ISweep, ILoft, IRevolve, IDraft, IRib
 } from "./interfaces.js";
 export { default as axis } from "./axis.js";

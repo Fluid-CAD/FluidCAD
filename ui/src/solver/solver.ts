@@ -50,6 +50,8 @@ export class Solver {
     if (!this.api) {
       throw new Error('Solver.solve() called before ensureReady() resolved.');
     }
+    const debugPerf = (globalThis as any).__solverPerf === true;
+    const t0 = debugPerf ? performance.now() : 0;
 
     // Partition the mate graph and pick a spanning tree per component.
     // Tree edges drive the warm-start in BFS depth order so chains like
@@ -59,6 +61,7 @@ export class Solver {
     // the LM relaxation pass (or, for slvs-solvable planar loops, for
     // native slvs constraints — see slvs-loop.ts).
     const graph = buildMateGraph(input.bodies, input.mates, input.draggedInstanceId);
+    const tGraph = debugPerf ? performance.now() : 0;
 
     // Decide which components qualify for the slvs-native path. Loop
     // bodies in those components stay free at the slvs level, their
@@ -66,18 +69,21 @@ export class Solver {
     // for them. Everything else (trees, 3D loops, mixed-type loops)
     // follows the JS-side warm-start + lock + LM pattern.
     const slvs = classifySlvsSolvable(graph.components, input.bodies);
+    const tSlvs = debugPerf ? performance.now() : 0;
 
     // Precompute fastened-cluster membership once per solve. Without
     // this, every non-fastened tree edge's drag helper recomputes its
     // follower's cluster by scanning the full mates list — pegging the
     // CPU when the dragged body sits inside a heavy fastened cluster.
     const fastenedClusters = buildFastenedClusterCache(input.bodies, input.mates);
+    const tCluster = debugPerf ? performance.now() : 0;
 
     applyTreeWarmStarts(input.bodies, graph.components, input.mates, {
       draggedInstanceId: input.draggedInstanceId,
       draggedCursorWorld: input.draggedCursorWorld,
       draggedGrabLocal: input.draggedGrabLocal,
     }, slvs.loopBodies, fastenedClusters);
+    const tWarm = debugPerf ? performance.now() : 0;
 
     // Loop relaxation: per-component LM pass that brings loop bodies
     // onto the closure manifold. Skip components handled natively by
@@ -87,6 +93,7 @@ export class Solver {
       draggedCursorWorld: input.draggedCursorWorld,
       draggedGrabLocal: input.draggedGrabLocal,
     }, slvs.componentIndices);
+    const tLM = debugPerf ? performance.now() : 0;
 
     // WASM-rebuild short-circuit: when every body is grounded or fully
     // locked by warm-start (the common tree-only case — every non-seed
@@ -110,6 +117,25 @@ export class Solver {
       };
       applyTreeFixups(graph.components, out.bodies, slvs.loopBodies);
       out.dof += countTreeFreeDof(graph.components, slvs.loopBodies);
+      if (debugPerf) {
+        const tEnd = performance.now();
+        const buf = (globalThis as any).__solverInternalPerfBuf ??= [];
+        buf.push({
+          path: 'no-op',
+          graph: +(tGraph - t0).toFixed(3),
+          slvs: +(tSlvs - tGraph).toFixed(3),
+          cluster: +(tCluster - tSlvs).toFixed(3),
+          warm: +(tWarm - tCluster).toFixed(3),
+          lm: +(tLM - tWarm).toFixed(3),
+          tail: +(tEnd - tLM).toFixed(3),
+          total: +(tEnd - t0).toFixed(3),
+        });
+        if (buf.length >= 100) {
+          const avg = (k: string) => +(buf.reduce((s: number, x: any) => s + x[k], 0) / buf.length).toFixed(3);
+          console.log(`[solverPerf:internal] over last 100 events (no-op path): graph=${avg('graph')} slvs=${avg('slvs')} cluster=${avg('cluster')} warm=${avg('warm')} lm=${avg('lm')} tail=${avg('tail')} total=${avg('total')} ms`);
+          buf.length = 0;
+        }
+      }
       return out;
     }
 

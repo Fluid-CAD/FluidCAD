@@ -518,12 +518,16 @@ export class AssemblyController {
       // track the cursor. Body-origin tracking gives the wrong sign
       // whenever the grab is on the opposite side of the pivot from
       // the body origin; the grab-point formulation never does.
+      const debugPerf = (globalThis as any).__solverPerf === true;
+      const tBuild0 = debugPerf ? performance.now() : 0;
       const input: SolverInput = {
         ...this.buildSolverInput(this.dragState.instanceId, targetOrigin),
         draggedCursorWorld: intersection.clone(),
         draggedGrabLocal: this.dragState.grabLocal.clone(),
       };
+      const tBuild1 = debugPerf ? performance.now() : 0;
       const out = this.solver.solve(input);
+      const tSolve1 = debugPerf ? performance.now() : 0;
       if (out.result === 'okay') {
         this.applySolverOutput(out);
       } else {
@@ -533,6 +537,16 @@ export class AssemblyController {
         // status and leaves the body where it was.
       }
       this.solverUpdateHandler?.(out);
+      if (debugPerf) {
+        const tDone = performance.now();
+        const buf = (globalThis as any).__solverPerfBuf ??= [];
+        buf.push({ build: +(tBuild1 - tBuild0).toFixed(3), solve: +(tSolve1 - tBuild1).toFixed(3), apply: +(tDone - tSolve1).toFixed(3) });
+        if (buf.length >= 100) {
+          const avg = (k: 'build' | 'solve' | 'apply') => +(buf.reduce((s: number, x: any) => s + x[k], 0) / buf.length).toFixed(3);
+          console.log(`[solverPerf] over last 100 events: build=${avg('build')}ms solve=${avg('solve')}ms apply=${avg('apply')}ms`);
+          buf.length = 0;
+        }
+      }
     } else {
       // Solver hasn't loaded yet — fall back to free-body translation so
       // the user isn't blocked. Becomes solver-driven once WASM resolves.

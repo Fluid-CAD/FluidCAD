@@ -327,13 +327,23 @@ function updateTrimPickMode(sceneObjects: SceneObjectRender[]) {
   const triggerInfo = hasTrimPickingTrigger(sceneObjects);
 
   if (!triggerInfo.hasTrigger) {
-    resetTrimPickMode();
+    if (!pendingTrimActivation) {
+      resetTrimPickMode();
+    }
     return;
   }
 
   lastTrimPickInfo = { trimObj: triggerInfo.trimObj!, sketchObj: triggerInfo.sketchObj! };
   lastTrimSceneObjects = sceneObjects;
   const hasPicking = (triggerInfo.trimObj as any).object?.picking;
+
+  if (pendingTrimActivation) {
+    pendingTrimActivation = false;
+    enterTrimPickMode();
+    trimPickActiveBar.classList.add('hidden');
+    trimPickTriggerBtn.classList.add('hidden');
+    return;
+  }
 
   if (trimPickState === 'picking-active') {
     if (hasPicking) {
@@ -819,12 +829,12 @@ const sketchToolbar = new SketchToolbar(container, (toolId) => {
   handleToolSelect(toolId);
 });
 
-sketchToolbar.onSnapVerticesChange = (checked) => {
+viewer.settingsPanel.onSnapVerticesChange = (checked: boolean) => {
   if (activeDrawingTool) {
     activeDrawingTool['snapController'].snapToVertices = checked;
   }
 };
-sketchToolbar.onSnapGridChange = (checked) => {
+viewer.settingsPanel.onSnapGridChange = (checked: boolean) => {
   if (activeDrawingTool) {
     activeDrawingTool['snapController'].snapToGrid = checked;
   }
@@ -882,7 +892,12 @@ function handleToolSelect(toolId: ToolId | null): void {
     activeDrawingTool = null;
   }
 
+  if (sketchToolbar.activeTool === 'trim' && toolId !== 'trim') {
+    exitTrimFromToolbar();
+  }
+
   sketchToolbar.setActiveTool(toolId);
+  viewer.settingsPanel.setSnapVisible(toolId !== null);
 
   if (!toolId || !activeSketchInfo) {
     if (!toolId && activeSketchInfo) {
@@ -892,6 +907,11 @@ function handleToolSelect(toolId: ToolId | null): void {
   }
 
   deactivateDragHandler();
+
+  if (toolId === 'trim') {
+    enterTrimFromToolbar();
+    return;
+  }
 
   const tool = createTool(toolId, activeSketchInfo.plane, viewer.currentSceneObjects, activeSketchInfo.sketchObj.id!);
   if (!tool) {
@@ -904,6 +924,52 @@ function handleToolSelect(toolId: ToolId | null): void {
 
   tool.activate();
   activeDrawingTool = tool;
+}
+
+function enterTrimFromToolbar(): void {
+  if (!activeSketchInfo) {
+    return;
+  }
+
+  const triggerInfo = hasTrimPickingTrigger(viewer.currentSceneObjects);
+  if (triggerInfo.hasTrigger) {
+    lastTrimPickInfo = { trimObj: triggerInfo.trimObj!, sketchObj: triggerInfo.sketchObj! };
+    lastTrimSceneObjects = viewer.currentSceneObjects;
+    enterTrimPickMode();
+    trimPickActiveBar.classList.add('hidden');
+    trimPickTriggerBtn.classList.add('hidden');
+    return;
+  }
+
+  pendingTrimActivation = true;
+  fetch('/api/insert-geometry', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      statement: 'trim()',
+      sketchSourceLocation: activeSketchInfo.sourceLocation,
+    }),
+  });
+}
+
+function exitTrimFromToolbar(): void {
+  pendingTrimActivation = false;
+  if (trimPickState === 'picking-active') {
+    exitTrimPickMode();
+  }
+  if (lastTrimPickInfo) {
+    const trimObj = lastTrimPickInfo.trimObj as any;
+    const isPicking = trimObj?.object?.picking;
+    const pickPoints = trimObj?.object?.pickPoints as [number, number][] | undefined;
+    if (isPicking && (!pickPoints || pickPoints.length === 0) && trimObj?.sourceLocation) {
+      fetch('/api/remove-pick', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceLocation: trimObj.sourceLocation }),
+      });
+    }
+  }
+  resetTrimPickMode();
 }
 
 function updateSketchToolbar(sceneObjects: SceneObjectRender[]): void {
@@ -954,6 +1020,7 @@ function updateSketchToolbar(sceneObjects: SceneObjectRender[]): void {
     deactivateDragHandler();
     activeSketchInfo = null;
     sketchToolbar.hide();
+    viewer.settingsPanel.setSnapVisible(false);
   }
 }
 

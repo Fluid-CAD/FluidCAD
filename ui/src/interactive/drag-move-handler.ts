@@ -20,6 +20,7 @@ import {
   projectToSketch,
   localToWorld,
   roundPoint,
+  pixelToSketchThreshold,
 } from './sketch-plane-utils';
 
 const DRAG_THRESHOLD_PX_SQ = 64;
@@ -60,9 +61,9 @@ export class DragMoveHandler {
   private downY = 0;
   private startedDrag = false;
 
-  private boundMouseDown: (e: MouseEvent) => void;
-  private boundMouseUp: (e: MouseEvent) => void;
-  private boundMouseMove: (e: MouseEvent) => void;
+  private boundPointerDown: (e: PointerEvent) => void;
+  private boundPointerUp: (e: PointerEvent) => void;
+  private boundPointerMove: (e: PointerEvent) => void;
 
   constructor(ctx: SceneContext, plane: PlaneData, snapController: SnapController) {
     this.ctx = ctx;
@@ -74,22 +75,22 @@ export class DragMoveHandler {
     this.previewGroup.userData.isMetaShape = true;
     this.previewGroup.renderOrder = 5;
 
-    this.boundMouseDown = this.handleMouseDown.bind(this);
-    this.boundMouseUp = this.handleMouseUp.bind(this);
-    this.boundMouseMove = this.handleMouseMove.bind(this);
+    this.boundPointerDown = this.handlePointerDown.bind(this);
+    this.boundPointerUp = this.handlePointerUp.bind(this);
+    this.boundPointerMove = this.handlePointerMove.bind(this);
   }
 
   activate(): void {
     this.ctx.scene.add(this.previewGroup);
-    this.canvas.addEventListener('mousedown', this.boundMouseDown);
-    this.canvas.addEventListener('mouseup', this.boundMouseUp);
-    this.canvas.addEventListener('mousemove', this.boundMouseMove);
+    this.canvas.addEventListener('pointerdown', this.boundPointerDown, { capture: true });
+    this.canvas.addEventListener('pointerup', this.boundPointerUp);
+    this.canvas.addEventListener('pointermove', this.boundPointerMove);
   }
 
   deactivate(): void {
-    this.canvas.removeEventListener('mousedown', this.boundMouseDown);
-    this.canvas.removeEventListener('mouseup', this.boundMouseUp);
-    this.canvas.removeEventListener('mousemove', this.boundMouseMove);
+    this.canvas.removeEventListener('pointerdown', this.boundPointerDown, { capture: true });
+    this.canvas.removeEventListener('pointerup', this.boundPointerUp);
+    this.canvas.removeEventListener('pointermove', this.boundPointerMove);
     this.endDrag();
     this.ctx.scene.remove(this.previewGroup);
     this.disposePreview();
@@ -108,7 +109,10 @@ export class DragMoveHandler {
     this.sketchId = sketchId;
   }
 
-  private handleMouseDown(e: MouseEvent): void {
+  private handlePointerDown(e: PointerEvent): void {
+    if (e.button !== 0) {
+      return;
+    }
     this.downX = e.clientX;
     this.downY = e.clientY;
     this.startedDrag = false;
@@ -120,13 +124,17 @@ export class DragMoveHandler {
 
     const hit = this.findHitGeometry(point2d);
     if (hit) {
+      e.stopPropagation();
+      e.preventDefault();
       this.dragSourceLocation = hit.sourceLocation;
       this.dragStartPoint = point2d;
       this.isDragging = true;
+      this.ctx.cameraControls.enabled = false;
+      this.canvas.setPointerCapture(e.pointerId);
     }
   }
 
-  private handleMouseMove(e: MouseEvent): void {
+  private handlePointerMove(e: PointerEvent): void {
     if (!this.isDragging || !this.dragStartPoint) {
       return;
     }
@@ -139,7 +147,6 @@ export class DragMoveHandler {
 
     if (!this.startedDrag) {
       this.startedDrag = true;
-      this.ctx.cameraControls.enabled = false;
       this.canvas.style.cursor = 'grabbing';
     }
 
@@ -153,7 +160,7 @@ export class DragMoveHandler {
     this.rebuildPreview();
   }
 
-  private handleMouseUp(_e: MouseEvent): void {
+  private handlePointerUp(_e: PointerEvent): void {
     if (!this.isDragging) {
       return;
     }
@@ -187,17 +194,15 @@ export class DragMoveHandler {
 
   private findHitGeometry(point2d: [number, number]): { sourceLocation: { line: number; column: number } } | null {
     const sketchChildren = this.sceneObjects.filter(o => o.parentId === this.sketchId);
+    const threshold = pixelToSketchThreshold(this.ctx, 12);
 
     for (const child of sketchChildren) {
       if (!child.sourceLocation) {
         continue;
       }
-      for (const part of child.ownShapes) {
-        if (!part.shapeId) {
-          continue;
-        }
+      for (const part of child.sceneShapes) {
         for (const mesh of part.meshes) {
-          if (this.isPointNearMesh(point2d, mesh.vertices)) {
+          if (this.isPointNearMesh(point2d, mesh.vertices, threshold)) {
             return { sourceLocation: child.sourceLocation };
           }
         }
@@ -207,22 +212,18 @@ export class DragMoveHandler {
     return null;
   }
 
-  private isPointNearMesh(point2d: [number, number], vertices: number[]): boolean {
-    const threshold = 5;
+  private isPointNearMesh(point2d: [number, number], vertices: number[], threshold: number): boolean {
+    const thresholdSq = threshold * threshold;
+    const ox = this.plane.origin.x, oy = this.plane.origin.y, oz = this.plane.origin.z;
+    const xx = this.plane.xDirection.x, xy = this.plane.xDirection.y, xz = this.plane.xDirection.z;
+    const yx = this.plane.yDirection.x, yy = this.plane.yDirection.y, yz = this.plane.yDirection.z;
     for (let i = 0; i < vertices.length; i += 3) {
-      const worldPt = { x: vertices[i], y: vertices[i + 1], z: vertices[i + 2] };
-      const rel = new Vector3(
-        worldPt.x - this.plane.origin.x,
-        worldPt.y - this.plane.origin.y,
-        worldPt.z - this.plane.origin.z,
-      );
-      const xDir = new Vector3(this.plane.xDirection.x, this.plane.xDirection.y, this.plane.xDirection.z);
-      const yDir = new Vector3(this.plane.yDirection.x, this.plane.yDirection.y, this.plane.yDirection.z);
-      const vx = rel.dot(xDir);
-      const vy = rel.dot(yDir);
+      const rx = vertices[i] - ox, ry = vertices[i + 1] - oy, rz = vertices[i + 2] - oz;
+      const vx = rx * xx + ry * xy + rz * xz;
+      const vy = rx * yx + ry * yy + rz * yz;
       const dx = vx - point2d[0];
       const dy = vy - point2d[1];
-      if (dx * dx + dy * dy < threshold * threshold) {
+      if (dx * dx + dy * dy < thresholdSq) {
         return true;
       }
     }

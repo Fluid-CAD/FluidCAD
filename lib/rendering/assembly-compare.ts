@@ -30,13 +30,22 @@ export class AssemblyCompare {
       }
     }
 
-    // Second pass: restore state and inherit identity. Done after the full
-    // old→new map is built so removedShapes.removedBy can be remapped from
-    // old SceneObject refs to their new counterparts.
+    // State is cloned per new SceneObject; aliasing the old Map propagates
+    // mutations (e.g. `clean()` pushing into removedShapes) across the
+    // transitive sharing chains that build up over sequential renders.
+    //
+    // Identity is intentionally not inherited: the assembly-controller's
+    // partId-equality fast path would preserve the existing partMesh,
+    // which falls out of sync with the solver's connector frames when a
+    // Part flips between matched and unmatched across sequential param
+    // changes — bodies drift in z and laterally. Skipping inheritance
+    // forces the controller's slow path every render; build(), .brep
+    // import, and triangulation are still cached.
     for (const [oldObj, newObj] of map.entries()) {
       const oldState = oldObj.getFullState();
-      const oldRemovedShapes = oldState.get('removedShapes') as { shape: Shape; removedBy: SceneObject }[];
+      const newState = cloneState(oldState);
 
+      const oldRemovedShapes = newState.get('removedShapes') as { shape: Shape; removedBy: SceneObject }[];
       const newRemovedShapes: { shape: Shape; removedBy: SceneObject }[] = [];
       for (const r of oldRemovedShapes) {
         const removedByNewObj = map.get(r.removedBy);
@@ -44,13 +53,9 @@ export class AssemblyCompare {
           newRemovedShapes.push({ shape: r.shape, removedBy: removedByNewObj });
         }
       }
-      oldState.set('removedShapes', newRemovedShapes);
+      newState.set('removedShapes', newRemovedShapes);
 
-      newObj.restoreState(oldState);
-
-      const staleId = newObj.id;
-      newObj.inheritIdentityFrom(oldObj);
-      newScene.reindexObject(newObj, staleId);
+      newObj.restoreState(newState);
 
       const oldError = oldObj.getError();
       if (oldError) {
@@ -62,17 +67,26 @@ export class AssemblyCompare {
   }
 }
 
+function cloneState(state: Map<string, any>): Map<string, any> {
+  const out = new Map<string, any>();
+  for (const [key, value] of state) {
+    if (Array.isArray(value)) {
+      out.set(key, value.slice());
+    } else {
+      out.set(key, value);
+    }
+  }
+  return out;
+}
+
 function topLevelParts(scene: AssemblyScene): Part[] {
   return scene.getAllSceneObjects().filter(
     obj => obj instanceof Part && obj.getParent() === null,
   ) as Part[];
 }
 
-// Walk the new and old subtrees in lockstep, comparing each paired
-// SceneObject via the existing compareTo() chain. Returns the full list of
-// (new, old) pairs only on complete subtree match — partial matches are
-// discarded so a single divergence anywhere in the subtree leaves the whole
-// Part for full rebuild.
+// Returns pairs only on complete subtree match — partial matches are
+// discarded so a single divergence leaves the whole Part for full rebuild.
 function collectSubtreePairs(newObj: SceneObject, oldObj: SceneObject): Pair[] | null {
   if (newObj.getUniqueType() !== oldObj.getUniqueType()) {
     return null;

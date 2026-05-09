@@ -23,6 +23,8 @@ import { SketchTool, ToolId } from './interactive/sketch-tool';
 import { LineTool } from './interactive/tools/line-tool';
 import { CircleTool } from './interactive/tools/circle-tool';
 import { DragMoveHandler } from './interactive/drag-move-handler';
+import { DimensionInput } from './ui/dimension-input';
+import { projectToSketch as projectToSketchUtil } from './interactive/sketch-plane-utils';
 
 installVSCodeKeyboardBridge();
 
@@ -840,6 +842,92 @@ sketchToolbar.onSnapGridChange = (checked: boolean) => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Double-click dimension editing
+// ---------------------------------------------------------------------------
+
+const EDITABLE_TYPES: Record<string, { label: string; field: string }> = {
+  hline: { label: 'H:', field: 'distance' },
+  vline: { label: 'V:', field: 'distance' },
+  circle: { label: '⌀', field: 'diameter' },
+};
+
+const editDimensionInput = new DimensionInput(container);
+
+viewer.sceneContext.renderer.domElement.addEventListener('dblclick', (e: MouseEvent) => {
+  if (!activeSketchInfo || activeDrawingTool || trimPickState === 'picking-active') {
+    return;
+  }
+
+  const sketchId = activeSketchInfo.sketchObj.id;
+  if (!sketchId) {
+    return;
+  }
+
+  const sceneObjects = viewer.currentSceneObjects;
+  const sketchChildren = sceneObjects.filter(o => o.parentId === sketchId);
+
+  const plane = activeSketchInfo.plane;
+  const point2d = projectToSketchUtil(viewer.sceneContext, plane, e.clientX, e.clientY);
+  if (!point2d) {
+    return;
+  }
+
+  let bestObj: SceneObjectRender | null = null;
+  let bestDist = Infinity;
+
+  for (const child of sketchChildren) {
+    const uniqueType = (child as any).uniqueType as string | undefined;
+    if (!uniqueType || !EDITABLE_TYPES[uniqueType] || !child.sourceLocation) {
+      continue;
+    }
+    for (const part of child.ownShapes) {
+      for (const mesh of part.meshes) {
+        const verts = mesh.vertices;
+        for (let i = 0; i < verts.length; i += 3) {
+          const rx = verts[i] - plane.origin.x;
+          const ry = verts[i + 1] - plane.origin.y;
+          const rz = verts[i + 2] - plane.origin.z;
+          const px = rx * plane.xDirection.x + ry * plane.xDirection.y + rz * plane.xDirection.z;
+          const py = rx * plane.yDirection.x + ry * plane.yDirection.y + rz * plane.yDirection.z;
+          const dx = px - point2d[0];
+          const dy = py - point2d[1];
+          const d = dx * dx + dy * dy;
+          if (d < bestDist) {
+            bestDist = d;
+            bestObj = child;
+          }
+        }
+      }
+    }
+  }
+
+  if (!bestObj || bestDist > 25) {
+    return;
+  }
+
+  const uniqueType = (bestObj as any).uniqueType as string;
+  const info = EDITABLE_TYPES[uniqueType];
+  const currentValue = bestObj.object?.[info.field] as number | undefined;
+  if (currentValue === undefined || currentValue === null) {
+    return;
+  }
+
+  const sourceLocation = bestObj.sourceLocation!;
+
+  editDimensionInput.show(info.label, currentValue, e.clientX, e.clientY, (newValue) => {
+    fetch('/api/update-dimension', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        newValue: Math.round(newValue * 100) / 100,
+        sourceLocation,
+      }),
+    });
+    editDimensionInput.hide();
+  });
+});
+
 function createTool(toolId: ToolId, plane: PlaneData, sceneObjects: SceneObjectRender[], sketchId: string): SketchTool | null {
   const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, plane);
   const snapCtrl = new SnapController(snapManager, plane);
@@ -860,9 +948,9 @@ function createTool(toolId: ToolId, plane: PlaneData, sceneObjects: SceneObjectR
 
   switch (toolId) {
     case 'line':
-      return new LineTool(viewer.sceneContext, plane, snapCtrl, insertGeometry);
+      return new LineTool(viewer.sceneContext, plane, snapCtrl, insertGeometry, container);
     case 'circle':
-      return new CircleTool(viewer.sceneContext, plane, snapCtrl, insertGeometry);
+      return new CircleTool(viewer.sceneContext, plane, snapCtrl, insertGeometry, container);
     default:
       return null;
   }
@@ -887,6 +975,8 @@ function deactivateDragHandler(): void {
 }
 
 function handleToolSelect(toolId: ToolId | null): void {
+  editDimensionInput.hide();
+
   if (activeDrawingTool) {
     activeDrawingTool.deactivate();
     activeDrawingTool = null;

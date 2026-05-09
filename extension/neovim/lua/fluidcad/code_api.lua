@@ -77,6 +77,10 @@ function M.update_position(code, source_line, new_position)
   return post('update-position', { code = code, sourceLine = source_line, newPosition = new_position })
 end
 
+function M.update_dimension(code, source_line, new_value)
+  return post('update-dimension', { code = code, sourceLine = source_line, newValue = new_value })
+end
+
 --- Replace the entire contents of `bufnr` with `new_code`. Returns true on
 --- success.
 function M.replace_buffer(bufnr, new_code)

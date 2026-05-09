@@ -26,6 +26,7 @@ import {
   dist2D,
 } from '../sketch-plane-utils';
 import { ICON_CIRCLE } from '../../ui/icons';
+import { DimensionInput } from '../../ui/dimension-input';
 
 const START_POINT_COLOR = 0x22cc66;
 const GUIDE_COLOR = 0xb0b0b0;
@@ -58,6 +59,9 @@ export class CircleTool extends SketchTool {
   private centerPoint: [number, number] | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
+  private dimensionInput: DimensionInput;
+  private lastClientX = 0;
+  private lastClientY = 0;
 
   private boundMouseDown: (e: MouseEvent) => void;
   private boundMouseUp: (e: MouseEvent) => void;
@@ -71,8 +75,10 @@ export class CircleTool extends SketchTool {
     plane: PlaneData,
     snapController: SnapController,
     insertGeometry: InsertGeometryFn,
+    container: HTMLElement,
   ) {
     super(ctx, plane, snapController, insertGeometry);
+    this.dimensionInput = new DimensionInput(container);
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
@@ -94,6 +100,7 @@ export class CircleTool extends SketchTool {
     window.removeEventListener('keydown', this.boundKeyDown);
     this.centerPoint = null;
     this.mousePoint = null;
+    this.dimensionInput.hide();
     this.removePreviewFromScene();
   }
 
@@ -128,16 +135,24 @@ export class CircleTool extends SketchTool {
       return;
     }
 
-    const diameter = Math.round(dist2D(this.centerPoint, point) * 2 * 100) / 100;
-    if (diameter <= 0) {
-      return;
+    if (this.dimensionInput.isVisible) {
+      this.dimensionInput.commitCurrentValue();
+    } else {
+      const diameter = Math.round(dist2D(this.centerPoint, point) * 2 * 100) / 100;
+      if (diameter <= 0) {
+        return;
+      }
+      this.commitCircle(this.centerPoint, diameter);
     }
-    this.commitCircle(this.centerPoint, diameter);
+    this.dimensionInput.hide();
     this.centerPoint = null;
     this.rebuildPreview();
   }
 
   private handleMouseMove(e: MouseEvent): void {
+    this.lastClientX = e.clientX;
+    this.lastClientY = e.clientY;
+
     const raw = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
     if (!raw) {
       this.mousePoint = null;
@@ -150,14 +165,47 @@ export class CircleTool extends SketchTool {
     this.mousePoint = result.point2d;
     this.lastSnapType = result.snapType;
     this.rebuildPreview();
+    this.updateDimensionInput();
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       if (this.centerPoint) {
         this.centerPoint = null;
+        this.dimensionInput.hide();
         this.rebuildPreview();
       }
+    }
+  }
+
+  private updateDimensionInput(): void {
+    if (!this.centerPoint || !this.mousePoint) {
+      return;
+    }
+
+    const diameter = Math.round(dist2D(this.centerPoint, this.mousePoint) * 2 * 100) / 100;
+    if (diameter <= 0) {
+      return;
+    }
+
+    if (!this.dimensionInput.isVisible) {
+      this.dimensionInput.show(
+        '⌀',
+        diameter,
+        this.lastClientX,
+        this.lastClientY,
+        (value) => {
+          if (this.centerPoint) {
+            this.commitCircle(this.centerPoint, Math.round(value * 100) / 100);
+            this.dimensionInput.hide();
+            this.centerPoint = null;
+            this.rebuildPreview();
+          }
+        },
+      );
+    } else {
+      this.dimensionInput.updateValue(diameter);
+      this.dimensionInput.updatePosition(this.lastClientX, this.lastClientY);
     }
   }
 

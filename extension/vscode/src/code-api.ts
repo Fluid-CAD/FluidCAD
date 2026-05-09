@@ -83,6 +83,12 @@ export function updatePosition(
   return postCodeEdit<CodeEditResult>(serverUrl, 'update-position', { code, sourceLine, newPosition }, logger);
 }
 
+export function updateDimension(
+  serverUrl: string, code: string, sourceLine: number, newValue: number, logger: vscode.OutputChannel,
+) {
+  return postCodeEdit<CodeEditResult>(serverUrl, 'update-dimension', { code, sourceLine, newValue }, logger);
+}
+
 /**
  * Replace the entire contents of `doc` with `newCode` in a single workspace
  * edit. Returns true on success.

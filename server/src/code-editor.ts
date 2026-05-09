@@ -784,3 +784,33 @@ export async function updateGeometryPosition(
     return spliceCode(code, args.startIndex + 1, args.startIndex + 1, pointText + ', ');
   });
 }
+
+/**
+ * Update the last numeric argument of a geometry call (e.g. distance or diameter).
+ */
+export function updateDimension(
+  code: string,
+  sourceLine: number,
+  newValue: number,
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const args = getArgumentsNode(call);
+    if (!args || args.namedChildren.length === 0) {
+      return null;
+    }
+    for (let i = args.namedChildren.length - 1; i >= 0; i--) {
+      const child = args.namedChildren[i];
+      if (child.type === 'number' || child.type === 'unary_expression') {
+        const val = parseFloat(child.text);
+        if (!isNaN(val)) {
+          return spliceCode(code, child.startIndex, child.endIndex, String(newValue));
+        }
+      }
+    }
+    return null;
+  });
+}

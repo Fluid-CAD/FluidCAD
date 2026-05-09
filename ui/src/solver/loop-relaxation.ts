@@ -67,6 +67,16 @@ type LoopMate = {
 const CHAIN_DRAG_WEIGHT = 0.5;
 const CLOSURE_DRAG_WEIGHT = 0.05;
 
+// Tolerance for the warm-start-residual check that lets `relaxComponent`
+// skip LM entirely. Small enough that any case where LM could make
+// visually-meaningful progress still falls through (chained-revolute drag
+// has initial residuals on the order of the cursor delta — tens of mm —
+// far above this threshold), large enough to admit floating-point drift
+// in a successful warm-start cascade (slider-on-fastened-cluster: warm-
+// start places the grab on the cursor projection exactly, residual is
+// machine-epsilon).
+const LM_SKIP_THRESHOLD = 1e-6;
+
 /**
  * For every component that needs LM (closure or drag-in-chain), run a
  * relaxation pass. Mutates body poses in-place when LM converges (or
@@ -148,6 +158,27 @@ function relaxComponent(
     unpackBodies(variableBodies, x);
     return computeResiduals(componentMates, variableBodies, projectedDrag, dragWeight);
   };
+
+  // LM-skip when warm-start is already at a fixed point. The warm-start
+  // cascades drag deltas through fastened+slider+cylindrical clusters
+  // analytically (see `sliderDragDelta` etc.), so for trees whose dragged
+  // body is in a 1-DOF cluster of those types, x0 already places the
+  // grab at the cursor projection — LM has nothing to improve.
+  // The check costs one `evaluate(x0)` call (re-unpacking x0 is a no-op
+  // since bodies are already at x0), but saves a full LM iteration's
+  // Jacobian setup (2·n FD evaluations) which dominates the per-pointer
+  // budget when dragging in a heavy fastened cluster. Tolerance is
+  // chosen to be tight enough that any case where LM could make
+  // visible progress falls through, while admitting the gantry-style
+  // cluster-on-slider drag.
+  const initialResidual = evaluate(x0);
+  let initSqr = 0;
+  for (let i = 0; i < initialResidual.length; i++) {
+    initSqr += initialResidual[i] * initialResidual[i];
+  }
+  if (Math.sqrt(initSqr) < LM_SKIP_THRESHOLD) {
+    return;
+  }
 
   const normalize = (x: Float64Array): void => {
     for (let i = 0; i < variableBodies.length; i++) {

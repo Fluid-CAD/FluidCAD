@@ -95,6 +95,7 @@ export abstract class SketchTool {
   protected removePreviewFromScene(): void {
     this.ctx.scene.remove(this.previewGroup);
     this.disposePreview();
+    this.ctx.requestRender();
   }
 
   protected requestRender(): void {

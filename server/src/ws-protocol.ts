@@ -165,6 +165,7 @@ export type UpdatePositionMessage = {
   type: 'update-position';
   newPosition: [number, number];
   sourceLocation: { line: number; column: number };
+  pointIndex?: number;
 };
 
 export type UpdateDimensionMessage = {

@@ -73,8 +73,8 @@ function M.insert_geometry(code, sketch_source_line, statement)
   return post('insert-geometry', { code = code, sketchSourceLine = sketch_source_line, statement = statement })
 end
 
-function M.update_position(code, source_line, new_position)
-  return post('update-position', { code = code, sourceLine = source_line, newPosition = new_position })
+function M.update_position(code, source_line, new_position, point_index)
+  return post('update-position', { code = code, sourceLine = source_line, newPosition = new_position, pointIndex = point_index or 0 })
 end
 
 function M.update_dimension(code, source_line, new_value)

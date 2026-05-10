@@ -402,7 +402,7 @@ export function createActionsRouter(
   });
 
   router.post('/update-position', (req, res) => {
-    const { newPosition, sourceLocation } = req.body;
+    const { newPosition, sourceLocation, pointIndex } = req.body;
     if (
       !Array.isArray(newPosition) || newPosition.length !== 2 ||
       !sourceLocation || typeof sourceLocation.line !== 'number'
@@ -414,12 +414,13 @@ export function createActionsRouter(
       type: 'update-position',
       newPosition: newPosition as [number, number],
       sourceLocation,
+      pointIndex: typeof pointIndex === 'number' ? pointIndex : undefined,
     });
     res.json({ success: true });
   });
 
   router.post('/code/update-position', async (req, res) => {
-    const { code, sourceLine, newPosition } = req.body;
+    const { code, sourceLine, newPosition, pointIndex } = req.body;
     if (
       typeof code !== 'string' || typeof sourceLine !== 'number' ||
       !Array.isArray(newPosition) || newPosition.length !== 2
@@ -428,7 +429,10 @@ export function createActionsRouter(
       return;
     }
     try {
-      const result = await updateGeometryPosition(code, sourceLine, newPosition as [number, number]);
+      const result = await updateGeometryPosition(
+        code, sourceLine, newPosition as [number, number],
+        typeof pointIndex === 'number' ? pointIndex : 0,
+      );
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

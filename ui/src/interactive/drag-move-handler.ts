@@ -19,7 +19,6 @@ import { SnapController } from '../snapping/snap-controller';
 import {
   projectToSketch,
   localToWorld,
-  roundPoint,
   pixelToSketchThreshold,
 } from './sketch-plane-utils';
 import { ExpressionInput, VariableInfo } from '../ui/expression-input';
@@ -34,7 +33,6 @@ type DragHitResult = {
   originalDistance?: number;
 };
 
-const DRAG_THRESHOLD_PX_SQ = 64;
 const GUIDE_COLOR = 0xb0b0b0;
 const DOT_RADIUS = 2.5;
 const DOT_SEGMENTS = 16;
@@ -65,15 +63,11 @@ export class DragMoveHandler {
   private canvas: HTMLCanvasElement;
 
   private previewGroup: Group;
-  private isDragging = false;
-  private dragSourceLocation: { line: number; column: number } | null = null;
-  private dragHitResult: DragHitResult | null = null;
-  private dragStartPoint: [number, number] | null = null;
-  private dragCurrentPoint: [number, number] | null = null;
-  private downX = 0;
-  private downY = 0;
-  private startedDrag = false;
-  private committed = false;
+  private isResizing = false;
+  private hasMoved = false;
+  private hitResult: DragHitResult | null = null;
+  private startPoint: [number, number] | null = null;
+  private currentPoint: [number, number] | null = null;
   private lastClientX = 0;
   private lastClientY = 0;
 
@@ -82,8 +76,8 @@ export class DragMoveHandler {
   private cachedVariables: VariableInfo[] = [];
 
   private boundPointerDown: (e: PointerEvent) => void;
-  private boundPointerUp: (e: PointerEvent) => void;
   private boundPointerMove: (e: PointerEvent) => void;
+  private boundKeyDown: (e: KeyboardEvent) => void;
 
   constructor(ctx: SceneContext, plane: PlaneData, snapController: SnapController, container: HTMLElement, fetchVariables: FetchVariablesFn) {
     this.ctx = ctx;
@@ -99,22 +93,22 @@ export class DragMoveHandler {
     this.fetchVariables = fetchVariables;
 
     this.boundPointerDown = this.handlePointerDown.bind(this);
-    this.boundPointerUp = this.handlePointerUp.bind(this);
     this.boundPointerMove = this.handlePointerMove.bind(this);
+    this.boundKeyDown = this.handleKeyDown.bind(this);
   }
 
   activate(): void {
     this.ctx.scene.add(this.previewGroup);
     this.canvas.addEventListener('pointerdown', this.boundPointerDown, { capture: true });
-    this.canvas.addEventListener('pointerup', this.boundPointerUp);
     this.canvas.addEventListener('pointermove', this.boundPointerMove);
+    window.addEventListener('keydown', this.boundKeyDown);
   }
 
   deactivate(): void {
     this.canvas.removeEventListener('pointerdown', this.boundPointerDown, { capture: true });
-    this.canvas.removeEventListener('pointerup', this.boundPointerUp);
     this.canvas.removeEventListener('pointermove', this.boundPointerMove);
-    this.endDrag();
+    window.removeEventListener('keydown', this.boundKeyDown);
+    this.endResize();
     this.ctx.scene.remove(this.previewGroup);
     this.disposePreview();
   }
@@ -133,56 +127,59 @@ export class DragMoveHandler {
   }
 
   private handlePointerDown(e: PointerEvent): void {
-    if (e.button !== 0) {
+    if (e.button !== 0) return;
+
+    if (this.isResizing) {
+      this.commitResize();
+      e.stopPropagation();
+      e.preventDefault();
       return;
     }
-    this.downX = e.clientX;
-    this.downY = e.clientY;
-    this.startedDrag = false;
-    this.committed = false;
 
     const point2d = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
-    if (!point2d) {
-      return;
-    }
+    if (!point2d) return;
 
     const hit = this.findHitGeometry(point2d);
     if (hit) {
       e.stopPropagation();
       e.preventDefault();
-      this.dragSourceLocation = hit.sourceLocation;
-      this.dragHitResult = hit;
-      this.dragStartPoint = point2d;
-      this.isDragging = true;
-      this.ctx.cameraControls.enabled = false;
-      this.canvas.setPointerCapture(e.pointerId);
+      this.startResize(hit, point2d, e.clientX, e.clientY);
+    }
+  }
+
+  private startResize(hit: DragHitResult, point2d: [number, number], clientX: number, clientY: number): void {
+    this.isResizing = true;
+    this.hasMoved = false;
+    this.hitResult = hit;
+    this.startPoint = point2d;
+    this.currentPoint = point2d;
+    this.ctx.cameraControls.enabled = false;
+    this.canvas.style.cursor = 'crosshair';
+    this.showDimensionInput(clientX, clientY);
+  }
+
+  private commitResize(): void {
+    if (this.expressionInput.isVisible) {
+      this.expressionInput.commitCurrentValue();
+    }
+    this.endResize();
+  }
+
+  private handleKeyDown(e: KeyboardEvent): void {
+    if (e.key === 'Escape' && this.isResizing) {
+      this.endResize();
     }
   }
 
   private handlePointerMove(e: PointerEvent): void {
-    if (!this.isDragging || !this.dragStartPoint) {
-      return;
-    }
-
-    const dx = e.clientX - this.downX;
-    const dy = e.clientY - this.downY;
-    if (!this.startedDrag && dx * dx + dy * dy <= DRAG_THRESHOLD_PX_SQ) {
-      return;
-    }
-
-    if (!this.startedDrag) {
-      this.startedDrag = true;
-      this.canvas.style.cursor = 'grabbing';
-      this.showDimensionInput(e.clientX, e.clientY);
-    }
+    if (!this.isResizing) return;
 
     const raw = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
-    if (!raw) {
-      return;
-    }
+    if (!raw) return;
 
+    this.hasMoved = true;
     const result = this.snapController.snap(raw);
-    this.dragCurrentPoint = result.point2d;
+    this.currentPoint = result.point2d;
     this.lastClientX = e.clientX;
     this.lastClientY = e.clientY;
     this.rebuildPreview();
@@ -191,48 +188,43 @@ export class DragMoveHandler {
   }
 
   private showDimensionInput(clientX: number, clientY: number): void {
-    if (!this.dragHitResult || !this.dragStartPoint) {
-      return;
-    }
-    const { uniqueType, hitZone } = this.dragHitResult;
+    if (!this.hitResult || !this.startPoint) return;
+    const { uniqueType, hitZone, sourceLocation } = this.hitResult;
 
     let label: string | null = null;
     let value = 0;
 
     if (uniqueType === 'circle') {
       label = '⌀';
-      const center = this.dragHitResult.anchorPoint!;
-      const ddx = this.dragStartPoint[0] - center[0];
-      const ddy = this.dragStartPoint[1] - center[1];
+      const center = this.hitResult.anchorPoint!;
+      const ddx = this.startPoint[0] - center[0];
+      const ddy = this.startPoint[1] - center[1];
       value = Math.round(2 * Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
     } else if ((uniqueType === 'hline' || uniqueType === 'vline') && hitZone === 'end') {
       label = uniqueType === 'hline' ? 'H:' : 'V:';
-      const start = this.dragHitResult.anchorPoint!;
+      const start = this.hitResult.anchorPoint!;
       value = uniqueType === 'hline'
-        ? Math.round(Math.abs(this.dragStartPoint[0] - start[0]) * 100) / 100
-        : Math.round(Math.abs(this.dragStartPoint[1] - start[1]) * 100) / 100;
+        ? Math.round(Math.abs(this.startPoint[0] - start[0]) * 100) / 100
+        : Math.round(Math.abs(this.startPoint[1] - start[1]) * 100) / 100;
     }
 
-    if (label === null) {
-      return;
-    }
+    if (label === null) return;
 
     if (this.cachedVariables.length === 0) {
       this.fetchVariables().then(vars => { this.cachedVariables = vars; });
     }
 
+    const numericFallback = String(value);
+
     this.expressionInput.show({
       label,
-      value: String(value),
+      value: numericFallback,
       clientX,
       clientY,
       variables: this.cachedVariables,
       onCommit: (expression) => {
-        if (this.committed || !this.dragHitResult) {
-          return;
-        }
-        this.committed = true;
-        const { sourceLocation, uniqueType: ut } = this.dragHitResult;
+        if (!this.hitResult) return;
+        const { sourceLocation: sl, uniqueType: ut } = this.hitResult;
         const num = parseFloat(expression);
         const isNumeric = !isNaN(num) && String(num) === expression;
 
@@ -247,121 +239,60 @@ export class DragMoveHandler {
         fetch('/api/update-dimension-expression', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ expression: finalExpr, sourceLocation }),
+          body: JSON.stringify({ expression: finalExpr, sourceLocation: sl }),
         });
-        this.endDrag();
+        this.endResize();
       },
     });
+
+    fetch('/api/dimension-expression', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceLine: sourceLocation.line }),
+    })
+      .then(r => r.ok ? r.json() : { expression: null })
+      .catch(() => ({ expression: null }))
+      .then(({ expression }) => {
+        if (expression && !this.hasMoved && this.isResizing) {
+          this.expressionInput.updateValue(expression);
+        }
+      });
   }
 
   private computeDistanceSign(): number {
-    if (!this.dragHitResult || !this.dragCurrentPoint) {
-      return 1;
+    if (!this.hitResult || !this.currentPoint) return 1;
+    const start = this.hitResult.anchorPoint!;
+    if (this.hitResult.uniqueType === 'hline') {
+      return this.currentPoint[0] >= start[0] ? 1 : -1;
     }
-    const start = this.dragHitResult.anchorPoint!;
-    if (this.dragHitResult.uniqueType === 'hline') {
-      return this.dragCurrentPoint[0] >= start[0] ? 1 : -1;
-    }
-    return this.dragCurrentPoint[1] >= start[1] ? 1 : -1;
+    return this.currentPoint[1] >= start[1] ? 1 : -1;
   }
 
   private updateDimensionValue(): void {
-    if (!this.expressionInput.isVisible || !this.dragCurrentPoint || !this.dragHitResult) {
-      return;
-    }
-    const { uniqueType, anchorPoint } = this.dragHitResult;
+    if (!this.expressionInput.isVisible || !this.currentPoint || !this.hitResult) return;
+    const { uniqueType, anchorPoint } = this.hitResult;
     let value: number;
     if (uniqueType === 'circle') {
       const center = anchorPoint!;
-      const ddx = this.dragCurrentPoint[0] - center[0];
-      const ddy = this.dragCurrentPoint[1] - center[1];
+      const ddx = this.currentPoint[0] - center[0];
+      const ddy = this.currentPoint[1] - center[1];
       value = Math.round(2 * Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
     } else {
       const start = anchorPoint!;
       const raw = uniqueType === 'hline'
-        ? this.dragCurrentPoint[0] - start[0]
-        : this.dragCurrentPoint[1] - start[1];
+        ? this.currentPoint[0] - start[0]
+        : this.currentPoint[1] - start[1];
       value = Math.round(Math.abs(raw) * 100) / 100;
     }
     this.expressionInput.updateValue(value);
   }
 
-  private handlePointerUp(_e: PointerEvent): void {
-    if (!this.isDragging) {
-      return;
-    }
-
-    if (this.committed) {
-      this.endDrag();
-      return;
-    }
-
-    if (this.expressionInput.isVisible) {
-      this.expressionInput.commitCurrentValue();
-      this.endDrag();
-      return;
-    }
-
-    if (this.startedDrag && this.dragCurrentPoint && this.dragHitResult) {
-      const newPos = roundPoint(this.dragCurrentPoint);
-      const { sourceLocation, uniqueType, hitZone, anchorPoint } = this.dragHitResult;
-
-      if (uniqueType === 'circle') {
-        const center = anchorPoint!;
-        const ddx = newPos[0] - center[0];
-        const ddy = newPos[1] - center[1];
-        const newDiameter = Math.round(2 * Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
-        fetch('/api/update-dimension', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ newValue: newDiameter, sourceLocation }),
-        });
-      } else if (uniqueType === 'line-two-points') {
-        const pointIndex = hitZone === 'start' ? 0 : -1;
-        fetch('/api/update-position', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ newPosition: newPos, sourceLocation, pointIndex }),
-        });
-      } else if (uniqueType === 'hline' || uniqueType === 'vline') {
-        if (hitZone === 'start') {
-          fetch('/api/update-position', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ newPosition: newPos, sourceLocation, pointIndex: 0 }),
-          });
-        } else {
-          const start = anchorPoint!;
-          let newDistance = uniqueType === 'hline'
-            ? newPos[0] - start[0]
-            : newPos[1] - start[1];
-          newDistance = Math.round(newDistance * 100) / 100;
-          fetch('/api/update-dimension', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ newValue: newDistance, sourceLocation }),
-          });
-        }
-      } else {
-        fetch('/api/update-position', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ newPosition: newPos, sourceLocation }),
-        });
-      }
-    }
-
-    this.endDrag();
-  }
-
-  private endDrag(): void {
-    this.isDragging = false;
-    this.startedDrag = false;
-    this.committed = false;
-    this.dragSourceLocation = null;
-    this.dragHitResult = null;
-    this.dragStartPoint = null;
-    this.dragCurrentPoint = null;
+  private endResize(): void {
+    this.isResizing = false;
+    this.hasMoved = false;
+    this.hitResult = null;
+    this.startPoint = null;
+    this.currentPoint = null;
     this.ctx.cameraControls.enabled = true;
     this.canvas.style.cursor = '';
     this.expressionInput.hide();
@@ -478,18 +409,16 @@ export class DragMoveHandler {
   private rebuildPreview(): void {
     this.disposePreview();
 
-    if (!this.dragCurrentPoint || !this.dragHitResult) {
-      return;
-    }
+    if (!this.currentPoint || !this.hitResult) return;
 
-    const { uniqueType, hitZone, anchorPoint, fixedVertex } = this.dragHitResult;
+    const { uniqueType, hitZone, anchorPoint, fixedVertex } = this.hitResult;
     const camera = this.ctx.camera;
     const planeNormal = new Vector3(this.plane.normal.x, this.plane.normal.y, this.plane.normal.z);
 
     if (uniqueType === 'circle' && anchorPoint) {
       const center = anchorPoint;
-      const ddx = this.dragCurrentPoint[0] - center[0];
-      const ddy = this.dragCurrentPoint[1] - center[1];
+      const ddx = this.currentPoint[0] - center[0];
+      const ddy = this.currentPoint[1] - center[1];
       const radius = Math.sqrt(ddx * ddx + ddy * ddy);
       this.addDot(center, START_DOT_COLOR, camera, planeNormal);
       this.addDashedCircle(center, radius);
@@ -497,34 +426,34 @@ export class DragMoveHandler {
       if (hitZone === 'end') {
         const start = anchorPoint!;
         const constrainedEnd: [number, number] = uniqueType === 'hline'
-          ? [this.dragCurrentPoint[0], start[1]]
-          : [start[0], this.dragCurrentPoint[1]];
+          ? [this.currentPoint[0], start[1]]
+          : [start[0], this.currentPoint[1]];
         this.addDot(start, START_DOT_COLOR, camera, planeNormal);
         this.addDashedLine(start, constrainedEnd);
         this.addDot(constrainedEnd, 0xffc578, camera, planeNormal);
       } else {
-        const d = this.dragHitResult.originalDistance ?? 0;
+        const d = this.hitResult.originalDistance ?? 0;
         const newEnd: [number, number] = uniqueType === 'hline'
-          ? [this.dragCurrentPoint[0] + d, this.dragCurrentPoint[1]]
-          : [this.dragCurrentPoint[0], this.dragCurrentPoint[1] + d];
-        this.addDot(this.dragCurrentPoint, START_DOT_COLOR, camera, planeNormal);
-        this.addDashedLine(this.dragCurrentPoint, newEnd);
+          ? [this.currentPoint[0] + d, this.currentPoint[1]]
+          : [this.currentPoint[0], this.currentPoint[1] + d];
+        this.addDot(this.currentPoint, START_DOT_COLOR, camera, planeNormal);
+        this.addDashedLine(this.currentPoint, newEnd);
         this.addDot(newEnd, 0xffc578, camera, planeNormal);
       }
     } else if (uniqueType === 'line-two-points' && fixedVertex) {
       if (hitZone === 'start') {
-        this.addDot(this.dragCurrentPoint, 0xffc578, camera, planeNormal);
-        this.addDashedLine(this.dragCurrentPoint, fixedVertex);
+        this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
+        this.addDashedLine(this.currentPoint, fixedVertex);
         this.addDot(fixedVertex, START_DOT_COLOR, camera, planeNormal);
       } else {
         this.addDot(fixedVertex, START_DOT_COLOR, camera, planeNormal);
-        this.addDashedLine(fixedVertex, this.dragCurrentPoint);
-        this.addDot(this.dragCurrentPoint, 0xffc578, camera, planeNormal);
+        this.addDashedLine(fixedVertex, this.currentPoint);
+        this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
       }
     } else {
-      this.addDot(this.dragCurrentPoint, 0xffc578, camera, planeNormal);
-      if (this.dragStartPoint) {
-        this.addDashedLine(this.dragStartPoint, this.dragCurrentPoint);
+      this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
+      if (this.startPoint) {
+        this.addDashedLine(this.startPoint, this.currentPoint);
       }
     }
 

@@ -120,11 +120,11 @@ export class ExpressionInput {
     return this.visible;
   }
 
-  updateValue(value: number): void {
+  updateValue(value: number | string): void {
     if (!this.visible || this.userIsTyping) {
       return;
     }
-    this.input.value = String(Math.round(value * 100) / 100);
+    this.input.value = typeof value === 'string' ? value : String(Math.round(value * 100) / 100);
     this.input.select();
   }
 

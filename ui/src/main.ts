@@ -23,8 +23,7 @@ import { SketchTool, ToolId } from './interactive/sketch-tool';
 import { LineTool } from './interactive/tools/line-tool';
 import { CircleTool } from './interactive/tools/circle-tool';
 import { DragMoveHandler } from './interactive/drag-move-handler';
-import { ExpressionInput, VariableInfo } from './ui/expression-input';
-import { projectToSketch as projectToSketchUtil, pixelToSketchThreshold as pixelToSketchThresholdUtil } from './interactive/sketch-plane-utils';
+import { VariableInfo } from './ui/expression-input';
 
 installVSCodeKeyboardBridge();
 
@@ -842,18 +841,6 @@ sketchToolbar.onSnapGridChange = (checked: boolean) => {
   }
 };
 
-// ---------------------------------------------------------------------------
-// Double-click dimension editing
-// ---------------------------------------------------------------------------
-
-const EDITABLE_TYPES: Record<string, { label: string; field: string }> = {
-  hline: { label: 'H:', field: 'distance' },
-  vline: { label: 'V:', field: 'distance' },
-  circle: { label: '⌀', field: 'diameter' },
-};
-
-const editExpressionInput = new ExpressionInput(container);
-
 async function fetchScopeVariables(): Promise<VariableInfo[]> {
   if (!activeSketchInfo) return [];
   try {
@@ -869,108 +856,6 @@ async function fetchScopeVariables(): Promise<VariableInfo[]> {
     return [];
   }
 }
-
-function commitDimensionExpression(expression: string, sourceLocation: { filePath: string; line: number; column: number }) {
-  const num = parseFloat(expression);
-  if (!isNaN(num) && String(num) === expression) {
-    fetch('/api/update-dimension', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ newValue: Math.round(num * 100) / 100, sourceLocation }),
-    });
-  } else {
-    fetch('/api/update-dimension-expression', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expression, sourceLocation }),
-    });
-  }
-}
-
-viewer.sceneContext.renderer.domElement.addEventListener('dblclick', (e: MouseEvent) => {
-  if (!activeSketchInfo || activeDrawingTool || trimPickState === 'picking-active') {
-    return;
-  }
-
-  const sketchId = activeSketchInfo.sketchObj.id;
-  if (!sketchId) {
-    return;
-  }
-
-  const sceneObjects = viewer.currentSceneObjects;
-  const sketchChildren = sceneObjects.filter(o => o.parentId === sketchId);
-
-  const plane = activeSketchInfo.plane;
-  const point2d = projectToSketchUtil(viewer.sceneContext, plane, e.clientX, e.clientY);
-  if (!point2d) {
-    return;
-  }
-
-  let bestObj: SceneObjectRender | null = null;
-  let bestDist = Infinity;
-
-  for (const child of sketchChildren) {
-    const uniqueType = (child as any).uniqueType as string | undefined;
-    if (!uniqueType || !EDITABLE_TYPES[uniqueType] || !child.sourceLocation) {
-      continue;
-    }
-    for (const part of child.sceneShapes) {
-      for (const mesh of part.meshes) {
-        const verts = mesh.vertices;
-        for (let i = 0; i < verts.length; i += 3) {
-          const rx = verts[i] - plane.origin.x;
-          const ry = verts[i + 1] - plane.origin.y;
-          const rz = verts[i + 2] - plane.origin.z;
-          const px = rx * plane.xDirection.x + ry * plane.xDirection.y + rz * plane.xDirection.z;
-          const py = rx * plane.yDirection.x + ry * plane.yDirection.y + rz * plane.yDirection.z;
-          const dx = px - point2d[0];
-          const dy = py - point2d[1];
-          const d = dx * dx + dy * dy;
-          if (d < bestDist) {
-            bestDist = d;
-            bestObj = child;
-          }
-        }
-      }
-    }
-  }
-
-  const hitThreshold = pixelToSketchThresholdUtil(viewer.sceneContext, 12);
-  if (!bestObj || bestDist > hitThreshold * hitThreshold) {
-    return;
-  }
-
-  const uniqueType = (bestObj as any).uniqueType as string;
-  const info = EDITABLE_TYPES[uniqueType];
-  const currentValue = bestObj.object?.[info.field] as number | undefined;
-  if (currentValue === undefined || currentValue === null) {
-    return;
-  }
-
-  const sourceLocation = bestObj.sourceLocation!;
-  const numericFallback = String(Math.round(currentValue * 100) / 100);
-
-  Promise.all([
-    fetch('/api/dimension-expression', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sourceLine: sourceLocation.line }),
-    }).then(r => r.ok ? r.json() : { expression: null }).catch(() => ({ expression: null })),
-    fetchScopeVariables(),
-  ]).then(([exprResult, variables]) => {
-    const displayValue = exprResult.expression ?? numericFallback;
-    editExpressionInput.show({
-      label: info.label,
-      value: displayValue,
-      clientX: e.clientX,
-      clientY: e.clientY,
-      variables,
-      onCommit: (expression) => {
-        commitDimensionExpression(expression, sourceLocation);
-      },
-    });
-  });
-});
 
 function createTool(toolId: ToolId, plane: PlaneData, sceneObjects: SceneObjectRender[], sketchId: string): SketchTool | null {
   const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, plane);
@@ -1019,8 +904,6 @@ function deactivateDragHandler(): void {
 }
 
 function handleToolSelect(toolId: ToolId | null): void {
-  editExpressionInput.hide();
-
   if (activeDrawingTool) {
     activeDrawingTool.deactivate();
     activeDrawingTool = null;

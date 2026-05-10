@@ -236,28 +236,19 @@ export class DragMoveHandler {
         const num = parseFloat(expression);
         const isNumeric = !isNaN(num) && String(num) === expression;
 
-        if (isNumeric) {
-          if (ut === 'circle') {
-            fetch('/api/update-dimension', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ newValue: Math.round(num * 100) / 100, sourceLocation }),
-            });
-          } else {
-            const sign = this.computeDistanceSign();
-            fetch('/api/update-dimension', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ newValue: Math.round(sign * num * 100) / 100, sourceLocation }),
-            });
-          }
-        } else {
-          fetch('/api/update-dimension-expression', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ expression, sourceLocation }),
-          });
+        let finalExpr = expression;
+        if (isNumeric && ut !== 'circle') {
+          const sign = this.computeDistanceSign();
+          finalExpr = String(Math.round(sign * num * 100) / 100);
+        } else if (isNumeric) {
+          finalExpr = String(Math.round(num * 100) / 100);
         }
+
+        fetch('/api/update-dimension-expression', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ expression: finalExpr, sourceLocation }),
+        });
         this.endDrag();
       },
     });
@@ -301,6 +292,12 @@ export class DragMoveHandler {
     }
 
     if (this.committed) {
+      this.endDrag();
+      return;
+    }
+
+    if (this.expressionInput.isVisible) {
+      this.expressionInput.commitCurrentValue();
       this.endDrag();
       return;
     }

@@ -23,6 +23,7 @@ import { SketchTool, ToolId } from './interactive/sketch-tool';
 import { LineTool } from './interactive/tools/line-tool';
 import { CircleTool } from './interactive/tools/circle-tool';
 import { DragMoveHandler } from './interactive/drag-move-handler';
+import { SketchHoverSelectHandler } from './interactive/sketch-hover-select-handler';
 import { VariableInfo } from './ui/expression-input';
 
 installVSCodeKeyboardBridge();
@@ -825,6 +826,7 @@ let activeSketchInfo: {
 } | null = null;
 let activeDrawingTool: SketchTool | null = null;
 let activeDragHandler: DragMoveHandler | null = null;
+let activeHoverSelectHandler: SketchHoverSelectHandler | null = null;
 
 const sketchToolbar = new SketchToolbar(container, (toolId) => {
   handleToolSelect(toolId);
@@ -834,10 +836,16 @@ sketchToolbar.onSnapVerticesChange = (checked: boolean) => {
   if (activeDrawingTool) {
     activeDrawingTool['snapController'].snapToVertices = checked;
   }
+  if (activeDragHandler) {
+    activeDragHandler['snapController'].snapToVertices = checked;
+  }
 };
 sketchToolbar.onSnapGridChange = (checked: boolean) => {
   if (activeDrawingTool) {
     activeDrawingTool['snapController'].snapToGrid = checked;
+  }
+  if (activeDragHandler) {
+    activeDragHandler['snapController'].snapToGrid = checked;
   }
 };
 
@@ -894,9 +902,21 @@ function activateDragHandler(): void {
   activeDragHandler = new DragMoveHandler(viewer.sceneContext, activeSketchInfo.plane, snapCtrl, container, fetchScopeVariables);
   activeDragHandler.updateSceneData(viewer.currentSceneObjects, activeSketchInfo.sketchObj.id!);
   activeDragHandler.activate();
+
+  activeHoverSelectHandler = new SketchHoverSelectHandler(
+    viewer.sceneContext,
+    activeSketchInfo.plane,
+    () => activeDragHandler?.isResizing ?? false,
+  );
+  activeHoverSelectHandler.updateSceneData(viewer.currentSceneObjects, activeSketchInfo.sketchObj.id!);
+  activeHoverSelectHandler.activate();
 }
 
 function deactivateDragHandler(): void {
+  if (activeHoverSelectHandler) {
+    activeHoverSelectHandler.deactivate();
+    activeHoverSelectHandler = null;
+  }
   if (activeDragHandler) {
     activeDragHandler.deactivate();
     activeDragHandler = null;
@@ -1025,6 +1045,10 @@ function updateSketchToolbar(sceneObjects: SceneObjectRender[]): void {
       const snapManager = SnapManager.fromSceneObjects(sceneObjects, lastRoot.id, plane);
       activeDragHandler.updateSnapController(new SnapController(snapManager, plane));
       activeDragHandler.updateSceneData(sceneObjects, lastRoot.id);
+      if (activeHoverSelectHandler) {
+        activeHoverSelectHandler.updatePlane(plane);
+        activeHoverSelectHandler.updateSceneData(sceneObjects, lastRoot.id);
+      }
     } else if (!sketchToolbar.activeTool) {
       activateDragHandler();
     }

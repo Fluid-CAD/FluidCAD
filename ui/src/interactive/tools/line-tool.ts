@@ -150,7 +150,7 @@ export class LineTool extends SketchTool {
       this.commitLine(this.startPoint, point);
     }
     this.expressionInput.hide();
-    this.startPoint = point;
+    this.startPoint = null;
     this.rebuildPreview();
   }
 

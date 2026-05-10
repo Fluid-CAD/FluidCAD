@@ -30,6 +30,7 @@ type DragHitResult = {
   hitZone: 'start' | 'end' | 'body';
   anchorPoint?: [number, number];
   fixedVertex?: [number, number];
+  originalDistance?: number;
 };
 
 const DRAG_THRESHOLD_PX_SQ = 64;
@@ -400,10 +401,15 @@ export class DragMoveHandler {
             const edy = endV[1] - point2d[1];
             const endDist = edx * edx + edy * edy;
 
+            const isConstrained = uniqueType === 'hline' || uniqueType === 'vline';
+            const dist = isConstrained
+              ? (uniqueType === 'hline' ? endV[0] - startV[0] : endV[1] - startV[1])
+              : undefined;
+
             if (startDist < thresholdSq && startDist < bestDistSq && startDist <= endDist) {
               bestHit = {
                 sourceLocation, uniqueType: uniqueType || '', hitZone: 'start',
-                anchorPoint: startV, fixedVertex: endV,
+                anchorPoint: startV, fixedVertex: endV, originalDistance: dist,
               };
               bestDistSq = startDist;
             }
@@ -474,10 +480,13 @@ export class DragMoveHandler {
         this.addDashedLine(start, constrainedEnd);
         this.addDot(constrainedEnd, 0xffc578, camera, planeNormal);
       } else {
-        this.addDot(this.dragCurrentPoint, 0xffc578, camera, planeNormal);
-        if (fixedVertex) {
-          this.addDashedLine(this.dragCurrentPoint, fixedVertex);
-        }
+        const d = this.dragHitResult.originalDistance ?? 0;
+        const newEnd: [number, number] = uniqueType === 'hline'
+          ? [this.dragCurrentPoint[0] + d, this.dragCurrentPoint[1]]
+          : [this.dragCurrentPoint[0], this.dragCurrentPoint[1] + d];
+        this.addDot(this.dragCurrentPoint, START_DOT_COLOR, camera, planeNormal);
+        this.addDashedLine(this.dragCurrentPoint, newEnd);
+        this.addDot(newEnd, 0xffc578, camera, planeNormal);
       }
     } else if (uniqueType === 'line-two-points' && fixedVertex) {
       if (hitZone === 'start') {

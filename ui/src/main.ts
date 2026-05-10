@@ -868,6 +868,8 @@ async function fetchScopeVariables(): Promise<VariableInfo[]> {
 function createTool(toolId: ToolId, plane: PlaneData, sceneObjects: SceneObjectRender[], sketchId: string): SketchTool | null {
   const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, plane);
   const snapCtrl = new SnapController(snapManager, plane);
+  snapCtrl.snapToVertices = sketchToolbar.snapVerticesChecked;
+  snapCtrl.snapToGrid = sketchToolbar.snapGridChecked;
 
   const insertGeometry = (statement: string) => {
     if (!activeSketchInfo) {
@@ -899,6 +901,8 @@ function activateDragHandler(): void {
   }
   const snapManager = SnapManager.fromSceneObjects(viewer.currentSceneObjects, activeSketchInfo.sketchObj.id!, activeSketchInfo.plane);
   const snapCtrl = new SnapController(snapManager, activeSketchInfo.plane);
+  snapCtrl.snapToVertices = sketchToolbar.snapVerticesChecked;
+  snapCtrl.snapToGrid = sketchToolbar.snapGridChecked;
   activeDragHandler = new DragMoveHandler(viewer.sceneContext, activeSketchInfo.plane, snapCtrl, container, fetchScopeVariables);
   activeDragHandler.updateSceneData(viewer.currentSceneObjects, activeSketchInfo.sketchObj.id!);
   activeDragHandler.activate();

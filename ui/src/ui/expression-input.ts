@@ -120,6 +120,10 @@ export class ExpressionInput {
     return this.visible;
   }
 
+  containsElement(el: EventTarget | null): boolean {
+    return el instanceof Node && this.el.contains(el);
+  }
+
   updateValue(value: number | string): void {
     if (!this.visible || this.userIsTyping) {
       return;

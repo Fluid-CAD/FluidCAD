@@ -19,6 +19,7 @@ import { SnapController } from '../snapping/snap-controller';
 import {
   projectToSketch,
   localToWorld,
+  roundPoint,
   pixelToSketchThreshold,
 } from './sketch-plane-utils';
 import { ExpressionInput, VariableInfo } from '../ui/expression-input';
@@ -75,7 +76,8 @@ export class DragMoveHandler {
   private fetchVariables: FetchVariablesFn;
   private cachedVariables: VariableInfo[] = [];
 
-  private boundPointerDown: (e: PointerEvent) => void;
+  private boundCanvasPointerDown: (e: PointerEvent) => void;
+  private boundCommitPointerDown: (e: PointerEvent) => void;
   private boundPointerMove: (e: PointerEvent) => void;
   private boundKeyDown: (e: KeyboardEvent) => void;
 
@@ -92,21 +94,23 @@ export class DragMoveHandler {
     this.expressionInput = new ExpressionInput(container);
     this.fetchVariables = fetchVariables;
 
-    this.boundPointerDown = this.handlePointerDown.bind(this);
+    this.boundCanvasPointerDown = this.handleCanvasPointerDown.bind(this);
+    this.boundCommitPointerDown = this.handleCommitPointerDown.bind(this);
     this.boundPointerMove = this.handlePointerMove.bind(this);
     this.boundKeyDown = this.handleKeyDown.bind(this);
   }
 
   activate(): void {
     this.ctx.scene.add(this.previewGroup);
-    this.canvas.addEventListener('pointerdown', this.boundPointerDown, { capture: true });
-    this.canvas.addEventListener('pointermove', this.boundPointerMove);
+    this.canvas.addEventListener('pointerdown', this.boundCanvasPointerDown, { capture: true });
+    window.addEventListener('pointermove', this.boundPointerMove);
     window.addEventListener('keydown', this.boundKeyDown);
   }
 
   deactivate(): void {
-    this.canvas.removeEventListener('pointerdown', this.boundPointerDown, { capture: true });
-    this.canvas.removeEventListener('pointermove', this.boundPointerMove);
+    this.canvas.removeEventListener('pointerdown', this.boundCanvasPointerDown, { capture: true });
+    this.removeCommitListener();
+    window.removeEventListener('pointermove', this.boundPointerMove);
     window.removeEventListener('keydown', this.boundKeyDown);
     this.endResize();
     this.ctx.scene.remove(this.previewGroup);
@@ -126,15 +130,8 @@ export class DragMoveHandler {
     this.sketchId = sketchId;
   }
 
-  private handlePointerDown(e: PointerEvent): void {
-    if (e.button !== 0) return;
-
-    if (this.isResizing) {
-      this.commitResize();
-      e.stopPropagation();
-      e.preventDefault();
-      return;
-    }
+  private handleCanvasPointerDown(e: PointerEvent): void {
+    if (e.button !== 0 || this.isResizing) return;
 
     const point2d = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
     if (!point2d) return;
@@ -147,6 +144,22 @@ export class DragMoveHandler {
     }
   }
 
+  private handleCommitPointerDown(e: PointerEvent): void {
+    if (e.button !== 0 || !this.isResizing) return;
+    if (this.expressionInput.containsElement(e.target)) return;
+    this.commitResize();
+    e.stopPropagation();
+    e.preventDefault();
+  }
+
+  private addCommitListener(): void {
+    window.addEventListener('pointerdown', this.boundCommitPointerDown, { capture: true });
+  }
+
+  private removeCommitListener(): void {
+    window.removeEventListener('pointerdown', this.boundCommitPointerDown, { capture: true });
+  }
+
   private startResize(hit: DragHitResult, point2d: [number, number], clientX: number, clientY: number): void {
     this.isResizing = true;
     this.hasMoved = false;
@@ -155,14 +168,44 @@ export class DragMoveHandler {
     this.currentPoint = point2d;
     this.ctx.cameraControls.enabled = false;
     this.canvas.style.cursor = 'crosshair';
+    this.addCommitListener();
     this.showDimensionInput(clientX, clientY);
   }
 
   private commitResize(): void {
     if (this.expressionInput.isVisible) {
       this.expressionInput.commitCurrentValue();
+    } else if (this.currentPoint && this.hitResult) {
+      this.commitPositionMove();
     }
     this.endResize();
+  }
+
+  private commitPositionMove(): void {
+    if (!this.currentPoint || !this.hitResult) return;
+    const newPos = roundPoint(this.currentPoint);
+    const { sourceLocation, uniqueType, hitZone, anchorPoint } = this.hitResult;
+
+    if (uniqueType === 'line-two-points') {
+      const pointIndex = hitZone === 'start' ? 0 : -1;
+      fetch('/api/update-position', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPosition: newPos, sourceLocation, pointIndex }),
+      });
+    } else if ((uniqueType === 'hline' || uniqueType === 'vline') && hitZone === 'start') {
+      fetch('/api/update-position', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPosition: newPos, sourceLocation, pointIndex: 0 }),
+      });
+    } else {
+      fetch('/api/update-position', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPosition: newPos, sourceLocation }),
+      });
+    }
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
@@ -288,6 +331,7 @@ export class DragMoveHandler {
   }
 
   private endResize(): void {
+    this.removeCommitListener();
     this.isResizing = false;
     this.hasMoved = false;
     this.hitResult = null;

@@ -100,6 +100,14 @@ export class SketchToolbar {
     return this.activeToolId;
   }
 
+  get snapVerticesChecked(): boolean {
+    return this.snapEl.querySelector<HTMLInputElement>('[data-snap="vertex"]')!.checked;
+  }
+
+  get snapGridChecked(): boolean {
+    return this.snapEl.querySelector<HTMLInputElement>('[data-snap="grid"]')!.checked;
+  }
+
   private handleToolClick(toolId: ToolId): void {
     if (this.activeToolId === toolId) {
       this.onToolSelect(null);

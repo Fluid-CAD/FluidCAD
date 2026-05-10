@@ -13,6 +13,9 @@ import {
   insertGeometryCall,
   updateGeometryPosition,
   updateDimension,
+  updateDimensionExpression,
+  getDimensionExpression,
+  extractVariablesInScope,
 } from '../code-editor.ts';
 
 export function createActionsRouter(
@@ -468,6 +471,78 @@ export function createActionsRouter(
     try {
       const result = await updateDimension(code, sourceLine, newValue);
       res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/update-dimension-expression', (req, res) => {
+    const { expression, sourceLocation } = req.body;
+    if (
+      typeof expression !== 'string' ||
+      !sourceLocation || typeof sourceLocation.line !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    sendToExtension({
+      type: 'update-dimension-expression',
+      expression,
+      sourceLocation,
+    });
+    res.json({ success: true });
+  });
+
+  router.post('/code/update-dimension-expression', async (req, res) => {
+    const { code, sourceLine, expression } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      typeof expression !== 'string'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await updateDimensionExpression(code, sourceLine, expression);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/scope-variables', async (req, res) => {
+    const { sketchSourceLine } = req.body;
+    if (typeof sketchSourceLine !== 'number') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const code = fluidCadServer.getCurrentCode();
+    if (!code) {
+      res.json({ variables: [] });
+      return;
+    }
+    try {
+      const variables = await extractVariablesInScope(code, sketchSourceLine);
+      res.json({ variables });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/dimension-expression', async (req, res) => {
+    const { sourceLine } = req.body;
+    if (typeof sourceLine !== 'number') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const code = fluidCadServer.getCurrentCode();
+    if (!code) {
+      res.json({ expression: null });
+      return;
+    }
+    try {
+      const result = await getDimensionExpression(code, sourceLine);
+      res.json({ expression: result?.expression ?? null });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
     }

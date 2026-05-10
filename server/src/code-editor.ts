@@ -830,3 +830,166 @@ export function updateDimension(
     return null;
   });
 }
+
+// ---------------------------------------------------------------------------
+// Expression-aware dimension helpers
+// ---------------------------------------------------------------------------
+
+function findLastNonArrayArg(args: TSNode): TSNode | null {
+  for (let i = args.namedChildren.length - 1; i >= 0; i--) {
+    const child = args.namedChildren[i];
+    if (child.type !== 'array') {
+      return child;
+    }
+  }
+  return null;
+}
+
+export async function getDimensionExpression(
+  code: string,
+  sourceLine: number,
+): Promise<{ expression: string } | null> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const lines = splitLines(code);
+  const call = findEditableCallAt(tree, lines, sourceLine);
+  if (!call) {
+    return null;
+  }
+  const args = getArgumentsNode(call);
+  if (!args || args.namedChildren.length === 0) {
+    return null;
+  }
+  const target = findLastNonArrayArg(args);
+  if (!target) {
+    return null;
+  }
+  return { expression: target.text };
+}
+
+export function updateDimensionExpression(
+  code: string,
+  sourceLine: number,
+  expression: string,
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const args = getArgumentsNode(call);
+    if (!args || args.namedChildren.length === 0) {
+      return null;
+    }
+    const target = findLastNonArrayArg(args);
+    if (!target) {
+      return null;
+    }
+    return spliceCode(code, target.startIndex, target.endIndex, expression);
+  });
+}
+
+export type VariableInfo = { name: string; initializer?: string };
+
+export async function extractVariablesInScope(
+  code: string,
+  sketchSourceLine: number,
+): Promise<VariableInfo[]> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const lines = splitLines(code);
+  const sketchRow = resolveSourceRow(lines, sketchSourceLine);
+  if (sketchRow < 0) {
+    return [];
+  }
+
+  const variables: VariableInfo[] = [];
+  const seen = new Set<string>();
+
+  function addVar(name: string, initializer?: string) {
+    if (!seen.has(name)) {
+      seen.add(name);
+      variables.push({ name, initializer });
+    }
+  }
+
+  function collectDeclarators(node: TSNode) {
+    for (const child of node.namedChildren) {
+      if (child.type === 'variable_declarator') {
+        const nameNode = child.childForFieldName('name');
+        const valueNode = child.childForFieldName('value');
+        if (nameNode && nameNode.type === 'identifier') {
+          const init = valueNode ? valueNode.text : undefined;
+          addVar(nameNode.text, init);
+        }
+      }
+    }
+  }
+
+  const FLUIDCAD_SOURCES = ['fluidcad', 'fluidcad/core', "'fluidcad'", "'fluidcad/core'", '"fluidcad"', '"fluidcad/core"'];
+
+  for (const node of tree.rootNode.namedChildren) {
+    if (node.startPosition.row > sketchRow) {
+      break;
+    }
+
+    if (node.type === 'import_statement') {
+      const source = node.childForFieldName('source');
+      if (source && FLUIDCAD_SOURCES.some(s => source.text.includes(s.replace(/['"]/g, '')))) {
+        continue;
+      }
+      for (const child of node.namedChildren) {
+        if (child.type === 'import_clause') {
+          for (const spec of child.namedChildren) {
+            if (spec.type === 'import_specifier' || spec.type === 'identifier') {
+              const nameNode = spec.type === 'import_specifier'
+                ? spec.childForFieldName('name') || spec.namedChildren[0]
+                : spec;
+              if (nameNode) {
+                addVar(nameNode.text);
+              }
+            } else if (spec.type === 'named_imports') {
+              for (const imp of spec.namedChildren) {
+                if (imp.type === 'import_specifier') {
+                  const alias = imp.childForFieldName('alias');
+                  const nameN = alias || imp.childForFieldName('name') || imp.namedChildren[0];
+                  if (nameN) {
+                    addVar(nameN.text);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      continue;
+    }
+
+    if (node.type === 'lexical_declaration' || node.type === 'variable_declaration') {
+      collectDeclarators(node);
+      continue;
+    }
+
+    if (node.type === 'export_statement') {
+      for (const child of node.namedChildren) {
+        if (child.type === 'lexical_declaration' || child.type === 'variable_declaration') {
+          collectDeclarators(child);
+        }
+      }
+    }
+  }
+
+  const sketchCall = findEditableCallAt(tree, lines, sketchSourceLine);
+  if (sketchCall) {
+    const body = findSketchBody(sketchCall);
+    if (body) {
+      for (const stmt of body.namedChildren) {
+        if (stmt.type === 'lexical_declaration' || stmt.type === 'variable_declaration') {
+          collectDeclarators(stmt);
+        }
+      }
+    }
+  }
+
+  return variables;
+}

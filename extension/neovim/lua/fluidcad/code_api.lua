@@ -81,6 +81,10 @@ function M.update_dimension(code, source_line, new_value)
   return post('update-dimension', { code = code, sourceLine = source_line, newValue = new_value })
 end
 
+function M.update_dimension_expression(code, source_line, expression)
+  return post('update-dimension-expression', { code = code, sourceLine = source_line, expression = expression })
+end
+
 --- Replace the entire contents of `bufnr` with `new_code`. Returns true on
 --- success.
 function M.replace_buffer(bufnr, new_code)

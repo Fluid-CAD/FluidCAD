@@ -23,7 +23,7 @@ import { SketchTool, ToolId } from './interactive/sketch-tool';
 import { LineTool } from './interactive/tools/line-tool';
 import { CircleTool } from './interactive/tools/circle-tool';
 import { DragMoveHandler } from './interactive/drag-move-handler';
-import { DimensionInput } from './ui/dimension-input';
+import { ExpressionInput, VariableInfo } from './ui/expression-input';
 import { projectToSketch as projectToSketchUtil, pixelToSketchThreshold as pixelToSketchThresholdUtil } from './interactive/sketch-plane-utils';
 
 installVSCodeKeyboardBridge();
@@ -852,7 +852,40 @@ const EDITABLE_TYPES: Record<string, { label: string; field: string }> = {
   circle: { label: '⌀', field: 'diameter' },
 };
 
-const editDimensionInput = new DimensionInput(container);
+const editExpressionInput = new ExpressionInput(container);
+
+async function fetchScopeVariables(): Promise<VariableInfo[]> {
+  if (!activeSketchInfo) return [];
+  try {
+    const res = await fetch('/api/scope-variables', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sketchSourceLine: activeSketchInfo.sourceLocation.line }),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.variables ?? [];
+  } catch {
+    return [];
+  }
+}
+
+function commitDimensionExpression(expression: string, sourceLocation: { filePath: string; line: number; column: number }) {
+  const num = parseFloat(expression);
+  if (!isNaN(num) && String(num) === expression) {
+    fetch('/api/update-dimension', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newValue: Math.round(num * 100) / 100, sourceLocation }),
+    });
+  } else {
+    fetch('/api/update-dimension-expression', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expression, sourceLocation }),
+    });
+  }
+}
 
 viewer.sceneContext.renderer.domElement.addEventListener('dblclick', (e: MouseEvent) => {
   if (!activeSketchInfo || activeDrawingTool || trimPickState === 'picking-active') {
@@ -915,17 +948,27 @@ viewer.sceneContext.renderer.domElement.addEventListener('dblclick', (e: MouseEv
   }
 
   const sourceLocation = bestObj.sourceLocation!;
+  const numericFallback = String(Math.round(currentValue * 100) / 100);
 
-  editDimensionInput.show(info.label, currentValue, e.clientX, e.clientY, (newValue) => {
-    fetch('/api/update-dimension', {
+  Promise.all([
+    fetch('/api/dimension-expression', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        newValue: Math.round(newValue * 100) / 100,
-        sourceLocation,
-      }),
+      body: JSON.stringify({ sourceLine: sourceLocation.line }),
+    }).then(r => r.ok ? r.json() : { expression: null }).catch(() => ({ expression: null })),
+    fetchScopeVariables(),
+  ]).then(([exprResult, variables]) => {
+    const displayValue = exprResult.expression ?? numericFallback;
+    editExpressionInput.show({
+      label: info.label,
+      value: displayValue,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      variables,
+      onCommit: (expression) => {
+        commitDimensionExpression(expression, sourceLocation);
+      },
     });
-    editDimensionInput.hide();
   });
 });
 
@@ -949,9 +992,9 @@ function createTool(toolId: ToolId, plane: PlaneData, sceneObjects: SceneObjectR
 
   switch (toolId) {
     case 'line':
-      return new LineTool(viewer.sceneContext, plane, snapCtrl, insertGeometry, container);
+      return new LineTool(viewer.sceneContext, plane, snapCtrl, insertGeometry, container, fetchScopeVariables);
     case 'circle':
-      return new CircleTool(viewer.sceneContext, plane, snapCtrl, insertGeometry, container);
+      return new CircleTool(viewer.sceneContext, plane, snapCtrl, insertGeometry, container, fetchScopeVariables);
     default:
       return null;
   }
@@ -963,7 +1006,7 @@ function activateDragHandler(): void {
   }
   const snapManager = SnapManager.fromSceneObjects(viewer.currentSceneObjects, activeSketchInfo.sketchObj.id!, activeSketchInfo.plane);
   const snapCtrl = new SnapController(snapManager, activeSketchInfo.plane);
-  activeDragHandler = new DragMoveHandler(viewer.sceneContext, activeSketchInfo.plane, snapCtrl, container);
+  activeDragHandler = new DragMoveHandler(viewer.sceneContext, activeSketchInfo.plane, snapCtrl, container, fetchScopeVariables);
   activeDragHandler.updateSceneData(viewer.currentSceneObjects, activeSketchInfo.sketchObj.id!);
   activeDragHandler.activate();
 }
@@ -976,7 +1019,7 @@ function deactivateDragHandler(): void {
 }
 
 function handleToolSelect(toolId: ToolId | null): void {
-  editDimensionInput.hide();
+  editExpressionInput.hide();
 
   if (activeDrawingTool) {
     activeDrawingTool.deactivate();

@@ -26,6 +26,7 @@ import {
   handleInsertGeometry,
   handleUpdatePosition,
   handleUpdateDimension,
+  handleUpdateDimensionExpression,
 } from './code-edits';
 import { updateDiagnostics, type CompileError } from './diagnostics';
 
@@ -169,6 +170,10 @@ export class Client {
       }
       case 'update-dimension': {
         handleUpdateDimension(this, msg);
+        break;
+      }
+      case 'update-dimension-expression': {
+        handleUpdateDimensionExpression(this, msg);
         break;
       }
       case 'export-complete': {

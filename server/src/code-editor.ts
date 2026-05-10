@@ -752,16 +752,18 @@ export async function insertGeometryCall(
 }
 
 /**
- * Update the position (first point argument) of a geometry call.
+ * Update a point argument of a geometry call.
  *
  * @param code - Full source code
  * @param sourceLine - 1-indexed line of the geometry call
  * @param newPosition - New [x, y] position
+ * @param pointIndex - Which point argument to update (0 = first, -1 = last)
  */
 export async function updateGeometryPosition(
   code: string,
   sourceLine: number,
   newPosition: [number, number],
+  pointIndex: number = 0,
 ): Promise<CodeEditResult> {
   return withParsedCode(code, (tree, lines) => {
     const call = findEditableCallAt(tree, lines, sourceLine);
@@ -773,15 +775,29 @@ export async function updateGeometryPosition(
       return null;
     }
     const pointText = `[${newPosition[0]}, ${newPosition[1]}]`;
-    const firstArg = args.namedChildren[0];
-    if (!firstArg) {
-      return spliceCode(code, args.startIndex + 1, args.startIndex + 1, pointText);
+
+    const pointArgs: typeof args.namedChildren = [];
+    for (const child of args.namedChildren) {
+      if (parsePointLiteral(child)) {
+        pointArgs.push(child);
+      }
     }
-    const parsed = parsePointLiteral(firstArg);
-    if (parsed) {
-      return spliceCode(code, firstArg.startIndex, firstArg.endIndex, pointText);
+
+    const targetIdx = pointIndex >= 0 ? pointIndex : pointArgs.length + pointIndex;
+
+    if (targetIdx >= 0 && targetIdx < pointArgs.length) {
+      return spliceCode(code, pointArgs[targetIdx].startIndex, pointArgs[targetIdx].endIndex, pointText);
     }
-    return spliceCode(code, args.startIndex + 1, args.startIndex + 1, pointText + ', ');
+
+    if (pointIndex === 0 && pointArgs.length === 0) {
+      const firstArg = args.namedChildren[0];
+      if (!firstArg) {
+        return spliceCode(code, args.startIndex + 1, args.startIndex + 1, pointText);
+      }
+      return spliceCode(code, args.startIndex + 1, args.startIndex + 1, pointText + ', ');
+    }
+
+    return null;
   });
 }
 

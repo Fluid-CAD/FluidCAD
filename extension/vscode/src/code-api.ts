@@ -79,8 +79,9 @@ export function insertGeometry(
 
 export function updatePosition(
   serverUrl: string, code: string, sourceLine: number, newPosition: [number, number], logger: vscode.OutputChannel,
+  pointIndex: number = 0,
 ) {
-  return postCodeEdit<CodeEditResult>(serverUrl, 'update-position', { code, sourceLine, newPosition }, logger);
+  return postCodeEdit<CodeEditResult>(serverUrl, 'update-position', { code, sourceLine, newPosition, pointIndex }, logger);
 }
 
 export function updateDimension(

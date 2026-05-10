@@ -963,7 +963,7 @@ function activateDragHandler(): void {
   }
   const snapManager = SnapManager.fromSceneObjects(viewer.currentSceneObjects, activeSketchInfo.sketchObj.id!, activeSketchInfo.plane);
   const snapCtrl = new SnapController(snapManager, activeSketchInfo.plane);
-  activeDragHandler = new DragMoveHandler(viewer.sceneContext, activeSketchInfo.plane, snapCtrl);
+  activeDragHandler = new DragMoveHandler(viewer.sceneContext, activeSketchInfo.plane, snapCtrl, container);
   activeDragHandler.updateSceneData(viewer.currentSceneObjects, activeSketchInfo.sketchObj.id!);
   activeDragHandler.activate();
 }

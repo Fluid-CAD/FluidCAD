@@ -164,7 +164,7 @@ export async function handleUpdateDimension(
 
 export async function handleUpdatePosition(
   client: Client,
-  msg: { newPosition: [number, number]; sourceLocation: { line: number } },
+  msg: { newPosition: [number, number]; sourceLocation: { line: number }; pointIndex?: number },
 ) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {
@@ -173,6 +173,7 @@ export async function handleUpdatePosition(
   const doc = editor.document;
   const result = await codeApi.updatePosition(
     client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.newPosition, client.logger,
+    msg.pointIndex ?? 0,
   );
   if (!result) {
     return;

@@ -208,7 +208,7 @@ function M.handle_message(msg)
       end)
     elseif msg.type == 'update-position' then
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
-        return code_api.update_position(code, msg.sourceLocation.line, msg.newPosition)
+        return code_api.update_position(code, msg.sourceLocation.line, msg.newPosition, msg.pointIndex or 0)
       end)
     elseif msg.type == 'update-dimension' then
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)

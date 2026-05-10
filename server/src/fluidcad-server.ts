@@ -49,6 +49,11 @@ export class FluidCadServer {
   private currentFileName: string = '';
   private currentFilePath: string = '';
 
+  getCurrentCode(): string | null {
+    if (!this.currentFileName) return null;
+    return this.viteManager.getBuffer(this.currentFileName);
+  }
+
   async init(workspacePath: string) {
     await this.viteManager.init(workspacePath);
 

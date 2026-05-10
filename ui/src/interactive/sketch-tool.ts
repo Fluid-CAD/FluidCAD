@@ -14,6 +14,7 @@ export type ToolConfig = {
 };
 
 export type InsertGeometryFn = (statement: string) => void;
+export type FetchVariablesFn = () => Promise<{ name: string; initializer?: string }[]>;
 
 export abstract class SketchTool {
   abstract readonly id: ToolId;

@@ -22,7 +22,8 @@ import {
   roundPoint,
   pixelToSketchThreshold,
 } from './sketch-plane-utils';
-import { DimensionInput } from '../ui/dimension-input';
+import { ExpressionInput, VariableInfo } from '../ui/expression-input';
+import { FetchVariablesFn } from './sketch-tool';
 
 type DragHitResult = {
   sourceLocation: { line: number; column: number };
@@ -76,13 +77,15 @@ export class DragMoveHandler {
   private lastClientX = 0;
   private lastClientY = 0;
 
-  private dimensionInput: DimensionInput;
+  private expressionInput: ExpressionInput;
+  private fetchVariables: FetchVariablesFn;
+  private cachedVariables: VariableInfo[] = [];
 
   private boundPointerDown: (e: PointerEvent) => void;
   private boundPointerUp: (e: PointerEvent) => void;
   private boundPointerMove: (e: PointerEvent) => void;
 
-  constructor(ctx: SceneContext, plane: PlaneData, snapController: SnapController, container: HTMLElement) {
+  constructor(ctx: SceneContext, plane: PlaneData, snapController: SnapController, container: HTMLElement, fetchVariables: FetchVariablesFn) {
     this.ctx = ctx;
     this.plane = plane;
     this.snapController = snapController;
@@ -92,7 +95,8 @@ export class DragMoveHandler {
     this.previewGroup.userData.isMetaShape = true;
     this.previewGroup.renderOrder = 5;
 
-    this.dimensionInput = new DimensionInput(container);
+    this.expressionInput = new ExpressionInput(container);
+    this.fetchVariables = fetchVariables;
 
     this.boundPointerDown = this.handlePointerDown.bind(this);
     this.boundPointerUp = this.handlePointerUp.bind(this);
@@ -183,7 +187,7 @@ export class DragMoveHandler {
     this.lastClientY = e.clientY;
     this.rebuildPreview();
     this.updateDimensionValue();
-    this.dimensionInput.updatePosition(e.clientX, e.clientY);
+    this.expressionInput.updatePosition(e.clientX, e.clientY);
   }
 
   private showDimensionInput(clientX: number, clientY: number): void {
@@ -213,27 +217,49 @@ export class DragMoveHandler {
       return;
     }
 
-    this.dimensionInput.show(label, value, clientX, clientY, (typedValue) => {
-      if (this.committed || !this.dragHitResult) {
-        return;
-      }
-      this.committed = true;
-      const { sourceLocation, uniqueType: ut } = this.dragHitResult;
-      if (ut === 'circle') {
-        fetch('/api/update-dimension', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ newValue: Math.round(typedValue * 100) / 100, sourceLocation }),
-        });
-      } else {
-        const sign = this.computeDistanceSign();
-        fetch('/api/update-dimension', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ newValue: Math.round(sign * typedValue * 100) / 100, sourceLocation }),
-        });
-      }
-      this.endDrag();
+    if (this.cachedVariables.length === 0) {
+      this.fetchVariables().then(vars => { this.cachedVariables = vars; });
+    }
+
+    this.expressionInput.show({
+      label,
+      value: String(value),
+      clientX,
+      clientY,
+      variables: this.cachedVariables,
+      onCommit: (expression) => {
+        if (this.committed || !this.dragHitResult) {
+          return;
+        }
+        this.committed = true;
+        const { sourceLocation, uniqueType: ut } = this.dragHitResult;
+        const num = parseFloat(expression);
+        const isNumeric = !isNaN(num) && String(num) === expression;
+
+        if (isNumeric) {
+          if (ut === 'circle') {
+            fetch('/api/update-dimension', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ newValue: Math.round(num * 100) / 100, sourceLocation }),
+            });
+          } else {
+            const sign = this.computeDistanceSign();
+            fetch('/api/update-dimension', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ newValue: Math.round(sign * num * 100) / 100, sourceLocation }),
+            });
+          }
+        } else {
+          fetch('/api/update-dimension-expression', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ expression, sourceLocation }),
+          });
+        }
+        this.endDrag();
+      },
     });
   }
 
@@ -249,7 +275,7 @@ export class DragMoveHandler {
   }
 
   private updateDimensionValue(): void {
-    if (!this.dimensionInput.isVisible || !this.dragCurrentPoint || !this.dragHitResult) {
+    if (!this.expressionInput.isVisible || !this.dragCurrentPoint || !this.dragHitResult) {
       return;
     }
     const { uniqueType, anchorPoint } = this.dragHitResult;
@@ -266,7 +292,7 @@ export class DragMoveHandler {
         : this.dragCurrentPoint[1] - start[1];
       value = Math.round(Math.abs(raw) * 100) / 100;
     }
-    this.dimensionInput.updateValue(value);
+    this.expressionInput.updateValue(value);
   }
 
   private handlePointerUp(_e: PointerEvent): void {
@@ -341,7 +367,7 @@ export class DragMoveHandler {
     this.dragCurrentPoint = null;
     this.ctx.cameraControls.enabled = true;
     this.canvas.style.cursor = '';
-    this.dimensionInput.hide();
+    this.expressionInput.hide();
     this.disposePreview();
     this.ctx.requestRender();
   }

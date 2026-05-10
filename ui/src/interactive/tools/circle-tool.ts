@@ -13,7 +13,7 @@ import {
   PerspectiveCamera,
   Vector3,
 } from 'three';
-import { SketchTool, InsertGeometryFn } from '../sketch-tool';
+import { SketchTool, InsertGeometryFn, FetchVariablesFn } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
@@ -26,7 +26,7 @@ import {
   dist2D,
 } from '../sketch-plane-utils';
 import { ICON_CIRCLE } from '../../ui/icons';
-import { DimensionInput } from '../../ui/dimension-input';
+import { ExpressionInput, VariableInfo } from '../../ui/expression-input';
 
 const START_POINT_COLOR = 0x22cc66;
 const GUIDE_COLOR = 0xb0b0b0;
@@ -59,7 +59,9 @@ export class CircleTool extends SketchTool {
   private centerPoint: [number, number] | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
-  private dimensionInput: DimensionInput;
+  private expressionInput: ExpressionInput;
+  private fetchVariables: FetchVariablesFn;
+  private cachedVariables: VariableInfo[] = [];
   private lastClientX = 0;
   private lastClientY = 0;
 
@@ -76,9 +78,11 @@ export class CircleTool extends SketchTool {
     snapController: SnapController,
     insertGeometry: InsertGeometryFn,
     container: HTMLElement,
+    fetchVariables: FetchVariablesFn,
   ) {
     super(ctx, plane, snapController, insertGeometry);
-    this.dimensionInput = new DimensionInput(container);
+    this.expressionInput = new ExpressionInput(container);
+    this.fetchVariables = fetchVariables;
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
@@ -91,6 +95,7 @@ export class CircleTool extends SketchTool {
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
     window.addEventListener('keydown', this.boundKeyDown);
+    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
   }
 
   deactivate(): void {
@@ -100,7 +105,7 @@ export class CircleTool extends SketchTool {
     window.removeEventListener('keydown', this.boundKeyDown);
     this.centerPoint = null;
     this.mousePoint = null;
-    this.dimensionInput.hide();
+    this.expressionInput.hide();
     this.removePreviewFromScene();
   }
 
@@ -135,16 +140,16 @@ export class CircleTool extends SketchTool {
       return;
     }
 
-    if (this.dimensionInput.isVisible) {
-      this.dimensionInput.commitCurrentValue();
+    if (this.expressionInput.isVisible) {
+      this.expressionInput.commitCurrentValue();
     } else {
       const diameter = Math.round(dist2D(this.centerPoint, point) * 2 * 100) / 100;
       if (diameter <= 0) {
         return;
       }
-      this.commitCircle(this.centerPoint, diameter);
+      this.commitCircle(this.centerPoint, String(diameter));
     }
-    this.dimensionInput.hide();
+    this.expressionInput.hide();
     this.centerPoint = null;
     this.rebuildPreview();
   }
@@ -172,7 +177,7 @@ export class CircleTool extends SketchTool {
     if (e.key === 'Escape') {
       if (this.centerPoint) {
         this.centerPoint = null;
-        this.dimensionInput.hide();
+        this.expressionInput.hide();
         this.rebuildPreview();
       }
     }
@@ -188,33 +193,34 @@ export class CircleTool extends SketchTool {
       return;
     }
 
-    if (!this.dimensionInput.isVisible) {
-      this.dimensionInput.show(
-        '⌀',
-        diameter,
-        this.lastClientX,
-        this.lastClientY,
-        (value) => {
+    if (!this.expressionInput.isVisible) {
+      this.expressionInput.show({
+        label: '⌀',
+        value: String(diameter),
+        clientX: this.lastClientX,
+        clientY: this.lastClientY,
+        variables: this.cachedVariables,
+        onCommit: (expression) => {
           if (this.centerPoint) {
-            this.commitCircle(this.centerPoint, Math.round(value * 100) / 100);
-            this.dimensionInput.hide();
+            this.commitCircle(this.centerPoint, expression);
+            this.expressionInput.hide();
             this.centerPoint = null;
             this.rebuildPreview();
           }
         },
-      );
+      });
     } else {
-      this.dimensionInput.updateValue(diameter);
-      this.dimensionInput.updatePosition(this.lastClientX, this.lastClientY);
+      this.expressionInput.updateValue(diameter);
+      this.expressionInput.updatePosition(this.lastClientX, this.lastClientY);
     }
   }
 
-  private commitCircle(center: [number, number], diameter: number): void {
+  private commitCircle(center: [number, number], expression: string): void {
     const atCurrent = this.isAtCurrentPosition(center);
     if (atCurrent) {
-      this.insertGeometry(`circle(${diameter})`);
+      this.insertGeometry(`circle(${expression})`);
     } else {
-      this.insertGeometry(`circle(${this.formatPoint(center)}, ${diameter})`);
+      this.insertGeometry(`circle(${this.formatPoint(center)}, ${expression})`);
     }
   }
 

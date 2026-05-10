@@ -162,6 +162,26 @@ export async function handleUpdateDimension(
   }
 }
 
+export async function handleUpdateDimensionExpression(
+  client: Client,
+  msg: { expression: string; sourceLocation: { line: number } },
+) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.updateDimensionExpression(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.expression, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
 export async function handleUpdatePosition(
   client: Client,
   msg: { newPosition: [number, number]; sourceLocation: { line: number }; pointIndex?: number },

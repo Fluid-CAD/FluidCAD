@@ -13,7 +13,7 @@ import {
   PerspectiveCamera,
   Vector3,
 } from 'three';
-import { SketchTool, InsertGeometryFn } from '../sketch-tool';
+import { SketchTool, InsertGeometryFn, FetchVariablesFn } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
@@ -25,7 +25,7 @@ import {
   roundPoint,
 } from '../sketch-plane-utils';
 import { ICON_LINE } from '../../ui/icons';
-import { DimensionInput } from '../../ui/dimension-input';
+import { ExpressionInput, VariableInfo } from '../../ui/expression-input';
 
 const START_POINT_COLOR = 0x22cc66;
 const GUIDE_COLOR = 0xb0b0b0;
@@ -58,7 +58,9 @@ export class LineTool extends SketchTool {
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private shiftHeld = false;
-  private dimensionInput: DimensionInput;
+  private expressionInput: ExpressionInput;
+  private fetchVariables: FetchVariablesFn;
+  private cachedVariables: VariableInfo[] = [];
   private lastClientX = 0;
   private lastClientY = 0;
 
@@ -76,9 +78,11 @@ export class LineTool extends SketchTool {
     snapController: SnapController,
     insertGeometry: InsertGeometryFn,
     container: HTMLElement,
+    fetchVariables: FetchVariablesFn,
   ) {
     super(ctx, plane, snapController, insertGeometry);
-    this.dimensionInput = new DimensionInput(container);
+    this.expressionInput = new ExpressionInput(container);
+    this.fetchVariables = fetchVariables;
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
@@ -93,6 +97,7 @@ export class LineTool extends SketchTool {
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
     window.addEventListener('keydown', this.boundKeyDown);
     window.addEventListener('keyup', this.boundKeyUp);
+    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
   }
 
   deactivate(): void {
@@ -104,7 +109,7 @@ export class LineTool extends SketchTool {
     this.startPoint = null;
     this.mousePoint = null;
     this.shiftHeld = false;
-    this.dimensionInput.hide();
+    this.expressionInput.hide();
     this.removePreviewFromScene();
   }
 
@@ -139,12 +144,12 @@ export class LineTool extends SketchTool {
       return;
     }
 
-    if (this.shiftHeld && this.dimensionInput.isVisible) {
-      this.dimensionInput.commitCurrentValue();
+    if (this.shiftHeld && this.expressionInput.isVisible) {
+      this.expressionInput.commitCurrentValue();
     } else {
       this.commitLine(this.startPoint, point);
     }
-    this.dimensionInput.hide();
+    this.expressionInput.hide();
     this.startPoint = point;
     this.rebuildPreview();
   }
@@ -177,7 +182,7 @@ export class LineTool extends SketchTool {
     if (e.key === 'Escape') {
       if (this.startPoint) {
         this.startPoint = null;
-        this.dimensionInput.hide();
+        this.expressionInput.hide();
         this.rebuildPreview();
       }
     }
@@ -186,7 +191,7 @@ export class LineTool extends SketchTool {
   private handleKeyUp(e: KeyboardEvent): void {
     if (e.key === 'Shift') {
       this.shiftHeld = false;
-      this.dimensionInput.hide();
+      this.expressionInput.hide();
       this.rebuildPreview();
     }
   }
@@ -211,7 +216,7 @@ export class LineTool extends SketchTool {
 
   private updateDimensionInput(): void {
     if (!this.startPoint || !this.mousePoint || !this.shiftHeld) {
-      this.dimensionInput.hide();
+      this.expressionInput.hide();
       return;
     }
 
@@ -220,21 +225,22 @@ export class LineTool extends SketchTool {
     const isHorizontal = Math.abs(dx) >= Math.abs(dy);
     const distance = Math.abs(isHorizontal ? dx : dy);
 
-    if (!this.dimensionInput.isVisible) {
-      this.dimensionInput.show(
-        isHorizontal ? 'H:' : 'V:',
-        distance,
-        this.lastClientX,
-        this.lastClientY,
-        (value) => this.commitWithDimension(value),
-      );
+    if (!this.expressionInput.isVisible) {
+      this.expressionInput.show({
+        label: isHorizontal ? 'H:' : 'V:',
+        value: String(Math.round(distance * 100) / 100),
+        clientX: this.lastClientX,
+        clientY: this.lastClientY,
+        variables: this.cachedVariables,
+        onCommit: (expression) => this.commitWithDimension(expression),
+      });
     } else {
-      this.dimensionInput.updateValue(distance);
-      this.dimensionInput.updatePosition(this.lastClientX, this.lastClientY);
+      this.expressionInput.updateValue(distance);
+      this.expressionInput.updatePosition(this.lastClientX, this.lastClientY);
     }
   }
 
-  private commitWithDimension(value: number): void {
+  private commitWithDimension(expression: string): void {
     if (!this.startPoint || !this.mousePoint) {
       return;
     }
@@ -244,22 +250,26 @@ export class LineTool extends SketchTool {
     const dy = this.mousePoint[1] - this.startPoint[1];
     const isHorizontal = Math.abs(dx) >= Math.abs(dy);
     const sign = isHorizontal ? Math.sign(dx) : Math.sign(dy);
-    const distance = Math.round(sign * value * 100) / 100;
+
+    const num = parseFloat(expression);
+    const dimExpr = !isNaN(num) && String(num) === expression
+      ? String(Math.round(sign * num * 100) / 100)
+      : expression;
 
     if (isHorizontal) {
       if (atCurrent) {
-        this.insertGeometry(`hLine(${distance})`);
+        this.insertGeometry(`hLine(${dimExpr})`);
       } else {
-        this.insertGeometry(`hLine(${this.formatPoint(roundedStart)}, ${distance})`);
+        this.insertGeometry(`hLine(${this.formatPoint(roundedStart)}, ${dimExpr})`);
       }
     } else {
       if (atCurrent) {
-        this.insertGeometry(`vLine(${distance})`);
+        this.insertGeometry(`vLine(${dimExpr})`);
       } else {
-        this.insertGeometry(`vLine(${this.formatPoint(roundedStart)}, ${distance})`);
+        this.insertGeometry(`vLine(${this.formatPoint(roundedStart)}, ${dimExpr})`);
       }
     }
-    this.dimensionInput.hide();
+    this.expressionInput.hide();
     this.startPoint = null;
     this.rebuildPreview();
   }

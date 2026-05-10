@@ -41,7 +41,9 @@ export class ExpressionInput {
     this.dropdown = this.el.querySelector('.expression-dropdown')!;
 
     this.input.addEventListener('keydown', (e) => {
-      e.stopPropagation();
+      if (e.key !== 'Escape') {
+        e.stopPropagation();
+      }
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         this.moveSelection(1);

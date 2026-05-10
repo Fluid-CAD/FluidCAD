@@ -30,7 +30,7 @@ export class SketchToolbar {
     this.el.className = 'absolute bottom-6 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto hidden select-none flex flex-col items-center gap-2';
 
     this.snapEl = document.createElement('div');
-    this.snapEl.className = 'flex items-center gap-3 panel-bg border border-base-content/10 rounded-lg px-3 py-1.5 hidden';
+    this.snapEl.className = 'flex items-center gap-3 panel-bg border border-base-content/10 rounded-lg px-3 py-1.5';
     this.snapEl.innerHTML = `
       <label class="flex items-center gap-1.5 cursor-pointer" title="Snap to vertices">
         <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" data-snap="vertex" checked />
@@ -94,11 +94,6 @@ export class SketchToolbar {
       btn.className = id === toolId ? BTN_ACTIVE : BTN_BASE;
     }
     this.activeToolId = toolId;
-    if (toolId) {
-      this.snapEl.classList.remove('hidden');
-    } else {
-      this.snapEl.classList.add('hidden');
-    }
   }
 
   get activeTool(): ToolId | null {

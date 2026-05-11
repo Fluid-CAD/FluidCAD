@@ -10,14 +10,33 @@ import {
   addPick,
   removePick,
   setPickPoints,
-  insertGeometryCall,
+  insertGeometryCallWithVariable,
   updateGeometryPosition,
   setLinePosition,
   updateDimension,
-  updateDimensionExpression,
+  updateDimensionExpressionWithVariable,
   getDimensionExpression,
   extractVariablesInScope,
 } from '../code-editor.ts';
+
+const NEW_VAR_NAME_RE = /^[a-zA-Z_$][\w$]*$/;
+
+function validateNewVariable(input: unknown): { name: string; initializer: string } | null | false {
+  if (input === undefined || input === null) {
+    return null;
+  }
+  if (typeof input !== 'object') {
+    return false;
+  }
+  const obj = input as { name?: unknown; initializer?: unknown };
+  if (typeof obj.name !== 'string' || !NEW_VAR_NAME_RE.test(obj.name)) {
+    return false;
+  }
+  if (typeof obj.initializer !== 'string' || obj.initializer.trim() === '') {
+    return false;
+  }
+  return { name: obj.name, initializer: obj.initializer };
+}
 
 export function createActionsRouter(
   fluidCadServer: FluidCadServer,
@@ -372,7 +391,7 @@ export function createActionsRouter(
   });
 
   router.post('/insert-geometry', (req, res) => {
-    const { statement, sketchSourceLocation } = req.body;
+    const { statement, sketchSourceLocation, newVariable } = req.body;
     if (
       typeof statement !== 'string' ||
       !sketchSourceLocation || typeof sketchSourceLocation.line !== 'number'
@@ -380,16 +399,22 @@ export function createActionsRouter(
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
+    const nv = validateNewVariable(newVariable);
+    if (nv === false) {
+      res.status(400).json({ error: 'Invalid newVariable' });
+      return;
+    }
     sendToExtension({
       type: 'insert-geometry',
       statement,
       sketchSourceLocation,
+      newVariable: nv,
     });
     res.json({ success: true });
   });
 
   router.post('/code/insert-geometry', async (req, res) => {
-    const { code, sketchSourceLine, statement } = req.body;
+    const { code, sketchSourceLine, statement, newVariable } = req.body;
     if (
       typeof code !== 'string' || typeof sketchSourceLine !== 'number' ||
       typeof statement !== 'string'
@@ -397,8 +422,13 @@ export function createActionsRouter(
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
+    const nv = validateNewVariable(newVariable);
+    if (nv === false) {
+      res.status(400).json({ error: 'Invalid newVariable' });
+      return;
+    }
     try {
-      const result = await insertGeometryCall(code, sketchSourceLine, statement);
+      const result = await insertGeometryCallWithVariable(code, sketchSourceLine, statement, nv);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
@@ -519,7 +549,7 @@ export function createActionsRouter(
   });
 
   router.post('/update-dimension-expression', (req, res) => {
-    const { expression, sourceLocation } = req.body;
+    const { expression, sourceLocation, sketchSourceLine, newVariable } = req.body;
     if (
       typeof expression !== 'string' ||
       !sourceLocation || typeof sourceLocation.line !== 'number'
@@ -527,16 +557,27 @@ export function createActionsRouter(
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
+    const nv = validateNewVariable(newVariable);
+    if (nv === false) {
+      res.status(400).json({ error: 'Invalid newVariable' });
+      return;
+    }
+    if (nv && typeof sketchSourceLine !== 'number') {
+      res.status(400).json({ error: 'sketchSourceLine required when newVariable is provided' });
+      return;
+    }
     sendToExtension({
       type: 'update-dimension-expression',
       expression,
       sourceLocation,
+      sketchSourceLine: typeof sketchSourceLine === 'number' ? sketchSourceLine : null,
+      newVariable: nv,
     });
     res.json({ success: true });
   });
 
   router.post('/code/update-dimension-expression', async (req, res) => {
-    const { code, sourceLine, expression } = req.body;
+    const { code, sourceLine, expression, sketchSourceLine, newVariable } = req.body;
     if (
       typeof code !== 'string' || typeof sourceLine !== 'number' ||
       typeof expression !== 'string'
@@ -544,8 +585,21 @@ export function createActionsRouter(
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
+    const nv = validateNewVariable(newVariable);
+    if (nv === false) {
+      res.status(400).json({ error: 'Invalid newVariable' });
+      return;
+    }
+    if (nv && typeof sketchSourceLine !== 'number') {
+      res.status(400).json({ error: 'sketchSourceLine required when newVariable is provided' });
+      return;
+    }
     try {
-      const result = await updateDimensionExpression(code, sourceLine, expression);
+      const result = await updateDimensionExpressionWithVariable(
+        code, sourceLine, expression,
+        typeof sketchSourceLine === 'number' ? sketchSourceLine : sourceLine,
+        nv,
+      );
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

@@ -13,7 +13,10 @@ export type ToolConfig = {
   icon: string;
 };
 
-export type InsertGeometryFn = (statement: string) => void;
+export type InsertGeometryFn = (
+  statement: string,
+  newVariable?: { name: string; initializer: string },
+) => void;
 export type FetchVariablesFn = () => Promise<{ name: string; initializer?: string }[]>;
 
 export abstract class SketchTool {

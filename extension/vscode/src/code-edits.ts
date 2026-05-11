@@ -124,7 +124,11 @@ export async function handleSetPickPoints(client: Client, msg: { points: [number
 
 export async function handleInsertGeometry(
   client: Client,
-  msg: { statement: string; sketchSourceLocation: { line: number } },
+  msg: {
+    statement: string;
+    sketchSourceLocation: { line: number };
+    newVariable?: { name: string; initializer: string } | null;
+  },
 ) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {
@@ -133,6 +137,7 @@ export async function handleInsertGeometry(
   const doc = editor.document;
   const result = await codeApi.insertGeometry(
     client.serverUrl, doc.getText(), msg.sketchSourceLocation.line, msg.statement, client.logger,
+    msg.newVariable ?? null,
   );
   if (!result) {
     return;
@@ -164,7 +169,12 @@ export async function handleUpdateDimension(
 
 export async function handleUpdateDimensionExpression(
   client: Client,
-  msg: { expression: string; sourceLocation: { line: number } },
+  msg: {
+    expression: string;
+    sourceLocation: { line: number };
+    sketchSourceLine?: number | null;
+    newVariable?: { name: string; initializer: string } | null;
+  },
 ) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {
@@ -173,6 +183,8 @@ export async function handleUpdateDimensionExpression(
   const doc = editor.document;
   const result = await codeApi.updateDimensionExpression(
     client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.expression, client.logger,
+    msg.sketchSourceLine ?? null,
+    msg.newVariable ?? null,
   );
   if (!result) {
     return;

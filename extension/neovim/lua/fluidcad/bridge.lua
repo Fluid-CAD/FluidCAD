@@ -203,8 +203,12 @@ function M.handle_message(msg)
         return code_api.set_pick_points(code, msg.sourceLocation.line, msg.points)
       end)
     elseif msg.type == 'insert-geometry' then
+      local new_var = msg.newVariable
+      if new_var == vim.NIL then
+        new_var = nil
+      end
       M.apply_code_edit(msg.sketchSourceLocation.filePath, function(code_api, code)
-        return code_api.insert_geometry(code, msg.sketchSourceLocation.line, msg.statement)
+        return code_api.insert_geometry(code, msg.sketchSourceLocation.line, msg.statement, new_var)
       end)
     elseif msg.type == 'update-position' then
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
@@ -219,8 +223,19 @@ function M.handle_message(msg)
         return code_api.update_dimension(code, msg.sourceLocation.line, msg.newValue)
       end)
     elseif msg.type == 'update-dimension-expression' then
+      local new_var = msg.newVariable
+      if new_var == vim.NIL then
+        new_var = nil
+      end
+      local sketch_line = msg.sketchSourceLine
+      if sketch_line == vim.NIL then
+        sketch_line = nil
+      end
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
-        return code_api.update_dimension_expression(code, msg.sourceLocation.line, msg.expression)
+        return code_api.update_dimension_expression(
+          code, msg.sourceLocation.line, msg.expression,
+          sketch_line, new_var
+        )
       end)
     elseif msg.type == 'add-breakpoint' then
       local ok, breakpoints = pcall(require, 'fluidcad.breakpoints')

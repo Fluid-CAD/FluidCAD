@@ -73,8 +73,13 @@ export function setPickPoints(
 
 export function insertGeometry(
   serverUrl: string, code: string, sketchSourceLine: number, statement: string, logger: vscode.OutputChannel,
+  newVariable: { name: string; initializer: string } | null = null,
 ) {
-  return postCodeEdit<CodeEditResult>(serverUrl, 'insert-geometry', { code, sketchSourceLine, statement }, logger);
+  return postCodeEdit<CodeEditResult>(
+    serverUrl, 'insert-geometry',
+    { code, sketchSourceLine, statement, newVariable },
+    logger,
+  );
 }
 
 export function updatePosition(
@@ -99,8 +104,14 @@ export function updateDimension(
 
 export function updateDimensionExpression(
   serverUrl: string, code: string, sourceLine: number, expression: string, logger: vscode.OutputChannel,
+  sketchSourceLine: number | null = null,
+  newVariable: { name: string; initializer: string } | null = null,
 ) {
-  return postCodeEdit<CodeEditResult>(serverUrl, 'update-dimension-expression', { code, sourceLine, expression }, logger);
+  return postCodeEdit<CodeEditResult>(
+    serverUrl, 'update-dimension-expression',
+    { code, sourceLine, expression, sketchSourceLine, newVariable },
+    logger,
+  );
 }
 
 /**

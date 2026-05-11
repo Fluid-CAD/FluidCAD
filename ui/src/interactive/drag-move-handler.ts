@@ -24,6 +24,7 @@ import {
 } from './sketch-plane-utils';
 import { pointToSegmentDist } from './sketch-edge-utils';
 import { ExpressionInput, VariableInfo } from '../ui/expression-input';
+type GetSketchSourceLineFn = () => number | null;
 import { FetchVariablesFn } from './sketch-tool';
 
 type DragHitResult = {
@@ -87,6 +88,7 @@ export class DragMoveHandler {
 
   private expressionInput: ExpressionInput;
   private fetchVariables: FetchVariablesFn;
+  private getSketchSourceLine: GetSketchSourceLineFn;
   private cachedVariables: VariableInfo[] = [];
 
   private boundCanvasPointerDown: (e: PointerEvent) => void;
@@ -95,7 +97,14 @@ export class DragMoveHandler {
   private boundKeyDown: (e: KeyboardEvent) => void;
   private boundCanvasDoubleClick: (e: MouseEvent) => void;
 
-  constructor(ctx: SceneContext, plane: PlaneData, snapController: SnapController, container: HTMLElement, fetchVariables: FetchVariablesFn) {
+  constructor(
+    ctx: SceneContext,
+    plane: PlaneData,
+    snapController: SnapController,
+    container: HTMLElement,
+    fetchVariables: FetchVariablesFn,
+    getSketchSourceLine: GetSketchSourceLineFn,
+  ) {
     this.ctx = ctx;
     this.plane = plane;
     this.snapController = snapController;
@@ -107,6 +116,7 @@ export class DragMoveHandler {
 
     this.expressionInput = new ExpressionInput(container);
     this.fetchVariables = fetchVariables;
+    this.getSketchSourceLine = getSketchSourceLine;
 
     this.boundCanvasPointerDown = this.handleCanvasPointerDown.bind(this);
     this.boundPointerMove = this.handlePointerMove.bind(this);
@@ -413,10 +423,11 @@ export class DragMoveHandler {
       clientX,
       clientY,
       variables: this.cachedVariables,
-      onCommit: (expression) => {
+      onCommit: (result) => {
         if (!this.hitResult) {
           return;
         }
+        const { expression, newVariable } = result;
         const { sourceLocation: sl, uniqueType: ut } = this.hitResult;
         const num = parseFloat(expression);
         const isNumeric = !isNaN(num) && String(num) === expression;
@@ -429,10 +440,16 @@ export class DragMoveHandler {
           finalExpr = String(Math.round(num * 100) / 100);
         }
 
+        const sketchSourceLine = this.getSketchSourceLine();
         fetch('/api/update-dimension-expression', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ expression: finalExpr, sourceLocation: sl }),
+          body: JSON.stringify({
+            expression: finalExpr,
+            sourceLocation: sl,
+            sketchSourceLine,
+            newVariable: newVariable ?? null,
+          }),
         });
         if (this._isResizing) {
           this.endResize();

@@ -165,6 +165,7 @@ export class DragMoveHandler {
   updateSceneData(sceneObjects: SceneObjectRender[], sketchId: string): void {
     this.sceneObjects = sceneObjects;
     this.sketchId = sketchId;
+    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
   }
 
   private handleCanvasPointerDown(e: PointerEvent): void {
@@ -410,11 +411,6 @@ export class DragMoveHandler {
       return;
     }
     const { sourceLocation } = this.hitResult;
-
-    if (this.cachedVariables.length === 0) {
-      this.fetchVariables().then(vars => { this.cachedVariables = vars; });
-    }
-
     const numericFallback = String(value);
 
     this.expressionInput.show({

@@ -612,6 +612,8 @@ export class DragMoveHandler {
               ? Math.round((signedDist ?? 0) * 100) / 100
               : undefined;
 
+            const nearAnyEndpoint = startDist < thresholdSq || endDist < thresholdSq;
+
             if (startDist < thresholdSq && startDist < bestDistSq && startDist <= endDist) {
               bestHit = {
                 sourceLocation, uniqueType: uniqueType || '', hitZone: 'start',
@@ -632,24 +634,30 @@ export class DragMoveHandler {
               bestDistSq = endDist;
             }
 
-            const bodyDist = pointToSegmentDist(
-              point2d[0], point2d[1],
-              startV[0], startV[1],
-              endV[0], endV[1],
-            );
-            const bodyDistSq = bodyDist * bodyDist;
-            if (bodyDistSq < thresholdSq && bodyDistSq < bestDistSq) {
-              bestHit = {
-                sourceLocation,
-                uniqueType: uniqueType || '',
-                hitZone: 'body',
-                anchorPoint: startV,
-                fixedVertex: endV,
-                originalDistance: signedDist,
-                initialValue,
-                draggedVertices: [startV, endV],
-              };
-              bestDistSq = bodyDistSq;
+            // Body hit only competes when the pointer is NOT within an
+            // endpoint's hit radius — otherwise the perpendicular bodyDist
+            // (often ~0) would beat the diagonal distance to a vertex even
+            // when the user clearly clicked near the endpoint.
+            if (!nearAnyEndpoint) {
+              const bodyDist = pointToSegmentDist(
+                point2d[0], point2d[1],
+                startV[0], startV[1],
+                endV[0], endV[1],
+              );
+              const bodyDistSq = bodyDist * bodyDist;
+              if (bodyDistSq < thresholdSq && bodyDistSq < bestDistSq) {
+                bestHit = {
+                  sourceLocation,
+                  uniqueType: uniqueType || '',
+                  hitZone: 'body',
+                  anchorPoint: startV,
+                  fixedVertex: endV,
+                  originalDistance: signedDist,
+                  initialValue,
+                  draggedVertices: [startV, endV],
+                };
+                bestDistSq = bodyDistSq;
+              }
             }
           } else {
             for (const v of verts2d) {

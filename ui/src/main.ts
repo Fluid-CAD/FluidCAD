@@ -22,6 +22,8 @@ import { SketchToolbar } from './ui/sketch-toolbar';
 import { SketchTool, ToolId } from './interactive/sketch-tool';
 import { LineTool } from './interactive/tools/line-tool';
 import { CircleTool } from './interactive/tools/circle-tool';
+import { CenterArcTool } from './interactive/tools/center-arc-tool';
+import { ThreePointArcTool } from './interactive/tools/three-point-arc-tool';
 import { DragMoveHandler } from './interactive/drag-move-handler';
 import { SketchHoverSelectHandler } from './interactive/sketch-hover-select-handler';
 import { VariableInfo } from './ui/expression-input';
@@ -894,6 +896,10 @@ function createTool(toolId: ToolId, plane: PlaneData, sceneObjects: SceneObjectR
       return new LineTool(viewer.sceneContext, plane, snapCtrl, insertGeometry, container, fetchScopeVariables);
     case 'circle':
       return new CircleTool(viewer.sceneContext, plane, snapCtrl, insertGeometry, container, fetchScopeVariables);
+    case 'arc2':
+      return new CenterArcTool(viewer.sceneContext, plane, snapCtrl, insertGeometry, container, fetchScopeVariables);
+    case 'arc3':
+      return new ThreePointArcTool(viewer.sceneContext, plane, snapCtrl, insertGeometry, container, fetchScopeVariables);
     default:
       return null;
   }

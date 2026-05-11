@@ -20,6 +20,8 @@ import iconAlertTriangle from '@tabler/icons/outline/alert-triangle.svg?raw';
 import iconLine from '@tabler/icons/outline/line.svg?raw';
 import iconCircle from '@tabler/icons/outline/circle.svg?raw';
 import iconPointer from '@tabler/icons/outline/pointer.svg?raw';
+import iconCircleDot from '@tabler/icons/outline/circle-dot.svg?raw';
+import iconVectorBezierArc from '@tabler/icons/outline/vector-bezier-arc.svg?raw';
 
 export const ICON_FIT = iconAutoFit;
 export const ICON_ORTHO = iconOrthographic;
@@ -43,3 +45,5 @@ export const ICON_ALERT_TRIANGLE = iconAlertTriangle;
 export const ICON_LINE = iconLine;
 export const ICON_CIRCLE = iconCircle;
 export const ICON_POINTER = iconPointer;
+export const ICON_CENTER_ARC = iconCircleDot;
+export const ICON_THREE_POINT_ARC = iconVectorBezierArc;

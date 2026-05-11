@@ -1,4 +1,4 @@
-import { ICON_LINE, ICON_CIRCLE, ICON_SCISSORS } from './icons';
+import { ICON_LINE, ICON_CIRCLE, ICON_CENTER_ARC, ICON_THREE_POINT_ARC, ICON_SCISSORS } from './icons';
 import { ToolId } from '../interactive/sketch-tool';
 
 type ToolDef = { id: ToolId; label: string; icon: string };
@@ -6,6 +6,8 @@ type ToolDef = { id: ToolId; label: string; icon: string };
 const TOOLS: ToolDef[] = [
   { id: 'line', label: 'Line', icon: ICON_LINE },
   { id: 'circle', label: 'Circle', icon: ICON_CIRCLE },
+  { id: 'arc2', label: 'Center Arc', icon: ICON_CENTER_ARC },
+  { id: 'arc3', label: '3-Point Arc', icon: ICON_THREE_POINT_ARC },
   { id: 'trim', label: 'Trim', icon: ICON_SCISSORS },
 ];
 

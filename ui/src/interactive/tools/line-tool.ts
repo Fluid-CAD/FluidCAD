@@ -1,18 +1,4 @@
-import {
-  BufferAttribute,
-  BufferGeometry,
-  Camera,
-  CircleGeometry,
-  DoubleSide,
-  Group,
-  Line,
-  LineDashedMaterial,
-  Mesh,
-  MeshBasicMaterial,
-  OrthographicCamera,
-  PerspectiveCamera,
-  Vector3,
-} from 'three';
+import { Vector3 } from 'three';
 import { SketchTool, InsertGeometryFn, FetchVariablesFn } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
@@ -21,33 +7,17 @@ import { SnapManager } from '../../snapping/snap-manager';
 import { SnapType } from '../../snapping/types';
 import {
   projectToSketch,
-  localToWorld,
   roundPoint,
 } from '../sketch-plane-utils';
 import { ICON_LINE } from '../../ui/icons';
 import { ExpressionInput, VariableInfo, CommitResult } from '../../ui/expression-input';
-
-const START_POINT_COLOR = 0x22cc66;
-const GUIDE_COLOR = 0xb0b0b0;
-const SNAP_VERTEX_COLOR = 0xffc578;
-const SNAP_GRID_COLOR = 0x888888;
-const DOT_RADIUS = 2.5;
-const DOT_SEGMENTS = 16;
-const SCALE_FACTOR = 0.003;
-const MAX_SCALE = 1.5;
-
-function computeViewScale(camera: Camera, position: Vector3, factor: number): number {
-  if (camera instanceof OrthographicCamera) {
-    const viewHeight = (camera.top - camera.bottom) / camera.zoom;
-    return viewHeight * factor;
-  } else if (camera instanceof PerspectiveCamera) {
-    const dist = camera.position.distanceTo(position);
-    const vFov = camera.fov * Math.PI / 180;
-    const viewHeight = 2 * dist * Math.tan(vFov / 2);
-    return viewHeight * factor;
-  }
-  return 1;
-}
+import {
+  START_POINT_COLOR,
+  SNAP_VERTEX_COLOR,
+  SNAP_GRID_COLOR,
+  addDot,
+  addDashedLine,
+} from './tool-preview-utils';
 
 export class LineTool extends SketchTool {
   readonly id = 'line' as const;
@@ -310,80 +280,22 @@ export class LineTool extends SketchTool {
     const planeNormal = new Vector3(this.plane.normal.x, this.plane.normal.y, this.plane.normal.z);
 
     if (this.startPoint) {
-      this.addDot(this.startPoint, START_POINT_COLOR, camera, planeNormal);
+      addDot(this.previewGroup, this.startPoint, START_POINT_COLOR, camera, planeNormal, this.plane);
 
       const endPoint = this.getEffectiveEndPoint();
       if (endPoint) {
-        this.addDashedLine(this.startPoint, endPoint);
+        addDashedLine(this.previewGroup, this.startPoint, endPoint, this.plane);
 
         if (this.lastSnapType !== 'none') {
           const snapColor = this.lastSnapType === 'vertex' ? SNAP_VERTEX_COLOR : SNAP_GRID_COLOR;
-          this.addDot(endPoint, snapColor, camera, planeNormal, 0.6);
+          addDot(this.previewGroup, endPoint, snapColor, camera, planeNormal, this.plane, 0.6);
         }
       }
     } else if (this.mousePoint && this.lastSnapType !== 'none') {
       const snapColor = this.lastSnapType === 'vertex' ? SNAP_VERTEX_COLOR : SNAP_GRID_COLOR;
-      this.addDot(this.mousePoint, snapColor, camera, planeNormal, 0.6);
+      addDot(this.previewGroup, this.mousePoint, snapColor, camera, planeNormal, this.plane, 0.6);
     }
 
     this.requestRender();
-  }
-
-  private addDot(
-    point2d: [number, number],
-    color: number,
-    camera: Camera,
-    planeNormal: Vector3,
-    opacity = 1,
-  ): void {
-    const geo = new CircleGeometry(DOT_RADIUS, DOT_SEGMENTS);
-    const mat = new MeshBasicMaterial({
-      color,
-      side: DoubleSide,
-      depthTest: false,
-      transparent: opacity < 1,
-      opacity,
-    });
-    const dot = new Mesh(geo, mat);
-    dot.renderOrder = 4;
-
-    const group = new Group();
-    group.renderOrder = 4;
-    const pos = localToWorld(point2d, this.plane);
-    group.position.copy(pos);
-    group.lookAt(pos.clone().add(planeNormal));
-    group.scale.setScalar(Math.min(computeViewScale(camera, pos, SCALE_FACTOR), MAX_SCALE));
-
-    dot.onBeforeRender = (_r, _s, cam) => {
-      group.scale.setScalar(Math.min(computeViewScale(cam, pos, SCALE_FACTOR), MAX_SCALE));
-      group.updateMatrixWorld(true);
-    };
-
-    group.add(dot);
-    this.previewGroup.add(group);
-  }
-
-  private addDashedLine(from: [number, number], to: [number, number]): void {
-    const worldFrom = localToWorld(from, this.plane);
-    const worldTo = localToWorld(to, this.plane);
-
-    const verts = new Float32Array(6);
-    verts[0] = worldFrom.x; verts[1] = worldFrom.y; verts[2] = worldFrom.z;
-    verts[3] = worldTo.x; verts[4] = worldTo.y; verts[5] = worldTo.z;
-
-    const geo = new BufferGeometry();
-    geo.setAttribute('position', new BufferAttribute(verts, 3));
-
-    const mat = new LineDashedMaterial({
-      color: GUIDE_COLOR,
-      dashSize: 3,
-      gapSize: 2,
-      depthTest: false,
-    });
-
-    const line = new Line(geo, mat);
-    line.computeLineDistances();
-    line.renderOrder = 3;
-    this.previewGroup.add(line);
   }
 }

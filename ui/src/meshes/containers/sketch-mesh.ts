@@ -33,7 +33,12 @@ const SKETCH_EDGE_COLOR = '#2297ff';
 const VERTEX_RADIUS = 2;
 const VERTEX_SEGMENTS = 16;
 const VERTEX_SCALE_FACTOR = 0.003;
-const VERTEX_MAX_SCALE = 1.5;
+const VERTEX_MIN_SCALE = 0.5;
+const VERTEX_MAX_SCALE = 4.0;
+
+function clampVertexScale(raw: number): number {
+  return Math.max(VERTEX_MIN_SCALE, Math.min(raw, VERTEX_MAX_SCALE));
+}
 const CURSOR_COLOR = 0xf3724f;
 const CURSOR_SEGMENTS = 64;
 const CURSOR_RADIUS = 3;
@@ -162,10 +167,10 @@ export class SketchMesh extends Group {
         ));
       }
 
-      dotGroup.scale.setScalar(Math.min(computeViewScale(camera, pos, VERTEX_SCALE_FACTOR), VERTEX_MAX_SCALE));
+      dotGroup.scale.setScalar(clampVertexScale(computeViewScale(camera, pos, VERTEX_SCALE_FACTOR)));
 
       dot.onBeforeRender = (_renderer, _scene, cam) => {
-        dotGroup.scale.setScalar(Math.min(computeViewScale(cam, pos, VERTEX_SCALE_FACTOR), VERTEX_MAX_SCALE));
+        dotGroup.scale.setScalar(clampVertexScale(computeViewScale(cam, pos, VERTEX_SCALE_FACTOR)));
         dotGroup.updateMatrixWorld(true);
       };
 

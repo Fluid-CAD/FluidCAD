@@ -993,14 +993,7 @@ export class Viewer {
     const compiled = this.ctx.scene.getObjectByName('compiledMesh');
     if (!compiled) { return; }
 
-    compiled.traverse((child) => {
-      const mat = (child as any).material;
-      if (!mat) { return; }
-      const materials = Array.isArray(mat) ? mat : [mat];
-      for (const m of materials) {
-        m.clippingPlanes = [plane];
-      }
-    });
+    this.forEachClippableMaterial(compiled, (m) => { m.clippingPlanes = [plane]; });
 
     this.ctx.requestRender();
   }
@@ -1009,16 +1002,25 @@ export class Viewer {
     const compiled = this.ctx.scene.getObjectByName('compiledMesh');
     if (!compiled) { return; }
 
-    compiled.traverse((child) => {
-      const mat = (child as any).material;
-      if (!mat) { return; }
-      const materials = Array.isArray(mat) ? mat : [mat];
-      for (const m of materials) {
-        m.clippingPlanes = [];
-      }
-    });
+    this.forEachClippableMaterial(compiled, (m) => { m.clippingPlanes = []; });
 
     this.ctx.requestRender();
+  }
+
+  // Walk the subtree, skipping sketch UI (it lives on the section plane and
+  // would be half-clipped by it). Visit each material exactly once.
+  private forEachClippableMaterial(root: Object3D, fn: (m: any) => void): void {
+    if (root.userData.isSketchRoot) { return; }
+    const mat = (root as any).material;
+    if (mat) {
+      const materials = Array.isArray(mat) ? mat : [mat];
+      for (const m of materials) {
+        fn(m);
+      }
+    }
+    for (const child of root.children) {
+      this.forEachClippableMaterial(child, fn);
+    }
   }
 
   /** Remove the previous compiled mesh tree and dispose its GPU resources. */

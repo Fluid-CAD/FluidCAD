@@ -965,45 +965,52 @@ export async function declareSketchVariable(
   return { newCode: joinLines(lines), linesAdded: 1 };
 }
 
-export async function insertGeometryCallWithVariable(
+/**
+ * Run an edit that may be preceded by inserting `const name = init;` at the
+ * top of the sketch body. The edit receives the (possibly-mutated) code and
+ * the number of lines added by the declaration, so it can re-anchor any
+ * sourceLine references inside the body.
+ *
+ * Adopt this wrapper for any new code-edit endpoint that should support
+ * "declare a variable on the same commit."
+ */
+async function withOptionalVariableDeclaration(
+  code: string,
+  sketchSourceLine: number,
+  newVariable: { name: string; initializer: string } | null,
+  edit: (code: string, lineShift: number) => Promise<CodeEditResult>,
+): Promise<CodeEditResult> {
+  if (!newVariable) {
+    return edit(code, 0);
+  }
+  const declared = await declareSketchVariable(
+    code, sketchSourceLine, newVariable.name, newVariable.initializer,
+  );
+  if (!declared) {
+    return { newCode: code };
+  }
+  return edit(declared.newCode, declared.linesAdded);
+}
+
+export function insertGeometryCallWithVariable(
   code: string,
   sketchSourceLine: number,
   statement: string,
   newVariable: { name: string; initializer: string } | null,
 ): Promise<CodeEditResult> {
-  let working = code;
-  if (newVariable) {
-    const declared = await declareSketchVariable(
-      working, sketchSourceLine, newVariable.name, newVariable.initializer,
-    );
-    if (!declared) {
-      return { newCode: code };
-    }
-    working = declared.newCode;
-  }
-  return insertGeometryCall(working, sketchSourceLine, statement);
+  return withOptionalVariableDeclaration(code, sketchSourceLine, newVariable,
+    (c) => insertGeometryCall(c, sketchSourceLine, statement));
 }
 
-export async function updateDimensionExpressionWithVariable(
+export function updateDimensionExpressionWithVariable(
   code: string,
   sourceLine: number,
   expression: string,
   sketchSourceLine: number,
   newVariable: { name: string; initializer: string } | null,
 ): Promise<CodeEditResult> {
-  let working = code;
-  let adjustedSourceLine = sourceLine;
-  if (newVariable) {
-    const declared = await declareSketchVariable(
-      working, sketchSourceLine, newVariable.name, newVariable.initializer,
-    );
-    if (!declared) {
-      return { newCode: code };
-    }
-    working = declared.newCode;
-    adjustedSourceLine = sourceLine + declared.linesAdded;
-  }
-  return updateDimensionExpression(working, adjustedSourceLine, expression);
+  return withOptionalVariableDeclaration(code, sketchSourceLine, newVariable,
+    (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression));
 }
 
 export type VariableInfo = { name: string; initializer?: string };

@@ -34,6 +34,7 @@ type DragHitResult = {
   fixedVertex?: [number, number];
   originalDistance?: number;
   initialValue?: number;
+  draggedVertices?: [number, number][];
 };
 
 type PendingHit = {
@@ -146,6 +147,9 @@ export class DragMoveHandler {
 
   updateSnapController(snapController: SnapController): void {
     this.snapController = snapController;
+    if (this._isResizing && this.hitResult?.draggedVertices) {
+      this.snapController.setExcludedVertices(this.hitResult.draggedVertices);
+    }
   }
 
   updateSceneData(sceneObjects: SceneObjectRender[], sketchId: string): void {
@@ -212,6 +216,7 @@ export class DragMoveHandler {
 
     this.ctx.cameraControls.enabled = false;
     this.canvas.style.cursor = 'crosshair';
+    this.snapController.setExcludedVertices(hit.draggedVertices ?? []);
     this.showDimensionInputForDrag(pending.clientX, pending.clientY);
   }
 
@@ -300,13 +305,15 @@ export class DragMoveHandler {
     }
 
     this.hasMoved = true;
-    const result = this.snapController.snap(raw);
     if (this.grabOffset && this.hitResult?.hitZone === 'body') {
-      this.currentPoint = [
-        result.point2d[0] - this.grabOffset[0],
-        result.point2d[1] - this.grabOffset[1],
+      const candidateAnchor: [number, number] = [
+        raw[0] - this.grabOffset[0],
+        raw[1] - this.grabOffset[1],
       ];
+      const result = this.snapController.snap(candidateAnchor);
+      this.currentPoint = result.point2d;
     } else {
+      const result = this.snapController.snap(raw);
       this.currentPoint = result.point2d;
     }
     this.rebuildPreview();
@@ -501,6 +508,7 @@ export class DragMoveHandler {
     this.pendingHit = null;
     this.ctx.cameraControls.enabled = true;
     this.canvas.style.cursor = '';
+    this.snapController.setExcludedVertices([]);
     this.expressionInput.hide();
     this.disposePreview();
     this.ctx.requestRender();
@@ -585,6 +593,7 @@ export class DragMoveHandler {
                 anchorPoint: startV, fixedVertex: endV,
                 originalDistance: signedDist,
                 initialValue,
+                draggedVertices: [startV],
               };
               bestDistSq = startDist;
             }
@@ -593,6 +602,7 @@ export class DragMoveHandler {
                 sourceLocation, uniqueType: uniqueType || '', hitZone: 'end',
                 anchorPoint: startV, fixedVertex: startV,
                 initialValue,
+                draggedVertices: [endV],
               };
               bestDistSq = endDist;
             }
@@ -612,6 +622,7 @@ export class DragMoveHandler {
                 fixedVertex: endV,
                 originalDistance: signedDist,
                 initialValue,
+                draggedVertices: [startV, endV],
               };
               bestDistSq = bodyDistSq;
             }

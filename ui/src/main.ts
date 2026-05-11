@@ -1047,7 +1047,10 @@ function updateSketchToolbar(sceneObjects: SceneObjectRender[]): void {
     } else if (activeDragHandler) {
       activeDragHandler.updatePlane(plane);
       const snapManager = SnapManager.fromSceneObjects(sceneObjects, lastRoot.id, plane);
-      activeDragHandler.updateSnapController(new SnapController(snapManager, plane));
+      const snapCtrl = new SnapController(snapManager, plane);
+      snapCtrl.snapToVertices = sketchToolbar.snapVerticesChecked;
+      snapCtrl.snapToGrid = sketchToolbar.snapGridChecked;
+      activeDragHandler.updateSnapController(snapCtrl);
       activeDragHandler.updateSceneData(sceneObjects, lastRoot.id);
       if (activeHoverSelectHandler) {
         activeHoverSelectHandler.updatePlane(plane);

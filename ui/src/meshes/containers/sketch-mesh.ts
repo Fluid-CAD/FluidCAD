@@ -70,6 +70,7 @@ export class SketchMesh extends Group {
         if (shape.isMetaShape || shape.isGuide) {
           if (shape.shapeType === 'wire' || shape.shapeType === 'edge') {
             const metaMesh = createMetaEdgeMesh(shape);
+            metaMesh.traverse(child => { child.renderOrder = 1; });
             if (shape.shapeId) {
               metaMesh.userData.shapeId = shape.shapeId;
             }
@@ -77,7 +78,7 @@ export class SketchMesh extends Group {
           }
           continue;
         }
-        const edgeMesh = new EdgeMesh(shape, { color: SKETCH_EDGE_COLOR, lineWidth: 2, depthWrite: false });
+        const edgeMesh = new EdgeMesh(shape, { color: SKETCH_EDGE_COLOR, lineWidth: 2, depthWrite: false, transparent: true });
         edgeMesh.traverse(child => { child.renderOrder = 1; });
         if (shape.shapeId) {
           edgeMesh.userData.shapeId = shape.shapeId;

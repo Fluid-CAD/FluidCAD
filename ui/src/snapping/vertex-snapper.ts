@@ -1,9 +1,12 @@
 import { Vector3 } from 'three';
 import { Snapper, SnapResult } from './types';
-import { PlaneData, Vec3Data } from '../types';
+import { PlaneData } from '../types';
+
+const EXCLUSION_EPSILON_SQ = 1e-6;
 
 export class VertexSnapper implements Snapper {
   private vertices2d: [number, number][] = [];
+  private excluded: [number, number][] = [];
   private plane: PlaneData;
 
   constructor(vertices2d: [number, number][], plane: PlaneData) {
@@ -11,11 +14,29 @@ export class VertexSnapper implements Snapper {
     this.plane = plane;
   }
 
+  setExcluded(excluded: [number, number][]): void {
+    this.excluded = excluded;
+  }
+
+  private isExcluded(v: [number, number]): boolean {
+    for (const e of this.excluded) {
+      const dx = v[0] - e[0];
+      const dy = v[1] - e[1];
+      if (dx * dx + dy * dy < EXCLUSION_EPSILON_SQ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   snap(point2d: [number, number], threshold: number): SnapResult | null {
     let minDist = Infinity;
     let closest: [number, number] | null = null;
 
     for (const v of this.vertices2d) {
+      if (this.isExcluded(v)) {
+        continue;
+      }
       const dx = point2d[0] - v[0];
       const dy = point2d[1] - v[1];
       const dist = Math.sqrt(dx * dx + dy * dy);

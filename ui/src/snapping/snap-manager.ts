@@ -15,6 +15,14 @@ export class SnapManager {
     this.threshold = threshold;
   }
 
+  setExcludedVertices(excluded: [number, number][]): void {
+    for (const s of this.snappers) {
+      if (s instanceof VertexSnapper) {
+        s.setExcluded(excluded);
+      }
+    }
+  }
+
   snap(point2d: [number, number], plane: PlaneData): SnapResult {
     // Try each snapper in priority order; first match wins
     for (const snapper of this.snappers) {

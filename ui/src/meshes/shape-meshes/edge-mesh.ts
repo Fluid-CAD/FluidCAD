@@ -14,6 +14,7 @@ const DEFAULTS: Required<EdgeMeshOptions> = {
   lineWidth: 1,
   opacity: 1,
   depthWrite: true,
+  transparent: false,
 };
 
 export class EdgeMesh extends Group {
@@ -31,7 +32,7 @@ export class EdgeMesh extends Group {
       const material = new LineBasicMaterial({
         color: opts.color || themeColors.edgeColor,
         linewidth: opts.lineWidth,
-        transparent: opts.opacity < 1,
+        transparent: opts.transparent || opts.opacity < 1,
         opacity: opts.opacity,
         polygonOffset: true,
         polygonOffsetFactor: 2,

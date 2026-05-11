@@ -69,6 +69,7 @@ export type EdgeMeshOptions = {
   lineWidth?: number;
   opacity?: number;
   depthWrite?: boolean;
+  transparent?: boolean;
 };
 
 export type MeshRenderOptions = {

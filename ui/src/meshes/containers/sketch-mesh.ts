@@ -141,6 +141,7 @@ export class SketchMesh extends Group {
       color: SKETCH_EDGE_COLOR,
       side: DoubleSide,
       depthTest: false,
+      transparent: true,
     });
 
     for (const pos of unique) {

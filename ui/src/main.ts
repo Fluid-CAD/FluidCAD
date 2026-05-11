@@ -871,7 +871,10 @@ function createTool(toolId: ToolId, plane: PlaneData, sceneObjects: SceneObjectR
   snapCtrl.snapToVertices = sketchToolbar.snapVerticesChecked;
   snapCtrl.snapToGrid = sketchToolbar.snapGridChecked;
 
-  const insertGeometry = (statement: string) => {
+  const insertGeometry = (
+    statement: string,
+    newVariable?: { name: string; initializer: string },
+  ) => {
     if (!activeSketchInfo) {
       return;
     }
@@ -881,6 +884,7 @@ function createTool(toolId: ToolId, plane: PlaneData, sceneObjects: SceneObjectR
       body: JSON.stringify({
         statement,
         sketchSourceLocation: activeSketchInfo.sourceLocation,
+        newVariable: newVariable ?? null,
       }),
     });
   };
@@ -903,7 +907,14 @@ function activateDragHandler(): void {
   const snapCtrl = new SnapController(snapManager, activeSketchInfo.plane);
   snapCtrl.snapToVertices = sketchToolbar.snapVerticesChecked;
   snapCtrl.snapToGrid = sketchToolbar.snapGridChecked;
-  activeDragHandler = new DragMoveHandler(viewer.sceneContext, activeSketchInfo.plane, snapCtrl, container, fetchScopeVariables);
+  activeDragHandler = new DragMoveHandler(
+    viewer.sceneContext,
+    activeSketchInfo.plane,
+    snapCtrl,
+    container,
+    fetchScopeVariables,
+    () => activeSketchInfo?.sourceLocation.line ?? null,
+  );
   activeDragHandler.updateSceneData(viewer.currentSceneObjects, activeSketchInfo.sketchObj.id!);
   activeDragHandler.activate();
 

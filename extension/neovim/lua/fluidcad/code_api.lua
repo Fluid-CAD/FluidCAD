@@ -69,8 +69,13 @@ function M.set_pick_points(code, source_line, points)
   return post('set-pick-points', { code = code, sourceLine = source_line, points = points })
 end
 
-function M.insert_geometry(code, sketch_source_line, statement)
-  return post('insert-geometry', { code = code, sketchSourceLine = sketch_source_line, statement = statement })
+function M.insert_geometry(code, sketch_source_line, statement, new_variable)
+  return post('insert-geometry', {
+    code = code,
+    sketchSourceLine = sketch_source_line,
+    statement = statement,
+    newVariable = new_variable,
+  })
 end
 
 function M.update_position(code, source_line, new_position, point_index)
@@ -85,8 +90,14 @@ function M.update_dimension(code, source_line, new_value)
   return post('update-dimension', { code = code, sourceLine = source_line, newValue = new_value })
 end
 
-function M.update_dimension_expression(code, source_line, expression)
-  return post('update-dimension-expression', { code = code, sourceLine = source_line, expression = expression })
+function M.update_dimension_expression(code, source_line, expression, sketch_source_line, new_variable)
+  return post('update-dimension-expression', {
+    code = code,
+    sourceLine = source_line,
+    expression = expression,
+    sketchSourceLine = sketch_source_line,
+    newVariable = new_variable,
+  })
 end
 
 --- Replace the entire contents of `bufnr` with `new_code`. Returns true on

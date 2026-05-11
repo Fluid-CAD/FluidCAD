@@ -1,7 +1,27 @@
 const OFFSET_X = 16;
 const OFFSET_Y = -36;
 
+const IDENT_RE = /^[a-zA-Z_$][\w$]*$/;
+const ASSIGNMENT_RE = /^([a-zA-Z_$][\w$]*)\s*=\s*(.+?)\s*;?\s*$/;
+const RESERVED = new Set([
+  'const', 'let', 'var', 'if', 'else', 'for', 'while', 'do', 'return', 'function',
+  'class', 'new', 'this', 'true', 'false', 'null', 'undefined', 'typeof', 'instanceof',
+  'switch', 'case', 'break', 'continue', 'default', 'try', 'catch', 'finally', 'throw',
+  'in', 'of', 'delete', 'void', 'yield', 'async', 'await', 'import', 'export', 'from',
+  'as', 'extends', 'super', 'static', 'enum', 'interface', 'implements', 'package',
+  'private', 'protected', 'public',
+]);
+
+function isValidNewIdentifier(s: string): boolean {
+  return IDENT_RE.test(s) && !RESERVED.has(s);
+}
+
 export type VariableInfo = { name: string; initializer?: string };
+
+export type CommitResult = {
+  expression: string;
+  newVariable?: { name: string; initializer: string };
+};
 
 export type ExpressionInputOptions = {
   label: string;
@@ -9,36 +29,43 @@ export type ExpressionInputOptions = {
   clientX: number;
   clientY: number;
   variables: VariableInfo[];
-  onCommit: (expression: string) => void;
+  onCommit: (result: CommitResult) => void;
 };
 
 export class ExpressionInput {
   private el: HTMLDivElement;
+  private wrapperEl: HTMLDivElement;
   private input: HTMLInputElement;
   private label: HTMLSpanElement;
   private dropdown: HTMLDivElement;
-  private onCommit: ((expression: string) => void) | null = null;
+  private errorEl: HTMLDivElement;
+  private onCommit: ((result: CommitResult) => void) | null = null;
   private visible = false;
   private userIsTyping = false;
   private variables: VariableInfo[] = [];
   private filteredVars: VariableInfo[] = [];
   private selectedIndex = -1;
+  private seedValue = '';
+  private errorVisible = false;
 
   constructor(container: HTMLElement) {
     this.el = document.createElement('div');
     this.el.className = 'absolute z-[1000] pointer-events-auto hidden';
     this.el.innerHTML = `
-      <div class="flex items-center gap-1.5 panel-bg border border-base-content/10 rounded-md px-2 py-1 shadow-lg">
+      <div class="expression-wrapper flex items-center gap-1.5 panel-bg border border-base-content/10 rounded-md px-2 py-1 shadow-lg">
         <span class="text-xs text-base-content/50 select-none expression-label"></span>
         <input type="text" class="bg-transparent border-none outline-none text-sm text-base-content w-24 font-mono expression-input" />
       </div>
       <div class="mt-1 panel-bg border border-base-content/10 rounded-md shadow-lg max-h-[150px] overflow-y-auto hidden expression-dropdown"></div>
+      <div class="mt-1 bg-red-500/90 text-white text-xs rounded-md px-2 py-1 shadow-lg hidden expression-error"></div>
     `;
     container.appendChild(this.el);
 
+    this.wrapperEl = this.el.querySelector('.expression-wrapper')!;
     this.input = this.el.querySelector('.expression-input')!;
     this.label = this.el.querySelector('.expression-label')!;
     this.dropdown = this.el.querySelector('.expression-dropdown')!;
+    this.errorEl = this.el.querySelector('.expression-error')!;
 
     this.input.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') {
@@ -78,6 +105,9 @@ export class ExpressionInput {
 
     this.input.addEventListener('input', () => {
       this.userIsTyping = true;
+      if (this.errorVisible) {
+        this.clearInlineError();
+      }
       this.filterAndRender();
     });
 
@@ -98,11 +128,13 @@ export class ExpressionInput {
     this.visible = true;
     this.userIsTyping = false;
     this.selectedIndex = -1;
+    this.seedValue = opts.value;
     this.el.classList.remove('hidden');
     this.updatePosition(opts.clientX, opts.clientY);
     this.input.value = opts.value;
     this.input.focus();
     this.input.select();
+    this.clearInlineError();
     this.filterAndRender();
   }
 
@@ -114,6 +146,7 @@ export class ExpressionInput {
     this.userIsTyping = false;
     this.el.classList.add('hidden');
     this.dropdown.classList.add('hidden');
+    this.clearInlineError();
     this.onCommit = null;
     this.input.blur();
   }
@@ -130,7 +163,9 @@ export class ExpressionInput {
     if (!this.visible || this.userIsTyping) {
       return;
     }
-    this.input.value = typeof value === 'string' ? value : String(Math.round(value * 100) / 100);
+    const str = typeof value === 'string' ? value : String(Math.round(value * 100) / 100);
+    this.input.value = str;
+    this.seedValue = str;
     this.input.select();
   }
 
@@ -146,19 +181,97 @@ export class ExpressionInput {
 
   commitCurrentValue(): boolean {
     const val = this.input.value.trim();
-    if (val && this.onCommit) {
-      this.onCommit(val);
-      return true;
+    if (!val) {
+      return false;
     }
-    return false;
+    return this.runCommit(val);
   }
 
   private commit(): void {
     const val = this.input.value.trim();
     if (val) {
-      this.onCommit?.(val);
+      this.runCommit(val);
+    } else {
+      this.hide();
+    }
+  }
+
+  private runCommit(raw: string): boolean {
+    if (!this.onCommit) {
+      return false;
+    }
+    const classified = this.classifyCommit(raw);
+    if (classified.kind === 'error') {
+      this.showInlineError(classified.message);
+      return false;
+    }
+    if (classified.kind === 'declare') {
+      this.onCommit({
+        expression: classified.name,
+        newVariable: { name: classified.name, initializer: classified.initializer },
+      });
+    } else {
+      this.onCommit({ expression: classified.expression });
     }
     this.hide();
+    return true;
+  }
+
+  private classifyCommit(raw: string):
+    | { kind: 'expression'; expression: string }
+    | { kind: 'declare'; name: string; initializer: string }
+    | { kind: 'error'; message: string } {
+    const assignMatch = raw.match(ASSIGNMENT_RE);
+    if (assignMatch) {
+      const name = assignMatch[1];
+      const rhs = assignMatch[2].trim();
+      if (!isValidNewIdentifier(name)) {
+        return { kind: 'error', message: `'${name}' is not a valid name` };
+      }
+      if (this.variables.some((v) => v.name === name)) {
+        return { kind: 'error', message: `'${name}' is already defined` };
+      }
+      if (!rhs) {
+        return { kind: 'error', message: 'Missing value' };
+      }
+      return { kind: 'declare', name, initializer: rhs };
+    }
+
+    if (IDENT_RE.test(raw)) {
+      if (this.variables.some((v) => v.name === raw)) {
+        return { kind: 'expression', expression: raw };
+      }
+      if (!isValidNewIdentifier(raw)) {
+        return { kind: 'expression', expression: raw };
+      }
+      const initializer = this.seedValue.trim();
+      if (!initializer) {
+        return { kind: 'error', message: 'No value to assign' };
+      }
+      return { kind: 'declare', name: raw, initializer };
+    }
+
+    return { kind: 'expression', expression: raw };
+  }
+
+  private showInlineError(msg: string): void {
+    this.errorVisible = true;
+    this.errorEl.textContent = msg;
+    this.errorEl.classList.remove('hidden');
+    this.wrapperEl.classList.add('border-red-500/70');
+    this.wrapperEl.classList.remove('border-base-content/10');
+  }
+
+  private clearInlineError(): void {
+    if (!this.errorVisible) {
+      this.errorEl.classList.add('hidden');
+      return;
+    }
+    this.errorVisible = false;
+    this.errorEl.classList.add('hidden');
+    this.errorEl.textContent = '';
+    this.wrapperEl.classList.remove('border-red-500/70');
+    this.wrapperEl.classList.add('border-base-content/10');
   }
 
   private moveSelection(delta: number): void {

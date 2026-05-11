@@ -928,6 +928,84 @@ export function updateDimensionExpression(
   });
 }
 
+/**
+ * Insert `const name = initializer;` at the top of the sketch arrow-function
+ * body. Returns the new code and how many lines were added (for callers that
+ * need to re-anchor subsequent sourceLine-based edits).
+ */
+export async function declareSketchVariable(
+  code: string,
+  sketchSourceLine: number,
+  name: string,
+  initializer: string,
+): Promise<{ newCode: string; linesAdded: number } | null> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const lines = splitLines(code);
+  const call = findEditableCallAt(tree, lines, sketchSourceLine);
+  if (!call) {
+    return null;
+  }
+  const body = findSketchBody(call);
+  if (!body) {
+    return null;
+  }
+
+  const bodyChildren = body.namedChildren;
+  const insertRow = body.startPosition.row + 1;
+  let indent: string;
+  if (bodyChildren.length > 0) {
+    indent = indentOf(lines, bodyChildren[0].startPosition.row);
+  } else {
+    indent = indentOf(lines, body.startPosition.row) + '  ';
+  }
+
+  const newLine = `${indent}const ${name} = ${initializer};`;
+  lines.splice(insertRow, 0, newLine);
+  return { newCode: joinLines(lines), linesAdded: 1 };
+}
+
+export async function insertGeometryCallWithVariable(
+  code: string,
+  sketchSourceLine: number,
+  statement: string,
+  newVariable: { name: string; initializer: string } | null,
+): Promise<CodeEditResult> {
+  let working = code;
+  if (newVariable) {
+    const declared = await declareSketchVariable(
+      working, sketchSourceLine, newVariable.name, newVariable.initializer,
+    );
+    if (!declared) {
+      return { newCode: code };
+    }
+    working = declared.newCode;
+  }
+  return insertGeometryCall(working, sketchSourceLine, statement);
+}
+
+export async function updateDimensionExpressionWithVariable(
+  code: string,
+  sourceLine: number,
+  expression: string,
+  sketchSourceLine: number,
+  newVariable: { name: string; initializer: string } | null,
+): Promise<CodeEditResult> {
+  let working = code;
+  let adjustedSourceLine = sourceLine;
+  if (newVariable) {
+    const declared = await declareSketchVariable(
+      working, sketchSourceLine, newVariable.name, newVariable.initializer,
+    );
+    if (!declared) {
+      return { newCode: code };
+    }
+    working = declared.newCode;
+    adjustedSourceLine = sourceLine + declared.linesAdded;
+  }
+  return updateDimensionExpression(working, adjustedSourceLine, expression);
+}
+
 export type VariableInfo = { name: string; initializer?: string };
 
 export async function extractVariablesInScope(

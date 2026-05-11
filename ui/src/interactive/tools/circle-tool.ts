@@ -26,7 +26,7 @@ import {
   dist2D,
 } from '../sketch-plane-utils';
 import { ICON_CIRCLE } from '../../ui/icons';
-import { ExpressionInput, VariableInfo } from '../../ui/expression-input';
+import { ExpressionInput, VariableInfo, CommitResult } from '../../ui/expression-input';
 
 const START_POINT_COLOR = 0x22cc66;
 const GUIDE_COLOR = 0xb0b0b0;
@@ -147,7 +147,7 @@ export class CircleTool extends SketchTool {
       if (diameter <= 0) {
         return;
       }
-      this.commitCircle(this.centerPoint, String(diameter));
+      this.commitCircle(this.centerPoint, { expression: String(diameter) });
     }
     this.expressionInput.hide();
     this.centerPoint = null;
@@ -200,9 +200,9 @@ export class CircleTool extends SketchTool {
         clientX: this.lastClientX,
         clientY: this.lastClientY,
         variables: this.cachedVariables,
-        onCommit: (expression) => {
+        onCommit: (result) => {
           if (this.centerPoint) {
-            this.commitCircle(this.centerPoint, expression);
+            this.commitCircle(this.centerPoint, result);
             this.expressionInput.hide();
             this.centerPoint = null;
             this.rebuildPreview();
@@ -215,13 +215,13 @@ export class CircleTool extends SketchTool {
     }
   }
 
-  private commitCircle(center: [number, number], expression: string): void {
+  private commitCircle(center: [number, number], result: CommitResult): void {
+    const { expression, newVariable } = result;
     const atCurrent = this.isAtCurrentPosition(center);
-    if (atCurrent) {
-      this.insertGeometry(`circle(${expression})`);
-    } else {
-      this.insertGeometry(`circle(${this.formatPoint(center)}, ${expression})`);
-    }
+    const statement = atCurrent
+      ? `circle(${expression})`
+      : `circle(${this.formatPoint(center)}, ${expression})`;
+    this.insertGeometry(statement, newVariable);
   }
 
   private rebuildPreview(): void {

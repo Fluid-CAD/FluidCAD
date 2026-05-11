@@ -25,7 +25,7 @@ import {
   roundPoint,
 } from '../sketch-plane-utils';
 import { ICON_LINE } from '../../ui/icons';
-import { ExpressionInput, VariableInfo } from '../../ui/expression-input';
+import { ExpressionInput, VariableInfo, CommitResult } from '../../ui/expression-input';
 
 const START_POINT_COLOR = 0x22cc66;
 const GUIDE_COLOR = 0xb0b0b0;
@@ -232,7 +232,7 @@ export class LineTool extends SketchTool {
         clientX: this.lastClientX,
         clientY: this.lastClientY,
         variables: this.cachedVariables,
-        onCommit: (expression) => this.commitWithDimension(expression),
+        onCommit: (result) => this.commitWithDimension(result),
       });
     } else {
       this.expressionInput.updateValue(distance);
@@ -240,10 +240,11 @@ export class LineTool extends SketchTool {
     }
   }
 
-  private commitWithDimension(expression: string): void {
+  private commitWithDimension(result: CommitResult): void {
     if (!this.startPoint || !this.mousePoint) {
       return;
     }
+    const { expression, newVariable } = result;
     const roundedStart = roundPoint(this.startPoint);
     const atCurrent = this.isAtCurrentPosition(roundedStart);
     const dx = this.mousePoint[0] - this.startPoint[0];
@@ -256,19 +257,12 @@ export class LineTool extends SketchTool {
       ? String(Math.round(sign * num * 100) / 100)
       : expression;
 
-    if (isHorizontal) {
-      if (atCurrent) {
-        this.insertGeometry(`hLine(${dimExpr})`);
-      } else {
-        this.insertGeometry(`hLine(${this.formatPoint(roundedStart)}, ${dimExpr})`);
-      }
-    } else {
-      if (atCurrent) {
-        this.insertGeometry(`vLine(${dimExpr})`);
-      } else {
-        this.insertGeometry(`vLine(${this.formatPoint(roundedStart)}, ${dimExpr})`);
-      }
-    }
+    const fn = isHorizontal ? 'hLine' : 'vLine';
+    const statement = atCurrent
+      ? `${fn}(${dimExpr})`
+      : `${fn}(${this.formatPoint(roundedStart)}, ${dimExpr})`;
+    this.insertGeometry(statement, newVariable);
+
     this.expressionInput.hide();
     this.startPoint = null;
     this.rebuildPreview();

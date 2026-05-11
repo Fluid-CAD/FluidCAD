@@ -168,6 +168,13 @@ export type UpdatePositionMessage = {
   pointIndex?: number;
 };
 
+export type SetLinePositionMessage = {
+  type: 'set-line-position';
+  newStart: [number, number];
+  newEnd: [number, number];
+  sourceLocation: { line: number; column: number };
+};
+
 export type UpdateDimensionMessage = {
   type: 'update-dimension';
   newValue: number;
@@ -197,6 +204,7 @@ export type ServerToExtensionMessage =
   | ExportCompleteMessage
   | InsertGeometryMessage
   | UpdatePositionMessage
+  | SetLinePositionMessage
   | UpdateDimensionMessage
   | UpdateDimensionExpressionMessage;
 

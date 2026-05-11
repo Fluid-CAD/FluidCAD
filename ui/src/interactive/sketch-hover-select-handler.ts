@@ -198,7 +198,7 @@ export class SketchHoverSelectHandler {
       } else {
         line.userData.selectOriginalColor = (line as any).material.color.getHex();
       }
-      (line as any).material.color.set(themeColors.selectEdgeColor);
+      (line as any).material.color.set(themeColors.highlightColor);
     });
   }
 

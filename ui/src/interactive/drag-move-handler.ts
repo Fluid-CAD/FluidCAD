@@ -33,6 +33,14 @@ type DragHitResult = {
   anchorPoint?: [number, number];
   fixedVertex?: [number, number];
   originalDistance?: number;
+  initialValue?: number;
+};
+
+type PendingHit = {
+  hit: DragHitResult;
+  point2d: [number, number];
+  clientX: number;
+  clientY: number;
 };
 
 const GUIDE_COLOR = 0xb0b0b0;
@@ -42,6 +50,7 @@ const SCALE_FACTOR = 0.003;
 const MAX_SCALE = 1.5;
 const CIRCLE_PREVIEW_SEGMENTS = 64;
 const START_DOT_COLOR = 0x22cc66;
+const DRAG_THRESHOLD_PX = 4;
 
 function computeViewScale(camera: Camera, position: Vector3, factor: number): number {
   if (camera instanceof OrthographicCamera) {
@@ -70,18 +79,20 @@ export class DragMoveHandler {
   private hitResult: DragHitResult | null = null;
   private startPoint: [number, number] | null = null;
   private currentPoint: [number, number] | null = null;
-  private lastClientX = 0;
-  private lastClientY = 0;
   private grabOffset: [number, number] | null = null;
+
+  private pendingHit: PendingHit | null = null;
+  private standaloneInputActive = false;
 
   private expressionInput: ExpressionInput;
   private fetchVariables: FetchVariablesFn;
   private cachedVariables: VariableInfo[] = [];
 
   private boundCanvasPointerDown: (e: PointerEvent) => void;
-  private boundCommitPointerDown: (e: PointerEvent) => void;
   private boundPointerMove: (e: PointerEvent) => void;
+  private boundPointerUp: (e: PointerEvent) => void;
   private boundKeyDown: (e: KeyboardEvent) => void;
+  private boundCanvasDoubleClick: (e: MouseEvent) => void;
 
   constructor(ctx: SceneContext, plane: PlaneData, snapController: SnapController, container: HTMLElement, fetchVariables: FetchVariablesFn) {
     this.ctx = ctx;
@@ -97,9 +108,10 @@ export class DragMoveHandler {
     this.fetchVariables = fetchVariables;
 
     this.boundCanvasPointerDown = this.handleCanvasPointerDown.bind(this);
-    this.boundCommitPointerDown = this.handleCommitPointerDown.bind(this);
     this.boundPointerMove = this.handlePointerMove.bind(this);
+    this.boundPointerUp = this.handlePointerUp.bind(this);
     this.boundKeyDown = this.handleKeyDown.bind(this);
+    this.boundCanvasDoubleClick = this.handleCanvasDoubleClick.bind(this);
   }
 
   get isResizing(): boolean {
@@ -109,16 +121,21 @@ export class DragMoveHandler {
   activate(): void {
     this.ctx.scene.add(this.previewGroup);
     this.canvas.addEventListener('pointerdown', this.boundCanvasPointerDown, { capture: true });
+    this.canvas.addEventListener('dblclick', this.boundCanvasDoubleClick);
     window.addEventListener('pointermove', this.boundPointerMove);
+    window.addEventListener('pointerup', this.boundPointerUp, { capture: true });
     window.addEventListener('keydown', this.boundKeyDown);
   }
 
   deactivate(): void {
     this.canvas.removeEventListener('pointerdown', this.boundCanvasPointerDown, { capture: true });
-    this.removeCommitListener();
+    this.canvas.removeEventListener('dblclick', this.boundCanvasDoubleClick);
     window.removeEventListener('pointermove', this.boundPointerMove);
+    window.removeEventListener('pointerup', this.boundPointerUp, { capture: true });
     window.removeEventListener('keydown', this.boundKeyDown);
     this.endResize();
+    this.closeStandaloneInput();
+    this.pendingHit = null;
     this.ctx.scene.remove(this.previewGroup);
     this.disposePreview();
   }
@@ -137,54 +154,69 @@ export class DragMoveHandler {
   }
 
   private handleCanvasPointerDown(e: PointerEvent): void {
-    if (e.button !== 0 || this._isResizing) return;
+    if (e.button !== 0 || this._isResizing) {
+      return;
+    }
+    if (this.standaloneInputActive && this.expressionInput.containsElement(e.target)) {
+      return;
+    }
 
     const point2d = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
-    if (!point2d) return;
+    if (!point2d) {
+      return;
+    }
 
     const hit = this.findHitGeometry(point2d);
-    if (hit) {
+    if (!hit) {
+      return;
+    }
+
+    this.pendingHit = {
+      hit,
+      point2d,
+      clientX: e.clientX,
+      clientY: e.clientY,
+    };
+  }
+
+  private handlePointerUp(e: PointerEvent): void {
+    if (e.button !== 0) {
+      return;
+    }
+
+    if (this._isResizing) {
+      this.commitResize();
       e.stopPropagation();
       e.preventDefault();
-      this.startResize(hit, point2d, e.clientX, e.clientY);
+      return;
     }
+
+    // Sub-threshold pointerup: discard pending, let the event bubble so
+    // SketchHoverSelectHandler can handle click-to-select.
+    this.pendingHit = null;
   }
 
-  private handleCommitPointerDown(e: PointerEvent): void {
-    if (e.button !== 0 || !this._isResizing) return;
-    if (this.expressionInput.containsElement(e.target)) return;
-    this.commitResize();
-    e.stopPropagation();
-    e.preventDefault();
-  }
-
-  private addCommitListener(): void {
-    window.addEventListener('pointerdown', this.boundCommitPointerDown, { capture: true });
-  }
-
-  private removeCommitListener(): void {
-    window.removeEventListener('pointerdown', this.boundCommitPointerDown, { capture: true });
-  }
-
-  private startResize(hit: DragHitResult, point2d: [number, number], clientX: number, clientY: number): void {
+  private startResize(pending: PendingHit): void {
     this._isResizing = true;
     this.hasMoved = false;
-    this.hitResult = hit;
-    this.startPoint = point2d;
-    this.currentPoint = point2d;
-    if (hit.hitZone === 'body' && hit.anchorPoint && (hit.uniqueType === 'hline' || hit.uniqueType === 'vline')) {
-      this.grabOffset = [point2d[0] - hit.anchorPoint[0], point2d[1] - hit.anchorPoint[1]];
+    this.hitResult = pending.hit;
+    this.startPoint = pending.point2d;
+    this.currentPoint = pending.point2d;
+
+    const hit = pending.hit;
+    if (hit.hitZone === 'body' && hit.anchorPoint && (hit.uniqueType === 'hline' || hit.uniqueType === 'vline' || hit.uniqueType === 'line-two-points')) {
+      this.grabOffset = [pending.point2d[0] - hit.anchorPoint[0], pending.point2d[1] - hit.anchorPoint[1]];
     } else {
       this.grabOffset = null;
     }
+
     this.ctx.cameraControls.enabled = false;
     this.canvas.style.cursor = 'crosshair';
-    this.addCommitListener();
-    this.showDimensionInput(clientX, clientY);
+    this.showDimensionInputForDrag(pending.clientX, pending.clientY);
   }
 
   private commitResize(): void {
-    if (this.expressionInput.isVisible) {
+    if (this.expressionInput.isVisible && this.hasMoved) {
       this.expressionInput.commitCurrentValue();
     } else if (this.currentPoint && this.hitResult) {
       this.commitPositionMove();
@@ -193,9 +225,24 @@ export class DragMoveHandler {
   }
 
   private commitPositionMove(): void {
-    if (!this.currentPoint || !this.hitResult) return;
+    if (!this.currentPoint || !this.hitResult) {
+      return;
+    }
     const newPos = roundPoint(this.currentPoint);
-    const { sourceLocation, uniqueType, hitZone } = this.hitResult;
+    const { sourceLocation, uniqueType, hitZone, anchorPoint, fixedVertex } = this.hitResult;
+
+    if (uniqueType === 'line-two-points' && hitZone === 'body' && anchorPoint && fixedVertex) {
+      const dx = fixedVertex[0] - anchorPoint[0];
+      const dy = fixedVertex[1] - anchorPoint[1];
+      const newStart = newPos;
+      const newEnd = roundPoint([newPos[0] + dx, newPos[1] + dy]);
+      fetch('/api/set-line-position', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newStart, newEnd, sourceLocation }),
+      });
+      return;
+    }
 
     if (uniqueType === 'line-two-points') {
       const pointIndex = hitZone === 'start' ? 0 : -1;
@@ -220,16 +267,37 @@ export class DragMoveHandler {
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
-    if (e.key === 'Escape' && this._isResizing) {
+    if (e.key !== 'Escape') {
+      return;
+    }
+    if (this._isResizing) {
       this.endResize();
+    } else if (this.standaloneInputActive) {
+      this.closeStandaloneInput();
     }
   }
 
   private handlePointerMove(e: PointerEvent): void {
-    if (!this._isResizing) return;
+    if (this.pendingHit && !this._isResizing) {
+      const dx = e.clientX - this.pendingHit.clientX;
+      const dy = e.clientY - this.pendingHit.clientY;
+      if (dx * dx + dy * dy >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
+        const pending = this.pendingHit;
+        this.pendingHit = null;
+        this.startResize(pending);
+      } else {
+        return;
+      }
+    }
+
+    if (!this._isResizing) {
+      return;
+    }
 
     const raw = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
-    if (!raw) return;
+    if (!raw) {
+      return;
+    }
 
     this.hasMoved = true;
     const result = this.snapController.snap(raw);
@@ -241,16 +309,16 @@ export class DragMoveHandler {
     } else {
       this.currentPoint = result.point2d;
     }
-    this.lastClientX = e.clientX;
-    this.lastClientY = e.clientY;
     this.rebuildPreview();
     this.updateDimensionValue();
     this.expressionInput.updatePosition(e.clientX, e.clientY);
   }
 
-  private showDimensionInput(clientX: number, clientY: number): void {
-    if (!this.hitResult || !this.startPoint) return;
-    const { uniqueType, hitZone, sourceLocation } = this.hitResult;
+  private showDimensionInputForDrag(clientX: number, clientY: number): void {
+    if (!this.hitResult || !this.startPoint) {
+      return;
+    }
+    const { uniqueType, hitZone } = this.hitResult;
 
     let label: string | null = null;
     let value = 0;
@@ -269,7 +337,53 @@ export class DragMoveHandler {
         : Math.round(Math.abs(this.startPoint[1] - start[1]) * 100) / 100;
     }
 
-    if (label === null) return;
+    if (label === null) {
+      return;
+    }
+
+    this.openDimensionInput(label, value, clientX, clientY);
+  }
+
+  private handleCanvasDoubleClick(e: MouseEvent): void {
+    if (this._isResizing) {
+      return;
+    }
+    const point2d = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
+    if (!point2d) {
+      return;
+    }
+    const hit = this.findHitGeometry(point2d);
+    if (!hit) {
+      return;
+    }
+    if (hit.uniqueType === 'line-two-points') {
+      return;
+    }
+
+    let label: string;
+    let value: number;
+    if (hit.uniqueType === 'circle') {
+      label = '⌀';
+      value = hit.initialValue ?? 0;
+    } else if (hit.uniqueType === 'hline' || hit.uniqueType === 'vline') {
+      label = hit.uniqueType === 'hline' ? 'H:' : 'V:';
+      value = Math.abs(hit.initialValue ?? 0);
+    } else {
+      return;
+    }
+
+    this.hitResult = hit;
+    this.startPoint = null;
+    this.currentPoint = null;
+    this.standaloneInputActive = true;
+    this.openDimensionInput(label, value, e.clientX, e.clientY);
+  }
+
+  private openDimensionInput(label: string, value: number, clientX: number, clientY: number): void {
+    if (!this.hitResult) {
+      return;
+    }
+    const { sourceLocation } = this.hitResult;
 
     if (this.cachedVariables.length === 0) {
       this.fetchVariables().then(vars => { this.cachedVariables = vars; });
@@ -284,7 +398,9 @@ export class DragMoveHandler {
       clientY,
       variables: this.cachedVariables,
       onCommit: (expression) => {
-        if (!this.hitResult) return;
+        if (!this.hitResult) {
+          return;
+        }
         const { sourceLocation: sl, uniqueType: ut } = this.hitResult;
         const num = parseFloat(expression);
         const isNumeric = !isNaN(num) && String(num) === expression;
@@ -302,7 +418,11 @@ export class DragMoveHandler {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ expression: finalExpr, sourceLocation: sl }),
         });
-        this.endResize();
+        if (this._isResizing) {
+          this.endResize();
+        } else {
+          this.closeStandaloneInput();
+        }
       },
     });
 
@@ -314,23 +434,37 @@ export class DragMoveHandler {
       .then(r => r.ok ? r.json() : { expression: null })
       .catch(() => ({ expression: null }))
       .then(({ expression }) => {
-        if (expression && !this.hasMoved && this._isResizing) {
+        if (!expression) {
+          return;
+        }
+        if (this._isResizing && !this.hasMoved) {
+          this.expressionInput.updateValue(expression);
+        } else if (this.standaloneInputActive) {
           this.expressionInput.updateValue(expression);
         }
       });
   }
 
   private computeDistanceSign(): number {
-    if (!this.hitResult || !this.currentPoint) return 1;
-    const start = this.hitResult.anchorPoint!;
-    if (this.hitResult.uniqueType === 'hline') {
-      return this.currentPoint[0] >= start[0] ? 1 : -1;
+    if (!this.hitResult) {
+      return 1;
     }
-    return this.currentPoint[1] >= start[1] ? 1 : -1;
+    if (this.currentPoint) {
+      const start = this.hitResult.anchorPoint!;
+      if (this.hitResult.uniqueType === 'hline') {
+        return this.currentPoint[0] >= start[0] ? 1 : -1;
+      }
+      return this.currentPoint[1] >= start[1] ? 1 : -1;
+    }
+    // Standalone mode (no drag): infer sign from the existing geometry.
+    const dist = this.hitResult.initialValue ?? this.hitResult.originalDistance ?? 0;
+    return dist >= 0 ? 1 : -1;
   }
 
   private updateDimensionValue(): void {
-    if (!this.expressionInput.isVisible || !this.currentPoint || !this.hitResult) return;
+    if (!this.expressionInput.isVisible || !this.currentPoint || !this.hitResult) {
+      return;
+    }
     const { uniqueType, anchorPoint } = this.hitResult;
     let value: number;
     if (uniqueType === 'circle') {
@@ -348,14 +482,23 @@ export class DragMoveHandler {
     this.expressionInput.updateValue(value);
   }
 
+  private closeStandaloneInput(): void {
+    if (!this.standaloneInputActive) {
+      return;
+    }
+    this.standaloneInputActive = false;
+    this.hitResult = null;
+    this.expressionInput.hide();
+  }
+
   private endResize(): void {
-    this.removeCommitListener();
     this._isResizing = false;
     this.hasMoved = false;
     this.hitResult = null;
     this.startPoint = null;
     this.currentPoint = null;
     this.grabOffset = null;
+    this.pendingHit = null;
     this.ctx.cameraControls.enabled = true;
     this.canvas.style.cursor = '';
     this.expressionInput.hide();
@@ -397,12 +540,22 @@ export class DragMoveHandler {
             cx /= verts2d.length;
             cy /= verts2d.length;
 
+            const sample = verts2d[0];
+            const sdx = sample[0] - cx;
+            const sdy = sample[1] - cy;
+            const radius = Math.sqrt(sdx * sdx + sdy * sdy);
+            const diameter = Math.round(2 * radius * 100) / 100;
+
             for (const v of verts2d) {
               const ddx = v[0] - point2d[0];
               const ddy = v[1] - point2d[1];
               const d = ddx * ddx + ddy * ddy;
               if (d < thresholdSq && d < bestDistSq) {
-                bestHit = { sourceLocation, uniqueType, hitZone: 'body', anchorPoint: [cx, cy] };
+                bestHit = {
+                  sourceLocation, uniqueType, hitZone: 'body',
+                  anchorPoint: [cx, cy],
+                  initialValue: diameter,
+                };
                 bestDistSq = d;
               }
             }
@@ -419,14 +572,19 @@ export class DragMoveHandler {
             const endDist = edx * edx + edy * edy;
 
             const isConstrained = uniqueType === 'hline' || uniqueType === 'vline';
-            const dist = isConstrained
+            const signedDist = isConstrained
               ? (uniqueType === 'hline' ? endV[0] - startV[0] : endV[1] - startV[1])
+              : undefined;
+            const initialValue = isConstrained
+              ? Math.round((signedDist ?? 0) * 100) / 100
               : undefined;
 
             if (startDist < thresholdSq && startDist < bestDistSq && startDist <= endDist) {
               bestHit = {
                 sourceLocation, uniqueType: uniqueType || '', hitZone: 'start',
-                anchorPoint: startV, fixedVertex: endV, originalDistance: dist,
+                anchorPoint: startV, fixedVertex: endV,
+                originalDistance: signedDist,
+                initialValue,
               };
               bestDistSq = startDist;
             }
@@ -434,28 +592,28 @@ export class DragMoveHandler {
               bestHit = {
                 sourceLocation, uniqueType: uniqueType || '', hitZone: 'end',
                 anchorPoint: startV, fixedVertex: startV,
+                initialValue,
               };
               bestDistSq = endDist;
             }
 
-            if (isConstrained) {
-              const bodyDist = pointToSegmentDist(
-                point2d[0], point2d[1],
-                startV[0], startV[1],
-                endV[0], endV[1],
-              );
-              const bodyDistSq = bodyDist * bodyDist;
-              if (bodyDistSq < thresholdSq && bodyDistSq < bestDistSq) {
-                bestHit = {
-                  sourceLocation,
-                  uniqueType: uniqueType || '',
-                  hitZone: 'body',
-                  anchorPoint: startV,
-                  fixedVertex: endV,
-                  originalDistance: dist,
-                };
-                bestDistSq = bodyDistSq;
-              }
+            const bodyDist = pointToSegmentDist(
+              point2d[0], point2d[1],
+              startV[0], startV[1],
+              endV[0], endV[1],
+            );
+            const bodyDistSq = bodyDist * bodyDist;
+            if (bodyDistSq < thresholdSq && bodyDistSq < bestDistSq) {
+              bestHit = {
+                sourceLocation,
+                uniqueType: uniqueType || '',
+                hitZone: 'body',
+                anchorPoint: startV,
+                fixedVertex: endV,
+                originalDistance: signedDist,
+                initialValue,
+              };
+              bestDistSq = bodyDistSq;
             }
           } else {
             for (const v of verts2d) {
@@ -492,7 +650,9 @@ export class DragMoveHandler {
   private rebuildPreview(): void {
     this.disposePreview();
 
-    if (!this.currentPoint || !this.hitResult) return;
+    if (!this.currentPoint || !this.hitResult) {
+      return;
+    }
 
     const { uniqueType, hitZone, anchorPoint, fixedVertex } = this.hitResult;
     const camera = this.ctx.camera;
@@ -523,8 +683,15 @@ export class DragMoveHandler {
         this.addDashedLine(this.currentPoint, newEnd);
         this.addDot(newEnd, 0xffc578, camera, planeNormal);
       }
-    } else if (uniqueType === 'line-two-points' && fixedVertex) {
-      if (hitZone === 'start') {
+    } else if (uniqueType === 'line-two-points' && fixedVertex && anchorPoint) {
+      if (hitZone === 'body') {
+        const dx = fixedVertex[0] - anchorPoint[0];
+        const dy = fixedVertex[1] - anchorPoint[1];
+        const newEnd: [number, number] = [this.currentPoint[0] + dx, this.currentPoint[1] + dy];
+        this.addDot(this.currentPoint, START_DOT_COLOR, camera, planeNormal);
+        this.addDashedLine(this.currentPoint, newEnd);
+        this.addDot(newEnd, 0xffc578, camera, planeNormal);
+      } else if (hitZone === 'start') {
         this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
         this.addDashedLine(this.currentPoint, fixedVertex);
         this.addDot(fixedVertex, START_DOT_COLOR, camera, planeNormal);

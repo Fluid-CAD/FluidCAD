@@ -802,6 +802,45 @@ export async function updateGeometryPosition(
 }
 
 /**
+ * Update both point arguments of a `line(start, end)` call atomically.
+ * Used by body-drag of unconstrained two-point lines, where the whole line
+ * is translated and both endpoints change in a single edit.
+ */
+export async function setLinePosition(
+  code: string,
+  sourceLine: number,
+  newStart: [number, number],
+  newEnd: [number, number],
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const args = getArgumentsNode(call);
+    if (!args) {
+      return null;
+    }
+    const pointArgs: TSNode[] = [];
+    for (const child of args.namedChildren) {
+      if (parsePointLiteral(child)) {
+        pointArgs.push(child);
+      }
+    }
+    if (pointArgs.length < 2) {
+      return null;
+    }
+    const startNode = pointArgs[0];
+    const endNode = pointArgs[pointArgs.length - 1];
+    const startText = `[${newStart[0]}, ${newStart[1]}]`;
+    const endText = `[${newEnd[0]}, ${newEnd[1]}]`;
+    // Splice end first so startNode indices remain valid.
+    const afterEnd = spliceCode(code, endNode.startIndex, endNode.endIndex, endText);
+    return spliceCode(afterEnd, startNode.startIndex, startNode.endIndex, startText);
+  });
+}
+
+/**
  * Update the last numeric argument of a geometry call (e.g. distance or diameter).
  */
 export function updateDimension(

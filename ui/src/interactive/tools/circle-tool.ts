@@ -112,6 +112,7 @@ export class CircleTool extends SketchTool {
   onSceneUpdate(sceneObjects: SceneObjectRender[], sketchId: string): void {
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane);
     this.updateSnapManager(snapManager);
+    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
   }
 
   private handleMouseDown(e: MouseEvent): void {

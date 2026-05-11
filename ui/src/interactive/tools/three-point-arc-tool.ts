@@ -239,6 +239,7 @@ export class ThreePointArcTool extends SketchTool {
         clientX: this.lastClientX,
         clientY: this.lastClientY,
         variables: this.cachedVariables,
+        numericOnly: true,
         onCommit: (result) => this.commitFromExpression(result),
       });
     } else {

@@ -30,6 +30,7 @@ export type ExpressionInputOptions = {
   clientY: number;
   variables: VariableInfo[];
   onCommit: (result: CommitResult) => void;
+  numericOnly?: boolean;
 };
 
 export class ExpressionInput {
@@ -47,6 +48,7 @@ export class ExpressionInput {
   private selectedIndex = -1;
   private seedValue = '';
   private errorVisible = false;
+  private numericOnly = false;
 
   constructor(container: HTMLElement) {
     this.el = document.createElement('div');
@@ -125,6 +127,7 @@ export class ExpressionInput {
     this.label.textContent = opts.label;
     this.onCommit = opts.onCommit;
     this.variables = opts.variables;
+    this.numericOnly = opts.numericOnly ?? false;
     this.visible = true;
     this.userIsTyping = false;
     this.selectedIndex = -1;
@@ -221,6 +224,14 @@ export class ExpressionInput {
     | { kind: 'expression'; expression: string }
     | { kind: 'declare'; name: string; initializer: string }
     | { kind: 'error'; message: string } {
+    if (this.numericOnly) {
+      const num = parseFloat(raw);
+      if (isNaN(num)) {
+        return { kind: 'error', message: 'Enter a numeric value' };
+      }
+      return { kind: 'expression', expression: raw };
+    }
+
     const assignMatch = raw.match(ASSIGNMENT_RE);
     if (assignMatch) {
       const name = assignMatch[1];
@@ -296,6 +307,12 @@ export class ExpressionInput {
   }
 
   private filterAndRender(): void {
+    if (this.numericOnly) {
+      this.filteredVars = [];
+      this.selectedIndex = -1;
+      this.renderDropdown();
+      return;
+    }
     if (!this.userIsTyping) {
       this.filteredVars = [...this.variables];
     } else {

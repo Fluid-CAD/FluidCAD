@@ -181,6 +181,11 @@ export class DragMoveHandler {
       clientX: e.clientX,
       clientY: e.clientY,
     };
+    // Preempt camera-controls so it can't start panning before we cross
+    // the drag threshold. Re-enabled in endResize or in handlePointerUp
+    // if the click never turns into a drag.
+    this.ctx.cameraControls.enabled = false;
+    e.stopPropagation();
   }
 
   private handlePointerUp(e: PointerEvent): void {
@@ -195,9 +200,13 @@ export class DragMoveHandler {
       return;
     }
 
-    // Sub-threshold pointerup: discard pending, let the event bubble so
+    // Sub-threshold pointerup: discard pending, re-enable camera controls
+    // (preempted in handleCanvasPointerDown), and let the event bubble so
     // SketchHoverSelectHandler can handle click-to-select.
-    this.pendingHit = null;
+    if (this.pendingHit) {
+      this.pendingHit = null;
+      this.ctx.cameraControls.enabled = true;
+    }
   }
 
   private startResize(pending: PendingHit): void {
@@ -540,15 +549,31 @@ export class DragMoveHandler {
           }
 
           if (uniqueType === 'circle') {
-            let cx = 0, cy = 0;
+            const uniqueVerts: [number, number][] = [];
+            const DUP_EPS_SQ = 1e-6;
             for (const v of verts2d) {
+              let isDup = false;
+              for (const u of uniqueVerts) {
+                const dx = u[0] - v[0];
+                const dy = u[1] - v[1];
+                if (dx * dx + dy * dy < DUP_EPS_SQ) {
+                  isDup = true;
+                  break;
+                }
+              }
+              if (!isDup) {
+                uniqueVerts.push(v);
+              }
+            }
+            let cx = 0, cy = 0;
+            for (const v of uniqueVerts) {
               cx += v[0];
               cy += v[1];
             }
-            cx /= verts2d.length;
-            cy /= verts2d.length;
+            cx /= uniqueVerts.length;
+            cy /= uniqueVerts.length;
 
-            const sample = verts2d[0];
+            const sample = uniqueVerts[0];
             const sdx = sample[0] - cx;
             const sdy = sample[1] - cy;
             const radius = Math.sqrt(sdx * sdx + sdy * sdy);

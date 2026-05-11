@@ -25,6 +25,7 @@ import {
   handleGotoSource,
   handleInsertGeometry,
   handleUpdatePosition,
+  handleSetLinePosition,
   handleUpdateDimension,
   handleUpdateDimensionExpression,
 } from './code-edits';
@@ -166,6 +167,10 @@ export class Client {
       }
       case 'update-position': {
         handleUpdatePosition(this, msg);
+        break;
+      }
+      case 'set-line-position': {
+        handleSetLinePosition(this, msg);
         break;
       }
       case 'update-dimension': {

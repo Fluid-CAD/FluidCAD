@@ -84,6 +84,13 @@ export function updatePosition(
   return postCodeEdit<CodeEditResult>(serverUrl, 'update-position', { code, sourceLine, newPosition, pointIndex }, logger);
 }
 
+export function setLinePosition(
+  serverUrl: string, code: string, sourceLine: number,
+  newStart: [number, number], newEnd: [number, number], logger: vscode.OutputChannel,
+) {
+  return postCodeEdit<CodeEditResult>(serverUrl, 'set-line-position', { code, sourceLine, newStart, newEnd }, logger);
+}
+
 export function updateDimension(
   serverUrl: string, code: string, sourceLine: number, newValue: number, logger: vscode.OutputChannel,
 ) {

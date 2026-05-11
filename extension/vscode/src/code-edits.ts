@@ -202,3 +202,23 @@ export async function handleUpdatePosition(
     client.updateLiveCode(doc.fileName, doc.getText());
   }
 }
+
+export async function handleSetLinePosition(
+  client: Client,
+  msg: { newStart: [number, number]; newEnd: [number, number]; sourceLocation: { line: number } },
+) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.setLinePosition(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.newStart, msg.newEnd, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}

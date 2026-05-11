@@ -77,6 +77,10 @@ function M.update_position(code, source_line, new_position, point_index)
   return post('update-position', { code = code, sourceLine = source_line, newPosition = new_position, pointIndex = point_index or 0 })
 end
 
+function M.set_line_position(code, source_line, new_start, new_end)
+  return post('set-line-position', { code = code, sourceLine = source_line, newStart = new_start, newEnd = new_end })
+end
+
 function M.update_dimension(code, source_line, new_value)
   return post('update-dimension', { code = code, sourceLine = source_line, newValue = new_value })
 end

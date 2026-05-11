@@ -12,6 +12,7 @@ import {
   setPickPoints,
   insertGeometryCall,
   updateGeometryPosition,
+  setLinePosition,
   updateDimension,
   updateDimensionExpression,
   getDimensionExpression,
@@ -435,6 +436,47 @@ export function createActionsRouter(
       const result = await updateGeometryPosition(
         code, sourceLine, newPosition as [number, number],
         typeof pointIndex === 'number' ? pointIndex : 0,
+      );
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/set-line-position', (req, res) => {
+    const { newStart, newEnd, sourceLocation } = req.body;
+    if (
+      !Array.isArray(newStart) || newStart.length !== 2 ||
+      !Array.isArray(newEnd) || newEnd.length !== 2 ||
+      !sourceLocation || typeof sourceLocation.line !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    sendToExtension({
+      type: 'set-line-position',
+      newStart: newStart as [number, number],
+      newEnd: newEnd as [number, number],
+      sourceLocation,
+    });
+    res.json({ success: true });
+  });
+
+  router.post('/code/set-line-position', async (req, res) => {
+    const { code, sourceLine, newStart, newEnd } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      !Array.isArray(newStart) || newStart.length !== 2 ||
+      !Array.isArray(newEnd) || newEnd.length !== 2
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await setLinePosition(
+        code, sourceLine,
+        newStart as [number, number],
+        newEnd as [number, number],
       );
       res.json(result);
     } catch (err: any) {

@@ -1,4 +1,5 @@
 import { Shape } from "../common/shape.js";
+import { Vertex } from "../common/vertex.js";
 import { Explorer } from "../oc/explorer.js";
 import { renderSolid } from "./render-solid.js";
 import { renderFace } from "./render-face.js";
@@ -34,7 +35,8 @@ export class MeshBuilder {
       console.warn("Shell shapes are not supported yet.");
     }
     else if (Explorer.isVertex(shape)) {
-      console.warn("Vertex shapes are not supported yet.");
+      const pt = (shapeObj as Vertex).toPoint();
+      result = { vertices: [pt.x, pt.y, pt.z], normals: [], indices: [] };
     }
     else {
       console.warn("Shape is not a valid TopoDS_Shape.");

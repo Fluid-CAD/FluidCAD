@@ -39,6 +39,8 @@ const VERTEX_MAX_SCALE = 4.0;
 function clampVertexScale(raw: number): number {
   return Math.max(VERTEX_MIN_SCALE, Math.min(raw, VERTEX_MAX_SCALE));
 }
+const META_VERTEX_COLOR = '#8899aa';
+const META_VERTEX_RADIUS = 1.5;
 const CURSOR_COLOR = 0xf3724f;
 const CURSOR_SEGMENTS = 64;
 const CURSOR_RADIUS = 3;
@@ -96,6 +98,7 @@ export class SketchMesh extends Group {
   private buildVertices(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], camera: Camera): void {
     const normal = sceneObject.object?.plane?.normal;
     const endpoints: Vector3[] = [];
+    const metaVertices: Vector3[] = [];
 
     for (const obj of allObjects) {
       if (obj.parentId !== sceneObject.id || !obj.sceneShapes.length) {
@@ -103,7 +106,20 @@ export class SketchMesh extends Group {
       }
 
       for (const shape of obj.sceneShapes) {
-        if (shape.isMetaShape || shape.isGuide) {
+        if (shape.isGuide) {
+          continue;
+        }
+
+        if (shape.isMetaShape) {
+          for (const meshData of shape.meshes) {
+            if (meshData.vertices.length === 3 && meshData.indices.length === 0) {
+              metaVertices.push(new Vector3(
+                meshData.vertices[0],
+                meshData.vertices[1],
+                meshData.vertices[2],
+              ));
+            }
+          }
           continue;
         }
 
@@ -112,8 +128,6 @@ export class SketchMesh extends Group {
             continue;
           }
 
-          // Count how many times each vertex index appears in the line-segment pairs.
-          // Vertices that appear exactly once are topological endpoints.
           const count = new Map<number, number>();
           for (const idx of meshData.indices) {
             count.set(idx, (count.get(idx) || 0) + 1);
@@ -132,24 +146,43 @@ export class SketchMesh extends Group {
       }
     }
 
-    // Deduplicate coincident points
     const EPSILON_SQ = 1e-12;
+
+    const uniqueEndpoints = this.dedup(endpoints, EPSILON_SQ);
+    const uniqueMeta = this.dedup(metaVertices, EPSILON_SQ);
+
+    this.addVertexDots(uniqueEndpoints, normal, camera, VERTEX_RADIUS, SKETCH_EDGE_COLOR, 1);
+    this.addVertexDots(uniqueMeta, normal, camera, META_VERTEX_RADIUS, META_VERTEX_COLOR, 0.5);
+  }
+
+  private dedup(points: Vector3[], epsilonSq: number): Vector3[] {
     const unique: Vector3[] = [];
-    for (const p of endpoints) {
-      if (!unique.some(u => u.distanceToSquared(p) < EPSILON_SQ)) {
+    for (const p of points) {
+      if (!unique.some(u => u.distanceToSquared(p) < epsilonSq)) {
         unique.push(p);
       }
     }
+    return unique;
+  }
 
-    const geometry = new CircleGeometry(VERTEX_RADIUS, VERTEX_SEGMENTS);
+  private addVertexDots(
+    positions: Vector3[],
+    normal: { x: number; y: number; z: number } | undefined,
+    camera: Camera,
+    radius: number,
+    color: string | number,
+    opacity: number,
+  ): void {
+    const geometry = new CircleGeometry(radius, VERTEX_SEGMENTS);
     const material = new MeshBasicMaterial({
-      color: SKETCH_EDGE_COLOR,
+      color,
       side: DoubleSide,
       depthTest: false,
       transparent: true,
+      opacity,
     });
 
-    for (const pos of unique) {
+    for (const pos of positions) {
       const dot = new Mesh(geometry, material);
       dot.renderOrder = 2;
 

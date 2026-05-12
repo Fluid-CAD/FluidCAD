@@ -184,6 +184,11 @@ export interface IArcPoints extends IExtrudableGeometry {
    * @param value - The center point of the arc's circle.
    */
   center(value: Point2DLike): this;
+
+  /**
+   * Sweeps the arc clockwise from start to end instead of the default counter-clockwise.
+   */
+  cw(): this;
 }
 
 export interface IArcAngles extends IExtrudableGeometry {

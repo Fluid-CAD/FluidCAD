@@ -24,7 +24,7 @@ import {
 } from './sketch-plane-utils';
 import { pointToSegmentDist } from './sketch-edge-utils';
 import { ExpressionInput, VariableInfo } from '../ui/expression-input';
-import { circumcenter, angleFromCenter, addDashedArc } from './tools/tool-preview-utils';
+import { circumcenter, angleFromCenter, addDashedArc, isCCW } from './tools/tool-preview-utils';
 import {
   setLinePosition,
   updatePosition,
@@ -45,6 +45,7 @@ type DragHitResult = {
   originalDistance?: number;
   initialValue?: number;
   draggedVertices?: [number, number][];
+  arcCCW?: boolean;
 };
 
 type PendingHit = {
@@ -709,6 +710,9 @@ export class DragMoveHandler {
             }
 
             if (centerV) {
+              const midV = verts2d[Math.floor(verts2d.length / 2)];
+              const arcCCW = isCCW(centerV, startV, midV);
+
               const sdx = startV[0] - point2d[0];
               const sdy = startV[1] - point2d[1];
               const startDist = sdx * sdx + sdy * sdy;
@@ -729,6 +733,7 @@ export class DragMoveHandler {
                   anchorPoint: centerV,
                   fixedVertex: endV,
                   draggedVertices: [startV],
+                  arcCCW,
                 };
                 bestDistSq = startDist;
               }
@@ -738,6 +743,7 @@ export class DragMoveHandler {
                   anchorPoint: centerV,
                   fixedVertex: startV,
                   draggedVertices: [endV],
+                  arcCCW,
                 };
                 bestDistSq = endDist;
               }
@@ -748,6 +754,7 @@ export class DragMoveHandler {
                   fixedVertex: startV,
                   fixedVertex2: endV,
                   draggedVertices: [centerV],
+                  arcCCW,
                 };
                 bestDistSq = centerDist;
               }
@@ -879,6 +886,7 @@ export class DragMoveHandler {
         this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
       }
     } else if (uniqueType === 'arc' && anchorPoint && fixedVertex) {
+      const ccw = this.hitResult.arcCCW !== false;
       if (hitZone === 'center') {
         const startV = fixedVertex;
         const endV = this.hitResult.fixedVertex2!;
@@ -893,7 +901,7 @@ export class DragMoveHandler {
           center[1] + radius * Math.sin(endAngle),
         ];
         this.addDot(startV, START_DOT_COLOR, camera, planeNormal);
-        addDashedArc(this.previewGroup, center, radius, startAngle, endAngle, true, this.plane, 5);
+        addDashedArc(this.previewGroup, center, radius, startAngle, endAngle, ccw, this.plane, 5);
         this.addDot(projectedEnd, START_DOT_COLOR, camera, planeNormal);
         this.addDot(center, 0xffc578, camera, planeNormal);
       } else {
@@ -905,13 +913,13 @@ export class DragMoveHandler {
           const startAngle = angleFromCenter(newCenter, this.currentPoint);
           const endAngle = angleFromCenter(newCenter, fixedVertex);
           this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
-          addDashedArc(this.previewGroup, newCenter, radius, startAngle, endAngle, true, this.plane, 5);
+          addDashedArc(this.previewGroup, newCenter, radius, startAngle, endAngle, ccw, this.plane, 5);
           this.addDot(fixedVertex, START_DOT_COLOR, camera, planeNormal);
         } else {
           const startAngle = angleFromCenter(newCenter, fixedVertex);
           const endAngle = angleFromCenter(newCenter, this.currentPoint);
           this.addDot(fixedVertex, START_DOT_COLOR, camera, planeNormal);
-          addDashedArc(this.previewGroup, newCenter, radius, startAngle, endAngle, true, this.plane, 5);
+          addDashedArc(this.previewGroup, newCenter, radius, startAngle, endAngle, ccw, this.plane, 5);
           this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
         }
       }

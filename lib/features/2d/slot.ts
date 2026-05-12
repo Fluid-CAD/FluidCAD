@@ -2,6 +2,7 @@ import { Point2D } from "../../math/point.js";
 import { Sketch } from "./sketch.js";
 import { Geometry } from "../../oc/geometry.js";
 import { Edge } from "../../common/edge.js";
+import { Vertex } from "../../common/vertex.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { rad } from "../../helpers/math-helpers.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
@@ -124,6 +125,13 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
     ];
 
     this.addShapes(edges);
+
+    const leftCenterVertex = Vertex.fromPoint2D(leftCenter);
+    leftCenterVertex.markAsMetaShape();
+    this.addShape(leftCenterVertex);
+    const rightCenterVertex = Vertex.fromPoint2D(rightCenter);
+    rightCenterVertex.markAsMetaShape();
+    this.addShape(rightCenterVertex);
 
     if (this.sketch) {
       if (this._center) {

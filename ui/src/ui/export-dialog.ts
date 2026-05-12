@@ -1,8 +1,7 @@
 import { SceneContext } from '../scene/scene-context';
 import { captureScreenshot } from '../screenshot';
 import { exportShapes } from '../api';
-
-const CLOSE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+import { ICON_CLOSE } from './icons';
 
 export class ExportDialog {
   private overlay: HTMLDivElement;
@@ -74,7 +73,7 @@ export class ExportDialog {
         <div class="flex items-center justify-between mb-4">
           <h3 class="text-sm font-medium text-base-content/90">Export</h3>
           <button data-ref="close-btn" class="btn btn-ghost btn-square btn-xs text-base-content/60">
-            <span class="[&>svg]:size-4">${CLOSE_SVG}</span>
+            <span class="[&>svg]:size-4">${ICON_CLOSE}</span>
           </button>
         </div>
 

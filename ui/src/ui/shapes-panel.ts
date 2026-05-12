@@ -1,8 +1,5 @@
 import type { SceneObjectRender } from '../types';
-import { ICON_EYE, ICON_EYE_OFF } from './icons';
-
-const CHEVRON_SVG = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
-const DOTS_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
+import { ICON_EYE, ICON_EYE_OFF, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL } from './icons';
 const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
 
 export class ShapesPanel {
@@ -48,7 +45,7 @@ export class ShapesPanel {
     this.header = document.createElement('div');
     this.header.className = SECTION_HEADER;
     this.header.innerHTML = `
-      <span class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${CHEVRON_SVG}</span>
+      <span class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${ICON_CHEVRON_RIGHT}</span>
       <span class="text-sm font-medium text-base-content/70">Shapes</span>
     `;
 
@@ -98,7 +95,7 @@ export class ShapesPanel {
       html += `
         <div class="flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/70 font-medium" data-shape-group="${type}">
           <span class="flex items-center justify-center w-5 h-5 opacity-50 hover:opacity-100 transition-transform ${rotation}">
-            ${CHEVRON_SVG}
+            ${ICON_CHEVRON_RIGHT}
           </span>
           <span>${capitalized}</span>
           <span class="text-base-content/40 ml-1">${shapes.length}</span>
@@ -123,7 +120,7 @@ export class ShapesPanel {
           const eyeIcon = hidden ? ICON_EYE_OFF : ICON_EYE;
           const eyeVisibility = hidden ? 'opacity-100 text-base-content/70' : 'opacity-0 group-hover:opacity-100 text-base-content/40';
           const eyeBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-3.5" data-eye="${shape.shapeId}">${eyeIcon}</button>`;
-          const dotsBtn = `<button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${shape.shapeId}">${DOTS_SVG}</button>`;
+          const dotsBtn = `<button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${shape.shapeId}">${ICON_DOTS_VERTICAL}</button>`;
           html += `
             <div class="group flex items-center gap-2 pl-9 pr-3 py-1 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/70${selectedClass}" data-shape-id="${shape.shapeId}" data-shape-type="${shape.shapeType}">
               <img src="/icons/${shape.shapeType}.png" class="w-4 h-4 object-contain" alt="" />

@@ -1,5 +1,6 @@
 import { SceneContext } from '../scene/scene-context';
 import { captureScreenshot } from '../screenshot';
+import { exportShapes } from '../api';
 
 const CLOSE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
 
@@ -217,18 +218,7 @@ export class ExportDialog {
     this.statusEl.innerHTML = '<span class="loading loading-spinner loading-xs"></span><span>Exporting...</span>';
 
     try {
-      const res = await fetch('/api/export', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Export failed');
-      }
-
-      const blob = await res.blob();
+      const blob = await exportShapes(body);
       const ext = format === 'step' ? '.step' : '.stl';
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

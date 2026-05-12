@@ -1,4 +1,10 @@
 // ---------------------------------------------------------------------------
+// Common types
+// ---------------------------------------------------------------------------
+
+export type SourceLocation = { filePath: string; line: number; column: number };
+
+// ---------------------------------------------------------------------------
 // Vector / Plane data coming from the FluidCAD backend
 // ---------------------------------------------------------------------------
 
@@ -109,7 +115,7 @@ export type SceneObjectPart = {
 export type CompileError = {
   message: string;
   filePath?: string;
-  sourceLocation?: { filePath: string; line: number; column: number };
+  sourceLocation?: SourceLocation;
 };
 
 export type SceneObjectRender = {
@@ -126,7 +132,7 @@ export type SceneObjectRender = {
   fromCache?: boolean;
   hasError?: boolean;
   errorMessage?: string;
-  sourceLocation?: { filePath: string; line: number; column: number };
+  sourceLocation?: SourceLocation;
   buildDurationMs?: number;
   profileCategories?: { category: string; durationMs: number }[];
 };

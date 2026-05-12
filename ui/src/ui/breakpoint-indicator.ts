@@ -1,4 +1,5 @@
 import { ICON_PAUSE } from './icons';
+import { clearBreakpoints } from '../api';
 
 export class BreakpointIndicator {
   private element: HTMLDivElement;
@@ -20,13 +21,9 @@ export class BreakpointIndicator {
     container.appendChild(this.element);
 
     this.element.querySelector<HTMLButtonElement>('.fluidcad-breakpoint-continue')!
-      .addEventListener('click', async () => {
+      .addEventListener('click', () => {
         onContinue?.();
-        try {
-          await fetch('/api/clear-breakpoints', { method: 'POST' });
-        } catch (err) {
-          console.error('Clear breakpoints failed:', err);
-        }
+        clearBreakpoints();
       });
   }
 

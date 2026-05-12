@@ -25,6 +25,13 @@ import {
 import { pointToSegmentDist } from './sketch-edge-utils';
 import { ExpressionInput, VariableInfo } from '../ui/expression-input';
 import { circumcenter, angleFromCenter, addDashedArc } from './tools/tool-preview-utils';
+import {
+  setLinePosition,
+  updatePosition,
+  setChainPositions,
+  updateDimensionExpression,
+  getDimensionExpression,
+} from '../api';
 type GetSketchSourceLineFn = () => number | null;
 import { FetchVariablesFn } from './sketch-tool';
 
@@ -263,21 +270,13 @@ export class DragMoveHandler {
       const dy = fixedVertex[1] - anchorPoint[1];
       const newStart = newPos;
       const newEnd = roundPoint([newPos[0] + dx, newPos[1] + dy]);
-      fetch('/api/set-line-position', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newStart, newEnd, sourceLocation }),
-      });
+      setLinePosition(newStart, newEnd, sourceLocation);
       return;
     }
 
     if (uniqueType === 'line-two-points') {
       const pointIndex = hitZone === 'start' ? 0 : -1;
-      fetch('/api/update-position', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newPosition: newPos, sourceLocation, pointIndex }),
-      });
+      updatePosition(newPos, sourceLocation, pointIndex);
     } else if (uniqueType === 'arc' && anchorPoint && fixedVertex) {
       if (hitZone === 'center') {
         const startV = fixedVertex;
@@ -290,44 +289,28 @@ export class DragMoveHandler {
           newPos[0] + radius * Math.cos(endAngle),
           newPos[1] + radius * Math.sin(endAngle),
         ]);
-        fetch('/api/set-chain-positions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            updates: [
-              { pointIndex: 1, position: projectedEnd },
-              { pointIndex: 2, position: newPos },
-            ],
-            sourceLocation,
-          }),
-        });
+        setChainPositions(
+          [
+            { pointIndex: 1, position: projectedEnd },
+            { pointIndex: 2, position: newPos },
+          ],
+          sourceLocation,
+        );
       } else {
         const newCenter = roundPoint(this.computeArcCenter(anchorPoint, fixedVertex, newPos));
         const pointIndex = hitZone === 'start' ? 0 : 1;
-        fetch('/api/set-chain-positions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            updates: [
-              { pointIndex, position: newPos },
-              { pointIndex: 2, position: newCenter },
-            ],
-            sourceLocation,
-          }),
-        });
+        setChainPositions(
+          [
+            { pointIndex, position: newPos },
+            { pointIndex: 2, position: newCenter },
+          ],
+          sourceLocation,
+        );
       }
     } else if ((uniqueType === 'hline' || uniqueType === 'vline') && (hitZone === 'start' || hitZone === 'body')) {
-      fetch('/api/update-position', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newPosition: newPos, sourceLocation, pointIndex: 0 }),
-      });
+      updatePosition(newPos, sourceLocation, 0);
     } else {
-      fetch('/api/update-position', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newPosition: newPos, sourceLocation }),
-      });
+      updatePosition(newPos, sourceLocation);
     }
   }
 
@@ -482,16 +465,7 @@ export class DragMoveHandler {
         }
 
         const sketchSourceLine = this.getSketchSourceLine();
-        fetch('/api/update-dimension-expression', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            expression: finalExpr,
-            sourceLocation: sl,
-            sketchSourceLine,
-            newVariable: newVariable ?? null,
-          }),
-        });
+        updateDimensionExpression(finalExpr, sl, sketchSourceLine, newVariable);
         if (this._isResizing) {
           this.endResize();
         } else {
@@ -500,23 +474,16 @@ export class DragMoveHandler {
       },
     });
 
-    fetch('/api/dimension-expression', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sourceLine: sourceLocation.line }),
-    })
-      .then(r => r.ok ? r.json() : { expression: null })
-      .catch(() => ({ expression: null }))
-      .then(({ expression }) => {
-        if (!expression) {
-          return;
-        }
-        if (this._isResizing && !this.hasMoved) {
-          this.expressionInput.updateValue(expression);
-        } else if (this.standaloneInputActive) {
-          this.expressionInput.updateValue(expression);
-        }
-      });
+    getDimensionExpression(sourceLocation.line).then(({ expression }) => {
+      if (!expression) {
+        return;
+      }
+      if (this._isResizing && !this.hasMoved) {
+        this.expressionInput.updateValue(expression);
+      } else if (this.standaloneInputActive) {
+        this.expressionInput.updateValue(expression);
+      }
+    });
   }
 
   private computeDistanceSign(): number {

@@ -15,7 +15,7 @@ import { SnapManager } from './snapping/snap-manager';
 import { SnapController } from './snapping/snap-controller';
 import { SceneObjectRender, PlaneData } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences } from './preferences';
+import { loadPreferences, gotoSource, insertPoint, setPickPoints, addPick, removePick, insertGeometry, getScopeVariables, importFile } from './api';
 import { applyPreferences } from './scene/viewer-settings';
 import { installVSCodeKeyboardBridge } from './keyboard-bridge';
 import { SketchToolbar } from './ui/sketch-toolbar';
@@ -92,11 +92,7 @@ const breakpointIndicator = new BreakpointIndicator(container, () => {
   }
 });
 const errorBanner = new ErrorBanner(container, (loc) => {
-  fetch('/api/code/goto-source', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(loc),
-  }).catch((err) => console.error('Goto source failed:', err));
+  gotoSource(loc);
 });
 const timelinePanel = new TimelinePanel(
   container,
@@ -232,11 +228,7 @@ function activateTrimPickModeInteractive(info: { trimObj: any; sketchObj: any },
     sceneObjects,
     sketchId,
     (point2d) => {
-      fetch('/api/insert-point', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ point: point2d, sourceLocation }),
-      });
+      insertPoint(point2d, sourceLocation);
     },
     (info: HighlightInfo) => {
       viewer.clearHighlight();
@@ -259,13 +251,7 @@ function enterTrimPickMode() {
   const hasPicking = (lastTrimPickInfo.trimObj as any).object?.picking;
 
   if (!hasPicking) {
-    fetch('/api/add-pick', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sourceLocation: (lastTrimPickInfo.trimObj as any).sourceLocation,
-      }),
-    });
+    addPick((lastTrimPickInfo.trimObj as any).sourceLocation);
     trimPickState = 'picking-active';
     trimPickTriggerBtn.classList.add('hidden');
     trimPickActiveBar.classList.remove('hidden');
@@ -290,11 +276,7 @@ function exitTrimPickMode() {
   const isPicking = trimObj?.object?.picking;
   const pickPoints = trimObj?.object?.pickPoints as [number, number][] | undefined;
   if (isPicking && (!pickPoints || pickPoints.length === 0) && trimObj?.sourceLocation) {
-    fetch('/api/remove-pick', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sourceLocation: trimObj.sourceLocation }),
-    });
+    removePick(trimObj.sourceLocation);
   }
 
   if (lastTrimPickInfo) {
@@ -506,18 +488,10 @@ function activateRegionPickModeInteractive(info: { extrudeObj: any; sketchObj: a
     viewer.sceneContext,
     plane,
     (point2d) => {
-      fetch('/api/insert-point', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ point: point2d, sourceLocation }),
-      });
+      insertPoint(point2d, sourceLocation);
     },
     (finalPoints) => {
-      fetch('/api/set-pick-points', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ points: finalPoints, sourceLocation }),
-      });
+      setPickPoints(finalPoints, sourceLocation);
     },
     (_shapeId) => {
       // Highlight is handled directly by RegionPickMode via material changes
@@ -535,14 +509,7 @@ function enterRegionPickMode() {
   const hasPicking = (lastRegionPickInfo.extrudeObj as any).object?.picking;
 
   if (!hasPicking) {
-    // Need to add .pick() to the code first — send request to extension
-    fetch('/api/add-pick', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sourceLocation: (lastRegionPickInfo.extrudeObj as any).sourceLocation,
-      }),
-    });
+    addPick((lastRegionPickInfo.extrudeObj as any).sourceLocation);
     // Transition to picking-active optimistically; the scene will re-render
     // when .pick() is added, and updateRegionPickMode will activate the handler
     regionPickState = 'picking-active';
@@ -575,11 +542,7 @@ function exitRegionPickMode() {
   const isPicking = extrudeObj?.object?.picking;
   const pickPoints = extrudeObj?.object?.pickPoints as [number, number][] | undefined;
   if (isPicking && (!pickPoints || pickPoints.length === 0) && extrudeObj?.sourceLocation) {
-    fetch('/api/remove-pick', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sourceLocation: extrudeObj.sourceLocation }),
-    });
+    removePick(extrudeObj.sourceLocation);
   }
 
   if (lastRegionPickInfo) {
@@ -789,18 +752,10 @@ function updateBezierDrawMode(sceneObjects: SceneObjectRender[]) {
     snapController,
     existingPoles,
     (point2d) => {
-      fetch('/api/insert-point', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ point: point2d, sourceLocation }),
-      });
+      insertPoint(point2d, sourceLocation);
     },
     (points) => {
-      fetch('/api/set-pick-points', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ points, sourceLocation }),
-      });
+      setPickPoints(points, sourceLocation);
     },
   );
   activeBezierSourceLine = srcLine;
@@ -852,19 +807,10 @@ sketchToolbar.onSnapGridChange = (checked: boolean) => {
 };
 
 async function fetchScopeVariables(): Promise<VariableInfo[]> {
-  if (!activeSketchInfo) return [];
-  try {
-    const res = await fetch('/api/scope-variables', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sketchSourceLine: activeSketchInfo.sourceLocation.line }),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.variables ?? [];
-  } catch {
+  if (!activeSketchInfo) {
     return [];
   }
+  return getScopeVariables(activeSketchInfo.sourceLocation.line);
 }
 
 function createTool(toolId: ToolId, plane: PlaneData, sceneObjects: SceneObjectRender[], sketchId: string): SketchTool | null {
@@ -873,33 +819,25 @@ function createTool(toolId: ToolId, plane: PlaneData, sceneObjects: SceneObjectR
   snapCtrl.snapToVertices = sketchToolbar.snapVerticesChecked;
   snapCtrl.snapToGrid = sketchToolbar.snapGridChecked;
 
-  const insertGeometry = (
+  const doInsertGeometry = (
     statement: string,
     newVariable?: { name: string; initializer: string },
   ) => {
     if (!activeSketchInfo) {
       return;
     }
-    fetch('/api/insert-geometry', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        statement,
-        sketchSourceLocation: activeSketchInfo.sourceLocation,
-        newVariable: newVariable ?? null,
-      }),
-    });
+    insertGeometry(statement, activeSketchInfo.sourceLocation, newVariable);
   };
 
   switch (toolId) {
     case 'line':
-      return new LineTool(viewer.sceneContext, plane, snapCtrl, insertGeometry, container, fetchScopeVariables);
+      return new LineTool(viewer.sceneContext, plane, snapCtrl, doInsertGeometry, container, fetchScopeVariables);
     case 'circle':
-      return new CircleTool(viewer.sceneContext, plane, snapCtrl, insertGeometry, container, fetchScopeVariables);
+      return new CircleTool(viewer.sceneContext, plane, snapCtrl, doInsertGeometry, container, fetchScopeVariables);
     case 'arc2':
-      return new CenterArcTool(viewer.sceneContext, plane, snapCtrl, insertGeometry, container, fetchScopeVariables);
+      return new CenterArcTool(viewer.sceneContext, plane, snapCtrl, doInsertGeometry, container, fetchScopeVariables);
     case 'arc3':
-      return new ThreePointArcTool(viewer.sceneContext, plane, snapCtrl, insertGeometry, container, fetchScopeVariables);
+      return new ThreePointArcTool(viewer.sceneContext, plane, snapCtrl, doInsertGeometry, container, fetchScopeVariables);
     default:
       return null;
   }
@@ -999,14 +937,7 @@ function enterTrimFromToolbar(): void {
   }
 
   pendingTrimActivation = true;
-  fetch('/api/insert-geometry', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      statement: 'trim()',
-      sketchSourceLocation: activeSketchInfo.sourceLocation,
-    }),
-  });
+  insertGeometry('trim()', activeSketchInfo.sourceLocation);
 }
 
 function exitTrimFromToolbar(): void {
@@ -1019,11 +950,7 @@ function exitTrimFromToolbar(): void {
     const isPicking = trimObj?.object?.picking;
     const pickPoints = trimObj?.object?.pickPoints as [number, number][] | undefined;
     if (isPicking && (!pickPoints || pickPoints.length === 0) && trimObj?.sourceLocation) {
-      fetch('/api/remove-pick', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceLocation: trimObj.sourceLocation }),
-      });
+      removePick(trimObj.sourceLocation);
     }
   }
   resetTrimPickMode();
@@ -1164,14 +1091,8 @@ fileInput.addEventListener('change', async () => {
     }
     const base64 = btoa(binary);
 
-    const res = await fetch('/api/import-file', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileName: file.name, data: base64 }),
-    });
-
-    const result = await res.json();
-    if (!res.ok || !result.success) {
+    const result = await importFile(file.name, base64);
+    if (!result.success) {
       showImportToast(`Import failed: ${result.error || 'Unknown error'}`);
     } else {
       showImportToast('Imported! Use:', `load('${result.fileName}')`);

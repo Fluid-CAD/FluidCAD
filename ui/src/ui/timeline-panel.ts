@@ -1,5 +1,5 @@
 import type { SceneObjectRender } from '../types';
-import { savePreference } from '../preferences';
+import { savePreference, recompute, rollback, addBreakpoint, gotoSource } from '../api';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_EYE, ICON_EYE_OFF } from './icons';
 import { resolveIconName } from './object-icons';
 
@@ -240,7 +240,7 @@ export class TimelinePanel {
         }
         const index = parseInt(el.dataset.index!, 10);
         this.rollbackTo(index);
-        this.gotoSource(this.sceneObjects[index]);
+        this.goToSource(this.sceneObjects[index]);
       });
       el.addEventListener('dblclick', (e) => {
         if ((e.target as HTMLElement).closest('[data-toggle]')) {
@@ -248,7 +248,7 @@ export class TimelinePanel {
         }
         const index = parseInt(el.dataset.index!, 10);
         this.addBreakpointAfter(index);
-        this.gotoSource(this.sceneObjects[index]);
+        this.goToSource(this.sceneObjects[index]);
       });
     });
 
@@ -356,58 +356,27 @@ export class TimelinePanel {
     `;
   }
 
-  private async recomputeScene(): Promise<void> {
-    try {
-      await fetch('/api/recompute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-    } catch (err) {
-      console.error('Recompute failed:', err);
-    }
+  private recomputeScene(): void {
+    recompute();
   }
 
-  private async rollbackTo(index: number): Promise<void> {
-    try {
-      await fetch('/api/rollback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ index }),
-      });
-    } catch (err) {
-      console.error('Rollback failed:', err);
-    }
+  private rollbackTo(index: number): void {
+    rollback(index);
   }
 
-  private async addBreakpointAfter(index: number): Promise<void> {
+  private addBreakpointAfter(index: number): void {
     const obj = this.sceneObjects[index];
     if (!obj || !obj.sourceLocation) {
       return;
     }
-    try {
-      await fetch('/api/add-breakpoint', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceLocation: obj.sourceLocation }),
-      });
-    } catch (err) {
-      console.error('Add breakpoint failed:', err);
-    }
+    addBreakpoint(obj.sourceLocation);
   }
 
-  private async gotoSource(obj: SceneObjectRender | undefined): Promise<void> {
+  private goToSource(obj: SceneObjectRender | undefined): void {
     if (!obj || !obj.sourceLocation) {
       return;
     }
-    try {
-      await fetch('/api/code/goto-source', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(obj.sourceLocation),
-      });
-    } catch (err) {
-      console.error('Goto source failed:', err);
-    }
+    gotoSource(obj.sourceLocation);
   }
 
   // ---------------------------------------------------------------------------

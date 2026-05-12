@@ -644,7 +644,7 @@ export class DragMoveHandler {
 
             const nearAnyEndpoint = startDist < thresholdSq || endDist < thresholdSq;
 
-            if (startDist < thresholdSq && startDist < bestDistSq && startDist <= endDist) {
+            if (startDist < thresholdSq && startDist < bestDistSq && startDist <= endDist && !isConstrained) {
               bestHit = {
                 sourceLocation, uniqueType: uniqueType || '', hitZone: 'start',
                 anchorPoint: startV, fixedVertex: endV,
@@ -668,7 +668,7 @@ export class DragMoveHandler {
             // endpoint's hit radius — otherwise the perpendicular bodyDist
             // (often ~0) would beat the diagonal distance to a vertex even
             // when the user clearly clicked near the endpoint.
-            if (!nearAnyEndpoint) {
+            if (!nearAnyEndpoint && uniqueType === 'line-two-points') {
               const bodyDist = pointToSegmentDist(
                 point2d[0], point2d[1],
                 startV[0], startV[1],

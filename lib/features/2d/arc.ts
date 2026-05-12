@@ -274,19 +274,28 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
     const endPt = this._endPoint.asPoint2D();
     const centerPt = this._centerPoint.asPoint2D();
 
-    const dx = startPt.x - centerPt.x;
-    const dy = startPt.y - centerPt.y;
-    const radius = Math.sqrt(dx * dx + dy * dy);
+    const aStart = Math.atan2(startPt.y - centerPt.y, startPt.x - centerPt.x);
+    const aEnd = Math.atan2(endPt.y - centerPt.y, endPt.x - centerPt.x);
+    let sweep = this._clockwise ? aStart - aEnd : aEnd - aStart;
+    if (sweep <= 0) {
+      sweep += 2 * Math.PI;
+    }
+    const midAngle = this._clockwise ? aStart - sweep / 2 : aStart + sweep / 2;
+    const rStart = Math.sqrt((startPt.x - centerPt.x) ** 2 + (startPt.y - centerPt.y) ** 2);
+    const rEnd = Math.sqrt((endPt.x - centerPt.x) ** 2 + (endPt.y - centerPt.y) ** 2);
+    const rMid = (rStart + rEnd) / 2;
+    const midPt = new Point2D(
+      centerPt.x + rMid * Math.cos(midAngle),
+      centerPt.y + rMid * Math.sin(midAngle),
+    );
 
-    const endAngle = Math.atan2(endPt.y - centerPt.y, endPt.x - centerPt.x);
+    const endAngle = aEnd;
 
-    const normal = this._clockwise ? plane.normal.negate() : plane.normal;
-
-    const center = plane.localToWorld(centerPt);
     const start = plane.localToWorld(startPt);
     const end = plane.localToWorld(endPt);
+    const mid = plane.localToWorld(midPt);
 
-    const arc = Geometry.makeArc(center, radius, normal, start, end);
+    const arc = Geometry.makeArcThreePoints(start, mid, end);
     const edge = Geometry.makeEdgeFromCurve(arc);
 
     const sign = this._clockwise ? -1 : 1;

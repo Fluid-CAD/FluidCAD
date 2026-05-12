@@ -292,8 +292,9 @@ export class Viewer {
       }
     }
 
-    // Auto-fit on first render or in sketch mode (skip if viewport barely changed or trimming)
-    if (!this.hasRendered || (this.modeManager.isSketchMode && !isRollback && !this.isTrimming && !this.isRegionPicking && !this.isBezierDrawing && !this.isDrawing)) {
+    // Auto-fit on first render or in sketch mode (skip if viewport barely changed or trimming).
+    // Skip when in sketch mode on first render — positionCameraForSketch already centered on origin.
+    if ((!this.hasRendered && !this.modeManager.isSketchMode) || (this.modeManager.isSketchMode && !isRollback && !this.isTrimming && !this.isRegionPicking && !this.isBezierDrawing && !this.isDrawing)) {
       const box = new Box3();
       expandBoxExcludingMeta(box, mesh);
       if (!box.isEmpty() && !this.isBoxContained(box)) {
@@ -301,6 +302,9 @@ export class Viewer {
         this.lastFitBox = box.clone();
         this.hasRendered = true;
       }
+    }
+    if (!this.hasRendered && this.modeManager.isSketchMode) {
+      this.hasRendered = true;
     }
 
     this.ctx.requestRender();

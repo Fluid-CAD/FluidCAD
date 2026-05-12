@@ -286,7 +286,9 @@ export class ThreePointArcTool extends SketchTool {
     const re = roundPoint(end);
     const rc = roundPoint(center);
     const cwSuffix = ccw ? '' : '.cw()';
-    const statement = `arc(${this.formatPoint(rs)}, ${this.formatPoint(re)}).center(${this.formatPoint(rc)})${cwSuffix}`;
+    const statement = this.isAtCurrentPosition(rs)
+      ? `arc(${this.formatPoint(re)}).center(${this.formatPoint(rc)})${cwSuffix}`
+      : `arc(${this.formatPoint(rs)}, ${this.formatPoint(re)}).center(${this.formatPoint(rc)})${cwSuffix}`;
     this.insertGeometry(statement, newVariable);
     this.expressionInput.hide();
     this.resetState();

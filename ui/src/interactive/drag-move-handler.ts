@@ -46,6 +46,7 @@ type DragHitResult = {
   initialValue?: number;
   draggedVertices?: [number, number][];
   arcCCW?: boolean;
+  arcArgCount?: number;
 };
 
 type PendingHit = {
@@ -279,6 +280,9 @@ export class DragMoveHandler {
       const pointIndex = hitZone === 'start' ? 0 : -1;
       updatePosition(newPos, sourceLocation, pointIndex);
     } else if (uniqueType === 'arc' && anchorPoint && fixedVertex) {
+      const isOnePoint = this.hitResult.arcArgCount === 2;
+      const endIdx = isOnePoint ? 0 : 1;
+      const centerIdx = isOnePoint ? 1 : 2;
       if (hitZone === 'center') {
         const startV = fixedVertex;
         const endV = this.hitResult.fixedVertex2!;
@@ -292,18 +296,18 @@ export class DragMoveHandler {
         ]);
         setChainPositions(
           [
-            { pointIndex: 1, position: projectedEnd },
-            { pointIndex: 2, position: newPos },
+            { pointIndex: endIdx, position: projectedEnd },
+            { pointIndex: centerIdx, position: newPos },
           ],
           sourceLocation,
         );
       } else {
         const newCenter = roundPoint(this.computeArcCenter(anchorPoint, fixedVertex, newPos));
-        const pointIndex = hitZone === 'start' ? 0 : 1;
+        const pointIndex = hitZone === 'start' ? 0 : endIdx;
         setChainPositions(
           [
             { pointIndex, position: newPos },
-            { pointIndex: 2, position: newCenter },
+            { pointIndex: centerIdx, position: newCenter },
           ],
           sourceLocation,
         );
@@ -688,6 +692,8 @@ export class DragMoveHandler {
           } else if (uniqueType === 'arc' && verts2d.length >= 3) {
             const startV = verts2d[0];
             const endV = verts2d[verts2d.length - 1];
+            const hasExplicitStart = child.object?.startPoint !== undefined;
+            const arcArgCount = hasExplicitStart ? 3 : 2;
 
             let centerV: [number, number] | null = null;
             for (const sp of child.sceneShapes) {
@@ -727,13 +733,13 @@ export class DragMoveHandler {
 
               const minDist = Math.min(startDist, endDist, centerDist);
 
-              if (startDist < thresholdSq && startDist < bestDistSq && startDist === minDist) {
+              if (hasExplicitStart && startDist < thresholdSq && startDist < bestDistSq && startDist === minDist) {
                 bestHit = {
                   sourceLocation, uniqueType: 'arc', hitZone: 'start',
                   anchorPoint: centerV,
                   fixedVertex: endV,
                   draggedVertices: [startV],
-                  arcCCW,
+                  arcCCW, arcArgCount,
                 };
                 bestDistSq = startDist;
               }
@@ -743,7 +749,7 @@ export class DragMoveHandler {
                   anchorPoint: centerV,
                   fixedVertex: startV,
                   draggedVertices: [endV],
-                  arcCCW,
+                  arcCCW, arcArgCount,
                 };
                 bestDistSq = endDist;
               }
@@ -754,7 +760,7 @@ export class DragMoveHandler {
                   fixedVertex: startV,
                   fixedVertex2: endV,
                   draggedVertices: [centerV],
-                  arcCCW,
+                  arcCCW, arcArgCount,
                 };
                 bestDistSq = centerDist;
               }

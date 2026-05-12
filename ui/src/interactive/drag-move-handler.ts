@@ -644,17 +644,7 @@ export class DragMoveHandler {
 
             const nearAnyEndpoint = startDist < thresholdSq || endDist < thresholdSq;
 
-            if (startDist < thresholdSq && startDist < bestDistSq && startDist <= endDist && !isConstrained) {
-              bestHit = {
-                sourceLocation, uniqueType: uniqueType || '', hitZone: 'start',
-                anchorPoint: startV, fixedVertex: endV,
-                originalDistance: signedDist,
-                initialValue,
-                draggedVertices: [startV],
-              };
-              bestDistSq = startDist;
-            }
-            if (endDist < thresholdSq && endDist < bestDistSq && endDist < startDist) {
+            if (endDist < thresholdSq && endDist < bestDistSq) {
               bestHit = {
                 sourceLocation, uniqueType: uniqueType || '', hitZone: 'end',
                 anchorPoint: startV, fixedVertex: startV,

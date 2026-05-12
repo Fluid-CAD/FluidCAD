@@ -42,10 +42,21 @@ const shapePropertiesModal = new ShapePropertiesModal(container);
 const selectionInfoOverlay = new SelectionInfoOverlay(container);
 const exportDialog = new ExportDialog(container, viewer.sceneContext);
 
+const timelinePanel = new TimelinePanel(
+  container,
+  (shapeId) => viewer.highlightShape(shapeId),
+  (shapeIds) => exportDialog.show(shapeIds),
+  (shapeId, visible) => viewer.setShapeVisibility(shapeId, visible),
+  (shapeId) => viewer.isShapeHidden(shapeId),
+  (shapeId, opacity) => viewer.setShapeTransparency(shapeId, opacity),
+  (shapeId) => viewer.getShapeTransparency(shapeId),
+  () => viewer.resetAllTransparency(),
+);
+
 const trimService = new TrimPickService(container, viewer);
 const regionService = new RegionPickService(container, viewer);
 const bezierService = new BezierDrawService(container, viewer);
-const sketchService = new SketchToolbarService(container, viewer, trimService);
+const sketchService = new SketchToolbarService(container, viewer, trimService, timelinePanel);
 
 const breakpointIndicator = new BreakpointIndicator(container, () => {
   if (regionService.state === 'picking-active') {
@@ -58,16 +69,6 @@ const breakpointIndicator = new BreakpointIndicator(container, () => {
 const errorBanner = new ErrorBanner(container, (loc) => {
   gotoSource(loc);
 });
-const timelinePanel = new TimelinePanel(
-  container,
-  (shapeId) => viewer.highlightShape(shapeId),
-  (shapeIds) => exportDialog.show(shapeIds),
-  (shapeId, visible) => viewer.setShapeVisibility(shapeId, visible),
-  (shapeId) => viewer.isShapeHidden(shapeId),
-  (shapeId, opacity) => viewer.setShapeTransparency(shapeId, opacity),
-  (shapeId) => viewer.getShapeTransparency(shapeId),
-  () => viewer.resetAllTransparency(),
-);
 
 new FileImporter(container, {
   showLoading: (text) => loadingOverlay.show(text),

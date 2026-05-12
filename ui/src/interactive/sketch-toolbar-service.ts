@@ -14,11 +14,13 @@ import { SceneObjectRender, PlaneData } from '../types';
 import { Viewer } from '../viewer';
 import { TrimPickService } from './trim-pick-service';
 import { VariableInfo } from '../ui/expression-input';
+import { TimelinePanel } from '../ui/timeline-panel';
 
 export class SketchToolbarService {
   private viewer: Viewer;
   private container: HTMLElement;
   private trimService: TrimPickService;
+  private timelinePanel: TimelinePanel;
   private toolbar: SketchToolbar;
   private activeSketchInfo: {
     sketchObj: SceneObjectRender;
@@ -29,12 +31,13 @@ export class SketchToolbarService {
   private activeDragHandler: DragMoveHandler | null = null;
   private activeHoverSelectHandler: SketchHoverSelectHandler | null = null;
 
-  constructor(container: HTMLElement, viewer: Viewer, trimService: TrimPickService) {
+  constructor(container: HTMLElement, viewer: Viewer, trimService: TrimPickService, timelinePanel: TimelinePanel) {
     this.viewer = viewer;
     this.container = container;
     this.trimService = trimService;
+    this.timelinePanel = timelinePanel;
 
-    this.toolbar = new SketchToolbar(container, (toolId) => {
+    this.toolbar = new SketchToolbar(timelinePanel.toolbarHost, container, (toolId) => {
       this.handleToolSelect(toolId);
     });
 
@@ -80,6 +83,7 @@ export class SketchToolbarService {
 
       if (!this.toolbar.isVisible) {
         this.toolbar.show();
+        this.timelinePanel.slideOut();
       }
 
       if (this.activeDrawingTool) {
@@ -115,6 +119,7 @@ export class SketchToolbarService {
       this.deactivateDragHandler();
       this.activeSketchInfo = null;
       this.toolbar.hide();
+      this.timelinePanel.slideIn();
     }
   }
 

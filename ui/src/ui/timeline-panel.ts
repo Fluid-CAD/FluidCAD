@@ -17,6 +17,8 @@ export class TimelinePanel {
   private panel: HTMLDivElement;
   private fileLabel: HTMLSpanElement;
   private timelineBody: HTMLDivElement;
+  private contentWrapper: HTMLDivElement;
+  private positioner: HTMLDivElement;
   private shapesPanel: ShapesPanel;
   private loaded = false;
   private sceneObjects: SceneObjectRender[] = [];
@@ -58,6 +60,15 @@ export class TimelinePanel {
     this.panel.appendChild(fileRow);
     this.fileLabel = fileRow.querySelector('[data-ref="filename"]')!;
 
+    this.positioner = document.createElement('div');
+    this.positioner.className = 'relative flex-1 min-h-0 overflow-hidden';
+    this.panel.appendChild(this.positioner);
+
+    this.contentWrapper = document.createElement('div');
+    this.contentWrapper.className = 'absolute inset-0 flex flex-col gap-1 overflow-y-auto';
+    this.contentWrapper.style.transition = 'transform 0.25s ease, opacity 0.25s ease';
+    this.positioner.appendChild(this.contentWrapper);
+
     // Timeline accordion section
     const timelineHeader = document.createElement('div');
     timelineHeader.className = SECTION_HEADER;
@@ -67,7 +78,7 @@ export class TimelinePanel {
       <span data-ref="history-total" class="text-xs text-base-content/40 tabular-nums hidden"></span>
       <button data-ref="history-dots" class="ml-auto btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0">${ICON_DOTS_VERTICAL}</button>
     `;
-    this.panel.appendChild(timelineHeader);
+    this.contentWrapper.appendChild(timelineHeader);
     this.historyTotalLabel = timelineHeader.querySelector<HTMLSpanElement>('[data-ref="history-total"]')!;
     const historyDotsBtn = timelineHeader.querySelector<HTMLButtonElement>('[data-ref="history-dots"]')!;
     historyDotsBtn.addEventListener('click', (e) => {
@@ -77,7 +88,7 @@ export class TimelinePanel {
 
     this.timelineBody = document.createElement('div');
     this.timelineBody.className = 'py-1 overflow-y-auto min-h-0';
-    this.panel.appendChild(this.timelineBody);
+    this.contentWrapper.appendChild(this.timelineBody);
 
     timelineHeader.addEventListener('click', () => {
       this.timelineExpanded = !this.timelineExpanded;
@@ -97,8 +108,8 @@ export class TimelinePanel {
       getShapeTransparency,
       onResetAllTransparency,
     );
-    this.panel.appendChild(this.shapesPanel.header);
-    this.panel.appendChild(this.shapesPanel.body);
+    this.contentWrapper.appendChild(this.shapesPanel.header);
+    this.contentWrapper.appendChild(this.shapesPanel.body);
   }
 
   update(sceneObjects: SceneObjectRender[], rollbackStop: number, absPath?: string): void {
@@ -127,6 +138,22 @@ export class TimelinePanel {
     if (this.loaded) {
       this.renderTimeline();
     }
+  }
+
+  slideOut(): void {
+    this.contentWrapper.style.transform = 'translateX(-100%)';
+    this.contentWrapper.style.opacity = '0';
+    this.contentWrapper.style.pointerEvents = 'none';
+  }
+
+  slideIn(): void {
+    this.contentWrapper.style.transform = '';
+    this.contentWrapper.style.opacity = '';
+    this.contentWrapper.style.pointerEvents = '';
+  }
+
+  get toolbarHost(): HTMLElement {
+    return this.positioner;
   }
 
   // ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
   private _bulgeRadius: number = 0;
   private _centerPoint: LazyVertex | null = null;
   private _centered: boolean = false;
+  private _clockwise: boolean = false;
 
   private _targetPlane: PlaneObjectBase | null;
 
@@ -69,6 +70,11 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
     return this;
   }
 
+  cw(): this {
+    this._clockwise = true;
+    return this;
+  }
+
   build(): void {
     if (this._startPoint && this._endPoint) {
       // Two explicit points: default center = current position
@@ -104,15 +110,18 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
 
     const endAngle = Math.atan2(endPt.y - centerPt.y, endPt.x - centerPt.x);
 
+    const normal = this._clockwise ? plane.normal.negate() : plane.normal;
+
     const center = plane.localToWorld(centerPt);
     const start = plane.localToWorld(startPt);
     const end = plane.localToWorld(endPt);
 
-    const arc = Geometry.makeArc(center, radius, plane.normal, start, end);
+    const arc = Geometry.makeArc(center, radius, normal, start, end);
     const edge = Geometry.makeEdgeFromCurve(arc);
 
-    const tx = -Math.sin(endAngle);
-    const ty = Math.cos(endAngle);
+    const sign = this._clockwise ? -1 : 1;
+    const tx = sign * (-Math.sin(endAngle));
+    const ty = sign * Math.cos(endAngle);
     this.setTangent(new Point2D(tx, ty));
 
     this.setState('start', Vertex.fromPoint2D(startPt));
@@ -271,15 +280,18 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
 
     const endAngle = Math.atan2(endPt.y - centerPt.y, endPt.x - centerPt.x);
 
+    const normal = this._clockwise ? plane.normal.negate() : plane.normal;
+
     const center = plane.localToWorld(centerPt);
     const start = plane.localToWorld(startPt);
     const end = plane.localToWorld(endPt);
 
-    const arc = Geometry.makeArc(center, radius, plane.normal, start, end);
+    const arc = Geometry.makeArc(center, radius, normal, start, end);
     const edge = Geometry.makeEdgeFromCurve(arc);
 
-    const tx = -Math.sin(endAngle);
-    const ty = Math.cos(endAngle);
+    const sign = this._clockwise ? -1 : 1;
+    const tx = sign * (-Math.sin(endAngle));
+    const ty = sign * Math.cos(endAngle);
     this.setTangent(new Point2D(tx, ty));
 
     this.setState('start', Vertex.fromPoint2D(startPt));
@@ -387,6 +399,7 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
     copy._bulgeRadius = this._bulgeRadius;
     copy._centerPoint = this._centerPoint;
     copy._centered = this._centered;
+    copy._clockwise = this._clockwise;
 
     return copy;
   }
@@ -404,6 +417,10 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
       return false;
     }
     if (this._targetPlane && other._targetPlane && !this._targetPlane.compareTo(other._targetPlane)) {
+      return false;
+    }
+
+    if (this._clockwise !== other._clockwise) {
       return false;
     }
 
@@ -447,6 +464,9 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
       }
       if (this._bulgeRadius !== 0) {
         base.radius = this._bulgeRadius;
+      }
+      if (this._clockwise) {
+        base.clockwise = true;
       }
       return base;
     }

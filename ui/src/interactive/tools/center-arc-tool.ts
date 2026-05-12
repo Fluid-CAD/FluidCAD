@@ -267,13 +267,13 @@ export class CenterArcTool extends SketchTool {
     ccw: boolean,
     newVariable?: { name: string; initializer: string },
   ): void {
-    const [first, second] = ccw ? [start, end] : [end, start];
-    const rs = roundPoint(first);
-    const re = roundPoint(second);
+    const rs = roundPoint(start);
+    const re = roundPoint(end);
     const rc = roundPoint(center);
+    const cwSuffix = ccw ? '' : '.cw()';
     const statement = this.isAtCurrentPosition(rs)
-      ? `arc(${this.formatPoint(re)}).center(${this.formatPoint(rc)})`
-      : `arc(${this.formatPoint(rs)}, ${this.formatPoint(re)}).center(${this.formatPoint(rc)})`;
+      ? `arc(${this.formatPoint(re)}).center(${this.formatPoint(rc)})${cwSuffix}`
+      : `arc(${this.formatPoint(rs)}, ${this.formatPoint(re)}).center(${this.formatPoint(rc)})${cwSuffix}`;
     this.insertGeometry(statement, newVariable);
     this.expressionInput.hide();
     this.resetState();

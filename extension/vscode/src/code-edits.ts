@@ -234,3 +234,23 @@ export async function handleSetLinePosition(
     client.updateLiveCode(doc.fileName, doc.getText());
   }
 }
+
+export async function handleSetChainPositions(
+  client: Client,
+  msg: { updates: { pointIndex: number; position: [number, number] }[]; sourceLocation: { line: number } },
+) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.setChainPositions(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.updates, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}

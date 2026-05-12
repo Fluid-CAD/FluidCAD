@@ -153,6 +153,7 @@ export function addDashedArc(
   endAngle: number,
   ccw: boolean,
   plane: PlaneData,
+  renderOrder = 3,
 ): void {
   let sweep = endAngle - startAngle;
   if (ccw) {
@@ -192,7 +193,7 @@ export function addDashedArc(
 
   const line = new Line(geo, mat);
   line.computeLineDistances();
-  line.renderOrder = 3;
+  line.renderOrder = renderOrder;
   previewGroup.add(line);
 }
 

@@ -86,6 +86,10 @@ function M.set_line_position(code, source_line, new_start, new_end)
   return post('set-line-position', { code = code, sourceLine = source_line, newStart = new_start, newEnd = new_end })
 end
 
+function M.set_chain_positions(code, source_line, updates)
+  return post('set-chain-positions', { code = code, sourceLine = source_line, updates = updates })
+end
+
 function M.update_dimension(code, source_line, new_value)
   return post('update-dimension', { code = code, sourceLine = source_line, newValue = new_value })
 end

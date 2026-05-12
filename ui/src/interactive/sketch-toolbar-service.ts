@@ -37,7 +37,7 @@ export class SketchToolbarService {
     this.trimService = trimService;
     this.timelinePanel = timelinePanel;
 
-    this.toolbar = new SketchToolbar(timelinePanel.toolbarHost, container, (toolId) => {
+    this.toolbar = new SketchToolbar(timelinePanel.toolbarHost, (toolId) => {
       this.handleToolSelect(toolId);
     });
 

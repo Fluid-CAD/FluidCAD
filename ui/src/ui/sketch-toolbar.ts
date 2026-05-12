@@ -1,4 +1,4 @@
-import { ICON_LINE, ICON_CIRCLE, ICON_CENTER_ARC, ICON_THREE_POINT_ARC, ICON_SCISSORS, ICON_CHEVRON_DOWN } from './icons';
+import { ICON_LINE, ICON_CIRCLE, ICON_CENTER_ARC, ICON_THREE_POINT_ARC, ICON_SCISSORS, ICON_CHEVRON_DOWN, ICON_SETTINGS } from './icons';
 import { ToolId } from '../interactive/sketch-tool';
 
 type ToolDef = { id: ToolId; label: string; icon: string };
@@ -29,21 +29,24 @@ const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
 export class SketchToolbar {
   private el: HTMLDivElement;
   private inner: HTMLDivElement;
-  private snapEl: HTMLDivElement;
+  private snapMenu: HTMLDivElement | null = null;
   private onToolSelect: (toolId: ToolId | null) => void;
   private activeToolId: ToolId | null = null;
   private buttons = new Map<ToolId, HTMLButtonElement>();
   private expandedGroups = new Set<number>();
   private boundKeyDown: (e: KeyboardEvent) => void;
+  private boundCloseSnapMenu: (e: MouseEvent) => void;
+  private snapVertexCheckedState = true;
+  private snapGridCheckedState = true;
 
   onSnapVerticesChange: ((checked: boolean) => void) | null = null;
   onSnapGridChange: ((checked: boolean) => void) | null = null;
 
-  constructor(toolbarHost: HTMLElement, snapContainer: HTMLElement, onToolSelect: (toolId: ToolId | null) => void) {
+  constructor(toolbarHost: HTMLElement, onToolSelect: (toolId: ToolId | null) => void) {
     this.onToolSelect = onToolSelect;
 
     this.el = document.createElement('div');
-    this.el.className = 'absolute top-1/2 -translate-y-1/2 left-0 select-none pointer-events-auto';
+    this.el.className = 'absolute top-1/2 -translate-y-1/2 left-0 select-none pointer-events-auto flex flex-col items-center gap-1.5';
     this.el.style.transition = 'transform 0.25s ease, opacity 0.25s ease';
     this.el.style.transform = 'translateX(-100%)';
     this.el.style.opacity = '0';
@@ -52,49 +55,25 @@ export class SketchToolbar {
     this.inner.className = 'flex flex-col gap-0.5 panel-bg border border-base-content/10 rounded-md p-1';
     this.el.appendChild(this.inner);
 
-    this.snapEl = document.createElement('div');
-    this.snapEl.className = 'absolute bottom-6 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto select-none hidden';
-    this.snapEl.style.transition = 'opacity 0.25s ease';
-    const snapInner = document.createElement('div');
-    snapInner.className = 'flex items-center gap-3 panel-bg border border-base-content/10 rounded-lg px-3 py-1.5';
-    snapInner.innerHTML = `
-      <label class="flex items-center gap-1.5 cursor-pointer" title="Snap to vertices">
-        <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" data-snap="vertex" checked />
-        <span class="text-xs text-base-content/70">Vertices</span>
-      </label>
-      <label class="flex items-center gap-1.5 cursor-pointer" title="Snap to grid">
-        <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" data-snap="grid" checked />
-        <span class="text-xs text-base-content/70">Grid</span>
-      </label>
-    `;
-    this.snapEl.appendChild(snapInner);
-
-    this.snapEl.querySelector<HTMLInputElement>('[data-snap="vertex"]')!.addEventListener('change', (e) => {
-      this.onSnapVerticesChange?.((e.target as HTMLInputElement).checked);
-    });
-    this.snapEl.querySelector<HTMLInputElement>('[data-snap="grid"]')!.addEventListener('change', (e) => {
-      this.onSnapGridChange?.((e.target as HTMLInputElement).checked);
-    });
-
+    this.buildSnapButton();
     this.renderTools();
 
     toolbarHost.appendChild(this.el);
-    snapContainer.appendChild(this.snapEl);
 
     this.boundKeyDown = this.handleKeyDown.bind(this);
+    this.boundCloseSnapMenu = this.handleCloseSnapMenu.bind(this);
   }
 
   show(): void {
     this.el.style.transform = '';
     this.el.style.opacity = '';
-    this.snapEl.classList.remove('hidden');
     window.addEventListener('keydown', this.boundKeyDown);
   }
 
   hide(): void {
     this.el.style.transform = 'translateX(-100%)';
     this.el.style.opacity = '0';
-    this.snapEl.classList.add('hidden');
+    this.closeSnapMenu();
     window.removeEventListener('keydown', this.boundKeyDown);
     if (this.activeToolId) {
       this.setActiveTool(null);
@@ -118,11 +97,92 @@ export class SketchToolbar {
   }
 
   get snapVerticesChecked(): boolean {
-    return this.snapEl.querySelector<HTMLInputElement>('[data-snap="vertex"]')!.checked;
+    return this.snapVertexCheckedState;
   }
 
   get snapGridChecked(): boolean {
-    return this.snapEl.querySelector<HTMLInputElement>('[data-snap="grid"]')!.checked;
+    return this.snapGridCheckedState;
+  }
+
+  private buildSnapButton(): void {
+    const cogWrapper = document.createElement('div');
+    cogWrapper.className = 'relative';
+
+    const cogBtn = document.createElement('button');
+    cogBtn.className = BTN_BASE;
+    cogBtn.innerHTML = `<span class="[&>svg]:size-5">${ICON_SETTINGS}</span>`;
+    cogBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.snapMenu) {
+        this.closeSnapMenu();
+      } else {
+        this.openSnapMenu(cogWrapper);
+      }
+    });
+    cogWrapper.appendChild(cogBtn);
+
+    this.el.appendChild(cogWrapper);
+  }
+
+  private openSnapMenu(anchor: HTMLElement): void {
+    this.closeSnapMenu();
+
+    const menu = document.createElement('div');
+    menu.className = 'absolute left-full top-1/2 -translate-y-1/2 ml-2 z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)] p-2 flex flex-col gap-2 whitespace-nowrap';
+
+    const vertexCheckbox = document.createElement('input');
+    vertexCheckbox.type = 'checkbox';
+    vertexCheckbox.className = 'checkbox checkbox-xs checkbox-primary';
+    vertexCheckbox.checked = this.snapVertexCheckedState;
+    vertexCheckbox.addEventListener('change', () => {
+      this.snapVertexCheckedState = vertexCheckbox.checked;
+      this.onSnapVerticesChange?.(vertexCheckbox.checked);
+    });
+    const vertexLabel = document.createElement('label');
+    vertexLabel.className = 'flex items-center gap-2 cursor-pointer';
+    vertexLabel.appendChild(vertexCheckbox);
+    const vertexText = document.createElement('span');
+    vertexText.className = 'text-xs text-base-content/70';
+    vertexText.textContent = 'Snap to vertices';
+    vertexLabel.appendChild(vertexText);
+
+    const gridCheckbox = document.createElement('input');
+    gridCheckbox.type = 'checkbox';
+    gridCheckbox.className = 'checkbox checkbox-xs checkbox-primary';
+    gridCheckbox.checked = this.snapGridCheckedState;
+    gridCheckbox.addEventListener('change', () => {
+      this.snapGridCheckedState = gridCheckbox.checked;
+      this.onSnapGridChange?.(gridCheckbox.checked);
+    });
+    const gridLabel = document.createElement('label');
+    gridLabel.className = 'flex items-center gap-2 cursor-pointer';
+    gridLabel.appendChild(gridCheckbox);
+    const gridText = document.createElement('span');
+    gridText.className = 'text-xs text-base-content/70';
+    gridText.textContent = 'Snap to grid';
+    gridLabel.appendChild(gridText);
+
+    menu.appendChild(vertexLabel);
+    menu.appendChild(gridLabel);
+
+    anchor.appendChild(menu);
+    this.snapMenu = menu;
+
+    setTimeout(() => document.addEventListener('click', this.boundCloseSnapMenu), 0);
+  }
+
+  private closeSnapMenu(): void {
+    if (this.snapMenu) {
+      this.snapMenu.remove();
+      this.snapMenu = null;
+      document.removeEventListener('click', this.boundCloseSnapMenu);
+    }
+  }
+
+  private handleCloseSnapMenu(e: MouseEvent): void {
+    if (this.snapMenu && !this.snapMenu.contains(e.target as Node) && !this.snapMenu.parentElement?.contains(e.target as Node)) {
+      this.closeSnapMenu();
+    }
   }
 
   private renderTools(): void {

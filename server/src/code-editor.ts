@@ -165,6 +165,32 @@ function parsePointLiteral(node: TSNode): [number, number] | null {
   return [parts[0], parts[1]];
 }
 
+function collectChainPointArgs(call: TSNode): TSNode[] {
+  const calls: TSNode[] = [];
+  let current: TSNode | null = call;
+  while (current && current.type === 'call_expression') {
+    calls.push(current);
+    const fn = current.childForFieldName('function');
+    if (fn && fn.type === 'member_expression') {
+      current = fn.childForFieldName('object');
+    } else {
+      break;
+    }
+  }
+  const pointArgs: TSNode[] = [];
+  for (let i = calls.length - 1; i >= 0; i--) {
+    const args = getArgumentsNode(calls[i]);
+    if (args) {
+      for (const child of args.namedChildren) {
+        if (parsePointLiteral(child)) {
+          pointArgs.push(child);
+        }
+      }
+    }
+  }
+  return pointArgs;
+}
+
 function spliceCode(code: string, startIndex: number, endIndex: number, replacement: string): string {
   return code.slice(0, startIndex) + replacement + code.slice(endIndex);
 }
@@ -770,18 +796,9 @@ export async function updateGeometryPosition(
     if (!call) {
       return null;
     }
-    const args = getArgumentsNode(call);
-    if (!args) {
-      return null;
-    }
     const pointText = `[${newPosition[0]}, ${newPosition[1]}]`;
 
-    const pointArgs: typeof args.namedChildren = [];
-    for (const child of args.namedChildren) {
-      if (parsePointLiteral(child)) {
-        pointArgs.push(child);
-      }
-    }
+    const pointArgs = collectChainPointArgs(call);
 
     const targetIdx = pointIndex >= 0 ? pointIndex : pointArgs.length + pointIndex;
 
@@ -790,6 +807,10 @@ export async function updateGeometryPosition(
     }
 
     if (pointIndex === 0 && pointArgs.length === 0) {
+      const args = getArgumentsNode(call);
+      if (!args) {
+        return null;
+      }
       const firstArg = args.namedChildren[0];
       if (!firstArg) {
         return spliceCode(code, args.startIndex + 1, args.startIndex + 1, pointText);
@@ -837,6 +858,45 @@ export async function setLinePosition(
     // Splice end first so startNode indices remain valid.
     const afterEnd = spliceCode(code, endNode.startIndex, endNode.endIndex, endText);
     return spliceCode(afterEnd, startNode.startIndex, startNode.endIndex, startText);
+  });
+}
+
+/**
+ * Update multiple point arguments of a geometry call chain atomically.
+ * Point indices refer to the collected chain points (innermost call first).
+ */
+export async function setChainPositions(
+  code: string,
+  sourceLine: number,
+  updates: { pointIndex: number; position: [number, number] }[],
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const pointArgs = collectChainPointArgs(call);
+    if (pointArgs.length === 0) {
+      return null;
+    }
+
+    const resolved = updates
+      .map(u => {
+        const idx = u.pointIndex >= 0 ? u.pointIndex : pointArgs.length + u.pointIndex;
+        if (idx < 0 || idx >= pointArgs.length) {
+          return null;
+        }
+        return { node: pointArgs[idx], position: u.position };
+      })
+      .filter((u): u is NonNullable<typeof u> => u !== null)
+      .sort((a, b) => b.node.startIndex - a.node.startIndex);
+
+    let result = code;
+    for (const { node, position } of resolved) {
+      const text = `[${position[0]}, ${position[1]}]`;
+      result = spliceCode(result, node.startIndex, node.endIndex, text);
+    }
+    return result;
   });
 }
 

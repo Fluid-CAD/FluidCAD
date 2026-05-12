@@ -13,6 +13,7 @@ import {
   insertGeometryCallWithVariable,
   updateGeometryPosition,
   setLinePosition,
+  setChainPositions,
   updateDimension,
   updateDimensionExpressionWithVariable,
   getDimensionExpression,
@@ -508,6 +509,40 @@ export function createActionsRouter(
         newStart as [number, number],
         newEnd as [number, number],
       );
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/set-chain-positions', (req, res) => {
+    const { updates, sourceLocation } = req.body;
+    if (
+      !Array.isArray(updates) || updates.length === 0 ||
+      !sourceLocation || typeof sourceLocation.line !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    sendToExtension({
+      type: 'set-chain-positions',
+      updates,
+      sourceLocation,
+    });
+    res.json({ success: true });
+  });
+
+  router.post('/code/set-chain-positions', async (req, res) => {
+    const { code, sourceLine, updates } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      !Array.isArray(updates) || updates.length === 0
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await setChainPositions(code, sourceLine, updates);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

@@ -24,6 +24,7 @@ import {
 } from './sketch-plane-utils';
 import { pointToSegmentDist } from './sketch-edge-utils';
 import { ExpressionInput, VariableInfo } from '../ui/expression-input';
+import { circumcenter, angleFromCenter, addDashedArc } from './tools/tool-preview-utils';
 type GetSketchSourceLineFn = () => number | null;
 import { FetchVariablesFn } from './sketch-tool';
 
@@ -275,6 +276,20 @@ export class DragMoveHandler {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ newPosition: newPos, sourceLocation, pointIndex }),
+      });
+    } else if (uniqueType === 'arc' && anchorPoint && fixedVertex) {
+      const newCenter = roundPoint(this.computeArcCenter(anchorPoint, fixedVertex, newPos));
+      const pointIndex = hitZone === 'start' ? 0 : 1;
+      fetch('/api/set-chain-positions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          updates: [
+            { pointIndex, position: newPos },
+            { pointIndex: 2, position: newCenter },
+          ],
+          sourceLocation,
+        }),
       });
     } else if ((uniqueType === 'hline' || uniqueType === 'vline') && (hitZone === 'start' || hitZone === 'body')) {
       fetch('/api/update-position', {
@@ -672,6 +687,40 @@ export class DragMoveHandler {
                 bestDistSq = bodyDistSq;
               }
             }
+          } else if (uniqueType === 'arc' && verts2d.length >= 3) {
+            const startV = verts2d[0];
+            const endV = verts2d[verts2d.length - 1];
+            const midV = verts2d[Math.floor(verts2d.length / 2)];
+            const center = circumcenter(startV, midV, endV);
+
+            if (center) {
+              const sdx = startV[0] - point2d[0];
+              const sdy = startV[1] - point2d[1];
+              const startDist = sdx * sdx + sdy * sdy;
+
+              const edx = endV[0] - point2d[0];
+              const edy = endV[1] - point2d[1];
+              const endDist = edx * edx + edy * edy;
+
+              if (startDist < thresholdSq && startDist < bestDistSq && startDist <= endDist) {
+                bestHit = {
+                  sourceLocation, uniqueType: 'arc', hitZone: 'start',
+                  anchorPoint: [center[0], center[1]],
+                  fixedVertex: endV,
+                  draggedVertices: [startV],
+                };
+                bestDistSq = startDist;
+              }
+              if (endDist < thresholdSq && endDist < bestDistSq && endDist < startDist) {
+                bestHit = {
+                  sourceLocation, uniqueType: 'arc', hitZone: 'end',
+                  anchorPoint: [center[0], center[1]],
+                  fixedVertex: startV,
+                  draggedVertices: [endV],
+                };
+                bestDistSq = endDist;
+              }
+            }
           } else {
             for (const v of verts2d) {
               const ddx = v[0] - point2d[0];
@@ -700,6 +749,27 @@ export class DragMoveHandler {
       result.push([rx * xx + ry * xy + rz * xz, rx * yx + ry * yy + rz * yz]);
     }
     return result;
+  }
+
+  private computeArcCenter(
+    oldCenter: [number, number],
+    pointA: [number, number],
+    pointB: [number, number],
+  ): [number, number] {
+    const mx = (pointA[0] + pointB[0]) / 2;
+    const my = (pointA[1] + pointB[1]) / 2;
+    const dx = pointB[0] - pointA[0];
+    const dy = pointB[1] - pointA[1];
+    const px = -dy;
+    const py = dx;
+    const lenSq = px * px + py * py;
+    if (lenSq < 1e-10) {
+      return oldCenter;
+    }
+    const cx = oldCenter[0] - mx;
+    const cy = oldCenter[1] - my;
+    const t = (cx * px + cy * py) / lenSq;
+    return [mx + t * px, my + t * py];
   }
 
   // ── Preview rendering ──────────────────────────────────────────────
@@ -755,6 +825,24 @@ export class DragMoveHandler {
       } else {
         this.addDot(fixedVertex, START_DOT_COLOR, camera, planeNormal);
         this.addDashedLine(fixedVertex, this.currentPoint);
+        this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
+      }
+    } else if (uniqueType === 'arc' && anchorPoint && fixedVertex) {
+      const newCenter = this.computeArcCenter(anchorPoint, fixedVertex, this.currentPoint);
+      const radius = Math.sqrt(
+        (this.currentPoint[0] - newCenter[0]) ** 2 + (this.currentPoint[1] - newCenter[1]) ** 2,
+      );
+      if (hitZone === 'start') {
+        const startAngle = angleFromCenter(newCenter, this.currentPoint);
+        const endAngle = angleFromCenter(newCenter, fixedVertex);
+        this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
+        addDashedArc(this.previewGroup, newCenter, radius, startAngle, endAngle, true, this.plane, 5);
+        this.addDot(fixedVertex, START_DOT_COLOR, camera, planeNormal);
+      } else {
+        const startAngle = angleFromCenter(newCenter, fixedVertex);
+        const endAngle = angleFromCenter(newCenter, this.currentPoint);
+        this.addDot(fixedVertex, START_DOT_COLOR, camera, planeNormal);
+        addDashedArc(this.previewGroup, newCenter, radius, startAngle, endAngle, true, this.plane, 5);
         this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
       }
     } else {

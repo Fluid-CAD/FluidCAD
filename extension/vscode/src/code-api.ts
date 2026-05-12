@@ -96,6 +96,13 @@ export function setLinePosition(
   return postCodeEdit<CodeEditResult>(serverUrl, 'set-line-position', { code, sourceLine, newStart, newEnd }, logger);
 }
 
+export function setChainPositions(
+  serverUrl: string, code: string, sourceLine: number,
+  updates: { pointIndex: number; position: [number, number] }[], logger: vscode.OutputChannel,
+) {
+  return postCodeEdit<CodeEditResult>(serverUrl, 'set-chain-positions', { code, sourceLine, updates }, logger);
+}
+
 export function updateDimension(
   serverUrl: string, code: string, sourceLine: number, newValue: number, logger: vscode.OutputChannel,
 ) {

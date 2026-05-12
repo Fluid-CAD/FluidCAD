@@ -26,6 +26,7 @@ import {
   handleInsertGeometry,
   handleUpdatePosition,
   handleSetLinePosition,
+  handleSetChainPositions,
   handleUpdateDimension,
   handleUpdateDimensionExpression,
 } from './code-edits';
@@ -171,6 +172,10 @@ export class Client {
       }
       case 'set-line-position': {
         handleSetLinePosition(this, msg);
+        break;
+      }
+      case 'set-chain-positions': {
+        handleSetChainPositions(this, msg);
         break;
       }
       case 'update-dimension': {

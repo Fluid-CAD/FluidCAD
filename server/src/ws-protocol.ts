@@ -175,6 +175,12 @@ export type SetLinePositionMessage = {
   sourceLocation: { line: number; column: number };
 };
 
+export type SetChainPositionsMessage = {
+  type: 'set-chain-positions';
+  updates: { pointIndex: number; position: [number, number] }[];
+  sourceLocation: { line: number; column: number };
+};
+
 export type UpdateDimensionMessage = {
   type: 'update-dimension';
   newValue: number;
@@ -205,6 +211,7 @@ export type ServerToExtensionMessage =
   | InsertGeometryMessage
   | UpdatePositionMessage
   | SetLinePositionMessage
+  | SetChainPositionsMessage
   | UpdateDimensionMessage
   | UpdateDimensionExpressionMessage;
 

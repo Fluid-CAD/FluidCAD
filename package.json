@@ -58,6 +58,7 @@
     "chokidar": "^5.0.0",
     "color-name": "^2.1.0",
     "express": "^5.2.1",
+    "iconoir": "^7.11.0",
     "occjs-wrapper": "npm:occjs-fluidcad@8.0.0",
     "stacktrace-parser": "^0.1.11",
     "tree-sitter-wasms": "^0.1.13",

@@ -31,9 +31,10 @@ import { FetchVariablesFn } from './sketch-tool';
 type DragHitResult = {
   sourceLocation: { line: number; column: number };
   uniqueType: string;
-  hitZone: 'start' | 'end' | 'body';
+  hitZone: 'start' | 'end' | 'body' | 'center';
   anchorPoint?: [number, number];
   fixedVertex?: [number, number];
+  fixedVertex2?: [number, number];
   originalDistance?: number;
   initialValue?: number;
   draggedVertices?: [number, number][];
@@ -278,19 +279,43 @@ export class DragMoveHandler {
         body: JSON.stringify({ newPosition: newPos, sourceLocation, pointIndex }),
       });
     } else if (uniqueType === 'arc' && anchorPoint && fixedVertex) {
-      const newCenter = roundPoint(this.computeArcCenter(anchorPoint, fixedVertex, newPos));
-      const pointIndex = hitZone === 'start' ? 0 : 1;
-      fetch('/api/set-chain-positions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          updates: [
-            { pointIndex, position: newPos },
-            { pointIndex: 2, position: newCenter },
-          ],
-          sourceLocation,
-        }),
-      });
+      if (hitZone === 'center') {
+        const startV = fixedVertex;
+        const endV = this.hitResult.fixedVertex2!;
+        const radius = Math.sqrt(
+          (startV[0] - newPos[0]) ** 2 + (startV[1] - newPos[1]) ** 2,
+        );
+        const endAngle = Math.atan2(endV[1] - newPos[1], endV[0] - newPos[0]);
+        const projectedEnd = roundPoint([
+          newPos[0] + radius * Math.cos(endAngle),
+          newPos[1] + radius * Math.sin(endAngle),
+        ]);
+        fetch('/api/set-chain-positions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            updates: [
+              { pointIndex: 1, position: projectedEnd },
+              { pointIndex: 2, position: newPos },
+            ],
+            sourceLocation,
+          }),
+        });
+      } else {
+        const newCenter = roundPoint(this.computeArcCenter(anchorPoint, fixedVertex, newPos));
+        const pointIndex = hitZone === 'start' ? 0 : 1;
+        fetch('/api/set-chain-positions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            updates: [
+              { pointIndex, position: newPos },
+              { pointIndex: 2, position: newCenter },
+            ],
+            sourceLocation,
+          }),
+        });
+      }
     } else if ((uniqueType === 'hline' || uniqueType === 'vline') && (hitZone === 'start' || hitZone === 'body')) {
       fetch('/api/update-position', {
         method: 'POST',
@@ -351,6 +376,11 @@ export class DragMoveHandler {
       const result = this.snapController.snap(raw);
       this.currentPoint = result.point2d;
     }
+
+    if (e.shiftKey && this.hitResult?.hitZone === 'center' && this.hitResult.uniqueType === 'arc') {
+      this.currentPoint = this.constrainToPerpBisector(this.currentPoint);
+    }
+
     this.rebuildPreview();
     this.updateDimensionValue();
     this.expressionInput.updatePosition(e.clientX, e.clientY);
@@ -690,10 +720,28 @@ export class DragMoveHandler {
           } else if (uniqueType === 'arc' && verts2d.length >= 3) {
             const startV = verts2d[0];
             const endV = verts2d[verts2d.length - 1];
-            const midV = verts2d[Math.floor(verts2d.length / 2)];
-            const center = circumcenter(startV, midV, endV);
 
-            if (center) {
+            let centerV: [number, number] | null = null;
+            for (const sp of child.sceneShapes) {
+              if (!sp.isMetaShape) {
+                continue;
+              }
+              for (const md of sp.meshes) {
+                if (md.vertices.length === 3 && md.indices.length === 0) {
+                  const cv = this.meshToSketch2D(md.vertices);
+                  if (cv.length === 1) {
+                    centerV = cv[0];
+                  }
+                }
+              }
+            }
+
+            if (!centerV) {
+              const midV = verts2d[Math.floor(verts2d.length / 2)];
+              centerV = circumcenter(startV, midV, endV);
+            }
+
+            if (centerV) {
               const sdx = startV[0] - point2d[0];
               const sdy = startV[1] - point2d[1];
               const startDist = sdx * sdx + sdy * sdy;
@@ -702,23 +750,39 @@ export class DragMoveHandler {
               const edy = endV[1] - point2d[1];
               const endDist = edx * edx + edy * edy;
 
-              if (startDist < thresholdSq && startDist < bestDistSq && startDist <= endDist) {
+              const cdx = centerV[0] - point2d[0];
+              const cdy = centerV[1] - point2d[1];
+              const centerDist = cdx * cdx + cdy * cdy;
+
+              const minDist = Math.min(startDist, endDist, centerDist);
+
+              if (startDist < thresholdSq && startDist < bestDistSq && startDist === minDist) {
                 bestHit = {
                   sourceLocation, uniqueType: 'arc', hitZone: 'start',
-                  anchorPoint: [center[0], center[1]],
+                  anchorPoint: centerV,
                   fixedVertex: endV,
                   draggedVertices: [startV],
                 };
                 bestDistSq = startDist;
               }
-              if (endDist < thresholdSq && endDist < bestDistSq && endDist < startDist) {
+              if (endDist < thresholdSq && endDist < bestDistSq && endDist === minDist) {
                 bestHit = {
                   sourceLocation, uniqueType: 'arc', hitZone: 'end',
-                  anchorPoint: [center[0], center[1]],
+                  anchorPoint: centerV,
                   fixedVertex: startV,
                   draggedVertices: [endV],
                 };
                 bestDistSq = endDist;
+              }
+              if (centerDist < thresholdSq && centerDist < bestDistSq && centerDist === minDist) {
+                bestHit = {
+                  sourceLocation, uniqueType: 'arc', hitZone: 'center',
+                  anchorPoint: centerV,
+                  fixedVertex: startV,
+                  fixedVertex2: endV,
+                  draggedVertices: [centerV],
+                };
+                bestDistSq = centerDist;
               }
             }
           } else {
@@ -749,6 +813,26 @@ export class DragMoveHandler {
       result.push([rx * xx + ry * xy + rz * xz, rx * yx + ry * yy + rz * yz]);
     }
     return result;
+  }
+
+  private constrainToPerpBisector(point: [number, number]): [number, number] {
+    if (!this.hitResult?.fixedVertex || !this.hitResult.fixedVertex2) {
+      return point;
+    }
+    const startV = this.hitResult.fixedVertex;
+    const endV = this.hitResult.fixedVertex2;
+    const mx = (startV[0] + endV[0]) / 2;
+    const my = (startV[1] + endV[1]) / 2;
+    const dx = endV[0] - startV[0];
+    const dy = endV[1] - startV[1];
+    const px = -dy;
+    const py = dx;
+    const lenSq = px * px + py * py;
+    if (lenSq < 1e-10) {
+      return point;
+    }
+    const t = ((point[0] - mx) * px + (point[1] - my) * py) / lenSq;
+    return [mx + t * px, my + t * py];
   }
 
   private computeArcCenter(
@@ -828,22 +912,41 @@ export class DragMoveHandler {
         this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
       }
     } else if (uniqueType === 'arc' && anchorPoint && fixedVertex) {
-      const newCenter = this.computeArcCenter(anchorPoint, fixedVertex, this.currentPoint);
-      const radius = Math.sqrt(
-        (this.currentPoint[0] - newCenter[0]) ** 2 + (this.currentPoint[1] - newCenter[1]) ** 2,
-      );
-      if (hitZone === 'start') {
-        const startAngle = angleFromCenter(newCenter, this.currentPoint);
-        const endAngle = angleFromCenter(newCenter, fixedVertex);
-        this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
-        addDashedArc(this.previewGroup, newCenter, radius, startAngle, endAngle, true, this.plane, 5);
-        this.addDot(fixedVertex, START_DOT_COLOR, camera, planeNormal);
+      if (hitZone === 'center') {
+        const startV = fixedVertex;
+        const endV = this.hitResult.fixedVertex2!;
+        const center = this.currentPoint;
+        const radius = Math.sqrt(
+          (startV[0] - center[0]) ** 2 + (startV[1] - center[1]) ** 2,
+        );
+        const startAngle = angleFromCenter(center, startV);
+        const endAngle = angleFromCenter(center, endV);
+        const projectedEnd: [number, number] = [
+          center[0] + radius * Math.cos(endAngle),
+          center[1] + radius * Math.sin(endAngle),
+        ];
+        this.addDot(startV, START_DOT_COLOR, camera, planeNormal);
+        addDashedArc(this.previewGroup, center, radius, startAngle, endAngle, true, this.plane, 5);
+        this.addDot(projectedEnd, START_DOT_COLOR, camera, planeNormal);
+        this.addDot(center, 0xffc578, camera, planeNormal);
       } else {
-        const startAngle = angleFromCenter(newCenter, fixedVertex);
-        const endAngle = angleFromCenter(newCenter, this.currentPoint);
-        this.addDot(fixedVertex, START_DOT_COLOR, camera, planeNormal);
-        addDashedArc(this.previewGroup, newCenter, radius, startAngle, endAngle, true, this.plane, 5);
-        this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
+        const newCenter = this.computeArcCenter(anchorPoint, fixedVertex, this.currentPoint);
+        const radius = Math.sqrt(
+          (this.currentPoint[0] - newCenter[0]) ** 2 + (this.currentPoint[1] - newCenter[1]) ** 2,
+        );
+        if (hitZone === 'start') {
+          const startAngle = angleFromCenter(newCenter, this.currentPoint);
+          const endAngle = angleFromCenter(newCenter, fixedVertex);
+          this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
+          addDashedArc(this.previewGroup, newCenter, radius, startAngle, endAngle, true, this.plane, 5);
+          this.addDot(fixedVertex, START_DOT_COLOR, camera, planeNormal);
+        } else {
+          const startAngle = angleFromCenter(newCenter, fixedVertex);
+          const endAngle = angleFromCenter(newCenter, this.currentPoint);
+          this.addDot(fixedVertex, START_DOT_COLOR, camera, planeNormal);
+          addDashedArc(this.previewGroup, newCenter, radius, startAngle, endAngle, true, this.plane, 5);
+          this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
+        }
       }
     } else {
       this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);

@@ -60,6 +60,9 @@ export class TangentArc extends GeometrySceneObject {
     this.setTangent(new Point2D(tx, ty));
 
     this.addShape(edge);
+    const centerVertex = Vertex.fromPoint2D(centerPoint);
+    centerVertex.markAsMetaShape();
+    this.addShape(centerVertex);
     this.setCurrentPosition(endPoint);
   }
 

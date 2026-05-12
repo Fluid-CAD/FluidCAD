@@ -1,15 +1,10 @@
 import type { SceneObjectRender } from '../types';
 import { savePreference, recompute, rollback, addBreakpoint, gotoSource } from '../api';
-import { ICON_CIRCLE_CHECK, ICON_REFRESH } from './icons';
+import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_CUBE, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT } from './icons';
 import { resolveIconName } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 
 const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
-const CHEVRON_SVG = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
-const CUBE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
-const DOTS_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
-const CHECK_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-const ALERT_DOT_SVG = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>';
 
 function formatDuration(ms: number): string {
   if (ms < 1000) {
@@ -57,7 +52,7 @@ export class TimelinePanel {
     const fileRow = document.createElement('div');
     fileRow.className = 'flex items-center gap-2 px-1 pb-1 shrink-0';
     fileRow.innerHTML = `
-      <span class="text-base-content/50 [&>svg]:size-4">${CUBE_SVG}</span>
+      <span class="text-base-content/50 [&>svg]:size-4">${ICON_CUBE}</span>
       <span data-ref="filename" class="text-base text-base-content/70 truncate"></span>
     `;
     this.panel.appendChild(fileRow);
@@ -67,10 +62,10 @@ export class TimelinePanel {
     const timelineHeader = document.createElement('div');
     timelineHeader.className = SECTION_HEADER;
     timelineHeader.innerHTML = `
-      <span data-ref="chevron" class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${CHEVRON_SVG}</span>
+      <span data-ref="chevron" class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${ICON_CHEVRON_RIGHT}</span>
       <span class="text-sm font-medium text-base-content/70">History</span>
       <span data-ref="history-total" class="text-xs text-base-content/40 tabular-nums hidden"></span>
-      <button data-ref="history-dots" class="ml-auto btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0">${DOTS_SVG}</button>
+      <button data-ref="history-dots" class="ml-auto btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0">${ICON_DOTS_VERTICAL}</button>
     `;
     this.panel.appendChild(timelineHeader);
     this.historyTotalLabel = timelineHeader.querySelector<HTMLSpanElement>('[data-ref="history-total"]')!;
@@ -272,14 +267,14 @@ export class TimelinePanel {
 
     const imgClass = isInvisible ? 'w-4 h-4 object-contain grayscale opacity-60' : 'w-4 h-4 object-contain';
     const errorDot = effectiveError
-      ? `<span class="text-error shrink-0 [&>svg]:w-2.5 [&>svg]:h-2.5">${ALERT_DOT_SVG}</span>`
+      ? `<span class="text-error shrink-0 [&>svg]:w-2.5 [&>svg]:h-2.5">${ICON_ALERT_DOT}</span>`
       : '';
 
     let chevron = '';
     if (hasChildren) {
       const rotation = isCollapsed ? '' : 'rotate-90';
       chevron = `<span data-toggle="${obj.id}" class="flex items-center justify-center w-5 h-5 opacity-50 hover:opacity-100 transition-transform ${rotation}">
-        ${CHEVRON_SVG}
+        ${ICON_CHEVRON_RIGHT}
       </span>`;
     } else {
       chevron = '<span class="w-4"></span>';
@@ -359,7 +354,7 @@ export class TimelinePanel {
     dropdown.style.right = `${panelRect.right - rect.right}px`;
 
     const checkIcon = this.showBuildTimings
-      ? `<span class="flex items-center justify-center w-4 h-4 shrink-0 text-primary [&>svg]:size-3">${CHECK_SVG}</span>`
+      ? `<span class="flex items-center justify-center w-4 h-4 shrink-0 text-primary [&>svg]:size-3">${ICON_CHECK}</span>`
       : `<span class="w-4 h-4 shrink-0"></span>`;
 
     dropdown.innerHTML = `

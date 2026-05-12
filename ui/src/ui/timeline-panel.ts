@@ -1,7 +1,8 @@
 import type { SceneObjectRender } from '../types';
 import { savePreference, recompute, rollback, addBreakpoint, gotoSource } from '../api';
-import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_EYE, ICON_EYE_OFF } from './icons';
+import { ICON_CIRCLE_CHECK, ICON_REFRESH } from './icons';
 import { resolveIconName } from './object-icons';
+import { ShapesPanel } from './shapes-panel';
 
 const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
 const CHEVRON_SVG = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
@@ -21,25 +22,14 @@ export class TimelinePanel {
   private panel: HTMLDivElement;
   private fileLabel: HTMLSpanElement;
   private timelineBody: HTMLDivElement;
-  private shapesBody: HTMLDivElement;
+  private shapesPanel: ShapesPanel;
   private loaded = false;
   private sceneObjects: SceneObjectRender[] = [];
   private rollbackStop = -1;
   private collapsedIds = new Set<string>();
-  private collapsedShapeGroups = new Set<string>();
-  private selectedShapeIds = new Set<string>();
   private timelineExpanded = true;
-  private shapesExpanded = true;
-  private onHighlightShape: (shapeId: string) => void;
-  private onExportShapes: (shapeIds: string[]) => void;
-  private onToggleShapeVisibility: (shapeId: string, visible: boolean) => void;
-  private isShapeHidden: (shapeId: string) => boolean;
-  private onSetShapeTransparency: (shapeId: string, opacity: number) => void;
-  private getShapeTransparency: (shapeId: string) => number;
-  private onResetAllTransparency: () => void;
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
-  private activeTransparencyPopover: HTMLDivElement | null = null;
   private showBuildTimings = false;
   private historyTotalLabel!: HTMLSpanElement;
   private hoverPopover: HTMLDivElement | null = null;
@@ -54,27 +44,16 @@ export class TimelinePanel {
     getShapeTransparency: (shapeId: string) => number,
     onResetAllTransparency: () => void,
   ) {
-    this.onHighlightShape = onHighlightShape;
-    this.onExportShapes = onExportShapes;
-    this.onToggleShapeVisibility = onToggleShapeVisibility;
-    this.isShapeHidden = isShapeHidden;
-    this.onSetShapeTransparency = onSetShapeTransparency;
-    this.getShapeTransparency = getShapeTransparency;
-    this.onResetAllTransparency = onResetAllTransparency;
-
-    // Panel — hidden until first scene load
     this.panel = document.createElement('div');
     this.panel.className = 'absolute left-6 top-6 bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
     container.appendChild(this.panel);
     this.applyPanelWidth();
 
-    // Logo above file name
     const logoRow = document.createElement('div');
     logoRow.className = 'flex items-center gap-1.5 px-1 pb-1 shrink-0';
     logoRow.innerHTML = `<img src="/logo.png" alt="FluidCAD" class="h-6 w-auto opacity-70" /><span class="text-[18px] font-bold text-base-content/70">FluidCAD</span>`;
     this.panel.appendChild(logoRow);
 
-    // File name label above accordion
     const fileRow = document.createElement('div');
     fileRow.className = 'flex items-center gap-2 px-1 pb-1 shrink-0';
     fileRow.innerHTML = `
@@ -105,20 +84,6 @@ export class TimelinePanel {
     this.timelineBody.className = 'py-1 overflow-y-auto min-h-0';
     this.panel.appendChild(this.timelineBody);
 
-    // Shapes accordion section
-    const shapesHeader = document.createElement('div');
-    shapesHeader.className = SECTION_HEADER;
-    shapesHeader.innerHTML = `
-      <span class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${CHEVRON_SVG}</span>
-      <span class="text-sm font-medium text-base-content/70">Shapes</span>
-    `;
-    this.panel.appendChild(shapesHeader);
-
-    this.shapesBody = document.createElement('div');
-    this.shapesBody.className = 'py-1 overflow-y-auto min-h-[33vh] flex-1';
-    this.panel.appendChild(this.shapesBody);
-
-    // Bind accordion header toggles
     timelineHeader.addEventListener('click', () => {
       this.timelineExpanded = !this.timelineExpanded;
       this.timelineBody.classList.toggle('hidden', !this.timelineExpanded);
@@ -126,12 +91,19 @@ export class TimelinePanel {
       chevron.classList.toggle('rotate-90', this.timelineExpanded);
     });
 
-    shapesHeader.addEventListener('click', () => {
-      this.shapesExpanded = !this.shapesExpanded;
-      this.shapesBody.classList.toggle('hidden', !this.shapesExpanded);
-      const chevron = shapesHeader.querySelector('span')!;
-      chevron.classList.toggle('rotate-90', this.shapesExpanded);
-    });
+    // Shapes accordion section (delegated to ShapesPanel)
+    this.shapesPanel = new ShapesPanel(
+      this.panel,
+      onHighlightShape,
+      onExportShapes,
+      onToggleShapeVisibility,
+      isShapeHidden,
+      onSetShapeTransparency,
+      getShapeTransparency,
+      onResetAllTransparency,
+    );
+    this.panel.appendChild(this.shapesPanel.header);
+    this.panel.appendChild(this.shapesPanel.body);
   }
 
   update(sceneObjects: SceneObjectRender[], rollbackStop: number, absPath?: string): void {
@@ -146,37 +118,24 @@ export class TimelinePanel {
       this.panel.classList.remove('hidden');
     }
     this.renderTimeline(true);
-    this.renderShapes();
+    this.shapesPanel.update(sceneObjects);
     this.updateHistoryTotal();
   }
 
-  private updateHistoryTotal(): void {
-    if (!this.showBuildTimings) {
-      this.historyTotalLabel.classList.add('hidden');
+  setShowBuildTimings(value: boolean): void {
+    if (this.showBuildTimings === value) {
       return;
     }
-    let total = 0;
-    let hasAny = false;
-    for (const obj of this.sceneObjects) {
-      if (obj.parentId) {
-        continue;
-      }
-      if (obj.fromCache || obj.buildDurationMs == null) {
-        continue;
-      }
-      total += obj.buildDurationMs;
-      hasAny = true;
+    this.showBuildTimings = value;
+    this.applyPanelWidth();
+    this.updateHistoryTotal();
+    if (this.loaded) {
+      this.renderTimeline();
     }
-    if (!hasAny) {
-      this.historyTotalLabel.classList.add('hidden');
-      return;
-    }
-    this.historyTotalLabel.textContent = `· ${formatDuration(total)}`;
-    this.historyTotalLabel.classList.remove('hidden');
   }
 
   // ---------------------------------------------------------------------------
-  // Timeline section
+  // Timeline rendering
   // ---------------------------------------------------------------------------
 
   private renderTimeline(scrollToCurrent = false): void {
@@ -229,10 +188,6 @@ export class TimelinePanel {
 
     this.timelineBody.innerHTML = html;
 
-    // Bind rollback click handlers. We defer the rollback by one dblclick
-    // window so that a double-click can cancel it in favour of adding a
-    // breakpoint — rolling back on the first click would re-render this
-    // timeline and break dblclick detection for the pair.
     this.timelineBody.querySelectorAll<HTMLElement>('[data-index]').forEach((el) => {
       el.addEventListener('click', (e) => {
         if ((e.target as HTMLElement).closest('[data-toggle]')) {
@@ -252,7 +207,6 @@ export class TimelinePanel {
       });
     });
 
-    // Bind expand/collapse toggle handlers
     this.timelineBody.querySelectorAll<HTMLElement>('[data-toggle]').forEach((el) => {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -266,7 +220,6 @@ export class TimelinePanel {
       });
     });
 
-    // Bind hover popover for items with profile categories
     if (this.showBuildTimings) {
       this.timelineBody.querySelectorAll<HTMLElement>('[data-index]').forEach((el) => {
         const index = parseInt(el.dataset.index!, 10);
@@ -356,182 +309,43 @@ export class TimelinePanel {
     `;
   }
 
-  private recomputeScene(): void {
-    recompute();
-  }
-
-  private rollbackTo(index: number): void {
-    rollback(index);
-  }
-
-  private addBreakpointAfter(index: number): void {
-    const obj = this.sceneObjects[index];
-    if (!obj || !obj.sourceLocation) {
-      return;
-    }
-    addBreakpoint(obj.sourceLocation);
-  }
-
-  private goToSource(obj: SceneObjectRender | undefined): void {
-    if (!obj || !obj.sourceLocation) {
-      return;
-    }
-    gotoSource(obj.sourceLocation);
-  }
-
   // ---------------------------------------------------------------------------
-  // Shapes section
+  // Build timings
   // ---------------------------------------------------------------------------
 
-  private renderShapes(): void {
-    const groups = new Map<string, { shapeId: string; shapeType: string; sceneObjectName: string }[]>();
-
+  private updateHistoryTotal(): void {
+    if (!this.showBuildTimings) {
+      this.historyTotalLabel.classList.add('hidden');
+      return;
+    }
+    let total = 0;
+    let hasAny = false;
     for (const obj of this.sceneObjects) {
-      for (const shape of obj.sceneShapes) {
-        if (shape.isMetaShape) {
-          continue;
-        }
-        const type = shape.shapeType || 'unknown';
-        if (!groups.has(type)) {
-          groups.set(type, []);
-        }
-        groups.get(type)!.push({
-          shapeId: shape.shapeId || '',
-          shapeType: type,
-          sceneObjectName: obj.name,
-        });
+      if (obj.parentId) {
+        continue;
       }
-    }
-
-    let html = '';
-
-    for (const [type, shapes] of groups) {
-      const capitalized = type.charAt(0).toUpperCase() + type.slice(1);
-      const isCollapsed = this.collapsedShapeGroups.has(type);
-      const rotation = isCollapsed ? '' : 'rotate-90';
-
-      html += `
-        <div class="flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/70 font-medium" data-shape-group="${type}">
-          <span class="flex items-center justify-center w-5 h-5 opacity-50 hover:opacity-100 transition-transform ${rotation}">
-            ${CHEVRON_SVG}
-          </span>
-          <span>${capitalized}</span>
-          <span class="text-base-content/40 ml-1">${shapes.length}</span>
-        </div>
-      `;
-
-      if (!isCollapsed) {
-        const nameTotals = new Map<string, number>();
-        for (const shape of shapes) {
-          nameTotals.set(shape.sceneObjectName, (nameTotals.get(shape.sceneObjectName) ?? 0) + 1);
-        }
-        const nameCounts = new Map<string, number>();
-        for (let i = 0; i < shapes.length; i++) {
-          const shape = shapes[i];
-          const nameIndex = (nameCounts.get(shape.sceneObjectName) ?? 0) + 1;
-          nameCounts.set(shape.sceneObjectName, nameIndex);
-          const total = nameTotals.get(shape.sceneObjectName) ?? 1;
-          const label = total > 1 ? `${shape.sceneObjectName} ${nameIndex}` : shape.sceneObjectName;
-          const isSelected = this.selectedShapeIds.has(shape.shapeId);
-          const selectedClass = isSelected ? ' bg-primary/10' : '';
-          const hidden = this.isShapeHidden(shape.shapeId);
-          const eyeIcon = hidden ? ICON_EYE_OFF : ICON_EYE;
-          const eyeVisibility = hidden ? 'opacity-100 text-base-content/70' : 'opacity-0 group-hover:opacity-100 text-base-content/40';
-          const eyeBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-3.5" data-eye="${shape.shapeId}">${eyeIcon}</button>`;
-          const dotsBtn = `<button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${shape.shapeId}">${DOTS_SVG}</button>`;
-          html += `
-            <div class="group flex items-center gap-2 pl-9 pr-3 py-1 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/70${selectedClass}" data-shape-id="${shape.shapeId}" data-shape-type="${shape.shapeType}">
-              <img src="/icons/${shape.shapeType}.png" class="w-4 h-4 object-contain" alt="" />
-              <span class="truncate">${label}</span>
-              ${eyeBtn}
-              ${dotsBtn}
-            </div>
-          `;
-        }
+      if (obj.fromCache || obj.buildDurationMs == null) {
+        continue;
       }
+      total += obj.buildDurationMs;
+      hasAny = true;
     }
-
-    this.shapesBody.innerHTML = html;
-
-    // Bind shape group toggle
-    this.shapesBody.querySelectorAll<HTMLElement>('[data-shape-group]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const type = el.dataset.shapeGroup!;
-        if (this.collapsedShapeGroups.has(type)) {
-          this.collapsedShapeGroups.delete(type);
-        } else {
-          this.collapsedShapeGroups.add(type);
-        }
-        this.renderShapes();
-      });
-    });
-
-    // Bind shape item click to highlight + multi-select
-    this.shapesBody.querySelectorAll<HTMLElement>('[data-shape-id]').forEach((el) => {
-      el.addEventListener('click', (e) => {
-        if ((e.target as HTMLElement).closest('[data-dots]')) {
-          return;
-        }
-        if ((e.target as HTMLElement).closest('[data-eye]')) {
-          return;
-        }
-        const shapeId = el.dataset.shapeId!;
-
-        if (e.ctrlKey || e.metaKey) {
-          if (this.selectedShapeIds.has(shapeId)) {
-            this.selectedShapeIds.delete(shapeId);
-          } else {
-            this.selectedShapeIds.add(shapeId);
-          }
-        } else {
-          this.selectedShapeIds.clear();
-          this.selectedShapeIds.add(shapeId);
-        }
-        this.renderShapes();
-
-        if (shapeId) {
-          this.onHighlightShape(shapeId);
-        }
-      });
-    });
-
-    // Bind 3-dot menu buttons
-    this.shapesBody.querySelectorAll<HTMLElement>('[data-dots]').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const shapeId = btn.dataset.dots!;
-        this.showShapeDropdown(btn, shapeId);
-      });
-    });
-
-    // Bind eye visibility toggle buttons
-    this.shapesBody.querySelectorAll<HTMLElement>('[data-eye]').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const shapeId = btn.dataset.eye!;
-        const nowVisible = this.isShapeHidden(shapeId);
-        this.onToggleShapeVisibility(shapeId, nowVisible);
-        this.renderShapes();
-      });
-    });
-  }
-
-  setShowBuildTimings(value: boolean): void {
-    if (this.showBuildTimings === value) {
+    if (!hasAny) {
+      this.historyTotalLabel.classList.add('hidden');
       return;
     }
-    this.showBuildTimings = value;
-    this.applyPanelWidth();
-    this.updateHistoryTotal();
-    if (this.loaded) {
-      this.renderTimeline();
-    }
+    this.historyTotalLabel.textContent = `· ${formatDuration(total)}`;
+    this.historyTotalLabel.classList.remove('hidden');
   }
 
   private applyPanelWidth(): void {
     this.panel.classList.toggle('w-[220px]', !this.showBuildTimings);
     this.panel.classList.toggle('w-[270px]', this.showBuildTimings);
   }
+
+  // ---------------------------------------------------------------------------
+  // History dropdown
+  // ---------------------------------------------------------------------------
 
   private showHistoryDropdown(anchor: HTMLElement): void {
     this.closeDropdown();
@@ -588,54 +402,20 @@ export class TimelinePanel {
     this.dropdownCleanup = () => document.removeEventListener('click', onClickOutside);
   }
 
-  private showShapeDropdown(anchor: HTMLElement, shapeId: string): void {
-    this.closeDropdown();
-
-    const dropdown = document.createElement('div');
-    dropdown.className = 'absolute z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
-
-    const rect = anchor.getBoundingClientRect();
-    const panelRect = this.panel.getBoundingClientRect();
-    dropdown.style.top = `${rect.bottom - panelRect.top + 2}px`;
-    dropdown.style.left = `${rect.left - panelRect.left}px`;
-
-    dropdown.innerHTML = `
-      <ul class="menu menu-xs p-1 min-w-[140px]">
-        <li><button data-action="export">Export</button></li>
-        <li><button data-action="set-transparency">Set Transparency</button></li>
-      </ul>
-    `;
-
-    this.panel.appendChild(dropdown);
-    this.activeDropdown = dropdown;
-
-    const resolveIds = (): string[] => {
-      if (this.selectedShapeIds.has(shapeId) && this.selectedShapeIds.size > 0) {
-        return [...this.selectedShapeIds];
-      }
-      return [shapeId];
-    };
-
-    dropdown.querySelector('[data-action="export"]')!.addEventListener('click', () => {
-      const ids = resolveIds();
-      this.closeDropdown();
-      this.onExportShapes(ids);
-    });
-
-    dropdown.querySelector('[data-action="set-transparency"]')!.addEventListener('click', () => {
-      const ids = resolveIds();
-      this.closeDropdown();
-      this.showTransparencyPopover(anchor, ids);
-    });
-
-    const onClickOutside = (e: MouseEvent) => {
-      if (!dropdown.contains(e.target as Node) && !anchor.contains(e.target as Node)) {
-        this.closeDropdown();
-      }
-    };
-    setTimeout(() => document.addEventListener('click', onClickOutside), 0);
-    this.dropdownCleanup = () => document.removeEventListener('click', onClickOutside);
+  private closeDropdown(): void {
+    if (this.activeDropdown) {
+      this.activeDropdown.remove();
+      this.activeDropdown = null;
+    }
+    if (this.dropdownCleanup) {
+      this.dropdownCleanup();
+      this.dropdownCleanup = null;
+    }
   }
+
+  // ---------------------------------------------------------------------------
+  // Profile popover
+  // ---------------------------------------------------------------------------
 
   private showProfilePopover(
     anchor: HTMLElement,
@@ -706,72 +486,36 @@ export class TimelinePanel {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Actions
+  // ---------------------------------------------------------------------------
+
+  private recomputeScene(): void {
+    recompute();
+  }
+
+  private rollbackTo(index: number): void {
+    rollback(index);
+  }
+
+  private addBreakpointAfter(index: number): void {
+    const obj = this.sceneObjects[index];
+    if (!obj || !obj.sourceLocation) {
+      return;
+    }
+    addBreakpoint(obj.sourceLocation);
+  }
+
+  private goToSource(obj: SceneObjectRender | undefined): void {
+    if (!obj || !obj.sourceLocation) {
+      return;
+    }
+    gotoSource(obj.sourceLocation);
+  }
+
   private escapeHtml(text: string): string {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
-  }
-
-  private closeDropdown(): void {
-    if (this.activeDropdown) {
-      this.activeDropdown.remove();
-      this.activeDropdown = null;
-    }
-    if (this.dropdownCleanup) {
-      this.dropdownCleanup();
-      this.dropdownCleanup = null;
-    }
-  }
-
-  private showTransparencyPopover(anchor: HTMLElement, shapeIds: string[]): void {
-    this.closeTransparencyPopover();
-
-    const popover = document.createElement('div');
-    popover.className = 'absolute z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)] p-3 w-[220px]';
-
-    const rect = anchor.getBoundingClientRect();
-    const panelRect = this.panel.getBoundingClientRect();
-    popover.style.bottom = `${panelRect.bottom - rect.bottom}px`;
-    popover.style.left = `${rect.left - panelRect.left}px`;
-
-    const initialOpacity = this.getShapeTransparency(shapeIds[0]);
-    const initialPct = Math.round(initialOpacity * 100);
-
-    popover.innerHTML = `
-      <div class="flex items-center justify-between mb-2">
-        <span class="text-xs font-medium">Transparency</span>
-        <button class="btn btn-ghost btn-xs btn-square" data-action="close">×</button>
-      </div>
-      <div class="flex items-center gap-2">
-        <input type="range" min="0" max="100" value="${initialPct}" class="range range-xs flex-1" data-ref="slider" />
-        <span class="text-xs text-base-content/60 w-10 text-right" data-ref="value">${initialPct}%</span>
-      </div>
-    `;
-
-    this.panel.appendChild(popover);
-    this.activeTransparencyPopover = popover;
-
-    const slider = popover.querySelector('[data-ref="slider"]') as HTMLInputElement;
-    const valueLabel = popover.querySelector('[data-ref="value"]') as HTMLElement;
-    slider.addEventListener('input', () => {
-      const pct = parseInt(slider.value, 10);
-      const opacity = pct / 100;
-      valueLabel.textContent = `${pct}%`;
-      for (const id of shapeIds) {
-        this.onSetShapeTransparency(id, opacity);
-      }
-    });
-
-    popover.querySelector('[data-action="close"]')!.addEventListener('click', () => {
-      this.closeTransparencyPopover();
-    });
-  }
-
-  private closeTransparencyPopover(): void {
-    if (this.activeTransparencyPopover) {
-      this.activeTransparencyPopover.remove();
-      this.activeTransparencyPopover = null;
-      this.onResetAllTransparency();
-    }
   }
 }

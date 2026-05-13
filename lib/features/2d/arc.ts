@@ -53,6 +53,17 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
     return arc;
   }
 
+  private static circumcenter(a: Point2D, b: Point2D, c: Point2D): Point2D {
+    const D = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+    const aa = a.x * a.x + a.y * a.y;
+    const bb = b.x * b.x + b.y * b.y;
+    const cc = c.x * c.x + c.y * c.y;
+    return new Point2D(
+      (aa * (b.y - c.y) + bb * (c.y - a.y) + cc * (a.y - b.y)) / D,
+      (aa * (c.x - b.x) + bb * (a.x - c.x) + cc * (b.x - a.x)) / D,
+    );
+  }
+
   // Chainable methods (IArc)
 
   radius(value: number): this {
@@ -289,7 +300,9 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
       centerPt.y + rMid * Math.sin(midAngle),
     );
 
-    const endAngle = aEnd;
+    const actualCenter = Arc.circumcenter(startPt, midPt, endPt);
+
+    const endAngle = Math.atan2(endPt.y - actualCenter.y, endPt.x - actualCenter.x);
 
     const start = plane.localToWorld(startPt);
     const end = plane.localToWorld(endPt);
@@ -305,7 +318,7 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
 
     this.setState('start', Vertex.fromPoint2D(startPt));
     this.setState('end', Vertex.fromPoint2D(endPt));
-    const centerVertex = Vertex.fromPoint2D(centerPt);
+    const centerVertex = Vertex.fromPoint2D(actualCenter);
     centerVertex.markAsMetaShape();
     this.addShape(centerVertex);
     this.addShape(edge);

@@ -53,6 +53,7 @@ export function addDot(
   planeNormal: Vector3,
   plane: PlaneData,
   opacity = 1,
+  renderOrder = 4,
 ): void {
   const geo = new CircleGeometry(DOT_RADIUS, DOT_SEGMENTS);
   const mat = new MeshBasicMaterial({
@@ -63,10 +64,10 @@ export function addDot(
     opacity,
   });
   const dot = new Mesh(geo, mat);
-  dot.renderOrder = 4;
+  dot.renderOrder = renderOrder;
 
   const group = new Group();
-  group.renderOrder = 4;
+  group.renderOrder = renderOrder;
   const pos = localToWorld(point2d, plane);
   group.position.copy(pos);
   group.lookAt(pos.clone().add(planeNormal));
@@ -86,6 +87,7 @@ export function addDashedLine(
   from: [number, number],
   to: [number, number],
   plane: PlaneData,
+  renderOrder = 3,
 ): void {
   const worldFrom = localToWorld(from, plane);
   const worldTo = localToWorld(to, plane);
@@ -106,7 +108,7 @@ export function addDashedLine(
 
   const line = new Line(geo, mat);
   line.computeLineDistances();
-  line.renderOrder = 3;
+  line.renderOrder = renderOrder;
   previewGroup.add(line);
 }
 
@@ -115,6 +117,7 @@ export function addDashedCircle(
   center: [number, number],
   radius: number,
   plane: PlaneData,
+  renderOrder = 3,
 ): void {
   const verts = new Float32Array((CIRCLE_SEGMENTS + 1) * 3);
   for (let i = 0; i <= CIRCLE_SEGMENTS; i++) {
@@ -141,7 +144,7 @@ export function addDashedCircle(
 
   const line = new Line(geo, mat);
   line.computeLineDistances();
-  line.renderOrder = 3;
+  line.renderOrder = renderOrder;
   previewGroup.add(line);
 }
 

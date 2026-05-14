@@ -1,5 +1,16 @@
 import { PlaneData, SceneObjectRender } from '../types';
 
+const INTERACTIVE_SKETCH_TYPES = new Set([
+  'line-two-points', 'hline', 'vline',
+  'circle',
+  'arc', 'arc-from-center',
+  'tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent',
+]);
+
+export function isInteractiveSketchType(uniqueType: string | undefined): boolean {
+  return INTERACTIVE_SKETCH_TYPES.has(uniqueType ?? '');
+}
+
 export type EdgeEntry = {
   shapeId: string;
   segments: { ax: number; ay: number; bx: number; by: number }[];
@@ -23,6 +34,9 @@ export function buildEdgeIndex(
 
   for (const obj of sceneObjects) {
     if (obj.parentId !== sketchId) {
+      continue;
+    }
+    if (!isInteractiveSketchType(obj.uniqueType)) {
       continue;
     }
     for (const shape of obj.sceneShapes) {
@@ -106,7 +120,7 @@ export function buildCenterIndex(
     if (obj.parentId !== sketchId) {
       continue;
     }
-    if (!ARC_UNIQUE_TYPES.has(obj.uniqueType ?? '')) {
+    if (!isInteractiveSketchType(obj.uniqueType) || !ARC_UNIQUE_TYPES.has(obj.uniqueType ?? '')) {
       continue;
     }
 

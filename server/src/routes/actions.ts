@@ -18,6 +18,7 @@ import {
   updateDimensionExpressionWithVariable,
   getDimensionExpression,
   extractVariablesInScope,
+  setRectDimensions,
 } from '../code-editor.ts';
 
 const NEW_VAR_NAME_RE = /^[a-zA-Z_$][\w$]*$/;
@@ -634,6 +635,46 @@ export function createActionsRouter(
         code, sourceLine, expression,
         typeof sketchSourceLine === 'number' ? sketchSourceLine : sourceLine,
         nv,
+      );
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/set-rect-dimensions', (req, res) => {
+    const { startPoint, width, height, sourceLocation } = req.body;
+    if (
+      typeof width !== 'number' || typeof height !== 'number' ||
+      !sourceLocation || typeof sourceLocation.line !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const sp = Array.isArray(startPoint) && startPoint.length === 2 ? startPoint as [number, number] : null;
+    sendToExtension({
+      type: 'set-rect-dimensions',
+      startPoint: sp,
+      width,
+      height,
+      sourceLocation,
+    });
+    res.json({ success: true });
+  });
+
+  router.post('/code/set-rect-dimensions', async (req, res) => {
+    const { code, sourceLine, startPoint, width, height } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      typeof width !== 'number' || typeof height !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const sp = Array.isArray(startPoint) && startPoint.length === 2 ? startPoint as [number, number] : null;
+    try {
+      const result = await setRectDimensions(
+        code, sourceLine, sp, width, height,
       );
       res.json(result);
     } catch (err: any) {

@@ -5,6 +5,7 @@ import {
   addDashedLine,
   addDashedCircle,
   addDashedArc,
+  addDashedRect,
   angleFromCenter,
   START_POINT_COLOR,
   SNAP_VERTEX_COLOR,
@@ -79,6 +80,10 @@ export function rebuildDragPreview(
     }
   } else if (uniqueType === 'arc' && anchorPoint && fixedVertex) {
     rebuildArcPreview(previewGroup, currentPoint, hitResult, camera, planeNormal, plane);
+  } else if (uniqueType === 'rect' && anchorPoint) {
+    addDot(previewGroup, anchorPoint, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
+    addDashedRect(previewGroup, anchorPoint, currentPoint, plane, RO);
+    addDot(previewGroup, currentPoint, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
   } else if ((uniqueType === 'tarc-to-point' || uniqueType === 'tarc-to-point-tangent') && fixedVertex && hitResult.tangentDir) {
     rebuildTangentArcPreview(previewGroup, currentPoint, hitResult, camera, planeNormal, plane);
   } else {

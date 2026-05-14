@@ -29,6 +29,7 @@ import {
   handleSetChainPositions,
   handleUpdateDimension,
   handleUpdateDimensionExpression,
+  handleSetRectDimensions,
 } from './code-edits';
 import { updateDiagnostics, type CompileError } from './diagnostics';
 
@@ -184,6 +185,10 @@ export class Client {
       }
       case 'update-dimension-expression': {
         handleUpdateDimensionExpression(this, msg);
+        break;
+      }
+      case 'set-rect-dimensions': {
+        handleSetRectDimensions(this, msg);
         break;
       }
       case 'export-complete': {

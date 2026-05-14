@@ -148,6 +148,129 @@ export function addDashedCircle(
   previewGroup.add(line);
 }
 
+export function addDashedRect(
+  previewGroup: Group,
+  corner1: [number, number],
+  corner2: [number, number],
+  plane: PlaneData,
+  renderOrder = 3,
+): void {
+  const x1 = corner1[0], y1 = corner1[1];
+  const x2 = corner2[0], y2 = corner2[1];
+
+  const corners: [number, number][] = [
+    [x1, y1], [x2, y1], [x2, y2], [x1, y2], [x1, y1],
+  ];
+
+  const verts = new Float32Array(corners.length * 3);
+  for (let i = 0; i < corners.length; i++) {
+    const w = localToWorld(corners[i], plane);
+    verts[i * 3] = w.x;
+    verts[i * 3 + 1] = w.y;
+    verts[i * 3 + 2] = w.z;
+  }
+
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new BufferAttribute(verts, 3));
+
+  const mat = new LineDashedMaterial({
+    color: GUIDE_COLOR,
+    dashSize: 3,
+    gapSize: 2,
+    depthTest: false,
+  });
+
+  const line = new Line(geo, mat);
+  line.computeLineDistances();
+  line.renderOrder = renderOrder;
+  previewGroup.add(line);
+}
+
+const ROUNDED_RECT_ARC_SEGMENTS = 8;
+
+export function addDashedRoundedRect(
+  previewGroup: Group,
+  corner1: [number, number],
+  corner2: [number, number],
+  radius: number,
+  plane: PlaneData,
+  renderOrder = 3,
+): void {
+  const minX = Math.min(corner1[0], corner2[0]);
+  const maxX = Math.max(corner1[0], corner2[0]);
+  const minY = Math.min(corner1[1], corner2[1]);
+  const maxY = Math.max(corner1[1], corner2[1]);
+
+  const w = maxX - minX;
+  const h = maxY - minY;
+  const r = Math.min(radius, w / 2, h / 2);
+
+  if (r <= 0) {
+    addDashedRect(previewGroup, corner1, corner2, plane, renderOrder);
+    return;
+  }
+
+  const pts: [number, number][] = [];
+
+  // bottom edge (left to right)
+  pts.push([minX + r, minY]);
+  pts.push([maxX - r, minY]);
+  // bottom-right arc
+  for (let i = 0; i <= ROUNDED_RECT_ARC_SEGMENTS; i++) {
+    const a = -Math.PI / 2 + (i / ROUNDED_RECT_ARC_SEGMENTS) * (Math.PI / 2);
+    pts.push([maxX - r + r * Math.cos(a), minY + r + r * Math.sin(a)]);
+  }
+  // right edge (bottom to top)
+  pts.push([maxX, minY + r]);
+  pts.push([maxX, maxY - r]);
+  // top-right arc
+  for (let i = 0; i <= ROUNDED_RECT_ARC_SEGMENTS; i++) {
+    const a = 0 + (i / ROUNDED_RECT_ARC_SEGMENTS) * (Math.PI / 2);
+    pts.push([maxX - r + r * Math.cos(a), maxY - r + r * Math.sin(a)]);
+  }
+  // top edge (right to left)
+  pts.push([maxX - r, maxY]);
+  pts.push([minX + r, maxY]);
+  // top-left arc
+  for (let i = 0; i <= ROUNDED_RECT_ARC_SEGMENTS; i++) {
+    const a = Math.PI / 2 + (i / ROUNDED_RECT_ARC_SEGMENTS) * (Math.PI / 2);
+    pts.push([minX + r + r * Math.cos(a), maxY - r + r * Math.sin(a)]);
+  }
+  // left edge (top to bottom)
+  pts.push([minX, maxY - r]);
+  pts.push([minX, minY + r]);
+  // bottom-left arc
+  for (let i = 0; i <= ROUNDED_RECT_ARC_SEGMENTS; i++) {
+    const a = Math.PI + (i / ROUNDED_RECT_ARC_SEGMENTS) * (Math.PI / 2);
+    pts.push([minX + r + r * Math.cos(a), minY + r + r * Math.sin(a)]);
+  }
+  // close
+  pts.push([minX + r, minY]);
+
+  const verts = new Float32Array(pts.length * 3);
+  for (let i = 0; i < pts.length; i++) {
+    const wpt = localToWorld(pts[i], plane);
+    verts[i * 3] = wpt.x;
+    verts[i * 3 + 1] = wpt.y;
+    verts[i * 3 + 2] = wpt.z;
+  }
+
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new BufferAttribute(verts, 3));
+
+  const mat = new LineDashedMaterial({
+    color: GUIDE_COLOR,
+    dashSize: 3,
+    gapSize: 2,
+    depthTest: false,
+  });
+
+  const line = new Line(geo, mat);
+  line.computeLineDistances();
+  line.renderOrder = renderOrder;
+  previewGroup.add(line);
+}
+
 export function addDashedArc(
   previewGroup: Group,
   center: [number, number],

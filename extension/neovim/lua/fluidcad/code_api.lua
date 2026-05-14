@@ -90,6 +90,10 @@ function M.set_chain_positions(code, source_line, updates)
   return post('set-chain-positions', { code = code, sourceLine = source_line, updates = updates })
 end
 
+function M.set_rect_dimensions(code, source_line, start_point, width, height)
+  return post('set-rect-dimensions', { code = code, sourceLine = source_line, startPoint = start_point, width = width, height = height })
+end
+
 function M.update_dimension(code, source_line, new_value)
   return post('update-dimension', { code = code, sourceLine = source_line, newValue = new_value })
 end

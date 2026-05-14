@@ -27,6 +27,29 @@ export function findHitGeometry(
     const uniqueType = (child as any).uniqueType as string | undefined;
     const sourceLocation = child.sourceLocation;
 
+    if (uniqueType === 'rect') {
+      const allVerts: [number, number][] = [];
+      for (const part of child.sceneShapes) {
+        if (part.isMetaShape) {
+          continue;
+        }
+        for (const mesh of part.meshes) {
+          const mv = meshToSketch2D(mesh.vertices, plane);
+          for (const v of mv) {
+            allVerts.push(v);
+          }
+        }
+      }
+      if (allVerts.length > 0) {
+        const result = hitTestRect(point2d, allVerts, sourceLocation, child, thresholdSq, bestDistSq);
+        if (result) {
+          bestHit = result.hit;
+          bestDistSq = result.distSq;
+        }
+      }
+      continue;
+    }
+
     for (const part of child.sceneShapes) {
       if (part.isMetaShape) {
         continue;
@@ -429,6 +452,76 @@ function hitTestTangentArc(
         },
         distSq: centerDist,
       };
+    }
+  }
+
+  return result;
+}
+
+function hitTestRect(
+  point2d: [number, number],
+  verts2d: [number, number][],
+  sourceLocation: { line: number; column: number },
+  child: SceneObjectRender,
+  thresholdSq: number,
+  bestDistSq: number,
+): HitTestResult | null {
+  if (child.object?.radius) {
+    return null;
+  }
+
+  const DUP_EPS_SQ = 1e-6;
+  const uniqueVerts: [number, number][] = [];
+  for (const v of verts2d) {
+    let isDup = false;
+    for (const u of uniqueVerts) {
+      const dx = u[0] - v[0];
+      const dy = u[1] - v[1];
+      if (dx * dx + dy * dy < DUP_EPS_SQ) {
+        isDup = true;
+        break;
+      }
+    }
+    if (!isDup) {
+      uniqueVerts.push(v);
+    }
+  }
+
+  if (uniqueVerts.length < 4) {
+    return null;
+  }
+
+  let result: HitTestResult | null = null;
+
+  for (const corner of uniqueVerts) {
+    const ddx = corner[0] - point2d[0];
+    const ddy = corner[1] - point2d[1];
+    const d = ddx * ddx + ddy * ddy;
+    if (d < thresholdSq && d < bestDistSq) {
+      let maxDistSq = -1;
+      let opposite: [number, number] = uniqueVerts[0];
+      for (const other of uniqueVerts) {
+        const ox = other[0] - corner[0];
+        const oy = other[1] - corner[1];
+        const od = ox * ox + oy * oy;
+        if (od > maxDistSq) {
+          maxDistSq = od;
+          opposite = other;
+        }
+      }
+
+      result = {
+        hit: {
+          sourceLocation,
+          uniqueType: 'rect',
+          hitZone: 'end',
+          anchorPoint: opposite,
+          fixedVertex: opposite,
+          draggedVertices: [corner],
+        },
+        distSq: d,
+      };
+      bestDistSq = d;
     }
   }
 

@@ -1185,3 +1185,78 @@ export async function extractVariablesInScope(
 
   return variables;
 }
+
+export function setRectDimensions(
+  code: string,
+  sourceLine: number,
+  startPoint: [number, number] | null,
+  width: number,
+  height: number,
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const outerCall = findEditableCallAt(tree, lines, sourceLine);
+    if (!outerCall) {
+      return null;
+    }
+
+    let rectCall: TSNode | null = null;
+    let current: TSNode | null = outerCall;
+    while (current && current.type === 'call_expression') {
+      const fn = current.childForFieldName('function');
+      if (fn) {
+        if (fn.type === 'identifier' && fn.text === 'rect') {
+          rectCall = current;
+          break;
+        }
+        if (fn.type === 'member_expression') {
+          current = fn.childForFieldName('object');
+          continue;
+        }
+      }
+      break;
+    }
+
+    if (!rectCall) {
+      return null;
+    }
+
+    const args = getArgumentsNode(rectCall);
+    if (!args || args.namedChildren.length < 2) {
+      return null;
+    }
+
+    const pointArgs: TSNode[] = [];
+    const numericArgs: TSNode[] = [];
+    for (const child of args.namedChildren) {
+      if (isPointArray(child)) {
+        pointArgs.push(child);
+      } else {
+        numericArgs.push(child);
+      }
+    }
+
+    if (numericArgs.length < 2) {
+      return null;
+    }
+
+    type Edit = { start: number; end: number; text: string };
+    const edits: Edit[] = [];
+
+    edits.push({ start: numericArgs[1].startIndex, end: numericArgs[1].endIndex, text: String(height) });
+    edits.push({ start: numericArgs[0].startIndex, end: numericArgs[0].endIndex, text: String(width) });
+
+    if (startPoint && pointArgs.length > 0) {
+      const pointText = `[${startPoint[0]}, ${startPoint[1]}]`;
+      edits.push({ start: pointArgs[0].startIndex, end: pointArgs[0].endIndex, text: pointText });
+    }
+
+    edits.sort((a, b) => b.start - a.start);
+
+    let result = code;
+    for (const edit of edits) {
+      result = spliceCode(result, edit.start, edit.end, edit.text);
+    }
+
+    return result;
+  });
+}

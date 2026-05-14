@@ -685,18 +685,16 @@ export class DragMoveHandler {
               bestDistSq = endDist;
             }
 
-            if (isConstrained) {
-              const hasExplicitStart = child.object?.hasExplicitStart === true;
-              const isCentered = child.object?.centered === true;
-              if (hasExplicitStart && !isCentered && startDist < thresholdSq && startDist < bestDistSq) {
-                bestHit = {
-                  sourceLocation, uniqueType: uniqueType || '', hitZone: 'start',
-                  anchorPoint: startV, fixedVertex: endV,
-                  originalDistance: signedDist,
-                  draggedVertices: [startV],
-                };
-                bestDistSq = startDist;
-              }
+            if (child.object?.hasExplicitStart === true
+                && !(isConstrained && child.object?.centered === true)
+                && startDist < thresholdSq && startDist < bestDistSq) {
+              bestHit = {
+                sourceLocation, uniqueType: uniqueType || '', hitZone: 'start',
+                anchorPoint: startV, fixedVertex: endV,
+                originalDistance: signedDist,
+                draggedVertices: [startV],
+              };
+              bestDistSq = startDist;
             }
 
             // Body hit only competes when the pointer is NOT within an

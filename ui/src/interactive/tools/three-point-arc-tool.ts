@@ -14,6 +14,7 @@ import { ICON_THREE_POINT_ARC } from '../../ui/icons';
 import { ExpressionInput, VariableInfo, CommitResult } from '../../ui/expression-input';
 import {
   START_POINT_COLOR,
+  GUIDE_COLOR,
   SNAP_VERTEX_COLOR,
   SNAP_GRID_COLOR,
   addDot,
@@ -326,6 +327,9 @@ export class ThreePointArcTool extends SketchTool {
           const endAngle = angleFromCenter(center, this.endPoint);
           const ccw = this.isMouseCCW();
           addDashedArc(this.previewGroup, center, radius, startAngle, endAngle, ccw, this.plane);
+          addDot(this.previewGroup, center, GUIDE_COLOR, camera, planeNormal, this.plane, 0.7);
+          addDashedLine(this.previewGroup, center, this.startPoint, this.plane);
+          addDashedLine(this.previewGroup, center, this.endPoint, this.plane);
         }
 
         if (this.lastSnapType !== 'none') {

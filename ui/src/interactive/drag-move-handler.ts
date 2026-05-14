@@ -315,10 +315,23 @@ export class DragMoveHandler {
       }
     } else if ((uniqueType === 'hline' || uniqueType === 'vline') && (hitZone === 'start' || hitZone === 'body')) {
       updatePosition(newPos, sourceLocation, 0);
-    } else if (uniqueType === 'tarc-to-point') {
-      updatePosition(newPos, sourceLocation, 0);
-    } else if (uniqueType === 'tarc-to-point-tangent') {
-      updatePosition(newPos, sourceLocation, 1);
+    } else if (uniqueType === 'tarc-to-point' || uniqueType === 'tarc-to-point-tangent') {
+      const endIdx = uniqueType === 'tarc-to-point' ? 0 : 1;
+      if (hitZone === 'center' && fixedVertex && this.hitResult.fixedVertex2) {
+        const startV = fixedVertex;
+        const oldEnd = this.hitResult.fixedVertex2;
+        const radius = Math.sqrt(
+          (startV[0] - newPos[0]) ** 2 + (startV[1] - newPos[1]) ** 2,
+        );
+        const endAngle = Math.atan2(oldEnd[1] - newPos[1], oldEnd[0] - newPos[0]);
+        const projectedEnd = roundPoint([
+          newPos[0] + radius * Math.cos(endAngle),
+          newPos[1] + radius * Math.sin(endAngle),
+        ]);
+        updatePosition(projectedEnd, sourceLocation, endIdx);
+      } else {
+        updatePosition(newPos, sourceLocation, endIdx);
+      }
     } else {
       updatePosition(newPos, sourceLocation);
     }
@@ -372,6 +385,10 @@ export class DragMoveHandler {
 
     if (e.shiftKey && this.hitResult?.hitZone === 'center' && this.hitResult.uniqueType === 'arc') {
       this.currentPoint = this.constrainToPerpBisector(this.currentPoint);
+    }
+
+    if (this.hitResult?.hitZone === 'center' && this.hitResult.tangentDir && this.hitResult.fixedVertex) {
+      this.currentPoint = this.constrainToTangentPerp(this.currentPoint, this.hitResult.fixedVertex, this.hitResult.tangentDir);
     }
 
     this.rebuildPreview();
@@ -764,17 +781,41 @@ export class DragMoveHandler {
             const startV = verts2d[0];
             const endV = verts2d[verts2d.length - 1];
 
+            const tdx = verts2d[1][0] - startV[0];
+            const tdy = verts2d[1][1] - startV[1];
+            const tlen = Math.sqrt(tdx * tdx + tdy * tdy);
+            const tangent: [number, number] = tlen > 1e-10
+              ? [tdx / tlen, tdy / tlen]
+              : [1, 0];
+
+            let centerV: [number, number] | null = null;
+            for (const sp of child.sceneShapes) {
+              if (!sp.isMetaShape) {
+                continue;
+              }
+              for (const md of sp.meshes) {
+                if (md.vertices.length === 3 && md.indices.length === 0) {
+                  const cv = this.meshToSketch2D(md.vertices);
+                  if (cv.length === 1) {
+                    centerV = cv[0];
+                  }
+                }
+              }
+            }
+
+            if (!centerV) {
+              const midV = verts2d[Math.floor(verts2d.length / 2)];
+              centerV = circumcenter(startV, midV, endV);
+            }
+
+            const midV = verts2d[Math.floor(verts2d.length / 2)];
+            const arcCCW = centerV ? isCCW(centerV, startV, midV) : true;
+
             const edx = endV[0] - point2d[0];
             const edy = endV[1] - point2d[1];
             const endDist = edx * edx + edy * edy;
 
             if (endDist < thresholdSq && endDist < bestDistSq) {
-              const tdx = verts2d[1][0] - startV[0];
-              const tdy = verts2d[1][1] - startV[1];
-              const tlen = Math.sqrt(tdx * tdx + tdy * tdy);
-              const tangent: [number, number] = tlen > 1e-10
-                ? [tdx / tlen, tdy / tlen]
-                : [1, 0];
               bestHit = {
                 sourceLocation,
                 uniqueType: uniqueType || '',
@@ -783,8 +824,30 @@ export class DragMoveHandler {
                 fixedVertex: startV,
                 draggedVertices: [endV],
                 tangentDir: tangent,
+                arcCCW,
               };
               bestDistSq = endDist;
+            }
+
+            if (centerV) {
+              const cdx = centerV[0] - point2d[0];
+              const cdy = centerV[1] - point2d[1];
+              const centerDist = cdx * cdx + cdy * cdy;
+
+              if (centerDist < thresholdSq && centerDist < bestDistSq) {
+                bestHit = {
+                  sourceLocation,
+                  uniqueType: uniqueType || '',
+                  hitZone: 'center',
+                  anchorPoint: startV,
+                  fixedVertex: startV,
+                  fixedVertex2: endV,
+                  draggedVertices: [centerV],
+                  tangentDir: tangent,
+                  arcCCW,
+                };
+                bestDistSq = centerDist;
+              }
             }
           } else {
             for (const v of verts2d) {
@@ -834,6 +897,17 @@ export class DragMoveHandler {
     }
     const t = ((point[0] - mx) * px + (point[1] - my) * py) / lenSq;
     return [mx + t * px, my + t * py];
+  }
+
+  private constrainToTangentPerp(
+    point: [number, number],
+    startV: [number, number],
+    tangent: [number, number],
+  ): [number, number] {
+    const px = -tangent[1];
+    const py = tangent[0];
+    const t = (point[0] - startV[0]) * px + (point[1] - startV[1]) * py;
+    return [startV[0] + t * px, startV[1] + t * py];
   }
 
   private computeTangentArc(
@@ -975,15 +1049,34 @@ export class DragMoveHandler {
     } else if ((uniqueType === 'tarc-to-point' || uniqueType === 'tarc-to-point-tangent') && fixedVertex && this.hitResult.tangentDir) {
       const startV = fixedVertex;
       const tangent = this.hitResult.tangentDir;
-      const arc = this.computeTangentArc(startV, this.currentPoint, tangent);
-      if (arc) {
+      if (hitZone === 'center') {
+        const center = this.currentPoint;
+        const endV = this.hitResult.fixedVertex2!;
+        const radius = Math.sqrt(
+          (startV[0] - center[0]) ** 2 + (startV[1] - center[1]) ** 2,
+        );
+        const startAngle = angleFromCenter(center, startV);
+        const endAngle = angleFromCenter(center, endV);
+        const ccw = this.hitResult.arcCCW !== false;
+        const projectedEnd: [number, number] = [
+          center[0] + radius * Math.cos(endAngle),
+          center[1] + radius * Math.sin(endAngle),
+        ];
         this.addDot(startV, START_DOT_COLOR, camera, planeNormal);
-        addDashedArc(this.previewGroup, arc.center, arc.radius, arc.startAngle, arc.endAngle, arc.ccw, this.plane, 5);
-        this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
+        addDashedArc(this.previewGroup, center, radius, startAngle, endAngle, ccw, this.plane, 5);
+        this.addDot(projectedEnd, START_DOT_COLOR, camera, planeNormal);
+        this.addDot(center, 0xffc578, camera, planeNormal);
       } else {
-        this.addDot(startV, START_DOT_COLOR, camera, planeNormal);
-        this.addDashedLine(startV, this.currentPoint);
-        this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
+        const arc = this.computeTangentArc(startV, this.currentPoint, tangent);
+        if (arc) {
+          this.addDot(startV, START_DOT_COLOR, camera, planeNormal);
+          addDashedArc(this.previewGroup, arc.center, arc.radius, arc.startAngle, arc.endAngle, arc.ccw, this.plane, 5);
+          this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
+        } else {
+          this.addDot(startV, START_DOT_COLOR, camera, planeNormal);
+          this.addDashedLine(startV, this.currentPoint);
+          this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
+        }
       }
     } else {
       this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);

@@ -1,8 +1,20 @@
-import { LineSegments, Object3D } from 'three';
+import {
+  Camera,
+  CircleGeometry,
+  DoubleSide,
+  Group,
+  LineSegments,
+  Mesh,
+  MeshBasicMaterial,
+  Object3D,
+  OrthographicCamera,
+  PerspectiveCamera,
+  Vector3,
+} from 'three';
 import { SceneContext } from '../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../types';
-import { projectToSketch, pixelToSketchThreshold } from './sketch-plane-utils';
-import { EdgeEntry, buildEdgeIndex, pointToSegmentDist } from './sketch-edge-utils';
+import { projectToSketch, pixelToSketchThreshold, localToWorld } from './sketch-plane-utils';
+import { EdgeEntry, CenterEntry, buildEdgeIndex, buildCenterIndex, pointToSegmentDist } from './sketch-edge-utils';
 import { themeColors } from '../scene/theme-colors';
 
 const HIGHLIGHT_THRESHOLD_PX = 12;
@@ -12,7 +24,9 @@ export class SketchHoverSelectHandler {
   private plane: PlaneData;
   private canvas: HTMLCanvasElement;
   private edges: EdgeEntry[] = [];
+  private centers: CenterEntry[] = [];
   private hoveredShapeId: string | null = null;
+  private hoveredCenterOverlay: Group | null = null;
   private selectedShapeIds = new Set<string>();
   private isExternalResizing: () => boolean;
 
@@ -49,6 +63,7 @@ export class SketchHoverSelectHandler {
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.clearHover();
     this.clearSelection();
+    this.removeCenterOverlay();
   }
 
   updatePlane(plane: PlaneData): void {
@@ -57,10 +72,14 @@ export class SketchHoverSelectHandler {
 
   updateSceneData(sceneObjects: SceneObjectRender[], sketchId: string): void {
     this.edges = buildEdgeIndex(sceneObjects, sketchId, this.plane);
-    if (this.hoveredShapeId && !this.edges.some(e => e.shapeId === this.hoveredShapeId)) {
+    this.centers = buildCenterIndex(sceneObjects, sketchId, this.plane);
+    const validIds = new Set(this.edges.map(e => e.shapeId));
+    for (const c of this.centers) {
+      validIds.add(c.shapeId);
+    }
+    if (this.hoveredShapeId && !validIds.has(this.hoveredShapeId)) {
       this.clearHover();
     }
-    const validIds = new Set(this.edges.map(e => e.shapeId));
     for (const id of this.selectedShapeIds) {
       if (!validIds.has(id)) {
         this.removeSelectionHighlight(id);
@@ -95,12 +114,14 @@ export class SketchHoverSelectHandler {
     }
 
     const threshold = pixelToSketchThreshold(this.ctx, HIGHLIGHT_THRESHOLD_PX);
-    const nearest = this.findNearestEdge(point2d, threshold);
+    const hit = this.findNearestEdge(point2d, threshold);
+    const nearest = hit?.shapeId ?? null;
 
     if (nearest !== this.hoveredShapeId) {
       if (this.hoveredShapeId) {
         this.removeHoverHighlight(this.hoveredShapeId);
       }
+      this.removeCenterOverlay();
       if (nearest) {
         this.applyHoverHighlight(nearest);
         this.canvas.style.cursor = 'pointer';
@@ -108,6 +129,17 @@ export class SketchHoverSelectHandler {
         this.canvas.style.cursor = '';
       }
       this.hoveredShapeId = nearest;
+      this.ctx.requestRender();
+    }
+
+    if (hit?.isCenter && nearest) {
+      const center = this.centers.find(c => c.shapeId === nearest);
+      if (center && !this.hoveredCenterOverlay) {
+        this.addCenterOverlay(center.point2d);
+        this.ctx.requestRender();
+      }
+    } else if (this.hoveredCenterOverlay) {
+      this.removeCenterOverlay();
       this.ctx.requestRender();
     }
   }
@@ -151,9 +183,10 @@ export class SketchHoverSelectHandler {
     this.ctx.requestRender();
   }
 
-  private findNearestEdge(point: [number, number], threshold: number): string | null {
+  private findNearestEdge(point: [number, number], threshold: number): { shapeId: string; isCenter: boolean } | null {
     let minDist = Infinity;
     let bestId: string | null = null;
+    let isCenter = false;
 
     for (const entry of this.edges) {
       for (const seg of entry.segments) {
@@ -161,11 +194,23 @@ export class SketchHoverSelectHandler {
         if (d < minDist) {
           minDist = d;
           bestId = entry.shapeId;
+          isCenter = false;
         }
       }
     }
 
-    return minDist <= threshold ? bestId : null;
+    for (const entry of this.centers) {
+      const dx = entry.point2d[0] - point[0];
+      const dy = entry.point2d[1] - point[1];
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < minDist) {
+        minDist = d;
+        bestId = entry.shapeId;
+        isCenter = true;
+      }
+    }
+
+    return minDist <= threshold && bestId ? { shapeId: bestId, isCenter } : null;
   }
 
   private applyHoverHighlight(shapeId: string): void {
@@ -216,6 +261,7 @@ export class SketchHoverSelectHandler {
       this.removeHoverHighlight(this.hoveredShapeId);
       this.hoveredShapeId = null;
       this.canvas.style.cursor = '';
+      this.removeCenterOverlay();
       this.ctx.requestRender();
     }
   }
@@ -247,5 +293,67 @@ export class SketchHoverSelectHandler {
       cur = cur.parent;
     }
     return null;
+  }
+
+  private addCenterOverlay(point2d: [number, number]): void {
+    this.removeCenterOverlay();
+
+    const pos = localToWorld(point2d, this.plane);
+    const normal = this.plane.normal;
+    const planeNormal = new Vector3(normal.x, normal.y, normal.z);
+
+    const geo = new CircleGeometry(2.0, 16);
+    const mat = new MeshBasicMaterial({
+      color: themeColors.highlightColor,
+      side: DoubleSide,
+      depthTest: false,
+      transparent: true,
+      opacity: 0.9,
+    });
+    const dot = new Mesh(geo, mat);
+    dot.renderOrder = 6;
+
+    const group = new Group();
+    group.renderOrder = 6;
+    group.userData.isCenterOverlay = true;
+    group.add(dot);
+    group.position.copy(pos);
+    group.lookAt(pos.clone().add(planeNormal));
+
+    const scale = this.computeOverlayScale(this.ctx.camera, pos);
+    group.scale.setScalar(scale);
+
+    dot.onBeforeRender = (_r, _s, cam) => {
+      group.scale.setScalar(this.computeOverlayScale(cam, pos));
+      group.updateMatrixWorld(true);
+    };
+
+    this.ctx.scene.add(group);
+    this.hoveredCenterOverlay = group;
+  }
+
+  private removeCenterOverlay(): void {
+    if (this.hoveredCenterOverlay) {
+      this.ctx.scene.remove(this.hoveredCenterOverlay);
+      const dot = this.hoveredCenterOverlay.children[0] as Mesh;
+      dot.geometry.dispose();
+      (dot.material as MeshBasicMaterial).dispose();
+      this.hoveredCenterOverlay = null;
+    }
+  }
+
+  private computeOverlayScale(camera: Camera, position: Vector3): number {
+    const factor = 0.003;
+    const maxScale = 1.5;
+    if (camera instanceof OrthographicCamera) {
+      const viewHeight = (camera.top - camera.bottom) / camera.zoom;
+      return Math.min(viewHeight * factor, maxScale);
+    } else if (camera instanceof PerspectiveCamera) {
+      const dist = camera.position.distanceTo(position);
+      const vFov = camera.fov * Math.PI / 180;
+      const viewHeight = 2 * dist * Math.tan(vFov / 2);
+      return Math.min(viewHeight * factor, maxScale);
+    }
+    return 1;
   }
 }

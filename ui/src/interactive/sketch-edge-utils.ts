@@ -83,6 +83,64 @@ export function buildEdgeIndex(
   return result;
 }
 
+export type CenterEntry = {
+  shapeId: string;
+  point2d: [number, number];
+};
+
+const ARC_UNIQUE_TYPES = new Set([
+  'arc', 'tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent',
+]);
+
+export function buildCenterIndex(
+  sceneObjects: SceneObjectRender[],
+  sketchId: string,
+  plane: PlaneData,
+): CenterEntry[] {
+  const result: CenterEntry[] = [];
+  const ox = plane.origin.x, oy = plane.origin.y, oz = plane.origin.z;
+  const xx = plane.xDirection.x, xy = plane.xDirection.y, xz = plane.xDirection.z;
+  const yx = plane.yDirection.x, yy = plane.yDirection.y, yz = plane.yDirection.z;
+
+  for (const obj of sceneObjects) {
+    if (obj.parentId !== sketchId) {
+      continue;
+    }
+    if (!ARC_UNIQUE_TYPES.has(obj.uniqueType ?? '')) {
+      continue;
+    }
+
+    let shapeId: string | null = null;
+    for (const shape of obj.sceneShapes) {
+      if (!shape.isMetaShape && shape.shapeId) {
+        shapeId = shape.shapeId;
+        break;
+      }
+    }
+    if (!shapeId) {
+      continue;
+    }
+
+    for (const shape of obj.sceneShapes) {
+      if (!shape.isMetaShape) {
+        continue;
+      }
+      for (const mesh of shape.meshes) {
+        if (mesh.vertices.length === 3 && mesh.indices.length === 0) {
+          const rx = mesh.vertices[0] - ox;
+          const ry = mesh.vertices[1] - oy;
+          const rz = mesh.vertices[2] - oz;
+          const u = rx * xx + ry * xy + rz * xz;
+          const v = rx * yx + ry * yy + rz * yz;
+          result.push({ shapeId, point2d: [u, v] });
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
 export function pointToSegmentDist(
   px: number, py: number,
   ax: number, ay: number,

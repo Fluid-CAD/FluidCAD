@@ -16,6 +16,7 @@ import { SceneObjectRender } from '../../types';
 import { EdgeMesh } from '../shape-meshes/edge-mesh';
 import { createMetaEdgeMesh } from './shape-group';
 import { isInteractiveSketchType } from '../../interactive/sketch-edge-utils';
+import { buildConstraintIcons } from './constraint-icon';
 
 function computeViewScale(camera: Camera, position: Vector3, factor: number): number {
   if (camera instanceof OrthographicCamera) {
@@ -63,6 +64,7 @@ export class SketchMesh extends Group {
     this.userData.isSketchRoot = true;
     this.buildEdges(sceneObject, allObjects);
     this.buildVertices(sceneObject, allObjects, camera);
+    this.addConstraintIcons(sceneObject, allObjects, camera);
     if (activeSketchId && sceneObject.id === activeSketchId) {
       this.buildCursor(sceneObject, camera);
       this.buildTangentArrow(sceneObject, camera);
@@ -164,6 +166,12 @@ export class SketchMesh extends Group {
     this.addVertexDots(uniqueEndpoints, normal, camera, VERTEX_RADIUS, SKETCH_EDGE_COLOR, 1);
     this.addVertexDots(uniqueNonInteractive, normal, camera, VERTEX_RADIUS, NON_INTERACTIVE_EDGE_COLOR, 1);
     this.addVertexDots(uniqueMeta, normal, camera, META_VERTEX_RADIUS, META_VERTEX_COLOR, 0.5);
+  }
+
+  private addConstraintIcons(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], camera: Camera): void {
+    for (const icon of buildConstraintIcons(sceneObject, allObjects, camera)) {
+      this.add(icon);
+    }
   }
 
   private dedup(points: Vector3[], epsilonSq: number): Vector3[] {

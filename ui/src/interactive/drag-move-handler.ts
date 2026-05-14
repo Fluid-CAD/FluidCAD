@@ -22,7 +22,7 @@ import {
   roundPoint,
   pixelToSketchThreshold,
 } from './sketch-plane-utils';
-import { pointToSegmentDist } from './sketch-edge-utils';
+import { pointToSegmentDist, isInteractiveSketchType } from './sketch-edge-utils';
 import { ExpressionInput, VariableInfo } from '../ui/expression-input';
 import { circumcenter, angleFromCenter, addDashedArc, isCCW } from './tools/tool-preview-utils';
 import {
@@ -584,7 +584,7 @@ export class DragMoveHandler {
     let bestDistSq = Infinity;
 
     for (const child of sketchChildren) {
-      if (!child.sourceLocation) {
+      if (!child.sourceLocation || !isInteractiveSketchType(child.uniqueType)) {
         continue;
       }
       const uniqueType = (child as any).uniqueType as string | undefined;

@@ -15,6 +15,7 @@ import {
 import { SceneObjectRender } from '../../types';
 import { EdgeMesh } from '../shape-meshes/edge-mesh';
 import { createMetaEdgeMesh } from './shape-group';
+import { isInteractiveSketchType } from '../../interactive/sketch-edge-utils';
 
 function computeViewScale(camera: Camera, position: Vector3, factor: number): number {
   if (camera instanceof OrthographicCamera) {
@@ -30,6 +31,7 @@ function computeViewScale(camera: Camera, position: Vector3, factor: number): nu
 }
 
 const SKETCH_EDGE_COLOR = '#2297ff';
+const NON_INTERACTIVE_EDGE_COLOR = '#6a5acd';
 const VERTEX_RADIUS = 2;
 const VERTEX_SEGMENTS = 16;
 const VERTEX_SCALE_FACTOR = 0.003;
@@ -73,6 +75,9 @@ export class SketchMesh extends Group {
         continue;
       }
 
+      const interactive = isInteractiveSketchType(obj.uniqueType);
+      const edgeColor = interactive ? SKETCH_EDGE_COLOR : NON_INTERACTIVE_EDGE_COLOR;
+
       for (const shape of obj.sceneShapes) {
         if (shape.isMetaShape || shape.isGuide) {
           if (shape.shapeType === 'wire' || shape.shapeType === 'edge') {
@@ -85,7 +90,7 @@ export class SketchMesh extends Group {
           }
           continue;
         }
-        const edgeMesh = new EdgeMesh(shape, { color: SKETCH_EDGE_COLOR, lineWidth: 2, depthWrite: false, transparent: true });
+        const edgeMesh = new EdgeMesh(shape, { color: edgeColor, lineWidth: 2, depthWrite: false, transparent: true });
         edgeMesh.traverse(child => { child.renderOrder = 1; });
         if (shape.shapeId) {
           edgeMesh.userData.shapeId = shape.shapeId;
@@ -98,12 +103,15 @@ export class SketchMesh extends Group {
   private buildVertices(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], camera: Camera): void {
     const normal = sceneObject.object?.plane?.normal;
     const endpoints: Vector3[] = [];
+    const nonInteractiveEndpoints: Vector3[] = [];
     const metaVertices: Vector3[] = [];
 
     for (const obj of allObjects) {
       if (obj.parentId !== sceneObject.id || !obj.sceneShapes.length) {
         continue;
       }
+
+      const interactive = isInteractiveSketchType(obj.uniqueType);
 
       for (const shape of obj.sceneShapes) {
         if (shape.isGuide) {
@@ -123,6 +131,7 @@ export class SketchMesh extends Group {
           continue;
         }
 
+        const target = interactive ? endpoints : nonInteractiveEndpoints;
         for (const meshData of shape.meshes) {
           if (!meshData.indices.length) {
             continue;
@@ -135,7 +144,7 @@ export class SketchMesh extends Group {
 
           for (const [idx, c] of count) {
             if (c === 1) {
-              endpoints.push(new Vector3(
+              target.push(new Vector3(
                 meshData.vertices[idx * 3],
                 meshData.vertices[idx * 3 + 1],
                 meshData.vertices[idx * 3 + 2],
@@ -149,9 +158,11 @@ export class SketchMesh extends Group {
     const EPSILON_SQ = 1e-12;
 
     const uniqueEndpoints = this.dedup(endpoints, EPSILON_SQ);
+    const uniqueNonInteractive = this.dedup(nonInteractiveEndpoints, EPSILON_SQ);
     const uniqueMeta = this.dedup(metaVertices, EPSILON_SQ);
 
     this.addVertexDots(uniqueEndpoints, normal, camera, VERTEX_RADIUS, SKETCH_EDGE_COLOR, 1);
+    this.addVertexDots(uniqueNonInteractive, normal, camera, VERTEX_RADIUS, NON_INTERACTIVE_EDGE_COLOR, 1);
     this.addVertexDots(uniqueMeta, normal, camera, META_VERTEX_RADIUS, META_VERTEX_COLOR, 0.5);
   }
 

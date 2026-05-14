@@ -427,6 +427,22 @@ describe('insertGeometryCall', () => {
     expect(result.newCode).toContain('hLine(15)');
   });
 
+  it('creates a new import when no fluidcad import exists', async () => {
+    const code = [
+      `sketch(XY, () => {`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 1, 'line([0, 0], [10, 10])');
+    expect(result.newCode).toBe([
+      `import { line } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
   it('does not duplicate existing import symbol', async () => {
     const code = [
       `import { sketch, line } from 'fluidcad/core';`,

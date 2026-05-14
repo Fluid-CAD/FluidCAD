@@ -716,7 +716,7 @@ async function ensureSymbolImport(code: string, symbol: string): Promise<string>
   const tree = p.parse(code);
   const importNode = findFluidCadImport(tree);
   if (!importNode) {
-    return code;
+    return `import { ${symbol} } from 'fluidcad/core';\n` + code;
   }
   const namedImports = findNamedImports(importNode);
   if (!namedImports) {

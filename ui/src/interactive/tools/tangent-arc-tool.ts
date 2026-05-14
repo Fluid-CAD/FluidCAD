@@ -173,6 +173,7 @@ export class TangentArcTool extends SketchTool {
 
   private static readonly CONNECTABLE_TYPES = new Set([
     'line-two-points', 'hline', 'vline',
+    'arc',
     'tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent',
   ]);
 

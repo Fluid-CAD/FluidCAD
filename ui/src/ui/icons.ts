@@ -50,6 +50,8 @@ export const ICON_POINTER = iconCursorPointer;
 export const ICON_CENTER_ARC = iconArc3dCenterPoint;
 export const ICON_THREE_POINT_ARC = iconArc3d;
 
+export const ICON_TANGENT_ARC = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="16" x2="12" y2="16"/><path d="M12 16 A8 8 0 0 0 20 8"/></svg>';
+
 export const ICON_CHEVRON_RIGHT = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
 export const ICON_CHEVRON_DOWN = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
 export const ICON_DOTS_VERTICAL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';

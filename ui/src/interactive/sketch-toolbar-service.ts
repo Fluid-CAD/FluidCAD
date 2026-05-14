@@ -4,6 +4,7 @@ import { LineTool } from './tools/line-tool';
 import { CircleTool } from './tools/circle-tool';
 import { CenterArcTool } from './tools/center-arc-tool';
 import { ThreePointArcTool } from './tools/three-point-arc-tool';
+import { TangentArcTool } from './tools/tangent-arc-tool';
 import { DragMoveHandler } from './drag-move-handler';
 import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
 import { SnapManager } from '../snapping/snap-manager';
@@ -157,6 +158,11 @@ export class SketchToolbarService {
         return new CenterArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
       case 'arc3':
         return new ThreePointArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+      case 'tarc': {
+        const tool = new TangentArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+        tool.onSceneUpdate(sceneObjects, sketchId);
+        return tool;
+      }
       default:
         return null;
     }

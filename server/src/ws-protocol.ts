@@ -193,6 +193,14 @@ export type UpdateDimensionExpressionMessage = {
   sourceLocation: { line: number; column: number };
 };
 
+export type SetRectDimensionsMessage = {
+  type: 'set-rect-dimensions';
+  startPoint: [number, number] | null;
+  width: number;
+  height: number;
+  sourceLocation: { line: number; column: number };
+};
+
 export type ServerToExtensionMessage =
   | ReadyMessage
   | InitCompleteMessage
@@ -213,7 +221,8 @@ export type ServerToExtensionMessage =
   | SetLinePositionMessage
   | SetChainPositionsMessage
   | UpdateDimensionMessage
-  | UpdateDimensionExpressionMessage;
+  | UpdateDimensionExpressionMessage
+  | SetRectDimensionsMessage;
 
 // ---------------------------------------------------------------------------
 // WebSocket: Server → UI messages

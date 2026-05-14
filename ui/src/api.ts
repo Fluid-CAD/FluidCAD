@@ -163,6 +163,15 @@ export function setChainPositions(
   postFireAndForget('/api/set-chain-positions', { updates, sourceLocation });
 }
 
+export function setRectDimensions(
+  width: number,
+  height: number,
+  sourceLocation: SourceLocationParam,
+  startPoint?: [number, number],
+): void {
+  postFireAndForget('/api/set-rect-dimensions', { width, height, sourceLocation, startPoint: startPoint ?? null });
+}
+
 export function updateDimensionExpression(
   expression: string,
   sourceLocation: SourceLocationParam,

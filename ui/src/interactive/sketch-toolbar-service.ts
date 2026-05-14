@@ -5,6 +5,8 @@ import { CircleTool } from './tools/circle-tool';
 import { CenterArcTool } from './tools/center-arc-tool';
 import { ThreePointArcTool } from './tools/three-point-arc-tool';
 import { TangentArcTool } from './tools/tangent-arc-tool';
+import { RectTool } from './tools/rect-tool';
+import { RoundedRectTool } from './tools/rounded-rect-tool';
 import { DragMoveHandler } from './drag-move-handler';
 import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
 import { SnapManager } from '../snapping/snap-manager';
@@ -166,6 +168,10 @@ export class SketchToolbarService {
         tool.onSceneUpdate(sceneObjects, sketchId);
         return tool;
       }
+      case 'rect':
+        return new RectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+      case 'rounded-rect':
+        return new RoundedRectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
       default:
         return null;
     }

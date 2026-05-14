@@ -5,7 +5,7 @@ import { SnapController } from '../snapping/snap-controller';
 import { SnapManager } from '../snapping/snap-manager';
 import { worldToSketch2D, pixelToSketchThreshold, dist2D } from './sketch-plane-utils';
 
-export type ToolId = 'line' | 'circle' | 'arc3' | 'arc2' | 'rect' | 'slot' | 'trim' | 'bezier' | 'tarc';
+export type ToolId = 'line' | 'circle' | 'arc3' | 'arc2' | 'rect' | 'rounded-rect' | 'slot' | 'trim' | 'bezier' | 'tarc';
 
 export type ToolConfig = {
   id: ToolId;

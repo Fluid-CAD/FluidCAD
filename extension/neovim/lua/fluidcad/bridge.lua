@@ -222,6 +222,10 @@ function M.handle_message(msg)
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.set_chain_positions(code, msg.sourceLocation.line, msg.updates)
       end)
+    elseif msg.type == 'set-rect-dimensions' then
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.set_rect_dimensions(code, msg.sourceLocation.line, msg.startPoint, msg.width, msg.height)
+      end)
     elseif msg.type == 'update-dimension' then
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.update_dimension(code, msg.sourceLocation.line, msg.newValue)

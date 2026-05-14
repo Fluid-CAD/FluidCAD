@@ -8,7 +8,6 @@ import { SnapType } from '../../snapping/types';
 import {
   projectToSketch,
   roundPoint,
-  pixelToSketchThreshold,
 } from '../sketch-plane-utils';
 import { ICON_TANGENT_ARC } from '../../ui/icons';
 import {
@@ -19,12 +18,7 @@ import {
   addDashedArc,
   angleFromCenter,
 } from './tool-preview-utils';
-
-type ConnectionHit = {
-  point: [number, number];
-  tangent: [number, number];
-  hitZone: 'start' | 'end';
-};
+import { findConnectionGeometry } from './tangent-utils';
 
 const enum State {
   IDLE,
@@ -124,7 +118,7 @@ export class TangentArcTool extends SketchTool {
         return;
       }
 
-      const conn = this.findConnectionGeometry(point);
+      const conn = findConnectionGeometry(point, this.sceneObjects, this.sketchId, this.plane, this.ctx);
       if (!conn) {
         return;
       }
@@ -167,102 +161,6 @@ export class TangentArcTool extends SketchTool {
       this.resetState();
       this.rebuildPreview();
     }
-  }
-
-  // ── Connection detection ───────────────────────────────────────────
-
-  private static readonly CONNECTABLE_TYPES = new Set([
-    'line-two-points', 'hline', 'vline',
-    'arc',
-    'tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent',
-  ]);
-
-  private findConnectionGeometry(point2d: [number, number]): ConnectionHit | null {
-    const threshold = pixelToSketchThreshold(this.ctx, 12);
-    const thresholdSq = threshold * threshold;
-
-    let bestHit: ConnectionHit | null = null;
-    let bestDistSq = Infinity;
-
-    for (const child of this.sceneObjects) {
-      if (child.parentId !== this.sketchId || !child.sourceLocation) {
-        continue;
-      }
-      if (!TangentArcTool.CONNECTABLE_TYPES.has(child.uniqueType ?? '')) {
-        continue;
-      }
-
-      for (const part of child.sceneShapes) {
-        if (part.isMetaShape) {
-          continue;
-        }
-        for (const mesh of part.meshes) {
-          const verts = this.meshToSketch2D(mesh.vertices);
-          if (verts.length < 2) {
-            continue;
-          }
-
-          const startV = verts[0];
-          const endV = verts[verts.length - 1];
-
-          const edx = endV[0] - point2d[0];
-          const edy = endV[1] - point2d[1];
-          const endDist = edx * edx + edy * edy;
-          if (endDist < thresholdSq && endDist < bestDistSq) {
-            const tangent = this.tangentFromVertices(verts, 'end');
-            if (tangent) {
-              bestHit = { point: endV, tangent, hitZone: 'end' };
-              bestDistSq = endDist;
-            }
-          }
-
-          const sdx = startV[0] - point2d[0];
-          const sdy = startV[1] - point2d[1];
-          const startDist = sdx * sdx + sdy * sdy;
-          if (startDist < thresholdSq && startDist < bestDistSq) {
-            const tangent = this.tangentFromVertices(verts, 'start');
-            if (tangent) {
-              bestHit = { point: startV, tangent, hitZone: 'start' };
-              bestDistSq = startDist;
-            }
-          }
-        }
-      }
-    }
-
-    return bestHit;
-  }
-
-  private tangentFromVertices(verts: [number, number][], hitZone: 'start' | 'end'): [number, number] | null {
-    let dx: number, dy: number;
-    if (hitZone === 'end') {
-      const a = verts[verts.length - 2];
-      const b = verts[verts.length - 1];
-      dx = b[0] - a[0];
-      dy = b[1] - a[1];
-    } else {
-      const a = verts[0];
-      const b = verts[1];
-      dx = a[0] - b[0];
-      dy = a[1] - b[1];
-    }
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len < 1e-10) {
-      return null;
-    }
-    return [dx / len, dy / len];
-  }
-
-  private meshToSketch2D(vertices: number[]): [number, number][] {
-    const ox = this.plane.origin.x, oy = this.plane.origin.y, oz = this.plane.origin.z;
-    const xx = this.plane.xDirection.x, xy = this.plane.xDirection.y, xz = this.plane.xDirection.z;
-    const yx = this.plane.yDirection.x, yy = this.plane.yDirection.y, yz = this.plane.yDirection.z;
-    const result: [number, number][] = [];
-    for (let i = 0; i < vertices.length; i += 3) {
-      const rx = vertices[i] - ox, ry = vertices[i + 1] - oy, rz = vertices[i + 2] - oz;
-      result.push([rx * xx + ry * xy + rz * xz, rx * yx + ry * yy + rz * yz]);
-    }
-    return result;
   }
 
   // ── Arc math ───────────────────────────────────────────────────────
@@ -332,7 +230,7 @@ export class TangentArcTool extends SketchTool {
 
     if (this.state === State.IDLE) {
       if (this.mousePoint && this.lastSnapType === 'vertex') {
-        const conn = this.findConnectionGeometry(this.mousePoint);
+        const conn = findConnectionGeometry(this.mousePoint, this.sceneObjects, this.sketchId, this.plane, this.ctx);
         if (conn) {
           addDot(this.previewGroup, this.mousePoint, SNAP_VERTEX_COLOR, camera, planeNormal, this.plane, 0.6);
         }

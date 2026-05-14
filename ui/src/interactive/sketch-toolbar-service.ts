@@ -150,8 +150,11 @@ export class SketchToolbarService {
     const fetchVars = () => this.fetchScopeVariables();
 
     switch (toolId) {
-      case 'line':
-        return new LineTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+      case 'line': {
+        const tool = new LineTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+        tool.onSceneUpdate(sceneObjects, sketchId);
+        return tool;
+      }
       case 'circle':
         return new CircleTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
       case 'arc2':

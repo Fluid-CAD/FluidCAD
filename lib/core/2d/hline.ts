@@ -84,6 +84,7 @@ function build(context: SceneParserContext): HLineFunction {
         ? second
         : (second as number);
       const hline = new HorizontalLine(distanceOrTarget, planeObj);
+      hline.setHasExplicitStart();
       context.addSceneObjects([new Move(start), hline]);
       return hline;
     }

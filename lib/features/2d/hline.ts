@@ -10,6 +10,7 @@ import { findNearestRayIntersection } from "../../oc/ray-intersect.js";
 export class HorizontalLine extends GeometrySceneObject implements IHLine {
 
   private _centered: boolean = false;
+  private _hasExplicitStart: boolean = false;
 
   constructor(
     public distanceOrTarget: number | SceneObject,
@@ -20,6 +21,11 @@ export class HorizontalLine extends GeometrySceneObject implements IHLine {
 
   centered(value: boolean = true): this {
     this._centered = value;
+    return this;
+  }
+
+  setHasExplicitStart(value: boolean = true): this {
+    this._hasExplicitStart = value;
     return this;
   }
 
@@ -94,6 +100,7 @@ export class HorizontalLine extends GeometrySceneObject implements IHLine {
       : this.distanceOrTarget;
     const copy = new HorizontalLine(distanceOrTarget, targetPlane);
     copy.centered(this._centered);
+    copy._hasExplicitStart = this._hasExplicitStart;
     return copy;
   }
 
@@ -124,7 +131,7 @@ export class HorizontalLine extends GeometrySceneObject implements IHLine {
       return false;
     }
 
-    return this._centered === other._centered;
+    return this._centered === other._centered && this._hasExplicitStart === other._hasExplicitStart;
   }
 
   getType(): string {
@@ -138,7 +145,8 @@ export class HorizontalLine extends GeometrySceneObject implements IHLine {
   serialize() {
     return {
       distance: typeof this.distanceOrTarget === 'number' ? this.distanceOrTarget : null,
-      centered: this._centered
+      centered: this._centered,
+      hasExplicitStart: this._hasExplicitStart,
     }
   }
 }

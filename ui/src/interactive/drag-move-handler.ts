@@ -383,6 +383,15 @@ export class DragMoveHandler {
       this.currentPoint = result.point2d;
     }
 
+    if (this.hitResult?.hitZone === 'start' && this.hitResult.anchorPoint
+        && (this.hitResult.uniqueType === 'hline' || this.hitResult.uniqueType === 'vline')) {
+      if (this.hitResult.uniqueType === 'hline') {
+        this.currentPoint = [this.currentPoint[0], this.hitResult.anchorPoint[1]];
+      } else {
+        this.currentPoint = [this.hitResult.anchorPoint[0], this.currentPoint[1]];
+      }
+    }
+
     if (e.shiftKey && this.hitResult?.hitZone === 'center' && this.hitResult.uniqueType === 'arc') {
       this.currentPoint = this.constrainToPerpBisector(this.currentPoint);
     }
@@ -674,6 +683,20 @@ export class DragMoveHandler {
                 draggedVertices: [endV],
               };
               bestDistSq = endDist;
+            }
+
+            if (isConstrained) {
+              const hasExplicitStart = child.object?.hasExplicitStart === true;
+              const isCentered = child.object?.centered === true;
+              if (hasExplicitStart && !isCentered && startDist < thresholdSq && startDist < bestDistSq) {
+                bestHit = {
+                  sourceLocation, uniqueType: uniqueType || '', hitZone: 'start',
+                  anchorPoint: startV, fixedVertex: endV,
+                  originalDistance: signedDist,
+                  draggedVertices: [startV],
+                };
+                bestDistSq = startDist;
+              }
             }
 
             // Body hit only competes when the pointer is NOT within an

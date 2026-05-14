@@ -6,6 +6,7 @@ const INTERACTIVE_SKETCH_TYPES = new Set([
   'arc', 'arc-from-center',
   'tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent',
   'tline',
+  'trim2d',
 ]);
 
 export function isInteractiveSketchType(uniqueType: string | undefined): boolean {

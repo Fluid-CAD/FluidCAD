@@ -7,6 +7,7 @@ import { SnapManager } from '../../snapping/snap-manager';
 import { SnapType } from '../../snapping/types';
 import {
   projectToSketch,
+  localToWorld,
   roundPoint,
   dist2D,
 } from '../sketch-plane-utils';
@@ -23,6 +24,8 @@ import {
   circumcenter,
   angleFromCenter,
   centerFromChordAndRadius,
+  computeViewScale,
+  SCALE_FACTOR,
 } from './tool-preview-utils';
 
 const enum State {
@@ -49,10 +52,13 @@ export class ThreePointArcTool extends SketchTool {
   private lastCCW = true;
   private lastCenterOnLeft = true;
 
+  private shiftHeld = false;
+
   private boundMouseDown: (e: MouseEvent) => void;
   private boundMouseUp: (e: MouseEvent) => void;
   private boundMouseMove: (e: MouseEvent) => void;
   private boundKeyDown: (e: KeyboardEvent) => void;
+  private boundKeyUp: (e: KeyboardEvent) => void;
   private downX = 0;
   private downY = 0;
 
@@ -71,6 +77,7 @@ export class ThreePointArcTool extends SketchTool {
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
     this.boundKeyDown = this.handleKeyDown.bind(this);
+    this.boundKeyUp = this.handleKeyUp.bind(this);
   }
 
   activate(): void {
@@ -79,6 +86,7 @@ export class ThreePointArcTool extends SketchTool {
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
     window.addEventListener('keydown', this.boundKeyDown);
+    window.addEventListener('keyup', this.boundKeyUp);
     this.fetchVariables().then(vars => { this.cachedVariables = vars; });
   }
 
@@ -87,6 +95,7 @@ export class ThreePointArcTool extends SketchTool {
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.canvas.removeEventListener('mousemove', this.boundMouseMove);
     window.removeEventListener('keydown', this.boundKeyDown);
+    window.removeEventListener('keyup', this.boundKeyUp);
     this.resetState();
     this.expressionInput.hide();
     this.removePreviewFromScene();
@@ -111,6 +120,7 @@ export class ThreePointArcTool extends SketchTool {
   }
 
   private handleMouseUp(e: MouseEvent): void {
+    this.shiftHeld = e.shiftKey;
     const dx = e.clientX - this.downX;
     const dy = e.clientY - this.downY;
     if (dx * dx + dy * dy > 64) {
@@ -152,6 +162,7 @@ export class ThreePointArcTool extends SketchTool {
   }
 
   private handleMouseMove(e: MouseEvent): void {
+    this.shiftHeld = e.shiftKey;
     this.lastClientX = e.clientX;
     this.lastClientY = e.clientY;
 
@@ -184,13 +195,66 @@ export class ThreePointArcTool extends SketchTool {
       }
       this.rebuildPreview();
     }
+    if (e.key === 'Shift' && !this.shiftHeld) {
+      this.shiftHeld = true;
+      this.rebuildPreview();
+      if (this.state === State.END_PLACED) {
+        this.updateDimensionInput();
+      }
+    }
+  }
+
+  private handleKeyUp(e: KeyboardEvent): void {
+    if (e.key === 'Shift' && this.shiftHeld) {
+      this.shiftHeld = false;
+      this.rebuildPreview();
+      if (this.state === State.END_PLACED) {
+        this.updateDimensionInput();
+      }
+    }
+  }
+
+  private snapCenterToCollinear(center: [number, number]): [number, number] | null {
+    if (!this.startPoint || !this.endPoint) {
+      return null;
+    }
+    const dx = this.endPoint[0] - this.startPoint[0];
+    const dy = this.endPoint[1] - this.startPoint[1];
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq < 1e-10) {
+      return null;
+    }
+    const cx = center[0] - this.startPoint[0];
+    const cy = center[1] - this.startPoint[1];
+    const perpDist = Math.abs(cx * dy - cy * dx) / Math.sqrt(lenSq);
+
+    const midWorld = localToWorld(
+      [(this.startPoint[0] + this.endPoint[0]) / 2, (this.startPoint[1] + this.endPoint[1]) / 2],
+      this.plane,
+    );
+    const threshold = computeViewScale(this.ctx.camera, midWorld, SCALE_FACTOR) * 4;
+
+    if (perpDist >= threshold) {
+      return null;
+    }
+    return [
+      (this.startPoint[0] + this.endPoint[0]) / 2,
+      (this.startPoint[1] + this.endPoint[1]) / 2,
+    ];
   }
 
   private computeCenter(): [number, number] | null {
     if (!this.startPoint || !this.endPoint || !this.mousePoint) {
       return null;
     }
-    return circumcenter(this.startPoint, this.endPoint, this.mousePoint);
+    const raw = circumcenter(this.startPoint, this.endPoint, this.mousePoint);
+    if (!raw) {
+      return null;
+    }
+    if (this.shiftHeld) {
+      return raw;
+    }
+    return this.snapCenterToCollinear(raw) ?? raw;
   }
 
   private isMouseCCW(): boolean {

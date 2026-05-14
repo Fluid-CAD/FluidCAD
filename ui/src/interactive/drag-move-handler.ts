@@ -47,6 +47,7 @@ type DragHitResult = {
   draggedVertices?: [number, number][];
   arcCCW?: boolean;
   arcArgCount?: number;
+  tangentDir?: [number, number];
 };
 
 type PendingHit = {
@@ -314,6 +315,10 @@ export class DragMoveHandler {
       }
     } else if ((uniqueType === 'hline' || uniqueType === 'vline') && (hitZone === 'start' || hitZone === 'body')) {
       updatePosition(newPos, sourceLocation, 0);
+    } else if (uniqueType === 'tarc-to-point') {
+      updatePosition(newPos, sourceLocation, 0);
+    } else if (uniqueType === 'tarc-to-point-tangent') {
+      updatePosition(newPos, sourceLocation, 1);
     } else {
       updatePosition(newPos, sourceLocation);
     }
@@ -755,6 +760,32 @@ export class DragMoveHandler {
                 bestDistSq = centerDist;
               }
             }
+          } else if ((uniqueType === 'tarc-to-point' || uniqueType === 'tarc-to-point-tangent') && verts2d.length >= 2) {
+            const startV = verts2d[0];
+            const endV = verts2d[verts2d.length - 1];
+
+            const edx = endV[0] - point2d[0];
+            const edy = endV[1] - point2d[1];
+            const endDist = edx * edx + edy * edy;
+
+            if (endDist < thresholdSq && endDist < bestDistSq) {
+              const tdx = verts2d[1][0] - startV[0];
+              const tdy = verts2d[1][1] - startV[1];
+              const tlen = Math.sqrt(tdx * tdx + tdy * tdy);
+              const tangent: [number, number] = tlen > 1e-10
+                ? [tdx / tlen, tdy / tlen]
+                : [1, 0];
+              bestHit = {
+                sourceLocation,
+                uniqueType: uniqueType || '',
+                hitZone: 'end',
+                anchorPoint: startV,
+                fixedVertex: startV,
+                draggedVertices: [endV],
+                tangentDir: tangent,
+              };
+              bestDistSq = endDist;
+            }
           } else {
             for (const v of verts2d) {
               const ddx = v[0] - point2d[0];
@@ -803,6 +834,28 @@ export class DragMoveHandler {
     }
     const t = ((point[0] - mx) * px + (point[1] - my) * py) / lenSq;
     return [mx + t * px, my + t * py];
+  }
+
+  private computeTangentArc(
+    start: [number, number],
+    end: [number, number],
+    tangent: [number, number],
+  ): { center: [number, number]; radius: number; startAngle: number; endAngle: number; ccw: boolean } | null {
+    const perpX = -tangent[1];
+    const perpY = tangent[0];
+    const dx = start[0] - end[0];
+    const dy = start[1] - end[1];
+    const distSq = dx * dx + dy * dy;
+    const dDotN = dx * perpX + dy * perpY;
+    if (Math.abs(dDotN) < 1e-10) {
+      return null;
+    }
+    const t = -distSq / (2 * dDotN);
+    const radius = Math.abs(t);
+    const center: [number, number] = [start[0] + perpX * t, start[1] + perpY * t];
+    const startAngle = angleFromCenter(center, start);
+    const endAngle = angleFromCenter(center, end);
+    return { center, radius, startAngle, endAngle, ccw: t >= 0 };
   }
 
   private computeArcCenter(
@@ -918,6 +971,19 @@ export class DragMoveHandler {
           addDashedArc(this.previewGroup, newCenter, radius, startAngle, endAngle, ccw, this.plane, 5);
           this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
         }
+      }
+    } else if ((uniqueType === 'tarc-to-point' || uniqueType === 'tarc-to-point-tangent') && fixedVertex && this.hitResult.tangentDir) {
+      const startV = fixedVertex;
+      const tangent = this.hitResult.tangentDir;
+      const arc = this.computeTangentArc(startV, this.currentPoint, tangent);
+      if (arc) {
+        this.addDot(startV, START_DOT_COLOR, camera, planeNormal);
+        addDashedArc(this.previewGroup, arc.center, arc.radius, arc.startAngle, arc.endAngle, arc.ccw, this.plane, 5);
+        this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
+      } else {
+        this.addDot(startV, START_DOT_COLOR, camera, planeNormal);
+        this.addDashedLine(startV, this.currentPoint);
+        this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);
       }
     } else {
       this.addDot(this.currentPoint, 0xffc578, camera, planeNormal);

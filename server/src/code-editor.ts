@@ -147,11 +147,22 @@ function findPickCallInChain(call: TSNode): TSNode | null {
 }
 
 /**
+ * Structural AST check: is this node a `[x, y]` point array?
+ * Accepts any two-element array regardless of whether the elements are
+ * literals, variables, or expressions — the drag/splice functions only need
+ * to *locate* point nodes, not read their old values.
+ */
+function isPointArray(node: TSNode): boolean {
+  return node.type === 'array' && node.namedChildren.length === 2;
+}
+
+/**
  * Extract `[x, y]` from an `array` node with exactly two numeric children.
- * Handles unary minus (`-5`) because tree-sitter wraps it in a `unary_expression`.
+ * Only used where the actual numeric values are needed (e.g. `removePoint`
+ * distance computation). Drag/update paths use `isPointArray` instead.
  */
 function parsePointLiteral(node: TSNode): [number, number] | null {
-  if (node.type !== 'array' || node.namedChildren.length !== 2) {
+  if (!isPointArray(node)) {
     return null;
   }
   const parts: number[] = [];
@@ -182,7 +193,7 @@ function collectChainPointArgs(call: TSNode): TSNode[] {
     const args = getArgumentsNode(calls[i]);
     if (args) {
       for (const child of args.namedChildren) {
-        if (parsePointLiteral(child)) {
+        if (isPointArray(child)) {
           pointArgs.push(child);
         }
       }
@@ -844,7 +855,7 @@ export async function setLinePosition(
     }
     const pointArgs: TSNode[] = [];
     for (const child of args.namedChildren) {
-      if (parsePointLiteral(child)) {
+      if (isPointArray(child)) {
         pointArgs.push(child);
       }
     }
@@ -901,7 +912,9 @@ export async function setChainPositions(
 }
 
 /**
- * Update the last numeric argument of a geometry call (e.g. distance or diameter).
+ * Update the last non-array argument of a geometry call (e.g. distance or diameter).
+ * Replaces whatever expression is there (literal, variable, binary expression)
+ * with the new numeric literal.
  */
 export function updateDimension(
   code: string,
@@ -917,16 +930,11 @@ export function updateDimension(
     if (!args || args.namedChildren.length === 0) {
       return null;
     }
-    for (let i = args.namedChildren.length - 1; i >= 0; i--) {
-      const child = args.namedChildren[i];
-      if (child.type === 'number' || child.type === 'unary_expression') {
-        const val = parseFloat(child.text);
-        if (!isNaN(val)) {
-          return spliceCode(code, child.startIndex, child.endIndex, String(newValue));
-        }
-      }
+    const target = findLastNonArrayArg(args);
+    if (!target) {
+      return null;
     }
-    return null;
+    return spliceCode(code, target.startIndex, target.endIndex, String(newValue));
   });
 }
 

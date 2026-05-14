@@ -460,6 +460,30 @@ describe('updateGeometryPosition', () => {
     const result = await updateGeometryPosition(code, 1, [10, 20]);
     expect(result.newCode).toBe(`circle([10, 20], 40)\n`);
   });
+
+  it('replaces a point containing a variable reference', async () => {
+    const code = `line([600, height])\n`;
+    const result = await updateGeometryPosition(code, 1, [700, 850]);
+    expect(result.newCode).toBe(`line([700, 850])\n`);
+  });
+
+  it('replaces a point where both elements are variables', async () => {
+    const code = `line([x, y])\n`;
+    const result = await updateGeometryPosition(code, 1, [100, 200]);
+    expect(result.newCode).toBe(`line([100, 200])\n`);
+  });
+
+  it('replaces a point containing a binary expression', async () => {
+    const code = `line([width / 2, height * 3])\n`;
+    const result = await updateGeometryPosition(code, 1, [50, 90]);
+    expect(result.newCode).toBe(`line([50, 90])\n`);
+  });
+
+  it('replaces the last point with variable in two-arg line', async () => {
+    const code = `line([0, 0], [w, h])\n`;
+    const result = await updateGeometryPosition(code, 1, [10, 20], -1);
+    expect(result.newCode).toBe(`line([0, 0], [10, 20])\n`);
+  });
 });
 
 describe('updateDimension', () => {
@@ -491,5 +515,17 @@ describe('updateDimension', () => {
     const code = `hLine(-15)\n`;
     const result = await updateDimension(code, 1, -25);
     expect(result.newCode).toBe(`hLine(-25)\n`);
+  });
+
+  it('replaces a variable dimension with a literal', async () => {
+    const code = `hLine(distance)\n`;
+    const result = await updateDimension(code, 1, 42);
+    expect(result.newCode).toBe(`hLine(42)\n`);
+  });
+
+  it('replaces an expression dimension with a literal', async () => {
+    const code = `vLine([5, 10], height / 2)\n`;
+    const result = await updateDimension(code, 1, 100);
+    expect(result.newCode).toBe(`vLine([5, 10], 100)\n`);
   });
 });

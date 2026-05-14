@@ -315,6 +315,13 @@ export class DragMoveHandler {
       }
     } else if ((uniqueType === 'hline' || uniqueType === 'vline') && (hitZone === 'start' || hitZone === 'body')) {
       updatePosition(newPos, sourceLocation, 0);
+    } else if (uniqueType === 'tline' && hitZone === 'end' && anchorPoint && this.hitResult.tangentDir) {
+      const t = this.hitResult.tangentDir;
+      const dx = newPos[0] - anchorPoint[0];
+      const dy = newPos[1] - anchorPoint[1];
+      const distance = Math.round((dx * t[0] + dy * t[1]) * 100) / 100;
+      const sketchSourceLine = this.getSketchSourceLine();
+      updateDimensionExpression(String(distance), sourceLocation, sketchSourceLine);
     } else if (uniqueType === 'tarc-to-point' || uniqueType === 'tarc-to-point-tangent') {
       const endIdx = uniqueType === 'tarc-to-point' ? 0 : 1;
       if (hitZone === 'center' && fixedVertex && this.hitResult.fixedVertex2) {
@@ -392,6 +399,16 @@ export class DragMoveHandler {
       }
     }
 
+    if (this.hitResult?.uniqueType === 'tline' && this.hitResult.hitZone === 'end'
+        && this.hitResult.anchorPoint && this.hitResult.tangentDir) {
+      const start = this.hitResult.anchorPoint;
+      const t = this.hitResult.tangentDir;
+      const dx = this.currentPoint[0] - start[0];
+      const dy = this.currentPoint[1] - start[1];
+      const proj = dx * t[0] + dy * t[1];
+      this.currentPoint = [start[0] + t[0] * proj, start[1] + t[1] * proj];
+    }
+
     if (e.shiftKey && this.hitResult?.hitZone === 'center' && this.hitResult.uniqueType === 'arc') {
       this.currentPoint = this.constrainToPerpBisector(this.currentPoint);
     }
@@ -426,6 +443,13 @@ export class DragMoveHandler {
       value = uniqueType === 'hline'
         ? Math.round(Math.abs(this.startPoint[0] - start[0]) * 100) / 100
         : Math.round(Math.abs(this.startPoint[1] - start[1]) * 100) / 100;
+    } else if (uniqueType === 'tline' && hitZone === 'end' && this.hitResult.tangentDir) {
+      label = 'T:';
+      const start = this.hitResult.anchorPoint!;
+      const t = this.hitResult.tangentDir;
+      const dx = this.startPoint[0] - start[0];
+      const dy = this.startPoint[1] - start[1];
+      value = Math.round(Math.abs(dx * t[0] + dy * t[1]) * 100) / 100;
     }
 
     if (label === null) {
@@ -458,6 +482,9 @@ export class DragMoveHandler {
       value = hit.initialValue ?? 0;
     } else if (hit.uniqueType === 'hline' || hit.uniqueType === 'vline') {
       label = hit.uniqueType === 'hline' ? 'H:' : 'V:';
+      value = Math.abs(hit.initialValue ?? 0);
+    } else if (hit.uniqueType === 'tline') {
+      label = 'T:';
       value = Math.abs(hit.initialValue ?? 0);
     } else {
       return;
@@ -528,6 +555,12 @@ export class DragMoveHandler {
     }
     if (this.currentPoint) {
       const start = this.hitResult.anchorPoint!;
+      if (this.hitResult.uniqueType === 'tline' && this.hitResult.tangentDir) {
+        const t = this.hitResult.tangentDir;
+        const dx = this.currentPoint[0] - start[0];
+        const dy = this.currentPoint[1] - start[1];
+        return (dx * t[0] + dy * t[1]) >= 0 ? 1 : -1;
+      }
       if (this.hitResult.uniqueType === 'hline') {
         return this.currentPoint[0] >= start[0] ? 1 : -1;
       }
@@ -549,6 +582,12 @@ export class DragMoveHandler {
       const ddx = this.currentPoint[0] - center[0];
       const ddy = this.currentPoint[1] - center[1];
       value = Math.round(2 * Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
+    } else if (uniqueType === 'tline' && this.hitResult.tangentDir) {
+      const start = anchorPoint!;
+      const t = this.hitResult.tangentDir;
+      const dx = this.currentPoint[0] - start[0];
+      const dy = this.currentPoint[1] - start[1];
+      value = Math.round(Math.abs(dx * t[0] + dy * t[1]) * 100) / 100;
     } else {
       const start = anchorPoint!;
       const raw = uniqueType === 'hline'
@@ -653,7 +692,7 @@ export class DragMoveHandler {
                 bestDistSq = d;
               }
             }
-          } else if (uniqueType === 'line-two-points' || uniqueType === 'hline' || uniqueType === 'vline') {
+          } else if (uniqueType === 'line-two-points' || uniqueType === 'hline' || uniqueType === 'vline' || uniqueType === 'tline') {
             const startV = verts2d[0];
             const endV = verts2d[verts2d.length - 1];
 
@@ -665,10 +704,35 @@ export class DragMoveHandler {
             const edy = endV[1] - point2d[1];
             const endDist = edx * edx + edy * edy;
 
-            const isConstrained = uniqueType === 'hline' || uniqueType === 'vline';
-            const signedDist = isConstrained
-              ? (uniqueType === 'hline' ? endV[0] - startV[0] : endV[1] - startV[1])
-              : undefined;
+            const isConstrained = uniqueType === 'hline' || uniqueType === 'vline' || uniqueType === 'tline';
+
+            let signedDist: number | undefined;
+            let tangent: [number, number] | undefined;
+            if (uniqueType === 'tline') {
+              const dx = endV[0] - startV[0];
+              const dy = endV[1] - startV[1];
+              const len = Math.sqrt(dx * dx + dy * dy);
+              if (len > 1e-10) {
+                tangent = [dx / len, dy / len];
+                signedDist = len;
+                if (verts2d.length >= 2) {
+                  const a = verts2d[verts2d.length - 2];
+                  const b = verts2d[verts2d.length - 1];
+                  const tdx = b[0] - a[0];
+                  const tdy = b[1] - a[1];
+                  const tlen = Math.sqrt(tdx * tdx + tdy * tdy);
+                  if (tlen > 1e-10) {
+                    tangent = [tdx / tlen, tdy / tlen];
+                  }
+                }
+                const fullDx = endV[0] - startV[0];
+                const fullDy = endV[1] - startV[1];
+                signedDist = fullDx * tangent[0] + fullDy * tangent[1];
+              }
+            } else if (uniqueType === 'hline' || uniqueType === 'vline') {
+              signedDist = uniqueType === 'hline' ? endV[0] - startV[0] : endV[1] - startV[1];
+            }
+
             const initialValue = isConstrained
               ? Math.round((signedDist ?? 0) * 100) / 100
               : undefined;
@@ -681,11 +745,13 @@ export class DragMoveHandler {
                 anchorPoint: startV, fixedVertex: startV,
                 initialValue,
                 draggedVertices: [endV],
+                tangentDir: tangent,
               };
               bestDistSq = endDist;
             }
 
-            if (child.object?.hasExplicitStart === true
+            if (uniqueType !== 'tline'
+                && child.object?.hasExplicitStart === true
                 && !(isConstrained && child.object?.centered === true)
                 && startDist < thresholdSq && startDist < bestDistSq) {
               bestHit = {
@@ -994,6 +1060,16 @@ export class DragMoveHandler {
       const radius = Math.sqrt(ddx * ddx + ddy * ddy);
       this.addDot(center, START_DOT_COLOR, camera, planeNormal);
       this.addDashedCircle(center, radius);
+    } else if (uniqueType === 'tline' && anchorPoint && this.hitResult.tangentDir) {
+      const start = anchorPoint;
+      const t = this.hitResult.tangentDir;
+      const dx = this.currentPoint[0] - start[0];
+      const dy = this.currentPoint[1] - start[1];
+      const proj = dx * t[0] + dy * t[1];
+      const constrainedEnd: [number, number] = [start[0] + t[0] * proj, start[1] + t[1] * proj];
+      this.addDot(start, START_DOT_COLOR, camera, planeNormal);
+      this.addDashedLine(start, constrainedEnd);
+      this.addDot(constrainedEnd, 0xffc578, camera, planeNormal);
     } else if (uniqueType === 'hline' || uniqueType === 'vline') {
       if (hitZone === 'end') {
         const start = anchorPoint!;

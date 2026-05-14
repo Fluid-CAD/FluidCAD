@@ -18,6 +18,11 @@ import {
   addDot,
   addDashedLine,
 } from './tool-preview-utils';
+import {
+  CONNECTABLE_TYPES,
+  meshToSketch2D,
+  tangentFromVertices,
+} from './tangent-utils';
 
 export class LineTool extends SketchTool {
   readonly id = 'line' as const;
@@ -28,11 +33,14 @@ export class LineTool extends SketchTool {
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private shiftHeld = false;
+  private ctrlHeld = false;
   private expressionInput: ExpressionInput;
   private fetchVariables: FetchVariablesFn;
   private cachedVariables: VariableInfo[] = [];
   private lastClientX = 0;
   private lastClientY = 0;
+  private sceneObjects: SceneObjectRender[] = [];
+  private sketchId = '';
 
   private boundMouseDown: (e: MouseEvent) => void;
   private boundMouseUp: (e: MouseEvent) => void;
@@ -79,11 +87,14 @@ export class LineTool extends SketchTool {
     this.startPoint = null;
     this.mousePoint = null;
     this.shiftHeld = false;
+    this.ctrlHeld = false;
     this.expressionInput.hide();
     this.removePreviewFromScene();
   }
 
   onSceneUpdate(sceneObjects: SceneObjectRender[], sketchId: string): void {
+    this.sceneObjects = sceneObjects;
+    this.sketchId = sketchId;
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane);
     this.updateSnapManager(snapManager);
     this.fetchVariables().then(vars => { this.cachedVariables = vars; });
@@ -92,9 +103,11 @@ export class LineTool extends SketchTool {
   private handleMouseDown(e: MouseEvent): void {
     this.downX = e.clientX;
     this.downY = e.clientY;
+    this.syncModifiers(e);
   }
 
   private handleMouseUp(e: MouseEvent): void {
+    this.syncModifiers(e);
     const dx = e.clientX - this.downX;
     const dy = e.clientY - this.downY;
     if (dx * dx + dy * dy > 64) {
@@ -115,7 +128,11 @@ export class LineTool extends SketchTool {
       return;
     }
 
-    if (this.shiftHeld && this.expressionInput.isVisible) {
+    if (this.isTLineMode() && this.expressionInput.isVisible) {
+      this.expressionInput.commitCurrentValue();
+    } else if (this.isTLineMode()) {
+      this.commitTLineDirect();
+    } else if (this.shiftHeld && this.expressionInput.isVisible) {
       this.expressionInput.commitCurrentValue();
     } else {
       this.commitLine(this.startPoint, point);
@@ -128,6 +145,7 @@ export class LineTool extends SketchTool {
   private handleMouseMove(e: MouseEvent): void {
     this.lastClientX = e.clientX;
     this.lastClientY = e.clientY;
+    this.syncModifiers(e);
 
     const raw = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
     if (!raw) {
@@ -144,9 +162,18 @@ export class LineTool extends SketchTool {
     this.updateDimensionInput();
   }
 
+  private syncModifiers(e: MouseEvent | KeyboardEvent): void {
+    const prevTLine = this.isTLineMode();
+    this.shiftHeld = e.shiftKey;
+    this.ctrlHeld = e.ctrlKey || e.metaKey;
+    if (this.isTLineMode() !== prevTLine) {
+      this.expressionInput.hide();
+    }
+  }
+
   private handleKeyDown(e: KeyboardEvent): void {
-    if (e.key === 'Shift') {
-      this.shiftHeld = true;
+    this.syncModifiers(e);
+    if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Meta') {
       this.rebuildPreview();
       this.updateDimensionInput();
     }
@@ -160,16 +187,71 @@ export class LineTool extends SketchTool {
   }
 
   private handleKeyUp(e: KeyboardEvent): void {
-    if (e.key === 'Shift') {
-      this.shiftHeld = false;
-      this.expressionInput.hide();
+    this.syncModifiers(e);
+    if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Meta') {
+      if (!this.shiftHeld) {
+        this.expressionInput.hide();
+      }
       this.rebuildPreview();
+      this.updateDimensionInput();
     }
+  }
+
+  private isTLineMode(): boolean {
+    return this.shiftHeld && this.ctrlHeld;
+  }
+
+  private findTangentAtStart(): [number, number] | null {
+    if (!this.startPoint || !this.isAtCurrentPosition(roundPoint(this.startPoint))) {
+      return null;
+    }
+
+    let lastGeom: SceneObjectRender | null = null;
+    for (const child of this.sceneObjects) {
+      if (child.parentId !== this.sketchId || !child.sourceLocation) {
+        continue;
+      }
+      if (!CONNECTABLE_TYPES.has(child.uniqueType ?? '')) {
+        continue;
+      }
+      lastGeom = child;
+    }
+    if (!lastGeom) {
+      return null;
+    }
+
+    for (const part of lastGeom.sceneShapes) {
+      if (part.isMetaShape) {
+        continue;
+      }
+      for (const mesh of part.meshes) {
+        const verts = meshToSketch2D(mesh.vertices, this.plane);
+        if (verts.length < 2) {
+          continue;
+        }
+        return tangentFromVertices(verts, 'end');
+      }
+    }
+    return null;
   }
 
   private getEffectiveEndPoint(): [number, number] | null {
     if (!this.startPoint || !this.mousePoint) {
       return null;
+    }
+
+    if (this.isTLineMode()) {
+      const tangent = this.findTangentAtStart();
+      if (tangent) {
+        const dx = this.mousePoint[0] - this.startPoint[0];
+        const dy = this.mousePoint[1] - this.startPoint[1];
+        const projection = dx * tangent[0] + dy * tangent[1];
+        return [
+          this.startPoint[0] + tangent[0] * projection,
+          this.startPoint[1] + tangent[1] * projection,
+        ];
+      }
+      return this.mousePoint;
     }
 
     if (this.shiftHeld) {
@@ -191,6 +273,11 @@ export class LineTool extends SketchTool {
       return;
     }
 
+    if (this.isTLineMode()) {
+      this.updateTLineDimensionInput();
+      return;
+    }
+
     const dx = this.mousePoint[0] - this.startPoint[0];
     const dy = this.mousePoint[1] - this.startPoint[1];
     const isHorizontal = Math.abs(dx) >= Math.abs(dy);
@@ -207,6 +294,32 @@ export class LineTool extends SketchTool {
       });
     } else {
       this.expressionInput.updateValue(distance);
+      this.expressionInput.updatePosition(this.lastClientX, this.lastClientY);
+    }
+  }
+
+  private updateTLineDimensionInput(): void {
+    const tangent = this.findTangentAtStart();
+    if (!tangent) {
+      this.expressionInput.hide();
+      return;
+    }
+
+    const dx = this.mousePoint![0] - this.startPoint![0];
+    const dy = this.mousePoint![1] - this.startPoint![1];
+    const distance = dx * tangent[0] + dy * tangent[1];
+
+    if (!this.expressionInput.isVisible) {
+      this.expressionInput.show({
+        label: 'T:',
+        value: String(Math.round(Math.abs(distance) * 100) / 100),
+        clientX: this.lastClientX,
+        clientY: this.lastClientY,
+        variables: this.cachedVariables,
+        onCommit: (result) => this.commitTLine(result, distance),
+      });
+    } else {
+      this.expressionInput.updateValue(Math.abs(distance));
       this.expressionInput.updatePosition(this.lastClientX, this.lastClientY);
     }
   }
@@ -234,6 +347,41 @@ export class LineTool extends SketchTool {
       : `${fn}(${this.formatPoint(roundedStart)}, ${dimExpr})`;
     this.insertGeometry(statement, newVariable);
 
+    this.expressionInput.hide();
+    this.startPoint = null;
+    this.rebuildPreview();
+  }
+
+  private commitTLine(result: CommitResult, rawDistance: number): void {
+    if (!this.startPoint) {
+      return;
+    }
+    const { expression, newVariable } = result;
+    const sign = Math.sign(rawDistance);
+
+    const num = parseFloat(expression);
+    const dimExpr = !isNaN(num) && String(num) === expression
+      ? String(Math.round(sign * num * 100) / 100)
+      : expression;
+
+    this.insertGeometry(`tLine(${dimExpr})`, newVariable);
+    this.expressionInput.hide();
+    this.startPoint = null;
+    this.rebuildPreview();
+  }
+
+  private commitTLineDirect(): void {
+    if (!this.startPoint || !this.mousePoint) {
+      return;
+    }
+    const tangent = this.findTangentAtStart();
+    if (!tangent) {
+      return;
+    }
+    const dx = this.mousePoint[0] - this.startPoint[0];
+    const dy = this.mousePoint[1] - this.startPoint[1];
+    const distance = Math.round((dx * tangent[0] + dy * tangent[1]) * 100) / 100;
+    this.insertGeometry(`tLine(${distance})`);
     this.expressionInput.hide();
     this.startPoint = null;
     this.rebuildPreview();

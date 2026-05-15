@@ -255,6 +255,43 @@ export function addDashedRoundedRect(
   previewGroup.add(line);
 }
 
+export function addDashedPolygon(
+  previewGroup: Group,
+  center: [number, number],
+  radius: number,
+  sides: number,
+  plane: PlaneData,
+  renderOrder = 3,
+): void {
+  const verts = new Float32Array((sides + 1) * 3);
+  for (let i = 0; i <= sides; i++) {
+    const angle = (i / sides) * Math.PI * 2;
+    const pt: [number, number] = [
+      center[0] + Math.cos(angle) * radius,
+      center[1] + Math.sin(angle) * radius,
+    ];
+    const w = localToWorld(pt, plane);
+    verts[i * 3] = w.x;
+    verts[i * 3 + 1] = w.y;
+    verts[i * 3 + 2] = w.z;
+  }
+
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new BufferAttribute(verts, 3));
+
+  const mat = new LineDashedMaterial({
+    color: GUIDE_COLOR,
+    dashSize: 3,
+    gapSize: 2,
+    depthTest: false,
+  });
+
+  const line = new Line(geo, mat);
+  line.computeLineDistances();
+  line.renderOrder = renderOrder;
+  previewGroup.add(line);
+}
+
 export function addDashedArc(
   previewGroup: Group,
   center: [number, number],

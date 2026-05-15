@@ -36,6 +36,29 @@ export function findHitGeometry(
       continue;
     }
 
+    if (uniqueType === 'polygon') {
+      const allVerts: [number, number][] = [];
+      for (const part of child.sceneShapes) {
+        if (part.isMetaShape) {
+          continue;
+        }
+        for (const mesh of part.meshes) {
+          const mv = meshToSketch2D(mesh.vertices, plane);
+          for (const v of mv) {
+            allVerts.push(v);
+          }
+        }
+      }
+      if (allVerts.length > 0) {
+        const result = hitTestPolygon(point2d, allVerts, sourceLocation, child, thresholdSq, bestDistSq);
+        if (result) {
+          bestHit = result.hit;
+          bestDistSq = result.distSq;
+        }
+      }
+      continue;
+    }
+
     if (uniqueType === 'rect') {
       const allVerts: [number, number][] = [];
       for (const part of child.sceneShapes) {
@@ -593,5 +616,70 @@ function hitTestRect(
     }
   }
 
+  return result;
+}
+
+function hitTestPolygon(
+  point2d: [number, number],
+  verts2d: [number, number][],
+  sourceLocation: { line: number; column: number },
+  child: SceneObjectRender,
+  thresholdSq: number,
+  bestDistSq: number,
+): HitTestResult | null {
+  const DUP_EPS_SQ = 1e-6;
+  const uniqueVerts: [number, number][] = [];
+  for (const v of verts2d) {
+    let isDup = false;
+    for (const u of uniqueVerts) {
+      const dx = u[0] - v[0];
+      const dy = u[1] - v[1];
+      if (dx * dx + dy * dy < DUP_EPS_SQ) {
+        isDup = true;
+        break;
+      }
+    }
+    if (!isDup) {
+      uniqueVerts.push(v);
+    }
+  }
+
+  let cx = 0, cy = 0;
+  for (const v of uniqueVerts) {
+    cx += v[0];
+    cy += v[1];
+  }
+  cx /= uniqueVerts.length;
+  cy /= uniqueVerts.length;
+
+  const sample = uniqueVerts[0];
+  const sdx = sample[0] - cx;
+  const sdy = sample[1] - cy;
+  const circumscribedRadius = Math.sqrt(sdx * sdx + sdy * sdy);
+
+  const sides = child.object?.numberOfSides ?? uniqueVerts.length;
+  const diameter = child.object?.diameter ?? Math.round(2 * circumscribedRadius * 100) / 100;
+
+  let result: HitTestResult | null = null;
+  for (const v of verts2d) {
+    const ddx = v[0] - point2d[0];
+    const ddy = v[1] - point2d[1];
+    const d = ddx * ddx + ddy * ddy;
+    if (d < thresholdSq && d < bestDistSq) {
+      result = {
+        hit: {
+          sourceLocation,
+          uniqueType: 'polygon',
+          hitZone: 'body',
+          anchorPoint: [cx, cy],
+          initialValue: diameter,
+          originalDistance: circumscribedRadius,
+          polygonSides: sides,
+        },
+        distSq: d,
+      };
+      bestDistSq = d;
+    }
+  }
   return result;
 }

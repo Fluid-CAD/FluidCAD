@@ -47,7 +47,16 @@ export class DimensionInputController {
     let label: string | null = null;
     let value = 0;
 
-    if (uniqueType === 'circle') {
+    if (uniqueType === 'polygon') {
+      label = '⌀';
+      const center = hitResult.anchorPoint!;
+      const ddx = startPoint[0] - center[0];
+      const ddy = startPoint[1] - center[1];
+      const newCircumscribedRadius = Math.sqrt(ddx * ddx + ddy * ddy);
+      value = hitResult.originalDistance && hitResult.initialValue
+        ? Math.round(hitResult.initialValue * newCircumscribedRadius / hitResult.originalDistance * 100) / 100
+        : Math.round(2 * newCircumscribedRadius * 100) / 100;
+    } else if (uniqueType === 'circle') {
       label = '⌀';
       const center = hitResult.anchorPoint!;
       const ddx = startPoint[0] - center[0];
@@ -82,7 +91,7 @@ export class DimensionInputController {
   ): boolean {
     let label: string;
     let value: number;
-    if (hitResult.uniqueType === 'circle') {
+    if (hitResult.uniqueType === 'polygon' || hitResult.uniqueType === 'circle') {
       label = '⌀';
       value = hitResult.initialValue ?? 0;
     } else if (hitResult.uniqueType === 'hline' || hitResult.uniqueType === 'vline') {
@@ -109,7 +118,15 @@ export class DimensionInputController {
     }
     const { uniqueType, anchorPoint } = hitResult;
     let value: number;
-    if (uniqueType === 'circle') {
+    if (uniqueType === 'polygon') {
+      const center = anchorPoint!;
+      const ddx = currentPoint[0] - center[0];
+      const ddy = currentPoint[1] - center[1];
+      const newCircumscribedRadius = Math.sqrt(ddx * ddx + ddy * ddy);
+      value = hitResult.originalDistance && hitResult.initialValue
+        ? Math.round(hitResult.initialValue * newCircumscribedRadius / hitResult.originalDistance * 100) / 100
+        : Math.round(2 * newCircumscribedRadius * 100) / 100;
+    } else if (uniqueType === 'circle') {
       const center = anchorPoint!;
       const ddx = currentPoint[0] - center[0];
       const ddy = currentPoint[1] - center[1];
@@ -179,7 +196,7 @@ export class DimensionInputController {
         const isNumeric = !isNaN(num) && String(num) === expression;
 
         let finalExpr = expression;
-        if (isNumeric && hitResult.uniqueType !== 'circle') {
+        if (isNumeric && hitResult.uniqueType !== 'circle' && hitResult.uniqueType !== 'polygon') {
           const sign = this.computeDistanceSign(hitResult, null);
           finalExpr = String(Math.round(sign * num * 100) / 100);
         } else if (isNumeric) {

@@ -6,6 +6,7 @@ import {
   addDashedCircle,
   addDashedArc,
   addDashedRect,
+  addDashedPolygon,
   addDashedBezier,
   angleFromCenter,
   GUIDE_COLOR,
@@ -28,7 +29,15 @@ export function rebuildDragPreview(
   const planeNormal = new Vector3(plane.normal.x, plane.normal.y, plane.normal.z);
   const { uniqueType, hitZone, anchorPoint, fixedVertex } = hitResult;
 
-  if (uniqueType === 'circle' && anchorPoint) {
+  if (uniqueType === 'polygon' && anchorPoint && hitResult.polygonSides) {
+    const center = anchorPoint;
+    const ddx = currentPoint[0] - center[0];
+    const ddy = currentPoint[1] - center[1];
+    const radius = Math.sqrt(ddx * ddx + ddy * ddy);
+    addDot(previewGroup, center, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
+    addDashedPolygon(previewGroup, center, radius, hitResult.polygonSides, plane, RO);
+    addDot(previewGroup, currentPoint, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
+  } else if (uniqueType === 'circle' && anchorPoint) {
     const center = anchorPoint;
     const ddx = currentPoint[0] - center[0];
     const ddy = currentPoint[1] - center[1];

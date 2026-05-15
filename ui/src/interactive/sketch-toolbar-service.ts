@@ -9,6 +9,7 @@ import { RectTool } from './tools/rect-tool';
 import { RoundedRectTool } from './tools/rounded-rect-tool';
 import { PolylineTool } from './tools/polyline';
 import { BezierTool } from './tools/bezier-tool';
+import { PolygonTool } from './tools/polygon-tool';
 import { DragMoveHandler } from './drag-move-handler';
 import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
 import { BezierHandlesOverlay } from './bezier-handles-overlay';
@@ -169,6 +170,8 @@ export class SketchToolbarService {
       }
       case 'circle':
         return new CircleTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+      case 'polygon':
+        return new PolygonTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
       case 'arc2':
         return new CenterArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
       case 'arc3':

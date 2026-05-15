@@ -71,6 +71,13 @@ export function commitPositionMove(
     const distance = Math.round((dx * t[0] + dy * t[1]) * 100) / 100;
     const sketchSourceLine = getSketchSourceLine();
     updateDimensionExpression(String(distance), sourceLocation, sketchSourceLine);
+  } else if (uniqueType === 'polygon' && anchorPoint && hitResult.originalDistance && hitResult.initialValue) {
+    const ddx = newPos[0] - anchorPoint[0];
+    const ddy = newPos[1] - anchorPoint[1];
+    const newCircumscribedRadius = Math.sqrt(ddx * ddx + ddy * ddy);
+    const newDiameter = Math.round(hitResult.initialValue * newCircumscribedRadius / hitResult.originalDistance * 100) / 100;
+    const sketchSourceLine = getSketchSourceLine();
+    updateDimensionExpression(String(newDiameter), sourceLocation, sketchSourceLine);
   } else if (uniqueType === 'rect' && anchorPoint) {
     if (hitResult.rectCentered) {
       const newWidth = Math.round(Math.abs(newPos[0] - anchorPoint[0]) * 2 * 100) / 100;

@@ -8,6 +8,7 @@ const INTERACTIVE_SKETCH_TYPES = new Set([
   'tline',
   'trim2d',
   'rect',
+  'polygon',
 ]);
 
 export function isInteractiveSketchType(uniqueType: string | undefined): boolean {

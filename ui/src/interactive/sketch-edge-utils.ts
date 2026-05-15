@@ -146,7 +146,11 @@ export function buildCenterIndex(
 
     const uniqueType = obj.uniqueType ?? '';
     if (uniqueType.startsWith('bezier-')) {
+      const start = (obj as any).object?.startPoint as [number, number] | null | undefined;
       const poles = (obj as any).object?.resolvedPoints as [number, number][] | undefined;
+      if (start) {
+        result.push({ shapeId, point2d: [start[0], start[1]] });
+      }
       if (poles) {
         for (const p of poles) {
           result.push({ shapeId, point2d: [p[0], p[1]] });

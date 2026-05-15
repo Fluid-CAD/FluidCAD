@@ -14,7 +14,6 @@ export type DragHitResult = {
   rectCentered?: boolean;
   bezierPoleIndex?: number;
   bezierPoles?: [number, number][];
-  bezierStart?: [number, number];
 };
 
 export type PendingHit = {

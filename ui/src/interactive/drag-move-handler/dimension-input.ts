@@ -115,8 +115,19 @@ export class DimensionInputController {
       label = 'T:';
       value = Math.abs(hitResult.initialValue ?? 0);
     } else if (hitResult.uniqueType === 'slot') {
-      label = 'R';
-      value = hitResult.slotRadius ?? 0;
+      if (hitResult.hitZone === 'start' || hitResult.hitZone === 'end') {
+        if (hitResult.slotHasTwoPoints) {
+          return false;
+        }
+        label = 'D';
+        const lc = hitResult.anchorPoint!;
+        const rc = hitResult.fixedVertex!;
+        const ax = hitResult.slotAxisDir ?? [1, 0];
+        value = Math.round(((rc[0] - lc[0]) * ax[0] + (rc[1] - lc[1]) * ax[1]) * 100) / 100;
+      } else {
+        label = 'R';
+        value = hitResult.slotRadius ?? 0;
+      }
     } else {
       return false;
     }
@@ -234,10 +245,7 @@ export class DimensionInputController {
         }
 
         const sketchSourceLine = this.getSketchSourceLine();
-        const dimOffset = hitResult.uniqueType === 'slot'
-          && !hitResult.slotHasTwoPoints
-          && hitResult.hitZone === 'end'
-          ? 1 : 0;
+        const dimOffset = label === 'D' ? 1 : 0;
         updateDimensionExpression(finalExpr, sourceLocation, sketchSourceLine, newVariable, dimOffset);
         if (isDrag) {
           this.onRequestEndResize?.();
@@ -247,10 +255,7 @@ export class DimensionInputController {
       },
     });
 
-    const isSlotDistanceDrag = hitResult.uniqueType === 'slot'
-      && !hitResult.slotHasTwoPoints
-      && hitResult.hitZone === 'end';
-    if (!isSlotDistanceDrag) {
+    if (label !== 'D') {
       getDimensionExpression(sourceLocation.line).then(({ expression }) => {
         if (!expression) {
           return;

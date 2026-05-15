@@ -1,4 +1,4 @@
-import { ICON_LINE, ICON_POLYLINE, ICON_BEZIER, ICON_CIRCLE, ICON_POLYGON, ICON_CENTER_ARC, ICON_THREE_POINT_ARC, ICON_TANGENT_ARC, ICON_RECT, ICON_ROUNDED_RECT, ICON_SCISSORS, ICON_CHEVRON_DOWN, ICON_SETTINGS } from './icons';
+import { ICON_LINE, ICON_POLYLINE, ICON_BEZIER, ICON_CIRCLE, ICON_POLYGON, ICON_CENTER_ARC, ICON_THREE_POINT_ARC, ICON_TANGENT_ARC, ICON_RECT, ICON_ROUNDED_RECT, ICON_SCISSORS, ICON_SETTINGS } from './icons';
 import { ToolId } from '../interactive/sketch-tool';
 
 type ToolDef = { id: ToolId; label: string; icon: string };
@@ -43,7 +43,8 @@ export class SketchToolbar {
   private onToolSelect: (toolId: ToolId | null) => void;
   private activeToolId: ToolId | null = null;
   private buttons = new Map<ToolId, HTMLButtonElement>();
-  private expandedGroups = new Set<number>();
+
+
   private boundKeyDown: (e: KeyboardEvent) => void;
   private boundCloseSnapMenu: (e: MouseEvent) => void;
   private snapVertexCheckedState = true;
@@ -208,61 +209,27 @@ export class SketchToolbar {
 
       const entry = TOOL_LAYOUT[i];
       if (isGroup(entry)) {
-        this.renderGroup(entry, i);
+        this.renderGroup(entry);
       } else {
         this.inner.appendChild(this.createToolButton(entry));
       }
     }
   }
 
-  private renderGroup(group: ToolGroup, groupIndex: number): void {
+  private renderGroup(group: ToolGroup): void {
     if (group.tools.length === 1) {
       this.inner.appendChild(this.createToolButton(group.tools[0]));
       return;
     }
 
-    const expanded = this.expandedGroups.has(groupIndex);
-    const visibleTool = this.getGroupVisibleTool(group);
-
     const wrapper = document.createElement('div');
-    wrapper.className = 'flex flex-col gap-0.5 items-center';
+    wrapper.className = 'flex flex-col items-center';
 
-    wrapper.appendChild(this.createToolButton(visibleTool));
-
-    if (expanded) {
-      for (const tool of group.tools) {
-        if (tool.id === visibleTool.id) {
-          continue;
-        }
-        wrapper.appendChild(this.createToolButton(tool));
-      }
+    for (const tool of group.tools) {
+      wrapper.appendChild(this.createToolButton(tool));
     }
-
-    const chevron = document.createElement('span');
-    chevron.className = `w-6 h-3 -mt-1 flex items-center justify-center text-base-content/40 hover:text-base-content/60 cursor-pointer transition-transform [&>svg]:size-4 ${expanded ? 'rotate-180' : ''}`;
-    chevron.innerHTML = ICON_CHEVRON_DOWN;
-    chevron.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (this.expandedGroups.has(groupIndex)) {
-        this.expandedGroups.delete(groupIndex);
-      } else {
-        this.expandedGroups.add(groupIndex);
-      }
-      this.renderTools();
-    });
-    wrapper.appendChild(chevron);
 
     this.inner.appendChild(wrapper);
-  }
-
-  private getGroupVisibleTool(group: ToolGroup): ToolDef {
-    if (this.activeToolId) {
-      const activeTool = group.tools.find((t) => t.id === this.activeToolId);
-      if (activeTool) {
-        return activeTool;
-      }
-    }
-    return group.tools[0];
   }
 
   private createToolButton(tool: ToolDef): HTMLElement {

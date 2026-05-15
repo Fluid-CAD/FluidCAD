@@ -784,7 +784,7 @@ export async function insertGeometryCall(
     indent = indentOf(lines, body.startPosition.row) + '  ';
   }
 
-  const newLine = `${indent}${statement}`;
+  const newLine = statement.split('\n').map(l => `${indent}${l}`).join('\n');
   lines.splice(insertRow, 0, newLine);
   let result = joinLines(lines);
 

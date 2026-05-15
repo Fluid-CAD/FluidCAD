@@ -27,6 +27,15 @@ export function findHitGeometry(
     const uniqueType = (child as any).uniqueType as string | undefined;
     const sourceLocation = child.sourceLocation;
 
+    if (uniqueType && uniqueType.startsWith('bezier-')) {
+      const result = hitTestBezier(point2d, child, sourceLocation, uniqueType, thresholdSq, bestDistSq);
+      if (result) {
+        bestHit = result.hit;
+        bestDistSq = result.distSq;
+      }
+      continue;
+    }
+
     if (uniqueType === 'rect') {
       const allVerts: [number, number][] = [];
       for (const part of child.sceneShapes) {
@@ -455,6 +464,46 @@ function hitTestTangentArc(
     }
   }
 
+  return result;
+}
+
+function hitTestBezier(
+  point2d: [number, number],
+  child: SceneObjectRender,
+  sourceLocation: { line: number; column: number },
+  uniqueType: string,
+  thresholdSq: number,
+  bestDistSq: number,
+): HitTestResult | null {
+  const poles = child.object?.resolvedPoints as [number, number][] | undefined;
+  const start = child.object?.startPoint as [number, number] | undefined;
+  if (!poles || poles.length === 0) {
+    return null;
+  }
+
+  let result: HitTestResult | null = null;
+  for (let i = 0; i < poles.length; i++) {
+    const p = poles[i];
+    const dx = p[0] - point2d[0];
+    const dy = p[1] - point2d[1];
+    const d = dx * dx + dy * dy;
+    if (d < thresholdSq && d < bestDistSq) {
+      result = {
+        hit: {
+          sourceLocation,
+          uniqueType,
+          hitZone: 'end',
+          anchorPoint: p,
+          draggedVertices: [p],
+          bezierPoleIndex: i,
+          bezierPoles: poles,
+          bezierStart: start,
+        },
+        distSq: d,
+      };
+      bestDistSq = d;
+    }
+  }
   return result;
 }
 

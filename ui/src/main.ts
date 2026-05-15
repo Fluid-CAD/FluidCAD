@@ -9,7 +9,6 @@ import { LoadingOverlay } from './ui/loading-overlay';
 import { FileImporter } from './ui/file-importer';
 import { TrimPickService } from './interactive/trim-pick-service';
 import { RegionPickService } from './interactive/region-pick-service';
-import { BezierDrawService } from './interactive/bezier-draw-service';
 import { SketchToolbarService } from './interactive/sketch-toolbar-service';
 import { captureScreenshot } from './screenshot';
 import { onThemeChange } from './scene/theme-colors';
@@ -55,7 +54,6 @@ const timelinePanel = new TimelinePanel(
 
 const trimService = new TrimPickService(container, viewer);
 const regionService = new RegionPickService(container, viewer);
-const bezierService = new BezierDrawService(container, viewer);
 const sketchService = new SketchToolbarService(container, viewer, trimService, timelinePanel);
 
 const breakpointIndicator = new BreakpointIndicator(container, () => {
@@ -169,7 +167,6 @@ function connectWebSocket() {
         loadingOverlay.hide();
         const isRollback = msg.rollbackStop != null && msg.rollbackStop < msg.result.length - 1;
         viewer.isTrimming = !isRollback && trimService.state === 'picking-active';
-        viewer.isBezierDrawing = !isRollback && bezierService.isBezierDrawingScene(msg.result);
         viewer.isDrawing = !isRollback && sketchService.hasActiveDrawingTool;
         viewer.updateView(msg.result, isRollback, msg.rollbackStop);
         if (msg.absPath) {
@@ -178,12 +175,10 @@ function connectWebSocket() {
         if (isRollback) {
           trimService.reset();
           regionService.reset();
-          bezierService.deactivate();
           sketchService.update([]);
         } else {
           trimService.update(msg.result);
           regionService.update(msg.result);
-          bezierService.update(msg.result);
           sketchService.update(msg.result);
         }
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1, msg.absPath);

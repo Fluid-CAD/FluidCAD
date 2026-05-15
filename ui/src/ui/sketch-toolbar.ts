@@ -1,4 +1,4 @@
-import { ICON_LINE, ICON_POLYLINE, ICON_CIRCLE, ICON_CENTER_ARC, ICON_THREE_POINT_ARC, ICON_TANGENT_ARC, ICON_RECT, ICON_ROUNDED_RECT, ICON_SCISSORS, ICON_CHEVRON_DOWN, ICON_SETTINGS } from './icons';
+import { ICON_LINE, ICON_POLYLINE, ICON_BEZIER, ICON_CIRCLE, ICON_CENTER_ARC, ICON_THREE_POINT_ARC, ICON_TANGENT_ARC, ICON_RECT, ICON_ROUNDED_RECT, ICON_SCISSORS, ICON_CHEVRON_DOWN, ICON_SETTINGS } from './icons';
 import { ToolId } from '../interactive/sketch-tool';
 
 type ToolDef = { id: ToolId; label: string; icon: string };
@@ -13,6 +13,7 @@ const TOOL_LAYOUT: ToolEntry[] = [
   { tools: [
     { id: 'line', label: 'Line', icon: ICON_LINE },
     { id: 'polyline', label: 'Polyline', icon: ICON_POLYLINE },
+    { id: 'bezier', label: 'Bezier', icon: ICON_BEZIER },
   ]},
   { tools: [
     { id: 'circle', label: 'Circle', icon: ICON_CIRCLE },

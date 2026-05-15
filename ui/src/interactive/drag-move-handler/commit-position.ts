@@ -101,6 +101,8 @@ export function commitPositionMove(
     } else {
       updatePosition(newPos, sourceLocation, endIdx);
     }
+  } else if (uniqueType.startsWith('bezier-') && hitResult.bezierPoleIndex !== undefined) {
+    updatePosition(newPos, sourceLocation, hitResult.bezierPoleIndex);
   } else {
     updatePosition(newPos, sourceLocation);
   }

@@ -27,6 +27,7 @@ export class SketchHoverSelectHandler {
   private centers: CenterEntry[] = [];
   private hoveredShapeId: string | null = null;
   private hoveredCenterOverlay: Group | null = null;
+  private hoveredCenterPoint: [number, number] | null = null;
   private selectedShapeIds = new Set<string>();
   private isExternalResizing: () => boolean;
 
@@ -132,10 +133,14 @@ export class SketchHoverSelectHandler {
       this.ctx.requestRender();
     }
 
-    if (hit?.isCenter && nearest) {
-      const center = this.centers.find(c => c.shapeId === nearest);
-      if (center && !this.hoveredCenterOverlay) {
-        this.addCenterOverlay(center.point2d);
+    if (hit?.isCenter && hit.centerPoint) {
+      const samePoint = this.hoveredCenterPoint
+        && this.hoveredCenterPoint[0] === hit.centerPoint[0]
+        && this.hoveredCenterPoint[1] === hit.centerPoint[1];
+      if (!samePoint) {
+        this.removeCenterOverlay();
+        this.addCenterOverlay(hit.centerPoint);
+        this.hoveredCenterPoint = hit.centerPoint;
         this.ctx.requestRender();
       }
     } else if (this.hoveredCenterOverlay) {
@@ -183,10 +188,11 @@ export class SketchHoverSelectHandler {
     this.ctx.requestRender();
   }
 
-  private findNearestEdge(point: [number, number], threshold: number): { shapeId: string; isCenter: boolean } | null {
+  private findNearestEdge(point: [number, number], threshold: number): { shapeId: string; isCenter: boolean; centerPoint?: [number, number] } | null {
     let minDist = Infinity;
     let bestId: string | null = null;
     let isCenter = false;
+    let centerPoint: [number, number] | null = null;
 
     for (const entry of this.edges) {
       for (const seg of entry.segments) {
@@ -195,6 +201,7 @@ export class SketchHoverSelectHandler {
           minDist = d;
           bestId = entry.shapeId;
           isCenter = false;
+          centerPoint = null;
         }
       }
     }
@@ -207,10 +214,16 @@ export class SketchHoverSelectHandler {
         minDist = d;
         bestId = entry.shapeId;
         isCenter = true;
+        centerPoint = entry.point2d;
       }
     }
 
-    return minDist <= threshold && bestId ? { shapeId: bestId, isCenter } : null;
+    if (minDist > threshold || !bestId) {
+      return null;
+    }
+    return centerPoint
+      ? { shapeId: bestId, isCenter, centerPoint }
+      : { shapeId: bestId, isCenter };
   }
 
   private applyHoverHighlight(shapeId: string): void {
@@ -333,6 +346,7 @@ export class SketchHoverSelectHandler {
       dot.geometry.dispose();
       (dot.material as MeshBasicMaterial).dispose();
       this.hoveredCenterOverlay = null;
+      this.hoveredCenterPoint = null;
     }
   }
 

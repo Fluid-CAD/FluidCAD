@@ -11,7 +11,13 @@ const INTERACTIVE_SKETCH_TYPES = new Set([
 ]);
 
 export function isInteractiveSketchType(uniqueType: string | undefined): boolean {
-  return INTERACTIVE_SKETCH_TYPES.has(uniqueType ?? '');
+  if (!uniqueType) {
+    return false;
+  }
+  if (uniqueType.startsWith('bezier-')) {
+    return true;
+  }
+  return INTERACTIVE_SKETCH_TYPES.has(uniqueType);
 }
 
 export type EdgeEntry = {
@@ -123,7 +129,7 @@ export function buildCenterIndex(
     if (obj.parentId !== sketchId) {
       continue;
     }
-    if (!isInteractiveSketchType(obj.uniqueType) || !ARC_UNIQUE_TYPES.has(obj.uniqueType ?? '')) {
+    if (!isInteractiveSketchType(obj.uniqueType)) {
       continue;
     }
 
@@ -135,6 +141,21 @@ export function buildCenterIndex(
       }
     }
     if (!shapeId) {
+      continue;
+    }
+
+    const uniqueType = obj.uniqueType ?? '';
+    if (uniqueType.startsWith('bezier-')) {
+      const poles = (obj as any).object?.resolvedPoints as [number, number][] | undefined;
+      if (poles) {
+        for (const p of poles) {
+          result.push({ shapeId, point2d: [p[0], p[1]] });
+        }
+      }
+      continue;
+    }
+
+    if (!ARC_UNIQUE_TYPES.has(uniqueType)) {
       continue;
     }
 

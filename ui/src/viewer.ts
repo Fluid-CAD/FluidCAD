@@ -48,7 +48,6 @@ export class Viewer {
   private lastFitBox: Box3 | null = null;
   isTrimming = false;
   isRegionPicking = false;
-  isBezierDrawing = false;
   isDrawing = false;
 
   private selectionHandler: ((shapeId: string | null, sub: SubSelection) => void) | null = null;
@@ -106,7 +105,7 @@ export class Viewer {
     });
 
     canvas.addEventListener('mouseup', (e) => {
-      if (!this.selectionHandler || this.isTrimming || this.isRegionPicking || this.isBezierDrawing || this.modeManager.isSketchMode) {
+      if (!this.selectionHandler || this.isTrimming || this.isRegionPicking || this.modeManager.isSketchMode) {
         return;
       }
       const dx = e.clientX - downX;
@@ -294,7 +293,7 @@ export class Viewer {
 
     // Auto-fit on first render or in sketch mode (skip if viewport barely changed or trimming).
     // Skip when in sketch mode on first render — positionCameraForSketch already centered on origin.
-    if ((!this.hasRendered && !this.modeManager.isSketchMode) || (this.modeManager.isSketchMode && !isRollback && !this.isTrimming && !this.isRegionPicking && !this.isBezierDrawing && !this.isDrawing)) {
+    if ((!this.hasRendered && !this.modeManager.isSketchMode) || (this.modeManager.isSketchMode && !isRollback && !this.isTrimming && !this.isRegionPicking && !this.isDrawing)) {
       const box = new Box3();
       expandBoxExcludingMeta(box, mesh);
       if (!box.isEmpty() && !this.isBoxContained(box)) {
@@ -510,7 +509,7 @@ export class Viewer {
     });
 
     canvas.addEventListener('mousemove', (e) => {
-      if (this.isMouseDown || this.isTrimming || this.isRegionPicking || this.isBezierDrawing || this.modeManager.isSketchMode) {
+      if (this.isMouseDown || this.isTrimming || this.isRegionPicking || this.modeManager.isSketchMode) {
         return;
       }
       if (this.hoverRafId !== null) {

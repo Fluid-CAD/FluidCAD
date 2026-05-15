@@ -12,6 +12,9 @@ export type DragHitResult = {
   arcArgCount?: number;
   tangentDir?: [number, number];
   rectCentered?: boolean;
+  bezierPoleIndex?: number;
+  bezierPoles?: [number, number][];
+  bezierStart?: [number, number];
 };
 
 export type PendingHit = {

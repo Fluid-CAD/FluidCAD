@@ -8,8 +8,10 @@ import { TangentArcTool } from './tools/tangent-arc-tool';
 import { RectTool } from './tools/rect-tool';
 import { RoundedRectTool } from './tools/rounded-rect-tool';
 import { PolylineTool } from './tools/polyline';
+import { BezierTool } from './tools/bezier-tool';
 import { DragMoveHandler } from './drag-move-handler';
 import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
+import { BezierHandlesOverlay } from './bezier-handles-overlay';
 import { SnapManager } from '../snapping/snap-manager';
 import { SnapController } from '../snapping/snap-controller';
 import { insertGeometry, getScopeVariables, removePick } from '../api';
@@ -34,6 +36,7 @@ export class SketchToolbarService {
   private activeDrawingTool: SketchTool | null = null;
   private activeDragHandler: DragMoveHandler | null = null;
   private activeHoverSelectHandler: SketchHoverSelectHandler | null = null;
+  private bezierHandles: BezierHandlesOverlay;
 
   constructor(container: HTMLElement, viewer: Viewer, trimService: TrimPickService, timelinePanel: TimelinePanel) {
     this.viewer = viewer;
@@ -44,6 +47,8 @@ export class SketchToolbarService {
     this.toolbar = new SketchToolbar(timelinePanel.toolbarHost, (toolId) => {
       this.handleToolSelect(toolId);
     });
+
+    this.bezierHandles = new BezierHandlesOverlay(viewer.sceneContext);
 
     this.toolbar.onSnapVerticesChange = (checked: boolean) => {
       if (this.activeDrawingTool) {
@@ -90,6 +95,9 @@ export class SketchToolbarService {
         this.timelinePanel.slideOut();
       }
 
+      this.bezierHandles.activate();
+      this.bezierHandles.update(sceneObjects, lastRoot.id, plane);
+
       if (this.activeDrawingTool) {
         if (prevSketchId !== lastRoot.id) {
           this.handleToolSelect(this.toolbar.activeTool);
@@ -121,6 +129,7 @@ export class SketchToolbarService {
         this.activeDrawingTool = null;
       }
       this.deactivateDragHandler();
+      this.bezierHandles.deactivate();
       this.activeSketchInfo = null;
       this.toolbar.hide();
       this.timelinePanel.slideIn();
@@ -171,6 +180,11 @@ export class SketchToolbarService {
       }
       case 'polyline': {
         const tool = new PolylineTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+        tool.onSceneUpdate(sceneObjects, sketchId);
+        return tool;
+      }
+      case 'bezier': {
+        const tool = new BezierTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
         tool.onSceneUpdate(sceneObjects, sketchId);
         return tool;
       }

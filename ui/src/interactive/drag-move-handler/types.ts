@@ -15,6 +15,11 @@ export type DragHitResult = {
   bezierPoleIndex?: number;
   bezierPoles?: [number, number][];
   polygonSides?: number;
+  slotHasTwoPoints?: boolean;
+  slotAxisDir?: [number, number];
+  slotOtherCenter?: [number, number];
+  slotRadius?: number;
+  slotPointIndex?: number;
 };
 
 export type PendingHit = {

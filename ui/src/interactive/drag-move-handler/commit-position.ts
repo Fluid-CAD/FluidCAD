@@ -108,6 +108,28 @@ export function commitPositionMove(
     } else {
       updatePosition(newPos, sourceLocation, endIdx);
     }
+  } else if (uniqueType === 'slot') {
+    if (hitZone === 'body') {
+      const lc = hitResult.anchorPoint!;
+      const ax = hitResult.slotAxisDir?.[0] ?? 1;
+      const ay = hitResult.slotAxisDir?.[1] ?? 0;
+      const ddx = newPos[0] - lc[0];
+      const ddy = newPos[1] - lc[1];
+      const newRadius = Math.round(Math.abs(-ay * ddx + ax * ddy) * 100) / 100;
+      const sketchSourceLine = getSketchSourceLine();
+      updateDimensionExpression(String(newRadius), sourceLocation, sketchSourceLine);
+    } else if (hitResult.slotHasTwoPoints) {
+      updatePosition(newPos, sourceLocation, hitResult.slotPointIndex ?? 0);
+    } else if (hitZone === 'start') {
+      updatePosition(newPos, sourceLocation, 0);
+    } else if (hitResult.slotOtherCenter) {
+      const other = hitResult.slotOtherCenter;
+      const ddx = newPos[0] - other[0];
+      const ddy = newPos[1] - other[1];
+      const newDistance = Math.round(Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
+      const sketchSourceLine = getSketchSourceLine();
+      updateDimensionExpression(String(newDistance), sourceLocation, sketchSourceLine, undefined, 1);
+    }
   } else if (uniqueType.startsWith('bezier-') && hitResult.bezierPoleIndex !== undefined) {
     updatePosition(newPos, sourceLocation, hitResult.bezierPoleIndex);
   } else {

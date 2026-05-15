@@ -98,13 +98,14 @@ function M.update_dimension(code, source_line, new_value)
   return post('update-dimension', { code = code, sourceLine = source_line, newValue = new_value })
 end
 
-function M.update_dimension_expression(code, source_line, expression, sketch_source_line, new_variable)
+function M.update_dimension_expression(code, source_line, expression, sketch_source_line, new_variable, dimension_offset)
   return post('update-dimension-expression', {
     code = code,
     sourceLine = source_line,
     expression = expression,
     sketchSourceLine = sketch_source_line,
     newVariable = new_variable,
+    dimensionOffset = dimension_offset or 0,
   })
 end
 

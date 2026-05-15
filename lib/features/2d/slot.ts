@@ -238,6 +238,7 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
       radius: this.radius,
       centered: this._center,
       angle: this._angle,
+      hasTwoPoints: this._startPoint !== null && this._endPoint !== null,
     };
   }
 }

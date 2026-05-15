@@ -938,7 +938,7 @@ export function updateDimension(
     if (!args || args.namedChildren.length === 0) {
       return null;
     }
-    const target = findLastNonArrayArg(args);
+    const target = findNonArrayArgFromEnd(args);
     if (!target) {
       return null;
     }
@@ -950,11 +950,15 @@ export function updateDimension(
 // Expression-aware dimension helpers
 // ---------------------------------------------------------------------------
 
-function findLastNonArrayArg(args: TSNode): TSNode | null {
+function findNonArrayArgFromEnd(args: TSNode, offset = 0): TSNode | null {
+  let skipped = 0;
   for (let i = args.namedChildren.length - 1; i >= 0; i--) {
     const child = args.namedChildren[i];
     if (child.type !== 'array') {
-      return child;
+      if (skipped === offset) {
+        return child;
+      }
+      skipped++;
     }
   }
   return null;
@@ -975,7 +979,7 @@ export async function getDimensionExpression(
   if (!args || args.namedChildren.length === 0) {
     return null;
   }
-  const target = findLastNonArrayArg(args);
+  const target = findNonArrayArgFromEnd(args);
   if (!target) {
     return null;
   }
@@ -986,6 +990,7 @@ export function updateDimensionExpression(
   code: string,
   sourceLine: number,
   expression: string,
+  dimensionOffset = 0,
 ): Promise<CodeEditResult> {
   return withParsedCode(code, (tree, lines) => {
     const call = findEditableCallAt(tree, lines, sourceLine);
@@ -996,7 +1001,7 @@ export function updateDimensionExpression(
     if (!args || args.namedChildren.length === 0) {
       return null;
     }
-    const target = findLastNonArrayArg(args);
+    const target = findNonArrayArgFromEnd(args, dimensionOffset);
     if (!target) {
       return null;
     }
@@ -1084,9 +1089,10 @@ export function updateDimensionExpressionWithVariable(
   expression: string,
   sketchSourceLine: number,
   newVariable: { name: string; initializer: string } | null,
+  dimensionOffset = 0,
 ): Promise<CodeEditResult> {
   return withOptionalVariableDeclaration(code, sketchSourceLine, newVariable,
-    (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression));
+    (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression, dimensionOffset));
 }
 
 export type VariableInfo = { name: string; initializer?: string };

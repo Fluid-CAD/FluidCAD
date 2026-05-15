@@ -121,10 +121,11 @@ export function updateDimensionExpression(
   serverUrl: string, code: string, sourceLine: number, expression: string, logger: vscode.OutputChannel,
   sketchSourceLine: number | null = null,
   newVariable: { name: string; initializer: string } | null = null,
+  dimensionOffset = 0,
 ) {
   return postCodeEdit<CodeEditResult>(
     serverUrl, 'update-dimension-expression',
-    { code, sourceLine, expression, sketchSourceLine, newVariable },
+    { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset },
     logger,
   );
 }

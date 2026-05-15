@@ -75,6 +75,19 @@ export class DimensionInputController {
       const dx = startPoint[0] - start[0];
       const dy = startPoint[1] - start[1];
       value = Math.round(Math.abs(dx * t[0] + dy * t[1]) * 100) / 100;
+    } else if (uniqueType === 'slot' && !hitResult.slotHasTwoPoints
+               && hitResult.slotOtherCenter && hitZone === 'end') {
+      label = 'D';
+      const other = hitResult.slotOtherCenter;
+      const ddx = startPoint[0] - other[0];
+      const ddy = startPoint[1] - other[1];
+      value = Math.round(Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
+    } else if (uniqueType === 'slot' && hitZone === 'body') {
+      label = 'R';
+      const lc = hitResult.anchorPoint!;
+      const ddx = startPoint[0] - lc[0];
+      const ddy = startPoint[1] - lc[1];
+      value = Math.round(Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
     }
 
     if (label === null) {
@@ -100,6 +113,9 @@ export class DimensionInputController {
     } else if (hitResult.uniqueType === 'tline') {
       label = 'T:';
       value = Math.abs(hitResult.initialValue ?? 0);
+    } else if (hitResult.uniqueType === 'slot') {
+      label = 'R';
+      value = hitResult.slotRadius ?? 0;
     } else {
       return false;
     }
@@ -137,6 +153,18 @@ export class DimensionInputController {
       const dx = currentPoint[0] - start[0];
       const dy = currentPoint[1] - start[1];
       value = Math.round(Math.abs(dx * t[0] + dy * t[1]) * 100) / 100;
+    } else if (uniqueType === 'slot' && hitResult.hitZone === 'body') {
+      const lc = anchorPoint!;
+      const ax = hitResult.slotAxisDir?.[0] ?? 1;
+      const ay = hitResult.slotAxisDir?.[1] ?? 0;
+      const ddx = currentPoint[0] - lc[0];
+      const ddy = currentPoint[1] - lc[1];
+      value = Math.round(Math.abs(-ay * ddx + ax * ddy) * 100) / 100;
+    } else if (uniqueType === 'slot' && hitResult.slotOtherCenter) {
+      const other = hitResult.slotOtherCenter;
+      const ddx = currentPoint[0] - other[0];
+      const ddy = currentPoint[1] - other[1];
+      value = Math.round(Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
     } else {
       const start = anchorPoint!;
       const raw = uniqueType === 'hline'
@@ -196,7 +224,7 @@ export class DimensionInputController {
         const isNumeric = !isNaN(num) && String(num) === expression;
 
         let finalExpr = expression;
-        if (isNumeric && hitResult.uniqueType !== 'circle' && hitResult.uniqueType !== 'polygon') {
+        if (isNumeric && hitResult.uniqueType !== 'circle' && hitResult.uniqueType !== 'polygon' && hitResult.uniqueType !== 'slot') {
           const sign = this.computeDistanceSign(hitResult, null);
           finalExpr = String(Math.round(sign * num * 100) / 100);
         } else if (isNumeric) {
@@ -204,7 +232,11 @@ export class DimensionInputController {
         }
 
         const sketchSourceLine = this.getSketchSourceLine();
-        updateDimensionExpression(finalExpr, sourceLocation, sketchSourceLine, newVariable);
+        const dimOffset = hitResult.uniqueType === 'slot'
+          && !hitResult.slotHasTwoPoints
+          && hitResult.hitZone === 'end'
+          ? 1 : 0;
+        updateDimensionExpression(finalExpr, sourceLocation, sketchSourceLine, newVariable, dimOffset);
         if (isDrag) {
           this.onRequestEndResize?.();
         } else {
@@ -213,16 +245,21 @@ export class DimensionInputController {
       },
     });
 
-    getDimensionExpression(sourceLocation.line).then(({ expression }) => {
-      if (!expression) {
-        return;
-      }
-      if (isDrag) {
-        this.updateValueIfUnmoved(expression);
-      } else if (this.standaloneInputActive) {
-        this.updateValueIfUnmoved(expression);
-      }
-    });
+    const isSlotDistanceDrag = hitResult.uniqueType === 'slot'
+      && !hitResult.slotHasTwoPoints
+      && hitResult.hitZone === 'end';
+    if (!isSlotDistanceDrag) {
+      getDimensionExpression(sourceLocation.line).then(({ expression }) => {
+        if (!expression) {
+          return;
+        }
+        if (isDrag) {
+          this.updateValueIfUnmoved(expression);
+        } else if (this.standaloneInputActive) {
+          this.updateValueIfUnmoved(expression);
+        }
+      });
+    }
   }
 
   private computeDistanceSign(

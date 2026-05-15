@@ -59,6 +59,30 @@ export function findHitGeometry(
       continue;
     }
 
+    if (uniqueType === 'slot') {
+      const metaCenters: [number, number][] = [];
+      for (const part of child.sceneShapes) {
+        if (part.isMetaShape) {
+          for (const mesh of part.meshes) {
+            if (mesh.vertices.length === 3 && mesh.indices.length === 0) {
+              const cv = meshToSketch2D(mesh.vertices, plane);
+              if (cv.length === 1) {
+                metaCenters.push(cv[0]);
+              }
+            }
+          }
+        }
+      }
+      if (metaCenters.length === 2) {
+        const result = hitTestSlot(point2d, metaCenters, sourceLocation, child, plane, thresholdSq, bestDistSq);
+        if (result) {
+          bestHit = result.hit;
+          bestDistSq = result.distSq;
+        }
+      }
+      continue;
+    }
+
     if (uniqueType === 'rect') {
       const allVerts: [number, number][] = [];
       for (const part of child.sceneShapes) {
@@ -681,5 +705,110 @@ function hitTestPolygon(
       bestDistSq = d;
     }
   }
+  return result;
+}
+
+function hitTestSlot(
+  point2d: [number, number],
+  metaCenters: [number, number][],
+  sourceLocation: { line: number; column: number },
+  child: SceneObjectRender,
+  plane: PlaneData,
+  thresholdSq: number,
+  bestDistSq: number,
+): HitTestResult | null {
+  const leftCenter = metaCenters[0];
+  const rightCenter = metaCenters[1];
+  const hasTwoPoints = child.object?.hasTwoPoints ?? false;
+  const radius = child.object?.radius ?? 0;
+
+  const dx = rightCenter[0] - leftCenter[0];
+  const dy = rightCenter[1] - leftCenter[1];
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const axisDir: [number, number] = dist > 1e-10 ? [dx / dist, dy / dist] : [1, 0];
+
+  const common = {
+    sourceLocation,
+    uniqueType: 'slot' as const,
+    initialValue: radius,
+    slotHasTwoPoints: hasTwoPoints,
+    slotAxisDir: axisDir,
+    slotRadius: radius,
+  };
+
+  function makeStartHit(): DragHitResult {
+    return {
+      ...common,
+      hitZone: 'start',
+      anchorPoint: leftCenter,
+      fixedVertex: rightCenter,
+      slotOtherCenter: rightCenter,
+      slotPointIndex: 0,
+      draggedVertices: [leftCenter],
+    };
+  }
+
+  function makeEndHit(): DragHitResult {
+    return {
+      ...common,
+      hitZone: 'end',
+      anchorPoint: rightCenter,
+      fixedVertex: leftCenter,
+      slotOtherCenter: leftCenter,
+      slotPointIndex: 1,
+      draggedVertices: [rightCenter],
+    };
+  }
+
+  let result: HitTestResult | null = null;
+
+  // Test meta shape centers first (arc center points)
+  const ldx = leftCenter[0] - point2d[0];
+  const ldy = leftCenter[1] - point2d[1];
+  const leftDist = ldx * ldx + ldy * ldy;
+
+  const rdx = rightCenter[0] - point2d[0];
+  const rdy = rightCenter[1] - point2d[1];
+  const rightDist = rdx * rdx + rdy * rdy;
+
+  if (leftDist < thresholdSq && leftDist < bestDistSq && leftDist <= rightDist) {
+    result = { hit: makeStartHit(), distSq: leftDist };
+    bestDistSq = leftDist;
+  }
+
+  if (rightDist < thresholdSq && rightDist < bestDistSq) {
+    result = { hit: makeEndHit(), distSq: rightDist };
+    bestDistSq = rightDist;
+  }
+
+  // Test non-meta edge vertices — these are arc/line outline points (radius editing)
+  for (const part of child.sceneShapes) {
+    if (part.isMetaShape) {
+      continue;
+    }
+    for (const mesh of part.meshes) {
+      const verts2d = meshToSketch2D(mesh.vertices, plane);
+      for (const v of verts2d) {
+        const vdx = v[0] - point2d[0];
+        const vdy = v[1] - point2d[1];
+        const d = vdx * vdx + vdy * vdy;
+        if (d < thresholdSq && d < bestDistSq) {
+          result = {
+            hit: {
+              ...common,
+              hitZone: 'body',
+              anchorPoint: leftCenter,
+              fixedVertex: rightCenter,
+              slotOtherCenter: rightCenter,
+              slotRadius: radius,
+            },
+            distSq: d,
+          };
+          bestDistSq = d;
+        }
+      }
+    }
+  }
+
   return result;
 }

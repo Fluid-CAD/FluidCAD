@@ -271,6 +271,17 @@ export class DragMoveHandler {
       this.currentPoint = constrainToTangentPerp(this.currentPoint, this.hitResult.fixedVertex, this.hitResult.tangentDir);
     }
 
+    if (this.hitResult?.uniqueType === 'slot' && !this.hitResult.slotHasTwoPoints
+        && (this.hitResult.hitZone === 'start' || this.hitResult.hitZone === 'end')
+        && this.hitResult.slotAxisDir && this.hitResult.slotOtherCenter) {
+      const dir = this.hitResult.slotAxisDir;
+      const other = this.hitResult.slotOtherCenter;
+      const ddx = this.currentPoint[0] - other[0];
+      const ddy = this.currentPoint[1] - other[1];
+      const proj = ddx * dir[0] + ddy * dir[1];
+      this.currentPoint = [other[0] + dir[0] * proj, other[1] + dir[1] * proj];
+    }
+
     disposePreviewGroup(this.previewGroup);
     if (this.currentPoint && this.hitResult) {
       rebuildDragPreview(this.previewGroup, this.currentPoint, this.startPoint, this.hitResult, this.ctx.camera, this.plane);

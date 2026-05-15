@@ -9,6 +9,7 @@ const INTERACTIVE_SKETCH_TYPES = new Set([
   'trim2d',
   'rect',
   'polygon',
+  'slot',
 ]);
 
 export function isInteractiveSketchType(uniqueType: string | undefined): boolean {
@@ -114,6 +115,7 @@ export type CenterEntry = {
 
 const ARC_UNIQUE_TYPES = new Set([
   'arc', 'tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent',
+  'slot',
 ]);
 
 export function buildCenterIndex(

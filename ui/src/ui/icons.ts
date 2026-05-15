@@ -53,6 +53,8 @@ export const ICON_THREE_POINT_ARC = iconArc3d;
 export const ICON_RECT = iconRectangle;
 export const ICON_ROUNDED_RECT = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="5"/></svg>';
 
+export const ICON_SLOT = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8h10a4 4 0 0 1 0 8H7a4 4 0 0 1 0-8z"/></svg>';
+
 export const ICON_POLYGON = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,3 20,7.5 20,16.5 12,21 4,16.5 4,7.5"/></svg>';
 
 export const ICON_TANGENT_ARC = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="16" x2="12" y2="16"/><path d="M12 16 A8 8 0 0 0 20 8"/></svg>';

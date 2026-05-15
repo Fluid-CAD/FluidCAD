@@ -178,12 +178,14 @@ export function updateDimensionExpression(
   sourceLocation: SourceLocationParam,
   sketchSourceLine: number | null,
   newVariable?: { name: string; initializer: string } | null,
+  dimensionOffset?: number,
 ): void {
   postFireAndForget('/api/update-dimension-expression', {
     expression,
     sourceLocation,
     sketchSourceLine,
     newVariable: newVariable ?? null,
+    dimensionOffset: dimensionOffset ?? 0,
   });
 }
 

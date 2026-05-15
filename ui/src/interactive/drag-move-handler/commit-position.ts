@@ -72,12 +72,18 @@ export function commitPositionMove(
     const sketchSourceLine = getSketchSourceLine();
     updateDimensionExpression(String(distance), sourceLocation, sketchSourceLine);
   } else if (uniqueType === 'rect' && anchorPoint) {
-    const minX = Math.min(anchorPoint[0], newPos[0]);
-    const minY = Math.min(anchorPoint[1], newPos[1]);
-    const newWidth = Math.round(Math.abs(newPos[0] - anchorPoint[0]) * 100) / 100;
-    const newHeight = Math.round(Math.abs(newPos[1] - anchorPoint[1]) * 100) / 100;
-    const newStart = roundPoint([minX, minY]);
-    setRectDimensions(newWidth, newHeight, sourceLocation, newStart);
+    if (hitResult.rectCentered) {
+      const newWidth = Math.round(Math.abs(newPos[0] - anchorPoint[0]) * 2 * 100) / 100;
+      const newHeight = Math.round(Math.abs(newPos[1] - anchorPoint[1]) * 2 * 100) / 100;
+      setRectDimensions(newWidth, newHeight, sourceLocation);
+    } else {
+      const minX = Math.min(anchorPoint[0], newPos[0]);
+      const minY = Math.min(anchorPoint[1], newPos[1]);
+      const newWidth = Math.round(Math.abs(newPos[0] - anchorPoint[0]) * 100) / 100;
+      const newHeight = Math.round(Math.abs(newPos[1] - anchorPoint[1]) * 100) / 100;
+      const newStart = roundPoint([minX, minY]);
+      setRectDimensions(newWidth, newHeight, sourceLocation, newStart);
+    }
   } else if (uniqueType === 'tarc-to-point' || uniqueType === 'tarc-to-point-tangent') {
     const endIdx = uniqueType === 'tarc-to-point' ? 0 : 1;
     if (hitZone === 'center' && fixedVertex && hitResult.fixedVertex2) {

@@ -11,6 +11,7 @@ export type DragHitResult = {
   arcCCW?: boolean;
   arcArgCount?: number;
   tangentDir?: [number, number];
+  rectCentered?: boolean;
 };
 
 export type PendingHit = {

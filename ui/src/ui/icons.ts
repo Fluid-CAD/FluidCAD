@@ -57,6 +57,8 @@ export const ICON_TANGENT_ARC = '<svg width="24" height="24" viewBox="0 0 24 24"
 
 export const ICON_POLYLINE = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 18 8 10 14 14 20 6"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/><circle cx="8" cy="10" r="1.5" fill="currentColor" stroke="none"/><circle cx="14" cy="14" r="1.5" fill="currentColor" stroke="none"/><circle cx="20" cy="6" r="1.5" fill="currentColor" stroke="none"/></svg>';
 
+export const ICON_BEZIER = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 19 C 8 5, 16 5, 21 19"/><circle cx="3" cy="19" r="1.5" fill="currentColor" stroke="none"/><circle cx="21" cy="19" r="1.5" fill="currentColor" stroke="none"/></svg>';
+
 export const ICON_CHEVRON_RIGHT = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
 export const ICON_CHEVRON_DOWN = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
 export const ICON_DOTS_VERTICAL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';

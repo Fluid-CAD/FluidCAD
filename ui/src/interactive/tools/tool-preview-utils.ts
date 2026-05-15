@@ -25,6 +25,7 @@ export const DOT_SEGMENTS = 16;
 export const DOT_PX_RADIUS = 7.5;
 export const CIRCLE_SEGMENTS = 64;
 export const ARC_SEGMENTS = 64;
+export const BEZIER_SEGMENTS = 64;
 
 export function snapDotColor(snapType: SnapType): number {
   return snapType === 'vertex' ? SNAP_VERTEX_COLOR : SNAP_GRID_COLOR;
@@ -33,14 +34,16 @@ export function snapDotColor(snapType: SnapType): number {
 export function addDot(
   previewGroup: Group,
   point2d: [number, number],
-  color: number,
+  color: number | string,
   _camera: Camera,
   planeNormal: Vector3,
   plane: PlaneData,
   opacity = 1,
   renderOrder = 4,
+  radius = DOT_RADIUS,
+  pxRadius = DOT_PX_RADIUS,
 ): void {
-  const geo = new CircleGeometry(DOT_RADIUS, DOT_SEGMENTS);
+  const geo = new CircleGeometry(radius, DOT_SEGMENTS);
   const mat = new MeshBasicMaterial({
     color,
     side: DoubleSide,
@@ -57,7 +60,7 @@ export function addDot(
   group.position.copy(pos);
   group.lookAt(pos.clone().add(planeNormal));
 
-  applyConstantPixelSize(dot, group, pos, DOT_PX_RADIUS, DOT_RADIUS);
+  applyConstantPixelSize(dot, group, pos, pxRadius, radius);
 
   group.add(dot);
   previewGroup.add(group);
@@ -282,6 +285,57 @@ export function addDashedArc(
       center[0] + Math.cos(angle) * radius,
       center[1] + Math.sin(angle) * radius,
     ];
+    const w = localToWorld(pt, plane);
+    verts[i * 3] = w.x;
+    verts[i * 3 + 1] = w.y;
+    verts[i * 3 + 2] = w.z;
+  }
+
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new BufferAttribute(verts, 3));
+
+  const mat = new LineDashedMaterial({
+    color: GUIDE_COLOR,
+    dashSize: 3,
+    gapSize: 2,
+    depthTest: false,
+  });
+
+  const line = new Line(geo, mat);
+  line.computeLineDistances();
+  line.renderOrder = renderOrder;
+  previewGroup.add(line);
+}
+
+function deCasteljau(poles: [number, number][], t: number): [number, number] {
+  let pts = poles.slice();
+  while (pts.length > 1) {
+    const next: [number, number][] = [];
+    for (let i = 0; i < pts.length - 1; i++) {
+      next.push([
+        (1 - t) * pts[i][0] + t * pts[i + 1][0],
+        (1 - t) * pts[i][1] + t * pts[i + 1][1],
+      ]);
+    }
+    pts = next;
+  }
+  return pts[0];
+}
+
+export function addDashedBezier(
+  previewGroup: Group,
+  poles: [number, number][],
+  plane: PlaneData,
+  renderOrder = 3,
+): void {
+  if (poles.length < 2) {
+    return;
+  }
+
+  const verts = new Float32Array((BEZIER_SEGMENTS + 1) * 3);
+  for (let i = 0; i <= BEZIER_SEGMENTS; i++) {
+    const t = i / BEZIER_SEGMENTS;
+    const pt = deCasteljau(poles, t);
     const w = localToWorld(pt, plane);
     verts[i * 3] = w.x;
     verts[i * 3 + 1] = w.y;

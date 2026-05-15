@@ -491,6 +491,18 @@ function hitTestRect(
     return null;
   }
 
+  const isCentered = child.object?.centered === true;
+
+  let center: [number, number] | undefined;
+  if (isCentered) {
+    let cx = 0, cy = 0;
+    for (const v of uniqueVerts) {
+      cx += v[0];
+      cy += v[1];
+    }
+    center = [cx / uniqueVerts.length, cy / uniqueVerts.length];
+  }
+
   let result: HitTestResult | null = null;
 
   for (const corner of uniqueVerts) {
@@ -498,15 +510,20 @@ function hitTestRect(
     const ddy = corner[1] - point2d[1];
     const d = ddx * ddx + ddy * ddy;
     if (d < thresholdSq && d < bestDistSq) {
-      let maxDistSq = -1;
-      let opposite: [number, number] = uniqueVerts[0];
-      for (const other of uniqueVerts) {
-        const ox = other[0] - corner[0];
-        const oy = other[1] - corner[1];
-        const od = ox * ox + oy * oy;
-        if (od > maxDistSq) {
-          maxDistSq = od;
-          opposite = other;
+      let anchor: [number, number];
+      if (isCentered && center) {
+        anchor = center;
+      } else {
+        let maxDistSq = -1;
+        anchor = uniqueVerts[0];
+        for (const other of uniqueVerts) {
+          const ox = other[0] - corner[0];
+          const oy = other[1] - corner[1];
+          const od = ox * ox + oy * oy;
+          if (od > maxDistSq) {
+            maxDistSq = od;
+            anchor = other;
+          }
         }
       }
 
@@ -515,9 +532,10 @@ function hitTestRect(
           sourceLocation,
           uniqueType: 'rect',
           hitZone: 'end',
-          anchorPoint: opposite,
-          fixedVertex: opposite,
+          anchorPoint: anchor,
+          fixedVertex: anchor,
           draggedVertices: [corner],
+          rectCentered: isCentered,
         },
         distSq: d,
       };

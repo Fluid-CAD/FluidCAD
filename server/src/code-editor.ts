@@ -177,10 +177,11 @@ function parsePointLiteral(node: TSNode): [number, number] | null {
 }
 
 function isPointLikeArg(node: TSNode): boolean {
-  if (isPointArray(node)) return true;
-  if (node.type === 'identifier') return true;
-  if (node.type === 'member_expression') return true;
-  return false;
+  if (node.type === 'number') return false;
+  if (node.type === 'string' || node.type === 'template_string') return false;
+  if (node.type === 'true' || node.type === 'false') return false;
+  if (node.type === 'unary_expression' && node.namedChildren[0]?.type === 'number') return false;
+  return true;
 }
 
 function collectChainPointArgs(call: TSNode): TSNode[] {

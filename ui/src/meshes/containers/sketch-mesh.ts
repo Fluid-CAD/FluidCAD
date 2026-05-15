@@ -7,8 +7,6 @@ import {
   Group,
   Mesh,
   MeshBasicMaterial,
-  OrthographicCamera,
-  PerspectiveCamera,
   Quaternion,
   Vector3,
 } from 'three';
@@ -17,57 +15,43 @@ import { EdgeMesh } from '../shape-meshes/edge-mesh';
 import { createMetaEdgeMesh } from './shape-group';
 import { isInteractiveSketchType } from '../../interactive/sketch-edge-utils';
 import { buildConstraintIcons } from './constraint-icon';
-
-function computeViewScale(camera: Camera, position: Vector3, factor: number): number {
-  if (camera instanceof OrthographicCamera) {
-    const viewHeight = (camera.top - camera.bottom) / camera.zoom;
-    return viewHeight * factor;
-  } else if (camera instanceof PerspectiveCamera) {
-    const dist = camera.position.distanceTo(position);
-    const vFov = camera.fov * Math.PI / 180;
-    const viewHeight = 2 * dist * Math.tan(vFov / 2);
-    return viewHeight * factor;
-  }
-  return 1;
-}
+import { applyConstantPixelSize } from '../screen-scale';
 
 const SKETCH_EDGE_COLOR = '#2297ff';
 const NON_INTERACTIVE_EDGE_COLOR = '#6a5acd';
 const VERTEX_RADIUS = 2;
 const VERTEX_SEGMENTS = 16;
-const VERTEX_SCALE_FACTOR = 0.003;
-const VERTEX_MIN_SCALE = 0.5;
-const VERTEX_MAX_SCALE = 4.0;
-
-function clampVertexScale(raw: number): number {
-  return Math.max(VERTEX_MIN_SCALE, Math.min(raw, VERTEX_MAX_SCALE));
-}
+const VERTEX_PX_RADIUS = 6;
 const META_VERTEX_COLOR = '#8899aa';
 const META_VERTEX_RADIUS = 1.5;
+const META_VERTEX_PX_RADIUS = 4.5;
 const CURSOR_COLOR = 0xf3724f;
 const CURSOR_SEGMENTS = 64;
 const CURSOR_RADIUS = 3;
+const CURSOR_PX_RADIUS = 9;
 const TANGENT_ARROW_COLOR = 0xf3724f;
 const TANGENT_ARROW_OPACITY = 0.35;
 const TANGENT_SHAFT_RADIUS = 0.6;
 const TANGENT_SHAFT_LENGTH = 18;
 const TANGENT_HEAD_LENGTH = 5;
 const TANGENT_HEAD_WIDTH = 2.5;
+const TANGENT_TOTAL_LENGTH = TANGENT_SHAFT_LENGTH + TANGENT_HEAD_LENGTH;
+const TANGENT_PX_LENGTH = 54;
 
 /**
  * Renders a sketch: all child edges in blue, plus an optional cursor circle
  * at the current drawing position.
  */
 export class SketchMesh extends Group {
-  constructor(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], activeSketchId: string | null, camera: Camera) {
+  constructor(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], activeSketchId: string | null, _camera: Camera) {
     super();
     this.userData.isSketchRoot = true;
     this.buildEdges(sceneObject, allObjects);
-    this.buildVertices(sceneObject, allObjects, camera);
-    this.addConstraintIcons(sceneObject, allObjects, camera);
+    this.buildVertices(sceneObject, allObjects);
+    this.addConstraintIcons(sceneObject, allObjects);
     if (activeSketchId && sceneObject.id === activeSketchId) {
-      this.buildCursor(sceneObject, camera);
-      this.buildTangentArrow(sceneObject, camera);
+      this.buildCursor(sceneObject);
+      this.buildTangentArrow(sceneObject);
     }
   }
 
@@ -102,7 +86,7 @@ export class SketchMesh extends Group {
     }
   }
 
-  private buildVertices(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], camera: Camera): void {
+  private buildVertices(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[]): void {
     const normal = sceneObject.object?.plane?.normal;
     const endpoints: Vector3[] = [];
     const nonInteractiveEndpoints: Vector3[] = [];
@@ -163,13 +147,13 @@ export class SketchMesh extends Group {
     const uniqueNonInteractive = this.dedup(nonInteractiveEndpoints, EPSILON_SQ);
     const uniqueMeta = this.dedup(metaVertices, EPSILON_SQ);
 
-    this.addVertexDots(uniqueEndpoints, normal, camera, VERTEX_RADIUS, SKETCH_EDGE_COLOR, 1);
-    this.addVertexDots(uniqueNonInteractive, normal, camera, VERTEX_RADIUS, NON_INTERACTIVE_EDGE_COLOR, 1);
-    this.addVertexDots(uniqueMeta, normal, camera, META_VERTEX_RADIUS, META_VERTEX_COLOR, 0.5);
+    this.addVertexDots(uniqueEndpoints, normal, VERTEX_RADIUS, VERTEX_PX_RADIUS, SKETCH_EDGE_COLOR, 1);
+    this.addVertexDots(uniqueNonInteractive, normal, VERTEX_RADIUS, VERTEX_PX_RADIUS, NON_INTERACTIVE_EDGE_COLOR, 1);
+    this.addVertexDots(uniqueMeta, normal, META_VERTEX_RADIUS, META_VERTEX_PX_RADIUS, META_VERTEX_COLOR, 0.5);
   }
 
-  private addConstraintIcons(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], camera: Camera): void {
-    for (const icon of buildConstraintIcons(sceneObject, allObjects, camera)) {
+  private addConstraintIcons(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[]): void {
+    for (const icon of buildConstraintIcons(sceneObject, allObjects)) {
       this.add(icon);
     }
   }
@@ -187,8 +171,8 @@ export class SketchMesh extends Group {
   private addVertexDots(
     positions: Vector3[],
     normal: { x: number; y: number; z: number } | undefined,
-    camera: Camera,
     radius: number,
+    targetPixels: number,
     color: string | number,
     opacity: number,
   ): void {
@@ -219,18 +203,13 @@ export class SketchMesh extends Group {
         ));
       }
 
-      dotGroup.scale.setScalar(clampVertexScale(computeViewScale(camera, pos, VERTEX_SCALE_FACTOR)));
-
-      dot.onBeforeRender = (_renderer, _scene, cam) => {
-        dotGroup.scale.setScalar(clampVertexScale(computeViewScale(cam, pos, VERTEX_SCALE_FACTOR)));
-        dotGroup.updateMatrixWorld(true);
-      };
+      applyConstantPixelSize(dot, dotGroup, pos, targetPixels, radius);
 
       this.add(dotGroup);
     }
   }
 
-  private buildCursor(sceneObject: SceneObjectRender, camera: Camera): void {
+  private buildCursor(sceneObject: SceneObjectRender): void {
     const currentPosition = sceneObject.object?.currentPosition;
     if (!currentPosition) {
       return;
@@ -252,7 +231,6 @@ export class SketchMesh extends Group {
     cursorGroup.add(dot);
     cursorGroup.position.set(currentPosition.x, currentPosition.y, currentPosition.z);
 
-    // Orient the cursor to face the sketch plane normal
     const normal = sceneObject.object?.plane?.normal;
     if (normal) {
       const target = new Vector3(
@@ -263,19 +241,12 @@ export class SketchMesh extends Group {
       cursorGroup.lookAt(target);
     }
 
-    // Set initial scale so the cursor is correctly sized on the first frame
-    cursorGroup.scale.setScalar(computeViewScale(camera, cursorGroup.position, 0.003));
-
-    // Keep consistent screen size regardless of zoom level
-    dot.onBeforeRender = (_renderer, _scene, cam) => {
-      cursorGroup.scale.setScalar(computeViewScale(cam, cursorGroup.position, 0.003));
-      cursorGroup.updateMatrixWorld(true);
-    };
+    applyConstantPixelSize(dot, cursorGroup, cursorGroup.position, CURSOR_PX_RADIUS, CURSOR_RADIUS);
 
     this.add(cursorGroup);
   }
 
-  private buildTangentArrow(sceneObject: SceneObjectRender, camera: Camera): void {
+  private buildTangentArrow(sceneObject: SceneObjectRender): void {
     const currentPosition = sceneObject.object?.currentPosition;
     const currentTangent = sceneObject.object?.currentTangent;
     const planeOrigin = sceneObject.object?.plane?.origin;
@@ -318,14 +289,7 @@ export class SketchMesh extends Group {
     arrowGroup.quaternion.copy(quaternion);
     arrowGroup.position.set(currentPosition.x, currentPosition.y, currentPosition.z);
 
-    // Set initial scale so the arrow is correctly sized on the first frame
-    arrowGroup.scale.setScalar(computeViewScale(camera, arrowGroup.position, 0.003));
-
-    // Keep consistent screen size regardless of zoom level
-    shaft.onBeforeRender = (_renderer, _scene, cam) => {
-      arrowGroup.scale.setScalar(computeViewScale(cam, arrowGroup.position, 0.003));
-      arrowGroup.updateMatrixWorld(true);
-    };
+    applyConstantPixelSize(shaft, arrowGroup, arrowGroup.position, TANGENT_PX_LENGTH, TANGENT_TOTAL_LENGTH);
 
     this.add(arrowGroup);
   }

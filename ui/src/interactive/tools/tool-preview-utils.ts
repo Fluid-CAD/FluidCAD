@@ -9,13 +9,12 @@ import {
   LineDashedMaterial,
   Mesh,
   MeshBasicMaterial,
-  OrthographicCamera,
-  PerspectiveCamera,
   Vector3,
 } from 'three';
 import { localToWorld } from '../sketch-plane-utils';
 import { PlaneData } from '../../types';
 import { SnapType } from '../../snapping/types';
+import { applyConstantPixelSize } from '../../meshes/screen-scale';
 
 export const START_POINT_COLOR = 0x22cc66;
 export const GUIDE_COLOR = 0xb0b0b0;
@@ -23,23 +22,9 @@ export const SNAP_VERTEX_COLOR = 0xffc578;
 export const SNAP_GRID_COLOR = 0x888888;
 export const DOT_RADIUS = 2.5;
 export const DOT_SEGMENTS = 16;
-export const SCALE_FACTOR = 0.003;
-export const MAX_SCALE = 1.5;
+export const DOT_PX_RADIUS = 7.5;
 export const CIRCLE_SEGMENTS = 64;
 export const ARC_SEGMENTS = 64;
-
-export function computeViewScale(camera: Camera, position: Vector3, factor: number): number {
-  if (camera instanceof OrthographicCamera) {
-    const viewHeight = (camera.top - camera.bottom) / camera.zoom;
-    return viewHeight * factor;
-  } else if (camera instanceof PerspectiveCamera) {
-    const dist = camera.position.distanceTo(position);
-    const vFov = camera.fov * Math.PI / 180;
-    const viewHeight = 2 * dist * Math.tan(vFov / 2);
-    return viewHeight * factor;
-  }
-  return 1;
-}
 
 export function snapDotColor(snapType: SnapType): number {
   return snapType === 'vertex' ? SNAP_VERTEX_COLOR : SNAP_GRID_COLOR;
@@ -49,7 +34,7 @@ export function addDot(
   previewGroup: Group,
   point2d: [number, number],
   color: number,
-  camera: Camera,
+  _camera: Camera,
   planeNormal: Vector3,
   plane: PlaneData,
   opacity = 1,
@@ -71,12 +56,8 @@ export function addDot(
   const pos = localToWorld(point2d, plane);
   group.position.copy(pos);
   group.lookAt(pos.clone().add(planeNormal));
-  group.scale.setScalar(Math.min(computeViewScale(camera, pos, SCALE_FACTOR), MAX_SCALE));
 
-  dot.onBeforeRender = (_r, _s, cam) => {
-    group.scale.setScalar(Math.min(computeViewScale(cam, pos, SCALE_FACTOR), MAX_SCALE));
-    group.updateMatrixWorld(true);
-  };
+  applyConstantPixelSize(dot, group, pos, DOT_PX_RADIUS, DOT_RADIUS);
 
   group.add(dot);
   previewGroup.add(group);

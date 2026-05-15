@@ -76,12 +76,13 @@ export class DimensionInputController {
       const dy = startPoint[1] - start[1];
       value = Math.round(Math.abs(dx * t[0] + dy * t[1]) * 100) / 100;
     } else if (uniqueType === 'slot' && !hitResult.slotHasTwoPoints
-               && hitResult.slotOtherCenter && hitZone === 'end') {
+               && hitResult.slotOtherCenter && hitResult.slotAxisDir && hitZone === 'end') {
       label = 'D';
       const other = hitResult.slotOtherCenter;
+      const ax = hitResult.slotAxisDir;
       const ddx = startPoint[0] - other[0];
       const ddy = startPoint[1] - other[1];
-      value = Math.round(Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
+      value = Math.round((ddx * ax[0] + ddy * ax[1]) * 100) / 100;
     } else if (uniqueType === 'slot' && hitZone === 'body') {
       label = 'R';
       const lc = hitResult.anchorPoint!;
@@ -160,11 +161,12 @@ export class DimensionInputController {
       const ddx = currentPoint[0] - lc[0];
       const ddy = currentPoint[1] - lc[1];
       value = Math.round(Math.abs(-ay * ddx + ax * ddy) * 100) / 100;
-    } else if (uniqueType === 'slot' && hitResult.slotOtherCenter) {
+    } else if (uniqueType === 'slot' && hitResult.slotOtherCenter && hitResult.slotAxisDir) {
       const other = hitResult.slotOtherCenter;
+      const ax = hitResult.slotAxisDir;
       const ddx = currentPoint[0] - other[0];
       const ddy = currentPoint[1] - other[1];
-      value = Math.round(Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
+      value = Math.round((ddx * ax[0] + ddy * ax[1]) * 100) / 100;
     } else {
       const start = anchorPoint!;
       const raw = uniqueType === 'hline'

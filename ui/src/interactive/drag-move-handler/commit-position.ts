@@ -122,11 +122,12 @@ export function commitPositionMove(
       updatePosition(newPos, sourceLocation, hitResult.slotPointIndex ?? 0);
     } else if (hitZone === 'start') {
       updatePosition(newPos, sourceLocation, 0);
-    } else if (hitResult.slotOtherCenter) {
+    } else if (hitResult.slotOtherCenter && hitResult.slotAxisDir) {
       const other = hitResult.slotOtherCenter;
+      const ax = hitResult.slotAxisDir;
       const ddx = newPos[0] - other[0];
       const ddy = newPos[1] - other[1];
-      const newDistance = Math.round(Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
+      const newDistance = Math.round((ddx * ax[0] + ddy * ax[1]) * 100) / 100;
       const sketchSourceLine = getSketchSourceLine();
       updateDimensionExpression(String(newDistance), sourceLocation, sketchSourceLine, undefined, 1);
     }

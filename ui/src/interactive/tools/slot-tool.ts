@@ -182,8 +182,8 @@ export class SlotTool extends SketchTool {
     }
 
     if (this.expressionPhase === 'distance') {
-      const distance = Math.round(Math.abs(point[0] - this.startPoint[0]) * 100) / 100;
-      if (distance <= 0) {
+      const distance = Math.round((point[0] - this.startPoint[0]) * 100) / 100;
+      if (distance === 0) {
         return;
       }
       this.onDistanceCommit({ expression: String(distance) });
@@ -261,12 +261,11 @@ export class SlotTool extends SketchTool {
     }
 
     if (this.horizontalMode) {
-      const d = this.lockedDistance ?? (this.mousePoint ? Math.abs(this.mousePoint[0] - this.startPoint[0]) : 0);
-      const sign = this.mousePoint && this.mousePoint[0] < this.startPoint[0] ? -1 : 1;
+      const d = this.lockedDistance ?? (this.mousePoint ? (this.mousePoint[0] - this.startPoint[0]) : 0);
       return {
-        dir: [sign, 0],
+        dir: d >= 0 ? [1, 0] : [-1, 0],
         leftCenter: this.startPoint,
-        rightCenter: [this.startPoint[0] + sign * d, this.startPoint[1]],
+        rightCenter: [this.startPoint[0] + d, this.startPoint[1]],
       };
     }
 
@@ -318,8 +317,8 @@ export class SlotTool extends SketchTool {
     }
 
     if (this.expressionPhase === 'distance') {
-      const distance = Math.round(Math.abs(this.mousePoint[0] - this.startPoint[0]) * 100) / 100;
-      if (distance <= 0) {
+      const distance = Math.round((this.mousePoint[0] - this.startPoint[0]) * 100) / 100;
+      if (distance === 0) {
         return;
       }
       if (!this.expressionInput.isVisible) {
@@ -364,7 +363,7 @@ export class SlotTool extends SketchTool {
     const isNumeric = !isNaN(num) && String(num) === result.expression;
 
     this.distanceExpression = result;
-    this.lockedDistance = isNumeric ? Math.abs(num) : null;
+    this.lockedDistance = isNumeric ? num : null;
     this.expressionPhase = 'radius';
 
     queueMicrotask(() => {

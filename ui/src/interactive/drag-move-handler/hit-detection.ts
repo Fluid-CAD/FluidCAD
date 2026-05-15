@@ -725,7 +725,14 @@ function hitTestSlot(
   const dx = rightCenter[0] - leftCenter[0];
   const dy = rightCenter[1] - leftCenter[1];
   const dist = Math.sqrt(dx * dx + dy * dy);
-  const axisDir: [number, number] = dist > 1e-10 ? [dx / dist, dy / dist] : [1, 0];
+
+  let axisDir: [number, number];
+  if (!hasTwoPoints) {
+    const baseAngle = ((child.object?.angle ?? 0) * Math.PI) / 180;
+    axisDir = [Math.cos(baseAngle), Math.sin(baseAngle)];
+  } else {
+    axisDir = dist > 1e-10 ? [dx / dist, dy / dist] : [1, 0];
+  }
 
   const common = {
     sourceLocation,

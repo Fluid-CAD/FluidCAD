@@ -7,6 +7,7 @@ import { ThreePointArcTool } from './tools/three-point-arc-tool';
 import { TangentArcTool } from './tools/tangent-arc-tool';
 import { RectTool } from './tools/rect-tool';
 import { RoundedRectTool } from './tools/rounded-rect-tool';
+import { SlotTool } from './tools/slot-tool';
 import { PolylineTool } from './tools/polyline';
 import { BezierTool } from './tools/bezier-tool';
 import { PolygonTool } from './tools/polygon-tool';
@@ -195,6 +196,8 @@ export class SketchToolbarService {
         return new RectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
       case 'rounded-rect':
         return new RoundedRectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+      case 'slot':
+        return new SlotTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
       default:
         return null;
     }

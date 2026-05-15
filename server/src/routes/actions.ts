@@ -585,7 +585,7 @@ export function createActionsRouter(
   });
 
   router.post('/update-dimension-expression', (req, res) => {
-    const { expression, sourceLocation, sketchSourceLine, newVariable } = req.body;
+    const { expression, sourceLocation, sketchSourceLine, newVariable, dimensionOffset } = req.body;
     if (
       typeof expression !== 'string' ||
       !sourceLocation || typeof sourceLocation.line !== 'number'
@@ -608,12 +608,13 @@ export function createActionsRouter(
       sourceLocation,
       sketchSourceLine: typeof sketchSourceLine === 'number' ? sketchSourceLine : null,
       newVariable: nv,
+      dimensionOffset: typeof dimensionOffset === 'number' ? dimensionOffset : 0,
     });
     res.json({ success: true });
   });
 
   router.post('/code/update-dimension-expression', async (req, res) => {
-    const { code, sourceLine, expression, sketchSourceLine, newVariable } = req.body;
+    const { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset } = req.body;
     if (
       typeof code !== 'string' || typeof sourceLine !== 'number' ||
       typeof expression !== 'string'
@@ -630,11 +631,13 @@ export function createActionsRouter(
       res.status(400).json({ error: 'sketchSourceLine required when newVariable is provided' });
       return;
     }
+    const offset = typeof dimensionOffset === 'number' ? dimensionOffset : 0;
     try {
       const result = await updateDimensionExpressionWithVariable(
         code, sourceLine, expression,
         typeof sketchSourceLine === 'number' ? sketchSourceLine : sourceLine,
         nv,
+        offset,
       );
       res.json(result);
     } catch (err: any) {

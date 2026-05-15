@@ -395,6 +395,83 @@ export function addDashedBezier(
   previewGroup.add(line);
 }
 
+const SLOT_ARC_SEGMENTS = 16;
+
+export function addDashedSlot(
+  previewGroup: Group,
+  leftCenter: [number, number],
+  rightCenter: [number, number],
+  radius: number,
+  plane: PlaneData,
+  renderOrder = 3,
+): void {
+  const dx = rightCenter[0] - leftCenter[0];
+  const dy = rightCenter[1] - leftCenter[1];
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  let dirX: number, dirY: number;
+  if (dist > 1e-10) {
+    dirX = dx / dist;
+    dirY = dy / dist;
+  } else {
+    dirX = 1;
+    dirY = 0;
+  }
+  const perpX = -dirY;
+  const perpY = dirX;
+
+  const pts: [number, number][] = [];
+
+  // Left arc: from top-left to bottom-left (CW semicircle around leftCenter)
+  const leftStartAngle = Math.atan2(perpY, perpX);
+  for (let i = 0; i <= SLOT_ARC_SEGMENTS; i++) {
+    const a = leftStartAngle + (i / SLOT_ARC_SEGMENTS) * Math.PI;
+    pts.push([
+      leftCenter[0] + radius * Math.cos(a),
+      leftCenter[1] + radius * Math.sin(a),
+    ]);
+  }
+
+  // Bottom line: bottom-left to bottom-right
+  pts.push([rightCenter[0] - radius * perpX, rightCenter[1] - radius * perpY]);
+
+  // Right arc: from bottom-right to top-right (CW semicircle around rightCenter)
+  const rightStartAngle = Math.atan2(-perpY, -perpX);
+  for (let i = 0; i <= SLOT_ARC_SEGMENTS; i++) {
+    const a = rightStartAngle + (i / SLOT_ARC_SEGMENTS) * Math.PI;
+    pts.push([
+      rightCenter[0] + radius * Math.cos(a),
+      rightCenter[1] + radius * Math.sin(a),
+    ]);
+  }
+
+  // Top line: top-right back to top-left (close)
+  pts.push([leftCenter[0] + radius * perpX, leftCenter[1] + radius * perpY]);
+
+  const verts = new Float32Array(pts.length * 3);
+  for (let i = 0; i < pts.length; i++) {
+    const w = localToWorld(pts[i], plane);
+    verts[i * 3] = w.x;
+    verts[i * 3 + 1] = w.y;
+    verts[i * 3 + 2] = w.z;
+  }
+
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new BufferAttribute(verts, 3));
+
+  const mat = new LineDashedMaterial({
+    color: GUIDE_COLOR,
+    dashSize: 3,
+    gapSize: 2,
+    depthTest: false,
+  });
+
+  const line = new Line(geo, mat);
+  line.computeLineDistances();
+  line.renderOrder = renderOrder;
+  previewGroup.add(line);
+}
+
 // --- Arc math utilities ---
 
 export function angleFromCenter(center: [number, number], point: [number, number]): number {

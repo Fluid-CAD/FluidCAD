@@ -191,6 +191,7 @@ export type UpdateDimensionExpressionMessage = {
   type: 'update-dimension-expression';
   expression: string;
   sourceLocation: { line: number; column: number };
+  dimensionOffset?: number;
 };
 
 export type SetRectDimensionsMessage = {

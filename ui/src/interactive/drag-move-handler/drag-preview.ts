@@ -8,6 +8,7 @@ import {
   addDashedRect,
   addDashedPolygon,
   addDashedBezier,
+  addDashedSlot,
   angleFromCenter,
   GUIDE_COLOR,
   START_POINT_COLOR,
@@ -103,6 +104,36 @@ export function rebuildDragPreview(
     } else {
       addDot(previewGroup, anchorPoint, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
       addDashedRect(previewGroup, anchorPoint, currentPoint, plane, RO);
+      addDot(previewGroup, currentPoint, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
+    }
+  } else if (uniqueType === 'slot' && hitResult.slotRadius !== undefined) {
+    if (hitZone === 'body') {
+      const left = anchorPoint!;
+      const right = fixedVertex!;
+      const ax = hitResult.slotAxisDir?.[0] ?? 1;
+      const ay = hitResult.slotAxisDir?.[1] ?? 0;
+      const ddx = currentPoint[0] - left[0];
+      const ddy = currentPoint[1] - left[1];
+      const newRadius = Math.abs(-ay * ddx + ax * ddy);
+      addDot(previewGroup, left, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
+      addDot(previewGroup, right, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
+      if (newRadius > 0) {
+        addDashedSlot(previewGroup, left, right, newRadius, plane, RO);
+      } else {
+        addDashedLine(previewGroup, left, right, plane, RO);
+      }
+      addDot(previewGroup, currentPoint, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
+    } else {
+      const otherCenter = hitResult.slotOtherCenter!;
+      const radius = hitResult.slotRadius;
+      const left = hitZone === 'start' ? currentPoint : otherCenter;
+      const right = hitZone === 'start' ? otherCenter : currentPoint;
+      addDot(previewGroup, otherCenter, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
+      if (radius > 0) {
+        addDashedSlot(previewGroup, left, right, radius, plane, RO);
+      } else {
+        addDashedLine(previewGroup, left, right, plane, RO);
+      }
       addDot(previewGroup, currentPoint, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
     }
   } else if ((uniqueType === 'tarc-to-point' || uniqueType === 'tarc-to-point-tangent') && fixedVertex && hitResult.tangentDir) {

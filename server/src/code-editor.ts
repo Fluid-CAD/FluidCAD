@@ -176,6 +176,13 @@ function parsePointLiteral(node: TSNode): [number, number] | null {
   return [parts[0], parts[1]];
 }
 
+function isPointLikeArg(node: TSNode): boolean {
+  if (isPointArray(node)) return true;
+  if (node.type === 'identifier') return true;
+  if (node.type === 'member_expression') return true;
+  return false;
+}
+
 function collectChainPointArgs(call: TSNode): TSNode[] {
   const calls: TSNode[] = [];
   let current: TSNode | null = call;
@@ -193,7 +200,7 @@ function collectChainPointArgs(call: TSNode): TSNode[] {
     const args = getArgumentsNode(calls[i]);
     if (args) {
       for (const child of args.namedChildren) {
-        if (isPointArray(child)) {
+        if (isPointLikeArg(child)) {
           pointArgs.push(child);
         }
       }

@@ -500,6 +500,24 @@ describe('updateGeometryPosition', () => {
     const result = await updateGeometryPosition(code, 1, [10, 20], -1);
     expect(result.newCode).toBe(`line([0, 0], [10, 20])\n`);
   });
+
+  it('replaces a bare variable point argument', async () => {
+    const code = `tArc(end)\n`;
+    const result = await updateGeometryPosition(code, 1, [350, 290]);
+    expect(result.newCode).toBe(`tArc([350, 290])\n`);
+  });
+
+  it('replaces a bare variable with a literal point arg following', async () => {
+    const code = `line(start, [200, 200])\n`;
+    const result = await updateGeometryPosition(code, 1, [100, 100]);
+    expect(result.newCode).toBe(`line([100, 100], [200, 200])\n`);
+  });
+
+  it('replaces a bare variable without affecting a number arg', async () => {
+    const code = `hLine(start, 240)\n`;
+    const result = await updateGeometryPosition(code, 1, [50, 60]);
+    expect(result.newCode).toBe(`hLine([50, 60], 240)\n`);
+  });
 });
 
 describe('updateDimension', () => {

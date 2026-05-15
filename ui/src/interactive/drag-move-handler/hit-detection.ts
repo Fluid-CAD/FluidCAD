@@ -475,15 +475,17 @@ function hitTestBezier(
   thresholdSq: number,
   bestDistSq: number,
 ): HitTestResult | null {
-  const poles = child.object?.resolvedPoints as [number, number][] | undefined;
-  const start = child.object?.startPoint as [number, number] | undefined;
-  if (!poles || poles.length === 0) {
+  const start = child.object?.startPoint as [number, number] | null | undefined;
+  const resolved = (child.object?.resolvedPoints ?? []) as [number, number][];
+
+  const allPoles: [number, number][] = start ? [start, ...resolved] : resolved;
+  if (allPoles.length === 0) {
     return null;
   }
 
   let result: HitTestResult | null = null;
-  for (let i = 0; i < poles.length; i++) {
-    const p = poles[i];
+  for (let i = 0; i < allPoles.length; i++) {
+    const p = allPoles[i];
     const dx = p[0] - point2d[0];
     const dy = p[1] - point2d[1];
     const d = dx * dx + dy * dy;
@@ -496,8 +498,7 @@ function hitTestBezier(
           anchorPoint: p,
           draggedVertices: [p],
           bezierPoleIndex: i,
-          bezierPoles: poles,
-          bezierStart: start,
+          bezierPoles: allPoles,
         },
         distSq: d,
       };

@@ -79,24 +79,29 @@ export class BezierTool extends SketchTool {
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane);
     this.updateSnapManager(snapManager);
 
-    let lastChild: SceneObjectRender | null = null;
+    // Only sync with a scene bezier once the user has initiated drawing.
+    // A fresh activation must wait for the first click.
+    if (!this.activeSourceLocation && !this.pendingFirstClick) {
+      this.rebuildPreview();
+      return;
+    }
+
+    let lastBezier: SceneObjectRender | null = null;
     for (let i = sceneObjects.length - 1; i >= 0; i--) {
-      if (sceneObjects[i].parentId === sketchId) {
-        lastChild = sceneObjects[i];
+      const obj = sceneObjects[i];
+      if (obj.parentId === sketchId && (obj as any).type === 'bezier') {
+        lastBezier = obj;
         break;
       }
     }
 
-    if (lastChild && (lastChild as any).type === 'bezier' && lastChild.sourceLocation) {
-      const startPt = (lastChild as any).object?.startPoint as [number, number] | undefined;
-      const resolved = (lastChild as any).object?.resolvedPoints as [number, number][] | undefined;
-      this.activeSourceLocation = lastChild.sourceLocation;
+    if (lastBezier && lastBezier.sourceLocation) {
+      const startPt = (lastBezier as any).object?.startPoint as [number, number] | null | undefined;
+      const resolved = (lastBezier as any).object?.resolvedPoints as [number, number][] | undefined;
+      this.activeSourceLocation = lastBezier.sourceLocation;
       this.existingPoles = startPt ? [startPt, ...(resolved ?? [])] : [];
       this.pendingFirstClick = false;
       this.pendingStart = null;
-    } else {
-      this.activeSourceLocation = null;
-      this.existingPoles = [];
     }
 
     this.rebuildPreview();
@@ -127,10 +132,7 @@ export class BezierTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (!this.activeSourceLocation) {
-      const statement = this.isAtCurrentPosition(point)
-        ? 'bezier()'
-        : `move(${this.formatPoint(point)})\nbezier()`;
-      this.insertGeometry(statement);
+      this.insertGeometry(`bezier(${this.formatPoint(point)})`);
       this.pendingFirstClick = true;
       this.pendingStart = point;
       this.rebuildPreview();

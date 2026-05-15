@@ -13,18 +13,22 @@ export class BezierCurve extends GeometrySceneObject {
   }
 
   build(): void {
-    if (this.controlPoints.length === 0) {
+    const points = this.controlPoints.map(cp => cp.asPoint2D());
+    if (points.length < 2) {
+      // 0 args: interactive placeholder. 1 arg: start placed, no curve yet.
+      if (points.length === 1) {
+        this.setState('start', Vertex.fromPoint2D(points[0]));
+        this.setCurrentPosition(points[0]);
+      }
       return;
     }
 
     const plane = this.sketch.getPlane();
-    const currentPos = this.getCurrentPosition();
-    const points = this.controlPoints.map(cp => cp.asPoint2D());
+    const startPoint = points[0];
+    const endPoint = points[points.length - 1];
 
-    // Poles: [currentPos (start), ...controlPoints, endPoint]
-    // All args are in order: control points then endpoint (last arg)
-    const poles2D = [currentPos, ...points];
-    const polesWorld = poles2D.map(p => plane.localToWorld(p));
+    // Poles: all args in order — first is start, last is endpoint, middle are controls.
+    const polesWorld = points.map(p => plane.localToWorld(p));
 
     const bezierCurve = Geometry.makeBezierCurve(polesWorld);
 
@@ -36,7 +40,6 @@ export class BezierCurve extends GeometrySceneObject {
     const tangentWorld = Convert.toVector3d(gpV, true);
     gpP.delete();
 
-    // Project tangent to 2D sketch coordinates
     const tangent2D = new Point2D(
       tangentWorld.dot(plane.xDirection),
       tangentWorld.dot(plane.yDirection),
@@ -44,8 +47,7 @@ export class BezierCurve extends GeometrySceneObject {
 
     const edge = Geometry.makeEdgeFromBezier(bezierCurve);
 
-    const endPoint = points[points.length - 1];
-    this.setState('start', Vertex.fromPoint2D(currentPos));
+    this.setState('start', Vertex.fromPoint2D(startPoint));
     this.setState('end', Vertex.fromPoint2D(endPoint));
     this.addShape(edge);
     this.setTangent(tangent2D);
@@ -83,14 +85,12 @@ export class BezierCurve extends GeometrySceneObject {
   }
 
   serialize() {
-    const startPos = this.getCurrentPosition();
-    const resolved = this.controlPoints.map(cp => {
-      const p = cp.asPoint2D();
-      return [p.x, p.y];
-    });
+    const points = this.controlPoints.map(cp => cp.asPoint2D());
+    const start = points[0];
+    const resolved = points.slice(1).map(p => [p.x, p.y]);
     return {
       controlPoints: this.controlPoints,
-      startPoint: [startPos.x, startPos.y],
+      startPoint: start ? [start.x, start.y] : null,
       resolvedPoints: resolved,
     };
   }

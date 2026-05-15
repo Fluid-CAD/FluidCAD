@@ -6,13 +6,15 @@ import { IGeometry } from "../interfaces.js";
 
 interface BezierFunction {
   /**
-   * Draws a bezier curve from the current position through control points to the end point.
-   * The last argument is the endpoint; all preceding arguments are control points.
+   * Draws a bezier curve through the given points. The first argument is the
+   * explicit start, the last is the endpoint, and any in between are control
+   * points. Sets the sketch cursor to the endpoint.
    * With 0 args: interactive mode placeholder (no geometry).
-   * With 1 arg: degree 1 (line).
-   * With 2 args: degree 2 (quadratic bezier).
-   * With 3 args: degree 3 (cubic bezier).
-   * @param points - Control points and end point
+   * With 1 arg: places only the start point (no curve yet).
+   * With 2 args: degree 1 (straight line from start to end).
+   * With 3 args: degree 2 (quadratic bezier with 1 control point).
+   * With 4 args: degree 3 (cubic bezier with 2 control points).
+   * @param points - Start, optional control points, and end point
    */
   (...points: Point2DLike[]): IGeometry;
 }

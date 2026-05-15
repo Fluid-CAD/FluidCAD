@@ -99,23 +99,17 @@ export function rebuildDragPreview(
   } else if ((uniqueType === 'tarc-to-point' || uniqueType === 'tarc-to-point-tangent') && fixedVertex && hitResult.tangentDir) {
     rebuildTangentArcPreview(previewGroup, currentPoint, hitResult, camera, planeNormal, plane);
   } else if (uniqueType.startsWith('bezier-') && hitResult.bezierPoles && hitResult.bezierPoleIndex !== undefined) {
-    const updatedPoles = hitResult.bezierPoles.slice();
-    updatedPoles[hitResult.bezierPoleIndex] = currentPoint;
-    const allPoles: [number, number][] = hitResult.bezierStart
-      ? [hitResult.bezierStart, ...updatedPoles]
-      : updatedPoles;
+    const allPoles = hitResult.bezierPoles.slice();
+    allPoles[hitResult.bezierPoleIndex] = currentPoint;
     for (let i = 1; i < allPoles.length; i++) {
       addDashedLine(previewGroup, allPoles[i - 1], allPoles[i], plane, RO);
     }
     addDashedBezier(previewGroup, allPoles, plane, RO);
-    if (hitResult.bezierStart) {
-      addDot(previewGroup, hitResult.bezierStart, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
-    }
-    for (let i = 0; i < updatedPoles.length; i++) {
+    for (let i = 0; i < allPoles.length; i++) {
       if (i === hitResult.bezierPoleIndex) {
         continue;
       }
-      addDot(previewGroup, updatedPoles[i], GUIDE_COLOR, camera, planeNormal, plane, 0.85, RO);
+      addDot(previewGroup, allPoles[i], GUIDE_COLOR, camera, planeNormal, plane, 0.85, RO);
     }
     addDot(previewGroup, currentPoint, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
   } else {

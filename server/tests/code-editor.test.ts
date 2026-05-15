@@ -518,6 +518,12 @@ describe('updateGeometryPosition', () => {
     const result = await updateGeometryPosition(code, 1, [50, 60]);
     expect(result.newCode).toBe(`hLine([50, 60], 240)\n`);
   });
+
+  it('replaces a method call point argument', async () => {
+    const code = `tArc(l1.start())\n`;
+    const result = await updateGeometryPosition(code, 1, [100, 100]);
+    expect(result.newCode).toBe(`tArc([100, 100])\n`);
+  });
 });
 
 describe('updateDimension', () => {

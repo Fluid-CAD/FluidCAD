@@ -22,7 +22,6 @@ import iconArc3d from 'iconoir/icons/regular/arc-3d.svg?raw';
 import iconArc3dCenterPoint from 'iconoir/icons/regular/arc-3d-center-point.svg?raw';
 import iconCursorPointer from 'iconoir/icons/regular/cursor-pointer.svg?raw';
 import iconRectangle from '@tabler/icons/outline/rectangle.svg?raw';
-import iconSquareRounded from '@tabler/icons/outline/square-rounded.svg?raw';
 import iconLinear from 'iconoir/icons/regular/linear.svg?raw';
 import iconOnePointCircle from 'iconoir/icons/regular/one-point-circle.svg?raw';
 
@@ -52,7 +51,7 @@ export const ICON_POINTER = iconCursorPointer;
 export const ICON_CENTER_ARC = iconArc3dCenterPoint;
 export const ICON_THREE_POINT_ARC = iconArc3d;
 export const ICON_RECT = iconRectangle;
-export const ICON_ROUNDED_RECT = iconSquareRounded;
+export const ICON_ROUNDED_RECT = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="5"/></svg>';
 
 export const ICON_TANGENT_ARC = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="16" x2="12" y2="16"/><path d="M12 16 A8 8 0 0 0 20 8"/></svg>';
 

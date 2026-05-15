@@ -56,9 +56,8 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
       this._angle = Math.atan2(dy, dx) * 180 / Math.PI;
     }
 
-    if (this.distance < 0) {
-      throw new Error("Slot distance must be positive");
-    }
+    const absDistance = Math.abs(this.distance);
+    const flipAngle = this.distance < 0 ? 180 : 0;
 
     const plane = this.targetPlane?.getPlane() || (this.getParent() as Sketch).getPlane();
     const localToWorld = plane.localToWorld.bind(plane);
@@ -68,16 +67,16 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
       : this.getCurrentPosition();
 
     if (this._center) {
-      const angleRad = rad(this._angle);
+      const angleRad = rad(this._angle + flipAngle);
       const cos = Math.cos(angleRad);
       const sin = Math.sin(angleRad);
       leftCenter = leftCenter.translate(
-        -this.distance / 2 * cos,
-        -this.distance / 2 * sin
+        -absDistance / 2 * cos,
+        -absDistance / 2 * sin
       );
     }
 
-    const angleRad = rad(this._angle);
+    const angleRad = rad(this._angle + flipAngle);
     const cos = Math.cos(angleRad);
     const sin = Math.sin(angleRad);
 
@@ -89,8 +88,8 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
     const perpY = cos;
 
     const rightCenter = new Point2D(
-      leftCenter.x + this.distance * dirX,
-      leftCenter.y + this.distance * dirY
+      leftCenter.x + absDistance * dirX,
+      leftCenter.y + absDistance * dirY
     );
 
     // Four key points where lines meet arcs

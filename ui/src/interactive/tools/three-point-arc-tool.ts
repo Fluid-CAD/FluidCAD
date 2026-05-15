@@ -24,9 +24,8 @@ import {
   circumcenter,
   angleFromCenter,
   centerFromChordAndRadius,
-  computeViewScale,
-  SCALE_FACTOR,
 } from './tool-preview-utils';
+import { pixelsToWorld } from '../../meshes/screen-scale';
 
 const enum State {
   IDLE,
@@ -232,7 +231,7 @@ export class ThreePointArcTool extends SketchTool {
       [(this.startPoint[0] + this.endPoint[0]) / 2, (this.startPoint[1] + this.endPoint[1]) / 2],
       this.plane,
     );
-    const threshold = computeViewScale(this.ctx.camera, midWorld, SCALE_FACTOR) * 4;
+    const threshold = pixelsToWorld(this.ctx.renderer, this.ctx.camera, midWorld, 10);
 
     if (perpDist >= threshold) {
       return null;

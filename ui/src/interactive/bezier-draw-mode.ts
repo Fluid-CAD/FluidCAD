@@ -1,7 +1,6 @@
 import {
   BufferAttribute,
   BufferGeometry,
-  Camera,
   CircleGeometry,
   DoubleSide,
   Group,
@@ -10,8 +9,6 @@ import {
   LineSegments,
   Mesh,
   MeshBasicMaterial,
-  OrthographicCamera,
-  PerspectiveCamera,
   ShaderMaterial,
   Vector3,
 } from 'three';
@@ -26,6 +23,7 @@ import {
   dist2D as dist2DShared,
   roundPoint,
 } from './sketch-plane-utils';
+import { applyConstantPixelSize } from '../meshes/screen-scale';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -80,26 +78,13 @@ const SNAP_INDICATOR_VERTEX_COLOR = 0xffc578;
 const SNAP_INDICATOR_GRID_COLOR = 0x888888;
 const CP_RADIUS = 2.5;
 const CP_SEGMENTS = 16;
-const SCALE_FACTOR = 0.003;
-const MAX_SCALE = 1.5;
+const CP_PX_RADIUS = 7.5;
+const SNAP_INDICATOR_PX_RADIUS = 12;
 const CP_HIT_THRESHOLD_PX = 12;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function computeViewScale(camera: Camera, position: Vector3, factor: number): number {
-  if (camera instanceof OrthographicCamera) {
-    const viewHeight = (camera.top - camera.bottom) / camera.zoom;
-    return viewHeight * factor;
-  } else if (camera instanceof PerspectiveCamera) {
-    const dist = camera.position.distanceTo(position);
-    const vFov = camera.fov * Math.PI / 180;
-    const viewHeight = 2 * dist * Math.tan(vFov / 2);
-    return viewHeight * factor;
-  }
-  return 1;
-}
 
 function pixelToSketchThreshold(ctx: SceneContext): number {
   return pixelToSketchThresholdShared(ctx, CP_HIT_THRESHOLD_PX);
@@ -428,7 +413,6 @@ export class BezierDrawMode {
       return;
     }
 
-    const camera = this.ctx.camera;
     const planeNormal = new Vector3(this.plane.normal.x, this.plane.normal.y, this.plane.normal.z);
 
     // ── Control polygon (thin lines connecting poles) ──
@@ -525,12 +509,8 @@ export class BezierDrawMode {
       const pos = localToWorld(allPoles[i], this.plane);
       dotGroup.position.copy(pos);
       dotGroup.lookAt(pos.clone().add(planeNormal));
-      dotGroup.scale.setScalar(Math.min(computeViewScale(camera, pos, SCALE_FACTOR), MAX_SCALE));
 
-      dot.onBeforeRender = (_r, _s, cam) => {
-        dotGroup.scale.setScalar(Math.min(computeViewScale(cam, pos, SCALE_FACTOR), MAX_SCALE));
-        dotGroup.updateMatrixWorld(true);
-      };
+      applyConstantPixelSize(dot, dotGroup, pos, CP_PX_RADIUS, CP_RADIUS);
 
       dotGroup.add(dot);
       this.previewGroup.add(dotGroup);
@@ -561,12 +541,8 @@ export class BezierDrawMode {
       const pos = localToWorld(snapPoint, this.plane);
       this.snapIndicator.position.copy(pos);
       this.snapIndicator.lookAt(pos.clone().add(planeNormal));
-      this.snapIndicator.scale.setScalar(Math.min(computeViewScale(camera, pos, SCALE_FACTOR), MAX_SCALE));
 
-      indicatorMesh.onBeforeRender = (_r, _s, cam) => {
-        this.snapIndicator!.scale.setScalar(Math.min(computeViewScale(cam, pos, SCALE_FACTOR), MAX_SCALE));
-        this.snapIndicator!.updateMatrixWorld(true);
-      };
+      applyConstantPixelSize(indicatorMesh, this.snapIndicator, pos, SNAP_INDICATOR_PX_RADIUS, CP_RADIUS * 1.6);
 
       this.snapIndicator.add(indicatorMesh);
       this.previewGroup.add(this.snapIndicator);

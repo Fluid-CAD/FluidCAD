@@ -1,5 +1,4 @@
 import {
-  Camera,
   CanvasTexture,
   DoubleSide,
   Group,
@@ -10,7 +9,7 @@ import {
 } from 'three';
 import { PlaneData, SceneObjectPart, SceneObjectRender, Vec3Data } from '../../types';
 import { localToWorld, worldToSketch2D } from '../../interactive/sketch-plane-utils';
-import { computeViewScale } from '../../interactive/tools/tool-preview-utils';
+import { applyConstantPixelSize } from '../screen-scale';
 
 const CONSTRAINT_LABELS: Record<string, string> = {
   'hline': 'H',
@@ -22,17 +21,11 @@ const CONSTRAINT_LABELS: Record<string, string> = {
 
 const TARC_TYPES = new Set(['tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent']);
 
-const ICON_SCALE_FACTOR = 0.003;
-const ICON_MIN_SCALE = 0.5;
-const ICON_MAX_SCALE = 4.0;
 const ICON_OFFSET = 12;
 const ICON_PLANE_SIZE = 5;
+const ICON_PX_SIZE = 24;
 const CANVAS_SIZE = 64;
 const ICON_RENDER_ORDER = 3;
-
-function clampScale(raw: number): number {
-  return Math.max(ICON_MIN_SCALE, Math.min(raw, ICON_MAX_SCALE));
-}
 
 const textureCache = new Map<string, CanvasTexture>();
 
@@ -131,7 +124,6 @@ function createIconMesh(
   perpendicular: [number, number],
   plane: PlaneData,
   normal: Vec3Data,
-  camera: Camera,
 ): Group {
   const texture = getIconTexture(letter);
   const geometry = new PlaneGeometry(ICON_PLANE_SIZE, ICON_PLANE_SIZE);
@@ -165,11 +157,7 @@ function createIconMesh(
 
   group.add(mesh);
 
-  group.scale.setScalar(clampScale(computeViewScale(camera, iconPos, ICON_SCALE_FACTOR)));
-  mesh.onBeforeRender = (_r, _s, cam) => {
-    group.scale.setScalar(clampScale(computeViewScale(cam, iconPos, ICON_SCALE_FACTOR)));
-    group.updateMatrixWorld(true);
-  };
+  applyConstantPixelSize(mesh, group, iconPos, ICON_PX_SIZE, ICON_PLANE_SIZE);
 
   return group;
 }
@@ -177,7 +165,6 @@ function createIconMesh(
 export function buildConstraintIcons(
   sceneObject: SceneObjectRender,
   allObjects: SceneObjectRender[],
-  camera: Camera,
 ): Group[] {
   const normal = sceneObject.object?.plane?.normal;
   const plane: PlaneData | undefined = sceneObject.object?.plane;
@@ -210,7 +197,7 @@ export function buildConstraintIcons(
       }
 
       const perpendicular: [number, number] = [-sample.tangent2d[1], sample.tangent2d[0]];
-      icons.push(createIconMesh(letter, sample.position, perpendicular, plane, normal, camera));
+      icons.push(createIconMesh(letter, sample.position, perpendicular, plane, normal));
     }
   }
 

@@ -1,7 +1,6 @@
 import {
   BufferAttribute,
   BufferGeometry,
-  Camera,
   CircleGeometry,
   DoubleSide,
   Group,
@@ -9,32 +8,17 @@ import {
   LineSegments,
   Mesh,
   MeshBasicMaterial,
-  OrthographicCamera,
-  PerspectiveCamera,
   Vector3,
 } from 'three';
 import { SceneObjectPart } from '../../types';
+import { applyConstantPixelSize } from '../screen-scale';
 
 const COLOR = '#2297ff';
 const LINE_WIDTH = 2;
 const VERTEX_RADIUS = 2;
 const VERTEX_SEGMENTS = 16;
-const VERTEX_SCALE_FACTOR = 0.003;
-const VERTEX_MAX_SCALE = 1.5;
+const VERTEX_PX_RADIUS = 6;
 const EPSILON_SQ = 1e-8;
-
-function computeViewScale(camera: Camera, position: Vector3, factor: number): number {
-  if (camera instanceof OrthographicCamera) {
-    const viewHeight = (camera.top - camera.bottom) / camera.zoom;
-    return viewHeight * factor;
-  } else if (camera instanceof PerspectiveCamera) {
-    const dist = camera.position.distanceTo(position);
-    const vFov = camera.fov * Math.PI / 180;
-    const viewHeight = 2 * dist * Math.tan(vFov / 2);
-    return viewHeight * factor;
-  }
-  return 1;
-}
 
 /**
  * Renders pick-edge meta edges as solid blue lines with vertex dots
@@ -102,10 +86,7 @@ export class PickEdgeMesh extends Group {
       dotGroup.add(dot);
       dotGroup.position.copy(pos);
 
-      dot.onBeforeRender = (_renderer, _scene, cam) => {
-        dotGroup.scale.setScalar(Math.min(computeViewScale(cam, pos, VERTEX_SCALE_FACTOR), VERTEX_MAX_SCALE));
-        dotGroup.updateMatrixWorld(true);
-      };
+      applyConstantPixelSize(dot, dotGroup, pos, VERTEX_PX_RADIUS, VERTEX_RADIUS);
 
       this.add(dotGroup);
     }

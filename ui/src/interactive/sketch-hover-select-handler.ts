@@ -1,5 +1,4 @@
 import {
-  Camera,
   CircleGeometry,
   DoubleSide,
   Group,
@@ -7,8 +6,6 @@ import {
   Mesh,
   MeshBasicMaterial,
   Object3D,
-  OrthographicCamera,
-  PerspectiveCamera,
   Vector3,
 } from 'three';
 import { SceneContext } from '../scene/scene-context';
@@ -16,8 +13,11 @@ import { PlaneData, SceneObjectRender } from '../types';
 import { projectToSketch, pixelToSketchThreshold, localToWorld } from './sketch-plane-utils';
 import { EdgeEntry, CenterEntry, buildEdgeIndex, buildCenterIndex, pointToSegmentDist } from './sketch-edge-utils';
 import { themeColors } from '../scene/theme-colors';
+import { applyConstantPixelSize } from '../meshes/screen-scale';
 
 const HIGHLIGHT_THRESHOLD_PX = 12;
+const CENTER_OVERLAY_RADIUS = 2.0;
+const CENTER_OVERLAY_PX_RADIUS = 6;
 
 export class SketchHoverSelectHandler {
   private ctx: SceneContext;
@@ -302,7 +302,7 @@ export class SketchHoverSelectHandler {
     const normal = this.plane.normal;
     const planeNormal = new Vector3(normal.x, normal.y, normal.z);
 
-    const geo = new CircleGeometry(2.0, 16);
+    const geo = new CircleGeometry(CENTER_OVERLAY_RADIUS, 16);
     const mat = new MeshBasicMaterial({
       color: themeColors.highlightColor,
       side: DoubleSide,
@@ -320,13 +320,7 @@ export class SketchHoverSelectHandler {
     group.position.copy(pos);
     group.lookAt(pos.clone().add(planeNormal));
 
-    const scale = this.computeOverlayScale(this.ctx.camera, pos);
-    group.scale.setScalar(scale);
-
-    dot.onBeforeRender = (_r, _s, cam) => {
-      group.scale.setScalar(this.computeOverlayScale(cam, pos));
-      group.updateMatrixWorld(true);
-    };
+    applyConstantPixelSize(dot, group, pos, CENTER_OVERLAY_PX_RADIUS, CENTER_OVERLAY_RADIUS);
 
     this.ctx.scene.add(group);
     this.hoveredCenterOverlay = group;
@@ -342,18 +336,4 @@ export class SketchHoverSelectHandler {
     }
   }
 
-  private computeOverlayScale(camera: Camera, position: Vector3): number {
-    const factor = 0.003;
-    const maxScale = 1.5;
-    if (camera instanceof OrthographicCamera) {
-      const viewHeight = (camera.top - camera.bottom) / camera.zoom;
-      return Math.min(viewHeight * factor, maxScale);
-    } else if (camera instanceof PerspectiveCamera) {
-      const dist = camera.position.distanceTo(position);
-      const vFov = camera.fov * Math.PI / 180;
-      const viewHeight = 2 * dist * Math.tan(vFov / 2);
-      return Math.min(viewHeight * factor, maxScale);
-    }
-    return 1;
-  }
 }

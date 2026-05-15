@@ -50,6 +50,8 @@ export class ExpressionInput {
   private errorVisible = false;
   private numericOnly = false;
 
+  onSpaceOverride: (() => void) | null = null;
+
   constructor(container: HTMLElement) {
     this.el = document.createElement('div');
     this.el.className = 'absolute z-[1000] pointer-events-auto hidden';
@@ -94,6 +96,11 @@ export class ExpressionInput {
           this.input.value = this.filteredVars[this.selectedIndex].name;
         }
         this.commit();
+        return;
+      }
+      if (e.key === ' ' && this.onSpaceOverride) {
+        e.preventDefault();
+        this.onSpaceOverride();
         return;
       }
       if (e.key === 'Escape') {

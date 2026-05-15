@@ -5,7 +5,7 @@ import { SnapController } from '../snapping/snap-controller';
 import { SnapManager } from '../snapping/snap-manager';
 import { worldToSketch2D, pixelToSketchThreshold, dist2D } from './sketch-plane-utils';
 
-export type ToolId = 'line' | 'circle' | 'arc3' | 'arc2' | 'rect' | 'rounded-rect' | 'slot' | 'trim' | 'bezier' | 'tarc';
+export type ToolId = 'line' | 'polyline' | 'circle' | 'arc3' | 'arc2' | 'rect' | 'rounded-rect' | 'slot' | 'trim' | 'bezier' | 'tarc';
 
 export type ToolConfig = {
   id: ToolId;
@@ -52,6 +52,8 @@ export abstract class SketchTool {
   abstract activate(): void;
   abstract deactivate(): void;
   abstract onSceneUpdate(sceneObjects: SceneObjectRender[], sketchId: string): void;
+
+  handleEscape?(): boolean;
 
   updatePlane(plane: PlaneData): void {
     this.plane = plane;

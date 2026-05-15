@@ -82,6 +82,7 @@ export function insertGeometry(
   );
 }
 
+
 export function updatePosition(
   serverUrl: string, code: string, sourceLine: number, newPosition: [number, number], logger: vscode.OutputChannel,
   pointIndex: number = 0,

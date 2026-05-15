@@ -7,6 +7,7 @@ import { ThreePointArcTool } from './tools/three-point-arc-tool';
 import { TangentArcTool } from './tools/tangent-arc-tool';
 import { RectTool } from './tools/rect-tool';
 import { RoundedRectTool } from './tools/rounded-rect-tool';
+import { PolylineTool } from './tools/polyline';
 import { DragMoveHandler } from './drag-move-handler';
 import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
 import { SnapManager } from '../snapping/snap-manager';
@@ -168,6 +169,11 @@ export class SketchToolbarService {
         tool.onSceneUpdate(sceneObjects, sketchId);
         return tool;
       }
+      case 'polyline': {
+        const tool = new PolylineTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+        tool.onSceneUpdate(sceneObjects, sketchId);
+        return tool;
+      }
       case 'rect':
         return new RectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
       case 'rounded-rect':
@@ -217,6 +223,10 @@ export class SketchToolbarService {
   }
 
   private handleToolSelect(toolId: ToolId | null): void {
+    if (!toolId && this.activeDrawingTool?.handleEscape?.()) {
+      return;
+    }
+
     if (this.activeDrawingTool) {
       this.activeDrawingTool.deactivate();
       this.activeDrawingTool = null;

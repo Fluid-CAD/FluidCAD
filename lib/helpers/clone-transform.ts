@@ -1,9 +1,10 @@
 import { Matrix4 } from "../math/matrix4.js";
+import { LazyMatrix } from "../math/lazy-matrix.js";
 import { SceneObject } from "../common/scene-object.js";
 
 export function cloneWithTransform(
   objects: SceneObject[],
-  transform: Matrix4,
+  transform: Matrix4 | LazyMatrix,
   container: SceneObject
 ): SceneObject[] {
   const visited = new Set<SceneObject>();

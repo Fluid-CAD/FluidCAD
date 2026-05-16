@@ -10,6 +10,7 @@ import {
 import { PlaneData, SceneObjectPart, SceneObjectRender, Vec3Data } from '../../types';
 import { worldToSketch2D } from '../../interactive/sketch-plane-utils';
 import { pixelScale, pixelsToWorld } from '../screen-scale';
+import { themeColors } from '../../scene/theme-colors';
 
 const CONSTRAINT_LABELS: Record<string, string> = {
   'hline': 'H',
@@ -29,8 +30,9 @@ const ICON_RENDER_ORDER = 3;
 
 const textureCache = new Map<string, CanvasTexture>();
 
-function getIconTexture(letter: string): CanvasTexture {
-  const cached = textureCache.get(letter);
+function getIconTexture(letter: string, colorHex: string): CanvasTexture {
+  const key = `${letter}|${colorHex}`;
+  const cached = textureCache.get(key);
   if (cached) {
     return cached;
   }
@@ -40,6 +42,7 @@ function getIconTexture(letter: string): CanvasTexture {
   canvas.height = CANVAS_SIZE;
   const ctx = canvas.getContext('2d')!;
 
+  const stroke = 4;
   const pad = 4;
   const r = 10;
   const x = pad;
@@ -57,17 +60,18 @@ function getIconTexture(letter: string): CanvasTexture {
   ctx.lineTo(x, y + r);
   ctx.quadraticCurveTo(x, y, x + r, y);
   ctx.closePath();
-  ctx.fillStyle = 'rgba(30, 35, 50, 0.8)';
-  ctx.fill();
+  ctx.lineWidth = stroke;
+  ctx.strokeStyle = colorHex;
+  ctx.stroke();
 
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = colorHex;
   ctx.font = `${CANVAS_SIZE * 0.55}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(letter, CANVAS_SIZE / 2, CANVAS_SIZE / 2);
 
   const texture = new CanvasTexture(canvas);
-  textureCache.set(letter, texture);
+  textureCache.set(key, texture);
   return texture;
 }
 
@@ -125,7 +129,7 @@ function createIconMesh(
   plane: PlaneData,
   normal: Vec3Data,
 ): Group {
-  const texture = getIconTexture(letter);
+  const texture = getIconTexture(letter, `#${themeColors.constraintColor.getHexString()}`);
   const geometry = new PlaneGeometry(ICON_PLANE_SIZE, ICON_PLANE_SIZE);
   const material = new MeshBasicMaterial({
     map: texture,

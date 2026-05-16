@@ -79,7 +79,7 @@ export class CircleTool extends SketchTool {
   }
 
   onSceneUpdate(sceneObjects: SceneObjectRender[], sketchId: string): void {
-    const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane);
+    const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane, this.ctx);
     this.updateSnapManager(snapManager);
     this.fetchVariables().then(vars => { this.cachedVariables = vars; });
   }

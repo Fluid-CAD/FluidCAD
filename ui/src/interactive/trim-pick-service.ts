@@ -181,7 +181,7 @@ export class TrimPickService {
     const sourceLocation = info.trimObj.sourceLocation;
     const sketchId = info.sketchObj.id;
 
-    const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, plane);
+    const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, plane, this.viewer.sceneContext);
 
     this.activePointPickMode = new PointPickMode(
       this.viewer.sceneContext,

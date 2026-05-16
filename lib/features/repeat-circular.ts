@@ -1,5 +1,11 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Axis } from "../math/axis.js";
+import { AxisObjectBase } from "./axis-renderable-base.js";
+import { RepeatAxisSource } from "./repeat-linear.js";
+
+function axisOf(source: RepeatAxisSource): Axis {
+  return source instanceof AxisObjectBase ? source.getAxis() : source;
+}
 
 export type CircularRepeatOptions = {
   count: number;
@@ -12,7 +18,7 @@ export type CircularRepeatOptions = {
 
 export class RepeatCircular extends SceneObject {
   constructor(
-    public axis: Axis,
+    public axis: RepeatAxisSource,
     public options: CircularRepeatOptions,
     public targetObjects: SceneObject[] | null = null
     ) {
@@ -25,6 +31,9 @@ export class RepeatCircular extends SceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
+    if (this.axis instanceof AxisObjectBase) {
+      this.axis.removeShapes(this);
+    }
     this.saveShapesSnapshot(context);
   }
 
@@ -37,7 +46,7 @@ export class RepeatCircular extends SceneObject {
       return false;
     }
 
-    if (!this.axis.equals(other.axis)) {
+    if (!axisOf(this.axis).equals(axisOf(other.axis))) {
       return false;
     }
 

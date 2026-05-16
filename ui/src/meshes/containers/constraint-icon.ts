@@ -8,8 +8,8 @@ import {
   Vector3,
 } from 'three';
 import { PlaneData, SceneObjectPart, SceneObjectRender, Vec3Data } from '../../types';
-import { localToWorld, worldToSketch2D } from '../../interactive/sketch-plane-utils';
-import { applyConstantPixelSize } from '../screen-scale';
+import { worldToSketch2D } from '../../interactive/sketch-plane-utils';
+import { pixelScale, pixelsToWorld } from '../screen-scale';
 
 const CONSTRAINT_LABELS: Record<string, string> = {
   'hline': 'H',
@@ -21,7 +21,7 @@ const CONSTRAINT_LABELS: Record<string, string> = {
 
 const TARC_TYPES = new Set(['tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent']);
 
-const ICON_OFFSET = 12;
+const ICON_OFFSET_PX = 28;
 const ICON_PLANE_SIZE = 5;
 const ICON_PX_SIZE = 24;
 const CANVAS_SIZE = 64;
@@ -140,24 +140,33 @@ function createIconMesh(
   group.renderOrder = ICON_RENDER_ORDER;
   group.userData.isConstraintIcon = true;
 
-  const pos2d = worldToSketch2D(position, plane);
-  const offset2d: [number, number] = [
-    pos2d[0] + perpendicular[0] * ICON_OFFSET,
-    pos2d[1] + perpendicular[1] * ICON_OFFSET,
-  ];
-  const iconPos = localToWorld(offset2d, plane);
-  group.position.copy(iconPos);
+  const perpWorld = new Vector3(
+    plane.xDirection.x * perpendicular[0] + plane.yDirection.x * perpendicular[1],
+    plane.xDirection.y * perpendicular[0] + plane.yDirection.y * perpendicular[1],
+    plane.xDirection.z * perpendicular[0] + plane.yDirection.z * perpendicular[1],
+  );
+
+  group.position.copy(position);
 
   group.up.set(plane.yDirection.x, plane.yDirection.y, plane.yDirection.z);
   group.lookAt(new Vector3(
-    iconPos.x + normal.x,
-    iconPos.y + normal.y,
-    iconPos.z + normal.z,
+    position.x + normal.x,
+    position.y + normal.y,
+    position.z + normal.z,
   ));
 
   group.add(mesh);
 
-  applyConstantPixelSize(mesh, group, iconPos, ICON_PX_SIZE, ICON_PLANE_SIZE);
+  mesh.onBeforeRender = (renderer, _scene, camera) => {
+    const offsetWorld = pixelsToWorld(renderer, camera, position, ICON_OFFSET_PX);
+    group.position.set(
+      position.x + perpWorld.x * offsetWorld,
+      position.y + perpWorld.y * offsetWorld,
+      position.z + perpWorld.z * offsetWorld,
+    );
+    group.scale.setScalar(pixelScale(renderer, camera, position, ICON_PX_SIZE, ICON_PLANE_SIZE));
+    group.updateMatrixWorld(true);
+  };
 
   return group;
 }

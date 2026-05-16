@@ -117,10 +117,14 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
    */
   protected getSourceDependencies(): SceneObject[] {
     const source = this.getSource();
-    if (!source) return [];
+    if (!source) {
+      return [];
+    }
     if (source instanceof GeometrySceneObject) {
       const sketch = source.sketch;
-      if (sketch) return [sketch];
+      if (sketch) {
+        return [sketch];
+      }
     }
     return [source];
   }

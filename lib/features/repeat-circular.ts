@@ -31,6 +31,9 @@ export class RepeatCircular extends SceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
+    if (this.axis instanceof AxisObjectBase) {
+      this.axis.removeShapes(this);
+    }
     this.saveShapesSnapshot(context);
   }
 

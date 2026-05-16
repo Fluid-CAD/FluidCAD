@@ -23,6 +23,7 @@ import { Viewer } from '../viewer';
 import { TrimPickService } from './trim-pick-service';
 import { VariableInfo } from '../ui/expression-input';
 import { TimelinePanel } from '../ui/timeline-panel';
+import { ShortcutManager } from '../ui/shortcut-manager';
 
 export class SketchToolbarService {
   private viewer: Viewer;
@@ -39,6 +40,7 @@ export class SketchToolbarService {
   private activeDragHandler: DragMoveHandler | null = null;
   private activeHoverSelectHandler: SketchHoverSelectHandler | null = null;
   private bezierHandles: BezierHandlesOverlay;
+  private shortcuts: ShortcutManager;
 
   constructor(container: HTMLElement, viewer: Viewer, trimService: TrimPickService, timelinePanel: TimelinePanel) {
     this.viewer = viewer;
@@ -49,6 +51,9 @@ export class SketchToolbarService {
     this.toolbar = new SketchToolbar(timelinePanel.toolbarHost, (toolId) => {
       this.handleToolSelect(toolId);
     });
+
+    this.shortcuts = new ShortcutManager();
+    this.shortcuts.register('n', () => this.lookAlongSketchNormal());
 
     this.bezierHandles = new BezierHandlesOverlay(viewer.sceneContext);
 
@@ -94,6 +99,7 @@ export class SketchToolbarService {
 
       if (!this.toolbar.isVisible) {
         this.toolbar.show();
+        this.shortcuts.enable();
         this.timelinePanel.slideOut();
       }
 
@@ -134,6 +140,7 @@ export class SketchToolbarService {
       this.bezierHandles.deactivate();
       this.activeSketchInfo = null;
       this.toolbar.hide();
+      this.shortcuts.disable();
       this.timelinePanel.slideIn();
     }
   }
@@ -314,5 +321,11 @@ export class SketchToolbarService {
       }
     }
     this.trimService.reset();
+  }
+
+  private lookAlongSketchNormal(): void {
+    if (this.activeSketchInfo) {
+      this.viewer.lookAlongSketchNormal(this.activeSketchInfo.plane);
+    }
   }
 }

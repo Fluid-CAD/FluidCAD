@@ -1,5 +1,6 @@
 import { ICON_LINE, ICON_POLYLINE, ICON_BEZIER, ICON_CIRCLE, ICON_POLYGON, ICON_CENTER_ARC, ICON_THREE_POINT_ARC, ICON_TANGENT_ARC, ICON_RECT, ICON_ROUNDED_RECT, ICON_SLOT, ICON_SCISSORS, ICON_SETTINGS } from './icons';
 import { ToolId } from '../interactive/sketch-tool';
+import { ShortcutManager } from './shortcut-manager';
 
 type ToolDef = { id: ToolId; label: string; icon: string };
 type ToolGroup = { tools: ToolDef[] };
@@ -36,6 +37,20 @@ const TOOL_LAYOUT: ToolEntry[] = [
   ]},
 ];
 
+const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
+  circle: 'c',
+  rect: 'r',
+  'rounded-rect': 'rr',
+  line: 'l',
+  polygon: 'p',
+  polyline: 'll',
+  arc3: 'a',
+  arc2: 'ca',
+  tarc: 'ta',
+  bezier: 'b',
+  trim: 't',
+};
+
 const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
 const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
 
@@ -46,7 +61,7 @@ export class SketchToolbar {
   private onToolSelect: (toolId: ToolId | null) => void;
   private activeToolId: ToolId | null = null;
   private buttons = new Map<ToolId, HTMLButtonElement>();
-
+  private shortcutManager: ShortcutManager;
 
   private boundKeyDown: (e: KeyboardEvent) => void;
   private boundCloseSnapMenu: (e: MouseEvent) => void;
@@ -76,12 +91,18 @@ export class SketchToolbar {
 
     this.boundKeyDown = this.handleKeyDown.bind(this);
     this.boundCloseSnapMenu = this.handleCloseSnapMenu.bind(this);
+
+    this.shortcutManager = new ShortcutManager({ timeout: 200 });
+    for (const [toolId, keys] of Object.entries(TOOL_SHORTCUTS)) {
+      this.shortcutManager.register(keys, () => this.handleToolClick(toolId as ToolId));
+    }
   }
 
   show(): void {
     this.el.style.transform = '';
     this.el.style.opacity = '';
     window.addEventListener('keydown', this.boundKeyDown);
+    this.shortcutManager.enable();
   }
 
   hide(): void {
@@ -89,6 +110,7 @@ export class SketchToolbar {
     this.el.style.opacity = '0';
     this.closeSnapMenu();
     window.removeEventListener('keydown', this.boundKeyDown);
+    this.shortcutManager.disable();
     if (this.activeToolId) {
       this.setActiveTool(null);
     }
@@ -238,7 +260,9 @@ export class SketchToolbar {
   private createToolButton(tool: ToolDef): HTMLElement {
     const wrapper = document.createElement('div');
     wrapper.className = 'tooltip tooltip-right';
-    wrapper.setAttribute('data-tip', tool.label);
+    const shortcut = TOOL_SHORTCUTS[tool.id];
+    const tip = shortcut ? `${tool.label} (${shortcut.toUpperCase()})` : tool.label;
+    wrapper.setAttribute('data-tip', tip);
 
     const btn = document.createElement('button');
     btn.className = tool.id === this.activeToolId ? BTN_ACTIVE : BTN_BASE;

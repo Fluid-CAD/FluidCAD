@@ -2,7 +2,7 @@ import { Box3, BufferAttribute, BufferGeometry, Color, LineSegments, Mesh, MeshP
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { SceneModeManager } from './scene/scene-mode';
 import { buildSceneMesh } from './meshes/mesh-factory';
-import { SceneObjectPart, SceneObjectRender, SubSelection } from './types';
+import { PlaneData, SceneObjectPart, SceneObjectRender, SubSelection } from './types';
 import { SettingsPanel } from './ui/settings-panel';
 import { CentroidIndicator } from './scene/centroid-indicator';
 import { viewerSettings } from './scene/viewer-settings';
@@ -92,6 +92,10 @@ export class Viewer {
 
   setSelectionHandler(fn: (shapeId: string | null, sub: SubSelection) => void): void {
     this.selectionHandler = fn;
+  }
+
+  lookAlongSketchNormal(plane: PlaneData): void {
+    this.modeManager.enforceSketchNormal(plane);
   }
 
   private initClickDetection(): void {

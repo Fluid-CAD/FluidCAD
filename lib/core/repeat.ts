@@ -1,19 +1,39 @@
 import { registerBuilder, SceneParserContext } from "../index.js";
-import { normalizeAxis, normalizePlane } from "../helpers/normalize.js";
-import { AxisLike } from "../math/axis.js";
+import { Axis, AxisLike } from "../math/axis.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Matrix4 } from "../math/matrix4.js";
+import { LazyMatrix } from "../math/lazy-matrix.js";
 import { rad } from "../helpers/math-helpers.js";
-import { LinearRepeatOptions, RepeatLinear } from "../features/repeat-linear.js";
+import { LinearRepeatOptions, RepeatAxisSource, RepeatLinear } from "../features/repeat-linear.js";
 import { CircularRepeatOptions, RepeatCircular } from "../features/repeat-circular.js";
 import { cloneWithTransform } from "../helpers/clone-transform.js";
 import { ISceneObject } from "./interfaces.js";
-import { Plane, PlaneLike } from "../math/plane.js";
-import { PlaneObjectBase } from "../features/plane-renderable-base.js";
-import { PlaneObject } from "../features/plane.js";
+import { PlaneLike } from "../math/plane.js";
 import { MirrorFeature } from "../features/mirror-feature.js";
 import { RepeatMatrix } from "../features/repeat-matrix.js";
+import { resolveAxis, resolvePlane } from "../helpers/resolve.js";
+import { normalizeAxis } from "../helpers/normalize.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
+
+/**
+ * Resolve a repeat axis argument to a value usable by LazyMatrix. Scene-
+ * resident sources (AxisObjectBase or an edge SceneObject) go through
+ * resolveAxis so they end up in the scene and get built before consumers.
+ * Primitive inputs (world-axis string, raw Axis) stay as concrete Axis
+ * values — no extra scene object, no rendered world-axis line.
+ */
+function resolveRepeatAxis(arg: unknown, context: SceneParserContext): RepeatAxisSource {
+  if (arg instanceof AxisObjectBase) {
+    return arg;
+  }
+  if (arg instanceof SceneObject) {
+    return resolveAxis(arg, context);
+  }
+  if (arg instanceof Axis) {
+    return arg;
+  }
+  return normalizeAxis(arg as AxisLike);
+}
 
 export type RepeatType = 'linear' | 'circular' | 'mirror' | 'rotate';
 
@@ -85,8 +105,9 @@ function build(context: SceneParserContext): RepeatFunction {
         ? restObjects
         : [context.getSceneObjects().at(-1)!];
 
-      const feature = new RepeatMatrix(matrix, objects);
-      const cloned = cloneWithTransform(objects, matrix, feature);
+      const lazy = LazyMatrix.of(matrix);
+      const feature = new RepeatMatrix(lazy, objects);
+      const cloned = cloneWithTransform(objects, lazy, feature);
 
       context.addSceneObject(feature);
       context.addSceneObjects(cloned);
@@ -102,12 +123,9 @@ function build(context: SceneParserContext): RepeatFunction {
     if (type === 'linear' || type === 'circular') {
       const axisArg = args[1] as AxisLike | AxisLike[];
 
-      const resolveAxis = (a: AxisLike) =>
-        a instanceof AxisObjectBase ? a.getAxis() : normalizeAxis(a);
-
-      const axes = Array.isArray(axisArg)
-        ? axisArg.map(resolveAxis)
-        : [resolveAxis(axisArg)];
+      const axisSources: RepeatAxisSource[] = Array.isArray(axisArg)
+        ? axisArg.map(a => resolveRepeatAxis(a, context))
+        : [resolveRepeatAxis(axisArg, context)];
 
       const options = args[2] as LinearRepeatOptions;
       const restObjects = args.slice(3) as SceneObject[];
@@ -123,11 +141,11 @@ function build(context: SceneParserContext): RepeatFunction {
         const lengths = 'length' in options && options.length != null
           ? (Array.isArray(options.length) ? options.length : [options.length])
           : null;
-        const repeat = new RepeatLinear(axes, options, objects);
+        const repeat = new RepeatLinear(axisSources, options, objects);
 
         const transformedObjects: SceneObject[] = [];
 
-        const axisOffsets = axes.map((axis, i) => {
+        const axisOffsets = axisSources.map((axis, i) => {
           const count = counts[i] ?? counts[0];
           const offset = offsets != null
             ? (offsets[i] ?? offsets[0])
@@ -167,21 +185,28 @@ function build(context: SceneParserContext): RepeatFunction {
             continue;
           }
 
-          // Compose translation from all axes
-          let dx = 0, dy = 0, dz = 0;
-          for (let a = 0; a < axisOffsets.length; a++) {
-            const { axis, offset } = axisOffsets[a];
+          // Capture per-axis offset + signed index for this instance; the
+          // axis direction is read lazily at build time so an AxisObjectBase
+          // can still be unbuilt at parse time.
+          const perAxis = axisOffsets.map((entry, a) => {
             const idx = options.centered
-              ? indices[a] - Math.floor(axisOffsets[a].count / 2)
+              ? indices[a] - Math.floor(entry.count / 2)
               : indices[a];
-            dx += axis.direction.x * offset * idx;
-            dy += axis.direction.y * offset * idx;
-            dz += axis.direction.z * offset * idx;
-          }
+            return { axis: entry.axis, offset: entry.offset, idx };
+          });
 
-          const transform = Matrix4.fromTranslation(dx, dy, dz);
+          const lazy = LazyMatrix.from(() => {
+            let dx = 0, dy = 0, dz = 0;
+            for (const { axis, offset, idx } of perAxis) {
+              const dir = (axis instanceof AxisObjectBase ? axis.getAxis() : axis).direction;
+              dx += dir.x * offset * idx;
+              dy += dir.y * offset * idx;
+              dz += dir.z * offset * idx;
+            }
+            return Matrix4.fromTranslation(dx, dy, dz);
+          });
 
-          const cloned = cloneWithTransform(objects, transform, repeat);
+          const cloned = cloneWithTransform(objects, lazy, repeat);
           transformedObjects.push(...cloned);
         }
 
@@ -191,7 +216,7 @@ function build(context: SceneParserContext): RepeatFunction {
       }
 
       if (type === 'circular') {
-        const axis = axes[0];
+        const axis = axisSources[0];
         const circularOptions = options as unknown as CircularRepeatOptions;
         const { count, centered, skip } = circularOptions;
 
@@ -215,9 +240,9 @@ function build(context: SceneParserContext): RepeatFunction {
           }
 
           const angle = startOffset + offset * i;
-          const matrix = Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, rad(angle));
+          const lazy = LazyMatrix.rotation(axis, rad(angle));
 
-          const cloned = cloneWithTransform(objects, matrix, repeat);
+          const cloned = cloneWithTransform(objects, lazy, repeat);
           transformedObjects.push(...cloned);
         }
 
@@ -234,22 +259,10 @@ function build(context: SceneParserContext): RepeatFunction {
         ? restObjects
         : [context.getSceneObjects().at(-1)!];
 
-      let planeObj: PlaneObjectBase;
-      let normalizedPlane: Plane;
-      if (planeArg instanceof PlaneObjectBase) {
-        planeObj = planeArg as PlaneObjectBase;
-        planeObj.build();
-        normalizedPlane = planeObj.getPlane();
-      } else {
-        normalizedPlane = normalizePlane(planeArg);
-        planeObj = new PlaneObject(normalizedPlane);
-        planeObj.build();
-        context.addSceneObject(planeObj);
-      }
-
-      const matrix = Matrix4.mirrorPlane(normalizedPlane.normal, normalizedPlane.origin);
-      const mirrorFeature = new MirrorFeature(planeObj, matrix);
-      const mirrorTree = cloneWithTransform(targetObjects, matrix, mirrorFeature);
+      const planeObj = resolvePlane(planeArg, context);
+      const lazy = LazyMatrix.mirror(planeObj);
+      const mirrorFeature = new MirrorFeature(planeObj, lazy);
+      const mirrorTree = cloneWithTransform(targetObjects, lazy, mirrorFeature);
 
       context.addSceneObject(mirrorFeature);
       context.addSceneObjects(mirrorTree);
@@ -257,10 +270,7 @@ function build(context: SceneParserContext): RepeatFunction {
     }
 
     if (type === 'rotate') {
-      const axisArg = args[1];
-      const axis = axisArg instanceof AxisObjectBase
-        ? axisArg.getAxis()
-        : normalizeAxis(axisArg as AxisLike);
+      const axisArg = args[1] as AxisLike;
       let angle = 90;
       let restStart = 2;
 
@@ -274,9 +284,11 @@ function build(context: SceneParserContext): RepeatFunction {
         ? restObjects
         : [context.getSceneObjects().at(-1)!];
 
-      const matrix = Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, rad(angle));
-      const feature = new RepeatMatrix(matrix, objects);
-      const cloned = cloneWithTransform(objects, matrix, feature);
+      const axis = resolveRepeatAxis(axisArg, context);
+      const lazy = LazyMatrix.rotation(axis, rad(angle));
+      const sources = axis instanceof AxisObjectBase ? [axis] : [];
+      const feature = new RepeatMatrix(lazy, objects, sources);
+      const cloned = cloneWithTransform(objects, lazy, feature);
 
       context.addSceneObject(feature);
       context.addSceneObjects(cloned);

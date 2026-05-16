@@ -32,6 +32,11 @@ export class RepeatLinear extends SceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
+    for (const axis of this.axes) {
+      if (axis instanceof AxisObjectBase) {
+        axis.removeShapes(this);
+      }
+    }
     this.saveShapesSnapshot(context);
   }
 

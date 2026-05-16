@@ -4,7 +4,11 @@ import { LazyMatrix } from "../math/lazy-matrix.js";
 
 export class RepeatMatrix extends SceneObject {
 
-  constructor(private _matrix: LazyMatrix, public targetObjects: SceneObject[]) {
+  constructor(
+    private _matrix: LazyMatrix,
+    public targetObjects: SceneObject[],
+    private sources: SceneObject[] = [],
+  ) {
     super();
     this.setAlwaysVisible();
   }
@@ -18,6 +22,9 @@ export class RepeatMatrix extends SceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
+    for (const source of this.sources) {
+      source.removeShapes(this);
+    }
     this.saveShapesSnapshot(context);
   }
 

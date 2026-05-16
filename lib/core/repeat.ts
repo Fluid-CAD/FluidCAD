@@ -23,9 +23,15 @@ import { AxisObjectBase } from "../features/axis-renderable-base.js";
  * values — no extra scene object, no rendered world-axis line.
  */
 function resolveRepeatAxis(arg: unknown, context: SceneParserContext): RepeatAxisSource {
-  if (arg instanceof AxisObjectBase) return arg;
-  if (arg instanceof SceneObject) return resolveAxis(arg, context);
-  if (arg instanceof Axis) return arg;
+  if (arg instanceof AxisObjectBase) {
+    return arg;
+  }
+  if (arg instanceof SceneObject) {
+    return resolveAxis(arg, context);
+  }
+  if (arg instanceof Axis) {
+    return arg;
+  }
   return normalizeAxis(arg as AxisLike);
 }
 
@@ -280,7 +286,8 @@ function build(context: SceneParserContext): RepeatFunction {
 
       const axis = resolveRepeatAxis(axisArg, context);
       const lazy = LazyMatrix.rotation(axis, rad(angle));
-      const feature = new RepeatMatrix(lazy, objects);
+      const sources = axis instanceof AxisObjectBase ? [axis] : [];
+      const feature = new RepeatMatrix(lazy, objects, sources);
       const cloned = cloneWithTransform(objects, lazy, feature);
 
       context.addSceneObject(feature);

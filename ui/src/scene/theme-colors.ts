@@ -25,6 +25,7 @@ function readAll() {
   themeColors.highlightColor.set(readCssVar('--scene-highlight-color', '#ffb433'));
   themeColors.selectEdgeColor.set(readCssVar('--scene-select-edge-color', '#11a4ed'));
   themeColors.selectFaceColor.set(readCssVar('--scene-select-face-color', '#5c9fcc'));
+  themeColors.constraintColor.set(readCssVar('--scene-constraint-color', '#cccccc'));
   themeColors.backgroundColor.set(readCssVar('--color-base-100', '#1e1e1e'));
 }
 
@@ -36,6 +37,7 @@ export const themeColors = {
   highlightColor: new Color('#ffb433'),
   selectEdgeColor: new Color('#11a4ed'),
   selectFaceColor: new Color('#5c9fcc'),
+  constraintColor: new Color('#cccccc'),
   backgroundColor: new Color('#1e1e1e'),
 };
 

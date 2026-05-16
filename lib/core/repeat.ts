@@ -102,9 +102,12 @@ function build(context: SceneParserContext): RepeatFunction {
     if (type === 'linear' || type === 'circular') {
       const axisArg = args[1] as AxisLike | AxisLike[];
 
+      const resolveAxis = (a: AxisLike) =>
+        a instanceof AxisObjectBase ? a.getAxis() : normalizeAxis(a);
+
       const axes = Array.isArray(axisArg)
-        ? axisArg.map(a => normalizeAxis(a))
-        : [normalizeAxis(axisArg)];
+        ? axisArg.map(resolveAxis)
+        : [resolveAxis(axisArg)];
 
       const options = args[2] as LinearRepeatOptions;
       const restObjects = args.slice(3) as SceneObject[];

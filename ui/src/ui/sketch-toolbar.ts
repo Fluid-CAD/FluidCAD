@@ -259,17 +259,22 @@ export class SketchToolbar {
 
   private createToolButton(tool: ToolDef): HTMLElement {
     const wrapper = document.createElement('div');
-    wrapper.className = 'tooltip tooltip-right';
-    const shortcut = TOOL_SHORTCUTS[tool.id];
-    const tip = shortcut ? `${tool.label} (${shortcut.toUpperCase()})` : tool.label;
-    wrapper.setAttribute('data-tip', tip);
+    wrapper.className = 'relative group';
 
     const btn = document.createElement('button');
     btn.className = tool.id === this.activeToolId ? BTN_ACTIVE : BTN_BASE;
     btn.innerHTML = `<span class="[&>svg]:size-5">${tool.icon}</span>`;
     btn.addEventListener('click', () => this.handleToolClick(tool.id));
 
+    const shortcut = TOOL_SHORTCUTS[tool.id];
+    const tip = document.createElement('div');
+    tip.className = 'absolute left-full top-1/2 -translate-y-1/2 ml-2 px-2 py-1 rounded bg-base-300 text-base-content text-xs whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity flex items-center gap-1.5';
+    tip.innerHTML = shortcut
+      ? `${tool.label} <kbd class="kbd kbd-xs">${shortcut}</kbd>`
+      : tool.label;
+
     wrapper.appendChild(btn);
+    wrapper.appendChild(tip);
     this.buttons.set(tool.id, btn);
     return wrapper;
   }

@@ -1,5 +1,12 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Axis } from "../math/axis.js";
+import { AxisObjectBase } from "./axis-renderable-base.js";
+
+export type RepeatAxisSource = Axis | AxisObjectBase;
+
+function axisOf(source: RepeatAxisSource): Axis {
+  return source instanceof AxisObjectBase ? source.getAxis() : source;
+}
 
 export type LinearRepeatOptions = {
   count: number | number[];
@@ -12,7 +19,7 @@ export type LinearRepeatOptions = {
 
 export class RepeatLinear extends SceneObject {
   constructor(
-    public axes: Axis[],
+    public axes: RepeatAxisSource[],
     public options: LinearRepeatOptions,
     public targetObjects: SceneObject[] | null = null
     ) {
@@ -42,7 +49,7 @@ export class RepeatLinear extends SceneObject {
     }
 
     for (let i = 0; i < this.axes.length; i++) {
-      if (!this.axes[i].equals(other.axes[i])) {
+      if (!axisOf(this.axes[i]).equals(axisOf(other.axes[i]))) {
         return false;
       }
     }

@@ -1,16 +1,17 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Matrix4 } from "../math/matrix4.js";
+import { LazyMatrix } from "../math/lazy-matrix.js";
 import { PlaneObjectBase } from "./plane-renderable-base.js";
 
 export class MirrorFeature extends SceneObject {
 
-  constructor(private plane: PlaneObjectBase, private _matrix?: Matrix4) {
+  constructor(private plane: PlaneObjectBase, private _matrix: LazyMatrix) {
     super();
     this.setAlwaysVisible()
   }
 
   override getTransformMatrix(): Matrix4 | null {
-    return this._matrix || null;
+    return this._matrix.resolve();
   }
 
   override isContainer(): boolean {

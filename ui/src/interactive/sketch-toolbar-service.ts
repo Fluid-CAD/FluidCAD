@@ -118,7 +118,7 @@ export class SketchToolbarService {
         }
       } else if (this.activeDragHandler) {
         this.activeDragHandler.updatePlane(plane);
-        const snapManager = SnapManager.fromSceneObjects(sceneObjects, lastRoot.id, plane);
+        const snapManager = SnapManager.fromSceneObjects(sceneObjects, lastRoot.id, plane, this.viewer.sceneContext);
         const snapCtrl = new SnapController(snapManager, plane);
         snapCtrl.snapToVertices = this.toolbar.snapVerticesChecked;
         snapCtrl.snapToGrid = this.toolbar.snapGridChecked;
@@ -153,7 +153,7 @@ export class SketchToolbarService {
   }
 
   private createTool(toolId: ToolId, plane: PlaneData, sceneObjects: SceneObjectRender[], sketchId: string): SketchTool | null {
-    const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, plane);
+    const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, plane, this.viewer.sceneContext);
     const snapCtrl = new SnapController(snapManager, plane);
     snapCtrl.snapToVertices = this.toolbar.snapVerticesChecked;
     snapCtrl.snapToGrid = this.toolbar.snapGridChecked;
@@ -214,7 +214,7 @@ export class SketchToolbarService {
     if (this.activeDragHandler || !this.activeSketchInfo) {
       return;
     }
-    const snapManager = SnapManager.fromSceneObjects(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!, this.activeSketchInfo.plane);
+    const snapManager = SnapManager.fromSceneObjects(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!, this.activeSketchInfo.plane, this.viewer.sceneContext);
     const snapCtrl = new SnapController(snapManager, this.activeSketchInfo.plane);
     snapCtrl.snapToVertices = this.toolbar.snapVerticesChecked;
     snapCtrl.snapToGrid = this.toolbar.snapGridChecked;

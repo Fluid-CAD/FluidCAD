@@ -76,7 +76,7 @@ export class BezierTool extends SketchTool {
   }
 
   onSceneUpdate(sceneObjects: SceneObjectRender[], sketchId: string): void {
-    const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane);
+    const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane, this.ctx);
     this.updateSnapManager(snapManager);
 
     // Only sync with a scene bezier once the user has initiated drawing.

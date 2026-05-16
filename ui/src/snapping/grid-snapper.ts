@@ -2,9 +2,30 @@ import { Vector3 } from 'three';
 import { Snapper, SnapResult } from './types';
 import { PlaneData } from '../types';
 
-// Fraction of grid spacing used as the snap radius. Keeps a clear unsnapped
-// zone between intersections so the cursor doesn't constantly stick to grid.
 const GRID_SNAP_RADIUS_FRACTION = 0.35;
+const SEQUENCE = [1, 2, 5];
+
+export function computeAdaptiveGridSpacing(
+  worldUnitsPerPixel: number,
+  baseSpacing: number = 10,
+  minCellPixels: number = 15,
+): number {
+  const cellPixels = baseSpacing / worldUnitsPerPixel;
+  if (cellPixels >= minCellPixels) {
+    return baseSpacing;
+  }
+
+  let decade = baseSpacing;
+  for (;;) {
+    for (const s of SEQUENCE) {
+      const candidate = decade * s;
+      if (candidate / worldUnitsPerPixel >= minCellPixels) {
+        return candidate;
+      }
+    }
+    decade *= 10;
+  }
+}
 
 export class GridSnapper implements Snapper {
   private spacing: number;
@@ -12,6 +33,10 @@ export class GridSnapper implements Snapper {
 
   constructor(plane: PlaneData, spacing: number = 10) {
     this.plane = plane;
+    this.spacing = spacing;
+  }
+
+  setSpacing(spacing: number): void {
     this.spacing = spacing;
   }
 

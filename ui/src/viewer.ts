@@ -140,6 +140,7 @@ export class Viewer {
 
     const raycaster = this.ctx.createPickingRaycaster(ndcX, ndcY);
     raycaster.params.Line = { threshold: this.computeEdgePickThreshold() };
+    raycaster.params.Line2 = { threshold: 8 };
 
     const faceCandidates: Mesh[] = [];
     const edgeCandidates: LineSegments[] = [];
@@ -186,15 +187,11 @@ export class Viewer {
     const segPt = new Vector3();
     const toSeg = new Vector3();
     for (const edgeHit of edgeHits) {
-      const geo = (edgeHit.object as LineSegments).geometry;
-      const pos = geo.getAttribute('position') as BufferAttribute;
-      const idx = geo.getIndex();
-      if (idx !== null && edgeHit.faceIndex != null) {
-        const a = idx.getX(edgeHit.faceIndex * 2);
-        const b = idx.getX(edgeHit.faceIndex * 2 + 1);
-        const v0 = new Vector3().fromBufferAttribute(pos, a).applyMatrix4(edgeHit.object.matrixWorld);
-        const v1 = new Vector3().fromBufferAttribute(pos, b).applyMatrix4(edgeHit.object.matrixWorld);
-        raycaster.ray.distanceSqToSegment(v0, v1, undefined, segPt);
+      // LineSegments2 hits expose `pointOnLine` (closest point on the segment
+      // in world space); the old BufferGeometry index path doesn't apply.
+      const pointOnLine = (edgeHit as { pointOnLine?: Vector3 }).pointOnLine;
+      if (pointOnLine) {
+        segPt.copy(pointOnLine);
       } else {
         segPt.copy(edgeHit.point);
       }
@@ -327,7 +324,9 @@ export class Viewer {
     group.traverse((child) => {
       if (!(child as any).material) return;
 
-      if (isFaceHighlight && child instanceof Mesh) {
+      const isEdge = (child as LineSegments).isLine || child.userData.isEdgeLine;
+
+      if (isFaceHighlight && child instanceof Mesh && !isEdge) {
         const mat = (child as any).material;
         child.userData.originalColor = mat.color.getHex();
         mat.color.set(themeColors.highlightColor);
@@ -337,7 +336,7 @@ export class Viewer {
           mat.opacity = 1;
           mat.transparent = false;
         }
-      } else if (!isFaceHighlight && child instanceof LineSegments) {
+      } else if (!isFaceHighlight && isEdge) {
         child.userData.originalColor = (child as any).material.color.getHex();
         (child as any).material.color.set(themeColors.highlightColor);
         child.userData.originalLineWidth = (child as any).material.linewidth;
@@ -465,7 +464,7 @@ export class Viewer {
     this.clearHighlight();
 
     this.ctx.scene.traverse((obj) => {
-      if (!(obj as LineSegments).isLine) {
+      if (!(obj as LineSegments).isLine && !obj.userData.isEdgeLine) {
         return;
       }
       if (obj.userData.edgeIndex !== edgeIndex) {
@@ -669,7 +668,7 @@ export class Viewer {
 
   private applyHoverEdge(shapeId: string, edgeIndex: number): void {
     this.ctx.scene.traverse((obj) => {
-      if (!(obj as LineSegments).isLine) {
+      if (!(obj as LineSegments).isLine && !obj.userData.isEdgeLine) {
         return;
       }
       if (obj.userData.edgeIndex !== edgeIndex) {

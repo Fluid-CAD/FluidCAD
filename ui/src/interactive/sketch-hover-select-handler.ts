@@ -291,7 +291,7 @@ export class SketchHoverSelectHandler {
       if (obj.userData.isMetaShape) {
         return;
       }
-      if ((obj as LineSegments).isLine && this.findShapeId(obj) === shapeId) {
+      if (((obj as LineSegments).isLine || obj.userData.isEdgeLine) && this.findShapeId(obj) === shapeId) {
         fn(obj as LineSegments);
       }
     });

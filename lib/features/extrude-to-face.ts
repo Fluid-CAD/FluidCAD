@@ -332,11 +332,7 @@ export class ExtrudeToFace extends ExtrudeBase {
   }
 
   override getDependencies(): SceneObject[] {
-    const deps: SceneObject[] = [];
-    const source = this.getSource();
-    if (source) {
-      deps.push(source);
-    }
+    const deps: SceneObject[] = [...this.getSourceDependencies()];
     if (this.face instanceof SceneObject) {
       deps.push(this.face);
     }

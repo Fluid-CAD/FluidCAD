@@ -1,15 +1,20 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Matrix4 } from "../math/matrix4.js";
+import { LazyMatrix } from "../math/lazy-matrix.js";
 
 export class RepeatMatrix extends SceneObject {
 
-  constructor(private _matrix: Matrix4, public targetObjects: SceneObject[]) {
+  constructor(
+    private _matrix: LazyMatrix,
+    public targetObjects: SceneObject[],
+    private sources: SceneObject[] = [],
+  ) {
     super();
     this.setAlwaysVisible();
   }
 
   override getTransformMatrix(): Matrix4 | null {
-    return this._matrix;
+    return this._matrix.resolve();
   }
 
   override isContainer(): boolean {
@@ -17,6 +22,9 @@ export class RepeatMatrix extends SceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
+    for (const source of this.sources) {
+      source.removeShapes(this);
+    }
     this.saveShapesSnapshot(context);
   }
 

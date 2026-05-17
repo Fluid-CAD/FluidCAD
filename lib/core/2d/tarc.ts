@@ -3,15 +3,25 @@ import { TangentArc } from "../../features/2d/tarc.js";
 import { TangentArcToPoint } from "../../features/2d/tarc-to-point.js";
 import { TangentArcToPointTangent } from "../../features/2d/tarc-to-point-tangent.js";
 import { TangentArcWithTangent } from "../../features/2d/tarc-with-tangent.js";
+import { TangentArcToObject } from "../../features/2d/tarc-to-object.js";
 import { Move } from "../../features/2d/move.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
-import { SceneObject } from "../../common/scene-object.js";
 import { QualifiedSceneObject } from "../../features/2d/constraints/qualified-geometry.js";
 import { TangentArcTwoObjects } from "../../features/2d/tarc-constrained.js";
-import { IGeometry, ISceneObject, ITangentArcTwoObjects } from "../interfaces.js";
+import { IGeometry, ISceneObject, ITangentArcToObject, ITangentArcTwoObjects } from "../interfaces.js";
+import { SceneObject } from "../../common/scene-object.js";
 
 interface TArcFunction {
+  /**
+   * Draws a tangent arc from the current position using the current tangent
+   * direction, ending tangent to a target line. The radius is solved
+   * automatically; the arc must be tangent to the target but does not need
+   * to touch its finite extent. By default the arc curves to the left of
+   * the start tangent — chain `.flip()` to curve to the right instead.
+   * @param target - The target line (or a qualified line)
+   */
+  (target: ISceneObject | QualifiedSceneObject): ITangentArcToObject;
   /**
    * Draws a tangent arc with a given radius and end angle.
    * @param radius - The arc radius (defaults to 100). A negative value flips the sweep direction.
@@ -44,7 +54,7 @@ interface TArcFunction {
    */
   (startPoint: Point2DLike, endPoint: Point2DLike, tangent: Point2DLike): IGeometry;
   /**
-   * Draws a tangent arc between two geometry objects.
+   * Draws all possible tangent arcs between two geometry objects.
    * @param c1 - The first geometry object
    * @param c2 - The second geometry object
    * @param radius - The arc radius
@@ -79,6 +89,17 @@ interface TArcFunction {
 
 function build(context: SceneParserContext): TArcFunction {
   return function tarc() {
+    // tArc(target): single scene-object target, radius solved automatically
+    if (
+      arguments.length === 1 &&
+      (arguments[0] instanceof SceneObject || arguments[0] instanceof QualifiedSceneObject)
+    ) {
+      const target = QualifiedSceneObject.from(arguments[0]);
+      const arc = new TangentArcToObject(target);
+      context.addSceneObject(arc);
+      return arc;
+    }
+
     // tarc(c1, c2, radius): fillet arc tangent to two circles/points
     if ((arguments.length === 3 || arguments.length === 4) && typeof arguments[2] === 'number') {
       const o1 = isPoint2DLike(arguments[0]) ? normalizePoint2D(arguments[0] as Point2DLike) : arguments[0]

@@ -280,4 +280,93 @@ describe("tArc", () => {
       render();
     });
   });
+
+  describe("tangent arc from current position to target line (target)", () => {
+    it("should create a tangent arc from a horizontal line ending tangent to a vertical line", () => {
+      const s = sketch("xy", () => {
+        const v = vLine([200, 200], 100).guide();
+        move([0, 0]);
+        hLine(100);
+        tArc(v);
+      }) as Sketch;
+      render();
+
+      const shapes = s.getShapes();
+      // hLine + tArc (guide excluded) = at least 2 edges
+      expect(shapes.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("should accept a qualified line target", () => {
+      const s = sketch("xy", () => {
+        const v = vLine([200, 200], 100).guide();
+        move([0, 0]);
+        hLine(100);
+        tArc(outside(v));
+      }) as Sketch;
+      render();
+
+      const shapes = s.getShapes();
+      expect(shapes.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("should allow chaining geometry after the solved arc", () => {
+      const s = sketch("xy", () => {
+        const v = vLine([200, 200], 100).guide();
+        move([0, 0]);
+        hLine(100);
+        tArc(v);
+        vLine(40);
+      }) as Sketch;
+      render();
+
+      const shapes = s.getShapes();
+      // chain continues — hLine + tArc + vLine
+      expect(shapes.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it("default arc curves to the left of the start tangent", () => {
+      const s = sketch("xy", () => {
+        const h = hLine([-150, 100], 300).guide();
+        move([0, 0]);
+        vLine(80);
+        tArc(h);
+      }) as Sketch;
+      render();
+
+      const arcs = getEdgesByType(s.getShapes(), "arc");
+      expect(arcs.length).toBe(1);
+      // start tangent is +Y; "left" of +Y is -X. End vertex sits at negative x.
+      const endX = arcs[0].getLastVertex().toPoint().x;
+      expect(endX).toBeLessThan(0);
+    });
+
+    it(".flip() reverses the curve to the right of the start tangent", () => {
+      const s = sketch("xy", () => {
+        const h = hLine([-150, 100], 300).guide();
+        move([0, 0]);
+        vLine(80);
+        tArc(h).flip();
+      }) as Sketch;
+      render();
+
+      const arcs = getEdgesByType(s.getShapes(), "arc");
+      expect(arcs.length).toBe(1);
+      const endX = arcs[0].getLastVertex().toPoint().x;
+      expect(endX).toBeGreaterThan(0);
+    });
+
+    it("should reject circle targets", () => {
+      const s = sketch("xy", () => {
+        const c = circle([200, 80], 30).guide();
+        move([0, 0]);
+        hLine(100);
+        tArc(c);
+      }) as Sketch;
+      render();
+
+      const children = s.getChildren();
+      const arc = children[children.length - 1];
+      expect(arc.getError()).toMatch(/only line targets are supported/);
+    });
+  });
 });

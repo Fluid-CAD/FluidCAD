@@ -348,6 +348,15 @@ export interface ITwoObjectsTangentLine extends IGeometry {
   end(index?: number): LazyVertex;
 }
 
+export interface ITangentArcToObject extends IGeometry {
+  /**
+   * Flips the arc to the opposite side of the start tangent. By default,
+   * the arc curves to the left of the current tangent direction;
+   * `.flip()` switches it to the right.
+   */
+  flip(): this;
+}
+
 export interface ITangentArcTwoObjects extends IGeometry {
   /**
    * Returns the start vertex of the tangent arc.

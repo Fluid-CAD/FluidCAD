@@ -53,8 +53,30 @@ export class ConstraintSolverAdaptor extends ConstraintSolver {
     return this.geometricSolver.getTangentArcs(plane, shape1, shape2, radius, this.mustTouch);
   }
 
+  getTangentArcFromPointTangent(
+    plane: Plane,
+    startPoint: Point2D,
+    startTangent: Point2D,
+    target: QualifiedShape,
+    flip: boolean
+  ) {
+    if (this.isLine(target.shape)) {
+      return this.geometricSolver.getTangentArcFromPointTangent(plane, startPoint, startTangent, target, flip);
+    }
+    return this.curveSolver.getTangentArcFromPointTangent(plane, startPoint, startTangent, target, flip);
+  }
+
   isCurve(shape: Shape): boolean {
     return !(shape instanceof Vertex) && this.getShapeGeometry(shape) === 'curve';
+  }
+
+  private isLine(shape: Shape): boolean {
+    if (shape instanceof Vertex) { return false; }
+    const oc = getOC();
+    const adaptor = new oc.BRepAdaptor_Curve(shape.getShape());
+    const type = adaptor.GetType();
+    adaptor.delete();
+    return type === oc.GeomAbs_CurveType.GeomAbs_Line;
   }
 
   private getShapeGeometry(shape: Shape) {

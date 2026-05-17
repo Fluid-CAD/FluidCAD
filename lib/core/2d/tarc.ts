@@ -4,6 +4,7 @@ import { TangentArcToPoint } from "../../features/2d/tarc-to-point.js";
 import { TangentArcToPointTangent } from "../../features/2d/tarc-to-point-tangent.js";
 import { TangentArcWithTangent } from "../../features/2d/tarc-with-tangent.js";
 import { TangentArcToObject } from "../../features/2d/tarc-to-object.js";
+import { TangentArcRadiusToObject } from "../../features/2d/tarc-radius-to-object.js";
 import { Move } from "../../features/2d/move.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
@@ -22,6 +23,15 @@ interface TArcFunction {
    * @param target - The target line (or a qualified line)
    */
   (target: ISceneObject | QualifiedSceneObject): ITangentArcToObject;
+  /**
+   * Draws a tangent arc from the current position using the current tangent
+   * direction, with the given radius, ending at the first intersection with
+   * the target geometry along the arc's sweep direction. A negative radius
+   * flips the sweep direction. Supported targets: lines, circles, and arcs.
+   * @param radius - The arc radius. A negative value flips the sweep direction.
+   * @param target - The target geometry to intersect with
+   */
+  (radius: number, target: ISceneObject | QualifiedSceneObject): IGeometry;
   /**
    * Draws a tangent arc with a given radius and end angle.
    * @param radius - The arc radius (defaults to 100). A negative value flips the sweep direction.
@@ -96,6 +106,19 @@ function build(context: SceneParserContext): TArcFunction {
     ) {
       const target = QualifiedSceneObject.from(arguments[0]);
       const arc = new TangentArcToObject(target);
+      context.addSceneObject(arc);
+      return arc;
+    }
+
+    // tArc(radius, target): explicit radius, end at first intersection with target
+    if (
+      arguments.length === 2 &&
+      typeof arguments[0] === 'number' &&
+      (arguments[1] instanceof SceneObject || arguments[1] instanceof QualifiedSceneObject)
+    ) {
+      const radius = arguments[0] as number;
+      const target = QualifiedSceneObject.from(arguments[1]);
+      const arc = new TangentArcRadiusToObject(radius, target);
       context.addSceneObject(arc);
       return arc;
     }

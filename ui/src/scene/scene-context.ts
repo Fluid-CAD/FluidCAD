@@ -24,6 +24,7 @@ import CameraControls from 'camera-controls';
 import { ViewportGizmo } from 'three-viewport-gizmo';
 import { CameraControlsAdapter } from './camera-controls-adapter';
 import { themeColors, onThemeChange } from './theme-colors';
+import { LineResolutionRegistry } from '../meshes/shape-meshes/line-resolution';
 
 // Install camera-controls with only the Three.js submodules it needs
 CameraControls.install({
@@ -82,6 +83,7 @@ export class SceneContext {
     this.renderer = new WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setSize(width, height);
     this.renderer.setPixelRatio(window.devicePixelRatio);
+    LineResolutionRegistry.setResolution(width, height);
     this.renderer.toneMapping = ACESFilmicToneMapping;
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.localClippingEnabled = true;
@@ -335,6 +337,7 @@ export class SceneContext {
 
     this.renderer.setSize(width, height);
     this.renderer.setPixelRatio(window.devicePixelRatio);
+    LineResolutionRegistry.setResolution(width, height);
 
     // Update ortho camera
     this.orthoCamera.left = -aspect * VIEW_SIZE / 2;

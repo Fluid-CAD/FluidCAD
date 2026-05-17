@@ -150,7 +150,7 @@ export class Viewer {
       }
       if ((obj as Mesh).isMesh && obj.userData.faceMapping) {
         faceCandidates.push(obj as Mesh);
-      } else if ((obj as LineSegments).isLine && obj.userData.edgeIndex !== undefined) {
+      } else if (((obj as LineSegments).isLine || obj.userData.isEdgeLine) && obj.userData.edgeIndex !== undefined) {
         edgeCandidates.push(obj as LineSegments);
       }
     });

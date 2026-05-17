@@ -22,9 +22,9 @@ const CONSTRAINT_LABELS: Record<string, string> = {
 
 const TARC_TYPES = new Set(['tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent']);
 
-const ICON_OFFSET_PX = 28;
+const ICON_OFFSET_PX = 22;
 const ICON_PLANE_SIZE = 5;
-const ICON_PX_SIZE = 24;
+const ICON_PX_SIZE = 16;
 const CANVAS_SIZE = 64;
 const ICON_RENDER_ORDER = 3;
 

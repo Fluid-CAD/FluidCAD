@@ -49,7 +49,7 @@ export class EdgeMesh extends Group {
    * LineSegmentsGeometry wants a flat positions array of segment-pair endpoints
    * (no index buffer). Expand the indexed input into that form.
    */
-  private static expandIndexedPositions(vertices: number[], indices: number[]): Float32Array {
+  static expandIndexedPositions(vertices: number[], indices: number[]): Float32Array {
     const positions = new Float32Array(indices.length * 3);
     for (let i = 0; i < indices.length; i++) {
       const v = indices[i] * 3;

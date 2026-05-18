@@ -176,14 +176,30 @@ export interface IArcPoints extends IExtrudableGeometry {
    * Positive = CCW, negative = CW.
    * @param value - The bulge radius.
    */
-  radius(value: number): this;
+  radius(value: number): IArcRadius;
 
   /**
    * Specifies the circle center point for the arc.
    * Mutually exclusive with `.radius()`.
    * @param value - The center point of the arc's circle.
    */
-  center(value: Point2DLike): this;
+  center(value: Point2DLike): IArcCenter;
+}
+
+export interface IArcRadius extends IExtrudableGeometry {
+  /**
+   * Switches to the major arc (> 180°).
+   * By default, `.radius()` produces the minor arc (< 180°);
+   * `.major()` switches to the complementary major arc on the same circle.
+   */
+  major(): this;
+}
+
+export interface IArcCenter extends IExtrudableGeometry {
+  /**
+   * Sweeps the arc clockwise from start to end instead of the default counter-clockwise.
+   */
+  cw(): this;
 }
 
 export interface IArcAngles extends IExtrudableGeometry {

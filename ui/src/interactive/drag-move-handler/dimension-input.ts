@@ -134,7 +134,7 @@ export class DimensionInputController {
         label = 'R';
         value = hitResult.slotRadius ?? 0;
       }
-    } else if (hitResult.uniqueType === 'arc' && hitResult.arcIsRadiusMode && hitResult.hitZone === 'center') {
+    } else if (hitResult.uniqueType === 'arc' && hitResult.arcIsRadiusMode) {
       label = 'R';
       value = Math.round((hitResult.initialValue ?? 0) * 100) / 100;
     } else {

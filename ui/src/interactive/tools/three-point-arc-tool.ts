@@ -283,7 +283,19 @@ export class ThreePointArcTool extends SketchTool {
     const midY = (this.startPoint[1] + this.endPoint[1]) / 2;
 
     const t = (this.mousePoint[0] - midX) * px + (this.mousePoint[1] - midY) * py;
-    const s = Math.max(Math.abs(t), 1e-6);
+    let s = Math.max(Math.abs(t), 1e-6);
+
+    if (!this.shiftHeld) {
+      const midWorld = localToWorld(
+        [midX, midY],
+        this.plane,
+      );
+      const snapThreshold = pixelsToWorld(this.ctx.renderer, this.ctx.camera, midWorld, 10);
+      if (Math.abs(s - halfChord) < snapThreshold) {
+        s = halfChord;
+      }
+    }
+
     const major = s > halfChord;
     const radius = s / 2 + (halfChord * halfChord) / (2 * s);
 

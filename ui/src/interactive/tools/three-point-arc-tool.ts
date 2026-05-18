@@ -532,7 +532,7 @@ export class ThreePointArcTool extends SketchTool {
     }
   }
 
-  private rebuildRadiusPreview(camera: Camera, planeNormal: Vector3): void {
+  private rebuildRadiusPreview(_camera: Camera, _planeNormal: Vector3): void {
     const params = this.computeRadiusArcParams();
     if (!params) {
       return;
@@ -551,7 +551,7 @@ export class ThreePointArcTool extends SketchTool {
     const drawCCW = major ? !minorIsCCW : minorIsCCW;
 
     addDashedArc(this.previewGroup, center, radius, startAngle, endAngle, drawCCW, this.plane);
-    addDot(this.previewGroup, center, GUIDE_COLOR, camera, planeNormal, this.plane, 0.7);
-    addDashedLine(this.previewGroup, center, this.startPoint!, this.plane);
+    addDashedLine(this.previewGroup, this.startPoint!, center, this.plane);
+    addDashedLine(this.previewGroup, this.endPoint!, center, this.plane);
   }
 }

@@ -224,10 +224,10 @@ function rebuildRadiusArcPreview(
   plane: PlaneData,
 ): void {
   const { hitZone, fixedVertex } = hitResult;
-  // arcCCW from the hit already encodes the correct visual sweep direction
-  // (including major/minor), and is stable across the 180° boundary.
-  const drawCCW = hitResult.arcCCW !== false;
-  const ccw = drawCCW;
+  const major = hitResult.arcMajor === true;
+  // Lib-level CCW (positive radius = center on left):
+  // arcCCW is the visual sweep; XOR with major gives the lib convention.
+  const libCCW = (hitResult.arcCCW !== false) !== major;
 
   if (hitZone === 'center') {
     const startV = fixedVertex!;
@@ -238,6 +238,8 @@ function rebuildRadiusArcPreview(
     );
     const startAngle = angleFromCenter(center, startV);
     const endAngle = angleFromCenter(center, endV);
+    // For center drag, use the stable arcCCW from the hit (center is clamped to one side).
+    const drawCCW = hitResult.arcCCW !== false;
     addDot(previewGroup, startV, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
     addDashedArc(previewGroup, center, radius, startAngle, endAngle, drawCCW, plane, RO);
     addDot(previewGroup, endV, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
@@ -252,15 +254,34 @@ function rebuildRadiusArcPreview(
     const otherPoint = fixedVertex!;
     const startV = hitZone === 'start' ? currentPoint : otherPoint;
     const endV = hitZone === 'start' ? otherPoint : currentPoint;
-    const center = centerFromChordAndRadius(startV, endV, storedRadius, ccw);
+    const dx = endV[0] - startV[0];
+    const dy = endV[1] - startV[1];
+    const halfChord = Math.sqrt(dx * dx + dy * dy) / 2;
+    const effectiveRadius = Math.max(storedRadius, halfChord);
+    const center = centerFromChordAndRadius(startV, endV, effectiveRadius, libCCW);
     if (!center) {
       addDot(previewGroup, currentPoint, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
       return;
     }
     const startAngle = angleFromCenter(center, startV);
     const endAngle = angleFromCenter(center, endV);
+    // For start/end drag, compute draw direction from which sweep keeps the
+    // arc on the correct side of the chord (the bulge side = opposite from center).
+    // Using the arc midpoint cross product is stable even at the 180° boundary,
+    // unlike comparing sweep angle to π.
+    let ccwSweep = endAngle - startAngle;
+    if (ccwSweep < 0) {
+      ccwSweep += Math.PI * 2;
+    }
+    const ccwMidAngle = startAngle + ccwSweep / 2;
+    const ccwMidX = center[0] + effectiveRadius * Math.cos(ccwMidAngle);
+    const ccwMidY = center[1] + effectiveRadius * Math.sin(ccwMidAngle);
+    const chordCross = (endV[0] - startV[0]) * (ccwMidY - startV[1])
+                     - (endV[1] - startV[1]) * (ccwMidX - startV[0]);
+    const ccwIsMinor = libCCW ? (chordCross < 0) : (chordCross > 0);
+    const drawCCW = major ? !ccwIsMinor : ccwIsMinor;
     addDot(previewGroup, startV, hitZone === 'start' ? SNAP_VERTEX_COLOR : START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
-    addDashedArc(previewGroup, center, storedRadius, startAngle, endAngle, drawCCW, plane, RO);
+    addDashedArc(previewGroup, center, effectiveRadius, startAngle, endAngle, drawCCW, plane, RO);
     addDot(previewGroup, endV, hitZone === 'end' ? SNAP_VERTEX_COLOR : START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
   }
 }

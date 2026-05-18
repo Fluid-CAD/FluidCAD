@@ -3,11 +3,12 @@ import { Shape } from "../common/shape.js";
 import { Edge } from "../common/edge.js";
 import { Explorer } from "../oc/explorer.js";
 import { Mesh } from "../oc/mesh.js";
+import type { MeshConfig } from "../oc/mesh.js";
 
-export function renderWire(shapeObj: Shape) {
+export function renderWire(shapeObj: Shape, meshConfig?: MeshConfig) {
   const shape = shapeObj.getShape();
 
-  Mesh.ensureTriangulated(shape);
+  Mesh.ensureTriangulated(shape, meshConfig);
 
   const edges = Explorer.findShapes(shape, Explorer.getOcShapeType("edge"));
 

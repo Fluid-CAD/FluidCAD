@@ -3,10 +3,11 @@ import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
 import { SceneObjectMesh } from "./scene.js";
 import { Mesh } from "../oc/mesh.js";
+import type { MeshConfig } from "../oc/mesh.js";
 import { getOC } from "../oc/init.js";
 
-export function renderSolid(shapeObj: Shape): SceneObjectMesh[] {
-  Mesh.ensureTriangulated(shapeObj.getShape());
+export function renderSolid(shapeObj: Shape, meshConfig?: MeshConfig): SceneObjectMesh[] {
+  Mesh.ensureTriangulated(shapeObj.getShape(), meshConfig);
 
   const facesMeshes = getFacesMesh(shapeObj);
   const edgesMesh = getEdgesMesh(shapeObj);

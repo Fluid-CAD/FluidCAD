@@ -10,6 +10,7 @@ import {
   addDashedBezier,
   addDashedSlot,
   angleFromCenter,
+  centerFromChordAndRadius,
   GUIDE_COLOR,
   START_POINT_COLOR,
   SNAP_VERTEX_COLOR,
@@ -168,6 +169,11 @@ function rebuildArcPreview(
   planeNormal: Vector3,
   plane: PlaneData,
 ): void {
+  if (hitResult.arcIsRadiusMode) {
+    rebuildRadiusArcPreview(previewGroup, currentPoint, hitResult, camera, planeNormal, plane);
+    return;
+  }
+
   const { hitZone, anchorPoint, fixedVertex } = hitResult;
   const ccw = hitResult.arcCCW !== false;
 
@@ -206,6 +212,56 @@ function rebuildArcPreview(
       addDashedArc(previewGroup, newCenter, radius, startAngle, endAngle, ccw, plane, RO);
       addDot(previewGroup, currentPoint, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
     }
+  }
+}
+
+function rebuildRadiusArcPreview(
+  previewGroup: Group,
+  currentPoint: [number, number],
+  hitResult: DragHitResult,
+  camera: Camera,
+  planeNormal: Vector3,
+  plane: PlaneData,
+): void {
+  const { hitZone, fixedVertex } = hitResult;
+  // arcCCW from the hit already encodes the correct visual sweep direction
+  // (including major/minor), and is stable across the 180° boundary.
+  const drawCCW = hitResult.arcCCW !== false;
+  const ccw = drawCCW;
+
+  if (hitZone === 'center') {
+    const startV = fixedVertex!;
+    const endV = hitResult.fixedVertex2!;
+    const center = currentPoint;
+    const radius = Math.sqrt(
+      (startV[0] - center[0]) ** 2 + (startV[1] - center[1]) ** 2,
+    );
+    const startAngle = angleFromCenter(center, startV);
+    const endAngle = angleFromCenter(center, endV);
+    addDot(previewGroup, startV, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
+    addDashedArc(previewGroup, center, radius, startAngle, endAngle, drawCCW, plane, RO);
+    addDot(previewGroup, endV, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
+    addDot(previewGroup, center, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
+    addDashedLine(previewGroup, center, startV, plane, RO);
+  } else {
+    const storedRadius = hitResult.initialValue ?? 0;
+    if (storedRadius <= 0) {
+      addDot(previewGroup, currentPoint, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
+      return;
+    }
+    const otherPoint = fixedVertex!;
+    const startV = hitZone === 'start' ? currentPoint : otherPoint;
+    const endV = hitZone === 'start' ? otherPoint : currentPoint;
+    const center = centerFromChordAndRadius(startV, endV, storedRadius, ccw);
+    if (!center) {
+      addDot(previewGroup, currentPoint, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
+      return;
+    }
+    const startAngle = angleFromCenter(center, startV);
+    const endAngle = angleFromCenter(center, endV);
+    addDot(previewGroup, startV, hitZone === 'start' ? SNAP_VERTEX_COLOR : START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
+    addDashedArc(previewGroup, center, storedRadius, startAngle, endAngle, drawCCW, plane, RO);
+    addDot(previewGroup, endV, hitZone === 'end' ? SNAP_VERTEX_COLOR : START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
   }
 }
 

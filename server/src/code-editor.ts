@@ -971,19 +971,21 @@ export async function getDimensionExpression(
   const p = await getParser();
   const tree = p.parse(code);
   const lines = splitLines(code);
-  const call = findEditableCallAt(tree, lines, sourceLine);
-  if (!call) {
-    return null;
+  let current: TSNode | null = findEditableCallAt(tree, lines, sourceLine);
+  while (current && current.type === 'call_expression') {
+    const args = getArgumentsNode(current);
+    if (args) {
+      const target = findNonArrayArgFromEnd(args);
+      if (target) {
+        return { expression: target.text };
+      }
+    }
+    const fn = current.childForFieldName('function');
+    current = fn && fn.type === 'member_expression'
+      ? fn.childForFieldName('object')
+      : null;
   }
-  const args = getArgumentsNode(call);
-  if (!args || args.namedChildren.length === 0) {
-    return null;
-  }
-  const target = findNonArrayArgFromEnd(args);
-  if (!target) {
-    return null;
-  }
-  return { expression: target.text };
+  return null;
 }
 
 export function updateDimensionExpression(
@@ -993,19 +995,21 @@ export function updateDimensionExpression(
   dimensionOffset = 0,
 ): Promise<CodeEditResult> {
   return withParsedCode(code, (tree, lines) => {
-    const call = findEditableCallAt(tree, lines, sourceLine);
-    if (!call) {
-      return null;
+    let current: TSNode | null = findEditableCallAt(tree, lines, sourceLine);
+    while (current && current.type === 'call_expression') {
+      const args = getArgumentsNode(current);
+      if (args) {
+        const target = findNonArrayArgFromEnd(args, dimensionOffset);
+        if (target) {
+          return spliceCode(code, target.startIndex, target.endIndex, expression);
+        }
+      }
+      const fn = current.childForFieldName('function');
+      current = fn && fn.type === 'member_expression'
+        ? fn.childForFieldName('object')
+        : null;
     }
-    const args = getArgumentsNode(call);
-    if (!args || args.namedChildren.length === 0) {
-      return null;
-    }
-    const target = findNonArrayArgFromEnd(args, dimensionOffset);
-    if (!target) {
-      return null;
-    }
-    return spliceCode(code, target.startIndex, target.endIndex, expression);
+    return null;
   });
 }
 

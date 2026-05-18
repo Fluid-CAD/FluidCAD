@@ -54,10 +54,15 @@ const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
 const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
 const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
 
+export type Arc3Mode = 'center' | 'radius';
+
 export class SketchToolbar {
   private el: HTMLDivElement;
   private inner: HTMLDivElement;
   private snapMenu: HTMLDivElement | null = null;
+  private arcModeMenu: HTMLDivElement | null = null;
+  private arcModeAnchor: HTMLElement | null = null;
+  private _arc3Mode: Arc3Mode = 'center';
   private onToolSelect: (toolId: ToolId | null) => void;
   private activeToolId: ToolId | null = null;
   private buttons = new Map<ToolId, HTMLButtonElement>();
@@ -65,11 +70,13 @@ export class SketchToolbar {
 
   private boundKeyDown: (e: KeyboardEvent) => void;
   private boundCloseSnapMenu: (e: MouseEvent) => void;
+  private boundCloseArcModeMenu: (e: MouseEvent) => void;
   private snapVertexCheckedState = true;
   private snapGridCheckedState = true;
 
   onSnapVerticesChange: ((checked: boolean) => void) | null = null;
   onSnapGridChange: ((checked: boolean) => void) | null = null;
+  onArc3ModeChange: ((mode: Arc3Mode) => void) | null = null;
 
   constructor(toolbarHost: HTMLElement, onToolSelect: (toolId: ToolId | null) => void) {
     this.onToolSelect = onToolSelect;
@@ -91,6 +98,7 @@ export class SketchToolbar {
 
     this.boundKeyDown = this.handleKeyDown.bind(this);
     this.boundCloseSnapMenu = this.handleCloseSnapMenu.bind(this);
+    this.boundCloseArcModeMenu = this.handleCloseArcModeMenu.bind(this);
 
     this.shortcutManager = new ShortcutManager({ timeout: 200 });
     for (const [toolId, keys] of Object.entries(TOOL_SHORTCUTS)) {
@@ -109,6 +117,7 @@ export class SketchToolbar {
     this.el.style.transform = 'translateX(-100%)';
     this.el.style.opacity = '0';
     this.closeSnapMenu();
+    this.closeArcModeMenu();
     window.removeEventListener('keydown', this.boundKeyDown);
     this.shortcutManager.disable();
     if (this.activeToolId) {
@@ -138,6 +147,10 @@ export class SketchToolbar {
 
   get snapGridChecked(): boolean {
     return this.snapGridCheckedState;
+  }
+
+  get arc3Mode(): Arc3Mode {
+    return this._arc3Mode;
   }
 
   private buildSnapButton(): void {
@@ -221,6 +234,63 @@ export class SketchToolbar {
     }
   }
 
+  private openArcModeMenu(anchor: HTMLElement): void {
+    this.closeArcModeMenu();
+
+    const menu = document.createElement('div');
+    menu.className = 'absolute left-full top-1/2 -translate-y-1/2 ml-2 z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)] p-1 flex flex-col gap-0.5 whitespace-nowrap';
+
+    const modes: { mode: Arc3Mode; label: string }[] = [
+      { mode: 'center', label: 'By Center' },
+      { mode: 'radius', label: 'By Radius' },
+    ];
+
+    for (const { mode, label } of modes) {
+      const btn = document.createElement('button');
+      const isActive = this._arc3Mode === mode && this.activeToolId === 'arc3';
+      btn.className = isActive
+        ? 'btn btn-soft btn-primary btn-xs w-full justify-start text-left'
+        : 'btn btn-ghost btn-xs w-full justify-start text-left text-base-content/70 hover:text-base-content';
+      btn.textContent = label;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closeArcModeMenu();
+        const wasActive = this.activeToolId === 'arc3';
+        const modeChanged = this._arc3Mode !== mode;
+        this._arc3Mode = mode;
+        if (wasActive && !modeChanged) {
+          this.onToolSelect(null);
+        } else if (wasActive && modeChanged) {
+          this.onArc3ModeChange?.(mode);
+        } else {
+          this.onToolSelect('arc3');
+        }
+      });
+      menu.appendChild(btn);
+    }
+
+    anchor.appendChild(menu);
+    this.arcModeMenu = menu;
+    this.arcModeAnchor = anchor;
+
+    setTimeout(() => document.addEventListener('click', this.boundCloseArcModeMenu), 0);
+  }
+
+  private closeArcModeMenu(): void {
+    if (this.arcModeMenu) {
+      this.arcModeMenu.remove();
+      this.arcModeMenu = null;
+      this.arcModeAnchor = null;
+      document.removeEventListener('click', this.boundCloseArcModeMenu);
+    }
+  }
+
+  private handleCloseArcModeMenu(e: MouseEvent): void {
+    if (this.arcModeMenu && !this.arcModeMenu.contains(e.target as Node) && !this.arcModeAnchor?.contains(e.target as Node)) {
+      this.closeArcModeMenu();
+    }
+  }
+
   private renderTools(): void {
     this.inner.innerHTML = '';
     this.buttons.clear();
@@ -286,6 +356,13 @@ export class SketchToolbar {
   }
 
   private handleToolClick(toolId: ToolId): void {
+    if (toolId === 'arc3') {
+      const wrapper = this.buttons.get('arc3')?.parentElement;
+      if (wrapper) {
+        this.openArcModeMenu(wrapper);
+      }
+      return;
+    }
     if (this.activeToolId === toolId) {
       this.onToolSelect(null);
     } else {

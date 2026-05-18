@@ -245,15 +245,22 @@ export class DimensionInputController {
       clientX,
       clientY,
       variables: this.cachedVariables,
-      onCommit: (result) => {
+      onCommit: (result): string | void => {
         const { expression, newVariable } = result;
         const num = parseFloat(expression);
         const isNumeric = !isNaN(num) && String(num) === expression;
 
         let finalExpr = expression;
         if (isNumeric && hitResult.arcIsRadiusMode) {
+          const absRadius = Math.abs(num);
+          if (absRadius > 0) {
+            const halfChord = this.arcHalfChord(hitResult);
+            if (halfChord !== null && absRadius < halfChord) {
+              return `Radius must be ≥ ${Math.round(halfChord * 100) / 100}`;
+            }
+          }
           const libCCW = (hitResult.arcCCW !== false) !== (hitResult.arcMajor === true);
-          const signedVal = libCCW ? num : -num;
+          const signedVal = libCCW ? absRadius : -absRadius;
           finalExpr = String(Math.round(signedVal * 100) / 100);
         } else if (isNumeric && hitResult.uniqueType !== 'circle' && hitResult.uniqueType !== 'polygon' && hitResult.uniqueType !== 'slot') {
           const sign = this.computeDistanceSign(hitResult, null);
@@ -270,6 +277,7 @@ export class DimensionInputController {
         } else {
           this.closeStandalone();
         }
+        return;
       },
     });
 
@@ -285,6 +293,27 @@ export class DimensionInputController {
         }
       });
     }
+  }
+
+  private arcHalfChord(hitResult: DragHitResult): number | null {
+    let arcStartV: [number, number] | undefined;
+    let arcEndV: [number, number] | undefined;
+    if (hitResult.hitZone === 'center' || hitResult.hitZone === 'body') {
+      arcStartV = hitResult.fixedVertex;
+      arcEndV = hitResult.fixedVertex2;
+    } else if (hitResult.hitZone === 'end') {
+      arcStartV = hitResult.fixedVertex;
+      arcEndV = hitResult.draggedVertices?.[0];
+    } else {
+      arcStartV = hitResult.draggedVertices?.[0];
+      arcEndV = hitResult.fixedVertex;
+    }
+    if (!arcStartV || !arcEndV) {
+      return null;
+    }
+    const dx = arcEndV[0] - arcStartV[0];
+    const dy = arcEndV[1] - arcStartV[1];
+    return Math.sqrt(dx * dx + dy * dy) / 2;
   }
 
   private computeDistanceSign(

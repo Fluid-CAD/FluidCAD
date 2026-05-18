@@ -6,24 +6,27 @@ import { renderFace } from "./render-face.js";
 import { renderWire } from "./render-wire.js";
 import { renderEdge } from "./render-edge.js";
 import { SceneObjectMesh } from "./scene.js";
+import type { MeshConfig } from "../oc/mesh.js";
 
 export class MeshBuilder {
+  constructor(private readonly meshConfig: MeshConfig) {}
+
   build(shapeObj: Shape) {
     const shape = shapeObj.getShape();
 
     let result: SceneObjectMesh[] | SceneObjectMesh | null = null;
 
     if (Explorer.isSolid(shape)) {
-      result = renderSolid(shapeObj);
+      result = renderSolid(shapeObj, this.meshConfig);
     }
     else if (Explorer.isFace(shape)) {
-      result = renderFace(shapeObj);
+      result = renderFace(shapeObj, 0, this.meshConfig);
     }
     else if (Explorer.isWire(shape)) {
-      result = renderWire(shapeObj);
+      result = renderWire(shapeObj, this.meshConfig);
     }
     else if (Explorer.isEdge(shape)) {
-      result = renderEdge(shapeObj);
+      result = renderEdge(shapeObj, this.meshConfig);
     }
     else if (Explorer.isCompound(shape)) {
       console.warn("Compound shapes are not supported yet.");

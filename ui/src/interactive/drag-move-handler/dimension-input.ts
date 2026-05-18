@@ -251,7 +251,11 @@ export class DimensionInputController {
         const isNumeric = !isNaN(num) && String(num) === expression;
 
         let finalExpr = expression;
-        if (isNumeric && hitResult.uniqueType !== 'circle' && hitResult.uniqueType !== 'polygon' && hitResult.uniqueType !== 'slot') {
+        if (isNumeric && hitResult.arcIsRadiusMode) {
+          const libCCW = (hitResult.arcCCW !== false) !== (hitResult.arcMajor === true);
+          const signedVal = libCCW ? num : -num;
+          finalExpr = String(Math.round(signedVal * 100) / 100);
+        } else if (isNumeric && hitResult.uniqueType !== 'circle' && hitResult.uniqueType !== 'polygon' && hitResult.uniqueType !== 'slot') {
           const sign = this.computeDistanceSign(hitResult, null);
           finalExpr = String(Math.round(sign * num * 100) / 100);
         } else if (isNumeric) {

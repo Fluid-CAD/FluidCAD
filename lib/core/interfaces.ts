@@ -189,6 +189,13 @@ export interface IArcPoints extends IExtrudableGeometry {
    * Sweeps the arc clockwise from start to end instead of the default counter-clockwise.
    */
   cw(): this;
+
+  /**
+   * Flips the arc to the major arc (> 180°) when using `.radius()`.
+   * By default, `.radius()` produces the minor arc (< 180°);
+   * `.flip()` switches to the complementary major arc on the same circle.
+   */
+  flip(): this;
 }
 
 export interface IArcAngles extends IExtrudableGeometry {

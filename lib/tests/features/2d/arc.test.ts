@@ -78,10 +78,10 @@ describe("arc", () => {
     });
   });
 
-  describe("major arc with .flip()", () => {
+  describe("major arc with .major()", () => {
     it("should create a major arc (>180°) from current position", () => {
       sketch("xy", () => {
-        arc([30, 0]).radius(20).flip();
+        arc([30, 0]).radius(20).major();
         line([0, 0]);
       });
       const e = extrude(10) as ExtrudeBase;
@@ -96,7 +96,7 @@ describe("arc", () => {
 
     it("should create a major arc with two explicit points", () => {
       sketch("xy", () => {
-        arc([0, 0], [30, 0]).radius(20).flip();
+        arc([0, 0], [30, 0]).radius(20).major();
         line([0, 0]);
       });
       const e = extrude(10) as ExtrudeBase;
@@ -109,9 +109,9 @@ describe("arc", () => {
       expect(arcEdges.length).toBeGreaterThan(0);
     });
 
-    it("should create a CW major arc with negative radius and flip", () => {
+    it("should create a CW major arc with negative radius and major", () => {
       sketch("xy", () => {
-        arc([30, 0]).radius(-20).flip();
+        arc([30, 0]).radius(-20).major();
         line([0, 0]);
       });
       const e = extrude(10) as ExtrudeBase;

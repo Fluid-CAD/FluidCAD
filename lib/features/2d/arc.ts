@@ -6,10 +6,10 @@ import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { GeometrySceneObject } from "./geometry.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
-import { IArcPoints, IArcAngles } from "../../core/interfaces.js";
+import { IArcPoints, IArcRadius, IArcCenter, IArcAngles } from "../../core/interfaces.js";
 import { SceneObject } from "../../common/scene-object.js";
 
-export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
+export class Arc extends GeometrySceneObject implements IArcPoints, IArcRadius, IArcCenter, IArcAngles {
   // Two-point mode state (set by factory)
   private _startPoint: LazyVertex | null = null;
   private _endPoint: LazyVertex | null = null;
@@ -24,7 +24,7 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
   private _centerPoint: LazyVertex | null = null;
   private _centered: boolean = false;
   private _clockwise: boolean = false;
-  private _flipped: boolean = false;
+  private _major: boolean = false;
 
   private _targetPlane: PlaneObjectBase | null;
 
@@ -87,8 +87,8 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
     return this;
   }
 
-  flip(): this {
-    this._flipped = true;
+  major(): this {
+    this._major = true;
     return this;
   }
 
@@ -194,12 +194,12 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
     const start = plane.localToWorld(startPoint);
     const end = plane.localToWorld(targetPoint);
 
-    const arc = this._flipped
+    const arc = this._major
       ? this.makeMajorArc(startPoint, targetPoint, centerPoint, cw, plane)
       : Geometry.makeArc(center, r, normal, start, end);
     const edge = Geometry.makeEdgeFromCurve(arc);
 
-    const signT = cw ? -1 : 1;
+    const signT = (cw ? -1 : 1) * (this._major ? -1 : 1);
     const endTx = signT * (-Math.sin(endAngle));
     const endTy = signT * Math.cos(endAngle);
 
@@ -259,12 +259,12 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
     const start = plane.localToWorld(startPoint);
     const end = plane.localToWorld(targetPoint);
 
-    const arc = this._flipped
+    const arc = this._major
       ? this.makeMajorArc(startPoint, targetPoint, centerPoint, cw, plane)
       : Geometry.makeArc(center, r, normal, start, end);
     const edge = Geometry.makeEdgeFromCurve(arc);
 
-    const signT = cw ? -1 : 1;
+    const signT = (cw ? -1 : 1) * (this._major ? -1 : 1);
     const endTx = signT * (-Math.sin(endAngle));
     const endTy = signT * Math.cos(endAngle);
 
@@ -457,7 +457,7 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
     copy._centerPoint = this._centerPoint;
     copy._centered = this._centered;
     copy._clockwise = this._clockwise;
-    copy._flipped = this._flipped;
+    copy._major = this._major;
 
     return copy;
   }
@@ -496,7 +496,7 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
       if (this._centerPoint && other._centerPoint) {
         return this._centerPoint.compareTo(other._centerPoint);
       }
-      return this._bulgeRadius === other._bulgeRadius && this._flipped === other._flipped;
+      return this._bulgeRadius === other._bulgeRadius && this._major === other._major;
     }
 
     if (!this._endPoint && !other._endPoint) {
@@ -526,8 +526,8 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcAngles {
       if (this._clockwise) {
         base.clockwise = true;
       }
-      if (this._flipped) {
-        base.flipped = true;
+      if (this._major) {
+        base.major = true;
       }
       return base;
     }

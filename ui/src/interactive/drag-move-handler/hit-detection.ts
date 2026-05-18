@@ -443,6 +443,29 @@ function hitTestArc(
     };
   }
 
+  if (!result && arcIsRadiusMode) {
+    const radius = Math.sqrt((startV[0] - centerV[0]) ** 2 + (startV[1] - centerV[1]) ** 2);
+    const distToCenter = Math.sqrt(
+      (point2d[0] - centerV[0]) ** 2 + (point2d[1] - centerV[1]) ** 2,
+    );
+    const distToEdge = Math.abs(distToCenter - radius);
+    const edgeDistSq = distToEdge * distToEdge;
+    if (edgeDistSq < thresholdSq && edgeDistSq < bestDistSq) {
+      result = {
+        hit: {
+          sourceLocation, uniqueType: 'arc', hitZone: 'body',
+          anchorPoint: centerV,
+          fixedVertex: startV,
+          fixedVertex2: endV,
+          arcCCW, arcArgCount,
+          arcIsRadiusMode, arcMajor,
+          initialValue: radiusValue,
+        },
+        distSq: edgeDistSq,
+      };
+    }
+  }
+
   return result;
 }
 

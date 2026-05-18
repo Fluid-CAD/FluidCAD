@@ -1,4 +1,4 @@
-import { Vector3 } from 'three';
+import { Camera, Vector3 } from 'three';
 import { SketchTool, InsertGeometryFn, FetchVariablesFn } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
@@ -26,6 +26,7 @@ import {
   centerFromChordAndRadius,
 } from './tool-preview-utils';
 import { pixelsToWorld } from '../../meshes/screen-scale';
+import { Arc3Mode } from '../../ui/sketch-toolbar';
 
 const enum State {
   IDLE,
@@ -38,6 +39,7 @@ export class ThreePointArcTool extends SketchTool {
   readonly label = '3-Point Arc';
   readonly icon = ICON_THREE_POINT_ARC;
 
+  private mode: Arc3Mode;
   private state: State = State.IDLE;
   private startPoint: [number, number] | null = null;
   private endPoint: [number, number] | null = null;
@@ -50,6 +52,7 @@ export class ThreePointArcTool extends SketchTool {
   private lastClientY = 0;
   private lastCCW = true;
   private lastCenterOnLeft = true;
+  private lastMajor = false;
 
   private shiftHeld = false;
 
@@ -68,8 +71,10 @@ export class ThreePointArcTool extends SketchTool {
     insertGeometry: InsertGeometryFn,
     container: HTMLElement,
     fetchVariables: FetchVariablesFn,
+    mode: Arc3Mode = 'center',
   ) {
     super(ctx, plane, snapController, insertGeometry);
+    this.mode = mode;
     this.expressionInput = new ExpressionInput(container);
     this.fetchVariables = fetchVariables;
     this.boundMouseDown = this.handleMouseDown.bind(this);
@@ -246,6 +251,9 @@ export class ThreePointArcTool extends SketchTool {
     if (!this.startPoint || !this.endPoint || !this.mousePoint) {
       return null;
     }
+    if (this.mode === 'radius') {
+      return this.computeRadiusArcParams()?.center ?? null;
+    }
     const raw = circumcenter(this.startPoint, this.endPoint, this.mousePoint);
     if (!raw) {
       return null;
@@ -256,9 +264,48 @@ export class ThreePointArcTool extends SketchTool {
     return this.snapCenterToCollinear(raw) ?? raw;
   }
 
+  private computeRadiusArcParams(): {
+    center: [number, number]; radius: number; ccw: boolean; major: boolean;
+  } | null {
+    if (!this.startPoint || !this.endPoint || !this.mousePoint) {
+      return null;
+    }
+    const dx = this.endPoint[0] - this.startPoint[0];
+    const dy = this.endPoint[1] - this.startPoint[1];
+    const chordLen = Math.sqrt(dx * dx + dy * dy);
+    if (chordLen < 1e-10) {
+      return null;
+    }
+    const halfChord = chordLen / 2;
+    const px = -dy / chordLen;
+    const py = dx / chordLen;
+    const midX = (this.startPoint[0] + this.endPoint[0]) / 2;
+    const midY = (this.startPoint[1] + this.endPoint[1]) / 2;
+
+    const t = (this.mousePoint[0] - midX) * px + (this.mousePoint[1] - midY) * py;
+    const s = Math.max(Math.abs(t), 1e-6);
+    const major = s > halfChord;
+    const radius = s / 2 + (halfChord * halfChord) / (2 * s);
+
+    // Arc bulges toward mouse. For minor arcs (center opposite side from mouse)
+    // the lib sign convention is: positive radius = CCW = center on left.
+    // Mouse on left + minor → center on right → CW (ccw=false)
+    // Mouse on left + major → center on left  → CCW (ccw=true)
+    const ccw = (t > 0) === major;
+
+    const center = centerFromChordAndRadius(this.startPoint, this.endPoint, radius, ccw);
+    if (!center) {
+      return null;
+    }
+    return { center, radius, ccw, major };
+  }
+
   private isMouseCCW(): boolean {
     if (!this.startPoint || !this.endPoint || !this.mousePoint) {
       return true;
+    }
+    if (this.mode === 'radius') {
+      return this.computeRadiusArcParams()?.ccw ?? true;
     }
     const center = this.computeCenter();
     if (!center) {
@@ -290,11 +337,20 @@ export class ThreePointArcTool extends SketchTool {
     }
 
     this.lastCCW = this.isMouseCCW();
-    const dx = this.endPoint![0] - this.startPoint![0];
-    const dy = this.endPoint![1] - this.startPoint![1];
-    const cx = center[0] - this.startPoint![0];
-    const cy = center[1] - this.startPoint![1];
-    this.lastCenterOnLeft = (dx * cy - dy * cx) > 0;
+    if (this.mode === 'radius') {
+      const params = this.computeRadiusArcParams();
+      if (params) {
+        this.lastCCW = params.ccw;
+        this.lastMajor = params.major;
+        this.lastCenterOnLeft = params.ccw;
+      }
+    } else {
+      const dx = this.endPoint![0] - this.startPoint![0];
+      const dy = this.endPoint![1] - this.startPoint![1];
+      const cx = center[0] - this.startPoint![0];
+      const cy = center[1] - this.startPoint![1];
+      this.lastCenterOnLeft = (dx * cy - dy * cx) > 0;
+    }
 
     if (!this.expressionInput.isVisible) {
       this.expressionInput.show({
@@ -303,7 +359,7 @@ export class ThreePointArcTool extends SketchTool {
         clientX: this.lastClientX,
         clientY: this.lastClientY,
         variables: this.cachedVariables,
-        numericOnly: true,
+        numericOnly: this.mode === 'center',
         onCommit: (result) => this.commitFromExpression(result),
       });
     } else {
@@ -316,11 +372,19 @@ export class ThreePointArcTool extends SketchTool {
     if (!this.startPoint || !this.endPoint) {
       return;
     }
-    const center = this.computeCenter();
-    if (!center) {
-      return;
+    if (this.mode === 'radius') {
+      const params = this.computeRadiusArcParams();
+      if (!params) {
+        return;
+      }
+      this.emitRadiusArc(this.startPoint, this.endPoint, params.radius, params.ccw, params.major);
+    } else {
+      const center = this.computeCenter();
+      if (!center) {
+        return;
+      }
+      this.emitCenterArc(this.startPoint, this.endPoint, center, this.isMouseCCW());
     }
-    this.emitArc(this.startPoint, this.endPoint, center, this.isMouseCCW());
   }
 
   private commitFromExpression(result: CommitResult): void {
@@ -329,17 +393,29 @@ export class ThreePointArcTool extends SketchTool {
     }
     const { expression, newVariable } = result;
     const num = parseFloat(expression);
-    if (isNaN(num) || num <= 0) {
-      return;
+    if (this.mode === 'radius') {
+      const isNumeric = !isNaN(num) && String(num) === expression;
+      if (isNumeric) {
+        if (num <= 0) {
+          return;
+        }
+        this.emitRadiusArc(this.startPoint, this.endPoint, num, this.lastCCW, this.lastMajor, newVariable);
+      } else {
+        this.emitRadiusArcExpression(this.startPoint, this.endPoint, expression, this.lastCCW, this.lastMajor, newVariable);
+      }
+    } else {
+      if (isNaN(num) || num <= 0) {
+        return;
+      }
+      const center = centerFromChordAndRadius(this.startPoint, this.endPoint, num, this.lastCenterOnLeft);
+      if (!center) {
+        return;
+      }
+      this.emitCenterArc(this.startPoint, this.endPoint, center, this.lastCCW, newVariable);
     }
-    const center = centerFromChordAndRadius(this.startPoint, this.endPoint, num, this.lastCenterOnLeft);
-    if (!center) {
-      return;
-    }
-    this.emitArc(this.startPoint, this.endPoint, center, this.lastCCW, newVariable);
   }
 
-  private emitArc(
+  private emitCenterArc(
     start: [number, number],
     end: [number, number],
     center: [number, number],
@@ -353,6 +429,49 @@ export class ThreePointArcTool extends SketchTool {
     const statement = this.isAtCurrentPosition(rs)
       ? `arc(${this.formatPoint(re)}).center(${this.formatPoint(rc)})${cwSuffix}`
       : `arc(${this.formatPoint(rs)}, ${this.formatPoint(re)}).center(${this.formatPoint(rc)})${cwSuffix}`;
+    this.insertGeometry(statement, newVariable);
+    this.expressionInput.hide();
+    this.resetState();
+    this.rebuildPreview();
+  }
+
+  private emitRadiusArc(
+    start: [number, number],
+    end: [number, number],
+    radius: number,
+    ccw: boolean,
+    major: boolean,
+    newVariable?: { name: string; initializer: string },
+  ): void {
+    const rs = roundPoint(start);
+    const re = roundPoint(end);
+    const rr = Math.round(radius * 100) / 100;
+    const signedRadius = ccw ? rr : -rr;
+    const majorSuffix = major ? '.major()' : '';
+    const statement = this.isAtCurrentPosition(rs)
+      ? `arc(${this.formatPoint(re)}).radius(${signedRadius})${majorSuffix}`
+      : `arc(${this.formatPoint(rs)}, ${this.formatPoint(re)}).radius(${signedRadius})${majorSuffix}`;
+    this.insertGeometry(statement, newVariable);
+    this.expressionInput.hide();
+    this.resetState();
+    this.rebuildPreview();
+  }
+
+  private emitRadiusArcExpression(
+    start: [number, number],
+    end: [number, number],
+    expression: string,
+    ccw: boolean,
+    major: boolean,
+    newVariable?: { name: string; initializer: string },
+  ): void {
+    const rs = roundPoint(start);
+    const re = roundPoint(end);
+    const radiusExpr = ccw ? expression : `-${expression}`;
+    const majorSuffix = major ? '.major()' : '';
+    const statement = this.isAtCurrentPosition(rs)
+      ? `arc(${this.formatPoint(re)}).radius(${radiusExpr})${majorSuffix}`
+      : `arc(${this.formatPoint(rs)}, ${this.formatPoint(re)}).radius(${radiusExpr})${majorSuffix}`;
     this.insertGeometry(statement, newVariable);
     this.expressionInput.hide();
     this.resetState();
@@ -383,25 +502,56 @@ export class ThreePointArcTool extends SketchTool {
       addDashedLine(this.previewGroup, this.startPoint, this.endPoint, this.plane);
 
       if (this.mousePoint) {
-        const center = this.computeCenter();
-        if (center) {
-          const radius = dist2D(center, this.startPoint);
-          const startAngle = angleFromCenter(center, this.startPoint);
-          const endAngle = angleFromCenter(center, this.endPoint);
-          const ccw = this.isMouseCCW();
-          addDashedArc(this.previewGroup, center, radius, startAngle, endAngle, ccw, this.plane);
-          addDot(this.previewGroup, center, GUIDE_COLOR, camera, planeNormal, this.plane, 0.7);
-          addDashedLine(this.previewGroup, center, this.startPoint, this.plane);
-          addDashedLine(this.previewGroup, center, this.endPoint, this.plane);
-        }
-
-        if (this.lastSnapType !== 'none') {
-          const color = this.lastSnapType === 'vertex' ? SNAP_VERTEX_COLOR : SNAP_GRID_COLOR;
-          addDot(this.previewGroup, this.mousePoint, color, camera, planeNormal, this.plane, 0.6);
+        if (this.mode === 'radius') {
+          this.rebuildRadiusPreview(camera, planeNormal);
+        } else {
+          this.rebuildCenterPreview(camera, planeNormal);
         }
       }
     }
 
     this.requestRender();
+  }
+
+  private rebuildCenterPreview(camera: Camera, planeNormal: Vector3): void {
+    const center = this.computeCenter();
+    if (center) {
+      const radius = dist2D(center, this.startPoint!);
+      const startAngle = angleFromCenter(center, this.startPoint!);
+      const endAngle = angleFromCenter(center, this.endPoint!);
+      const ccw = this.isMouseCCW();
+      addDashedArc(this.previewGroup, center, radius, startAngle, endAngle, ccw, this.plane);
+      addDot(this.previewGroup, center, GUIDE_COLOR, camera, planeNormal, this.plane, 0.7);
+      addDashedLine(this.previewGroup, center, this.startPoint!, this.plane);
+      addDashedLine(this.previewGroup, center, this.endPoint!, this.plane);
+    }
+
+    if (this.lastSnapType !== 'none') {
+      const color = this.lastSnapType === 'vertex' ? SNAP_VERTEX_COLOR : SNAP_GRID_COLOR;
+      addDot(this.previewGroup, this.mousePoint!, color, camera, planeNormal, this.plane, 0.6);
+    }
+  }
+
+  private rebuildRadiusPreview(camera: Camera, planeNormal: Vector3): void {
+    const params = this.computeRadiusArcParams();
+    if (!params) {
+      return;
+    }
+    const { center, radius, major } = params;
+    const startAngle = angleFromCenter(center, this.startPoint!);
+    const endAngle = angleFromCenter(center, this.endPoint!);
+
+    // Determine draw direction: for minor arcs take the shorter sweep,
+    // for major arcs take the longer sweep.
+    let ccwSweep = endAngle - startAngle;
+    if (ccwSweep < 0) {
+      ccwSweep += Math.PI * 2;
+    }
+    const minorIsCCW = ccwSweep < Math.PI;
+    const drawCCW = major ? !minorIsCCW : minorIsCCW;
+
+    addDashedArc(this.previewGroup, center, radius, startAngle, endAngle, drawCCW, this.plane);
+    addDot(this.previewGroup, center, GUIDE_COLOR, camera, planeNormal, this.plane, 0.7);
+    addDashedLine(this.previewGroup, center, this.startPoint!, this.plane);
   }
 }

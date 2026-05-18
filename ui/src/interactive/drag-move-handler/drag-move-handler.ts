@@ -11,6 +11,7 @@ import { DimensionInputController } from './dimension-input';
 import {
   constrainToPerpBisector,
   constrainToTangentPerp,
+  clampToSameSide,
 } from './constraint-math';
 import {
   DragHitResult,
@@ -261,9 +262,16 @@ export class DragMoveHandler {
       this.currentPoint = [start[0] + t[0] * proj, start[1] + t[1] * proj];
     }
 
-    if (e.shiftKey && this.hitResult?.hitZone === 'center' && this.hitResult.uniqueType === 'arc') {
-      if (this.hitResult.fixedVertex && this.hitResult.fixedVertex2) {
+    if (this.hitResult?.hitZone === 'center' && this.hitResult.uniqueType === 'arc'
+        && this.hitResult.fixedVertex && this.hitResult.fixedVertex2) {
+      if (this.hitResult.arcIsRadiusMode || e.shiftKey) {
         this.currentPoint = constrainToPerpBisector(this.currentPoint, this.hitResult.fixedVertex, this.hitResult.fixedVertex2);
+        if (this.hitResult.arcIsRadiusMode && this.hitResult.anchorPoint) {
+          this.currentPoint = clampToSameSide(
+            this.currentPoint, this.hitResult.anchorPoint,
+            this.hitResult.fixedVertex, this.hitResult.fixedVertex2,
+          );
+        }
       }
     }
 

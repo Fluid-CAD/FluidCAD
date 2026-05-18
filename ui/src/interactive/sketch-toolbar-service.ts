@@ -73,6 +73,12 @@ export class SketchToolbarService {
         this.activeDragHandler['snapController'].snapToGrid = checked;
       }
     };
+
+    this.toolbar.onArc3ModeChange = () => {
+      if (this.toolbar.activeTool === 'arc3') {
+        this.handleToolSelect('arc3');
+      }
+    };
   }
 
   get hasActiveDrawingTool(): boolean {
@@ -182,8 +188,11 @@ export class SketchToolbarService {
         return new PolygonTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
       case 'arc2':
         return new CenterArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
-      case 'arc3':
-        return new ThreePointArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+      case 'arc3': {
+        const tool = new ThreePointArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.arc3Mode);
+        tool.onSceneUpdate(sceneObjects, sketchId);
+        return tool;
+      }
       case 'tarc': {
         const tool = new TangentArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
         tool.onSceneUpdate(sceneObjects, sketchId);

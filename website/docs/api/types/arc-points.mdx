@@ -99,11 +99,13 @@ shapes from a reusable object.
 ### radius()
 
 ```ts
-radius(value: number): this
+radius(value: number): IArcRadius
 ```
 
 Sets the bulge radius for point-to-point arcs.
 Positive = CCW, negative = CW.
+
+**Returns**: `IArcRadius`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -114,11 +116,13 @@ Positive = CCW, negative = CW.
 ### center()
 
 ```ts
-center(value: Point2DLike): this
+center(value: Point2DLike): IArcCenter
 ```
 
 Specifies the circle center point for the arc.
 Mutually exclusive with `.radius()`.
+
+**Returns**: `IArcCenter`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

@@ -6,7 +6,20 @@ title: "Constrained Geometry"
 import CodeBlock from '@theme/CodeBlock';
 import constrainedAllSolutions from '!!raw-loader!./_examples/constrained-all-solutions.js';
 import constrainedOutside from '!!raw-loader!./_examples/constrained-outside.js';
-import constrainedBelt from '!!raw-loader!./_examples/constrained-belt.js';
+import constrainedEnclosing from '!!raw-loader!./_examples/constrained-enclosing.js';
+import constrainedEnclosed from '!!raw-loader!./_examples/constrained-enclosed.js';
+import constrainedMustTouch from '!!raw-loader!./_examples/constrained-must-touch.js';
+import constrainedMustTouchFiltered from '!!raw-loader!./_examples/constrained-must-touch-filtered.js';
+import constrainedTLineArcs from '!!raw-loader!./_examples/constrained-tline-arcs.js';
+import constrainedTArcTwoCircles from '!!raw-loader!./_examples/constrained-tarc-two-circles.js';
+import constrainedTArcCircleLine from '!!raw-loader!./_examples/constrained-tarc-circle-line.js';
+import constrainedTArcTwoLines from '!!raw-loader!./_examples/constrained-tarc-two-lines.js';
+import constrainedTArcTwoPoints from '!!raw-loader!./_examples/constrained-tarc-two-points.js';
+import constrainedTArcObjectPoint from '!!raw-loader!./_examples/constrained-tarc-object-point.js';
+import constrainedTCircleTwoCircles from '!!raw-loader!./_examples/constrained-tcircle-two-circles.js';
+import constrainedTCircleTwoLines from '!!raw-loader!./_examples/constrained-tcircle-two-lines.js';
+import constrainedTCircleCircleLine from '!!raw-loader!./_examples/constrained-tcircle-circle-line.js';
+import constrainedTCircleTwoPoints from '!!raw-loader!./_examples/constrained-tcircle-two-points.js';
 
 # Constrained Geometry
 
@@ -33,17 +46,29 @@ The solution and `obj` are **external to one another** — they touch but do not
 
 Use `outside()` when you want the solution to stay clear of the wrapped object — like a belt running around a pulley, or a tangent line that does not cross into the circle.
 
+<CodeBlock language="js">{constrainedOutside}</CodeBlock>
+
+![Tangent lines with outside() qualifiers](/img/docs/sketching/constrained-outside.png)
+
 ### `enclosing(obj)` — the solution wraps around the object
 
 The solution **encloses** `obj` — the argument circle is inside the solution. The solution is the larger shape that contains `obj`.
 
 Use `enclosing()` when you want the solution to wrap around the constraint object. For example, a tangent arc that sweeps around a guide circle from the outside.
 
+<CodeBlock language="js">{constrainedEnclosing}</CodeBlock>
+
+![Tangent arc enclosing both guide circles](/img/docs/sketching/constrained-enclosing.png)
+
 ### `enclosed(obj)` — the solution fits inside the object
 
 The solution is **enclosed by** `obj` — the solution sits inside the argument circle. This is the inverse of `enclosing()`: the solution is the smaller shape contained by `obj`.
 
 Use `enclosed()` when you need a solution that fits within an existing circle — for instance, an internal tangent circle nestled inside a larger construction circle.
+
+<CodeBlock language="js">{constrainedEnclosed}</CodeBlock>
+
+![Tangent circles enclosed by both guide circles](/img/docs/sketching/constrained-enclosed.png)
 
 ### How qualifiers reduce the number of solutions
 
@@ -57,7 +82,7 @@ Without any qualifier, FluidCAD returns **all** geometrically valid solutions. F
 | `enclosing(c1), outside(c2)` | Solution wraps around c1 but stays external to c2 |
 | No qualifiers | All valid solutions are returned |
 
-### All solutions (no qualifier)
+#### All solutions (no qualifier)
 
 With two guide circles and no qualifier, `tLine()` returns every valid tangent line:
 
@@ -65,24 +90,21 @@ With two guide circles and no qualifier, `tLine()` returns every valid tangent l
 
 ![All tangent line solutions](/img/docs/sketching/constrained-all-solutions.png)
 
-### Filter with qualifiers
-
-Each qualifier applies to the individual object it wraps. `outside(c1)` keeps solutions that are tangent to `c1` from the outside, while `enclosing(c2)` keeps solutions that enclose `c2`. Combining qualifiers on both arguments narrows the results to just the lines matching both constraints:
-
-<CodeBlock language="js">{constrainedOutside}</CodeBlock>
-
-![Filtered tangent lines](/img/docs/sketching/constrained-outside.png)
-
 ## The `mustTouch` option
 
-`tArc()` and `tCircle()` accept an optional `mustTouch` boolean as their last argument. When `true`, only solutions that physically touch both objects are included:
+`tArc()` and `tCircle()` accept an optional `mustTouch` boolean as their last argument. The solver generally treats input lines and arcs as **infinite** — extending them to find tangent solutions even when those solutions don't physically meet the finite segments you drew. Passing `mustTouch: true` filters out those phantom solutions:
 
-```js
-tArc(c1, c2, 50, true)        // only arcs that touch both c1 and c2
-tCircle(l1, l2, 200, true)    // only circles that touch both lines
-```
+<CodeBlock language="js">{constrainedMustTouch}</CodeBlock>
 
-This is useful when the solver finds multiple valid tangent arcs or circles and you only want the ones that are in contact with both inputs.
+![Unfiltered tangent circles — some don't touch the segments](/img/docs/sketching/constrained-must-touch.png)
+
+Without the filter, the solver returns every valid tangent circle, including ones that sit beyond the ends of the lines. Adding `mustTouch: true` keeps only the solutions in contact with both segments:
+
+<CodeBlock language="js">{constrainedMustTouchFiltered}</CodeBlock>
+
+![Filtered tangent circle — only the touching solution remains](/img/docs/sketching/constrained-must-touch-filtered.png)
+
+This is useful when the solver finds multiple valid tangent arcs or circles and you only want the ones in physical contact with both inputs.
 
 ## tLine
 
@@ -97,40 +119,29 @@ sketch("xy", () => {
 })
 ```
 
+See the [Primitive Geometries](./primitive-shapes#tline) guide for a screenshot of this form.
+
 ### Tangent to two objects
 
-Draw a line tangent to two circles, arcs, or curves:
+Draw a line tangent to two circles, arcs, or curves. Without a qualifier the solver returns **all** valid tangent lines:
 
-```js
-import { outside, enclosing } from 'fluidcad/constraints';
+<CodeBlock language="js">{constrainedAllSolutions}</CodeBlock>
 
-sketch("xy", () => {
-    const c1 = circle(100).guide()
-    const c2 = circle([200, 0], 60).guide()
+![All tangent line solutions](/img/docs/sketching/constrained-all-solutions.png)
 
-    tLine(outside(c1), outside(c2))       // tangent on the outside of both
-})
-```
+Different qualifiers select different tangent lines:
 
-Different qualifiers give different tangent lines:
+<CodeBlock language="js">{constrainedOutside}</CodeBlock>
 
-```js
-tLine(outside(c1), outside(c2))       // crosses between the circles
-tLine(enclosing(c1), enclosing(c2))   // wraps around both circles
-```
+![Tangent lines with qualifiers — outside vs enclosing](/img/docs/sketching/constrained-outside.png)
 
 ### Tangent between arcs
 
-```js
-sketch("xz", () => {
-    move([-20, 0])
-    const a1 = arc(100, 0, 180)
-    move([50, -150])
-    const a2 = arc(50, 270, 0)
+The same two-object form works on arcs:
 
-    tLine(a1, a2)              // line tangent to both arcs
-})
-```
+<CodeBlock language="js">{constrainedTLineArcs}</CodeBlock>
+
+![Tangent lines between two arcs](/img/docs/sketching/constrained-tline-arcs.png)
 
 ### Accessing tangent line endpoints
 
@@ -152,7 +163,7 @@ tArc(t2.start(), t1.start(), t1.tangent().reverse())
 
 ### Tangent continuation
 
-Continue from the current position and tangent direction:
+Continue from the current position and tangent direction (shown by the orange arrow in the viewport):
 
 ```js
 sketch("front", () => {
@@ -162,63 +173,49 @@ sketch("front", () => {
 })
 ```
 
-Negative angles sweep clockwise, positive angles sweep counter-clockwise.
+Negative angles sweep clockwise, positive angles sweep counter-clockwise. See [Primitive Geometries](./primitive-shapes#tarc) for the full set of continuation overloads (by radius/angle, to a point, with an explicit start tangent).
 
 ### Tangent to two objects
 
-Draw an arc tangent to two circles, lines, arcs, or points:
+Draw an arc tangent to two circles, lines, arcs, or points. Without qualifiers, both possible arcs are returned:
 
-```js
-sketch("xy", () => {
-    const c1 = circle(160).guide()
-    const c2 = circle([200, 0], 60).guide()
+<CodeBlock language="js">{constrainedTArcTwoCircles}</CodeBlock>
 
-    tArc(outside(c1), outside(c2), 80)     // radius 80, outside both
-})
-```
+![Tangent arcs between two circles](/img/docs/sketching/constrained-tarc-two-circles.png)
 
 ### Between a circle and a line
 
-```js
-sketch("xy", () => {
-    const l = aLine(45, 150)
-    const c = circle([100, 0], 40)
+Mixing object types works too — the solver finds every arc of the requested radius tangent to both:
 
-    tArc(c, l, 50).guide()    // radius 50, tangent to both
-})
-```
+<CodeBlock language="js">{constrainedTArcCircleLine}</CodeBlock>
+
+![Tangent arcs between a line and a circle](/img/docs/sketching/constrained-tarc-circle-line.png)
 
 ### Between two lines
 
-```js
-sketch("xy", () => {
-    const l1 = aLine(45, 150)
-    move([-50, 0])
-    const l2 = vLine(100)
+A classic fillet — an arc of a given radius tangent to two intersecting lines:
 
-    tArc(l1, l2, 50).guide()  // fillet-like arc between two lines
-})
-```
+<CodeBlock language="js">{constrainedTArcTwoLines}</CodeBlock>
+
+![Fillet arcs between two lines](/img/docs/sketching/constrained-tarc-two-lines.png)
+
+The solver returns the four fillet positions, one for each corner of the implied line intersection. Use qualifiers or `mustTouch` to pick the one you want.
 
 ### Through two points
 
-```js
-sketch("xy", () => {
-    tArc([-50, 0], [50, 0], 150)   // arc through two points, radius 150
-})
-```
+Two points and a radius define two possible arcs — the short one and the long one:
+
+<CodeBlock language="js">{constrainedTArcTwoPoints}</CodeBlock>
+
+![Arcs through two points with a given radius](/img/docs/sketching/constrained-tarc-two-points.png)
 
 ### From object to point
 
-```js
-sketch("xy", () => {
-    const c = circle([100, 0], 40)
-    const p = [100, 50]
-    move(p)
+`tArc()` accepts a mix of points and objects, so you can build an arc from a circle to a fixed point:
 
-    tArc(outside(c), p, 100)  // arc from circle to point, radius 100
-})
-```
+<CodeBlock language="js">{constrainedTArcObjectPoint}</CodeBlock>
+
+![Tangent arcs from a circle to a point](/img/docs/sketching/constrained-tarc-object-point.png)
 
 ## tCircle
 
@@ -226,72 +223,30 @@ sketch("xy", () => {
 
 ### Tangent to two circles
 
-```js
-import { outside, enclosing } from 'fluidcad/constraints';
+Up to eight tangent circles exist for any pair of circles. Qualifiers filter that down to the spatial relationship you want:
 
-sketch("xy", () => {
-    const c1 = circle(160).guide()
-    const c2 = circle([200, 0], 60).guide()
+<CodeBlock language="js">{constrainedTCircleTwoCircles}</CodeBlock>
 
-    tCircle(c1, enclosing(c2), 160).guide()    // tangent to c1, enclosing c2
-    tCircle(outside(c1), outside(c2), 160).guide()  // outside both
-})
-```
+![Tangent circles with mixed qualifiers](/img/docs/sketching/constrained-tcircle-two-circles.png)
 
 ### Tangent to two lines
 
-```js
-sketch("xy", () => {
-    const l1 = aLine(45, 300)
-    move([-50, 0])
-    const l2 = vLine(300)
+`tCircle()` will inscribe a circle of the requested diameter at every angular sector formed by the two lines. The `mustTouch: true` argument keeps only the inscribed circles that actually touch the finite segments:
 
-    tCircle(l1, l2, 200, true).guide()   // diameter 200, tangent to both lines
-})
-```
+<CodeBlock language="js">{constrainedTCircleTwoLines}</CodeBlock>
 
-The fourth argument is [`mustTouch`](#the-musttouch-option) — when `true`, only solutions that touch both lines are returned.
+![Tangent circle between two intersecting lines](/img/docs/sketching/constrained-tcircle-two-lines.png)
 
 ### Between a circle and a line
 
-```js
-sketch("xy", () => {
-    const l = aLine(45, 150)
-    const c = circle([100, 0], 60)
+<CodeBlock language="js">{constrainedTCircleCircleLine}</CodeBlock>
 
-    tCircle(c, l, 100).guide()
-})
-```
+![Tangent circles between a line and a circle](/img/docs/sketching/constrained-tcircle-circle-line.png)
 
 ### Through two points
 
-```js
-sketch("xy", () => {
-    tCircle([-50, 0], [50, 0], 300)    // diameter 300, through both points
-})
-```
+The two-point form draws a circle of the requested diameter that passes through both points. Two solutions exist — one on each side of the chord:
 
-## Common patterns
+<CodeBlock language="js">{constrainedTCircleTwoPoints}</CodeBlock>
 
-### Using guides for construction
-
-Constrained geometry often works with `.guide()` shapes — construction circles and lines that define the tangent relationships but aren't part of the final profile:
-
-<CodeBlock language="js">{constrainedBelt}</CodeBlock>
-
-![Belt profile from tangent lines](/img/docs/sketching/constrained-belt.png)
-
-### Smooth profiles with tangent chaining
-
-Use `tArc()` after lines to create smooth transitions. The tangent direction carries forward automatically:
-
-```js
-sketch("front", () => {
-    vLine(100)                 // straight up
-    tArc(50, 180)              // smooth turn
-    tArc(80, -270)             // another smooth turn
-    tLine(50)                  // continue tangent
-})
-```
-
-Each element starts where the previous one ended, and tangent arcs/lines maintain G1 continuity (no sharp corners).
+![Tangent circles through two points](/img/docs/sketching/constrained-tcircle-two-points.png)

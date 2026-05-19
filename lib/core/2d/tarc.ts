@@ -99,10 +99,13 @@ interface TArcFunction {
 
 function build(context: SceneParserContext): TArcFunction {
   return function tarc() {
-    // tArc(target): single scene-object target, radius solved automatically
+    // tArc(target): single scene-object target, radius solved automatically.
+    // LazyVertex extends SceneObject but represents a point — fall through to the
+    // Point2DLike branch below so tArc(lazyVertex) becomes tArc(endPoint).
     if (
       arguments.length === 1 &&
-      (arguments[0] instanceof SceneObject || arguments[0] instanceof QualifiedSceneObject)
+      ((arguments[0] instanceof SceneObject && !isPoint2DLike(arguments[0])) ||
+        arguments[0] instanceof QualifiedSceneObject)
     ) {
       const target = QualifiedSceneObject.from(arguments[0]);
       const arc = new TangentArcToObject(target);

@@ -1,12 +1,16 @@
 ---
 sidebar_position: 20
 title: "tArc"
-description: "Draws a tangent arc with a given radius and end angle."
+description: "Draws a tangent arc from the current position using the current tangent direction, ending tangent to a target line. The radius is solved automatically; the arc must be tangent to the target but does not need to touch its finite extent. By default the arc curves to the left of the start tangent — chain `.flip()` to curve to the right instead."
 ---
 
 # tArc()
 
-Draws a tangent arc with a given radius and end angle.
+Draws a tangent arc from the current position using the current tangent
+direction, ending tangent to a target line. The radius is solved
+automatically; the arc must be tangent to the target but does not need
+to touch its finite extent. By default the arc curves to the left of
+the start tangent — chain `.flip()` to curve to the right instead.
 
 **Returns**: [**`Geometry`**](/docs/api/types/geometry)
 
@@ -15,6 +19,38 @@ See the [guide](/docs/guides/sketching/constrained-geometry) for detailed usage 
 :::
 
 ## Signatures
+
+```ts
+tArc(target: SceneObject | QualifiedGeometry): ITangentArcToObject
+```
+
+Draws a tangent arc from the current position using the current tangent
+direction, ending tangent to a target line. The radius is solved
+automatically; the arc must be tangent to the target but does not need
+to touch its finite extent. By default the arc curves to the left of
+the start tangent — chain `.flip()` to curve to the right instead.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `target` | [SceneObject](/docs/api/types/scene-object) \| QualifiedGeometry | The target line (or a qualified line) |
+
+---
+
+```ts
+tArc(radius: number, target: SceneObject | QualifiedGeometry): Geometry
+```
+
+Draws a tangent arc from the current position using the current tangent
+direction, with the given radius, ending at the first intersection with
+the target geometry along the arc's sweep direction. A negative radius
+flips the sweep direction. Supported targets: lines, circles, and arcs.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `radius` | number | The arc radius. A negative value flips the sweep direction. |
+| `target` | [SceneObject](/docs/api/types/scene-object) \| QualifiedGeometry | The target geometry to intersect with |
+
+---
 
 ```ts
 tArc(radius?: number, endAngle?: number): Geometry
@@ -86,7 +122,7 @@ Draws a tangent arc from a start point to an end point with a tangent.
 tArc(c1: SceneObject, c2: SceneObject, radius: number, mustTouch?: boolean): TangentArcTwoObjects
 ```
 
-Draws a tangent arc between two geometry objects.
+Draws all possible tangent arcs between two geometry objects.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

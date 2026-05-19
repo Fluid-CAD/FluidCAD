@@ -5,14 +5,32 @@ title: "Primitive Geometries"
 
 import CodeBlock from '@theme/CodeBlock';
 import primitiveCircle from '!!raw-loader!./_examples/primitive-circle.js';
+import primitiveLineBasic from '!!raw-loader!./_examples/primitive-line-basic.js';
+import primitiveHLineVLineBasic from '!!raw-loader!./_examples/primitive-hline-vline-basic.js';
 import primitiveLinesCentered from '!!raw-loader!./_examples/primitive-lines-centered.js';
 import primitiveLinesTarget from '!!raw-loader!./_examples/primitive-lines-target.js';
 import primitiveAlineTarget from '!!raw-loader!./_examples/primitive-aline-target.js';
+import primitiveArcDefault from '!!raw-loader!./_examples/primitive-arc-default.js';
+import primitiveArcQuarter from '!!raw-loader!./_examples/primitive-arc-quarter.js';
+import primitiveArcCentered from '!!raw-loader!./_examples/primitive-arc-centered.js';
+import primitiveArcReversed from '!!raw-loader!./_examples/primitive-arc-reversed.js';
+import primitiveArcCenterPoint from '!!raw-loader!./_examples/primitive-arc-center-point.js';
+import primitiveArcRadius from '!!raw-loader!./_examples/primitive-arc-radius.js';
+import primitiveArcMajor from '!!raw-loader!./_examples/primitive-arc-major.js';
+import primitiveTLineContinuation from '!!raw-loader!./_examples/primitive-tline-continuation.js';
 import primitiveArc from '!!raw-loader!./_examples/primitive-arc.js';
+import primitiveTArcToPoint from '!!raw-loader!./_examples/primitive-tarc-to-point.js';
+import primitiveTArcWithTangent from '!!raw-loader!./_examples/primitive-tarc-with-tangent.js';
 
 # Primitive Geometries
 
-Primitive geometries are the building blocks of sketches — lines, arcs, and curves. They follow a "pen" model: each command starts from where the last one ended.
+Primitive geometries are the building blocks of sketches — lines, arcs, and curves. They follow a "pen" model: each command starts from where the last one ended, and turtle-like operators (`hLine`, `vLine`, `tLine`, `tArc`) advance the pen along its current heading.
+
+The viewport gives you live feedback on where the pen is and which way it's facing:
+
+- **Orange dot** — the current pen position.
+- **Orange arrow** — the current tangent direction.
+- **Blue dots** — endpoints of existing geometry.
 
 ## circle
 
@@ -24,30 +42,38 @@ Primitive geometries are the building blocks of sketches — lines, arcs, and cu
 
 ## line
 
-```js
-sketch("xy", () => {
-    line([0, 0], [100, 0])     // from [0,0] to [100,0]
-    line([100, 50])            // continues to [100, 50]
-    line([0, 0])               // back to start, closing the shape
-})
-```
+`line()` draws a straight segment. With one argument it draws from the current
+position to the given point; with two arguments it draws between two explicit
+points. After the call, the pen ends at the segment's end point.
+
+<CodeBlock language="js">{primitiveLineBasic}</CodeBlock>
+
+![Closed polygon drawn with line() chaining](/img/docs/sketching/primitive-line-basic.png)
+
+The first call sets the explicit start, and every following call continues
+from where the previous one ended. The last `line([0, 0])` returns to the
+origin to close the loop.
 
 ## hLine
 
-`hLine(distance)` draws a horizontal line from the current position. Positive
-distances go right, negative go left.
+`hLine(distance)` draws a horizontal segment from the current position.
+Positive distances go right, negative go left.
+
+<CodeBlock language="js">{primitiveHLineVLineBasic}</CodeBlock>
+
+![Rectangle drawn with hLine and vLine](/img/docs/sketching/primitive-hline-vline-basic.png)
+
+You can also start from an explicit point:
 
 ```js
-hLine(50)             // 50 units right
-hLine(-30)            // 30 units left
-hLine([10, 20], 50)   // jump to [10, 20], then 50 right
+hLine([10, 20], 50)   // jump to [10, 20], then 50 units right
 ```
 
 ### Centered
 
-Chain `.centered()` to center the line on the current position instead of
-starting from it. The pen still ends at the segment's end, so the line spans
-`±distance/2` around the start:
+Chain `.centered()` to center the segment on the current position instead of
+starting from it. The pen still ends at the segment's far end, so the line
+spans `±distance/2` around the start:
 
 <CodeBlock language="js">{primitiveLinesCentered}</CodeBlock>
 
@@ -66,20 +92,20 @@ sign) is used:
 
 ![Lines up to target geometry](/img/docs/sketching/primitive-lines-target.png)
 
-The line throws if the ray never meets the target. `.centered()` cannot be
+The call throws if the ray never meets the target. `.centered()` cannot be
 combined with the target form.
 
 ## vLine
 
-`vLine(distance)` draws a vertical line. Positive distances go up, negative go
-down. Like `hLine`, it supports `.centered()` and target-geometry intersection
-(see the screenshots above — they use `vLine` too).
+`vLine(distance)` is the vertical counterpart of `hLine`. Positive distances
+go up, negative go down. It supports the same `.centered()` and target-geometry
+forms (the screenshots above use `vLine` too):
 
 ```js
 vLine(40)             // 40 units up
 vLine(-20)            // 20 units down
 vLine(60).centered()  // centered on the current position
-vLine(targetGuide)    // up/down to the nearest intersection
+vLine(targetGuide)    // up or down to the nearest intersection
 ```
 
 ## aLine
@@ -110,21 +136,164 @@ Here a centered horizontal guide is placed at `y = 50`, the cursor is rewound
 to the origin with `back(2)`, and the 45° line extends from the origin until
 it meets the guide.
 
+## tLine
+
+`tLine(distance)` is like `hLine` / `vLine`, but the heading is the **current
+tangent** — the direction the pen is pointing, shown by the orange arrow in
+the viewport. It's the natural way to continue a profile after a curve
+without introducing a sharp corner.
+
+<CodeBlock language="js">{primitiveTLineContinuation}</CodeBlock>
+
+![tLine continuing tangent to an arc](/img/docs/sketching/primitive-tline-continuation.png)
+
+A negative distance reverses the heading (the line goes backwards along the
+tangent), which is occasionally useful for back-tracking.
+
+`tLine()` also has constrained overloads — tangent to one or two objects, with
+qualifiers like `outside()` and `enclosing()`. Those are covered in
+[Constrained Geometry](./constrained-geometry#tline).
+
 ## arc
 
-```js
-sketch("xy", () => {
-    arc(50, 0, 90)             // radius 50, from 0° to 90°
-})
-```
+`arc()` is the most flexible primitive. It has three families of overloads:
+**by radius and angle**, **between two points**, and **between two points with
+a center or bulge**. The default sweep direction is counter-clockwise.
 
-## Tangent arcs
+### By radius and angle
 
-`tArc()` draws an arc that is tangent to the previous line or arc — the arc starts in the same direction the pen is currently pointing (shown by the orange arrow in the viewport). This creates smooth, continuous curves:
+`arc(radius, startAngle, endAngle)` draws an arc centered at the **current
+position**. Angles are in degrees, measured from the current tangent
+direction (or `+X` when there is no previous geometry). `startAngle` defaults
+to `0` and `endAngle` defaults to `180`, so `arc(60)` draws an upper
+half-circle:
+
+<CodeBlock language="js">{primitiveArcDefault}</CodeBlock>
+
+![Default 180° arc](/img/docs/sketching/primitive-arc-default.png)
+
+This overload does **not** change the pen position — the pen stays at the
+center. Pick any angle range to control where the arc starts and ends:
+
+<CodeBlock language="js">{primitiveArcQuarter}</CodeBlock>
+
+![Quarter arc from 0° to 90°](/img/docs/sketching/primitive-arc-quarter.png)
+
+:::note
+Because angles are read off the current tangent, chaining `arc()` calls
+rotates the angle frame with the pen. If you want the next arc back in the
+`+X` frame, start it from a fresh `sketch("xy", …)` block.
+:::
+
+#### Centered
+
+Chain `.centered()` to interpret `startAngle` as the midpoint of the sweep
+instead of its start. The sweep then straddles that angle by `±endAngle/2`:
+
+<CodeBlock language="js">{primitiveArcCentered}</CodeBlock>
+
+![arc().centered() centered on the tangent direction](/img/docs/sketching/primitive-arc-centered.png)
+
+#### Reversed angles
+
+If `startAngle > endAngle`, the arc still sweeps counter-clockwise — it just
+takes the long way around. So `arc(60, 90, 0)` draws a 270° arc from the 90°
+mark back to the 0° mark (the gap sits in the upper-right quadrant):
+
+<CodeBlock language="js">{primitiveArcReversed}</CodeBlock>
+
+![270° arc going the long way around](/img/docs/sketching/primitive-arc-reversed.png)
+
+### Between two points, with a center
+
+`arc(endPoint).center(centerPoint)` draws an arc from the current position to
+`endPoint`, with `centerPoint` as the center of the circle. The two-argument
+form `arc(startPoint, endPoint).center(centerPoint)` is the same but with
+an explicit start. Both advance the pen to `endPoint`.
+
+The default sweep is **counter-clockwise**. Chain `.cw()` to reverse it —
+swapping which of the two possible arcs you get for the same chord and
+center:
+
+<CodeBlock language="js">{primitiveArcCenterPoint}</CodeBlock>
+
+![CCW and CW arcs with explicit center points](/img/docs/sketching/primitive-arc-center-point.png)
+
+### Between two points, with a radius
+
+`.radius(r)` builds the arc from the chord and a **bulge radius**. The sign
+of the radius selects the direction:
+
+- **positive radius** — sweeps CCW; the arc bulges to the right of the
+  start → end chord direction (below the chord when the chord runs
+  left-to-right along +X).
+- **negative radius** — sweeps CW; the arc bulges to the opposite side.
+
+This is the most ergonomic way to draw small fillet-like arcs along a profile.
+
+<CodeBlock language="js">{primitiveArcRadius}</CodeBlock>
+
+![Positive vs negative radius bulge](/img/docs/sketching/primitive-arc-radius.png)
+
+If `|radius|` is smaller than half the chord length there's no valid circle,
+so FluidCAD clamps it to `chord/2` and draws a semicircle connecting the two
+points. In the sketcher this also surfaces an inline warning.
+
+#### Major vs minor arcs
+
+By default `.radius()` returns the **minor arc** — the shorter of the two
+arcs that fit the chord and radius. Chain `.major()` to get the long way
+around instead:
+
+<CodeBlock language="js">{primitiveArcMajor}</CodeBlock>
+
+![Minor and major arcs with the same chord and radius](/img/docs/sketching/primitive-arc-major.png)
+
+## tArc
+
+`tArc()` draws an arc that's tangent to the previous geometry. The arc leaves
+the pen in the direction the orange arrow is pointing, which keeps profiles
+G1-continuous (no kinks). It has several overloads — only the basic ones live
+here; the constrained forms (tangent to one or two objects, between
+points-and-objects) are covered in
+[Constrained Geometry](./constrained-geometry#tarc).
+
+### Tangent continuation by radius and angle
+
+`tArc(radius, endAngle)` is the most common form. `radius` defaults to `100`
+and `endAngle` to `90`. A negative radius flips the sweep direction; a
+negative angle sweeps clockwise.
 
 <CodeBlock language="js">{primitiveArc}</CodeBlock>
 
-![Tangent arcs](/img/docs/sketching/primitive-arc.png)
+![Tangent arcs chained after a vertical line](/img/docs/sketching/primitive-arc.png)
+
+### To a given point
+
+`tArc(endPoint)` draws an arc from the current position to `endPoint`, with
+the start tangent inherited from the previous element. The radius is
+whatever's needed to fit that arc.
+
+<CodeBlock language="js">{primitiveTArcToPoint}</CodeBlock>
+
+![Tangent arc landing on an explicit end point](/img/docs/sketching/primitive-tarc-to-point.png)
+
+This is handy when you know where the arc needs to end but don't want to
+work out the matching radius by hand.
+
+### With an explicit start tangent
+
+When there's no previous element — or when you want to override its tangent —
+pass an explicit direction as the last argument. `tArc(radius, angle, tangent)`
+uses that vector instead of reading the heading from the sketch.
+
+<CodeBlock language="js">{primitiveTArcWithTangent}</CodeBlock>
+
+![Two tangent arcs with different start tangents](/img/docs/sketching/primitive-tarc-with-tangent.png)
+
+The same trick works on the point overloads: `tArc(endPoint, tangent)` and
+`tArc(startPoint, endPoint, tangent)` pin the arc's tangent direction
+explicitly.
 
 ## bezier
 
@@ -144,4 +313,3 @@ The last point is the endpoint. Points in between are control points:
 :::tip[Interactive mode]
 Call `bezier()` with no arguments to enter interactive mode. Click in the viewport to place control points with a live preview of the curve. Use Ctrl+click to drag existing points, and Escape to undo.
 :::
-

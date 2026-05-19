@@ -56,6 +56,91 @@ These three rules make scripts terse:
 
 When you need to be explicit, every operation accepts the target as a trailing argument.
 
+### Act like a CAD designer, not a calculator
+
+This is the single most important principle when writing FluidCAD. A CAD designer expresses **design intent** — "tangent to this circle," "centered on this face," "midway between these two planes," "perpendicular to this edge" — and lets the kernel solve the geometry. Computing coordinates by hand is the wrong default: it's brittle, opaque, hard to reparametrize, and almost always reinvents something FluidCAD already does precisely.
+
+**Do not perform geometric calculations yourself when an API call exists.** The OpenCascade kernel is a precision B-Rep engine: it computes tangencies, intersections, midpoints, draft surfaces, offsets, projections, and rotations to floating-point accuracy. Your JavaScript math, by contrast, accumulates error, hides intent, and breaks the moment a parameter changes.
+
+This applies to:
+
+- **Trigonometry** — `Math.cos`, `Math.sin`, `Math.atan2`, manual angle conversions
+- **Position arithmetic** — adding offsets, computing midpoints, distributing items along a span
+- **Geometric intersections** — finding where a line meets a circle, where two arcs cross
+- **Tangent points & tangent angles** — between two circles, between a line and an arc
+- **Mirror coordinates** — flipping signs to model the other half
+- **Polygon vertex coordinates** — `[r*cos(θ), r*sin(θ)]` for n sides
+- **Rotation matrices and quaternions** — composing arbitrary transforms by hand
+
+Whenever you reach for a calculator, stop and look for the FluidCAD primitive that expresses what you actually mean.
+
+### Let the API do the math
+
+Concrete substitutions. The left column is the trap; the right column is the idiomatic CAD-designer move.
+
+| Don't compute… | Use instead |
+|---|---|
+| `[r*Math.cos(a), r*Math.sin(a)]` for a point at angle/radius | `pMove(r, angle)` — polar move relative to the current tangent |
+| Cursor position after a turn | `rMove(angle)` to rotate the tangent, then draw |
+| Endpoint of a horizontal segment as `[x + d, y]` | `hLine(d)` (or `hLine(target)` to land on an existing geometry) |
+| Endpoint of a vertical segment | `vLine(d)` / `vLine(target)` |
+| Where a line at angle `θ` hits another geometry | `aLine(angle, target)` — solver finds the intersection |
+| Cursor X to reach a target | `hMove(target)` (similarly `vMove(target)`, `pMove(target, angle)`) |
+| Tangent line endpoints between two circles | `tLine(outside(c1), outside(c2))` — then read `.start()` / `.end()` |
+| Tangent arc between objects, points, or after a line | `tArc(...)` — handles every "continue tangent" case |
+| A circle tangent to two others / through two points | `tCircle(...)` with qualifiers (`outside` / `enclosing` / `enclosed`) |
+| Where a fillet arc would sit between two lines | `tArc(line1, line2, r)` or 2D `fillet(geometries, r)` |
+| Polygon corner coordinates | `polygon(n, diameter, mode)` — `'inscribed'` or `'circumscribed'` |
+| Stadium-shape end-cap arcs | `slot(length, radius)` |
+| Slot-end positions or rotation by hand | `slot(...).centered()` or `slot(...).rotate(angle)` |
+| Ellipse parametric points | `ellipse(rx, ry)` |
+| Offset wire of an outline | `offset(distance)` (chain `.close()` for open profiles) |
+| Cross-section of a 3D shape with a plane | `intersect(...3dObjects)` inside `sketch(plane, () => ...)` |
+| Projection of 3D edges onto a plane | `project(...3dObjects)` inside a sketch |
+| Tapered extrusion side surfaces | `extrude(d).draft(angle)` (or `.draft([start, end])`) |
+| Two-distance asymmetric extrude | `extrude(d1, d2)` (no manual translate of half-extrudes) |
+| Mirror across a plane by negating coords | `mirror(plane, ...objs)` / `repeat("mirror", plane, feature)` / 2D `mirror("x")` |
+| Both sides of a symmetric extrusion | `.symmetric()` on the extrude/cut/revolve |
+| Coordinates for N items evenly spaced | `repeat("linear", axis, { count: N, length: span })` |
+| Coordinates for N items around a circle | `repeat("circular", axis, { count: N, angle: 360 })` |
+| Centering a pattern around the original | `{ count, offset, centered: true }` |
+| The midplane between two planes | `plane(p1, p2)` |
+| The midaxis between two axes | `axis(a1, a2)` |
+| A plane offset along its normal | `plane(planeLike, offset)` |
+| A plane offset *and* rotated | `plane(planeLike, { offset, rotateX, rotateY, rotateZ })` |
+| An axis in a sketch's local frame | `local('x' \| 'y' \| 'z')` |
+| Selecting "the cylindrical face of diameter D" | `select(face().cylinder(D))` |
+| Selecting "edges on the top face" | `e.endEdges()` or `edge().onPlane("xy", h)` |
+| Selecting "vertical edges of a box" | `edge().verticalTo("xy")` |
+| Selecting faces above/below a cut plane | `face().above(plane)` / `face().below(plane)` |
+| Inner wall faces of a shelled solid | `s.internalFaces()` |
+| Inner edges of a cut pocket | `c.internalEdges()` |
+| Coordinates of a rectangle's edges | `r.topEdge()`, `.bottomEdge()`, `.leftEdge()`, `.rightEdge()` |
+| Coordinates of a polygon vertex/edge | `p.getVertex(i)`, `p.getEdge(i)` |
+| A "thin-walled" extrude by subtracting two extrusions | `extrude(d).thin(-t)` (or `.thin(o1, o2)` for two-sided) |
+| A hollow shell by subtracting an inset solid | `shell(thickness, faceToRemove)` |
+| Manually loop to make N pockets / bosses | `repeat("linear" \| "circular" \| ..., ..., featureRef)` |
+
+**Rule of thumb:** if you find yourself writing `Math.`, computing a `* 2` or `/ 2`, or constructing a coordinate that *describes a geometric relationship* (tangency, intersection, symmetry, midpoint, even distribution), stop and pick the API primitive that describes the relationship directly.
+
+### CAD design best practices
+
+A few habits that keep models robust and editable:
+
+1. **Parametrize at the top.** Declare named constants (`const width = 100`, `const wallThickness = 2.5`) before the geometry. Reuse them everywhere — never sprinkle raw magic numbers.
+2. **Model design intent, not coordinates.** A boss is "centered on this face," not "at (50, 30, 0)." Use `.centered()`, `sketch(face, ...)`, `select(face().planar().onPlane(...))`, and constrained geometry to encode that intent.
+3. **Build incrementally.** Each statement should produce a recognizable feature. Save references with `const` so later operations can refer back via `.endFaces()`, `.startEdges()`, etc.
+4. **Prefer filters and direct accessors over indices.** `select(face().cylinder(20))` survives geometry changes; `e.sideFaces(3)` may not.
+5. **Express symmetry once.** Model one half, then `mirror` or `repeat("mirror", ...)`. Don't write two near-duplicate halves.
+6. **Use `repeat()` for feature patterns and `copy()` for shape duplication.** Re-evaluating a feature at N positions is fundamentally different from cloning the finished shape; pick the one that matches your intent ([§7.4](#74-copy-vs-repeat--when-to-use-which)).
+7. **Use `part()` for assemblies.** Stronger than `.new()` — it isolates an entire component so its internal modeling never leaks into neighbors.
+8. **Name important features** with `.name("...")` so the history panel is readable when debugging.
+9. **Capture references close to creation.** Edges and face geometry become stale after the next modifying op; capture and use them right away ([§3.7](#37-stale-references)).
+10. **Reuse sketches with `.reusable()` + `remove()`** when one profile drives two features at different heights, rather than redrawing.
+11. **Resist the urge to early-optimize.** A clear, sequential script that names its steps is easier to edit later than a clever one with computed offsets.
+
+When a problem feels like it needs trigonometry, that's almost always a signal that you've missed an API primitive. Re-read [§4.4](#44-constrained--cursor-relative-geometry) (constrained geometry), [§6](#6-selections--filters) (filters), and [§8](#8-reference-geometry) (reference geometry) — the answer is usually there.
+
 ### Consumption
 
 Most features **consume** their input objects: an `extrude()` removes the sketch from the scene afterward, a `shell()` consumes the face selection it used, and so on. Mark inputs `.reusable()` if you want them to survive for another feature.
@@ -1792,7 +1877,48 @@ tCircle(c1, c2, 30, true)
 
 **Why:** the solver returns every valid solution by default. Use `outside`/`enclosed`/`enclosing` and/or `mustTouch` to narrow.
 
-### 11.18 Filters compose as AND inside one builder
+### 11.18 Computing what FluidCAD already computes
+
+```js
+// ❌ trigonometry to place six bolts around a hub
+const r = 40
+for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * 2 * Math.PI
+    sketch(face, () => circle([r * Math.cos(a), r * Math.sin(a)], 6))
+    cut(10)
+}
+
+// ✅ one cut, repeated around an axis — exact, parametric, one line
+sketch(face, () => circle([40, 0], 6))
+const hole = cut(10)
+repeat("circular", "z", { count: 6, angle: 360 }, hole)
+```
+
+```js
+// ❌ tangent point computed by hand
+const dx = c2x - c1x, dy = c2y - c1y
+const d = Math.hypot(dx, dy)
+const ang = Math.atan2(dy, dx) + Math.acos((r1 - r2) / d)
+const tx = c1x + r1 * Math.cos(ang)
+const ty = c1y + r1 * Math.sin(ang)
+line([tx, ty], [/* the other tangent point */])
+
+// ✅ describe the relationship; let the solver find the line
+tLine(outside(c1), outside(c2))
+```
+
+```js
+// ❌ manually splitting an extrude into two halves so it's symmetric
+extrude(50)
+translate(0, 0, -50)                            // shift to "center" — fragile, dimensions baked in
+
+// ✅ symmetric mode does this exactly
+extrude(25).symmetric()                         // span -25..+25 = 50 total
+```
+
+**Why:** every line of geometric math is a place where intent is lost, error accumulates, and the model breaks on the next parameter tweak. Treat `Math.cos`/`Math.sin`/`Math.atan2`/`Math.hypot`/manual offsets as smells; the API almost certainly has a primitive that expresses the same idea exactly and parametrically. See [§1 "Let the API do the math"](#let-the-api-do-the-math).
+
+### 11.19 Filters compose as AND inside one builder
 
 ```js
 // AND within a builder: edges that are circles AND on the XY plane

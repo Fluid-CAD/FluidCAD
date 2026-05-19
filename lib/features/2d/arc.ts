@@ -119,7 +119,7 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcRadius, 
     const endPt = this._endPoint.asPoint2D();
     const centerPt = this._centerPoint
       ? this._centerPoint.asPoint2D()
-      : this.getCurrentPosition();
+      : new Point2D((startPt.x + endPt.x) / 2, (startPt.y + endPt.y) / 2);
 
     const dx = startPt.x - centerPt.x;
     const dy = startPt.y - centerPt.y;

@@ -11,8 +11,9 @@ export class Back extends GeometrySceneObject {
   }
 
   build() {
-    const target = this.sketch.getPreviousPosition(this, this.count);
-    this.setCurrentPosition(target);
+    const { position, tangent } = this.sketch.getPreviousState(this, this.count);
+    this.setCurrentPosition(position);
+    this.setTangent(tangent);
   }
 
   override getDependencies(): SceneObject[] {

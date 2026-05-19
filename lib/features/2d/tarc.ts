@@ -2,6 +2,7 @@ import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { rad } from "../../helpers/math-helpers.js";
 import { Point2D } from "../../math/point.js";
+import { SceneObject } from "../../common/scene-object.js";
 import { GeometrySceneObject } from "./geometry.js";
 
 export class TangentArc extends GeometrySceneObject {
@@ -64,6 +65,10 @@ export class TangentArc extends GeometrySceneObject {
     centerVertex.markAsMetaShape();
     this.addShape(centerVertex);
     this.setCurrentPosition(endPoint);
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    return new TangentArc(this.radius, this.endAngle);
   }
 
   compareTo(other: TangentArc): boolean {

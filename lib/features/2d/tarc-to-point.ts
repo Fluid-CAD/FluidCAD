@@ -1,6 +1,7 @@
 import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { Point2D } from "../../math/point.js";
+import { SceneObject } from "../../common/scene-object.js";
 import { GeometrySceneObject } from "./geometry.js";
 import { LazyVertex } from "../lazy-vertex.js";
 
@@ -72,6 +73,10 @@ export class TangentArcToPoint extends GeometrySceneObject {
     centerVertex.markAsMetaShape();
     this.addShape(centerVertex);
     this.setCurrentPosition(targetPoint);
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    return new TangentArcToPoint(this.endPoint);
   }
 
   compareTo(other: TangentArcToPoint): boolean {

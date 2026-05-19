@@ -1,4 +1,5 @@
 import { GeometrySceneObject } from "./geometry.js";
+import { SceneObject } from "../../common/scene-object.js";
 import { Vertex } from "../../common/vertex.js";
 import { QualifiedSceneObject } from "./constraints/qualified-geometry.js";
 import { createConstraintSolver } from "../../oc/constraints/create-solver.js";
@@ -44,6 +45,16 @@ export class TangentArcToObject extends GeometrySceneObject implements ITangentA
     }
 
     this.addShapes(result.edges);
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const remappedObject = remap.get(this.target.object) || this.target.object;
+    const target = new QualifiedSceneObject(remappedObject, this.target.qualifier);
+    const copy = new TangentArcToObject(target);
+    if (this.flipped) {
+      copy.flip();
+    }
+    return copy;
   }
 
   compareTo(other: TangentArcToObject): boolean {

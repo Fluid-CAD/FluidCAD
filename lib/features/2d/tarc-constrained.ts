@@ -1,4 +1,5 @@
 import { GeometrySceneObject } from "./geometry.js";
+import { SceneObject } from "../../common/scene-object.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { Vertex } from "../../common/vertex.js";
 import { QualifiedSceneObject } from "./constraints/qualified-geometry.js";
@@ -50,6 +51,14 @@ export class TangentArcTwoObjects extends GeometrySceneObject implements ITangen
 
   end(index: number = 0): LazyVertex {
     return new LazyVertex(this.generateUniqueName(`end-vertex-${index}`), () => [this.getState('end')]);
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const remappedC1Object = remap.get(this.c1.object) || this.c1.object;
+    const remappedC2Object = remap.get(this.c2.object) || this.c2.object;
+    const c1 = new QualifiedSceneObject(remappedC1Object, this.c1.qualifier);
+    const c2 = new QualifiedSceneObject(remappedC2Object, this.c2.qualifier);
+    return new TangentArcTwoObjects(c1, c2, this.radius, this.mustTouch);
   }
 
   compareTo(other: TangentArcTwoObjects): boolean {

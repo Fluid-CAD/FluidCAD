@@ -1,0 +1,1906 @@
+# FluidCAD — LLM Reference
+
+> Self-contained reference for LLM agents writing FluidCAD scripts (`.fluid.js`).
+> Source of truth for signatures is `website/docs/api/`. When this doc and the codebase disagree, trust the codebase.
+
+FluidCAD is a JavaScript CAD library built on OpenCascade (B-Rep modeling kernel, via opencascade.js WASM). Users write `.fluid.js` files that build precise 3D solids. The runtime watches files and re-runs them on save; you do **not** call any `init()` from script code — just write top-level statements.
+
+---
+
+## Table of Contents
+
+1. [Mental Model](#1-mental-model)
+2. [Imports & Modules](#2-imports--modules)
+3. [Core Concepts](#3-core-concepts)
+4. [Sketching (2D)](#4-sketching-2d)
+5. [3D Operations](#5-3d-operations)
+6. [Selections & Filters](#6-selections--filters)
+7. [Transforms & Patterns](#7-transforms--patterns)
+8. [Reference Geometry](#8-reference-geometry)
+9. [Utilities](#9-utilities)
+10. [Idiomatic Patterns (Cookbook)](#10-idiomatic-patterns-cookbook)
+11. [Common Mistakes & Footguns](#11-common-mistakes--footguns)
+12. [Quick API Cheatsheet](#12-quick-api-cheatsheet)
+
+---
+
+## 1. Mental Model
+
+### The core workflow
+
+```
+sketch (2D)  →  3D operation  →  modify  →  pattern / transform
+```
+
+Every model starts with a flat sketch on a plane. A 3D op (extrude, cut, revolve, sweep, loft) turns the sketch into a solid. Modifiers (fillet, chamfer, shell, draft) refine it. Patterns/transforms (repeat, copy, translate, rotate, mirror) replicate or move things.
+
+### File format
+
+- Filename: `box.fluid.js` (any name, `.fluid.js` extension).
+- The runtime evaluates the script top-to-bottom. There is no `main()` and no `init()`.
+- Statements execute in order; later operations see the geometry produced by earlier ones.
+- The viewport re-renders on save (or live in some editors).
+
+### Units
+
+- No unit declaration. Numbers are unitless; **convention is millimeters**.
+- Angles are in **degrees** wherever the API takes an angle. (Exception: `Matrix4` raw rotations use radians, but you almost never reach for those.)
+
+### Smart defaults
+
+These three rules make scripts terse:
+
+1. **Last sketch is auto-picked.** `extrude(30)` extrudes the most recent sketch with no target argument.
+2. **Last selection is auto-picked.** `fillet(5)` fillets whatever `select(...)` (or a `.endEdges()` accessor) produced just before.
+3. **Touching solids auto-fuse.** Two extrusions that overlap merge into one solid unless you chain `.new()`.
+
+When you need to be explicit, every operation accepts the target as a trailing argument.
+
+### Consumption
+
+Most features **consume** their input objects: an `extrude()` removes the sketch from the scene afterward, a `shell()` consumes the face selection it used, and so on. Mark inputs `.reusable()` if you want them to survive for another feature.
+
+### What a minimal script looks like
+
+```js
+import { sketch, extrude, fillet, shell } from 'fluidcad/core';
+import { rect } from 'fluidcad/core';
+
+sketch("xy", () => {
+    rect(100, 60).centered().radius(8)
+})
+
+const box = extrude(30)
+
+fillet(3, box.startEdges())
+shell(-2, box.endFaces())
+```
+
+That builds a rounded open-top container. No `await`, no setup, no exports — just statements.
+
+---
+
+## 2. Imports & Modules
+
+FluidCAD exposes three import paths:
+
+```js
+import { /* features */ } from 'fluidcad/core';
+import { face, edge } from 'fluidcad/filters';
+import { outside, enclosed, enclosing, unqualified } from 'fluidcad/constraints';
+```
+
+| Module | Contents |
+|--------|----------|
+| `fluidcad/core` | Every operation: 2D primitives, 3D ops, transforms, booleans, `select`, `color`, `remove`, `load`, `axis`, `plane`, `local`, `part`. Also `Matrix4` etc. |
+| `fluidcad/filters` | `face()` and `edge()` filter builders for use with `select()` and direct accessors like `e.sideFaces(face().cylinder())`. |
+| `fluidcad/constraints` | `outside()`, `enclosed()`, `enclosing()`, `unqualified()` qualifiers for `tLine`/`tArc`/`tCircle`. |
+
+You can import everything you need on a single line per module. There is no global state to initialize.
+
+---
+
+## 3. Core Concepts
+
+### 3.1 Sketches
+
+A sketch is a 2D drawing on a plane. The callback runs in a special context where 2D primitive functions (`rect`, `circle`, `line`, ...) automatically register geometry on that plane.
+
+```js
+sketch("xy", () => {
+    rect(100, 60).centered()
+    circle([30, 0], 10)
+})
+```
+
+**Sketch plane** can be:
+- A standard-plane string: `"xy"`/`"top"`, `"xz"`/`"front"`, `"yz"`/`"right"`, plus `"-xy"`/`"bottom"`, `"-xz"`/`"back"`, `"-yz"`/`"left"`.
+- A `Plane` object from `plane(...)` (custom offset/rotation).
+- A face from a previous 3D op: `sketch(e.endFaces(), () => ...)`.
+
+When you sketch on a face, the cursor starts at the **center of the face**. Use `move([0,0])` if you need the face's origin instead.
+
+**Outside a sketch:** most 2D primitives accept the plane as the first argument, equivalent to wrapping them in `sketch(plane, () => ...)`:
+
+```js
+circle("xy", 50)
+rect("front", 100, 60)
+```
+
+This is convenient for single-shape sketches.
+
+### 3.2 The current position (cursor)
+
+Inside a sketch, FluidCAD tracks a **current position** (orange dot in the viewport) and a **current tangent** (orange arrow). Drawing commands start from the cursor; movement commands reposition it without drawing.
+
+- `move([x, y])` — absolute move
+- `hMove(d)` / `vMove(d)` — relative horizontal/vertical move
+- `rMove(angle)` — rotate the tangent direction
+- `pMove(r, angle)` — polar move
+- `center()` — move to plane origin
+
+This makes long chains of connected geometry (lines, arcs) read naturally.
+
+### 3.3 How sketch faces are built
+
+When a sketch is consumed by extrude/cut/revolve/etc., its 2D geometry is converted into faces:
+
+- **Overlapping closed shapes auto-fuse** into one combined face.
+- **Closed shapes inside other closed shapes become holes** (rings, mounting holes, pockets).
+- **Open or unclosed geometry is ignored** when building faces (still useful as `.guide()`).
+
+To make an inner shape solid instead of a hole, chain `.drill(false)` on the operation.
+
+### 3.4 Consumption & `.reusable()`
+
+By default, the input to an operation is consumed:
+- `extrude(sketch)` removes the sketch's geometry after extruding.
+- `shell(thickness, faces)` consumes the face selection.
+
+Mark an input as `.reusable()` to keep it alive for the next feature:
+
+```js
+const profile = sketch("xy", () => { circle(60) }).reusable();
+extrude(20);                 // first extrude consumes nothing because sketch is reusable
+extrude(50);                 // works again — sketch is still there
+remove(profile);             // explicit cleanup when you're done
+```
+
+`.reusable()` is also useful on individual geometries inside a sketch (so one of several shapes survives), and on selections.
+
+### 3.5 Auto-fusion & boolean scope
+
+Additive ops (extrude with no `.new()`, revolve, loft, sweep) fuse with **every** touching solid by default. Subtractive ops (`cut`, `.remove()`) subtract from every intersecting solid.
+
+Control with these chain methods on the operation result:
+
+- `.add()` — fuse with all touching solids (default).
+- `.new()` — keep as a separate, standalone solid.
+- `.remove()` — subtract from all intersecting solids.
+- `.scope(...objects)` — narrow `.add()` or `.remove()` to specific targets.
+
+```js
+const box = extrude(30)
+
+sketch("xy", () => { circle(20) })
+extrude(50).new()                  // standalone — doesn't merge with box
+
+sketch("xy", () => { circle(10) })
+cut().remove().scope(box)          // cut only from box, not from other solids
+```
+
+Use `part()` for stronger isolation (see [§9.1](#91-part)).
+
+### 3.6 Selecting subgeometry
+
+Two ways to pick faces/edges:
+
+**Direct accessors on operation results** — quickest, most stable. Each 3D op exposes methods to grab named regions:
+
+```js
+const e = extrude(30)
+e.startFaces()   // bottom face(s)
+e.endFaces()     // top face(s)
+e.sideFaces()    // lateral face(s)
+e.startEdges()   // edges around the bottom
+e.endEdges()     // edges around the top
+e.sideEdges()    // edges on the side faces only
+e.internalFaces()  // faces created inside the solid (e.g., from a hole)
+e.internalEdges()
+e.sideFaces(0)            // first side face by index
+e.sideFaces(face().cylinder())  // filter within direct accessor
+```
+
+**Filter-based with `select()`** — for criteria the direct accessors don't cover:
+
+```js
+import { select } from 'fluidcad/core';
+import { edge, face } from 'fluidcad/filters';
+
+select(edge().verticalTo("xy"))
+fillet(3)                          // uses the selection just made
+```
+
+`select()` puts a selection into the implicit context. The next op that takes a selection (`fillet`, `chamfer`, `shell`, `color`, `draft`) picks it up automatically.
+
+### 3.7 Stale references
+
+Once an edge or face is modified by a later operation, references to it become stale:
+
+```js
+const e = extrude(30)
+fillet(5, e.endEdges())            // ✅ works
+chamfer(2, e.endEdges())           // ❌ those edges are gone — replaced by the fillet
+```
+
+**Exception:** even after a face is destroyed, you can still use it as a **sketch plane** — FluidCAD remembers the plane's position and orientation:
+
+```js
+const e = extrude(30)
+fillet(5, e.endEdges())
+sketch(e.endFaces(), () => { circle(20) })  // ✅ still works as a plane reference
+cut(10)
+```
+
+Rule of thumb: capture and use a reference close to where it was created.
+
+### 3.8 Implicit context (last-X)
+
+Many ops have a "default target" rule that points to the most recent compatible object:
+
+| Op | Default target |
+|----|----------------|
+| `extrude` / `cut` / `revolve` / `sweep` | Last sketch |
+| `loft` | All current sketches treated as profiles (or pass them explicitly) |
+| `fillet` / `chamfer` / `shell` / `color` / `draft` | Last selection (or `select(...)` immediately before) |
+| `repeat` (no last arg) | Last created operation |
+| `copy` (no last arg) | Last object |
+| `subtract` / `fuse` / `common` (with args) | The given objects |
+
+When in doubt, store a reference and pass it explicitly.
+
+### 3.9 Method chaining
+
+Operations return objects that support fluent chaining. Common chain methods:
+
+- On most 3D ops (`Extrude`, `Cut`, `Revolve`, `Sweep`, `Loft`): `.symmetric()`, `.thin(offset)`, `.draft(angle)`, `.endOffset(d)`, `.pick(point)`, `.drill(bool)`.
+- On `BooleanOperation` (Extrude/Revolve/Loft/Sweep/Mirror/Rib): `.add()`, `.new()`, `.remove()`, `.scope(...)`.
+- On `Transformable` (sphere/cylinder return this): `.translate(...)`, `.rotate(...)`, `.mirror(...)`, `.transform(matrix)`.
+- On every `SceneObject`: `.name(str)`, `.reusable()`.
+
+### 3.10 Coordinate systems
+
+- World axes: `"x"`, `"y"`, `"z"`. Standard planes: `"xy"`, `"xz"`, `"yz"` (and aliases).
+- Inside a sketch, `"x"` and `"y"` refer to that sketch's plane axes (the plane's local frame), not world axes.
+- For sketch-relative axes outside a sketch context, or to be explicit, use `local('x' | 'y' | 'z')`.
+
+---
+
+## 4. Sketching (2D)
+
+All functions in this section are imported from `fluidcad/core` and called inside a `sketch(plane, () => ...)` callback. Most also work outside a sketch by passing the plane as the first argument.
+
+### 4.1 sketch()
+
+```ts
+sketch(plane: PlaneLike, sketcher: () => T): SceneObject
+sketch(face: SceneObject, sketcher: () => T): SceneObject
+sketch(plane: Plane, sketcher: () => T): SceneObject
+```
+
+Opens a sketch context. Whatever the callback returns is attached as `.regions` on the result, so you can return references to specific shapes:
+
+```js
+const s = sketch("xy", () => {
+    const outer = circle(60).reusable()
+    const inner = circle(20)
+    return { outer, inner }
+})
+
+// s.regions.outer  ← reference to the outer circle
+```
+
+The sketch is a `SceneObject` you can mark `.reusable()` or pass to `extrude(distance, sketch)` later.
+
+### 4.2 Primitive shapes
+
+#### rect
+
+```ts
+rect(width, height?)
+rect(start: Point2D, width, height?)
+rect(targetPlane, width, height)
+```
+
+Draws a rectangle. `height` defaults to `width` (square). Returns `Rect` with:
+- `.centered(value?)` — `true` to center on both axes, `'horizontal'` or `'vertical'` for one axis only.
+- `.radius(...r)` — corner radii. `radius(5)` rounds all four. `radius(5, 0, 5, 0)` is `[bottomLeft, bottomRight, topRight, topLeft]`.
+- `.topEdge()`, `.bottomEdge()`, `.leftEdge()`, `.rightEdge()` — return edge references for fillet/chamfer/etc.
+- `.topLeft()`, `.topRight()`, `.bottomLeft()`, `.bottomRight()` — corner vertices.
+- `.topLeftArcEdge()`, etc. — arc edges (only present when a radius is applied).
+
+```js
+rect(100, 60).centered().radius(8)
+```
+
+#### circle
+
+```ts
+circle(diameter?)                 // at origin, default diameter 40
+circle(center: Point2D, diameter?)
+circle(targetPlane, diameter)
+```
+
+Returns `ExtrudableGeometry`. The `diameter` argument is the **diameter**, not radius.
+
+```js
+circle(50)                         // 50-diameter circle at the cursor
+circle([10, 5], 30)                // 30-diameter circle centered at (10, 5)
+```
+
+#### ellipse
+
+```ts
+ellipse(rx, ry)
+ellipse(center, rx, ry)
+ellipse(targetPlane, rx, ry)
+ellipse(targetPlane, center, rx, ry)
+```
+
+`rx` and `ry` are **semi-radii** (half-widths) along the plane's X and Y axes.
+
+#### polygon
+
+```ts
+polygon(numberOfSides, diameter, mode?)
+polygon(center, numberOfSides, diameter, mode?)
+polygon(targetPlane, numberOfSides, diameter)
+polygon(targetPlane, numberOfSides, diameter, mode)
+```
+
+Regular polygon. `mode` is `'inscribed'` (default — corners on the diameter circle) or `'circumscribed'` (edge midpoints on the diameter circle).
+
+Returns `Polygon` with `.getEdge(i)` and `.getVertex(i)` (0-based).
+
+#### slot
+
+```ts
+slot(distance, radius)
+slot(start: Point2D, distance, radius)
+slot(geometry, radius, deleteSource?)   // make a slot around an existing edge
+slot(targetPlane, distance, radius)
+slot(targetPlane, geometry, radius)
+```
+
+Length + end-cap radius. Returns `Slot` with `.centered(value?)` and `.rotate(angle)`.
+
+#### line
+
+```ts
+line(end: Point2D)
+line(start: Point2D, end: Point2D)
+line(targetPlane, end)
+```
+
+Straight line. One-arg form draws from cursor to `end`.
+
+### 4.3 Free-form curves
+
+#### arc
+
+```ts
+arc(endPoint: Point2D)                    // from cursor through implicit center
+arc(startPoint, endPoint)
+arc(radius, startAngle?, endAngle?)       // angle form (defaults 0..180)
+arc(targetPlane, endPoint)
+arc(targetPlane, startPoint, endPoint)
+arc(targetPlane, radius, startAngle, endAngle)
+```
+
+The point-to-point form returns `ArcPoints` with:
+- `.radius(value)` — set bulge radius (positive = CCW, negative = CW).
+- `.center(point)` — give the circle's center explicitly (mutually exclusive with `.radius()`).
+
+The angle form returns `ArcAngles` with `.centered()` to center the sweep around the start angle. Angles are degrees, relative to the **current tangent**.
+
+```js
+arc([100, 0]).radius(60)           // arc from cursor to (100,0) with radius 60
+arc(50, 0, 90)                     // 50-radius arc sweeping 0° → 90°
+```
+
+#### bezier
+
+```ts
+bezier(...points: Point2D[])
+```
+
+Last argument is the endpoint; preceding arguments are control points.
+- 1 arg → degree 1 (line).
+- 2 args → quadratic.
+- 3 args → cubic.
+
+### 4.4 Constrained / cursor-relative geometry
+
+These continue from the current cursor position and tangent. Useful for building outlines incrementally.
+
+#### hLine / vLine / aLine
+
+```ts
+hLine(distance)
+hLine(target: SceneObject)         // ends at the nearest intersection with target
+hLine(start, distance)
+hLine(targetPlane, distance)
+
+vLine(distance | target | start+distance | targetPlane+distance)
+
+aLine(angle, length)               // angle in degrees
+aLine(angle, target)
+aLine(targetPlane, angle, length)
+```
+
+Return `HLine`/`VLine`/`ALine`, each with `.centered(value?)` to center the line on the cursor instead of starting from it.
+
+```js
+hLine(40)                          // 40 units to the right of cursor
+vLine(20).centered()               // 20-unit vertical line centered on cursor
+aLine(45, 50)                      // 50-unit line at 45°
+```
+
+#### Cursor movement
+
+```ts
+move()                             // back to plane origin
+move(to: Point2D)                  // absolute
+hMove(distance)
+hMove(target)                      // move horizontally to nearest intersection
+vMove(distance)
+vMove(target)
+rMove(angle)                       // rotate the tangent direction
+rMove(angle, pivot: Point2D)
+pMove(radius, angle)               // polar move relative to current tangent
+pMove(target, angle)
+center()                           // jump to plane origin
+```
+
+#### tLine — tangent line
+
+```ts
+tLine(distance)                              // continue tangent to previous geometry
+tLine(c1: SceneObject, c2: SceneObject, mustTouch?)
+tLine(c1: QualifiedGeometry, c2: QualifiedGeometry, mustTouch?)
+tLine(c1, mustTouch?)                        // tangent to one object from cursor
+```
+
+For two-object form, multiple tangent lines exist — use `outside()`, `enclosing()`, `enclosed()` qualifiers from `fluidcad/constraints` to pick one.
+
+Returns `Geometry` (one-arg form) or `TwoObjectsTangentLine` with `.start()`, `.end()`, `.tangent()` vertices.
+
+```js
+const t = tLine(outside(c1), outside(c2))    // external tangent between two circles
+tArc(t.end())                                // continue with a tangent arc
+```
+
+#### tArc — tangent arc
+
+The most flexible constrained primitive. Several signatures:
+
+```ts
+tArc(target: SceneObject | QualifiedGeometry)        // ends tangent to target line
+tArc(radius, target)                                  // arc of given radius to target
+tArc(radius?, endAngle?)                              // radius 100, sweep 90° defaults
+tArc(radius, angle, tangent: Point2D)                 // explicit start tangent
+tArc(endPoint: Point2D)                               // tangent arc to a point
+tArc(endPoint, tangent)                               // with end tangent
+tArc(startPoint, endPoint, tangent)
+tArc(c1: SceneObject, c2: SceneObject, radius, mustTouch?)     // between two objects
+tArc(c1: Point2D, c2: Point2D, radius, mustTouch?)             // through two points
+```
+
+Defaults: radius 100, end angle 90°. Negative radius flips sweep direction. Chain `.flip()` to curve to the right of the start tangent instead of the left.
+
+```js
+vLine(100)
+tArc(50, 180)                       // half-circle, radius 50
+tArc(80, -270)                      // 270° clockwise (negative)
+```
+
+#### tCircle — tangent circle
+
+```ts
+tCircle(c1, c2, diameter, mustTouch?)
+tCircle(c1: QualifiedGeometry, c2: QualifiedGeometry, diameter, mustTouch?)
+tCircle(c1: Point2D, c2: Point2D, diameter, mustTouch?)
+```
+
+Full circle of given diameter tangent to two objects (or through two points). Up to 8 solutions for two circles — narrow with qualifiers and/or `mustTouch: true`.
+
+#### Constraint qualifiers
+
+From `fluidcad/constraints`:
+
+- `outside(obj)` — solution is external to `obj` (no shared interior).
+- `enclosing(obj)` — solution wraps around `obj`.
+- `enclosed(obj)` — solution sits inside `obj`.
+- `unqualified(obj)` — removes any prior qualification.
+
+```js
+import { outside, enclosing } from 'fluidcad/constraints';
+tCircle(enclosing(c1), outside(c2), 30)
+```
+
+#### connect
+
+```ts
+connect(mode?: ConnectMode)
+```
+
+Closes the sketch by connecting the cursor back to the start.
+
+### 4.5 2D modifiers
+
+#### offset
+
+```ts
+offset(distance?, removeOriginal?)
+offset(targetPlane, distance, removeOriginal, ...sourceGeometries)
+```
+
+Offsets the current sketch wire (default distance 1). Returns `Offset` with `.close()` for capping open offsets.
+
+#### project
+
+```ts
+project(...sourceObjects: SceneObject[])     // project 3D edges onto current sketch plane
+project(targetPlane, sourceObjects)
+```
+
+Projects 3D faces or edges onto the active sketch plane, producing flat 2D wires you can extrude/offset/etc.
+
+#### intersect
+
+```ts
+intersect(...sourceObjects: SceneObject[])
+intersect(targetPlane, sourceObjects)
+```
+
+Like `project()` but produces cross-section edges where 3D objects intersect the sketch plane.
+
+#### trim
+
+```ts
+trim()                              // trim all segments at crossings
+trim(...filters: EdgeFilter[])      // trim segments matching the filters
+```
+
+#### split
+
+```ts
+split()                             // split all intersecting geometries at crossings
+split(...objects)
+```
+
+#### fillet (2D form)
+
+```ts
+fillet(objects: Geometry[])
+fillet(objects: Geometry[], radius)
+fillet(radius, ...objects: Geometry[])
+```
+
+Inside a sketch, `fillet()` rounds the corner between two geometries.
+
+### 4.6 Booleans inside sketches
+
+```ts
+fuse()
+fuse(...objects)
+subtract(object1, object2)
+common()
+common(...objects)
+```
+
+Same names as 3D booleans — context determines whether they operate on 2D or 3D geometry. Inside a sketch they merge/cut sketch outlines:
+
+```js
+sketch("xy", () => {
+    const outer = rect(100, 60)
+    const inner = rect([10, 10], 80, 40)
+    subtract(outer, inner)         // 2D difference → frame outline
+})
+```
+
+### 4.7 Sketch-local transforms
+
+Inside a sketch, `rotate`, `mirror`, and `copy` operate on 2D geometry:
+
+```ts
+rotate(angle, ...targets)
+rotate(angle, copy: boolean, ...targets)
+
+mirror(line: SceneObject)
+mirror(axis: AxisLike)             // e.g. mirror("x") to mirror across sketch X
+mirror(line, ...geometries)
+mirror(axis, ...geometries)
+
+copy("linear", axis, options, ...objects)
+copy("linear", [axisA, axisB], options, ...objects)
+copy("circular", center: Point2D, options, ...objects)   // 2D circular uses a point
+```
+
+```js
+sketch("xy", () => {
+    circle([50, 0], 20)
+    copy("linear", "x", { count: 3, offset: 40 })     // 3 circles spaced 40 apart
+    mirror("y")                                         // mirror all of them across Y axis
+})
+```
+
+### 4.8 Geometry meta
+
+On every `Geometry` (and `ExtrudableGeometry`):
+
+- `.guide()` — mark as construction-only (excluded from extrude/revolve face building, but usable as a target for `tLine`/`tArc`/`hLine(target)` etc.).
+- `.reusable()` — survive consumption by an operation.
+- `.start()`, `.end()` — lazy vertices at the endpoints.
+- `.tangent()` — lazy vertex representing the tangent direction at the end of this geometry.
+- `.name(str)` — display name for the history panel.
+
+---
+
+## 5. 3D Operations
+
+### 5.1 extrude()
+
+```ts
+extrude(target?: SceneObject)                 // default distance (25)
+extrude(distance: number, target?)
+extrude(distance1, distance2, target?)        // two distances → asymmetric extrude
+extrude(face, target?)                        // extrude up to a face
+extrude("first-face", ...filters, target?)    // up to nearest intersecting face
+extrude("last-face", ...filters, target?)     // up to farthest intersecting face
+```
+
+Returns `Extrude` (extends `BooleanOperation`). Pulls the sketch along the plane normal.
+
+**Chain methods** (most also apply to cut/revolve/sweep/loft):
+- `.symmetric()` — extrude equally in both directions. `extrude(30).symmetric()` gives total span of 60.
+- `.draft(angle | [start, end])` — taper. Positive expands outward, negative tapers inward.
+- `.endOffset(d)` — shift the end face by `d` along the extrusion direction.
+- `.thin(offset)` / `.thin(o1, o2)` — make a thin-walled solid by offsetting the profile edges. Positive = outward, negative = inward. Two values create two opposite-direction offsets.
+- `.drill(bool)` — `true` (default) treats inner closed shapes as holes; `false` makes them solid regions.
+- `.pick(...points)` — restrict to specific regions when the sketch has multiple closed regions.
+- `.add()` / `.new()` / `.remove()` / `.scope(...)` — boolean scope.
+
+**Direct accessors on the result:**
+
+```js
+const e = extrude(30)
+e.startFaces(), e.endFaces(), e.sideFaces()
+e.startEdges(), e.endEdges(), e.sideEdges()
+e.internalFaces(), e.internalEdges()
+e.capFaces(), e.capEdges()                    // for thin extrudes from open profiles
+```
+
+Each accessor accepts numeric indices and/or `FaceFilterBuilder`/`EdgeFilterBuilder` to filter within the direct selection:
+
+```js
+e.sideFaces(0)                                // first side face
+e.sideFaces(face().cylinder())                // only cylindrical side faces
+e.endEdges(0, 2)                              // edges by index
+```
+
+Examples:
+
+```js
+sketch("xy", () => rect(100, 60).centered())
+extrude(30)                                    // simple box
+
+sketch("xy", () => circle(50))
+extrude(30).symmetric().draft(5)               // bidirectional tapered cylinder
+
+extrude(30).thin(-2)                           // thin-walled (2mm inward)
+
+const target = select(face().onPlane("xy", 100))
+extrude(target)                                // extrude up to that face
+```
+
+### 5.2 cut()
+
+```ts
+cut()                                          // through-all using last sketch
+cut(target: SceneObject)
+cut(distance, target?)
+cut(distance1, distance2, target?)
+cut(face: SceneObject)                         // cut up to face
+cut("first-face")
+cut("last-face")
+cut(face, target)
+```
+
+Returns `Cut`. Always subtractive — equivalent to `extrude(...).remove()`. Same chain methods as extrude except no `.add()`/`.new()`: `.symmetric()`, `.draft()`, `.endOffset()`, `.thin()`, `.pick()`, `.scope()`, `.startEdges()`, `.endEdges()`, `.internalEdges()`, `.internalFaces()`.
+
+`cut()` with no args goes **through all** — easy to do by accident. Pass an explicit distance for pockets.
+
+```js
+sketch(e.endFaces(), () => circle(20))
+cut(10)                                        // 10-deep pocket
+
+sketch(e.endFaces(), () => rect(20, 5).centered())
+cut().draft(-10)                               // through-all cut with inward taper
+```
+
+### 5.3 revolve()
+
+```ts
+revolve(axis: AxisLike, target?: SceneObject)            // full 360
+revolve(axis: AxisLike, angle: number, target?)
+```
+
+Returns `Revolve` (extends `BooleanOperation`). Chain: `.symmetric()`, `.thin()`, `.pick()`, plus the boolean methods.
+
+The **sketch plane must contain the axis** (typically perpendicular to the world axis you're revolving around). To revolve around `"z"`, sketch on `"xz"` or `"yz"`.
+
+```js
+sketch("xz", () => {
+    move([20, 0])
+    rect(10, 30)
+})
+revolve("z")                                   // ring
+```
+
+### 5.4 sweep()
+
+```ts
+sweep(path: SceneObject)                       // sweep last sketch along path
+sweep(path: SceneObject, target?: SceneObject)
+```
+
+Returns `Sweep` (extends `BooleanOperation`). Chain: `.symmetric()` is not supported; uses `.draft()`, `.endOffset()`, `.drill()`, `.pick()`, `.thin()`, plus boolean methods.
+
+The path is typically a sketch (open or closed wire) or an edge selection. The profile is the active sketch.
+
+```js
+const path = sketch("xy", () => {
+    line([0, 0], [100, 0])
+    arc([200, 100]).radius(150)
+}).reusable()
+
+sketch("yz", () => circle(8))
+sweep(path)
+```
+
+### 5.5 loft()
+
+```ts
+loft(...profiles: SceneObject[])
+```
+
+Returns `Loft` (extends `BooleanOperation`). Creates a smooth transition between 2+ profiles. Profiles are typically sketches or face selections at different heights:
+
+```js
+const a = sketch("xy", () => circle(40))
+const b = sketch(plane("xy", 100), () => rect(60, 60).centered())
+loft(a, b)
+```
+
+Chain: `.thin()`, plus boolean methods. Direct accessors: `startFaces`, `endFaces`, `sideFaces`, `startEdges`, `endEdges`, `sideEdges`, `internalFaces`, `internalEdges`, `capFaces`, `capEdges`.
+
+### 5.6 sphere() / cylinder()
+
+```ts
+sphere(radius)
+sphere(radius, angle)                          // partial sphere (degrees)
+
+cylinder(radius, height)
+```
+
+Both return `Transformable`, so you can chain `.translate()`, `.rotate()`, `.mirror()` directly:
+
+```js
+sphere(25).translate(0, 0, 100)
+cylinder(10, 50).rotate("x", 90)
+```
+
+### 5.7 fillet()
+
+```ts
+fillet(radius?: number)                        // uses last selection, default radius 1
+fillet(radius, ...sceneObjects)
+// 2D variants:
+fillet(objects: Geometry[])
+fillet(objects: Geometry[], radius)
+fillet(radius, ...objects: Geometry[])
+```
+
+Returns `SceneObject`. Operates on the last selection if no objects passed. Common patterns:
+
+```js
+fillet(5, e.endEdges())
+fillet(3, e.endEdges(), e.startEdges())
+select(edge().verticalTo("xy")); fillet(2)
+```
+
+### 5.8 chamfer()
+
+```ts
+chamfer(distance?)                             // default 1
+chamfer(distance, ...sceneObjects)
+chamfer(d1, d2, isAngle?)                      // asymmetric or distance+angle
+chamfer(d1, d2, isAngle, ...sceneObjects)
+```
+
+```js
+chamfer(2, e.endEdges())
+chamfer(3, 5, false, e.startEdges())            // 3×5 asymmetric chamfer
+chamfer(3, 45, true)                            // 3 distance + 45° angle
+```
+
+### 5.9 shell()
+
+```ts
+shell(thickness?)                              // default thickness 2.5
+shell(thickness, ...selections)                // remove these faces
+```
+
+Returns `Shell` with:
+- `.internalFaces()`, `.internalEdges()` — inner wall geometry.
+- `.join(type)` — `'arc'` (default), `'intersection'` (sharp), or `'tangent'`.
+
+**Sign of thickness matters**: negative thickness goes inward (outer shape preserved), positive goes outward (inner cavity preserved).
+
+```js
+const e = extrude(30)
+const s = shell(-2, e.endFaces())              // open-top container, 2mm walls
+fillet(0.5, s.internalEdges())
+```
+
+### 5.10 draft()
+
+```ts
+draft(angle)                                   // uses last selection
+draft(angle, ...selections)
+```
+
+Applies a draft angle to selected faces. Returns `Draft`.
+
+### 5.11 rib()
+
+```ts
+rib(thickness)                                 // uses last sketch as spine
+rib(thickness, spine: SceneObject)
+```
+
+Creates a rib from an open spine sketch. Extends in the sketch plane normal direction until it meets surrounding solids. Positive thickness = forward, negative = reverse direction. Returns `Rib` (extends `BooleanOperation`) with `.parallel()` (extrude parallel to sketch plane instead of normal), `.extend()` (extend ends to blend with surrounding walls), plus all the standard face/edge accessors.
+
+### 5.12 Booleans (3D)
+
+```ts
+fuse()
+fuse(...objects)                               // union of objects
+subtract(object1, object2)                     // object1 − object2
+common()
+common(...objects)                             // intersection
+```
+
+These are explicit boolean ops. Most of the time auto-fusion handles things for you — only reach for these when you need precise control over which objects merge or when an op didn't auto-fuse the way you wanted.
+
+---
+
+## 6. Selections & Filters
+
+### 6.1 Direct selection from an operation result
+
+Already covered in [§3.6](#36-selecting-subgeometry) and the per-op sections. Summary:
+
+| On | Methods |
+|----|---------|
+| `Extrude`, `Loft`, `Sweep`, `Rib` | `startFaces`, `endFaces`, `sideFaces`, `startEdges`, `endEdges`, `sideEdges`, `internalFaces`, `internalEdges`, `capFaces`, `capEdges` |
+| `Revolve` | `internalFaces`, `internalEdges`, `capFaces`, `capEdges` |
+| `Cut` | `startEdges`, `endEdges`, `internalFaces`, `internalEdges` |
+| `Shell` | `internalFaces`, `internalEdges` |
+| `Rect` | `topEdge`, `bottomEdge`, `leftEdge`, `rightEdge`, corner arc edges and vertex methods |
+| `Polygon` | `getEdge(i)`, `getVertex(i)` |
+
+Each face/edge accessor takes `...(number | FilterBuilder)`. Indices and filters compose — both narrow the result.
+
+### 6.2 select()
+
+```ts
+select(...filters: (FaceFilter | EdgeFilter)[])
+```
+
+Runs the filters over the entire scene and stores the result as the implicit selection. The next op that takes a selection uses it automatically.
+
+You can combine multiple filters; results are the union of all of them.
+
+```js
+select(edge().line(), edge().circle(20))       // both criteria contribute matches
+fillet(2)
+```
+
+### 6.3 face() filter
+
+From `fluidcad/filters`. Chain methods narrow the candidate set (AND). Every method has a `not...` counterpart for negation.
+
+**By shape:**
+- `.planar()` / `.notPlanar()`
+- `.cylinder(diameter?)` / `.notCylinder(...)`
+- `.cylinderCurve(diameter?)` — faces bounded by cylindrical curves
+- `.cone()` / `.notCone()`
+- `.torus(majorRadius?, minorRadius?)`
+- `.circle(diameter?)` — flat disc faces
+
+**By orientation / position:**
+- `.onPlane(plane, offset?)` / `.notOnPlane(...)`
+- `.parallelTo(plane)` / `.notParallelTo(...)`
+- `.above(plane, offset?)` — entirely above the plane
+- `.below(plane, offset?)`
+- `.intersectsWith(plane)` — faces that cross the plane
+
+**By topology:**
+- `.edgeCount(n)`
+- `.hasEdge(...filtersOrObjects)`
+
+**By source:**
+- `.from(...sceneObjects)` — restrict to faces from those objects (recursive into containers).
+
+```js
+face().planar().onPlane("xy", 30)              // top face at z=30
+face().cylinder(10)                            // cylindrical faces of diameter 10
+face().intersectsWith("front").notOnPlane("xy")
+face().from(myBox).parallelTo("xy")
+```
+
+### 6.4 edge() filter
+
+**By shape:**
+- `.line(length?)` / `.notLine(...)`
+- `.circle(diameter?)` / `.notCircle(...)`
+- `.arc(radius?)` / `.notArc(...)`
+
+**By orientation:**
+- `.parallelTo(plane)` / `.notParallelTo(...)`
+- `.verticalTo(plane)` / `.notVerticalTo(...)` — perpendicular to the plane
+
+**By position:**
+- `.onPlane(plane, offset?)` — accepts `{ offset, bothDirections, partial }`
+- `.above(plane, offset?)`
+- `.below(plane, offset?)`
+- `.intersectsWith(sceneObject)` — edges that cross another scene object's edges
+
+**By parent:**
+- `.belongsToFace(...filtersOrObjects)`
+- `.from(...sceneObjects)`
+
+```js
+edge().verticalTo("xy")                        // edges perpendicular to ground plane
+edge().line(10).onPlane("xy", 0)               // 10-long line edges on the ground
+edge().belongsToFace(face().cylinder())        // edges on cylindrical faces
+edge().from(myBox).circle()                    // circular edges of myBox only
+```
+
+### 6.5 Composing & negation
+
+Filter chain is AND. `select()` of multiple filter builders is OR. Negate any criterion with the `.notX()` form. `from()` composes with the rest as AND, and selections survive being cloned by `repeat()` / `mirror()` (references are remapped).
+
+---
+
+## 7. Transforms & Patterns
+
+### 7.1 Standalone transforms
+
+#### translate
+
+```ts
+translate(x, ...targets)
+translate(x, y, ...targets)
+translate(x, y, z, ...targets)
+translate(point: PointLike, ...targets)
+translate(x, y, z, copy: boolean, ...targets)    // copy flag (works at any arity)
+```
+
+Defaults to last object if no targets passed. Returns `SceneObject`.
+
+```js
+const s = sphere(25)
+translate(0, 0, 100, s)                        // move it 100 up
+translate(50, 0, 0, true, s)                   // copy + move
+```
+
+#### rotate
+
+```ts
+// 2D (inside sketch) — angle around plane Z
+rotate(angle, ...targets)
+rotate(angle, copy: boolean, ...targets)
+
+// 3D — around an axis
+rotate(axis: AxisLike, angle, ...targets)
+rotate(axis, angle, copy: boolean, ...targets)
+```
+
+```js
+rotate("z", 45, s)                             // 45° around world Z
+rotate({ point: [0,0,0], direction: "x" }, 90)
+```
+
+#### mirror
+
+```ts
+// 2D (inside sketch)
+mirror(line: SceneObject)
+mirror(axis: AxisLike)
+mirror(line, ...geometries)
+mirror(axis, ...geometries)
+
+// 3D
+mirror(plane: PlaneLike, ...objects)
+```
+
+Inside a sketch, mirrors across a line or axis (e.g., `mirror("x")` mirrors across the sketch's local X axis). Outside, mirrors solids across a plane.
+
+`mirror` (3D) returns `Mirror` (extends `BooleanOperation`) with `.exclude(...objects)` to skip specific objects.
+
+### 7.2 copy() — snapshot duplication
+
+```ts
+// Linear
+copy("linear", axis: AxisLike, options, ...objects)
+copy("linear", axes: AxisLike[], options, ...objects)
+
+// Circular
+copy("circular", axis: AxisLike, options, ...objects)        // 3D
+copy("circular", center: Point2D, options, ...objects)       // inside sketch
+```
+
+**`LinearCopyOptions` / `LinearRepeatOptions`:**
+- `count: number | number[]` — instances per axis (including original).
+- `offset: number | number[]` — spacing between instances. Mutually exclusive with `length`.
+- `length: number | number[]` — total span; instances are evenly distributed.
+- `centered: boolean` — center pattern around original.
+- `skip: number[][]` — indices to skip (per-axis tuples).
+
+**`CircularCopyOptions` / `CircularRepeatOptions`:**
+- `count`, `angle`, `offset` (mutually exclusive with `angle`), `centered`, `skip`.
+
+```js
+const pin = extrude(10).new()
+copy("linear", "x", { count: 4, offset: 30 }, pin)
+copy("linear", ["x", "y"], { count: [3, 2], offset: [20, 40] }, pin)
+copy("circular", "z", { count: 6, angle: 360 }, pin)
+```
+
+`copy()` clones the finished shape — copies are independent of the original's modeling history.
+
+### 7.3 repeat() — feature re-application
+
+```ts
+repeat("linear", axis | axes, options, ...objects)
+repeat("circular", axis, options, ...objects)
+repeat("mirror", plane, ...objects)
+repeat("rotate", axis, angle?, ...objects)        // angle defaults to 90°
+repeat(matrix: Matrix4, ...objects)
+```
+
+`repeat()` re-applies the modeling feature itself. Pass the result of an `extrude()`, `cut()`, `fillet()`, etc. as the last argument(s) — each repetition re-runs that operation at the new position.
+
+```js
+// Cut one pocket, then repeat the cut across a grid → one solid with N pockets
+const pocket = cut(10)
+repeat("linear", ["x", "y"], { count: [4, 2], offset: [30, 30] }, pocket)
+
+// Mirror a feature across a plane
+const boss = extrude(15)
+repeat("mirror", "front", boss)
+```
+
+### 7.4 copy vs repeat — when to use which
+
+| You want… | Use |
+|-----------|-----|
+| Clone the whole finished shape at new positions (each copy independent) | `copy()` |
+| Re-run a feature so it cuts/extrudes into the same solid at each position | `repeat()` |
+| One solid with multiple pockets/bosses | `repeat()` with the cut/extrude result |
+| Many separate solids of the same shape | `copy()` with `.new()` on the original |
+| Mirror a feature across a plane | `repeat("mirror", plane, feature)` |
+
+### 7.5 Chained transforms on objects
+
+`Transformable` objects (sphere/cylinder, results of `translate`/`rotate`/`mirror`, anything inheriting `ITransformable`) chain:
+
+```js
+sphere(20)
+    .translate(50, 0, 0)
+    .rotate("z", 30)
+
+cylinder(10, 40)
+    .transform(myMatrix4)
+```
+
+Matrix4 composition is left-to-right: `.translate(T).rotate(R)` applies translation first, then rotation.
+
+---
+
+## 8. Reference Geometry
+
+### 8.1 plane()
+
+```ts
+plane(plane: PlaneLike, options: PlaneTransformOptions)
+plane(plane: PlaneLike, offset: number)
+plane(selection: SceneObject)                      // from a face
+plane(selection: SceneObject, options)
+plane(selection: SceneObject, offset)
+plane(plane: Plane, options)                       // transform an existing plane
+plane(p1: PlaneLike, p2: PlaneLike, options?)      // midplane between two planes
+plane(p1: Plane, p2: Plane, options?)
+```
+
+`PlaneTransformOptions`:
+- `offset: number` — translate along the normal.
+- `rotateX: number`, `rotateY: number`, `rotateZ: number` — degrees.
+
+```js
+const p = plane("xy", 50)                          // XY shifted up 50
+const p2 = plane("xz", { offset: 30, rotateZ: 45 })
+const p3 = plane(face1, 10)                        // 10 above a face
+const mid = plane("xy", plane("xy", 100))          // midplane
+```
+
+### 8.2 axis()
+
+```ts
+axis(axis: AxisLike)
+axis(axis: AxisLike, options: AxisTransformOptions)
+axis(source: SceneObject)                          // from an edge
+axis(source: SceneObject, options)
+axis(axis: Axis, options)
+axis(a1: AxisLike, a2: AxisLike, options?)         // midaxis
+axis(a1: Axis, a2: Axis, options?)
+```
+
+`AxisLike` can be `"x"`, `"y"`, `"z"`, a direction vector, or an object `{ point?, direction }`. `AxisTransformOptions` includes `offsetX`, `offsetY`, `offsetZ`, `flip`, etc.
+
+```js
+const a = axis("y", { offsetZ: 100 })              // Y axis raised by 100
+const a2 = axis(edgeRef)                           // axis from a straight edge
+```
+
+### 8.3 local()
+
+```ts
+local('x' | 'y' | 'z')
+```
+
+Returns an axis interpreted **relative to the active sketch's plane**. Useful when you're inside a sketch on a tilted plane and want "this sketch's X axis," not world X.
+
+```js
+sketch(rotatedPlane, () => {
+    // ...
+    mirror(local("x"))                              // mirror across sketch-local X
+})
+```
+
+---
+
+## 9. Utilities
+
+### 9.1 part()
+
+```ts
+part(name: string, callback: () => void)
+```
+
+Creates an **isolation boundary**. Shapes inside the callback only auto-fuse with each other, not with anything outside the part. Use for assemblies with multiple components.
+
+```js
+part("base", () => {
+    sketch("xy", () => rect(200, 100).centered())
+    extrude(20)
+})
+
+part("pillar", () => {
+    cylinder(20, 50).translate(0, 0, 20)
+})
+```
+
+Reusable parts: wrap `part(...)` in a function for parametric instances:
+
+```js
+function createPin(d = 10, h = 30) {
+    return part("pin", () => {
+        cylinder(d / 2, h)
+    })
+}
+
+createPin(8, 25)
+createPin(12, 40).translate(50, 0, 0)
+```
+
+### 9.2 color()
+
+```ts
+color(color: string)                               // CSS color, applies to last selection
+color(color: string, selection: SceneObject)
+```
+
+Accepts named colors (`"red"`), hex (`"#3498db"`), `rgb(...)`, etc.
+
+```js
+select(face().planar().onPlane("xy", 30))
+color("#3498db")
+
+const e = extrude(30)
+color("red", e.sideFaces())
+```
+
+### 9.3 remove()
+
+```ts
+remove(...objects: SceneObject[])
+```
+
+Deletes objects from the scene. Most commonly used after `.reusable()` when you're done with the reusable source:
+
+```js
+const profile = sketch("xy", () => circle(60)).reusable()
+extrude(20)
+extrude(50)
+remove(profile)                                    // clean up
+```
+
+### 9.4 load()
+
+```ts
+load(fileName: string)
+```
+
+Imports a 3D model file (STEP, STL, etc.) by relative filename from the project folder. Returns an `ILoadFile` (extends `SceneObject`) with chainable filtering:
+
+```js
+load("bracket.step")                               // loads as a SceneObject
+load("bracket.step").translate(0, 0, 50).rotate("z", 90)
+```
+
+`ILoadFile` may support `.noColors()`, `.include(...)`, `.exclude(...)` to control which sub-shapes are imported and whether to keep STEP colors — consult the codebase if you need these.
+
+### 9.5 split / trim (top-level)
+
+```ts
+split(...objects)                                  // 2D split at crossings (inside sketch)
+trim()                                             // 2D trim (inside sketch)
+trim(...filters: EdgeFilter[])
+```
+
+---
+
+## 10. Idiomatic Patterns (Cookbook)
+
+Each recipe is a complete `.fluid.js` file you can paste in.
+
+### 10.1 Rounded-corner open container
+
+```js
+import { sketch, rect, extrude, fillet, shell } from 'fluidcad/core';
+
+sketch("xy", () => {
+    rect(120, 80).centered().radius(10)
+})
+
+const box = extrude(40)
+
+fillet(3, box.startEdges())
+shell(-2, box.endFaces())
+```
+
+### 10.2 Plate with a grid of holes
+
+```js
+import { sketch, rect, circle, move, extrude, cut, repeat } from 'fluidcad/core';
+
+sketch("xy", () => {
+    rect(200, 120).centered()
+})
+const plate = extrude(8)
+
+sketch(plate.endFaces(), () => {
+    move([-75, -40])
+    circle(8)
+})
+const hole = cut()                              // through-all
+
+repeat("linear", ["x", "y"], {
+    count: [6, 4],
+    offset: [30, 25]
+}, hole)
+```
+
+### 10.3 Revolved profile (cup-like)
+
+```js
+import { sketch, move, line, vLine, hLine, revolve } from 'fluidcad/core';
+
+sketch("xz", () => {
+    move([10, 0])
+    hLine(30)               // bottom outer
+    vLine(50)               // outer wall
+    hLine(-25)              // top rim
+    vLine(-45)              // inner wall down
+    hLine(-5)               // inner bottom
+    line([10, 0])           // close
+})
+
+revolve("z")
+```
+
+### 10.4 Counter-bore on existing top face
+
+```js
+import { sketch, rect, circle, extrude, cut } from 'fluidcad/core';
+
+sketch("xy", () => rect(60, 60).centered())
+const base = extrude(20)
+
+sketch(base.endFaces(), () => circle(20))       // big circle for the counter-bore
+cut(5)                                          // counter-bore: 5mm deep
+
+sketch(base.endFaces(), () => circle(8))        // through-hole
+cut()                                           // through-all
+```
+
+### 10.5 Symmetric part from one half
+
+```js
+import { sketch, rect, move, extrude, repeat } from 'fluidcad/core';
+
+sketch("xy", () => {
+    move([5, -20])
+    rect(60, 40)                                // off-center half
+})
+const half = extrude(15)
+
+repeat("mirror", "yz", half)                    // mirror across the YZ plane
+```
+
+### 10.6 Reusable sketch consumed twice
+
+```js
+import { sketch, circle, extrude, remove } from 'fluidcad/core';
+
+const profile = sketch("xy", () => {
+    circle(60)
+}).reusable()
+
+extrude(10)                                     // first use — base disc
+extrude(50)                                     // reuses the same profile
+
+remove(profile)                                 // clean up
+```
+
+### 10.7 Tangent-arc + tangent-line outline
+
+```js
+import { sketch, circle, hMove, tLine, tArc, mirror } from 'fluidcad/core';
+import { outside } from 'fluidcad/constraints';
+
+sketch("xy", () => {
+    const c1 = circle(40).reusable()
+    hMove(60)
+    const c2 = circle(20).reusable()
+
+    const t = tLine(outside(c1), outside(c2))   // external tangent line
+    tArc(t.end())                                // tangent arc continuing from line end
+    mirror("x", t)                               // mirror to build the other side
+})
+
+const e = extrude(8)
+```
+
+### 10.8 Loft between offset profiles
+
+```js
+import { sketch, circle, rect, plane, loft } from 'fluidcad/core';
+
+const bottom = sketch("xy", () => circle(60))
+const top = sketch(plane("xy", 80), () => rect(70, 70).centered().radius(8))
+
+loft(bottom, top)
+```
+
+### 10.9 Sweep along a path
+
+```js
+import { sketch, line, arc, circle, sweep } from 'fluidcad/core';
+
+const path = sketch("xy", () => {
+    line([0, 0], [80, 0])
+    arc([160, 60]).radius(80)
+}).reusable()
+
+sketch("yz", () => circle(6))
+sweep(path)
+```
+
+### 10.10 Selective fillets via filter
+
+```js
+import { sketch, rect, extrude, select, fillet, color } from 'fluidcad/core';
+import { edge, face } from 'fluidcad/filters';
+
+sketch("xy", () => rect(100, 60).centered())
+const box = extrude(30)
+
+select(edge().verticalTo("xy"))                 // only vertical edges
+fillet(5)
+
+select(face().planar().onPlane("xy", 30))       // the top face
+color("#3498db")
+```
+
+### 10.11 Assembly with two parts
+
+```js
+import { sketch, rect, extrude, cylinder, translate, part } from 'fluidcad/core';
+
+part("base", () => {
+    sketch("xy", () => rect(200, 100).centered())
+    extrude(20)
+})
+
+part("pillar", () => {
+    cylinder(15, 60).translate(0, 0, 20)
+})
+```
+
+The pillar sits on the base but stays a separate solid.
+
+### 10.12 Drafted pocket pattern
+
+```js
+import { sketch, rect, move, extrude, cut, fillet, repeat } from 'fluidcad/core';
+
+sketch("xy", () => rect(300, 100).centered())
+extrude(40)
+
+sketch("xy", () => {
+    move([-130, -30])
+    rect(30, 40)
+})
+const pocket = cut(30).draft(-10)                // tapered inward 10°
+fillet(3, pocket.internalEdges())
+
+repeat("linear", ["x", "y"], {
+    count: [7, 2],
+    length: [260, 60]
+}, pocket)
+```
+
+### 10.13 Shell + intersection grooves
+
+```js
+import { sketch, rect, extrude, shell, fillet, intersect, select, repeat } from 'fluidcad/core';
+import { face } from 'fluidcad/filters';
+
+sketch("xy", () => rect(170, 100).radius(18).centered())
+const e = extrude(24)
+const s = shell(-5, e.endFaces())
+fillet(8, s.internalEdges())
+
+// Grooves on the front face — intersect the box with the "front" plane to get a profile
+const facesX = select(face().intersectsWith("front").notOnPlane("xy"))
+const groove = sketch("front", () => { intersect(facesX) })
+
+const grooveCut = extrude(3, groove).thin(-1).remove().symmetric()
+
+repeat("linear", "y", { count: 3, offset: 25, centered: true }, grooveCut)
+```
+
+### 10.14 Hex lantern with windows
+
+```js
+import { polygon, plane, extrude, shell, select, sketch, project, offset, cut, repeat } from 'fluidcad/core';
+import { face } from 'fluidcad/filters';
+
+const sides = 6;
+const h = 150;
+
+sketch(plane("xy", 24), () => polygon(sides, 100))
+const middle = extrude(h).draft(8).new()
+
+select(face().onPlane("xy", h + 24), face().onPlane("xy", 24))
+shell(-7)
+
+// Window cuts on each side face
+sketch(middle.sideFaces(0), () => {
+    project(middle.sideFaces(0))
+    offset(-6, true)                            // inset by 6, remove original
+})
+const window = cut(7)
+
+repeat("circular", "z", {
+    count: sides,
+    offset: 360 / sides
+})
+```
+
+### 10.15 Coloring by filter
+
+```js
+import { sketch, rect, extrude, color, select } from 'fluidcad/core';
+import { face } from 'fluidcad/filters';
+
+sketch("xy", () => rect(100, 60).centered())
+const e = extrude(30)
+
+color("red", e.endFaces())
+color("blue", e.startFaces())
+select(face().from(e).parallelTo("yz"))
+color("#2ecc71")
+```
+
+---
+
+## 11. Common Mistakes & Footguns
+
+Each one shows ❌ wrong → ✅ right with a one-line **Why**.
+
+### 11.1 Sketch consumed by extrude
+
+```js
+// ❌ second extrude has nothing to consume
+sketch("xy", () => rect(100, 50))
+extrude(30)
+extrude(20)                                     // error: no active sketch
+
+// ✅ mark reusable (or store + pass explicitly)
+const s = sketch("xy", () => rect(100, 50)).reusable()
+extrude(30)
+extrude(20)
+remove(s)
+```
+
+**Why:** by default a sketch is consumed by the first feature that uses it. `.reusable()` keeps it alive.
+
+### 11.2 Accidental auto-fusion
+
+```js
+// ❌ two extrudes that touch — they silently merge
+sketch("xy", () => rect(100, 50))
+extrude(30)
+sketch("xy", () => { move([25,0]); rect(100, 50) })
+extrude(30)                                     // now one solid, probably not what you wanted
+
+// ✅ use .new() to keep them separate
+extrude(30).new()
+```
+
+**Why:** additive ops fuse with all touching solids by default. `.new()` opts out. `part()` is a stronger boundary.
+
+### 11.3 Wrong sketch plane for revolve
+
+```js
+// ❌ profile on XY can't revolve around Z (axis is in the plane)
+sketch("xy", () => { move([20, 0]); rect(10, 30) })
+revolve("z")                                    // error or degenerate result
+
+// ✅ sketch on a plane that contains the axis
+sketch("xz", () => { move([20, 0]); rect(10, 30) })
+revolve("z")
+```
+
+**Why:** the sketch plane must contain the revolve axis. Use `"xz"` or `"yz"` to revolve around `"z"`.
+
+### 11.4 Shell thickness sign
+
+```js
+// ❌ positive thickness grows the solid outward
+shell(2, e.endFaces())                          // outer dim now larger by 2
+
+// ✅ negative thickness goes inward, outer dim preserved
+shell(-2, e.endFaces())
+```
+
+**Why:** negative shells inward (typical), positive shells outward.
+
+### 11.5 cut() with no distance is through-all
+
+```js
+// ❌ probably meant a pocket, got a through-hole
+sketch(e.endFaces(), () => circle(20))
+cut()                                           // cuts all the way through
+
+// ✅ specify the depth
+cut(10)
+```
+
+**Why:** zero-arg `cut()` is through-all by design. Always pass a distance for finite pockets.
+
+### 11.6 .symmetric() doubles total span
+
+```js
+// ❌ thinking this is total 50
+extrude(50).symmetric()                         // actually spans -50..+50 = 100 total
+
+// ✅ halve the argument when you want a fixed total
+extrude(25).symmetric()                         // total span 50
+```
+
+**Why:** symmetric extrudes by `distance` in each direction.
+
+### 11.7 .draft() sign convention
+
+```js
+// Outward draft on an extrude expands the top face
+extrude(30).draft(10)                           // top is bigger than bottom
+
+// ❌ this makes a pocket cut with an outward-tapered cavity (unusual)
+cut(20).draft(10)
+
+// ✅ for a "narrower at bottom" pocket, use negative
+cut(20).draft(-10)
+```
+
+**Why:** positive draft pushes material outward along the extrusion direction. For inward-tapered cuts (mold-friendly cavities), use negative.
+
+### 11.8 chamfer vs fillet
+
+```js
+// Easy to mix up — opposite visual results:
+fillet(5, e.endEdges())                         // curved (rounded)
+chamfer(5, e.endEdges())                        // flat (beveled)
+```
+
+**Why:** both round/break corners, but fillet uses an arc and chamfer uses a flat facet. Choose by aesthetic and manufacturing intent.
+
+### 11.9 copy() vs repeat() semantics
+
+```js
+// ❌ cut + copy → many independent solids each with one pocket
+cut(15)
+copy("linear", "x", { count: 4, offset: 40 })
+
+// ✅ cut + repeat → one solid with four pockets
+const c = cut(15)
+repeat("linear", "x", { count: 4, offset: 40 }, c)
+```
+
+**Why:** `copy()` clones the finished shape. `repeat()` re-applies the feature so it interacts with the existing solid at each new location.
+
+### 11.10 offset vs length in pattern options
+
+```js
+// ❌ ambiguous — picking one is required
+copy("linear", "x", { count: 4, offset: 30, length: 90 })   // don't mix
+
+// ✅ either spacing OR span
+copy("linear", "x", { count: 4, offset: 30 })               // 30 between each
+copy("linear", "x", { count: 4, length: 90 })               // evenly across 90
+```
+
+**Why:** `offset` and `length` are mutually exclusive. Same for `angle` vs `offset` in circular patterns.
+
+### 11.11 Stale edge references after fillet/chamfer
+
+```js
+const e = extrude(30)
+
+// ❌ edges are gone after the first fillet
+fillet(5, e.endEdges())
+chamfer(2, e.endEdges())                        // those edges don't exist anymore
+
+// ✅ select fresh, or pick a different region
+fillet(5, e.endEdges())
+chamfer(2, e.startEdges())
+```
+
+**Why:** the original edges are replaced by the fillet surface. Faces (as planes) survive — but edges and face *geometry* don't.
+
+### 11.12 Guide geometry doesn't build faces
+
+```js
+// ❌ the guide circle doesn't cut anything
+sketch("xy", () => {
+    rect(100, 60).centered()
+    circle(20).guide()                          // construction only — ignored by extrude
+})
+extrude(20)                                     // solid box, no hole
+
+// ✅ either drop .guide(), or model the hole as a separate op
+sketch("xy", () => {
+    rect(100, 60).centered()
+    circle(20)
+})
+extrude(20)                                     // ring (inner circle becomes a hole)
+```
+
+**Why:** `.guide()` marks construction geometry. It's useful as a target for `tLine`/`tArc`/`hLine(target)` but does not produce faces.
+
+### 11.13 Plane / axis names are string literals
+
+```js
+// ❌ a free string isn't a valid plane name
+sketch("top-plane", () => { ... })              // error
+
+// ✅ use the literal names: xy/xz/yz, or aliases top/front/right, optionally negated
+sketch("xy", () => { ... })
+sketch("top", () => { ... })                    // alias
+sketch("-xy", () => { ... })                    // negated normal
+```
+
+**Why:** valid plane strings: `"xy"`/`"top"`, `"xz"`/`"front"`, `"yz"`/`"right"`, and their negative versions (`"-xy"`/`"bottom"`, etc.). Anything else must be a `Plane` object from `plane(...)` or a face.
+
+### 11.14 Auto-fusion across operations vs across parts
+
+```js
+// ❌ two parts intended to be assembled but they fuse together
+sketch("xy", () => rect(200, 100).centered()); extrude(20)
+cylinder(15, 60).translate(0, 0, 20)            // fuses with the base — one solid now
+
+// ✅ wrap each in part() for isolation
+part("base", () => {
+    sketch("xy", () => rect(200, 100).centered()); extrude(20)
+})
+part("pillar", () => {
+    cylinder(15, 60).translate(0, 0, 20)
+})
+```
+
+**Why:** `.new()` keeps a single operation separate. `part()` is a stronger boundary for whole assemblies.
+
+### 11.15 Sketching on a face vs sketching on a plane
+
+```js
+// On a face — cursor starts at the face's center
+sketch(e.endFaces(), () => {
+    circle(20)                                  // centered on the face
+})
+
+// On a plane — cursor starts at the plane origin
+sketch("xy", () => {
+    circle(20)                                  // at world (0,0,0)
+})
+```
+
+**Why:** the convenience default for `sketch(face, ...)` is the face center. Reset with `move([0,0])` if you need plane-origin behavior.
+
+### 11.16 Storing extrudes you'll need later
+
+```js
+// ❌ no reference saved → can't use .endFaces() later
+extrude(30)
+sketch( /* what face? */ , () => circle(10))
+
+// ✅ save the reference at creation
+const e = extrude(30)
+sketch(e.endFaces(), () => circle(10))
+```
+
+**Why:** the implicit "last sketch / last selection" defaults don't carry over to face accessors. Always store the result if you'll reference its faces/edges.
+
+### 11.17 Tangent-arc / tCircle multiple-solution surprise
+
+```js
+// ❌ this returns ALL valid tangent circles — could be 8 of them
+tCircle(c1, c2, 30)
+
+// ✅ qualify the geometric relationship you want
+tCircle(outside(c1), outside(c2), 30)           // external tangency
+tCircle(enclosing(c1), enclosed(c2), 30)        // wraps c1, fits inside c2
+// Also: pass mustTouch: true to filter out phantom solutions on infinite line extensions
+tCircle(c1, c2, 30, true)
+```
+
+**Why:** the solver returns every valid solution by default. Use `outside`/`enclosed`/`enclosing` and/or `mustTouch` to narrow.
+
+### 11.18 Filters compose as AND inside one builder
+
+```js
+// AND within a builder: edges that are circles AND on the XY plane
+edge().circle().onPlane("xy", 0)
+
+// OR across builders inside select():
+select(edge().circle(), edge().line(20))        // circles OR 20-long lines
+```
+
+**Why:** chained filter methods narrow. To union multiple criteria, pass multiple filter builders to `select()`.
+
+---
+
+## 12. Quick API Cheatsheet
+
+Alphabetical. Signatures are shorthand — see prior sections for full overloads.
+
+| Name | Purpose | Shorthand |
+|------|---------|-----------|
+| `aLine` | Line at given angle | `aLine(angle, length)` |
+| `arc` | Arc between points or by angle | `arc(end)` / `arc(r, a0, a1)` |
+| `axis` | Reference axis | `axis(axisLike, options?)` |
+| `bezier` | Bezier curve | `bezier(...controlPoints, end)` |
+| `center` | Move cursor to plane origin | `center()` |
+| `chamfer` | Bevel edges | `chamfer(d, ...edges?)` |
+| `circle` | Circle by diameter | `circle(d)` / `circle(center, d)` |
+| `color` | Apply color | `color(css, selection?)` |
+| `common` | Boolean intersection (2D or 3D) | `common()` / `common(...objs)` |
+| `connect` | Close sketch path | `connect()` |
+| `copy` | Clone shape linearly or circularly | `copy(type, axisOrCenter, opts, ...objs?)` |
+| `cut` | Subtract sketch from solids | `cut(d?)` / `cut(d, target?)` |
+| `cylinder` | 3D cylinder primitive | `cylinder(r, h)` |
+| `draft` | Apply draft angle to faces | `draft(angle, ...faces?)` |
+| `ellipse` | Ellipse by semi-radii | `ellipse(rx, ry)` |
+| `extrude` | Pull sketch into solid | `extrude(d?, target?)` |
+| `fillet` | Round edges | `fillet(r?, ...edges?)` |
+| `fuse` | Boolean union (2D or 3D) | `fuse()` / `fuse(...objs)` |
+| `hLine` | Horizontal line | `hLine(distance)` |
+| `hMove` | Move cursor horizontally | `hMove(d)` / `hMove(target)` |
+| `intersect` | 3D-on-sketch cross-section | `intersect(...objs)` |
+| `line` | Straight line | `line(end)` / `line(start, end)` |
+| `load` | Import 3D file | `load("file.step")` |
+| `local` | Sketch-local standard axis | `local('x' \| 'y' \| 'z')` |
+| `loft` | Smooth between profiles | `loft(...profiles)` |
+| `mirror` | Mirror geometry (2D line/axis or 3D plane) | `mirror(planeOrAxisOrLine, ...objs?)` |
+| `move` | Absolute cursor move | `move()` / `move([x,y])` |
+| `offset` | Offset sketch wire | `offset(d?, removeOriginal?)` |
+| `pMove` | Polar move | `pMove(r, angle)` |
+| `part` | Isolation boundary | `part(name, () => {...})` |
+| `plane` | Reference plane | `plane(planeLike, options?)` |
+| `polygon` | Regular polygon | `polygon(n, d, mode?)` |
+| `project` | Project 3D onto sketch plane | `project(...objs)` |
+| `rect` | Rectangle | `rect(w, h?)` |
+| `remove` | Delete from scene | `remove(...objs)` |
+| `repeat` | Re-apply feature at new positions | `repeat(type, axis/plane, opts?, ...objs?)` |
+| `revolve` | Sweep sketch around axis | `revolve(axis, angle?)` |
+| `rib` | Spine-based rib feature | `rib(thickness)` |
+| `rMove` | Rotate cursor tangent | `rMove(angle, pivot?)` |
+| `rotate` | Rotate (2D in sketch, 3D otherwise) | `rotate(angle, ...)` / `rotate(axis, angle, ...)` |
+| `select` | Filter-based selection | `select(...filters)` |
+| `shell` | Hollow out a solid | `shell(thickness, ...facesToRemove?)` |
+| `sketch` | Open a 2D sketch context | `sketch(plane, () => {...})` |
+| `slot` | Stadium/slot shape | `slot(length, radius)` |
+| `sphere` | 3D sphere primitive | `sphere(r)` |
+| `split` | Split sketch at crossings | `split()` / `split(...objs)` |
+| `subtract` | Boolean difference (2D or 3D) | `subtract(keep, remove)` |
+| `sweep` | Sweep sketch along path | `sweep(path)` |
+| `tArc` | Tangent arc | `tArc(target)` / `tArc(r, a)` / etc. |
+| `tCircle` | Tangent circle | `tCircle(c1, c2, d, mustTouch?)` |
+| `tLine` | Tangent line | `tLine(d)` / `tLine(c1, c2)` |
+| `translate` | Translate objects | `translate(x, y?, z?, ...objs?)` |
+| `trim` | Trim sketch segments | `trim()` / `trim(...filters)` |
+| `vLine` | Vertical line | `vLine(distance)` |
+| `vMove` | Move cursor vertically | `vMove(d)` / `vMove(target)` |
+
+**Filter builders (`fluidcad/filters`):**
+
+| Builder | Notable methods |
+|---------|-----------------|
+| `face()` | `.planar()`, `.cylinder(d?)`, `.cone()`, `.torus(R?, r?)`, `.circle(d?)`, `.cylinderCurve(d?)`, `.onPlane(p, off?)`, `.parallelTo(p)`, `.above/below(p, off?)`, `.intersectsWith(p)`, `.edgeCount(n)`, `.hasEdge(...)`, `.from(...objs)`, plus `not...` variants |
+| `edge()` | `.line(L?)`, `.circle(d?)`, `.arc(r?)`, `.onPlane(p, off?)`, `.parallelTo(p)`, `.verticalTo(p)`, `.above/below(p, off?)`, `.intersectsWith(obj)`, `.belongsToFace(...)`, `.from(...objs)`, plus `not...` variants |
+
+**Constraint qualifiers (`fluidcad/constraints`):**
+
+| Function | Use with `tLine` / `tArc` / `tCircle` |
+|----------|----------------------------------------|
+| `outside(obj)` | Solution is external to `obj` |
+| `enclosing(obj)` | Solution wraps around `obj` |
+| `enclosed(obj)` | Solution sits inside `obj` |
+| `unqualified(obj)` | Strip any prior qualification |
+
+**Universal chain methods:**
+
+| Method | On | Effect |
+|--------|----|--------|
+| `.name(str)` | Every `SceneObject` | Display name |
+| `.reusable()` | Every `SceneObject` | Survive consumption |
+| `.guide()` | `Geometry` (sketch) | Construction only |
+| `.start()` / `.end()` / `.tangent()` | `Geometry` | Lazy vertex / direction |
+| `.add()` / `.new()` / `.remove()` / `.scope(...)` | `BooleanOperation` (Extrude/Revolve/Loft/Sweep/Mirror/Rib) | Boolean scope |
+| `.symmetric()` | Extrude/Revolve/Cut | Bidirectional |
+| `.draft(angle)` | Extrude/Cut/Sweep/Rib | Taper |
+| `.thin(o)` / `.thin(o1, o2)` | Extrude/Cut/Revolve/Loft/Sweep | Thin-wall mode |
+| `.endOffset(d)` | Extrude/Cut/Sweep | Shift end face |
+| `.pick(...pts)` | Extrude/Cut/Revolve/Sweep | Region picking |
+| `.drill(bool)` | Extrude/Sweep | Treat inner closed shapes as holes |
+| `.translate(...)` / `.rotate(...)` / `.mirror(...)` / `.transform(m)` | `Transformable` | Standalone transforms |
+
+---
+
+*End of llm.md.*

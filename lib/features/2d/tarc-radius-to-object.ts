@@ -1,4 +1,5 @@
 import { GeometrySceneObject } from "./geometry.js";
+import { SceneObject } from "../../common/scene-object.js";
 import { Vertex } from "../../common/vertex.js";
 import { QualifiedSceneObject } from "./constraints/qualified-geometry.js";
 import { solveTangentArcRadiusToObject } from "../../oc/constraints/geometric/tangent-arc-radius-to-object.js";
@@ -41,6 +42,12 @@ export class TangentArcRadiusToObject extends GeometrySceneObject {
     }
 
     this.addShapes(result.edges);
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const remappedObject = remap.get(this.target.object) || this.target.object;
+    const target = new QualifiedSceneObject(remappedObject, this.target.qualifier);
+    return new TangentArcRadiusToObject(this.radius, target);
   }
 
   compareTo(other: TangentArcRadiusToObject): boolean {

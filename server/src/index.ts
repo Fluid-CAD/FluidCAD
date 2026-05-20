@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import express from 'express';
@@ -9,13 +10,33 @@ import { createActionsRouter } from './routes/actions.ts';
 import { createExportRouter } from './routes/export.ts';
 import { createScreenshotRouter } from './routes/screenshot.ts';
 import { createPreferencesRouter } from './routes/preferences.ts';
+import { createHealthRouter } from './routes/health.ts';
 import { normalizePath } from './normalize-path.ts';
+import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
+import { addInstance, removeInstance } from './global-registry.ts';
 import type { CompileError, ServerToUIMessage } from './ws-protocol.ts';
 import { extractSourceLocation } from '../../lib/dist/index.js';
 
 const PORT = parseInt(process.env.FLUIDCAD_SERVER_PORT || '3100', 10);
 const WORKSPACE_PATH = normalizePath(process.env.FLUIDCAD_WORKSPACE_PATH || '');
 const UI_DIST = path.resolve(import.meta.dirname, '../../ui/dist');
+
+function readPackageVersion(): string {
+  try {
+    const pkgPath = path.resolve(import.meta.dirname, '../../package.json');
+    const raw = fs.readFileSync(pkgPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (typeof parsed.version === 'string') {
+      return parsed.version;
+    }
+  } catch {
+    // Fall through to unknown.
+  }
+  return '0.0.0';
+}
+
+const PACKAGE_VERSION = readPackageVersion();
+const STARTED_AT = new Date().toISOString();
 
 // ---------------------------------------------------------------------------
 // IPC helpers — communication with extension host process
@@ -36,6 +57,11 @@ const fluidCadServer = new FluidCadServer();
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 
+app.use('/api', createHealthRouter({
+  version: PACKAGE_VERSION,
+  workspacePath: WORKSPACE_PATH,
+  startedAt: STARTED_AT,
+}));
 app.use('/api', createPropertiesRouter(fluidCadServer));
 app.use('/api', createActionsRouter(fluidCadServer, sendToExtension, broadcastToUI, WORKSPACE_PATH));
 app.use('/api', createExportRouter(fluidCadServer));
@@ -348,6 +374,35 @@ httpServer.listen(PORT, () => {
   const url = `http://localhost:${PORT}`;
   console.log(`FluidCAD server listening on ${url}`);
 
+  // Publish this instance so a standalone MCP process can discover us.
+  // Discovery is best-effort: an MCP-less workflow must keep working even if
+  // we can't write the file (read-only FS, permissions, …).
+  if (WORKSPACE_PATH) {
+    try {
+      writeInstanceFile({
+        schemaVersion: 1,
+        port: PORT,
+        pid: process.pid,
+        workspacePath: WORKSPACE_PATH,
+        version: PACKAGE_VERSION,
+        startedAt: STARTED_AT,
+      });
+    } catch (err: any) {
+      console.warn(`Failed to write instance file: ${err?.message ?? err}`);
+    }
+    try {
+      addInstance({
+        workspacePath: WORKSPACE_PATH,
+        port: PORT,
+        pid: process.pid,
+        version: PACKAGE_VERSION,
+        startedAt: STARTED_AT,
+      });
+    } catch (err: any) {
+      console.warn(`Failed to update global registry: ${err?.message ?? err}`);
+    }
+  }
+
   // Signal ready immediately so extension can show the webview
   sendToExtension({ type: 'ready', port: PORT, url });
 
@@ -360,4 +415,32 @@ httpServer.listen(PORT, () => {
     sendToExtension({ type: 'init-complete', success: false, error });
     broadcastToUI({ type: 'init-complete', success: false, error });
   });
+});
+
+// ---------------------------------------------------------------------------
+// Shutdown — clean up the instance file and registry entry
+// ---------------------------------------------------------------------------
+
+let cleanedUp = false;
+function cleanupDiscovery(): void {
+  if (cleanedUp || !WORKSPACE_PATH) {
+    return;
+  }
+  cleanedUp = true;
+  deleteInstanceFile(WORKSPACE_PATH, process.pid);
+  try {
+    removeInstance(WORKSPACE_PATH, process.pid);
+  } catch {
+    // Registry cleanup is best-effort; stale entries are pruned by readers.
+  }
+}
+
+process.on('exit', cleanupDiscovery);
+process.on('SIGINT', () => {
+  cleanupDiscovery();
+  process.exit(0);
+});
+process.on('SIGTERM', () => {
+  cleanupDiscovery();
+  process.exit(0);
 });

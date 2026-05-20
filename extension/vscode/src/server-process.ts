@@ -52,6 +52,44 @@ export function initLiveRender(client: Client) {
   client.context.subscriptions.push(disposable);
 }
 
+/**
+ * Snapshot the editor's dirty-buffer set and ship it to the server over IPC.
+ * The server caches the set behind `GET /api/editor/dirty-files`, which the
+ * MCP source-editing tools probe before clobbering a file. Only `.fluid.js`
+ * buffers are tracked — the agent has no reason to write anything else.
+ */
+function snapshotDirtyFiles(): string[] {
+  const dirty = new Set<string>();
+  for (const doc of vscode.workspace.textDocuments) {
+    if (!doc.isDirty) { continue; }
+    if (doc.uri.scheme !== 'file') { continue; }
+    if (!doc.fileName.endsWith('.fluid.js')) { continue; }
+    dirty.add(doc.uri.fsPath);
+  }
+  return Array.from(dirty);
+}
+
+export function initDirtyState(client: Client) {
+  const send = () => {
+    sendToServer(client, {
+      type: 'editor-dirty-state',
+      dirtyFiles: snapshotDirtyFiles(),
+    });
+  };
+
+  // Replay the current state once at startup. The server's set starts empty,
+  // so without this any buffer that was already dirty before activation
+  // would slip past the MCP guard.
+  send();
+
+  client.context.subscriptions.push(
+    vscode.workspace.onDidChangeTextDocument(() => send()),
+    vscode.workspace.onDidSaveTextDocument(() => send()),
+    vscode.workspace.onDidCloseTextDocument(() => send()),
+    vscode.workspace.onDidOpenTextDocument(() => send()),
+  );
+}
+
 export async function spawnServer(client: Client, workspacePath: string): Promise<void> {
   let serverEntry: string;
   try {

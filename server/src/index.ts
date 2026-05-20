@@ -12,6 +12,7 @@ import { createScreenshotRouter } from './routes/screenshot.ts';
 import { createPreferencesRouter } from './routes/preferences.ts';
 import { createHealthRouter } from './routes/health.ts';
 import { createSceneRouter } from './routes/scene.ts';
+import { createEditorRouter, DirtyBufferState } from './routes/editor.ts';
 import { normalizePath } from './normalize-path.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
 import { addInstance, removeInstance } from './global-registry.ts';
@@ -54,6 +55,7 @@ function sendToExtension(msg: any) {
 // ---------------------------------------------------------------------------
 
 const fluidCadServer = new FluidCadServer();
+const dirtyBufferState = new DirtyBufferState();
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -69,6 +71,7 @@ app.use('/api', createExportRouter(fluidCadServer));
 app.use('/api', createScreenshotRouter(requestScreenshot));
 app.use('/api', createPreferencesRouter());
 app.use('/api', createSceneRouter(fluidCadServer, () => lastCameraState));
+app.use('/api', createEditorRouter(dirtyBufferState));
 
 // Static files — serve UI build, with SPA fallback
 app.use(express.static(UI_DIST, {
@@ -356,6 +359,14 @@ async function handleExtensionMessage(msg: any) {
 
       case 'show-shape-properties': {
         broadcastToUI({ type: 'show-shape-properties', shapeId: msg.shapeId });
+        break;
+      }
+
+      case 'editor-dirty-state': {
+        if (Array.isArray(msg.dirtyFiles)) {
+          const paths = msg.dirtyFiles.filter((p: unknown): p is string => typeof p === 'string');
+          dirtyBufferState.setDirtyFiles(paths);
+        }
         break;
       }
 

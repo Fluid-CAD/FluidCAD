@@ -356,8 +356,8 @@ Operations return objects that support fluent chaining. Common chain methods:
 ### 3.10 Coordinate systems
 
 - World axes: `"x"`, `"y"`, `"z"`. Standard planes: `"xy"`, `"xz"`, `"yz"` (and aliases).
-- Inside a sketch, `"x"` and `"y"` refer to that sketch's plane axes (the plane's local frame), not world axes.
-- For sketch-relative axes outside a sketch context, or to be explicit, use `local('x' | 'y' | 'z')`.
+- `"x"`, `"y"`, `"z"` always refer to **world** axes — including inside a `sketch(...)` callback. Bare axis strings are not reinterpreted by the active sketch plane.
+- For axes in the active sketch's local frame, use `local('x' | 'y' | 'z')`. This works inside or outside the sketch callback (outside, it resolves against the currently active sketch plane).
 
 ---
 
@@ -1122,7 +1122,7 @@ mirror(axis, ...geometries)
 mirror(plane: PlaneLike, ...objects)
 ```
 
-Inside a sketch, mirrors across a line or axis (e.g., `mirror("x")` mirrors across the sketch's local X axis). Outside, mirrors solids across a plane.
+Inside a sketch, mirrors across a line or axis. Bare strings are still world axes (e.g., `mirror("x")` mirrors across the world X axis); use `mirror(local("x"))` to mirror across the sketch plane's local X. Outside a sketch, mirrors solids across a plane.
 
 `mirror` (3D) returns `Mirror` (extends `BooleanOperation`) with `.exclude(...objects)` to skip specific objects.
 

@@ -691,110 +691,17 @@ rest as AND, and selections survive being cloned by `repeat()` /
 
 ### 7.1 Standalone transforms
 
-#### translate
-
-```ts
-translate(x, ...targets)
-translate(x, y, ...targets)
-translate(x, y, z, ...targets)
-translate(point: PointLike, ...targets)
-translate(x, y, z, copy: boolean, ...targets)    // copy flag (works at any arity)
-```
-
-Defaults to last object if no targets passed. Returns `SceneObject`.
-
-```js
-const s = sphere(25)
-translate(0, 0, 100, s)                        // move it 100 up
-translate(50, 0, 0, true, s)                   // copy + move
-```
-
-#### rotate
-
-```ts
-// 2D (inside sketch) — angle around plane Z
-rotate(angle, ...targets)
-rotate(angle, copy: boolean, ...targets)
-
-// 3D — around an axis
-rotate(axis: AxisLike, angle, ...targets)
-rotate(axis, angle, copy: boolean, ...targets)
-```
-
-```js
-rotate("z", 45, s)                             // 45° around world Z
-rotate({ point: [0,0,0], direction: "x" }, 90)
-```
-
-#### mirror
-
-```ts
-// 2D (inside sketch)
-mirror(line: SceneObject)
-mirror(axis: AxisLike)
-mirror(line, ...geometries)
-mirror(axis, ...geometries)
-
-// 3D
-mirror(plane: PlaneLike, ...objects)
-```
-
-Inside a sketch, mirrors across a line or axis. Bare strings are still world axes (e.g., `mirror("x")` mirrors across the world X axis); use `mirror(local("x"))` to mirror across the sketch plane's local X. Outside a sketch, mirrors solids across a plane.
-
-`mirror` (3D) returns `Mirror` (extends `BooleanOperation`) with `.exclude(...objects)` to skip specific objects.
+- [`translate`](llm-docs/api/translate.md)
+- [`rotate`](llm-docs/api/rotate.md)
+- [`mirror`](llm-docs/api/mirror.md)
 
 ### 7.2 copy() — snapshot duplication
 
-```ts
-// Linear
-copy("linear", axis: AxisLike, options, ...objects)
-copy("linear", axes: AxisLike[], options, ...objects)
-
-// Circular
-copy("circular", axis: AxisLike, options, ...objects)        // 3D
-copy("circular", center: Point2D, options, ...objects)       // inside sketch
-```
-
-**`LinearCopyOptions` / `LinearRepeatOptions`:**
-- `count: number | number[]` — instances per axis (including original).
-- `offset: number | number[]` — spacing between instances. Mutually exclusive with `length`.
-- `length: number | number[]` — total span; instances are evenly distributed.
-- `centered: boolean` — center pattern around original.
-- `skip: number[][]` — indices to skip (per-axis tuples).
-
-**`CircularCopyOptions` / `CircularRepeatOptions`:**
-- `count`, `angle`, `offset` (mutually exclusive with `angle`), `centered`, `skip`.
-
-```js
-const pin = extrude(10).new()
-copy("linear", "x", { count: 4, offset: 30 }, pin)
-copy("linear", ["x", "y"], { count: [3, 2], offset: [20, 40] }, pin)
-copy("circular", "z", { count: 6, angle: 360 }, pin)
-```
-
-`copy()` clones the finished shape — copies are independent of the original's modeling history.
+See [`llm-docs/api/copy.md`](llm-docs/api/copy.md).
 
 ### 7.3 repeat() — feature re-application
 
-```ts
-repeat("linear", axis | axes, options, ...objects)
-repeat("circular", axis, options, ...objects)
-repeat("mirror", plane, ...objects)
-repeat("rotate", axis, angle?, ...objects)        // angle defaults to 90°
-repeat(matrix: Matrix4, ...objects)
-```
-
-`repeat()` re-applies the modeling feature itself. Pass the result of an `extrude()`, `cut()`, `fillet()`, etc. as the last argument(s) — each repetition re-runs that operation at the new position.
-
-```js
-// Cut one pocket, then repeat the cut across a grid → one solid with N pockets
-const pocket = cut(10)
-repeat("linear", ["x", "y"], { count: [4, 2], offset: [30, 30] }, pocket)
-
-// Mirror a feature across a plane
-const boss = extrude(15)
-repeat("mirror", "front", boss)
-```
+See [`llm-docs/api/repeat.md`](llm-docs/api/repeat.md).
 
 ### 7.4 copy vs repeat — when to use which
 

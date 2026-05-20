@@ -24,6 +24,12 @@ import {
   hitTest,
   listShapes,
 } from './tools/inspection.ts';
+import {
+  getCameraState,
+  screenshot,
+  screenshotMulti,
+  screenshotShape,
+} from './tools/screenshot.ts';
 import { loadDocsIndex, type DocsIndex } from './docs-index.ts';
 import { registerDocResources } from './resources.ts';
 import type { ToolResult } from './types.ts';
@@ -233,6 +239,121 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       toMcp(await getEdgeProperties({ workspace, shapeId, edgeIndex })),
   );
 
+  const namedViewArg = z.enum([
+    'front', 'back', 'left', 'right', 'top', 'bottom',
+    'iso-ftr', 'iso-fbr', 'iso-ftl', 'iso-fbl',
+    'iso-btr', 'iso-bbr', 'iso-btl', 'iso-bbl',
+  ]).describe('Named view direction. Cardinal axes (front, top, …) or one of 8 iso octants (iso-ftr = front-top-right, etc.).');
+
+  const screenshotViewArg = z
+    .discriminatedUnion('kind', [
+      z.object({ kind: z.literal('current') }),
+      z.object({ kind: z.literal('named'), name: namedViewArg }),
+      z.object({
+        kind: z.literal('orbit-from-current'),
+        azimuthDeg: z.number().describe('Spin around the up axis, in degrees.'),
+        elevationDeg: z.number().describe('Tilt up/down relative to the current elevation, in degrees.'),
+      }),
+      z.object({
+        kind: z.literal('look-from'),
+        eye: vec3,
+        target: vec3.optional(),
+      }),
+    ])
+    .describe('Stateless camera view for this screenshot. Does not move the user\'s interactive camera.');
+
+  const widthArg = z
+    .number()
+    .int()
+    .min(1)
+    .max(8192)
+    .optional()
+    .describe('Output width in pixels (default 800).');
+  const heightArg = z
+    .number()
+    .int()
+    .min(1)
+    .max(8192)
+    .optional()
+    .describe('Output height in pixels (default 800).');
+  const marginArg = z.number().nonnegative().optional();
+
+  server.registerTool(
+    'screenshot',
+    {
+      title: 'Capture a PNG of the current scene from a stateless view',
+      description:
+        'Renders the current FluidCAD scene to a PNG using a stateless camera view. The user\'s interactive camera is never moved. `view` defaults to the agent\'s last seen camera state — pass a `named` view (e.g. {kind:"named", name:"iso-ftr"}) for "show me from the front-top-right" or `look-from` for a precise vantage. Returns an MCP image content block.',
+      inputSchema: {
+        ...workspaceArg,
+        view: screenshotViewArg.optional(),
+        width: widthArg,
+        height: heightArg,
+        showGrid: z.boolean().optional(),
+        showAxes: z.boolean().optional(),
+        transparent: z.boolean().optional(),
+        autoCrop: z.boolean().optional(),
+        fitToModel: z.boolean().optional(),
+        margin: marginArg,
+      },
+    },
+    async (args) => toMcp(await screenshot(args as any)),
+  );
+
+  server.registerTool(
+    'screenshot_multi',
+    {
+      title: 'Capture a 2×2 composite of front/top/right/iso views',
+      description:
+        'Renders a single PNG showing four canonical views (front, top, right, iso-ftr) as a 2×2 grid. Use this when the agent needs to "see all sides at once" without four separate tool calls. The user\'s interactive camera is never moved.',
+      inputSchema: {
+        ...workspaceArg,
+        width: widthArg,
+        height: heightArg,
+        showGrid: z.boolean().optional(),
+        showAxes: z.boolean().optional(),
+        transparent: z.boolean().optional(),
+        margin: marginArg,
+      },
+    },
+    async (args) => toMcp(await screenshotMulti(args as any)),
+  );
+
+  server.registerTool(
+    'screenshot_shape',
+    {
+      title: 'Capture a framed iso view of a single shape',
+      description:
+        'Fetches the shape\'s bounding box and renders a PNG from an iso vantage point that frames it with a small margin. Useful for "show me this specific feature" requests.',
+      inputSchema: {
+        ...workspaceArg,
+        shapeId: shapeIdArg,
+        margin: z
+          .number()
+          .positive()
+          .optional()
+          .describe('Distance multiplier on the bounding sphere (default 1.2). Larger values pull the camera farther back.'),
+        width: widthArg,
+        height: heightArg,
+        showGrid: z.boolean().optional(),
+        showAxes: z.boolean().optional(),
+        transparent: z.boolean().optional(),
+      },
+    },
+    async (args) => toMcp(await screenshotShape(args as any)),
+  );
+
+  server.registerTool(
+    'get_camera_state',
+    {
+      title: 'Get the user\'s current camera position and target',
+      description:
+        'Returns `{ position, target, up, projection }` for the user\'s interactive camera, as last broadcast by the UI. Useful before computing an orbit-from-current view.',
+      inputSchema: workspaceArg,
+    },
+    async ({ workspace }) => toMcp(await getCameraState({ workspace })),
+  );
+
   server.registerTool(
     'hit_test',
     {
@@ -279,6 +400,20 @@ export async function runStdio(): Promise<void> {
  */
 function toMcp<T>(result: ToolResult<T>) {
   if (result.ok === true) {
+    const data = result.data as any;
+    // Image results are rendered as MCP `image` blocks so multimodal clients
+    // can display the PNG inline without burning the agent's text budget.
+    if (data && typeof data === 'object' && data.image && typeof data.image.base64 === 'string') {
+      return {
+        content: [
+          {
+            type: 'image' as const,
+            data: data.image.base64,
+            mimeType: data.image.mimeType ?? 'image/png',
+          },
+        ],
+      };
+    }
     return {
       content: [
         { type: 'text' as const, text: JSON.stringify(result.data, null, 2) },

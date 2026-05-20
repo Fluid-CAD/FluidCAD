@@ -9,7 +9,7 @@ import { ICON_SCISSORS, ICON_FILE_IMPORT, ICON_COPY, ICON_WAND } from './ui/icon
 import { PointPickMode, HighlightInfo } from './interactive/point-pick-mode';
 import { RegionPickMode } from './interactive/region-pick-mode';
 import { BezierDrawMode } from './interactive/bezier-draw-mode';
-import { captureScreenshot } from './screenshot';
+import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { Mesh, Object3D } from 'three';
 import { SnapManager } from './snapping/snap-manager';
 import { SnapController } from './snapping/snap-controller';
@@ -894,7 +894,12 @@ fileInput.addEventListener('change', async () => {
 
 async function handleScreenshotRequest(ws: WebSocket, requestId: string, options: any) {
   try {
-    const blob = await captureScreenshot(viewer.sceneContext, options);
+    const opts = { ...(options || {}) };
+    const multi = !!opts.multi;
+    delete opts.multi;
+    const blob = multi
+      ? await captureScreenshotMulti(viewer.sceneContext, opts)
+      : await captureScreenshot(viewer.sceneContext, opts);
     const buffer = await blob.arrayBuffer();
     const bytes = new Uint8Array(buffer);
     let binary = '';
@@ -917,9 +922,59 @@ async function handleScreenshotRequest(ws: WebSocket, requestId: string, options
   }
 }
 
+// Push camera state to the server at most ~5 Hz so /api/camera/state and the
+// MCP `get_camera_state` tool can answer without a round-trip through the UI.
+const CAMERA_STATE_INTERVAL_MS = 200;
+let lastCameraStatePush = 0;
+let cameraStatePending = false;
+let activeWs: WebSocket | null = null;
+
+function pushCameraState(): void {
+  if (!activeWs || activeWs.readyState !== WebSocket.OPEN) {
+    return;
+  }
+  const ctx = viewer.sceneContext;
+  const cam: any = ctx.camera;
+  const tgt = { x: 0, y: 0, z: 0 };
+  ctx.cameraControls.getTarget(tgt as any);
+  activeWs.send(JSON.stringify({
+    type: 'camera-state',
+    position: [cam.position.x, cam.position.y, cam.position.z],
+    target: [tgt.x, tgt.y, tgt.z],
+    up: [cam.up.x, cam.up.y, cam.up.z],
+    projection: cam.isOrthographicCamera ? 'orthographic' : 'perspective',
+  }));
+}
+
+function scheduleCameraStatePush(): void {
+  const now = Date.now();
+  if (now - lastCameraStatePush >= CAMERA_STATE_INTERVAL_MS) {
+    lastCameraStatePush = now;
+    pushCameraState();
+    return;
+  }
+  if (cameraStatePending) {
+    return;
+  }
+  cameraStatePending = true;
+  const wait = CAMERA_STATE_INTERVAL_MS - (now - lastCameraStatePush);
+  setTimeout(() => {
+    cameraStatePending = false;
+    lastCameraStatePush = Date.now();
+    pushCameraState();
+  }, Math.max(0, wait));
+}
+
+viewer.sceneContext.cameraControls.addEventListener('update', scheduleCameraStatePush);
+
 function connectWebSocket() {
   const wsUrl = `ws://${window.location.host}`;
   const ws = new WebSocket(wsUrl);
+
+  ws.addEventListener('open', () => {
+    activeWs = ws;
+    pushCameraState();
+  });
 
   ws.addEventListener('message', (event) => {
     const msg = JSON.parse(event.data);
@@ -980,6 +1035,9 @@ function connectWebSocket() {
   });
 
   ws.addEventListener('close', () => {
+    if (activeWs === ws) {
+      activeWs = null;
+    }
     errorBanner.update([], null);
     setTimeout(connectWebSocket, 1000);
   });

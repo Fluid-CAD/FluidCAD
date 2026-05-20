@@ -6,6 +6,7 @@ export default defineConfig({
       "lib/**/*.test.ts",
       "server/tests/**/*.test.ts",
       "mcp/tests/**/*.test.ts",
+      "ui/tests/**/*.test.ts",
       "scripts/tests/**/*.test.ts",
     ],
     testTimeout: 30_000,

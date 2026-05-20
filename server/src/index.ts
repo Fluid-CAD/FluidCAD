@@ -15,7 +15,7 @@ import { createSceneRouter } from './routes/scene.ts';
 import { normalizePath } from './normalize-path.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
 import { addInstance, removeInstance } from './global-registry.ts';
-import type { CompileError, ServerToUIMessage } from './ws-protocol.ts';
+import type { CameraStateMessage, CompileError, ServerToUIMessage } from './ws-protocol.ts';
 import { extractSourceLocation } from '../../lib/dist/index.js';
 
 const PORT = parseInt(process.env.FLUIDCAD_SERVER_PORT || '3100', 10);
@@ -68,7 +68,7 @@ app.use('/api', createActionsRouter(fluidCadServer, sendToExtension, broadcastTo
 app.use('/api', createExportRouter(fluidCadServer));
 app.use('/api', createScreenshotRouter(requestScreenshot));
 app.use('/api', createPreferencesRouter());
-app.use('/api', createSceneRouter(fluidCadServer));
+app.use('/api', createSceneRouter(fluidCadServer, () => lastCameraState));
 
 // Static files — serve UI build, with SPA fallback
 app.use(express.static(UI_DIST, {
@@ -92,6 +92,7 @@ const wss = new WebSocketServer({ server: httpServer });
 const uiClients = new Set<WebSocket>();
 let lastSceneMessage: string | null = null;
 let initCompleteMessage: string | null = null;
+let lastCameraState: CameraStateMessage | null = null;
 
 function broadcastToUI(msg: ServerToUIMessage) {
   const data = JSON.stringify(msg);
@@ -165,6 +166,24 @@ function handleUIMessage(raw: string): void {
       pending.resolve(Buffer.from(msg.data, 'base64'));
     } else {
       pending.reject(new Error(msg.error || 'Screenshot failed.'));
+    }
+    return;
+  }
+
+  if (msg.type === 'camera-state') {
+    // Trust UI structure — we own both ends. Just shape-check arrays.
+    if (
+      Array.isArray(msg.position) && msg.position.length === 3 &&
+      Array.isArray(msg.target) && msg.target.length === 3 &&
+      Array.isArray(msg.up) && msg.up.length === 3
+    ) {
+      lastCameraState = {
+        type: 'camera-state',
+        position: msg.position,
+        target: msg.target,
+        up: msg.up,
+        projection: msg.projection === 'perspective' ? 'perspective' : 'orthographic',
+      };
     }
   }
 }

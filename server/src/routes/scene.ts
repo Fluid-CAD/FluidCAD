@@ -1,7 +1,13 @@
 import { Router } from 'express';
 import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { CameraStateMessage } from '../ws-protocol.ts';
 
-export function createSceneRouter(fluidCadServer: FluidCadServer): Router {
+export type CameraStateGetter = () => CameraStateMessage | null;
+
+export function createSceneRouter(
+  fluidCadServer: FluidCadServer,
+  getCameraState: CameraStateGetter = () => null,
+): Router {
   const router = Router();
 
   router.get('/scene/summary', (_req, res) => {
@@ -37,6 +43,15 @@ export function createSceneRouter(fluidCadServer: FluidCadServer): Router {
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? String(err) });
     }
+  });
+
+  router.get('/camera/state', (_req, res) => {
+    const state = getCameraState();
+    if (!state) {
+      res.status(404).json({ error: 'No camera state available yet — the UI has not connected, or no view change has been observed.' });
+      return;
+    }
+    res.json(state);
   });
 
   return router;

@@ -208,6 +208,28 @@ export type UIProcessingFileMessage = {
   type: 'processing-file';
 };
 
+export type NamedView =
+  | 'front'
+  | 'back'
+  | 'left'
+  | 'right'
+  | 'top'
+  | 'bottom'
+  | 'iso-ftr'
+  | 'iso-fbr'
+  | 'iso-ftl'
+  | 'iso-fbl'
+  | 'iso-btr'
+  | 'iso-bbr'
+  | 'iso-btl'
+  | 'iso-bbl';
+
+export type ScreenshotView =
+  | { kind: 'current' }
+  | { kind: 'named'; name: NamedView }
+  | { kind: 'orbit-from-current'; azimuthDeg: number; elevationDeg: number }
+  | { kind: 'look-from'; eye: [number, number, number]; target?: [number, number, number] };
+
 export type UITakeScreenshotMessage = {
   type: 'take-screenshot';
   requestId: string;
@@ -219,6 +241,8 @@ export type UITakeScreenshotMessage = {
     transparent?: boolean;
     autoCrop?: boolean;
     margin?: number;
+    view?: ScreenshotView;
+    multi?: boolean;
   };
 };
 
@@ -230,3 +254,25 @@ export type ServerToUIMessage =
   | UIClearHighlightMessage
   | UIShowShapePropertiesMessage
   | UITakeScreenshotMessage;
+
+// ---------------------------------------------------------------------------
+// WebSocket: UI → Server messages
+// ---------------------------------------------------------------------------
+
+export type CameraStateMessage = {
+  type: 'camera-state';
+  position: [number, number, number];
+  target: [number, number, number];
+  up: [number, number, number];
+  projection: 'orthographic' | 'perspective';
+};
+
+export type ScreenshotResultMessage = {
+  type: 'screenshot-result';
+  requestId: string;
+  success: boolean;
+  data?: string;
+  error?: string;
+};
+
+export type UIToServerMessage = CameraStateMessage | ScreenshotResultMessage;

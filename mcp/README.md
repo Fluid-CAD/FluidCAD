@@ -85,8 +85,31 @@ restricted to one project. Use `--scope project` to commit the entry to
 }
 ```
 
+**opencode** — register the server with the CLI:
+
+```bash
+opencode mcp add fluidcad -- npx -y fluidcad mcp
+```
+
+Or edit `~/.config/opencode/opencode.json` (or a project-local
+`opencode.json`) by hand:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "fluidcad": {
+      "type": "local",
+      "command": ["npx", "-y", "fluidcad", "mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
 For a globally installed `fluidcad`, replace `npx -y fluidcad mcp` with
-`fluidcad mcp`.
+`fluidcad mcp` in any of the configs above (the opencode `command` array
+becomes `["fluidcad", "mcp"]`).
 
 ---
 

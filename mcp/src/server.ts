@@ -30,6 +30,7 @@ import {
   screenshotMulti,
   screenshotShape,
 } from './tools/screenshot.ts';
+import { waitForIdle, waitForRender } from './tools/coordination.ts';
 import { loadDocsIndex, type DocsIndex } from './docs-index.ts';
 import { registerDocResources } from './resources.ts';
 import type { ToolResult } from './types.ts';
@@ -55,6 +56,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'Call list_workspaces first to find available workspaces.',
         'Use list_docs/search_docs/read_doc/get_api_signature to learn the API.',
         'All paths are workspace-absolute.',
+        'After an edit that triggers a render, call wait_for_render before',
+        'screenshot or inspection — otherwise the response may reflect the',
+        'previous scene.',
       ].join('\n'),
     },
   );
@@ -352,6 +356,43 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       inputSchema: workspaceArg,
     },
     async ({ workspace }) => toMcp(await getCameraState({ workspace })),
+  );
+
+  const timeoutMsArg = z
+    .number()
+    .positive()
+    .optional()
+    .describe('Hard upper bound in milliseconds (default 10000).');
+
+  server.registerTool(
+    'wait_for_render',
+    {
+      title: 'Wait for the next render to complete',
+      description:
+        'Blocks until the next `render-version: end` (or `error`) WS message arrives, or `timeoutMs` elapses. Pair with edits that trigger a render (e.g. write_file) so subsequent screenshot/inspection calls see the latest scene. Returns `{ state: "rendered", version, absPath, durationMs }`. Errors with code `compile-error` if the render failed, or `timeout` if no completion was observed.',
+      inputSchema: { ...workspaceArg, timeoutMs: timeoutMsArg },
+    },
+    async ({ workspace, timeoutMs }) => toMcp(await waitForRender({ workspace, timeoutMs })),
+  );
+
+  server.registerTool(
+    'wait_for_idle',
+    {
+      title: 'Wait until renders have settled',
+      description:
+        'Blocks until no `render-version: start` has been observed for `stableMs` (default 200ms), or `timeoutMs` elapses (default 10000ms). Useful when the user might be live-editing in the editor and the agent wants to capture a stable scene. Returns `{ idleMs, lastVersion }`.',
+      inputSchema: {
+        ...workspaceArg,
+        timeoutMs: timeoutMsArg,
+        stableMs: z
+          .number()
+          .nonnegative()
+          .optional()
+          .describe('Quiet window in milliseconds (default 200). Must be strictly less than `timeoutMs`.'),
+      },
+    },
+    async ({ workspace, timeoutMs, stableMs }) =>
+      toMcp(await waitForIdle({ workspace, timeoutMs, stableMs })),
   );
 
   server.registerTool(

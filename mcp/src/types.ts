@@ -23,6 +23,7 @@ export type ToolErrorCode =
   | 'ws-error'
   | 'invalid-input'
   | 'timeout'
+  | 'compile-error'
   | 'internal';
 
 export function ok<T>(data: T): ToolResult<T> {

@@ -246,6 +246,20 @@ export type UITakeScreenshotMessage = {
   };
 };
 
+/**
+ * Lifecycle ping for a render pass. Emitted at the start of every render and
+ * again on completion (state: 'end') or compile failure (state: 'error').
+ * Intermediate renders are cancelled at the server boundary, so only the
+ * latest `version` ever emits an `end`/`error`. Used by MCP coordination tools
+ * to wait deterministically instead of sleeping.
+ */
+export type UIRenderVersionMessage = {
+  type: 'render-version';
+  version: number;
+  state: 'start' | 'end' | 'error';
+  absPath?: string;
+};
+
 export type ServerToUIMessage =
   | UIInitCompleteMessage
   | UIProcessingFileMessage
@@ -253,7 +267,8 @@ export type ServerToUIMessage =
   | UIHighlightShapeMessage
   | UIClearHighlightMessage
   | UIShowShapePropertiesMessage
-  | UITakeScreenshotMessage;
+  | UITakeScreenshotMessage
+  | UIRenderVersionMessage;
 
 // ---------------------------------------------------------------------------
 // WebSocket: UI → Server messages

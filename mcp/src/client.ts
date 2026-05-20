@@ -11,6 +11,27 @@ import type { RegistryEntry } from './types.ts';
 
 const HEALTH_PROBE_TIMEOUT_MS = 500;
 
+/** Lifecycle ping for one render pass on the server. */
+export type RenderEvent = {
+  version: number;
+  state: 'start' | 'end' | 'error';
+  absPath?: string;
+  /** Local monotonic timestamp when the message was received. */
+  receivedAt: number;
+};
+
+export type RenderEndResult = {
+  state: 'rendered' | 'error';
+  version: number;
+  absPath?: string;
+  durationMs: number;
+};
+
+export type IdleResult = {
+  idleMs: number;
+  lastVersion: number | null;
+};
+
 export type HealthResponse = {
   ok: boolean;
   version: string;
@@ -25,6 +46,15 @@ export class FluidCadClient {
   private ws: WebSocket | null = null;
   private wsOpen: Promise<WebSocket> | null = null;
   private closed = false;
+
+  // Render-event tracking. Latest `start` (and `end`/`error`) timestamps are
+  // kept so wait-for-idle can answer "stable for at least N ms" without re-
+  // subscribing each call. Listeners receive every render-version message.
+  private lastStartAt: number | null = null;
+  private lastStartVersion: number | null = null;
+  private pendingStarts = new Map<number, number>(); // version -> receivedAt
+  private renderListeners = new Set<(event: RenderEvent) => void>();
+  private wsErrorListeners = new Set<(err: Error) => void>();
 
   constructor(public readonly entry: RegistryEntry) {
     this.origin = `http://127.0.0.1:${entry.port}`;
@@ -103,6 +133,7 @@ export class FluidCadClient {
         cleanup();
         this.ws = null;
         this.wsOpen = null;
+        this.notifyWsError(err);
         reject(err);
       };
       const cleanup = () => {
@@ -112,23 +143,189 @@ export class FluidCadClient {
       socket.once('open', onOpen);
       socket.once('error', onError);
     });
+    socket.on('message', (raw) => this.handleWsMessage(String(raw)));
     socket.on('close', () => {
       if (this.ws === socket) {
         this.ws = null;
         this.wsOpen = null;
       }
+      // Surface a close as an error to anyone currently awaiting events. They
+      // can retry; the next call will reconnect lazily.
+      this.notifyWsError(new Error('WebSocket closed.'));
     });
     return this.wsOpen;
   }
 
+  /**
+   * Wait for the next render to complete (state `end` or `error`). If a render
+   * was already in flight when subscription opened, its completion still
+   * resolves this call — intermediate renders are cancelled at the server
+   * boundary and never emit `end`.
+   */
+  async nextSceneRendered(timeoutMs: number): Promise<RenderEndResult> {
+    await this.ensureWebSocket();
+    return new Promise<RenderEndResult>((resolve, reject) => {
+      const subscribeAt = nowMs();
+      const cleanup = () => {
+        clearTimeout(timer);
+        this.renderListeners.delete(onEvent);
+        this.wsErrorListeners.delete(onError);
+      };
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new TimeoutError(`No render completion within ${timeoutMs}ms.`));
+      }, timeoutMs);
+      const onEvent = (event: RenderEvent) => {
+        if (event.state !== 'end' && event.state !== 'error') {
+          return;
+        }
+        const start = this.pendingStarts.get(event.version);
+        const startedAt = start ?? subscribeAt;
+        cleanup();
+        resolve({
+          state: event.state === 'end' ? 'rendered' : 'error',
+          version: event.version,
+          absPath: event.absPath,
+          durationMs: Math.max(0, event.receivedAt - startedAt),
+        });
+      };
+      const onError = (err: Error) => {
+        cleanup();
+        reject(new WsError(err.message));
+      };
+      this.renderListeners.add(onEvent);
+      this.wsErrorListeners.add(onError);
+    });
+  }
+
+  /**
+   * Wait until `stableMs` has passed since the last observed render `start`.
+   * Resolves immediately (with `idleMs = stableMs`) if no `start` has been
+   * seen since subscription opened.
+   */
+  async nextIdle(stableMs: number, timeoutMs: number): Promise<IdleResult> {
+    await this.ensureWebSocket();
+    return new Promise<IdleResult>((resolve, reject) => {
+      const subscribeAt = nowMs();
+      let latestStartAt = this.lastStartAt;
+      let latestStartVersion = this.lastStartVersion;
+      const cleanup = () => {
+        clearTimeout(idleTimer);
+        clearTimeout(deadlineTimer);
+        this.renderListeners.delete(onEvent);
+        this.wsErrorListeners.delete(onError);
+      };
+      const settle = () => {
+        cleanup();
+        const last = latestStartAt ?? subscribeAt;
+        resolve({
+          idleMs: Math.max(0, nowMs() - last),
+          lastVersion: latestStartVersion,
+        });
+      };
+      const armIdleTimer = (since: number) => {
+        clearTimeout(idleTimer);
+        const remaining = Math.max(0, stableMs - (nowMs() - since));
+        idleTimer = setTimeout(settle, remaining);
+      };
+      let idleTimer = setTimeout(settle, stableMs);
+      const deadlineTimer = setTimeout(() => {
+        cleanup();
+        reject(new TimeoutError(`Not idle for ${stableMs}ms within ${timeoutMs}ms.`));
+      }, timeoutMs);
+      const onEvent = (event: RenderEvent) => {
+        if (event.state !== 'start') {
+          return;
+        }
+        latestStartAt = event.receivedAt;
+        latestStartVersion = event.version;
+        armIdleTimer(event.receivedAt);
+      };
+      const onError = (err: Error) => {
+        cleanup();
+        reject(new WsError(err.message));
+      };
+      this.renderListeners.add(onEvent);
+      this.wsErrorListeners.add(onError);
+    });
+  }
+
   async close(): Promise<void> {
     this.closed = true;
+    this.renderListeners.clear();
+    this.wsErrorListeners.clear();
+    this.pendingStarts.clear();
     if (this.ws) {
+      this.ws.removeAllListeners('close');
       this.ws.close();
       this.ws = null;
       this.wsOpen = null;
     }
     await this.pool.close();
+  }
+
+  private handleWsMessage(raw: string): void {
+    let msg: any;
+    try {
+      msg = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (!msg || msg.type !== 'render-version' || typeof msg.version !== 'number') {
+      return;
+    }
+    const state = msg.state;
+    if (state !== 'start' && state !== 'end' && state !== 'error') {
+      return;
+    }
+    const event: RenderEvent = {
+      version: msg.version,
+      state,
+      absPath: typeof msg.absPath === 'string' ? msg.absPath : undefined,
+      receivedAt: nowMs(),
+    };
+    if (state === 'start') {
+      this.lastStartAt = event.receivedAt;
+      this.lastStartVersion = event.version;
+      this.pendingStarts.set(event.version, event.receivedAt);
+      // Bound the pending map — keep only the most recent 16 starts; older
+      // renders that never produced an end are abandoned at the server.
+      if (this.pendingStarts.size > 16) {
+        const oldest = this.pendingStarts.keys().next().value;
+        if (oldest !== undefined) {
+          this.pendingStarts.delete(oldest);
+        }
+      }
+    } else {
+      this.pendingStarts.delete(event.version);
+    }
+    for (const listener of [...this.renderListeners]) {
+      listener(event);
+    }
+  }
+
+  private notifyWsError(err: Error): void {
+    for (const listener of [...this.wsErrorListeners]) {
+      listener(err);
+    }
+  }
+}
+
+function nowMs(): number {
+  return Number(process.hrtime.bigint() / 1_000_000n);
+}
+
+export class TimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TimeoutError';
+  }
+}
+
+export class WsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WsError';
   }
 }
 

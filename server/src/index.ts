@@ -220,7 +220,7 @@ let currentFile: string | null = null;
 let renderVersion = 0;
 const lastSceneByFile = new Map<string, { result: any[]; rollbackStop: number }>();
 
-function emitSuccess(absPath: string, result: any[], rollbackStop: number, breakpointHit?: boolean) {
+function emitSuccess(version: number, absPath: string, result: any[], rollbackStop: number, breakpointHit?: boolean) {
   lastSceneByFile.set(absPath, { result, rollbackStop });
   fluidCadServer.setCompileError(null);
   sendToExtension({
@@ -236,6 +236,7 @@ function emitSuccess(absPath: string, result: any[], rollbackStop: number, break
     rollbackStop,
     breakpointHit,
   });
+  broadcastToUI({ type: 'render-version', version, state: 'end', absPath });
 }
 
 function buildCompileError(filePath: string, err: any): CompileError {
@@ -257,7 +258,7 @@ function buildCompileError(filePath: string, err: any): CompileError {
   };
 }
 
-function emitCompileError(filePath: string, err: any) {
+function emitCompileError(version: number, filePath: string, err: any) {
   const compileError = buildCompileError(filePath, err);
   const key = compileError.filePath ?? normalizePath(filePath).replace('virtual:live-render:', '');
   const prev = lastSceneByFile.get(key);
@@ -278,6 +279,7 @@ function emitCompileError(filePath: string, err: any) {
     rollbackStop,
     compileError,
   });
+  broadcastToUI({ type: 'render-version', version, state: 'error', absPath: key });
 }
 
 async function handleExtensionMessage(msg: any) {
@@ -285,23 +287,25 @@ async function handleExtensionMessage(msg: any) {
     switch (msg.type) {
       case 'process-file': {
         const myVersion = ++renderVersion;
+        broadcastToUI({ type: 'render-version', version: myVersion, state: 'start' });
         broadcastToUI({ type: 'processing-file' });
         currentFile = msg.filePath;
         try {
           const data = await fluidCadServer.processFile(msg.filePath);
           if (myVersion !== renderVersion) { return; }
           if (data) {
-            emitSuccess(data.absPath, data.result, data.rollbackStop, data.breakpointHit);
+            emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop, data.breakpointHit);
           }
         } catch (err) {
           if (myVersion !== renderVersion) { return; }
-          emitCompileError(msg.filePath, err);
+          emitCompileError(myVersion, msg.filePath, err);
         }
         break;
       }
 
       case 'live-update': {
         const myVersion = ++renderVersion;
+        broadcastToUI({ type: 'render-version', version: myVersion, state: 'start' });
         if (msg.fileName !== currentFile) {
           broadcastToUI({ type: 'processing-file' });
           currentFile = msg.fileName;
@@ -310,21 +314,22 @@ async function handleExtensionMessage(msg: any) {
           const data = await fluidCadServer.updateLiveCode(msg.fileName, msg.code);
           if (myVersion !== renderVersion) { return; }
           if (data) {
-            emitSuccess(data.absPath, data.result, data.rollbackStop, data.breakpointHit);
+            emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop, data.breakpointHit);
           }
         } catch (err) {
           if (myVersion !== renderVersion) { return; }
-          emitCompileError(msg.fileName, err);
+          emitCompileError(myVersion, msg.fileName, err);
         }
         break;
       }
 
       case 'rollback': {
         const myVersion = ++renderVersion;
+        broadcastToUI({ type: 'render-version', version: myVersion, state: 'start' });
         const data = await fluidCadServer.rollback(msg.fileName, msg.index);
         if (myVersion !== renderVersion) { return; }
         if (data) {
-          emitSuccess(data.absPath, data.result, data.rollbackStop);
+          emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop);
         }
         break;
       }

@@ -67,7 +67,7 @@ app.use('/api', createHealthRouter({
 }));
 app.use('/api', createPropertiesRouter(fluidCadServer));
 app.use('/api', createActionsRouter(fluidCadServer, sendToExtension, broadcastToUI, WORKSPACE_PATH));
-app.use('/api', createExportRouter(fluidCadServer));
+app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));
 app.use('/api', createScreenshotRouter(requestScreenshot));
 app.use('/api', createPreferencesRouter());
 app.use('/api', createSceneRouter(fluidCadServer, () => lastCameraState));

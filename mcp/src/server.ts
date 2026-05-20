@@ -37,6 +37,14 @@ import {
   readFile,
   writeFile,
 } from './tools/source.ts';
+import {
+  addBreakpoint,
+  clearBreakpoints,
+  exportShapes,
+  importStep,
+  recompute,
+  rollbackTo,
+} from './tools/engine.ts';
 import { loadDocsIndex, type DocsIndex } from './docs-index.ts';
 import { registerDocResources } from './resources.ts';
 import type { ToolResult } from './types.ts';
@@ -513,6 +521,124 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
     async ({ workspace, path, start, end, newText, force }) =>
       toMcp(await editRange({ workspace, path, start, end, newText, force })),
+  );
+
+  // -------------------------------------------------------------------------
+  // Engine control — recompute, rollback, breakpoints, import/export.
+  // -------------------------------------------------------------------------
+
+  server.registerTool(
+    'recompute',
+    {
+      title: 'Force a full recompute of the current file',
+      description:
+        'Discards the cached scene and re-runs the current `.fluid.js` file. Pair with `wait_for_render` before screenshot or inspection.',
+      inputSchema: workspaceArg,
+    },
+    async ({ workspace }) => toMcp(await recompute({ workspace })),
+  );
+
+  server.registerTool(
+    'rollback_to',
+    {
+      title: 'Temporarily roll back the rendered scene to a feature index',
+      description:
+        'Stops rendering at scene-object `index` so the UI shows the model up to that step. Mutates only UI/render state — the source file is unchanged, and the next `recompute` or live-update resets to the full scene. Pair with `wait_for_render` before screenshotting.',
+      inputSchema: {
+        ...workspaceArg,
+        index: z
+          .number()
+          .int()
+          .nonnegative()
+          .describe('Zero-based scene-object index to stop rendering at. Use 0 to show only the first feature.'),
+      },
+    },
+    async ({ workspace, index }) => toMcp(await rollbackTo({ workspace, index })),
+  );
+
+  server.registerTool(
+    'add_breakpoint',
+    {
+      title: 'Set a breakpoint on a source line',
+      description:
+        'Halts rendering at the given line on the next recompute. Subsequent `recompute` produces a partial scene up to (but not including) the line. Use `clear_breakpoints` to remove all breakpoints.',
+      inputSchema: {
+        ...workspaceArg,
+        file: z
+          .string()
+          .min(1)
+          .describe('Absolute path to the .fluid.js file to break in (e.g. from `get_scene_summary().file`).'),
+        line: z.number().int().nonnegative().describe('Zero-based line number to break on.'),
+      },
+    },
+    async ({ workspace, file, line }) => toMcp(await addBreakpoint({ workspace, file, line })),
+  );
+
+  server.registerTool(
+    'clear_breakpoints',
+    {
+      title: 'Remove every breakpoint in the workspace',
+      description: 'Clears all source-line breakpoints; subsequent renders run end-to-end.',
+      inputSchema: workspaceArg,
+    },
+    async ({ workspace }) => toMcp(await clearBreakpoints({ workspace })),
+  );
+
+  server.registerTool(
+    'import_step',
+    {
+      title: 'Import a STEP file into the workspace',
+      description:
+        'Reads `path` from disk, base64-encodes the bytes, and posts to the server\'s import pipeline. The imported geometry shows up as a new shape in the current scene.',
+      inputSchema: {
+        ...workspaceArg,
+        path: z
+          .string()
+          .min(1)
+          .describe('Absolute path to a STEP file (.step or .stp) on the local filesystem.'),
+      },
+    },
+    async ({ workspace, path }) => toMcp(await importStep({ workspace, path })),
+  );
+
+  server.registerTool(
+    'export',
+    {
+      title: 'Export shapes to STEP or STL',
+      description:
+        'Exports the listed shapes to a STEP or STL file. Prefer `saveAsPath` (must resolve inside the workspace root) — the encoded bytes can be multi-MB and shouldn\'t round-trip through the agent\'s context. Returns `{ savedTo, bytesWritten }` when saved, or `{ format, mimeType, base64, bytes }` otherwise. For STL, `resolution: "fine"` produces the cleanest mesh but is slow; default to `"medium"` unless the user asks for higher fidelity.',
+      inputSchema: {
+        ...workspaceArg,
+        format: z.enum(['step', 'stl']).describe('Output format.'),
+        shapeIds: z
+          .array(z.string().min(1))
+          .min(1)
+          .describe('Shape ids to export (from `list_shapes` or `get_scene_summary`).'),
+        saveAsPath: z
+          .string()
+          .optional()
+          .describe('Workspace-relative or absolute path to write the export to. Must resolve inside the workspace root.'),
+        resolution: z
+          .enum(['coarse', 'medium', 'fine'])
+          .optional()
+          .describe('STL mesh resolution. Ignored for STEP. Defaults to "medium".'),
+        includeColors: z
+          .boolean()
+          .optional()
+          .describe('Include per-face color metadata (STEP/STL with color extension).'),
+      },
+    },
+    async ({ workspace, format, shapeIds, saveAsPath, resolution, includeColors }) =>
+      toMcp(
+        await exportShapes({
+          workspace,
+          format,
+          shapeIds,
+          saveAsPath,
+          resolution,
+          includeColors,
+        }),
+      ),
   );
 
   return server;

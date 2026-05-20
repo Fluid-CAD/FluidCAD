@@ -40,7 +40,13 @@ describe('doc tools (unit)', () => {
     if (!result.ok) {
       return;
     }
-    expect(result.data.docs.map((d) => d.id).sort()).toEqual(['api/extrude', 'api/fillet']);
+    expect(result.data.docs.length).toBeGreaterThan(0);
+    for (const doc of result.data.docs) {
+      expect(doc.tags, `${doc.id} lacks the 'solid' tag`).toContain('solid');
+    }
+    const ids = result.data.docs.map((d) => d.id);
+    expect(ids).toContain('api/extrude');
+    expect(ids).toContain('api/fillet');
   });
 
   it('read_doc returns the markdown body and seeAlso for a known id', () => {

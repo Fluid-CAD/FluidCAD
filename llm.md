@@ -389,120 +389,20 @@ The sketch is a `SceneObject` you can mark `.reusable()` or pass to `extrude(dis
 
 ### 4.2 Primitive shapes
 
-#### rect
+The 2D primitives have moved to `llm-docs/api/`. Each one has its own
+page with signatures, accessors, and a runnable example:
 
-```ts
-rect(width, height?)
-rect(start: Point2D, width, height?)
-rect(targetPlane, width, height)
-```
-
-Draws a rectangle. `height` defaults to `width` (square). Returns `Rect` with:
-- `.centered(value?)` — `true` to center on both axes, `'horizontal'` or `'vertical'` for one axis only.
-- `.radius(...r)` — corner radii. `radius(5)` rounds all four. `radius(5, 0, 5, 0)` is `[bottomLeft, bottomRight, topRight, topLeft]`.
-- `.topEdge()`, `.bottomEdge()`, `.leftEdge()`, `.rightEdge()` — return edge references for fillet/chamfer/etc.
-- `.topLeft()`, `.topRight()`, `.bottomLeft()`, `.bottomRight()` — corner vertices.
-- `.topLeftArcEdge()`, etc. — arc edges (only present when a radius is applied).
-
-```js
-rect(100, 60).centered().radius(8)
-```
-
-#### circle
-
-```ts
-circle(diameter?)                 // at origin, default diameter 40
-circle(center: Point2D, diameter?)
-circle(targetPlane, diameter)
-```
-
-Returns `ExtrudableGeometry`. The `diameter` argument is the **diameter**, not radius.
-
-```js
-circle(50)                         // 50-diameter circle at the cursor
-circle([10, 5], 30)                // 30-diameter circle centered at (10, 5)
-```
-
-#### ellipse
-
-```ts
-ellipse(rx, ry)
-ellipse(center, rx, ry)
-ellipse(targetPlane, rx, ry)
-ellipse(targetPlane, center, rx, ry)
-```
-
-`rx` and `ry` are **semi-radii** (half-widths) along the plane's X and Y axes.
-
-#### polygon
-
-```ts
-polygon(numberOfSides, diameter, mode?)
-polygon(center, numberOfSides, diameter, mode?)
-polygon(targetPlane, numberOfSides, diameter)
-polygon(targetPlane, numberOfSides, diameter, mode)
-```
-
-Regular polygon. `mode` is `'inscribed'` (default — corners on the diameter circle) or `'circumscribed'` (edge midpoints on the diameter circle).
-
-Returns `Polygon` with `.getEdge(i)` and `.getVertex(i)` (0-based).
-
-#### slot
-
-```ts
-slot(distance, radius)
-slot(start: Point2D, distance, radius)
-slot(geometry, radius, deleteSource?)   // make a slot around an existing edge
-slot(targetPlane, distance, radius)
-slot(targetPlane, geometry, radius)
-```
-
-Length + end-cap radius. Returns `Slot` with `.centered(value?)` and `.rotate(angle)`.
-
-#### line
-
-```ts
-line(end: Point2D)
-line(start: Point2D, end: Point2D)
-line(targetPlane, end)
-```
-
-Straight line. One-arg form draws from cursor to `end`.
+- [`rect`](llm-docs/api/rect.md)
+- [`circle`](llm-docs/api/circle.md)
+- [`ellipse`](llm-docs/api/ellipse.md)
+- [`polygon`](llm-docs/api/polygon.md)
+- [`slot`](llm-docs/api/slot.md)
+- [`line`](llm-docs/api/line.md)
 
 ### 4.3 Free-form curves
 
-#### arc
-
-```ts
-arc(endPoint: Point2D)                    // from cursor through implicit center
-arc(startPoint, endPoint)
-arc(radius, startAngle?, endAngle?)       // angle form (defaults 0..180)
-arc(targetPlane, endPoint)
-arc(targetPlane, startPoint, endPoint)
-arc(targetPlane, radius, startAngle, endAngle)
-```
-
-The point-to-point form returns `ArcPoints` with:
-- `.radius(value)` — set bulge radius (positive = CCW, negative = CW).
-- `.center(point)` — give the circle's center explicitly (mutually exclusive with `.radius()`).
-
-The angle form returns `ArcAngles` with `.centered()` to center the sweep around the start angle. Angles are degrees, relative to the **current tangent**.
-
-```js
-arc([100, 0]).radius(60)           // arc from cursor to (100,0) with radius 60
-arc(50, 0, 90)                     // 50-radius arc sweeping 0° → 90°
-```
-
-#### bezier
-
-```ts
-bezier(...points: Point2D[])
-```
-
-Last argument is the endpoint; preceding arguments are control points.
-- 1 arg → degree 1 (line).
-- 2 args → quadratic.
-- 3 args → cubic.
+- [`arc`](llm-docs/api/arc.md) — circular arcs (point or angle form)
+- [`bezier`](llm-docs/api/bezier.md) — quadratic / cubic free curves
 
 ### 4.4 Constrained / cursor-relative geometry
 
@@ -615,11 +515,9 @@ tCircle(enclosing(c1), outside(c2), 30)
 
 #### connect
 
-```ts
-connect(mode?: ConnectMode)
-```
-
-Closes the sketch by connecting the cursor back to the start.
+See [`llm-docs/api/connect.md`](llm-docs/api/connect.md) for the full
+docs — `connect()` stitches the current sketch's edges into a closed
+wire.
 
 ### 4.5 2D modifiers
 

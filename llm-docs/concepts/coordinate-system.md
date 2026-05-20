@@ -1,7 +1,7 @@
 ---
 id: concepts/coordinate-system
 title: Coordinate systems and sketch axes
-summary: World axes are x, y, z. Standard planes are xy, xz, yz. Inside a sketch, x and y refer to the sketch plane's local frame, not world axes.
+summary: World axes are x, y, z. Standard planes are xy, xz, yz. "x"/"y"/"z" always mean world axes — even inside a sketch. Use local("x" | "y" | "z") for the sketch plane's local axes.
 tags: [concept, geometry]
 seeAlso: [api/sketch]
 ---
@@ -15,22 +15,23 @@ seeAlso: [api/sketch]
 - Standard planes: `"xy"`, `"xz"`, `"yz"`. Aliases like `"front"` are
   also recognized — `"front"` is the XZ plane.
 
-## Inside a sketch
+## Sketch-local axes
 
-Inside a `sketch(...)` callback, **`"x"` and `"y"` mean the sketch
-plane's local axes**, not world axes. This is what lets the same
-sketching code work on any plane.
-
-For an axis interpreted in the sketch's local frame **from outside the
-sketch context**, use `local("x" | "y" | "z")`:
+`"x"`, `"y"`, `"z"` **always refer to world axes**, including inside a
+`sketch(...)` callback. To refer to the active sketch plane's local
+axes, use `local("x" | "y" | "z")`:
 
 ```fluid.js
 sketch(tiltedPlane, () => {
-    // inside: "x" already means the sketch plane's X
+    // "x" here is still the WORLD x axis
     mirror("x");
+
+    // use local(...) for the sketch plane's local X
+    mirror(local("x"));
 });
 
-// outside but still want the sketch-local axis:
+// local(...) also works outside the sketch callback,
+// resolved against the currently active sketch plane:
 mirror(local("x"));
 ```
 

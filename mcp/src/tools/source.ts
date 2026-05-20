@@ -187,7 +187,7 @@ export type RenderOutcome =
  * Ask the running FluidCAD server to render `code` for `filePath`. Used by
  * `write_file` / `edit_range` to make the agent's edit synchronous: the
  * disk write returns once the render settles, so the caller doesn't need a
- * separate `wait_for_render` round-trip.
+ * separate round-trip to observe completion.
  *
  * Non-fatal: any transport error is folded into the outcome as
  * `render-failed` so the agent still sees the write succeeded.

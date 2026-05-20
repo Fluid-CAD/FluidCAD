@@ -20,13 +20,6 @@ export type RenderEvent = {
   receivedAt: number;
 };
 
-export type RenderEndResult = {
-  state: 'rendered' | 'error';
-  version: number;
-  absPath?: string;
-  durationMs: number;
-};
-
 export type IdleResult = {
   idleMs: number;
   lastVersion: number | null;
@@ -47,12 +40,11 @@ export class FluidCadClient {
   private wsOpen: Promise<WebSocket> | null = null;
   private closed = false;
 
-  // Render-event tracking. Latest `start` (and `end`/`error`) timestamps are
-  // kept so wait-for-idle can answer "stable for at least N ms" without re-
-  // subscribing each call. Listeners receive every render-version message.
+  // Render-event tracking. Latest `start` timestamp is kept so wait-for-idle
+  // can answer "stable for at least N ms" without re-subscribing each call.
+  // Listeners receive every render-version message.
   private lastStartAt: number | null = null;
   private lastStartVersion: number | null = null;
-  private pendingStarts = new Map<number, number>(); // version -> receivedAt
   private renderListeners = new Set<(event: RenderEvent) => void>();
   private wsErrorListeners = new Set<(err: Error) => void>();
 
@@ -157,48 +149,6 @@ export class FluidCadClient {
   }
 
   /**
-   * Wait for the next render to complete (state `end` or `error`). If a render
-   * was already in flight when subscription opened, its completion still
-   * resolves this call — intermediate renders are cancelled at the server
-   * boundary and never emit `end`.
-   */
-  async nextSceneRendered(timeoutMs: number): Promise<RenderEndResult> {
-    await this.ensureWebSocket();
-    return new Promise<RenderEndResult>((resolve, reject) => {
-      const subscribeAt = nowMs();
-      const cleanup = () => {
-        clearTimeout(timer);
-        this.renderListeners.delete(onEvent);
-        this.wsErrorListeners.delete(onError);
-      };
-      const timer = setTimeout(() => {
-        cleanup();
-        reject(new TimeoutError(`No render completion within ${timeoutMs}ms.`));
-      }, timeoutMs);
-      const onEvent = (event: RenderEvent) => {
-        if (event.state !== 'end' && event.state !== 'error') {
-          return;
-        }
-        const start = this.pendingStarts.get(event.version);
-        const startedAt = start ?? subscribeAt;
-        cleanup();
-        resolve({
-          state: event.state === 'end' ? 'rendered' : 'error',
-          version: event.version,
-          absPath: event.absPath,
-          durationMs: Math.max(0, event.receivedAt - startedAt),
-        });
-      };
-      const onError = (err: Error) => {
-        cleanup();
-        reject(new WsError(err.message));
-      };
-      this.renderListeners.add(onEvent);
-      this.wsErrorListeners.add(onError);
-    });
-  }
-
-  /**
    * Wait until `stableMs` has passed since the last observed render `start`.
    * Resolves immediately (with `idleMs = stableMs`) if no `start` has been
    * seen since subscription opened.
@@ -254,7 +204,6 @@ export class FluidCadClient {
     this.closed = true;
     this.renderListeners.clear();
     this.wsErrorListeners.clear();
-    this.pendingStarts.clear();
     if (this.ws) {
       this.ws.removeAllListeners('close');
       this.ws.close();
@@ -287,17 +236,6 @@ export class FluidCadClient {
     if (state === 'start') {
       this.lastStartAt = event.receivedAt;
       this.lastStartVersion = event.version;
-      this.pendingStarts.set(event.version, event.receivedAt);
-      // Bound the pending map — keep only the most recent 16 starts; older
-      // renders that never produced an end are abandoned at the server.
-      if (this.pendingStarts.size > 16) {
-        const oldest = this.pendingStarts.keys().next().value;
-        if (oldest !== undefined) {
-          this.pendingStarts.delete(oldest);
-        }
-      }
-    } else {
-      this.pendingStarts.delete(event.version);
     }
     for (const listener of [...this.renderListeners]) {
       listener(event);

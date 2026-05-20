@@ -21,7 +21,7 @@ seeAlso: [api/sketch]
 `sketch(...)` callback. To refer to the active sketch plane's local
 axes, use `local("x" | "y" | "z")`:
 
-```fluid.js
+```js
 sketch(tiltedPlane, () => {
     // "x" here is still the WORLD x axis
     mirror("x");

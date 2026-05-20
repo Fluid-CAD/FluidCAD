@@ -1,0 +1,78 @@
+# llm-docs coverage allowlist
+#
+# Each non-blank, non-comment line names a public symbol from
+# website/scripts/api-doc-config.ts that is intentionally undocumented in
+# llm-docs/. Append a "# reason" comment per entry so reviewers can see why an
+# opt-out exists.
+#
+# The Phase 11 migration drains this file area by area; the goal is an empty
+# allowlist once llm.md has been fully decomposed into llm-docs/.
+
+# --- 2D primitives (Phase 11 slice 1) ---
+line                    # pending Phase 11 — 2D primitives slice
+rect                    # pending Phase 11 — 2D primitives slice
+circle                  # pending Phase 11 — 2D primitives slice
+arc                     # pending Phase 11 — 2D primitives slice
+polygon                 # pending Phase 11 — 2D primitives slice
+slot                    # pending Phase 11 — 2D primitives slice
+bezier                  # pending Phase 11 — 2D primitives slice
+connect                 # pending Phase 11 — 2D primitives slice
+ellipse                 # pending Phase 11 — 2D primitives slice
+
+# --- Constrained geometry (Phase 11 slice 2) ---
+tLine                   # pending Phase 11 — constrained-geometry slice
+tArc                    # pending Phase 11 — constrained-geometry slice
+tCircle                 # pending Phase 11 — constrained-geometry slice
+aLine                   # pending Phase 11 — constrained-geometry slice
+pMove                   # pending Phase 11 — constrained-geometry slice
+hMove                   # pending Phase 11 — constrained-geometry slice
+vMove                   # pending Phase 11 — constrained-geometry slice
+rMove                   # pending Phase 11 — constrained-geometry slice
+move                    # pending Phase 11 — constrained-geometry slice
+center                  # pending Phase 11 — constrained-geometry slice
+hLine                   # pending Phase 11 — constrained-geometry slice
+vLine                   # pending Phase 11 — constrained-geometry slice
+
+# --- 3D features (Phase 11 slice 3) ---
+cut                     # pending Phase 11 — 3D features slice
+revolve                 # pending Phase 11 — 3D features slice
+sweep                   # pending Phase 11 — 3D features slice
+loft                    # pending Phase 11 — 3D features slice
+sphere                  # pending Phase 11 — 3D features slice
+cylinder                # pending Phase 11 — 3D features slice
+shell                   # pending Phase 11 — 3D features slice
+chamfer                 # pending Phase 11 — 3D features slice
+draft                   # pending Phase 11 — 3D features slice
+rib                     # pending Phase 11 — 3D features slice
+fuse                    # pending Phase 11 — 3D features slice
+subtract                # pending Phase 11 — 3D features slice
+common                  # pending Phase 11 — 3D features slice
+
+# --- Selections & filters (Phase 11 slice 4) ---
+select                  # pending Phase 11 — selections & filters slice
+face                    # pending Phase 11 — selections & filters slice
+edge                    # pending Phase 11 — selections & filters slice
+outside                 # pending Phase 11 — selections & filters slice
+enclosed                # pending Phase 11 — selections & filters slice
+enclosing               # pending Phase 11 — selections & filters slice
+unqualified             # pending Phase 11 — selections & filters slice
+
+# --- Transforms & patterns (Phase 11 slice 5) ---
+translate               # pending Phase 11 — transforms & patterns slice
+rotate                  # pending Phase 11 — transforms & patterns slice
+mirror                  # pending Phase 11 — transforms & patterns slice
+copy                    # pending Phase 11 — transforms & patterns slice
+
+# --- References & IO (Phase 11 slice 6) ---
+axis                    # pending Phase 11 — references & IO slice
+plane                   # pending Phase 11 — references & IO slice
+local                   # pending Phase 11 — references & IO slice
+load                    # pending Phase 11 — references & IO slice
+part                    # pending Phase 11 — references & IO slice
+color                   # pending Phase 11 — references & IO slice
+remove                  # pending Phase 11 — references & IO slice
+split                   # pending Phase 11 — references & IO slice
+trim                    # pending Phase 11 — references & IO slice
+offset                  # pending Phase 11 — references & IO slice
+project                 # pending Phase 11 — references & IO slice
+intersect               # pending Phase 11 — references & IO slice

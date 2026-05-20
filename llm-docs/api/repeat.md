@@ -26,9 +26,14 @@ argument — each repetition re-executes that operation, so the output is
 
 ```fluid.js
 // Cut one pocket, then repeat the cut across a 4×2 grid → one solid with 8 pockets
+sketch("xy", () => rect(200, 100).centered());
+extrude(20);
+sketch("xy", () => circle(5));
 const pocket = cut(10);
 repeat("linear", ["x", "y"], { count: [4, 2], offset: [30, 30] }, pocket);
+```
 
+```js
 // Mirror a boss across the front plane
 const boss = extrude(15);
 repeat("mirror", "front", boss);

@@ -1,0 +1,30 @@
+name: llm-docs
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  check:
+    if: github.repository == 'Fluid-CAD/FluidCAD'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build library (required for example execution)
+        run: npm run build:lib
+
+      - name: Check llm-docs coverage and examples
+        run: npm run check:llm-docs

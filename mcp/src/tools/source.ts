@@ -95,6 +95,73 @@ function resolveWithinWorkspace(
 
 type DirtyFileEntry = { path: string; lastModifiedMs: number };
 
+type LintMissingImport = { symbol: string; module: string; line: number; column: number };
+type LintResult = { missing: LintMissingImport[]; suggestion: string };
+
+/**
+ * Static import lint for a `.fluid.js` payload via the server's
+ * `POST /api/lint-fluid-js` endpoint. The server owns the tree-sitter parser
+ * and the FluidCAD symbol table, so MCP stays a thin proxy.
+ *
+ * Failure is non-fatal: if the server endpoint is missing (older release) or
+ * the request errors, the lint is treated as "no missing imports" so writes
+ * still succeed. The render step downstream will catch any resulting
+ * `ReferenceError` if the lint was bypassed.
+ */
+async function lintFluidJsCode(entry: RegistryEntry, code: string): Promise<LintResult | null> {
+  const client = new FluidCadClient(entry);
+  try {
+    const result = await client.postJson<LintResult>('/api/lint-fluid-js', { code });
+    return result;
+  } catch (e) {
+    if (e instanceof HttpError && e.statusCode === 404) {
+      return null;
+    }
+    return null;
+  } finally {
+    await client.close().catch(() => {});
+  }
+}
+
+function isFluidJsPath(absPath: string): boolean {
+  return absPath.toLowerCase().endsWith('.fluid.js');
+}
+
+/**
+ * Refuse a write if the post-edit content uses FluidCAD APIs without the
+ * matching `import { … } from "fluidcad/…"` line. Bypassable with
+ * `force: true`, identical to the dirty-buffer guard, since both protect
+ * against the most common "first draft" mistakes LLMs make.
+ */
+async function assertImportsPresent(
+  entry: RegistryEntry,
+  absPath: string,
+  code: string,
+  force: boolean | undefined,
+): Promise<ToolResult<void>> {
+  if (force === true) {
+    return ok(undefined);
+  }
+  if (!isFluidJsPath(absPath)) {
+    return ok(undefined);
+  }
+  const lint = await lintFluidJsCode(entry, code);
+  if (!lint || lint.missing.length === 0) {
+    return ok(undefined);
+  }
+  const symbolList = lint.missing.map((m) => m.symbol).join(', ');
+  return err(
+    'missing-imports',
+    [
+      `Refusing to write "${absPath}" — uses ${lint.missing.length} FluidCAD ` +
+        `symbol(s) without an import: ${symbolList}.`,
+      'Add this to the top of the file (pass `force: true` to override):',
+      lint.suggestion,
+    ].join('\n'),
+    { missing: lint.missing, suggestion: lint.suggestion },
+  );
+}
+
 /**
  * Render outcome as reported by `POST /api/render`. Mirrored from
  * `server/src/routes/render.ts` — kept hand-typed here so the MCP package
@@ -278,6 +345,15 @@ export async function writeFile(input: WriteFileInput): Promise<ToolResult<Write
   if (guard.ok === false) {
     return guard as ToolResult<WriteFileOutput>;
   }
+  const importGuard = await assertImportsPresent(
+    entry.data,
+    resolved.data.absPath,
+    input.content,
+    input.force,
+  );
+  if (importGuard.ok === false) {
+    return importGuard as ToolResult<WriteFileOutput>;
+  }
   try {
     await atomicWrite(resolved.data.absPath, input.content);
   } catch (e: any) {
@@ -391,6 +467,15 @@ export async function editRange(input: EditRangeInput): Promise<ToolResult<EditR
   const startOffset = offsetAt(original, input.start);
   const endOffset = offsetAt(original, input.end);
   const next = original.slice(0, startOffset) + input.newText + original.slice(endOffset);
+  const importGuard = await assertImportsPresent(
+    entry.data,
+    resolved.data.absPath,
+    next,
+    input.force,
+  );
+  if (importGuard.ok === false) {
+    return importGuard as ToolResult<EditRangeOutput>;
+  }
   try {
     await atomicWrite(resolved.data.absPath, next);
   } catch (e: any) {

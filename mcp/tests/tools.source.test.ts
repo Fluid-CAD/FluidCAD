@@ -24,6 +24,14 @@ let renderResponse: { status: number; body: unknown } = {
   status: 200,
   body: { state: 'rendered', version: 1, absPath: '', durationMs: 7 },
 };
+// Default response for the fake `/api/lint-fluid-js`. Tests can override to
+// simulate missing imports. The default (200, empty `missing[]`) means lint
+// passes and the write proceeds.
+let lintRequests: { code: string }[] = [];
+let lintResponse: { status: number; body: unknown } = {
+  status: 200,
+  body: { missing: [], suggestion: '' },
+};
 
 function entry(overrides: Partial<RegistryEntry> = {}): RegistryEntry {
   return {
@@ -71,6 +79,21 @@ function startFakeServer(): Promise<number> {
         });
         return;
       }
+      if (url === '/api/lint-fluid-js' && req.method === 'POST') {
+        const chunks: Buffer[] = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', () => {
+          try {
+            const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+            lintRequests.push({ code: parsed.code });
+          } catch {
+            // fall through
+          }
+          res.writeHead(lintResponse.status, { 'content-type': 'application/json' });
+          res.end(JSON.stringify(lintResponse.body));
+        });
+        return;
+      }
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'not found' }));
     });
@@ -92,6 +115,11 @@ beforeEach(async () => {
   renderResponse = {
     status: 200,
     body: { state: 'rendered', version: 1, absPath: '', durationMs: 7 },
+  };
+  lintRequests = [];
+  lintResponse = {
+    status: 200,
+    body: { missing: [], suggestion: '' },
   };
   fakePort = await startFakeServer();
   writeRegistry([entry()]);
@@ -234,6 +262,64 @@ describe('write_file', () => {
       compileError: { message: 'unexpected token' },
     });
   });
+
+  it('refuses a .fluid.js write that uses FluidCAD symbols without imports', async () => {
+    lintResponse = {
+      status: 200,
+      body: {
+        missing: [{ symbol: 'sketch', module: 'fluidcad/core', line: 0, column: 0 }],
+        suggestion: 'import { sketch } from "fluidcad/core";',
+      },
+    };
+    const target = path.join(workspace, 'no-imports.fluid.js');
+    const result = await writeFile({ path: 'no-imports.fluid.js', content: 'sketch("xy", () => circle(10));' });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) { return; }
+    expect(result.code).toBe('missing-imports');
+    expect((result.details as any)?.suggestion).toBe(
+      'import { sketch } from "fluidcad/core";',
+    );
+    expect(fs.existsSync(target)).toBe(false);
+    // /api/render was NOT called — lint is the gate.
+    expect(renderRequests).toHaveLength(0);
+    expect(lintRequests).toHaveLength(1);
+  });
+
+  it('force: true overrides the missing-imports guard', async () => {
+    lintResponse = {
+      status: 200,
+      body: {
+        missing: [{ symbol: 'sketch', module: 'fluidcad/core', line: 0, column: 0 }],
+        suggestion: 'import { sketch } from "fluidcad/core";',
+      },
+    };
+    const result = await writeFile({
+      path: 'forced.fluid.js',
+      content: 'sketch("xy", () => circle(10));',
+      force: true,
+    });
+    expect(result.ok).toBe(true);
+    expect(fs.existsSync(path.join(workspace, 'forced.fluid.js'))).toBe(true);
+    // Lint skipped under force — no probe to /api/lint-fluid-js.
+    expect(lintRequests).toHaveLength(0);
+  });
+
+  it('skips the import lint for non-fluid.js paths', async () => {
+    lintResponse = {
+      status: 200,
+      body: {
+        missing: [{ symbol: 'sketch', module: 'fluidcad/core', line: 0, column: 0 }],
+        suggestion: 'import { sketch } from "fluidcad/core";',
+      },
+    };
+    const result = await writeFile({
+      path: 'notes.md',
+      content: 'See the sketch docs',
+    });
+    expect(result.ok).toBe(true);
+    expect(lintRequests).toHaveLength(0);
+  });
 });
 
 describe('edit_range', () => {
@@ -323,6 +409,39 @@ describe('edit_range', () => {
     expect(renderRequests).toHaveLength(1);
     expect(renderRequests[0].code).toBe('line one\nline TWO\nline three\n');
     expect(result.data.render).toMatchObject({ state: 'rendered' });
+  });
+
+  it('lints the post-edit contents and refuses a write that drops the import', async () => {
+    const target = path.join(workspace, 'lint-edit.fluid.js');
+    const original = [
+      'import { sketch, rect, extrude } from "fluidcad/core";',
+      '',
+      'sketch("xy", () => rect(40, 40));',
+      'extrude(10);',
+      '',
+    ].join('\n');
+    fs.writeFileSync(target, original);
+    // Lint server now flags `extrude` as missing — simulating the result of
+    // deleting the import line via edit_range.
+    lintResponse = {
+      status: 200,
+      body: {
+        missing: [{ symbol: 'extrude', module: 'fluidcad/core', line: 3, column: 0 }],
+        suggestion: 'import { extrude } from "fluidcad/core";',
+      },
+    };
+    const result = await editRange({
+      path: 'lint-edit.fluid.js',
+      start: { line: 0, column: 0 },
+      end: { line: 1, column: 0 },
+      newText: '',
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) { return; }
+    expect(result.code).toBe('missing-imports');
+    // Original file on disk unchanged — lint rejection is pre-write.
+    expect(fs.readFileSync(target, 'utf8')).toBe(original);
+    expect(renderRequests).toHaveLength(0);
   });
 });
 

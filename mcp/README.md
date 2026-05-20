@@ -61,11 +61,16 @@ No separate install is needed.
 }
 ```
 
-**Claude Code** — register the server with the CLI:
+**Claude Code** — register the server with the CLI at **user scope** so it's
+available across every project, not just the directory you ran the command in:
 
 ```bash
-claude mcp add fluidcad -- npx -y fluidcad mcp
+claude mcp add --scope user fluidcad -- npx -y fluidcad mcp
 ```
+
+Omit `--scope user` (the default `local` scope) only if you want the server
+restricted to one project. Use `--scope project` to commit the entry to
+`.mcp.json` and share it with your team.
 
 **Cursor** — add to `~/.cursor/mcp.json` (or the workspace `.cursor/mcp.json`):
 

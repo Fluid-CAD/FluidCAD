@@ -13,6 +13,7 @@ import { createPreferencesRouter } from './routes/preferences.ts';
 import { createHealthRouter } from './routes/health.ts';
 import { createSceneRouter } from './routes/scene.ts';
 import { createEditorRouter, DirtyBufferState } from './routes/editor.ts';
+import { createRenderRouter, type RenderOutcome } from './routes/render.ts';
 import { normalizePath } from './normalize-path.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
 import { addInstance, removeInstance } from './global-registry.ts';
@@ -72,6 +73,7 @@ app.use('/api', createScreenshotRouter(requestScreenshot));
 app.use('/api', createPreferencesRouter());
 app.use('/api', createSceneRouter(fluidCadServer, () => lastCameraState));
 app.use('/api', createEditorRouter(dirtyBufferState));
+app.use('/api', createRenderRouter((fileName, code) => runLiveRender(fileName, code)));
 
 // Static files — serve UI build, with SPA fallback
 app.use(express.static(UI_DIST, {
@@ -261,7 +263,7 @@ function buildCompileError(filePath: string, err: any): CompileError {
   };
 }
 
-function emitCompileError(version: number, filePath: string, err: any) {
+function emitCompileError(version: number, filePath: string, err: any): CompileError {
   const compileError = buildCompileError(filePath, err);
   const key = compileError.filePath ?? normalizePath(filePath).replace('virtual:live-render:', '');
   const prev = lastSceneByFile.get(key);
@@ -283,6 +285,51 @@ function emitCompileError(version: number, filePath: string, err: any) {
     compileError,
   });
   broadcastToUI({ type: 'render-version', version, state: 'error', absPath: key });
+  return compileError;
+}
+
+/**
+ * Render-orchestration chokepoint shared by the IPC `live-update` handler and
+ * the HTTP `/api/render` route. Bumps `renderVersion`, broadcasts the
+ * lifecycle pings, runs the dedupable `updateLiveCode`, and emits success /
+ * compile-error to the UI + extension. Returns a structured outcome so the
+ * HTTP caller (MCP) can hand it straight to the agent.
+ */
+async function runLiveRender(fileName: string, code: string): Promise<RenderOutcome> {
+  const startedAt = Date.now();
+  const myVersion = ++renderVersion;
+  broadcastToUI({ type: 'render-version', version: myVersion, state: 'start' });
+  if (fileName !== currentFile) {
+    broadcastToUI({ type: 'processing-file' });
+    currentFile = fileName;
+  }
+  try {
+    const data = await fluidCadServer.updateLiveCode(fileName, code);
+    if (myVersion !== renderVersion) {
+      return { state: 'superseded', version: myVersion, durationMs: Date.now() - startedAt };
+    }
+    if (!data) {
+      return { state: 'no-scene-manager', version: myVersion, durationMs: Date.now() - startedAt };
+    }
+    emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop, data.breakpointHit);
+    return {
+      state: 'rendered',
+      version: myVersion,
+      absPath: data.absPath,
+      durationMs: Date.now() - startedAt,
+    };
+  } catch (err) {
+    if (myVersion !== renderVersion) {
+      return { state: 'superseded', version: myVersion, durationMs: Date.now() - startedAt };
+    }
+    const compileError = emitCompileError(myVersion, fileName, err);
+    return {
+      state: 'compile-error',
+      version: myVersion,
+      durationMs: Date.now() - startedAt,
+      compileError,
+    };
+  }
 }
 
 async function handleExtensionMessage(msg: any) {
@@ -307,22 +354,7 @@ async function handleExtensionMessage(msg: any) {
       }
 
       case 'live-update': {
-        const myVersion = ++renderVersion;
-        broadcastToUI({ type: 'render-version', version: myVersion, state: 'start' });
-        if (msg.fileName !== currentFile) {
-          broadcastToUI({ type: 'processing-file' });
-          currentFile = msg.fileName;
-        }
-        try {
-          const data = await fluidCadServer.updateLiveCode(msg.fileName, msg.code);
-          if (myVersion !== renderVersion) { return; }
-          if (data) {
-            emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop, data.breakpointHit);
-          }
-        } catch (err) {
-          if (myVersion !== renderVersion) { return; }
-          emitCompileError(myVersion, msg.fileName, err);
-        }
+        await runLiveRender(msg.fileName, msg.code);
         break;
       }
 

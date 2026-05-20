@@ -18,6 +18,12 @@ let workspace: string;
 let fakeServer: http.Server | null = null;
 let fakePort = 0;
 let dirtyFiles: { path: string; lastModifiedMs: number }[] = [];
+let renderRequests: { filePath: string; code: string }[] = [];
+// Default outcome for the fake `/api/render`. Tests can override per-case.
+let renderResponse: { status: number; body: unknown } = {
+  status: 200,
+  body: { state: 'rendered', version: 1, absPath: '', durationMs: 7 },
+};
 
 function entry(overrides: Partial<RegistryEntry> = {}): RegistryEntry {
   return {
@@ -50,6 +56,21 @@ function startFakeServer(): Promise<number> {
         res.end(JSON.stringify(dirtyFiles));
         return;
       }
+      if (url === '/api/render' && req.method === 'POST') {
+        const chunks: Buffer[] = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', () => {
+          try {
+            const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+            renderRequests.push({ filePath: parsed.filePath, code: parsed.code });
+          } catch {
+            // fall through — request capture is best-effort
+          }
+          res.writeHead(renderResponse.status, { 'content-type': 'application/json' });
+          res.end(JSON.stringify(renderResponse.body));
+        });
+        return;
+      }
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'not found' }));
     });
@@ -67,6 +88,11 @@ beforeEach(async () => {
   workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'fluidcad-source-ws-'));
   workspace = fs.realpathSync(workspace);
   dirtyFiles = [];
+  renderRequests = [];
+  renderResponse = {
+    status: 200,
+    body: { state: 'rendered', version: 1, absPath: '', durationMs: 7 },
+  };
   fakePort = await startFakeServer();
   writeRegistry([entry()]);
 });
@@ -169,6 +195,45 @@ describe('write_file', () => {
     if (result.ok) { return; }
     expect(result.code).toBe('invalid-input');
   });
+
+  it('posts the written contents to /api/render and surfaces the outcome', async () => {
+    const result = await writeFile({ path: 'new.fluid.js', content: 'sphere(5);' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(renderRequests).toHaveLength(1);
+    expect(renderRequests[0].code).toBe('sphere(5);');
+    expect(renderRequests[0].filePath).toBe(path.join(workspace, 'new.fluid.js'));
+    expect(result.data.render).toMatchObject({ state: 'rendered', version: 1 });
+  });
+
+  it('degrades to render-failed when /api/render is missing (older server)', async () => {
+    renderResponse = { status: 404, body: { error: 'not found' } };
+    const result = await writeFile({ path: 'old-server.fluid.js', content: 'box(1);' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(result.data.render.state).toBe('render-failed');
+    expect(fs.readFileSync(path.join(workspace, 'old-server.fluid.js'), 'utf8')).toBe('box(1);');
+  });
+
+  it('returns the compile-error outcome when the render fails', async () => {
+    renderResponse = {
+      status: 200,
+      body: {
+        state: 'compile-error',
+        version: 9,
+        durationMs: 12,
+        compileError: { message: 'unexpected token', filePath: 'broken.fluid.js' },
+      },
+    };
+    const result = await writeFile({ path: 'broken.fluid.js', content: 'oops(' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(result.data.render).toMatchObject({
+      state: 'compile-error',
+      version: 9,
+      compileError: { message: 'unexpected token' },
+    });
+  });
 });
 
 describe('edit_range', () => {
@@ -242,6 +307,22 @@ describe('edit_range', () => {
     expect(result.ok).toBe(false);
     if (result.ok) { return; }
     expect(result.code).toBe('invalid-input');
+  });
+
+  it('posts the post-edit contents (not the original) to /api/render', async () => {
+    const target = path.join(workspace, 'render-edit.fluid.js');
+    fs.writeFileSync(target, 'line one\nline two\nline three\n');
+    const result = await editRange({
+      path: 'render-edit.fluid.js',
+      start: { line: 1, column: 5 },
+      end: { line: 1, column: 8 },
+      newText: 'TWO',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(renderRequests).toHaveLength(1);
+    expect(renderRequests[0].code).toBe('line one\nline TWO\nline three\n');
+    expect(result.data.render).toMatchObject({ state: 'rendered' });
   });
 });
 

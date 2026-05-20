@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { ViteManager } from './vite-manager.ts';
@@ -82,6 +83,12 @@ export class FluidCadServer {
   private sceneManager: SceneManager | undefined;
   private previousScenes: Map<string, any> = new Map();
   private renderingCache = new Map<string, any[]>();
+  // Per-file hash + full result of the most recent successful render. Any
+  // incoming render request — IPC live-update from the extension, watcher-
+  // driven live-update under `fluidcad serve`, or HTTP /api/render from the
+  // MCP — short-circuits here when the new code hashes to the same value.
+  // Avoids redundant OCC work when multiple producers see the same write.
+  private lastRendered = new Map<string, { hash: string; data: SceneRenderedData }>();
   private currentFileName: string = '';
   private currentFilePath: string = '';
   private lastRollbackStop: number = -1;
@@ -175,10 +182,29 @@ export class FluidCadServer {
 
   async updateLiveCode(fileName: string, code: string): Promise<SceneRenderedData | null> {
     fileName = normalizePath(fileName);
+
+    // Dedup against the last successful render of this file. Multiple
+    // producers (editor live-update, save-triggered process-file, watcher,
+    // MCP /api/render) commonly hand us identical content; without this
+    // short-circuit each one would trigger a redundant OCC pass.
+    const hash = hashCode(code);
+    const cached = this.lastRendered.get(fileName);
+    if (cached && cached.hash === hash) {
+      this.compileError = null;
+      this.currentFileName = fileName;
+      this.currentFilePath = `virtual:live-render:${fileName}`;
+      this.lastRollbackStop = cached.data.rollbackStop;
+      return cached.data;
+    }
+
     const id = `virtual:live-render:${fileName}`;
     this.viteManager.setBuffer(id, code);
     this.renderingCache.delete(fileName);
-    return this.processFile(id, true);
+    const result = await this.processFile(id, true);
+    if (result) {
+      this.lastRendered.set(fileName, { hash, data: result });
+    }
+    return result;
   }
 
   async rollbackFromUI(index: number): Promise<SceneRenderedData | null> {
@@ -191,6 +217,7 @@ export class FluidCadServer {
     }
     this.previousScenes.delete(this.currentFileName);
     this.renderingCache.delete(this.currentFileName);
+    this.lastRendered.delete(this.currentFileName);
     return this.processFile(this.currentFilePath, true);
   }
 
@@ -376,6 +403,16 @@ export class FluidCadServer {
     }
     return { shapes };
   }
+}
+
+/**
+ * Hash a `.fluid.js` source for dedup. Newlines are normalised to LF so a
+ * round-trip through an editor (CRLF) and a disk write (LF) hashes the
+ * same. SHA1 is plenty here — we just need a stable equality check, not
+ * collision resistance against an adversary.
+ */
+function hashCode(code: string): string {
+  return createHash('sha1').update(code.replace(/\r\n/g, '\n')).digest('hex');
 }
 
 const MAX_PARAM_DEPTH = 6;

@@ -5,19 +5,5 @@
 # llm-docs/. Append a "# reason" comment per entry so reviewers can see why an
 # opt-out exists.
 #
-# The Phase 11 migration drains this file area by area; the goal is an empty
-# allowlist once llm.md has been fully decomposed into llm-docs/.
-
-# --- References & IO (Phase 11 slice 6) ---
-axis                    # pending Phase 11 — references & IO slice
-plane                   # pending Phase 11 — references & IO slice
-local                   # pending Phase 11 — references & IO slice
-load                    # pending Phase 11 — references & IO slice
-part                    # pending Phase 11 — references & IO slice
-color                   # pending Phase 11 — references & IO slice
-remove                  # pending Phase 11 — references & IO slice
-split                   # pending Phase 11 — references & IO slice
-trim                    # pending Phase 11 — references & IO slice
-offset                  # pending Phase 11 — references & IO slice
-project                 # pending Phase 11 — references & IO slice
-intersect               # pending Phase 11 — references & IO slice
+# Empty by default — once the Phase 11 migration drained every slice the
+# allowlist is no longer needed for normal coverage.

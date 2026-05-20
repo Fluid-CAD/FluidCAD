@@ -52,6 +52,16 @@ export type ExportSceneMessage = {
   };
 };
 
+/**
+ * Sent by the editor extension whenever its dirty-buffer set changes. Paths
+ * are absolute and normalized to the same scheme the server uses elsewhere.
+ * Replaces the cached set on the server — not incremental.
+ */
+export type EditorDirtyStateMessage = {
+  type: 'editor-dirty-state';
+  dirtyFiles: string[];
+};
+
 export type ExtensionMessage =
   | ProcessFileMessage
   | LiveUpdateMessage
@@ -60,7 +70,8 @@ export type ExtensionMessage =
   | HighlightShapeMessage
   | ClearHighlightMessage
   | ShowShapePropertiesMessage
-  | ExportSceneMessage;
+  | ExportSceneMessage
+  | EditorDirtyStateMessage;
 
 // ---------------------------------------------------------------------------
 // IPC: Server → Extension messages

@@ -31,6 +31,12 @@ import {
   screenshotShape,
 } from './tools/screenshot.ts';
 import { waitForIdle, waitForRender } from './tools/coordination.ts';
+import {
+  editRange,
+  listFluidFiles,
+  readFile,
+  writeFile,
+} from './tools/source.ts';
 import { loadDocsIndex, type DocsIndex } from './docs-index.ts';
 import { registerDocResources } from './resources.ts';
 import type { ToolResult } from './types.ts';
@@ -56,9 +62,12 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'Call list_workspaces first to find available workspaces.',
         'Use list_docs/search_docs/read_doc/get_api_signature to learn the API.',
         'All paths are workspace-absolute.',
-        'After an edit that triggers a render, call wait_for_render before',
-        'screenshot or inspection — otherwise the response may reflect the',
-        'previous scene.',
+        'After an edit that triggers a render (write_file, edit_range), call',
+        'wait_for_render before screenshot or inspection — otherwise the',
+        'response may reflect the previous scene.',
+        'write_file and edit_range refuse to clobber a buffer the editor has',
+        'unsaved changes for (code: "dirty-buffer"). Surface the conflicting',
+        'paths to the user before retrying with `force: true`.',
       ].join('\n'),
     },
   );
@@ -423,6 +432,87 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           edgeThreshold,
         }),
       ),
+  );
+
+  // -------------------------------------------------------------------------
+  // Source editing — read/write `.fluid.js` files inside the workspace.
+  // -------------------------------------------------------------------------
+
+  const pathArg = z
+    .string()
+    .min(1)
+    .describe('Path relative to the workspace root (or absolute, as long as it resolves inside the workspace).');
+
+  const forceArg = z
+    .boolean()
+    .optional()
+    .describe(
+      'Destructive override — write even if the editor has unsaved changes for this file. Surface the dirty-files list to the user before passing true.',
+    );
+
+  const positionArg = z
+    .object({
+      line: z.number().int().nonnegative().describe('Zero-based line number.'),
+      column: z.number().int().nonnegative().describe('Zero-based UTF-16 column.'),
+    })
+    .describe('Source position (LSP-style, 0-based line and 0-based UTF-16 column).');
+
+  server.registerTool(
+    'list_fluid_files',
+    {
+      title: 'List every .fluid.js file in the workspace',
+      description:
+        'Walks the workspace recursively and returns workspace-relative paths for every `.fluid.js` file. Skips `node_modules`, `.git`, `.fluidcad`, `dist`, `build`.',
+      inputSchema: workspaceArg,
+    },
+    async ({ workspace }) => toMcp(await listFluidFiles({ workspace })),
+  );
+
+  server.registerTool(
+    'read_file',
+    {
+      title: 'Read a UTF-8 file from the workspace',
+      description:
+        'Returns the full contents of a file under the workspace root. Paths that escape the workspace (via `..` or symlinks) are rejected.',
+      inputSchema: { ...workspaceArg, path: pathArg },
+    },
+    async ({ workspace, path }) => toMcp(await readFile({ workspace, path })),
+  );
+
+  server.registerTool(
+    'write_file',
+    {
+      title: 'Replace a file inside the workspace (atomic)',
+      description:
+        'Writes `content` to `path` (UTF-8, tmp+rename atomic). Refuses to clobber a file that the editor extension reports as dirty (unsaved changes) — fails with code `dirty-buffer` whose `details.dirtyFiles` lists every dirty path. Pass `force: true` to override. After a successful write, the file watcher will trigger a re-render: pair with `wait_for_render` before calling `screenshot` or inspection tools.',
+      inputSchema: {
+        ...workspaceArg,
+        path: pathArg,
+        content: z.string().describe('Full UTF-8 file contents to write.'),
+        force: forceArg,
+      },
+    },
+    async ({ workspace, path, content, force }) =>
+      toMcp(await writeFile({ workspace, path, content, force })),
+  );
+
+  server.registerTool(
+    'edit_range',
+    {
+      title: 'Replace a [start, end) range inside a workspace file (atomic)',
+      description:
+        'Replaces the half-open range `[start, end)` in `path` with `newText`. Positions are 0-based `{ line, column }` (UTF-16 columns). End-of-line and end-of-file overrun clamp gracefully. Same dirty-buffer guard and `force` semantics as `write_file`. Pair with `wait_for_render` before reading the updated scene.',
+      inputSchema: {
+        ...workspaceArg,
+        path: pathArg,
+        start: positionArg,
+        end: positionArg,
+        newText: z.string().describe('Replacement text (may be empty to delete the range).'),
+        force: forceArg,
+      },
+    },
+    async ({ workspace, path, start, end, newText, force }) =>
+      toMcp(await editRange({ workspace, path, start, end, newText, force })),
   );
 
   return server;

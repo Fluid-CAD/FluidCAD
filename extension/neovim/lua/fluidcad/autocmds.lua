@@ -17,6 +17,47 @@ function M.setup(config)
     end
   end
 
+  -- Dirty-buffer tracking. Snapshots every `.fluid.js` buffer with `&modified`
+  -- set and ships the list to the server so the MCP source-editing tools can
+  -- refuse to clobber unsaved work. Mirrors the VSCode extension.
+  local last_dirty_signature = nil
+
+  local function snapshot_dirty_files()
+    local files = {}
+    local seen = {}
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_is_loaded(buf) then
+        local name = vim.api.nvim_buf_get_name(buf)
+        if name ~= ''
+          and name:match('%.fluid%.js$')
+          and vim.bo[buf].modified
+          and not seen[name]
+        then
+          seen[name] = true
+          table.insert(files, name)
+        end
+      end
+    end
+    return files
+  end
+
+  local function send_dirty_state()
+    if not bridge.is_running() then
+      return
+    end
+    local files = snapshot_dirty_files()
+    table.sort(files)
+    local signature = table.concat(files, '\0')
+    if signature == last_dirty_signature then
+      return
+    end
+    last_dirty_signature = signature
+    bridge.send({
+      type = 'editor-dirty-state',
+      dirtyFiles = files,
+    })
+  end
+
   local function send_live_update_now()
     cancel_pending()
     local buf = vim.api.nvim_get_current_buf()
@@ -57,6 +98,7 @@ function M.setup(config)
       if bridge.is_running() then
         bridge.when_ready(function()
           send_live_update_now()
+          send_dirty_state()
         end)
       end
       breakpoints.refresh()
@@ -104,6 +146,17 @@ function M.setup(config)
       if bridge.is_running() then
         bridge.send({ type = 'process-file', filePath = vim.fn.expand('%:p') })
       end
+      send_dirty_state()
+    end,
+  })
+
+  -- Keep the server's dirty-buffer set in sync with the editor. Recompute on
+  -- any text change, write, modeline flip, or buffer close.
+  vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI', 'BufModifiedSet', 'BufDelete', 'BufWipeout' }, {
+    group = group,
+    pattern = '*.fluid.js',
+    callback = function()
+      vim.schedule(send_dirty_state)
     end,
   })
 

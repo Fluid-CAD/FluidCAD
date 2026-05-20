@@ -24,6 +24,7 @@ export type ToolErrorCode =
   | 'invalid-input'
   | 'timeout'
   | 'compile-error'
+  | 'dirty-buffer'
   | 'internal';
 
 export function ok<T>(data: T): ToolResult<T> {

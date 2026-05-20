@@ -70,9 +70,12 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'Call list_workspaces first to find available workspaces.',
         'Use list_docs/search_docs/read_doc/get_api_signature to learn the API.',
         'All paths are workspace-absolute.',
-        'After an edit that triggers a render (write_file, edit_range), call',
-        'wait_for_render before screenshot or inspection — otherwise the',
-        'response may reflect the previous scene.',
+        'write_file and edit_range are synchronous: the response carries the',
+        'render outcome under `render`. Check `render.state === "rendered"`',
+        'before calling screenshot or inspection. On `compile-error`, the',
+        'previous scene is still being served — fix the source and retry.',
+        'wait_for_render only matters for renders you did NOT trigger (e.g.',
+        'observing a user-driven live edit).',
         'write_file and edit_range refuse to clobber a buffer the editor has',
         'unsaved changes for (code: "dirty-buffer"). Surface the conflicting',
         'paths to the user before retrying with `force: true`.',
@@ -492,7 +495,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Replace a file inside the workspace (atomic)',
       description:
-        'Writes `content` to `path` (UTF-8, tmp+rename atomic). Refuses to clobber a file that the editor extension reports as dirty (unsaved changes) — fails with code `dirty-buffer` whose `details.dirtyFiles` lists every dirty path. Pass `force: true` to override. After a successful write, the file watcher will trigger a re-render: pair with `wait_for_render` before calling `screenshot` or inspection tools.',
+        'Writes `content` to `path` (UTF-8, tmp+rename atomic), then synchronously triggers a render and returns the outcome under `render` (`state`: rendered | compile-error | superseded | no-scene-manager | render-failed, plus `version`, `durationMs`, optional `compileError`). Refuses to clobber a file that the editor extension reports as dirty — fails with code `dirty-buffer` whose `details.dirtyFiles` lists every dirty path. Pass `force: true` to override. No need to call `wait_for_render` afterwards.',
       inputSchema: {
         ...workspaceArg,
         path: pathArg,
@@ -509,7 +512,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Replace a [start, end) range inside a workspace file (atomic)',
       description:
-        'Replaces the half-open range `[start, end)` in `path` with `newText`. Positions are 0-based `{ line, column }` (UTF-16 columns). End-of-line and end-of-file overrun clamp gracefully. Same dirty-buffer guard and `force` semantics as `write_file`. Pair with `wait_for_render` before reading the updated scene.',
+        'Replaces the half-open range `[start, end)` in `path` with `newText`. Positions are 0-based `{ line, column }` (UTF-16 columns). End-of-line and end-of-file overrun clamp gracefully. Same dirty-buffer guard, `force` semantics, and synchronous `render` outcome as `write_file`. No need to call `wait_for_render` afterwards.',
       inputSchema: {
         ...workspaceArg,
         path: pathArg,

@@ -96,6 +96,58 @@ function resolveWithinWorkspace(
 type DirtyFileEntry = { path: string; lastModifiedMs: number };
 
 /**
+ * Render outcome as reported by `POST /api/render`. Mirrored from
+ * `server/src/routes/render.ts` — kept hand-typed here so the MCP package
+ * doesn't take a build-time dep on the server package.
+ */
+export type RenderOutcome =
+  | { state: 'rendered'; version: number; absPath: string; durationMs: number }
+  | {
+      state: 'compile-error';
+      version: number;
+      durationMs: number;
+      compileError: {
+        message: string;
+        filePath?: string;
+        sourceLocation?: { filePath: string; line: number; column: number };
+      };
+    }
+  | { state: 'superseded'; version: number; durationMs: number }
+  | { state: 'no-scene-manager'; version: number; durationMs: number }
+  | { state: 'render-failed'; error: string };
+
+/**
+ * Ask the running FluidCAD server to render `code` for `filePath`. Used by
+ * `write_file` / `edit_range` to make the agent's edit synchronous: the
+ * disk write returns once the render settles, so the caller doesn't need a
+ * separate `wait_for_render` round-trip.
+ *
+ * Non-fatal: any transport error is folded into the outcome as
+ * `render-failed` so the agent still sees the write succeeded.
+ */
+async function triggerRender(
+  entry: RegistryEntry,
+  filePath: string,
+  code: string,
+): Promise<RenderOutcome> {
+  const client = new FluidCadClient(entry);
+  try {
+    const outcome = await client.postJson<RenderOutcome>('/api/render', { filePath, code });
+    return outcome;
+  } catch (e: any) {
+    if (e instanceof HttpError && e.statusCode === 404) {
+      // Older server without /api/render — silently degrade. The agent still
+      // gets `written: true`; the file watcher (under `fluidcad serve`) or
+      // the next editor save will eventually trigger the render.
+      return { state: 'render-failed', error: 'Server has no /api/render endpoint (upgrade fluidcad).' };
+    }
+    return { state: 'render-failed', error: e?.message ?? String(e) };
+  } finally {
+    await client.close().catch(() => {});
+  }
+}
+
+/**
  * Fetch the editor's dirty-buffer set. Failure to reach the server is
  * non-fatal — the tool will treat the set as empty so the agent can still
  * write when the editor extension is not connected. The MCP description
@@ -204,7 +256,11 @@ export type WriteFileInput = WorkspaceArg & {
   content: string;
   force?: boolean;
 };
-export type WriteFileOutput = { path: string; bytesWritten: number };
+export type WriteFileOutput = {
+  path: string;
+  bytesWritten: number;
+  render: RenderOutcome;
+};
 
 export async function writeFile(input: WriteFileInput): Promise<ToolResult<WriteFileOutput>> {
   if (typeof input?.content !== 'string') {
@@ -224,13 +280,15 @@ export async function writeFile(input: WriteFileInput): Promise<ToolResult<Write
   }
   try {
     await atomicWrite(resolved.data.absPath, input.content);
-    return ok({
-      path: resolved.data.absPath,
-      bytesWritten: Buffer.byteLength(input.content, 'utf8'),
-    });
   } catch (e: any) {
     return err('internal', e?.message ?? String(e));
   }
+  const render = await triggerRender(entry.data, resolved.data.absPath, input.content);
+  return ok({
+    path: resolved.data.absPath,
+    bytesWritten: Buffer.byteLength(input.content, 'utf8'),
+    render,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -249,6 +307,7 @@ export type EditRangeOutput = {
   path: string;
   bytesWritten: number;
   replacedRange: { start: Position; end: Position };
+  render: RenderOutcome;
 };
 
 function isValidPosition(value: unknown): value is Position {
@@ -334,14 +393,16 @@ export async function editRange(input: EditRangeInput): Promise<ToolResult<EditR
   const next = original.slice(0, startOffset) + input.newText + original.slice(endOffset);
   try {
     await atomicWrite(resolved.data.absPath, next);
-    return ok({
-      path: resolved.data.absPath,
-      bytesWritten: Buffer.byteLength(next, 'utf8'),
-      replacedRange: { start: input.start, end: input.end },
-    });
   } catch (e: any) {
     return err('internal', e?.message ?? String(e));
   }
+  const render = await triggerRender(entry.data, resolved.data.absPath, next);
+  return ok({
+    path: resolved.data.absPath,
+    bytesWritten: Buffer.byteLength(next, 'utf8'),
+    replacedRange: { start: input.start, end: input.end },
+    render,
+  });
 }
 
 // ---------------------------------------------------------------------------

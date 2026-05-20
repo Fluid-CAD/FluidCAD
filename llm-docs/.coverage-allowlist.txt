@@ -8,21 +8,6 @@
 # The Phase 11 migration drains this file area by area; the goal is an empty
 # allowlist once llm.md has been fully decomposed into llm-docs/.
 
-# --- 3D features (Phase 11 slice 3) ---
-cut                     # pending Phase 11 — 3D features slice
-revolve                 # pending Phase 11 — 3D features slice
-sweep                   # pending Phase 11 — 3D features slice
-loft                    # pending Phase 11 — 3D features slice
-sphere                  # pending Phase 11 — 3D features slice
-cylinder                # pending Phase 11 — 3D features slice
-shell                   # pending Phase 11 — 3D features slice
-chamfer                 # pending Phase 11 — 3D features slice
-draft                   # pending Phase 11 — 3D features slice
-rib                     # pending Phase 11 — 3D features slice
-fuse                    # pending Phase 11 — 3D features slice
-subtract                # pending Phase 11 — 3D features slice
-common                  # pending Phase 11 — 3D features slice
-
 # --- Selections & filters (Phase 11 slice 4) ---
 select                  # pending Phase 11 — selections & filters slice
 face                    # pending Phase 11 — selections & filters slice

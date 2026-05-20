@@ -609,183 +609,48 @@ extrude(target)                                // extrude up to that face
 
 ### 5.2 cut()
 
-```ts
-cut()                                          // through-all using last sketch
-cut(target: SceneObject)
-cut(distance, target?)
-cut(distance1, distance2, target?)
-cut(face: SceneObject)                         // cut up to face
-cut("first-face")
-cut("last-face")
-cut(face, target)
-```
-
-Returns `Cut`. Always subtractive — equivalent to `extrude(...).remove()`. Same chain methods as extrude except no `.add()`/`.new()`: `.symmetric()`, `.draft()`, `.endOffset()`, `.thin()`, `.pick()`, `.scope()`, `.startEdges()`, `.endEdges()`, `.internalEdges()`, `.internalFaces()`.
-
-`cut()` with no args goes **through all** — easy to do by accident. Pass an explicit distance for pockets.
-
-```js
-sketch(e.endFaces(), () => circle(20))
-cut(10)                                        // 10-deep pocket
-
-sketch(e.endFaces(), () => rect(20, 5).centered())
-cut().draft(-10)                               // through-all cut with inward taper
-```
+See [`llm-docs/api/cut.md`](llm-docs/api/cut.md).
 
 ### 5.3 revolve()
 
-```ts
-revolve(axis: AxisLike, target?: SceneObject)            // full 360
-revolve(axis: AxisLike, angle: number, target?)
-```
-
-Returns `Revolve` (extends `BooleanOperation`). Chain: `.symmetric()`, `.thin()`, `.pick()`, plus the boolean methods.
-
-The **sketch plane must contain the axis** (typically perpendicular to the world axis you're revolving around). To revolve around `"z"`, sketch on `"xz"` or `"yz"`.
-
-```js
-sketch("xz", () => {
-    move([20, 0])
-    rect(10, 30)
-})
-revolve("z")                                   // ring
-```
+See [`llm-docs/api/revolve.md`](llm-docs/api/revolve.md).
 
 ### 5.4 sweep()
 
-```ts
-sweep(path: SceneObject)                       // sweep last sketch along path
-sweep(path: SceneObject, target?: SceneObject)
-```
-
-Returns `Sweep` (extends `BooleanOperation`). Chain: `.symmetric()` is not supported; uses `.draft()`, `.endOffset()`, `.drill()`, `.pick()`, `.thin()`, plus boolean methods.
-
-The path is typically a sketch (open or closed wire) or an edge selection. The profile is the active sketch.
-
-```js
-const path = sketch("xy", () => {
-    line([0, 0], [100, 0])
-    arc([200, 100]).radius(150)
-}).reusable()
-
-sketch("yz", () => circle(8))
-sweep(path)
-```
+See [`llm-docs/api/sweep.md`](llm-docs/api/sweep.md).
 
 ### 5.5 loft()
 
-```ts
-loft(...profiles: SceneObject[])
-```
-
-Returns `Loft` (extends `BooleanOperation`). Creates a smooth transition between 2+ profiles. Profiles are typically sketches or face selections at different heights:
-
-```js
-const a = sketch("xy", () => circle(40))
-const b = sketch(plane("xy", 100), () => rect(60, 60).centered())
-loft(a, b)
-```
-
-Chain: `.thin()`, plus boolean methods. Direct accessors: `startFaces`, `endFaces`, `sideFaces`, `startEdges`, `endEdges`, `sideEdges`, `internalFaces`, `internalEdges`, `capFaces`, `capEdges`.
+See [`llm-docs/api/loft.md`](llm-docs/api/loft.md).
 
 ### 5.6 sphere() / cylinder()
 
-```ts
-sphere(radius)
-sphere(radius, angle)                          // partial sphere (degrees)
-
-cylinder(radius, height)
-```
-
-Both return `Transformable`, so you can chain `.translate()`, `.rotate()`, `.mirror()` directly:
-
-```js
-sphere(25).translate(0, 0, 100)
-cylinder(10, 50).rotate("x", 90)
-```
+See [`llm-docs/api/primitive-solids.md`](llm-docs/api/primitive-solids.md).
 
 ### 5.7 fillet()
 
-```ts
-fillet(radius?: number)                        // uses last selection, default radius 1
-fillet(radius, ...sceneObjects)
-// 2D variants:
-fillet(objects: Geometry[])
-fillet(objects: Geometry[], radius)
-fillet(radius, ...objects: Geometry[])
-```
-
-Returns `SceneObject`. Operates on the last selection if no objects passed. Common patterns:
-
-```js
-fillet(5, e.endEdges())
-fillet(3, e.endEdges(), e.startEdges())
-select(edge().verticalTo("xy")); fillet(2)
-```
+See [`llm-docs/api/fillet.md`](llm-docs/api/fillet.md).
 
 ### 5.8 chamfer()
 
-```ts
-chamfer(distance?)                             // default 1
-chamfer(distance, ...sceneObjects)
-chamfer(d1, d2, isAngle?)                      // asymmetric or distance+angle
-chamfer(d1, d2, isAngle, ...sceneObjects)
-```
-
-```js
-chamfer(2, e.endEdges())
-chamfer(3, 5, false, e.startEdges())            // 3×5 asymmetric chamfer
-chamfer(3, 45, true)                            // 3 distance + 45° angle
-```
+See [`llm-docs/api/chamfer.md`](llm-docs/api/chamfer.md).
 
 ### 5.9 shell()
 
-```ts
-shell(thickness?)                              // default thickness 2.5
-shell(thickness, ...selections)                // remove these faces
-```
-
-Returns `Shell` with:
-- `.internalFaces()`, `.internalEdges()` — inner wall geometry.
-- `.join(type)` — `'arc'` (default), `'intersection'` (sharp), or `'tangent'`.
-
-**Sign of thickness matters**: negative thickness goes inward (outer shape preserved), positive goes outward (inner cavity preserved).
-
-```js
-const e = extrude(30)
-const s = shell(-2, e.endFaces())              // open-top container, 2mm walls
-fillet(0.5, s.internalEdges())
-```
+See [`llm-docs/api/shell.md`](llm-docs/api/shell.md).
 
 ### 5.10 draft()
 
-```ts
-draft(angle)                                   // uses last selection
-draft(angle, ...selections)
-```
-
-Applies a draft angle to selected faces. Returns `Draft`.
+See [`llm-docs/api/draft.md`](llm-docs/api/draft.md).
 
 ### 5.11 rib()
 
-```ts
-rib(thickness)                                 // uses last sketch as spine
-rib(thickness, spine: SceneObject)
-```
-
-Creates a rib from an open spine sketch. Extends in the sketch plane normal direction until it meets surrounding solids. Positive thickness = forward, negative = reverse direction. Returns `Rib` (extends `BooleanOperation`) with `.parallel()` (extrude parallel to sketch plane instead of normal), `.extend()` (extend ends to blend with surrounding walls), plus all the standard face/edge accessors.
+See [`llm-docs/api/rib.md`](llm-docs/api/rib.md).
 
 ### 5.12 Booleans (3D)
 
-```ts
-fuse()
-fuse(...objects)                               // union of objects
-subtract(object1, object2)                     // object1 − object2
-common()
-common(...objects)                             // intersection
-```
-
-These are explicit boolean ops. Most of the time auto-fusion handles things for you — only reach for these when you need precise control over which objects merge or when an op didn't auto-fuse the way you wanted.
+See [`llm-docs/api/booleans.md`](llm-docs/api/booleans.md) for explicit
+`fuse` / `subtract` / `common` operations.
 
 ---
 

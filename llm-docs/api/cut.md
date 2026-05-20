@@ -25,8 +25,19 @@ Same chain set as `extrude` except no `.add()` / `.new()`: `.symmetric()`,
 `.draft()`, `.endOffset()`, `.thin()`, `.pick()`, `.scope()`, plus
 `.startEdges()`, `.endEdges()`, `.internalEdges()`, `.internalFaces()`.
 
-`cut()` with no args is **through-all** — pass an explicit distance when
-you want a finite pocket.
+## Direction convention
+
+`cut` is the mirror of `extrude` — it goes *into* the material, not
+out of it:
+
+- **Positive `distance`** cuts in the **opposite direction of the
+  sketch normal** (into the solid the sketch sits on). This is the
+  normal pocket case.
+- **Negative `distance`** cuts **along the sketch normal** (out of the
+  same side the sketch faces).
+- **`cut()` with no args** is **through-all**, again opposite the sketch
+  normal — easy to do by accident, so pass an explicit distance when
+  you want a finite pocket.
 
 ## Example
 

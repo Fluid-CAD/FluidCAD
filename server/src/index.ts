@@ -11,6 +11,7 @@ import { createExportRouter } from './routes/export.ts';
 import { createScreenshotRouter } from './routes/screenshot.ts';
 import { createPreferencesRouter } from './routes/preferences.ts';
 import { createHealthRouter } from './routes/health.ts';
+import { createSceneRouter } from './routes/scene.ts';
 import { normalizePath } from './normalize-path.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
 import { addInstance, removeInstance } from './global-registry.ts';
@@ -67,6 +68,7 @@ app.use('/api', createActionsRouter(fluidCadServer, sendToExtension, broadcastTo
 app.use('/api', createExportRouter(fluidCadServer));
 app.use('/api', createScreenshotRouter(requestScreenshot));
 app.use('/api', createPreferencesRouter());
+app.use('/api', createSceneRouter(fluidCadServer));
 
 // Static files — serve UI build, with SPA fallback
 app.use(express.static(UI_DIST, {
@@ -201,6 +203,7 @@ const lastSceneByFile = new Map<string, { result: any[]; rollbackStop: number }>
 
 function emitSuccess(absPath: string, result: any[], rollbackStop: number, breakpointHit?: boolean) {
   lastSceneByFile.set(absPath, { result, rollbackStop });
+  fluidCadServer.setCompileError(null);
   sendToExtension({
     type: 'scene-rendered',
     absPath,
@@ -241,6 +244,7 @@ function emitCompileError(filePath: string, err: any) {
   const prev = lastSceneByFile.get(key);
   const result = prev?.result ?? [];
   const rollbackStop = prev?.rollbackStop ?? -1;
+  fluidCadServer.setCompileError(compileError);
   sendToExtension({
     type: 'scene-rendered',
     absPath: key,

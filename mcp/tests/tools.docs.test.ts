@@ -124,7 +124,7 @@ describe('doc tools (unit)', () => {
 });
 
 describe('doc tools (over MCP)', () => {
-  it('the MCP client sees exactly the five tools', async () => {
+  it('the MCP client sees the documentation tools alongside workspace + inspection tools', async () => {
     const index = loadDocsIndex(REPO_DOCS);
     const server = buildServer({ docsIndex: index });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -133,16 +133,16 @@ describe('doc tools (over MCP)', () => {
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
     try {
       const tools = await client.listTools();
-      const names = tools.tools.map((t) => t.name).sort();
-      expect(names).toEqual(
-        [
-          'get_api_signature',
-          'list_docs',
-          'list_workspaces',
-          'read_doc',
-          'search_docs',
-        ].sort(),
-      );
+      const names = new Set(tools.tools.map((t) => t.name));
+      for (const expected of [
+        'get_api_signature',
+        'list_docs',
+        'list_workspaces',
+        'read_doc',
+        'search_docs',
+      ]) {
+        expect(names.has(expected)).toBe(true);
+      }
     } finally {
       await client.close();
       await server.close();

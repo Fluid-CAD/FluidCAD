@@ -15,6 +15,15 @@ import {
   readDoc,
   searchDocs,
 } from './tools/docs.ts';
+import {
+  getCompileError,
+  getEdgeProperties,
+  getFaceProperties,
+  getSceneSummary,
+  getShapeProperties,
+  hitTest,
+  listShapes,
+} from './tools/inspection.ts';
 import { loadDocsIndex, type DocsIndex } from './docs-index.ts';
 import { registerDocResources } from './resources.ts';
 import type { ToolResult } from './types.ts';
@@ -122,6 +131,137 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   );
 
   registerDocResources(server, docsIndex);
+
+  const workspaceArg = {
+    workspace: z
+      .string()
+      .optional()
+      .describe(
+        'Absolute workspace path of the target FluidCAD instance. Optional when only one workspace is running.',
+      ),
+  };
+
+  const shapeIdArg = z.string().min(1).describe('Shape id from list_shapes or get_scene_summary.');
+  const faceIndexArg = z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('Zero-based face index inside the shape.');
+  const edgeIndexArg = z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('Zero-based edge index inside the shape.');
+  const vec3 = z
+    .tuple([z.number(), z.number(), z.number()])
+    .describe('World-space [x, y, z] vector.');
+
+  server.registerTool(
+    'get_scene_summary',
+    {
+      title: 'Get the feature tree for a workspace',
+      description:
+        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced. Use this before list_shapes when you need feature-tree context.',
+      inputSchema: workspaceArg,
+    },
+    async ({ workspace }) => toMcp(await getSceneSummary({ workspace })),
+  );
+
+  server.registerTool(
+    'list_shapes',
+    {
+      title: 'List all shapes in the current scene',
+      description:
+        'Returns a flat list of `{ shapeId, type, sceneObjectId }`. Cheaper than get_scene_summary when you only need ids — use this before calling shape/face/edge property tools.',
+      inputSchema: workspaceArg,
+    },
+    async ({ workspace }) => toMcp(await listShapes({ workspace })),
+  );
+
+  server.registerTool(
+    'get_compile_error',
+    {
+      title: 'Get the last cached compile error',
+      description:
+        'Returns `{ compileError: { message, filePath?, sourceLocation? } | null }`. Useful when the scene looks stale — a non-null value means the most recent render failed and the previous scene is still being served.',
+      inputSchema: workspaceArg,
+    },
+    async ({ workspace }) => toMcp(await getCompileError({ workspace })),
+  );
+
+  server.registerTool(
+    'get_shape_properties',
+    {
+      title: 'Get geometric properties of a shape',
+      description:
+        'Returns volume, surface area, bounding box, center of mass, and similar measurements for a single shape.',
+      inputSchema: { ...workspaceArg, shapeId: shapeIdArg },
+    },
+    async ({ workspace, shapeId }) =>
+      toMcp(await getShapeProperties({ workspace, shapeId })),
+  );
+
+  server.registerTool(
+    'get_face_properties',
+    {
+      title: 'Get geometric properties of a face',
+      description:
+        'Returns area, normal, surface kind (plane/cylinder/...), and related measurements for a single face on a shape.',
+      inputSchema: {
+        ...workspaceArg,
+        shapeId: shapeIdArg,
+        faceIndex: faceIndexArg,
+      },
+    },
+    async ({ workspace, shapeId, faceIndex }) =>
+      toMcp(await getFaceProperties({ workspace, shapeId, faceIndex })),
+  );
+
+  server.registerTool(
+    'get_edge_properties',
+    {
+      title: 'Get geometric properties of an edge',
+      description:
+        'Returns length, curve kind, endpoints, and related measurements for a single edge on a shape.',
+      inputSchema: {
+        ...workspaceArg,
+        shapeId: shapeIdArg,
+        edgeIndex: edgeIndexArg,
+      },
+    },
+    async ({ workspace, shapeId, edgeIndex }) =>
+      toMcp(await getEdgeProperties({ workspace, shapeId, edgeIndex })),
+  );
+
+  server.registerTool(
+    'hit_test',
+    {
+      title: 'Ray-test a shape',
+      description:
+        'Cast a ray against a shape and return the face/edge it hits (if any). `rayOrigin` and `rayDir` are world-space [x, y, z]. `edgeThreshold` is a screen-space tolerance for edge hits.',
+      inputSchema: {
+        ...workspaceArg,
+        shapeId: shapeIdArg,
+        rayOrigin: vec3,
+        rayDir: vec3,
+        edgeThreshold: z
+          .number()
+          .nonnegative()
+          .optional()
+          .describe('Optional edge-hit tolerance (default 0 — face-only hit test).'),
+      },
+    },
+    async ({ workspace, shapeId, rayOrigin, rayDir, edgeThreshold }) =>
+      toMcp(
+        await hitTest({
+          workspace,
+          shapeId,
+          rayOrigin: rayOrigin as [number, number, number],
+          rayDir: rayDir as [number, number, number],
+          edgeThreshold,
+        }),
+      ),
+  );
 
   return server;
 }

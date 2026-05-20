@@ -21,18 +21,27 @@ copy("circular", center: Point2D, options, ...objects)       // inside a sketch
 
 ## Linear options (`LinearCopyOptions` / `LinearRepeatOptions`)
 
+**Required:** `count` plus exactly one of `offset` or `length`.
+
 - `count: number | number[]` — instances per axis (including original).
 - `offset: number | number[]` — spacing between instances. Mutually
   exclusive with `length`.
 - `length: number | number[]` — total span; instances are evenly
-  distributed.
+  distributed. Mutually exclusive with `offset`.
 - `centered: boolean` — center the pattern around the original.
 - `skip: number[][]` — index tuples to skip (per-axis).
 
 ## Circular options (`CircularCopyOptions` / `CircularRepeatOptions`)
 
-- `count`, `angle`, `offset` (mutually exclusive with `angle`),
-  `centered`, `skip`.
+**Required:** `count` plus exactly one of `offset` or `angle`.
+
+- `count: number` — instances (including original).
+- `angle: number` — total sweep in degrees; instances are evenly
+  distributed. Mutually exclusive with `offset`.
+- `offset: number` — angular spacing in degrees between instances.
+  Mutually exclusive with `angle`.
+- `centered: boolean` — center the pattern around the original.
+- `skip: number[]` — indices to skip.
 
 `copy()` snapshots the finished shape — copies don't share the
 modeling history of the source. For feature-aware patterns (where each

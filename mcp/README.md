@@ -127,11 +127,11 @@ becomes `["fluidcad", "mcp"]`).
    - *"List every `.fluid.js` file in the workspace, then show me the shapes
      in the current scene."*
 
-When the agent calls a tool that triggers a re-render (`write_file`,
-`edit_range`, `recompute`, `rollback_to`, `import_step`), it should follow up
-with `wait_for_render` before reading the new scene. The instructions block
-shipped to the client describes this convention; well-behaved agents will do
-it without prompting.
+Tools that trigger a re-render (`write_file`, `edit_range`, `recompute`,
+`rollback_to`, `import_step`) are synchronous — they return once the render
+settles. `write_file` and `edit_range` additionally carry the render outcome
+under `render`. The agent should inspect `render.state` and surface any
+`compile-error` to the user before retrying.
 
 ---
 
@@ -209,7 +209,7 @@ You should see two JSON-RPC responses on stdout: the `initialize` reply and a
 | Docs            | `list_docs`, `read_doc`, `search_docs`, `get_api_signature`           |
 | Inspection      | `get_scene_summary`, `list_shapes`, `get_shape_properties`, `get_face_properties`, `get_edge_properties`, `get_compile_error`, `hit_test` |
 | Visual          | `screenshot`, `screenshot_multi`, `screenshot_shape`, `get_camera_state` |
-| Coordination    | `wait_for_render`, `wait_for_idle`                                    |
+| Coordination    | `wait_for_idle`                                                       |
 | Source editing  | `list_fluid_files`, `read_file`, `write_file`, `edit_range`           |
 | Engine control  | `recompute`, `rollback_to`, `add_breakpoint`, `clear_breakpoints`, `import_step`, `export` |
 

@@ -8,7 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { buildServer } from '../src/server.ts';
 import { registryFilePath } from '../src/discovery.ts';
-import { waitForIdle, waitForRender } from '../src/tools/coordination.ts';
+import { waitForIdle } from '../src/tools/coordination.ts';
 import type { RegistryEntry } from '../src/types.ts';
 
 let fakeHome: string;
@@ -105,89 +105,6 @@ afterEach(async () => {
   }
 });
 
-describe('wait_for_render', () => {
-  it('resolves on the next render-version: end message', async () => {
-    setTimeout(() => {
-      emit({ type: 'render-version', version: 1, state: 'start' });
-      setTimeout(() => emit({ type: 'render-version', version: 1, state: 'end', absPath: '/tmp/x.fluid.js' }), 30);
-    }, 20);
-
-    const result = await waitForRender({ timeoutMs: 1000 });
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-    expect(result.data.state).toBe('rendered');
-    expect(result.data.version).toBe(1);
-    expect(result.data.absPath).toBe('/tmp/x.fluid.js');
-    expect(result.data.durationMs).toBeGreaterThanOrEqual(0);
-  });
-
-  it('resolves with a compile-error on render-version: error', async () => {
-    setTimeout(() => {
-      emit({ type: 'render-version', version: 7, state: 'start' });
-      setTimeout(() => emit({ type: 'render-version', version: 7, state: 'error', absPath: '/tmp/x.fluid.js' }), 20);
-    }, 10);
-
-    const result = await waitForRender({ timeoutMs: 1000 });
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      return;
-    }
-    expect(result.code).toBe('compile-error');
-    expect((result.details as any).version).toBe(7);
-  });
-
-  it('rejects with code=timeout when no completion arrives', async () => {
-    const result = await waitForRender({ timeoutMs: 150 });
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      return;
-    }
-    expect(result.code).toBe('timeout');
-  });
-
-  it('ignores intermediate start messages and resolves on the matching end', async () => {
-    setTimeout(() => {
-      emit({ type: 'render-version', version: 1, state: 'start' });
-      emit({ type: 'render-version', version: 2, state: 'start' });
-      emit({ type: 'render-version', version: 3, state: 'start' });
-      setTimeout(() => emit({ type: 'render-version', version: 3, state: 'end' }), 30);
-    }, 20);
-
-    const result = await waitForRender({ timeoutMs: 1000 });
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-    expect(result.data.version).toBe(3);
-  });
-
-  it('surfaces a ws-error when the connection drops mid-wait', async () => {
-    setTimeout(() => {
-      for (const ws of connectedSockets) {
-        ws.terminate();
-      }
-    }, 40);
-
-    const result = await waitForRender({ timeoutMs: 1000 });
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      return;
-    }
-    expect(result.code).toBe('ws-error');
-  });
-
-  it('rejects non-positive timeoutMs', async () => {
-    const result = await waitForRender({ timeoutMs: 0 });
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      return;
-    }
-    expect(result.code).toBe('invalid-input');
-  });
-});
-
 describe('wait_for_idle', () => {
   it('resolves quickly when no renders are happening', async () => {
     const t0 = Date.now();
@@ -252,7 +169,7 @@ describe('wait_for_idle', () => {
 });
 
 describe('coordination tools (over MCP)', () => {
-  it('the two coordination tools are exposed in the tool list', async () => {
+  it('wait_for_idle is exposed in the tool list and wait_for_render is gone', async () => {
     const server = buildServer();
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test', version: '0.0.0' });
@@ -261,34 +178,8 @@ describe('coordination tools (over MCP)', () => {
     try {
       const tools = await client.listTools();
       const names = new Set(tools.tools.map((t) => t.name));
-      expect(names.has('wait_for_render')).toBe(true);
       expect(names.has('wait_for_idle')).toBe(true);
-    } finally {
-      await client.close();
-      await server.close();
-    }
-  });
-
-  it('wait_for_render returns a parseable payload through MCP', async () => {
-    setTimeout(() => {
-      emit({ type: 'render-version', version: 5, state: 'start' });
-      setTimeout(() => emit({ type: 'render-version', version: 5, state: 'end', absPath: '/tmp/y.fluid.js' }), 20);
-    }, 10);
-
-    const server = buildServer();
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    const client = new Client({ name: 'test', version: '0.0.0' });
-
-    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-    try {
-      const result = await client.callTool({
-        name: 'wait_for_render',
-        arguments: { workspace: '/tmp/ws-mcp-coord', timeoutMs: 1000 },
-      });
-      expect(result.isError).not.toBe(true);
-      const payload = JSON.parse((result.content as any[])[0].text);
-      expect(payload.state).toBe('rendered');
-      expect(payload.version).toBe(5);
+      expect(names.has('wait_for_render')).toBe(false);
     } finally {
       await client.close();
       await server.close();

@@ -30,7 +30,7 @@ import {
   screenshotMulti,
   screenshotShape,
 } from './tools/screenshot.ts';
-import { waitForIdle, waitForRender } from './tools/coordination.ts';
+import { waitForIdle } from './tools/coordination.ts';
 import {
   editRange,
   listFluidFiles,
@@ -79,12 +79,12 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'FluidCAD symbol without an import (code: "missing-imports"). The error',
         '`details.suggestion` is a copy-pasteable block of the imports to add.',
         '',
-        'write_file and edit_range are synchronous: the response carries the',
-        'render outcome under `render`. Check `render.state === "rendered"`',
-        'before calling screenshot or inspection. On `compile-error`, the',
-        'previous scene is still being served — fix the source and retry.',
-        'wait_for_render only matters for renders you did NOT trigger (e.g.',
-        'observing a user-driven live edit).',
+        'write_file, edit_range, recompute, rollback_to, and import_step are',
+        'synchronous: they return once the render settles. write_file and',
+        'edit_range additionally carry the outcome under `render` — check',
+        '`render.state === "rendered"` before calling screenshot or',
+        'inspection. On `compile-error`, the previous scene is still being',
+        'served; fix the source and retry.',
         'write_file and edit_range refuse to clobber a buffer the editor has',
         'unsaved changes for (code: "dirty-buffer"). Surface the conflicting',
         'paths to the user before retrying with `force: true`.',
@@ -394,17 +394,6 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     .describe('Hard upper bound in milliseconds (default 10000).');
 
   server.registerTool(
-    'wait_for_render',
-    {
-      title: 'Wait for the next render to complete',
-      description:
-        'Blocks until the next `render-version: end` (or `error`) WS message arrives, or `timeoutMs` elapses. Pair with edits that trigger a render (e.g. write_file) so subsequent screenshot/inspection calls see the latest scene. Returns `{ state: "rendered", version, absPath, durationMs }`. Errors with code `compile-error` if the render failed, or `timeout` if no completion was observed.',
-      inputSchema: { ...workspaceArg, timeoutMs: timeoutMsArg },
-    },
-    async ({ workspace, timeoutMs }) => toMcp(await waitForRender({ workspace, timeoutMs })),
-  );
-
-  server.registerTool(
     'wait_for_idle',
     {
       title: 'Wait until renders have settled',
@@ -504,7 +493,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Replace a file inside the workspace (atomic)',
       description:
-        'Writes `content` to `path` (UTF-8, tmp+rename atomic), then synchronously triggers a render and returns the outcome under `render` (`state`: rendered | compile-error | superseded | no-scene-manager | render-failed, plus `version`, `durationMs`, optional `compileError`). For `.fluid.js` files, refuses writes that use a known FluidCAD symbol without an `import { … } from "fluidcad/…"` line — fails with code `missing-imports` and `details.suggestion` shows the imports to add. Also refuses to clobber a file the editor extension reports as dirty — fails with code `dirty-buffer` whose `details.dirtyFiles` lists every dirty path. Pass `force: true` to override either guard. No need to call `wait_for_render` afterwards.',
+        'Writes `content` to `path` (UTF-8, tmp+rename atomic), then synchronously triggers a render and returns the outcome under `render` (`state`: rendered | compile-error | superseded | no-scene-manager | render-failed, plus `version`, `durationMs`, optional `compileError`). For `.fluid.js` files, refuses writes that use a known FluidCAD symbol without an `import { … } from "fluidcad/…"` line — fails with code `missing-imports` and `details.suggestion` shows the imports to add. Also refuses to clobber a file the editor extension reports as dirty — fails with code `dirty-buffer` whose `details.dirtyFiles` lists every dirty path. Pass `force: true` to override either guard.',
       inputSchema: {
         ...workspaceArg,
         path: pathArg,
@@ -521,7 +510,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Replace a [start, end) range inside a workspace file (atomic)',
       description:
-        'Replaces the half-open range `[start, end)` in `path` with `newText`. Positions are 0-based `{ line, column }` (UTF-16 columns). End-of-line and end-of-file overrun clamp gracefully. Same dirty-buffer guard, missing-imports guard (for `.fluid.js` files), `force` semantics, and synchronous `render` outcome as `write_file`. No need to call `wait_for_render` afterwards.',
+        'Replaces the half-open range `[start, end)` in `path` with `newText`. Positions are 0-based `{ line, column }` (UTF-16 columns). End-of-line and end-of-file overrun clamp gracefully. Same dirty-buffer guard, missing-imports guard (for `.fluid.js` files), `force` semantics, and synchronous `render` outcome as `write_file`.',
       inputSchema: {
         ...workspaceArg,
         path: pathArg,
@@ -544,7 +533,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Force a full recompute of the current file',
       description:
-        'Discards the cached scene and re-runs the current `.fluid.js` file. Pair with `wait_for_render` before screenshot or inspection.',
+        'Discards the cached scene and re-runs the current `.fluid.js` file. Synchronous — returns once the render settles.',
       inputSchema: workspaceArg,
     },
     async ({ workspace }) => toMcp(await recompute({ workspace })),
@@ -555,7 +544,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Temporarily roll back the rendered scene to a feature index',
       description:
-        'Stops rendering at scene-object `index` so the UI shows the model up to that step. Mutates only UI/render state — the source file is unchanged, and the next `recompute` or live-update resets to the full scene. Pair with `wait_for_render` before screenshotting.',
+        'Stops rendering at scene-object `index` so the UI shows the model up to that step. Mutates only UI/render state — the source file is unchanged, and the next `recompute` or live-update resets to the full scene. Synchronous — returns once the rollback render settles.',
       inputSchema: {
         ...workspaceArg,
         index: z

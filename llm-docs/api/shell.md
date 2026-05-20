@@ -9,6 +9,8 @@ seeAlso: [api/extrude, api/fillet]
 
 # shell
 
+Imported from `fluidcad/core`.
+
 ```ts
 shell(thickness?)                      // default thickness 2.5, walls inward (negative)
 shell(thickness, ...selections)        // remove these faces (open the shell)
@@ -27,6 +29,8 @@ shells outward (preserving the inner shape and adding wall material).
 ## Example
 
 ```fluid.js
+import { extrude, fillet, rect, shell, sketch } from "fluidcad/core";
+
 sketch("xy", () => rect(80, 60).centered());
 const e = extrude(40);
 const s = shell(-2, e.endFaces());     // open-top container, 2mm walls

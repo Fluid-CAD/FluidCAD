@@ -9,6 +9,8 @@ seeAlso: [api/extrude, api/revolve]
 
 # sphere / cylinder
 
+Imported from `fluidcad/core`.
+
 ```ts
 sphere(radius)
 sphere(radius, angle)                  // partial sphere (degrees)
@@ -27,6 +29,8 @@ would be ceremony.
 ## Example
 
 ```fluid.js
+import { cylinder, sphere } from "fluidcad/core";
+
 sphere(25).translate(0, 0, 100);
 cylinder(10, 50).rotate("x", 90);
 ```

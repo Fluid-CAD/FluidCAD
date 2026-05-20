@@ -9,6 +9,8 @@ seeAlso: [api/fillet, api/extrude]
 
 # chamfer
 
+Imported from `fluidcad/core`.
+
 ```ts
 chamfer(distance?)                                  // default 1, uses last selection
 chamfer(distance, ...sceneObjects)
@@ -28,6 +30,8 @@ styled rounds or stress-relief features.
 ## Example
 
 ```fluid.js
+import { chamfer, extrude, rect, sketch } from "fluidcad/core";
+
 sketch("xy", () => rect(60, 40).centered());
 const e = extrude(20);
 chamfer(2, e.endEdges());

@@ -9,6 +9,8 @@ seeAlso: [api/translate, api/rotate, concepts/coordinate-system]
 
 # mirror
 
+Imported from `fluidcad/core`.
+
 ```ts
 // 2D (inside a sketch)
 mirror(line: SceneObject)
@@ -32,6 +34,8 @@ the sketch plane's local X, use `mirror(local("x"))`. See
 ## Example
 
 ```fluid.js
+import { extrude, mirror, rect, sketch } from "fluidcad/core";
+
 sketch("xy", () => rect(40, 30).centered());
 const block = extrude(20).new();
 mirror("yz", block);                             // mirror across the YZ plane

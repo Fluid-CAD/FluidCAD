@@ -9,6 +9,8 @@ seeAlso: [api/face-filter, api/edge-filter, concepts/last-selection]
 
 # select
 
+Imported from `fluidcad/core`.
+
 ```ts
 select(...filters: (FaceFilter | EdgeFilter)[])
 ```
@@ -25,6 +27,9 @@ faces of one extrude), use the direct accessor instead —
 ## Example
 
 ```fluid.js
+import { extrude, fillet, rect, select, sketch } from "fluidcad/core";
+import { edge } from "fluidcad/filters";
+
 sketch("xy", () => rect(80, 60).centered());
 const e = extrude(20);
 select(edge().verticalTo("xy"));

@@ -9,6 +9,8 @@ seeAlso: [api/sketch, api/extrude]
 
 # rib
 
+Imported from `fluidcad/core`.
+
 ```ts
 rib(thickness)                          // uses last sketch as spine
 rib(thickness, spine: SceneObject)
@@ -27,6 +29,8 @@ Plus the standard face/edge accessors (`startFaces`, `endFaces`,
 ## Example
 
 ```fluid.js
+import { extrude, line, rect, rib, sketch } from "fluidcad/core";
+
 sketch("xy", () => rect(120, 80).centered());
 extrude(40);
 sketch("xz", () => line([-40, 5], [40, 5]));

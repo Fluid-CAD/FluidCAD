@@ -9,6 +9,8 @@ seeAlso: [api/tline, api/tcircle, api/arc]
 
 # tArc
 
+Imported from `fluidcad/core`.
+
 ```ts
 tArc(target: SceneObject | QualifiedGeometry)            // ends tangent to target curve
 tArc(radius, target)                                     // arc of given radius to target
@@ -28,6 +30,8 @@ instead of the left.
 ## Example
 
 ```fluid.js
+import { connect, extrude, hLine, sketch, tArc } from "fluidcad/core";
+
 sketch("xy", () => {
   hLine(40);
   tArc(20, 180);            // half-circle of radius 20, tangent to the hLine

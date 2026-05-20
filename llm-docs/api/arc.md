@@ -9,6 +9,8 @@ seeAlso: [api/circle, api/bezier, api/line]
 
 # arc
 
+Imported from `fluidcad/core`.
+
 ```ts
 arc(endPoint: Point2D)                        // from cursor through implicit center
 arc(startPoint, endPoint)
@@ -31,6 +33,8 @@ arc(targetPlane, radius, startAngle, endAngle)
 ## Example
 
 ```fluid.js
+import { arc, extrude, line, sketch } from "fluidcad/core";
+
 sketch("xy", () => {
   line([0, 0], [60, 0]);
   arc([100, 40]).radius(50);   // bulge from cursor to (100,40)

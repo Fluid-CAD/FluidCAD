@@ -9,6 +9,8 @@ seeAlso: [api/arc, api/line]
 
 # bezier
 
+Imported from `fluidcad/core`.
+
 ```ts
 bezier(...points: Point2D[])
 ```
@@ -27,6 +29,8 @@ intermediate arguments are control handles that shape the curve.
 ## Example
 
 ```fluid.js
+import { bezier, extrude, line, sketch } from "fluidcad/core";
+
 sketch("xy", () => {
   line([0, 0], [0, 40]);
   bezier([20, 80], [80, 80], [100, 40]);   // cubic bezier

@@ -9,6 +9,8 @@ seeAlso: [api/sketch, api/edge-filter]
 
 # split / trim
 
+Imported from `fluidcad/core`.
+
 ```ts
 split()                                  // split all intersecting geometries
 split(...objects)
@@ -26,6 +28,9 @@ or parent.
 ## Example
 
 ```fluid.js
+import { circle, extrude, hLine, sketch, trim } from "fluidcad/core";
+import { edge } from "fluidcad/filters";
+
 sketch("xy", () => {
   circle(50);
   hLine([50, 0], 100);        // cuts the circle in half

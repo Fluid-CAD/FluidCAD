@@ -9,6 +9,8 @@ seeAlso: [api/repeat, api/translate, api/mirror]
 
 # copy
 
+Imported from `fluidcad/core`.
+
 ```ts
 // Linear
 copy("linear", axis: AxisLike, options, ...objects)
@@ -50,6 +52,8 @@ position re-runs the original op) use [[api/repeat]].
 ## Example
 
 ```fluid.js
+import { circle, copy, extrude, sketch } from "fluidcad/core";
+
 sketch("xy", () => circle(8));
 const pin = extrude(20).new();
 copy("linear", "x", { count: 4, offset: 25 }, pin);

@@ -9,6 +9,8 @@ seeAlso: [api/circle, api/sketch]
 
 # polygon
 
+Imported from `fluidcad/core`.
+
 ```ts
 polygon(numberOfSides, diameter, mode?)
 polygon(center, numberOfSides, diameter, mode?)
@@ -23,6 +25,8 @@ circle). Returns `Polygon` with `.getEdge(i)` / `.getVertex(i)` (0-based).
 ## Example
 
 ```fluid.js
+import { extrude, polygon, sketch } from "fluidcad/core";
+
 sketch("xy", () => polygon(6, 60));   // hexagon, 60 diameter
 extrude(10);
 ```

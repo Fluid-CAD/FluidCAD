@@ -9,6 +9,8 @@ seeAlso: [api/sketch, api/extrude]
 
 # rect
 
+Imported from `fluidcad/core`.
+
 ```ts
 rect(width, height?)
 rect(start: Point2D, width, height?)
@@ -36,6 +38,8 @@ r.topLeftArcEdge();   // only present when a corner radius is applied
 ## Example
 
 ```fluid.js
+import { extrude, rect, sketch } from "fluidcad/core";
+
 sketch("xy", () => rect(100, 60).centered().radius(8));
 extrude(15);
 ```

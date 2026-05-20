@@ -9,6 +9,8 @@ seeAlso: [api/extrude, concepts/last-selection]
 
 # fillet
 
+Imported from `fluidcad/core`.
+
 ```ts
 fillet(radius?: number)                   // uses last selection, default radius 1
 fillet(radius, ...sceneObjects)
@@ -25,6 +27,8 @@ are passed — pair with `select()` or a direct accessor like `e.endEdges()`.
 ## Common patterns
 
 ```fluid.js
+import { extrude, fillet, rect, sketch } from "fluidcad/core";
+
 sketch("xy", () => rect(40, 40).centered());
 const e = extrude(30);
 fillet(5, e.endEdges());                  // round top edges only

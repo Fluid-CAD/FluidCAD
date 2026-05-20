@@ -9,6 +9,8 @@ seeAlso: [api/sketch, api/fillet, concepts/last-selection]
 
 # extrude
 
+Imported from `fluidcad/core`.
+
 ```ts
 extrude(target?: SceneObject)                 // default distance (25)
 extrude(distance: number, target?)
@@ -53,6 +55,9 @@ e.endEdges(0, 2);                   // by index
 ## Examples
 
 ```fluid.js
+import { circle, extrude, rect, select, sketch } from "fluidcad/core";
+import { face } from "fluidcad/filters";
+
 sketch("xy", () => rect(100, 60).centered());
 extrude(30);  // simple box
 

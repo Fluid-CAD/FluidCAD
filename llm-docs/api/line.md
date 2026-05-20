@@ -9,6 +9,8 @@ seeAlso: [api/sketch, api/connect, api/arc]
 
 # line
 
+Imported from `fluidcad/core`.
+
 ```ts
 line(end: Point2D)
 line(start: Point2D, end: Point2D)
@@ -26,6 +28,8 @@ length 30") visible and let the solver resolve targets like
 ## Example
 
 ```fluid.js
+import { extrude, line, sketch } from "fluidcad/core";
+
 sketch("xy", () => {
   line([0, 0], [40, 0]);
   line([40, 30]);             // continues from the previous cursor

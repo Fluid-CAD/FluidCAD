@@ -9,6 +9,8 @@ seeAlso: [api/sketch, api/ellipse, api/arc]
 
 # circle
 
+Imported from `fluidcad/core`.
+
 ```ts
 circle(diameter?)                       // at cursor, default diameter 40
 circle(center: Point2D, diameter?)
@@ -21,6 +23,8 @@ radius. With no `center`, the circle is drawn at the current cursor.
 ## Example
 
 ```fluid.js
+import { circle, extrude, sketch } from "fluidcad/core";
+
 sketch("xy", () => {
   circle(50);                 // at the origin/cursor
   circle([60, 0], 20);        // smaller circle offset to the right

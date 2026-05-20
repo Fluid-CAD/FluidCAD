@@ -9,6 +9,8 @@ seeAlso: [api/axis, api/plane, concepts/coordinate-system]
 
 # local
 
+Imported from `fluidcad/core`.
+
 ```ts
 local("x" | "y" | "z")
 ```
@@ -22,6 +24,8 @@ sketch axis.
 ## Example
 
 ```fluid.js
+import { extrude, local, mirror, plane, rect, sketch } from "fluidcad/core";
+
 const tilted = plane("xy", { rotateX: 30 });
 sketch(tilted, () => {
   rect(40, 20).centered();

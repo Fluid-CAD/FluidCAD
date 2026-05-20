@@ -9,6 +9,8 @@ seeAlso: [api/extrude, api/sketch, concepts/last-selection]
 
 # cut
 
+Imported from `fluidcad/core`.
+
 ```ts
 cut()                                  // through-all using the last sketch
 cut(target: SceneObject)
@@ -42,6 +44,8 @@ out of it:
 ## Example
 
 ```fluid.js
+import { circle, cut, extrude, rect, sketch } from "fluidcad/core";
+
 sketch("xy", () => rect(120, 80).centered());
 const block = extrude(30);
 sketch(block.endFaces(), () => circle(20));

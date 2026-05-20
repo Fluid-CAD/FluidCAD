@@ -9,6 +9,8 @@ seeAlso: [api/tline, api/tarc, api/tcircle]
 
 # Constraint qualifiers
 
+Imported from `fluidcad/constraints`.
+
 ```ts
 outside(obj)
 enclosing(obj)

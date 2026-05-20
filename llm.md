@@ -432,46 +432,9 @@ wire.
 
 ### 4.5 2D modifiers
 
-#### offset
-
-```ts
-offset(distance?, removeOriginal?)
-offset(targetPlane, distance, removeOriginal, ...sourceGeometries)
-```
-
-Offsets the current sketch wire (default distance 1). Returns `Offset` with `.close()` for capping open offsets.
-
-#### project
-
-```ts
-project(...sourceObjects: SceneObject[])     // project 3D edges onto current sketch plane
-project(targetPlane, sourceObjects)
-```
-
-Projects 3D faces or edges onto the active sketch plane, producing flat 2D wires you can extrude/offset/etc.
-
-#### intersect
-
-```ts
-intersect(...sourceObjects: SceneObject[])
-intersect(targetPlane, sourceObjects)
-```
-
-Like `project()` but produces cross-section edges where 3D objects intersect the sketch plane.
-
-#### trim
-
-```ts
-trim()                              // trim all segments at crossings
-trim(...filters: EdgeFilter[])      // trim segments matching the filters
-```
-
-#### split
-
-```ts
-split()                             // split all intersecting geometries at crossings
-split(...objects)
-```
+- [`offset`](llm-docs/api/offset.md)
+- [`project` / `intersect`](llm-docs/api/project-intersect.md)
+- [`split` / `trim`](llm-docs/api/split-trim.md)
 
 #### fillet (2D form)
 
@@ -734,61 +697,15 @@ Matrix4 composition is left-to-right: `.translate(T).rotate(R)` applies translat
 
 ### 8.1 plane()
 
-```ts
-plane(plane: PlaneLike, options: PlaneTransformOptions)
-plane(plane: PlaneLike, offset: number)
-plane(selection: SceneObject)                      // from a face
-plane(selection: SceneObject, options)
-plane(selection: SceneObject, offset)
-plane(plane: Plane, options)                       // transform an existing plane
-plane(p1: PlaneLike, p2: PlaneLike, options?)      // midplane between two planes
-plane(p1: Plane, p2: Plane, options?)
-```
-
-`PlaneTransformOptions`:
-- `offset: number` — translate along the normal.
-- `rotateX: number`, `rotateY: number`, `rotateZ: number` — degrees.
-
-```js
-const p = plane("xy", 50)                          // XY shifted up 50
-const p2 = plane("xz", { offset: 30, rotateZ: 45 })
-const p3 = plane(face1, 10)                        // 10 above a face
-const mid = plane("xy", plane("xy", 100))          // midplane
-```
+See [`llm-docs/api/plane.md`](llm-docs/api/plane.md).
 
 ### 8.2 axis()
 
-```ts
-axis(axis: AxisLike)
-axis(axis: AxisLike, options: AxisTransformOptions)
-axis(source: SceneObject)                          // from an edge
-axis(source: SceneObject, options)
-axis(axis: Axis, options)
-axis(a1: AxisLike, a2: AxisLike, options?)         // midaxis
-axis(a1: Axis, a2: Axis, options?)
-```
-
-`AxisLike` can be `"x"`, `"y"`, `"z"`, a direction vector, or an object `{ point?, direction }`. `AxisTransformOptions` includes `offsetX`, `offsetY`, `offsetZ`, `flip`, etc.
-
-```js
-const a = axis("y", { offsetZ: 100 })              // Y axis raised by 100
-const a2 = axis(edgeRef)                           // axis from a straight edge
-```
+See [`llm-docs/api/axis.md`](llm-docs/api/axis.md).
 
 ### 8.3 local()
 
-```ts
-local('x' | 'y' | 'z')
-```
-
-Returns an axis interpreted **relative to the active sketch's plane**. Useful when you're inside a sketch on a tilted plane and want "this sketch's X axis," not world X.
-
-```js
-sketch(rotatedPlane, () => {
-    // ...
-    mirror(local("x"))                              // mirror across sketch-local X
-})
-```
+See [`llm-docs/api/local.md`](llm-docs/api/local.md).
 
 ---
 
@@ -796,90 +713,23 @@ sketch(rotatedPlane, () => {
 
 ### 9.1 part()
 
-```ts
-part(name: string, callback: () => void)
-```
-
-Creates an **isolation boundary**. Shapes inside the callback only auto-fuse with each other, not with anything outside the part. Use for assemblies with multiple components.
-
-```js
-part("base", () => {
-    sketch("xy", () => rect(200, 100).centered())
-    extrude(20)
-})
-
-part("pillar", () => {
-    cylinder(20, 50).translate(0, 0, 20)
-})
-```
-
-Reusable parts: wrap `part(...)` in a function for parametric instances:
-
-```js
-function createPin(d = 10, h = 30) {
-    return part("pin", () => {
-        cylinder(d / 2, h)
-    })
-}
-
-createPin(8, 25)
-createPin(12, 40).translate(50, 0, 0)
-```
+See [`llm-docs/api/part.md`](llm-docs/api/part.md).
 
 ### 9.2 color()
 
-```ts
-color(color: string)                               // CSS color, applies to last selection
-color(color: string, selection: SceneObject)
-```
-
-Accepts named colors (`"red"`), hex (`"#3498db"`), `rgb(...)`, etc.
-
-```js
-select(face().planar().onPlane("xy", 30))
-color("#3498db")
-
-const e = extrude(30)
-color("red", e.sideFaces())
-```
+See [`llm-docs/api/color.md`](llm-docs/api/color.md).
 
 ### 9.3 remove()
 
-```ts
-remove(...objects: SceneObject[])
-```
-
-Deletes objects from the scene. Most commonly used after `.reusable()` when you're done with the reusable source:
-
-```js
-const profile = sketch("xy", () => circle(60)).reusable()
-extrude(20)
-extrude(50)
-remove(profile)                                    // clean up
-```
+See [`llm-docs/api/remove.md`](llm-docs/api/remove.md).
 
 ### 9.4 load()
 
-```ts
-load(fileName: string)
-```
-
-Imports a 3D model file (STEP, STL, etc.) by relative filename from the project folder. Returns an `ILoadFile` (extends `SceneObject`) with chainable filtering:
-
-```js
-load("bracket.step")                               // loads as a SceneObject
-load("bracket.step").translate(0, 0, 50).rotate("z", 90)
-```
-
-`ILoadFile` may support `.noColors()`, `.include(...)`, `.exclude(...)` to control which sub-shapes are imported and whether to keep STEP colors — consult the codebase if you need these.
+See [`llm-docs/api/load.md`](llm-docs/api/load.md).
 
 ### 9.5 split / trim (top-level)
 
-```ts
-split(...objects)                                  // 2D split at crossings (inside sketch)
-trim()                                             // 2D trim (inside sketch)
-trim(...filters: EdgeFilter[])
-```
+See [`llm-docs/api/split-trim.md`](llm-docs/api/split-trim.md).
 
 ---
 

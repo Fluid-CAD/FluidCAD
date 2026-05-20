@@ -70,6 +70,15 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'Call list_workspaces first to find available workspaces.',
         'Use list_docs/search_docs/read_doc/get_api_signature to learn the API.',
         'All paths are workspace-absolute.',
+        '',
+        '`.fluid.js` files MUST import every FluidCAD symbol they use:',
+        '  import { sketch, rect, extrude } from "fluidcad/core";',
+        '  import { face, edge } from "fluidcad/filters";',
+        '  import { outside, enclosed } from "fluidcad/constraints";',
+        'write_file and edit_range refuse `.fluid.js` writes that use a known',
+        'FluidCAD symbol without an import (code: "missing-imports"). The error',
+        '`details.suggestion` is a copy-pasteable block of the imports to add.',
+        '',
         'write_file and edit_range are synchronous: the response carries the',
         'render outcome under `render`. Check `render.state === "rendered"`',
         'before calling screenshot or inspection. On `compile-error`, the',
@@ -495,7 +504,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Replace a file inside the workspace (atomic)',
       description:
-        'Writes `content` to `path` (UTF-8, tmp+rename atomic), then synchronously triggers a render and returns the outcome under `render` (`state`: rendered | compile-error | superseded | no-scene-manager | render-failed, plus `version`, `durationMs`, optional `compileError`). Refuses to clobber a file that the editor extension reports as dirty — fails with code `dirty-buffer` whose `details.dirtyFiles` lists every dirty path. Pass `force: true` to override. No need to call `wait_for_render` afterwards.',
+        'Writes `content` to `path` (UTF-8, tmp+rename atomic), then synchronously triggers a render and returns the outcome under `render` (`state`: rendered | compile-error | superseded | no-scene-manager | render-failed, plus `version`, `durationMs`, optional `compileError`). For `.fluid.js` files, refuses writes that use a known FluidCAD symbol without an `import { … } from "fluidcad/…"` line — fails with code `missing-imports` and `details.suggestion` shows the imports to add. Also refuses to clobber a file the editor extension reports as dirty — fails with code `dirty-buffer` whose `details.dirtyFiles` lists every dirty path. Pass `force: true` to override either guard. No need to call `wait_for_render` afterwards.',
       inputSchema: {
         ...workspaceArg,
         path: pathArg,
@@ -512,7 +521,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Replace a [start, end) range inside a workspace file (atomic)',
       description:
-        'Replaces the half-open range `[start, end)` in `path` with `newText`. Positions are 0-based `{ line, column }` (UTF-16 columns). End-of-line and end-of-file overrun clamp gracefully. Same dirty-buffer guard, `force` semantics, and synchronous `render` outcome as `write_file`. No need to call `wait_for_render` afterwards.',
+        'Replaces the half-open range `[start, end)` in `path` with `newText`. Positions are 0-based `{ line, column }` (UTF-16 columns). End-of-line and end-of-file overrun clamp gracefully. Same dirty-buffer guard, missing-imports guard (for `.fluid.js` files), `force` semantics, and synchronous `render` outcome as `write_file`. No need to call `wait_for_render` afterwards.',
       inputSchema: {
         ...workspaceArg,
         path: pathArg,

@@ -25,6 +25,7 @@ export type ToolErrorCode =
   | 'timeout'
   | 'compile-error'
   | 'dirty-buffer'
+  | 'missing-imports'
   | 'internal';
 
 export function ok<T>(data: T): ToolResult<T> {

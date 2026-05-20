@@ -58,7 +58,9 @@ extrude(-10, profile);  // still available
 
 ## Sketching on a face
 
-Passing a face selection orients the sketch onto that face's plane:
+Passing a face selection orients the sketch onto that face's plane. If the
+selection resolves to multiple faces, only the **first** face is used as the
+sketch plane:
 
 ```fluid.js
 import { circle, cut, extrude, rect, sketch } from "fluidcad/core";

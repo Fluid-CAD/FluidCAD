@@ -216,10 +216,10 @@ See the full list of commands in the [Neovim plugin README](extension/neovim/REA
 <details>
 <summary><strong>Any Other Editor</strong></summary>
 
-Run the FluidCAD server directly:
+From your project directory, run the FluidCAD server directly:
 
 ```bash
-npx fluidcad serve -w ./my-app
+npx fluidcad serve
 ```
 
 This starts a local server and opens a 3D viewport in your browser. Edit your `.fluid.js` files in any editor -- the viewport updates on save.
@@ -230,6 +230,7 @@ This starts a local server and opens a 3D viewport in your browser. Edit your `.
 |------|-------------|---------|
 | `-w, --workspace <path>` | Path to your project | Current directory |
 | `-p, --port <port>` | Server port | `3100` |
+| `--open` | Open the viewport in your default browser when ready | _off_ |
 
 </details>
 

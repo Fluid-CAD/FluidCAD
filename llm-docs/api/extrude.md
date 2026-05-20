@@ -33,7 +33,7 @@ its plane normal. With no `target`, auto-fuses with anything it touches.
 
 ## Direct accessors
 
-```fluid.js
+```js
 const e = extrude(30);
 e.startFaces(); e.endFaces(); e.sideFaces();
 e.startEdges(); e.endEdges(); e.sideEdges();
@@ -44,7 +44,7 @@ e.capFaces(); e.capEdges();   // for thin extrudes from open profiles
 Each accessor takes numeric indices and/or `FaceFilterBuilder` /
 `EdgeFilterBuilder` to scope the selection:
 
-```fluid.js
+```js
 e.sideFaces(0);                     // first side face
 e.sideFaces(face().cylinder());     // only cylindrical side faces
 e.endEdges(0, 2);                   // by index

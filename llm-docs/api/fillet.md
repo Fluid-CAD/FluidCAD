@@ -25,9 +25,12 @@ are passed — pair with `select()` or a direct accessor like `e.endEdges()`.
 ## Common patterns
 
 ```fluid.js
+sketch("xy", () => rect(40, 40).centered());
 const e = extrude(30);
 fillet(5, e.endEdges());                  // round top edges only
+```
 
+```js
 fillet(3, e.endEdges(), e.startEdges());  // round top and bottom
 
 select(edge().verticalTo("xy"));

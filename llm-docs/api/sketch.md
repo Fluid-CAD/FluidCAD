@@ -53,6 +53,7 @@ extrude(-10, profile);  // still available
 Passing a face selection orients the sketch onto that face's plane:
 
 ```fluid.js
+sketch("xy", () => rect(100, 60).centered());
 const e = extrude(30);
 sketch(e.endFaces(), () => circle(15));
 cut(10);  // 10mm-deep pocket on the top face

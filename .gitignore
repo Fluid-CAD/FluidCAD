@@ -12,4 +12,6 @@ server/dist/
 ui/dist/
 .vscode-test
 .fluidcad/
+llm-docs/index.json
+llm-docs/api/index.json
 

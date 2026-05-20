@@ -22,6 +22,17 @@ result of an `extrude()`, `cut()`, `fillet()`, etc. as the trailing
 argument — each repetition re-executes that operation, so the output is
 **one solid with N copies of the feature**.
 
+## Required options
+
+- **`linear`** — `count` plus exactly one of `offset` (spacing between
+  instances) or `length` (total span, distributed evenly). For
+  multi-axis linear repeats, pass arrays.
+- **`circular`** — `count` plus exactly one of `offset` (degrees between
+  instances) or `angle` (total sweep, distributed evenly).
+
+Passing `count` alone is not enough — the runtime needs either the
+spacing or the span.
+
 ## Examples
 
 ```fluid.js
@@ -38,9 +49,12 @@ repeat("linear", ["x", "y"], { count: [4, 2], offset: [30, 30] }, pocket);
 const boss = extrude(15);
 repeat("mirror", "front", boss);
 
-// 6 circular copies around Z
+// 6 circular copies evenly distributed around Z (full 360°)
 const spoke = extrude(20);
-repeat("circular", "z", { count: 6 }, spoke);
+repeat("circular", "z", { count: 6, angle: 360 }, spoke);
+
+// Same idea, but spec the angular spacing directly
+repeat("circular", "z", { count: 6, offset: 60 }, spoke);
 ```
 
 ## repeat() vs copy()

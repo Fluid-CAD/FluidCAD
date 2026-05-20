@@ -9,6 +9,8 @@ seeAlso: [api/sketch, api/offset]
 
 # project / intersect
 
+Imported from `fluidcad/core`.
+
 ```ts
 project(...sourceObjects: SceneObject[])
 project(targetPlane, sourceObjects)
@@ -31,6 +33,8 @@ the input to a new 2D operation.
 ## Example
 
 ```fluid.js
+import { circle, extrude, intersect, sketch } from "fluidcad/core";
+
 sketch("xz", () => circle(40));
 const cyl = extrude(80).symmetric();
 

@@ -9,6 +9,8 @@ seeAlso: [api/rotate, api/mirror, api/copy]
 
 # translate
 
+Imported from `fluidcad/core`.
+
 ```ts
 translate(x, ...targets)
 translate(x, y, ...targets)
@@ -28,6 +30,8 @@ patterns use [[api/copy]] or [[api/repeat]].
 ## Example
 
 ```fluid.js
+import { sphere, translate } from "fluidcad/core";
+
 const s = sphere(15);
 translate(0, 0, 60, s);                          // lift the sphere by 60
 ```

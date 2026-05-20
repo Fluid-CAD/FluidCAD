@@ -9,6 +9,8 @@ seeAlso: [api/edge-filter, api/select, concepts/last-selection]
 
 # face filter
 
+Imported from `fluidcad/filters`.
+
 ```ts
 face(): FaceFilterBuilder
 ```
@@ -46,6 +48,9 @@ Returns a chainable filter builder. Chain calls narrow the candidate set
 ## Example
 
 ```fluid.js
+import { extrude, fillet, rect, select, sketch } from "fluidcad/core";
+import { face } from "fluidcad/filters";
+
 sketch("xy", () => rect(100, 80).centered());
 const e = extrude(30);
 select(face().planar().onPlane("xy", 30));   // top face only

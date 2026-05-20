@@ -9,6 +9,8 @@ seeAlso: [api/line, api/arc, api/sketch]
 
 # connect
 
+Imported from `fluidcad/core`.
+
 ```ts
 connect(mode?: "line" | "arc")
 ```
@@ -26,6 +28,8 @@ explicit closing segments are clearer than `connect`.
 ## Example
 
 ```fluid.js
+import { arc, connect, extrude, sketch } from "fluidcad/core";
+
 sketch("xy", () => {
   arc(30);            // half-circle starting at the cursor
   connect();          // close it into a half-disc face

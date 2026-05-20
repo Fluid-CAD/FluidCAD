@@ -9,6 +9,8 @@ seeAlso: [api/line, api/cursor-move, api/sketch]
 
 # hLine / vLine / aLine
 
+Imported from `fluidcad/core`.
+
 ```ts
 hLine(distance)
 hLine(target: SceneObject)              // ends at the nearest intersection with target
@@ -33,6 +35,8 @@ forms let the solver find the intersection for you.
 ## Example
 
 ```fluid.js
+import { extrude, hLine, sketch, vLine } from "fluidcad/core";
+
 sketch("xy", () => {
   hLine(60);                 // → (60, 0)
   vLine(40);                 // → (60, 40)

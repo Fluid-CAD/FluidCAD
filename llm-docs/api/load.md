@@ -9,6 +9,8 @@ seeAlso: [api/translate, api/rotate]
 
 # load
 
+Imported from `fluidcad/core`.
+
 ```ts
 load(fileName: string)
 ```

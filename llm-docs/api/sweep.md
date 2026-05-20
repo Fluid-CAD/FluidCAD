@@ -9,6 +9,8 @@ seeAlso: [api/sketch, api/extrude, api/loft, api/revolve]
 
 # sweep
 
+Imported from `fluidcad/core`.
+
 ```ts
 sweep(path: SceneObject)                              // sweep last sketch along path
 sweep(path: SceneObject, target?: SceneObject)
@@ -26,6 +28,8 @@ on a plane perpendicular to the path's start tangent.
 ## Example
 
 ```fluid.js
+import { arc, circle, line, sketch, sweep } from "fluidcad/core";
+
 const path = sketch("xy", () => {
   line([0, 0], [100, 0]);
   arc([200, 100]).radius(150);

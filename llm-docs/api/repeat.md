@@ -9,6 +9,8 @@ seeAlso: [api/extrude, concepts/scene-graph]
 
 # repeat
 
+Imported from `fluidcad/core`.
+
 ```ts
 repeat("linear", axis | axes, options, ...objects)
 repeat("circular", axis, options, ...objects)
@@ -36,6 +38,8 @@ spacing or the span.
 ## Examples
 
 ```fluid.js
+import { circle, cut, extrude, rect, repeat, sketch } from "fluidcad/core";
+
 // Cut one pocket, then repeat the cut across a 4×2 grid → one solid with 8 pockets
 sketch("xy", () => rect(200, 100).centered());
 extrude(20);

@@ -9,6 +9,8 @@ seeAlso: [api/extrude, api/shell]
 
 # draft
 
+Imported from `fluidcad/core`.
+
 ```ts
 draft(angle)                                        // uses last selection
 draft(angle, ...selections)
@@ -24,6 +26,8 @@ For draft applied during the pull itself, reach for
 ## Example
 
 ```fluid.js
+import { draft, extrude, rect, sketch } from "fluidcad/core";
+
 sketch("xy", () => rect(80, 50).centered());
 const e = extrude(30);
 draft(5, e.sideFaces());

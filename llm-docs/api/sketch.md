@@ -9,6 +9,8 @@ seeAlso: [api/extrude, concepts/last-selection, concepts/scene-graph]
 
 # sketch
 
+Imported from `fluidcad/core`.
+
 ```ts
 sketch(plane: PlaneLike, sketcher: () => T): SceneObject
 sketch(face: SceneObject, sketcher: () => T): SceneObject
@@ -20,6 +22,8 @@ returns is attached as `.regions` on the resulting `SceneObject`, so named
 references can be carried out:
 
 ```fluid.js
+import { circle, sketch } from "fluidcad/core";
+
 const s = sketch("xy", () => {
     const outer = circle(60).reusable();
     const inner = circle(20);
@@ -35,6 +39,8 @@ The sketch becomes the **last sketch**. The next 3D feature (`extrude`,
 `cut`, `revolve`, `sweep`, `loft`, `rib`) consumes it automatically:
 
 ```fluid.js
+import { extrude, rect, sketch } from "fluidcad/core";
+
 sketch("xy", () => rect(100, 50).centered());
 extrude(20);  // consumes the sketch above
 ```
@@ -43,6 +49,8 @@ A consumed sketch is gone. To reuse a sketch across multiple operations,
 mark it `.reusable()`:
 
 ```fluid.js
+import { circle, extrude, sketch } from "fluidcad/core";
+
 const profile = sketch("xy", () => circle(40)).reusable();
 extrude(30, profile);
 extrude(-10, profile);  // still available
@@ -53,6 +61,8 @@ extrude(-10, profile);  // still available
 Passing a face selection orients the sketch onto that face's plane:
 
 ```fluid.js
+import { circle, cut, extrude, rect, sketch } from "fluidcad/core";
+
 sketch("xy", () => rect(100, 60).centered());
 const e = extrude(30);
 sketch(e.endFaces(), () => circle(15));

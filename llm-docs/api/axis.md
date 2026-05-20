@@ -9,6 +9,8 @@ seeAlso: [api/plane, api/local, api/revolve, api/rotate]
 
 # axis
 
+Imported from `fluidcad/core`.
+
 ```ts
 axis(axis: AxisLike)
 axis(axis: AxisLike, options: AxisTransformOptions)
@@ -26,6 +28,8 @@ axis(a1: Axis, a2: Axis, options?)
 ## Example
 
 ```fluid.js
+import { axis, move, rect, revolve, sketch } from "fluidcad/core";
+
 sketch("xz", () => {
   move([20, 0]);
   rect(10, 30);

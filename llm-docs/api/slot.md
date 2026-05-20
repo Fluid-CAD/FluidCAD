@@ -9,6 +9,8 @@ seeAlso: [api/rect, api/sketch]
 
 # slot
 
+Imported from `fluidcad/core`.
+
 ```ts
 slot(distance, radius)
 slot(start: Point2D, distance, radius)
@@ -22,6 +24,8 @@ Returns `Slot` with `.centered(value?)` and `.rotate(angle)`.
 ## Example
 
 ```fluid.js
+import { extrude, sketch, slot } from "fluidcad/core";
+
 sketch("xy", () => slot(80, 10).centered());
 extrude(8);
 ```

@@ -9,6 +9,8 @@ seeAlso: [api/sketch, api/extrude]
 
 # offset
 
+Imported from `fluidcad/core`.
+
 ```ts
 offset(distance?, removeOriginal?)
 offset(targetPlane, distance, removeOriginal, ...sourceGeometries)
@@ -21,6 +23,8 @@ push outward (relative to wire winding); negative pushes inward.
 ## Example
 
 ```fluid.js
+import { extrude, offset, rect, sketch } from "fluidcad/core";
+
 sketch("xy", () => {
   rect(60, 40).centered();
   offset(5);                  // 5mm outward offset

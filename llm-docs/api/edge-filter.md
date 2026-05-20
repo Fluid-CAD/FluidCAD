@@ -9,6 +9,8 @@ seeAlso: [api/face-filter, api/select]
 
 # edge filter
 
+Imported from `fluidcad/filters`.
+
 ```ts
 edge(): EdgeFilterBuilder
 ```
@@ -42,6 +44,9 @@ Returns a chainable edge filter. Chained predicates AND together.
 ## Example
 
 ```fluid.js
+import { extrude, fillet, rect, select, sketch } from "fluidcad/core";
+import { edge } from "fluidcad/filters";
+
 sketch("xy", () => rect(60, 60).centered());
 const e = extrude(20);
 select(edge().verticalTo("xy"));        // the 4 vertical corner edges

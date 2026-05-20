@@ -9,6 +9,8 @@ seeAlso: [api/cursor-lines, api/sketch]
 
 # Cursor movement
 
+Imported from `fluidcad/core`.
+
 ```ts
 move()                                  // jump back to the sketch plane origin
 move(to: Point2D)                       // absolute move
@@ -38,6 +40,8 @@ Reach for them instead of computing absolute coordinates by hand.
 ## Example
 
 ```fluid.js
+import { extrude, hLine, sketch, vLine, vMove } from "fluidcad/core";
+
 sketch("xy", () => {
   // Two L-shaped pieces sharing a sketch — vMove repositions without drawing.
   hLine(40);

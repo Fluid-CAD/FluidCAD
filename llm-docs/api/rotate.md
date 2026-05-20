@@ -9,6 +9,8 @@ seeAlso: [api/translate, api/mirror]
 
 # rotate
 
+Imported from `fluidcad/core`.
+
 ```ts
 // 2D — inside a sketch, around the plane's Z (i.e., the sketch normal)
 rotate(angle, ...targets)
@@ -26,6 +28,8 @@ source rather than rotating it in place.
 ## Example
 
 ```fluid.js
+import { cylinder, rotate } from "fluidcad/core";
+
 const c = cylinder(8, 40);
 rotate("x", 90, c);                              // lay the cylinder on its side
 ```

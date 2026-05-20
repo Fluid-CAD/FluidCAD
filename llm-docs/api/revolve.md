@@ -9,6 +9,8 @@ seeAlso: [api/sketch, api/sweep, api/extrude]
 
 # revolve
 
+Imported from `fluidcad/core`.
+
 ```ts
 revolve(axis: AxisLike, target?: SceneObject)         // full 360
 revolve(axis: AxisLike, angle: number, target?)       // partial revolution
@@ -23,6 +25,8 @@ sketch on `"xz"` or `"yz"`.
 ## Example
 
 ```fluid.js
+import { move, rect, revolve, sketch } from "fluidcad/core";
+
 sketch("xz", () => {
   move([20, 0]);
   rect(10, 30);

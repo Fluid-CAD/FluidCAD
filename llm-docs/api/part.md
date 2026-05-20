@@ -9,6 +9,8 @@ seeAlso: [concepts/scene-graph]
 
 # part
 
+Imported from `fluidcad/core`.
+
 ```ts
 part(name: string, callback: () => void)
 ```
@@ -22,6 +24,8 @@ Wrapping `part(...)` in a function gives parametric, reusable parts.
 ## Example
 
 ```fluid.js
+import { cylinder, extrude, part, rect, sketch } from "fluidcad/core";
+
 part("base", () => {
   sketch("xy", () => rect(120, 80).centered());
   extrude(20);

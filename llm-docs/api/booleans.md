@@ -9,6 +9,8 @@ seeAlso: [api/extrude, api/cut, concepts/scene-graph]
 
 # fuse / subtract / common
 
+Imported from `fluidcad/core`.
+
 ```ts
 fuse()
 fuse(...objects)                       // union of objects
@@ -29,6 +31,8 @@ chained on `extrude` already covers subtraction). Reach for these when:
 ## Example
 
 ```fluid.js
+import { circle, extrude, rect, sketch, subtract } from "fluidcad/core";
+
 sketch("xy", () => rect(60, 60).centered());
 const a = extrude(20).new();
 sketch("xy", () => circle(35));

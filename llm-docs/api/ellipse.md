@@ -9,6 +9,8 @@ seeAlso: [api/circle, api/sketch]
 
 # ellipse
 
+Imported from `fluidcad/core`.
+
 ```ts
 ellipse(rx, ry)
 ellipse(center, rx, ry)
@@ -23,6 +25,8 @@ axes. (Compare `circle`, which takes a diameter.) Returns
 ## Example
 
 ```fluid.js
+import { ellipse, extrude, sketch } from "fluidcad/core";
+
 sketch("xy", () => ellipse(60, 30));
 extrude(8);
 ```

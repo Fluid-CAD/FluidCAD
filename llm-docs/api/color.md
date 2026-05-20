@@ -9,6 +9,8 @@ seeAlso: [api/select, api/face-filter]
 
 # color
 
+Imported from `fluidcad/core`.
+
 ```ts
 color(value: string)                                // CSS color, applies to last selection
 color(value: string, selection: SceneObject)
@@ -21,6 +23,8 @@ With no explicit target, paints the last selection — pair with
 ## Example
 
 ```fluid.js
+import { color, extrude, rect, sketch } from "fluidcad/core";
+
 sketch("xy", () => rect(80, 60).centered());
 const e = extrude(20);
 color("#3498db", e.endFaces());

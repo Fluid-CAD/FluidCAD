@@ -9,6 +9,8 @@ seeAlso: [api/tline, api/tarc, api/circle]
 
 # tCircle
 
+Imported from `fluidcad/core`.
+
 ```ts
 tCircle(c1, c2, diameter, mustTouch?)
 tCircle(c1: QualifiedGeometry, c2: QualifiedGeometry, diameter, mustTouch?)

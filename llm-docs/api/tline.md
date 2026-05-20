@@ -9,6 +9,8 @@ seeAlso: [api/tarc, api/tcircle, api/cursor-lines]
 
 # tLine
 
+Imported from `fluidcad/core`.
+
 ```ts
 tLine(distance)                                          // continue tangent to previous geometry
 tLine(c1: SceneObject, c2: SceneObject, mustTouch?)      // between two objects
@@ -26,6 +28,8 @@ slice 4 once they land).
 ## Example
 
 ```fluid.js
+import { circle, extrude, sketch, tLine } from "fluidcad/core";
+
 sketch("xy", () => {
   const c1 = circle([0, 0], 30).reusable();
   const c2 = circle([100, 0], 20).reusable();

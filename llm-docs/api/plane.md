@@ -9,6 +9,8 @@ seeAlso: [api/axis, api/local, api/sketch]
 
 # plane
 
+Imported from `fluidcad/core`.
+
 ```ts
 plane(plane: PlaneLike, options: PlaneTransformOptions)
 plane(plane: PlaneLike, offset: number)
@@ -28,6 +30,8 @@ plane(p1: Plane, p2: Plane, options?)
 ## Example
 
 ```fluid.js
+import { circle, extrude, plane, rect, sketch } from "fluidcad/core";
+
 sketch("xy", () => rect(100, 60).centered());
 extrude(20);
 

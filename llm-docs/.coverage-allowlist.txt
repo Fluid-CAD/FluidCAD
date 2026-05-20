@@ -8,20 +8,6 @@
 # The Phase 11 migration drains this file area by area; the goal is an empty
 # allowlist once llm.md has been fully decomposed into llm-docs/.
 
-# --- Constrained geometry (Phase 11 slice 2) ---
-tLine                   # pending Phase 11 — constrained-geometry slice
-tArc                    # pending Phase 11 — constrained-geometry slice
-tCircle                 # pending Phase 11 — constrained-geometry slice
-aLine                   # pending Phase 11 — constrained-geometry slice
-pMove                   # pending Phase 11 — constrained-geometry slice
-hMove                   # pending Phase 11 — constrained-geometry slice
-vMove                   # pending Phase 11 — constrained-geometry slice
-rMove                   # pending Phase 11 — constrained-geometry slice
-move                    # pending Phase 11 — constrained-geometry slice
-center                  # pending Phase 11 — constrained-geometry slice
-hLine                   # pending Phase 11 — constrained-geometry slice
-vLine                   # pending Phase 11 — constrained-geometry slice
-
 # --- 3D features (Phase 11 slice 3) ---
 cut                     # pending Phase 11 — 3D features slice
 revolve                 # pending Phase 11 — 3D features slice

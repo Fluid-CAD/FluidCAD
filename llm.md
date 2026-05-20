@@ -406,98 +406,18 @@ page with signatures, accessors, and a runnable example:
 
 ### 4.4 Constrained / cursor-relative geometry
 
-These continue from the current cursor position and tangent. Useful for building outlines incrementally.
+These continue from the current cursor position and tangent. Useful for
+building outlines incrementally. Each family now lives in `llm-docs/`:
 
-#### hLine / vLine / aLine
-
-```ts
-hLine(distance)
-hLine(target: SceneObject)         // ends at the nearest intersection with target
-hLine(start, distance)
-hLine(targetPlane, distance)
-
-vLine(distance | target | start+distance | targetPlane+distance)
-
-aLine(angle, length)               // angle in degrees
-aLine(angle, target)
-aLine(targetPlane, angle, length)
-```
-
-Return `HLine`/`VLine`/`ALine`, each with `.centered(value?)` to center the line on the cursor instead of starting from it.
-
-```js
-hLine(40)                          // 40 units to the right of cursor
-vLine(20).centered()               // 20-unit vertical line centered on cursor
-aLine(45, 50)                      // 50-unit line at 45°
-```
-
-#### Cursor movement
-
-```ts
-move()                             // back to plane origin
-move(to: Point2D)                  // absolute
-hMove(distance)
-hMove(target)                      // move horizontally to nearest intersection
-vMove(distance)
-vMove(target)
-rMove(angle)                       // rotate the tangent direction
-rMove(angle, pivot: Point2D)
-pMove(radius, angle)               // polar move relative to current tangent
-pMove(target, angle)
-center()                           // jump to plane origin
-```
-
-#### tLine — tangent line
-
-```ts
-tLine(distance)                              // continue tangent to previous geometry
-tLine(c1: SceneObject, c2: SceneObject, mustTouch?)
-tLine(c1: QualifiedGeometry, c2: QualifiedGeometry, mustTouch?)
-tLine(c1, mustTouch?)                        // tangent to one object from cursor
-```
-
-For two-object form, multiple tangent lines exist — use `outside()`, `enclosing()`, `enclosed()` qualifiers from `fluidcad/constraints` to pick one.
-
-Returns `Geometry` (one-arg form) or `TwoObjectsTangentLine` with `.start()`, `.end()`, `.tangent()` vertices.
-
-```js
-const t = tLine(outside(c1), outside(c2))    // external tangent between two circles
-tArc(t.end())                                // continue with a tangent arc
-```
-
-#### tArc — tangent arc
-
-The most flexible constrained primitive. Several signatures:
-
-```ts
-tArc(target: SceneObject | QualifiedGeometry)        // ends tangent to target line
-tArc(radius, target)                                  // arc of given radius to target
-tArc(radius?, endAngle?)                              // radius 100, sweep 90° defaults
-tArc(radius, angle, tangent: Point2D)                 // explicit start tangent
-tArc(endPoint: Point2D)                               // tangent arc to a point
-tArc(endPoint, tangent)                               // with end tangent
-tArc(startPoint, endPoint, tangent)
-tArc(c1: SceneObject, c2: SceneObject, radius, mustTouch?)     // between two objects
-tArc(c1: Point2D, c2: Point2D, radius, mustTouch?)             // through two points
-```
-
-Defaults: radius 100, end angle 90°. Negative radius flips sweep direction. Chain `.flip()` to curve to the right of the start tangent instead of the left.
-
-```js
-vLine(100)
-tArc(50, 180)                       // half-circle, radius 50
-tArc(80, -270)                      // 270° clockwise (negative)
-```
-
-#### tCircle — tangent circle
-
-```ts
-tCircle(c1, c2, diameter, mustTouch?)
-tCircle(c1: QualifiedGeometry, c2: QualifiedGeometry, diameter, mustTouch?)
-tCircle(c1: Point2D, c2: Point2D, diameter, mustTouch?)
-```
-
-Full circle of given diameter tangent to two objects (or through two points). Up to 8 solutions for two circles — narrow with qualifiers and/or `mustTouch: true`.
+- [`hLine` / `vLine` / `aLine`](llm-docs/api/cursor-lines.md) —
+  axis-aligned and angle-relative drawing.
+- [`move` / `hMove` / `vMove` / `rMove` / `pMove` / `center` / `back`](llm-docs/api/cursor-move.md) —
+  cursor positioning without drawing.
+- [`tLine`](llm-docs/api/tline.md) — tangent line between or to curves.
+- [`tArc`](llm-docs/api/tarc.md) — tangent arc, the most flexible
+  constrained primitive.
+- [`tCircle`](llm-docs/api/tcircle.md) — full circle tangent to two
+  objects.
 
 #### Constraint qualifiers
 

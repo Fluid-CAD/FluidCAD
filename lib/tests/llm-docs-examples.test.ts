@@ -29,11 +29,22 @@ function buildGlobals(): Record<string, unknown> {
   };
 }
 
+// Doc examples often show the `import { foo } from "fluidcad/..."` line a
+// real user would write at the top of a .fluid.js file. The runner injects
+// every public export as a Function() parameter, so those imports are dead
+// weight here — and `new Function` can't parse them anyway. Strip them out
+// before executing.
+const IMPORT_LINE_RE = /^\s*import\s[\s\S]*?from\s+['"][^'"]+['"]\s*;?\s*$/gm;
+
+function stripImports(block: string): string {
+  return block.replace(IMPORT_LINE_RE, "");
+}
+
 function runBlock(block: string, file: string, line: number): void {
   const globals = buildGlobals();
   const paramNames = Object.keys(globals);
   const paramValues = paramNames.map((n) => globals[n]);
-  const wrapped = `"use strict";\n${block}\n//# sourceURL=llm-docs/${file}:${line}`;
+  const wrapped = `"use strict";\n${stripImports(block)}\n//# sourceURL=llm-docs/${file}:${line}`;
   const fn = new Function(...paramNames, wrapped);
   fn(...paramValues);
 }

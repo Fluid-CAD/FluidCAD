@@ -70,10 +70,20 @@ function snapshotDirtyFiles(): string[] {
 }
 
 export function initDirtyState(client: Client) {
+  // The dirty-files set only changes when a buffer's `isDirty` flips. Short-
+  // circuit on a stable signature so the per-keystroke onDidChangeTextDocument
+  // firings don't translate to per-keystroke IPC writes.
+  let lastSignature: string | null = null;
   const send = () => {
+    const files = snapshotDirtyFiles().sort();
+    const signature = files.join('\0');
+    if (signature === lastSignature) {
+      return;
+    }
+    lastSignature = signature;
     sendToServer(client, {
       type: 'editor-dirty-state',
-      dirtyFiles: snapshotDirtyFiles(),
+      dirtyFiles: files,
     });
   };
 

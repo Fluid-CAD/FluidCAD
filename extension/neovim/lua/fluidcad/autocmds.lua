@@ -150,9 +150,12 @@ function M.setup(config)
     end,
   })
 
-  -- Keep the server's dirty-buffer set in sync with the editor. Recompute on
-  -- any text change, write, modeline flip, or buffer close.
-  vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI', 'BufModifiedSet', 'BufDelete', 'BufWipeout' }, {
+  -- Keep the server's dirty-buffer set in sync with the editor. The list of
+  -- dirty files only changes when a buffer's `&modified` flag flips, so
+  -- BufModifiedSet is the right trigger — wiring this to TextChanged/
+  -- TextChangedI would re-snapshot every buffer on every keystroke and
+  -- starve the live-render path.
+  vim.api.nvim_create_autocmd({ 'BufModifiedSet', 'BufDelete', 'BufWipeout' }, {
     group = group,
     pattern = '*.fluid.js',
     callback = function()

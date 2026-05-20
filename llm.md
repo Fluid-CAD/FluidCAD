@@ -421,17 +421,8 @@ building outlines incrementally. Each family now lives in `llm-docs/`:
 
 #### Constraint qualifiers
 
-From `fluidcad/constraints`:
-
-- `outside(obj)` — solution is external to `obj` (no shared interior).
-- `enclosing(obj)` — solution wraps around `obj`.
-- `enclosed(obj)` — solution sits inside `obj`.
-- `unqualified(obj)` — removes any prior qualification.
-
-```js
-import { outside, enclosing } from 'fluidcad/constraints';
-tCircle(enclosing(c1), outside(c2), 30)
-```
+See [`llm-docs/api/constraint-qualifiers.md`](llm-docs/api/constraint-qualifiers.md)
+for `outside` / `enclosing` / `enclosed` / `unqualified`.
 
 #### connect
 
@@ -673,83 +664,26 @@ Each face/edge accessor takes `...(number | FilterBuilder)`. Indices and filters
 
 ### 6.2 select()
 
-```ts
-select(...filters: (FaceFilter | EdgeFilter)[])
-```
-
-Runs the filters over the entire scene and stores the result as the implicit selection. The next op that takes a selection uses it automatically.
-
-You can combine multiple filters; results are the union of all of them.
-
-```js
-select(edge().line(), edge().circle(20))       // both criteria contribute matches
-fillet(2)
-```
+See [`llm-docs/api/select.md`](llm-docs/api/select.md).
 
 ### 6.3 face() filter
 
-From `fluidcad/filters`. Chain methods narrow the candidate set (AND). Every method has a `not...` counterpart for negation.
-
-**By shape:**
-- `.planar()` / `.notPlanar()`
-- `.cylinder(diameter?)` / `.notCylinder(...)`
-- `.cylinderCurve(diameter?)` — faces bounded by cylindrical curves
-- `.cone()` / `.notCone()`
-- `.torus(majorRadius?, minorRadius?)`
-- `.circle(diameter?)` — flat disc faces
-
-**By orientation / position:**
-- `.onPlane(plane, offset?)` / `.notOnPlane(...)`
-- `.parallelTo(plane)` / `.notParallelTo(...)`
-- `.above(plane, offset?)` — entirely above the plane
-- `.below(plane, offset?)`
-- `.intersectsWith(plane)` — faces that cross the plane
-
-**By topology:**
-- `.edgeCount(n)`
-- `.hasEdge(...filtersOrObjects)`
-
-**By source:**
-- `.from(...sceneObjects)` — restrict to faces from those objects (recursive into containers).
-
-```js
-face().planar().onPlane("xy", 30)              // top face at z=30
-face().cylinder(10)                            // cylindrical faces of diameter 10
-face().intersectsWith("front").notOnPlane("xy")
-face().from(myBox).parallelTo("xy")
-```
+See [`llm-docs/api/face-filter.md`](llm-docs/api/face-filter.md).
 
 ### 6.4 edge() filter
 
-**By shape:**
-- `.line(length?)` / `.notLine(...)`
-- `.circle(diameter?)` / `.notCircle(...)`
-- `.arc(radius?)` / `.notArc(...)`
+See [`llm-docs/api/edge-filter.md`](llm-docs/api/edge-filter.md).
 
-**By orientation:**
-- `.parallelTo(plane)` / `.notParallelTo(...)`
-- `.verticalTo(plane)` / `.notVerticalTo(...)` — perpendicular to the plane
+### 6.5 Constraint qualifiers (outside / enclosing / enclosed / unqualified)
 
-**By position:**
-- `.onPlane(plane, offset?)` — accepts `{ offset, bothDirections, partial }`
-- `.above(plane, offset?)`
-- `.below(plane, offset?)`
-- `.intersectsWith(sceneObject)` — edges that cross another scene object's edges
+See [`llm-docs/api/constraint-qualifiers.md`](llm-docs/api/constraint-qualifiers.md).
 
-**By parent:**
-- `.belongsToFace(...filtersOrObjects)`
-- `.from(...sceneObjects)`
+### 6.6 Composing & negation
 
-```js
-edge().verticalTo("xy")                        // edges perpendicular to ground plane
-edge().line(10).onPlane("xy", 0)               // 10-long line edges on the ground
-edge().belongsToFace(face().cylinder())        // edges on cylindrical faces
-edge().from(myBox).circle()                    // circular edges of myBox only
-```
-
-### 6.5 Composing & negation
-
-Filter chain is AND. `select()` of multiple filter builders is OR. Negate any criterion with the `.notX()` form. `from()` composes with the rest as AND, and selections survive being cloned by `repeat()` / `mirror()` (references are remapped).
+Filter chain is AND. `select()` of multiple filter builders is OR.
+Negate any criterion with the `.notX()` form. `from()` composes with the
+rest as AND, and selections survive being cloned by `repeat()` /
+`mirror()` (references are remapped).
 
 ---
 

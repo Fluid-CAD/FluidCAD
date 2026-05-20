@@ -8,15 +8,6 @@
 # The Phase 11 migration drains this file area by area; the goal is an empty
 # allowlist once llm.md has been fully decomposed into llm-docs/.
 
-# --- Selections & filters (Phase 11 slice 4) ---
-select                  # pending Phase 11 — selections & filters slice
-face                    # pending Phase 11 — selections & filters slice
-edge                    # pending Phase 11 — selections & filters slice
-outside                 # pending Phase 11 — selections & filters slice
-enclosed                # pending Phase 11 — selections & filters slice
-enclosing               # pending Phase 11 — selections & filters slice
-unqualified             # pending Phase 11 — selections & filters slice
-
 # --- Transforms & patterns (Phase 11 slice 5) ---
 translate               # pending Phase 11 — transforms & patterns slice
 rotate                  # pending Phase 11 — transforms & patterns slice

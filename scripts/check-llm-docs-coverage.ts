@@ -29,6 +29,8 @@ type ApiDocConfig = {
   features: Array<{ name: string }>;
   filters: Array<{ factoryName: string }>;
   constraints: Array<{ functionName: string }>;
+  types: Array<{ name: string; displayName: string }>;
+  typeDisplayNameMap: Record<string, string>;
 };
 
 async function loadApiDocConfig(): Promise<ApiDocConfig> {
@@ -38,6 +40,8 @@ async function loadApiDocConfig(): Promise<ApiDocConfig> {
     features: ns.features,
     filters: ns.filters,
     constraints: ns.constraints,
+    types: ns.types,
+    typeDisplayNameMap: ns.typeDisplayNameMap,
   };
 }
 
@@ -69,9 +73,26 @@ function expectedSymbols(config: ApiDocConfig): Set<string> {
   return out;
 }
 
+// Symbols that are *allowed* to appear in llm-docs without being required —
+// type names (display + internal) and the alias keys from typeDisplayNameMap.
+// Without this, every type symbol claimed by a generated `api/types/*.md`
+// would surface as "stale" against the feature/filter/constraint set.
+function permittedExtras(config: ApiDocConfig): Set<string> {
+  const out = new Set<string>();
+  for (const t of config.types) {
+    out.add(t.name);
+    out.add(t.displayName);
+  }
+  for (const internal of Object.keys(config.typeDisplayNameMap)) {
+    out.add(internal);
+  }
+  return out;
+}
+
 async function main(): Promise<void> {
   const config = await loadApiDocConfig();
   const expected = expectedSymbols(config);
+  const permitted = permittedExtras(config);
   const allowlist = loadAllowlist();
   const { apiIndex } = buildManifests(DOCS_ROOT);
   const covered = new Set(Object.keys(apiIndex.symbols));
@@ -90,9 +111,10 @@ async function main(): Promise<void> {
 
   const stale: string[] = [];
   for (const symbol of covered) {
-    if (!expected.has(symbol)) {
-      stale.push(symbol);
+    if (expected.has(symbol) || permitted.has(symbol)) {
+      continue;
     }
+    stale.push(symbol);
   }
   stale.sort();
 

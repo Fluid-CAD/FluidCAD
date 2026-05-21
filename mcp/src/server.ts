@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { listWorkspaces } from './tools/workspaces.ts';
 import {
   getApiSignature,
+  getTypeDefinition,
   listDocs,
   readDoc,
   searchDocs,
@@ -69,6 +70,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'Drives a running FluidCAD workspace.',
         'Call list_workspaces first to find available workspaces.',
         'Use list_docs/search_docs/read_doc/get_api_signature to learn the API.',
+        'When a signature mentions an unfamiliar type (e.g. PlaneLike, AxisLike,',
+        'SceneObject, LinearRepeatOptions), call get_type_definition with the',
+        'type name to resolve its accepted forms / methods / properties.',
         'All paths are workspace-absolute.',
         '',
         '`.fluid.js` files MUST import every FluidCAD symbol they use:',
@@ -167,6 +171,22 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       },
     },
     async ({ name }) => toMcp(getApiSignature(docsIndex, { name })),
+  );
+
+  server.registerTool(
+    'get_type_definition',
+    {
+      title: 'Get the definition of a documented type',
+      description:
+        'Resolves a type name (e.g. "PlaneLike", "SceneObject", "LinearRepeatOptions") to its TypeScript definition, accepted forms / methods / properties, and the owning doc id. Accepts both display names and internal aliases (e.g. "ISceneObject" → "SceneObject").',
+      inputSchema: {
+        name: z
+          .string()
+          .min(1)
+          .describe('Type name, e.g. "PlaneLike", "AxisLike", "SceneObject", "LinearRepeatOptions".'),
+      },
+    },
+    async ({ name }) => toMcp(getTypeDefinition(docsIndex, { name })),
   );
 
   registerDocResources(server, docsIndex);

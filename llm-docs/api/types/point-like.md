@@ -1,0 +1,22 @@
+---
+id: api/types/point-like
+title: PointLike
+summary: "A 3D point accepted by translate() and other 3D operations."
+tags: [api, type, union]
+symbols: [PointLike]
+seeAlso: [api/translate]
+---
+# PointLike
+
+```ts
+type PointLike = | Point
+  | [number, number, number]
+  | { x: number; y: number; z: number };
+```
+
+A 3D point used by operations like `translate()`. Any of the following formats are accepted:
+
+| Format | Example | Description |
+| --- | --- | --- |
+| `[number, number, number]` | `[10, 20, 30]` | Tuple of x, y, z coordinates. |
+| `{ x, y, z }` | `{ x: 10, y: 20, z: 30 }` | Object with x, y, z properties. |

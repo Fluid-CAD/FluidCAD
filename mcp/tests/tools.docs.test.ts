@@ -7,6 +7,7 @@ import { buildServer } from '../src/server.ts';
 import { loadDocsIndex, type DocsIndex } from '../src/docs-index.ts';
 import {
   getApiSignature,
+  getTypeDefinition,
   listDocs,
   readDoc,
   searchDocs,
@@ -127,6 +128,67 @@ describe('doc tools (unit)', () => {
     }
     expect(result.code).toBe('invalid-input');
   });
+
+  it('get_type_definition resolves a union alias by its display name', () => {
+    const result = getTypeDefinition(index, { name: 'PlaneLike' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.data.docId).toBe('api/types/plane-like');
+    expect(result.data.name).toBe('PlaneLike');
+    expect(result.data.definition).toMatch(/type PlaneLike =/);
+    expect(result.data.body).toMatch(/Accepted forms|accepted/i);
+    expect(result.data.summary.length).toBeGreaterThan(0);
+  });
+
+  it('get_type_definition resolves an internal alias to the same doc', () => {
+    const result = getTypeDefinition(index, { name: 'PlaneObjectBase' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.data.docId).toBe('api/types/plane-like');
+  });
+
+  it('get_type_definition resolves an interface type', () => {
+    const result = getTypeDefinition(index, { name: 'SceneObject' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.data.docId).toBe('api/types/scene-object');
+    expect(result.data.definition).toMatch(/interface SceneObject/);
+  });
+
+  it('get_type_definition resolves an options bag', () => {
+    const result = getTypeDefinition(index, { name: 'LinearRepeatOptions' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.data.docId).toBe('api/types/linear-repeat-options');
+    expect(result.data.definition).toMatch(/type LinearRepeatOptions =/);
+    expect(result.data.body).toMatch(/## Properties/);
+  });
+
+  it('get_type_definition rejects a function name (not a type)', () => {
+    const result = getTypeDefinition(index, { name: 'sketch' });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe('invalid-input');
+  });
+
+  it('get_type_definition rejects an unknown name', () => {
+    const result = getTypeDefinition(index, { name: 'NotARealType' });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe('invalid-input');
+  });
 });
 
 describe('doc tools (over MCP)', () => {
@@ -142,6 +204,7 @@ describe('doc tools (over MCP)', () => {
       const names = new Set(tools.tools.map((t) => t.name));
       for (const expected of [
         'get_api_signature',
+        'get_type_definition',
         'list_docs',
         'list_workspaces',
         'read_doc',
@@ -149,6 +212,29 @@ describe('doc tools (over MCP)', () => {
       ]) {
         expect(names.has(expected)).toBe(true);
       }
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it('get_type_definition over MCP returns a parseable payload', async () => {
+    const index = loadDocsIndex(REPO_DOCS);
+    const server = buildServer({ docsIndex: index });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test', version: '0.0.0' });
+
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    try {
+      const result = await client.callTool({
+        name: 'get_type_definition',
+        arguments: { name: 'PlaneLike' },
+      });
+      expect(result.isError).not.toBe(true);
+      const payload = JSON.parse((result.content as any[])[0].text);
+      expect(payload.docId).toBe('api/types/plane-like');
+      expect(typeof payload.definition).toBe('string');
+      expect(payload.definition).toMatch(/type PlaneLike =/);
     } finally {
       await client.close();
       await server.close();

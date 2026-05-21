@@ -124,8 +124,16 @@ becomes `["fluidcad", "mcp"]`).
 3. Useful first prompts:
    - *"Take a screenshot of the iso-ftr view of my workspace."*
    - *"What does the `extrude` API look like?"* (uses `get_api_signature`)
+   - *"What is a `PlaneLike`?"* (uses `get_type_definition`)
    - *"List every `.fluid.js` file in the workspace, then show me the shapes
      in the current scene."*
+
+`get_api_signature` returns the first code block of a function/filter doc.
+`get_type_definition` is the parallel for *type* names — given `PlaneLike`,
+`SceneObject`, `LinearRepeatOptions`, etc. it returns the TypeScript
+definition, the accepted forms (for union/literal aliases), the method or
+property table, and the doc body. Use it whenever a signature mentions a
+type whose meaning isn't obvious.
 
 Tools that trigger a re-render (`write_file`, `edit_range`, `recompute`,
 `rollback_to`, `import_step`) are synchronous — they return once the render
@@ -206,7 +214,7 @@ You should see two JSON-RPC responses on stdout: the `initialize` reply and a
 | Category        | Tools                                                                 |
 | --------------- | --------------------------------------------------------------------- |
 | Discovery       | `list_workspaces`                                                     |
-| Docs            | `list_docs`, `read_doc`, `search_docs`, `get_api_signature`           |
+| Docs            | `list_docs`, `read_doc`, `search_docs`, `get_api_signature`, `get_type_definition` |
 | Inspection      | `get_scene_summary`, `list_shapes`, `get_shape_properties`, `get_face_properties`, `get_edge_properties`, `get_compile_error`, `hit_test` |
 | Visual          | `screenshot`, `screenshot_multi`, `screenshot_shape`, `get_camera_state` |
 | Coordination    | `wait_for_idle`                                                       |

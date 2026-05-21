@@ -134,6 +134,56 @@ export function getApiSignature(
   }
 }
 
+export type GetTypeDefinitionInput = { name: string };
+export type GetTypeDefinitionOutput = {
+  /** The display name as documented (e.g. "PlaneLike"). */
+  name: string;
+  /** Doc id, e.g. "api/types/plane-like". */
+  docId: string;
+  title: string;
+  /** First code block — the type signature (`type X = ...` or `interface X { ... }`). */
+  definition: string;
+  /** Full markdown body, frontmatter already stripped. */
+  body: string;
+  summary: string;
+  seeAlso?: string[];
+};
+
+export function getTypeDefinition(
+  index: DocsIndex,
+  input: GetTypeDefinitionInput,
+): ToolResult<GetTypeDefinitionOutput> {
+  if (!input || typeof input.name !== 'string' || input.name.length === 0) {
+    return err('invalid-input', '`name` is required and must be a non-empty string.');
+  }
+  const docId = index.types[input.name];
+  if (!docId) {
+    return err(
+      'invalid-input',
+      `No type "${input.name}". Call list_docs({tag:"type"}) to see every documented type.`,
+    );
+  }
+  const doc = index.get(docId);
+  if (!doc) {
+    return err('internal', `Type "${input.name}" maps to missing doc "${docId}".`);
+  }
+  try {
+    const definition = index.firstCodeBlock(docId) ?? '';
+    const body = index.body(docId) ?? '';
+    return ok({
+      name: doc.title,
+      docId: doc.id,
+      title: doc.title,
+      definition,
+      body,
+      summary: doc.summary,
+      seeAlso: doc.seeAlso,
+    });
+  } catch (error) {
+    return err('internal', toMessage(error));
+  }
+}
+
 function toMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;

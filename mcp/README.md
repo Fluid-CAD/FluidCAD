@@ -85,14 +85,18 @@ restricted to one project. Use `--scope project` to commit the entry to
 }
 ```
 
-**opencode** — register the server with the CLI:
+**opencode** — `opencode mcp add` is interactive and will prompt you
+through the fields. Run it and answer:
 
-```bash
-opencode mcp add fluidcad -- npx -y fluidcad mcp
+```
+$ opencode mcp add
+? Enter MCP server name: fluidcad
+? Select MCP server type: Local
+? Enter command to run: npx -y fluidcad mcp
 ```
 
-Or edit `~/.config/opencode/opencode.json` (or a project-local
-`opencode.json`) by hand:
+Or skip the prompts and edit `~/.config/opencode/opencode.json` (or a
+project-local `opencode.json`) by hand:
 
 ```json
 {

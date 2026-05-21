@@ -1,7 +1,7 @@
 ---
 id: api/cut
 title: cut(distance?, target?)
-summary: Subtractive extrude. Same calling conventions as extrude, but always removes material. No-arg form goes through all — easy to do by accident.
+summary: Subtractive extrude. Same calling conventions as extrude, but always removes material. Positive distance cuts opposite the sketch normal (into the solid); negative cuts along it. No-arg form goes through all.
 tags: [api, 3d, solid]
 symbols: [cut]
 seeAlso: [api/extrude, api/sketch, concepts/last-selection]
@@ -38,8 +38,7 @@ out of it:
 - **Negative `distance`** cuts **along the sketch normal** (out of the
   same side the sketch faces).
 - **`cut()` with no args** is **through-all**, again opposite the sketch
-  normal — easy to do by accident, so pass an explicit distance when
-  you want a finite pocket.
+  normal.
 
 ## Example
 

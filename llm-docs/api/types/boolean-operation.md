@@ -11,7 +11,7 @@ seeAlso: [api/types/scene-object, concepts/scene-graph]
 ```ts
 interface BooleanOperation extends SceneObject {
   add(): this;
-  new(): this;
+  'new'(): this;
   remove(): this;
   scope(...objects: SceneObject[]): this;
 }
@@ -26,7 +26,7 @@ Extends [[api/types/scene-object]].
 Additive boolean operation — fuses the result with all intersecting scene objects.
 Use `.scope()` to target specific objects.
 
-### `new()`
+### `'new'()`
 
 No boolean operation — keeps the result as a standalone shape,
 separate from all other scene objects.

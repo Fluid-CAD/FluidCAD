@@ -28,6 +28,14 @@ export class CopyLinear extends SceneObject {
       objects = context.getActiveSceneObjects();
     }
 
+    const originalShapes = objects.flatMap(obj => obj.getShapes());
+    for (const obj of objects) {
+      obj.removeShapes(this);
+    }
+    for (const shape of originalShapes) {
+      this.addShape(shape);
+    }
+
     const { count, centered, skip } = this.options;
 
     const counts = Array.isArray(count)
@@ -80,12 +88,10 @@ export class CopyLinear extends SceneObject {
         matrix = matrix.multiply(Matrix4.fromTranslationVector(translation));
       }
 
-      for (const obj of objects) {
-        for (const shape of obj.getShapes()) {
-          const transformed = ShapeOps.transform(shape, matrix);
-          transformed.setMeshSource(shape, matrix);
-          this.addShape(transformed);
-        }
+      for (const shape of originalShapes) {
+        const transformed = ShapeOps.transform(shape, matrix);
+        transformed.setMeshSource(shape, matrix);
+        this.addShape(transformed);
       }
     }
   }

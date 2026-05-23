@@ -27,6 +27,14 @@ export class CopyLinear2D extends GeometrySceneObject {
       objects = allSiblings;
     }
 
+    const originalShapes = objects.flatMap(obj => obj.getShapes());
+    for (const obj of objects) {
+      obj.removeShapes(this);
+    }
+    for (const shape of originalShapes) {
+      this.addShape(shape);
+    }
+
     const resolvedAxes: Axis[] = this.axes.map(a =>
       a instanceof AxisObjectBase ? a.getAxis() : a
     );
@@ -83,12 +91,10 @@ export class CopyLinear2D extends GeometrySceneObject {
         matrix = matrix.multiply(Matrix4.fromTranslationVector(translation));
       }
 
-      for (const obj of objects) {
-        for (const shape of obj.getShapes()) {
-          const transformed = ShapeOps.transform(shape, matrix);
-          transformed.setMeshSource(shape, matrix);
-          this.addShape(transformed);
-        }
+      for (const shape of originalShapes) {
+        const transformed = ShapeOps.transform(shape, matrix);
+        transformed.setMeshSource(shape, matrix);
+        this.addShape(transformed);
       }
     }
   }

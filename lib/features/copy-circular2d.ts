@@ -26,6 +26,14 @@ export class CopyCircular2D extends GeometrySceneObject {
       objects = allSiblings;
     }
 
+    const originalShapes = objects.flatMap(obj => obj.getShapes());
+    for (const obj of objects) {
+      obj.removeShapes(this);
+    }
+    for (const shape of originalShapes) {
+      this.addShape(shape);
+    }
+
     const plane = this.sketch.getPlane();
     const origin = plane.localToWorld(this.center.asPoint2D());
     const direction = plane.normal;
@@ -47,12 +55,10 @@ export class CopyCircular2D extends GeometrySceneObject {
       const angle = startOffset + offset * i;
       const matrix = Matrix4.fromRotationAroundAxis(origin, direction, rad(angle));
 
-      for (const obj of objects) {
-        for (const shape of obj.getShapes()) {
-          const transformed = ShapeOps.transform(shape, matrix);
-          transformed.setMeshSource(shape, matrix);
-          this.addShape(transformed);
-        }
+      for (const shape of originalShapes) {
+        const transformed = ShapeOps.transform(shape, matrix);
+        transformed.setMeshSource(shape, matrix);
+        this.addShape(transformed);
       }
     }
 

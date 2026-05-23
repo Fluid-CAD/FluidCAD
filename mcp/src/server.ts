@@ -56,8 +56,12 @@ export const SERVER_NAME = 'FluidCAD';
 export const SERVER_VERSION = readPackageVersion();
 
 function readPackageVersion(): string {
+  // Read the root `fluidcad` package.json — npm always ships it with the
+  // published package, and it's the version bumped by `npm run release`.
+  // From `mcp/dist/server.js`, this resolves to `<pkg-root>/package.json`
+  // both in the source tree and when installed under `node_modules/fluidcad/`.
   try {
-    const pkgPath = path.resolve(import.meta.dirname, '../package.json');
+    const pkgPath = path.resolve(import.meta.dirname, '../../package.json');
     const parsed = JSON.parse(readFileSync(pkgPath, 'utf8'));
     if (typeof parsed.version === 'string') {
       return parsed.version;

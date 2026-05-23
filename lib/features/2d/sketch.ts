@@ -105,7 +105,11 @@ export class Sketch extends SceneObject implements Extrudable {
       if (pos) {
         if (remaining === 0) {
           for (let j = i; j >= 0; j--) {
-            const t = previous[j].getTangent();
+            const prev = previous[j];
+            if (!(prev instanceof GeometrySceneObject)) {
+              continue;
+            }
+            const t = prev.getTangent();
             if (t) {
               return { position: pos, tangent: t };
             }

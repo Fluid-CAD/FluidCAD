@@ -74,6 +74,12 @@ Take a screenshot, confirm the selection/coloring is what you expected, then rem
 
 `write_file` and `edit_range` refuse to clobber a buffer the editor has unsaved changes for (code `dirty-buffer`). Surface the conflicting paths to the user and ask before retrying with `force: true` — overwriting their in-progress work without checking is a serious failure mode.
 
+## Common pitfalls
+
+Easy-to-miss behaviors that have bitten previous sessions. Re-read before reaching for these operations.
+
+- **`extrude` and `cut` use opposite sign conventions.** A positive distance in `extrude()` goes along the sketch normal; a positive distance in `cut()` goes *opposite* to the sketch normal (into the material the sketch sits on).
+
 ## Known limitations
 
 FluidCAD currently does **not** support:

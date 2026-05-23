@@ -3,6 +3,7 @@ import { ICON_ALERT_TRIANGLE, ICON_CHEVRON_DOWN } from './icons';
 
 type SourceLocation = { filePath: string; line: number; column: number };
 
+
 export class ErrorBanner {
   private element: HTMLDivElement;
   private messageEl: HTMLSpanElement;

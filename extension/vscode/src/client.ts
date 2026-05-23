@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ChildProcess } from 'child_process';
 import {
+  initDirtyState,
   initLiveRender,
   spawnServer,
   sendToServer,
@@ -91,6 +92,7 @@ export class Client {
     this.logger.appendLine(`Active workspace folder: ${folder}`);
 
     await spawnServer(this, folder);
+    initDirtyState(this);
 
     this.logger.appendLine('Server initialized successfully.');
   }

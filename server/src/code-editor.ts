@@ -33,6 +33,16 @@ async function loadTreeSitter() {
 
 let parser: TSParser | null = null;
 
+/**
+ * Public alias for `getParser()` so other modules in this package (e.g.
+ * `lint-fluid-js.ts`) can reuse the same wasm-backed parser instance instead
+ * of loading the JavaScript grammar twice.
+ */
+export async function getJavaScriptParser(): Promise<TSParser> {
+  return getParser();
+}
+
+
 async function getParser(): Promise<TSParser> {
   if (parser) {
     return parser;

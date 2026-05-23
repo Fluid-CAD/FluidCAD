@@ -31,6 +31,7 @@ export class SnapManager {
       this.updateGridSpacing();
     }
 
+
     // Try each snapper in priority order; first match wins
     for (const snapper of this.snappers) {
       const result = snapper.snap(point2d, this.threshold);
@@ -81,6 +82,7 @@ export class SnapManager {
       }
     }
   }
+
 
   static fromSceneObjects(
     sceneObjects: SceneObjectRender[],

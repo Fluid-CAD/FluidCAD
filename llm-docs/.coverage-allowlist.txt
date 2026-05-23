@@ -1,0 +1,9 @@
+# llm-docs coverage allowlist
+#
+# Each non-blank, non-comment line names a public symbol from
+# website/scripts/api-doc-config.ts that is intentionally undocumented in
+# llm-docs/. Append a "# reason" comment per entry so reviewers can see why an
+# opt-out exists.
+#
+# Empty by default — once the Phase 11 migration drained every slice the
+# allowlist is no longer needed for normal coverage.

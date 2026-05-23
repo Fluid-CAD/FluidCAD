@@ -21,6 +21,7 @@ const VERTEX_SEGMENTS = 16;
 const VERTEX_PX_RADIUS = 6;
 const EPSILON_SQ = 1e-8;
 
+
 /**
  * Renders pick-edge meta edges as solid blue lines with vertex dots
  * at endpoints, matching sketch edge styling.

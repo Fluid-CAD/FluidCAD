@@ -117,17 +117,11 @@ becomes `["fluidcad", "mcp"]`).
 
 ### Install the FluidCAD skill
 
-The MCP ships with a companion **FluidCAD skill** (in `mcp/skills/FluidCAD/`)
-that gives agents the workflow and best practices for driving the MCP — when
-to call `list_workspaces` first, how to resolve unfamiliar types, how to recover
-from `compile-error`, etc. Install it into your Claude Code skills directory:
+Install the companion skill so agents follow the FluidCAD workflow:
 
 ```bash
 npx skills add Fluid-CAD/FluidCAD
 ```
-
-Once installed, Claude Code will load the skill automatically whenever the
-FluidCAD MCP tools are available and the task involves CAD modeling.
 
 ---
 

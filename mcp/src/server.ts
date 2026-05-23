@@ -5,6 +5,8 @@
 // that knows about stdio. Phase 12 will add a parallel `runHttp(app)` that
 // binds the same `McpServer` to a streamable HTTP transport.
 
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -51,7 +53,20 @@ import { registerDocResources } from './resources.ts';
 import type { ToolResult } from './types.ts';
 
 export const SERVER_NAME = 'FluidCAD';
-export const SERVER_VERSION = '0.0.33';
+export const SERVER_VERSION = readPackageVersion();
+
+function readPackageVersion(): string {
+  try {
+    const pkgPath = path.resolve(import.meta.dirname, '../package.json');
+    const parsed = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    if (typeof parsed.version === 'string') {
+      return parsed.version;
+    }
+  } catch {
+    // Fall through to unknown.
+  }
+  return '0.0.0';
+}
 
 export type BuildServerOptions = {
   /** Pre-built docs index. Tests use this to inject a custom docs root. */

@@ -53,7 +53,7 @@ No separate install is needed.
 ```json
 {
   "mcpServers": {
-    "fluidcad": {
+    "FluidCAD": {
       "command": "npx",
       "args": ["-y", "fluidcad", "mcp"]
     }
@@ -65,7 +65,7 @@ No separate install is needed.
 available across every project, not just the directory you ran the command in:
 
 ```bash
-claude mcp add --scope user fluidcad -- npx -y fluidcad mcp
+claude mcp add --scope user FluidCAD -- npx -y fluidcad mcp
 ```
 
 Omit `--scope user` (the default `local` scope) only if you want the server
@@ -77,7 +77,7 @@ restricted to one project. Use `--scope project` to commit the entry to
 ```json
 {
   "mcpServers": {
-    "fluidcad": {
+    "FluidCAD": {
       "command": "npx",
       "args": ["-y", "fluidcad", "mcp"]
     }
@@ -90,7 +90,7 @@ through the fields. Run it and answer:
 
 ```
 $ opencode mcp add
-? Enter MCP server name: fluidcad
+? Enter MCP server name: FluidCAD
 ? Select MCP server type: Local
 ? Enter command to run: npx -y fluidcad mcp
 ```
@@ -102,7 +102,7 @@ project-local `opencode.json`) by hand:
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "fluidcad": {
+    "FluidCAD": {
       "type": "local",
       "command": ["npx", "-y", "fluidcad", "mcp"],
       "enabled": true
@@ -114,6 +114,20 @@ project-local `opencode.json`) by hand:
 For a globally installed `fluidcad`, replace `npx -y fluidcad mcp` with
 `fluidcad mcp` in any of the configs above (the opencode `command` array
 becomes `["fluidcad", "mcp"]`).
+
+### Install the FluidCAD skill
+
+The MCP ships with a companion **FluidCAD skill** (in `mcp/skills/FluidCAD/`)
+that gives agents the workflow and best practices for driving the MCP — when
+to call `list_workspaces` first, how to resolve unfamiliar types, how to recover
+from `compile-error`, etc. Install it into your Claude Code skills directory:
+
+```bash
+npx skills add Fluid-CAD/FluidCAD
+```
+
+Once installed, Claude Code will load the skill automatically whenever the
+FluidCAD MCP tools are available and the task involves CAD modeling.
 
 ---
 

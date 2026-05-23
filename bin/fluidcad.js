@@ -1,115 +1,23 @@
 #!/usr/bin/env node
 
-import { fork } from 'child_process';
-import { resolve, dirname } from 'path';
+import { Command } from 'commander';
+import { readFileSync } from 'fs';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { parseArgs } from 'util';
-import { writeFileSync, existsSync } from 'fs';
-import { createFileWatcher, findFluidFiles } from './watcher.js';
+import { registerInitCommand } from './commands/init.js';
+import { registerServeCommand } from './commands/serve.js';
+import { registerMcpCommand } from './commands/mcp.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf8'));
 
-const { values, positionals } = parseArgs({
-  options: {
-    port: { type: 'string', short: 'p', default: '3100' },
-    workspace: { type: 'string', short: 'w', default: process.cwd() },
-  },
-  allowPositionals: true,
-});
+const program = new Command()
+  .name('fluidcad')
+  .description('FluidCAD CLI')
+  .version(pkg.version);
 
-if (positionals[0] === 'init') {
-  const cwd = process.cwd();
+registerInitCommand(program);
+registerServeCommand(program);
+registerMcpCommand(program);
 
-  const initPath = resolve(cwd, 'init.js');
-  if (existsSync(initPath)) {
-    console.error('init.js already exists in this directory.');
-    process.exit(1);
-  }
-
-  writeFileSync(initPath, `import { init } from 'fluidcad'\n\nexport default await init()\n`);
-
-  const testPath = resolve(cwd, 'test.fluid.js');
-  if (!existsSync(testPath)) {
-    writeFileSync(testPath, `import { extrude, fillet, rect, shell, sketch } from "fluidcad/core";
-
-sketch("xy", () => {
-    rect(100, 50).radius(10).centered();
-});
-
-const e = extrude(30);
-
-fillet(4, e.startEdges());
-
-shell(-2, e.endFaces());
-`);
-  }
-
-  const jsconfigPath = resolve(cwd, 'jsconfig.json');
-  if (!existsSync(jsconfigPath)) {
-    writeFileSync(jsconfigPath, JSON.stringify({
-      compilerOptions: {
-        checkJs: true,
-        module: 'node20',
-      },
-    }, null, 2) + '\n');
-  }
-
-  console.log('FluidCAD initialized.');
-  process.exit(0);
-}
-
-const serverEntry = resolve(__dirname, '..', 'server', 'dist', 'index.js');
-
-const server = fork(serverEntry, [], {
-  env: {
-    ...process.env,
-    FLUIDCAD_SERVER_PORT: values.port,
-    FLUIDCAD_WORKSPACE_PATH: resolve(values.workspace),
-  },
-  stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
-});
-
-server.stdout.on('data', (data) => {
-  process.stdout.write(data);
-});
-
-server.stderr.on('data', (data) => {
-  process.stderr.write(data);
-});
-
-const workspacePath = resolve(values.workspace);
-let watcher;
-
-server.on('message', (msg) => {
-  if (msg.type === 'ready') {
-    console.log(`FluidCAD server ready at ${msg.url}`);
-  }
-  if (msg.type === 'init-complete') {
-    if (msg.success) {
-      console.log('FluidCAD initialized successfully.');
-      watcher = createFileWatcher(workspacePath, server);
-
-      const files = findFluidFiles(workspacePath);
-      if (files.length > 0) {
-        server.send({ type: 'process-file', filePath: files[0] });
-      }
-    } else {
-      console.error(`FluidCAD initialization failed: ${msg.error}`);
-      process.exit(1);
-    }
-  }
-});
-
-server.on('exit', (code) => {
-  process.exit(code || 0);
-});
-
-process.on('SIGINT', () => {
-  if (watcher) { watcher.close(); }
-  server.kill('SIGINT');
-});
-
-process.on('SIGTERM', () => {
-  if (watcher) { watcher.close(); }
-  server.kill('SIGTERM');
-});
+program.parseAsync(process.argv);

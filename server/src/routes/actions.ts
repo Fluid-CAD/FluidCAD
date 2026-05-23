@@ -40,6 +40,7 @@ function validateNewVariable(input: unknown): { name: string; initializer: strin
   return { name: obj.name, initializer: obj.initializer };
 }
 
+
 export function createActionsRouter(
   fluidCadServer: FluidCadServer,
   sendToExtension: (msg: any) => void,

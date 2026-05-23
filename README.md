@@ -115,6 +115,11 @@ Import and export STEP files with full color support. Bring in existing CAD mode
 
 FluidCAD ships official extensions for **VS Code** and **Neovim**, but works with any editor -- just point the CLI at your project.
 
+### LLM / AI Agent Integration (MCP)
+
+FluidCAD ships an [MCP](https://modelcontextprotocol.io) server so AI agents (Claude Code, Claude Desktop, Cursor, opencode, etc.) can drive a running workspace -- take screenshots, inspect geometry, edit `.fluid.js` files, and look up the API by symbol. See [Set Up the MCP Server](#3-optional-set-up-the-mcp-server) below.
+
+
 ---
 
 ## Tutorials
@@ -216,10 +221,10 @@ See the full list of commands in the [Neovim plugin README](extension/neovim/REA
 <details>
 <summary><strong>Any Other Editor</strong></summary>
 
-Run the FluidCAD server directly:
+From your project directory, run the FluidCAD server directly:
 
 ```bash
-npx fluidcad -w ./my-app
+npx fluidcad serve
 ```
 
 This starts a local server and opens a 3D viewport in your browser. Edit your `.fluid.js` files in any editor -- the viewport updates on save.
@@ -230,8 +235,73 @@ This starts a local server and opens a 3D viewport in your browser. Edit your `.
 |------|-------------|---------|
 | `-w, --workspace <path>` | Path to your project | Current directory |
 | `-p, --port <port>` | Server port | `3100` |
+| `--open` | Open the viewport in your default browser when ready | _off_ |
 
 </details>
+
+### 3. (Optional) Set Up the MCP Server
+
+FluidCAD bundles an [MCP](https://modelcontextprotocol.io) server so LLM agents can drive your workspace -- screenshots, geometry inspection, source edits, API lookup. It's included in the `fluidcad` package; no separate install needed.
+
+Wire it into your MCP client:
+
+<details>
+<summary><strong>Claude Code</strong></summary>
+
+Register at user scope so it's available in every project:
+
+```bash
+claude mcp add --scope user FluidCAD -- npx -y fluidcad mcp
+```
+
+</details>
+
+<details>
+<summary><strong>Claude Desktop / Cursor</strong></summary>
+
+Add to `claude_desktop_config.json` or `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "FluidCAD": {
+      "command": "npx",
+      "args": ["-y", "fluidcad", "mcp"]
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>opencode</strong></summary>
+
+Run `opencode mcp add` and answer the prompts, or add to `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "FluidCAD": {
+      "type": "local",
+      "command": ["npx", "-y", "fluidcad", "mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+</details>
+
+Then install the companion skill so agents follow the FluidCAD workflow:
+
+```bash
+npx skills add Fluid-CAD/FluidCAD
+```
+
+See the [MCP README](mcp/README.md) for the full tool surface, transport details, and local-testing guide.
+
 
 ---
 

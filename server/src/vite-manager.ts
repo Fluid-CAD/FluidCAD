@@ -129,6 +129,7 @@ export class ViteManager {
     return mod;
   }
 
+
   invalidateModule() {
     for (const [id, mod] of this.server.moduleGraph.idToModuleMap) {
       if ((id.startsWith(this.rootPath) && !id.includes('/node_modules/')) || id.startsWith('virtual:live-render')) {

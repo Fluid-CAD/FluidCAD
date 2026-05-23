@@ -29,6 +29,7 @@ export class VertexSnapper implements Snapper {
     return false;
   }
 
+
   snap(point2d: [number, number], threshold: number): SnapResult | null {
     let minDist = Infinity;
     let closest: [number, number] | null = null;

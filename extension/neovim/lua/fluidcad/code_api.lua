@@ -109,6 +109,7 @@ function M.update_dimension_expression(code, source_line, expression, sketch_sou
   })
 end
 
+
 --- Replace the entire contents of `bufnr` with `new_code`. Returns true on
 --- success.
 function M.replace_buffer(bufnr, new_code)

@@ -98,6 +98,7 @@ export class Viewer {
     this.modeManager.enforceSketchNormal(plane);
   }
 
+
   private initClickDetection(): void {
     const canvas = this.ctx.renderer.domElement;
     let downX = 0;

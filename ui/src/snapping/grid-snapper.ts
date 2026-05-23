@@ -27,6 +27,7 @@ export function computeAdaptiveGridSpacing(
   }
 }
 
+
 export class GridSnapper implements Snapper {
   private spacing: number;
   private plane: PlaneData;
@@ -39,6 +40,7 @@ export class GridSnapper implements Snapper {
   setSpacing(spacing: number): void {
     this.spacing = spacing;
   }
+
 
   snap(point2d: [number, number], threshold: number): SnapResult | null {
     const snappedX = Math.round(point2d[0] / this.spacing) * this.spacing;

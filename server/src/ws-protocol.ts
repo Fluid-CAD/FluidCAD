@@ -52,6 +52,17 @@ export type ExportSceneMessage = {
   };
 };
 
+/**
+ * Sent by the editor extension whenever its dirty-buffer set changes. Paths
+ * are absolute and normalized to the same scheme the server uses elsewhere.
+ * Replaces the cached set on the server — not incremental.
+ */
+export type EditorDirtyStateMessage = {
+  type: 'editor-dirty-state';
+  dirtyFiles: string[];
+};
+
+
 export type ExtensionMessage =
   | ProcessFileMessage
   | LiveUpdateMessage
@@ -60,7 +71,8 @@ export type ExtensionMessage =
   | HighlightShapeMessage
   | ClearHighlightMessage
   | ShowShapePropertiesMessage
-  | ExportSceneMessage;
+  | ExportSceneMessage
+  | EditorDirtyStateMessage;
 
 // ---------------------------------------------------------------------------
 // IPC: Server → Extension messages
@@ -202,6 +214,7 @@ export type SetRectDimensionsMessage = {
   sourceLocation: { line: number; column: number };
 };
 
+
 export type ServerToExtensionMessage =
   | ReadyMessage
   | InitCompleteMessage
@@ -262,6 +275,29 @@ export type UIProcessingFileMessage = {
   type: 'processing-file';
 };
 
+export type NamedView =
+  | 'front'
+  | 'back'
+  | 'left'
+  | 'right'
+  | 'top'
+  | 'bottom'
+  | 'iso-ftr'
+  | 'iso-fbr'
+  | 'iso-ftl'
+  | 'iso-fbl'
+  | 'iso-btr'
+  | 'iso-bbr'
+  | 'iso-btl'
+  | 'iso-bbl';
+
+export type ScreenshotView =
+  | { kind: 'current' }
+  | { kind: 'named'; name: NamedView }
+  | { kind: 'orbit-from-current'; azimuthDeg: number; elevationDeg: number }
+  | { kind: 'look-from'; eye: [number, number, number]; target?: [number, number, number] };
+
+
 export type UITakeScreenshotMessage = {
   type: 'take-screenshot';
   requestId: string;
@@ -273,8 +309,25 @@ export type UITakeScreenshotMessage = {
     transparent?: boolean;
     autoCrop?: boolean;
     margin?: number;
+    view?: ScreenshotView;
+    multi?: boolean;
   };
 };
+
+/**
+ * Lifecycle ping for a render pass. Emitted at the start of every render and
+ * again on completion (state: 'end') or compile failure (state: 'error').
+ * Intermediate renders are cancelled at the server boundary, so only the
+ * latest `version` ever emits an `end`/`error`. Used by MCP coordination tools
+ * to wait deterministically instead of sleeping.
+ */
+export type UIRenderVersionMessage = {
+  type: 'render-version';
+  version: number;
+  state: 'start' | 'end' | 'error';
+  absPath?: string;
+};
+
 
 export type ServerToUIMessage =
   | UIInitCompleteMessage
@@ -283,4 +336,27 @@ export type ServerToUIMessage =
   | UIHighlightShapeMessage
   | UIClearHighlightMessage
   | UIShowShapePropertiesMessage
-  | UITakeScreenshotMessage;
+  | UITakeScreenshotMessage
+  | UIRenderVersionMessage;
+
+// ---------------------------------------------------------------------------
+// WebSocket: UI → Server messages
+// ---------------------------------------------------------------------------
+
+export type CameraStateMessage = {
+  type: 'camera-state';
+  position: [number, number, number];
+  target: [number, number, number];
+  up: [number, number, number];
+  projection: 'orthographic' | 'perspective';
+};
+
+export type ScreenshotResultMessage = {
+  type: 'screenshot-result';
+  requestId: string;
+  success: boolean;
+  data?: string;
+  error?: string;
+};
+
+export type UIToServerMessage = CameraStateMessage | ScreenshotResultMessage;

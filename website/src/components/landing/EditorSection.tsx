@@ -54,7 +54,7 @@ const EDITORS: Editor[] = [
     note: 'Interactive features like region picking, trimming, and interactive bezier drawing are only available in VS Code and Neovim.',
     code: {
       language: 'bash',
-      content: 'npx fluidcad -w ./my-app',
+      content: 'npx fluidcad serve',
     },
   },
 ];

@@ -120,6 +120,7 @@ function build(context: SceneParserContext): SlotFunction {
       return s;
     }
 
+
     // slot(start, distance, radius) — in-sketch only
     if (argCount === 3 && argOffset === 0) {
       const start = normalizePoint2D(arguments[0]);

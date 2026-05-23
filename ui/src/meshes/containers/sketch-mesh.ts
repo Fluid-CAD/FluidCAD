@@ -118,6 +118,7 @@ export class SketchMesh extends Group {
         }
 
         const target = interactive ? endpoints : nonInteractiveEndpoints;
+
         for (const meshData of shape.meshes) {
           if (!meshData.indices.length) {
             continue;

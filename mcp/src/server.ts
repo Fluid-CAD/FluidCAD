@@ -50,7 +50,7 @@ import { loadDocsIndex, type DocsIndex } from './docs-index.ts';
 import { registerDocResources } from './resources.ts';
 import type { ToolResult } from './types.ts';
 
-export const SERVER_NAME = 'fluidcad';
+export const SERVER_NAME = 'FluidCAD';
 export const SERVER_VERSION = '0.0.33';
 
 export type BuildServerOptions = {

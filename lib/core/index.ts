@@ -37,3 +37,4 @@ export { default as trim } from "./trim.js";
 export { default as part } from "./part.js";
 export * from "./2d/index.js";
 export { breakpoint } from "./breakpoint.js";
+export { default as param } from "./param.js";

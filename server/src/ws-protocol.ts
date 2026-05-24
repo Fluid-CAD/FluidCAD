@@ -186,6 +186,20 @@ export type ServerToExtensionMessage =
 // WebSocket: Server → UI messages
 // ---------------------------------------------------------------------------
 
+export type UIParamDefinition = {
+  label: string;
+  defaultValue: string | number;
+  currentValue: string | number;
+  controlType: 'auto' | 'text' | 'number' | 'slider' | 'select';
+  description?: string;
+  group?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  selectOptions?: { label: string; value: string | number }[];
+  multi?: boolean;
+};
+
 export type UISceneRenderedMessage = {
   type: 'scene-rendered';
   result: any[];
@@ -193,6 +207,7 @@ export type UISceneRenderedMessage = {
   rollbackStop?: number;
   breakpointHit?: boolean;
   compileError?: CompileError;
+  params?: UIParamDefinition[];
 };
 
 export type UIHighlightShapeMessage = {

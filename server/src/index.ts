@@ -227,7 +227,7 @@ let currentFile: string | null = null;
 let renderVersion = 0;
 const lastSceneByFile = new Map<string, { result: any[]; rollbackStop: number }>();
 
-function emitSuccess(version: number, absPath: string, result: any[], rollbackStop: number, breakpointHit?: boolean) {
+function emitSuccess(version: number, absPath: string, result: any[], rollbackStop: number, breakpointHit?: boolean, params?: any[]) {
   lastSceneByFile.set(absPath, { result, rollbackStop });
   fluidCadServer.setCompileError(null);
   sendToExtension({
@@ -242,6 +242,7 @@ function emitSuccess(version: number, absPath: string, result: any[], rollbackSt
     absPath,
     rollbackStop,
     breakpointHit,
+    params,
   });
   broadcastToUI({ type: 'render-version', version, state: 'end', absPath });
 }
@@ -313,7 +314,7 @@ async function runLiveRender(fileName: string, code: string): Promise<RenderOutc
     if (!data) {
       return { state: 'no-scene-manager', version: myVersion, durationMs: Date.now() - startedAt };
     }
-    emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop, data.breakpointHit);
+    emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop, data.breakpointHit, data.params);
     return {
       state: 'rendered',
       version: myVersion,
@@ -346,7 +347,7 @@ async function handleExtensionMessage(msg: any) {
           const data = await fluidCadServer.processFile(msg.filePath);
           if (myVersion !== renderVersion) { return; }
           if (data) {
-            emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop, data.breakpointHit);
+            emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop, data.breakpointHit, data.params);
           }
         } catch (err) {
           if (myVersion !== renderVersion) { return; }

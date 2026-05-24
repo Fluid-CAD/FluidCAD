@@ -1004,7 +1004,7 @@ function connectWebSocket() {
           updateRegionPickMode(msg.result);
           updateBezierDrawMode(msg.result);
         }
-        timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1, msg.absPath);
+        timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1, msg.absPath, msg.params);
         errorBanner.update(msg.result, msg.compileError ?? null);
         // Only update the breakpoint indicator when the server sends an
         // authoritative value — rollback responses don't re-run the module,

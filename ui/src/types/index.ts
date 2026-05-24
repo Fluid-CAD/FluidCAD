@@ -131,6 +131,24 @@ export type SceneObjectRender = {
 };
 
 // ---------------------------------------------------------------------------
+// Parameter definitions for the Parameters panel
+// ---------------------------------------------------------------------------
+
+export type UIParamDefinition = {
+  label: string;
+  defaultValue: string | number;
+  currentValue: string | number;
+  controlType: 'auto' | 'text' | 'number' | 'slider' | 'select';
+  description?: string;
+  group?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  selectOptions?: { label: string; value: string | number }[];
+  multi?: boolean;
+};
+
+// ---------------------------------------------------------------------------
 // Application state types (unrelated to 3D rendering)
 // ---------------------------------------------------------------------------
 

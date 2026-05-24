@@ -119,6 +119,9 @@ export function registerBuilder<T extends Function>(builder: (context: ScenePars
   return fn as ReturnType<typeof builder>;;
 }
 
+export { createParamRegistry, getParamRegistry } from './param-registry.js';
+export type { ParamDefinition } from './param-registry.js';
+
 export interface FluidCADOptions {
   mesh?: {
     lineDeflection?: number;

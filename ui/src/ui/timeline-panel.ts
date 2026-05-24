@@ -1,4 +1,4 @@
-import type { SceneObjectRender } from '../types';
+import type { SceneObjectRender, UIParamDefinition } from '../types';
 import { savePreference } from '../preferences';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_EYE, ICON_EYE_OFF } from './icons';
 import { resolveIconName } from './object-icons';
@@ -43,6 +43,12 @@ export class TimelinePanel {
   private showBuildTimings = false;
   private historyTotalLabel!: HTMLSpanElement;
   private hoverPopover: HTMLDivElement | null = null;
+  private paramsHeader: HTMLDivElement;
+  private paramsBody: HTMLDivElement;
+  private paramsExpanded = true;
+  private currentParams: UIParamDefinition[] = [];
+  private paramDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private collapsedParamGroups = new Set<string>();
 
   constructor(
     container: HTMLElement,
@@ -118,6 +124,26 @@ export class TimelinePanel {
     this.shapesBody.className = 'py-1 overflow-y-auto min-h-[33vh] flex-1';
     this.panel.appendChild(this.shapesBody);
 
+    // Parameters accordion section (hidden until params exist)
+    this.paramsHeader = document.createElement('div');
+    this.paramsHeader.className = SECTION_HEADER + ' hidden';
+    this.paramsHeader.innerHTML = `
+      <span data-ref="chevron" class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${CHEVRON_SVG}</span>
+      <span class="text-sm font-medium text-base-content/70">Parameters</span>
+    `;
+    this.panel.appendChild(this.paramsHeader);
+
+    this.paramsBody = document.createElement('div');
+    this.paramsBody.className = 'py-1 overflow-y-auto min-h-0';
+    this.panel.appendChild(this.paramsBody);
+
+    this.paramsHeader.addEventListener('click', () => {
+      this.paramsExpanded = !this.paramsExpanded;
+      this.paramsBody.classList.toggle('hidden', !this.paramsExpanded);
+      const chevron = this.paramsHeader.querySelector('[data-ref="chevron"]')!;
+      chevron.classList.toggle('rotate-90', this.paramsExpanded);
+    });
+
     // Bind accordion header toggles
     timelineHeader.addEventListener('click', () => {
       this.timelineExpanded = !this.timelineExpanded;
@@ -134,7 +160,7 @@ export class TimelinePanel {
     });
   }
 
-  update(sceneObjects: SceneObjectRender[], rollbackStop: number, absPath?: string): void {
+  update(sceneObjects: SceneObjectRender[], rollbackStop: number, absPath?: string, params?: UIParamDefinition[]): void {
     this.sceneObjects = sceneObjects;
     this.rollbackStop = rollbackStop;
     if (absPath) {
@@ -148,6 +174,10 @@ export class TimelinePanel {
     this.renderTimeline(true);
     this.renderShapes();
     this.updateHistoryTotal();
+    if (params !== undefined) {
+      this.currentParams = params;
+      this.renderParams();
+    }
   }
 
   private updateHistoryTotal(): void {
@@ -545,6 +575,197 @@ export class TimelinePanel {
         this.renderShapes();
       });
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Parameters section
+  // ---------------------------------------------------------------------------
+
+  private renderParams(): void {
+    const params = this.currentParams;
+
+    if (params.length === 0) {
+      this.paramsHeader.classList.add('hidden');
+      this.paramsBody.classList.add('hidden');
+      return;
+    }
+
+    this.paramsHeader.classList.remove('hidden');
+    if (this.paramsExpanded) {
+      this.paramsBody.classList.remove('hidden');
+    }
+
+    const ungrouped: UIParamDefinition[] = [];
+    const groups = new Map<string, UIParamDefinition[]>();
+    for (const p of params) {
+      if (p.group) {
+        if (!groups.has(p.group)) {
+          groups.set(p.group, []);
+        }
+        groups.get(p.group)!.push(p);
+      } else {
+        ungrouped.push(p);
+      }
+    }
+
+    let html = '';
+    for (const p of ungrouped) {
+      html += this.renderParamControl(p);
+    }
+    for (const [groupName, groupParams] of groups) {
+      const isCollapsed = this.collapsedParamGroups.has(groupName);
+      const rotation = isCollapsed ? '' : 'rotate-90';
+      html += `
+        <div class="flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-xs font-medium text-base-content/50 uppercase tracking-wider" data-param-group="${this.escapeHtml(groupName)}">
+          <span class="flex items-center justify-center w-4 h-4 opacity-50 hover:opacity-100 transition-transform ${rotation}">
+            ${CHEVRON_SVG}
+          </span>
+          <span>${this.escapeHtml(groupName)}</span>
+        </div>
+      `;
+      if (!isCollapsed) {
+        for (const p of groupParams) {
+          html += this.renderParamControl(p);
+        }
+      }
+    }
+
+    this.paramsBody.innerHTML = html;
+    this.bindParamHandlers();
+
+    this.paramsBody.querySelectorAll<HTMLElement>('[data-param-group]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const name = el.dataset.paramGroup!;
+        if (this.collapsedParamGroups.has(name)) {
+          this.collapsedParamGroups.delete(name);
+        } else {
+          this.collapsedParamGroups.add(name);
+        }
+        this.renderParams();
+      });
+    });
+  }
+
+  private renderParamControl(p: UIParamDefinition): string {
+    const effectiveType = p.controlType === 'auto'
+      ? (typeof p.defaultValue === 'number' ? 'number' : 'text')
+      : p.controlType;
+
+    const descHtml = p.description
+      ? `<div class="text-[11px] text-base-content/40 mt-0.5">${this.escapeHtml(p.description)}</div>`
+      : '';
+
+    const escapedLabel = this.escapeHtml(p.label);
+    let controlHtml = '';
+
+    switch (effectiveType) {
+      case 'slider': {
+        const min = p.min ?? 0;
+        const max = p.max ?? 100;
+        const step = p.step ?? 1;
+        controlHtml = `
+          <div class="flex items-center gap-2 mt-1">
+            <input type="range" class="range range-xs range-primary flex-1"
+              min="${min}" max="${max}" step="${step}"
+              value="${p.currentValue}"
+              data-param-label="${escapedLabel}" data-param-type="slider" />
+            <span class="text-xs text-base-content/50 tabular-nums w-8 text-right" data-param-display="${escapedLabel}">${p.currentValue}</span>
+          </div>
+        `;
+        break;
+      }
+      case 'number': {
+        const attrs: string[] = [];
+        if (p.min != null) { attrs.push(`min="${p.min}"`); }
+        if (p.max != null) { attrs.push(`max="${p.max}"`); }
+        if (p.step != null) { attrs.push(`step="${p.step}"`); }
+        controlHtml = `
+          <div class="mt-1">
+            <input type="number" class="input input-xs input-bordered w-full bg-transparent"
+              value="${p.currentValue}" ${attrs.join(' ')}
+              data-param-label="${escapedLabel}" data-param-type="number" />
+          </div>
+        `;
+        break;
+      }
+      case 'text':
+        controlHtml = `
+          <div class="mt-1">
+            <input type="text" class="input input-xs input-bordered w-full bg-transparent"
+              value="${this.escapeHtml(String(p.currentValue))}"
+              data-param-label="${escapedLabel}" data-param-type="text" />
+          </div>
+        `;
+        break;
+      case 'select': {
+        const options = (p.selectOptions ?? []).map(o => {
+          const selected = String(o.value) === String(p.currentValue) ? ' selected' : '';
+          return `<option value="${this.escapeHtml(String(o.value))}"${selected}>${this.escapeHtml(o.label)}</option>`;
+        }).join('');
+        controlHtml = `
+          <div class="mt-1">
+            <select class="select select-xs select-bordered w-full bg-transparent"
+              data-param-label="${escapedLabel}" data-param-type="select">
+              ${options}
+            </select>
+          </div>
+        `;
+        break;
+      }
+    }
+
+    return `
+      <div class="px-3 py-1.5">
+        <label class="text-xs text-base-content/60">${escapedLabel}</label>
+        ${descHtml}
+        ${controlHtml}
+      </div>
+    `;
+  }
+
+  private bindParamHandlers(): void {
+    this.paramsBody.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-param-label]').forEach((el) => {
+      const label = el.dataset.paramLabel!;
+      const type = el.dataset.paramType!;
+
+      const sendChange = (rawValue: string) => {
+        const def = this.currentParams.find(p => p.label === label);
+        const value: string | number = def && typeof def.defaultValue === 'number'
+          ? Number(rawValue)
+          : rawValue;
+        fetch('/api/set-param', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ label, value }),
+        }).catch(err => console.error('Set param failed:', err));
+      };
+
+      if (type === 'slider') {
+        el.addEventListener('input', () => {
+          const display = this.paramsBody.querySelector(`[data-param-display="${label}"]`);
+          if (display) {
+            display.textContent = (el as HTMLInputElement).value;
+          }
+          this.debounceParam(label, () => sendChange((el as HTMLInputElement).value));
+        });
+      } else if (type === 'number' || type === 'text') {
+        el.addEventListener('input', () => {
+          this.debounceParam(label, () => sendChange((el as HTMLInputElement).value));
+        });
+      } else if (type === 'select') {
+        el.addEventListener('change', () => {
+          sendChange((el as HTMLSelectElement).value);
+        });
+      }
+    });
+  }
+
+  private debounceParam(label: string, fn: () => void): void {
+    const existing = this.paramDebounceTimers.get(label);
+    if (existing) {
+      clearTimeout(existing);
+    }
+    this.paramDebounceTimers.set(label, setTimeout(fn, 250));
   }
 
   setShowBuildTimings(value: boolean): void {

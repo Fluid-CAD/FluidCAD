@@ -4,6 +4,8 @@ import { existsSync } from 'fs';
 import { ViteManager } from './vite-manager.ts';
 import { normalizePath } from './normalize-path.ts';
 import { BreakpointHit } from '../../lib/dist/common/breakpoint-hit.js';
+import { createParamRegistry, getParamRegistry } from '../../lib/dist/index.js';
+import type { ParamDefinition } from '../../lib/dist/index.js';
 import type { CompileError } from './ws-protocol.ts';
 
 type SceneManager = {
@@ -41,6 +43,7 @@ export type SceneRenderedData = {
   result: any[];
   rollbackStop: number;
   breakpointHit?: boolean;
+  params?: ParamDefinition[];
 };
 
 export type SceneSummaryObject = {
@@ -89,6 +92,7 @@ export class FluidCadServer {
   // MCP — short-circuits here when the new code hashes to the same value.
   // Avoids redundant OCC work when multiple producers see the same write.
   private lastRendered = new Map<string, { hash: string; data: SceneRenderedData }>();
+  private paramOverrides: Map<string, Map<string, any>> = new Map();
   private currentFileName: string = '';
   private currentFilePath: string = '';
   private lastRollbackStop: number = -1;
@@ -131,6 +135,13 @@ export class FluidCadServer {
       let scene = this.sceneManager.startScene();
       this.sceneManager.setCurrentFile(normalizedFileName);
       this.viteManager.invalidateModule();
+
+      const registry = createParamRegistry();
+      const overrides = this.paramOverrides.get(normalizedFileName);
+      if (overrides) {
+        registry.setOverrides(overrides);
+      }
+
       let breakpointHit = false;
       try {
         await this.viteManager.loadModule(filePath);
@@ -142,6 +153,8 @@ export class FluidCadServer {
           throw e;
         }
       }
+
+      const params = getParamRegistry().getDefinitions();
 
       if (this.previousScenes.has(normalizedFileName)) {
         const previousScene = this.previousScenes.get(normalizedFileName);
@@ -171,6 +184,7 @@ export class FluidCadServer {
         result,
         rollbackStop: result.length - 1,
         breakpointHit,
+        params,
       };
     }
     catch (error) {
@@ -330,6 +344,15 @@ export class FluidCadServer {
 
   getCompileError(): CompileError | null {
     return this.compileError;
+  }
+
+  setParam(fileName: string, label: string, value: any): void {
+    fileName = normalizePath(fileName);
+    if (!this.paramOverrides.has(fileName)) {
+      this.paramOverrides.set(fileName, new Map());
+    }
+    this.paramOverrides.get(fileName)!.set(label, value);
+    this.lastRendered.delete(fileName);
   }
 
   getCurrentFileName(): string {

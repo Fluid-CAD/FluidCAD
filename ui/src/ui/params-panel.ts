@@ -66,14 +66,14 @@ export class ParamsPanel {
 
     let html = '';
     for (const p of ungrouped) {
-      html += this.renderParamControl(p);
+      html += this.renderParamControl(p, false);
     }
     for (const [groupName, groupParams] of groups) {
       const isCollapsed = this.collapsedGroups.has(groupName);
       const checked = isCollapsed ? '' : ' checked';
       let controlsHtml = '';
       for (const p of groupParams) {
-        controlsHtml += this.renderParamControl(p);
+        controlsHtml += this.renderParamControl(p, true);
       }
       html += `
         <div class="collapse collapse-arrow border border-base-content/10 rounded-md mt-1.5" data-param-group="${this.escapeHtml(groupName)}">
@@ -100,7 +100,7 @@ export class ParamsPanel {
     });
   }
 
-  private renderParamControl(p: UIParamDefinition): string {
+  private renderParamControl(p: UIParamDefinition, grouped: boolean): string {
     const effectiveType = p.controlType === 'auto'
       ? (typeof p.defaultValue === 'boolean' ? 'checkbox' : typeof p.defaultValue === 'number' ? 'number' : 'text')
       : p.controlType;
@@ -153,8 +153,9 @@ export class ParamsPanel {
         break;
       case 'checkbox': {
         const checked = p.currentValue ? ' checked' : '';
+        const px = grouped ? 'px-3' : '';
         return `
-          <div class="px-3 py-1.5">
+          <div class="${px} py-1.5">
             <div class="flex items-center gap-2">
               <label class="text-xs text-base-content/60">${escapedLabel}</label>
               <input type="checkbox" class="toggle toggle-xs toggle-primary"
@@ -182,8 +183,9 @@ export class ParamsPanel {
       }
     }
 
+    const px = grouped ? 'px-3' : '';
     return `
-      <div class="px-3 py-1.5">
+      <div class="${px} py-1.5">
         <label class="text-xs text-base-content/60">${escapedLabel}</label>
         ${descHtml}
         ${controlHtml}

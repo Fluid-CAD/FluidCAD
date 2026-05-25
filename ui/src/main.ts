@@ -5,7 +5,7 @@ import { TimelinePanel } from './ui/timeline-panel';
 import { ExportDialog } from './ui/export-dialog';
 import { BreakpointIndicator } from './ui/breakpoint-indicator';
 import { ErrorBanner } from './ui/error-banner';
-import { ICON_SCISSORS, ICON_FILE_IMPORT, ICON_COPY, ICON_WAND } from './ui/icons';
+import { ICON_SCISSORS, ICON_COPY, ICON_WAND } from './ui/icons';
 import { PointPickMode, HighlightInfo } from './interactive/point-pick-mode';
 import { RegionPickMode } from './interactive/region-pick-mode';
 import { BezierDrawMode } from './interactive/bezier-draw-mode';
@@ -89,6 +89,12 @@ const errorBanner = new ErrorBanner(container, (loc) => {
     body: JSON.stringify(loc),
   }).catch((err) => console.error('Goto source failed:', err));
 });
+const fileInput = document.createElement('input');
+fileInput.type = 'file';
+fileInput.accept = '.step,.stp';
+fileInput.style.display = 'none';
+container.appendChild(fileInput);
+
 const timelinePanel = new TimelinePanel(
   container,
   (shapeId) => viewer.highlightShape(shapeId),
@@ -98,6 +104,7 @@ const timelinePanel = new TimelinePanel(
   (shapeId, opacity) => viewer.setShapeTransparency(shapeId, opacity),
   (shapeId) => viewer.getShapeTransparency(shapeId),
   () => viewer.resetAllTransparency(),
+  () => fileInput.click(),
 );
 
 shapePropertiesModal.setOpenHandler(() => {
@@ -801,14 +808,6 @@ function deactivateBezierDrawMode() {
 // Import file button
 // ---------------------------------------------------------------------------
 
-const importBtn = document.createElement('div');
-importBtn.className = 'absolute bottom-6 left-6 z-[100]';
-importBtn.innerHTML = `
-  <button class="btn btn-ghost btn-square btn-sm text-base-content/60" title="Import File">
-    <span class="[&>svg]:size-5">${ICON_FILE_IMPORT}</span>
-  </button>
-`;
-container.appendChild(importBtn);
 
 const importToast = document.createElement('div');
 importToast.className = 'absolute bottom-16 left-6 z-[100] panel-bg border border-base-content/10 rounded-lg px-4 py-3 text-sm text-base-content/80 hidden';
@@ -845,15 +844,7 @@ function showImportToast(message: string, loadCmd?: string) {
   }, 6000);
 }
 
-const fileInput = document.createElement('input');
-fileInput.type = 'file';
-fileInput.accept = '.step,.stp';
-fileInput.style.display = 'none';
-container.appendChild(fileInput);
 
-importBtn.querySelector('button')!.addEventListener('click', () => {
-  fileInput.click();
-});
 
 fileInput.addEventListener('change', async () => {
   const file = fileInput.files?.[0];

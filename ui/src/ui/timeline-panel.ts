@@ -37,6 +37,7 @@ export class TimelinePanel {
   private onSetShapeTransparency: (shapeId: string, opacity: number) => void;
   private getShapeTransparency: (shapeId: string) => number;
   private onResetAllTransparency: () => void;
+  private onImportFile: () => void;
   private shapesHeader: HTMLDivElement;
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
@@ -60,6 +61,7 @@ export class TimelinePanel {
     onSetShapeTransparency: (shapeId: string, opacity: number) => void,
     getShapeTransparency: (shapeId: string) => number,
     onResetAllTransparency: () => void,
+    onImportFile: () => void,
   ) {
     this.onHighlightShape = onHighlightShape;
     this.onExportShapes = onExportShapes;
@@ -68,6 +70,7 @@ export class TimelinePanel {
     this.onSetShapeTransparency = onSetShapeTransparency;
     this.getShapeTransparency = getShapeTransparency;
     this.onResetAllTransparency = onResetAllTransparency;
+    this.onImportFile = onImportFile;
 
     // Panel — hidden until first scene load
     this.panel = document.createElement('div');
@@ -87,9 +90,13 @@ export class TimelinePanel {
     fileRow.innerHTML = `
       <span class="text-base-content/50 [&>svg]:size-4">${CUBE_SVG}</span>
       <span data-ref="filename" class="text-base text-base-content/70 truncate"></span>
+      <button data-ref="import-btn" class="ml-auto w-5 h-5 min-h-0 btn btn-circle btn-ghost border border-base-content/30 hover:border-base-content/50 p-0 text-base-content/40 hover:text-base-content/70 shrink-0 tooltip tooltip-right" data-tip="Import File">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
     `;
     this.panel.appendChild(fileRow);
     this.fileLabel = fileRow.querySelector('[data-ref="filename"]')!;
+    fileRow.querySelector('[data-ref="import-btn"]')!.addEventListener('click', () => this.onImportFile());
 
     // Timeline accordion section
     const timelineHeader = document.createElement('div');

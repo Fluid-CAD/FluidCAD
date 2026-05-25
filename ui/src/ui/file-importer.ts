@@ -1,8 +1,7 @@
-import { ICON_FILE_IMPORT, ICON_COPY } from './icons';
+import { ICON_COPY } from './icons';
 import { importFile } from '../api';
 
 export class FileImporter {
-  private importBtn: HTMLDivElement;
   private importToast: HTMLDivElement;
   private fileInput: HTMLInputElement;
   private importToastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -16,15 +15,6 @@ export class FileImporter {
     this.showLoading = deps.showLoading;
     this.hideLoading = deps.hideLoading;
 
-    this.importBtn = document.createElement('div');
-    this.importBtn.className = 'absolute bottom-6 left-6 z-[100]';
-    this.importBtn.innerHTML = `
-      <button class="btn btn-ghost btn-square btn-sm text-base-content/60" title="Import File">
-        <span class="[&>svg]:size-5">${ICON_FILE_IMPORT}</span>
-      </button>
-    `;
-    container.appendChild(this.importBtn);
-
     this.importToast = document.createElement('div');
     this.importToast.className = 'absolute bottom-16 left-6 z-[100] panel-bg border border-base-content/10 rounded-lg px-4 py-3 text-sm text-base-content/80 hidden';
     container.appendChild(this.importToast);
@@ -34,10 +24,6 @@ export class FileImporter {
     this.fileInput.accept = '.step,.stp';
     this.fileInput.style.display = 'none';
     container.appendChild(this.fileInput);
-
-    this.importBtn.querySelector('button')!.addEventListener('click', () => {
-      this.fileInput.click();
-    });
 
     this.fileInput.addEventListener('change', () => this.handleFileChange());
   }

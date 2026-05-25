@@ -2,15 +2,19 @@ import { Point2D } from "../../math/point.js";
 import { Sketch } from "./sketch.js";
 import { Geometry } from "../../oc/geometry.js";
 import { Edge } from "../../common/edge.js";
+import { Vertex } from "../../common/vertex.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { rad } from "../../helpers/math-helpers.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
+import { LazyVertex } from "../lazy-vertex.js";
 import { ISlot } from "../../core/interfaces.js";
 
 export class Slot extends ExtrudableGeometryBase implements ISlot {
   private _center: boolean = false;
   private _angle: number = 0;
+  private _startPoint: LazyVertex | null = null;
+  private _endPoint: LazyVertex | null = null;
 
   constructor(
     public distance: number,
@@ -18,6 +22,18 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
     targetPlane: PlaneObjectBase = null,
   ) {
     super(targetPlane);
+  }
+
+  static fromTwoPoints(
+    start: LazyVertex,
+    end: LazyVertex,
+    radius: number,
+    targetPlane: PlaneObjectBase | null = null,
+  ): Slot {
+    const slot = new Slot(0, radius, targetPlane);
+    slot._startPoint = start;
+    slot._endPoint = end;
+    return slot;
   }
 
   centered(value: boolean = true): this {
@@ -31,9 +47,17 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
   }
 
   build(): void {
-    if (this.distance < 0) {
-      throw new Error("Slot distance must be positive");
+    if (this._startPoint && this._endPoint) {
+      const s = this._startPoint.asPoint2D();
+      const e = this._endPoint.asPoint2D();
+      const dx = e.x - s.x;
+      const dy = e.y - s.y;
+      this.distance = Math.sqrt(dx * dx + dy * dy);
+      this._angle = Math.atan2(dy, dx) * 180 / Math.PI;
     }
+
+    const absDistance = Math.abs(this.distance);
+    const flipAngle = this.distance < 0 ? 180 : 0;
 
     const plane = this.targetPlane?.getPlane() || (this.getParent() as Sketch).getPlane();
     const localToWorld = plane.localToWorld.bind(plane);
@@ -43,16 +67,16 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
       : this.getCurrentPosition();
 
     if (this._center) {
-      const angleRad = rad(this._angle);
+      const angleRad = rad(this._angle + flipAngle);
       const cos = Math.cos(angleRad);
       const sin = Math.sin(angleRad);
       leftCenter = leftCenter.translate(
-        -this.distance / 2 * cos,
-        -this.distance / 2 * sin
+        -absDistance / 2 * cos,
+        -absDistance / 2 * sin
       );
     }
 
-    const angleRad = rad(this._angle);
+    const angleRad = rad(this._angle + flipAngle);
     const cos = Math.cos(angleRad);
     const sin = Math.sin(angleRad);
 
@@ -64,8 +88,8 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
     const perpY = cos;
 
     const rightCenter = new Point2D(
-      leftCenter.x + this.distance * dirX,
-      leftCenter.y + this.distance * dirY
+      leftCenter.x + absDistance * dirX,
+      leftCenter.y + absDistance * dirY
     );
 
     // Four key points where lines meet arcs
@@ -125,6 +149,13 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
 
     this.addShapes(edges);
 
+    const leftCenterVertex = Vertex.fromPoint2D(leftCenter);
+    leftCenterVertex.markAsMetaShape();
+    this.addShape(leftCenterVertex);
+    const rightCenterVertex = Vertex.fromPoint2D(rightCenter);
+    rightCenterVertex.markAsMetaShape();
+    this.addShape(rightCenterVertex);
+
     if (this.sketch) {
       if (this._center) {
         this.setCurrentPosition(this.getCurrentPosition());
@@ -148,7 +179,12 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
-    const s = new Slot(this.distance, this.radius, targetPlane);
+    let s: Slot;
+    if (this._startPoint && this._endPoint) {
+      s = Slot.fromTwoPoints(this._startPoint, this._endPoint, this.radius, targetPlane);
+    } else {
+      s = new Slot(this.distance, this.radius, targetPlane);
+    }
     s.centered(this._center);
     s.rotate(this._angle);
     return s;
@@ -171,6 +207,24 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
       return false;
     }
 
+    if ((this._startPoint === null) !== (other._startPoint === null)) {
+      return false;
+    }
+    if ((this._endPoint === null) !== (other._endPoint === null)) {
+      return false;
+    }
+    if (this._startPoint && other._startPoint && !this._startPoint.compareTo(other._startPoint)) {
+      return false;
+    }
+    if (this._endPoint && other._endPoint && !this._endPoint.compareTo(other._endPoint)) {
+      return false;
+    }
+
+    if (this._startPoint && this._endPoint) {
+      return this.radius === other.radius &&
+        this._center === other._center;
+    }
+
     return this.distance === other.distance &&
       this.radius === other.radius &&
       this._center === other._center &&
@@ -183,6 +237,7 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
       radius: this.radius,
       centered: this._center,
       angle: this._angle,
+      hasTwoPoints: this._startPoint !== null && this._endPoint !== null,
     };
   }
 }

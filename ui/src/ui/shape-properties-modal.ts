@@ -1,6 +1,6 @@
 import { ICON_SCALE } from './icons';
-
-type RawProps = { volumeMm3: number; surfaceAreaMm2: number; centroid: { x: number; y: number; z: number } };
+import { getMaterials, getShapeProperties } from '../api';
+import type { ShapeProperties } from '../api';
 
 /**
  * Convert density from g/cm³ (canonical) to [massUnit]/[lengthUnit]³ for display.
@@ -85,7 +85,7 @@ export class ShapePropertiesModal {
   private centroidVal!: HTMLSpanElement;
 
   private selectedShapeId: string | null = null;
-  private rawProps: RawProps | null = null;
+  private rawProps: ShapeProperties | null = null;
   /** Density stored in canonical g/cm³; derived from material or user input. */
   private canonicalDensityGcm3: number | null = null;
   /** The density unit as declared by the selected material (e.g. 'g/cm³', 'kg/m³'). */
@@ -278,27 +278,24 @@ export class ShapePropertiesModal {
   }
 
   private async loadMaterials(): Promise<void> {
-    try {
-      const res = await fetch('/api/materials');
-      if (!res.ok) { return; }
-      const materials: { name: string; density: number; densityUnit: string }[] = await res.json();
-      this.selectEl.innerHTML = '';
-      for (const mat of materials) {
-        const opt = document.createElement('option');
-        opt.textContent = mat.name;
-        opt.dataset.density = String(mat.density);
-        opt.dataset.densityUnit = mat.densityUnit;
-        this.selectEl.appendChild(opt);
-      }
-      const first = this.selectEl.options[0];
-      if (first?.dataset.density) {
-        this.currentDensityUnit = first.dataset.densityUnit || 'g/cm\u00B3';
-        this.canonicalDensityGcm3 = densityToGcm3(parseFloat(first.dataset.density), this.currentDensityUnit);
-        this.updateDensityUnitSelect();
-        this.updateDensityDisplay();
-      }
-    } catch {
-      // silently ignore if materials endpoint not available
+    const materials = await getMaterials();
+    if (!materials) {
+      return;
+    }
+    this.selectEl.innerHTML = '';
+    for (const mat of materials) {
+      const opt = document.createElement('option');
+      opt.textContent = mat.name;
+      opt.dataset.density = String(mat.density);
+      opt.dataset.densityUnit = mat.densityUnit;
+      this.selectEl.appendChild(opt);
+    }
+    const first = this.selectEl.options[0];
+    if (first?.dataset.density) {
+      this.currentDensityUnit = first.dataset.densityUnit || 'g/cm\u00B3';
+      this.canonicalDensityGcm3 = densityToGcm3(parseFloat(first.dataset.density), this.currentDensityUnit);
+      this.updateDensityUnitSelect();
+      this.updateDensityDisplay();
     }
   }
 
@@ -309,16 +306,11 @@ export class ShapePropertiesModal {
     this.resultsEl.classList.add('hidden');
 
     try {
-      const res = await fetch(`/api/shape-properties?shapeId=${encodeURIComponent(this.selectedShapeId)}`);
-      if (res.status === 404) {
-        this.showError('Shape not found. Try re-rendering the scene.');
-        return;
-      }
-      if (!res.ok) {
+      this.rawProps = await getShapeProperties(this.selectedShapeId);
+      if (!this.rawProps) {
         this.showError('Failed to calculate properties.');
         return;
       }
-      this.rawProps = await res.json();
       this.renderResults();
     } catch {
       this.showError('Network error while fetching properties.');

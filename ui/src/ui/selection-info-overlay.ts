@@ -1,19 +1,5 @@
-type FaceProperties = {
-  surfaceType: 'plane' | 'circle' | 'cylinder' | 'sphere' | 'torus' | 'cone' | 'other';
-  areaMm2?: number;
-  radius?: number;
-  majorRadius?: number;
-  minorRadius?: number;
-  halfAngleDeg?: number;
-};
-
-type EdgeProperties = {
-  curveType: 'line' | 'circle' | 'arc' | 'ellipse' | 'other';
-  length?: number;
-  radius?: number;
-  majorRadius?: number;
-  minorRadius?: number;
-};
+import type { FaceProperties, EdgeProperties } from '../api';
+import { getFaceProperties, getEdgeProperties } from '../api';
 
 const SURFACE_LABELS: Record<FaceProperties['surfaceType'], string> = {
   plane: 'Plane',
@@ -52,22 +38,15 @@ export class SelectionInfoOverlay {
     this.el.innerHTML = '<div class="text-base-content/50 text-[11px] text-center py-1">Loading\u2026</div>';
     this.el.classList.remove('hidden');
 
-    try {
-      const res = await fetch(
-        `/api/face-properties?shapeId=${encodeURIComponent(shapeId)}&faceIndex=${faceIndex}`,
-        { signal: this.abortController.signal },
-      );
-      if (!res.ok) {
-        this.el.classList.add('hidden');
-        return;
-      }
-      const props: FaceProperties = await res.json();
-      this.renderFace(props);
-    } catch (err: any) {
-      if (err?.name !== 'AbortError') {
+    const signal = this.abortController.signal;
+    const props = await getFaceProperties(shapeId, faceIndex, signal);
+    if (!props) {
+      if (!signal.aborted) {
         this.el.classList.add('hidden');
       }
+      return;
     }
+    this.renderFace(props);
   }
 
   async showForEdge(shapeId: string, edgeIndex: number): Promise<void> {
@@ -79,22 +58,15 @@ export class SelectionInfoOverlay {
     this.el.innerHTML = '<div class="text-base-content/50 text-[11px] text-center py-1">Loading\u2026</div>';
     this.el.classList.remove('hidden');
 
-    try {
-      const res = await fetch(
-        `/api/edge-properties?shapeId=${encodeURIComponent(shapeId)}&edgeIndex=${edgeIndex}`,
-        { signal: this.abortController.signal },
-      );
-      if (!res.ok) {
-        this.el.classList.add('hidden');
-        return;
-      }
-      const props: EdgeProperties = await res.json();
-      this.renderEdge(props);
-    } catch (err: any) {
-      if (err?.name !== 'AbortError') {
+    const signal = this.abortController.signal;
+    const props = await getEdgeProperties(shapeId, edgeIndex, signal);
+    if (!props) {
+      if (!signal.aborted) {
         this.el.classList.add('hidden');
       }
+      return;
     }
+    this.renderEdge(props);
   }
 
   hide(): void {

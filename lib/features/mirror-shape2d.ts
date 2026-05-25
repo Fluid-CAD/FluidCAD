@@ -61,8 +61,8 @@ export class MirrorShape2D extends GeometrySceneObject {
       }
     }
 
-    const firstShape = transformedShapes[0] as Edge | Wire;
-    const lastShape = transformedShapes[transformedShapes.length - 1] as Edge | Wire;
+    const firstShape = transformedShapes.find(shape => !shape.isMetaShape() && !shape.isGuideShape()) as Edge | Wire;
+    const lastShape = transformedShapes.toReversed().find(shape => !shape.isMetaShape() && !shape.isGuideShape()) as Edge | Wire;
     if (firstShape) {
       const start = firstShape.getFirstVertex();
       if (start) {

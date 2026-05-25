@@ -98,6 +98,11 @@ export class FluidCadServer {
   private lastRollbackStop: number = -1;
   private compileError: CompileError | null = null;
 
+  getCurrentCode(): string | null {
+    if (!this.currentFileName) return null;
+    return this.viteManager.getBuffer(this.currentFileName);
+  }
+
   async init(workspacePath: string) {
     await this.viteManager.init(workspacePath);
 

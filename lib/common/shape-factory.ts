@@ -4,6 +4,7 @@ import { Solid } from "./solid.js";
 import { Wire } from "./wire.js";
 import { Face } from "./face.js";
 import { Edge } from "./edge.js";
+import { Vertex } from "./vertex.js";
 
 export class ShapeFactory {
   static fromShape(shape: TopoDS_Shape) {
@@ -21,6 +22,10 @@ export class ShapeFactory {
 
     if (Explorer.isEdge(shape)) {
       return Edge.fromTopoDSEdge(Explorer.toEdge(shape));
+    }
+
+    if (Explorer.isVertex(shape)) {
+      return Vertex.fromTopoDSVertex(Explorer.toVertex(shape));
     }
 
     if (Explorer.isCompound(shape) || Explorer.isCompoundSolid(shape)) {

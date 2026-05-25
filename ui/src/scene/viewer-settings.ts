@@ -1,4 +1,4 @@
-import { UserPreferences } from '../preferences';
+import { UserPreferences } from '../api';
 
 export interface ViewerSettings {
   cameraMode: 'perspective' | 'orthographic';

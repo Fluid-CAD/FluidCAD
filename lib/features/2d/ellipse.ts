@@ -1,4 +1,5 @@
 import { Geometry } from "../../oc/geometry.js";
+import { Vertex } from "../../common/vertex.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Point2D } from "../../math/point.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
@@ -44,6 +45,9 @@ export class Ellipse extends ExtrudableGeometryBase {
     );
 
     this.addShape(edge);
+    const centerVertex = Vertex.fromPoint2D(center);
+    centerVertex.markAsMetaShape();
+    this.addShape(centerVertex);
     if (this.sketch) {
       this.setCurrentPosition(center);
     }

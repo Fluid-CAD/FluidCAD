@@ -12,7 +12,7 @@ export function isOwnedShortcut(_e: KeyboardEvent): boolean {
   return false;
 }
 
-function isEditableTarget(target: EventTarget | null): boolean {
+export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) {
     return false;
   }

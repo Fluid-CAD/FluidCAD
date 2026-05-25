@@ -71,6 +71,66 @@ export function setPickPoints(
   return postCodeEdit<CodeEditResult>(serverUrl, 'set-pick-points', { code, sourceLine, points }, logger);
 }
 
+export function insertGeometry(
+  serverUrl: string, code: string, sketchSourceLine: number, statement: string, logger: vscode.OutputChannel,
+  newVariable: { name: string; initializer: string } | null = null,
+) {
+  return postCodeEdit<CodeEditResult>(
+    serverUrl, 'insert-geometry',
+    { code, sketchSourceLine, statement, newVariable },
+    logger,
+  );
+}
+
+
+export function updatePosition(
+  serverUrl: string, code: string, sourceLine: number, newPosition: [number, number], logger: vscode.OutputChannel,
+  pointIndex: number = 0,
+) {
+  return postCodeEdit<CodeEditResult>(serverUrl, 'update-position', { code, sourceLine, newPosition, pointIndex }, logger);
+}
+
+export function setLinePosition(
+  serverUrl: string, code: string, sourceLine: number,
+  newStart: [number, number], newEnd: [number, number], logger: vscode.OutputChannel,
+) {
+  return postCodeEdit<CodeEditResult>(serverUrl, 'set-line-position', { code, sourceLine, newStart, newEnd }, logger);
+}
+
+export function setChainPositions(
+  serverUrl: string, code: string, sourceLine: number,
+  updates: { pointIndex: number; position: [number, number] }[], logger: vscode.OutputChannel,
+) {
+  return postCodeEdit<CodeEditResult>(serverUrl, 'set-chain-positions', { code, sourceLine, updates }, logger);
+}
+
+export function setRectDimensions(
+  serverUrl: string, code: string, sourceLine: number,
+  startPoint: [number, number] | null, width: number, height: number, logger: vscode.OutputChannel,
+) {
+  return postCodeEdit<CodeEditResult>(serverUrl, 'set-rect-dimensions', { code, sourceLine, startPoint, width, height }, logger);
+}
+
+export function updateDimension(
+  serverUrl: string, code: string, sourceLine: number, newValue: number, logger: vscode.OutputChannel,
+) {
+  return postCodeEdit<CodeEditResult>(serverUrl, 'update-dimension', { code, sourceLine, newValue }, logger);
+}
+
+export function updateDimensionExpression(
+  serverUrl: string, code: string, sourceLine: number, expression: string, logger: vscode.OutputChannel,
+  sketchSourceLine: number | null = null,
+  newVariable: { name: string; initializer: string } | null = null,
+  dimensionOffset = 0,
+) {
+  return postCodeEdit<CodeEditResult>(
+    serverUrl, 'update-dimension-expression',
+    { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset },
+    logger,
+  );
+}
+
+
 /**
  * Replace the entire contents of `doc` with `newCode` in a single workspace
  * edit. Returns true on success.

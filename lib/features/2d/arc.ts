@@ -143,7 +143,7 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcRadius, 
 
     this.setState('start', Vertex.fromPoint2D(startPt));
     this.setState('end', Vertex.fromPoint2D(endPt));
-    const centerVertex = Vertex.fromPoint2D(centerPt);
+    const centerVertex = Vertex.fromPoint(center);
     centerVertex.markAsMetaShape();
     this.addShape(centerVertex);
     this.addShape(edge);
@@ -206,7 +206,7 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcRadius, 
     this.setTangent(new Point2D(endTx, endTy));
     this.setState('start', Vertex.fromPoint2D(startPoint));
     this.setState('end', Vertex.fromPoint2D(targetPoint));
-    const centerVertex = Vertex.fromPoint2D(centerPoint);
+    const centerVertex = Vertex.fromPoint(center);
     centerVertex.markAsMetaShape();
     this.addShape(centerVertex);
     this.addShape(edge);
@@ -271,7 +271,7 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcRadius, 
     this.setTangent(new Point2D(endTx, endTy));
     this.setState('start', Vertex.fromPoint2D(startPoint));
     this.setState('end', Vertex.fromPoint2D(targetPoint));
-    const centerVertex = Vertex.fromPoint2D(centerPoint);
+    const centerVertex = Vertex.fromPoint(center);
     centerVertex.markAsMetaShape();
     this.addShape(centerVertex);
     this.addShape(edge);
@@ -353,7 +353,7 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcRadius, 
 
     this.setState('start', Vertex.fromPoint2D(startPt));
     this.setState('end', Vertex.fromPoint2D(endPt));
-    const centerVertex = Vertex.fromPoint2D(actualCenter);
+    const centerVertex = Vertex.fromPoint(plane.localToWorld(actualCenter));
     centerVertex.markAsMetaShape();
     this.addShape(centerVertex);
     this.addShape(edge);
@@ -414,7 +414,7 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcRadius, 
 
     this.setState('start', Vertex.fromPoint2D(startPoint));
     this.setState('end', Vertex.fromPoint2D(endPoint));
-    const centerVertex = Vertex.fromPoint2D(centerPoint);
+    const centerVertex = Vertex.fromPoint(center);
     centerVertex.markAsMetaShape();
     this.addShape(centerVertex);
 

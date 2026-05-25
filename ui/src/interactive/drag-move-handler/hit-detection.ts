@@ -361,8 +361,6 @@ function hitTestArc(
   const endV = verts2d[verts2d.length - 1];
   const hasExplicitStart = child.object?.startPoint !== undefined;
   const arcArgCount = hasExplicitStart ? 3 : 2;
-  const arcIsRadiusMode = child.object?.radius !== undefined && child.object?.center === undefined;
-  const arcMajor = child.object?.major === true;
 
   let centerV = findArcCenter(child, plane);
 
@@ -391,9 +389,6 @@ function hitTestArc(
   const centerDist = cdx * cdx + cdy * cdy;
 
   const minDist = Math.min(startDist, endDist, centerDist);
-  const radiusValue = arcIsRadiusMode
-    ? Math.sqrt((startV[0] - centerV[0]) ** 2 + (startV[1] - centerV[1]) ** 2)
-    : undefined;
 
   let result: HitTestResult | null = null;
 
@@ -405,8 +400,6 @@ function hitTestArc(
         fixedVertex: endV,
         draggedVertices: [startV],
         arcCCW, arcArgCount,
-        arcIsRadiusMode, arcMajor,
-        initialValue: radiusValue,
       },
       distSq: startDist,
     };
@@ -420,8 +413,6 @@ function hitTestArc(
         fixedVertex: startV,
         draggedVertices: [endV],
         arcCCW, arcArgCount,
-        arcIsRadiusMode, arcMajor,
-        initialValue: radiusValue,
       },
       distSq: endDist,
     };
@@ -436,34 +427,9 @@ function hitTestArc(
         fixedVertex2: endV,
         draggedVertices: [centerV],
         arcCCW, arcArgCount,
-        arcIsRadiusMode, arcMajor,
-        initialValue: radiusValue,
       },
       distSq: centerDist,
     };
-  }
-
-  if (!result && arcIsRadiusMode) {
-    const radius = Math.sqrt((startV[0] - centerV[0]) ** 2 + (startV[1] - centerV[1]) ** 2);
-    const distToCenter = Math.sqrt(
-      (point2d[0] - centerV[0]) ** 2 + (point2d[1] - centerV[1]) ** 2,
-    );
-    const distToEdge = Math.abs(distToCenter - radius);
-    const edgeDistSq = distToEdge * distToEdge;
-    if (edgeDistSq < thresholdSq && edgeDistSq < bestDistSq) {
-      result = {
-        hit: {
-          sourceLocation, uniqueType: 'arc', hitZone: 'body',
-          anchorPoint: centerV,
-          fixedVertex: startV,
-          fixedVertex2: endV,
-          arcCCW, arcArgCount,
-          arcIsRadiusMode, arcMajor,
-          initialValue: radiusValue,
-        },
-        distSq: edgeDistSq,
-      };
-    }
   }
 
   return result;

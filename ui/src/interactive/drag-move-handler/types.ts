@@ -10,8 +10,6 @@ export type DragHitResult = {
   draggedVertices?: [number, number][];
   arcCCW?: boolean;
   arcArgCount?: number;
-  arcIsRadiusMode?: boolean;
-  arcMajor?: boolean;
   tangentDir?: [number, number];
   rectCentered?: boolean;
   bezierPoleIndex?: number;

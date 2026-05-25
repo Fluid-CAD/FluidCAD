@@ -1,5 +1,41 @@
-import { getParamRegistry, type SelectOption, type ParamDefinition } from "../param-registry.js";
+import { getParamRegistry, type ControlType, type SelectOption, type ParamDefinition } from "../param-registry.js";
 
+export type ParamType = 'number' | 'slider' | 'text' | 'select' | 'checkbox';
+
+interface BaseParamOptions {
+  group?: string;
+  description?: string;
+}
+
+export interface NumberParamOptions extends BaseParamOptions {
+  min?: number;
+  max?: number;
+  step?: number;
+}
+
+export interface SliderParamOptions extends BaseParamOptions {
+  min?: number;
+  max?: number;
+  step?: number;
+}
+
+export interface SelectParamOptions extends BaseParamOptions {
+  selectOptions: SelectOption[];
+  multi?: boolean;
+}
+
+export type CheckboxParamOptions = BaseParamOptions;
+export type TextParamOptions = BaseParamOptions;
+
+export interface ParamOptionsMap {
+  number: NumberParamOptions;
+  slider: SliderParamOptions;
+  select: SelectParamOptions;
+  checkbox: CheckboxParamOptions;
+  text: TextParamOptions;
+}
+
+/** @deprecated Use `param()` with a `ParamOptions` object instead. */
 export class ParamValue<T extends string | number | boolean> {
 
   private _value: T;
@@ -110,6 +146,39 @@ export function resolveParam(v: NumberParam | StringParam | BooleanParam): numbe
   return v;
 }
 
-export default function param<T extends string | number | boolean>(label: string, defaultValue: T): ParamValue<T> {
-  return new ParamValue(label, defaultValue);
+export default function param<T extends string | number | boolean>(label: string, defaultValue: T): T;
+export default function param<T extends string | number | boolean, K extends ParamType>(label: string, defaultValue: T, type: K, options?: ParamOptionsMap[K]): T;
+export default function param<T extends string | number | boolean>(
+  label: string,
+  defaultValue: T,
+  type?: ParamType,
+  options?: ParamOptionsMap[ParamType],
+): T {
+  const registry = getParamRegistry();
+  const value = registry.resolve(label, defaultValue);
+
+  const controlType: ControlType = type
+    ?? (typeof defaultValue === 'boolean' ? 'checkbox'
+      : typeof defaultValue === 'number' ? 'number'
+      : 'text');
+
+  const definition: ParamDefinition = {
+    label,
+    defaultValue,
+    currentValue: value,
+    controlType,
+  };
+
+  if (options) {
+    if ('group' in options && options.group != null) { definition.group = options.group; }
+    if ('description' in options && options.description != null) { definition.description = options.description; }
+    if ('min' in options && options.min != null) { definition.min = options.min; }
+    if ('max' in options && options.max != null) { definition.max = options.max; }
+    if ('step' in options && options.step != null) { definition.step = options.step; }
+    if ('selectOptions' in options && options.selectOptions != null) { definition.selectOptions = options.selectOptions; }
+    if ('multi' in options && options.multi != null) { definition.multi = options.multi; }
+  }
+
+  registry.register(definition);
+  return value;
 }

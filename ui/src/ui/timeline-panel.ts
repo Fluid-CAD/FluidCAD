@@ -37,6 +37,7 @@ export class TimelinePanel {
   private onSetShapeTransparency: (shapeId: string, opacity: number) => void;
   private getShapeTransparency: (shapeId: string) => number;
   private onResetAllTransparency: () => void;
+  private shapesHeader: HTMLDivElement;
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
   private activeTransparencyPopover: HTMLDivElement | null = null;
@@ -112,13 +113,13 @@ export class TimelinePanel {
     this.panel.appendChild(this.timelineBody);
 
     // Shapes accordion section
-    const shapesHeader = document.createElement('div');
-    shapesHeader.className = SECTION_HEADER;
-    shapesHeader.innerHTML = `
-      <span class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${CHEVRON_SVG}</span>
+    this.shapesHeader = document.createElement('div');
+    this.shapesHeader.className = SECTION_HEADER;
+    this.shapesHeader.innerHTML = `
+      <span data-ref="chevron" class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${CHEVRON_SVG}</span>
       <span class="text-sm font-medium text-base-content/70">Shapes</span>
     `;
-    this.panel.appendChild(shapesHeader);
+    this.panel.appendChild(this.shapesHeader);
 
     this.shapesBody = document.createElement('div');
     this.shapesBody.className = 'py-1 overflow-y-auto min-h-[33vh] flex-1';
@@ -142,6 +143,11 @@ export class TimelinePanel {
       this.paramsBody.classList.toggle('hidden', !this.paramsExpanded);
       const chevron = this.paramsHeader.querySelector('[data-ref="chevron"]')!;
       chevron.classList.toggle('rotate-90', this.paramsExpanded);
+      if (this.paramsExpanded && this.shapesExpanded) {
+        this.shapesExpanded = false;
+        this.shapesBody.classList.add('hidden');
+        this.shapesHeader.querySelector('[data-ref="chevron"]')!.classList.remove('rotate-90');
+      }
     });
 
     // Bind accordion header toggles
@@ -152,11 +158,16 @@ export class TimelinePanel {
       chevron.classList.toggle('rotate-90', this.timelineExpanded);
     });
 
-    shapesHeader.addEventListener('click', () => {
+    this.shapesHeader.addEventListener('click', () => {
       this.shapesExpanded = !this.shapesExpanded;
       this.shapesBody.classList.toggle('hidden', !this.shapesExpanded);
-      const chevron = shapesHeader.querySelector('span')!;
+      const chevron = this.shapesHeader.querySelector('[data-ref="chevron"]')!;
       chevron.classList.toggle('rotate-90', this.shapesExpanded);
+      if (this.shapesExpanded && this.paramsExpanded) {
+        this.paramsExpanded = false;
+        this.paramsBody.classList.add('hidden');
+        this.paramsHeader.querySelector('[data-ref="chevron"]')!.classList.remove('rotate-90');
+      }
     });
   }
 
@@ -746,11 +757,16 @@ export class TimelinePanel {
           if (display) {
             display.textContent = (el as HTMLInputElement).value;
           }
-          this.debounceParam(label, () => sendChange((el as HTMLInputElement).value));
+        });
+        el.addEventListener('change', () => {
+          sendChange((el as HTMLInputElement).value);
         });
       } else if (type === 'number' || type === 'text') {
         el.addEventListener('input', () => {
           this.debounceParam(label, () => sendChange((el as HTMLInputElement).value));
+        });
+        el.addEventListener('blur', () => {
+          this.flushParam(label, () => sendChange((el as HTMLInputElement).value));
         });
       } else if (type === 'select') {
         el.addEventListener('change', () => {
@@ -765,7 +781,19 @@ export class TimelinePanel {
     if (existing) {
       clearTimeout(existing);
     }
-    this.paramDebounceTimers.set(label, setTimeout(fn, 250));
+    this.paramDebounceTimers.set(label, setTimeout(() => {
+      this.paramDebounceTimers.delete(label);
+      fn();
+    }, 500));
+  }
+
+  private flushParam(label: string, fn: () => void): void {
+    const existing = this.paramDebounceTimers.get(label);
+    if (existing) {
+      clearTimeout(existing);
+      this.paramDebounceTimers.delete(label);
+      fn();
+    }
   }
 
   setShowBuildTimings(value: boolean): void {

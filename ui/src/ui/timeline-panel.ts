@@ -124,18 +124,19 @@ export class TimelinePanel {
     this.contentWrapper.appendChild(this.shapesPanel.header);
     this.contentWrapper.appendChild(this.shapesPanel.body);
 
-    // Parameters accordion section (hidden until params exist)
+    // Parameters accordion section — sibling of positioner so it always sits
+    // below the (scrollable) timeline/shapes area, regardless of their height.
     this.paramsHeader = document.createElement('div');
     this.paramsHeader.className = SECTION_HEADER + ' hidden';
     this.paramsHeader.innerHTML = `
       <span data-ref="chevron" class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform">${ICON_CHEVRON_RIGHT}</span>
       <span class="text-sm font-medium text-base-content/70">Parameters</span>
     `;
-    this.contentWrapper.appendChild(this.paramsHeader);
+    this.panel.appendChild(this.paramsHeader);
 
     this.paramsBody = document.createElement('div');
-    this.paramsBody.className = 'py-1 overflow-y-auto min-h-0 hidden';
-    this.contentWrapper.appendChild(this.paramsBody);
+    this.paramsBody.className = 'py-1 overflow-y-auto max-h-[40vh] hidden';
+    this.panel.appendChild(this.paramsBody);
 
     this.paramsHeader.addEventListener('click', () => {
       this.paramsExpanded = !this.paramsExpanded;

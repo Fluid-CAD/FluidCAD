@@ -119,6 +119,7 @@ FluidCAD ships official extensions for **VS Code** and **Neovim**, but works wit
 
 FluidCAD ships an [MCP](https://modelcontextprotocol.io) server so AI agents (Claude Code, Claude Desktop, Cursor, opencode, etc.) can drive a running workspace -- take screenshots, inspect geometry, edit `.fluid.js` files, and look up the API by symbol. See [Set Up the MCP Server](#3-optional-set-up-the-mcp-server) below.
 
+
 ---
 
 ## Tutorials
@@ -300,6 +301,7 @@ npx skills add Fluid-CAD/FluidCAD
 ```
 
 See the [MCP README](mcp/README.md) for the full tool surface, transport details, and local-testing guide.
+
 
 ---
 

@@ -115,6 +115,10 @@ export class ViteManager {
     this.buffers.set(id, code);
   }
 
+  getBuffer(fileName: string): string | null {
+    return this.buffers.get(`virtual:live-render:${fileName}`) ?? null;
+  }
+
   async loadModule(filePath: string) {
     const mod = await this.server.ssrLoadModule(filePath);
     for (const value of Object.values(mod)) {
@@ -124,6 +128,7 @@ export class ViteManager {
     }
     return mod;
   }
+
 
   invalidateModule() {
     for (const [id, mod] of this.server.moduleGraph.idToModuleMap) {

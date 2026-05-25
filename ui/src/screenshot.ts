@@ -233,6 +233,7 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   // composite path too).
   const finalCanvas = detachCanvas(exportCanvas, width, height);
 
+
   // --- Restore state ---
   if (gridObj) { gridObj.visible = savedGrid!; }
   if (defaultAxes) { defaultAxes.visible = savedDefaultAxes!; }
@@ -304,6 +305,7 @@ function resolveSceneViewport(sceneCtx: SceneContext): { center: Vector3; diamet
   const diameter = box.getSize(new Vector3()).length() * FIT_PADDING;
   return { center, diameter };
 }
+
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -378,4 +380,3 @@ function expandBounds(box: Box3, object: Object3D): void {
     expandBounds(box, child);
   }
 }
-

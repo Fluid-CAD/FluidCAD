@@ -1,9 +1,8 @@
 import type { CompileError, SceneObjectRender } from '../types';
-import { ICON_ALERT_TRIANGLE } from './icons';
+import { ICON_ALERT_TRIANGLE, ICON_CHEVRON_DOWN } from './icons';
 
 type SourceLocation = { filePath: string; line: number; column: number };
 
-const CHEVRON_DOWN_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
 
 export class ErrorBanner {
   private element: HTMLDivElement;
@@ -28,7 +27,7 @@ export class ErrorBanner {
           <span data-ref="message" class="text-base-content/90 whitespace-pre-line break-words cursor-pointer hover:underline grow min-w-0"></span>
           <span data-ref="count" class="text-base-content/40 tabular-nums shrink-0 hidden mt-0.5"></span>
           <button data-ref="toggle" class="text-base-content/40 hover:text-base-content/70 shrink-0 hidden cursor-pointer transition-transform mt-0.5" aria-label="Toggle error list">
-            ${CHEVRON_DOWN_SVG}
+            ${ICON_CHEVRON_DOWN}
           </button>
         </div>
         <div data-ref="list" class="hidden border-t border-base-content/10 max-h-[40vh] overflow-y-auto"></div>

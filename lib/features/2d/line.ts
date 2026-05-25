@@ -7,8 +7,15 @@ import { GeometrySceneObject } from "./geometry.js";
 
 export class LineTo extends GeometrySceneObject {
 
+  private _hasExplicitStart: boolean = false;
+
   constructor(public endPoint: LazyVertex, private targetPlane: PlaneObjectBase = null) {
     super();
+  }
+
+  setHasExplicitStart(value: boolean = true): this {
+    this._hasExplicitStart = value;
+    return this;
   }
 
   build() {
@@ -43,7 +50,9 @@ export class LineTo extends GeometrySceneObject {
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
-    return new LineTo(this.endPoint, targetPlane);
+    const copy = new LineTo(this.endPoint, targetPlane);
+    copy._hasExplicitStart = this._hasExplicitStart;
+    return copy;
   }
 
   compareTo(other: LineTo): boolean {
@@ -62,7 +71,7 @@ export class LineTo extends GeometrySceneObject {
       return false;
     }
 
-    return this.endPoint.compareTo(other.endPoint);
+    return this.endPoint.compareTo(other.endPoint) && this._hasExplicitStart === other._hasExplicitStart;
   }
 
   getType(): string {
@@ -75,7 +84,8 @@ export class LineTo extends GeometrySceneObject {
 
   serialize() {
     return {
-      end: this.endPoint
+      end: this.endPoint,
+      hasExplicitStart: this._hasExplicitStart,
     }
   }
 }

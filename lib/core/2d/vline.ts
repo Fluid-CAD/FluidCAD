@@ -80,6 +80,7 @@ function build(context: SceneParserContext): VLineFunction {
         ? second
         : (second as number);
       const vline = new VerticalLine(distanceOrTarget, planeObj);
+      vline.setHasExplicitStart();
       context.addSceneObjects([new Move(start), vline]);
       return vline;
     }

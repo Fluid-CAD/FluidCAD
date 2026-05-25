@@ -11,25 +11,11 @@ import {
   LineSegments,
   Mesh,
   MeshBasicMaterial,
-  OrthographicCamera,
-  PerspectiveCamera,
   Quaternion,
   Vector3,
 } from 'three';
 import { SceneObjectRender } from '../../types';
-
-function computeViewScale(camera: Camera, position: Vector3, factor: number): number {
-  if (camera instanceof OrthographicCamera) {
-    const viewHeight = (camera.top - camera.bottom) / camera.zoom;
-    return viewHeight * factor;
-  } else if (camera instanceof PerspectiveCamera) {
-    const dist = camera.position.distanceTo(position);
-    const vFov = camera.fov * Math.PI / 180;
-    const viewHeight = 2 * dist * Math.tan(vFov / 2);
-    return viewHeight * factor;
-  }
-  return 1;
-}
+import { applyConstantPixelSize } from '../screen-scale';
 
 const PLANE_COLOR = '#ffc26c';
 const EDGE_COLOR = '#c88f40';
@@ -39,9 +25,10 @@ const ARROW_LENGTH = 20;
 const ARROW_HEAD_LENGTH = 3;
 const ARROW_HEAD_WIDTH = 1.5;
 const ARROW_SHAFT_RADIUS = 0.4;
+const ARROW_PX_LENGTH = 96;
 
 export class PlaneMesh extends Group {
-  constructor(sceneObject: SceneObjectRender, camera: Camera) {
+  constructor(sceneObject: SceneObjectRender, _camera: Camera) {
     super();
 
     const meshData = sceneObject.sceneShapes[0]?.meshes[0];
@@ -108,16 +95,9 @@ export class PlaneMesh extends Group {
     arrowGroup.quaternion.copy(quaternion);
     arrowGroup.position.copy(originPos);
 
-    // Set initial scale so the arrow is correctly sized on the first frame
-    arrowGroup.scale.setScalar(computeViewScale(camera, arrowGroup.position, 0.006));
-
-    // Keep consistent screen size regardless of zoom level.
-    // Attach to the shaft (opaque) so the scale is applied before the arrow renders,
-    // not on the face (transparent) which renders after opaque objects.
-    shaft.onBeforeRender = (_renderer, _scene, cam) => {
-      arrowGroup.scale.setScalar(computeViewScale(cam, arrowGroup.position, 0.006));
-      arrowGroup.updateMatrixWorld(true);
-    };
+    // Attach the size hook to the shaft (opaque) so the scale is applied before
+    // the arrow renders, not on the face (transparent, which renders after opaques).
+    applyConstantPixelSize(shaft, arrowGroup, arrowGroup.position, ARROW_PX_LENGTH, ARROW_LENGTH);
 
     this.add(arrowGroup);
 

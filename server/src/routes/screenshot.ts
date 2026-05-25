@@ -109,6 +109,7 @@ export function createScreenshotRouter(
       options.view = validated;
     }
 
+
     try {
       const png = await requestScreenshot(options);
       res.setHeader('Content-Type', 'image/png');

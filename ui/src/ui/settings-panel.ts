@@ -1,9 +1,9 @@
 import { viewerSettings } from '../scene/viewer-settings';
 import { savePreference } from '../api';
-import { ICON_FIT, ICON_ORTHO, ICON_PERSP, ICON_GRID, ICON_SUN, ICON_MOON, ICON_SECTION_VIEW } from './icons';
+import { ICON_FIT, ICON_VIDEO, ICON_GRID, ICON_SUN, ICON_MOON, ICON_SECTION_VIEW, ICON_SETTINGS, ICON_CLOSE } from './icons';
 
-const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
-const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
+const FAB_BTN = 'btn btn-ghost btn-circle btn-sm text-base-content/60';
+const FAB_BTN_ACTIVE = 'btn btn-soft btn-primary btn-circle btn-sm';
 
 function getCurrentTheme(): string {
   return document.documentElement.getAttribute('data-theme') || 'fluidcad-dark';
@@ -14,7 +14,8 @@ function isDarkTheme(): boolean {
 }
 
 export class SettingsPanel {
-  private el: HTMLDivElement;
+  private fabEl: HTMLDivElement;
+  private fitEl: HTMLButtonElement;
   private sectionViewEl: HTMLDivElement;
   private onFitView: (() => void) | null = null;
   private onSectionViewToggle: ((enabled: boolean) => void) | null = null;
@@ -23,59 +24,78 @@ export class SettingsPanel {
     container: HTMLElement,
     private onCameraSwitch: (mode: 'perspective' | 'orthographic') => void,
   ) {
-    // Wrapper so both containers share one positioning anchor
+    const style = document.createElement('style');
+    style.textContent = `
+      .settings-fab:not(:focus-within) > :nth-child(n+3) {
+        display: none !important;
+      }
+    `;
+    document.head.appendChild(style);
+
     const wrapper = document.createElement('div');
-    wrapper.className = 'absolute right-6 top-1/2 -translate-y-1/2 z-[100] flex flex-col items-end gap-2 select-none';
+    wrapper.className = 'absolute right-7 top-[100px] z-[100] flex flex-col items-end select-none';
     container.appendChild(wrapper);
 
     // Section view button — own container, hidden by default
     this.sectionViewEl = document.createElement('div');
-    this.sectionViewEl.className = 'panel-bg border border-base-content/10 rounded-md p-1';
+    this.sectionViewEl.className = 'mb-2';
     this.sectionViewEl.style.display = 'none';
-    this.sectionViewEl.innerHTML = `<button class="${BTN_ACTIVE}" data-action="section-view" title="Toggle section view">${ICON_SECTION_VIEW}</button>`;
+    this.sectionViewEl.innerHTML = `<button class="${FAB_BTN_ACTIVE}" data-action="section-view" title="Toggle section view">${ICON_SECTION_VIEW}</button>`;
     wrapper.appendChild(this.sectionViewEl);
 
-    // Main settings panel
-    this.el = document.createElement('div');
-    this.el.className = 'flex flex-col gap-0.5 panel-bg border border-base-content/10 rounded-md p-1';
-    this.el.innerHTML = this.buildHTML();
-    wrapper.appendChild(this.el);
+    // FAB speed dial
+    this.fabEl = document.createElement('div');
+    this.fabEl.className = 'fab settings-fab !relative !bottom-auto !end-auto !flex-col';
+    this.fabEl.innerHTML = this.buildFabHTML();
+    wrapper.appendChild(this.fabEl);
+
+    // Standalone fit-to-view button
+    this.fitEl = document.createElement('button');
+    this.fitEl.className = 'btn btn-circle btn-sm panel-bg border border-base-content/10 text-base-content/60 mt-2';
+    this.fitEl.title = 'Fit to view';
+    this.fitEl.innerHTML = ICON_FIT;
+    wrapper.appendChild(this.fitEl);
 
     this.bindEvents();
     viewerSettings.subscribe(() => this.sync());
   }
 
-  private buildHTML(): string {
+  private buildFabHTML(): string {
     const s = viewerSettings.current;
     const themeIcon = isDarkTheme() ? ICON_SUN : ICON_MOON;
-    const themeTitle = isDarkTheme() ? 'Switch to light theme' : 'Switch to dark theme';
+    const themeLabel = isDarkTheme() ? 'Light theme' : 'Dark theme';
+    const cameraLabel = s.cameraMode === 'orthographic' ? 'Orthographic' : 'Perspective';
+
     return `
-      <button class="${BTN_BASE}" data-action="fit" title="Fit to view">${ICON_FIT}</button>
-      <div class="h-px bg-base-content/[0.08] my-0.5"></div>
-      <button class="${BTN_BASE} ${s.cameraMode === 'orthographic' ? BTN_ACTIVE : ''}" data-mode="orthographic" title="Orthographic projection">${ICON_ORTHO}</button>
-      <button class="${BTN_BASE} ${s.cameraMode === 'perspective' ? BTN_ACTIVE : ''}" data-mode="perspective" title="Perspective projection">${ICON_PERSP}</button>
-      <div class="h-px bg-base-content/[0.08] my-0.5"></div>
-      <button class="${BTN_BASE} ${s.showGrid ? BTN_ACTIVE : ''}" data-action="grid" title="Toggle grid">${ICON_GRID}</button>
-      <div class="h-px bg-base-content/[0.08] my-0.5"></div>
-      <button class="${BTN_BASE}" data-action="theme" title="${themeTitle}">${themeIcon}</button>
+      <div tabindex="0" role="button" class="btn btn-circle btn-sm panel-bg border border-base-content/10 text-base-content/60" title="Scene settings">${ICON_SETTINGS}</div>
+      <div class="fab-close !top-0 !bottom-auto">
+        <span class="btn btn-circle btn-sm panel-bg border border-base-content/10">${ICON_CLOSE}</span>
+      </div>
+      <div>Grid <button class="${s.showGrid ? FAB_BTN_ACTIVE : FAB_BTN}" data-action="grid" title="Toggle grid">${ICON_GRID}</button></div>
+      <div>
+        <span data-camera-label>${cameraLabel}</span>
+        <button class="${FAB_BTN}" data-action="camera" title="Toggle projection">${ICON_VIDEO}</button>
+      </div>
+      <div>
+        <span data-theme-label>${themeLabel}</span>
+        <button class="${FAB_BTN}" data-action="theme" title="${isDarkTheme() ? 'Switch to light theme' : 'Switch to dark theme'}">${themeIcon}</button>
+      </div>
     `;
   }
 
   private bindEvents(): void {
-    this.el.querySelector<HTMLButtonElement>('[data-action="fit"]')?.addEventListener('click', () => {
+    this.fitEl.addEventListener('click', () => {
       this.onFitView?.();
     });
 
-    this.el.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const mode = btn.dataset.mode as 'perspective' | 'orthographic';
-        viewerSettings.update({ cameraMode: mode });
-        savePreference('cameraMode', mode);
-        this.onCameraSwitch(mode);
-      });
+    this.fabEl.querySelector<HTMLButtonElement>('[data-action="camera"]')?.addEventListener('click', () => {
+      const next = viewerSettings.current.cameraMode === 'perspective' ? 'orthographic' : 'perspective';
+      viewerSettings.update({ cameraMode: next });
+      savePreference('cameraMode', next);
+      this.onCameraSwitch(next);
     });
 
-    this.el.querySelector<HTMLButtonElement>('[data-action="grid"]')?.addEventListener('click', () => {
+    this.fabEl.querySelector<HTMLButtonElement>('[data-action="grid"]')?.addEventListener('click', () => {
       const next = !viewerSettings.current.showGrid;
       viewerSettings.update({ showGrid: next });
       savePreference('showGrid', next);
@@ -87,7 +107,7 @@ export class SettingsPanel {
       this.onSectionViewToggle?.(next);
     });
 
-    this.el.querySelector<HTMLButtonElement>('[data-action="theme"]')?.addEventListener('click', () => {
+    this.fabEl.querySelector<HTMLButtonElement>('[data-action="theme"]')?.addEventListener('click', () => {
       const next = isDarkTheme() ? 'fluidcad-light' : 'fluidcad-dark';
       document.documentElement.setAttribute('data-theme', next);
       this.syncThemeButton();
@@ -100,10 +120,7 @@ export class SettingsPanel {
   }
 
   setFitButtonVisible(visible: boolean): void {
-    const btn = this.el.querySelector<HTMLElement>('[data-action="fit"]');
-    if (btn) { btn.style.display = visible ? '' : 'none'; }
-    const sep = this.el.querySelector<HTMLElement>('.h-px');
-    if (sep) { sep.style.display = visible ? '' : 'none'; }
+    this.fitEl.style.display = visible ? '' : 'none';
   }
 
   setSectionViewToggleHandler(fn: (enabled: boolean) => void): void {
@@ -116,37 +133,40 @@ export class SettingsPanel {
 
   setSectionViewActive(active: boolean): void {
     const btn = this.sectionViewEl.querySelector<HTMLButtonElement>('[data-action="section-view"]');
-    if (btn) { btn.className = active ? BTN_ACTIVE : BTN_BASE; }
+    if (btn) { btn.className = active ? FAB_BTN_ACTIVE : FAB_BTN; }
   }
 
-
   setProjectionLocked(locked: boolean): void {
-    this.el.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) => {
-      btn.disabled = locked;
-    });
+    const btn = this.fabEl.querySelector<HTMLButtonElement>('[data-action="camera"]');
+    if (btn) { btn.disabled = locked; }
   }
 
   private syncThemeButton(): void {
-    const btn = this.el.querySelector<HTMLButtonElement>('[data-action="theme"]');
+    const btn = this.fabEl.querySelector<HTMLButtonElement>('[data-action="theme"]');
     if (btn) {
       btn.innerHTML = isDarkTheme() ? ICON_SUN : ICON_MOON;
       btn.title = isDarkTheme() ? 'Switch to light theme' : 'Switch to dark theme';
+    }
+    const label = this.fabEl.querySelector<HTMLElement>('[data-theme-label]');
+    if (label) {
+      label.textContent = isDarkTheme() ? 'Light theme' : 'Dark theme';
     }
   }
 
   private sync(): void {
     const s = viewerSettings.current;
-    this.el.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) => {
-      btn.className = btn.dataset.mode === s.cameraMode ? BTN_ACTIVE : BTN_BASE;
-    });
-    const gridBtn = this.el.querySelector<HTMLButtonElement>('[data-action="grid"]');
+    const gridBtn = this.fabEl.querySelector<HTMLButtonElement>('[data-action="grid"]');
     if (gridBtn) {
-      gridBtn.className = s.showGrid ? BTN_ACTIVE : BTN_BASE;
+      gridBtn.className = s.showGrid ? FAB_BTN_ACTIVE : FAB_BTN;
+    }
+    const cameraLabel = this.fabEl.querySelector<HTMLElement>('[data-camera-label]');
+    if (cameraLabel) {
+      cameraLabel.textContent = s.cameraMode === 'orthographic' ? 'Orthographic' : 'Perspective';
     }
     if (this.sectionViewEl.style.display !== 'none') {
       const sectionBtn = this.sectionViewEl.querySelector<HTMLButtonElement>('[data-action="section-view"]');
       if (sectionBtn) {
-        sectionBtn.className = s.sectionView ? BTN_ACTIVE : BTN_BASE;
+        sectionBtn.className = s.sectionView ? FAB_BTN_ACTIVE : FAB_BTN;
       }
     }
   }

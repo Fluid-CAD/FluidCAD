@@ -62,6 +62,7 @@ export type EditorDirtyStateMessage = {
   dirtyFiles: string[];
 };
 
+
 export type ExtensionMessage =
   | ProcessFileMessage
   | LiveUpdateMessage
@@ -166,6 +167,54 @@ export type GotoSourceMessage = {
   column: number;
 };
 
+export type InsertGeometryMessage = {
+  type: 'insert-geometry';
+  statement: string;
+  sketchSourceLocation: { line: number; column: number };
+};
+
+export type UpdatePositionMessage = {
+  type: 'update-position';
+  newPosition: [number, number];
+  sourceLocation: { line: number; column: number };
+  pointIndex?: number;
+};
+
+export type SetLinePositionMessage = {
+  type: 'set-line-position';
+  newStart: [number, number];
+  newEnd: [number, number];
+  sourceLocation: { line: number; column: number };
+};
+
+export type SetChainPositionsMessage = {
+  type: 'set-chain-positions';
+  updates: { pointIndex: number; position: [number, number] }[];
+  sourceLocation: { line: number; column: number };
+};
+
+export type UpdateDimensionMessage = {
+  type: 'update-dimension';
+  newValue: number;
+  sourceLocation: { line: number; column: number };
+};
+
+export type UpdateDimensionExpressionMessage = {
+  type: 'update-dimension-expression';
+  expression: string;
+  sourceLocation: { line: number; column: number };
+  dimensionOffset?: number;
+};
+
+export type SetRectDimensionsMessage = {
+  type: 'set-rect-dimensions';
+  startPoint: [number, number] | null;
+  width: number;
+  height: number;
+  sourceLocation: { line: number; column: number };
+};
+
+
 export type ServerToExtensionMessage =
   | ReadyMessage
   | InitCompleteMessage
@@ -180,7 +229,14 @@ export type ServerToExtensionMessage =
   | AddBreakpointMessage
   | ClearBreakpointsMessage
   | GotoSourceMessage
-  | ExportCompleteMessage;
+  | ExportCompleteMessage
+  | InsertGeometryMessage
+  | UpdatePositionMessage
+  | SetLinePositionMessage
+  | SetChainPositionsMessage
+  | UpdateDimensionMessage
+  | UpdateDimensionExpressionMessage
+  | SetRectDimensionsMessage;
 
 // ---------------------------------------------------------------------------
 // WebSocket: Server → UI messages
@@ -256,6 +312,7 @@ export type ScreenshotView =
   | { kind: 'orbit-from-current'; azimuthDeg: number; elevationDeg: number }
   | { kind: 'look-from'; eye: [number, number, number]; target?: [number, number, number] };
 
+
 export type UITakeScreenshotMessage = {
   type: 'take-screenshot';
   requestId: string;
@@ -285,6 +342,7 @@ export type UIRenderVersionMessage = {
   state: 'start' | 'end' | 'error';
   absPath?: string;
 };
+
 
 export type ServerToUIMessage =
   | UIInitCompleteMessage

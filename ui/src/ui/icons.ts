@@ -17,6 +17,13 @@ import iconEyeOff from '@tabler/icons/outline/eye-off.svg?raw';
 import iconCircleHalf2 from '@tabler/icons/outline/circle-half-2.svg?raw';
 import iconPlayerPause from '@tabler/icons/outline/player-pause.svg?raw';
 import iconAlertTriangle from '@tabler/icons/outline/alert-triangle.svg?raw';
+import iconSettings from '@tabler/icons/outline/settings.svg?raw';
+import iconArc3d from 'iconoir/icons/regular/arc-3d.svg?raw';
+import iconArc3dCenterPoint from 'iconoir/icons/regular/arc-3d-center-point.svg?raw';
+import iconCursorPointer from 'iconoir/icons/regular/cursor-pointer.svg?raw';
+import iconRectangle from '@tabler/icons/outline/rectangle.svg?raw';
+import iconLinear from 'iconoir/icons/regular/linear.svg?raw';
+import iconOnePointCircle from 'iconoir/icons/regular/one-point-circle.svg?raw';
 
 export const ICON_FIT = iconAutoFit;
 export const ICON_ORTHO = iconOrthographic;
@@ -37,3 +44,27 @@ export const ICON_EYE_OFF = iconEyeOff;
 export const ICON_SECTION_VIEW = iconCircleHalf2;
 export const ICON_PAUSE = iconPlayerPause;
 export const ICON_ALERT_TRIANGLE = iconAlertTriangle;
+export const ICON_SETTINGS = iconSettings;
+export const ICON_LINE = iconLinear;
+export const ICON_CIRCLE = iconOnePointCircle;
+export const ICON_POINTER = iconCursorPointer;
+export const ICON_CENTER_ARC = iconArc3dCenterPoint;
+export const ICON_THREE_POINT_ARC = iconArc3d;
+export const ICON_RECT = iconRectangle;
+export const ICON_ROUNDED_RECT = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="5"/></svg>';
+
+export const ICON_SLOT = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h6a5 5 0 0 1 0 10H9a5 5 0 0 1 0-10z"/><circle cx="9" cy="10" r="1.2" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1.2" fill="currentColor" stroke="none"/></svg>';
+
+export const ICON_POLYGON = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,3 20,7.5 20,16.5 12,21 4,16.5 4,7.5"/></svg>';
+
+export const ICON_POLYLINE = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 18 8 10 14 14 20 6"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/><circle cx="8" cy="10" r="1.5" fill="currentColor" stroke="none"/><circle cx="14" cy="14" r="1.5" fill="currentColor" stroke="none"/><circle cx="20" cy="6" r="1.5" fill="currentColor" stroke="none"/></svg>';
+
+export const ICON_BEZIER = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 19 C 8 5, 16 5, 21 19"/><circle cx="3" cy="19" r="1.5" fill="currentColor" stroke="none"/><circle cx="21" cy="19" r="1.5" fill="currentColor" stroke="none"/></svg>';
+
+export const ICON_CHEVRON_RIGHT = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
+export const ICON_CHEVRON_DOWN = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+export const ICON_DOTS_VERTICAL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
+export const ICON_CUBE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
+export const ICON_CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+export const ICON_ALERT_DOT = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>';
+export const ICON_CLOSE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';

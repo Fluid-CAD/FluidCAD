@@ -58,6 +58,7 @@ function M.setup(config)
     })
   end
 
+
   local function send_live_update_now()
     cancel_pending()
     local buf = vim.api.nvim_get_current_buf()

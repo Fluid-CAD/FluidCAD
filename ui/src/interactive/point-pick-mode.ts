@@ -1,15 +1,8 @@
-import { Vector3 } from 'three';
 import { SceneContext } from '../scene/scene-context';
 import { SnapManager } from '../snapping/snap-manager';
 import { PlaneData, SceneObjectRender } from '../types';
-
-/** Pre-computed edge data for fast 2D distance queries. */
-type EdgeEntry = {
-  shapeId: string;
-  segments: { ax: number; ay: number; bx: number; by: number }[];
-  /** World-space endpoint positions (first and last vertices of the edge). */
-  endpoints: [number, number, number][];
-};
+import { projectToSketch as projectToSketchShared, pixelToSketchThreshold, roundPoint } from './sketch-plane-utils';
+import { EdgeEntry, buildEdgeIndex, pointToSegmentDist, closestPointOnSegment } from './sketch-edge-utils';
 
 export type HighlightInfo = {
   shapeId: string;
@@ -119,11 +112,7 @@ export class PointPickMode {
     const onEdge = this.projectOntoEdge(point2d, this.highlightedShapeId);
     const final = onEdge ?? point2d;
 
-    const rounded: [number, number] = [
-      Math.round(final[0] * 100) / 100,
-      Math.round(final[1] * 100) / 100,
-    ];
-    this.onPick(rounded);
+    this.onPick(roundPoint(final));
   }
 
   private handleMouseMove(e: MouseEvent): void {
@@ -150,25 +139,8 @@ export class PointPickMode {
     }
   }
 
-  /** Convert a screen-pixel threshold to sketch-plane units. */
   private computeSketchThreshold(): number {
-    const camera = this.ctx.camera;
-    const rect = this.ctx.renderer.domElement.getBoundingClientRect();
-    const canvasHeight = rect.height || 1;
-
-    let worldHeight: number;
-    const cam = camera as any;
-    if (cam.isOrthographicCamera) {
-      worldHeight = (cam.top - cam.bottom) / (cam.zoom || 1);
-    } else {
-      const target = new Vector3();
-      this.ctx.cameraControls.getTarget(target);
-      const d = camera.position.distanceTo(target);
-      const fovRad = (cam.fov * Math.PI) / 180;
-      worldHeight = 2 * d * Math.tan(fovRad / 2);
-    }
-
-    return (worldHeight / canvasHeight) * HIGHLIGHT_THRESHOLD_PX;
+    return pixelToSketchThreshold(this.ctx, HIGHLIGHT_THRESHOLD_PX);
   }
 
   /** Find the shapeId of the nearest edge within threshold, using 2D sketch distances. */
@@ -212,163 +184,7 @@ export class PointPickMode {
   }
 
   private projectToSketch(clientX: number, clientY: number): [number, number] | null {
-    const renderer = this.ctx.renderer;
-    const rect = renderer.domElement.getBoundingClientRect();
-    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
-
-    const raycaster = this.ctx.createPickingRaycaster(ndcX, ndcY);
-
-    const rayOrigin = raycaster.ray.origin;
-    const rayDir = raycaster.ray.direction;
-
-    const planeOrigin = new Vector3(this.plane.origin.x, this.plane.origin.y, this.plane.origin.z);
-    const planeNormal = new Vector3(this.plane.normal.x, this.plane.normal.y, this.plane.normal.z);
-
-    const denom = rayDir.dot(planeNormal);
-    if (Math.abs(denom) < 1e-6) {
-      return null;
-    }
-
-    const t = planeOrigin.clone().sub(rayOrigin).dot(planeNormal) / denom;
-    if (t < 0) {
-      return null;
-    }
-
-    const worldPoint = rayOrigin.clone().add(rayDir.clone().multiplyScalar(t));
-
-    const rel = worldPoint.clone().sub(planeOrigin);
-    const xDir = new Vector3(this.plane.xDirection.x, this.plane.xDirection.y, this.plane.xDirection.z);
-    const yDir = new Vector3(this.plane.yDirection.x, this.plane.yDirection.y, this.plane.yDirection.z);
-
-    return [rel.dot(xDir), rel.dot(yDir)];
+    return projectToSketchShared(this.ctx, this.plane, clientX, clientY);
   }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Build an index of all sketch edge shapes with their 2D line segments. */
-function buildEdgeIndex(
-  sceneObjects: SceneObjectRender[],
-  sketchId: string,
-  plane: PlaneData,
-): EdgeEntry[] {
-  const result: EdgeEntry[] = [];
-  const ox = plane.origin.x, oy = plane.origin.y, oz = plane.origin.z;
-  const xx = plane.xDirection.x, xy = plane.xDirection.y, xz = plane.xDirection.z;
-  const yx = plane.yDirection.x, yy = plane.yDirection.y, yz = plane.yDirection.z;
-
-  // When trim meta shapes exist, use only those for the hover index so
-  // individual split segments are highlighted instead of full originals.
-  const hasTrimMeta = sceneObjects.some(obj =>
-    obj.parentId === sketchId &&
-    obj.sceneShapes.some(s => s.metaType === 'trim'),
-  );
-
-  for (const obj of sceneObjects) {
-    if (obj.parentId !== sketchId) {
-      continue;
-    }
-    for (const shape of obj.sceneShapes) {
-      if (!shape.shapeId) {
-        continue;
-      }
-      if (hasTrimMeta) {
-        if (shape.metaType !== 'trim') {
-          continue;
-        }
-      } else {
-        if (shape.isMetaShape || shape.isGuide) {
-          continue;
-        }
-      }
-      const segments: EdgeEntry['segments'] = [];
-      const endpoints: [number, number, number][] = [];
-
-      for (const mesh of shape.meshes) {
-        const verts = mesh.vertices;
-        const indices = mesh.indices;
-        if (!indices.length) {
-          continue;
-        }
-
-        // Find topological endpoints (vertex indices appearing exactly once)
-        const count = new Map<number, number>();
-        for (const idx of indices) {
-          count.set(idx, (count.get(idx) || 0) + 1);
-        }
-        for (const [idx, c] of count) {
-          if (c === 1) {
-            endpoints.push([verts[idx * 3], verts[idx * 3 + 1], verts[idx * 3 + 2]]);
-          }
-        }
-
-        // indices are pairs for LineSegments
-        for (let k = 0; k < indices.length; k += 2) {
-          const ia = indices[k] * 3;
-          const ib = indices[k + 1] * 3;
-
-          // World → 2D sketch coords
-          const rax = verts[ia] - ox, ray = verts[ia + 1] - oy, raz = verts[ia + 2] - oz;
-          const ax = rax * xx + ray * xy + raz * xz;
-          const ay = rax * yx + ray * yy + raz * yz;
-
-          const rbx = verts[ib] - ox, rby = verts[ib + 1] - oy, rbz = verts[ib + 2] - oz;
-          const bx = rbx * xx + rby * xy + rbz * xz;
-          const by = rbx * yx + rby * yy + rbz * yz;
-
-          segments.push({ ax, ay, bx, by });
-        }
-      }
-
-      if (segments.length > 0) {
-        result.push({ shapeId: shape.shapeId, segments, endpoints });
-      }
-    }
-  }
-
-  return result;
-}
-
-/** Distance from point (px,py) to line segment (ax,ay)-(bx,by). */
-function pointToSegmentDist(
-  px: number, py: number,
-  ax: number, ay: number,
-  bx: number, by: number,
-): number {
-  return closestPointOnSegment(px, py, ax, ay, bx, by).dist;
-}
-
-/** Closest point on segment (ax,ay)-(bx,by) to point (px,py). */
-function closestPointOnSegment(
-  px: number, py: number,
-  ax: number, ay: number,
-  bx: number, by: number,
-): { x: number; y: number; dist: number } {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const lenSq = dx * dx + dy * dy;
-
-  let cx: number;
-  let cy: number;
-
-  if (lenSq === 0) {
-    cx = ax;
-    cy = ay;
-  } else {
-    let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
-    if (t < 0) {
-      t = 0;
-    } else if (t > 1) {
-      t = 1;
-    }
-    cx = ax + t * dx;
-    cy = ay + t * dy;
-  }
-
-  const ex = cx - px;
-  const ey = cy - py;
-  return { x: cx, y: cy, dist: Math.sqrt(ex * ex + ey * ey) };
-}

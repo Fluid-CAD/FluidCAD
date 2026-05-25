@@ -47,6 +47,7 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
       return;
     }
 
+
     try {
       const result = fluidCadServer.exportShapes(shapeIds, {
         format,

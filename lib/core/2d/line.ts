@@ -59,6 +59,7 @@ function build(context: SceneParserContext): LineFunction {
       const start = normalizePoint2D(arguments[argOffset]);
       const end = normalizePoint2D(arguments[argOffset + 1]);
       line = new LineTo(end, planeObj);
+      line.setHasExplicitStart();
       context.addSceneObjects([new Move(start), line]);
     }
     else {

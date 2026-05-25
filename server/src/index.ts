@@ -42,6 +42,7 @@ function readPackageVersion(): string {
 const PACKAGE_VERSION = readPackageVersion();
 const STARTED_AT = new Date().toISOString();
 
+
 // ---------------------------------------------------------------------------
 // IPC helpers — communication with extension host process
 // ---------------------------------------------------------------------------
@@ -404,6 +405,7 @@ async function handleExtensionMessage(msg: any) {
         }
         break;
       }
+
 
       case 'export-scene': {
         try {

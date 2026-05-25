@@ -81,6 +81,7 @@ function build(context: SceneParserContext): VLineFunction {
         ? second
         : resolveParam(second as NumberParam);
       const vline = new VerticalLine(distanceOrTarget, planeObj);
+      vline.setHasExplicitStart();
       context.addSceneObjects([new Move(start), vline]);
       return vline;
     }

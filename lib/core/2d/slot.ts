@@ -34,6 +34,13 @@ interface SlotFunction {
    */
   (start: Point2DLike, distance: NumberParam, radius: NumberParam): ISlot;
   /**
+   * Draws a slot between two cap-center points with the given radius.
+   * @param start - Center of the first cap
+   * @param end - Center of the second cap
+   * @param radius - The end cap radius
+   */
+  (start: Point2DLike, end: Point2DLike, radius: number): ISlot;
+  /**
    * Creates a slot from a geometry edge with the given radius.
    * @param geometry - The source geometry edge
    * @param radius - The end cap radius
@@ -102,6 +109,18 @@ function build(context: SceneParserContext): SlotFunction {
       context.addSceneObject(s);
       return s;
     }
+
+    // slot(start, end, radius) — in-sketch only
+    if (argCount === 3 && argOffset === 0
+      && isPoint2DLike(arguments[0]) && isPoint2DLike(arguments[1])) {
+      const start = normalizePoint2D(arguments[0]);
+      const end = normalizePoint2D(arguments[1]);
+      const radius = arguments[2] as number;
+      const s = Slot.fromTwoPoints(start, end, radius, planeObj);
+      context.addSceneObjects([new Move(start), s]);
+      return s;
+    }
+
 
     // slot(start, distance, radius) — in-sketch only
     if (argCount === 3 && argOffset === 0) {

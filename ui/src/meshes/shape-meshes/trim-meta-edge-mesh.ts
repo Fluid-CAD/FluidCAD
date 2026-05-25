@@ -1,20 +1,17 @@
-import {
-  BufferAttribute,
-  BufferGeometry,
-  DoubleSide,
-  Group,
-  LineBasicMaterial,
-  LineSegments,
-} from 'three';
+import { DoubleSide, Group } from 'three';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { SceneObjectPart } from '../../types';
+import { EdgeMesh } from './edge-mesh';
+import { LineResolutionRegistry } from './line-resolution';
 
 const COLOR = '#2297ff';
 const LINE_WIDTH = 2;
 
 /**
  * Renders trim-helper meta edges as solid blue lines matching regular sketch
- * edge styling. Uses LineSegments with LineBasicMaterial so that the standard
- * `highlightShape` logic works without modifications.
+ * edge styling.
  */
 export class TrimMetaEdgeMesh extends Group {
   constructor(shape: SceneObjectPart) {
@@ -22,13 +19,12 @@ export class TrimMetaEdgeMesh extends Group {
     this.userData.isMetaShape = true;
 
     for (const meshData of shape.meshes) {
-      const geometry = new BufferGeometry();
-      geometry.setAttribute('position', new BufferAttribute(new Float32Array(meshData.vertices), 3));
-      geometry.setAttribute('normal', new BufferAttribute(new Float32Array(meshData.normals), 3));
-      const IndexArray = meshData.vertices.length / 3 > 65535 ? Uint32Array : Uint16Array;
-      geometry.setIndex(new BufferAttribute(new IndexArray(meshData.indices), 1));
+      const positions = EdgeMesh.expandIndexedPositions(meshData.vertices, meshData.indices);
 
-      const material = new LineBasicMaterial({
+      const geometry = new LineSegmentsGeometry();
+      geometry.setPositions(positions);
+
+      const material = new LineMaterial({
         color: COLOR,
         linewidth: LINE_WIDTH,
         polygonOffset: true,
@@ -38,9 +34,9 @@ export class TrimMetaEdgeMesh extends Group {
         depthWrite: true,
         depthTest: true,
       });
+      LineResolutionRegistry.register(material);
 
-      const ls = new LineSegments(geometry, material);
-      this.add(ls);
+      this.add(new LineSegments2(geometry, material));
     }
   }
 }

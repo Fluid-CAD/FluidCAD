@@ -7,6 +7,7 @@ import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
 import { IArcPoints, IArcAngles, ISceneObject } from "../interfaces.js";
+import { type NumberParam, resolveParam } from "../param.js";
 
 interface ArcFunction {
   /**
@@ -32,7 +33,7 @@ interface ArcFunction {
    * @param startAngle - The start angle in degrees, relative to the current tangent (defaults to 0)
    * @param endAngle - The end angle in degrees, relative to the current tangent (defaults to 180)
    */
-  (radius: number, startAngle?: number, endAngle?: number): IArcAngles;
+  (radius: NumberParam, startAngle?: NumberParam, endAngle?: NumberParam): IArcAngles;
 
   /**
    * Draws an arc to an end point on a specific plane.
@@ -54,7 +55,7 @@ interface ArcFunction {
    * @param startAngle - The start angle in degrees
    * @param endAngle - The end angle in degrees
    */
-  (targetPlane: PlaneLike | ISceneObject, radius: number, startAngle: number, endAngle: number): IArcAngles;
+  (targetPlane: PlaneLike | ISceneObject, radius: NumberParam, startAngle: NumberParam, endAngle: NumberParam): IArcAngles;
 }
 
 function build(context: SceneParserContext): ArcFunction {
@@ -94,9 +95,9 @@ function build(context: SceneParserContext): ArcFunction {
     }
 
     // (radius, startAngle?, endAngle?) — all numeric args
-    const radius = arguments[argOffset] as number || 100;
-    const startAngle = arguments[argOffset + 1] as number || 0;
-    const endAngle = argCount >= 3 ? arguments[argOffset + 2] as number : 180;
+    const radius = resolveParam(arguments[argOffset] as NumberParam) || 100;
+    const startAngle = resolveParam(arguments[argOffset + 1] as NumberParam) || 0;
+    const endAngle = argCount >= 3 ? resolveParam(arguments[argOffset + 2] as NumberParam) : 180;
 
     const arcObj = Arc.fromAngles(radius, startAngle, endAngle, planeObj);
     context.addSceneObject(arcObj);

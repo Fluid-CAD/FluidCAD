@@ -4,13 +4,15 @@ import { RepeatBase, RepeatAxisSource } from "./repeat-base.js";
 
 export { RepeatAxisSource } from "./repeat-base.js";
 
+import { type NumberParam } from "../core/param.js";
+
 export type LinearRepeatOptions = {
-  count: number | number[];
+  count: NumberParam | number[];
   centered?: boolean;
   skip?: number[][]
 } & (
-    | { offset: number | number[]; length?: never }
-    | { length: number | number[]; offset?: never }
+    | { offset: NumberParam | number[]; length?: never }
+    | { length: NumberParam | number[]; offset?: never }
 );
 
 export class RepeatLinear extends RepeatBase {

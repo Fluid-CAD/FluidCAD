@@ -16,8 +16,8 @@ interface Loft extends BooleanOperation {
   startEdges(...args: (number | EdgeFilter)[]): SceneObject;
   endEdges(...args: (number | EdgeFilter)[]): SceneObject;
   sideEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  thin(offset: number): this;
-  thin(offset1: number, offset2: number): this;
+  thin(offset: NumberParam): this;
+  thin(offset1: NumberParam, offset2: NumberParam): this;
   internalFaces(...args: (number | FaceFilter)[]): SceneObject;
   internalEdges(...args: (number | EdgeFilter)[]): SceneObject;
   capFaces(...args: (number | FaceFilter)[]): SceneObject;
@@ -92,8 +92,8 @@ Selects edges on the side faces, excluding edges shared with start/end faces.
 ### `thin()`
 
 ```ts
-thin(offset: number): this
-thin(offset1: number, offset2: number): this
+thin(offset: NumberParam): this
+thin(offset1: NumberParam, offset2: NumberParam): this
 ```
 
 Enables thin loft mode — offsets the profile edges of each section to create a
@@ -102,8 +102,8 @@ and share the same topology. Positive values offset outward, negative offsets in
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `offset1` | `number` | The first wall offset distance. Positive = outward, negative = inward. |
-| `offset2` | `number` | The second wall offset distance, in the opposite direction of offset1. |
+| `offset1` | `NumberParam` | The first wall offset distance. Positive = outward, negative = inward. |
+| `offset2` | `NumberParam` | The second wall offset distance, in the opposite direction of offset1. |
 
 ### `internalFaces()`
 

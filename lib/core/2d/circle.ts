@@ -9,6 +9,7 @@ import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
 import { IExtrudableGeometry, ISceneObject } from "../interfaces.js";
+import { type NumberParam, resolveParam } from "../param.js";
 
 interface CircleFunction {
   /**
@@ -16,18 +17,18 @@ interface CircleFunction {
    * @param center - The center point
    * @param diameter - The circle diameter (defaults to 40)
    */
-  (center: Point2DLike, diameter?: number): IExtrudableGeometry;
+  (center: Point2DLike, diameter?: NumberParam): IExtrudableGeometry;
   /**
    * Draws a circle at the origin with an optional diameter.
    * @param diameter - The circle diameter (defaults to 40)
    */
-  (diameter?: number): IExtrudableGeometry;
+  (diameter?: NumberParam): IExtrudableGeometry;
   /**
    * Draws a circle with a given diameter on a specific plane.
    * @param targetPlane - The plane to draw on
    * @param diameter - The circle diameter
    */
-  (targetPlane: PlaneLike | ISceneObject, diameter: number): IExtrudableGeometry;
+  (targetPlane: PlaneLike | ISceneObject, diameter: NumberParam): IExtrudableGeometry;
 }
 
 function build(context: SceneParserContext): CircleFunction {
@@ -58,13 +59,13 @@ function build(context: SceneParserContext): CircleFunction {
       context.addSceneObject(circle);
     }
     else if (argCount === 1) {
-      diameter = arguments[argOffset] as number || 40;
+      diameter = resolveParam(arguments[argOffset] as NumberParam) || 40;
       circle = new Circle(diameter, null, planeObj);
       context.addSceneObject(circle);
     }
     else {
       center = normalizePoint2D(arguments[argOffset]);
-      diameter = arguments[argOffset + 1] as number || 40;
+      diameter = resolveParam(arguments[argOffset + 1] as NumberParam) || 40;
       circle = new Circle(diameter, null, planeObj);
       const move = new Move(center);
       context.addSceneObjects([move, circle]);

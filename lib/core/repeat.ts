@@ -8,6 +8,7 @@ import { LinearRepeatOptions, RepeatAxisSource, RepeatLinear } from "../features
 import { CircularRepeatOptions, RepeatCircular } from "../features/repeat-circular.js";
 import { cloneWithTransform } from "../helpers/clone-transform.js";
 import { ISceneObject } from "./interfaces.js";
+import { type NumberParam, isNumberParam, resolveParam } from "./param.js";
 import { PlaneLike } from "../math/plane.js";
 import { MirrorFeature } from "../features/mirror-feature.js";
 import { RepeatMatrix } from "../features/repeat-matrix.js";
@@ -79,7 +80,7 @@ interface RepeatFunction {
    * @param angle - The rotation angle in degrees (defaults to 90)
    * @param objects - The objects to rotate (defaults to last object)
    */
-  (type: 'rotate', axis: AxisLike, angle?: number, ...objects: ISceneObject[]): ISceneObject;
+  (type: 'rotate', axis: AxisLike, angle?: NumberParam, ...objects: ISceneObject[]): ISceneObject;
 
   /**
    * Creates a transformed clone of objects using an arbitrary matrix.
@@ -134,12 +135,12 @@ function build(context: SceneParserContext): RepeatFunction {
         : [context.getSceneObjects().at(-1)!];
 
       if (type === 'linear') {
-        const counts = Array.isArray(options.count) ? options.count : [options.count];
+        const counts = Array.isArray(options.count) ? options.count : [resolveParam(options.count as NumberParam)];
         const offsets = options.offset != null
-          ? (Array.isArray(options.offset) ? options.offset : [options.offset])
+          ? (Array.isArray(options.offset) ? options.offset : [resolveParam(options.offset as NumberParam)])
           : null;
         const lengths = 'length' in options && options.length != null
-          ? (Array.isArray(options.length) ? options.length : [options.length])
+          ? (Array.isArray(options.length) ? options.length : [resolveParam(options.length as NumberParam)])
           : null;
         const repeat = new RepeatLinear(axisSources, options, objects);
 
@@ -218,15 +219,16 @@ function build(context: SceneParserContext): RepeatFunction {
       if (type === 'circular') {
         const axis = axisSources[0];
         const circularOptions = options as unknown as CircularRepeatOptions;
-        const { count, centered, skip } = circularOptions;
+        const count = resolveParam(circularOptions.count as NumberParam);
+        const { centered, skip } = circularOptions;
 
         const repeat = new RepeatCircular(axis, circularOptions, objects);
 
         let offset: number;
         if ('offset' in circularOptions && circularOptions.offset !== undefined) {
-          offset = circularOptions.offset;
+          offset = resolveParam(circularOptions.offset as NumberParam);
         } else {
-          const angle = (circularOptions as { angle: number }).angle;
+          const angle = resolveParam((circularOptions as { angle: NumberParam }).angle);
           offset = angle % 360 === 0 ? angle / count : angle / (count - 1);
         }
 
@@ -274,8 +276,8 @@ function build(context: SceneParserContext): RepeatFunction {
       let angle = 90;
       let restStart = 2;
 
-      if (typeof args[2] === 'number') {
-        angle = args[2];
+      if (isNumberParam(args[2])) {
+        angle = resolveParam(args[2] as NumberParam);
         restStart = 3;
       }
 

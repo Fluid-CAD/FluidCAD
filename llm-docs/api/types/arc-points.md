@@ -10,7 +10,7 @@ seeAlso: [api/arc, api/types/extrudable-geometry]
 
 ```ts
 interface ArcPoints extends ExtrudableGeometry {
-  radius(value: number): IArcRadius;
+  radius(value: NumberParam): IArcRadius;
   center(value: Point2DLike): IArcCenter;
 }
 ```
@@ -28,7 +28,7 @@ Positive = CCW, negative = CW.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `number` | The bulge radius. |
+| `value` | `NumberParam` | The bulge radius. |
 
 ### `center()`
 

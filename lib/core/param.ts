@@ -1,6 +1,6 @@
 import { getParamRegistry, type SelectOption, type ParamDefinition } from "../param-registry.js";
 
-class ParamValue<T extends string | number> {
+export class ParamValue<T extends string | number | boolean> {
 
   private _value: T;
   private _definition: ParamDefinition;
@@ -12,7 +12,9 @@ class ParamValue<T extends string | number> {
       label,
       defaultValue,
       currentValue: this._value,
-      controlType: typeof defaultValue === 'number' ? 'number' : 'text',
+      controlType: typeof defaultValue === 'boolean' ? 'checkbox'
+        : typeof defaultValue === 'number' ? 'number'
+        : 'text',
     };
     registry.register(this._definition);
   }
@@ -39,6 +41,11 @@ class ParamValue<T extends string | number> {
 
   text(): this {
     this._definition.controlType = 'text';
+    return this;
+  }
+
+  checkbox(): this {
+    this._definition.controlType = 'checkbox';
     return this;
   }
 
@@ -81,6 +88,28 @@ class ParamValue<T extends string | number> {
   }
 }
 
-export default function param<T extends string | number>(label: string, defaultValue: T): ParamValue<T> {
+export type NumberParam = number | ParamValue<number>;
+export type StringParam = string | ParamValue<string>;
+export type BooleanParam = boolean | ParamValue<boolean>;
+
+export function isNumberParam(v: unknown): v is NumberParam {
+  return typeof v === 'number' || (v instanceof ParamValue && typeof v.valueOf() === 'number');
+}
+
+export function isBooleanParam(v: unknown): v is BooleanParam {
+  return typeof v === 'boolean' || (v instanceof ParamValue && typeof v.valueOf() === 'boolean');
+}
+
+export function resolveParam(v: NumberParam): number;
+export function resolveParam(v: StringParam): string;
+export function resolveParam(v: BooleanParam): boolean;
+export function resolveParam(v: NumberParam | StringParam | BooleanParam): number | string | boolean {
+  if (v instanceof ParamValue) {
+    return v.valueOf();
+  }
+  return v;
+}
+
+export default function param<T extends string | number | boolean>(label: string, defaultValue: T): ParamValue<T> {
   return new ParamValue(label, defaultValue);
 }

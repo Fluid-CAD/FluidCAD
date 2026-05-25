@@ -6,6 +6,7 @@ import type { PointLike } from "../math/point.js";
 import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { rad } from "../helpers/math-helpers.js";
+import { type NumberParam, isNumberParam, resolveParam } from "../core/param.js";
 
 export abstract class TransformablePrimitive extends SceneObject {
 
@@ -14,16 +15,16 @@ export abstract class TransformablePrimitive extends SceneObject {
     return this;
   }
 
-  translate(x: number): this;
-  translate(x: number, y: number): this;
-  translate(x: number, y: number, z: number): this;
+  translate(x: NumberParam): this;
+  translate(x: NumberParam, y: NumberParam): this;
+  translate(x: NumberParam, y: NumberParam, z: NumberParam): this;
   translate(p: PointLike): this;
-  translate(a: number | PointLike, b?: number, c?: number): this {
+  translate(a: NumberParam | PointLike, b?: NumberParam, c?: NumberParam): this {
     let x: number, y: number, z: number;
-    if (typeof a === 'number') {
-      x = a;
-      y = b ?? 0;
-      z = c ?? 0;
+    if (isNumberParam(a)) {
+      x = resolveParam(a as NumberParam);
+      y = b != null ? resolveParam(b as NumberParam) : 0;
+      z = c != null ? resolveParam(c as NumberParam) : 0;
     } else if (Array.isArray(a)) {
       x = a[0] ?? 0; y = a[1] ?? 0; z = a[2] ?? 0;
     } else {
@@ -32,22 +33,22 @@ export abstract class TransformablePrimitive extends SceneObject {
     return this.transform(Matrix4.fromTranslation(x, y, z));
   }
 
-  rotate(angle: number): this;
-  rotate(axis: AxisLike, angle: number): this;
-  rotate(a: number | AxisLike, b?: number): this {
+  rotate(angle: NumberParam): this;
+  rotate(axis: AxisLike, angle: NumberParam): this;
+  rotate(a: NumberParam | AxisLike, b?: NumberParam): this {
     let origin: Point;
     let direction: Vector3d;
     let angleDeg: number;
 
-    if (typeof a === 'number') {
+    if (isNumberParam(a)) {
       origin = new Point(0, 0, 0);
       direction = Vector3d.unitZ();
-      angleDeg = a;
+      angleDeg = resolveParam(a as NumberParam);
     } else {
       const resolved = resolveAxisLike(a);
       origin = resolved.origin;
       direction = resolved.direction;
-      angleDeg = b as number;
+      angleDeg = resolveParam(b as NumberParam);
     }
 
     return this.transform(Matrix4.fromRotationAroundAxis(origin, direction, rad(angleDeg)));

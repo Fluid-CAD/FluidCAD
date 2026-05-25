@@ -11,7 +11,7 @@ seeAlso: [api/slot, api/types/extrudable-geometry]
 ```ts
 interface Slot extends ExtrudableGeometry {
   centered(value?: boolean): this;
-  rotate(angle: number): this;
+  rotate(angle: NumberParam): this;
 }
 ```
 
@@ -34,7 +34,7 @@ Sets the rotation angle of the slot's primary axis.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `angle` | `number` | Rotation in degrees. |
+| `angle` | `NumberParam` | Rotation in degrees. |
 
 ## Inherited
 

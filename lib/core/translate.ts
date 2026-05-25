@@ -6,6 +6,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { Vertex } from "../common/vertex.js";
 import { LazyVertex } from "../features/lazy-vertex.js";
 import { ISceneObject, ITranslate } from "./interfaces.js";
+import { type NumberParam, type BooleanParam, isNumberParam, isBooleanParam, resolveParam } from "./param.js";
 
 interface TranslateFunction {
   /**
@@ -13,21 +14,21 @@ interface TranslateFunction {
    * @param x - The X distance
    * @param targets - The objects to translate (defaults to last object)
    */
-  (x: number, ...targets: ISceneObject[]): ITranslate;
+  (x: NumberParam, ...targets: ISceneObject[]): ITranslate;
   /**
    * Translates objects along the X axis, optionally making a copy.
    * @param x - The X distance
    * @param copy - Whether to copy instead of move
    * @param targets - The objects to translate (defaults to last object)
    */
-  (x: number, copy: boolean, ...targets: ISceneObject[]): ITranslate;
+  (x: NumberParam, copy: BooleanParam, ...targets: ISceneObject[]): ITranslate;
   /**
    * Translates objects along the X and Y axes.
    * @param x - The X distance
    * @param y - The Y distance
    * @param targets - The objects to translate (defaults to last object)
    */
-  (x: number, y: number, ...targets: ISceneObject[]): ITranslate;
+  (x: NumberParam, y: NumberParam, ...targets: ISceneObject[]): ITranslate;
   /**
    * Translates objects along the X and Y axes, optionally making a copy.
    * @param x - The X distance
@@ -35,7 +36,7 @@ interface TranslateFunction {
    * @param copy - Whether to copy instead of move
    * @param targets - The objects to translate (defaults to last object)
    */
-  (x: number, y: number, copy: boolean, ...targets: ISceneObject[]): ITranslate;
+  (x: NumberParam, y: NumberParam, copy: BooleanParam, ...targets: ISceneObject[]): ITranslate;
   /**
    * Translates objects along all three axes.
    * @param x - The X distance
@@ -43,7 +44,7 @@ interface TranslateFunction {
    * @param z - The Z distance
    * @param targets - The objects to translate (defaults to last object)
    */
-  (x: number, y: number, z: number, ...targets: ISceneObject[]): ITranslate;
+  (x: NumberParam, y: NumberParam, z: NumberParam, ...targets: ISceneObject[]): ITranslate;
   /**
    * Translates objects along all three axes, optionally making a copy.
    * @param x - The X distance
@@ -52,7 +53,7 @@ interface TranslateFunction {
    * @param copy - Whether to copy instead of move
    * @param targets - The objects to translate (defaults to last object)
    */
-  (x: number, y: number, z: number, copy: boolean, ...targets: ISceneObject[]): ITranslate;
+  (x: NumberParam, y: NumberParam, z: NumberParam, copy: BooleanParam, ...targets: ISceneObject[]): ITranslate;
   /**
    * Translates objects by a point-like offset.
    * @param distance - The offset as a point
@@ -79,13 +80,13 @@ function build(context: SceneParserContext): TranslateFunction {
     }
 
     // Extract copy flag from the end (if boolean)
-    const copy = typeof args[args.length - 1] === 'boolean' ? args.pop() as boolean : false;
+    const copy = isBooleanParam(args[args.length - 1]) ? resolveParam(args.pop() as BooleanParam) : false;
 
     // translate(x, y?, z?)
-    if (typeof args[0] === 'number') {
-      const x = args[0] as number;
-      const y = (args[1] as number) ?? 0;
-      const z = (args[2] as number) ?? 0;
+    if (isNumberParam(args[0])) {
+      const x = resolveParam(args[0] as NumberParam);
+      const y = isNumberParam(args[1]) ? resolveParam(args[1] as NumberParam) : 0;
+      const z = isNumberParam(args[2]) ? resolveParam(args[2] as NumberParam) : 0;
       const vertex = Vertex.fromPoint(new Point(x, y, z));
       const lazyVertex = LazyVertex.fromVertex(vertex);
       const translate = new Translate(lazyVertex, copy, ...targets);

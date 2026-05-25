@@ -3,6 +3,7 @@ import { registerBuilder, SceneParserContext } from "../index.js";
 import { Rib } from "../features/rib.js";
 import { Extrudable } from "../helpers/types.js";
 import { IRib, ISceneObject } from "./interfaces.js";
+import { type NumberParam, isNumberParam, resolveParam } from "./param.js";
 
 interface RibFunction {
   /**
@@ -11,14 +12,14 @@ interface RibFunction {
    * surrounding solids. Positive thickness = forward, negative = reverse.
    * @param thickness - Wall thickness (sign controls direction)
    */
-  (thickness: number): IRib;
+  (thickness: NumberParam): IRib;
 
   /**
    * Creates a rib from an explicit sketch spine with the given thickness.
    * @param thickness - Wall thickness (sign controls direction)
    * @param spine - The sketch providing the rib spine wire and plane
    */
-  (thickness: number, spine: ISceneObject): IRib;
+  (thickness: NumberParam, spine: ISceneObject): IRib;
 }
 
 function isExtrudable(obj: any): obj is Extrudable {
@@ -35,8 +36,11 @@ function build(context: SceneParserContext): RibFunction {
       throw new Error("rib() requires at least a thickness argument.");
     }
 
-    const thickness = args[0] as number;
-    if (typeof thickness !== 'number' || thickness === 0) {
+    if (!isNumberParam(args[0])) {
+      throw new Error("rib() thickness must be a non-zero number.");
+    }
+    const thickness = resolveParam(args[0] as NumberParam);
+    if (thickness === 0) {
       throw new Error("rib() thickness must be a non-zero number.");
     }
 

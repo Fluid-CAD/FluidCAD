@@ -12,15 +12,15 @@ seeAlso: [api/cut, api/types/scene-object]
 interface Cut extends SceneObject {
   symmetric(): this;
   scope(...objects: SceneObject[]): this;
-  draft(value: number | [number, number]): this;
-  endOffset(value: number): this;
+  draft(value: NumberParam | [NumberParam, NumberParam]): this;
+  endOffset(value: NumberParam): this;
   startEdges(...args: (number | EdgeFilter)[]): SceneObject;
   endEdges(...args: (number | EdgeFilter)[]): SceneObject;
   internalEdges(...args: (number | EdgeFilter)[]): SceneObject;
   internalFaces(...args: (number | FaceFilter)[]): SceneObject;
   pick(...points: Point2DLike[]): this;
-  thin(offset: number): this;
-  thin(offset1: number, offset2: number): this;
+  thin(offset: NumberParam): this;
+  thin(offset1: NumberParam, offset2: NumberParam): this;
 }
 ```
 
@@ -47,7 +47,7 @@ Applies a draft (taper) angle to the cut walls.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `number` \| `[number, number]` | A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft. |
+| `value` | `NumberParam` \| `[NumberParam, NumberParam]` | A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft. |
 
 ### `endOffset()`
 
@@ -55,7 +55,7 @@ Offsets the cut end face by a specified distance along the cut direction.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `number` | The offset distance. |
+| `value` | `NumberParam` | The offset distance. |
 
 ### `startEdges()`
 
@@ -108,8 +108,8 @@ Restricts the cut to only the sketch regions containing the given points.
 ### `thin()`
 
 ```ts
-thin(offset: number): this
-thin(offset1: number, offset2: number): this
+thin(offset: NumberParam): this
+thin(offset1: NumberParam, offset2: NumberParam): this
 ```
 
 Enables thin cut mode — offsets the profile edges to cut a thin-walled shape
@@ -117,8 +117,8 @@ instead of cutting filled faces. Positive values offset outward, negative values
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `offset1` | `number` | The first wall offset distance. Positive = outward, negative = inward. |
-| `offset2` | `number` | The second wall offset distance, in the opposite direction of offset1. |
+| `offset1` | `NumberParam` | The first wall offset distance. Positive = outward, negative = inward. |
+| `offset2` | `NumberParam` | The second wall offset distance, in the opposite direction of offset1. |
 
 ## Inherited
 

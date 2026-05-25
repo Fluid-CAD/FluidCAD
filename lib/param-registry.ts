@@ -1,11 +1,11 @@
-export type ControlType = 'auto' | 'text' | 'number' | 'slider' | 'select';
+export type ControlType = 'auto' | 'text' | 'number' | 'slider' | 'select' | 'checkbox';
 
 export type SelectOption = { label: string; value: string | number };
 
 export type ParamDefinition = {
   label: string;
-  defaultValue: string | number;
-  currentValue: string | number;
+  defaultValue: string | number | boolean;
+  currentValue: string | number | boolean;
   controlType: ControlType;
   description?: string;
   group?: string;
@@ -25,11 +25,20 @@ export class ParamRegistry {
     this.definitions.set(def.label, def);
   }
 
-  resolve<T extends string | number>(label: string, defaultValue: T): T {
+  resolve<T extends string | number | boolean>(label: string, defaultValue: T): T {
     if (!this.overrides.has(label)) {
       return defaultValue;
     }
     const override = this.overrides.get(label);
+    if (typeof defaultValue === 'boolean') {
+      if (override === true || override === 'true' || override === 1) {
+        return true as T;
+      }
+      if (override === false || override === 'false' || override === 0) {
+        return false as T;
+      }
+      return defaultValue;
+    }
     if (typeof defaultValue === 'number') {
       const num = Number(override);
       if (Number.isFinite(num)) {

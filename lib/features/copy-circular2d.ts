@@ -6,6 +6,7 @@ import { ShapeOps } from "../oc/shape-ops.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
 import { LazyVertex } from "./lazy-vertex.js";
 import { CircularCopyOptions } from "./copy-circular.js";
+import { type NumberParam, resolveParam } from "../core/param.js";
 
 export class CopyCircular2D extends GeometrySceneObject {
   constructor(
@@ -38,13 +39,14 @@ export class CopyCircular2D extends GeometrySceneObject {
     const origin = plane.localToWorld(this.center.asPoint2D());
     const direction = plane.normal;
 
-    const { count, centered, skip } = this.options;
+    const count = resolveParam(this.options.count as NumberParam);
+    const { centered, skip } = this.options;
 
     let offset: number;
     if ('offset' in this.options && this.options.offset !== undefined) {
-      offset = this.options.offset;
+      offset = resolveParam(this.options.offset as NumberParam);
     } else {
-      offset = this.options.angle / count;
+      offset = resolveParam((this.options as { angle: NumberParam }).angle) / count;
     }
 
     const startOffset = centered ? -(count * offset) / 2 : 0;

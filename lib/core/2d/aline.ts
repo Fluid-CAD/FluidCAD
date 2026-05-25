@@ -5,6 +5,7 @@ import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
 import { IALine, ISceneObject } from "../interfaces.js";
+import { type NumberParam, resolveParam } from "../param.js";
 
 interface ALineFunction {
   /**
@@ -13,7 +14,7 @@ interface ALineFunction {
    * @param angle - The angle in degrees
    * @param length - The line length
    */
-  (angle: number, length: number): IALine;
+  (angle: NumberParam, length: NumberParam): IALine;
   /**
    * Draws a line at the given angle that ends where it intersects the target
    * geometry. The nearest intersection along the line's direction (in either
@@ -21,14 +22,14 @@ interface ALineFunction {
    * @param angle - The angle in degrees
    * @param target - The geometry to intersect with
    */
-  (angle: number, target: ISceneObject): IALine;
+  (angle: NumberParam, target: ISceneObject): IALine;
   /**
    * Draws a line at the given angle on a specific plane.
    * @param targetPlane - The plane to draw on
    * @param angle - The angle in degrees
    * @param length - The line length
    */
-  (targetPlane: PlaneLike | ISceneObject, angle: number, length: number): IALine;
+  (targetPlane: PlaneLike | ISceneObject, angle: NumberParam, length: NumberParam): IALine;
 }
 
 function build(context: SceneParserContext): ALineFunction {
@@ -51,11 +52,11 @@ function build(context: SceneParserContext): ALineFunction {
       }
     }
 
-    const angle: number = arguments[argOffset];
+    const angle: number = resolveParam(arguments[argOffset] as NumberParam);
     const second = arguments[argOffset + 1];
     const lengthOrTarget: number | SceneObject = second instanceof SceneObject
       ? second
-      : (second as number);
+      : resolveParam(second as NumberParam);
 
     const aline = new AngledLine(angle, lengthOrTarget, planeObj);
     context.addSceneObject(aline);

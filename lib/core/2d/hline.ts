@@ -8,6 +8,7 @@ import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
 import { IHLine, ISceneObject } from "../interfaces.js";
+import { type NumberParam, isNumberParam, resolveParam } from "../param.js";
 
 interface HLineFunction {
   /**
@@ -15,7 +16,7 @@ interface HLineFunction {
    * Chain `.centered()` to center the line on the current position.
    * @param distance - The line length
    */
-  (distance: number): IHLine;
+  (distance: NumberParam): IHLine;
   /**
    * Draws a horizontal line that ends where it intersects the target geometry.
    * The nearest intersection (in either direction along the X axis) is used.
@@ -28,7 +29,7 @@ interface HLineFunction {
    * @param start - The start point
    * @param distance - The line length
    */
-  (start: Point2DLike, distance: number): IHLine;
+  (start: Point2DLike, distance: NumberParam): IHLine;
   /**
    * Draws a horizontal line from a start point that ends where it intersects
    * the target geometry. The nearest intersection (in either direction along
@@ -42,7 +43,7 @@ interface HLineFunction {
    * @param targetPlane - The plane to draw on
    * @param distance - The line length
    */
-  (targetPlane: PlaneLike | ISceneObject, distance: number): IHLine;
+  (targetPlane: PlaneLike | ISceneObject, distance: NumberParam): IHLine;
 }
 
 function build(context: SceneParserContext): HLineFunction {
@@ -76,19 +77,19 @@ function build(context: SceneParserContext): HLineFunction {
       return hline;
     }
 
-    if (argOffset === 0 && typeof arguments[0] !== 'number') {
+    if (argOffset === 0 && !isNumberParam(arguments[0])) {
       // hLine(start, distance) or hLine(start, target)
       const start = normalizePoint2D(arguments[0]);
       const second = arguments[1];
       const distanceOrTarget: number | SceneObject = second instanceof SceneObject
         ? second
-        : (second as number);
+        : resolveParam(second as NumberParam);
       const hline = new HorizontalLine(distanceOrTarget, planeObj);
       context.addSceneObjects([new Move(start), hline]);
       return hline;
     }
 
-    const distance: number = arguments[argOffset];
+    const distance: number = resolveParam(arguments[argOffset] as NumberParam);
 
     const hline = new HorizontalLine(distance, planeObj);
     context.addSceneObject(hline);

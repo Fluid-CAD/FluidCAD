@@ -11,12 +11,12 @@ seeAlso: [api/types/scene-object, api/translate, api/rotate]
 ```ts
 interface Transformable extends SceneObject {
   transform(matrix: Matrix4): this;
-  translate(x: number): this;
-  translate(x: number, y: number): this;
-  translate(x: number, y: number, z: number): this;
+  translate(x: NumberParam): this;
+  translate(x: NumberParam, y: NumberParam): this;
+  translate(x: NumberParam, y: NumberParam, z: NumberParam): this;
   translate(offset: PointLike): this;
-  rotate(angle: number): this;
-  rotate(axis: AxisLike, angle: number): this;
+  rotate(angle: NumberParam): this;
+  rotate(axis: AxisLike, angle: NumberParam): this;
   mirror(plane: PlaneLike): this;
   mirror(axis: AxisLike): this;
 }
@@ -47,9 +47,9 @@ object's own shapes after build. Chained calls compose left-to-right:
 ### `translate()`
 
 ```ts
-translate(x: number): this
-translate(x: number, y: number): this
-translate(x: number, y: number, z: number): this
+translate(x: NumberParam): this
+translate(x: NumberParam, y: NumberParam): this
+translate(x: NumberParam, y: NumberParam, z: NumberParam): this
 translate(offset: PointLike): this
 ```
 
@@ -57,15 +57,15 @@ Translate along X.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `x` | `number` |  |
-| `y` | `number` |  |
-| `z` | `number` |  |
+| `x` | `NumberParam` |  |
+| `y` | `NumberParam` |  |
+| `z` | `NumberParam` |  |
 
 ### `rotate()`
 
 ```ts
-rotate(angle: number): this
-rotate(axis: AxisLike, angle: number): this
+rotate(angle: NumberParam): this
+rotate(axis: AxisLike, angle: NumberParam): this
 ```
 
 Rotate by an angle around world Z through the origin.
@@ -73,7 +73,7 @@ Rotate by an angle around world Z through the origin.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `axis` | [[api/types/axis-like]] | The axis to rotate around. Use `local(...)` to reference a sketch-local axis. |
-| `angle` | `number` | Rotation in degrees. |
+| `angle` | `NumberParam` | Rotation in degrees. |
 
 ### `mirror()`
 

@@ -44,6 +44,7 @@
   --scene-highlight-color: #ffb433;
   --scene-select-edge-color: #11a4ed;
   --scene-select-face-color: #5c9fcc;
+  --scene-constraint-color: #cccccc;
 }
 
 @plugin "daisyui/theme" {
@@ -84,6 +85,7 @@
   --scene-highlight-color: #ffb433;
   --scene-select-edge-color: #11a4ed;
   --scene-select-face-color: #5c9fcc;
+  --scene-constraint-color: #555555;
 }
 
 @utility panel-bg {

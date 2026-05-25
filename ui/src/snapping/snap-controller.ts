@@ -11,6 +11,7 @@ import { PlaneData } from '../types';
 export class SnapController {
   private snapManager: SnapManager;
   private plane: PlaneData;
+  private excludedVertices: [number, number][] = [];
 
   snapToVertices = true;
   snapToGrid = true;
@@ -22,6 +23,12 @@ export class SnapController {
 
   updateSnapManager(snapManager: SnapManager): void {
     this.snapManager = snapManager;
+    this.snapManager.setExcludedVertices(this.excludedVertices);
+  }
+
+  setExcludedVertices(excluded: [number, number][]): void {
+    this.excludedVertices = excluded;
+    this.snapManager.setExcludedVertices(excluded);
   }
 
   /**

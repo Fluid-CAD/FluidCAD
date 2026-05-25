@@ -1,40 +1,26 @@
 import {
-  BufferAttribute,
-  BufferGeometry,
-  Camera,
   CircleGeometry,
   DoubleSide,
   Group,
-  LineBasicMaterial,
-  LineSegments,
   Mesh,
   MeshBasicMaterial,
-  OrthographicCamera,
-  PerspectiveCamera,
   Vector3,
 } from 'three';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { SceneObjectPart } from '../../types';
+import { applyConstantPixelSize } from '../screen-scale';
+import { EdgeMesh } from './edge-mesh';
+import { LineResolutionRegistry } from './line-resolution';
 
 const COLOR = '#2297ff';
 const LINE_WIDTH = 2;
 const VERTEX_RADIUS = 2;
 const VERTEX_SEGMENTS = 16;
-const VERTEX_SCALE_FACTOR = 0.003;
-const VERTEX_MAX_SCALE = 1.5;
+const VERTEX_PX_RADIUS = 6;
 const EPSILON_SQ = 1e-8;
 
-function computeViewScale(camera: Camera, position: Vector3, factor: number): number {
-  if (camera instanceof OrthographicCamera) {
-    const viewHeight = (camera.top - camera.bottom) / camera.zoom;
-    return viewHeight * factor;
-  } else if (camera instanceof PerspectiveCamera) {
-    const dist = camera.position.distanceTo(position);
-    const vFov = camera.fov * Math.PI / 180;
-    const viewHeight = 2 * dist * Math.tan(vFov / 2);
-    return viewHeight * factor;
-  }
-  return 1;
-}
 
 /**
  * Renders pick-edge meta edges as solid blue lines with vertex dots
@@ -55,13 +41,12 @@ export class PickEdgeMesh extends Group {
     const allEndpoints: Vector3[] = [];
 
     for (const meshData of shape.meshes) {
-      const geometry = new BufferGeometry();
-      geometry.setAttribute('position', new BufferAttribute(new Float32Array(meshData.vertices), 3));
-      geometry.setAttribute('normal', new BufferAttribute(new Float32Array(meshData.normals), 3));
-      const IndexArray = meshData.vertices.length / 3 > 65535 ? Uint32Array : Uint16Array;
-      geometry.setIndex(new BufferAttribute(new IndexArray(meshData.indices), 1));
+      const positions = EdgeMesh.expandIndexedPositions(meshData.vertices, meshData.indices);
 
-      const material = new LineBasicMaterial({
+      const geometry = new LineSegmentsGeometry();
+      geometry.setPositions(positions);
+
+      const material = new LineMaterial({
         color: COLOR,
         linewidth: LINE_WIDTH,
         polygonOffset: true,
@@ -71,8 +56,9 @@ export class PickEdgeMesh extends Group {
         depthWrite: true,
         depthTest: true,
       });
+      LineResolutionRegistry.register(material);
 
-      this.add(new LineSegments(geometry, material));
+      this.add(new LineSegments2(geometry, material));
 
       // Collect unique endpoints from edge line segments
       const verts = meshData.vertices;
@@ -102,10 +88,7 @@ export class PickEdgeMesh extends Group {
       dotGroup.add(dot);
       dotGroup.position.copy(pos);
 
-      dot.onBeforeRender = (_renderer, _scene, cam) => {
-        dotGroup.scale.setScalar(Math.min(computeViewScale(cam, pos, VERTEX_SCALE_FACTOR), VERTEX_MAX_SCALE));
-        dotGroup.updateMatrixWorld(true);
-      };
+      applyConstantPixelSize(dot, dotGroup, pos, VERTEX_PX_RADIUS, VERTEX_RADIUS);
 
       this.add(dotGroup);
     }

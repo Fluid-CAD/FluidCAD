@@ -100,6 +100,7 @@ export function initDirtyState(client: Client) {
   );
 }
 
+
 export async function spawnServer(client: Client, workspacePath: string): Promise<void> {
   let serverEntry: string;
   try {

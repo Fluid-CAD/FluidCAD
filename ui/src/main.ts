@@ -2,6 +2,7 @@ import { Viewer } from './viewer';
 import { ShapePropertiesModal } from './ui/shape-properties-modal';
 import { SelectionInfoOverlay } from './ui/selection-info-overlay';
 import { TimelinePanel } from './ui/timeline-panel';
+import { ParamsPanel } from './ui/params-panel';
 import { ExportDialog } from './ui/export-dialog';
 import { BreakpointIndicator } from './ui/breakpoint-indicator';
 import { ErrorBanner } from './ui/error-banner';
@@ -57,6 +58,13 @@ const timelinePanel = new TimelinePanel(
   () => viewer.resetAllTransparency(),
   () => fileImporter.openPicker(),
 );
+
+const paramsPanel = new ParamsPanel(viewer.settingsPanelHost);
+
+viewer.setParamsToggleHandler(() => {
+  paramsPanel.toggle();
+  viewer.setParamsButtonActive(paramsPanel.isVisible);
+});
 
 const trimService = new TrimPickService(container, viewer);
 const regionService = new RegionPickService(container, viewer);
@@ -238,7 +246,11 @@ function connectWebSocket() {
           regionService.update(msg.result);
           sketchService.update(msg.result);
         }
-        timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1, msg.absPath, msg.params);
+        timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1, msg.absPath);
+        if (msg.params !== undefined) {
+          paramsPanel.update(msg.params);
+          viewer.setParamsButtonVisible(paramsPanel.hasAnyParams);
+        }
         errorBanner.update(msg.result, msg.compileError ?? null);
         // Only update the breakpoint indicator when the server sends an
         // authoritative value — rollback responses don't re-run the module,

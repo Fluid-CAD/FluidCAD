@@ -1,6 +1,6 @@
 import { viewerSettings } from '../scene/viewer-settings';
 import { savePreference } from '../api';
-import { ICON_FIT, ICON_VIDEO, ICON_GRID, ICON_SUN, ICON_MOON, ICON_SECTION_VIEW, ICON_SETTINGS, ICON_CLOSE } from './icons';
+import { ICON_FIT, ICON_VIDEO, ICON_GRID, ICON_SUN, ICON_MOON, ICON_SECTION_VIEW, ICON_SETTINGS, ICON_CLOSE, ICON_ADJUSTMENTS } from './icons';
 
 const FAB_BTN = 'btn btn-ghost btn-circle btn-sm text-base-content/60';
 const FAB_BTN_ACTIVE = 'btn btn-soft btn-primary btn-circle btn-sm';
@@ -14,10 +14,13 @@ function isDarkTheme(): boolean {
 }
 
 export class SettingsPanel {
+  private wrapper: HTMLDivElement;
   private fabEl: HTMLDivElement;
   private fitEl: HTMLButtonElement;
+  private paramsEl: HTMLButtonElement;
   private sectionViewEl: HTMLDivElement;
   private onFitView: (() => void) | null = null;
+  private onParamsToggle: (() => void) | null = null;
   private onSectionViewToggle: ((enabled: boolean) => void) | null = null;
 
   constructor(
@@ -32,9 +35,10 @@ export class SettingsPanel {
     `;
     document.head.appendChild(style);
 
-    const wrapper = document.createElement('div');
-    wrapper.className = 'absolute right-7 top-[100px] z-[100] flex flex-col items-end select-none';
-    container.appendChild(wrapper);
+    this.wrapper = document.createElement('div');
+    this.wrapper.className = 'absolute right-7 top-[100px] z-[100] flex flex-col items-end select-none';
+    container.appendChild(this.wrapper);
+    const wrapper = this.wrapper;
 
     // Section view button — own container, hidden by default
     this.sectionViewEl = document.createElement('div');
@@ -55,6 +59,14 @@ export class SettingsPanel {
     this.fitEl.title = 'Fit to view';
     this.fitEl.innerHTML = ICON_FIT;
     wrapper.appendChild(this.fitEl);
+
+    // Parameters toggle button
+    this.paramsEl = document.createElement('button');
+    this.paramsEl.className = 'btn btn-circle btn-sm panel-bg border border-base-content/10 text-base-content/60 mt-2';
+    this.paramsEl.title = 'Toggle parameters';
+    this.paramsEl.innerHTML = ICON_ADJUSTMENTS;
+    this.paramsEl.style.display = 'none';
+    wrapper.appendChild(this.paramsEl);
 
     this.bindEvents();
     viewerSettings.subscribe(() => this.sync());
@@ -88,6 +100,10 @@ export class SettingsPanel {
       this.onFitView?.();
     });
 
+    this.paramsEl.addEventListener('click', () => {
+      this.onParamsToggle?.();
+    });
+
     this.fabEl.querySelector<HTMLButtonElement>('[data-action="camera"]')?.addEventListener('click', () => {
       const next = viewerSettings.current.cameraMode === 'perspective' ? 'orthographic' : 'perspective';
       viewerSettings.update({ cameraMode: next });
@@ -115,12 +131,30 @@ export class SettingsPanel {
     });
   }
 
+  get panelHost(): HTMLElement {
+    return this.wrapper;
+  }
+
   setFitHandler(fn: () => void): void {
     this.onFitView = fn;
   }
 
   setFitButtonVisible(visible: boolean): void {
     this.fitEl.style.display = visible ? '' : 'none';
+  }
+
+  setParamsToggleHandler(fn: () => void): void {
+    this.onParamsToggle = fn;
+  }
+
+  setParamsButtonVisible(visible: boolean): void {
+    this.paramsEl.style.display = visible ? '' : 'none';
+  }
+
+  setParamsButtonActive(active: boolean): void {
+    this.paramsEl.className = active
+      ? FAB_BTN_ACTIVE + ' mt-2'
+      : 'btn btn-circle btn-sm panel-bg border border-base-content/10 text-base-content/60 mt-2';
   }
 
   setSectionViewToggleHandler(fn: (enabled: boolean) => void): void {

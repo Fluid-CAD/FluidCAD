@@ -4,7 +4,6 @@ import { LineTool } from './tools/line-tool';
 import { CircleTool } from './tools/circle-tool';
 import { CenterArcTool } from './tools/center-arc-tool';
 import { ThreePointArcTool } from './tools/three-point-arc-tool';
-import { TangentArcTool } from './tools/tangent-arc-tool';
 import { RectTool } from './tools/rect-tool';
 import { RoundedRectTool } from './tools/rounded-rect-tool';
 import { SlotTool } from './tools/slot-tool';
@@ -71,12 +70,6 @@ export class SketchToolbarService {
       }
       if (this.activeDragHandler) {
         this.activeDragHandler['snapController'].snapToGrid = checked;
-      }
-    };
-
-    this.toolbar.onArc3ModeChange = () => {
-      if (this.toolbar.activeTool === 'arc3') {
-        this.handleToolSelect('arc3');
       }
     };
   }
@@ -189,12 +182,7 @@ export class SketchToolbarService {
       case 'arc2':
         return new CenterArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
       case 'arc3': {
-        const tool = new ThreePointArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.arc3Mode);
-        tool.onSceneUpdate(sceneObjects, sketchId);
-        return tool;
-      }
-      case 'tarc': {
-        const tool = new TangentArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+        const tool = new ThreePointArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
         tool.onSceneUpdate(sceneObjects, sketchId);
         return tool;
       }

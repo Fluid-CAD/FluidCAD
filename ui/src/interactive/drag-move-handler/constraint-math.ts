@@ -52,30 +52,6 @@ export function computeTangentArc(
   return { center, radius, startAngle, endAngle, ccw: t >= 0 };
 }
 
-export function clampToSameSide(
-  point: [number, number],
-  original: [number, number],
-  fixedVertex: [number, number],
-  fixedVertex2: [number, number],
-): [number, number] {
-  const mx = (fixedVertex[0] + fixedVertex2[0]) / 2;
-  const my = (fixedVertex[1] + fixedVertex2[1]) / 2;
-  const dx = fixedVertex2[0] - fixedVertex[0];
-  const dy = fixedVertex2[1] - fixedVertex[1];
-  const px = -dy;
-  const py = dx;
-  const lenSq = px * px + py * py;
-  if (lenSq < 1e-10) {
-    return point;
-  }
-  const tOrig = ((original[0] - mx) * px + (original[1] - my) * py) / lenSq;
-  const tNew = ((point[0] - mx) * px + (point[1] - my) * py) / lenSq;
-  if ((tOrig > 0 && tNew <= 0) || (tOrig < 0 && tNew >= 0)) {
-    return [mx, my];
-  }
-  return point;
-}
-
 export function computeArcCenter(
   oldCenter: [number, number],
   pointA: [number, number],

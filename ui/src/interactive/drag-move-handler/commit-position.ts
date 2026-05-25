@@ -30,56 +30,37 @@ export function commitPositionMove(
     const pointIndex = hitZone === 'start' ? 0 : -1;
     updatePosition(newPos, sourceLocation, pointIndex);
   } else if (uniqueType === 'arc' && anchorPoint && fixedVertex) {
-    if (hitResult.arcIsRadiusMode) {
-      if (hitZone === 'center') {
-        const startV = fixedVertex;
-        const newRadius = Math.round(
-          Math.sqrt((startV[0] - newPos[0]) ** 2 + (startV[1] - newPos[1]) ** 2) * 100,
-        ) / 100;
-        // Preserve the sign: in the lib, positive radius = CCW, negative = CW.
-        // arcCCW XOR arcMajor gives the lib-level CCW flag.
-        const libCCW = (hitResult.arcCCW !== false) !== (hitResult.arcMajor === true);
-        const signedRadius = libCCW ? newRadius : -newRadius;
-        const sketchSourceLine = getSketchSourceLine();
-        updateDimensionExpression(String(signedRadius), sourceLocation, sketchSourceLine);
-      } else {
-        const isOnePoint = hitResult.arcArgCount === 2;
-        const pointIndex = hitZone === 'start' ? 0 : (isOnePoint ? 0 : 1);
-        updatePosition(newPos, sourceLocation, pointIndex);
-      }
+    const isOnePoint = hitResult.arcArgCount === 2;
+    const endIdx = isOnePoint ? 0 : 1;
+    const centerIdx = isOnePoint ? 1 : 2;
+    if (hitZone === 'center') {
+      const startV = fixedVertex;
+      const endV = hitResult.fixedVertex2!;
+      const radius = Math.sqrt(
+        (startV[0] - newPos[0]) ** 2 + (startV[1] - newPos[1]) ** 2,
+      );
+      const endAngle = Math.atan2(endV[1] - newPos[1], endV[0] - newPos[0]);
+      const projectedEnd = roundPoint([
+        newPos[0] + radius * Math.cos(endAngle),
+        newPos[1] + radius * Math.sin(endAngle),
+      ]);
+      setChainPositions(
+        [
+          { pointIndex: endIdx, position: projectedEnd },
+          { pointIndex: centerIdx, position: newPos },
+        ],
+        sourceLocation,
+      );
     } else {
-      const isOnePoint = hitResult.arcArgCount === 2;
-      const endIdx = isOnePoint ? 0 : 1;
-      const centerIdx = isOnePoint ? 1 : 2;
-      if (hitZone === 'center') {
-        const startV = fixedVertex;
-        const endV = hitResult.fixedVertex2!;
-        const radius = Math.sqrt(
-          (startV[0] - newPos[0]) ** 2 + (startV[1] - newPos[1]) ** 2,
-        );
-        const endAngle = Math.atan2(endV[1] - newPos[1], endV[0] - newPos[0]);
-        const projectedEnd = roundPoint([
-          newPos[0] + radius * Math.cos(endAngle),
-          newPos[1] + radius * Math.sin(endAngle),
-        ]);
-        setChainPositions(
-          [
-            { pointIndex: endIdx, position: projectedEnd },
-            { pointIndex: centerIdx, position: newPos },
-          ],
-          sourceLocation,
-        );
-      } else {
-        const newCenter = roundPoint(computeArcCenter(anchorPoint, fixedVertex, newPos));
-        const pointIndex = hitZone === 'start' ? 0 : endIdx;
-        setChainPositions(
-          [
-            { pointIndex, position: newPos },
-            { pointIndex: centerIdx, position: newCenter },
-          ],
-          sourceLocation,
-        );
-      }
+      const newCenter = roundPoint(computeArcCenter(anchorPoint, fixedVertex, newPos));
+      const pointIndex = hitZone === 'start' ? 0 : endIdx;
+      setChainPositions(
+        [
+          { pointIndex, position: newPos },
+          { pointIndex: centerIdx, position: newCenter },
+        ],
+        sourceLocation,
+      );
     }
   } else if ((uniqueType === 'hline' || uniqueType === 'vline') && (hitZone === 'start' || hitZone === 'body')) {
     updatePosition(newPos, sourceLocation, 0);

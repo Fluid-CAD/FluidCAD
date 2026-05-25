@@ -29,7 +29,7 @@ export type ExpressionInputOptions = {
   clientX: number;
   clientY: number;
   variables: VariableInfo[];
-  onCommit: (result: CommitResult) => string | void;
+  onCommit: (result: CommitResult) => void;
   numericOnly?: boolean;
 };
 
@@ -40,7 +40,7 @@ export class ExpressionInput {
   private label: HTMLSpanElement;
   private dropdown: HTMLDivElement;
   private errorEl: HTMLDivElement;
-  private onCommit: ((result: CommitResult) => string | void) | null = null;
+  private onCommit: ((result: CommitResult) => void) | null = null;
   private visible = false;
   private userIsTyping = false;
   private variables: VariableInfo[] = [];
@@ -215,18 +215,13 @@ export class ExpressionInput {
       this.showInlineError(classified.message);
       return false;
     }
-    let error: string | void;
     if (classified.kind === 'declare') {
-      error = this.onCommit({
+      this.onCommit({
         expression: classified.name,
         newVariable: { name: classified.name, initializer: classified.initializer },
       });
     } else {
-      error = this.onCommit({ expression: classified.expression });
-    }
-    if (typeof error === 'string') {
-      this.showInlineError(error);
-      return false;
+      this.onCommit({ expression: classified.expression });
     }
     this.hide();
     return true;

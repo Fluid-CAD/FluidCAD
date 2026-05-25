@@ -89,12 +89,6 @@ export class DimensionInputController {
       const ddx = startPoint[0] - lc[0];
       const ddy = startPoint[1] - lc[1];
       value = Math.round(Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
-    } else if (uniqueType === 'arc' && hitResult.arcIsRadiusMode && hitZone === 'center') {
-      label = 'R';
-      const startV = hitResult.fixedVertex!;
-      const ddx = startPoint[0] - startV[0];
-      const ddy = startPoint[1] - startV[1];
-      value = Math.round(Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
     }
 
     if (label === null) {
@@ -134,9 +128,6 @@ export class DimensionInputController {
         label = 'R';
         value = hitResult.slotRadius ?? 0;
       }
-    } else if (hitResult.uniqueType === 'arc' && hitResult.arcIsRadiusMode) {
-      label = 'R';
-      value = Math.round((hitResult.initialValue ?? 0) * 100) / 100;
     } else {
       return false;
     }
@@ -187,11 +178,6 @@ export class DimensionInputController {
       const ddx = currentPoint[0] - other[0];
       const ddy = currentPoint[1] - other[1];
       value = Math.round((ddx * ax[0] + ddy * ax[1]) * 100) / 100;
-    } else if (uniqueType === 'arc' && hitResult.arcIsRadiusMode) {
-      const startV = hitResult.fixedVertex!;
-      const ddx = currentPoint[0] - startV[0];
-      const ddy = currentPoint[1] - startV[1];
-      value = Math.round(Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
     } else {
       const start = anchorPoint!;
       const raw = uniqueType === 'hline'
@@ -245,24 +231,13 @@ export class DimensionInputController {
       clientX,
       clientY,
       variables: this.cachedVariables,
-      onCommit: (result): string | void => {
+      onCommit: (result) => {
         const { expression, newVariable } = result;
         const num = parseFloat(expression);
         const isNumeric = !isNaN(num) && String(num) === expression;
 
         let finalExpr = expression;
-        if (isNumeric && hitResult.arcIsRadiusMode) {
-          const absRadius = Math.abs(num);
-          if (absRadius > 0) {
-            const halfChord = this.arcHalfChord(hitResult);
-            if (halfChord !== null && absRadius < halfChord) {
-              return `Radius must be ≥ ${Math.round(halfChord * 100) / 100}`;
-            }
-          }
-          const libCCW = (hitResult.arcCCW !== false) !== (hitResult.arcMajor === true);
-          const signedVal = libCCW ? absRadius : -absRadius;
-          finalExpr = String(Math.round(signedVal * 100) / 100);
-        } else if (isNumeric && hitResult.uniqueType !== 'circle' && hitResult.uniqueType !== 'polygon' && hitResult.uniqueType !== 'slot') {
+        if (isNumeric && hitResult.uniqueType !== 'circle' && hitResult.uniqueType !== 'polygon' && hitResult.uniqueType !== 'slot') {
           const sign = this.computeDistanceSign(hitResult, null);
           finalExpr = String(Math.round(sign * num * 100) / 100);
         } else if (isNumeric) {
@@ -277,7 +252,6 @@ export class DimensionInputController {
         } else {
           this.closeStandalone();
         }
-        return;
       },
     });
 
@@ -293,27 +267,6 @@ export class DimensionInputController {
         }
       });
     }
-  }
-
-  private arcHalfChord(hitResult: DragHitResult): number | null {
-    let arcStartV: [number, number] | undefined;
-    let arcEndV: [number, number] | undefined;
-    if (hitResult.hitZone === 'center' || hitResult.hitZone === 'body') {
-      arcStartV = hitResult.fixedVertex;
-      arcEndV = hitResult.fixedVertex2;
-    } else if (hitResult.hitZone === 'end') {
-      arcStartV = hitResult.fixedVertex;
-      arcEndV = hitResult.draggedVertices?.[0];
-    } else {
-      arcStartV = hitResult.draggedVertices?.[0];
-      arcEndV = hitResult.fixedVertex;
-    }
-    if (!arcStartV || !arcEndV) {
-      return null;
-    }
-    const dx = arcEndV[0] - arcStartV[0];
-    const dy = arcEndV[1] - arcStartV[1];
-    return Math.sqrt(dx * dx + dy * dy) / 2;
   }
 
   private computeDistanceSign(

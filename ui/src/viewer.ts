@@ -94,6 +94,22 @@ export class Viewer {
     this.selectionHandler = fn;
   }
 
+  get settingsPanelHost(): HTMLElement {
+    return this.settingsPanel.panelHost;
+  }
+
+  setParamsToggleHandler(fn: () => void): void {
+    this.settingsPanel.setParamsToggleHandler(fn);
+  }
+
+  setParamsButtonVisible(visible: boolean): void {
+    this.settingsPanel.setParamsButtonVisible(visible);
+  }
+
+  setParamsButtonActive(active: boolean): void {
+    this.settingsPanel.setParamsButtonActive(active);
+  }
+
   lookAlongSketchNormal(plane: PlaneData): void {
     this.modeManager.enforceSketchNormal(plane);
   }

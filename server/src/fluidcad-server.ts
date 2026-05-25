@@ -229,7 +229,6 @@ export class FluidCadServer {
     if (!this.currentFilePath) {
       return null;
     }
-    this.previousScenes.delete(this.currentFileName);
     this.renderingCache.delete(this.currentFileName);
     this.lastRendered.delete(this.currentFileName);
     return this.processFile(this.currentFilePath, true);

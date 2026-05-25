@@ -630,41 +630,39 @@ export class TimelinePanel {
     }
     for (const [groupName, groupParams] of groups) {
       const isCollapsed = this.collapsedParamGroups.has(groupName);
-      const rotation = isCollapsed ? '' : 'rotate-90';
+      const checked = isCollapsed ? '' : ' checked';
+      let controlsHtml = '';
+      for (const p of groupParams) {
+        controlsHtml += this.renderParamControl(p);
+      }
       html += `
-        <div class="flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-xs font-medium text-base-content/50 uppercase tracking-wider" data-param-group="${this.escapeHtml(groupName)}">
-          <span class="flex items-center justify-center w-4 h-4 opacity-50 hover:opacity-100 transition-transform ${rotation}">
-            ${CHEVRON_SVG}
-          </span>
-          <span>${this.escapeHtml(groupName)}</span>
+        <div class="collapse collapse-arrow border border-base-content/10 rounded-md mt-1.5" data-param-group="${this.escapeHtml(groupName)}">
+          <input type="checkbox"${checked} class="!min-h-0 !p-0 !h-8" />
+          <div class="collapse-title !min-h-0 !py-2 !px-3 !pr-8 text-xs font-medium text-base-content/50 uppercase tracking-wider">${this.escapeHtml(groupName)}</div>
+          <div class="collapse-content px-0 pb-0">${controlsHtml}</div>
         </div>
       `;
-      if (!isCollapsed) {
-        for (const p of groupParams) {
-          html += this.renderParamControl(p);
-        }
-      }
     }
 
     this.paramsBody.innerHTML = html;
     this.bindParamHandlers();
 
     this.paramsBody.querySelectorAll<HTMLElement>('[data-param-group]').forEach((el) => {
-      el.addEventListener('click', () => {
+      const checkbox = el.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+      checkbox.addEventListener('change', () => {
         const name = el.dataset.paramGroup!;
-        if (this.collapsedParamGroups.has(name)) {
+        if (checkbox.checked) {
           this.collapsedParamGroups.delete(name);
         } else {
           this.collapsedParamGroups.add(name);
         }
-        this.renderParams();
       });
     });
   }
 
   private renderParamControl(p: UIParamDefinition): string {
     const effectiveType = p.controlType === 'auto'
-      ? (typeof p.defaultValue === 'number' ? 'number' : 'text')
+      ? (typeof p.defaultValue === 'boolean' ? 'checkbox' : typeof p.defaultValue === 'number' ? 'number' : 'text')
       : p.controlType;
 
     const descHtml = p.description
@@ -713,6 +711,20 @@ export class TimelinePanel {
           </div>
         `;
         break;
+      case 'checkbox': {
+        const checked = p.currentValue ? ' checked' : '';
+        return `
+          <div class="px-3 py-1.5">
+            <div class="flex items-center gap-2">
+              <label class="text-xs text-base-content/60">${escapedLabel}</label>
+              <input type="checkbox" class="toggle toggle-xs toggle-primary"
+                ${checked}
+                data-param-label="${escapedLabel}" data-param-type="checkbox" />
+            </div>
+            ${descHtml}
+          </div>
+        `;
+      }
       case 'select': {
         const options = (p.selectOptions ?? []).map(o => {
           const selected = String(o.value) === String(p.currentValue) ? ' selected' : '';
@@ -720,7 +732,7 @@ export class TimelinePanel {
         }).join('');
         controlHtml = `
           <div class="mt-1">
-            <select class="select select-xs select-bordered w-full bg-transparent"
+            <select class="select select-xs select-bordered w-full bg-base-300"
               data-param-label="${escapedLabel}" data-param-type="select">
               ${options}
             </select>
@@ -772,6 +784,15 @@ export class TimelinePanel {
         });
         el.addEventListener('blur', () => {
           this.flushParam(label, () => sendChange((el as HTMLInputElement).value));
+        });
+      } else if (type === 'checkbox') {
+        el.addEventListener('change', () => {
+          const checked = (el as HTMLInputElement).checked;
+          fetch('/api/set-param', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label, value: checked }),
+          }).catch(err => console.error('Set param failed:', err));
         });
       } else if (type === 'select') {
         el.addEventListener('change', () => {

@@ -136,9 +136,9 @@ export type SceneObjectRender = {
 
 export type UIParamDefinition = {
   label: string;
-  defaultValue: string | number;
-  currentValue: string | number;
-  controlType: 'auto' | 'text' | 'number' | 'slider' | 'select';
+  defaultValue: string | number | boolean;
+  currentValue: string | number | boolean;
+  controlType: 'auto' | 'text' | 'number' | 'slider' | 'select' | 'checkbox';
   description?: string;
   group?: string;
   min?: number;

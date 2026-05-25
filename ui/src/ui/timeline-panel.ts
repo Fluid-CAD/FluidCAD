@@ -47,7 +47,7 @@ export class TimelinePanel {
   private hoverPopover: HTMLDivElement | null = null;
   private paramsHeader: HTMLDivElement;
   private paramsBody: HTMLDivElement;
-  private paramsExpanded = true;
+  private paramsExpanded = false;
   private currentParams: UIParamDefinition[] = [];
   private paramDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private collapsedParamGroups = new Set<string>();
@@ -129,20 +129,20 @@ export class TimelinePanel {
     this.panel.appendChild(this.shapesHeader);
 
     this.shapesBody = document.createElement('div');
-    this.shapesBody.className = 'py-1 overflow-y-auto min-h-[33vh] flex-1';
+    this.shapesBody.className = 'py-1 overflow-y-auto';
     this.panel.appendChild(this.shapesBody);
 
     // Parameters accordion section (hidden until params exist)
     this.paramsHeader = document.createElement('div');
     this.paramsHeader.className = SECTION_HEADER + ' hidden';
     this.paramsHeader.innerHTML = `
-      <span data-ref="chevron" class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${CHEVRON_SVG}</span>
+      <span data-ref="chevron" class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform">${CHEVRON_SVG}</span>
       <span class="text-sm font-medium text-base-content/70">Parameters</span>
     `;
     this.panel.appendChild(this.paramsHeader);
 
     this.paramsBody = document.createElement('div');
-    this.paramsBody.className = 'py-1 overflow-y-auto min-h-0';
+    this.paramsBody.className = 'py-1 overflow-y-auto min-h-0 hidden';
     this.panel.appendChild(this.paramsBody);
 
     this.paramsHeader.addEventListener('click', () => {
@@ -609,9 +609,7 @@ export class TimelinePanel {
     }
 
     this.paramsHeader.classList.remove('hidden');
-    if (this.paramsExpanded) {
-      this.paramsBody.classList.remove('hidden');
-    }
+    this.paramsBody.classList.toggle('hidden', !this.paramsExpanded);
 
     const ungrouped: UIParamDefinition[] = [];
     const groups = new Map<string, UIParamDefinition[]>();

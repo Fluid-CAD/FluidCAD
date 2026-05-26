@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ChildProcess } from 'child_process';
 import {
+  initDirtyState,
   initLiveRender,
   spawnServer,
   sendToServer,
@@ -24,6 +25,13 @@ import {
   handleSetPickPoints,
   handleGotoSource,
   handleUpdateInsertChain,
+  handleInsertGeometry,
+  handleUpdatePosition,
+  handleSetLinePosition,
+  handleSetChainPositions,
+  handleUpdateDimension,
+  handleUpdateDimensionExpression,
+  handleSetRectDimensions,
 } from './code-edits';
 import { updateDiagnostics, type CompileError } from './diagnostics';
 
@@ -85,6 +93,7 @@ export class Client {
     this.logger.appendLine(`Active workspace folder: ${folder}`);
 
     await spawnServer(this, folder);
+    initDirtyState(this);
 
     this.logger.appendLine('Server initialized successfully.');
   }
@@ -161,6 +170,34 @@ export class Client {
       }
       case 'remove-pick': {
         handleRemovePick(this, msg);
+        break;
+      }
+      case 'insert-geometry': {
+        handleInsertGeometry(this, msg);
+        break;
+      }
+      case 'update-position': {
+        handleUpdatePosition(this, msg);
+        break;
+      }
+      case 'set-line-position': {
+        handleSetLinePosition(this, msg);
+        break;
+      }
+      case 'set-chain-positions': {
+        handleSetChainPositions(this, msg);
+        break;
+      }
+      case 'update-dimension': {
+        handleUpdateDimension(this, msg);
+        break;
+      }
+      case 'update-dimension-expression': {
+        handleUpdateDimensionExpression(this, msg);
+        break;
+      }
+      case 'set-rect-dimensions': {
+        handleSetRectDimensions(this, msg);
         break;
       }
       case 'export-complete': {

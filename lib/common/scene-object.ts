@@ -3,6 +3,7 @@ import { Shape, ShapeFilter } from "./shape.js";
 import { Face } from "./face.js";
 import { Edge } from "./edge.js";
 import { Matrix4 } from "../math/matrix4.js";
+import { LazyMatrix } from "../math/lazy-matrix.js";
 import { ISceneObject } from "../core/interfaces.js";
 import { FusionScope, OperationMode } from "../features/extrude-options.js";
 import { ShapeType } from "./shape-type.js";
@@ -54,7 +55,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   private _id: string;
   private _order: number = 0;
-  private _transform: Matrix4 | null = null;
+  private _transform: LazyMatrix | null = null;
   private _appliedTransform: Matrix4 | null = null;
   private _cloneSource: SceneObject | null = null;
   private _parent: SceneObject | null = null;
@@ -304,12 +305,12 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return result;
   }
 
-  setTransform(matrix: Matrix4): void {
-    this._transform = matrix;
+  setTransform(matrix: Matrix4 | LazyMatrix): void {
+    this._transform = matrix instanceof LazyMatrix ? matrix : LazyMatrix.of(matrix);
   }
 
   getTransform(): Matrix4 | null {
-    return this._transform;
+    return this._transform ? this._transform.resolve() : null;
   }
 
   setCloneSource(source: SceneObject): void {

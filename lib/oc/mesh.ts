@@ -11,6 +11,16 @@ export interface MeshData {
   count?: number;
 }
 
+export interface MeshConfig {
+  linDefl: number;
+  angDefl: number;
+}
+
+export const DEFAULT_MESH_CONFIG: MeshConfig = {
+  linDefl: 0.1,
+  angDefl: 0.5,
+};
+
 export interface EnsureTriangulatedOptions {
   linDefl?: number;
   angDefl?: number;
@@ -19,18 +29,14 @@ export interface EnsureTriangulatedOptions {
   checkFreeEdges?: boolean;
 }
 
-// Flip to false to benchmark single-threaded meshing.
-const DEFAULT_LIN_DEFLECTION = 0.1;
-const DEFAULT_ANG_DEFLECTION = 0.5;
-
 export class Mesh {
   // Wrapper methods (public API for external callers)
-  static triangulateFace(face: Face, vertexOffset: number = 0): MeshData | null {
-    return Mesh.triangulateFaceRaw(face.getShape() as TopoDS_Face, vertexOffset);
+  static triangulateFace(face: Face, vertexOffset: number = 0, opts?: EnsureTriangulatedOptions): MeshData | null {
+    return Mesh.triangulateFaceRaw(face.getShape() as TopoDS_Face, vertexOffset, opts);
   }
 
-  static discretizeEdge(edge: Shape): MeshData {
-    return Mesh.discretizeEdgeRaw(edge.getShape());
+  static discretizeEdge(edge: Shape, opts?: EnsureTriangulatedOptions): MeshData {
+    return Mesh.discretizeEdgeRaw(edge.getShape(), opts);
   }
 
   /**
@@ -40,8 +46,8 @@ export class Mesh {
    */
   static ensureTriangulated(shape: TopoDS_Shape, opts: EnsureTriangulatedOptions = {}): boolean {
     const oc = getOC();
-    const linDefl = opts.linDefl ?? DEFAULT_LIN_DEFLECTION;
-    const angDefl = opts.angDefl ?? DEFAULT_ANG_DEFLECTION;
+    const linDefl = opts.linDefl ?? DEFAULT_MESH_CONFIG.linDefl;
+    const angDefl = opts.angDefl ?? DEFAULT_MESH_CONFIG.angDefl;
     const relative = opts.relative ?? false;
     const checkFreeEdges = opts.checkFreeEdges ?? true;
 
@@ -56,9 +62,9 @@ export class Mesh {
   }
 
   // Raw methods (for oc-internal use)
-  static triangulateFaceRaw(face: TopoDS_Face, vertexOffset: number = 0): MeshData | null {
+  static triangulateFaceRaw(face: TopoDS_Face, vertexOffset: number = 0, opts?: EnsureTriangulatedOptions): MeshData | null {
     try {
-      Mesh.ensureTriangulated(face);
+      Mesh.ensureTriangulated(face, opts);
     } catch (e) {
       console.error("Face mesh failed", e);
       return null;
@@ -195,7 +201,7 @@ export class Mesh {
    * meshed face). Caller must have already run `ensureTriangulated` on the
    * edge or its parent wire.
    */
-  static discretizeEdgeRaw(edge: TopoDS_Shape): MeshData {
+  static discretizeEdgeRaw(edge: TopoDS_Shape, opts?: EnsureTriangulatedOptions): MeshData {
     const oc = getOC();
     const ocEdge = oc.TopoDS.Edge(edge);
 
@@ -204,7 +210,7 @@ export class Mesh {
       return { vertices: [], normals: [], indices: [] };
     }
 
-    Mesh.ensureTriangulated(edge);
+    Mesh.ensureTriangulated(edge, opts);
 
     const loc = new oc.TopLoc_Location();
     const polyHandle = oc.BRep_Tool.Polygon3D(ocEdge, loc);

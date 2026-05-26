@@ -5,7 +5,7 @@ import extrude from "../../../core/extrude.js";
 import { arc, hLine, vLine, line } from "../../../core/2d/index.js";
 import { ExtrudeBase } from "../../../features/extrude-base.js";
 import { Solid } from "../../../common/solid.js";
-import { getEdgesByType, getFacesByType } from "../../utils.js";
+import { getEdgesByType } from "../../utils.js";
 
 describe("arc", () => {
   setupOC();
@@ -33,6 +33,85 @@ describe("arc", () => {
     it("should create an arc from start to end around a center point", () => {
       sketch("xy", () => {
         arc([0, 0], [20, 0]).center([10, 0]);
+        line([0, 0]);
+      });
+      const e = extrude(10) as ExtrudeBase;
+      render();
+
+      expect(e.getShapes()).toHaveLength(1);
+
+      const solid = e.getShapes()[0] as Solid;
+      const arcEdges = getEdgesByType(solid, "arc");
+      expect(arcEdges.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("clockwise arc with .cw()", () => {
+    it("should create a CW arc from start to end around a center point", () => {
+      sketch("xy", () => {
+        arc([0, 0], [20, 0]).center([10, 0]).cw();
+        line([0, 0]);
+      });
+      const e = extrude(10) as ExtrudeBase;
+      render();
+
+      expect(e.getShapes()).toHaveLength(1);
+
+      const solid = e.getShapes()[0] as Solid;
+      const arcEdges = getEdgesByType(solid, "arc");
+      expect(arcEdges.length).toBeGreaterThan(0);
+    });
+
+    it("should create a valid arc when chained from current position", () => {
+      sketch("xy", () => {
+        hLine(20);
+        arc([0, 0]).center([10, 0]).cw();
+      });
+      const e = extrude(10) as ExtrudeBase;
+      render();
+
+      expect(e.getShapes()).toHaveLength(1);
+
+      const solid = e.getShapes()[0] as Solid;
+      const arcEdges = getEdgesByType(solid, "arc");
+      expect(arcEdges.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("major arc with .major()", () => {
+    it("should create a major arc (>180°) from current position", () => {
+      sketch("xy", () => {
+        arc([30, 0]).radius(20).major();
+        line([0, 0]);
+      });
+      const e = extrude(10) as ExtrudeBase;
+      render();
+
+      expect(e.getShapes()).toHaveLength(1);
+
+      const solid = e.getShapes()[0] as Solid;
+      const arcEdges = getEdgesByType(solid, "arc");
+      expect(arcEdges.length).toBeGreaterThan(0);
+    });
+
+    it("should create a major arc with two explicit points", () => {
+      sketch("xy", () => {
+        arc([0, 0], [30, 0]).radius(20).major();
+        line([0, 0]);
+      });
+      const e = extrude(10) as ExtrudeBase;
+      render();
+
+      expect(e.getShapes()).toHaveLength(1);
+
+      const solid = e.getShapes()[0] as Solid;
+      const arcEdges = getEdgesByType(solid, "arc");
+      expect(arcEdges.length).toBeGreaterThan(0);
+    });
+
+    it("should create a CW major arc with negative radius and major", () => {
+      sketch("xy", () => {
+        arc([30, 0]).radius(-20).major();
         line([0, 0]);
       });
       const e = extrude(10) as ExtrudeBase;

@@ -1,5 +1,8 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
-import { Axis } from "../math/axis.js";
+import { AxisObjectBase } from "./axis-renderable-base.js";
+import { RepeatBase, RepeatAxisSource } from "./repeat-base.js";
+
+export { RepeatAxisSource } from "./repeat-base.js";
 
 export type LinearRepeatOptions = {
   count: number | number[];
@@ -10,9 +13,9 @@ export type LinearRepeatOptions = {
     | { length: number | number[]; offset?: never }
 );
 
-export class RepeatLinear extends SceneObject {
+export class RepeatLinear extends RepeatBase {
   constructor(
-    public axes: Axis[],
+    public axes: RepeatAxisSource[],
     public options: LinearRepeatOptions,
     public targetObjects: SceneObject[] | null = null
     ) {
@@ -25,6 +28,11 @@ export class RepeatLinear extends SceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
+    for (const axis of this.axes) {
+      if (axis instanceof AxisObjectBase) {
+        axis.removeShapes(this);
+      }
+    }
     this.saveShapesSnapshot(context);
   }
 
@@ -42,7 +50,7 @@ export class RepeatLinear extends SceneObject {
     }
 
     for (let i = 0; i < this.axes.length; i++) {
-      if (!this.axes[i].equals(other.axes[i])) {
+      if (!RepeatLinear.axisSourceEquals(this.axes[i], other.axes[i])) {
         return false;
       }
     }

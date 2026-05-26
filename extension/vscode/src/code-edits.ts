@@ -144,3 +144,158 @@ export async function handleSetPickPoints(client: Client, msg: { points: [number
     client.updateLiveCode(doc.fileName, doc.getText());
   }
 }
+
+export async function handleInsertGeometry(
+  client: Client,
+  msg: {
+    statement: string;
+    sketchSourceLocation: { line: number };
+    newVariable?: { name: string; initializer: string } | null;
+  },
+) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.insertGeometry(
+    client.serverUrl, doc.getText(), msg.sketchSourceLocation.line, msg.statement, client.logger,
+    msg.newVariable ?? null,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
+export async function handleUpdateDimension(
+  client: Client,
+  msg: { newValue: number; sourceLocation: { line: number } },
+) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.updateDimension(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.newValue, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
+export async function handleUpdateDimensionExpression(
+  client: Client,
+  msg: {
+    expression: string;
+    sourceLocation: { line: number };
+    sketchSourceLine?: number | null;
+    newVariable?: { name: string; initializer: string } | null;
+    dimensionOffset?: number;
+  },
+) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.updateDimensionExpression(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.expression, client.logger,
+    msg.sketchSourceLine ?? null,
+    msg.newVariable ?? null,
+    msg.dimensionOffset ?? 0,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
+export async function handleUpdatePosition(
+  client: Client,
+  msg: { newPosition: [number, number]; sourceLocation: { line: number }; pointIndex?: number },
+) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.updatePosition(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.newPosition, client.logger,
+    msg.pointIndex ?? 0,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
+export async function handleSetLinePosition(
+  client: Client,
+  msg: { newStart: [number, number]; newEnd: [number, number]; sourceLocation: { line: number } },
+) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.setLinePosition(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.newStart, msg.newEnd, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
+export async function handleSetChainPositions(
+  client: Client,
+  msg: { updates: { pointIndex: number; position: [number, number] }[]; sourceLocation: { line: number } },
+) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.setChainPositions(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.updates, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
+export async function handleSetRectDimensions(
+  client: Client,
+  msg: { startPoint: [number, number] | null; width: number; height: number; sourceLocation: { line: number } },
+) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.setRectDimensions(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.startPoint, msg.width, msg.height, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}

@@ -1,5 +1,5 @@
 import { viewerSettings } from '../scene/viewer-settings';
-import { savePreference } from '../preferences';
+import { savePreference } from '../api';
 import { ICON_FIT, ICON_ORTHO, ICON_PERSP, ICON_GRID, ICON_SUN, ICON_MOON, ICON_SECTION_VIEW } from './icons';
 
 const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
@@ -118,6 +118,7 @@ export class SettingsPanel {
     const btn = this.sectionViewEl.querySelector<HTMLButtonElement>('[data-action="section-view"]');
     if (btn) { btn.className = active ? BTN_ACTIVE : BTN_BASE; }
   }
+
 
   setProjectionLocked(locked: boolean): void {
     this.el.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) => {

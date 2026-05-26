@@ -7,6 +7,7 @@ import {
   WebGLRenderer,
 } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
+import { computeSceneBounds, resolveView, type ScreenshotView } from './screenshot-view';
 
 export interface ScreenshotOptions {
   width: number;
@@ -18,6 +19,7 @@ export interface ScreenshotOptions {
   /** Fit camera to the model without cropping the canvas. */
   fitToModel: boolean;
   margin: number;
+  view: ScreenshotView;
 }
 
 const DEFAULTS: ScreenshotOptions = {
@@ -29,12 +31,70 @@ const DEFAULTS: ScreenshotOptions = {
   autoCrop: false,
   fitToModel: false,
   margin: 0,
+  view: { kind: 'current' },
 };
 
 /** Render the current scene to a PNG blob with the given options. */
 export function captureScreenshot(sceneCtx: SceneContext, opts: Partial<ScreenshotOptions> = {}): Promise<Blob> {
   const options = { ...DEFAULTS, ...opts };
-  const { width, height, showGrid, showAxes, transparent, autoCrop, fitToModel, margin } = options;
+  const canvas = renderToCanvas(sceneCtx, options);
+  return canvasToPng(canvas);
+}
+
+/**
+ * Render four sub-images (front, top, right, iso-ftr) into a single 2×2
+ * composite PNG. `width`/`height` is the *total* output size; each tile is
+ * rendered at half that.
+ */
+export function captureScreenshotMulti(
+  sceneCtx: SceneContext,
+  opts: Partial<ScreenshotOptions> = {},
+): Promise<Blob> {
+  const merged: ScreenshotOptions = { ...DEFAULTS, ...opts };
+  const tileW = Math.max(1, Math.floor(merged.width / 2));
+  const tileH = Math.max(1, Math.floor(merged.height / 2));
+
+  const tiles: Array<{ x: number; y: number; view: ScreenshotView }> = [
+    { x: 0,     y: 0,     view: { kind: 'named', name: 'front' } },
+    { x: tileW, y: 0,     view: { kind: 'named', name: 'top' } },
+    { x: 0,     y: tileH, view: { kind: 'named', name: 'right' } },
+    { x: tileW, y: tileH, view: { kind: 'named', name: 'iso-ftr' } },
+  ];
+
+  const composite = document.createElement('canvas');
+  composite.width = tileW * 2;
+  composite.height = tileH * 2;
+  const ctx2d = composite.getContext('2d');
+  if (!ctx2d) {
+    return Promise.reject(new Error('Failed to get composite 2d context.'));
+  }
+  if (!merged.transparent) {
+    ctx2d.fillStyle = '#ffffff';
+    ctx2d.fillRect(0, 0, composite.width, composite.height);
+  }
+
+  for (const tile of tiles) {
+    const tileCanvas = renderToCanvas(sceneCtx, {
+      ...merged,
+      width: tileW,
+      height: tileH,
+      view: tile.view,
+      // Disable autoCrop per-tile so tiles align on the grid.
+      autoCrop: false,
+      fitToModel: true,
+    });
+    ctx2d.drawImage(tileCanvas, tile.x, tile.y);
+  }
+
+  return canvasToPng(composite);
+}
+
+/**
+ * The core render-with-save/restore routine. Returns the final canvas (either
+ * the raw renderer canvas, or an auto-cropped copy).
+ */
+function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTMLCanvasElement {
+  const { width, height, showGrid, showAxes, transparent, autoCrop, fitToModel, margin, view } = options;
 
   const scene = sceneCtx.scene;
   const camera = sceneCtx.camera;
@@ -62,8 +122,8 @@ export function captureScreenshot(sceneCtx: SceneContext, opts: Partial<Screensh
   if (sketchAxes) { sketchAxes.visible = showAxes; }
   if (transparent) { scene.background = null; }
 
-  // Adjust camera projection for export aspect ratio BEFORE fitting,
-  // so fitToSphere computes zoom against the correct frustum dimensions.
+  // Adjust camera projection for export aspect ratio BEFORE applying a view,
+  // so view fitting computes zoom against the correct frustum dimensions.
   const exportAspect = width / height;
   const cam = camera as any;
   let savedCameraState: any;
@@ -79,10 +139,34 @@ export function captureScreenshot(sceneCtx: SceneContext, opts: Partial<Screensh
     cam.updateProjectionMatrix();
   }
 
-  // Auto-fit the model into view before rendering.
-  // We position the camera directly instead of going through camera-controls,
-  // since cc.update(0) may not apply the state to the camera reliably.
-  if (autoCrop || fitToModel) {
+  // --- Apply requested view (if any) ---
+  // Stateless: we mutate the camera directly and restore it below. The user's
+  // CameraControls are never moved, so the interactive view is preserved.
+  const resolved = resolveSceneViewport(sceneCtx);
+  if (view.kind !== 'current') {
+    const target = resolveView(view, resolved.center, resolved.diameter, savedCamPos, savedCamTarget);
+    if (target) {
+      camera.position.copy(target.eye);
+      camera.lookAt(target.target);
+
+      if (cam.isOrthographicCamera && resolved.diameter > 0) {
+        const frustumW = cam.right - cam.left;
+        const frustumH = cam.top - cam.bottom;
+        cam.zoom = Math.min(frustumW / resolved.diameter, frustumH / resolved.diameter);
+      } else if (cam.isPerspectiveCamera && resolved.diameter > 0) {
+        // Place the camera at a distance that frames the bounding sphere.
+        const halfFovV = (cam.fov * Math.PI) / 360;
+        const halfFovH = Math.atan(Math.tan(halfFovV) * cam.aspect);
+        const halfFov = Math.min(halfFovV, halfFovH);
+        const distance = (resolved.diameter / 2) / Math.sin(halfFov);
+        const dir = camera.position.clone().sub(target.target).normalize();
+        camera.position.copy(target.target).add(dir.multiplyScalar(distance));
+        camera.lookAt(target.target);
+      }
+      cam.updateProjectionMatrix();
+    }
+  } else if (autoCrop || fitToModel) {
+    // Original behavior: keep the user's viewing direction, just refit.
     const compiled = scene.getObjectByName('compiledMesh');
     if (compiled) {
       const box = new Box3();
@@ -92,7 +176,6 @@ export function captureScreenshot(sceneCtx: SceneContext, opts: Partial<Screensh
         const diameter = box.getSize(new Vector3()).length() * FIT_PADDING;
 
         if (diameter > 0) {
-          // Shift camera along its current viewing direction to center on the geometry
           const dir = new Vector3();
           camera.getWorldDirection(dir);
           camera.position.copy(center).sub(dir.clone().multiplyScalar(1000));
@@ -145,6 +228,12 @@ export function captureScreenshot(sceneCtx: SceneContext, opts: Partial<Screensh
     }
   }
 
+  // Detach exportCanvas before disposing the renderer, so callers can still
+  // read its pixels (drawImage is synchronous, so this is fine for the
+  // composite path too).
+  const finalCanvas = detachCanvas(exportCanvas, width, height);
+
+
   // --- Restore state ---
   if (gridObj) { gridObj.visible = savedGrid!; }
   if (defaultAxes) { defaultAxes.visible = savedDefaultAxes!; }
@@ -174,9 +263,12 @@ export function captureScreenshot(sceneCtx: SceneContext, opts: Partial<Screensh
   tmpRenderer.dispose();
   sceneCtx.requestRender();
 
-  // --- Extract PNG blob ---
+  return finalCanvas;
+}
+
+function canvasToPng(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise<Blob>((resolve, reject) => {
-    exportCanvas.toBlob((blob) => {
+    canvas.toBlob((blob) => {
       if (blob) {
         resolve(blob);
       } else {
@@ -185,6 +277,35 @@ export function captureScreenshot(sceneCtx: SceneContext, opts: Partial<Screensh
     }, 'image/png');
   });
 }
+
+/**
+ * Copy a canvas to a fresh one we own — the WebGLRenderer's canvas is disposed
+ * with the renderer, so we need to detach the pixels before that happens.
+ */
+function detachCanvas(src: HTMLCanvasElement, w: number, h: number): HTMLCanvasElement {
+  const out = document.createElement('canvas');
+  out.width = src.width || w;
+  out.height = src.height || h;
+  const ctx = out.getContext('2d');
+  if (!ctx) {
+    return src;
+  }
+  ctx.drawImage(src, 0, 0);
+  return out;
+}
+
+function resolveSceneViewport(sceneCtx: SceneContext): { center: Vector3; diameter: number } {
+  const compiled = sceneCtx.scene.getObjectByName('compiledMesh');
+  const root: Object3D = compiled ?? sceneCtx.scene;
+  const box = computeSceneBounds(root);
+  if (box.isEmpty()) {
+    return { center: new Vector3(), diameter: 100 };
+  }
+  const center = box.getCenter(new Vector3());
+  const diameter = box.getSize(new Vector3()).length() * FIT_PADDING;
+  return { center, diameter };
+}
+
 
 // ---------------------------------------------------------------------------
 // Helpers

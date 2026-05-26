@@ -3,6 +3,9 @@ import { AssemblyScene, SerializedInstance, SerializedMate } from "./rendering/a
 import { SceneRenderer } from "./rendering/render.js";
 import { SceneCompare } from "./rendering/scene-compare.js";
 import { AssemblyCompare } from "./rendering/assembly-compare.js";
+import { DEFAULT_MESH_CONFIG } from "./oc/mesh.js";
+import type { MeshConfig } from "./oc/mesh.js";
+import type { FluidCADOptions } from "./index.js";
 import { FileImport } from "./io/file-import.js";
 import { FileExport } from "./io/file-export.js";
 import type { ExportOptions } from "./io/file-export.js";
@@ -20,9 +23,10 @@ import type { HitTestResult } from "./oc/hit-test.js";
 class SceneManager {
   currentScene: Scene = new Scene();
   currentFile: string = '';
-  renderer = new SceneRenderer();
+  renderer: SceneRenderer;
 
-  constructor(public rootPath: string) {
+  constructor(public rootPath: string, meshConfig: MeshConfig) {
+    this.renderer = new SceneRenderer(meshConfig);
   }
 
   setCurrentFile(filePath: string) {
@@ -149,9 +153,16 @@ class SceneManager {
 
 let currentManager: SceneManager | null = null;
 
-export function createManager(rootPath: string) {
+function resolveMeshConfig(options?: FluidCADOptions): MeshConfig {
+  return {
+    linDefl: options?.mesh?.lineDeflection ?? DEFAULT_MESH_CONFIG.linDefl,
+    angDefl: options?.mesh?.angularDeflection ?? DEFAULT_MESH_CONFIG.angDefl,
+  };
+}
+
+export function createManager(rootPath: string, options?: FluidCADOptions) {
   console.log(`Creating SceneManager with root path: ${rootPath}`);
-  currentManager = new SceneManager(rootPath);
+  currentManager = new SceneManager(rootPath, resolveMeshConfig(options));
   return currentManager;
 }
 

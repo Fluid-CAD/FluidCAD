@@ -8,6 +8,7 @@ import { Sketch } from "../features/2d/sketch.js";
 import { transformMeshes } from "./mesh-transform.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { Mesh } from "../oc/mesh.js";
+import type { MeshConfig } from "../oc/mesh.js";
 import { Profiler } from "../common/profiler.js";
 import { describeError } from "../common/describe-error.js";
 
@@ -22,7 +23,13 @@ type RenderEmit = {
 };
 
 export class SceneRenderer {
-  private readonly meshBuilder = new MeshBuilder();
+  private readonly meshConfig: MeshConfig;
+  private readonly meshBuilder: MeshBuilder;
+
+  constructor(meshConfig: MeshConfig) {
+    this.meshConfig = meshConfig;
+    this.meshBuilder = new MeshBuilder(meshConfig);
+  }
 
   render(scene: Scene): Scene {
     const sceneObjects = scene.getAllSceneObjects();
@@ -168,7 +175,7 @@ export class SceneRenderer {
     const compound = ShapeOps.makeCompoundRaw([...targets].map(s => s.getShape()));
     try {
       const t0 = performance.now();
-      Mesh.ensureTriangulated(compound);
+      Mesh.ensureTriangulated(compound, this.meshConfig);
       console.log(`Batched mesh: ${targets.size} shapes in ${(performance.now() - t0).toFixed(1)}ms`);
     } finally {
       compound.delete();

@@ -206,6 +206,50 @@ function M.handle_message(msg)
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.update_insert_chain(code, msg.sourceLocation.line, msg.edit)
       end)
+    elseif msg.type == 'insert-geometry' then
+      local new_var = msg.newVariable
+      if new_var == vim.NIL then
+        new_var = nil
+      end
+      M.apply_code_edit(msg.sketchSourceLocation.filePath, function(code_api, code)
+        return code_api.insert_geometry(code, msg.sketchSourceLocation.line, msg.statement, new_var)
+      end)
+    elseif msg.type == 'update-position' then
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.update_position(code, msg.sourceLocation.line, msg.newPosition, msg.pointIndex or 0)
+      end)
+    elseif msg.type == 'set-line-position' then
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.set_line_position(code, msg.sourceLocation.line, msg.newStart, msg.newEnd)
+      end)
+    elseif msg.type == 'set-chain-positions' then
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.set_chain_positions(code, msg.sourceLocation.line, msg.updates)
+      end)
+    elseif msg.type == 'set-rect-dimensions' then
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.set_rect_dimensions(code, msg.sourceLocation.line, msg.startPoint, msg.width, msg.height)
+      end)
+    elseif msg.type == 'update-dimension' then
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.update_dimension(code, msg.sourceLocation.line, msg.newValue)
+      end)
+    elseif msg.type == 'update-dimension-expression' then
+      local new_var = msg.newVariable
+      if new_var == vim.NIL then
+        new_var = nil
+      end
+      local sketch_line = msg.sketchSourceLine
+      if sketch_line == vim.NIL then
+        sketch_line = nil
+      end
+      local dim_offset = msg.dimensionOffset or 0
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.update_dimension_expression(
+          code, msg.sourceLocation.line, msg.expression,
+          sketch_line, new_var, dim_offset
+        )
+      end)
     elseif msg.type == 'add-breakpoint' then
       local ok, breakpoints = pcall(require, 'fluidcad.breakpoints')
       if ok and msg.filePath and msg.line then

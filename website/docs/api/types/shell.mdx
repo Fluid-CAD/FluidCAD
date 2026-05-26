@@ -73,3 +73,17 @@ or on the opening rim.
 |-----------|------|-------------|
 | `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
 
+---
+
+### join()
+
+```ts
+join(type: ShellJoinType): this
+```
+
+Sets the join type used at inner-wall corners.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | ShellJoinType | `'arc'` (default) for rounded blends, `'intersection'` for sharp corners, or `'tangent'` for tangent-continuous blends. |
+

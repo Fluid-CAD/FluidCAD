@@ -129,8 +129,15 @@ export function registerBuilder<T extends Function>(builder: (context: ScenePars
   return fn as ReturnType<typeof builder>;;
 }
 
-export async function init(rootPath?: string) {
+export interface FluidCADOptions {
+  mesh?: {
+    lineDeflection?: number;
+    angularDeflection?: number;
+  };
+}
+
+export async function init(options?: FluidCADOptions) {
   await loadOC();
-  const resolvedPath = rootPath || process.env.FLUIDCAD_WORKSPACE_PATH || '';
-  return createManager(resolvedPath);
+  const resolvedPath = process.env.FLUIDCAD_WORKSPACE_PATH || '';
+  return createManager(resolvedPath, options);
 }

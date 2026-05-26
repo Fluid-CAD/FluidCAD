@@ -3,7 +3,6 @@ import { Axis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { rad } from "../helpers/math-helpers.js";
 import { ShapeOps } from "../oc/shape-ops.js";
-import sketch from "../core/sketch.js";
 
 export type CircularCopyOptions = {
   count: number;
@@ -30,6 +29,14 @@ export class CopyCircular extends SceneObject {
       objects = context.getActiveSceneObjects();
     }
 
+    const originalShapes = objects.flatMap(obj => obj.getShapes());
+    for (const obj of objects) {
+      obj.removeShapes(this);
+    }
+    for (const shape of originalShapes) {
+      this.addShape(shape);
+    }
+
     const { count, centered, skip } = this.options;
 
     let offset: number;
@@ -47,12 +54,10 @@ export class CopyCircular extends SceneObject {
       const angle = startOffset + offset * i;
       const matrix = Matrix4.fromRotationAroundAxis(this.axis.origin, this.axis.direction, rad(angle));
 
-      for (const obj of objects) {
-        for (const shape of obj.getShapes()) {
-          const transformed = ShapeOps.transform(shape, matrix);
-          transformed.setMeshSource(shape, matrix);
-          this.addShape(transformed);
-        }
+      for (const shape of originalShapes) {
+        const transformed = ShapeOps.transform(shape, matrix);
+        transformed.setMeshSource(shape, matrix);
+        this.addShape(transformed);
       }
     }
   }

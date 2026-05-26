@@ -14,9 +14,30 @@ export class ParamsPanel {
     this.root.className = 'w-[220px] mt-2 select-none hidden';
     container.appendChild(this.root);
 
+    const panel = document.createElement('div');
+    panel.className = 'panel-bg border border-base-content/10 rounded-md overflow-y-auto max-h-[60vh]';
+    this.root.appendChild(panel);
+
+    const header = document.createElement('div');
+    header.className = 'flex items-center justify-between px-3 pt-2 pb-1';
+    header.innerHTML = `
+      <span class="text-xs font-medium text-base-content/50 uppercase tracking-wider">Parameters</span>
+      <button class="btn btn-ghost btn-xs btn-circle text-base-content/40 hover:text-base-content/70" title="Reset all to defaults" data-reset-params>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+          <path fill-rule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H4.598a.75.75 0 00-.75.75v3.634a.75.75 0 001.5 0v-2.09l.312.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.39zm-10.624-2.85a5.5 5.5 0 019.201-2.465l.312.31H11.77a.75.75 0 000 1.5h3.634a.75.75 0 00.75-.75V3.535a.75.75 0 00-1.5 0v2.09l-.312-.31A7 7 0 002.63 8.453a.75.75 0 001.449.39z" clip-rule="evenodd" />
+        </svg>
+      </button>
+    `;
+    panel.appendChild(header);
+
+    header.querySelector('[data-reset-params]')!.addEventListener('click', () => {
+      fetch('/api/reset-params', { method: 'POST' })
+        .catch(err => console.error('Reset params failed:', err));
+    });
+
     this.body = document.createElement('div');
-    this.body.className = 'panel-bg border border-base-content/10 rounded-md p-2 overflow-y-auto max-h-[60vh]';
-    this.root.appendChild(this.body);
+    this.body.className = 'px-3 pb-2';
+    panel.appendChild(this.body);
   }
 
   update(params: UIParamDefinition[]): void {

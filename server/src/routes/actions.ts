@@ -179,6 +179,29 @@ export function createActionsRouter(
     res.json({ success: true });
   });
 
+  router.post('/reset-params', async (_req, res) => {
+    fluidCadServer.resetParams(fluidCadServer.getCurrentFileName());
+    const data = await fluidCadServer.recomputeCurrentFile();
+    if (!data) {
+      res.status(404).json({ error: 'No active scene' });
+      return;
+    }
+    sendToExtension({
+      type: 'scene-rendered',
+      absPath: data.absPath,
+      result: data.result,
+      rollbackStop: data.rollbackStop,
+    });
+    broadcastToUI({
+      type: 'scene-rendered',
+      result: data.result,
+      absPath: data.absPath,
+      rollbackStop: data.rollbackStop,
+      params: data.params,
+    });
+    res.json({ success: true });
+  });
+
   router.post('/clear-breakpoints', (_req, res) => {
     sendToExtension({ type: 'clear-breakpoints' });
     res.json({ success: true });

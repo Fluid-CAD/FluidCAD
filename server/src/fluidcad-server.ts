@@ -1,7 +1,8 @@
 import { createHash } from 'crypto';
 import { join } from 'path';
 import { existsSync } from 'fs';
-import { ViteManager } from './vite-manager.ts';
+import type { SceneHost } from './host/scene-host.ts';
+import { LocalSceneHost } from './host/local-scene-host.ts';
 import { normalizePath } from './normalize-path.ts';
 import { BreakpointHit } from '../../lib/dist/common/breakpoint-hit.js';
 import { createParamRegistry, getParamRegistry } from '../../lib/dist/index.js';
@@ -82,7 +83,7 @@ export type ShapeList = {
 };
 
 export class FluidCadServer {
-  private viteManager = new ViteManager();
+  private host: SceneHost;
   private sceneManager: SceneManager | undefined;
   private previousScenes: Map<string, any> = new Map();
   private renderingCache = new Map<string, any[]>();
@@ -98,17 +99,21 @@ export class FluidCadServer {
   private lastRollbackStop: number = -1;
   private compileError: CompileError | null = null;
 
+  constructor(host: SceneHost = new LocalSceneHost()) {
+    this.host = host;
+  }
+
   getCurrentCode(): string | null {
     if (!this.currentFileName) return null;
-    return this.viteManager.getBuffer(this.currentFileName);
+    return this.host.getBuffer(this.currentFileName);
   }
 
   async init(workspacePath: string) {
-    await this.viteManager.init(workspacePath);
+    await this.host.init(workspacePath);
 
     const initFilePath = normalizePath(join(workspacePath, 'init.js'));
     if (existsSync(initFilePath)) {
-      const { default: _sceneManager } = await this.viteManager.loadModule(initFilePath);
+      const { default: _sceneManager } = await this.host.loadModule(initFilePath);
       this.sceneManager = await _sceneManager;
     }
   }
@@ -139,7 +144,7 @@ export class FluidCadServer {
     try {
       let scene = this.sceneManager.startScene();
       this.sceneManager.setCurrentFile(normalizedFileName);
-      this.viteManager.invalidateModule();
+      this.host.invalidateModule();
 
       const registry = createParamRegistry();
       const overrides = this.paramOverrides.get(normalizedFileName);
@@ -149,7 +154,7 @@ export class FluidCadServer {
 
       let breakpointHit = false;
       try {
-        await this.viteManager.loadModule(filePath);
+        await this.host.loadModule(filePath);
       }
       catch (e) {
         if (e instanceof BreakpointHit) {
@@ -193,7 +198,7 @@ export class FluidCadServer {
       };
     }
     catch (error) {
-      this.viteManager.invalidateModule();
+      this.host.invalidateModule();
       console.log('Error processing file:', error);
       throw error;
     }
@@ -217,7 +222,7 @@ export class FluidCadServer {
     }
 
     const id = `virtual:live-render:${fileName}`;
-    this.viteManager.setBuffer(id, code);
+    this.host.setBuffer(id, code);
     this.renderingCache.delete(fileName);
     const result = await this.processFile(id, true);
     if (result) {
@@ -363,6 +368,12 @@ export class FluidCadServer {
     fileName = normalizePath(fileName);
     this.paramOverrides.delete(fileName);
     this.lastRendered.delete(fileName);
+  }
+
+  getParamOverrides(fileName: string): Record<string, any> {
+    const map = this.paramOverrides.get(normalizePath(fileName));
+    if (!map) return {};
+    return Object.fromEntries(map);
   }
 
   getCurrentFileName(): string {

@@ -1,32 +1,8 @@
 import { type ViteDevServer, createServer } from 'vite';
 import { dirname, resolve, isAbsolute } from 'path';
-import { normalizePath } from './normalize-path.ts';
-
-const BLOCKED_NODE_MODULES = new Set([
-  'fs',
-  'child_process',
-  'net',
-  'dgram',
-  'tls',
-  'http',
-  'https',
-  'http2',
-  'os',
-  'worker_threads',
-  'vm',
-  'cluster',
-  'dns',
-  'module',
-]);
-
-function getBlockedNodeModule(id: string): string | null {
-  let name = id;
-  if (name.startsWith('node:')) {
-    name = name.slice(5);
-  }
-  const baseName = name.split('/')[0];
-  return BLOCKED_NODE_MODULES.has(baseName) ? baseName : null;
-}
+import { normalizePath } from '../normalize-path.ts';
+import type { SceneHost } from './scene-host.ts';
+import { getBlockedNodeModule } from './blocked-imports.ts';
 
 const IMPORT_PATTERN = /\b(?:import|export)\s[\s\S]*?from\s+['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 
@@ -43,8 +19,8 @@ function scanForBlockedImports(code: string): string | null {
   return null;
 }
 
-export class ViteManager {
-  server: ViteDevServer;
+export class LocalSceneHost implements SceneHost {
+  server!: ViteDevServer;
   private rootPath: string = '';
   private buffers: Map<string, string> = new Map();
 
@@ -96,7 +72,7 @@ export class ViteManager {
               let mod = this.getModuleInfo(id);
               if (mod) {
                 that.server.moduleGraph.invalidateModule(
-                  that.server.moduleGraph.getModuleById(id)
+                  that.server.moduleGraph.getModuleById(id)!
                 );
               }
 

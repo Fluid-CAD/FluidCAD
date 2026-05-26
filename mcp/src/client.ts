@@ -87,7 +87,15 @@ export class FluidCadClient {
     return readJsonBody<T>(res);
   }
 
-  async postRaw(path: string, body: unknown): Promise<{ statusCode: number; data: Buffer; contentType: string }> {
+  async postRaw(
+    path: string,
+    body: unknown,
+  ): Promise<{
+    statusCode: number;
+    data: Buffer;
+    contentType: string;
+    headers: Record<string, string>;
+  }> {
     const res = await this.pool.request({
       path,
       method: 'POST',
@@ -99,7 +107,12 @@ export class FluidCadClient {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     }
     const contentType = String(res.headers['content-type'] ?? 'application/octet-stream');
-    return { statusCode: res.statusCode, data: Buffer.concat(chunks), contentType };
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(res.headers)) {
+      if (typeof v === 'string') headers[k.toLowerCase()] = v;
+      else if (Array.isArray(v) && v.length > 0) headers[k.toLowerCase()] = v[0];
+    }
+    return { statusCode: res.statusCode, data: Buffer.concat(chunks), contentType, headers };
   }
 
   async ensureWebSocket(): Promise<WebSocket> {

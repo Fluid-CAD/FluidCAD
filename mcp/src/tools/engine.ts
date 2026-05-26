@@ -151,6 +151,63 @@ export type ExportBase64Output = {
 };
 export type ExportOutput = ExportSavedOutput | ExportBase64Output;
 
+// ---------------------------------------------------------------------------
+// pack_model
+// ---------------------------------------------------------------------------
+
+export type PackModelInput = WorkspaceArg & {
+  name?: string;
+  description?: string;
+  saveAsPath?: string;
+};
+export type PackModelOutput =
+  | { savedTo: string; bytesWritten: number; packageName: string }
+  | { mimeType: string; base64: string; bytes: number; packageName: string };
+
+export async function packModel(input: PackModelInput): Promise<ToolResult<PackModelOutput>> {
+  if (input.saveAsPath !== undefined && typeof input.saveAsPath !== 'string') {
+    return err('invalid-input', '`saveAsPath` must be a string when provided.');
+  }
+  const resolved = resolveClient(input);
+  if (resolved.ok === false) {
+    return resolved as ToolResult<PackModelOutput>;
+  }
+  const { client } = resolved.data;
+  try {
+    const raw = await client.postRaw('/api/pack', {
+      name: input.name,
+      description: input.description,
+    });
+    if (raw.statusCode >= 400) {
+      const text = raw.data.toString('utf8');
+      return err('http-error', `HTTP ${raw.statusCode}: ${text.slice(0, 200)}`, {
+        statusCode: raw.statusCode,
+      });
+    }
+    const packageName = raw.headers['x-fluidcad-package-name'] ?? 'model';
+    if (input.saveAsPath) {
+      const absPath = path.resolve(input.saveAsPath);
+      await fsp.writeFile(absPath, raw.data);
+      return ok({ savedTo: absPath, bytesWritten: raw.data.length, packageName });
+    }
+    return ok({
+      mimeType: raw.contentType,
+      base64: raw.data.toString('base64'),
+      bytes: raw.data.length,
+      packageName,
+    });
+  } catch (e: any) {
+    if (e instanceof HttpError) {
+      return err('http-error', `HTTP ${e.statusCode}: ${e.body.slice(0, 200)}`, {
+        statusCode: e.statusCode,
+      });
+    }
+    return err('internal', e?.message ?? String(e));
+  } finally {
+    await client.close().catch(() => {});
+  }
+}
+
 export async function exportShapes(input: ExportInput): Promise<ToolResult<ExportOutput>> {
   if (input?.format !== 'step' && input?.format !== 'stl') {
     return err('invalid-input', '`format` is required and must be "step" or "stl".');

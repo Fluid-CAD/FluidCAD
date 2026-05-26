@@ -359,6 +359,12 @@ export class FluidCadServer {
     this.lastRendered.delete(fileName);
   }
 
+  resetParams(fileName: string): void {
+    fileName = normalizePath(fileName);
+    this.paramOverrides.delete(fileName);
+    this.lastRendered.delete(fileName);
+  }
+
   getCurrentFileName(): string {
     return this.currentFileName;
   }

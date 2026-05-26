@@ -22,6 +22,13 @@ export interface ModelPackageManifest {
   fluidcadVersion: string;
   createdAt: string;
   entry: string;
+  /**
+   * True when the workspace had an `init.js`. Its code is bundled at the
+   * top of `bundle.js` so the engine pipeline is set up before the entry
+   * runs, and the bundle's `default` export is init's default (the
+   * SceneManager). The original `init.js` text is still preserved under
+   * `src/init.js` for display.
+   */
   hasInit: boolean;
   /**
    * Workspace-relative paths of every `.fluid.js` / `.js` source file the
@@ -42,9 +49,9 @@ export interface ModelPackageManifest {
 /**
  * Standard layout inside a `.fluidpkg` zip:
  *   manifest.json    — ModelPackageManifest as JSON
- *   bundle.js        — esbuild ES module output for the entry .fluid.js
- *                      (npm deps inlined; `fluidcad` left external for hub)
- *   init.js          — (optional) bundled init.js
+ *   bundle.js        — esbuild ES module output: init.js code first (if
+ *                      hasInit), then the entry; bundle's default export
+ *                      is init's default (SceneManager) when present
  *   src/<path>       — original source text for each workspace file the
  *                      entry imports (for display in the hub file tree)
  *   assets/<path>    — raw bytes of imported STEP files, paths preserved
@@ -52,6 +59,5 @@ export interface ModelPackageManifest {
  */
 export const MANIFEST_FILENAME = 'manifest.json';
 export const BUNDLE_FILENAME = 'bundle.js';
-export const INIT_FILENAME = 'init.js';
 export const SOURCES_PREFIX = 'src/';
 export const ASSETS_PREFIX = 'assets/';

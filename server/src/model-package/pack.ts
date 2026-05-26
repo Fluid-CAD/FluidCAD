@@ -8,7 +8,6 @@ import { getBlockedNodeModule } from '../host/blocked-imports.ts';
 import {
   ASSETS_PREFIX,
   BUNDLE_FILENAME,
-  INIT_FILENAME,
   MANIFEST_FILENAME,
   SOURCES_PREFIX,
   type ModelPackageCamera,
@@ -64,9 +63,37 @@ function blockNodeBuiltinsPlugin(): Plugin {
   };
 }
 
-async function bundleEntry(entryPath: string, workspaceAbs: string): Promise<BundleResult> {
+/**
+ * Bundle the model into a single ES module via a virtual wrapper. When
+ * `init.js` exists it runs FIRST (its side effects set up the engine) and
+ * its `default` export is forwarded as the bundle's `default` export so
+ * the hub-side loader has a handle on the SceneManager. When there's no
+ * init.js, the entry is bundled directly.
+ *
+ * The metafile output is what drives source preservation downstream —
+ * every workspace file the wrapper transitively pulls in gets shipped
+ * under `src/`, while npm deps stay inlined inside the bundle.
+ */
+async function bundleModel(
+  entryAbs: string,
+  initAbs: string | null,
+  workspaceAbs: string,
+): Promise<BundleResult> {
+  const entryRel = './' + normalizePath(relative(workspaceAbs, entryAbs));
+  const initRel = initAbs ? './' + normalizePath(relative(workspaceAbs, initAbs)) : null;
+  const wrapperSource = initRel
+    ? `import sceneManager from ${JSON.stringify(initRel)};\n` +
+      `import ${JSON.stringify(entryRel)};\n` +
+      `export default sceneManager;\n`
+    : `export * from ${JSON.stringify(entryRel)};\n`;
+
   const result = await build({
-    entryPoints: [entryPath],
+    stdin: {
+      contents: wrapperSource,
+      resolveDir: workspaceAbs,
+      sourcefile: '__fluidpkg_entry__.js',
+      loader: 'js',
+    },
     format: 'esm',
     bundle: true,
     write: false,
@@ -80,19 +107,21 @@ async function bundleEntry(entryPath: string, workspaceAbs: string): Promise<Bun
     throw new Error(result.errors.map((e) => e.text).join('\n'));
   }
   if (!result.outputFiles || result.outputFiles.length === 0) {
-    throw new Error(`esbuild produced no output for ${entryPath}`);
+    throw new Error(`esbuild produced no output for ${entryAbs}`);
   }
 
   // metafile.inputs lists every file esbuild resolved into the bundle.
   // Paths are relative to cwd (or absolute if outside) — resolve them, then
-  // keep only workspace files that aren't in node_modules. Those are the
-  // user's own sources, suitable for the hub's "view file" tree.
+  // keep only workspace files that aren't in node_modules and actually exist
+  // on disk (filters out the synthetic stdin wrapper). Those are the user's
+  // own sources, suitable for the hub's "view file" tree.
   const sourceFiles: string[] = [];
   const inputs = result.metafile?.inputs ?? {};
   for (const raw of Object.keys(inputs)) {
     const abs = normalizePath(isAbsolute(raw) ? raw : pathResolve(raw));
     if (!abs.startsWith(workspaceAbs)) continue;
     if (abs.includes('/node_modules/')) continue;
+    if (!existsSync(abs)) continue;
     sourceFiles.push(abs);
   }
 
@@ -137,21 +166,13 @@ export async function packModel(inputs: PackInputs): Promise<PackResult> {
   const entryAbs = normalizePath(inputs.entryPath);
   const workspaceAbs = normalizePath(inputs.workspacePath);
 
-  const entryBundle = await bundleEntry(entryAbs, workspaceAbs);
-
   const initPath = join(workspaceAbs, 'init.js');
-  const initBundle = existsSync(initPath)
-    ? await bundleEntry(initPath, workspaceAbs)
-    : undefined;
+  const initAbs = existsSync(initPath) ? normalizePath(initPath) : null;
 
+  const bundleResult = await bundleModel(entryAbs, initAbs, workspaceAbs);
   const assetPaths = await collectStepAssetPaths(workspaceAbs);
 
-  // Union of source files reachable from both the entry and init bundles.
-  const sourceAbsSet = new Set<string>([
-    ...entryBundle.sourceFiles,
-    ...(initBundle?.sourceFiles ?? []),
-  ]);
-  const sourcePaths = [...sourceAbsSet]
+  const sourcePaths = [...new Set(bundleResult.sourceFiles)]
     .map((abs) => normalizePath(relative(workspaceAbs, abs)))
     .sort();
 
@@ -164,7 +185,7 @@ export async function packModel(inputs: PackInputs): Promise<PackResult> {
     fluidcadVersion: inputs.fluidcadVersion,
     createdAt: new Date().toISOString(),
     entry: entryRelative,
-    hasInit: !!initBundle,
+    hasInit: !!initAbs,
     sources: sourcePaths,
     assets: assetPaths,
   };
@@ -176,8 +197,7 @@ export async function packModel(inputs: PackInputs): Promise<PackResult> {
 
   const zip = new JSZip();
   zip.file(MANIFEST_FILENAME, JSON.stringify(manifest, null, 2));
-  zip.file(BUNDLE_FILENAME, entryBundle.bundle);
-  if (initBundle) zip.file(INIT_FILENAME, initBundle.bundle);
+  zip.file(BUNDLE_FILENAME, bundleResult.bundle);
   for (const relPath of sourcePaths) {
     const bytes = await readFile(join(workspaceAbs, relPath));
     zip.file(SOURCES_PREFIX + relPath, bytes);

@@ -1,6 +1,6 @@
 import { getParamRegistry, type ControlType, type MultiControlType, type SelectOption, type ParamDefinition } from "../param-registry.js";
 
-export type ParamType = 'number' | 'slider' | 'text' | 'select' | 'checkbox';
+export type ParamType = 'number' | 'slider' | 'text' | 'select' | 'checkbox' | 'color';
 
 interface BaseParamOptions {
   group?: string;
@@ -27,6 +27,7 @@ export interface SelectParamOptions extends BaseParamOptions {
 
 export type CheckboxParamOptions = BaseParamOptions;
 export type TextParamOptions = BaseParamOptions;
+export type ColorParamOptions = BaseParamOptions;
 
 export interface ParamOptionsMap {
   number: NumberParamOptions;
@@ -34,6 +35,7 @@ export interface ParamOptionsMap {
   select: SelectParamOptions;
   checkbox: CheckboxParamOptions;
   text: TextParamOptions;
+  color: ColorParamOptions;
 }
 
 /** @deprecated Use `param()` with a `ParamOptions` object instead. */

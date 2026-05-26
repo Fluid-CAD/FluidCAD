@@ -1,4 +1,4 @@
-export type ControlType = 'auto' | 'text' | 'number' | 'slider' | 'select' | 'checkbox';
+export type ControlType = 'auto' | 'text' | 'number' | 'slider' | 'select' | 'checkbox' | 'color';
 
 export type MultiControlType = 'select' | 'checkboxes' | 'chips';
 

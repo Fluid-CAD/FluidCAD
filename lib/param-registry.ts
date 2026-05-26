@@ -1,19 +1,25 @@
 export type ControlType = 'auto' | 'text' | 'number' | 'slider' | 'select' | 'checkbox';
 
+export type MultiControlType = 'select' | 'checkboxes' | 'chips';
+
 export type SelectOption = { label: string; value: string | number };
+
+export type ParamScalar = string | number | boolean;
+export type ParamVal = ParamScalar | (string | number)[];
 
 export type ParamDefinition = {
   label: string;
-  defaultValue: string | number | boolean;
-  currentValue: string | number | boolean;
+  defaultValue: ParamVal;
+  currentValue: ParamVal;
   controlType: ControlType;
   description?: string;
   group?: string;
   min?: number;
   max?: number;
   step?: number;
-  selectOptions?: SelectOption[];
+  options?: SelectOption[];
   multi?: boolean;
+  multiControlType?: MultiControlType;
 };
 
 export class ParamRegistry {
@@ -25,28 +31,39 @@ export class ParamRegistry {
     this.definitions.set(def.label, def);
   }
 
-  resolve<T extends string | number | boolean>(label: string, defaultValue: T): T {
+  resolve(label: string, defaultValue: (string | number)[]): (string | number)[];
+  resolve<T extends string | number | boolean>(label: string, defaultValue: T): T;
+  resolve(label: string, defaultValue: ParamVal): ParamVal {
     if (!this.overrides.has(label)) {
       return defaultValue;
     }
     const override = this.overrides.get(label);
+    if (Array.isArray(defaultValue)) {
+      if (Array.isArray(override)) {
+        return override;
+      }
+      if (override != null) {
+        return [override];
+      }
+      return defaultValue;
+    }
     if (typeof defaultValue === 'boolean') {
       if (override === true || override === 'true' || override === 1) {
-        return true as T;
+        return true;
       }
       if (override === false || override === 'false' || override === 0) {
-        return false as T;
+        return false;
       }
       return defaultValue;
     }
     if (typeof defaultValue === 'number') {
       const num = Number(override);
       if (Number.isFinite(num)) {
-        return num as T;
+        return num;
       }
       return defaultValue;
     }
-    return String(override) as T;
+    return String(override);
   }
 
   setOverrides(overrides: Map<string, any>): void {

@@ -167,18 +167,69 @@ export class ParamsPanel {
         `;
       }
       case 'select': {
-        const options = (p.selectOptions ?? []).map(o => {
-          const selected = String(o.value) === String(p.currentValue) ? ' selected' : '';
-          return `<option value="${this.escapeHtml(String(o.value))}"${selected}>${this.escapeHtml(o.label)}</option>`;
-        }).join('');
-        controlHtml = `
-          <div class="mt-1">
-            <select class="select select-xs select-bordered w-full bg-base-300"
-              data-param-label="${escapedLabel}" data-param-type="select">
-              ${options}
-            </select>
-          </div>
-        `;
+        const opts = p.options ?? [];
+        if (p.multi) {
+          const selected = new Set(
+            (Array.isArray(p.currentValue) ? p.currentValue : [p.currentValue]).map(String)
+          );
+          const variant = p.multiControlType ?? 'select';
+          if (variant === 'checkboxes') {
+            const items = opts.map(o => {
+              const checked = selected.has(String(o.value)) ? ' checked' : '';
+              return `
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
+                    value="${this.escapeHtml(String(o.value))}"${checked} />
+                  <span class="text-xs text-base-content/60">${this.escapeHtml(o.label)}</span>
+                </label>`;
+            }).join('');
+            controlHtml = `
+              <div class="mt-1 flex flex-col gap-1"
+                data-param-label="${escapedLabel}" data-param-type="multi-checkboxes">
+                ${items}
+              </div>
+            `;
+          } else if (variant === 'chips') {
+            const chips = opts.map(o => {
+              const active = selected.has(String(o.value));
+              const cls = active ? 'badge-primary' : 'badge-outline';
+              return `<button class="badge badge-sm ${cls} cursor-pointer" data-chip-value="${this.escapeHtml(String(o.value))}">${this.escapeHtml(o.label)}</button>`;
+            }).join('');
+            controlHtml = `
+              <div class="mt-1 flex flex-wrap gap-1"
+                data-param-label="${escapedLabel}" data-param-type="multi-chips">
+                ${chips}
+              </div>
+            `;
+          } else {
+            const optionHtml = opts.map(o => {
+              const sel = selected.has(String(o.value)) ? ' selected' : '';
+              return `<option value="${this.escapeHtml(String(o.value))}"${sel}>${this.escapeHtml(o.label)}</option>`;
+            }).join('');
+            controlHtml = `
+              <div class="mt-1">
+                <select multiple class="select select-xs select-bordered w-full bg-base-300"
+                  size="${Math.min(opts.length, 5)}"
+                  data-param-label="${escapedLabel}" data-param-type="multi-select">
+                  ${optionHtml}
+                </select>
+              </div>
+            `;
+          }
+        } else {
+          const optionHtml = opts.map(o => {
+            const sel = String(o.value) === String(p.currentValue) ? ' selected' : '';
+            return `<option value="${this.escapeHtml(String(o.value))}"${sel}>${this.escapeHtml(o.label)}</option>`;
+          }).join('');
+          controlHtml = `
+            <div class="mt-1">
+              <select class="select select-xs select-bordered w-full bg-base-300"
+                data-param-label="${escapedLabel}" data-param-type="select">
+                ${optionHtml}
+              </select>
+            </div>
+          `;
+        }
         break;
       }
     }
@@ -194,7 +245,7 @@ export class ParamsPanel {
   }
 
   private bindParamHandlers(): void {
-    this.body.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-param-label]').forEach((el) => {
+    this.body.querySelectorAll<HTMLElement>('[data-param-label]').forEach((el) => {
       const label = el.dataset.paramLabel!;
       const type = el.dataset.paramType!;
 
@@ -203,6 +254,17 @@ export class ParamsPanel {
         const value: string | number = def && typeof def.defaultValue === 'number'
           ? Number(rawValue)
           : rawValue;
+        fetch('/api/set-param', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ label, value }),
+        }).catch(err => console.error('Set param failed:', err));
+      };
+
+      const sendMultiChange = (rawValues: string[]) => {
+        const def = this.currentParams.find(p => p.label === label);
+        const numericOptions = def?.options?.[0] && typeof def.options[0].value === 'number';
+        const value = numericOptions ? rawValues.map(Number) : rawValues;
         fetch('/api/set-param', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -239,6 +301,31 @@ export class ParamsPanel {
       } else if (type === 'select') {
         el.addEventListener('change', () => {
           sendChange((el as HTMLSelectElement).value);
+        });
+      } else if (type === 'multi-select') {
+        el.addEventListener('change', () => {
+          const selected = Array.from((el as HTMLSelectElement).selectedOptions, o => o.value);
+          sendMultiChange(selected);
+        });
+      } else if (type === 'multi-checkboxes') {
+        el.addEventListener('change', () => {
+          const checked = Array.from(
+            el.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked'),
+            cb => cb.value
+          );
+          sendMultiChange(checked);
+        });
+      } else if (type === 'multi-chips') {
+        el.addEventListener('click', (e) => {
+          const chip = (e.target as HTMLElement).closest<HTMLElement>('[data-chip-value]');
+          if (!chip) { return; }
+          chip.classList.toggle('badge-primary');
+          chip.classList.toggle('badge-outline');
+          const active = Array.from(
+            el.querySelectorAll<HTMLElement>('.badge-primary[data-chip-value]'),
+            c => c.dataset.chipValue!
+          );
+          sendMultiChange(active);
         });
       }
     });

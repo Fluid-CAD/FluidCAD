@@ -143,16 +143,17 @@ export type SceneObjectRender = {
 
 export type UIParamDefinition = {
   label: string;
-  defaultValue: string | number | boolean;
-  currentValue: string | number | boolean;
+  defaultValue: string | number | boolean | (string | number)[];
+  currentValue: string | number | boolean | (string | number)[];
   controlType: 'auto' | 'text' | 'number' | 'slider' | 'select' | 'checkbox';
   description?: string;
   group?: string;
   min?: number;
   max?: number;
   step?: number;
-  selectOptions?: { label: string; value: string | number }[];
+  options?: { label: string; value: string | number }[];
   multi?: boolean;
+  multiControlType?: 'select' | 'checkboxes' | 'chips';
 };
 
 // ---------------------------------------------------------------------------

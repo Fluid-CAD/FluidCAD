@@ -1,4 +1,4 @@
-import { getParamRegistry, type ControlType, type SelectOption, type ParamDefinition } from "../param-registry.js";
+import { getParamRegistry, type ControlType, type MultiControlType, type SelectOption, type ParamDefinition } from "../param-registry.js";
 
 export type ParamType = 'number' | 'slider' | 'text' | 'select' | 'checkbox';
 
@@ -20,8 +20,9 @@ export interface SliderParamOptions extends BaseParamOptions {
 }
 
 export interface SelectParamOptions extends BaseParamOptions {
-  selectOptions: SelectOption[];
+  options: SelectOption[];
   multi?: boolean;
+  multiControlType?: MultiControlType;
 }
 
 export type CheckboxParamOptions = BaseParamOptions;
@@ -85,11 +86,14 @@ export class ParamValue<T extends string | number | boolean> {
     return this;
   }
 
-  select(items: SelectOption[], opts?: { multi?: boolean }): this {
+  select(items: SelectOption[], opts?: { multi?: boolean; multiControlType?: MultiControlType }): this {
     this._definition.controlType = 'select';
-    this._definition.selectOptions = items;
+    this._definition.options = items;
     if (opts?.multi) {
       this._definition.multi = true;
+    }
+    if (opts?.multiControlType) {
+      this._definition.multiControlType = opts.multiControlType;
     }
     return this;
   }
@@ -148,14 +152,17 @@ export function resolveParam(v: NumberParam | StringParam | BooleanParam): numbe
 
 export default function param<T extends string | number | boolean>(label: string, defaultValue: T): T;
 export default function param<T extends string | number | boolean, K extends ParamType>(label: string, defaultValue: T, type: K, options?: ParamOptionsMap[K]): T;
-export default function param<T extends string | number | boolean>(
+export default function param(label: string, defaultValue: (string | number)[], type: 'select', options: SelectParamOptions & { multi: true }): (string | number)[];
+export default function param(
   label: string,
-  defaultValue: T,
+  defaultValue: string | number | boolean | (string | number)[],
   type?: ParamType,
   options?: ParamOptionsMap[ParamType],
-): T {
+): string | number | boolean | (string | number)[] {
   const registry = getParamRegistry();
-  const value = registry.resolve(label, defaultValue);
+  const value = Array.isArray(defaultValue)
+    ? registry.resolve(label, defaultValue)
+    : registry.resolve(label, defaultValue);
 
   const controlType: ControlType = type
     ?? (typeof defaultValue === 'boolean' ? 'checkbox'
@@ -175,8 +182,9 @@ export default function param<T extends string | number | boolean>(
     if ('min' in options && options.min != null) { definition.min = options.min; }
     if ('max' in options && options.max != null) { definition.max = options.max; }
     if ('step' in options && options.step != null) { definition.step = options.step; }
-    if ('selectOptions' in options && options.selectOptions != null) { definition.selectOptions = options.selectOptions; }
+    if ('options' in options && options.options != null) { definition.options = options.options; }
     if ('multi' in options && options.multi != null) { definition.multi = options.multi; }
+    if ('multiControlType' in options && options.multiControlType != null) { definition.multiControlType = options.multiControlType; }
   }
 
   registry.register(definition);

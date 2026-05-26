@@ -41,9 +41,14 @@ export class ParamsPanel {
   }
 
   update(params: UIParamDefinition[]): void {
+    const prev = this.currentParams;
     this.currentParams = params;
     this.hasParams = params.length > 0;
-    this.renderParams();
+    if (this.canUpdateInPlace(prev, params)) {
+      this.updateValuesInPlace(params);
+    } else {
+      this.renderParams();
+    }
   }
 
   toggle(): void {
@@ -57,6 +62,45 @@ export class ParamsPanel {
 
   get hasAnyParams(): boolean {
     return this.hasParams;
+  }
+
+  private canUpdateInPlace(prev: UIParamDefinition[], next: UIParamDefinition[]): boolean {
+    if (prev.length !== next.length || prev.length === 0) {
+      return false;
+    }
+    for (let i = 0; i < prev.length; i++) {
+      if (prev[i].label !== next[i].label ||
+          prev[i].controlType !== next[i].controlType ||
+          prev[i].group !== next[i].group) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private updateValuesInPlace(params: UIParamDefinition[]): void {
+    for (const p of params) {
+      const el = this.body.querySelector<HTMLElement>(`[data-param-label="${CSS.escape(p.label)}"]`);
+      if (!el) {
+        continue;
+      }
+      const type = el.dataset.paramType;
+      if (type === 'slider') {
+        (el as HTMLInputElement).value = String(p.currentValue);
+        const display = this.body.querySelector(`[data-param-display="${CSS.escape(p.label)}"]`);
+        if (display) {
+          display.textContent = String(p.currentValue);
+        }
+      } else if (type === 'number' || type === 'text' || type === 'color') {
+        if (document.activeElement !== el) {
+          (el as HTMLInputElement).value = String(p.currentValue);
+        }
+      } else if (type === 'checkbox') {
+        (el as HTMLInputElement).checked = !!p.currentValue;
+      } else if (type === 'select') {
+        (el as HTMLSelectElement).value = String(p.currentValue);
+      }
+    }
   }
 
   private applyVisibility(): void {
@@ -253,6 +297,15 @@ export class ParamsPanel {
         }
         break;
       }
+      case 'color':
+        controlHtml = `
+          <div class="mt-1">
+            <input type="color" class="w-full h-7 cursor-pointer bg-transparent border border-base-content/20 rounded"
+              value="${this.escapeHtml(String(p.currentValue))}"
+              data-param-label="${escapedLabel}" data-param-type="color" />
+          </div>
+        `;
+        break;
     }
 
     const px = grouped ? 'px-3' : '';
@@ -335,6 +388,10 @@ export class ParamsPanel {
             cb => cb.value
           );
           sendMultiChange(checked);
+        });
+      } else if (type === 'color') {
+        el.addEventListener('input', () => {
+          sendChange((el as HTMLInputElement).value);
         });
       } else if (type === 'multi-chips') {
         el.addEventListener('click', (e) => {

@@ -246,7 +246,7 @@ export type UIParamDefinition = {
   label: string;
   defaultValue: string | number | boolean | (string | number)[];
   currentValue: string | number | boolean | (string | number)[];
-  controlType: 'auto' | 'text' | 'number' | 'slider' | 'select' | 'checkbox';
+  controlType: 'auto' | 'text' | 'number' | 'slider' | 'select' | 'checkbox' | 'color';
   description?: string;
   group?: string;
   min?: number;

@@ -128,7 +128,12 @@ async function bundleModel(
   return { bundle: result.outputFiles[0].text, sourceFiles };
 }
 
-async function collectStepAssetPaths(workspacePath: string): Promise<string[]> {
+async function collectImportAssetPaths(workspacePath: string): Promise<string[]> {
+  // STEP imports are stored as cached `.brep` (+ `.colors.json` sidecar) under
+  // `imports/` — the engine reads those at render time, not the original
+  // `.step` files. Walk the whole workspace so any `.brep`/`.colors.json` is
+  // captured; also include any `.step`/`.stp` originals the user kept around
+  // (for display in the hub's file viewer; the engine ignores them).
   const out: string[] = [];
 
   async function walk(dir: string) {
@@ -150,8 +155,10 @@ async function collectStepAssetPaths(workspacePath: string): Promise<string[]> {
       if (st.isDirectory()) {
         await walk(full);
       } else if (st.isFile()) {
-        const ext = extname(entry).toLowerCase();
-        if (ext === '.step' || ext === '.stp') {
+        const lower = entry.toLowerCase();
+        const ext = extname(lower);
+        const isColors = lower.endsWith('.colors.json');
+        if (ext === '.step' || ext === '.stp' || ext === '.brep' || isColors) {
           out.push(normalizePath(relative(workspacePath, full)));
         }
       }
@@ -170,7 +177,7 @@ export async function packModel(inputs: PackInputs): Promise<PackResult> {
   const initAbs = existsSync(initPath) ? normalizePath(initPath) : null;
 
   const bundleResult = await bundleModel(entryAbs, initAbs, workspaceAbs);
-  const assetPaths = await collectStepAssetPaths(workspaceAbs);
+  const assetPaths = await collectImportAssetPaths(workspaceAbs);
 
   const sourcePaths = [...new Set(bundleResult.sourceFiles)]
     .map((abs) => normalizePath(relative(workspaceAbs, abs)))

@@ -1,10 +1,37 @@
 import * as fs from "fs";
 import { join } from "path";
 import { Shape } from "../common/shape.js";
-import { Explorer } from "../oc/explorer.js";
 import { OcIO } from "../oc/io.js";
 import { getSceneManager } from "../scene-manager.js";
 import { Solid } from "../common/solid.js";
+
+/**
+ * Override hook for hub mode (and tests). When set, asset reads consult
+ * the provider instead of the filesystem — paths are workspace-relative
+ * (e.g. `imports/foo.brep`). Returning null falls back to disk.
+ */
+export type AssetProvider = (workspaceRelPath: string) => Uint8Array | null;
+
+let assetProvider: AssetProvider | null = null;
+
+export function setAssetProvider(provider: AssetProvider | null): void {
+  assetProvider = provider;
+}
+
+function readWorkspaceAsset(relPath: string): { text: string; exists: true } | { exists: false } {
+  if (assetProvider) {
+    const bytes = assetProvider(relPath);
+    if (bytes) {
+      return { text: Buffer.from(bytes).toString('utf8'), exists: true };
+    }
+  }
+  const sceneManager = getSceneManager();
+  const filePath = join(sceneManager!.rootPath, relPath);
+  if (!fs.existsSync(filePath)) {
+    return { exists: false };
+  }
+  return { text: fs.readFileSync(filePath, 'utf8'), exists: true };
+}
 
 export class FileImport {
   static deserializeShapes(fileName: string): Solid[] {
@@ -12,14 +39,16 @@ export class FileImport {
       fileName += '.brep';
     }
 
-    const sceneManager = getSceneManager();
-    const filePath = join(sceneManager.rootPath, 'imports', fileName);
+    const relPath = join('imports', fileName);
 
     console.log(`Reading file ${fileName}`);
-    const file = fs.readFileSync(filePath, 'utf8');
-    console.log(`File ${filePath} read successfully, size: ${file.length} bytes`);
+    const result = readWorkspaceAsset(relPath);
+    if (!result.exists) {
+      throw new Error(`Imported asset not found: ${relPath}`);
+    }
+    console.log(`File ${relPath} read successfully, size: ${result.text.length} bytes`);
 
-    return OcIO.readBRepSolids(fileName, file);
+    return OcIO.readBRepSolids(fileName, result.text);
   }
 
   static serializeShape(shape: Shape, workspacePath: string, fileName: string) {
@@ -83,11 +112,11 @@ export class FileImport {
     // Read color metadata from JSON sidecar (skipped when noColors is set)
     let colorData: SolidColorData[] = [];
     if (!options?.noColors) {
-      const sceneManager = getSceneManager();
-      const jsonPath = join(sceneManager.rootPath, 'imports', brepFileName + '.colors.json');
-      if (fs.existsSync(jsonPath)) {
-        colorData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-        console.log(`Loaded color metadata from ${jsonPath}`);
+      const relPath = join('imports', brepFileName + '.colors.json');
+      const result = readWorkspaceAsset(relPath);
+      if (result.exists) {
+        colorData = JSON.parse(result.text);
+        console.log(`Loaded color metadata from ${relPath}`);
       }
     }
 

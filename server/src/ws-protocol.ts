@@ -375,4 +375,29 @@ export type ScreenshotResultMessage = {
   error?: string;
 };
 
-export type UIToServerMessage = CameraStateMessage | ScreenshotResultMessage;
+/**
+ * Hub-mode param mutations. Session identity rides on the WebSocket
+ * connection itself — the server tracks `ws → sessionId` and dispatches
+ * to the matching `FluidCadServer` state. The desktop server ignores
+ * these (it uses the equivalent HTTP routes).
+ */
+export type UISetParamMessage = {
+  type: 'set-param';
+  label: string;
+  value: string | number | boolean | (string | number)[];
+};
+
+export type UIResetParamsMessage = {
+  type: 'reset-params';
+};
+
+export type UIRecomputeMessage = {
+  type: 'recompute';
+};
+
+export type UIToServerMessage =
+  | CameraStateMessage
+  | ScreenshotResultMessage
+  | UISetParamMessage
+  | UIResetParamsMessage
+  | UIRecomputeMessage;

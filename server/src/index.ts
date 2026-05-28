@@ -1,10 +1,9 @@
-import crypto from 'crypto';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import express from 'express';
-import { WebSocketServer, WebSocket } from 'ws';
 import { FluidCadServer } from './fluidcad-server.ts';
+import { createServerCore } from './server-core.ts';
 import { createPropertiesRouter } from './routes/properties.ts';
 import { createParamsRouter } from './routes/params.ts';
 import { createHitTestRouter } from './routes/hit-test.ts';
@@ -22,7 +21,7 @@ import { createPackRouter } from './routes/pack.ts';
 import { normalizePath } from './normalize-path.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
 import { addInstance, removeInstance } from './global-registry.ts';
-import type { CameraStateMessage, CompileError, ServerToUIMessage } from './ws-protocol.ts';
+import type { CompileError } from './ws-protocol.ts';
 import { extractSourceLocation } from '../../lib/dist/index.js';
 
 const PORT = parseInt(process.env.FLUIDCAD_SERVER_PORT || '3100', 10);
@@ -67,6 +66,16 @@ const dirtyBufferState = new DirtyBufferState();
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 
+// ---------------------------------------------------------------------------
+// HTTP + WebSocket server (set up early so routes can reference its helpers)
+// ---------------------------------------------------------------------------
+
+const httpServer = http.createServer(app);
+const core = createServerCore(httpServer);
+const broadcastToUI = core.broadcastToUI;
+const requestScreenshot = core.requestScreenshot;
+const getLastCameraState = core.getLastCameraState;
+
 app.use('/api', createHealthRouter({
   version: PACKAGE_VERSION,
   workspacePath: WORKSPACE_PATH,
@@ -80,11 +89,11 @@ app.use('/api', createSketchEditsRouter(fluidCadServer, sendToExtension, WORKSPA
 app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));
 app.use('/api', createScreenshotRouter(requestScreenshot));
 app.use('/api', createPreferencesRouter());
-app.use('/api', createSceneRouter(fluidCadServer, () => lastCameraState));
+app.use('/api', createSceneRouter(fluidCadServer, getLastCameraState));
 app.use('/api', createEditorRouter(dirtyBufferState));
 app.use('/api', createRenderRouter((fileName, code) => runLiveRender(fileName, code)));
 app.use('/api', createLintRouter());
-app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION, () => lastCameraState));
+app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION, getLastCameraState));
 
 // Static files — serve UI build, with SPA fallback
 app.use(express.static(UI_DIST, {
@@ -97,135 +106,6 @@ app.use(express.static(UI_DIST, {
 app.get('*splat', (_req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(path.join(UI_DIST, 'index.html'));
-});
-
-// ---------------------------------------------------------------------------
-// HTTP + WebSocket server
-// ---------------------------------------------------------------------------
-
-const httpServer = http.createServer(app);
-const wss = new WebSocketServer({ server: httpServer });
-const uiClients = new Set<WebSocket>();
-let lastSceneMessage: string | null = null;
-let initCompleteMessage: string | null = null;
-let lastCameraState: CameraStateMessage | null = null;
-
-function broadcastToUI(msg: ServerToUIMessage) {
-  const data = JSON.stringify(msg);
-  if (msg.type === 'scene-rendered') {
-    lastSceneMessage = data;
-  }
-  if (msg.type === 'init-complete') {
-    initCompleteMessage = data;
-  }
-  for (const client of uiClients) {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(data);
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Screenshot request/response coordination
-// ---------------------------------------------------------------------------
-
-const SCREENSHOT_TIMEOUT_MS = 10_000;
-const pendingScreenshots = new Map<string, {
-  resolve: (data: Buffer) => void;
-  reject: (err: Error) => void;
-}>();
-
-function requestScreenshot(options: Record<string, unknown>): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    if (uiClients.size === 0) {
-      reject(new Error('No UI client connected.'));
-      return;
-    }
-
-    const requestId = crypto.randomUUID();
-
-    const timeout = setTimeout(() => {
-      pendingScreenshots.delete(requestId);
-      reject(new Error('Screenshot request timed out.'));
-    }, SCREENSHOT_TIMEOUT_MS);
-
-    pendingScreenshots.set(requestId, {
-      resolve(data) {
-        clearTimeout(timeout);
-        pendingScreenshots.delete(requestId);
-        resolve(data);
-      },
-      reject(err) {
-        clearTimeout(timeout);
-        pendingScreenshots.delete(requestId);
-        reject(err);
-      },
-    });
-
-    broadcastToUI({ type: 'take-screenshot', requestId, options });
-  });
-}
-
-function handleUIMessage(raw: string): void {
-  let msg: any;
-  try {
-    msg = JSON.parse(raw);
-  } catch {
-    return;
-  }
-
-  if (msg.type === 'screenshot-result' && msg.requestId) {
-    const pending = pendingScreenshots.get(msg.requestId);
-    if (!pending) { return; }
-
-    if (msg.success && msg.data) {
-      pending.resolve(Buffer.from(msg.data, 'base64'));
-    } else {
-      pending.reject(new Error(msg.error || 'Screenshot failed.'));
-    }
-    return;
-  }
-
-  if (msg.type === 'camera-state') {
-    // Trust UI structure — we own both ends. Just shape-check arrays.
-    if (
-      Array.isArray(msg.position) && msg.position.length === 3 &&
-      Array.isArray(msg.target) && msg.target.length === 3 &&
-      Array.isArray(msg.up) && msg.up.length === 3
-    ) {
-      lastCameraState = {
-        type: 'camera-state',
-        position: msg.position,
-        target: msg.target,
-        up: msg.up,
-        projection: msg.projection === 'perspective' ? 'perspective' : 'orthographic',
-      };
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// WebSocket connections
-// ---------------------------------------------------------------------------
-
-wss.on('connection', (ws) => {
-  uiClients.add(ws);
-
-  // Replay init-complete and last scene to newly connected UI client
-  if (initCompleteMessage) {
-    ws.send(initCompleteMessage);
-  }
-  if (lastSceneMessage) {
-    ws.send(lastSceneMessage);
-  }
-
-  ws.on('message', (data) => {
-    handleUIMessage(String(data));
-  });
-
-  ws.on('close', () => {
-    uiClients.delete(ws);
-  });
 });
 
 // ---------------------------------------------------------------------------

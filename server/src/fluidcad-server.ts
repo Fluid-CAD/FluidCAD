@@ -82,18 +82,40 @@ export type ShapeList = {
   shapes: ShapeListEntry[];
 };
 
+/**
+ * `sessionId` is the per-renderer state key. In desktop mode it equals the
+ * file path being edited (so per-file state survives switching files). In
+ * hub mode it's a WebSocket connection UUID (so concurrent viewers stay
+ * isolated). Map keys called `sessionId` accept either flavour.
+ */
+
 export class FluidCadServer {
   private host: SceneHost;
   private sceneManager: SceneManager | undefined;
+
+  // Per-session render output, scene cache, and param overrides. Desktop's
+  // sessionId is the normalized filePath; hub mode's sessionId is the WS
+  // connection UUID. Maps must be cleared via `destroySession` on hub-side
+  // disconnect to avoid leaks.
   private previousScenes: Map<string, any> = new Map();
   private renderingCache = new Map<string, any[]>();
-  // Per-file hash + full result of the most recent successful render. Any
-  // incoming render request — IPC live-update from the extension, watcher-
-  // driven live-update under `fluidcad serve`, or HTTP /api/render from the
-  // MCP — short-circuits here when the new code hashes to the same value.
-  // Avoids redundant OCC work when multiple producers see the same write.
-  private lastRendered = new Map<string, { hash: string; data: SceneRenderedData }>();
+  // Records the last successful render per session as `{ paramsHash, data }`.
+  // Any subsequent render request short-circuits when the new params hash to
+  // the same value — avoids redundant OCC work when desktop producers see the
+  // same code+params, or hub clients re-emit the same param mutation.
+  private lastRendered = new Map<string, { paramsHash: string; data: SceneRenderedData }>();
   private paramOverrides: Map<string, Map<string, any>> = new Map();
+  // What file each session is rendering. For desktop, sessionId === filePath
+  // (set lazily on first processFile call). For hub, set explicitly via
+  // createSession with the bundle's manifest entry.
+  private sessionFiles = new Map<string, string>();
+
+  // Serializes OCC calls across all sessions. OCC isn't thread-safe and we
+  // share one engine instance per host process; concurrent param edits from
+  // multiple hub clients have to queue. Promise-chain pattern: each render
+  // awaits the previous one's settlement before starting.
+  private renderMutex: Promise<unknown> = Promise.resolve();
+
   private currentFileName: string = '';
   private currentFilePath: string = '';
   private lastRollbackStop: number = -1;
@@ -118,102 +140,177 @@ export class FluidCadServer {
     }
   }
 
-  async processFile(filePath: string, ignoreCache = false): Promise<SceneRenderedData | null> {
-    if (!this.sceneManager) {
-      return null;
+  /**
+   * Capture an already-initialized SceneManager. Used by the hub-mode entry
+   * after running the packed bundle once to materialize the engine globals.
+   */
+  setSceneManager(manager: SceneManager): void {
+    this.sceneManager = manager;
+  }
+
+  /**
+   * Run `fn` with exclusive access to the OCC engine. The mutex is process-
+   * wide: in hub mode concurrent client sessions land here too. Order is
+   * first-come, first-served via Promise chain.
+   */
+  private async serialized<T>(fn: () => Promise<T>): Promise<T> {
+    const prev = this.renderMutex;
+    let release: () => void = () => {};
+    const next = new Promise<void>((resolve) => { release = resolve; });
+    this.renderMutex = next;
+    try {
+      await prev;
+      return await fn();
+    } finally {
+      release();
     }
+  }
 
-    filePath = normalizePath(filePath);
-    const normalizedFileName = filePath.replace('virtual:live-render:', '');
-    this.currentFileName = normalizedFileName;
-    this.currentFilePath = filePath;
+  // ---------------------------------------------------------------------------
+  // Session lifecycle (hub mode)
+  // ---------------------------------------------------------------------------
 
-    if (!ignoreCache) {
-      const fromCache = this.renderingCache.get(normalizedFileName);
-      if (fromCache) {
-        this.lastRollbackStop = fromCache.length - 1;
+  createSession(sessionId: string, entryFilePath: string): void {
+    this.sessionFiles.set(sessionId, normalizePath(entryFilePath));
+  }
+
+  destroySession(sessionId: string): void {
+    this.previousScenes.delete(sessionId);
+    this.renderingCache.delete(sessionId);
+    this.lastRendered.delete(sessionId);
+    this.paramOverrides.delete(sessionId);
+    this.sessionFiles.delete(sessionId);
+  }
+
+  /**
+   * Re-render the session's entry, ignoring caches. Hub clients call this
+   * after editing a param. Returns the fresh render or null if no manager.
+   */
+  async recomputeForSession(sessionId: string): Promise<SceneRenderedData | null> {
+    const filePath = this.sessionFiles.get(sessionId);
+    if (!filePath) return null;
+    this.renderingCache.delete(sessionId);
+    this.lastRendered.delete(sessionId);
+    return this.processFileInternal(sessionId, filePath, true);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Render — internal core used by both desktop and hub entry points
+  // ---------------------------------------------------------------------------
+
+  private async processFileInternal(
+    sessionId: string,
+    filePath: string,
+    ignoreCache: boolean,
+  ): Promise<SceneRenderedData | null> {
+    return this.serialized(async () => {
+      if (!this.sceneManager) {
+        return null;
+      }
+
+      const normalizedFileName = filePath.replace('virtual:live-render:', '');
+      this.currentFileName = normalizedFileName;
+      this.currentFilePath = filePath;
+
+      if (!ignoreCache) {
+        const fromCache = this.renderingCache.get(sessionId);
+        if (fromCache) {
+          this.lastRollbackStop = fromCache.length - 1;
+          this.compileError = null;
+          return {
+            absPath: normalizedFileName,
+            result: fromCache,
+            rollbackStop: fromCache.length - 1,
+          };
+        }
+      }
+
+      try {
+        let scene = this.sceneManager.startScene();
+        this.sceneManager.setCurrentFile(normalizedFileName);
+        this.host.invalidateModule();
+
+        const registry = createParamRegistry();
+        const overrides = this.paramOverrides.get(sessionId);
+        if (overrides) {
+          registry.setOverrides(overrides);
+        }
+
+        let breakpointHit = false;
+        try {
+          await this.host.loadModule(filePath);
+        }
+        catch (e) {
+          if (e instanceof BreakpointHit) {
+            breakpointHit = true;
+          } else {
+            throw e;
+          }
+        }
+
+        const params = getParamRegistry().getDefinitions();
+
+        if (this.previousScenes.has(sessionId)) {
+          const previousScene = this.previousScenes.get(sessionId);
+          scene = this.sceneManager.compare(previousScene, scene);
+        }
+
+        this.previousScenes.set(sessionId, scene);
+
+        this.sceneManager.renderScene(scene);
+        const result = scene.getRenderedObjects();
+
+        for (const obj of result) {
+          if (obj.sourceLocation) {
+            obj.sourceLocation.filePath = obj.sourceLocation.filePath.replace('virtual:live-render:', '');
+          }
+        }
+
+        if (!filePath.startsWith('virtual:live-render')) {
+          this.renderingCache.set(sessionId, result);
+        }
+
+        this.lastRollbackStop = result.length - 1;
         this.compileError = null;
+
         return {
           absPath: normalizedFileName,
-          result: fromCache,
-          rollbackStop: fromCache.length - 1,
+          result,
+          rollbackStop: result.length - 1,
+          breakpointHit,
+          params,
         };
       }
-    }
-
-    try {
-      let scene = this.sceneManager.startScene();
-      this.sceneManager.setCurrentFile(normalizedFileName);
-      this.host.invalidateModule();
-
-      const registry = createParamRegistry();
-      const overrides = this.paramOverrides.get(normalizedFileName);
-      if (overrides) {
-        registry.setOverrides(overrides);
+      catch (error) {
+        this.host.invalidateModule();
+        console.log('Error processing file:', error);
+        throw error;
       }
+    });
+  }
 
-      let breakpointHit = false;
-      try {
-        await this.host.loadModule(filePath);
-      }
-      catch (e) {
-        if (e instanceof BreakpointHit) {
-          breakpointHit = true;
-        } else {
-          throw e;
-        }
-      }
+  // ---------------------------------------------------------------------------
+  // Desktop API — sessionId is implicit (filePath)
+  // ---------------------------------------------------------------------------
 
-      const params = getParamRegistry().getDefinitions();
-
-      if (this.previousScenes.has(normalizedFileName)) {
-        const previousScene = this.previousScenes.get(normalizedFileName);
-        scene = this.sceneManager.compare(previousScene, scene);
-      }
-
-      this.previousScenes.set(normalizedFileName, scene);
-
-      this.sceneManager.renderScene(scene);
-      const result = scene.getRenderedObjects();
-
-      for (const obj of result) {
-        if (obj.sourceLocation) {
-          obj.sourceLocation.filePath = obj.sourceLocation.filePath.replace('virtual:live-render:', '');
-        }
-      }
-
-      if (!filePath.startsWith('virtual:live-render')) {
-        this.renderingCache.set(normalizedFileName, result);
-      }
-
-      this.lastRollbackStop = result.length - 1;
-      this.compileError = null;
-
-      return {
-        absPath: normalizedFileName,
-        result,
-        rollbackStop: result.length - 1,
-        breakpointHit,
-        params,
-      };
-    }
-    catch (error) {
-      this.host.invalidateModule();
-      console.log('Error processing file:', error);
-      throw error;
-    }
+  async processFile(filePath: string, ignoreCache = false): Promise<SceneRenderedData | null> {
+    filePath = normalizePath(filePath);
+    const sessionId = filePath.replace('virtual:live-render:', '');
+    this.sessionFiles.set(sessionId, sessionId);
+    return this.processFileInternal(sessionId, filePath, ignoreCache);
   }
 
   async updateLiveCode(fileName: string, code: string): Promise<SceneRenderedData | null> {
     fileName = normalizePath(fileName);
 
-    // Dedup against the last successful render of this file. Multiple
-    // producers (editor live-update, save-triggered process-file, watcher,
-    // MCP /api/render) commonly hand us identical content; without this
-    // short-circuit each one would trigger a redundant OCC pass.
-    const hash = hashCode(code);
+    // Dedup against the last successful render. Multiple producers (editor
+    // live-update, save-triggered process-file, watcher, MCP /api/render)
+    // commonly hand us identical content; without this short-circuit each
+    // would trigger a redundant OCC pass. paramsHash mixes code content with
+    // current param overrides so a param change invalidates the cache.
+    const paramsHash = this.computeParamsHash(fileName, code);
     const cached = this.lastRendered.get(fileName);
-    if (cached && cached.hash === hash) {
+    if (cached && cached.paramsHash === paramsHash) {
       this.compileError = null;
       this.currentFileName = fileName;
       this.currentFilePath = `virtual:live-render:${fileName}`;
@@ -224,9 +321,10 @@ export class FluidCadServer {
     const id = `virtual:live-render:${fileName}`;
     this.host.setBuffer(id, code);
     this.renderingCache.delete(fileName);
-    const result = await this.processFile(id, true);
+    this.sessionFiles.set(fileName, fileName);
+    const result = await this.processFileInternal(fileName, id, true);
     if (result) {
-      this.lastRendered.set(fileName, { hash, data: result });
+      this.lastRendered.set(fileName, { paramsHash, data: result });
     }
     return result;
   }
@@ -239,9 +337,10 @@ export class FluidCadServer {
     if (!this.currentFilePath) {
       return null;
     }
-    this.renderingCache.delete(this.currentFileName);
-    this.lastRendered.delete(this.currentFileName);
-    return this.processFile(this.currentFilePath, true);
+    const sessionId = this.currentFileName;
+    this.renderingCache.delete(sessionId);
+    this.lastRendered.delete(sessionId);
+    return this.processFileInternal(sessionId, this.currentFilePath, true);
   }
 
   async rollback(fileName: string, index: number): Promise<SceneRenderedData | null> {
@@ -347,6 +446,23 @@ export class FluidCadServer {
     return this.sceneManager.hitTest(scene, shapeId, rayOrigin, rayDir, edgeThreshold);
   }
 
+  hitTestForSession(
+    sessionId: string,
+    shapeId: string,
+    rayOrigin: [number, number, number],
+    rayDir: [number, number, number],
+    edgeThreshold: number,
+  ): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(sessionId);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.hitTest(scene, shapeId, rayOrigin, rayDir, edgeThreshold);
+  }
+
   setCompileError(err: CompileError | null): void {
     this.compileError = err;
   }
@@ -355,23 +471,23 @@ export class FluidCadServer {
     return this.compileError;
   }
 
-  setParam(fileName: string, label: string, value: any): void {
-    fileName = normalizePath(fileName);
-    if (!this.paramOverrides.has(fileName)) {
-      this.paramOverrides.set(fileName, new Map());
+  setParam(sessionId: string, label: string, value: any): void {
+    sessionId = normalizePath(sessionId);
+    if (!this.paramOverrides.has(sessionId)) {
+      this.paramOverrides.set(sessionId, new Map());
     }
-    this.paramOverrides.get(fileName)!.set(label, value);
-    this.lastRendered.delete(fileName);
+    this.paramOverrides.get(sessionId)!.set(label, value);
+    this.lastRendered.delete(sessionId);
   }
 
-  resetParams(fileName: string): void {
-    fileName = normalizePath(fileName);
-    this.paramOverrides.delete(fileName);
-    this.lastRendered.delete(fileName);
+  resetParams(sessionId: string): void {
+    sessionId = normalizePath(sessionId);
+    this.paramOverrides.delete(sessionId);
+    this.lastRendered.delete(sessionId);
   }
 
-  getParamOverrides(fileName: string): Record<string, any> {
-    const map = this.paramOverrides.get(normalizePath(fileName));
+  getParamOverrides(sessionId: string): Record<string, any> {
+    const map = this.paramOverrides.get(normalizePath(sessionId));
     if (!map) return {};
     return Object.fromEntries(map);
   }
@@ -447,16 +563,23 @@ export class FluidCadServer {
     }
     return { shapes };
   }
-}
 
-/**
- * Hash a `.fluid.js` source for dedup. Newlines are normalised to LF so a
- * round-trip through an editor (CRLF) and a disk write (LF) hashes the
- * same. SHA1 is plenty here — we just need a stable equality check, not
- * collision resistance against an adversary.
- */
-function hashCode(code: string): string {
-  return createHash('sha1').update(code.replace(/\r\n/g, '\n')).digest('hex');
+  /**
+   * Compose a stable cache key over the rendering inputs: the source bytes
+   * being rendered plus the param overrides currently in effect for the
+   * session. Param changes flip the hash so cached entries don't shadow a
+   * recompute, even when the code text is byte-identical.
+   */
+  private computeParamsHash(sessionId: string, codeOrBundle: string): string {
+    const overrides = this.paramOverrides.get(sessionId);
+    const sortedEntries = overrides ? [...overrides.entries()].sort(([a], [b]) => a.localeCompare(b)) : [];
+    const normalized = codeOrBundle.replace(/\r\n/g, '\n');
+    return createHash('sha1')
+      .update(normalized)
+      .update('\0')
+      .update(JSON.stringify(sortedEntries))
+      .digest('hex');
+  }
 }
 
 const MAX_PARAM_DEPTH = 6;

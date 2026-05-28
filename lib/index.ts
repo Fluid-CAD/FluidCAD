@@ -1,6 +1,6 @@
 import { Scene } from "./rendering/scene.js";
 import { loadOC } from "./load.js";
-import { createManager, getCurrentScene } from "./scene-manager.js";
+import { createManager, getCurrentScene, getSceneManager } from "./scene-manager.js";
 import { SceneObject, SourceLocation } from "./common/scene-object.js";
 import { SelectSceneObject } from "./features/select.js";
 import { Sketch } from "./features/2d/sketch.js";
@@ -121,6 +121,9 @@ export function registerBuilder<T extends Function>(builder: (context: ScenePars
 
 export { createParamRegistry, getParamRegistry } from './param-registry.js';
 export type { ParamDefinition, MultiControlType, SelectOption, ParamVal, ParamScalar } from './param-registry.js';
+export { setAssetProvider } from './io/file-import.js';
+export type { AssetProvider } from './io/file-import.js';
+export { getSceneManager } from './scene-manager.js';
 
 export interface FluidCADOptions {
   mesh?: {
@@ -131,6 +134,10 @@ export interface FluidCADOptions {
 
 export async function init(options?: FluidCADOptions) {
   await loadOC();
+  const existing = getSceneManager();
+  if (existing) {
+    return existing;
+  }
   const resolvedPath = process.env.FLUIDCAD_WORKSPACE_PATH || '';
   return createManager(resolvedPath, options);
 }

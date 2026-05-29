@@ -60,6 +60,10 @@ export type * from './ws-protocol.ts';
 // and lives in the private repo.
 export { packModel } from './model-package/pack.ts';
 export type { PackInputs, PackResult } from './model-package/pack.ts';
+// Renders a model once to capture its full param schema for the manifest
+// (`fluidcad publish`); boots OC wasm, so it lives behind this side-effect-free
+// surface rather than being called at import time.
+export { captureParamDefinitions } from './model-package/capture-params.ts';
 export type {
   ModelPackageManifest,
   ModelPackageCamera,
@@ -68,6 +72,6 @@ export type {
 export {
   MANIFEST_FILENAME,
   BUNDLE_FILENAME,
-  SOURCES_PREFIX,
   ASSETS_PREFIX,
+  FILES_PREFIX,
 } from './model-package/types.ts';

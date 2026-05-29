@@ -1,38 +1,6 @@
-import { readFileSync, writeFileSync, existsSync, readdirSync } from 'fs';
-import { dirname, resolve, basename } from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-function readPackageVersion() {
-  try {
-    const pkgPath = resolve(__dirname, '..', '..', 'package.json');
-    const raw = readFileSync(pkgPath, 'utf8');
-    return JSON.parse(raw).version ?? '0.0.0';
-  } catch {
-    return '0.0.0';
-  }
-}
-
-function findEntry(workspace, override) {
-  if (override) {
-    const abs = resolve(workspace, override);
-    if (!existsSync(abs)) {
-      throw new Error(`Entry file not found: ${abs}`);
-    }
-    return abs;
-  }
-  const candidates = readdirSync(workspace).filter((f) => f.endsWith('.fluid.js'));
-  if (candidates.length === 0) {
-    throw new Error('No .fluid.js files found in the workspace. Pass --entry to specify one.');
-  }
-  if (candidates.length > 1) {
-    throw new Error(
-      `Multiple .fluid.js files found: ${candidates.join(', ')}. Pass --entry to choose one.`,
-    );
-  }
-  return resolve(workspace, candidates[0]);
-}
+import { writeFileSync } from 'fs';
+import { resolve, basename } from 'path';
+import { findEntry, readPackageVersion } from '../lib/workspace.js';
 
 async function runPack(opts) {
   // The packer lives in server/ because esbuild + jszip belong at that layer;
@@ -55,8 +23,11 @@ async function runPack(opts) {
     ? resolve(opts.out)
     : resolve(workspace, basename(entry).replace(/\.fluid\.js$/i, '') + '.fluidpkg');
   writeFileSync(outPath, zip);
+  const fileCount = manifest.files?.length ?? 0;
+  const assetCount = manifest.assets.length;
   console.log(
-    `Wrote ${outPath} (${zip.length} bytes, ${manifest.assets.length} asset${manifest.assets.length === 1 ? '' : 's'})`,
+    `Wrote ${outPath} (${zip.length} bytes, ${fileCount} file${fileCount === 1 ? '' : 's'}, ` +
+      `${assetCount} asset${assetCount === 1 ? '' : 's'})`,
   );
 }
 

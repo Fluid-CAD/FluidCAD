@@ -59,7 +59,8 @@
     "typecheck": "tsc -b",
     "test": "vitest",
     "test:features": "vitest run lib/tests/features/",
-    "release": "npx bumpp patch package.json extension/vscode/package.json"
+    "bump": "npx bumpp patch package.json extension/vscode/package.json --no-commit --no-tag --no-push",
+    "release": "git commit -m \"chore: release v$npm_package_version\" package.json extension/vscode/package.json && git tag -a \"v$npm_package_version\" -m \"chore: release v$npm_package_version\" && git push --follow-tags"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

@@ -22,6 +22,14 @@ async function runPublish(opts) {
   const description = opts.description ?? pkg.description;
   const modelId = readModelId(workspace);
 
+  // Surface who we are and where this is going *before* any bytes leave the
+  // machine, so a wrong account or hub is caught before the upload starts.
+  // (The model's own page URL is minted by the hub and printed afterwards.)
+  console.log('Publishing to the FluidCAD hub:');
+  console.log(`  account: ${creds.email || '(unknown account)'}`);
+  console.log(`  url:     ${hubUrl}`);
+  console.log('');
+
   // Render once to capture the full param schema for the manifest. This also
   // acts as a build gate — a compile/runtime error fails the publish here,
   // before anything is uploaded.

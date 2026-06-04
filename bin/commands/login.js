@@ -1,7 +1,9 @@
 import http from 'http';
+import os from 'os';
 import { randomBytes, createHash } from 'crypto';
 import { getHubUrl, writeCredentials } from '../lib/config.js';
 import { HubClient } from '../lib/api-client.js';
+import { readPackageVersion } from '../lib/workspace.js';
 import { openBrowser } from '../lib/browser.js';
 
 const CLIENT_ID = 'fluidcad-cli';
@@ -9,6 +11,26 @@ const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 
 function base64url(buf) {
   return buf.toString('base64url');
+}
+
+const PLATFORM_NAMES = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' };
+
+/**
+ * Human-readable device hints shown on the hub's authorize page so the user can
+ * confirm the request came from this machine. Display-only — the hub never uses
+ * them for the authorization decision (PKCE + loopback do that). The browser
+ * request already reveals OS/arch via its User-Agent, so this leaks nothing new.
+ */
+function deviceHints() {
+  const platform = PLATFORM_NAMES[process.platform] ?? process.platform;
+  // os.release() is the kernel/Darwin/NT version; the leading x.y.z is the
+  // useful part (e.g. "7.0.10-201.fc44.x86_64" → "7.0.10").
+  const release = os.release().split('-')[0];
+  return {
+    os: `${platform} ${release}`.trim(),
+    arch: process.arch,
+    version: readPackageVersion(),
+  };
 }
 
 /**
@@ -42,14 +64,15 @@ function runLogin(opts) {
         res.end();
         return;
       }
-      res.writeHead(200, { 'content-type': 'text/html' });
-      res.end(
-        '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;text-align:center;padding-top:3rem">' +
-          '<h2>FluidCAD CLI</h2><p>You can close this tab and return to your terminal.</p>',
-      );
       const error = url.searchParams.get('error');
       const code = url.searchParams.get('code');
       const returnedState = url.searchParams.get('state');
+
+      // The code has now been received here on the loopback; hand the browser
+      // to the hub's branded result screen (nav + design system) to finish.
+      const doneStatus = error ? 'denied' : code ? 'ok' : 'error';
+      res.writeHead(302, { location: `${hubUrl}/cli/done?status=${doneStatus}` });
+      res.end();
 
       (async () => {
         if (error) {
@@ -87,6 +110,7 @@ function runLogin(opts) {
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
       redirectUri = `http://127.0.0.1:${port}/callback`;
+      const device = deviceHints();
       const authorizeUrl =
         `${hubUrl}/cli/authorize?` +
         new URLSearchParams({
@@ -96,6 +120,10 @@ function runLogin(opts) {
           code_challenge: challenge,
           code_challenge_method: 'S256',
           state,
+          // Display-only context for the approval screen (not part of PKCE).
+          client_version: device.version,
+          os: device.os,
+          arch: device.arch,
         });
       console.log('Opening your browser to authorize the FluidCAD CLI…');
       console.log(`\n  ${authorizeUrl}\n`);

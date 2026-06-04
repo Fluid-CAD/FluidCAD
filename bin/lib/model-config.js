@@ -28,11 +28,34 @@ export function readModelId(workspace) {
 }
 
 /**
- * Persist the hub-minted model id, preserving any other fields already in
- * `fluidcad.json`. Called after the first publish writes back the new id.
+ * The persisted identity for this workspace: the hub model `id` and its
+ * last-known `name`. Both come back null when absent — first publish, or a
+ * `fluidcad.json` the user deleted. The name is shown in the publish prompt so
+ * we can name the model offline without a round-trip.
  */
-export function writeModelId(workspace, modelId) {
+export function readModelIdentity(workspace) {
   const cfg = readModelConfig(workspace);
-  cfg.modelId = modelId;
+  return {
+    modelId: typeof cfg.modelId === 'string' && cfg.modelId ? cfg.modelId : null,
+    name: typeof cfg.name === 'string' && cfg.name ? cfg.name : null,
+  };
+}
+
+/**
+ * Shallow-merge `patch` into `fluidcad.json`, preserving any other fields, and
+ * write it back (creating the file if needed). `undefined`/`null` values in the
+ * patch are skipped, so callers can pass a partial identity without clobbering
+ * what's already there.
+ */
+export function writeModelConfig(workspace, patch) {
+  const cfg = readModelConfig(workspace);
+  for (const [key, value] of Object.entries(patch)) {
+    if (value !== undefined && value !== null) cfg[key] = value;
+  }
   writeFileSync(modelConfigPath(workspace), JSON.stringify(cfg, null, 2) + '\n');
+}
+
+/** Persist just the hub-minted model id (thin wrapper over `writeModelConfig`). */
+export function writeModelId(workspace, modelId) {
+  writeModelConfig(workspace, { modelId });
 }

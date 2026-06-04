@@ -46,9 +46,10 @@ export interface ModelPackageManifest {
    * brep/STEP) are NOT repeated here; `files` + `assets` is the whole package.
    *
    * Selection respects a root `.gitignore` (via the `ignore` package) and
-   * always excludes `node_modules`, prior `*.fluidpkg` outputs, and every
-   * hidden dot-entry (`.git`, `.env`, `.claude`, `.vscode`, … — never model
-   * content, may hold secrets), whether or not they're gitignored.
+   * always excludes `node_modules`, prior `*.fluidpkg` outputs, `fluidcad.json`
+   * (the local hub binding), and every hidden dot-entry (`.git`, `.env`,
+   * `.claude`, `.vscode`, … — never model content, may hold secrets), whether or
+   * not they're gitignored.
    */
   files: string[];
   params?: Record<string, ParamValue>;

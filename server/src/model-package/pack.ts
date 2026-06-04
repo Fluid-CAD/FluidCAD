@@ -155,12 +155,13 @@ async function collectImportAssetPaths(workspacePath: string): Promise<string[]>
   return out.sort();
 }
 
-// Enforced on top of any `.gitignore`: dependency trees and prior pack outputs
-// (the latter would otherwise recurse into the next pack). `node_modules` is
-// also pruned during the walk for speed. Hidden dot-entries are excluded by the
-// walk directly (see below), so VCS metadata (`.git`) and secrets (`.env`) need
-// no pattern here.
-const ALWAYS_EXCLUDE = ['node_modules', '*.fluidpkg'];
+// Enforced on top of any `.gitignore`: dependency trees, prior pack outputs
+// (the latter would otherwise recurse into the next pack), and `fluidcad.json`
+// (the local hub binding — model id + name — which the hub already owns and
+// should never ship as model source). `node_modules` is also pruned during the
+// walk for speed. Hidden dot-entries are excluded by the walk directly (see
+// below), so VCS metadata (`.git`) and secrets (`.env`) need no pattern here.
+const ALWAYS_EXCLUDE = ['node_modules', '*.fluidpkg', 'fluidcad.json'];
 
 // `ignore` ships a CJS `module.exports = factory`, but its bundled types use
 // `export default`, which loses the call signature under `module: nodenext`.

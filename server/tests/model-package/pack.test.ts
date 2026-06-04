@@ -33,10 +33,10 @@ describe('packModel — Pack v2 workspace packaging', () => {
     write('init.js', "import { init } from 'fluidcad';\nexport default await init();\n");
     write('package.json', JSON.stringify({ name: 'widget', version: '1.2.3' }));
     write('README.md', '# Widget');
-    write('fluidcad.json', JSON.stringify({ modelId: 'abc' }));
     write('notes.md', 'design notes'); // not imported anywhere — only Pack v2 captures it
     write('parts/helper.js', 'export const x = 1;');
     // Ignored / always-excluded — must never ship:
+    write('fluidcad.json', JSON.stringify({ modelId: 'abc' })); // local hub binding, not model source
     write('.gitignore', 'secret.txt\nbuild/\n');
     write('secret.txt', 'TOPSECRET');
     write('build/out.txt', 'artifact');
@@ -60,7 +60,6 @@ describe('packModel — Pack v2 workspace packaging', () => {
     expect(files).toContain('init.js');
     expect(files).toContain('package.json');
     expect(files).toContain('README.md');
-    expect(files).toContain('fluidcad.json');
     expect(files).toContain('notes.md');
     expect(files).toContain('parts/helper.js');
 
@@ -71,6 +70,7 @@ describe('packModel — Pack v2 workspace packaging', () => {
     expect(files).not.toContain('.env');
     expect(files).not.toContain('.gitignore');
     expect(files).not.toContain('old.fluidpkg');
+    expect(files).not.toContain('fluidcad.json');
     expect(files.some((f) => f.includes('node_modules'))).toBe(false);
     expect(files.some((f) => f.split('/').some((seg) => seg.startsWith('.')))).toBe(false);
 
@@ -82,6 +82,7 @@ describe('packModel — Pack v2 workspace packaging', () => {
     expect(entries.some((e) => e.includes('.env'))).toBe(false);
     expect(entries.some((e) => e.includes('.claude') || e.includes('.vscode'))).toBe(false);
     expect(entries.some((e) => e.includes('node_modules'))).toBe(false);
+    expect(entries.some((e) => e.includes('fluidcad.json'))).toBe(false);
   });
 
   it('with no .gitignore, includes everything but hidden dot-entries', async () => {

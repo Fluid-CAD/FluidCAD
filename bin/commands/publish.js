@@ -2,7 +2,8 @@ import { resolve } from 'path';
 import { getHubUrl, readCredentials } from '../lib/config.js';
 import { HubClient } from '../lib/api-client.js';
 import { findEntry, readPackageVersion, readWorkspacePackage } from '../lib/workspace.js';
-import { readModelId, writeModelId } from '../lib/model-config.js';
+import { readModelIdentity, writeModelConfig } from '../lib/model-config.js';
+import { isInteractive, select } from '../lib/prompt.js';
 import { openBrowser } from '../lib/browser.js';
 
 async function runPublish(opts) {
@@ -20,7 +21,7 @@ async function runPublish(opts) {
   const pkg = readWorkspacePackage(workspace);
   const name = opts.name ?? pkg.name;
   const description = opts.description ?? pkg.description;
-  const modelId = readModelId(workspace);
+  const { modelId: priorModelId, name: priorName } = readModelIdentity(workspace);
 
   // Surface who we are and where this is going *before* any bytes leave the
   // machine, so a wrong account or hub is caught before the upload starts.
@@ -29,6 +30,22 @@ async function runPublish(opts) {
   console.log(`  account: ${creds.email || '(unknown account)'}`);
   console.log(`  url:     ${hubUrl}`);
   console.log('');
+
+  // Decide new-model vs new-version BEFORE the heavy build, so the user makes
+  // the call (and we do any model-list lookup) without first waiting ~110ms for
+  // the engine to load. A null target ⇒ the hub mints a fresh model.
+  const targetModelId = await resolveTargetModel({
+    opts,
+    hubUrl,
+    token: creds.token,
+    priorModelId,
+    priorName,
+  });
+  console.log(
+    targetModelId
+      ? `Publishing a new version${priorName ? ` of ${priorName}` : ''}.\n`
+      : 'Publishing as a new model.\n',
+  );
 
   // Render once to capture the full param schema for the manifest. This also
   // acts as a build gate — a compile/runtime error fails the publish here,
@@ -74,8 +91,8 @@ async function runPublish(opts) {
 
   const form = new FormData();
   form.append('fluidpkg', new Blob([zip], { type: 'application/zip' }), 'model.fluidpkg');
-  if (modelId) {
-    form.append('modelId', modelId);
+  if (targetModelId) {
+    form.append('modelId', targetModelId);
   }
   if (name) {
     form.append('name', name);
@@ -98,10 +115,12 @@ async function runPublish(opts) {
     throw new Error(body.error || `Publish failed (HTTP ${status})`);
   }
 
-  // First publish for this workspace → persist the hub-minted id so the next
-  // publish lands as a new version of the same model.
-  if (!modelId && body.modelId) {
-    writeModelId(workspace, body.modelId);
+  // Persist the hub-authoritative id (and the name we used) whenever it changed
+  // or the workspace had no config — covers the first publish, a deliberate new
+  // model, and re-attaching a deleted fluidcad.json (the user picked an existing
+  // model from the list). An owned-match with an unchanged name is a no-op.
+  if (body.modelId && (body.modelId !== priorModelId || (name && name !== priorName))) {
+    writeModelConfig(workspace, { modelId: body.modelId, name });
   }
 
   console.log('');
@@ -121,6 +140,72 @@ async function runPublish(opts) {
   }
 }
 
+/**
+ * Decide which model this publish targets: an existing model id (→ a new
+ * version) or null (→ the hub mints a new model). Honors --new-model /
+ * --new-version; otherwise asks when interactive; and with no TTY falls back to
+ * today's behavior (a saved fluidcad.json id ⇒ a version, else a new model).
+ */
+async function resolveTargetModel({ opts, hubUrl, token, priorModelId, priorName }) {
+  if (opts.newModel && opts.newVersion) {
+    throw new Error('Pass only one of --new-model / --new-version.');
+  }
+  if (opts.newModel) return null;
+  if (opts.newVersion) {
+    if (priorModelId) return priorModelId;
+    if (isInteractive()) return pickExistingModel(hubUrl, token);
+    throw new Error(
+      'No fluidcad.json here, so there is no model to version. Drop --new-version to ' +
+        'publish a new model, or run interactively to pick an existing one.',
+    );
+  }
+
+  // No explicit flag.
+  if (!isInteractive()) {
+    // Non-interactive (CI, piped input): keep the historical default.
+    return priorModelId;
+  }
+  if (priorModelId) {
+    const label = priorName ? `${priorName} (${priorModelId})` : priorModelId;
+    return select('How should this publish go up?', [
+      { label: `Publish a new version of ${label}`, value: priorModelId },
+      { label: 'Publish as a new model', value: null },
+    ]);
+  }
+  const choice = await select('How should this publish go up?', [
+    { label: 'Publish a new version of an existing model', value: '__existing__' },
+    { label: 'Publish as a new model', value: null },
+  ]);
+  return choice === '__existing__' ? pickExistingModel(hubUrl, token) : null;
+}
+
+/**
+ * Fetch the user's own models from the hub and let them pick which one this is a
+ * new version of. Returns the chosen model id, or null when they have none yet
+ * (the caller then mints a new model).
+ */
+async function pickExistingModel(hubUrl, token) {
+  const { status, body } = await new HubClient(hubUrl, token).getJson('/api/cli/models');
+  if (status === 401) {
+    throw new Error('Your session has expired. Run `fluidcad login` again.');
+  }
+  if (status !== 200) {
+    throw new Error(body.error || `Could not list your models (HTTP ${status})`);
+  }
+  const models = Array.isArray(body.models) ? body.models : [];
+  if (models.length === 0) {
+    console.log('\nYou have no models on the hub yet — publishing this as a new model.\n');
+    return null;
+  }
+  return select(
+    'Which model is this a new version of?',
+    models.map((m) => ({
+      label: `${m.name} · ${m.latestVersion ? 'v' + m.latestVersion : 'no versions yet'}`,
+      value: m.id,
+    })),
+  );
+}
+
 export function registerPublishCommand(program) {
   program
     .command('publish')
@@ -129,6 +214,8 @@ export function registerPublishCommand(program) {
     .option('-e, --entry <file>', 'Entry .fluid.js file (auto-detected if only one exists)')
     .option('-n, --name <name>', 'Model name (defaults to the package name)')
     .option('-d, --description <text>', 'Optional human description')
+    .option('--new-model', 'Publish as a new model, ignoring any saved model id')
+    .option('--new-version', 'Publish a new version of the saved (or chosen) model')
     .option('--visibility <visibility>', 'public | unlisted | private (default: unlisted)')
     .option('--hub <url>', 'Hub base URL (default: the hub you logged into)')
     .action((opts) => {

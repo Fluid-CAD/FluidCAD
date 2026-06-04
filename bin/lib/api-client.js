@@ -20,6 +20,14 @@ export class HubClient {
     return { status: res.status, body };
   }
 
+  async getJson(path) {
+    const res = await fetch(this.base + path, {
+      method: 'GET',
+      headers: this.#authHeaders(),
+    });
+    return this.#result(res);
+  }
+
   async postJson(path, body) {
     const res = await fetch(this.base + path, {
       method: 'POST',

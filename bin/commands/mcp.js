@@ -1,5 +1,5 @@
 import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const mcpEntry = resolve(__dirname, '..', '..', 'mcp', 'dist', 'server.js');
@@ -10,7 +10,8 @@ async function runMcp() {
   console.log = (...args) => console.error(...args);
   console.info = (...args) => console.error(...args);
 
-  const mod = await import(mcpEntry);
+  // file:// URL required: Windows ESM loader rejects bare drive paths (D:\...).
+  const mod = await import(pathToFileURL(mcpEntry).href);
   if (typeof mod.runStdio !== 'function') {
     console.error('mcp/dist/server.js does not export runStdio.');
     process.exit(1);

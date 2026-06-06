@@ -430,6 +430,46 @@ export class FluidCadServer {
     return this.sceneManager.exportShapes(scene, shapeIds, options);
   }
 
+  /**
+   * Export every solid of a hub session's latest render. The session-keyed twin
+   * of `exportShapes` (which reads the desktop `currentFileName`): hub mode keys
+   * each render's scene by `sessionId`, so exporting/downloading from a hub
+   * session must look it up the same way — exactly why `hitTestForSession`
+   * exists. Gathers all solids itself ("download the whole model"); returns null
+   * when the session has no rendered scene or it holds no solids (the caller maps
+   * that to a "nothing to export" response).
+   */
+  exportShapesForSession(
+    sessionId: string,
+    options: {
+      format: 'step' | 'stl';
+      includeColors?: boolean;
+      resolution?: string;
+      customLinearDeflection?: number;
+      customAngularDeflectionDeg?: number;
+    },
+  ): { data: string | Uint8Array; fileName: string } | null {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(sessionId);
+    if (!scene) {
+      return null;
+    }
+    const shapeIds: string[] = [];
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getAddedShapes()) {
+        if (shape.isSolid()) {
+          shapeIds.push(shape.id);
+        }
+      }
+    }
+    if (shapeIds.length === 0) {
+      return null;
+    }
+    return this.sceneManager.exportShapes(scene, shapeIds, options);
+  }
+
   hitTest(
     shapeId: string,
     rayOrigin: [number, number, number],

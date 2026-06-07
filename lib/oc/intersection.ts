@@ -34,7 +34,7 @@ export class ProjectionOps {
     let wirePlane: Plane;
     if (wirePlaneFinder.Found()) {
       const handle = wirePlaneFinder.Plane();
-      const geomPln = handle.get();
+      const geomPln = handle;
       const pln = geomPln.Pln();
       wirePlane = Convert.toPlane(pln);
       // geomPln.delete();

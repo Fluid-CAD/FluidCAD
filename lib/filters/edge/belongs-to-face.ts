@@ -4,6 +4,7 @@ import { Edge, Face } from "../../common/shapes.js";
 import { Solid } from "../../common/solid.js";
 import { Explorer } from "../../oc/explorer.js";
 import { TopologyIndex } from "../../oc/topology-index.js";
+import { ShapeHasher } from "../../oc/shape-hash.js";
 import { FilterBase } from "../filter-base.js";
 import { FilterBuilderBase } from "../filter-builder-base.js";
 
@@ -11,15 +12,17 @@ abstract class BelongsToFaceFilterBase extends FilterBase<Edge> {
   protected scopeSolids: Solid[] = [];
   protected scopeFaces: Face[] = [];
   protected faceByHash: Map<number, Face[]> = new Map();
+  protected shapeHasher: ShapeHasher | null = null;
 
   constructor(protected faceFilterBuilders: FilterBuilderBase<Face>[]) {
     super();
   }
 
-  setScopeIndex(solids: Solid[], extraFaces: Face[], faceByHash: Map<number, Face[]>) {
+  setScopeIndex(solids: Solid[], extraFaces: Face[], faceByHash: Map<number, Face[]>, hasher: ShapeHasher) {
     this.scopeSolids = solids;
     this.scopeFaces = extraFaces;
     this.faceByHash = faceByHash;
+    this.shapeHasher = hasher;
   }
 
   protected findContainingFaces(edge: Edge): Face[] {
@@ -31,7 +34,7 @@ abstract class BelongsToFaceFilterBase extends FilterBase<Edge> {
       const index = solid.getEdgeToFacesIndex();
       const rawFaces = TopologyIndex.seekShapes(index, edgeShape);
       for (const raw of rawFaces) {
-        const wrapper = resolveFaceWrapper(raw, this.faceByHash);
+        const wrapper = resolveFaceWrapper(raw, this.faceByHash, this.shapeHasher);
         if (wrapper && !seen.has(wrapper)) {
           seen.add(wrapper);
           result.push(wrapper);
@@ -118,9 +121,10 @@ export class NotBelongsToFaceFilter extends BelongsToFaceFilterBase {
 function resolveFaceWrapper(
   rawFace: TopoDS_Shape,
   faceByHash: Map<number, Face[]>,
+  hasher: ShapeHasher | null,
 ): Face | null {
-  const hash = rawFace.HashCode(2147483647);
-  const bucket = faceByHash.get(hash);
+  const hash = hasher ? hasher.key(rawFace) : null;
+  const bucket = hash !== null ? faceByHash.get(hash) : undefined;
   if (bucket) {
     for (const candidate of bucket) {
       if (candidate.getShape().IsSame(rawFace)) {
@@ -131,10 +135,12 @@ function resolveFaceWrapper(
   // Not in scope (e.g. neighbor face from another part / out-of-scope solid).
   // Wrap on the fly so the face filters can still evaluate it.
   const wrapped = Face.fromTopoDSFace(Explorer.toFace(rawFace));
-  if (!bucket) {
-    faceByHash.set(hash, [wrapped]);
-  } else {
-    bucket.push(wrapped);
+  if (hash !== null) {
+    if (!bucket) {
+      faceByHash.set(hash, [wrapped]);
+    } else {
+      bucket.push(wrapped);
+    }
   }
   return wrapped;
 }

@@ -132,7 +132,7 @@ export class WireOps {
     fixer.FixGaps2d();
     fixer.FixEdgeCurves();
     fixer.FixConnected(oc.Precision.Confusion());
-    fixer.FixReorder();
+    fixer.FixReorder(true);
 
     fixer.Perform()
     const fixed = fixer.Wire();

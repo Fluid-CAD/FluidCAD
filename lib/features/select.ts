@@ -12,6 +12,7 @@ import { Face } from "../common/face.js";
 import { BelongsToFaceFilter, NotBelongsToFaceFilter } from "../filters/edge/belongs-to-face.js";
 import { FromSceneObjectFilter } from "../filters/from-object.js";
 import { TopologyIndex } from "../oc/topology-index.js";
+import { ShapeHasher } from "../oc/shape-hash.js";
 
 export class SelectSceneObject extends SceneObject implements ISelect {
 
@@ -62,8 +63,9 @@ export class SelectSceneObject extends SceneObject implements ISelect {
     }
 
     const allShapes = this.constraintObject ? this.constraintObject.getShapes() : this.getAllShapes(sceneObjects, excludedObjects);
+    let scopeHasher: ShapeHasher | null = null;
     if (this.type === "edge") {
-      this.injectScopeFaces(filters, sceneObjects);
+      scopeHasher = this.injectScopeFaces(filters, sceneObjects);
     }
     const fromFilters = this.injectFromMembershipSets(filters);
     try {
@@ -74,6 +76,7 @@ export class SelectSceneObject extends SceneObject implements ISelect {
         filter.setMembershipSet(null);
         set.delete();
       }
+      scopeHasher?.delete();
     }
   }
 
@@ -157,10 +160,11 @@ export class SelectSceneObject extends SceneObject implements ISelect {
     return new SelectSceneObject(mirroredFilters, this.constraintObject);
   }
 
-  private injectScopeFaces(filters: FilterBuilderBase<Shape>[], sceneObjects: SceneObject[]) {
+  private injectScopeFaces(filters: FilterBuilderBase<Shape>[], sceneObjects: SceneObject[]): ShapeHasher | null {
     let scopeSolids: Solid[] | null = null;
     let extraFaces: Face[] | null = null;
     let faceByHash: Map<number, Face[]> | null = null;
+    let hasher: ShapeHasher | null = null;
 
     for (const builder of filters) {
       for (const filter of builder.getFilters()) {
@@ -180,19 +184,22 @@ export class SelectSceneObject extends SceneObject implements ISelect {
             }
 
             faceByHash = new Map<number, Face[]>();
+            hasher = new ShapeHasher();
             for (const solid of scopeSolids) {
               for (const face of solid.getFaces()) {
-                addToBucket(faceByHash, face);
+                addToBucket(faceByHash, face, hasher);
               }
             }
             for (const face of extraFaces) {
-              addToBucket(faceByHash, face);
+              addToBucket(faceByHash, face, hasher);
             }
           }
-          filter.setScopeIndex(scopeSolids, extraFaces!, faceByHash!);
+          filter.setScopeIndex(scopeSolids, extraFaces!, faceByHash!, hasher!);
         }
       }
     }
+
+    return hasher;
   }
 
   applyFilters(shapes: Shape[], filters: FilterBuilderBase<Shape>[]): Shape[] {
@@ -253,8 +260,8 @@ export class SelectSceneObject extends SceneObject implements ISelect {
   }
 }
 
-function addToBucket(faceByHash: Map<number, Face[]>, face: Face) {
-  const hash = face.getShape().HashCode(2147483647);
+function addToBucket(faceByHash: Map<number, Face[]>, face: Face, hasher: ShapeHasher) {
+  const hash = hasher.key(face.getShape());
   let bucket = faceByHash.get(hash);
   if (!bucket) {
     bucket = [];

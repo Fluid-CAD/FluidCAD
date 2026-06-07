@@ -176,8 +176,7 @@ export class ShapeOps {
       };
     }
 
-    const historyHandle = unify.History();
-    const history = historyHandle.get();
+    const history = unify.History();
 
     let disposed = false;
     const dispose = () => {
@@ -185,7 +184,7 @@ export class ShapeOps {
         return;
       }
       disposed = true;
-      historyHandle.delete();
+      history.delete();
       unify.delete();
       knownFaces.delete();
       knownEdges.delete();

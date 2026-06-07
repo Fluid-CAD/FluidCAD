@@ -72,7 +72,7 @@
     "ignore": "^5.3.2",
     "jszip": "^3.10.1",
     "iconoir": "^7.11.0",
-    "occjs-wrapper": "npm:occjs-fluidcad@9.0.0",
+    "occjs-wrapper": "file:../ocjsv8/",
     "open": "^11.0.0",
     "stacktrace-parser": "^0.1.11",
     "tree-sitter-wasms": "^0.1.13",

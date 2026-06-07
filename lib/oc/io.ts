@@ -1,5 +1,6 @@
-import type { Handle_TDocStd_Document, TopoDS_Shape } from "occjs-wrapper";
+import type { TDocStd_Document, TopoDS_Shape } from "occjs-wrapper";
 import { getOC } from "./init.js";
+import { ShapeHasher } from "./shape-hash.js";
 import { Explorer } from "./explorer.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
@@ -54,7 +55,7 @@ export class OcIO {
     return OcIO.writeBRepRaw(compound, fileName);
   }
 
-  static extractSolidsAndColors(docHandle: Handle_TDocStd_Document): {
+  static extractSolidsAndColors(docHandle: TDocStd_Document): {
     solids: Array<{ shape: Solid; faceColors: Array<{ faceIndex: number; color: string }> }>;
   } {
     const rawResult = OcIO.extractSolidsAndColorsRaw(docHandle);
@@ -126,16 +127,16 @@ export class OcIO {
     return shape;
   }
 
-  static readStepXCAF(fileName: string, data: Uint8Array): { docHandle: Handle_TDocStd_Document; cleanup: () => void } {
+  static readStepXCAF(fileName: string, data: Uint8Array): { docHandle: TDocStd_Document; cleanup: () => void } {
     const oc = getOC();
 
     const uint8 = new Uint8Array(data);
     oc.FS.createDataFile("/", fileName, uint8, true, true, true);
 
     const app = new oc.TDocStd_Application();
-    const docHandle = new oc.Handle_TDocStd_Document();
     const format = new oc.TCollection_ExtendedString('MDTV-XCAF');
-    app.NewDocument(format, docHandle);
+    const docHandle = new oc.TDocStd_Document(format);
+    app.InitDocument(docHandle);
     format.delete();
 
     const reader = new oc.STEPCAFControl_Reader();
@@ -204,15 +205,15 @@ export class OcIO {
     return compound;
   }
 
-  static extractSolidsAndColorsRaw(docHandle: Handle_TDocStd_Document): {
+  static extractSolidsAndColorsRaw(docHandle: TDocStd_Document): {
     solids: Array<{ shape: TopoDS_Shape; faceColors: Array<{ faceIndex: number; color: string }> }>;
   } {
     const oc = getOC();
-    const doc = docHandle.get();
+    const doc = docHandle;
     const shapeToolHandle = oc.XCAFDoc_DocumentTool.ShapeTool(doc.Main());
     const colorToolHandle = oc.XCAFDoc_DocumentTool.ColorTool(doc.Main());
-    const shapeTool = shapeToolHandle.get();
-    const colorTool = colorToolHandle.get();
+    const shapeTool = shapeToolHandle;
+    const colorTool = colorToolHandle;
     const surfType = oc.XCAFDoc_ColorType.XCAFDoc_ColorSurf;
 
     const colorLabels = new oc.TDF_LabelSequence();
@@ -222,6 +223,7 @@ export class OcIO {
 
     const faceColorByHash = new Map<number, string>();
     const solidColorByHash = new Map<number, string>();
+    const shapeHasher = new ShapeHasher();
 
     const allLabels = new oc.TDF_LabelSequence();
     shapeTool.GetShapes(allLabels);
@@ -236,15 +238,15 @@ export class OcIO {
       const shape = oc.XCAFDoc_ShapeTool.GetShape(label);
 
       const labelColor = new oc.Quantity_Color();
-      if (colorTool.GetColor(label, surfType, labelColor)) {
+      if (oc.XCAFDoc_ColorTool.GetColor(label, surfType, labelColor)) {
         const hex = OcIO.rgbToHex(labelColor.Red(), labelColor.Green(), labelColor.Blue());
         const labelSolids = OcIO.findSolidsRaw(shape);
         for (const s of labelSolids) {
-          solidColorByHash.set(s.HashCode(2147483647), hex);
+          solidColorByHash.set(shapeHasher.key(s), hex);
         }
         const labelFaces = OcIO.findFacesRaw(shape);
         for (const f of labelFaces) {
-          faceColorByHash.set(f.HashCode(2147483647), hex);
+          faceColorByHash.set(shapeHasher.key(f), hex);
         }
       }
       labelColor.delete();
@@ -255,9 +257,9 @@ export class OcIO {
       for (let j = 1; j <= subLabels.Length(); j++) {
         const subLabel = subLabels.Value(j);
         const subColor = new oc.Quantity_Color();
-        if (colorTool.GetColor(subLabel, surfType, subColor)) {
+        if (oc.XCAFDoc_ColorTool.GetColor(subLabel, surfType, subColor)) {
           const subShape = oc.XCAFDoc_ShapeTool.GetShape(subLabel);
-          faceColorByHash.set(subShape.HashCode(2147483647), OcIO.rgbToHex(subColor.Red(), subColor.Green(), subColor.Blue()));
+          faceColorByHash.set(shapeHasher.key(subShape), OcIO.rgbToHex(subColor.Red(), subColor.Green(), subColor.Blue()));
           subShapeColorCount++;
         }
         subColor.delete();
@@ -285,7 +287,7 @@ export class OcIO {
 
         for (let fi = 0; fi < faces.length; fi++) {
           const face = faces[fi];
-          const color = OcIO.findFaceColor(face, solidShape, colorTool, shapeTool, oc, surfType, faceColorByHash, solidColorByHash);
+          const color = OcIO.findFaceColor(face, solidShape, colorTool, shapeTool, oc, surfType, faceColorByHash, solidColorByHash, shapeHasher);
 
           if (color) {
             faceColors.push({ faceIndex: fi, color });
@@ -299,6 +301,7 @@ export class OcIO {
     freeLabels.delete();
     shapeToolHandle.delete();
     colorToolHandle.delete();
+    shapeHasher.delete();
 
     return { solids };
   }
@@ -333,16 +336,16 @@ export class OcIO {
     const oc = getOC();
 
     const app = new oc.TDocStd_Application();
-    const docHandle = new oc.Handle_TDocStd_Document();
     const format = new oc.TCollection_ExtendedString('MDTV-XCAF');
-    app.NewDocument(format, docHandle);
+    const docHandle = new oc.TDocStd_Document(format);
+    app.InitDocument(docHandle);
     format.delete();
 
-    const doc = docHandle.get();
+    const doc = docHandle;
     const shapeToolHandle = oc.XCAFDoc_DocumentTool.ShapeTool(doc.Main());
     const colorToolHandle = oc.XCAFDoc_DocumentTool.ColorTool(doc.Main());
-    const shapeTool = shapeToolHandle.get();
-    const colorTool = colorToolHandle.get();
+    const shapeTool = shapeToolHandle;
+    const colorTool = colorToolHandle;
     const surfType = oc.XCAFDoc_ColorType.XCAFDoc_ColorSurf;
 
     // Use NewShape + SetShape (per OCC docs) instead of AddShape to avoid
@@ -462,9 +465,10 @@ export class OcIO {
     oc: any,
     surfType: any,
     faceColorByHash: Map<number, string>,
-    solidColorByHash: Map<number, string>
+    solidColorByHash: Map<number, string>,
+    shapeHasher: ShapeHasher
   ): string | null {
-    const hashColor = faceColorByHash.get(face.HashCode(2147483647));
+    const hashColor = faceColorByHash.get(shapeHasher.key(face));
     if (hashColor) return hashColor;
 
     const color = new oc.Quantity_Color();
@@ -492,7 +496,7 @@ export class OcIO {
 
     const faceLabel = new oc.TDF_Label();
     if (shapeTool.SearchUsingMap(face, faceLabel, true, true)) {
-      if (colorTool.GetColor(faceLabel, surfType, color)) {
+      if (oc.XCAFDoc_ColorTool.GetColor(faceLabel, surfType, color)) {
         const hex = OcIO.rgbToHex(color.Red(), color.Green(), color.Blue());
         color.delete();
         return hex;
@@ -500,7 +504,7 @@ export class OcIO {
     }
     color.delete();
 
-    const solidHash = solidColorByHash.get(solidShape.HashCode(2147483647));
+    const solidHash = solidColorByHash.get(shapeHasher.key(solidShape));
     if (solidHash) return solidHash;
 
     const solidColor = new oc.Quantity_Color();

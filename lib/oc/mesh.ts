@@ -106,24 +106,38 @@ export class Mesh {
     // then read back via Poly_Triangulation.Normal(i).
     oc.BRepLib_ToolTriangulatedShape.ComputeNormals(face, triangulation, pc);
 
+    // A triangulation stores normals in the natural orientation of the
+    // underlying surface, NOT the face's topological orientation. For a
+    // TopAbs_REVERSED face the outward normal is the opposite of the surface
+    // normal, so we must flip the nodal normals here. (Pre-OCCT-8 this was done
+    // internally by StdPrs_ToolTriangulatedShape::Normal; BRepLib_ToolTriangulatedShape
+    // ::ComputeNormals does not, which left reversed faces shaded as if lit from
+    // inside the solid — they rendered dark.) The triangle winding below is
+    // swapped under the same condition so winding and shading normals agree.
+    const orient = face.Orientation();
+    const reversed = orient !== oc.TopAbs_Orientation.TopAbs_FORWARD;
+
     for (let i = 1; i <= nbNodes; i++) {
       const t1 = aLocation.Transformation();
       const d1 = triangulation.Normal(i);
       const d = d1.Transformed(t1);
-      normals.push(d.X(), d.Y(), d.Z());
+      if (reversed) {
+        normals.push(-d.X(), -d.Y(), -d.Z());
+      } else {
+        normals.push(d.X(), d.Y(), d.Z());
+      }
       d1.delete();
       d.delete();
       t1.delete();
     }
 
-    const orient = face.Orientation();
     const triangles = triangulation.Triangles();
     for (let nt = 1; nt <= triangulation.NbTriangles(); nt++) {
       const t = triangles.Value(nt);
       let n1 = t.Value(1) - 1;
       let n2 = t.Value(2) - 1;
       let n3 = t.Value(3) - 1;
-      if (orient !== oc.TopAbs_Orientation.TopAbs_FORWARD) {
+      if (reversed) {
         [n1, n2] = [n2, n1];
       }
       indices.push(vertexOffset + n1, vertexOffset + n2, vertexOffset + n3);

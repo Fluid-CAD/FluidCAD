@@ -1,7 +1,7 @@
 import type { SceneObjectRender } from '../types';
 import { savePreference, recompute, rollback, addBreakpoint, gotoSource } from '../api';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_CUBE, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT } from './icons';
-import { resolveIconName } from './object-icons';
+import { resolveIconName, ICON_IMG_FALLBACK } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 
 const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
@@ -331,7 +331,7 @@ export class TimelinePanel {
       <div class="${itemClass}" data-index="${index}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}">
         ${chevron}
         ${errorDot}
-        <img src="${iconSrc}" class="${imgClass}" alt="" />
+        <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="${imgClass}" alt="" />
         <span class="truncate">${name}</span>
         ${durationSpan}
         ${statusIcon}

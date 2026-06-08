@@ -38,3 +38,17 @@ export function resolveIconName(uniqueType: string | undefined, type: string | u
   }
   return type || 'solid';
 }
+
+/**
+ * Generic icon shown when a feature or shape has no PNG of its own (e.g. a newly
+ * added feature/shape type that predates its artwork). `solid` is a neutral grey
+ * cube and is already the catch-all returned by resolveIconName.
+ */
+export const DEFAULT_ICON_SRC = '/icons/solid.png';
+
+/**
+ * Inline `onerror` attribute for icon `<img>` tags built via innerHTML. When the
+ * resolved PNG is missing (404), swap in the default icon and detach the handler
+ * so a missing default can't trigger an infinite loop.
+ */
+export const ICON_IMG_FALLBACK = `onerror="this.onerror=null;this.src='${DEFAULT_ICON_SRC}'"`;

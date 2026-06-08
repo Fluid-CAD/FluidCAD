@@ -10,6 +10,7 @@ import { circle, hLine } from "../../core/2d/index.js";
 import { Helix } from "../../features/helix.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { Edge } from "../../common/edge.js";
+import { getOC } from "../../oc/init.js";
 
 // Bounding boxes are computed from the triangulated mesh of the helix edge,
 // so they're slightly larger than the analytic extents (~0.2 mm typical).
@@ -80,6 +81,54 @@ describe("helix", () => {
       expect(diameterX).toBeLessThanOrEqual(40 + MESH_TOL);
       expect(bbox.maxZ - bbox.minZ).toBeGreaterThanOrEqual(30 - MESH_TOL);
       expect(bbox.maxZ - bbox.minZ).toBeLessThanOrEqual(30 + MESH_TOL);
+    });
+  });
+
+  describe("tapered approximation (regression)", () => {
+    // A many-turn TAPERED helix must follow its cone profile along its WHOLE
+    // length, not just within its bounding box. The earlier implementation used
+    // HelixGeom_Tools.ApprHelix, whose hardcoded 150-segment budget saturates for
+    // ~10+ turn tapers: the single B-spline fit oscillated wildly over the final
+    // turns (radius collapsing toward the axis) while still reporting success — a
+    // bbox check can't see an inward excursion. Sample the curve and assert the
+    // radius tracks the ideal cone r(z) = startR + (endR - startR) * z / height.
+    it("should track the cone profile over the full length of a 10-turn taper", () => {
+      const startR = 15;
+      const endR = 25;
+      const height = 100;
+      const h = helix("z").radius(startR).endRadius(endR).height(height).pitch(10) as Helix; // 10 turns
+      render();
+      expect(h.getError()).toBeFalsy();
+
+      const oc = getOC();
+      const edge = h.getShapes()[0] as Edge;
+      const adaptor = new oc.BRepAdaptor_Curve(edge.getShape());
+      const first = adaptor.FirstParameter();
+      const last = adaptor.LastParameter();
+
+      let maxDev = 0;
+      let maxDevZ = 0;
+      const samples = 400;
+      for (let k = 0; k <= samples; k++) {
+        const t = first + (last - first) * (k / samples);
+        const p = adaptor.Value(t);
+        const radius = Math.hypot(p.X(), p.Y());
+        const ideal = startR + (endR - startR) * (p.Z() / height);
+        const dev = Math.abs(radius - ideal);
+        if (dev > maxDev) {
+          maxDev = dev;
+          maxDevZ = p.Z();
+        }
+        p.delete();
+      }
+      adaptor.delete();
+
+      // The fit holds to its 1e-4 mm tolerance; 0.1 mm is a generous bound that
+      // still fails hard on the old saturated fit (which deviated by ~24 mm).
+      expect(
+        maxDev,
+        `max radial deviation ${maxDev.toFixed(3)} mm at z=${maxDevZ.toFixed(1)}`,
+      ).toBeLessThan(0.1);
     });
   });
 

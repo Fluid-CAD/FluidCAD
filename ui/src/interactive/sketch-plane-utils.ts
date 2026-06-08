@@ -51,6 +51,21 @@ export function localToWorld(point2d: [number, number], plane: PlaneData): Vecto
   );
 }
 
+// Inverse of projectToSketch: maps a sketch-plane 2D point back to client
+// pixel coordinates (relative to the viewport, including the canvas offset).
+export function sketchToClient(
+  ctx: SceneContext,
+  plane: PlaneData,
+  point2d: [number, number],
+): { clientX: number; clientY: number } {
+  const ndc = localToWorld(point2d, plane).project(ctx.camera);
+  const rect = ctx.renderer.domElement.getBoundingClientRect();
+  return {
+    clientX: ((ndc.x + 1) / 2) * rect.width + rect.left,
+    clientY: ((1 - ndc.y) / 2) * rect.height + rect.top,
+  };
+}
+
 export function worldToSketch2D(worldPoint: Vec3Data, plane: PlaneData): [number, number] {
   const rel = new Vector3(
     worldPoint.x - plane.origin.x,

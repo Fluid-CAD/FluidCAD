@@ -9,6 +9,7 @@ import {
   projectToSketch,
   roundPoint,
   dist2D,
+  sketchToClient,
 } from '../sketch-plane-utils';
 import { ICON_ROUNDED_RECT } from '../../ui/icons';
 import { ExpressionInput, VariableInfo, CommitResult } from '../../ui/expression-input';
@@ -295,10 +296,36 @@ export class RoundedRectTool extends SketchTool {
     return radius;
   }
 
+  // Anchor the dimension input at the midpoint of what's being set: the
+  // horizontal centre of the width edge, the vertical centre of the height
+  // edge, or the centre of the locked rectangle while setting the corner
+  // radius. Falls back to the cursor if the shape isn't established yet.
+  private dimensionInputAnchor(): { clientX: number; clientY: number } {
+    const fallback = { clientX: this.lastClientX, clientY: this.lastClientY };
+    if (!this.startPoint || !this.mousePoint) {
+      return fallback;
+    }
+    if (this.expressionPhase === 'radius') {
+      const corners = this.getLockedPreviewCorners();
+      if (!corners) {
+        return fallback;
+      }
+      const { c1, c2 } = corners;
+      return sketchToClient(this.ctx, this.plane, [(c1[0] + c2[0]) / 2, (c1[1] + c2[1]) / 2]);
+    }
+    const { c1, c2 } = this.computePreviewCorners(this.mousePoint);
+    const mid: [number, number] = this.expressionPhase === 'width'
+      ? [(c1[0] + c2[0]) / 2, c1[1]]
+      : [c2[0], (c1[1] + c2[1]) / 2];
+    return sketchToClient(this.ctx, this.plane, mid);
+  }
+
   private updateDimensionInput(): void {
     if (!this.startPoint || !this.mousePoint) {
       return;
     }
+
+    const anchor = this.dimensionInputAnchor();
 
     if (this.expressionPhase === 'width') {
       const { width } = this.computeDimensions(this.mousePoint);
@@ -311,14 +338,14 @@ export class RoundedRectTool extends SketchTool {
         this.expressionInput.show({
           label: 'W',
           value: String(absW),
-          clientX: this.lastClientX,
-          clientY: this.lastClientY,
+          clientX: anchor.clientX,
+          clientY: anchor.clientY,
           variables: this.cachedVariables,
           onCommit: (result) => this.onWidthCommit(result),
         });
       } else {
         this.expressionInput.updateValue(absW);
-        this.expressionInput.updatePosition(this.lastClientX, this.lastClientY);
+        this.expressionInput.updatePosition(anchor.clientX, anchor.clientY);
       }
     } else if (this.expressionPhase === 'height') {
       const { height } = this.computeDimensions(this.mousePoint);
@@ -329,14 +356,14 @@ export class RoundedRectTool extends SketchTool {
         this.expressionInput.show({
           label: 'H',
           value: String(absH),
-          clientX: this.lastClientX,
-          clientY: this.lastClientY,
+          clientX: anchor.clientX,
+          clientY: anchor.clientY,
           variables: this.cachedVariables,
           onCommit: (result) => this.onHeightCommit(result, hSign),
         });
       } else {
         this.expressionInput.updateValue(absH);
-        this.expressionInput.updatePosition(this.lastClientX, this.lastClientY);
+        this.expressionInput.updatePosition(anchor.clientX, anchor.clientY);
       }
     } else if (this.expressionPhase === 'radius') {
       const radius = this.computeRadiusFromMouse(this.mousePoint);
@@ -345,14 +372,14 @@ export class RoundedRectTool extends SketchTool {
         this.expressionInput.show({
           label: 'R',
           value: String(radius),
-          clientX: this.lastClientX,
-          clientY: this.lastClientY,
+          clientX: anchor.clientX,
+          clientY: anchor.clientY,
           variables: this.cachedVariables,
           onCommit: (result) => this.onRadiusCommit(result),
         });
       } else {
         this.expressionInput.updateValue(radius);
-        this.expressionInput.updatePosition(this.lastClientX, this.lastClientY);
+        this.expressionInput.updatePosition(anchor.clientX, anchor.clientY);
       }
     }
   }
@@ -377,12 +404,13 @@ export class RoundedRectTool extends SketchTool {
         const { height } = this.computeDimensions(this.mousePoint);
         const absH = Math.round(Math.abs(height) * 100) / 100;
         const hSign = height >= 0 ? 1 : -1;
+        const anchor = this.dimensionInputAnchor();
 
         this.expressionInput.show({
           label: 'H',
           value: String(absH),
-          clientX: this.lastClientX,
-          clientY: this.lastClientY,
+          clientX: anchor.clientX,
+          clientY: anchor.clientY,
           variables: this.cachedVariables,
           onCommit: (r) => this.onHeightCommit(r, hSign),
         });
@@ -413,11 +441,12 @@ export class RoundedRectTool extends SketchTool {
     queueMicrotask(() => {
       if (this.mousePoint) {
         const radius = this.computeRadiusFromMouse(this.mousePoint);
+        const anchor = this.dimensionInputAnchor();
         this.expressionInput.show({
           label: 'R',
           value: String(radius),
-          clientX: this.lastClientX,
-          clientY: this.lastClientY,
+          clientX: anchor.clientX,
+          clientY: anchor.clientY,
           variables: this.cachedVariables,
           onCommit: (r) => this.onRadiusCommit(r),
         });
@@ -470,11 +499,12 @@ export class RoundedRectTool extends SketchTool {
 
     if (this.mousePoint) {
       const radius = this.computeRadiusFromMouse(this.mousePoint);
+      const anchor = this.dimensionInputAnchor();
       this.expressionInput.show({
         label: 'R',
         value: String(radius),
-        clientX: this.lastClientX,
-        clientY: this.lastClientY,
+        clientX: anchor.clientX,
+        clientY: anchor.clientY,
         variables: this.cachedVariables,
         onCommit: (r) => this.onRadiusCommit(r),
       });

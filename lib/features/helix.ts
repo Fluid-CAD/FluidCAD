@@ -218,15 +218,7 @@ export class Helix extends SceneObject implements IHelix {
       );
     }
 
-    let edge: Edge;
-    if (Math.abs(startRadius - endRadius) < EPS) {
-      edge = HelixOps.makeCylindricalHelix(cs, startRadius, zStart, zEnd, turns);
-    } else {
-      const semiAngle = Math.atan2(endRadius - startRadius, zEnd - zStart);
-      const refRadius = startRadius - (zStart / Math.cos(semiAngle)) * Math.sin(semiAngle);
-      edge = HelixOps.makeConicalHelix(cs, semiAngle, refRadius, zStart, zEnd, turns);
-    }
-
+    const edge = HelixOps.makeHelix(cs, startRadius, endRadius, zStart, zEnd, turns);
     this.addShape(edge);
 
     if (!(this.source instanceof AxisObjectBase)) {

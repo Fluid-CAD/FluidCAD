@@ -12,8 +12,8 @@ seeAlso: [api/revolve, api/types/boolean-operation]
 interface Revolve extends BooleanOperation {
   symmetric(): this;
   pick(...points: Point2DLike[]): this;
-  thin(offset: number): this;
-  thin(offset1: number, offset2: number): this;
+  thin(offset: NumberParam): this;
+  thin(offset1: NumberParam, offset2: NumberParam): this;
   internalFaces(...args: (number | FaceFilter)[]): SceneObject;
   internalEdges(...args: (number | EdgeFilter)[]): SceneObject;
   capFaces(...args: (number | FaceFilter)[]): SceneObject;
@@ -40,8 +40,8 @@ Restricts the revolve to only the sketch regions containing the given points.
 ### `thin()`
 
 ```ts
-thin(offset: number): this
-thin(offset1: number, offset2: number): this
+thin(offset: NumberParam): this
+thin(offset1: NumberParam, offset2: NumberParam): this
 ```
 
 Enables thin revolve mode — offsets the profile edges to create a thin-walled
@@ -50,8 +50,8 @@ outward, negative values offset inward.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `offset1` | `number` | The first wall offset distance. Positive = outward, negative = inward. |
-| `offset2` | `number` | The second wall offset distance, in the opposite direction of offset1. |
+| `offset1` | `NumberParam` | The first wall offset distance. Positive = outward, negative = inward. |
+| `offset2` | `NumberParam` | The second wall offset distance, in the opposite direction of offset1. |
 
 ### `internalFaces()`
 

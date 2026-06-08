@@ -1,4 +1,4 @@
-import type { TopoDS_Edge, TopoDS_Face, TopoDS_Shape } from "occjs-wrapper";
+import type { TopoDS_Edge, TopoDS_Face, TopoDS_Shape } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";
@@ -81,14 +81,13 @@ export class Mesh {
     const indices: number[] = [];
 
     const aLocation = new oc.TopLoc_Location();
-    const faceTriangulation = oc.BRep_Tool.Triangulation(face, aLocation, 0);
-    if (faceTriangulation.IsNull()) {
+    const triangulation = oc.BRep_Tool.Triangulation(face, aLocation, 0);
+    if (triangulation.isNull()) {
       aLocation.delete();
       return null;
     }
 
-    const pc = new oc.Poly_Connect(faceTriangulation);
-    const triangulation = faceTriangulation.get();
+    const pc = new oc.Poly_Connect(triangulation);
     const nbNodes = triangulation.NbNodes();
 
     for (let i = 1; i <= nbNodes; i++) {
@@ -101,27 +100,44 @@ export class Mesh {
       t1.delete();
     }
 
-    const faceNormals = new oc.TColgp_Array1OfDir(1, nbNodes);
-    oc.StdPrs_ToolTriangulatedShape.Normal(face, pc, faceNormals);
+    // OCCT 8.0: StdPrs_ToolTriangulatedShape (TKV3d) is gone; the surface-normals
+    // utility moved to BRepLib_ToolTriangulatedShape (TKTopAlgo). It computes nodal
+    // normals into the triangulation itself (no-op if it already has them), which we
+    // then read back via Poly_Triangulation.Normal(i).
+    oc.BRepLib_ToolTriangulatedShape.ComputeNormals(face, triangulation, pc);
+
+    // A triangulation stores normals in the natural orientation of the
+    // underlying surface, NOT the face's topological orientation. For a
+    // TopAbs_REVERSED face the outward normal is the opposite of the surface
+    // normal, so we must flip the nodal normals here. (Pre-OCCT-8 this was done
+    // internally by StdPrs_ToolTriangulatedShape::Normal; BRepLib_ToolTriangulatedShape
+    // ::ComputeNormals does not, which left reversed faces shaded as if lit from
+    // inside the solid — they rendered dark.) The triangle winding below is
+    // swapped under the same condition so winding and shading normals agree.
+    const orient = face.Orientation();
+    const reversed = orient !== oc.TopAbs_Orientation.TopAbs_FORWARD;
 
     for (let i = 1; i <= nbNodes; i++) {
       const t1 = aLocation.Transformation();
-      const d1 = faceNormals.Value(i);
+      const d1 = triangulation.Normal(i);
       const d = d1.Transformed(t1);
-      normals.push(d.X(), d.Y(), d.Z());
+      if (reversed) {
+        normals.push(-d.X(), -d.Y(), -d.Z());
+      } else {
+        normals.push(d.X(), d.Y(), d.Z());
+      }
       d1.delete();
       d.delete();
       t1.delete();
     }
 
-    const orient = face.Orientation();
     const triangles = triangulation.Triangles();
     for (let nt = 1; nt <= triangulation.NbTriangles(); nt++) {
       const t = triangles.Value(nt);
       let n1 = t.Value(1) - 1;
       let n2 = t.Value(2) - 1;
       let n3 = t.Value(3) - 1;
-      if (orient !== oc.TopAbs_Orientation.TopAbs_FORWARD) {
+      if (reversed) {
         [n1, n2] = [n2, n1];
       }
       indices.push(vertexOffset + n1, vertexOffset + n2, vertexOffset + n3);
@@ -129,9 +145,8 @@ export class Mesh {
     }
 
     pc.delete();
-    faceNormals.delete();
     triangles.delete();
-    faceTriangulation.delete();
+    triangulation.delete();
     aLocation.delete();
 
     return { vertices, normals, indices, count: nbNodes };
@@ -149,23 +164,21 @@ export class Mesh {
     }
 
     const loc = new oc.TopLoc_Location();
-    const triHandle = oc.BRep_Tool.Triangulation(face, loc, 0);
-    if (triHandle.IsNull()) {
-      triHandle.delete();
+    const tri = oc.BRep_Tool.Triangulation(face, loc, 0);
+    if (tri.isNull()) {
+      tri.delete();
       loc.delete();
       return null;
     }
 
-    const polyHandle = oc.BRep_Tool.PolygonOnTriangulation(edge, triHandle, loc);
-    if (polyHandle.IsNull()) {
-      polyHandle.delete();
-      triHandle.delete();
+    const poly = oc.BRep_Tool.PolygonOnTriangulation(edge, tri, loc);
+    if (poly.isNull()) {
+      poly.delete();
+      tri.delete();
       loc.delete();
       return null;
     }
 
-    const tri = triHandle.get();
-    const poly = polyHandle.get();
     const nbNodes = poly.NbNodes();
     const tx = loc.Transformation();
 
@@ -189,8 +202,8 @@ export class Mesh {
     }
 
     tx.delete();
-    polyHandle.delete();
-    triHandle.delete();
+    poly.delete();
+    tri.delete();
     loc.delete();
 
     return { vertices, normals: [], indices };
@@ -213,16 +226,15 @@ export class Mesh {
     Mesh.ensureTriangulated(edge, opts);
 
     const loc = new oc.TopLoc_Location();
-    const polyHandle = oc.BRep_Tool.Polygon3D(ocEdge, loc);
-    if (polyHandle.IsNull()) {
-      polyHandle.delete();
+    const poly = oc.BRep_Tool.Polygon3D(ocEdge, loc);
+    if (poly.isNull()) {
+      poly.delete();
       loc.delete();
       ocEdge.delete();
       console.warn("Edge has no stored Polygon3D after meshing; returning empty polyline.");
       return { vertices: [], normals: [], indices: [] };
     }
 
-    const poly = polyHandle.get();
     const nbNodes = poly.NbNodes();
     const nodes = poly.Nodes();
     const tx = loc.Transformation();
@@ -246,7 +258,7 @@ export class Mesh {
     }
 
     tx.delete();
-    polyHandle.delete();
+    poly.delete();
     loc.delete();
     ocEdge.delete();
 

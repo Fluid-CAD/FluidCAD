@@ -1,5 +1,5 @@
-import initOpenCascade from "occjs-wrapper/node/multi-threaded"
-import type { OpenCascadeInstance } from "occjs-wrapper/node/multi-threaded";
+import initOpenCascade from "fluidcad-ocjs"
+import type { OpenCascadeInstance } from "fluidcad-ocjs";
 
 let oc: OpenCascadeInstance | null = null;
 

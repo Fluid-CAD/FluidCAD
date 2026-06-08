@@ -1,4 +1,4 @@
-import type { TopoDS_Edge, TopoDS_Face } from "occjs-wrapper";
+import type { TopoDS_Edge, TopoDS_Face } from "fluidcad-ocjs";
 import { Explorer } from "../oc/explorer.js";
 import { FaceOps } from "../oc/face-ops.js";
 import { ShapeOps } from "../oc/shape-ops.js";

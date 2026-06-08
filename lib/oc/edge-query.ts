@@ -1,4 +1,4 @@
-import type { gp_Pln, gp_Vec, TopoDS_Edge, TopoDS_Face, TopoDS_Shape } from "occjs-wrapper";
+import type { gp_Pln, gp_Vec, TopoDS_Edge, TopoDS_Face, TopoDS_Shape } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { FaceOps } from "./face-ops.js";
@@ -187,20 +187,14 @@ export class EdgeQuery {
     const oc = getOC();
     const ocEdge = oc.TopoDS.Edge(edge);
     const adaptor = new oc.BRepAdaptor_Curve(ocEdge);
-    const curve = adaptor.Curve().Curve()?.get();
 
-    if (!curve) {
-      adaptor.delete();
-      return false;
-    }
-
-    const firstParam = curve.FirstParameter();
-    const lastParam = curve.LastParameter();
+    const firstParam = adaptor.FirstParameter();
+    const lastParam = adaptor.LastParameter();
     const midParam = (firstParam + lastParam) / 2;
 
     const tangent = new oc.gp_Vec();
     const tempPnt = new oc.gp_Pnt();
-    curve.D1(midParam, tempPnt, tangent);
+    adaptor.D1(midParam, tempPnt, tangent);
 
     const dotProduct = Math.abs(tangent.Dot(planeNormal));
 

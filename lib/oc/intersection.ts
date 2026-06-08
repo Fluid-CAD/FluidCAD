@@ -2,7 +2,7 @@ import type {
     gp_Pln,
   TopoDS_Face,
   TopoDS_Wire,
-} from "occjs-wrapper";
+} from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { ShapeOps } from "./shape-ops.js";
 import { Convert } from "./convert.js";
@@ -34,7 +34,7 @@ export class ProjectionOps {
     let wirePlane: Plane;
     if (wirePlaneFinder.Found()) {
       const handle = wirePlaneFinder.Plane();
-      const geomPln = handle.get();
+      const geomPln = handle;
       const pln = geomPln.Pln();
       wirePlane = Convert.toPlane(pln);
       // geomPln.delete();

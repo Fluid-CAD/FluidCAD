@@ -5,6 +5,7 @@ import type { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import type { Matrix4 } from "../math/matrix4.js";
 import type { AxisLike } from "../math/axis.js";
 import type { PlaneLike } from "../math/plane.js";
+import type { NumberParam } from "./param.js";
 
 export interface ISceneObject {
   /**
@@ -92,15 +93,15 @@ export interface ITransformable extends ISceneObject {
    * Translate along X.
    * @param x - Distance along world X.
    */
-  translate(x: number): this;
+  translate(x: NumberParam): this;
   /**
    * Translate along X and Y.
    */
-  translate(x: number, y: number): this;
+  translate(x: NumberParam, y: NumberParam): this;
   /**
    * Translate along X, Y, and Z.
    */
-  translate(x: number, y: number, z: number): this;
+  translate(x: NumberParam, y: NumberParam, z: NumberParam): this;
   /**
    * Translate by a point-like offset in world space.
    */
@@ -110,13 +111,13 @@ export interface ITransformable extends ISceneObject {
    * Rotate by an angle around world Z through the origin.
    * @param angle - Rotation in degrees.
    */
-  rotate(angle: number): this;
+  rotate(angle: NumberParam): this;
   /**
    * Rotate around an axis by an angle.
    * @param axis - The axis to rotate around. Use `local(...)` to reference a sketch-local axis.
    * @param angle - Rotation in degrees.
    */
-  rotate(axis: AxisLike, angle: number): this;
+  rotate(axis: AxisLike, angle: NumberParam): this;
 
   /**
    * Mirror across a plane.
@@ -210,7 +211,7 @@ export interface IArcPoints extends IExtrudableGeometry {
    * Positive = CCW, negative = CW.
    * @param value - The bulge radius.
    */
-  radius(value: number): IArcRadius;
+  radius(value: NumberParam): IArcRadius;
 
   /**
    * Specifies the circle center point for the arc.
@@ -332,7 +333,7 @@ export interface ISlot extends IExtrudableGeometry {
    * Sets the rotation angle of the slot's primary axis.
    * @param angle - Rotation in degrees.
    */
-  rotate(angle: number): this;
+  rotate(angle: NumberParam): this;
 }
 
 export interface IALine extends IGeometry {
@@ -495,13 +496,13 @@ export interface IExtrude extends IBooleanOperation {
    * Applies a draft (taper) angle to the extrusion walls.
    * @param value - A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft.
    */
-  draft(value: number | [number, number]): this;
+  draft(value: NumberParam | [NumberParam, NumberParam]): this;
 
   /**
    * Offsets the end face by a specified distance along the extrusion direction.
    * @param value - The offset distance.
    */
-  endOffset(value: number): this;
+  endOffset(value: NumberParam): this;
 
   /**
    * Enables or disables drill mode, which partitions the sketch into face regions
@@ -521,7 +522,7 @@ export interface IExtrude extends IBooleanOperation {
    * instead of extruding filled faces. Positive values offset outward, negative values offset inward.
    * @param offset - The wall offset distance. Positive = outward, negative = inward.
    */
-  thin(offset: number): this;
+  thin(offset: NumberParam): this;
 
   /**
    * Enables thin extrude mode with two offset directions.
@@ -530,7 +531,7 @@ export interface IExtrude extends IBooleanOperation {
    * @param offset1 - The first wall offset distance. Positive = outward, negative = inward.
    * @param offset2 - The second wall offset distance, in the opposite direction of offset1.
    */
-  thin(offset1: number, offset2: number): this;
+  thin(offset1: NumberParam, offset2: NumberParam): this;
 }
 
 export interface ICut extends ISceneObject {
@@ -549,13 +550,13 @@ export interface ICut extends ISceneObject {
    * Applies a draft (taper) angle to the cut walls.
    * @param value - A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft.
    */
-  draft(value: number | [number, number]): this;
+  draft(value: NumberParam | [NumberParam, NumberParam]): this;
 
   /**
    * Offsets the cut end face by a specified distance along the cut direction.
    * @param value - The offset distance.
    */
-  endOffset(value: number): this;
+  endOffset(value: NumberParam): this;
 
   /**
    * Selects edges at the start of the cut path, classified by signed distance from the cut plane.
@@ -592,7 +593,7 @@ export interface ICut extends ISceneObject {
    * instead of cutting filled faces. Positive values offset outward, negative values offset inward.
    * @param offset - The wall offset distance. Positive = outward, negative = inward.
    */
-  thin(offset: number): this;
+  thin(offset: NumberParam): this;
 
   /**
    * Enables thin cut mode with two offset directions.
@@ -601,7 +602,7 @@ export interface ICut extends ISceneObject {
    * @param offset1 - The first wall offset distance. Positive = outward, negative = inward.
    * @param offset2 - The second wall offset distance, in the opposite direction of offset1.
    */
-  thin(offset1: number, offset2: number): this;
+  thin(offset1: NumberParam, offset2: NumberParam): this;
 }
 
 export interface IRevolve extends IBooleanOperation {
@@ -621,7 +622,7 @@ export interface IRevolve extends IBooleanOperation {
    * outward, negative values offset inward.
    * @param offset - The wall offset distance. Positive = outward, negative = inward.
    */
-  thin(offset: number): this;
+  thin(offset: NumberParam): this;
 
   /**
    * Enables thin revolve mode with two offset directions.
@@ -630,7 +631,7 @@ export interface IRevolve extends IBooleanOperation {
    * @param offset1 - The first wall offset distance. Positive = outward, negative = inward.
    * @param offset2 - The second wall offset distance, in the opposite direction of offset1.
    */
-  thin(offset1: number, offset2: number): this;
+  thin(offset1: NumberParam, offset2: NumberParam): this;
 
   /**
    * Selects faces created inside the solid during revolution (e.g., the inner
@@ -702,7 +703,7 @@ export interface ILoft extends IBooleanOperation {
    * and share the same topology. Positive values offset outward, negative offsets inward.
    * @param offset - The wall offset distance. Positive = outward, negative = inward.
    */
-  thin(offset: number): this;
+  thin(offset: NumberParam): this;
 
   /**
    * Enables thin loft mode with two offset directions.
@@ -711,7 +712,7 @@ export interface ILoft extends IBooleanOperation {
    * @param offset1 - The first wall offset distance. Positive = outward, negative = inward.
    * @param offset2 - The second wall offset distance, in the opposite direction of offset1.
    */
-  thin(offset1: number, offset2: number): this;
+  thin(offset1: NumberParam, offset2: NumberParam): this;
 
   /**
    * Selects faces created inside the solid during loft (e.g., the inner
@@ -793,13 +794,13 @@ export interface ISweep extends IBooleanOperation {
    * Applies a draft (taper) angle to the sweep walls.
    * @param value - A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft.
    */
-  draft(value: number | [number, number]): this;
+  draft(value: NumberParam | [NumberParam, NumberParam]): this;
 
   /**
    * Offsets the end face by a specified distance along the sweep direction.
    * @param value - The offset distance.
    */
-  endOffset(value: number): this;
+  endOffset(value: NumberParam): this;
 
   /**
    * Enables or disables drill mode.
@@ -819,7 +820,7 @@ export interface ISweep extends IBooleanOperation {
    * negative values offset inward.
    * @param offset - The wall offset distance. Positive = outward, negative = inward.
    */
-  thin(offset: number): this;
+  thin(offset: NumberParam): this;
 
   /**
    * Enables thin sweep mode with two offset directions.
@@ -828,7 +829,7 @@ export interface ISweep extends IBooleanOperation {
    * @param offset1 - The first wall offset distance. Positive = outward, negative = inward.
    * @param offset2 - The second wall offset distance, in the opposite direction of offset1.
    */
-  thin(offset1: number, offset2: number): this;
+  thin(offset1: NumberParam, offset2: NumberParam): this;
 
   /**
    * Selects the cap faces at the open ends of a thin-walled sweep from an open profile.
@@ -939,7 +940,7 @@ export interface IRib extends IBooleanOperation {
    * Applies a draft (taper) angle to the rib walls.
    * @param value - A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft.
    */
-  draft(value: number | [number, number]): this;
+  draft(value: NumberParam | [NumberParam, NumberParam]): this;
 
   /**
    * Switches the extrusion direction to parallel to the sketch plane
@@ -976,4 +977,62 @@ export interface IShell extends ISceneObject {
    *   or `'tangent'` for tangent-continuous blends.
    */
   join(type: ShellJoinType): this;
+}
+
+/**
+ * A 3D helix wire — a single edge that traces a helix curve on a cylindrical or
+ * conical surface. Used as a path for `sweep()` to produce springs, threads, and
+ * coils.
+ *
+ * Created from one of:
+ * - An axis (`AxisLike`): user supplies geometry via chained config.
+ * - A cylindrical or conical face: axis + radii + height derived from the face.
+ * - A line edge: axis = the line, height = line length.
+ * - A circular edge: axis = circle normal, radius = circle radius.
+ */
+export interface IHelix extends ISceneObject {
+  /**
+   * Axial rise per turn (distance along the helix axis covered per full revolution).
+   * If unset, derived from `height / turns`.
+   */
+  pitch(pitch: number): this;
+
+  /**
+   * Number of full turns. Fractional values are allowed. Default 1.
+   */
+  turns(turns: number): this;
+
+  /**
+   * Shifts the start of the helix along its axis, in axial mm. Positive values
+   * trim the start (move it toward the end); negative values extend it. Default 0.
+   */
+  startOffset(offset: number): this;
+
+  /**
+   * Extends (positive) or trims (negative) the helix at its end, in axial mm.
+   * Default 0.
+   */
+  endOffset(offset: number): this;
+
+  /**
+   * Total axial height. Overrides face/edge-derived height when set. For line-edge
+   * input, defaults to the line length. For circular-edge / pure-axis input,
+   * defaults to 50 if neither this nor `pitch * turns` determine it.
+   */
+  height(height: number): this;
+
+  /**
+   * Start radius. Defaults to 20 for axis/line-edge input. For a cylindrical
+   * face input, defaults to the face's radius and may be overridden (useful for
+   * sweep/fuse workflows where the helix tube must overlap the cylinder
+   * volumetrically — offset by ~1mm to avoid pure tangency). Ignored on
+   * conical face input (radius is derived from face geometry).
+   */
+  radius(radius: number): this;
+
+  /**
+   * End radius — when different from `radius()`, produces a conical helix.
+   * Defaults to `radius()`. Ignored on face/circle inputs.
+   */
+  endRadius(radius: number): this;
 }

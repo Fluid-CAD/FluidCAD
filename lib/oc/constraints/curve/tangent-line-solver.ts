@@ -1,4 +1,4 @@
-import { GccAna_Lin2d2Tan, GccEnt_QualifiedCirc, Geom2dGcc_Lin2d2Tan, gp_Circ, gp_Lin, gp_Pnt2d } from "occjs-wrapper";
+import { GccAna_Lin2d2Tan, GccEnt_QualifiedCirc, Geom2dGcc_Lin2d2Tan, gp_Circ, gp_Lin, gp_Pnt2d } from "fluidcad-ocjs";
 import { Edge } from "../../../common/edge.js";
 import { Shape } from "../../../common/shape.js";
 import { Vertex } from "../../../common/vertex.js";
@@ -111,12 +111,10 @@ export class CurveTangentLineSolver implements TangentLineSolver {
 
   private getCurve(shape: Shape) {
     const oc = getOC();
-    const adaptor = new oc.BRepAdaptor_Curve(shape.getShape());
-
-    const curve  = adaptor.Curve();
-    const handle = curve.Curve();
-    curve.delete();
-    adaptor.delete();
-    return handle;
+    // BRepAdaptor_Curve no longer exposes Curve() in OCCT 8.0. BRep_Tool.Curve
+    // returns the underlying Geom_Curve with the edge's location applied (world
+    // space) — the same geometry the adaptor chain used to yield.
+    const edge = oc.TopoDS.Edge(shape.getShape());
+    return oc.BRep_Tool.Curve(edge, 0, 1).returnValue;
   }
 }

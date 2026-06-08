@@ -18,12 +18,12 @@ interface Sweep extends BooleanOperation {
   sideEdges(...args: (number | EdgeFilter)[]): SceneObject;
   internalFaces(...args: (number | FaceFilter)[]): SceneObject;
   internalEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  draft(value: number | [number, number]): this;
-  endOffset(value: number): this;
+  draft(value: NumberParam | [NumberParam, NumberParam]): this;
+  endOffset(value: NumberParam): this;
   drill(value?: boolean): this;
   pick(...points: Point2DLike[]): this;
-  thin(offset: number): this;
-  thin(offset1: number, offset2: number): this;
+  thin(offset: NumberParam): this;
+  thin(offset1: NumberParam, offset2: NumberParam): this;
   capFaces(...args: (number | FaceFilter)[]): SceneObject;
   capEdges(...args: (number | EdgeFilter)[]): SceneObject;
 }
@@ -119,7 +119,7 @@ Applies a draft (taper) angle to the sweep walls.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `number` \| `[number, number]` | A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft. |
+| `value` | `NumberParam` \| `[NumberParam, NumberParam]` | A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft. |
 
 ### `endOffset()`
 
@@ -127,7 +127,7 @@ Offsets the end face by a specified distance along the sweep direction.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `number` | The offset distance. |
+| `value` | `NumberParam` | The offset distance. |
 
 ### `drill()`
 
@@ -148,8 +148,8 @@ Restricts the sweep to only the sketch regions containing the given points.
 ### `thin()`
 
 ```ts
-thin(offset: number): this
-thin(offset1: number, offset2: number): this
+thin(offset: NumberParam): this
+thin(offset1: NumberParam, offset2: NumberParam): this
 ```
 
 Enables thin sweep mode — offsets the profile edges to create a thin-walled
@@ -158,8 +158,8 @@ negative values offset inward.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `offset1` | `number` | The first wall offset distance. Positive = outward, negative = inward. |
-| `offset2` | `number` | The second wall offset distance, in the opposite direction of offset1. |
+| `offset1` | `NumberParam` | The first wall offset distance. Positive = outward, negative = inward. |
+| `offset2` | `NumberParam` | The second wall offset distance, in the opposite direction of offset1. |
 
 ### `capFaces()`
 

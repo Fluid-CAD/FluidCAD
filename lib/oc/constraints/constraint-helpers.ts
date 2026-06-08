@@ -1,10 +1,9 @@
-import type { GccEnt_Position, gp_Circ, gp_Circ2d, gp_Lin, gp_Lin2d, gp_Pln, gp_Pnt, gp_Pnt2d, Handle_Geom_Curve } from "occjs-wrapper";
+import type { GccEnt_Position, Geom_Curve, gp_Circ, gp_Circ2d, gp_Lin, gp_Lin2d, gp_Pln, gp_Pnt, gp_Pnt2d } from "fluidcad-ocjs";
 import { getOC } from "../init.js";
 import { ConstraintQualifier } from "../../features/2d/constraints/qualified-geometry.js";
 import { Point2D } from "../../math/point.js";
 import { Edge } from "../../common/edge.js";
 import { Shape } from "../../common/shape.js";
-import { Vertex } from "../../common/vertex.js";
 import { Plane } from "../../math/plane.js";
 import { Convert } from "../convert.js";
 import { Geometry } from "../geometry.js";
@@ -14,7 +13,7 @@ export function get2dGeometry<T extends gp_Circ | gp_Lin | gp_Pnt>(plane: gp_Pln
   return oc.ProjLib.Project(plane, geometry as any);
 }
 
-export function get2dCurve(plane: gp_Pln, curve: Handle_Geom_Curve) {
+export function get2dCurve(plane: gp_Pln, curve: Geom_Curve) {
   const oc = getOC();
   return oc.GeomAPI.To2d(curve, plane);
 }
@@ -33,7 +32,7 @@ export function getQualifier(qualifier: ConstraintQualifier): GccEnt_Position {
   }
 }
 
-export function getQualifiedCurve(plane: gp_Pln, curve: Handle_Geom_Curve, qualifier: ConstraintQualifier) {
+export function getQualifiedCurve(plane: gp_Pln, curve: Geom_Curve, qualifier: ConstraintQualifier) {
   const oc = getOC();
   const curve2dHandle = get2dCurve(plane, curve);
   const handle = new oc.Geom2dAdaptor_Curve(curve2dHandle);

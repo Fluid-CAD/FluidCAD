@@ -1,4 +1,4 @@
-import type { Geom_BezierCurve, Geom_Circle, Geom_TrimmedCurve, Handle_Geom_Curve, TopoDS_Edge } from "occjs-wrapper";
+import type { Geom_BezierCurve, Geom_Circle, Geom_TrimmedCurve, TopoDS_Edge } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Point, Point2D } from "../math/point.js";
@@ -22,7 +22,7 @@ export class Geometry {
       throw new Error("Failed to create segment: " + status);
     }
 
-    const geometry = segmentMaker.Value().get();
+    const geometry = segmentMaker.Value();
     segmentMaker.delete();
     disposeP1();
     disposeP2();
@@ -37,7 +37,7 @@ export class Geometry {
     const arcMaker = new oc.GC_MakeArcOfCircle(gpStart, gpEnd, gpP3);
 
     if (arcMaker.IsDone()) {
-      const curve = arcMaker.Value().get();
+      const curve = arcMaker.Value();
       arcMaker.delete();
       disposeStart();
       disposeEnd();
@@ -67,7 +67,7 @@ export class Geometry {
 
     let curve: Geom_TrimmedCurve | null = null;
     if (arcMaker.IsDone()) {
-      curve = arcMaker.Value().get();
+      curve = arcMaker.Value();
     }
 
     disposeC();
@@ -96,7 +96,7 @@ export class Geometry {
     const arcMaker = new oc.GC_MakeArcOfCircle(circle, gpStart, angle, true);
 
     if (arcMaker.IsDone()) {
-      const curve = arcMaker.Value().get();
+      const curve = arcMaker.Value();
       arcMaker.delete();
       ax2.delete();
       circle.delete();
@@ -125,7 +125,7 @@ export class Geometry {
     const arcMaker = new oc.GC_MakeArcOfCircle(gpStart, gpTangent, gpEnd);
 
     if (arcMaker.IsDone()) {
-      const curve = arcMaker.Value().get();
+      const curve = arcMaker.Value();
       arcMaker.delete();
       disposeStart();
       disposeTangent();
@@ -151,7 +151,7 @@ export class Geometry {
     const circleMaker = new oc.GC_MakeCircle(gpCircle);
 
     if (circleMaker.IsDone()) {
-      const circle = circleMaker.Value().get();
+      const circle = circleMaker.Value();
       circleMaker.delete();
       ax2.delete();
       gpCircle.delete();
@@ -230,19 +230,18 @@ export class Geometry {
 
   static makeEdgeFromBezier(curve: Geom_BezierCurve): Edge {
     const oc = getOC();
-    const handle = new oc.Handle_Geom_Curve(curve as any);
-    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(handle, curve.StartPoint(), curve.EndPoint());
+    // Handles are unwrapped in V8: pass the Geom_Curve straight to MakeEdge
+    // (constructing the abstract oc.Geom_Curve base throws at runtime).
+    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(curve, curve.StartPoint(), curve.EndPoint());
 
     if (edgeMaker.IsDone()) {
       const edge = edgeMaker.Edge();
       edgeMaker.delete();
-      handle.delete();
       return Edge.fromTopoDSEdge(edge);
     }
 
     const status = edgeMaker.Error();
     edgeMaker.delete();
-    handle.delete();
 
     throw new Error('Failed to create edge from bezier curve: ' + status);
   }
@@ -279,19 +278,18 @@ export class Geometry {
 
   static makeEdgeFromCurveRaw(curve: Geom_TrimmedCurve): TopoDS_Edge {
     const oc = getOC();
-    const handle = new oc.Handle_Geom_Curve(curve);
-    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(handle, curve.StartPoint(), curve.EndPoint());
+    // Handles are unwrapped in V8: pass the Geom_Curve straight to MakeEdge
+    // (constructing the abstract oc.Geom_Curve base throws at runtime).
+    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(curve, curve.StartPoint(), curve.EndPoint());
 
     if (edgeMaker.IsDone()) {
       const edge = edgeMaker.Edge();
       edgeMaker.delete();
-      handle.delete();
       return edge;
     }
 
     const status = edgeMaker.Error();
     edgeMaker.delete();
-    handle.delete();
 
     throw new Error('Failed to create edge from arc: ' + status);
   }

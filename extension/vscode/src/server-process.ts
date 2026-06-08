@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { fork } from 'child_process';
 import type { Client } from './client';
 import { createWebviewPanel } from './webview';
@@ -120,6 +120,9 @@ export async function spawnServer(client: Client, workspacePath: string): Promis
     : ['--enable-source-maps'];
 
   client.serverProcess = fork(serverEntry, [], {
+    // Anchor cwd so Windows can resolve the child across drives; server reads
+    // config from env, not cwd.
+    cwd: dirname(serverEntry),
     env: {
       ...process.env,
       FLUIDCAD_SERVER_PORT: String(port),

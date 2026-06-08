@@ -1,6 +1,6 @@
 {
   "name": "fluidcad",
-  "version": "0.0.34",
+  "version": "0.0.36",
   "description": "Parametric CAD modeling library using javascript",
   "author": "Marwan Aouida <contact@marwan.dev>",
   "homepage": "https://fluidcad.io",
@@ -39,6 +39,7 @@
     "./filters": "./lib/dist/filters/index.js",
     "./constraints": "./lib/dist/features/2d/constraints/geometry-qualifier.js",
     "./server": "./server/dist/index.js",
+    "./server/api": "./server/dist/api.js",
     "./math": "./lib/dist/math/index.js"
   },
   "scripts": {
@@ -58,16 +59,20 @@
     "typecheck": "tsc -b",
     "test": "vitest",
     "test:features": "vitest run lib/tests/features/",
-    "release": "npx bumpp patch package.json extension/vscode/package.json"
+    "bump": "npx bumpp patch package.json extension/vscode/package.json --no-tag --no-push",
+    "release": "git tag -a \"v$npm_package_version\" -m \"chore: release v$npm_package_version\" && git push --follow-tags"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "chokidar": "^5.0.0",
     "color-name": "^2.1.0",
     "commander": "^14.0.3",
+    "esbuild": "^0.27.7",
     "express": "^5.2.1",
+    "ignore": "^5.3.2",
+    "jszip": "^3.10.1",
     "iconoir": "^7.11.0",
-    "occjs-wrapper": "npm:occjs-fluidcad@8.0.0",
+    "fluidcad-ocjs": "file:../ocjsv8/",
     "open": "^11.0.0",
     "solvespace-wasm": "file:../solvespace-wasm",
     "stacktrace-parser": "^0.1.11",

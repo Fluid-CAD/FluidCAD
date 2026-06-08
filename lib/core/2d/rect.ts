@@ -7,6 +7,7 @@ import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
 import { IRect, ISceneObject } from "../interfaces.js";
+import { type NumberParam, isNumberParam, resolveParam } from "../param.js";
 
 interface RectFunction {
   /**
@@ -14,21 +15,21 @@ interface RectFunction {
    * @param width - The rectangle width
    * @param height - The rectangle height (defaults to width)
    */
-  (width: number, height?: number): IRect;
+  (width: NumberParam, height?: NumberParam): IRect;
   /**
    * Draws a rectangle at a given start point.
    * @param start - The start point (bottom-left corner)
    * @param width - The rectangle width
    * @param height - The rectangle height (defaults to width)
    */
-  (start: Point2DLike, width: number, height?: number): IRect;
+  (start: Point2DLike, width: NumberParam, height?: NumberParam): IRect;
   /**
    * Draws a rectangle with given dimensions on a specific plane.
    * @param targetPlane - The plane to draw on
    * @param width - The rectangle width
    * @param height - The rectangle height
    */
-  (targetPlane: PlaneLike | ISceneObject, width: number, height: number): IRect;
+  (targetPlane: PlaneLike | ISceneObject, width: NumberParam, height: NumberParam): IRect;
 }
 
 function build(context: SceneParserContext): RectFunction {
@@ -41,8 +42,8 @@ function build(context: SceneParserContext): RectFunction {
           throw new Error("rect(plane, ...) cannot be used inside a sketch. Use rect(...) instead.");
         }
         const planeObj = resolvePlane(firstArg, context);
-        const width = arguments[1] as number;
-        const height = arguments[2] as number;
+        const width = resolveParam(arguments[1] as NumberParam);
+        const height = resolveParam(arguments[2] as NumberParam);
         const rect = new Rect(width, height, planeObj);
         context.addSceneObject(rect);
         return rect;
@@ -52,22 +53,22 @@ function build(context: SceneParserContext): RectFunction {
     const argCount = arguments.length;
 
     if (argCount === 1) {
-      const width = arguments[0] as number;
+      const width = resolveParam(arguments[0] as NumberParam);
       const rect = new Rect(width, width);
       context.addSceneObject(rect);
       return rect;
     }
     else if (argCount === 2) {
-      if (typeof arguments[0] === 'number') {
-        const width = arguments[0] as number;
-        const height = arguments[1] as number;
+      if (isNumberParam(arguments[0])) {
+        const width = resolveParam(arguments[0] as NumberParam);
+        const height = resolveParam(arguments[1] as NumberParam);
 
         const rect = new Rect(width, height);
         context.addSceneObject(rect);
         return rect;
       } else {
         const start = normalizePoint2D(arguments[0]);
-        const width = arguments[1] as number;
+        const width = resolveParam(arguments[1] as NumberParam);
 
         const rect = new Rect(width, width);
         context.addSceneObjects([new Move(start), rect]);
@@ -76,8 +77,8 @@ function build(context: SceneParserContext): RectFunction {
     }
     else if (argCount === 3) {
       const start = normalizePoint2D(arguments[0]);
-      const width = arguments[1] as number;
-      const height = arguments[2] as number;
+      const width = resolveParam(arguments[1] as NumberParam);
+      const height = resolveParam(arguments[2] as NumberParam);
 
       const rect = new Rect(width, height);
       context.addSceneObjects([new Move(start), rect]);

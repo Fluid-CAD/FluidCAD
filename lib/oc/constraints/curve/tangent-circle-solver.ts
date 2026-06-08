@@ -1,4 +1,4 @@
-import { Geom2dGcc_Circ2d2TanRad, gp_Pnt2d } from "occjs-wrapper";
+import { Geom2dGcc_Circ2d2TanRad, gp_Pnt2d } from "fluidcad-ocjs";
 import { Edge } from "../../../common/edge.js";
 import { Shape } from "../../../common/shape.js";
 import { Vertex } from "../../../common/vertex.js";
@@ -7,9 +7,8 @@ import { Plane } from "../../../math/plane.js";
 import { calculateTangent, filterSolutionsByFiniteExtent, getQualifiedCurve, toArcEdges, toCircleEdges } from "../constraint-helpers.js";
 import { Convert } from "../../convert.js";
 import { getOC } from "../../init.js";
-import { Geometry } from "../../geometry.js";
 import { TangentCircleSolver } from "../constraint-solver.js";
-import { Point, Point2D } from "../../../math/point.js";
+import { Point2D } from "../../../math/point.js";
 
 export class CurveTangentCircleSolver implements TangentCircleSolver {
   getTangentCircles(
@@ -116,18 +115,19 @@ export class CurveTangentCircleSolver implements TangentCircleSolver {
     const tolerance = oc.Precision.Angular();
     const [pln, disposePln] = Convert.toGpPln(plane);
     const [pnt, disposePnt] = Convert.toGpPnt2d(vertex.toPoint2D());
+    // Handles are unwrapped in V8: pass the Geom2d_CartesianPoint straight to the
+    // solver (constructing the abstract oc.Geom2d_Point base throws at runtime).
     const geom2dPnt = new oc.Geom2d_CartesianPoint(pnt);
-    const handle = new oc.Handle_Geom2d_Point(geom2dPnt);
     disposePnt();
     const curve = this.getCurve(lineShape.shape);
     const qualifiedCurve = getQualifiedCurve(pln, curve, lineShape.qualifier);
 
-    const solver = new oc.Geom2dGcc_Circ2d2TanRad(qualifiedCurve, handle, radius, tolerance);
+    const solver = new oc.Geom2dGcc_Circ2d2TanRad(qualifiedCurve, geom2dPnt, radius, tolerance);
 
     const solutions = this.getSolutions(solver, plane);
 
     disposePln();
-    handle.delete();
+    geom2dPnt.delete();
 
     return solutions;
   }
@@ -168,12 +168,11 @@ export class CurveTangentCircleSolver implements TangentCircleSolver {
 
   private getCurve(shape: Shape) {
     const oc = getOC();
-    const adaptor = new oc.BRepAdaptor_Curve(shape.getShape());
-
-    const curve = adaptor.Curve();
-    const handle = curve.Curve();
-    curve.delete();
-    adaptor.delete();
-    return handle;
+    // BRepAdaptor_Curve no longer exposes Curve() in OCCT 8.0. BRep_Tool.Curve
+    // returns the underlying Geom_Curve with the edge's location applied (world
+    // space) — the same geometry the adaptor chain used to yield — which is what
+    // GeomAPI.To2d / the Gcc qualifier expect.
+    const edge = oc.TopoDS.Edge(shape.getShape());
+    return oc.BRep_Tool.Curve(edge, 0, 1).returnValue;
   }
 }

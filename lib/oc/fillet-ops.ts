@@ -1,4 +1,4 @@
-import type { gp_Pln, TopoDS_Edge, TopoDS_Wire } from "occjs-wrapper";
+import type { gp_Pln, TopoDS_Edge, TopoDS_Wire } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Shape } from "../common/shape.js";
@@ -129,7 +129,7 @@ export class FilletOps {
       const explorer = new oc.BRepTools_WireExplorer(wire);
       while (explorer.More()) {
         const raw = oc.TopoDS.Edge(explorer.Current());
-        const isReversed = raw.Orientation().value === oc.TopAbs_Orientation.TopAbs_REVERSED.value;
+        const isReversed = raw.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED;
         if (!isReversed) {
           wireEdges.push(raw);
           ownedEdges.push(raw);
@@ -140,13 +140,14 @@ export class FilletOps {
           adaptor.delete();
 
           const curveHandle = oc.BRep_Tool.Curve(raw, 0, 1);
-          if (!curveHandle || curveHandle.IsNull()) {
+          if (!curveHandle) {
             raw.delete();
             explorer.delete();
             ownedEdges.forEach(e => e.delete());
             throw new Error("fillet2d: edge has no 3D curve");
           }
-          const curve = curveHandle.get();
+
+          const curve = curveHandle.returnValue;
           const reversedHandle = curve.Reversed();
           const newFirst = curve.ReversedParameter(edgeLast);
           const newLast = curve.ReversedParameter(edgeFirst);
@@ -154,7 +155,7 @@ export class FilletOps {
           const newEdge = oc.TopoDS.Edge(maker.Edge());
           maker.delete();
           reversedHandle.delete();
-          curveHandle.delete();
+          curve.delete();
           raw.delete();
           wireEdges.push(newEdge);
           ownedEdges.push(newEdge);

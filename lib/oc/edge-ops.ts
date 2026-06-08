@@ -1,4 +1,4 @@
-import type { TopoDS_Edge, TopoDS_Vertex } from "occjs-wrapper";
+import type { TopoDS_Edge, TopoDS_Vertex } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Axis } from "../math/axis.js";
@@ -142,10 +142,9 @@ export class EdgeOps {
     const oc = getOC();
 
     const curveAdaptor = new oc.BRepAdaptor_Curve(oc.TopoDS.Edge(edge));
-    const curve = curveAdaptor.Curve();
 
-    const midParam = (curve.FirstParameter() + curve.LastParameter()) / 2.0;
-    const midPoint = curve.Value(midParam);
+    const midParam = (curveAdaptor.FirstParameter() + curveAdaptor.LastParameter()) / 2.0;
+    const midPoint = curveAdaptor.Value(midParam);
 
     const result = new oc.gp_Pnt(midPoint.X(), midPoint.Y(), midPoint.Z());
 
@@ -186,7 +185,7 @@ export class EdgeOps {
     const oc = getOC();
     const isReversed = edge.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED;
     const curveHandle = oc.BRep_Tool.Curve(edge, 0, 1);
-    const curve = curveHandle.get();
+    const curve = curveHandle.returnValue;
     const param = isReversed ? curve.FirstParameter() : curve.LastParameter();
     const edgeSign = isReversed ? -1 : 1;
 
@@ -201,11 +200,11 @@ export class EdgeOps {
 
   static makeEdgeFromCurveAndVerticesRaw(curve: any, v1: TopoDS_Vertex, v2: TopoDS_Vertex): TopoDS_Edge {
     const oc = getOC();
-    const handle = new oc.Handle_Geom_Curve(curve);
-    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(handle, v1, v2);
+    // Handles are unwrapped in V8: pass the Geom_Curve straight to MakeEdge
+    // (constructing the abstract oc.Geom_Curve base throws at runtime).
+    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(curve, v1, v2);
     const edge = edgeMaker.Edge();
     edgeMaker.delete();
-    handle.delete();
     return edge;
   }
 
@@ -310,10 +309,10 @@ export class EdgeOps {
         continue;
       }
 
-      // Get the underlying curve for creating sub-edges
-      const curveHandle = oc.BRep_Tool.Curve(edge, 0, 1);
-      const curve = curveHandle.get();
-      const handle = new oc.Handle_Geom_Curve(curve);
+      // Get the underlying curve for creating sub-edges. Handles are unwrapped in
+      // V8 — use the returned Geom_Curve directly (the abstract oc.Geom_Curve base
+      // has no constructor).
+      const geomCurve = oc.BRep_Tool.Curve(edge, 0, 1).returnValue;
 
       if (isClosed && interior.length >= 2) {
         // Closed curve: N split points → N arcs (no seam split)
@@ -321,7 +320,7 @@ export class EdgeOps {
         for (let k = 0; k < interior.length; k++) {
           const u1 = interior[k];
           const u2 = k < interior.length - 1 ? interior[k + 1] : interior[0] + period;
-          const maker = new oc.BRepBuilderAPI_MakeEdge(handle, u1, u2);
+          const maker = new oc.BRepBuilderAPI_MakeEdge(geomCurve, u1, u2);
           if (maker.IsDone()) {
             result.push(Edge.fromTopoDSEdge(maker.Edge()));
             sourceIndex.push(srcIdx);
@@ -332,7 +331,7 @@ export class EdgeOps {
         // Open curve: include edge endpoints as boundaries
         const allParams = [first, ...interior, last];
         for (let k = 0; k < allParams.length - 1; k++) {
-          const maker = new oc.BRepBuilderAPI_MakeEdge(handle, allParams[k], allParams[k + 1]);
+          const maker = new oc.BRepBuilderAPI_MakeEdge(geomCurve, allParams[k], allParams[k + 1]);
           if (maker.IsDone()) {
             result.push(Edge.fromTopoDSEdge(maker.Edge()));
             sourceIndex.push(srcIdx);
@@ -345,7 +344,7 @@ export class EdgeOps {
         sourceIndex.push(srcIdx);
       }
 
-      handle.delete();
+      geomCurve.delete();
     }
 
     return { edges: result, sourceIndex };

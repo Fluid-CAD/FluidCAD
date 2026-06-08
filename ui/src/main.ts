@@ -5,6 +5,7 @@ import { TimelinePanel } from './ui/timeline-panel';
 import { PartsPanel } from './ui/parts-panel';
 import { JointsPanel } from './ui/joints-panel';
 import { DofStatus } from './ui/dof-status';
+import { ParamsPanel } from './ui/params-panel';
 import { ExportDialog } from './ui/export-dialog';
 import { BreakpointIndicator } from './ui/breakpoint-indicator';
 import { ErrorBanner } from './ui/error-banner';
@@ -62,6 +63,11 @@ type LeftRail =
 
 let currentRail: LeftRail | null = null;
 
+const fileImporter = new FileImporter(container, {
+  showLoading: (text) => loadingOverlay.show(text),
+  hideLoading: () => loadingOverlay.hide(),
+});
+
 function disposeRail(): void {
   if (!currentRail) return;
   if (currentRail.kind === 'part') {
@@ -84,6 +90,7 @@ function buildPartRail(): LeftRail {
     (shapeId, opacity) => viewer.setShapeTransparency(shapeId, opacity),
     (shapeId) => viewer.getShapeTransparency(shapeId),
     () => viewer.resetAllTransparency(),
+    () => fileImporter.openPicker(),
   );
   timeline.setShowBuildTimings(pendingShowBuildTimings);
   return { kind: 'part', timeline };
@@ -237,6 +244,13 @@ function matesWithStatus(
 const initialRail = buildPartRail();
 currentRail = initialRail;
 
+const paramsPanel = new ParamsPanel(viewer.settingsPanelHost);
+
+viewer.setParamsToggleHandler(() => {
+  paramsPanel.toggle();
+  viewer.setParamsButtonActive(paramsPanel.isVisible);
+});
+
 const trimService = new TrimPickService(container, viewer);
 const regionService = new RegionPickService(container, viewer);
 const sketchService = new SketchToolbarService(container, viewer, trimService, initialRail.timeline);
@@ -251,11 +265,6 @@ const breakpointIndicator = new BreakpointIndicator(container, () => {
 });
 const errorBanner = new ErrorBanner(container, (loc) => {
   gotoSource(loc);
-});
-
-new FileImporter(container, {
-  showLoading: (text) => loadingOverlay.show(text),
-  hideLoading: () => loadingOverlay.hide(),
 });
 
 // ---------------------------------------------------------------------------
@@ -512,6 +521,10 @@ function connectWebSocket() {
             mates: raw?.mates ?? [],
           };
           applyAssemblyToRail(rail, assembly, msg.absPath ?? '');
+        }
+        if (msg.params !== undefined) {
+          paramsPanel.update(msg.params);
+          viewer.setParamsButtonVisible(paramsPanel.hasAnyParams);
         }
         errorBanner.update(msg.result, msg.compileError ?? null);
         // Only update the breakpoint indicator when the server sends an

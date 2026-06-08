@@ -2,7 +2,7 @@ import type {
   TopTools_ListOfShape,
   TopAbs_ShapeEnum,
   TopoDS_Shape,
-} from "occjs-wrapper";
+} from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Matrix4 } from "../math/matrix4.js";
@@ -121,12 +121,19 @@ export class ShapeOps {
    * `BRepTools_History`. Caller must call `dispose()` exactly once to free
    * the OC wrappers.
    */
-  static cleanShapeWithLineage(shape: Shape): CleanShapeLineage {
+  static cleanShapeWithLineage(shape: Shape, opts?: { skipSimplify?: boolean }): CleanShapeLineage {
     const oc = getOC();
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
     const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
 
-    const unify = new oc.ShapeUpgrade_UnifySameDomain(shape.getShape(), false, true, false);
+    // skipSimplify: pass unifyFaces=false to avoid the slow face-merging step
+    // that hangs on tangent contact along curves (e.g., helix sweep + cylinder).
+    const unify = new oc.ShapeUpgrade_UnifySameDomain(
+      shape.getShape(),
+      false,
+      opts?.skipSimplify ? false : true,
+      false,
+    );
     unify.Build();
     const cleanedRaw = unify.Shape();
 
@@ -176,8 +183,7 @@ export class ShapeOps {
       };
     }
 
-    const historyHandle = unify.History();
-    const history = historyHandle.get();
+    const history = unify.History();
 
     let disposed = false;
     const dispose = () => {
@@ -185,7 +191,7 @@ export class ShapeOps {
         return;
       }
       disposed = true;
-      historyHandle.delete();
+      history.delete();
       unify.delete();
       knownFaces.delete();
       knownEdges.delete();

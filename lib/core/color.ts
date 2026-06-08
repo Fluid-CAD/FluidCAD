@@ -2,19 +2,20 @@ import { registerBuilder, SceneParserContext } from "../index.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Color } from "../features/color.js";
 import { ISceneObject } from "./interfaces.js";
+import { type StringParam, resolveParam } from "./param.js";
 
 interface ColorFunction {
   /**
    * Applies a color to the last selection.
    * @param color - The color value (CSS color string)
    */
-  (color: string): ISceneObject;
+  (color: StringParam): ISceneObject;
   /**
    * Applies a color to the given selection.
    * @param color - The color value (CSS color string)
    * @param selection - The face or edge selection to color
    */
-  (color: string, selection: ISceneObject): ISceneObject;
+  (color: StringParam, selection: ISceneObject): ISceneObject;
 }
 
 function build(context: SceneParserContext): ColorFunction {
@@ -27,7 +28,7 @@ function build(context: SceneParserContext): ColorFunction {
     }
 
     context.addSceneObject(selection);
-    const obj = new Color(arguments[0], selection);
+    const obj = new Color(resolveParam(arguments[0] as StringParam), selection);
 
     context.addSceneObject(obj);
     return obj;

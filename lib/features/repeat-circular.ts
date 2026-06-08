@@ -2,13 +2,15 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { AxisObjectBase } from "./axis-renderable-base.js";
 import { RepeatBase, RepeatAxisSource } from "./repeat-base.js";
 
+import { type NumberParam } from "../core/param.js";
+
 export type CircularRepeatOptions = {
-  count: number;
+  count: NumberParam;
   centered?: boolean;
   skip?: number[];
 } & (
-    | { offset: number; angle?: never }
-    | { angle: number; offset?: never }
+    | { offset: NumberParam; angle?: never }
+    | { angle: NumberParam; offset?: never }
 );
 
 export class RepeatCircular extends RepeatBase {

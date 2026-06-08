@@ -1,4 +1,4 @@
-import type { TopoDS_Edge, TopoDS_Face } from "occjs-wrapper";
+import type { TopoDS_Edge, TopoDS_Face } from "fluidcad-ocjs";
 import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";

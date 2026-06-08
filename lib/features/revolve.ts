@@ -18,7 +18,7 @@ import { Plane } from "../math/plane.js";
 import { Convert } from "../oc/convert.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { getOC } from "../oc/init.js";
-import type { TopoDS_Shape } from "occjs-wrapper";
+import type { TopoDS_Shape } from "fluidcad-ocjs";
 
 export class Revolve extends ExtrudeBase implements IRevolve {
 

@@ -10,6 +10,7 @@ import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { resolvePlane } from "../../helpers/resolve.js";
 import { ISlot, ISceneObject } from "../interfaces.js";
+import { type NumberParam, type BooleanParam, isNumberParam, isBooleanParam, resolveParam } from "../param.js";
 
 interface SlotFunction {
   /**
@@ -17,21 +18,21 @@ interface SlotFunction {
    * @param distance - The slot length
    * @param radius - The end cap radius
    */
-  (distance: number, radius: number): ISlot;
+  (distance: NumberParam, radius: NumberParam): ISlot;
   /**
    * Draws a slot on a specific plane.
    * @param targetPlane - The plane to draw on
    * @param distance - The slot length
    * @param radius - The end cap radius
    */
-  (targetPlane: PlaneLike | ISceneObject, distance: number, radius: number): ISlot;
+  (targetPlane: PlaneLike | ISceneObject, distance: NumberParam, radius: NumberParam): ISlot;
   /**
    * Draws a slot from a start point with the given length and end radius.
    * @param start - The start point
    * @param distance - The slot length
    * @param radius - The end cap radius
    */
-  (start: Point2DLike, distance: number, radius: number): ISlot;
+  (start: Point2DLike, distance: NumberParam, radius: NumberParam): ISlot;
   /**
    * Draws a slot between two cap-center points with the given radius.
    * @param start - Center of the first cap
@@ -45,14 +46,14 @@ interface SlotFunction {
    * @param radius - The end cap radius
    * @param deleteSource - Whether to delete the source geometry (defaults to true)
    */
-  (geometry: ISceneObject, radius: number, deleteSource?: boolean): ISlot;
+  (geometry: ISceneObject, radius: NumberParam, deleteSource?: BooleanParam): ISlot;
   /**
    * Creates a slot from a geometry edge on a specific plane.
    * @param targetPlane - The plane to draw on
    * @param geometry - The source geometry edge
    * @param radius - The end cap radius
    */
-  (targetPlane: PlaneLike | ISceneObject, geometry: ISceneObject, radius: number): ISlot;
+  (targetPlane: PlaneLike | ISceneObject, geometry: ISceneObject, radius: NumberParam): ISlot;
   /**
    * Creates a slot from a geometry edge, optionally keeping the source, on a specific plane.
    * @param targetPlane - The plane to draw on
@@ -60,7 +61,7 @@ interface SlotFunction {
    * @param radius - The end cap radius
    * @param deleteSource - Whether to delete the source geometry
    */
-  (targetPlane: PlaneLike | ISceneObject, geometry: ISceneObject, radius: number, deleteSource: boolean): ISlot;
+  (targetPlane: PlaneLike | ISceneObject, geometry: ISceneObject, radius: NumberParam, deleteSource: BooleanParam): ISlot;
 }
 
 function build(context: SceneParserContext): SlotFunction {
@@ -87,10 +88,10 @@ function build(context: SceneParserContext): SlotFunction {
     // SlotFromEdge path: first non-plane arg is a SceneObject (geometry)
     if (arguments[argOffset] instanceof SceneObject && !isPoint2DLike(arguments[argOffset])) {
       const geometry = arguments[argOffset] as GeometrySceneObject;
-      const radius = arguments[argOffset + 1] as number;
+      const radius = resolveParam(arguments[argOffset + 1] as NumberParam);
       let deleteSource = true;
-      if (arguments.length > argOffset + 2 && typeof arguments[argOffset + 2] === 'boolean') {
-        deleteSource = arguments[argOffset + 2] as boolean;
+      if (arguments.length > argOffset + 2 && isBooleanParam(arguments[argOffset + 2])) {
+        deleteSource = resolveParam(arguments[argOffset + 2] as BooleanParam);
       }
 
       const slotFromEdge = new SlotFromEdge(geometry, radius, deleteSource, planeObj);
@@ -101,9 +102,9 @@ function build(context: SceneParserContext): SlotFunction {
     const argCount = arguments.length - argOffset;
 
     // slot(distance, radius)
-    if (argCount === 2 && typeof arguments[argOffset] === 'number') {
-      const distance = arguments[argOffset] as number;
-      const radius = arguments[argOffset + 1] as number;
+    if (argCount === 2 && isNumberParam(arguments[argOffset])) {
+      const distance = resolveParam(arguments[argOffset] as NumberParam);
+      const radius = resolveParam(arguments[argOffset + 1] as NumberParam);
       const s = new Slot(distance, radius, planeObj);
       context.addSceneObject(s);
       return s;
@@ -124,8 +125,8 @@ function build(context: SceneParserContext): SlotFunction {
     // slot(start, distance, radius) — in-sketch only
     if (argCount === 3 && argOffset === 0) {
       const start = normalizePoint2D(arguments[0]);
-      const distance = arguments[1] as number;
-      const radius = arguments[2] as number;
+      const distance = resolveParam(arguments[1] as NumberParam);
+      const radius = resolveParam(arguments[2] as NumberParam);
       const s = new Slot(distance, radius, planeObj);
       context.addSceneObjects([new Move(start), s]);
       return s;

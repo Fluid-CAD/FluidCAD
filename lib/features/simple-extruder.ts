@@ -60,9 +60,14 @@ export class Extruder {
       ? p.record('Fuse profile faces', () => BooleanOps.fuseFaces(this.faces))
       : BooleanOps.fuseFaces(this.faces);
     for (const face of fusedFaces.result) {
+      // Canonicalize the sweep direction (so anti-parallel halves of a
+      // symmetric / two-distance extrude fuse with a single merged lateral
+      // face) only when undrafted — drafting is sensitive to the sweep
+      // parametrization and must keep the literal direction.
+      const canonicalizeSweep = !this.draft;
       let { solid, firstFace, lastFace } = p
-        ? p.record('Make prism from face', () => ExtrudeOps.makePrismFromVec(face, vec))
-        : ExtrudeOps.makePrismFromVec(face, vec);
+        ? p.record('Make prism from face', () => ExtrudeOps.makePrismFromVec(face, vec, canonicalizeSweep))
+        : ExtrudeOps.makePrismFromVec(face, vec, canonicalizeSweep);
 
       if (this.draft) {
         const draftResult = p

@@ -33,6 +33,10 @@ my-app/
 FluidCAD files use the `.fluid.js` extension. The viewer only picks up files with this naming convention.
 :::
 
+:::note
+FluidCAD is installed per-project and run with `npx fluidcad …`; a global install (`npm install -g fluidcad`) is not supported. The engine and your editor's type hints both resolve from the project's `node_modules`, so the package must live there. If you see `Cannot find module 'fluidcad' imported from …`, run `npm i fluidcad` inside the project.
+:::
+
 ## The `init.js` file
 
 Every FluidCAD project must have an `init.js` file at its root. This file initializes the FluidCAD engine and must be present before any `.fluid.js` files can run:

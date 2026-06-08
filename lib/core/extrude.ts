@@ -8,6 +8,7 @@ import { ExtrudeBase } from "../features/extrude-base.js";
 import { Extrudable } from "../helpers/types.js";
 import { IExtrude, ISceneObject } from "./interfaces.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
+import { type NumberParam, isNumberParam, resolveParam } from "./param.js";
 
 interface ExtrudeFunction {
   /**
@@ -20,20 +21,20 @@ interface ExtrudeFunction {
    * @param distance - The extrusion distance
    * @param target - The sketch or face-bearing scene object to extrude
    */
-  (distance: number, target?: ISceneObject): IExtrude;
+  (distance: NumberParam, target?: ISceneObject): IExtrude;
   /**
    * Extrudes between two distances.
    * @param distance1 - The first extrusion distance
    * @param distance2 - The second extrusion distance
    */
-  (distance1: number, distance2: number): IExtrude;
+  (distance1: NumberParam, distance2: NumberParam): IExtrude;
   /**
    * Extrudes between two distances.
    * @param distance1 - The first extrusion distance
    * @param distance2 - The second extrusion distance
    * @param target - The sketch or face-bearing scene object to extrude
    */
-  (distance1: number, distance2: number, target: ISceneObject): IExtrude;
+  (distance1: NumberParam, distance2: NumberParam, target: ISceneObject): IExtrude;
   /**
    * Extrudes up to a specific face.
    * @param face - A face selection to extrude up to
@@ -101,8 +102,8 @@ function build(context: SceneParserContext): ExtrudeFunction {
     }
 
     if (params.length === 1) {
-      if (typeof params[0] === 'number') {
-        return new Extrude(params[0], extrudable);
+      if (isNumberParam(params[0])) {
+        return new Extrude(resolveParam(params[0] as NumberParam), extrudable);
       }
       else if (params[0] instanceof SceneObject) {
         context.addSceneObject(params[0] as SceneObject);
@@ -113,8 +114,8 @@ function build(context: SceneParserContext): ExtrudeFunction {
       }
     }
     else if (params.length === 2) {
-      if (typeof params[0] === 'number' && typeof params[1] === 'number') {
-        return new ExtrudeTwoDistances(params[0], params[1], extrudable);
+      if (isNumberParam(params[0]) && isNumberParam(params[1])) {
+        return new ExtrudeTwoDistances(resolveParam(params[0] as NumberParam), resolveParam(params[1] as NumberParam), extrudable);
       }
     }
 

@@ -45,6 +45,7 @@ import {
   clearBreakpoints,
   exportShapes,
   importStep,
+  packModel,
   recompute,
   rollbackTo,
 } from './tools/engine.ts';
@@ -679,6 +680,26 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           includeColors,
         }),
       ),
+  );
+
+  server.registerTool(
+    'pack_model',
+    {
+      title: 'Package the current model into a shareable .fluidpkg archive',
+      description:
+        'Produces a self-contained .fluidpkg (zip) capturing the current `.fluid.js` entry as an esbuild ES module bundle, any STEP assets in the workspace (as raw bytes), the live param overrides, and the latest camera state. Inside the archive: `manifest.json`, `bundle.js`, optional `init.js`, and `assets/<path>` entries. Prefer `saveAsPath` — the binary payload can be multi-MB and shouldn\'t round-trip through the agent\'s context as base64. Returns `{ savedTo, bytesWritten, packageName }` when saved, or `{ mimeType, base64, bytes, packageName }` otherwise.',
+      inputSchema: {
+        ...workspaceArg,
+        name: z.string().optional().describe('Optional package name; defaults to the entry file basename. Becomes the file name when `saveAsPath` is omitted.'),
+        description: z.string().optional().describe('Optional human description embedded in manifest.json.'),
+        saveAsPath: z
+          .string()
+          .optional()
+          .describe('Absolute path to write the .fluidpkg to. If omitted, the package is returned inline (base64).'),
+      },
+    },
+    async ({ workspace, name, description, saveAsPath }) =>
+      toMcp(await packModel({ workspace, name, description, saveAsPath })),
   );
 
   return server;

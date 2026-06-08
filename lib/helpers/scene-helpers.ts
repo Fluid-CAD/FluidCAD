@@ -10,13 +10,13 @@ import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { getOC } from "../oc/init.js";
 import { ColorTransfer } from "../oc/color-transfer.js";
-import type { TopAbs_ShapeEnum } from "occjs-wrapper";
+import type { TopAbs_ShapeEnum } from "fluidcad-ocjs";
 import { Profiler } from "../common/profiler.js";
 
 export function fuseWithSceneObjects(
   sceneObjects: SceneObject[],
   extrusions: Shape<any>[],
-  opts?: { glue?: 'full' | 'shift'; recordHistoryFor?: SceneObject; profiler?: Profiler },
+  opts?: { glue?: 'full' | 'shift'; recordHistoryFor?: SceneObject; profiler?: Profiler; skipSimplify?: boolean },
 ) {
   const p = opts?.profiler;
   const modified: { shape: Shape<any>, object: SceneObject }[] = [];
@@ -326,7 +326,7 @@ export function cutWithSceneObjects(
   plane: Plane,
   distance: number,
   caller: SceneObject,
-  options?: { recordHistoryFor?: SceneObject },
+  options?: { recordHistoryFor?: SceneObject; skipSimplify?: boolean },
 ): { cleanedShapes: Shape[], stockShapes: Shape[] } {
   const sceneObjectMap = new Map<SceneObject, Shape[]>();
   for (const obj of sceneObjects) {
@@ -353,7 +353,7 @@ export function cutWithSceneObjects(
     const list = cutResult.modified(shape);
     if (list.length) {
       for (const newShape of list) {
-        const cleanup = ShapeOps.cleanShapeWithLineage(newShape);
+        const cleanup = ShapeOps.cleanShapeWithLineage(newShape, { skipSimplify: options?.skipSimplify });
         caller.addShape(cleanup.shape as Solid);
         cleanedShapes.push(cleanup.shape);
         cleanups.push(cleanup);

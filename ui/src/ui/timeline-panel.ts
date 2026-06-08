@@ -1,7 +1,7 @@
 import type { SceneObjectRender } from '../types';
 import { savePreference, recompute, rollback, addBreakpoint, gotoSource } from '../api';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_CUBE, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT } from './icons';
-import { resolveIconName } from './object-icons';
+import { resolveIconName, ICON_IMG_FALLBACK } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 
 const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
@@ -30,6 +30,7 @@ export class TimelinePanel {
   private showBuildTimings = false;
   private historyTotalLabel!: HTMLSpanElement;
   private hoverPopover: HTMLDivElement | null = null;
+  private onImportFile: () => void;
 
   constructor(
     container: HTMLElement,
@@ -40,7 +41,9 @@ export class TimelinePanel {
     onSetShapeTransparency: (shapeId: string, opacity: number) => void,
     getShapeTransparency: (shapeId: string) => number,
     onResetAllTransparency: () => void,
+    onImportFile: () => void,
   ) {
+    this.onImportFile = onImportFile;
     this.panel = document.createElement('div');
     this.panel.className = 'absolute left-6 top-6 bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
     container.appendChild(this.panel);
@@ -56,9 +59,13 @@ export class TimelinePanel {
     fileRow.innerHTML = `
       <span class="text-base-content/50 [&>svg]:size-4">${ICON_CUBE}</span>
       <span data-ref="filename" class="text-base text-base-content/70 truncate"></span>
+      <button data-ref="import-btn" class="ml-auto w-5 h-5 min-h-0 btn btn-circle btn-ghost border border-base-content/30 hover:border-base-content/50 p-0 text-base-content/40 hover:text-base-content/70 shrink-0 tooltip tooltip-right" data-tip="Import File">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
     `;
     this.panel.appendChild(fileRow);
     this.fileLabel = fileRow.querySelector('[data-ref="filename"]')!;
+    fileRow.querySelector('[data-ref="import-btn"]')!.addEventListener('click', () => this.onImportFile());
 
     this.positioner = document.createElement('div');
     this.positioner.className = 'relative flex-1 min-h-0 overflow-hidden';
@@ -110,6 +117,7 @@ export class TimelinePanel {
     );
     this.contentWrapper.appendChild(this.shapesPanel.header);
     this.contentWrapper.appendChild(this.shapesPanel.body);
+
   }
 
   update(sceneObjects: SceneObjectRender[], rollbackStop: number, absPath?: string): void {
@@ -323,7 +331,7 @@ export class TimelinePanel {
       <div class="${itemClass}" data-index="${index}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}">
         ${chevron}
         ${errorDot}
-        <img src="${iconSrc}" class="${imgClass}" alt="" />
+        <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="${imgClass}" alt="" />
         <span class="truncate">${name}</span>
         ${durationSpan}
         ${statusIcon}
@@ -556,4 +564,5 @@ export class TimelinePanel {
     div.textContent = text;
     return div.innerHTML;
   }
+
 }

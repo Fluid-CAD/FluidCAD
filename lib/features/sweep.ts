@@ -189,11 +189,16 @@ export class Sweep extends ExtrudeBase implements ISweep {
       this.setState('side-faces', classified.sideFaces);
       this.setState('internal-faces', classified.internalFaces);
       this.setState('cap-faces', classified.capFaces);
-      cutWithSceneObjects(scope, solids, plane, 0, this, { recordHistoryFor: this });
+      cutWithSceneObjects(scope, solids, plane, 0, this, { recordHistoryFor: this, skipSimplify: true });
       return;
     }
 
-    this.finalizeAndFuse(solids, classified, context);
+    // Sweep paths can produce tangent contact between the swept tube and
+    // existing scene shapes (e.g., a helix sweep along a cylinder face).
+    // SimplifyResult's face unification can iterate forever on the resulting
+    // topology — skip it for sweep ops; downstream classification doesn't
+    // need same-domain face merging.
+    this.finalizeAndFuse(solids, classified, context, { skipSimplify: true });
   }
 
   private getSpineWire(pathObj: SceneObject): Wire {

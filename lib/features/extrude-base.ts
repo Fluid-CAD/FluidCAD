@@ -18,10 +18,11 @@ import { ShapeFilter } from "../filters/filter.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Explorer } from "../oc/explorer.js";
+import { type NumberParam, resolveParam } from "../core/param.js";
 import { getOC } from "../oc/init.js";
 import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
-import type { TopAbs_ShapeEnum } from "occjs-wrapper";
+import type { TopAbs_ShapeEnum } from "fluidcad-ocjs";
 
 /** A 3D op's classified face buckets. Each is empty if the op doesn't produce that category. */
 export type ClassifiedFaces = {
@@ -349,7 +350,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     shapes: Shape[],
     classified: ClassifiedFaces,
     context: BuildSceneObjectContext,
-    fuseOpts?: { glue?: 'full' | 'shift' },
+    fuseOpts?: { glue?: 'full' | 'shift'; skipSimplify?: boolean },
   ) {
     const p = context.getProfiler();
     const sceneObjects = this.resolveFusionScope(context.getSceneObjects());
@@ -481,13 +482,17 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return new ShapeFilter(shapes, ...filters).apply() as T[];
   }
 
-  draft(value: number | [number, number]): this {
-    this._draft = value;
+  draft(value: NumberParam | [NumberParam, NumberParam]): this {
+    if (Array.isArray(value)) {
+      this._draft = [resolveParam(value[0]), resolveParam(value[1])];
+    } else {
+      this._draft = resolveParam(value);
+    }
     return this;
   }
 
-  endOffset(value: number): this {
-    this._endOffset = value;
+  endOffset(value: NumberParam): this {
+    this._endOffset = resolveParam(value);
     return this;
   }
 
@@ -496,8 +501,9 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return this;
   }
 
-  thin(offset1: number, offset2?: number): this {
-    this._thin = offset2 !== undefined ? [offset1, offset2] : [offset1];
+  thin(offset1: NumberParam, offset2?: NumberParam): this {
+    const o1 = resolveParam(offset1);
+    this._thin = offset2 !== undefined ? [o1, resolveParam(offset2)] : [o1];
     return this;
   }
 

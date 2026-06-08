@@ -1,4 +1,4 @@
-import type { gp_Cylinder, gp_Pln, TopoDS_Face, TopoDS_Wire } from "occjs-wrapper";
+import type { gp_Cylinder, gp_Pln, TopoDS_Face, TopoDS_Wire } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Plane } from "../math/plane.js";

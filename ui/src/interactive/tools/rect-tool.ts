@@ -8,6 +8,7 @@ import { SnapType } from '../../snapping/types';
 import {
   projectToSketch,
   roundPoint,
+  sketchToClient,
 } from '../sketch-plane-utils';
 import { ICON_RECT } from '../../ui/icons';
 import { ExpressionInput, VariableInfo, CommitResult } from '../../ui/expression-input';
@@ -221,12 +222,28 @@ export class RectTool extends SketchTool {
     return { c1: start, c2: endPoint };
   }
 
+  // Anchor the dimension input at the midpoint of the edge being set: the
+  // horizontal centre of the width edge while setting width, the vertical
+  // centre of the height edge while setting height. Falls back to the cursor
+  // if the rectangle isn't established yet.
+  private dimensionInputAnchor(): { clientX: number; clientY: number } {
+    if (!this.startPoint || !this.mousePoint) {
+      return { clientX: this.lastClientX, clientY: this.lastClientY };
+    }
+    const { c1, c2 } = this.computePreviewCorners(this.mousePoint);
+    const mid: [number, number] = this.expressionPhase === 'width'
+      ? [(c1[0] + c2[0]) / 2, c1[1]]
+      : [c2[0], (c1[1] + c2[1]) / 2];
+    return sketchToClient(this.ctx, this.plane, mid);
+  }
+
   private updateDimensionInput(): void {
     if (!this.startPoint || !this.mousePoint) {
       return;
     }
 
     const { width, height } = this.computeDimensions(this.mousePoint);
+    const anchor = this.dimensionInputAnchor();
 
     if (this.expressionPhase === 'width') {
       const absW = Math.round(Math.abs(width) * 100) / 100;
@@ -238,14 +255,14 @@ export class RectTool extends SketchTool {
         this.expressionInput.show({
           label: 'W',
           value: String(absW),
-          clientX: this.lastClientX,
-          clientY: this.lastClientY,
+          clientX: anchor.clientX,
+          clientY: anchor.clientY,
           variables: this.cachedVariables,
           onCommit: (result) => this.onWidthCommit(result),
         });
       } else {
         this.expressionInput.updateValue(absW);
-        this.expressionInput.updatePosition(this.lastClientX, this.lastClientY);
+        this.expressionInput.updatePosition(anchor.clientX, anchor.clientY);
       }
     } else if (this.expressionPhase === 'height') {
       const absH = Math.round(Math.abs(height) * 100) / 100;
@@ -254,14 +271,14 @@ export class RectTool extends SketchTool {
         this.expressionInput.show({
           label: 'H',
           value: String(absH),
-          clientX: this.lastClientX,
-          clientY: this.lastClientY,
+          clientX: anchor.clientX,
+          clientY: anchor.clientY,
           variables: this.cachedVariables,
           onCommit: (result) => this.onHeightCommit(result),
         });
       } else {
         this.expressionInput.updateValue(absH);
-        this.expressionInput.updatePosition(this.lastClientX, this.lastClientY);
+        this.expressionInput.updatePosition(anchor.clientX, anchor.clientY);
       }
     }
   }
@@ -285,12 +302,13 @@ export class RectTool extends SketchTool {
       if (this.mousePoint && this.startPoint) {
         const { height } = this.computeDimensions(this.mousePoint);
         const absH = Math.round(Math.abs(height) * 100) / 100;
+        const anchor = this.dimensionInputAnchor();
 
         this.expressionInput.show({
           label: 'H',
           value: String(absH),
-          clientX: this.lastClientX,
-          clientY: this.lastClientY,
+          clientX: anchor.clientX,
+          clientY: anchor.clientY,
           variables: this.cachedVariables,
           onCommit: (r) => this.onHeightCommit(r),
         });

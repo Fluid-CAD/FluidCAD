@@ -1,5 +1,5 @@
 import { ShapeType } from "./shape-type.js";
-import type { TopoDS_Edge } from "occjs-wrapper";
+import type { TopoDS_Edge } from "fluidcad-ocjs";
 import { Shape } from "./shape.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Vertex } from "./vertex.js";

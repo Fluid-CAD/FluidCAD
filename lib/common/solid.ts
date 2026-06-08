@@ -3,7 +3,7 @@ import type {
   TopoDS_Face,
   TopoDS_Solid,
   TopTools_IndexedDataMapOfShapeListOfShape,
-} from "occjs-wrapper";
+} from "fluidcad-ocjs";
 import { Explorer } from "../oc/explorer.js";
 import { TopologyIndex } from "../oc/topology-index.js";
 import { ShapeType } from "./shape-type.js";

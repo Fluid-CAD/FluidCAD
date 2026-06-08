@@ -283,8 +283,13 @@ describe("rib", () => {
       const repeatModule = await import("../../core/repeat.js");
       const repeat = (repeatModule as { default: (...args: unknown[]) => SceneObject }).default;
 
+      // The scope (box + boss) must be rotationally symmetric about Z so that a
+      // 90°/180°/270° clone really is congruent to the original — otherwise the
+      // rib legitimately conforms to a different wall distance per orientation
+      // and the volume-equality check below would measure scope asymmetry rather
+      // than flag propagation. A square box keeps the comparison about the flags.
       sketch("top", () => {
-        rect(100, 50).centered();
+        rect(100, 100).centered();
       });
       const box = extrude(30);
       const shelled = shell(-4, box.endFaces());

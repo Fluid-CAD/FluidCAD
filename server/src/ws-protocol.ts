@@ -281,6 +281,21 @@ export type ServerToExtensionMessage =
 // WebSocket: Server → UI messages
 // ---------------------------------------------------------------------------
 
+export type UIParamDefinition = {
+  label: string;
+  defaultValue: string | number | boolean | (string | number)[];
+  currentValue: string | number | boolean | (string | number)[];
+  controlType: 'auto' | 'text' | 'number' | 'slider' | 'select' | 'checkbox' | 'color';
+  description?: string;
+  group?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: { label: string; value: string | number }[];
+  multi?: boolean;
+  multiControlType?: 'select' | 'checkboxes' | 'chips';
+};
+
 export type UISceneRenderedMessage = {
   type: 'scene-rendered';
   result: any[];
@@ -290,6 +305,7 @@ export type UISceneRenderedMessage = {
   breakpointHit?: boolean;
   compileError?: CompileError;
   assembly?: SerializedAssembly;
+  params?: UIParamDefinition[];
 };
 
 export type UIHighlightShapeMessage = {
@@ -400,4 +416,29 @@ export type ScreenshotResultMessage = {
   error?: string;
 };
 
-export type UIToServerMessage = CameraStateMessage | ScreenshotResultMessage;
+/**
+ * Hub-mode param mutations. Session identity rides on the WebSocket
+ * connection itself — the server tracks `ws → sessionId` and dispatches
+ * to the matching `FluidCadServer` state. The desktop server ignores
+ * these (it uses the equivalent HTTP routes).
+ */
+export type UISetParamMessage = {
+  type: 'set-param';
+  label: string;
+  value: string | number | boolean | (string | number)[];
+};
+
+export type UIResetParamsMessage = {
+  type: 'reset-params';
+};
+
+export type UIRecomputeMessage = {
+  type: 'recompute';
+};
+
+export type UIToServerMessage =
+  | CameraStateMessage
+  | ScreenshotResultMessage
+  | UISetParamMessage
+  | UIResetParamsMessage
+  | UIRecomputeMessage;

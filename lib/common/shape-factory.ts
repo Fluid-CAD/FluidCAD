@@ -1,4 +1,4 @@
-import type { TopoDS_Shape } from "occjs-wrapper";
+import type { TopoDS_Shape } from "fluidcad-ocjs";
 import { Explorer } from "../oc/explorer.js";
 import { Solid } from "./solid.js";
 import { Wire } from "./wire.js";

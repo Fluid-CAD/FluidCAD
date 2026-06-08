@@ -1,5 +1,6 @@
-import type { TopoDS_Edge, TopoDS_Face } from "occjs-wrapper";
+import type { TopoDS_Edge, TopoDS_Face } from "fluidcad-ocjs";
 import { getOC } from "../oc/init.js";
+import { ShapeHasher } from "../oc/shape-hash.js";
 import { Shape, Edge, Face } from "../common/shapes.js";
 
 export class TangentExpander {
@@ -25,28 +26,35 @@ export class TangentExpander {
    * and their tangent vectors at that vertex are parallel.
    */
   private static expandEdges(seeds: Edge[], pool: Edge[]): Edge[] {
-    // Build vertex → edge adjacency map for efficient lookup
-    const vertexToEdges = TangentExpander.buildVertexToEdgeMap(pool);
+    // Interns shapes for IsSame-consistent Map keys (replaces TopoDS_Shape.HashCode,
+    // removed in OCCT 8.0); scoped to this expansion and freed below.
+    const hasher = new ShapeHasher();
+    try {
+      // Build vertex → edge adjacency map for efficient lookup
+      const vertexToEdges = TangentExpander.buildVertexToEdgeMap(pool, hasher);
 
-    const included = new Set<Edge>(seeds);
-    const queue: Edge[] = [...seeds];
+      const included = new Set<Edge>(seeds);
+      const queue: Edge[] = [...seeds];
 
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      const neighbors = TangentExpander.getAdjacentEdges(current, vertexToEdges);
+      while (queue.length > 0) {
+        const current = queue.shift()!;
+        const neighbors = TangentExpander.getAdjacentEdges(current, vertexToEdges, hasher);
 
-      for (const candidate of neighbors) {
-        if (included.has(candidate)) {
-          continue;
-        }
-        if (TangentExpander.areEdgesTangent(current, candidate)) {
-          included.add(candidate);
-          queue.push(candidate);
+        for (const candidate of neighbors) {
+          if (included.has(candidate)) {
+            continue;
+          }
+          if (TangentExpander.areEdgesTangent(current, candidate)) {
+            included.add(candidate);
+            queue.push(candidate);
+          }
         }
       }
-    }
 
-    return [...included];
+      return [...included];
+    } finally {
+      hasher.delete();
+    }
   }
 
   /**
@@ -54,28 +62,35 @@ export class TangentExpander {
    * and have G1 or higher continuity across that edge.
    */
   private static expandFaces(seeds: Face[], pool: Face[]): Face[] {
-    // Build edge → face adjacency map
-    const edgeToFaces = TangentExpander.buildEdgeToFaceMap(pool);
+    // Interns shapes for IsSame-consistent Map keys (replaces TopoDS_Shape.HashCode,
+    // removed in OCCT 8.0); scoped to this expansion and freed below.
+    const hasher = new ShapeHasher();
+    try {
+      // Build edge → face adjacency map
+      const edgeToFaces = TangentExpander.buildEdgeToFaceMap(pool, hasher);
 
-    const included = new Set<Face>(seeds);
-    const queue: Face[] = [...seeds];
+      const included = new Set<Face>(seeds);
+      const queue: Face[] = [...seeds];
 
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      const neighbors = TangentExpander.getAdjacentFaces(current, edgeToFaces);
+      while (queue.length > 0) {
+        const current = queue.shift()!;
+        const neighbors = TangentExpander.getAdjacentFaces(current, edgeToFaces, hasher);
 
-      for (const [candidate, sharedEdge] of neighbors) {
-        if (included.has(candidate)) {
-          continue;
-        }
-        if (TangentExpander.areFacesTangent(current, candidate, sharedEdge)) {
-          included.add(candidate);
-          queue.push(candidate);
+        for (const [candidate, sharedEdge] of neighbors) {
+          if (included.has(candidate)) {
+            continue;
+          }
+          if (TangentExpander.areFacesTangent(current, candidate, sharedEdge)) {
+            included.add(candidate);
+            queue.push(candidate);
+          }
         }
       }
-    }
 
-    return [...included];
+      return [...included];
+    } finally {
+      hasher.delete();
+    }
   }
 
   /**
@@ -109,11 +124,11 @@ export class TangentExpander {
 
       // Get raw curves and parameters at the shared vertex
       const curve1Handle = oc.BRep_Tool.Curve(e1Raw, 0, 1);
-      const curve1 = curve1Handle.get();
+      const curve1 = curve1Handle.returnValue;
       const param1 = oc.BRep_Tool.Parameter(v1, e1Raw);
 
       const curve2Handle = oc.BRep_Tool.Curve(e2Raw, 0, 1);
-      const curve2 = curve2Handle.get();
+      const curve2 = curve2Handle.returnValue;
       const param2 = oc.BRep_Tool.Parameter(v2, e2Raw);
 
       // Evaluate tangent vectors using D1
@@ -176,7 +191,7 @@ export class TangentExpander {
   /**
    * Builds a map from vertex TShape hash to the list of edges that share that vertex.
    */
-  private static buildVertexToEdgeMap(edges: Edge[]): Map<number, Edge[]> {
+  private static buildVertexToEdgeMap(edges: Edge[], hasher: ShapeHasher): Map<number, Edge[]> {
     const oc = getOC();
     const map = new Map<number, Edge[]>();
 
@@ -186,7 +201,7 @@ export class TangentExpander {
       const last = oc.TopExp.LastVertex(raw, true);
 
       for (const vertex of [first, last]) {
-        const hash = vertex.HashCode(2147483647);
+        const hash = hasher.key(vertex);
         if (!map.has(hash)) {
           map.set(hash, []);
         }
@@ -200,13 +215,13 @@ export class TangentExpander {
   /**
    * Builds a map from edge TShape hash to the list of faces that share that edge.
    */
-  private static buildEdgeToFaceMap(faces: Face[]): Map<number, Face[]> {
+  private static buildEdgeToFaceMap(faces: Face[], hasher: ShapeHasher): Map<number, Face[]> {
     const map = new Map<number, Face[]>();
 
     for (const face of faces) {
       const faceEdges = face.getEdges();
       for (const edge of faceEdges) {
-        const hash = edge.getShape().HashCode(2147483647);
+        const hash = hasher.key(edge.getShape());
         if (!map.has(hash)) {
           map.set(hash, []);
         }
@@ -220,7 +235,7 @@ export class TangentExpander {
   /**
    * Returns edges from the adjacency map that share a vertex with the given edge.
    */
-  private static getAdjacentEdges(edge: Edge, vertexToEdges: Map<number, Edge[]>): Edge[] {
+  private static getAdjacentEdges(edge: Edge, vertexToEdges: Map<number, Edge[]>, hasher: ShapeHasher): Edge[] {
     const oc = getOC();
     const raw = edge.getShape() as TopoDS_Edge;
     const first = oc.TopExp.FirstVertex(raw, true);
@@ -228,7 +243,7 @@ export class TangentExpander {
 
     const neighbors = new Set<Edge>();
     for (const vertex of [first, last]) {
-      const hash = vertex.HashCode(2147483647);
+      const hash = hasher.key(vertex);
       const candidates = vertexToEdges.get(hash);
       if (candidates) {
         for (const c of candidates) {
@@ -246,12 +261,12 @@ export class TangentExpander {
    * Returns faces from the adjacency map that share an edge with the given face,
    * along with the shared edge's raw TopoDS_Edge.
    */
-  private static getAdjacentFaces(face: Face, edgeToFaces: Map<number, Face[]>): Array<[Face, TopoDS_Edge]> {
+  private static getAdjacentFaces(face: Face, edgeToFaces: Map<number, Face[]>, hasher: ShapeHasher): Array<[Face, TopoDS_Edge]> {
     const result: Array<[Face, TopoDS_Edge]> = [];
     const faceEdges = face.getEdges();
 
     for (const edge of faceEdges) {
-      const hash = edge.getShape().HashCode(2147483647);
+      const hash = hasher.key(edge.getShape());
       const candidates = edgeToFaces.get(hash);
       if (candidates) {
         for (const c of candidates) {

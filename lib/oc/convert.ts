@@ -9,7 +9,7 @@ import type {
   gp_Pln,
   gp_Trsf,
   gp_Quaternion,
-} from "occjs-wrapper";
+} from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Point, Point2D } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";

@@ -18,7 +18,7 @@ interface Rib extends BooleanOperation {
   endEdges(...args: (number | EdgeFilter)[]): SceneObject;
   sideEdges(...args: (number | EdgeFilter)[]): SceneObject;
   capEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  draft(value: number | [number, number]): this;
+  draft(value: NumberParam | [NumberParam, NumberParam]): this;
   parallel(): this;
   extend(): this;
 }
@@ -114,7 +114,7 @@ Applies a draft (taper) angle to the rib walls.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `number` \| `[number, number]` | A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft. |
+| `value` | `NumberParam` \| `[NumberParam, NumberParam]` | A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft. |
 
 ### `parallel()`
 

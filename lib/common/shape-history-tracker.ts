@@ -1,4 +1,4 @@
-import type { BRepBuilderAPI_MakeShape, TopAbs_ShapeEnum, TopoDS_Shape } from "occjs-wrapper";
+import type { BRepBuilderAPI_MakeShape, TopAbs_ShapeEnum, TopoDS_Shape } from "fluidcad-ocjs";
 import { getOC } from "../oc/init.js";
 import { Explorer } from "../oc/explorer.js";
 import { ShapeOps } from "../oc/shape-ops.js";

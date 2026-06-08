@@ -1,7 +1,8 @@
-import type { BRepPrimAPI_MakeRevol, gp_Pln, gp_Vec, TopAbs_ShapeEnum, TopoDS_Face, TopoDS_Shape } from "occjs-wrapper";
+import type { BRepPrimAPI_MakeRevol, gp_Pln, gp_Vec, TopAbs_ShapeEnum, TopoDS_Face, TopoDS_Shape } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Vector3d } from "../math/vector3d.js";
+import { Matrix4 } from "../math/matrix4.js";
 import { Plane } from "../math/plane.js";
 import { Axis } from "../math/axis.js";
 import { Explorer } from "./explorer.js";
@@ -35,25 +36,80 @@ export class ExtrudeOps {
     return ShapeFactory.fromShape(result);
   }
 
-  static makePrismFromVec(shape: Shape, vec: Vector3d): { solid: Shape; firstFace: Shape; lastFace: Shape } {
+  /**
+   * Build a prism by sweeping `shape` along `vec`. `firstFace` is the cap at the
+   * profile location, `lastFace` the cap at `profile + vec`.
+   *
+   * When `canonicalizeSweep` is set, the sweep is reoriented to a canonical
+   * direction (see below). The swept lateral surfaces (cylinders, cones from a
+   * non-drafted profile) take their axis/parametrization from the sweep
+   * direction, and OCCT 8's `ShapeUpgrade_UnifySameDomain` refuses to merge two
+   * such faces swept in opposite directions. So a symmetric extrude (one half
+   * up, one half down) otherwise fuses into a solid whose lateral surface stays
+   * split at the mid-plane. Canonicalizing makes anti-parallel extrudes share
+   * parametrization so the fused result merges cleanly.
+   *
+   * This must stay OFF for drafted extrudes: `BRepOffsetAPI_DraftAngle` tilts
+   * each side face relative to its own parametrization, so flipping the sweep
+   * would invert the draft. Drafted halves are cones of differing half-angle
+   * anyway and are not expected to merge across the mid-plane.
+   */
+  static makePrismFromVec(
+    shape: Shape,
+    vec: Vector3d,
+    canonicalizeSweep = false,
+  ): { solid: Shape; firstFace: Shape; lastFace: Shape } {
     const oc = getOC();
-    const [gpVec, disposeVec] = Convert.toGpVec(vec);
-    const prism = new oc.BRepPrimAPI_MakePrism(shape.getShape(), gpVec, true, true);
+
+    // Sweep toward the hemisphere whose dominant component is positive; for a
+    // `v` / `-v` pair this resolves to the same direction. When we flip, sweep
+    // a copy of the profile translated to the far end, then swap the caps back.
+    const flip = canonicalizeSweep && !ExtrudeOps.isCanonicalSweep(vec);
+    const sweep = flip ? vec.multiply(-1) : vec;
+    const profile = flip
+      ? ShapeOps.transform(shape, Matrix4.fromTranslationVector(vec))
+      : shape;
+
+    const [gpVec, disposeVec] = Convert.toGpVec(sweep);
+    const prism = new oc.BRepPrimAPI_MakePrism(profile.getShape(), gpVec, true, true);
     if (!prism.IsDone()) {
       prism.delete();
       disposeVec();
       throw new Error("Extrusion failed");
     }
     const solid = prism.Shape();
-    const firstFace = prism.FirstShape();
-    const lastFace = prism.LastShape();
+    // When flipped, the swept profile is the far cap: FirstShape is the far end
+    // and LastShape sits at the original profile location — swap them back to
+    // preserve the (firstFace = profile, lastFace = far end) contract.
+    const first = prism.FirstShape();
+    const last = prism.LastShape();
     prism.delete();
     disposeVec();
     return {
       solid: ShapeFactory.fromShape(solid),
-      firstFace: ShapeFactory.fromShape(firstFace),
-      lastFace: ShapeFactory.fromShape(lastFace),
+      firstFace: ShapeFactory.fromShape(flip ? last : first),
+      lastFace: ShapeFactory.fromShape(flip ? first : last),
     };
+  }
+
+  /**
+   * Whether a sweep vector points into the canonical hemisphere (dominant
+   * component positive). Anti-parallel vectors map to opposite results, so a
+   * `v` / `-v` pair always agree on a single canonical sweep direction — which
+   * is what keeps their swept surfaces mergeable. `>=` ties pick the same axis
+   * for `v` and `-v`.
+   */
+  private static isCanonicalSweep(vec: Vector3d): boolean {
+    const ax = Math.abs(vec.x);
+    const ay = Math.abs(vec.y);
+    const az = Math.abs(vec.z);
+    if (az >= ax && az >= ay) {
+      return vec.z > 0;
+    }
+    if (ay >= ax) {
+      return vec.y > 0;
+    }
+    return vec.x > 0;
   }
 
   static makePrismInfinite(shape: Shape, direction: Vector3d): Shape {

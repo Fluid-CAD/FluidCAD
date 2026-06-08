@@ -2,6 +2,32 @@ import { Vector3 } from 'three';
 import { Snapper, SnapResult } from './types';
 import { PlaneData } from '../types';
 
+const GRID_SNAP_RADIUS_FRACTION = 0.35;
+const SEQUENCE = [1, 2, 5];
+
+export function computeAdaptiveGridSpacing(
+  worldUnitsPerPixel: number,
+  baseSpacing: number = 10,
+  minCellPixels: number = 15,
+): number {
+  const cellPixels = baseSpacing / worldUnitsPerPixel;
+  if (cellPixels >= minCellPixels) {
+    return baseSpacing;
+  }
+
+  let decade = baseSpacing;
+  for (;;) {
+    for (const s of SEQUENCE) {
+      const candidate = decade * s;
+      if (candidate / worldUnitsPerPixel >= minCellPixels) {
+        return candidate;
+      }
+    }
+    decade *= 10;
+  }
+}
+
+
 export class GridSnapper implements Snapper {
   private spacing: number;
   private plane: PlaneData;
@@ -11,6 +37,11 @@ export class GridSnapper implements Snapper {
     this.spacing = spacing;
   }
 
+  setSpacing(spacing: number): void {
+    this.spacing = spacing;
+  }
+
+
   snap(point2d: [number, number], threshold: number): SnapResult | null {
     const snappedX = Math.round(point2d[0] / this.spacing) * this.spacing;
     const snappedY = Math.round(point2d[1] / this.spacing) * this.spacing;
@@ -19,7 +50,8 @@ export class GridSnapper implements Snapper {
     const dy = point2d[1] - snappedY;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (dist > threshold) {
+    const effectiveThreshold = Math.min(threshold, this.spacing * GRID_SNAP_RADIUS_FRACTION);
+    if (dist > effectiveThreshold) {
       return null;
     }
 

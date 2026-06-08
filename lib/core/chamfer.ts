@@ -2,26 +2,27 @@ import { Chamfer } from "../features/chamfer.js";
 import { SceneObject } from "../common/scene-object.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { ISceneObject } from "./interfaces.js";
+import { type NumberParam, type BooleanParam, isNumberParam, isBooleanParam, resolveParam } from "./param.js";
 
 interface ChamferFunction {
   /**
    * Chamfers selected edges with the given distance.
    * @param distance - The chamfer distance (defaults to 1)
    */
-  (distance?: number): ISceneObject;
+  (distance?: NumberParam): ISceneObject;
   /**
    * Chamfers the given edge selections with the given distance.
    * @param distance - The chamfer distance
    * @param sceneObjects - The edge selections to chamfer
    */
-  (distance: number, ...sceneObjects: ISceneObject[]): ISceneObject;
+  (distance: NumberParam, ...sceneObjects: ISceneObject[]): ISceneObject;
   /**
    * Chamfers selected edges with two distances or a distance and angle.
    * @param distance - The first chamfer distance
    * @param distance2 - The second distance, or angle if `isAngle` is true
    * @param isAngle - Whether `distance2` is an angle
    */
-  (distance: number, distance2: number, isAngle?: boolean): ISceneObject;
+  (distance: NumberParam, distance2: NumberParam, isAngle?: BooleanParam): ISceneObject;
   /**
    * Chamfers the given edge selections with two distances or a distance and angle.
    * @param distance - The first chamfer distance
@@ -29,7 +30,7 @@ interface ChamferFunction {
    * @param isAngle - Whether `distance2` is an angle
    * @param sceneObjects - The edge selections to chamfer
    */
-  (distance: number, distance2: number, isAngle: boolean, ...sceneObjects: ISceneObject[]): ISceneObject;
+  (distance: NumberParam, distance2: NumberParam, isAngle: BooleanParam, ...sceneObjects: ISceneObject[]): ISceneObject;
 }
 
 function build(context: SceneParserContext): ChamferFunction {
@@ -40,16 +41,16 @@ function build(context: SceneParserContext): ChamferFunction {
     let distance2: number = undefined;
     let isAngle = false;
 
-    if (args.length >= 1 && typeof args[0] === 'number') {
-      distance = args[0] as number;
+    if (args.length >= 1 && isNumberParam(args[0])) {
+      distance = resolveParam(args[0] as NumberParam);
     }
 
-    if (args.length >= 2 && typeof args[1] === 'number') {
-      distance2 = args[1] as number;
+    if (args.length >= 2 && isNumberParam(args[1])) {
+      distance2 = resolveParam(args[1] as NumberParam);
     }
 
-    if (args.length >= 3 && typeof args[2] === 'boolean') {
-      isAngle = args[2] as boolean;
+    if (args.length >= 3 && isBooleanParam(args[2])) {
+      isAngle = resolveParam(args[2] as BooleanParam);
     }
 
     const selections: SceneObject[] = args

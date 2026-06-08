@@ -9,6 +9,9 @@ import {
   addPick,
   removePick,
   setPickPoints,
+  insertGeometryCall,
+  updateGeometryPosition,
+  updateDimension,
 } from '../src/code-editor.ts';
 
 describe('addBreakpoint', () => {
@@ -371,5 +374,198 @@ describe('point edits target .pick() inside a longer chain', () => {
     const code = `bezier([0, 0], [1, 1])\n`;
     const result = await insertPoint(code, 1, [2, 2]);
     expect(result.newCode).toBe(`bezier([0, 0], [1, 1], [2, 2])\n`);
+  });
+});
+
+describe('insertGeometryCall', () => {
+  it('inserts a geometry call at the end of a sketch body', async () => {
+    const code = [
+      `import { sketch, line } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'line([10, 10], [20, 20])');
+    expect(result.newCode).toBe([
+      `import { sketch, line } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `  line([10, 10], [20, 20])`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('inserts into an empty sketch body', async () => {
+    const code = [
+      `import { sketch } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'circle([5, 5], 10)');
+    expect(result.newCode).toBe([
+      `import {circle, sketch } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  circle([5, 5], 10)`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('adds missing import symbol', async () => {
+    const code = [
+      `import { sketch, line } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'hLine(15)');
+    expect(result.newCode).toContain('hLine,');
+    expect(result.newCode).toContain('hLine(15)');
+  });
+
+  it('creates a new import when no fluidcad import exists', async () => {
+    const code = [
+      `sketch(XY, () => {`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 1, 'line([0, 0], [10, 10])');
+    expect(result.newCode).toBe([
+      `import { line } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('does not duplicate existing import symbol', async () => {
+    const code = [
+      `import { sketch, line } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'line([20, 20], [30, 30])');
+    const importLine = result.newCode.split('\n')[0];
+    const importMatches = importLine.match(/line/g);
+    expect(importMatches!.length).toBe(1);
+  });
+});
+
+describe('updateGeometryPosition', () => {
+  it('replaces an existing point argument', async () => {
+    const code = `line([5, 10], [20, 30])\n`;
+    const result = await updateGeometryPosition(code, 1, [15, 25]);
+    expect(result.newCode).toBe(`line([15, 25], [20, 30])\n`);
+  });
+
+  it('replaces the first point even in single-arg overload', async () => {
+    const code = `line([20, 30])\n`;
+    const result = await updateGeometryPosition(code, 1, [5, 10]);
+    expect(result.newCode).toBe(`line([5, 10])\n`);
+  });
+
+  it('inserts position before a non-point argument', async () => {
+    const code = `circle(40)\n`;
+    const result = await updateGeometryPosition(code, 1, [10, 20]);
+    expect(result.newCode).toBe(`circle([10, 20], 40)\n`);
+  });
+
+  it('replaces a point containing a variable reference', async () => {
+    const code = `line([600, height])\n`;
+    const result = await updateGeometryPosition(code, 1, [700, 850]);
+    expect(result.newCode).toBe(`line([700, 850])\n`);
+  });
+
+  it('replaces a point where both elements are variables', async () => {
+    const code = `line([x, y])\n`;
+    const result = await updateGeometryPosition(code, 1, [100, 200]);
+    expect(result.newCode).toBe(`line([100, 200])\n`);
+  });
+
+  it('replaces a point containing a binary expression', async () => {
+    const code = `line([width / 2, height * 3])\n`;
+    const result = await updateGeometryPosition(code, 1, [50, 90]);
+    expect(result.newCode).toBe(`line([50, 90])\n`);
+  });
+
+  it('replaces the last point with variable in two-arg line', async () => {
+    const code = `line([0, 0], [w, h])\n`;
+    const result = await updateGeometryPosition(code, 1, [10, 20], -1);
+    expect(result.newCode).toBe(`line([0, 0], [10, 20])\n`);
+  });
+
+  it('replaces a bare variable point argument', async () => {
+    const code = `tArc(end)\n`;
+    const result = await updateGeometryPosition(code, 1, [350, 290]);
+    expect(result.newCode).toBe(`tArc([350, 290])\n`);
+  });
+
+  it('replaces a bare variable with a literal point arg following', async () => {
+    const code = `line(start, [200, 200])\n`;
+    const result = await updateGeometryPosition(code, 1, [100, 100]);
+    expect(result.newCode).toBe(`line([100, 100], [200, 200])\n`);
+  });
+
+  it('replaces a bare variable without affecting a number arg', async () => {
+    const code = `hLine(start, 240)\n`;
+    const result = await updateGeometryPosition(code, 1, [50, 60]);
+    expect(result.newCode).toBe(`hLine([50, 60], 240)\n`);
+  });
+
+  it('replaces a method call point argument', async () => {
+    const code = `tArc(l1.start())\n`;
+    const result = await updateGeometryPosition(code, 1, [100, 100]);
+    expect(result.newCode).toBe(`tArc([100, 100])\n`);
+  });
+});
+
+describe('updateDimension', () => {
+  it('updates the distance of hLine', async () => {
+    const code = `hLine(15)\n`;
+    const result = await updateDimension(code, 1, 25);
+    expect(result.newCode).toBe(`hLine(25)\n`);
+  });
+
+  it('updates the distance of vLine with start point', async () => {
+    const code = `vLine([5, 10], 20)\n`;
+    const result = await updateDimension(code, 1, 35);
+    expect(result.newCode).toBe(`vLine([5, 10], 35)\n`);
+  });
+
+  it('updates the diameter of circle', async () => {
+    const code = `circle([0, 0], 40)\n`;
+    const result = await updateDimension(code, 1, 60);
+    expect(result.newCode).toBe(`circle([0, 0], 60)\n`);
+  });
+
+  it('updates circle with only diameter', async () => {
+    const code = `circle(40)\n`;
+    const result = await updateDimension(code, 1, 50);
+    expect(result.newCode).toBe(`circle(50)\n`);
+  });
+
+  it('updates negative distance', async () => {
+    const code = `hLine(-15)\n`;
+    const result = await updateDimension(code, 1, -25);
+    expect(result.newCode).toBe(`hLine(-25)\n`);
+  });
+
+  it('replaces a variable dimension with a literal', async () => {
+    const code = `hLine(distance)\n`;
+    const result = await updateDimension(code, 1, 42);
+    expect(result.newCode).toBe(`hLine(42)\n`);
+  });
+
+  it('replaces an expression dimension with a literal', async () => {
+    const code = `vLine([5, 10], height / 2)\n`;
+    const result = await updateDimension(code, 1, 100);
+    expect(result.newCode).toBe(`vLine([5, 10], 100)\n`);
   });
 });

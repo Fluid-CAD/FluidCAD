@@ -1,21 +1,37 @@
 import { Vector3 } from 'three';
 import { Snapper, SnapResult } from './types';
 import { VertexSnapper } from './vertex-snapper';
-import { GridSnapper } from './grid-snapper';
+import { GridSnapper, computeAdaptiveGridSpacing } from './grid-snapper';
 import { PlaneData, SceneObjectRender } from '../types';
+import { SceneContext } from '../scene/scene-context';
 
 const DEFAULT_SNAP_THRESHOLD = 15;
 
 export class SnapManager {
   private snappers: Snapper[] = [];
   private threshold: number;
+  private ctx: SceneContext | null;
 
-  constructor(snappers: Snapper[], threshold: number = DEFAULT_SNAP_THRESHOLD) {
+  constructor(snappers: Snapper[], threshold: number = DEFAULT_SNAP_THRESHOLD, ctx: SceneContext | null = null) {
     this.snappers = snappers;
     this.threshold = threshold;
+    this.ctx = ctx;
+  }
+
+  setExcludedVertices(excluded: [number, number][]): void {
+    for (const s of this.snappers) {
+      if (s instanceof VertexSnapper) {
+        s.setExcluded(excluded);
+      }
+    }
   }
 
   snap(point2d: [number, number], plane: PlaneData): SnapResult {
+    if (this.ctx) {
+      this.updateGridSpacing();
+    }
+
+
     // Try each snapper in priority order; first match wins
     for (const snapper of this.snappers) {
       const result = snapper.snap(point2d, this.threshold);
@@ -40,10 +56,39 @@ export class SnapManager {
     };
   }
 
+  private updateGridSpacing(): void {
+    const camera = this.ctx!.camera;
+    const rect = this.ctx!.renderer.domElement.getBoundingClientRect();
+    const canvasHeight = rect.height || 1;
+
+    let worldHeight: number;
+    const cam = camera as any;
+    if (cam.isOrthographicCamera) {
+      worldHeight = (cam.top - cam.bottom) / (cam.zoom || 1);
+    } else {
+      const target = new Vector3();
+      this.ctx!.cameraControls.getTarget(target);
+      const d = camera.position.distanceTo(target);
+      const fovRad = (cam.fov * Math.PI) / 180;
+      worldHeight = 2 * d * Math.tan(fovRad / 2);
+    }
+
+    const worldUnitsPerPixel = worldHeight / canvasHeight;
+    const adaptiveSpacing = computeAdaptiveGridSpacing(worldUnitsPerPixel);
+
+    for (const s of this.snappers) {
+      if (s instanceof GridSnapper) {
+        s.setSpacing(adaptiveSpacing);
+      }
+    }
+  }
+
+
   static fromSceneObjects(
     sceneObjects: SceneObjectRender[],
     sketchId: string,
     plane: PlaneData,
+    ctx?: SceneContext,
   ): SnapManager {
     // Extract vertex positions from sketch child mesh data
     const vertices2d: [number, number][] = [];
@@ -102,6 +147,6 @@ export class SnapManager {
       new GridSnapper(plane),
     ];
 
-    return new SnapManager(snappers);
+    return new SnapManager(snappers, DEFAULT_SNAP_THRESHOLD, ctx ?? null);
   }
 }

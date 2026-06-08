@@ -63,9 +63,9 @@ describe("cylinderCurve filter on fillet faces", () => {
         const edges = Explorer.findShapes(ocFace, oc.TopAbs_ShapeEnum.TopAbs_EDGE);
         const curveTypeNames: Record<number, string> = {};
         for (const k of Object.keys(oc.GeomAbs_CurveType)) {
-          const v = (oc.GeomAbs_CurveType as Record<string, { value: number }>)[k];
-          if (v && typeof v.value === "number") {
-            curveTypeNames[v.value] = k;
+          const v = (oc.GeomAbs_CurveType as Record<string, string>)[k];
+          if (v && typeof v === "number") {
+            curveTypeNames[v] = k;
           }
         }
         const edgeInfo = edges.map(e => {
@@ -73,7 +73,7 @@ describe("cylinderCurve filter on fillet faces", () => {
           const t = adaptor.GetType();
           const closed = adaptor.IsClosed();
           adaptor.delete();
-          return { type: curveTypeNames[(t as { value: number }).value] ?? (t as { value: number }).value, closed };
+          return { type: curveTypeNames[(t)] ?? t, closed };
         });
         console.log("Cylinder face missed by cylinderCurve:", JSON.stringify(edgeInfo));
       }

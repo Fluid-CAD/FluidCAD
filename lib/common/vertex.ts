@@ -3,7 +3,6 @@ import { ShapeType } from "./shape-type.js";
 import { Shape } from "./shape.js";
 import { Point, Point2D } from "../math/point.js";
 import { VertexOps } from "../oc/vertex-ops.js";
-import { Plane } from "../math/plane.js";
 
 export class Vertex extends Shape<TopoDS_Vertex> {
   constructor(vertex: TopoDS_Vertex) {
@@ -41,7 +40,6 @@ export class Vertex extends Shape<TopoDS_Vertex> {
   }
 
   static fromPoint2D(point: Point2D): Vertex {
-    console.log("Creating vertex from point2D:", point);
     return Vertex.fromPoint(new Point(point.x, point.y, 0));
   }
 

@@ -1,6 +1,6 @@
 {
   "name": "fluidcad",
-  "version": "0.0.32",
+  "version": "0.0.36",
   "description": "Parametric CAD modeling library using javascript",
   "author": "Marwan Aouida <contact@marwan.dev>",
   "homepage": "https://fluidcad.io",
@@ -29,7 +29,9 @@
     "lib/dist/",
     "server/dist/",
     "ui/dist/",
-    "bin/"
+    "mcp/dist/",
+    "bin/",
+    "llm-docs/"
   ],
   "exports": {
     ".": "./lib/dist/index.js",
@@ -37,14 +39,19 @@
     "./filters": "./lib/dist/filters/index.js",
     "./constraints": "./lib/dist/features/2d/constraints/geometry-qualifier.js",
     "./server": "./server/dist/index.js",
+    "./server/api": "./server/dist/api.js",
     "./math": "./lib/dist/math/index.js"
   },
   "scripts": {
-    "clean": "rm -rf lib/dist server/dist ui/dist lib/tsconfig.tsbuildinfo server/tsconfig.tsbuildinfo",
+    "clean": "rm -rf lib/dist server/dist ui/dist mcp/dist lib/tsconfig.tsbuildinfo server/tsconfig.tsbuildinfo mcp/tsconfig.tsbuildinfo",
     "build:lib": "tsc -p lib/tsconfig.json",
     "build:server": "tsc -p server/tsconfig.json",
     "build:ui": "vite build --config ui/vite.config.ts",
-    "build": "npm run clean && npm run build:lib && npm run build:server && npm run build:ui",
+    "build:mcp": "tsc -p mcp/tsconfig.json",
+    "build:llm-type-docs": "tsx scripts/build-llm-type-docs.ts",
+    "build:llm-docs": "npm run build:llm-type-docs && tsx scripts/build-llm-docs.ts",
+    "check:llm-docs": "npm run build:llm-docs && tsx scripts/check-llm-docs-coverage.ts && vitest run lib/tests/llm-docs-examples.test.ts",
+    "build": "npm run clean && npm run build:lib && npm run build:server && npm run build:ui && npm run build:mcp && npm run build:llm-docs",
     "prepublishOnly": "npm run build",
     "dev:lib": "tsc -p lib/tsconfig.json --watch",
     "dev:server": "node --experimental-transform-types --no-warnings server/src/index.ts",
@@ -52,35 +59,48 @@
     "typecheck": "tsc -b",
     "test": "vitest",
     "test:features": "vitest run lib/tests/features/",
-    "release": "npx bumpp patch package.json extension/vscode/package.json"
+    "bump": "npx bumpp patch package.json extension/vscode/package.json --no-tag --no-push",
+    "release": "git tag -a \"v$npm_package_version\" -m \"chore: release v$npm_package_version\" && git push --follow-tags"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "chokidar": "^5.0.0",
     "color-name": "^2.1.0",
+    "commander": "^14.0.3",
+    "esbuild": "^0.27.7",
     "express": "^5.2.1",
-    "occjs-wrapper": "../occjs-fluidcad",
+    "ignore": "^5.3.2",
+    "jszip": "^3.10.1",
+    "iconoir": "^7.11.0",
+    "occjs-wrapper": "file:../ocjsv8/",
+    "open": "^11.0.0",
     "stacktrace-parser": "^0.1.11",
     "tree-sitter-wasms": "^0.1.13",
     "tsx": "^4.21.0",
+    "undici": "^8.3.0",
     "vite": "^8.0.8",
     "web-tree-sitter": "^0.24.7",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tabler/icons": "^3.40.0",
     "@tailwindcss/vite": "^4.2.2",
     "@types/express": "^5.0.6",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.14.1",
     "@types/three": "^0.180.0",
     "@types/ws": "^8.18.0",
     "camera-controls": "^3.1.2",
     "daisyui": "^5.5.19",
     "eslint": "^9.24.0",
+    "js-yaml": "^4.1.1",
     "lodash": "^4.17.21",
     "prettier": "^3.5.3",
     "tailwindcss": "^4.2.2",
     "three": "^0.180.0",
     "three-viewport-gizmo": "^2.2.0",
+    "ts-morph": "^28.0.0",
     "typescript": "^5.9.2",
     "vitest": "^4.0.17"
   }

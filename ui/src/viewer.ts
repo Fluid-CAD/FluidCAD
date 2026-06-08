@@ -2,7 +2,7 @@ import { Box3, BufferAttribute, BufferGeometry, Color, LineSegments, Mesh, MeshP
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { SceneModeManager } from './scene/scene-mode';
 import { buildSceneMesh } from './meshes/mesh-factory';
-import { SceneObjectPart, SceneObjectRender, SubSelection } from './types';
+import { PlaneData, SceneObjectPart, SceneObjectRender, SubSelection } from './types';
 import { SettingsPanel } from './ui/settings-panel';
 import { CentroidIndicator } from './scene/centroid-indicator';
 import { viewerSettings } from './scene/viewer-settings';
@@ -48,7 +48,7 @@ export class Viewer {
   private lastFitBox: Box3 | null = null;
   isTrimming = false;
   isRegionPicking = false;
-  isBezierDrawing = false;
+  isDrawing = false;
 
   private selectionHandler: ((shapeId: string | null, sub: SubSelection) => void) | null = null;
   private centroidIndicator = new CentroidIndicator();
@@ -94,6 +94,27 @@ export class Viewer {
     this.selectionHandler = fn;
   }
 
+  get settingsPanelHost(): HTMLElement {
+    return this.settingsPanel.panelHost;
+  }
+
+  setParamsToggleHandler(fn: () => void): void {
+    this.settingsPanel.setParamsToggleHandler(fn);
+  }
+
+  setParamsButtonVisible(visible: boolean): void {
+    this.settingsPanel.setParamsButtonVisible(visible);
+  }
+
+  setParamsButtonActive(active: boolean): void {
+    this.settingsPanel.setParamsButtonActive(active);
+  }
+
+  lookAlongSketchNormal(plane: PlaneData): void {
+    this.modeManager.enforceSketchNormal(plane);
+  }
+
+
   private initClickDetection(): void {
     const canvas = this.ctx.renderer.domElement;
     let downX = 0;
@@ -105,7 +126,7 @@ export class Viewer {
     });
 
     canvas.addEventListener('mouseup', (e) => {
-      if (!this.selectionHandler || this.isTrimming || this.isRegionPicking || this.isBezierDrawing || this.modeManager.isSketchMode) {
+      if (!this.selectionHandler || this.isTrimming || this.isRegionPicking || this.modeManager.isSketchMode) {
         return;
       }
       const dx = e.clientX - downX;
@@ -136,6 +157,7 @@ export class Viewer {
 
     const raycaster = this.ctx.createPickingRaycaster(ndcX, ndcY);
     raycaster.params.Line = { threshold: this.computeEdgePickThreshold() };
+    raycaster.params.Line2 = { threshold: 8 };
 
     const faceCandidates: Mesh[] = [];
     const edgeCandidates: LineSegments[] = [];
@@ -146,7 +168,7 @@ export class Viewer {
       }
       if ((obj as Mesh).isMesh && obj.userData.faceMapping) {
         faceCandidates.push(obj as Mesh);
-      } else if ((obj as LineSegments).isLine && obj.userData.edgeIndex !== undefined) {
+      } else if (((obj as LineSegments).isLine || obj.userData.isEdgeLine) && obj.userData.edgeIndex !== undefined) {
         edgeCandidates.push(obj as LineSegments);
       }
     });
@@ -182,15 +204,11 @@ export class Viewer {
     const segPt = new Vector3();
     const toSeg = new Vector3();
     for (const edgeHit of edgeHits) {
-      const geo = (edgeHit.object as LineSegments).geometry;
-      const pos = geo.getAttribute('position') as BufferAttribute;
-      const idx = geo.getIndex();
-      if (idx !== null && edgeHit.faceIndex != null) {
-        const a = idx.getX(edgeHit.faceIndex * 2);
-        const b = idx.getX(edgeHit.faceIndex * 2 + 1);
-        const v0 = new Vector3().fromBufferAttribute(pos, a).applyMatrix4(edgeHit.object.matrixWorld);
-        const v1 = new Vector3().fromBufferAttribute(pos, b).applyMatrix4(edgeHit.object.matrixWorld);
-        raycaster.ray.distanceSqToSegment(v0, v1, undefined, segPt);
+      // LineSegments2 hits expose `pointOnLine` (closest point on the segment
+      // in world space); the old BufferGeometry index path doesn't apply.
+      const pointOnLine = (edgeHit as { pointOnLine?: Vector3 }).pointOnLine;
+      if (pointOnLine) {
+        segPt.copy(pointOnLine);
       } else {
         segPt.copy(edgeHit.point);
       }
@@ -291,8 +309,9 @@ export class Viewer {
       }
     }
 
-    // Auto-fit on first render or in sketch mode (skip if viewport barely changed or trimming)
-    if (!this.hasRendered || (this.modeManager.isSketchMode && !isRollback && !this.isTrimming && !this.isRegionPicking && !this.isBezierDrawing)) {
+    // Auto-fit on first render or in sketch mode (skip if viewport barely changed or trimming).
+    // Skip when in sketch mode on first render — positionCameraForSketch already centered on origin.
+    if ((!this.hasRendered && !this.modeManager.isSketchMode) || (this.modeManager.isSketchMode && !isRollback && !this.isTrimming && !this.isRegionPicking && !this.isDrawing)) {
       const box = new Box3();
       expandBoxExcludingMeta(box, mesh);
       if (!box.isEmpty() && !this.isBoxContained(box)) {
@@ -300,6 +319,9 @@ export class Viewer {
         this.lastFitBox = box.clone();
         this.hasRendered = true;
       }
+    }
+    if (!this.hasRendered && this.modeManager.isSketchMode) {
+      this.hasRendered = true;
     }
 
     this.ctx.requestRender();
@@ -319,7 +341,9 @@ export class Viewer {
     group.traverse((child) => {
       if (!(child as any).material) return;
 
-      if (isFaceHighlight && child instanceof Mesh) {
+      const isEdge = (child as LineSegments).isLine || child.userData.isEdgeLine;
+
+      if (isFaceHighlight && child instanceof Mesh && !isEdge) {
         const mat = (child as any).material;
         child.userData.originalColor = mat.color.getHex();
         mat.color.set(themeColors.highlightColor);
@@ -329,7 +353,7 @@ export class Viewer {
           mat.opacity = 1;
           mat.transparent = false;
         }
-      } else if (!isFaceHighlight && child instanceof LineSegments) {
+      } else if (!isFaceHighlight && isEdge) {
         child.userData.originalColor = (child as any).material.color.getHex();
         (child as any).material.color.set(themeColors.highlightColor);
         child.userData.originalLineWidth = (child as any).material.linewidth;
@@ -457,7 +481,7 @@ export class Viewer {
     this.clearHighlight();
 
     this.ctx.scene.traverse((obj) => {
-      if (!(obj as LineSegments).isLine) {
+      if (!(obj as LineSegments).isLine && !obj.userData.isEdgeLine) {
         return;
       }
       if (obj.userData.edgeIndex !== edgeIndex) {
@@ -505,7 +529,7 @@ export class Viewer {
     });
 
     canvas.addEventListener('mousemove', (e) => {
-      if (this.isMouseDown || this.isTrimming || this.isRegionPicking || this.isBezierDrawing || this.modeManager.isSketchMode) {
+      if (this.isMouseDown || this.isTrimming || this.isRegionPicking || this.modeManager.isSketchMode) {
         return;
       }
       if (this.hoverRafId !== null) {
@@ -661,7 +685,7 @@ export class Viewer {
 
   private applyHoverEdge(shapeId: string, edgeIndex: number): void {
     this.ctx.scene.traverse((obj) => {
-      if (!(obj as LineSegments).isLine) {
+      if (!(obj as LineSegments).isLine && !obj.userData.isEdgeLine) {
         return;
       }
       if (obj.userData.edgeIndex !== edgeIndex) {
@@ -992,14 +1016,7 @@ export class Viewer {
     const compiled = this.ctx.scene.getObjectByName('compiledMesh');
     if (!compiled) { return; }
 
-    compiled.traverse((child) => {
-      const mat = (child as any).material;
-      if (!mat) { return; }
-      const materials = Array.isArray(mat) ? mat : [mat];
-      for (const m of materials) {
-        m.clippingPlanes = [plane];
-      }
-    });
+    this.forEachClippableMaterial(compiled, (m) => { m.clippingPlanes = [plane]; });
 
     this.ctx.requestRender();
   }
@@ -1008,16 +1025,25 @@ export class Viewer {
     const compiled = this.ctx.scene.getObjectByName('compiledMesh');
     if (!compiled) { return; }
 
-    compiled.traverse((child) => {
-      const mat = (child as any).material;
-      if (!mat) { return; }
-      const materials = Array.isArray(mat) ? mat : [mat];
-      for (const m of materials) {
-        m.clippingPlanes = [];
-      }
-    });
+    this.forEachClippableMaterial(compiled, (m) => { m.clippingPlanes = []; });
 
     this.ctx.requestRender();
+  }
+
+  // Walk the subtree, skipping sketch UI (it lives on the section plane and
+  // would be half-clipped by it). Visit each material exactly once.
+  private forEachClippableMaterial(root: Object3D, fn: (m: any) => void): void {
+    if (root.userData.isSketchRoot) { return; }
+    const mat = (root as any).material;
+    if (mat) {
+      const materials = Array.isArray(mat) ? mat : [mat];
+      for (const m of materials) {
+        fn(m);
+      }
+    }
+    for (const child of root.children) {
+      this.forEachClippableMaterial(child, fn);
+    }
   }
 
   /** Remove the previous compiled mesh tree and dispose its GPU resources. */

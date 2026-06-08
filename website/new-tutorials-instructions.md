@@ -175,6 +175,7 @@ node website/scripts/generate-screenshots.mjs <tutorial-name>-final
 **Screenshot annotations** (add as first line of a `.js` file):
 - `// @screenshot skip` — skip this file
 - `// @screenshot showAxes` — show coordinate axes
+- `// @screenshot hideGrid` — hide the ground grid
 - `// @screenshot waitForInput` — pause for manual camera adjustment
 - `// @screenshot noAutoCrop` — disable auto-cropping
 

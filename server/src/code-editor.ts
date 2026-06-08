@@ -33,6 +33,16 @@ async function loadTreeSitter() {
 
 let parser: TSParser | null = null;
 
+/**
+ * Public alias for `getParser()` so other modules in this package (e.g.
+ * `lint-fluid-js.ts`) can reuse the same wasm-backed parser instance instead
+ * of loading the JavaScript grammar twice.
+ */
+export async function getJavaScriptParser(): Promise<TSParser> {
+  return getParser();
+}
+
+
 async function getParser(): Promise<TSParser> {
   if (parser) {
     return parser;
@@ -147,11 +157,22 @@ function findPickCallInChain(call: TSNode): TSNode | null {
 }
 
 /**
+ * Structural AST check: is this node a `[x, y]` point array?
+ * Accepts any two-element array regardless of whether the elements are
+ * literals, variables, or expressions — the drag/splice functions only need
+ * to *locate* point nodes, not read their old values.
+ */
+function isPointArray(node: TSNode): boolean {
+  return node.type === 'array' && node.namedChildren.length === 2;
+}
+
+/**
  * Extract `[x, y]` from an `array` node with exactly two numeric children.
- * Handles unary minus (`-5`) because tree-sitter wraps it in a `unary_expression`.
+ * Only used where the actual numeric values are needed (e.g. `removePoint`
+ * distance computation). Drag/update paths use `isPointArray` instead.
  */
 function parsePointLiteral(node: TSNode): [number, number] | null {
-  if (node.type !== 'array' || node.namedChildren.length !== 2) {
+  if (!isPointArray(node)) {
     return null;
   }
   const parts: number[] = [];
@@ -163,6 +184,40 @@ function parsePointLiteral(node: TSNode): [number, number] | null {
     parts.push(value);
   }
   return [parts[0], parts[1]];
+}
+
+function isPointLikeArg(node: TSNode): boolean {
+  if (node.type === 'number') return false;
+  if (node.type === 'string' || node.type === 'template_string') return false;
+  if (node.type === 'true' || node.type === 'false') return false;
+  if (node.type === 'unary_expression' && node.namedChildren[0]?.type === 'number') return false;
+  return true;
+}
+
+function collectChainPointArgs(call: TSNode): TSNode[] {
+  const calls: TSNode[] = [];
+  let current: TSNode | null = call;
+  while (current && current.type === 'call_expression') {
+    calls.push(current);
+    const fn = current.childForFieldName('function');
+    if (fn && fn.type === 'member_expression') {
+      current = fn.childForFieldName('object');
+    } else {
+      break;
+    }
+  }
+  const pointArgs: TSNode[] = [];
+  for (let i = calls.length - 1; i >= 0; i--) {
+    const args = getArgumentsNode(calls[i]);
+    if (args) {
+      for (const child of args.namedChildren) {
+        if (isPointLikeArg(child)) {
+          pointArgs.push(child);
+        }
+      }
+    }
+  }
+  return pointArgs;
 }
 
 function spliceCode(code: string, startIndex: number, endIndex: number, replacement: string): string {
@@ -642,5 +697,594 @@ export function setPickPoints(
     }
     const newArgs = points.map((p) => `[${p[0]}, ${p[1]}]`).join(', ');
     return spliceCode(code, args.startIndex + 1, args.endIndex - 1, newArgs);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Geometry insertion — insert a new call expression at the end of a sketch body
+// ---------------------------------------------------------------------------
+
+/**
+ * Find the callback body (statement_block) inside a sketch() call.
+ * Looks for the last arrow_function or function argument.
+ */
+function findSketchBody(call: TSNode): TSNode | null {
+  const args = getArgumentsNode(call);
+  if (!args) {
+    return null;
+  }
+  for (let i = args.namedChildren.length - 1; i >= 0; i--) {
+    const child = args.namedChildren[i];
+    if (child.type === 'arrow_function' || child.type === 'function') {
+      const body = child.childForFieldName('body');
+      if (body && body.type === 'statement_block') {
+        return body;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Ensure a symbol is present in the `import { ... } from 'fluidcad'` or
+ * `'fluidcad/core'` statement. Returns modified code if the symbol was added.
+ */
+async function ensureSymbolImport(code: string, symbol: string): Promise<string> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const importNode = findFluidCadImport(tree);
+  if (!importNode) {
+    return `import { ${symbol} } from 'fluidcad/core';\n` + code;
+  }
+  const namedImports = findNamedImports(importNode);
+  if (!namedImports) {
+    return code;
+  }
+  for (const spec of namedImports.namedChildren) {
+    if (spec.type !== 'import_specifier') {
+      continue;
+    }
+    const name = spec.childForFieldName('name') ?? spec.namedChild(0);
+    if (name && name.text === symbol) {
+      return code;
+    }
+  }
+  const openBraceOffset = namedImports.startIndex + 1;
+  const after = code[openBraceOffset];
+  const needsSpace = after !== ' ' && after !== '\t' && after !== '\n';
+  const insertText = needsSpace ? ` ${symbol},` : `${symbol},`;
+  return code.slice(0, openBraceOffset) + insertText + code.slice(openBraceOffset);
+}
+
+/**
+ * Insert a new geometry call expression at the end of a sketch's callback body.
+ *
+ * @param code - Full source code
+ * @param sketchSourceLine - 1-indexed line where the sketch() call starts
+ * @param statement - The call to insert, e.g. "line([5, 10], [20, 30])"
+ */
+export async function insertGeometryCall(
+  code: string,
+  sketchSourceLine: number,
+  statement: string,
+): Promise<CodeEditResult> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const lines = splitLines(code);
+  const call = findEditableCallAt(tree, lines, sketchSourceLine);
+  if (!call) {
+    return { newCode: code };
+  }
+
+  const body = findSketchBody(call);
+  if (!body) {
+    return { newCode: code };
+  }
+
+  const bodyChildren = body.namedChildren;
+  let insertRow: number;
+  let indent: string;
+
+  if (bodyChildren.length > 0) {
+    const lastStmt = bodyChildren[bodyChildren.length - 1];
+    insertRow = lastStmt.endPosition.row + 1;
+    indent = indentOf(lines, lastStmt.startPosition.row);
+  } else {
+    insertRow = body.startPosition.row + 1;
+    indent = indentOf(lines, body.startPosition.row) + '  ';
+  }
+
+  const newLine = statement.split('\n').map(l => `${indent}${l}`).join('\n');
+  lines.splice(insertRow, 0, newLine);
+  let result = joinLines(lines);
+
+  const funcName = statement.match(/^(\w+)\s*\(/)?.[1];
+  if (funcName) {
+    result = await ensureSymbolImport(result, funcName);
+  }
+
+  return { newCode: result };
+}
+
+/**
+ * Update a point argument of a geometry call.
+ *
+ * @param code - Full source code
+ * @param sourceLine - 1-indexed line of the geometry call
+ * @param newPosition - New [x, y] position
+ * @param pointIndex - Which point argument to update (0 = first, -1 = last)
+ */
+export async function updateGeometryPosition(
+  code: string,
+  sourceLine: number,
+  newPosition: [number, number],
+  pointIndex: number = 0,
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const pointText = `[${newPosition[0]}, ${newPosition[1]}]`;
+
+    const pointArgs = collectChainPointArgs(call);
+
+    const targetIdx = pointIndex >= 0 ? pointIndex : pointArgs.length + pointIndex;
+
+    if (targetIdx >= 0 && targetIdx < pointArgs.length) {
+      return spliceCode(code, pointArgs[targetIdx].startIndex, pointArgs[targetIdx].endIndex, pointText);
+    }
+
+    if (pointIndex === 0 && pointArgs.length === 0) {
+      const args = getArgumentsNode(call);
+      if (!args) {
+        return null;
+      }
+      const firstArg = args.namedChildren[0];
+      if (!firstArg) {
+        return spliceCode(code, args.startIndex + 1, args.startIndex + 1, pointText);
+      }
+      return spliceCode(code, args.startIndex + 1, args.startIndex + 1, pointText + ', ');
+    }
+
+    return null;
+  });
+}
+
+/**
+ * Update both point arguments of a `line(start, end)` call atomically.
+ * Used by body-drag of unconstrained two-point lines, where the whole line
+ * is translated and both endpoints change in a single edit.
+ */
+export async function setLinePosition(
+  code: string,
+  sourceLine: number,
+  newStart: [number, number],
+  newEnd: [number, number],
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const args = getArgumentsNode(call);
+    if (!args) {
+      return null;
+    }
+    const pointArgs: TSNode[] = [];
+    for (const child of args.namedChildren) {
+      if (isPointArray(child)) {
+        pointArgs.push(child);
+      }
+    }
+    if (pointArgs.length < 2) {
+      return null;
+    }
+    const startNode = pointArgs[0];
+    const endNode = pointArgs[pointArgs.length - 1];
+    const startText = `[${newStart[0]}, ${newStart[1]}]`;
+    const endText = `[${newEnd[0]}, ${newEnd[1]}]`;
+    // Splice end first so startNode indices remain valid.
+    const afterEnd = spliceCode(code, endNode.startIndex, endNode.endIndex, endText);
+    return spliceCode(afterEnd, startNode.startIndex, startNode.endIndex, startText);
+  });
+}
+
+/**
+ * Update multiple point arguments of a geometry call chain atomically.
+ * Point indices refer to the collected chain points (innermost call first).
+ */
+export async function setChainPositions(
+  code: string,
+  sourceLine: number,
+  updates: { pointIndex: number; position: [number, number] }[],
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const pointArgs = collectChainPointArgs(call);
+    if (pointArgs.length === 0) {
+      return null;
+    }
+
+    const resolved = updates
+      .map(u => {
+        const idx = u.pointIndex >= 0 ? u.pointIndex : pointArgs.length + u.pointIndex;
+        if (idx < 0 || idx >= pointArgs.length) {
+          return null;
+        }
+        return { node: pointArgs[idx], position: u.position };
+      })
+      .filter((u): u is NonNullable<typeof u> => u !== null)
+      .sort((a, b) => b.node.startIndex - a.node.startIndex);
+
+    let result = code;
+    for (const { node, position } of resolved) {
+      const text = `[${position[0]}, ${position[1]}]`;
+      result = spliceCode(result, node.startIndex, node.endIndex, text);
+    }
+    return result;
+  });
+}
+
+/**
+ * Update the last non-array argument of a geometry call (e.g. distance or diameter).
+ * Replaces whatever expression is there (literal, variable, binary expression)
+ * with the new numeric literal.
+ */
+export function updateDimension(
+  code: string,
+  sourceLine: number,
+  newValue: number,
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const args = getArgumentsNode(call);
+    if (!args || args.namedChildren.length === 0) {
+      return null;
+    }
+    const target = findNonArrayArgFromEnd(args);
+    if (!target) {
+      return null;
+    }
+    return spliceCode(code, target.startIndex, target.endIndex, String(newValue));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Expression-aware dimension helpers
+// ---------------------------------------------------------------------------
+
+function findNonArrayArgFromEnd(args: TSNode, offset = 0): TSNode | null {
+  let skipped = 0;
+  for (let i = args.namedChildren.length - 1; i >= 0; i--) {
+    const child = args.namedChildren[i];
+    if (child.type !== 'array') {
+      if (skipped === offset) {
+        return child;
+      }
+      skipped++;
+    }
+  }
+  return null;
+}
+
+export async function getDimensionExpression(
+  code: string,
+  sourceLine: number,
+): Promise<{ expression: string } | null> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const lines = splitLines(code);
+  let current: TSNode | null = findEditableCallAt(tree, lines, sourceLine);
+  while (current && current.type === 'call_expression') {
+    const args = getArgumentsNode(current);
+    if (args) {
+      const target = findNonArrayArgFromEnd(args);
+      if (target) {
+        return { expression: target.text };
+      }
+    }
+    const fn = current.childForFieldName('function');
+    current = fn && fn.type === 'member_expression'
+      ? fn.childForFieldName('object')
+      : null;
+  }
+  return null;
+}
+
+export function updateDimensionExpression(
+  code: string,
+  sourceLine: number,
+  expression: string,
+  dimensionOffset = 0,
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    let current: TSNode | null = findEditableCallAt(tree, lines, sourceLine);
+    while (current && current.type === 'call_expression') {
+      const args = getArgumentsNode(current);
+      if (args) {
+        const target = findNonArrayArgFromEnd(args, dimensionOffset);
+        if (target) {
+          return spliceCode(code, target.startIndex, target.endIndex, expression);
+        }
+      }
+      const fn = current.childForFieldName('function');
+      current = fn && fn.type === 'member_expression'
+        ? fn.childForFieldName('object')
+        : null;
+    }
+    return null;
+  });
+}
+
+/**
+ * Insert `const name = initializer;` at the top of the sketch arrow-function
+ * body. Returns the new code and how many lines were added (for callers that
+ * need to re-anchor subsequent sourceLine-based edits).
+ */
+export async function declareSketchVariable(
+  code: string,
+  sketchSourceLine: number,
+  name: string,
+  initializer: string,
+): Promise<{ newCode: string; linesAdded: number } | null> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const lines = splitLines(code);
+  const call = findEditableCallAt(tree, lines, sketchSourceLine);
+  if (!call) {
+    return null;
+  }
+  const body = findSketchBody(call);
+  if (!body) {
+    return null;
+  }
+
+  const bodyChildren = body.namedChildren;
+  const insertRow = body.startPosition.row + 1;
+  let indent: string;
+  if (bodyChildren.length > 0) {
+    indent = indentOf(lines, bodyChildren[0].startPosition.row);
+  } else {
+    indent = indentOf(lines, body.startPosition.row) + '  ';
+  }
+
+  const newLine = `${indent}const ${name} = ${initializer};`;
+  lines.splice(insertRow, 0, newLine);
+  return { newCode: joinLines(lines), linesAdded: 1 };
+}
+
+/**
+ * Run an edit that may be preceded by inserting `const name = init;` at the
+ * top of the sketch body. The edit receives the (possibly-mutated) code and
+ * the number of lines added by the declaration, so it can re-anchor any
+ * sourceLine references inside the body.
+ *
+ * Adopt this wrapper for any new code-edit endpoint that should support
+ * "declare a variable on the same commit."
+ */
+async function withOptionalVariableDeclaration(
+  code: string,
+  sketchSourceLine: number,
+  newVariable: { name: string; initializer: string } | null,
+  edit: (code: string, lineShift: number) => Promise<CodeEditResult>,
+): Promise<CodeEditResult> {
+  if (!newVariable) {
+    return edit(code, 0);
+  }
+  const declared = await declareSketchVariable(
+    code, sketchSourceLine, newVariable.name, newVariable.initializer,
+  );
+  if (!declared) {
+    return { newCode: code };
+  }
+  return edit(declared.newCode, declared.linesAdded);
+}
+
+export function insertGeometryCallWithVariable(
+  code: string,
+  sketchSourceLine: number,
+  statement: string,
+  newVariable: { name: string; initializer: string } | null,
+): Promise<CodeEditResult> {
+  return withOptionalVariableDeclaration(code, sketchSourceLine, newVariable,
+    (c) => insertGeometryCall(c, sketchSourceLine, statement));
+}
+
+export function updateDimensionExpressionWithVariable(
+  code: string,
+  sourceLine: number,
+  expression: string,
+  sketchSourceLine: number,
+  newVariable: { name: string; initializer: string } | null,
+  dimensionOffset = 0,
+): Promise<CodeEditResult> {
+  return withOptionalVariableDeclaration(code, sketchSourceLine, newVariable,
+    (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression, dimensionOffset));
+}
+
+export type VariableInfo = { name: string; initializer?: string };
+
+export async function extractVariablesInScope(
+  code: string,
+  sketchSourceLine: number,
+): Promise<VariableInfo[]> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const lines = splitLines(code);
+  const sketchRow = resolveSourceRow(lines, sketchSourceLine);
+  if (sketchRow < 0) {
+    return [];
+  }
+
+  const variables: VariableInfo[] = [];
+  const seen = new Set<string>();
+
+  function addVar(name: string, initializer?: string) {
+    if (!seen.has(name)) {
+      seen.add(name);
+      variables.push({ name, initializer });
+    }
+  }
+
+  function collectDeclarators(node: TSNode) {
+    for (const child of node.namedChildren) {
+      if (child.type === 'variable_declarator') {
+        const nameNode = child.childForFieldName('name');
+        const valueNode = child.childForFieldName('value');
+        if (nameNode && nameNode.type === 'identifier') {
+          const init = valueNode ? valueNode.text : undefined;
+          addVar(nameNode.text, init);
+        }
+      }
+    }
+  }
+
+  const FLUIDCAD_SOURCES = ['fluidcad', 'fluidcad/core', "'fluidcad'", "'fluidcad/core'", '"fluidcad"', '"fluidcad/core"'];
+
+  for (const node of tree.rootNode.namedChildren) {
+    if (node.startPosition.row > sketchRow) {
+      break;
+    }
+
+    if (node.type === 'import_statement') {
+      const source = node.childForFieldName('source');
+      if (source && FLUIDCAD_SOURCES.some(s => source.text.includes(s.replace(/['"]/g, '')))) {
+        continue;
+      }
+      for (const child of node.namedChildren) {
+        if (child.type === 'import_clause') {
+          for (const spec of child.namedChildren) {
+            if (spec.type === 'import_specifier' || spec.type === 'identifier') {
+              const nameNode = spec.type === 'import_specifier'
+                ? spec.childForFieldName('name') || spec.namedChildren[0]
+                : spec;
+              if (nameNode) {
+                addVar(nameNode.text);
+              }
+            } else if (spec.type === 'named_imports') {
+              for (const imp of spec.namedChildren) {
+                if (imp.type === 'import_specifier') {
+                  const alias = imp.childForFieldName('alias');
+                  const nameN = alias || imp.childForFieldName('name') || imp.namedChildren[0];
+                  if (nameN) {
+                    addVar(nameN.text);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      continue;
+    }
+
+    if (node.type === 'lexical_declaration' || node.type === 'variable_declaration') {
+      collectDeclarators(node);
+      continue;
+    }
+
+    if (node.type === 'export_statement') {
+      for (const child of node.namedChildren) {
+        if (child.type === 'lexical_declaration' || child.type === 'variable_declaration') {
+          collectDeclarators(child);
+        }
+      }
+    }
+  }
+
+  const sketchCall = findEditableCallAt(tree, lines, sketchSourceLine);
+  if (sketchCall) {
+    const body = findSketchBody(sketchCall);
+    if (body) {
+      for (const stmt of body.namedChildren) {
+        if (stmt.type === 'lexical_declaration' || stmt.type === 'variable_declaration') {
+          collectDeclarators(stmt);
+        }
+      }
+    }
+  }
+
+  return variables;
+}
+
+export function setRectDimensions(
+  code: string,
+  sourceLine: number,
+  startPoint: [number, number] | null,
+  width: number,
+  height: number,
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const outerCall = findEditableCallAt(tree, lines, sourceLine);
+    if (!outerCall) {
+      return null;
+    }
+
+    let rectCall: TSNode | null = null;
+    let current: TSNode | null = outerCall;
+    while (current && current.type === 'call_expression') {
+      const fn = current.childForFieldName('function');
+      if (fn) {
+        if (fn.type === 'identifier' && fn.text === 'rect') {
+          rectCall = current;
+          break;
+        }
+        if (fn.type === 'member_expression') {
+          current = fn.childForFieldName('object');
+          continue;
+        }
+      }
+      break;
+    }
+
+    if (!rectCall) {
+      return null;
+    }
+
+    const args = getArgumentsNode(rectCall);
+    if (!args || args.namedChildren.length < 2) {
+      return null;
+    }
+
+    const pointArgs: TSNode[] = [];
+    const numericArgs: TSNode[] = [];
+    for (const child of args.namedChildren) {
+      if (isPointArray(child)) {
+        pointArgs.push(child);
+      } else {
+        numericArgs.push(child);
+      }
+    }
+
+    if (numericArgs.length < 2) {
+      return null;
+    }
+
+    type Edit = { start: number; end: number; text: string };
+    const edits: Edit[] = [];
+
+    edits.push({ start: numericArgs[1].startIndex, end: numericArgs[1].endIndex, text: String(height) });
+    edits.push({ start: numericArgs[0].startIndex, end: numericArgs[0].endIndex, text: String(width) });
+
+    if (startPoint && pointArgs.length > 0) {
+      const pointText = `[${startPoint[0]}, ${startPoint[1]}]`;
+      edits.push({ start: pointArgs[0].startIndex, end: pointArgs[0].endIndex, text: pointText });
+    }
+
+    edits.sort((a, b) => b.start - a.start);
+
+    let result = code;
+    for (const edit of edits) {
+      result = spliceCode(result, edit.start, edit.end, edit.text);
+    }
+
+    return result;
   });
 }

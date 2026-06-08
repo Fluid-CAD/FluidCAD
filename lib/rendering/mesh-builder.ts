@@ -1,28 +1,32 @@
 import { Shape } from "../common/shape.js";
+import { Vertex } from "../common/vertex.js";
 import { Explorer } from "../oc/explorer.js";
 import { renderSolid } from "./render-solid.js";
 import { renderFace } from "./render-face.js";
 import { renderWire } from "./render-wire.js";
 import { renderEdge } from "./render-edge.js";
 import { SceneObjectMesh } from "./scene.js";
+import type { MeshConfig } from "../oc/mesh.js";
 
 export class MeshBuilder {
+  constructor(private readonly meshConfig: MeshConfig) {}
+
   build(shapeObj: Shape) {
     const shape = shapeObj.getShape();
 
     let result: SceneObjectMesh[] | SceneObjectMesh | null = null;
 
     if (Explorer.isSolid(shape)) {
-      result = renderSolid(shapeObj);
+      result = renderSolid(shapeObj, this.meshConfig);
     }
     else if (Explorer.isFace(shape)) {
-      result = renderFace(shapeObj);
+      result = renderFace(shapeObj, 0, this.meshConfig);
     }
     else if (Explorer.isWire(shape)) {
-      result = renderWire(shapeObj);
+      result = renderWire(shapeObj, this.meshConfig);
     }
     else if (Explorer.isEdge(shape)) {
-      result = renderEdge(shapeObj);
+      result = renderEdge(shapeObj, this.meshConfig);
     }
     else if (Explorer.isCompound(shape)) {
       console.warn("Compound shapes are not supported yet.");
@@ -34,7 +38,8 @@ export class MeshBuilder {
       console.warn("Shell shapes are not supported yet.");
     }
     else if (Explorer.isVertex(shape)) {
-      console.warn("Vertex shapes are not supported yet.");
+      const pt = (shapeObj as Vertex).toPoint();
+      result = { vertices: [pt.x, pt.y, pt.z], normals: [], indices: [] };
     }
     else {
       console.warn("Shape is not a valid TopoDS_Shape.");

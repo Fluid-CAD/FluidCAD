@@ -22,4 +22,14 @@ export class CurveConstraintSolver extends ConstraintSolver {
     const solver = new CurveTangentCircleSolver();
     return solver.getTangentArcs(plane, shape1, shape2, radius, mustTouch);
   }
+
+  getTangentArcFromPointTangent(
+    _plane: Plane,
+    _startPoint: Point2D,
+    _startTangent: Point2D,
+    _target: QualifiedShape,
+    _flip: boolean
+  ): { edges: Edge[]; endTangent: Point2D | null } {
+    throw new Error('tArc(target): only line targets are supported');
+  }
 }

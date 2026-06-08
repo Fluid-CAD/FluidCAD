@@ -5,6 +5,7 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { LazySelectionSceneObject } from "./lazy-scene-object.js";
 import { Extrudable } from "../helpers/types.js";
 import { IExtrude } from "../core/interfaces.js";
+import { GeometrySceneObject } from "./2d/geometry.js";
 import { LazyVertex } from "./lazy-vertex.js";
 import { Point2DLike } from "../math/point.js";
 import { Plane } from "../math/plane.js";
@@ -17,6 +18,7 @@ import { ShapeFilter } from "../filters/filter.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Explorer } from "../oc/explorer.js";
+import { type NumberParam, resolveParam } from "../core/param.js";
 import { getOC } from "../oc/init.js";
 import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
@@ -104,6 +106,28 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
 
   getSource(): SceneObject | null {
     return this._extrudable ?? this._faceSource;
+  }
+
+  /**
+   * Dependency tail for cloning: if the source is a sketch-bound geometry
+   * primitive, return its containing `Sketch` so cloneWithTransform pulls
+   * the sketch in too. The sketch's clone-mode build path then carries
+   * correctly-transformed shapes onto cloned children, and the cloned
+   * primitive retains a `Sketch` parent for plane resolution. Otherwise
+   * return the source as-is.
+   */
+  protected getSourceDependencies(): SceneObject[] {
+    const source = this.getSource();
+    if (!source) {
+      return [];
+    }
+    if (source instanceof GeometrySceneObject) {
+      const sketch = source.sketch;
+      if (sketch) {
+        return [sketch];
+      }
+    }
+    return [source];
   }
 
   getSourcePlane(): Plane | null {
@@ -458,13 +482,17 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return new ShapeFilter(shapes, ...filters).apply() as T[];
   }
 
-  draft(value: number | [number, number]): this {
-    this._draft = value;
+  draft(value: NumberParam | [NumberParam, NumberParam]): this {
+    if (Array.isArray(value)) {
+      this._draft = [resolveParam(value[0]), resolveParam(value[1])];
+    } else {
+      this._draft = resolveParam(value);
+    }
     return this;
   }
 
-  endOffset(value: number): this {
-    this._endOffset = value;
+  endOffset(value: NumberParam): this {
+    this._endOffset = resolveParam(value);
     return this;
   }
 
@@ -473,8 +501,9 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     return this;
   }
 
-  thin(offset1: number, offset2?: number): this {
-    this._thin = offset2 !== undefined ? [offset1, offset2] : [offset1];
+  thin(offset1: NumberParam, offset2?: NumberParam): this {
+    const o1 = resolveParam(offset1);
+    this._thin = offset2 !== undefined ? [o1, resolveParam(offset2)] : [o1];
     return this;
   }
 

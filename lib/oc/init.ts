@@ -1,5 +1,5 @@
-import initOpenCascade from "occjs-wrapper/node/multi-threaded"
-import type { OpenCascadeInstance } from "occjs-wrapper/node/multi-threaded";
+import initOpenCascade from "occjs-wrapper"
+import type { OpenCascadeInstance } from "occjs-wrapper";
 
 let oc: OpenCascadeInstance | null = null;
 

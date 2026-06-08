@@ -1,4 +1,4 @@
-import type { TopoDS_Shape, TopoDS_Wire, gp_Dir } from "occjs-wrapper";
+import type { TopoDS_Shape, TopoDS_Wire, gp_Dir, gp_Trsf, BRepBuilderAPI_Transform } from "occjs-wrapper";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Explorer } from "./explorer.js";
@@ -59,7 +59,7 @@ export class SweepOps {
     const spineTangent = SweepOps.getSpineTangent(spineWire.getShape() as TopoDS_Wire);
     const isAntiParallel = profilePlane.normal.dot(spineTangent) < -0.999;
 
-    let trsf: ReturnType<typeof oc.gp_Trsf> | null = null;
+    let trsf: gp_Trsf | null = null;
     let withCorrection = true;
     if (isAntiParallel) {
       const profileCentroid = SweepOps.getFaceCentroid(profileFaces[0].getShape());
@@ -74,7 +74,7 @@ export class SweepOps {
     try {
       for (const face of profileFaces) {
         let workingFace: TopoDS_Shape;
-        let transformer: ReturnType<typeof oc.BRepBuilderAPI_Transform> | null = null;
+        let transformer: BRepBuilderAPI_Transform | null = null;
         if (trsf) {
           transformer = new oc.BRepBuilderAPI_Transform(trsf);
           transformer.Perform(face.getShape(), true);

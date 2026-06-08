@@ -364,8 +364,7 @@ export class Extrude extends ExtrudeBase {
   }
 
   override getDependencies(): SceneObject[] {
-    const source = this.getSource();
-    return source ? [source] : [];
+    return this.getSourceDependencies();
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {

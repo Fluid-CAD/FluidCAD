@@ -1,4 +1,10 @@
 // ---------------------------------------------------------------------------
+// Common types
+// ---------------------------------------------------------------------------
+
+export type SourceLocation = { filePath: string; line: number; column: number };
+
+// ---------------------------------------------------------------------------
 // Vector / Plane data coming from the FluidCAD backend
 // ---------------------------------------------------------------------------
 
@@ -69,6 +75,7 @@ export type EdgeMeshOptions = {
   lineWidth?: number;
   opacity?: number;
   depthWrite?: boolean;
+  transparent?: boolean;
 };
 
 export type MeshRenderOptions = {
@@ -108,7 +115,7 @@ export type SceneObjectPart = {
 export type CompileError = {
   message: string;
   filePath?: string;
-  sourceLocation?: { filePath: string; line: number; column: number };
+  sourceLocation?: SourceLocation;
 };
 
 export type SceneObjectRender = {
@@ -125,9 +132,28 @@ export type SceneObjectRender = {
   fromCache?: boolean;
   hasError?: boolean;
   errorMessage?: string;
-  sourceLocation?: { filePath: string; line: number; column: number };
+  sourceLocation?: SourceLocation;
   buildDurationMs?: number;
   profileCategories?: { category: string; durationMs: number }[];
+};
+
+// ---------------------------------------------------------------------------
+// Parameter definitions for the Parameters panel
+// ---------------------------------------------------------------------------
+
+export type UIParamDefinition = {
+  label: string;
+  defaultValue: string | number | boolean | (string | number)[];
+  currentValue: string | number | boolean | (string | number)[];
+  controlType: 'auto' | 'text' | 'number' | 'slider' | 'select' | 'checkbox' | 'color';
+  description?: string;
+  group?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: { label: string; value: string | number }[];
+  multi?: boolean;
+  multiControlType?: 'select' | 'checkboxes' | 'chips';
 };
 
 // ---------------------------------------------------------------------------

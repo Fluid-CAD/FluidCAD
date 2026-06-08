@@ -9,6 +9,7 @@ import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
 import { IExtrudableGeometry, ISceneObject } from "../interfaces.js";
+import { type NumberParam, resolveParam } from "../param.js";
 
 interface EllipseFunction {
   /**
@@ -16,21 +17,21 @@ interface EllipseFunction {
    * @param rx - Semi-radius along the plane's X axis
    * @param ry - Semi-radius along the plane's Y axis
    */
-  (rx: number, ry: number): IExtrudableGeometry;
+  (rx: NumberParam, ry: NumberParam): IExtrudableGeometry;
   /**
    * Draws an ellipse at a given center.
    * @param center - The center point
    * @param rx - Semi-radius along the plane's X axis
    * @param ry - Semi-radius along the plane's Y axis
    */
-  (center: Point2DLike, rx: number, ry: number): IExtrudableGeometry;
+  (center: Point2DLike, rx: NumberParam, ry: NumberParam): IExtrudableGeometry;
   /**
    * Draws an ellipse on a specific plane.
    * @param targetPlane - The plane to draw on
    * @param rx - Semi-radius along the plane's X axis
    * @param ry - Semi-radius along the plane's Y axis
    */
-  (targetPlane: PlaneLike | ISceneObject, rx: number, ry: number): IExtrudableGeometry;
+  (targetPlane: PlaneLike | ISceneObject, rx: NumberParam, ry: NumberParam): IExtrudableGeometry;
   /**
    * Draws an ellipse at a given center on a specific plane.
    * @param targetPlane - The plane to draw on
@@ -38,7 +39,7 @@ interface EllipseFunction {
    * @param rx - Semi-radius along the plane's X axis
    * @param ry - Semi-radius along the plane's Y axis
    */
-  (targetPlane: PlaneLike | ISceneObject, center: Point2DLike, rx: number, ry: number): IExtrudableGeometry;
+  (targetPlane: PlaneLike | ISceneObject, center: Point2DLike, rx: NumberParam, ry: NumberParam): IExtrudableGeometry;
 }
 
 function toPoint2D(p: Point2DLike): Point2D {
@@ -73,8 +74,8 @@ function build(context: SceneParserContext): EllipseFunction {
     const argCount = arguments.length - argOffset;
 
     if (argCount === 2) {
-      const rx = arguments[argOffset] as number;
-      const ry = arguments[argOffset + 1] as number;
+      const rx = resolveParam(arguments[argOffset] as NumberParam);
+      const ry = resolveParam(arguments[argOffset + 1] as NumberParam);
       const e = new Ellipse(rx, ry, planeObj);
       context.addSceneObject(e);
       return e;
@@ -82,8 +83,8 @@ function build(context: SceneParserContext): EllipseFunction {
 
     if (argCount === 3) {
       const centerArg = arguments[argOffset];
-      const rx = arguments[argOffset + 1] as number;
-      const ry = arguments[argOffset + 2] as number;
+      const rx = resolveParam(arguments[argOffset + 1] as NumberParam);
+      const ry = resolveParam(arguments[argOffset + 2] as NumberParam);
 
       if (planeObj) {
         // Standalone (plane, center, rx, ry): center is plane-local. Move

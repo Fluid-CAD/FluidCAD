@@ -5,6 +5,7 @@ import type { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import type { Matrix4 } from "../math/matrix4.js";
 import type { AxisLike } from "../math/axis.js";
 import type { PlaneLike } from "../math/plane.js";
+import type { NumberParam } from "./param.js";
 
 export interface ISceneObject {
   /**
@@ -20,6 +21,28 @@ export interface ISceneObject {
    * shapes from a reusable object.
    */
   reusable(): this;
+}
+
+export interface ILoadFile extends ISceneObject {
+  /**
+   * Skip applying colors from the imported file's color metadata sidecar.
+   */
+  noColors(): this;
+
+  /**
+   * Keep only the solids at the given 0-based indices (in load order).
+   * Combined with {@link exclude} by applying include first, then exclude.
+   * Repeated calls accumulate.
+   * @param indices - The 0-based solid indices to keep.
+   */
+  include(...indices: number[]): this;
+
+  /**
+   * Drop the solids at the given 0-based indices. Applied after {@link include}.
+   * Repeated calls accumulate.
+   * @param indices - The 0-based solid indices to drop.
+   */
+  exclude(...indices: number[]): this;
 }
 
 export interface IBooleanOperation extends ISceneObject {
@@ -70,15 +93,15 @@ export interface ITransformable extends ISceneObject {
    * Translate along X.
    * @param x - Distance along world X.
    */
-  translate(x: number): this;
+  translate(x: NumberParam): this;
   /**
    * Translate along X and Y.
    */
-  translate(x: number, y: number): this;
+  translate(x: NumberParam, y: NumberParam): this;
   /**
    * Translate along X, Y, and Z.
    */
-  translate(x: number, y: number, z: number): this;
+  translate(x: NumberParam, y: NumberParam, z: NumberParam): this;
   /**
    * Translate by a point-like offset in world space.
    */
@@ -88,13 +111,13 @@ export interface ITransformable extends ISceneObject {
    * Rotate by an angle around world Z through the origin.
    * @param angle - Rotation in degrees.
    */
-  rotate(angle: number): this;
+  rotate(angle: NumberParam): this;
   /**
    * Rotate around an axis by an angle.
    * @param axis - The axis to rotate around. Use `local(...)` to reference a sketch-local axis.
    * @param angle - Rotation in degrees.
    */
-  rotate(axis: AxisLike, angle: number): this;
+  rotate(axis: AxisLike, angle: NumberParam): this;
 
   /**
    * Mirror across a plane.
@@ -154,14 +177,30 @@ export interface IArcPoints extends IExtrudableGeometry {
    * Positive = CCW, negative = CW.
    * @param value - The bulge radius.
    */
-  radius(value: number): this;
+  radius(value: NumberParam): IArcRadius;
 
   /**
    * Specifies the circle center point for the arc.
    * Mutually exclusive with `.radius()`.
    * @param value - The center point of the arc's circle.
    */
-  center(value: Point2DLike): this;
+  center(value: Point2DLike): IArcCenter;
+}
+
+export interface IArcRadius extends IExtrudableGeometry {
+  /**
+   * Switches to the major arc (> 180°).
+   * By default, `.radius()` produces the minor arc (< 180°);
+   * `.major()` switches to the complementary major arc on the same circle.
+   */
+  major(): this;
+}
+
+export interface IArcCenter extends IExtrudableGeometry {
+  /**
+   * Sweeps the arc clockwise from start to end instead of the default counter-clockwise.
+   */
+  cw(): this;
 }
 
 export interface IArcAngles extends IExtrudableGeometry {
@@ -260,7 +299,7 @@ export interface ISlot extends IExtrudableGeometry {
    * Sets the rotation angle of the slot's primary axis.
    * @param angle - Rotation in degrees.
    */
-  rotate(angle: number): this;
+  rotate(angle: NumberParam): this;
 }
 
 export interface IALine extends IGeometry {
@@ -319,6 +358,15 @@ export interface ITwoObjectsTangentLine extends IGeometry {
    * @param index - Solution index when multiple tangent lines exist (defaults to 0).
    */
   end(index?: number): LazyVertex;
+}
+
+export interface ITangentArcToObject extends IGeometry {
+  /**
+   * Flips the arc to the opposite side of the start tangent. By default,
+   * the arc curves to the left of the current tangent direction;
+   * `.flip()` switches it to the right.
+   */
+  flip(): this;
 }
 
 export interface ITangentArcTwoObjects extends IGeometry {
@@ -414,13 +462,13 @@ export interface IExtrude extends IBooleanOperation {
    * Applies a draft (taper) angle to the extrusion walls.
    * @param value - A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft.
    */
-  draft(value: number | [number, number]): this;
+  draft(value: NumberParam | [NumberParam, NumberParam]): this;
 
   /**
    * Offsets the end face by a specified distance along the extrusion direction.
    * @param value - The offset distance.
    */
-  endOffset(value: number): this;
+  endOffset(value: NumberParam): this;
 
   /**
    * Enables or disables drill mode, which partitions the sketch into face regions
@@ -440,7 +488,7 @@ export interface IExtrude extends IBooleanOperation {
    * instead of extruding filled faces. Positive values offset outward, negative values offset inward.
    * @param offset - The wall offset distance. Positive = outward, negative = inward.
    */
-  thin(offset: number): this;
+  thin(offset: NumberParam): this;
 
   /**
    * Enables thin extrude mode with two offset directions.
@@ -449,7 +497,7 @@ export interface IExtrude extends IBooleanOperation {
    * @param offset1 - The first wall offset distance. Positive = outward, negative = inward.
    * @param offset2 - The second wall offset distance, in the opposite direction of offset1.
    */
-  thin(offset1: number, offset2: number): this;
+  thin(offset1: NumberParam, offset2: NumberParam): this;
 }
 
 export interface ICut extends ISceneObject {
@@ -468,13 +516,13 @@ export interface ICut extends ISceneObject {
    * Applies a draft (taper) angle to the cut walls.
    * @param value - A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft.
    */
-  draft(value: number | [number, number]): this;
+  draft(value: NumberParam | [NumberParam, NumberParam]): this;
 
   /**
    * Offsets the cut end face by a specified distance along the cut direction.
    * @param value - The offset distance.
    */
-  endOffset(value: number): this;
+  endOffset(value: NumberParam): this;
 
   /**
    * Selects edges at the start of the cut path, classified by signed distance from the cut plane.
@@ -511,7 +559,7 @@ export interface ICut extends ISceneObject {
    * instead of cutting filled faces. Positive values offset outward, negative values offset inward.
    * @param offset - The wall offset distance. Positive = outward, negative = inward.
    */
-  thin(offset: number): this;
+  thin(offset: NumberParam): this;
 
   /**
    * Enables thin cut mode with two offset directions.
@@ -520,7 +568,7 @@ export interface ICut extends ISceneObject {
    * @param offset1 - The first wall offset distance. Positive = outward, negative = inward.
    * @param offset2 - The second wall offset distance, in the opposite direction of offset1.
    */
-  thin(offset1: number, offset2: number): this;
+  thin(offset1: NumberParam, offset2: NumberParam): this;
 }
 
 export interface IRevolve extends IBooleanOperation {
@@ -540,7 +588,7 @@ export interface IRevolve extends IBooleanOperation {
    * outward, negative values offset inward.
    * @param offset - The wall offset distance. Positive = outward, negative = inward.
    */
-  thin(offset: number): this;
+  thin(offset: NumberParam): this;
 
   /**
    * Enables thin revolve mode with two offset directions.
@@ -549,7 +597,7 @@ export interface IRevolve extends IBooleanOperation {
    * @param offset1 - The first wall offset distance. Positive = outward, negative = inward.
    * @param offset2 - The second wall offset distance, in the opposite direction of offset1.
    */
-  thin(offset1: number, offset2: number): this;
+  thin(offset1: NumberParam, offset2: NumberParam): this;
 
   /**
    * Selects faces created inside the solid during revolution (e.g., the inner
@@ -621,7 +669,7 @@ export interface ILoft extends IBooleanOperation {
    * and share the same topology. Positive values offset outward, negative offsets inward.
    * @param offset - The wall offset distance. Positive = outward, negative = inward.
    */
-  thin(offset: number): this;
+  thin(offset: NumberParam): this;
 
   /**
    * Enables thin loft mode with two offset directions.
@@ -630,7 +678,7 @@ export interface ILoft extends IBooleanOperation {
    * @param offset1 - The first wall offset distance. Positive = outward, negative = inward.
    * @param offset2 - The second wall offset distance, in the opposite direction of offset1.
    */
-  thin(offset1: number, offset2: number): this;
+  thin(offset1: NumberParam, offset2: NumberParam): this;
 
   /**
    * Selects faces created inside the solid during loft (e.g., the inner
@@ -712,13 +760,13 @@ export interface ISweep extends IBooleanOperation {
    * Applies a draft (taper) angle to the sweep walls.
    * @param value - A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft.
    */
-  draft(value: number | [number, number]): this;
+  draft(value: NumberParam | [NumberParam, NumberParam]): this;
 
   /**
    * Offsets the end face by a specified distance along the sweep direction.
    * @param value - The offset distance.
    */
-  endOffset(value: number): this;
+  endOffset(value: NumberParam): this;
 
   /**
    * Enables or disables drill mode.
@@ -738,7 +786,7 @@ export interface ISweep extends IBooleanOperation {
    * negative values offset inward.
    * @param offset - The wall offset distance. Positive = outward, negative = inward.
    */
-  thin(offset: number): this;
+  thin(offset: NumberParam): this;
 
   /**
    * Enables thin sweep mode with two offset directions.
@@ -747,7 +795,7 @@ export interface ISweep extends IBooleanOperation {
    * @param offset1 - The first wall offset distance. Positive = outward, negative = inward.
    * @param offset2 - The second wall offset distance, in the opposite direction of offset1.
    */
-  thin(offset1: number, offset2: number): this;
+  thin(offset1: NumberParam, offset2: NumberParam): this;
 
   /**
    * Selects the cap faces at the open ends of a thin-walled sweep from an open profile.
@@ -805,6 +853,76 @@ export interface IRotate extends ISceneObject {
 
 export interface IDraft extends ISceneObject {}
 
+export interface IRib extends IBooleanOperation {
+  /**
+   * Selects faces at the start (base) of the rib — the profile face at the sketch plane.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  startFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects faces at the end (top) of the rib — where the rib meets the boundary.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  endFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects the lateral wall faces of the rib.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  sideFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects the small cap faces at the spine endpoints.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  capFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the start faces.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  startEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the end faces.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  endEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the side faces, excluding edges shared with start/end faces.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  sideEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the cap faces.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Applies a draft (taper) angle to the rib walls.
+   * @param value - A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft.
+   */
+  draft(value: NumberParam | [NumberParam, NumberParam]): this;
+
+  /**
+   * Switches the extrusion direction to parallel to the sketch plane
+   * (perpendicular to the spine within the plane) instead of normal to it.
+   */
+  parallel(): this;
+
+  /**
+   * Extends the rib's side faces at the spine endpoints outward to blend
+   * with the target solids' walls.
+   */
+  extend(): this;
+}
+
+export type ShellJoinType = 'arc' | 'intersection' | 'tangent';
+
 export interface IShell extends ISceneObject {
   /**
    * Selects the inner wall faces created by the shell operation (from thickness removal).
@@ -818,6 +936,13 @@ export interface IShell extends ISceneObject {
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
   internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Sets the join type used at inner-wall corners.
+   * @param type - `'arc'` (default) for rounded blends, `'intersection'` for sharp corners,
+   *   or `'tangent'` for tangent-continuous blends.
+   */
+  join(type: ShellJoinType): this;
 }
 
 /**

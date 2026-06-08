@@ -36,12 +36,12 @@ describe("copy linear", () => {
 
     render();
 
-    // 2 copies (index 1 and 2), each offset by 50 along X
+    // Original + 2 copies (index 1 and 2), each offset by 50 along X
     const shapes = c.getShapes();
-    expect(shapes).toHaveLength(2);
+    expect(shapes).toHaveLength(3);
 
-    const bbox1 = ShapeOps.getBoundingBox(shapes[0]);
-    const bbox2 = ShapeOps.getBoundingBox(shapes[1]);
+    const bbox1 = ShapeOps.getBoundingBox(shapes[1]);
+    const bbox2 = ShapeOps.getBoundingBox(shapes[2]);
     expect(bbox1.minX).toBeCloseTo(50, 0);
     expect(bbox2.minX).toBeCloseTo(100, 0);
   });
@@ -57,9 +57,9 @@ describe("copy linear", () => {
     render();
 
     const shapes = c.getShapes();
-    expect(shapes).toHaveLength(1);
+    expect(shapes).toHaveLength(2);
 
-    const bbox = ShapeOps.getBoundingBox(shapes[0]);
+    const bbox = ShapeOps.getBoundingBox(shapes[1]);
     expect(bbox.minY).toBeCloseTo(60, 0);
   });
 
@@ -74,9 +74,9 @@ describe("copy linear", () => {
     render();
 
     const shapes = c.getShapes();
-    expect(shapes).toHaveLength(1);
+    expect(shapes).toHaveLength(2);
 
-    const bbox = ShapeOps.getBoundingBox(shapes[0]);
+    const bbox = ShapeOps.getBoundingBox(shapes[1]);
     expect(bbox.minZ).toBeCloseTo(30, 0);
   });
 
@@ -92,9 +92,9 @@ describe("copy linear", () => {
     render();
 
     const shapes = c.getShapes();
-    expect(shapes).toHaveLength(3);
+    expect(shapes).toHaveLength(4);
 
-    const bbox = ShapeOps.getBoundingBox(shapes[0]);
+    const bbox = ShapeOps.getBoundingBox(shapes[1]);
     expect(bbox.minX).toBeCloseTo(40, 0);
   });
 

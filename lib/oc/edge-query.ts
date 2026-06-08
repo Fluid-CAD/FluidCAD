@@ -187,20 +187,14 @@ export class EdgeQuery {
     const oc = getOC();
     const ocEdge = oc.TopoDS.Edge(edge);
     const adaptor = new oc.BRepAdaptor_Curve(ocEdge);
-    const curve = adaptor.Curve().Curve()?.get();
 
-    if (!curve) {
-      adaptor.delete();
-      return false;
-    }
-
-    const firstParam = curve.FirstParameter();
-    const lastParam = curve.LastParameter();
+    const firstParam = adaptor.FirstParameter();
+    const lastParam = adaptor.LastParameter();
     const midParam = (firstParam + lastParam) / 2;
 
     const tangent = new oc.gp_Vec();
     const tempPnt = new oc.gp_Pnt();
-    curve.D1(midParam, tempPnt, tangent);
+    adaptor.D1(midParam, tempPnt, tangent);
 
     const dotProduct = Math.abs(tangent.Dot(planeNormal));
 

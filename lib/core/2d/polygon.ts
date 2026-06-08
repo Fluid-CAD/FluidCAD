@@ -9,6 +9,7 @@ import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
 import { IPolygon, ISceneObject } from "../interfaces.js";
+import { type NumberParam, isNumberParam, resolveParam } from "../param.js";
 
 interface PolygonFunction {
   /**
@@ -17,7 +18,7 @@ interface PolygonFunction {
    * @param diameter - The circumscribed or inscribed diameter
    * @param mode - `'inscribed'` or `'circumscribed'` (defaults to `'inscribed'`)
    */
-  (numberOfSides: number, diameter: number, mode?: PolygonMode): IPolygon;
+  (numberOfSides: NumberParam, diameter: NumberParam, mode?: PolygonMode): IPolygon;
   /**
    * Draws a regular polygon at a given center point.
    * @param center - The center point
@@ -25,14 +26,14 @@ interface PolygonFunction {
    * @param diameter - The circumscribed or inscribed diameter
    * @param mode - `'inscribed'` or `'circumscribed'` (defaults to `'inscribed'`)
    */
-  (center: Point2DLike, numberOfSides: number, diameter: number, mode?: PolygonMode): IPolygon;
+  (center: Point2DLike, numberOfSides: NumberParam, diameter: NumberParam, mode?: PolygonMode): IPolygon;
   /**
    * Draws a regular polygon on a specific plane.
    * @param targetPlane - The plane to draw on
    * @param numberOfSides - The number of sides
    * @param diameter - The circumscribed or inscribed diameter
    */
-  (targetPlane: PlaneLike | ISceneObject, numberOfSides: number, diameter: number): IPolygon;
+  (targetPlane: PlaneLike | ISceneObject, numberOfSides: NumberParam, diameter: NumberParam): IPolygon;
   /**
    * Draws a regular polygon with a given mode on a specific plane.
    * @param targetPlane - The plane to draw on
@@ -40,7 +41,7 @@ interface PolygonFunction {
    * @param diameter - The circumscribed or inscribed diameter
    * @param mode - `'inscribed'` or `'circumscribed'`
    */
-  (targetPlane: PlaneLike | ISceneObject, numberOfSides: number, diameter: number, mode: PolygonMode): IPolygon;
+  (targetPlane: PlaneLike | ISceneObject, numberOfSides: NumberParam, diameter: NumberParam, mode: PolygonMode): IPolygon;
 }
 
 function build(context: SceneParserContext): PolygonFunction {
@@ -70,25 +71,25 @@ function build(context: SceneParserContext): PolygonFunction {
     const argCount = arguments.length - argOffset;
 
     if (argCount === 2) {
-      numberOfSides = arguments[argOffset] as number;
-      diameter = arguments[argOffset + 1] as number;
+      numberOfSides = resolveParam(arguments[argOffset] as NumberParam);
+      diameter = resolveParam(arguments[argOffset + 1] as NumberParam);
       mode = 'inscribed';
 
       poly = new Polygon(numberOfSides, diameter, mode, planeObj);
       context.addSceneObject(poly);
     }
     else if (argCount === 3) {
-      if (typeof arguments[argOffset] === 'number') {
-        numberOfSides = arguments[argOffset] as number;
-        diameter = arguments[argOffset + 1] as number;
+      if (isNumberParam(arguments[argOffset])) {
+        numberOfSides = resolveParam(arguments[argOffset] as NumberParam);
+        diameter = resolveParam(arguments[argOffset + 1] as NumberParam);
         mode = arguments[argOffset + 2] as PolygonMode;
 
         poly = new Polygon(numberOfSides, diameter, mode, planeObj);
         context.addSceneObject(poly);
       } else {
         center = normalizePoint2D(arguments[argOffset]);
-        numberOfSides = arguments[argOffset + 1] as number;
-        diameter = arguments[argOffset + 2] as number;
+        numberOfSides = resolveParam(arguments[argOffset + 1] as NumberParam);
+        diameter = resolveParam(arguments[argOffset + 2] as NumberParam);
         mode = 'inscribed';
 
         poly = new Polygon(numberOfSides, diameter, mode, planeObj);
@@ -97,8 +98,8 @@ function build(context: SceneParserContext): PolygonFunction {
     }
     else if (argCount === 4) {
       center = normalizePoint2D(arguments[argOffset]);
-      numberOfSides = arguments[argOffset + 1] as number;
-      diameter = arguments[argOffset + 2] as number;
+      numberOfSides = resolveParam(arguments[argOffset + 1] as NumberParam);
+      diameter = resolveParam(arguments[argOffset + 2] as NumberParam);
       mode = arguments[argOffset + 3] as PolygonMode;
 
       poly = new Polygon(numberOfSides, diameter, mode, planeObj);

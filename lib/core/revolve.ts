@@ -5,6 +5,7 @@ import { resolveAxis } from "../helpers/resolve.js";
 import { Extrudable } from "../helpers/types.js";
 import { SceneObject } from "../common/scene-object.js";
 import { IRevolve, ISceneObject } from "./interfaces.js";
+import { type NumberParam, isNumberParam, resolveParam } from "./param.js";
 
 interface RevolveFunction {
   /**
@@ -19,7 +20,7 @@ interface RevolveFunction {
    * @param angle - The sweep angle in degrees
    * @param target - The sketch to revolve
    */
-  (axisLike: AxisLike, angle: number, target?: ISceneObject): IRevolve;
+  (axisLike: AxisLike, angle: NumberParam, target?: ISceneObject): IRevolve;
 }
 
 function isExtrudable(obj: any): obj is Extrudable {
@@ -40,8 +41,8 @@ function build(context: SceneParserContext): RevolveFunction {
     // (axis, angle)
     if (params.length === 2) {
       const axis = resolveAxis(params[0], context);
-      if (typeof params[1] === 'number') {
-        return new Revolve(axis, params[1], extrudable);
+      if (isNumberParam(params[1])) {
+        return new Revolve(axis, resolveParam(params[1] as NumberParam), extrudable);
       }
     }
 

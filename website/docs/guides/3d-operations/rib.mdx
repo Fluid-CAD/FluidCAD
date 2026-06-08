@@ -1,0 +1,129 @@
+---
+sidebar_position: 10
+title: "Rib"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import ribBasic from '!!raw-loader!./_examples/rib-basic.js';
+import ribExtend from '!!raw-loader!./_examples/rib-extend.js';
+import ribParallel from '!!raw-loader!./_examples/rib-parallel.js';
+import ribParallelExtend from '!!raw-loader!./_examples/rib-parallel-extend.js';
+import ribScope from '!!raw-loader!./_examples/rib-scope.js';
+import ribCircularBase from '!!raw-loader!./_examples/rib-circular-base.js';
+import ribPattern from '!!raw-loader!./_examples/rib-pattern.js';
+import ribRotatedPlane from '!!raw-loader!./_examples/rib-rotated-plane.js';
+
+# Rib
+
+`rib()` turns a sketch line (the spine) into a thickened wall that grows until it meets the surrounding solids. It's the standard tool for adding stiffening webs inside shelled parts.
+
+<CodeBlock language="js">{ribBasic}</CodeBlock>
+
+![Basic rib](/img/docs/3d-operations/rib-basic.png)
+
+The first argument is the wall thickness. The rib is centered on the spine, extruded perpendicular to the sketch plane, and conformed to fit the surrounding cavity.
+
+## Thickness direction
+
+The sign of the thickness controls which way the rib grows from the sketch plane:
+
+- **Positive** (e.g. `5`): extrudes opposite the sketch normal — typically *into* the cavity when the sketch sits on top of a face
+- **Negative** (e.g. `-5`): extrudes along the sketch normal
+
+## Extending the spine
+
+By default the rib's length matches the sketch wire exactly. Call `.extend()` to push the wall's endpoints outward until they blend into the surrounding walls:
+
+<CodeBlock language="js">{ribExtend}</CodeBlock>
+
+![Rib with .extend()](/img/docs/3d-operations/rib-extend.png)
+
+This is useful when you draw a short spine but want the rib to terminate cleanly against the cavity wall.
+
+## Parallel mode
+
+`.parallel()` flips the extrusion direction from "perpendicular to the sketch plane" to "in-plane, perpendicular to the spine". The sketch line itself becomes one face of the wall.
+
+This is the more natural way to draw ribs that follow a side profile — sketch a slanted line on the front plane, and the rib grows down/sideways to meet the surrounding shell:
+
+<CodeBlock language="js">{ribParallel}</CodeBlock>
+
+![Parallel rib](/img/docs/3d-operations/rib-parallel.png)
+
+Combine `.parallel()` with `.extend()` to make the rib reach into the cavity walls at both ends:
+
+<CodeBlock language="js">{ribParallelExtend}</CodeBlock>
+
+![Parallel rib with extend and draft](/img/docs/3d-operations/rib-parallel-extend.png)
+
+## Draft
+
+Add a taper with `.draft(angle)`. Positive angles narrow the rib toward its tip; negative angles widen it:
+
+```js
+rib(5).draft(2)        // 2° taper, narrowing
+rib(5).draft(-3)       // 3° taper, widening
+```
+
+Only the long wall faces taper — the small cap faces at the spine endpoints stay vertical.
+
+## Scoping the rib
+
+By default a rib finds *all* solids in the scene to fuse with. Use `.scope()` to limit which solids the rib conforms to and fuses with — it works on its own, no need to combine with `.new()`:
+
+```js
+rib(5).scope(target)           // only consider `target` when conforming + fusing
+```
+
+`.new()` keeps the rib as a separate solid instead of fusing. Whenever you use `.new()` you should also pass a `.scope(...)` so the rib still has a target cavity to conform to:
+
+<CodeBlock language="js">{ribScope}</CodeBlock>
+
+![Rib scoped to a different solid](/img/docs/3d-operations/rib-scope.png)
+
+Here the rib is attached to a tapered cylinder rather than the outer box — the scope tells the rib which walls to conform to.
+
+## Curved enclosures
+
+The rib conforms to whatever cavity surrounds it, so it works inside curved or circular shells just as well as rectangular ones:
+
+<CodeBlock language="js">{ribCircularBase}</CodeBlock>
+
+![Rib inside a circular cavity](/img/docs/3d-operations/rib-circular-base.png)
+
+## Patterning ribs
+
+Capture the rib in a variable and pass it to `repeat()` to pattern it around an axis:
+
+<CodeBlock language="js">{ribPattern}</CodeBlock>
+
+![Circular pattern of ribs](/img/docs/3d-operations/rib-pattern.png)
+
+The sketch plane can be tilted too — pair a rotated `plane()` with a circular pattern to fan ribs out at an angle:
+
+<CodeBlock language="js">{ribRotatedPlane}</CodeBlock>
+
+![Pattern of ribs on a rotated plane](/img/docs/3d-operations/rib-rotated-plane.png)
+
+## Accessing geometry
+
+```js
+const r = rib(5).extend()
+
+r.startFaces()     // profile face at the sketch plane
+r.endFaces()       // face where the rib meets the cavity wall
+r.sideFaces()      // long wall faces of the rib
+r.capFaces()       // small cap faces at the spine endpoints
+r.startEdges()     // edges on the start faces
+r.endEdges()       // edges on the end faces
+r.sideEdges()      // edges along the side walls
+r.capEdges()       // edges on the cap faces
+```
+
+## Fusion scope
+
+```js
+rib(5).add()                  // fuse with all touching solids (default)
+rib(5).scope(target)          // limit conform + fuse to `target`
+rib(5).new().scope(target)    // keep as separate solid, conform to `target`
+```

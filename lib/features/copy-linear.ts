@@ -2,14 +2,15 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Axis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { ShapeOps } from "../oc/shape-ops.js";
+import { type NumberParam, resolveParam } from "../core/param.js";
 
 export type LinearCopyOptions = {
-  count: number | number[];
+  count: NumberParam | number[];
   centered?: boolean;
   skip?: number[][]
 } & (
-    | { offset: number | number[]; length?: never }
-    | { length: number | number[]; offset?: never }
+    | { offset: NumberParam | number[]; length?: never }
+    | { length: NumberParam | number[]; offset?: never }
 );
 
 export class CopyLinear extends SceneObject {
@@ -28,18 +29,26 @@ export class CopyLinear extends SceneObject {
       objects = context.getActiveSceneObjects();
     }
 
-    const { count, centered, skip } = this.options;
+    const originalShapes = objects.flatMap(obj => obj.getShapes());
+    for (const obj of objects) {
+      obj.removeShapes(this);
+    }
+    for (const shape of originalShapes) {
+      this.addShape(shape);
+    }
 
-    const counts = Array.isArray(count)
-      ? count
-      : this.axes.map(() => count);
+    const { centered, skip } = this.options;
+
+    const counts = Array.isArray(this.options.count)
+      ? this.options.count
+      : this.axes.map(() => resolveParam(this.options.count as NumberParam));
 
     const offsets = 'offset' in this.options && this.options.offset !== undefined
-      ? (Array.isArray(this.options.offset) ? this.options.offset : this.axes.map(() => this.options.offset as number))
+      ? (Array.isArray(this.options.offset) ? this.options.offset : this.axes.map(() => resolveParam(this.options.offset as NumberParam)))
       : null;
 
     const lengths = 'length' in this.options && this.options.length !== undefined
-      ? (Array.isArray(this.options.length) ? this.options.length : this.axes.map(() => this.options.length as number))
+      ? (Array.isArray(this.options.length) ? this.options.length : this.axes.map(() => resolveParam(this.options.length as NumberParam)))
       : null;
 
     const axisOffsets = this.axes.map((_, a) => {
@@ -80,12 +89,10 @@ export class CopyLinear extends SceneObject {
         matrix = matrix.multiply(Matrix4.fromTranslationVector(translation));
       }
 
-      for (const obj of objects) {
-        for (const shape of obj.getShapes()) {
-          const transformed = ShapeOps.transform(shape, matrix);
-          transformed.setMeshSource(shape, matrix);
-          this.addShape(transformed);
-        }
+      for (const shape of originalShapes) {
+        const transformed = ShapeOps.transform(shape, matrix);
+        transformed.setMeshSource(shape, matrix);
+        this.addShape(transformed);
       }
     }
   }

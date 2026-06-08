@@ -8,6 +8,7 @@ import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { resolvePlane } from "../../helpers/resolve.js";
 import { IVLine, ISceneObject } from "../interfaces.js";
+import { type NumberParam, isNumberParam, resolveParam } from "../param.js";
 
 interface VLineFunction {
   /**
@@ -15,7 +16,7 @@ interface VLineFunction {
    * Chain `.centered()` to center the line on the current position.
    * @param distance - The line length
    */
-  (distance: number): IVLine;
+  (distance: NumberParam): IVLine;
   /**
    * Draws a vertical line that ends where it intersects the target geometry.
    * The nearest intersection (in either direction along the Y axis) is used.
@@ -28,7 +29,7 @@ interface VLineFunction {
    * @param start - The start point
    * @param distance - The line length
    */
-  (start: Point2DLike, distance: number): IVLine;
+  (start: Point2DLike, distance: NumberParam): IVLine;
   /**
    * Draws a vertical line from a start point that ends where it intersects
    * the target geometry. The nearest intersection (in either direction along
@@ -42,7 +43,7 @@ interface VLineFunction {
    * @param targetPlane - The plane to draw on
    * @param distance - The line length
    */
-  (targetPlane: PlaneLike | ISceneObject, distance: number): IVLine;
+  (targetPlane: PlaneLike | ISceneObject, distance: NumberParam): IVLine;
 }
 
 function build(context: SceneParserContext): VLineFunction {
@@ -72,19 +73,20 @@ function build(context: SceneParserContext): VLineFunction {
       return vline;
     }
 
-    if (argOffset === 0 && typeof arguments[0] !== 'number') {
+    if (argOffset === 0 && !isNumberParam(arguments[0])) {
       // vLine(start, distance) or vLine(start, target)
       const start = normalizePoint2D(arguments[0]);
       const second = arguments[1];
       const distanceOrTarget: number | SceneObject = second instanceof SceneObject
         ? second
-        : (second as number);
+        : resolveParam(second as NumberParam);
       const vline = new VerticalLine(distanceOrTarget, planeObj);
+      vline.setHasExplicitStart();
       context.addSceneObjects([new Move(start), vline]);
       return vline;
     }
 
-    const distance: number = arguments[argOffset];
+    const distance: number = resolveParam(arguments[argOffset] as NumberParam);
 
     const vline = new VerticalLine(distance, planeObj);
     context.addSceneObject(vline);

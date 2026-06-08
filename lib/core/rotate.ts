@@ -7,6 +7,7 @@ import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisObject } from "../features/axis.js";
 import { Rotate2D } from "../features/rotate2d.js";
 import { IRotate, ISceneObject } from "./interfaces.js";
+import { type NumberParam, type BooleanParam, isBooleanParam, resolveParam } from "./param.js";
 
 interface RotateFunction {
   /**
@@ -14,14 +15,14 @@ interface RotateFunction {
    * @param angle - The rotation angle in degrees
    * @param targets - The geometries to rotate (defaults to last object)
    */
-  (angle: number, ...targets: ISceneObject[]): IRotate;
+  (angle: NumberParam, ...targets: ISceneObject[]): IRotate;
   /**
    * [2D] Rotates geometry by an angle inside a sketch, optionally making a copy.
    * @param angle - The rotation angle in degrees
    * @param copy - Whether to copy instead of move
    * @param targets - The geometries to rotate (defaults to last object)
    */
-  (angle: number, copy: boolean, ...targets: ISceneObject[]): IRotate;
+  (angle: NumberParam, copy: BooleanParam, ...targets: ISceneObject[]): IRotate;
 
   /**
    * [3D] Rotates objects around an axis by an angle.
@@ -29,7 +30,7 @@ interface RotateFunction {
    * @param angle - The rotation angle in degrees
    * @param targets - The objects to rotate (defaults to last object)
    */
-  (axis: AxisLike, angle: number, ...targets: ISceneObject[]): IRotate;
+  (axis: AxisLike, angle: NumberParam, ...targets: ISceneObject[]): IRotate;
   /**
    * [3D] Rotates objects around an axis by an angle, optionally making a copy.
    * @param axis - The axis to rotate around
@@ -37,7 +38,7 @@ interface RotateFunction {
    * @param copy - Whether to copy instead of move
    * @param targets - The objects to rotate (defaults to last object)
    */
-  (axis: AxisLike, angle: number, copy: boolean, ...targets: ISceneObject[]): IRotate;
+  (axis: AxisLike, angle: NumberParam, copy: BooleanParam, ...targets: ISceneObject[]): IRotate;
 }
 
 function build(context: SceneParserContext): RotateFunction {
@@ -52,14 +53,14 @@ function build(context: SceneParserContext): RotateFunction {
     }
 
     // Extract copy flag from the end (if boolean)
-    const copy = typeof args[args.length - 1] === 'boolean' ? args.pop() as boolean : false;
+    const copy = isBooleanParam(args[args.length - 1]) ? resolveParam(args.pop() as BooleanParam) : false;
 
     // 2D: rotate(angle, copy?, ...targets)
     if (args.length === 1) {
       if (!activeSketch) {
         throw new Error("rotate(angle) is only valid inside a sketch. For 3D rotation, specify an axis: rotate(axis, angle).");
       }
-      const angle = args[0] as number;
+      const angle = resolveParam(args[0] as NumberParam);
       const rotate = new Rotate2D(angle, copy, ...targets);
       context.addSceneObject(rotate);
       return rotate;
@@ -80,7 +81,7 @@ function build(context: SceneParserContext): RotateFunction {
         context.addSceneObject(axis);
       }
 
-      const angle = args[1] as number;
+      const angle = resolveParam(args[1] as NumberParam);
       const rotate = new Rotate(axis, angle, copy, ...targets);
       context.addSceneObject(rotate);
       return rotate;

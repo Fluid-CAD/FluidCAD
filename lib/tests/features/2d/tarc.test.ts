@@ -280,4 +280,185 @@ describe("tArc", () => {
       render();
     });
   });
+
+  describe("tangent arc from current position to target line (target)", () => {
+    it("should create a tangent arc from a horizontal line ending tangent to a vertical line", () => {
+      const s = sketch("xy", () => {
+        const v = vLine([200, 200], 100).guide();
+        move([0, 0]);
+        hLine(100);
+        tArc(v);
+      }) as Sketch;
+      render();
+
+      const shapes = s.getShapes();
+      // hLine + tArc (guide excluded) = at least 2 edges
+      expect(shapes.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("should accept a qualified line target", () => {
+      const s = sketch("xy", () => {
+        const v = vLine([200, 200], 100).guide();
+        move([0, 0]);
+        hLine(100);
+        tArc(outside(v));
+      }) as Sketch;
+      render();
+
+      const shapes = s.getShapes();
+      expect(shapes.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("should allow chaining geometry after the solved arc", () => {
+      const s = sketch("xy", () => {
+        const v = vLine([200, 200], 100).guide();
+        move([0, 0]);
+        hLine(100);
+        tArc(v);
+        vLine(40);
+      }) as Sketch;
+      render();
+
+      const shapes = s.getShapes();
+      // chain continues — hLine + tArc + vLine
+      expect(shapes.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it("default arc curves to the left of the start tangent", () => {
+      const s = sketch("xy", () => {
+        const h = hLine([-150, 100], 300).guide();
+        move([0, 0]);
+        vLine(80);
+        tArc(h);
+      }) as Sketch;
+      render();
+
+      const arcs = getEdgesByType(s.getShapes(), "arc");
+      expect(arcs.length).toBe(1);
+      // start tangent is +Y; "left" of +Y is -X. End vertex sits at negative x.
+      const endX = arcs[0].getLastVertex().toPoint().x;
+      expect(endX).toBeLessThan(0);
+    });
+
+    it(".flip() reverses the curve to the right of the start tangent", () => {
+      const s = sketch("xy", () => {
+        const h = hLine([-150, 100], 300).guide();
+        move([0, 0]);
+        vLine(80);
+        tArc(h).flip();
+      }) as Sketch;
+      render();
+
+      const arcs = getEdgesByType(s.getShapes(), "arc");
+      expect(arcs.length).toBe(1);
+      const endX = arcs[0].getLastVertex().toPoint().x;
+      expect(endX).toBeGreaterThan(0);
+    });
+
+    it("should reject circle targets", () => {
+      const s = sketch("xy", () => {
+        const c = circle([200, 80], 30).guide();
+        move([0, 0]);
+        hLine(100);
+        tArc(c);
+      }) as Sketch;
+      render();
+
+      const children = s.getChildren();
+      const arc = children[children.length - 1];
+      expect(arc.getError()).toMatch(/only line targets are supported/);
+    });
+  });
+
+  describe("tangent arc with radius ending at intersection (radius, target)", () => {
+    it("should end at the intersection with a line target", () => {
+      const s = sketch("xy", () => {
+        const h = hLine([-200, 100], 400).guide();
+        move([0, 0]);
+        vLine(50);
+        tArc(60, h);
+      }) as Sketch;
+      render();
+
+      const arcs = getEdgesByType(s.getShapes(), "arc");
+      expect(arcs.length).toBe(1);
+      // End vertex must lie on the target line y = 100.
+      const endY = arcs[0].getLastVertex().toPoint().y;
+      expect(endY).toBeCloseTo(100, 6);
+    });
+
+    it("should end at the intersection with a circle target", () => {
+      const s = sketch("xy", () => {
+        // circle(diameter); 80 diameter = 40 radius
+        const c = circle([80, 0], 80).guide();
+        move([0, 0]);
+        hLine(40);
+        tArc(50, c);
+      }) as Sketch;
+      render();
+
+      const arcs = getEdgesByType(s.getShapes(), "arc");
+      expect(arcs.length).toBe(1);
+      // End vertex must lie on the target circle (radius 40 from (80, 0)).
+      const end = arcs[0].getLastVertex().toPoint();
+      const dist = Math.hypot(end.x - 80, end.y - 0);
+      expect(dist).toBeCloseTo(40, 6);
+    });
+
+    it("negative radius flips the sweep direction", () => {
+      // Same line, same start, same tangent — only the sign of the radius
+      // differs. Positive radius (CCW) curves to the left of the tangent;
+      // negative radius (CW) curves to the right.
+      const sCCW = sketch("xy", () => {
+        const h = hLine([-200, 100], 400).guide();
+        move([0, 0]);
+        vLine(50);
+        tArc(60, h);
+      }) as Sketch;
+      render();
+
+      const sCW = sketch("xy", () => {
+        const h = hLine([-200, 100], 400).guide();
+        move([0, 0]);
+        vLine(50);
+        tArc(-60, h);
+      }) as Sketch;
+      render();
+
+      const ccwArc = getEdgesByType(sCCW.getShapes(), "arc")[0];
+      const cwArc = getEdgesByType(sCW.getShapes(), "arc")[0];
+
+      // T̂ = (0, +1); "left" of the tangent is −x, "right" is +x.
+      expect(ccwArc.getLastVertex().toPoint().x).toBeLessThan(0);
+      expect(cwArc.getLastVertex().toPoint().x).toBeGreaterThan(0);
+    });
+
+    it("should chain geometry after the solved arc", () => {
+      const s = sketch("xy", () => {
+        const h = hLine([-200, 100], 400).guide();
+        move([0, 0]);
+        vLine(50);
+        tArc(60, h);
+        hLine(40);
+      }) as Sketch;
+      render();
+
+      const shapes = s.getShapes();
+      expect(shapes.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it("should record an error when there is no intersection", () => {
+      const s = sketch("xy", () => {
+        const h = hLine([-200, 500], 400).guide();
+        move([0, 0]);
+        vLine(10);
+        tArc(20, h);
+      }) as Sketch;
+      render();
+
+      const children = s.getChildren();
+      const arc = children[children.length - 1];
+      expect(arc.getError()).toMatch(/does not intersect target/);
+    });
+  });
 });

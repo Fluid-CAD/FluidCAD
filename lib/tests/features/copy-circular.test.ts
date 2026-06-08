@@ -39,7 +39,7 @@ describe("copy circular", () => {
     render();
 
     const shapes = c.getShapes();
-    expect(shapes).toHaveLength(2);
+    expect(shapes).toHaveLength(3);
   });
 
   it("should skip specified indices", () => {

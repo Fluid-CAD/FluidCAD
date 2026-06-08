@@ -48,4 +48,15 @@ export abstract class ConstraintSolver implements TangentLineSolver, TangentCirc
     edges: Edge[];
     endTangent: Point2D
   };
+
+  abstract getTangentArcFromPointTangent(
+    plane: Plane,
+    startPoint: Point2D,
+    startTangent: Point2D,
+    target: QualifiedShape,
+    flip: boolean
+  ): {
+    edges: Edge[];
+    endTangent: Point2D | null;
+  };
 }

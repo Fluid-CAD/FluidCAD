@@ -50,6 +50,9 @@ const execArgv = isTs
 findFreePort(3100).then((port) => {
 
 const server = fork(serverEntry, [], {
+  // Anchor cwd so Windows can resolve the child across drives; server reads
+  // config from env, not cwd.
+  cwd: path.dirname(serverEntry),
   env: {
     ...process.env,
     FLUIDCAD_SERVER_PORT: String(port),

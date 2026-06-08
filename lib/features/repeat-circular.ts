@@ -1,18 +1,21 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
-import { Axis } from "../math/axis.js";
+import { AxisObjectBase } from "./axis-renderable-base.js";
+import { RepeatBase, RepeatAxisSource } from "./repeat-base.js";
+
+import { type NumberParam } from "../core/param.js";
 
 export type CircularRepeatOptions = {
-  count: number;
+  count: NumberParam;
   centered?: boolean;
   skip?: number[];
 } & (
-    | { offset: number; angle?: never }
-    | { angle: number; offset?: never }
+    | { offset: NumberParam; angle?: never }
+    | { angle: NumberParam; offset?: never }
 );
 
-export class RepeatCircular extends SceneObject {
+export class RepeatCircular extends RepeatBase {
   constructor(
-    public axis: Axis,
+    public axis: RepeatAxisSource,
     public options: CircularRepeatOptions,
     public targetObjects: SceneObject[] | null = null
     ) {
@@ -25,6 +28,9 @@ export class RepeatCircular extends SceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
+    if (this.axis instanceof AxisObjectBase) {
+      this.axis.removeShapes(this);
+    }
     this.saveShapesSnapshot(context);
   }
 
@@ -37,7 +43,7 @@ export class RepeatCircular extends SceneObject {
       return false;
     }
 
-    if (!this.axis.equals(other.axis)) {
+    if (!RepeatCircular.axisSourceEquals(this.axis, other.axis)) {
       return false;
     }
 

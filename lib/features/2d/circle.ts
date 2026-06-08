@@ -1,4 +1,5 @@
 import { Geometry } from "../../oc/geometry.js";
+import { Vertex } from "../../common/vertex.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
@@ -28,6 +29,9 @@ export class Circle extends ExtrudableGeometryBase {
     let edge = Geometry.makeEdgeFromCircle(circle);
 
     this.addShape(edge);
+    const centerVertex = Vertex.fromPoint2D(center);
+    centerVertex.markAsMetaShape();
+    this.addShape(centerVertex);
     if (this.sketch) {
       this.setCurrentPosition(center);
     }

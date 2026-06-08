@@ -5,6 +5,7 @@ import { ShapeOps } from "../oc/shape-ops.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
 import { LinearCopyOptions } from "./copy-linear.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
+import { type NumberParam, resolveParam } from "../core/param.js";
 
 export type CopyLinear2DAxis = Axis | AxisObjectBase;
 
@@ -27,22 +28,30 @@ export class CopyLinear2D extends GeometrySceneObject {
       objects = allSiblings;
     }
 
+    const originalShapes = objects.flatMap(obj => obj.getShapes());
+    for (const obj of objects) {
+      obj.removeShapes(this);
+    }
+    for (const shape of originalShapes) {
+      this.addShape(shape);
+    }
+
     const resolvedAxes: Axis[] = this.axes.map(a =>
       a instanceof AxisObjectBase ? a.getAxis() : a
     );
 
-    const { count, centered, skip } = this.options;
+    const { centered, skip } = this.options;
 
-    const counts = Array.isArray(count)
-      ? count
-      : resolvedAxes.map(() => count);
+    const counts = Array.isArray(this.options.count)
+      ? this.options.count
+      : resolvedAxes.map(() => resolveParam(this.options.count as NumberParam));
 
     const offsets = 'offset' in this.options && this.options.offset !== undefined
-      ? (Array.isArray(this.options.offset) ? this.options.offset : resolvedAxes.map(() => this.options.offset as number))
+      ? (Array.isArray(this.options.offset) ? this.options.offset : resolvedAxes.map(() => resolveParam(this.options.offset as NumberParam)))
       : null;
 
     const lengths = 'length' in this.options && this.options.length !== undefined
-      ? (Array.isArray(this.options.length) ? this.options.length : resolvedAxes.map(() => this.options.length as number))
+      ? (Array.isArray(this.options.length) ? this.options.length : resolvedAxes.map(() => resolveParam(this.options.length as NumberParam)))
       : null;
 
     const axisOffsets = resolvedAxes.map((_, a) => {
@@ -83,12 +92,10 @@ export class CopyLinear2D extends GeometrySceneObject {
         matrix = matrix.multiply(Matrix4.fromTranslationVector(translation));
       }
 
-      for (const obj of objects) {
-        for (const shape of obj.getShapes()) {
-          const transformed = ShapeOps.transform(shape, matrix);
-          transformed.setMeshSource(shape, matrix);
-          this.addShape(transformed);
-        }
+      for (const shape of originalShapes) {
+        const transformed = ShapeOps.transform(shape, matrix);
+        transformed.setMeshSource(shape, matrix);
+        this.addShape(transformed);
       }
     }
   }

@@ -3,19 +3,20 @@ import { SceneObject } from "../common/scene-object.js";
 import { SelectSceneObject } from "../features/select.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { ISceneObject, IShell } from "./interfaces.js";
+import { type NumberParam, isNumberParam, resolveParam } from "./param.js";
 
 interface ShellFunction {
   /**
    * Hollows out a solid with the given wall thickness.
    * @param thickness - The wall thickness (defaults to 2.5)
    */
-  (thickness?: number): IShell;
+  (thickness?: NumberParam): IShell;
   /**
    * Hollows out a solid, removing the selected faces.
    * @param thickness - The wall thickness
    * @param selections - The face selections to remove
    */
-  (thickness: number, ...selections: ISceneObject[]): IShell;
+  (thickness: NumberParam, ...selections: ISceneObject[]): IShell;
 }
 
 function build(context: SceneParserContext): ShellFunction {
@@ -34,8 +35,8 @@ function build(context: SceneParserContext): ShellFunction {
       }
     }
 
-    const thickness = (args.length >= 1 && typeof args[0] === 'number')
-      ? args[0] as number
+    const thickness = (args.length >= 1 && isNumberParam(args[0]))
+      ? resolveParam(args[0] as NumberParam)
       : 2.5;
 
     for (const sel of selections) {

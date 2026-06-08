@@ -2,7 +2,7 @@ export type {
   ISceneObject, ITransformable, IBooleanOperation, IPlane, IAxis, ISelect,
   IGeometry, IExtrudableGeometry, IRect, ISlot, IPolygon,
   ITwoObjectsTangentLine, ITangentArcTwoObjects,
-  IExtrude, ICut, ICommon, ISweep, ILoft, IRevolve, IDraft, IHelix
+  IExtrude, ICut, ICommon, ISweep, ILoft, IRevolve, IDraft, IRib, IHelix
 } from "./interfaces.js";
 export { default as axis } from "./axis.js";
 export { default as local } from "./local.js";
@@ -28,6 +28,7 @@ export { default as repeat } from "./repeat.js";
 export { default as load } from "./load.js";
 export { default as loft } from "./loft.js";
 export { default as sweep } from "./sweep.js";
+export { default as rib } from "./rib.js";
 export { default as helix } from "./helix.js";
 export { default as color } from "./color.js";
 export { default as draft } from "./draft.js";
@@ -37,3 +38,4 @@ export { default as trim } from "./trim.js";
 export { default as part } from "./part.js";
 export * from "./2d/index.js";
 export { breakpoint } from "./breakpoint.js";
+export { default as param, type ParamType, type ParamOptionsMap, type NumberParamOptions, type SliderParamOptions, type SelectParamOptions, type CheckboxParamOptions, type TextParamOptions, type NumberParam, type StringParam, type BooleanParam, type ParamValue, resolveParam, isNumberParam, isBooleanParam } from "./param.js";

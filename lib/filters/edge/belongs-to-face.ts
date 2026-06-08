@@ -1,4 +1,4 @@
-import type { TopoDS_Shape } from "occjs-wrapper";
+import type { TopoDS_Shape } from "fluidcad-ocjs";
 import { Matrix4 } from "../../math/matrix4.js";
 import { Edge, Face } from "../../common/shapes.js";
 import { Solid } from "../../common/solid.js";

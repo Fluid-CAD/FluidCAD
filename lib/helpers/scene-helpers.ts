@@ -10,7 +10,7 @@ import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { getOC } from "../oc/init.js";
 import { ColorTransfer } from "../oc/color-transfer.js";
-import type { TopAbs_ShapeEnum } from "occjs-wrapper";
+import type { TopAbs_ShapeEnum } from "fluidcad-ocjs";
 import { Profiler } from "../common/profiler.js";
 
 export function fuseWithSceneObjects(

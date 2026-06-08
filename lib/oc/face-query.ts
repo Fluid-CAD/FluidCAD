@@ -1,4 +1,4 @@
-import type { gp_Pln, gp_Cylinder, gp_Cone, TopAbs_ShapeEnum, TopoDS_Shape } from "occjs-wrapper";
+import type { gp_Pln, gp_Cylinder, gp_Cone, TopAbs_ShapeEnum, TopoDS_Shape } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { FaceOps } from "./face-ops.js";

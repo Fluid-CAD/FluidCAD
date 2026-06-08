@@ -1,4 +1,4 @@
-import type { TopoDS_Shape, TopoDS_Wire, gp_Dir, gp_Trsf, BRepBuilderAPI_Transform } from "occjs-wrapper";
+import type { TopoDS_Shape, TopoDS_Wire, gp_Dir, gp_Trsf, BRepBuilderAPI_Transform } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Explorer } from "./explorer.js";

@@ -1,4 +1,4 @@
-import type { GccEnt_Position, Geom_Curve, gp_Circ, gp_Circ2d, gp_Lin, gp_Lin2d, gp_Pln, gp_Pnt, gp_Pnt2d } from "occjs-wrapper";
+import type { GccEnt_Position, Geom_Curve, gp_Circ, gp_Circ2d, gp_Lin, gp_Lin2d, gp_Pln, gp_Pnt, gp_Pnt2d } from "fluidcad-ocjs";
 import { getOC } from "../init.js";
 import { ConstraintQualifier } from "../../features/2d/constraints/qualified-geometry.js";
 import { Point2D } from "../../math/point.js";

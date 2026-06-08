@@ -1,4 +1,4 @@
-import type { gp_Pln, TopoDS_Edge, TopoDS_Wire } from "occjs-wrapper";
+import type { gp_Pln, TopoDS_Edge, TopoDS_Wire } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Shape } from "../common/shape.js";

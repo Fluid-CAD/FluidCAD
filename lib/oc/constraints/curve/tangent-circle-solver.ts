@@ -1,4 +1,4 @@
-import { Geom2dGcc_Circ2d2TanRad, gp_Pnt2d } from "occjs-wrapper";
+import { Geom2dGcc_Circ2d2TanRad, gp_Pnt2d } from "fluidcad-ocjs";
 import { Edge } from "../../../common/edge.js";
 import { Shape } from "../../../common/shape.js";
 import { Vertex } from "../../../common/vertex.js";

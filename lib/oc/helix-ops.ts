@@ -1,4 +1,4 @@
-import type { TopoDS_Edge } from "occjs-wrapper";
+import type { TopoDS_Edge } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Edge } from "../common/edge.js";

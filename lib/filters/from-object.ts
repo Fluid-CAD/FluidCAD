@@ -1,4 +1,4 @@
-import type { TopTools_MapOfShape } from "occjs-wrapper";
+import type { TopTools_MapOfShape } from "fluidcad-ocjs";
 import { Matrix4 } from "../math/matrix4.js";
 import { Shape } from "../common/shapes.js";
 import { ShapeType } from "../common/shape-type.js";

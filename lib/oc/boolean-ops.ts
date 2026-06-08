@@ -1,4 +1,4 @@
-import type { BRepAlgoAPI_Cut, TopoDS_Face, TopoDS_Shape, TopoDS_Wire } from "occjs-wrapper";
+import type { BRepAlgoAPI_Cut, TopoDS_Face, TopoDS_Shape, TopoDS_Wire } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { ShapeOps } from "./shape-ops.js";

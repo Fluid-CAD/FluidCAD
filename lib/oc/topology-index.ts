@@ -2,7 +2,7 @@ import type {
   TopoDS_Shape,
   TopTools_IndexedDataMapOfShapeListOfShape,
   TopTools_MapOfShape,
-} from "occjs-wrapper";
+} from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 
 export class TopologyIndex {

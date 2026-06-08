@@ -8,7 +8,7 @@ import { EdgeOps } from "./edge-ops.js";
 import { Explorer } from "./explorer.js";
 import { Convert } from "./convert.js";
 import { getOC } from "./init.js";
-import type { TopAbs_ShapeEnum, TopoDS_Wire } from "occjs-wrapper";
+import type { TopAbs_ShapeEnum, TopoDS_Wire } from "fluidcad-ocjs";
 
 export interface ThinFaceResult {
   faces: Face[];

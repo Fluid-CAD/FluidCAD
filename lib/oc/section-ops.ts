@@ -1,4 +1,4 @@
-import type { TopAbs_ShapeEnum } from "occjs-wrapper";
+import type { TopAbs_ShapeEnum } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Explorer } from "./explorer.js";

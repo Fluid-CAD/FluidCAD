@@ -1,4 +1,4 @@
-import type { TopoDS_Edge, TopoDS_Vertex } from "occjs-wrapper";
+import type { TopoDS_Edge, TopoDS_Vertex } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Axis } from "../math/axis.js";

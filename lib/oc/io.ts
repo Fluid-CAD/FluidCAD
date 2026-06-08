@@ -1,4 +1,4 @@
-import type { TDocStd_Document, TopoDS_Shape } from "occjs-wrapper";
+import type { TDocStd_Document, TopoDS_Shape } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { ShapeHasher } from "./shape-hash.js";
 import { Explorer } from "./explorer.js";

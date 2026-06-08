@@ -1,4 +1,4 @@
-import type { Geom_BezierCurve, Geom_Circle, Geom_TrimmedCurve, TopoDS_Edge } from "occjs-wrapper";
+import type { Geom_BezierCurve, Geom_Circle, Geom_TrimmedCurve, TopoDS_Edge } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Point, Point2D } from "../math/point.js";

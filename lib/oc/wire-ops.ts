@@ -1,4 +1,4 @@
-import type { TopoDS_Edge, TopoDS_Wire, TopAbs_ShapeEnum, TopoDS_Vertex, TopoDS_Face } from "occjs-wrapper";
+import type { TopoDS_Edge, TopoDS_Wire, TopAbs_ShapeEnum, TopoDS_Vertex, TopoDS_Face } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Wire } from "../common/wire.js";

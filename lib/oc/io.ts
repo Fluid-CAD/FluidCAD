@@ -105,7 +105,7 @@ export class OcIO {
     const oc = getOC();
 
     const uint8 = new Uint8Array(data);
-    oc.FS.createDataFile("/", fileName, uint8, true, true, true);
+    oc.FS.writeFile("/" + fileName, uint8);
 
     const reader = new oc.STEPControl_Reader();
     const readResult = reader.ReadFile(fileName);
@@ -131,7 +131,7 @@ export class OcIO {
     const oc = getOC();
 
     const uint8 = new Uint8Array(data);
-    oc.FS.createDataFile("/", fileName, uint8, true, true, true);
+    oc.FS.writeFile("/" + fileName, uint8);
 
     const app = new oc.TDocStd_Application();
     const format = new oc.TCollection_ExtendedString('MDTV-XCAF');
@@ -172,7 +172,10 @@ export class OcIO {
     const cleanup = () => {
       reader.delete();
       oc.FS.unlink(fileName);
-      app.Close(docHandle);
+      // No app.Close(): the doc was created via `new TDocStd_Document` +
+      // InitDocument, which (in OCCT V8) does NOT open it in the application
+      // session. Close() therefore throws "cannot close a document that has not
+      // been opened"; deleting the handle releases it.
       docHandle.delete();
       app.delete();
     };
@@ -367,7 +370,8 @@ export class OcIO {
     const cleanup = () => {
       shapeToolHandle.delete();
       colorToolHandle.delete();
-      app.Close(docHandle);
+      // No app.Close(): see readStepXCAF — an InitDocument'd (never opened) doc
+      // cannot be closed in OCCT V8; deleting the handle releases it.
       docHandle.delete();
     };
 

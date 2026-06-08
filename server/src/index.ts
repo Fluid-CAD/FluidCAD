@@ -22,7 +22,7 @@ import { normalizePath } from './normalize-path.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
 import { addInstance, removeInstance } from './global-registry.ts';
 import type { CompileError } from './ws-protocol.ts';
-import { extractSourceLocation } from '../../lib/dist/index.js';
+import { extractSourceLocation, describeOcException } from '../../lib/dist/index.js';
 
 const PORT = parseInt(process.env.FLUIDCAD_SERVER_PORT || '3100', 10);
 const WORKSPACE_PATH = normalizePath(process.env.FLUIDCAD_WORKSPACE_PATH || '');
@@ -266,7 +266,7 @@ async function handleExtensionMessage(msg: any) {
           await fluidCadServer.importFile(msg.workspacePath, msg.fileName, msg.data);
           sendToExtension({ type: 'import-complete', success: true });
         } catch (err: any) {
-          sendToExtension({ type: 'error', message: err.stack || err.message || String(err) });
+          sendToExtension({ type: 'error', message: describeOcException(err) });
         }
         break;
       }

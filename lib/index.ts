@@ -124,6 +124,7 @@ export type { ParamDefinition, MultiControlType, SelectOption, ParamVal, ParamSc
 export { setAssetProvider } from './io/file-import.js';
 export type { AssetProvider } from './io/file-import.js';
 export { getSceneManager } from './scene-manager.js';
+export { describeOcException } from './oc/errors.js';
 
 export interface FluidCADOptions {
   mesh?: {

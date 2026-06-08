@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { describeOcException } from '../../../lib/dist/index.js';
 import type { FluidCadServer } from '../fluidcad-server.ts';
 import {
   addBreakpoint,
@@ -61,7 +62,7 @@ export function createSketchEditsRouter(
     try {
       await fluidCadServer.importFile(workspacePath, fileName, data);
     } catch (err: any) {
-      res.status(500).json({ error: err.message || String(err) });
+      res.status(500).json({ error: describeOcException(err) });
       return;
     }
 

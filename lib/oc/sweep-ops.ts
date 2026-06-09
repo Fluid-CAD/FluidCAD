@@ -1,4 +1,4 @@
-import type { TopoDS_Shape, TopoDS_Wire, gp_Dir, gp_Trsf, BRepBuilderAPI_Transform } from "fluidcad-ocjs";
+import type { TopoDS_Shape, TopoDS_Wire, gp_Dir, gp_Trsf, BRepBuilderAPI_Transform, BRepOffsetAPI_MakePipeShell } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Explorer } from "./explorer.js";
@@ -167,7 +167,7 @@ export class SweepOps {
     };
   }
 
-  /** Sweep a single wire along the spine with a fixed binormal. */
+  /** Sweep a single wire along the spine (fixed binormal, Frenet fallback). */
   private static sweepWire(
     spine: TopoDS_Wire,
     profile: TopoDS_Wire,
@@ -175,16 +175,42 @@ export class SweepOps {
     withCorrection: boolean,
   ): WireSweep {
     const oc = getOC();
-    const pipe = new oc.BRepOffsetAPI_MakePipeShell(spine);
-    pipe.SetMode(binormalDir);
-    pipe.Add(profile, false, withCorrection);
 
-    const progress = new oc.Message_ProgressRange();
-    pipe.Build(progress);
-    progress.delete();
+    // Build the pipe with a trihedron law, falling back if the law can't build.
+    //
+    //  1. Fixed binormal (the profile plane's "up"): keeps the swept profile
+    //     from twisting along the spine — a clean spring rather than a wobbling
+    //     ribbon — and is well-defined on STRAIGHT spines, where plain Frenet
+    //     is not (zero curvature ⇒ undefined normal). This is the common case.
+    //  2. Plain Frenet: the fixed-binormal law (like the corrected-Frenet law)
+    //     fails to build on TAPERED helical spines — where the tangent's angle
+    //     to the spine axis varies along the curve — returning
+    //     BRepBuilderAPI_PipeNotDone. Plain Frenet builds those cleanly. It is
+    //     never reached for straight spines, since attempt 1 succeeds there.
+    const modes = ["fixed-binormal", "frenet"] as const;
 
-    if (!pipe.IsDone()) {
-      pipe.delete();
+    let pipe: BRepOffsetAPI_MakePipeShell | null = null;
+    for (const mode of modes) {
+      const candidate = new oc.BRepOffsetAPI_MakePipeShell(spine);
+      if (mode === "fixed-binormal") {
+        candidate.SetMode(binormalDir);
+      } else {
+        candidate.SetMode(true); // plain Frenet
+      }
+      candidate.Add(profile, false, withCorrection);
+
+      const progress = new oc.Message_ProgressRange();
+      candidate.Build(progress);
+      progress.delete();
+
+      if (candidate.IsDone()) {
+        pipe = candidate;
+        break;
+      }
+      candidate.delete();
+    }
+
+    if (!pipe) {
       throw new Error("Sweep operation failed.");
     }
 

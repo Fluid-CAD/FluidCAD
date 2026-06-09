@@ -4,7 +4,7 @@ import sketch from "../../core/sketch.js";
 import sweep from "../../core/sweep.js";
 import extrude from "../../core/extrude.js";
 import helix from "../../core/helix.js";
-import { circle, rect, vLine, hLine, arc, move } from "../../core/2d/index.js";
+import { circle, rect, vLine, hLine, arc, move, hMove } from "../../core/2d/index.js";
 import { Sweep } from "../../features/sweep.js";
 import { Extrude } from "../../features/extrude.js";
 import { Sketch } from "../../features/2d/sketch.js";
@@ -482,6 +482,53 @@ describe("sweep", () => {
       expect(sShapes.length).toBe(1);
       expect(totalVol).toBeGreaterThan(56000);
       expect(totalVol).toBeLessThan(62000);
+    });
+  });
+
+  describe("conical (tapered) helix sweep", () => {
+    // A tapered helical spine (endRadius ≠ radius) defeats the fixed-binormal
+    // and corrected-Frenet trihedron laws — the tangent's angle to the spine
+    // axis varies along the curve, so MakePipeShell reports PipeNotDone. The
+    // sweep falls back to plain Frenet, which builds it cleanly. A constant-
+    // radius helix still uses the fixed binormal (verified by "should sweep a
+    // circle along a straight line path" and the cylinder cases above).
+    it("sweeps a circle along an outward-tapering helix", () => {
+      const path = helix("z").height(100).pitch(10).radius(15).endRadius(25);
+      const profile = sketch("left", () => {
+        hMove(15);
+        circle(2);
+      });
+      const s = sweep(path, profile) as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const shapes = s.getShapes();
+      expect(shapes).toHaveLength(1);
+      expect(shapes[0].getType()).toBe("solid");
+
+      const props = ShapeProps.getProperties(shapes[0].getShape());
+      expect(props.volumeMm3).toBeGreaterThan(0);
+
+      const bbox = ShapeOps.getBoundingBox(shapes[0]);
+      // End radius 25 + tube radius 2 ⇒ ~54mm across; height 100 ⇒ ~100mm tall.
+      expect(bbox.maxX - bbox.minX).toBeGreaterThan(50);
+      expect(bbox.maxZ - bbox.minZ).toBeGreaterThan(95);
+    });
+
+    it("sweeps a circle along an inward-tapering helix", () => {
+      const path = helix("z").height(80).pitch(8).radius(25).endRadius(12);
+      const profile = sketch("left", () => {
+        hMove(25);
+        circle(1.5);
+      });
+      const s = sweep(path, profile) as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const shapes = s.getShapes();
+      expect(shapes).toHaveLength(1);
+      expect(shapes[0].getType()).toBe("solid");
+      expect(ShapeProps.getProperties(shapes[0].getShape()).volumeMm3).toBeGreaterThan(0);
     });
   });
 });

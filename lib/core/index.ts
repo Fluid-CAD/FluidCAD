@@ -1,6 +1,6 @@
 export type {
   ISceneObject, ITransformable, IBooleanOperation, IPlane, IAxis, ISelect,
-  IGeometry, IExtrudableGeometry, IRect, ISlot, IPolygon,
+  IGeometry, IExtrudableGeometry, IText, IRect, ISlot, IPolygon,
   ITwoObjectsTangentLine, ITangentArcTwoObjects,
   IExtrude, ICut, ICommon, ISweep, ILoft, IRevolve, IDraft, IRib, IHelix
 } from "./interfaces.js";

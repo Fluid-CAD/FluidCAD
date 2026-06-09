@@ -162,6 +162,60 @@ export interface IGeometry extends ISceneObject {
 
 export interface IExtrudableGeometry extends IGeometry {}
 
+export interface IText extends IExtrudableGeometry {
+  /**
+   * Sets the text height (em size) in model units. Default 10.
+   * @param value - The em size.
+   */
+  size(value: number): this;
+
+  /**
+   * Sets the font. A name without a font extension (e.g. `"Arial"`) is resolved
+   * to a system font; a value ending in `.ttf`/`.otf`/`.ttc`/`.woff` (e.g.
+   * `"fonts/Brand.ttf"`) is loaded as a workspace-relative file. When omitted, a
+   * default system font is used.
+   * @param name - A system family name or a workspace-relative font file path.
+   */
+  font(name: string): this;
+
+  /**
+   * Sets the font weight: a number (100–900) or a name such as `"regular"`,
+   * `"medium"`, or `"bold"`. Resolves to the matching face (or the wght axis of a
+   * variable font).
+   * @param value - The weight as a number or name.
+   */
+  weight(value: number | string): this;
+
+  /**
+   * Shortcut for `weight(700)`.
+   */
+  bold(): this;
+
+  /**
+   * Renders the italic/oblique face of the font.
+   * @param value - Whether to use italic (defaults to true).
+   */
+  italic(value?: boolean): this;
+
+  /**
+   * Horizontal alignment of the text relative to its origin point.
+   * @param value - `"left"` (default), `"center"`, or `"right"`.
+   */
+  align(value: "left" | "center" | "right"): this;
+
+  /**
+   * Line-height multiplier for multi-line text (newlines in the string).
+   * @param value - Multiplier on the font's natural line height (default 1).
+   */
+  lineSpacing(value: number): this;
+
+  /**
+   * Extra spacing added between glyphs, in model units (default 0).
+   * @param value - The additional advance per glyph.
+   */
+  letterSpacing(value: number): this;
+}
+
 export interface IOffset extends IExtrudableGeometry {
   /**
    * Closes an open offset by joining it back to the source wire with

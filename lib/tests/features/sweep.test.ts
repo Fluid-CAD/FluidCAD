@@ -4,6 +4,7 @@ import sketch from "../../core/sketch.js";
 import sweep from "../../core/sweep.js";
 import extrude from "../../core/extrude.js";
 import helix from "../../core/helix.js";
+import cylinder from "../../core/cylinder.js";
 import { circle, rect, vLine, hLine, arc, move, hMove } from "../../core/2d/index.js";
 import { Sweep } from "../../features/sweep.js";
 import { Extrude } from "../../features/extrude.js";
@@ -495,12 +496,10 @@ describe("sweep", () => {
   });
 
   describe("conical (tapered) helix sweep", () => {
-    // A tapered helical spine (endRadius ≠ radius) defeats the fixed-binormal
-    // and corrected-Frenet trihedron laws — the tangent's angle to the spine
-    // axis varies along the curve, so MakePipeShell reports PipeNotDone. The
-    // sweep falls back to plain Frenet, which builds it cleanly. A constant-
-    // radius helix still uses the fixed binormal (verified by "should sweep a
-    // circle along a straight line path" and the cylinder cases above).
+    // A tapered helical spine (endRadius ≠ radius) produces a swept surface
+    // that needs many approximation spans; at MakePipeShell's small default
+    // segment budget the build silently fails (PipeNotDone). SweepOps raises
+    // the budget (MAX_PIPE_SEGMENTS), so these build with the fixed binormal.
     it("sweeps a circle along an outward-tapering helix", () => {
       const path = helix("z").height(100).pitch(10).radius(15).endRadius(25);
       const profile = sketch("left", () => {
@@ -538,6 +537,60 @@ describe("sweep", () => {
       expect(shapes).toHaveLength(1);
       expect(shapes[0].getType()).toBe("solid");
       expect(ShapeProps.getProperties(shapes[0].getShape()).volumeMm3).toBeGreaterThan(0);
+    });
+  });
+
+  describe("helix sweep tangent to a cylinder (fuzzy boolean)", () => {
+    // A helix at the cylinder's own radius makes a swept thread that touches
+    // the cylinder tangentially along the contact curves. At zero boolean fuzz
+    // OCCT's BOPAlgo silently no-ops (cut removes nothing; fuse returns an empty
+    // compound). BooleanOps' small fuzzy value resolves the contact. Volume
+    // ≈ a radius-15 / height-50 cylinder = π·225·50 ≈ 35343 mm³.
+    const CYL_VOL = Math.PI * 225 * 50;
+
+    it("removes a helical groove from the cylinder surface", () => {
+      cylinder(15, 50);
+      const path = helix("z").height(50).radius(15).pitch(5).startOffset(-5).endOffset(5);
+      const profile = sketch("left", () => { move([15, 0]); circle(3); });
+      const s = sweep(path, profile).remove() as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const shapes = s.getShapes();
+      expect(shapes).toHaveLength(1);
+      const vol = ShapeProps.getProperties(shapes[0].getShape()).volumeMm3;
+      // A real groove was carved: less than the full cylinder, but most remains.
+      expect(vol).toBeGreaterThan(CYL_VOL * 0.8);
+      expect(vol).toBeLessThan(CYL_VOL - 100);
+    });
+
+    it("fuses a helical thread onto the cylinder surface", () => {
+      cylinder(15, 50);
+      const path = helix("z").height(50).radius(15).pitch(5).startOffset(-5).endOffset(5);
+      const profile = sketch("left", () => { move([15, 0]); circle(3); });
+      const s = sweep(path, profile).add() as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const shapes = s.getShapes();
+      expect(shapes).toHaveLength(1);
+      // A thread was added: more than the bare cylinder.
+      expect(ShapeProps.getProperties(shapes[0].getShape()).volumeMm3).toBeGreaterThan(CYL_VOL + 100);
+    });
+
+    it("removes a groove when the helix has no start/end offset", () => {
+      cylinder(15, 50);
+      const path = helix("z").height(50).radius(15).pitch(5);
+      const profile = sketch("left", () => { move([15, 0]); circle(3); });
+      const s = sweep(path, profile).remove() as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const shapes = s.getShapes();
+      expect(shapes).toHaveLength(1);
+      const vol = ShapeProps.getProperties(shapes[0].getShape()).volumeMm3;
+      expect(vol).toBeGreaterThan(CYL_VOL * 0.8);
+      expect(vol).toBeLessThan(CYL_VOL - 100);
     });
   });
 });

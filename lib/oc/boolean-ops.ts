@@ -11,6 +11,17 @@ import { EdgeOps } from "./edge-ops.js";
 import { Plane } from "../math/plane.js";
 
 export class BooleanOps {
+  // Fuzzy tolerance (mm) for the feature cut/fuse builders. A swept tube whose
+  // path lies on a face it's cut from / fused to (e.g. a helical thread at the
+  // cylinder's own radius) touches that face tangentially along the contact
+  // curves; at zero fuzz OCCT's BOPAlgo silently no-ops (cut removes nothing,
+  // fuse returns an empty compound → "Unknown shape type"). A small fuzzy value
+  // resolves the near-coincident contact into clean intersections. 1e-4 is the
+  // smallest that works reliably here (1e-5 lands in a worse-than-zero regime);
+  // at 1e-4 mm it's far below any real feature size, so well-separated geometry
+  // is unaffected.
+  private static readonly FEATURE_BOOLEAN_FUZZY = 1e-4;
+
   static cutShapes(shape: Shape, tool: Shape): Shape {
     const result = BooleanOps.cutShapesRaw(shape.getShape(), tool.getShape());
     return ShapeFactory.fromShape(result);
@@ -58,6 +69,7 @@ export class BooleanOps {
     cutMaker.SetTools(toolList);
     cutMaker.SetNonDestructive(true);
     cutMaker.SetRunParallel(true);
+    cutMaker.SetFuzzyValue(BooleanOps.FEATURE_BOOLEAN_FUZZY);
     cutMaker.Build(progress);
 
     const result = cutMaker.Shape();
@@ -194,6 +206,7 @@ export class BooleanOps {
     builder.SetNonDestructive(true);
     builder.SetCheckInverted(true);
     builder.SetRunParallel(true);
+    builder.SetFuzzyValue(BooleanOps.FEATURE_BOOLEAN_FUZZY);
     if (opts?.glue === 'full') {
       builder.SetGlue((oc as any).BOPAlgo_GlueEnum.BOPAlgo_GlueFull);
     } else if (opts?.glue === 'shift') {

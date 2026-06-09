@@ -1,0 +1,61 @@
+---
+sidebar_position: 9
+title: "text"
+description: "Renders a text string as extrudable outline geometry inside the current sketch, at the sketch cursor."
+---
+
+import text_alignExample from '!!raw-loader!../../_examples/text-align.js';
+import text_basicExample from '!!raw-loader!../../_examples/text-basic.js';
+import text_fontExample from '!!raw-loader!../../_examples/text-font.js';
+import CodeBlock from '@theme/CodeBlock';
+
+# text()
+
+Renders a text string as extrudable outline geometry inside the current
+sketch, at the sketch cursor.
+
+**Returns**: [**`Text`**](/docs/api/types/text)
+
+:::tip
+See the [guide](/docs/guides/sketching/compound-shapes) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+text(text: string): Text
+```
+
+Renders a text string as extrudable outline geometry inside the current
+sketch, at the sketch cursor.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `text` | string | The string to render. |
+
+---
+
+```ts
+text(plane: SceneObject | PlaneLike, text: string): Text
+```
+
+Renders a text string on a specific plane (standalone, outside a sketch).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane (e.g. "xy") or face to render the text on. |
+| `text` | string | The string to render. |
+
+## Examples
+
+<CodeBlock language="js">{text_alignExample}</CodeBlock>
+
+![text example](/img/docs/api/text-align.png)
+
+<CodeBlock language="js">{text_basicExample}</CodeBlock>
+
+![text example](/img/docs/api/text-basic.png)
+
+<CodeBlock language="js">{text_fontExample}</CodeBlock>
+
+![text example](/img/docs/api/text-font.png)

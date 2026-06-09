@@ -29,41 +29,41 @@ Extrudes the last sketch with a default distance.
 ---
 
 ```ts
-extrude(distance: number, target?: SceneObject): Extrude
+extrude(distance: NumberParam, target?: SceneObject): Extrude
 ```
 
 Extrudes by a given distance.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `distance` | number | The extrusion distance |
+| `distance` | NumberParam | The extrusion distance |
 | `target` | [SceneObject](/docs/api/types/scene-object) | The sketch or face-bearing scene object to extrude *(optional)* |
 
 ---
 
 ```ts
-extrude(distance1: number, distance2: number): Extrude
+extrude(distance1: NumberParam, distance2: NumberParam): Extrude
 ```
 
 Extrudes between two distances.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `distance1` | number | The first extrusion distance |
-| `distance2` | number | The second extrusion distance |
+| `distance1` | NumberParam | The first extrusion distance |
+| `distance2` | NumberParam | The second extrusion distance |
 
 ---
 
 ```ts
-extrude(distance1: number, distance2: number, target: SceneObject): Extrude
+extrude(distance1: NumberParam, distance2: NumberParam, target: SceneObject): Extrude
 ```
 
 Extrudes between two distances.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `distance1` | number | The first extrusion distance |
-| `distance2` | number | The second extrusion distance |
+| `distance1` | NumberParam | The first extrusion distance |
+| `distance2` | NumberParam | The second extrusion distance |
 | `target` | [SceneObject](/docs/api/types/scene-object) | The sketch or face-bearing scene object to extrude |
 
 ---

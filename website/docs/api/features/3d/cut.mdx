@@ -37,41 +37,41 @@ Cuts using the given sketch with a default distance.
 ---
 
 ```ts
-cut(distance: number, target?: SceneObject): Cut
+cut(distance: NumberParam, target?: SceneObject): Cut
 ```
 
 Cuts using the given sketch by a given distance.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `distance` | number | The cut depth |
+| `distance` | NumberParam | The cut depth |
 | `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to cut with *(optional)* |
 
 ---
 
 ```ts
-cut(distance1: number, distance2: number): Cut
+cut(distance1: NumberParam, distance2: NumberParam): Cut
 ```
 
 Cuts by two distances using the last sketch.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `distance1` | number | The first cut distance |
-| `distance2` | number | The second cut distance |
+| `distance1` | NumberParam | The first cut distance |
+| `distance2` | NumberParam | The second cut distance |
 
 ---
 
 ```ts
-cut(distance1: number, distance2: number, target: SceneObject): Cut
+cut(distance1: NumberParam, distance2: NumberParam, target: SceneObject): Cut
 ```
 
 Cuts by two distances using the given sketch.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `distance1` | number | The first cut distance |
-| `distance2` | number | The second cut distance |
+| `distance1` | NumberParam | The first cut distance |
+| `distance2` | NumberParam | The second cut distance |
 | `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to cut with |
 
 ---

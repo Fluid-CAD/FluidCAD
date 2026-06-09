@@ -8,6 +8,9 @@ import compoundRect from '!!raw-loader!./_examples/compound-rect.js';
 import compoundPolygon from '!!raw-loader!./_examples/compound-polygon.js';
 import compoundSlot from '!!raw-loader!./_examples/compound-slot.js';
 import compoundSlotEdge from '!!raw-loader!./_examples/compound-slot-edge.js';
+import compoundText from '!!raw-loader!./_examples/compound-text.js';
+import compoundTextFonts from '!!raw-loader!./_examples/compound-text-fonts.js';
+import compoundTextExtruded from '!!raw-loader!./_examples/compound-text-extruded.js';
 
 # Compound Geometries
 
@@ -68,3 +71,31 @@ You can create a slot that follows an existing edge or arc. Pass the geometry as
 ![Slot from edge](/img/docs/sketching/compound-slot-edge.png)
 
 The third argument (`true`) removes the source geometry after creating the slot. Set it to `false` to keep the original edge.
+
+## text
+
+`text()` turns a string into outline geometry — each letter becomes a closed profile you can extrude into 3D lettering. Use it inside a `sketch()` with `text("Hello")`, or standalone on a plane with `text("xy", "Hello")`. The size is the cap height in model units; thickness comes from `extrude()`.
+
+<CodeBlock language="js">{compoundText}</CodeBlock>
+
+![Text outline](/img/docs/sketching/compound-text.png)
+
+### Fonts and weight
+
+By default `text()` uses a system font. Pass a **system font name** to `.font()`, or a **workspace-relative font file** ending in `.ttf`/`.otf` (e.g. `.font("fonts/Brand.ttf")`). Control the typeface with `.weight()` (`"regular"`, `"bold"`, or a number 100–900) and `.italic()`:
+
+<CodeBlock language="js">{compoundTextFonts}</CodeBlock>
+
+![Bold serif text from a named system font](/img/docs/sketching/compound-text-fonts.png)
+
+If the named font isn't installed, FluidCAD substitutes the closest match (e.g. `"Arial"` → a system sans-serif) and ultimately falls back to a default font.
+
+### Extruding text
+
+Because `text()` is ordinary sketch geometry, you extrude it like any other profile — the counters (the holes in `o`, `e`, `A`, …) are kept automatically:
+
+<CodeBlock language="js">{compoundTextExtruded}</CodeBlock>
+
+![Extruded 3D text](/img/docs/sketching/compound-text-extruded.png)
+
+For multi-line strings (`\n`), set `.align("left" | "center" | "right")`, and fine-tune spacing with `.lineSpacing()` and `.letterSpacing()`.

@@ -13,20 +13,20 @@ Draws a slot with the given length and end radius.
 ## Signatures
 
 ```ts
-slot(distance: number, radius: number): Slot
+slot(distance: NumberParam, radius: NumberParam): Slot
 ```
 
 Draws a slot with the given length and end radius.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `distance` | number | The slot length |
-| `radius` | number | The end cap radius |
+| `distance` | NumberParam | The slot length |
+| `radius` | NumberParam | The end cap radius |
 
 ---
 
 ```ts
-slot(targetPlane: SceneObject | PlaneLike, distance: number, radius: number): Slot
+slot(targetPlane: SceneObject | PlaneLike, distance: NumberParam, radius: NumberParam): Slot
 ```
 
 Draws a slot on a specific plane.
@@ -34,13 +34,13 @@ Draws a slot on a specific plane.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
-| `distance` | number | The slot length |
-| `radius` | number | The end cap radius |
+| `distance` | NumberParam | The slot length |
+| `radius` | NumberParam | The end cap radius |
 
 ---
 
 ```ts
-slot(start: Point2DLike, distance: number, radius: number): Slot
+slot(start: Point2DLike, distance: NumberParam, radius: NumberParam): Slot
 ```
 
 Draws a slot from a start point with the given length and end radius.
@@ -48,8 +48,8 @@ Draws a slot from a start point with the given length and end radius.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `start` | [Point2DLike](/docs/api/types/point2dlike) | The start point |
-| `distance` | number | The slot length |
-| `radius` | number | The end cap radius |
+| `distance` | NumberParam | The slot length |
+| `radius` | NumberParam | The end cap radius |
 
 ---
 
@@ -68,7 +68,7 @@ Draws a slot between two cap-center points with the given radius.
 ---
 
 ```ts
-slot(geometry: SceneObject, radius: number, deleteSource?: boolean): Slot
+slot(geometry: SceneObject, radius: NumberParam, deleteSource?: BooleanParam): Slot
 ```
 
 Creates a slot from a geometry edge with the given radius.
@@ -76,13 +76,13 @@ Creates a slot from a geometry edge with the given radius.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `geometry` | [SceneObject](/docs/api/types/scene-object) | The source geometry edge |
-| `radius` | number | The end cap radius |
-| `deleteSource` | boolean | Whether to delete the source geometry (defaults to true) *(optional)* |
+| `radius` | NumberParam | The end cap radius |
+| `deleteSource` | BooleanParam | Whether to delete the source geometry (defaults to true) *(optional)* |
 
 ---
 
 ```ts
-slot(targetPlane: SceneObject | PlaneLike, geometry: SceneObject, radius: number): Slot
+slot(targetPlane: SceneObject | PlaneLike, geometry: SceneObject, radius: NumberParam): Slot
 ```
 
 Creates a slot from a geometry edge on a specific plane.
@@ -91,12 +91,12 @@ Creates a slot from a geometry edge on a specific plane.
 |-----------|------|-------------|
 | `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
 | `geometry` | [SceneObject](/docs/api/types/scene-object) | The source geometry edge |
-| `radius` | number | The end cap radius |
+| `radius` | NumberParam | The end cap radius |
 
 ---
 
 ```ts
-slot(targetPlane: SceneObject | PlaneLike, geometry: SceneObject, radius: number, deleteSource: boolean): Slot
+slot(targetPlane: SceneObject | PlaneLike, geometry: SceneObject, radius: NumberParam, deleteSource: BooleanParam): Slot
 ```
 
 Creates a slot from a geometry edge, optionally keeping the source, on a specific plane.
@@ -105,5 +105,5 @@ Creates a slot from a geometry edge, optionally keeping the source, on a specifi
 |-----------|------|-------------|
 | `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
 | `geometry` | [SceneObject](/docs/api/types/scene-object) | The source geometry edge |
-| `radius` | number | The end cap radius |
-| `deleteSource` | boolean | Whether to delete the source geometry |
+| `radius` | NumberParam | The end cap radius |
+| `deleteSource` | BooleanParam | Whether to delete the source geometry |

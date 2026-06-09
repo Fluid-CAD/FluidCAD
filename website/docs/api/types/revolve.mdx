@@ -122,7 +122,7 @@ Restricts the revolve to only the sketch regions containing the given points.
 ### thin()
 
 ```ts
-thin(offset: number): this
+thin(offset: NumberParam): this
 ```
 
 Enables thin revolve mode — offsets the profile edges to create a thin-walled
@@ -131,14 +131,14 @@ outward, negative values offset inward.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `offset` | number | The wall offset distance. Positive = outward, negative = inward. |
+| `offset` | NumberParam | The wall offset distance. Positive = outward, negative = inward. |
 
 ---
 
 ### thin()
 
 ```ts
-thin(offset1: number, offset2: number): this
+thin(offset1: NumberParam, offset2: NumberParam): this
 ```
 
 Enables thin revolve mode with two offset directions.
@@ -147,8 +147,8 @@ the second offset is automatically flipped.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `offset1` | number | The first wall offset distance. Positive = outward, negative = inward. |
-| `offset2` | number | The second wall offset distance, in the opposite direction of offset1. |
+| `offset1` | NumberParam | The first wall offset distance. Positive = outward, negative = inward. |
+| `offset2` | NumberParam | The second wall offset distance, in the opposite direction of offset1. |
 
 ---
 

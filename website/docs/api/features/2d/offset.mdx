@@ -1,5 +1,5 @@
 ---
-sidebar_position: 22
+sidebar_position: 23
 title: "offset"
 description: "Offsets the current sketch geometry by the given distance."
 ---
@@ -17,20 +17,20 @@ See the [guide](/docs/guides/sketching/offset) for detailed usage examples.
 ## Signatures
 
 ```ts
-offset(distance?: number, removeOriginal?: boolean): Offset
+offset(distance?: NumberParam, removeOriginal?: BooleanParam): Offset
 ```
 
 Offsets the current sketch geometry by the given distance.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `distance` | number | The offset distance (defaults to 1) *(optional)* |
-| `removeOriginal` | boolean | Whether to remove the original geometry *(optional)* |
+| `distance` | NumberParam | The offset distance (defaults to 1) *(optional)* |
+| `removeOriginal` | BooleanParam | Whether to remove the original geometry *(optional)* |
 
 ---
 
 ```ts
-offset(targetPlane: SceneObject | PlaneLike, distance: number, removeOriginal: boolean, ...sourceGeometries: Extrudable[]): Offset
+offset(targetPlane: SceneObject | PlaneLike, distance: NumberParam, removeOriginal: BooleanParam, ...sourceGeometries: Extrudable[]): Offset
 ```
 
 Offsets source geometries onto a target plane.
@@ -38,6 +38,6 @@ Offsets source geometries onto a target plane.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to offset onto |
-| `distance` | number | The offset distance |
-| `removeOriginal` | boolean | Whether to remove the original geometry |
+| `distance` | NumberParam | The offset distance |
+| `removeOriginal` | BooleanParam | Whether to remove the original geometry |
 | `...sourceGeometries` | Extrudable[] | The geometries to offset *(optional)* |

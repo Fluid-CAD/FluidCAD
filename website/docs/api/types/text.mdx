@@ -1,0 +1,209 @@
+---
+sidebar_position: 17.5
+title: "Text"
+description: "The Text type. Extends ExtrudableGeometry."
+---
+
+# Text
+
+Extends [`ExtrudableGeometry`](/docs/api/types/extrudable-geometry)
+
+
+<details>
+<summary>Inherited from [`Geometry`](/docs/api/types/geometry)</summary>
+
+### guide()
+
+```ts
+guide(): this
+```
+
+Marks this sketch geometry as construction geometry. Guide geometries are
+excluded from the final sketch output (e.g., extrude, revolve) unless
+explicitly included.
+
+---
+
+### start()
+
+```ts
+start(): Vertex
+```
+
+Returns a lazy-evaluated vertex at the start point of this geometry element.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### end()
+
+```ts
+end(): Vertex
+```
+
+Returns a lazy-evaluated vertex at the end point of this geometry element.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### tangent()
+
+```ts
+tangent(): Vertex
+```
+
+Returns a lazy-evaluated vertex representing the tangent direction at the end
+of this geometry. Used to determine the direction of subsequent geometry elements.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+
+</details>
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### reusable()
+
+```ts
+reusable(): this
+```
+
+Marks this object as reusable. Reusable objects retain their shapes when
+consumed by features (e.g., extrude, revolve), allowing multiple features
+to reference the same source geometry. Use `remove(obj)` to force-remove
+shapes from a reusable object.
+
+
+</details>
+
+## Methods
+
+### size()
+
+```ts
+size(value: number): this
+```
+
+Sets the text height (em size) in model units. Default 10.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | number | The em size. |
+
+---
+
+### font()
+
+```ts
+font(name: string): this
+```
+
+Sets the font. A name without a font extension (e.g. `"Arial"`) is resolved
+to a system font; a value ending in `.ttf`/`.otf`/`.ttc`/`.woff` (e.g.
+`"fonts/Brand.ttf"`) is loaded as a workspace-relative file. When omitted, a
+default system font is used.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | string | A system family name or a workspace-relative font file path. |
+
+---
+
+### weight()
+
+```ts
+weight(value: string | number): this
+```
+
+Sets the font weight: a number (100–900) or a name such as `"regular"`,
+`"medium"`, or `"bold"`. Resolves to the matching face (or the wght axis of a
+variable font).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string \| number | The weight as a number or name. |
+
+---
+
+### bold()
+
+```ts
+bold(): this
+```
+
+Shortcut for `weight(700)`.
+
+---
+
+### italic()
+
+```ts
+italic(value?: boolean): this
+```
+
+Renders the italic/oblique face of the font.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | boolean | Whether to use italic (defaults to true). *(optional)* |
+
+---
+
+### align()
+
+```ts
+align(value: "left" | "right" | "center"): this
+```
+
+Horizontal alignment of the text relative to its origin point.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | "left" \| "right" \| "center" | `"left"` (default), `"center"`, or `"right"`. |
+
+---
+
+### lineSpacing()
+
+```ts
+lineSpacing(value: number): this
+```
+
+Line-height multiplier for multi-line text (newlines in the string).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | number | Multiplier on the font's natural line height (default 1). |
+
+---
+
+### letterSpacing()
+
+```ts
+letterSpacing(value: number): this
+```
+
+Extra spacing added between glyphs, in model units (default 0).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | number | The additional advance per glyph. |
+

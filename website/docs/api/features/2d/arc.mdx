@@ -42,7 +42,7 @@ Chain `.radius(r)` to use bulge radius instead, or `.center(point)` to specify a
 ---
 
 ```ts
-arc(radius: number, startAngle?: number, endAngle?: number): ArcAngles
+arc(radius: NumberParam, startAngle?: NumberParam, endAngle?: NumberParam): ArcAngles
 ```
 
 Draws an arc by radius and angle range at the current position.
@@ -52,9 +52,9 @@ Chain `.centered()` to center the arc symmetrically around the start angle.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `radius` | number | The arc radius |
-| `startAngle` | number | The start angle in degrees, relative to the current tangent (defaults to 0) *(optional)* |
-| `endAngle` | number | The end angle in degrees, relative to the current tangent (defaults to 180) *(optional)* |
+| `radius` | NumberParam | The arc radius |
+| `startAngle` | NumberParam | The start angle in degrees, relative to the current tangent (defaults to 0) *(optional)* |
+| `endAngle` | NumberParam | The end angle in degrees, relative to the current tangent (defaults to 180) *(optional)* |
 
 ---
 
@@ -86,7 +86,7 @@ Draws an arc between two points on a specific plane.
 ---
 
 ```ts
-arc(targetPlane: SceneObject | PlaneLike, radius: number, startAngle: number, endAngle: number): ArcAngles
+arc(targetPlane: SceneObject | PlaneLike, radius: NumberParam, startAngle: NumberParam, endAngle: NumberParam): ArcAngles
 ```
 
 Draws an arc by radius and angle range on a specific plane.
@@ -94,6 +94,6 @@ Draws an arc by radius and angle range on a specific plane.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
-| `radius` | number | The arc radius |
-| `startAngle` | number | The start angle in degrees |
-| `endAngle` | number | The end angle in degrees |
+| `radius` | NumberParam | The arc radius |
+| `startAngle` | NumberParam | The start angle in degrees |
+| `endAngle` | NumberParam | The end angle in degrees |

@@ -17,24 +17,24 @@ See the [guide](/docs/guides/3d-operations/shell) for detailed usage examples.
 ## Signatures
 
 ```ts
-shell(thickness?: number): Shell
+shell(thickness?: NumberParam): Shell
 ```
 
 Hollows out a solid with the given wall thickness.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `thickness` | number | The wall thickness (defaults to 2.5) *(optional)* |
+| `thickness` | NumberParam | The wall thickness (defaults to 2.5) *(optional)* |
 
 ---
 
 ```ts
-shell(thickness: number, ...selections: SceneObject[]): Shell
+shell(thickness: NumberParam, ...selections: SceneObject[]): Shell
 ```
 
 Hollows out a solid, removing the selected faces.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `thickness` | number | The wall thickness |
+| `thickness` | NumberParam | The wall thickness |
 | `...selections` | [SceneObject](/docs/api/types/scene-object)[] | The face selections to remove *(optional)* |

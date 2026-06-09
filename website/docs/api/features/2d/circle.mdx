@@ -17,7 +17,7 @@ See the [guide](/docs/guides/sketching/primitive-shapes) for detailed usage exam
 ## Signatures
 
 ```ts
-circle(center: Point2DLike, diameter?: number): ExtrudableGeometry
+circle(center: Point2DLike, diameter?: NumberParam): ExtrudableGeometry
 ```
 
 Draws a circle at a given center with an optional diameter.
@@ -25,24 +25,24 @@ Draws a circle at a given center with an optional diameter.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `center` | [Point2DLike](/docs/api/types/point2dlike) | The center point |
-| `diameter` | number | The circle diameter (defaults to 40) *(optional)* |
+| `diameter` | NumberParam | The circle diameter (defaults to 40) *(optional)* |
 
 ---
 
 ```ts
-circle(diameter?: number): ExtrudableGeometry
+circle(diameter?: NumberParam): ExtrudableGeometry
 ```
 
 Draws a circle at the origin with an optional diameter.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `diameter` | number | The circle diameter (defaults to 40) *(optional)* |
+| `diameter` | NumberParam | The circle diameter (defaults to 40) *(optional)* |
 
 ---
 
 ```ts
-circle(targetPlane: SceneObject | PlaneLike, diameter: number): ExtrudableGeometry
+circle(targetPlane: SceneObject | PlaneLike, diameter: NumberParam): ExtrudableGeometry
 ```
 
 Draws a circle with a given diameter on a specific plane.
@@ -50,4 +50,4 @@ Draws a circle with a given diameter on a specific plane.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
-| `diameter` | number | The circle diameter |
+| `diameter` | NumberParam | The circle diameter |

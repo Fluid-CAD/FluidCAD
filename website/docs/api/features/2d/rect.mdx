@@ -17,20 +17,20 @@ See the [guide](/docs/guides/sketching/primitive-shapes) for detailed usage exam
 ## Signatures
 
 ```ts
-rect(width: number, height?: number): Rect
+rect(width: NumberParam, height?: NumberParam): Rect
 ```
 
 Draws a rectangle with the given width and optional height.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `width` | number | The rectangle width |
-| `height` | number | The rectangle height (defaults to width) *(optional)* |
+| `width` | NumberParam | The rectangle width |
+| `height` | NumberParam | The rectangle height (defaults to width) *(optional)* |
 
 ---
 
 ```ts
-rect(start: Point2DLike, width: number, height?: number): Rect
+rect(start: Point2DLike, width: NumberParam, height?: NumberParam): Rect
 ```
 
 Draws a rectangle at a given start point.
@@ -38,13 +38,13 @@ Draws a rectangle at a given start point.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `start` | [Point2DLike](/docs/api/types/point2dlike) | The start point (bottom-left corner) |
-| `width` | number | The rectangle width |
-| `height` | number | The rectangle height (defaults to width) *(optional)* |
+| `width` | NumberParam | The rectangle width |
+| `height` | NumberParam | The rectangle height (defaults to width) *(optional)* |
 
 ---
 
 ```ts
-rect(targetPlane: SceneObject | PlaneLike, width: number, height: number): Rect
+rect(targetPlane: SceneObject | PlaneLike, width: NumberParam, height: NumberParam): Rect
 ```
 
 Draws a rectangle with given dimensions on a specific plane.
@@ -52,5 +52,5 @@ Draws a rectangle with given dimensions on a specific plane.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
-| `width` | number | The rectangle width |
-| `height` | number | The rectangle height |
+| `width` | NumberParam | The rectangle width |
+| `height` | NumberParam | The rectangle height |

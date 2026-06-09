@@ -1,5 +1,5 @@
 ---
-sidebar_position: 9
+sidebar_position: 10
 title: "hLine"
 description: "Draws a horizontal line of the given distance. Chain `.centered()` to center the line on the current position."
 ---
@@ -14,7 +14,7 @@ Chain `.centered()` to center the line on the current position.
 ## Signatures
 
 ```ts
-hLine(distance: number): HLine
+hLine(distance: NumberParam): HLine
 ```
 
 Draws a horizontal line of the given distance.
@@ -22,7 +22,7 @@ Chain `.centered()` to center the line on the current position.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `distance` | number | The line length |
+| `distance` | NumberParam | The line length |
 
 ---
 
@@ -40,7 +40,7 @@ The nearest intersection (in either direction along the X axis) is used.
 ---
 
 ```ts
-hLine(start: Point2DLike, distance: number): HLine
+hLine(start: Point2DLike, distance: NumberParam): HLine
 ```
 
 Draws a horizontal line from a start point.
@@ -49,7 +49,7 @@ Chain `.centered()` to center the line on the start point.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `start` | [Point2DLike](/docs/api/types/point2dlike) | The start point |
-| `distance` | number | The line length |
+| `distance` | NumberParam | The line length |
 
 ---
 
@@ -69,7 +69,7 @@ the X axis) is used.
 ---
 
 ```ts
-hLine(targetPlane: SceneObject | PlaneLike, distance: number): HLine
+hLine(targetPlane: SceneObject | PlaneLike, distance: NumberParam): HLine
 ```
 
 Draws a horizontal line on a specific plane.
@@ -77,4 +77,4 @@ Draws a horizontal line on a specific plane.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
-| `distance` | number | The line length |
+| `distance` | NumberParam | The line length |

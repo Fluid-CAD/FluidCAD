@@ -17,53 +17,53 @@ See the [guide](/docs/guides/3d-operations/chamfer) for detailed usage examples.
 ## Signatures
 
 ```ts
-chamfer(distance?: number): SceneObject
+chamfer(distance?: NumberParam): SceneObject
 ```
 
 Chamfers selected edges with the given distance.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `distance` | number | The chamfer distance (defaults to 1) *(optional)* |
+| `distance` | NumberParam | The chamfer distance (defaults to 1) *(optional)* |
 
 ---
 
 ```ts
-chamfer(distance: number, ...sceneObjects: SceneObject[]): SceneObject
+chamfer(distance: NumberParam, ...sceneObjects: SceneObject[]): SceneObject
 ```
 
 Chamfers the given edge selections with the given distance.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `distance` | number | The chamfer distance |
+| `distance` | NumberParam | The chamfer distance |
 | `...sceneObjects` | [SceneObject](/docs/api/types/scene-object)[] | The edge selections to chamfer *(optional)* |
 
 ---
 
 ```ts
-chamfer(distance: number, distance2: number, isAngle?: boolean): SceneObject
+chamfer(distance: NumberParam, distance2: NumberParam, isAngle?: BooleanParam): SceneObject
 ```
 
 Chamfers selected edges with two distances or a distance and angle.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `distance` | number | The first chamfer distance |
-| `distance2` | number | The second distance, or angle if `isAngle` is true |
-| `isAngle` | boolean | Whether `distance2` is an angle *(optional)* |
+| `distance` | NumberParam | The first chamfer distance |
+| `distance2` | NumberParam | The second distance, or angle if `isAngle` is true |
+| `isAngle` | BooleanParam | Whether `distance2` is an angle *(optional)* |
 
 ---
 
 ```ts
-chamfer(distance: number, distance2: number, isAngle: boolean, ...sceneObjects: SceneObject[]): SceneObject
+chamfer(distance: NumberParam, distance2: NumberParam, isAngle: BooleanParam, ...sceneObjects: SceneObject[]): SceneObject
 ```
 
 Chamfers the given edge selections with two distances or a distance and angle.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `distance` | number | The first chamfer distance |
-| `distance2` | number | The second distance, or angle if `isAngle` is true |
-| `isAngle` | boolean | Whether `distance2` is an angle |
+| `distance` | NumberParam | The first chamfer distance |
+| `distance2` | NumberParam | The second distance, or angle if `isAngle` is true |
+| `isAngle` | BooleanParam | Whether `distance2` is an angle |
 | `...sceneObjects` | [SceneObject](/docs/api/types/scene-object)[] | The edge selections to chamfer *(optional)* |

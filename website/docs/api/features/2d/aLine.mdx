@@ -1,5 +1,5 @@
 ---
-sidebar_position: 11
+sidebar_position: 12
 title: "aLine"
 description: "Draws a line at the given angle with the given length. Chain `.centered()` to center the line on the current position."
 ---
@@ -14,7 +14,7 @@ Chain `.centered()` to center the line on the current position.
 ## Signatures
 
 ```ts
-aLine(angle: number, length: number): ALine
+aLine(angle: NumberParam, length: NumberParam): ALine
 ```
 
 Draws a line at the given angle with the given length.
@@ -22,13 +22,13 @@ Chain `.centered()` to center the line on the current position.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `angle` | number | The angle in degrees |
-| `length` | number | The line length |
+| `angle` | NumberParam | The angle in degrees |
+| `length` | NumberParam | The line length |
 
 ---
 
 ```ts
-aLine(angle: number, target: SceneObject): ALine
+aLine(angle: NumberParam, target: SceneObject): ALine
 ```
 
 Draws a line at the given angle that ends where it intersects the target
@@ -37,13 +37,13 @@ sign) is used.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `angle` | number | The angle in degrees |
+| `angle` | NumberParam | The angle in degrees |
 | `target` | [SceneObject](/docs/api/types/scene-object) | The geometry to intersect with |
 
 ---
 
 ```ts
-aLine(targetPlane: SceneObject | PlaneLike, angle: number, length: number): ALine
+aLine(targetPlane: SceneObject | PlaneLike, angle: NumberParam, length: NumberParam): ALine
 ```
 
 Draws a line at the given angle on a specific plane.
@@ -51,5 +51,5 @@ Draws a line at the given angle on a specific plane.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
-| `angle` | number | The angle in degrees |
-| `length` | number | The line length |
+| `angle` | NumberParam | The angle in degrees |
+| `length` | NumberParam | The line length |

@@ -17,20 +17,20 @@ See the [guide](/docs/guides/sketching/primitive-shapes) for detailed usage exam
 ## Signatures
 
 ```ts
-ellipse(rx: number, ry: number): ExtrudableGeometry
+ellipse(rx: NumberParam, ry: NumberParam): ExtrudableGeometry
 ```
 
 Draws an ellipse at the current position.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `rx` | number | Semi-radius along the plane's X axis |
-| `ry` | number | Semi-radius along the plane's Y axis |
+| `rx` | NumberParam | Semi-radius along the plane's X axis |
+| `ry` | NumberParam | Semi-radius along the plane's Y axis |
 
 ---
 
 ```ts
-ellipse(center: Point2DLike, rx: number, ry: number): ExtrudableGeometry
+ellipse(center: Point2DLike, rx: NumberParam, ry: NumberParam): ExtrudableGeometry
 ```
 
 Draws an ellipse at a given center.
@@ -38,13 +38,13 @@ Draws an ellipse at a given center.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `center` | [Point2DLike](/docs/api/types/point2dlike) | The center point |
-| `rx` | number | Semi-radius along the plane's X axis |
-| `ry` | number | Semi-radius along the plane's Y axis |
+| `rx` | NumberParam | Semi-radius along the plane's X axis |
+| `ry` | NumberParam | Semi-radius along the plane's Y axis |
 
 ---
 
 ```ts
-ellipse(targetPlane: SceneObject | PlaneLike, rx: number, ry: number): ExtrudableGeometry
+ellipse(targetPlane: SceneObject | PlaneLike, rx: NumberParam, ry: NumberParam): ExtrudableGeometry
 ```
 
 Draws an ellipse on a specific plane.
@@ -52,13 +52,13 @@ Draws an ellipse on a specific plane.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
-| `rx` | number | Semi-radius along the plane's X axis |
-| `ry` | number | Semi-radius along the plane's Y axis |
+| `rx` | NumberParam | Semi-radius along the plane's X axis |
+| `ry` | NumberParam | Semi-radius along the plane's Y axis |
 
 ---
 
 ```ts
-ellipse(targetPlane: SceneObject | PlaneLike, center: Point2DLike, rx: number, ry: number): ExtrudableGeometry
+ellipse(targetPlane: SceneObject | PlaneLike, center: Point2DLike, rx: NumberParam, ry: NumberParam): ExtrudableGeometry
 ```
 
 Draws an ellipse at a given center on a specific plane.
@@ -67,5 +67,5 @@ Draws an ellipse at a given center on a specific plane.
 |-----------|------|-------------|
 | `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
 | `center` | [Point2DLike](/docs/api/types/point2dlike) | The center point in plane-local coordinates |
-| `rx` | number | Semi-radius along the plane's X axis |
-| `ry` | number | Semi-radius along the plane's Y axis |
+| `rx` | NumberParam | Semi-radius along the plane's X axis |
+| `ry` | NumberParam | Semi-radius along the plane's Y axis |

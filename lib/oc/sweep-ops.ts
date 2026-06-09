@@ -1,4 +1,4 @@
-import type { TopoDS_Shape, TopoDS_Wire, gp_Dir, gp_Trsf, BRepBuilderAPI_Transform, BRepOffsetAPI_MakePipeShell } from "fluidcad-ocjs";
+import type { TopoDS_Shape, TopoDS_Wire, gp_Dir, gp_Trsf, BRepBuilderAPI_Transform } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Explorer } from "./explorer.js";
@@ -21,6 +21,13 @@ interface WireSweep {
 }
 
 export class SweepOps {
+  // Ceiling for MakePipeShell's swept-surface approximation. OCCT's default
+  // (~30) is too small for tapered or tightly-coiled helical spines, whose
+  // swept surfaces need many spans to fit within tolerance — at the default the
+  // build silently fails (BRepBuilderAPI_PipeNotDone). This only caps the
+  // adaptive fit; simple spines converge far below it at no extra cost.
+  private static readonly MAX_PIPE_SEGMENTS = 1000;
+
   static makeSweep(spineWire: Wire, profileFaces: Face[]): SweepResult {
     const oc = getOC();
 
@@ -167,7 +174,7 @@ export class SweepOps {
     };
   }
 
-  /** Sweep a single wire along the spine (fixed binormal, Frenet fallback). */
+  /** Sweep a single wire along the spine with a fixed binormal. */
   private static sweepWire(
     spine: TopoDS_Wire,
     profile: TopoDS_Wire,
@@ -175,42 +182,24 @@ export class SweepOps {
     withCorrection: boolean,
   ): WireSweep {
     const oc = getOC();
+    const pipe = new oc.BRepOffsetAPI_MakePipeShell(spine);
+    // Fixed binormal (the profile plane's "up"): keeps the swept profile from
+    // twisting along the spine — a clean spring rather than a wobbling ribbon —
+    // and is well-defined on straight spines, where Frenet is not (zero
+    // curvature ⇒ undefined normal).
+    pipe.SetMode(binormalDir);
+    // Give the swept-surface approximation enough spans for tapered/tight
+    // helical spines (see MAX_PIPE_SEGMENTS) — at OCCT's default budget the
+    // build fails on, e.g., a conical helix or a many-turn helix on a cone face.
+    pipe.SetMaxSegments(SweepOps.MAX_PIPE_SEGMENTS);
+    pipe.Add(profile, false, withCorrection);
 
-    // Build the pipe with a trihedron law, falling back if the law can't build.
-    //
-    //  1. Fixed binormal (the profile plane's "up"): keeps the swept profile
-    //     from twisting along the spine — a clean spring rather than a wobbling
-    //     ribbon — and is well-defined on STRAIGHT spines, where plain Frenet
-    //     is not (zero curvature ⇒ undefined normal). This is the common case.
-    //  2. Plain Frenet: the fixed-binormal law (like the corrected-Frenet law)
-    //     fails to build on TAPERED helical spines — where the tangent's angle
-    //     to the spine axis varies along the curve — returning
-    //     BRepBuilderAPI_PipeNotDone. Plain Frenet builds those cleanly. It is
-    //     never reached for straight spines, since attempt 1 succeeds there.
-    const modes = ["fixed-binormal", "frenet"] as const;
+    const progress = new oc.Message_ProgressRange();
+    pipe.Build(progress);
+    progress.delete();
 
-    let pipe: BRepOffsetAPI_MakePipeShell | null = null;
-    for (const mode of modes) {
-      const candidate = new oc.BRepOffsetAPI_MakePipeShell(spine);
-      if (mode === "fixed-binormal") {
-        candidate.SetMode(binormalDir);
-      } else {
-        candidate.SetMode(true); // plain Frenet
-      }
-      candidate.Add(profile, false, withCorrection);
-
-      const progress = new oc.Message_ProgressRange();
-      candidate.Build(progress);
-      progress.delete();
-
-      if (candidate.IsDone()) {
-        pipe = candidate;
-        break;
-      }
-      candidate.delete();
-    }
-
-    if (!pipe) {
+    if (!pipe.IsDone()) {
+      pipe.delete();
       throw new Error("Sweep operation failed.");
     }
 

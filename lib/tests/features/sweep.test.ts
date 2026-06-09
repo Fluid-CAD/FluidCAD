@@ -438,6 +438,15 @@ describe("sweep", () => {
     });
 
     it("user repro: helix(\"z\") on Z axis with left-plane profile carves a screw thread", () => {
+      // KNOWN-FAILING (deferred). Two separate problems, neither the conical
+      // sweep-build bug fixed by MAX_PIPE_SEGMENTS:
+      //   1. Mis-specified geometry: circle(30) is a DIAMETER, so the cylinder
+      //      radius is 15, but the thread sits at radius 30 — entirely outside
+      //      it, so the cut has nothing to carve (the comment below intends the
+      //      thread to straddle a radius-30 surface, i.e. circle(60)).
+      //   2. Correcting it to circle(60) then hits a distinct OCCT-8 boolean
+      //      failure on the tight 14-turn thread-groove cut ("Unknown shape
+      //      type"), which needs its own investigation.
       // Profile straddles the cylinder surface (centered at radius 30,
       // tube radius 1) so the cut produces a clean groove. Profile in
       // `left` plane (YZ) — face normal is anti-parallel to the spine

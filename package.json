@@ -74,7 +74,6 @@
     "iconoir": "^7.11.0",
     "fluidcad-ocjs": "file:../ocjsv8/",
     "open": "^11.0.0",
-    "solvespace-wasm": "file:../solvespace-wasm",
     "stacktrace-parser": "^0.1.11",
     "tree-sitter-wasms": "^0.1.13",
     "tsx": "^4.21.0",

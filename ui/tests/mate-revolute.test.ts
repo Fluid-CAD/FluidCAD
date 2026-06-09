@@ -50,7 +50,6 @@ function revolute(
 describe('mate(revolute) — phase 07', () => {
   it('grounded + free body, revolute mate → 1 DOF', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -66,7 +65,6 @@ describe('mate(revolute) — phase 07', () => {
     const a = flatConnector('c0', 2, 3);
     const b = flatConnector('c1', -1, 4);
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [a]),
@@ -86,7 +84,6 @@ describe('mate(revolute) — phase 07', () => {
     const a = flatConnector('c0');
     const b = flatConnector('c1');
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [a]),
@@ -105,7 +102,6 @@ describe('mate(revolute) — phase 07', () => {
 
   it('two free bodies + revolute → 7 DOF (12 - 5)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), false, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -129,7 +125,6 @@ describe('mate(revolute) — phase 07', () => {
     // +y direction along its arc. The other end then moves in -y. Grab
     // direction differs → rotation sign differs.
     const solver = new Solver();
-    await solver.ensureReady();
     // Bar from (-L, 0, 0) to (L, 0, 0), connector at body center
     // (which equals body origin for this test).
     const L = 10;
@@ -184,7 +179,6 @@ describe('mate(revolute) — phase 07', () => {
 
   it('default warm-starts face-to-face (Z anti-parallel)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -204,7 +198,6 @@ describe('mate(revolute) — phase 07', () => {
 
   it('flip() warm-starts back-to-back (Z parallel)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -223,11 +216,8 @@ describe('mate(revolute) — phase 07', () => {
   });
 
   it('offset(0, 0, 5) gaps the bodies along the shared Z', async () => {
-    // The JS-side warm-start handles offset analytically (the slvs
-    // POINT_IN_2D limitation that previously dropped this is bypassed —
-    // revolute no longer goes through slvs constraints).
+    // The JS-side warm-start handles the offset analytically.
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -258,7 +248,6 @@ describe('mate(revolute) — phase 07', () => {
       localNormal: new Vector3(0, 0, 1),
     };
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         { instanceId: 'A', position: new Vector3(0, 0, 0), quaternion: new Quaternion(), grounded: true, connectors: [topConnector] },
@@ -292,7 +281,6 @@ describe('mate(revolute) — phase 07', () => {
       localNormal: new Vector3(0, 0, 1),
     };
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         { instanceId: 'A', position: new Vector3(0, 0, 0), quaternion: new Quaternion(), grounded: false, connectors: [flat] },
@@ -333,7 +321,6 @@ describe('mate(revolute) — phase 07', () => {
       localNormal: new Vector3(0, 0, 1),
     };
     const solver = new Solver();
-    await solver.ensureReady();
 
     // Initial poses chosen so the mates are already satisfied:
     //   i1 at origin; i2 face-to-face fastened with i1's axis (will be
@@ -454,7 +441,6 @@ describe('mate(revolute) — phase 07', () => {
       localNormal: new Vector3(0, 0, 1),
     };
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         // Source-order: bottom, top, left.
@@ -504,7 +490,6 @@ describe('mate(revolute) — phase 07', () => {
       localNormal: new Vector3(0, 0, 1),
     };
     const solver = new Solver();
-    await solver.ensureReady();
     // First settle the assembly with no drag.
     const settle = solver.solve({
       bodies: [

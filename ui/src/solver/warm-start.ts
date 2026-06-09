@@ -1,28 +1,19 @@
 // Per-mate warm-start + post-solve fixup, dispatched in BFS spanning-tree
-// order over the mate graph.
+// order over the mate graph. This analytical pass IS the solver for the
+// spanning tree: each tree mate's follower pose is computed in closed
+// form rather than handed to an iterative constraint solver.
 //
-// Background: slvs has no primitive for "Q_B = Q_A · R_fixed", and its
-// 2D-in-workplane connector entities project onto the body's xy plane
-// (the connector's local Z component is dropped). So `POINTS_COINCIDENT`
-// can't faithfully represent a connector that lives on a face above or
-// below the body's origin, and `PARALLEL` on body normals only matches
-// connector Z-axis parallelism when each connector's local Z aligns with
-// its body's Z. Both problems disappear if we keep the mate's follower
-// outside the solver's hands:
-//
-//   1. **Warm-start** (pre-solve, `seed<Mate>Edge`): given a tree edge
+//   1. **Warm-start** (`seed<Mate>Edge`): given a tree edge
 //      `parent→child`, compute the child's full target pose
-//      (origin + quat) analytically and write it back into the BodyState
-//      that buildSystem will consume. Set `lockPosition` and
-//      `lockOrientation` on the child so all 7 of its params are placed
-//      in `GROUP_GROUND` — slvs does not touch them, and the DOF count
-//      stays correct (a grounded driver + fastened follower → 0 DOF).
+//      (origin + quat) analytically and write it back into the
+//      BodyState. Set `lockPosition` and `lockOrientation` on the child
+//      so its pose is taken as fully determined — not a free DOF — which
+//      keeps the DOF count correct (a grounded driver + fastened
+//      follower → 0 DOF).
 //
-//   2. **Fixup** (post-solve, `fixup<Mate>Edge`): after the solver
-//      runs, the parent's pose may have changed (drag, other
-//      constraint). Recompute the child's target from the *solved*
-//      parent pose and overwrite `out.bodies[child]`. State.group then
-//      reflects the correct relation in every frame.
+//   2. **Fixup** (`fixup<Mate>Edge`): after a drag has moved the driver,
+//      recompute the child's target from the *solved* parent pose and
+//      overwrite `out.bodies[child]`, so the relation holds every frame.
 //
 // Driver/follower is fixed by graph topology: for a tree edge
 // `parent → child`, parent is the driver and child is the follower.
@@ -31,9 +22,9 @@
 // like `A grounded → revolute → B → fastened → C` propagate correctly
 // in a single pass without role-replay logic.
 //
-// Closed loops are still hard: tree-edge warm-starts cover the spanning
-// tree, but closure mates are skipped here. They get enforced by an
-// LM relaxation pass (stage 2 of the closed-loop solver plan).
+// Closed loops aren't covered by the spanning-tree warm-start: closure
+// mates are skipped here and enforced by the LM relaxation pass in
+// `loop-relaxation.ts`.
 
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import type { Component, TreeEdge } from './graph.js';
@@ -51,23 +42,16 @@ export type TreeDragInfo = {
  * Walk every component's tree edges in BFS order, applying the
  * appropriate per-mate warm-start to each. After this returns, every
  * follower body in a tree edge has `lockPosition + lockOrientation`
- * set; `buildSystem` will place those params in GROUP_GROUND.
+ * set, so its pose is taken as fully determined (not a free DOF).
  *
  * Closure edges are skipped — they're enforced by the LM relaxation
- * pass (stage 2+).
- *
- * `slvsLoopBodies` flags bodies that participate in a slvs-solvable
- * closed loop (see slvs-loop.ts). Tree edges still seed those bodies'
- * poses — slvs gets a good initial guess — but the lockPosition /
- * lockOrientation flags are cleared at the end so slvs sees the params
- * as free and can solve the closure natively.
+ * pass in `loop-relaxation.ts`.
  */
 export function applyTreeWarmStarts(
   bodies: BodyState[],
   components: Component[],
   mates: MateRecord[],
   drag: TreeDragInfo = {},
-  slvsLoopBodies: Set<string> = new Set(),
   clusters?: FastenedClusterCache,
 ): void {
   const bodyById = new Map(bodies.map(b => [b.instanceId, b]));
@@ -91,17 +75,6 @@ export function applyTreeWarmStarts(
       seedTreeEdge(edge, mates, drag, bodyById, prevPoses, clusters);
     }
   }
-  // Loop bodies in slvs-solvable components stay free at the slvs
-  // level — clear the lock flags the per-edge seeders set above. The
-  // pose remains as initial guess for slvs.
-  if (slvsLoopBodies.size > 0) {
-    for (const body of bodies) {
-      if (slvsLoopBodies.has(body.instanceId)) {
-        body.lockPosition = false;
-        body.lockOrientation = false;
-      }
-    }
-  }
 }
 
 /**
@@ -109,21 +82,14 @@ export function applyTreeWarmStarts(
  * Runs in BFS forward order so chained mates propagate: edge 1's
  * fixup updates the second body, then edge 2's fixup reads that
  * second body as its driver.
- *
- * Tree edges whose child is a slvs-solvable loop body are skipped —
- * slvs already solved the child's pose against the closure constraints,
- * and re-deriving from the parent here would overwrite that solution
- * with a single-edge fastened-style guess that ignores the closure.
  */
 export function applyTreeFixups(
   components: Component[],
   out: SolvedBody[],
-  slvsLoopBodies: Set<string> = new Set(),
 ): void {
   const outById = new Map(out.map(b => [b.instanceId, b]));
   for (const component of components) {
     for (const edge of component.treeEdges) {
-      if (slvsLoopBodies.has(edge.child.instanceId)) continue;
       fixupTreeEdge(edge, outById);
     }
   }
@@ -1086,8 +1052,8 @@ export function computeFastenedTargetPose(
 }
 
 // ---------------------------------------------------------------------------
-// DOF accounting (called by Solver.solve to add geometric DOF that slvs
-// can't see because tree-mate followers have lockPosition+lockOrientation).
+// DOF accounting (called by Solver.solve to report the assembly's remaining
+// degrees of freedom in the footer).
 // ---------------------------------------------------------------------------
 
 const PER_TYPE_FREE_DOF: Record<MateRecord['type'], number> = {
@@ -1104,24 +1070,35 @@ const PER_TYPE_FREE_DOF: Record<MateRecord['type'], number> = {
  * Sum the geometric DOF contributed by tree-edge mates. Each non-both-
  * grounded tree edge of type `revolute` (1), `slider` (1), `cylindrical`
  * (2), `planar` (3), `parallel` (5), `pin-slot` (2) contributes that
- * many DOFs that slvs can't see — the followers are locked by the
- * warm-start. Closure-edge mates and fastened mates contribute 0.
- *
- * Tree edges whose child is in `slvsLoopBodies` are skipped: those
- * followers are NOT locked, so slvs already accounts for the joint's
- * free DOF in its own per-group DOF reading.
+ * many DOFs that `countFreeBodyDof` can't see — the followers are locked
+ * by the warm-start. Closure-edge mates and fastened mates contribute 0.
  */
 export function countTreeFreeDof(
   components: Component[],
-  slvsLoopBodies: Set<string> = new Set(),
 ): number {
   let extra = 0;
   for (const component of components) {
     for (const edge of component.treeEdges) {
       if (edge.parent.grounded && edge.child.grounded) continue;
-      if (slvsLoopBodies.has(edge.child.instanceId)) continue;
       extra += PER_TYPE_FREE_DOF[edge.mate.type] ?? 0;
     }
   }
   return extra;
+}
+
+/**
+ * Free-param DOF the bodies themselves contribute: 3 for position + 3 for
+ * orientation per ungrounded body whose corresponding lock flag is unset
+ * after the warm-start (a free body → 6, a warm-start-locked follower →
+ * 0). The footer adds `countTreeFreeDof` on top for the geometric joint
+ * DOF that the locked followers otherwise hide.
+ */
+export function countFreeBodyDof(bodies: BodyState[]): number {
+  let dof = 0;
+  for (const b of bodies) {
+    if (b.grounded) continue;
+    if (!b.lockPosition) dof += 3;
+    if (!b.lockOrientation) dof += 3;
+  }
+  return dof;
 }

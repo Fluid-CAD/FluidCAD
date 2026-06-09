@@ -6,9 +6,9 @@
 // sum of squares across all residuals in a loop component.
 //
 // Residuals are pure: same input → same output, no scene-graph state,
-// no slvs. They're reused both as the LM cost (during relaxation) and
-// as a post-LM consistency check (for the joints panel red dots in
-// stage 5).
+// no external solver state. They're reused both as the LM cost (during
+// relaxation) and as a post-LM consistency check (for the joints panel
+// red dots).
 //
 // Stage 2 ships only `residualRevolute` and `residualDrag`; later
 // stages add fastened, slider, cylindrical, planar.

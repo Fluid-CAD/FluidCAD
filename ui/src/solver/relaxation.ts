@@ -1,11 +1,10 @@
 // Levenberg-Marquardt least-squares driver.
 //
 // Used by the closed-loop solver pass to relax body poses inside loop
-// components after the spanning-tree warm-start has run. The slvs
-// system can't enforce loop closures because its POINT_IN_2D entities
-// drop the connector's local Z; closure constraints have to live in
-// JS-side residuals and an LM iteration brings the loop bodies onto
-// the closure manifold.
+// components after the spanning-tree warm-start has run. The warm-start
+// only covers the spanning tree, so loop closures are expressed as
+// JS-side residuals and an LM iteration brings the loop bodies onto the
+// closure manifold.
 //
 // Implementation is hand-rolled to keep the dep graph clean. The
 // problem size is small (typically 4 bodies × 7 params = 28 variables,

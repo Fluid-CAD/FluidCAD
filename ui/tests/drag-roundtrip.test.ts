@@ -15,7 +15,6 @@ function body(id: string, grounded: boolean, x = 0, y = 0, z = 0): BodyState {
 describe('Solver drag round-trip (no constraints)', () => {
   it('50 successive drags to the same point produce no drift', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
 
     let bodies: BodyState[] = [body('g', true), body('a', false)];
     const target = new Vector3(7, 3, -2);
@@ -50,7 +49,6 @@ describe('Solver drag round-trip (no constraints)', () => {
 
   it('grounded body stays put across solves', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
 
     let bodies: BodyState[] = [body('g', true, 1, 2, 3), body('a', false)];
     const targets = [new Vector3(0, 0, 0), new Vector3(5, 0, 0), new Vector3(0, 5, 0)];

@@ -51,7 +51,6 @@ function slider(
 describe('mate(slider) — phase 08', () => {
   it('grounded + free body, slider mate → 1 DOF', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -65,7 +64,6 @@ describe('mate(slider) — phase 08', () => {
 
   it('two free bodies + slider → 7 DOF (12 - 5)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), false, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -81,7 +79,6 @@ describe('mate(slider) — phase 08', () => {
     // Rail grounded with Z axis as the slider direction. Drag the carriage
     // by its origin along +Z; carriage origin should track the cursor.
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -107,7 +104,6 @@ describe('mate(slider) — phase 08', () => {
     // carriage should not move at all (zero axial component). Without line
     // projection the carriage would jitter sideways before snapping back.
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -132,7 +128,6 @@ describe('mate(slider) — phase 08', () => {
     // z=10 (the slide value persists across solves). Then a fresh drag to
     // z=25 should land there.
     const solver = new Solver();
-    await solver.ensureReady();
     const dragTo = (carriagePos: Vector3, cursorZ: number) => solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -166,7 +161,6 @@ describe('mate(slider) — phase 08', () => {
 
   it('default warm-starts face-to-face (Z anti-parallel)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -184,7 +178,6 @@ describe('mate(slider) — phase 08', () => {
 
   it('flip() warm-starts back-to-back (Z parallel)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -204,7 +197,6 @@ describe('mate(slider) — phase 08', () => {
     // The slider locks rotation about the shared Z (X axes parallel by
     // default). `.rotate(deg)` shifts the locked angle.
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -229,7 +221,6 @@ describe('mate(slider) — phase 08', () => {
 
   it('offset(0, 0, 5) gaps the carriage by 5 along the axis at rest', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -258,7 +249,6 @@ describe('mate(slider) — phase 08', () => {
       localNormal: new Vector3(0, 0, 1),
     };
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         { instanceId: 'A', position: new Vector3(0, 0, 0), quaternion: new Quaternion(), grounded: true, connectors: [topConnector] },
@@ -287,8 +277,8 @@ describe('mate(slider) — phase 08', () => {
   });
 
   it('drag-of-driver carries follower along the axis', async () => {
-    // Both bodies free, slider mate. Driving body A by slvs free-body drag
-    // moves A; the post-fixup carries B with it.
+    // Both bodies free, slider mate. The free-body drag target moves A;
+    // the post-fixup carries B with it.
     const flat: ConnectorState = {
       connectorId: 'c',
       localOrigin: new Vector3(0, 0, 0),
@@ -296,7 +286,6 @@ describe('mate(slider) — phase 08', () => {
       localNormal: new Vector3(0, 0, 1),
     };
     const solver = new Solver();
-    await solver.ensureReady();
     // Settle first with both bodies at origin so the slider is satisfied.
     const settle = solver.solve({
       bodies: [
@@ -313,7 +302,7 @@ describe('mate(slider) — phase 08', () => {
     const aSettled = settle.bodies.find(o => o.instanceId === 'A')!;
     const bSettled = settle.bodies.find(o => o.instanceId === 'B')!;
 
-    // Drag A by free-body translation. The slvs dragged[] path moves A's
+    // Drag A by free-body translation. The free-body drag path moves A's
     // origin to (10, 0, 0); the slider fixup re-derives B from solved A,
     // preserving the slide value (zero in this case).
     const out = solver.solve({
@@ -349,7 +338,6 @@ describe('mate(slider) — phase 08', () => {
     // axial, kept perp), so LM compromised by nudging rail/c1/c3 together
     // and c3 inherited a small slide each frame.
     const solver = new Solver();
-    await solver.ensureReady();
 
     const beamConn: ConnectorState = {
       connectorId: 'attach',
@@ -440,7 +428,6 @@ describe('mate(slider) — phase 08', () => {
     // each carriage projected the perturbed rail pose onto its slide value
     // and the carriages walked along the rail every frame.
     const solver = new Solver();
-    await solver.ensureReady();
 
     const beamConn: ConnectorState = {
       connectorId: 'attach',
@@ -517,7 +504,6 @@ describe('mate(slider) — phase 08', () => {
     // Cursor moves along +Z; the grab point should track the cursor and
     // body should translate so the grab world equals the cursor.
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),

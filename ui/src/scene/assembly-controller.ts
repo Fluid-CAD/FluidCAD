@@ -89,11 +89,6 @@ export class AssemblyController {
   ) {
     this.container.name = 'assemblyContainer';
     this.attachPointerHandlers();
-    // Kick off the WASM load so the first drag doesn't pay the latency.
-    // Failures aren't fatal — the controller falls back to free-body drag.
-    this.solver.ensureReady().catch((err) => {
-      console.error('Failed to load solvespace solver:', err);
-    });
   }
 
   getContainer(): Group {
@@ -171,9 +166,7 @@ export class AssemblyController {
     }
 
     // Kick a no-drag solve so the DOF readout reflects the current state.
-    // No-op for poses while phase 05 has no mates, but the solver result
-    // (DOF, okay/inconsistent) still informs the footer pill.
-    this.scheduleSolverRefresh();
+    this.runSolverRefresh();
   }
 
   clear(): void {
@@ -337,15 +330,6 @@ export class AssemblyController {
     }
   }
 
-  private scheduleSolverRefresh(): void {
-    if (!this.solver.isReady()) {
-      // Wait for the WASM and try again. Don't block the render path.
-      this.solver.ensureReady().then(() => this.runSolverRefresh()).catch(() => {});
-      return;
-    }
-    this.runSolverRefresh();
-  }
-
   private runSolverRefresh(): void {
     if (this.instances.size === 0) {
       this.solverUpdateHandler?.({
@@ -371,7 +355,7 @@ export class AssemblyController {
     this.solverUpdateHandler = handler;
     // Replay the latest state so a freshly-attached panel sees the current
     // DOF without waiting for the next render or drag.
-    if (handler && this.solver.isReady() && this.instances.size > 0) {
+    if (handler && this.instances.size > 0) {
       this.runSolverRefresh();
     }
   }
@@ -509,52 +493,45 @@ export class AssemblyController {
     // frame's solve).
     const targetOrigin = intersection.clone().add(this.dragState.grabOffset);
 
-    if (this.solver.isReady()) {
-      // Free-body / position-pin path: pass `targetOrigin` so slvs's
-      // dragged[] anchors the body origin to the cursor (offset by grab).
-      // Mate-aware path: also pass the cursor world point and body-local
-      // grab so JS-side mate handlers (e.g. revolute) can compute the
-      // rotation that makes the *grab point* — not the body origin —
-      // track the cursor. Body-origin tracking gives the wrong sign
-      // whenever the grab is on the opposite side of the pivot from
-      // the body origin; the grab-point formulation never does.
-      const debugPerf = (globalThis as any).__solverPerf === true;
-      if (debugPerf && !(globalThis as any).__solverPerfArmed) {
-        (globalThis as any).__solverPerfArmed = true;
-        console.warn('[solverPerf] ARMED — drag, then summary prints every 20 events');
-      }
-      const tBuild0 = debugPerf ? performance.now() : 0;
-      const input: SolverInput = {
-        ...this.buildSolverInput(this.dragState.instanceId, targetOrigin),
-        draggedCursorWorld: intersection.clone(),
-        draggedGrabLocal: this.dragState.grabLocal.clone(),
-      };
-      const tBuild1 = debugPerf ? performance.now() : 0;
-      const out = this.solver.solve(input);
-      const tSolve1 = debugPerf ? performance.now() : 0;
-      if (out.result === 'okay') {
-        this.applySolverOutput(out);
-      } else {
-        // Solver rejected the drag — keep last good pose and let the user
-        // drag back into a valid configuration. Phase 06+ flashes the
-        // failing mate via the update handler; phase 05 just reports the
-        // status and leaves the body where it was.
-      }
-      this.solverUpdateHandler?.(out);
-      if (debugPerf) {
-        const tDone = performance.now();
-        const buf = (globalThis as any).__solverPerfBuf ??= [];
-        buf.push({ build: +(tBuild1 - tBuild0).toFixed(3), solve: +(tSolve1 - tBuild1).toFixed(3), apply: +(tDone - tSolve1).toFixed(3) });
-        if (buf.length >= 20) {
-          const avg = (k: 'build' | 'solve' | 'apply') => +(buf.reduce((s: number, x: any) => s + x[k], 0) / buf.length).toFixed(3);
-          console.warn(`[solverPerf] last ${buf.length} events: build=${avg('build')}ms solve=${avg('solve')}ms apply=${avg('apply')}ms`);
-          buf.length = 0;
-        }
-      }
+    // Free-body / position path: pass `targetOrigin` so a body with no
+    // mates translates to the cursor (offset by grab). Mate-aware path:
+    // also pass the cursor world point and body-local grab so JS-side
+    // mate handlers (e.g. revolute) can compute the rotation that makes
+    // the *grab point* — not the body origin — track the cursor.
+    // Body-origin tracking gives the wrong sign whenever the grab is on
+    // the opposite side of the pivot from the body origin; the grab-point
+    // formulation never does.
+    const debugPerf = (globalThis as any).__solverPerf === true;
+    if (debugPerf && !(globalThis as any).__solverPerfArmed) {
+      (globalThis as any).__solverPerfArmed = true;
+      console.warn('[solverPerf] ARMED — drag, then summary prints every 20 events');
+    }
+    const tBuild0 = debugPerf ? performance.now() : 0;
+    const input: SolverInput = {
+      ...this.buildSolverInput(this.dragState.instanceId, targetOrigin),
+      draggedCursorWorld: intersection.clone(),
+      draggedGrabLocal: this.dragState.grabLocal.clone(),
+    };
+    const tBuild1 = debugPerf ? performance.now() : 0;
+    const out = this.solver.solve(input);
+    const tSolve1 = debugPerf ? performance.now() : 0;
+    if (out.result === 'okay') {
+      this.applySolverOutput(out);
     } else {
-      // Solver hasn't loaded yet — fall back to free-body translation so
-      // the user isn't blocked. Becomes solver-driven once WASM resolves.
-      state.group.position.copy(targetOrigin);
+      // Solver rejected the drag — keep last good pose and let the user
+      // drag back into a valid configuration. The update handler reports
+      // the status so the joints panel can flash the failing mate.
+    }
+    this.solverUpdateHandler?.(out);
+    if (debugPerf) {
+      const tDone = performance.now();
+      const buf = (globalThis as any).__solverPerfBuf ??= [];
+      buf.push({ build: +(tBuild1 - tBuild0).toFixed(3), solve: +(tSolve1 - tBuild1).toFixed(3), apply: +(tDone - tSolve1).toFixed(3) });
+      if (buf.length >= 20) {
+        const avg = (k: 'build' | 'solve' | 'apply') => +(buf.reduce((s: number, x: any) => s + x[k], 0) / buf.length).toFixed(3);
+        console.warn(`[solverPerf] last ${buf.length} events: build=${avg('build')}ms solve=${avg('solve')}ms apply=${avg('apply')}ms`);
+        buf.length = 0;
+      }
     }
     this.requestRender();
     e.stopImmediatePropagation();

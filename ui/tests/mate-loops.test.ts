@@ -124,7 +124,6 @@ describe('mate-loops — closed loops via LM relaxation', () => {
     // pre-satisfied.
     const setup = buildParallelogram();
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({ bodies: setup.bodies, mates: setup.mates });
     expect(out.result).toBe('okay');
 
@@ -157,7 +156,6 @@ describe('mate-loops — closed loops via LM relaxation', () => {
     setup.bodies[3].quaternion.set(0, 0, 0, 1); // identity → not on parallelogram
 
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({ bodies: setup.bodies, mates: setup.mates });
     expect(out.result).toBe('okay');
 
@@ -199,7 +197,6 @@ describe('mate-loops — closed loops via LM relaxation', () => {
       },
     ];
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({ bodies, mates });
     expect(out.result).toBe('okay');
 
@@ -245,7 +242,6 @@ describe('mate-loops — closed loops via LM relaxation', () => {
     const cH2 = { ...aH2 };
 
     const solver = new Solver();
-    await solver.ensureReady();
 
     // Settle the chain at the canonical face-to-face seed (B and C
     // stretched along world +x from A).
@@ -344,7 +340,6 @@ describe('mate-loops — closed loops via LM relaxation', () => {
       fastened('m3', { i: 'A', c: 'h' }, { i: 'C', c: 'h' }, { flip: true }),
     ];
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({ bodies, mates });
     expect(out.result).toBe('okay');
 
@@ -393,7 +388,6 @@ describe('mate-loops — closed loops via LM relaxation', () => {
     });
 
     const solver = new Solver();
-    await solver.ensureReady();
 
     // Settle from the user's seed: bottom grounded at origin; top, left,
     // right placed with meaningful offsets so the warm-start has work to
@@ -476,7 +470,6 @@ describe('mate-loops — closed loops via LM relaxation', () => {
     // mates must still be satisfied.
     const setup = buildParallelogram();
     const solver = new Solver();
-    await solver.ensureReady();
     const settle = solver.solve({ bodies: setup.bodies, mates: setup.mates });
     expect(settle.result).toBe('okay');
 

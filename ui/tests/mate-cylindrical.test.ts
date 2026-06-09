@@ -51,7 +51,6 @@ function cylindrical(
 describe('mate(cylindrical) — phase 09', () => {
   it('grounded + free body, cylindrical mate → 2 DOF', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -65,7 +64,6 @@ describe('mate(cylindrical) — phase 09', () => {
 
   it('two free bodies + cylindrical → 8 DOF (12 - 4)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), false, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -81,7 +79,6 @@ describe('mate(cylindrical) — phase 09', () => {
     const a = flatConnector('c0', 0, 0);
     const b = flatConnector('c1', 0, 0);
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [a]),
@@ -104,7 +101,6 @@ describe('mate(cylindrical) — phase 09', () => {
   it('drag along the axis translates the carriage', async () => {
     // Cursor moves only along +Z. Carriage origin should track to z=12.
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -129,7 +125,6 @@ describe('mate(cylindrical) — phase 09', () => {
     // jump sideways. Because the cursor is in the Z-perp plane, axial slide
     // stays at zero.
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -157,7 +152,6 @@ describe('mate(cylindrical) — phase 09', () => {
     // Grab at (5, 0, 0), cursor at (0, 5, 8): expected slide ≈ 8 along Z,
     // rotation ≈ 90° about Z.
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -180,7 +174,6 @@ describe('mate(cylindrical) — phase 09', () => {
     // First drag: slide to z=10. Second drag (no fresh start): rotate 90°
     // around Z while keeping z=10.
     const solver = new Solver();
-    await solver.ensureReady();
     const o1 = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -226,7 +219,6 @@ describe('mate(cylindrical) — phase 09', () => {
 
   it('default warm-starts face-to-face (Z anti-parallel)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -244,7 +236,6 @@ describe('mate(cylindrical) — phase 09', () => {
 
   it('flip() warm-starts back-to-back (Z parallel)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -266,7 +257,6 @@ describe('mate(cylindrical) — phase 09', () => {
     // follower lands on-axis with the seeded angle, subsequent solves
     // preserve it (same semantics as slider's offset hint).
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -288,7 +278,6 @@ describe('mate(cylindrical) — phase 09', () => {
 
   it('offset(0, 0, 5) seeds the carriage 5 along the axis at rest', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -317,7 +306,6 @@ describe('mate(cylindrical) — phase 09', () => {
       localNormal: new Vector3(0, 0, 1),
     };
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         { instanceId: 'A', position: new Vector3(0, 0, 0), quaternion: new Quaternion(), grounded: true, connectors: [topConnector] },
@@ -346,7 +334,7 @@ describe('mate(cylindrical) — phase 09', () => {
 
   it('drag-of-driver carries follower along the axis', async () => {
     // Both bodies free + cylindrical mate. Driving body A by free-body drag
-    // (slvs `dragged[]`) moves A; the post-fixup carries B with it.
+    // (free-body drag target) moves A; the post-fixup carries B with it.
     const flat: ConnectorState = {
       connectorId: 'c',
       localOrigin: new Vector3(0, 0, 0),
@@ -354,7 +342,6 @@ describe('mate(cylindrical) — phase 09', () => {
       localNormal: new Vector3(0, 0, 1),
     };
     const solver = new Solver();
-    await solver.ensureReady();
     // Settle first with both at origin so the cylindrical is satisfied.
     const settle = solver.solve({
       bodies: [
@@ -404,7 +391,6 @@ describe('mate(cylindrical) — phase 09', () => {
       localNormal: new Vector3(0, 0, 1),
     });
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         // Three grounded supports along the +Z axis (origin offsets along Z
@@ -428,8 +414,8 @@ describe('mate(cylindrical) — phase 09', () => {
       ],
     });
     expect(out.result).toBe('okay');
-    // Counter currently sums per-mate (3 × 2 = 6); slvs reports 0 active
-    // body params (shaft is locked by the warm-start). The geometric DOF
+    // Counter currently sums per-mate (3 × 2 = 6); countFreeBodyDof reports
+    // 0 (shaft is locked by the warm-start). The geometric DOF
     // is 2 — redundancy detection (which would clamp this) lands later;
     // this test pins the current behavior so a future redundancy pass
     // can lower the assertion intentionally.
@@ -440,7 +426,6 @@ describe('mate(cylindrical) — phase 09', () => {
     // Grab off-origin on the +X face, drag straight up (+Z). Carriage slides
     // axially (the in-plane component is zero, no rotation).
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),

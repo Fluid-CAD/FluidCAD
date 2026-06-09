@@ -19,7 +19,6 @@ function groundedBody(id: string, x = 0, y = 0, z = 0): BodyState {
 describe('Solver — empty assembly (phase 05)', () => {
   it('grounded body alone has 0 DOF', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({ bodies: [groundedBody('a')], mates: [] });
     expect(out.result).toBe('okay');
     expect(out.dof).toBe(0);
@@ -27,7 +26,6 @@ describe('Solver — empty assembly (phase 05)', () => {
 
   it('one grounded + one free body has 6 DOF', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [groundedBody('g'), freeBody('a', 5, 5, 5)],
       mates: [],
@@ -39,7 +37,6 @@ describe('Solver — empty assembly (phase 05)', () => {
 
   it('drag a free body to (10, 0, 0)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [groundedBody('g'), freeBody('a')],
       mates: [],
@@ -55,7 +52,6 @@ describe('Solver — empty assembly (phase 05)', () => {
 
   it('two free bodies report 12 DOF', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [freeBody('a'), freeBody('b', 1, 2, 3)],
       mates: [],
@@ -66,7 +62,6 @@ describe('Solver — empty assembly (phase 05)', () => {
 
   it('zero bodies returns okay with 0 DOF', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({ bodies: [], mates: [] });
     expect(out.result).toBe('okay');
     expect(out.dof).toBe(0);

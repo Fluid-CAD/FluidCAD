@@ -45,7 +45,6 @@ function fastened(
 describe('mate(fastened) — phase 06', () => {
   it('one grounded + one free, fastened: 0 DOF, free body lands at A', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -63,7 +62,6 @@ describe('mate(fastened) — phase 06', () => {
 
   it('two free bodies + fastened: 6 DOF (rigid pair)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), false, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -77,7 +75,6 @@ describe('mate(fastened) — phase 06', () => {
 
   it('offset(5, 0, 0) places B at A.connectorOrigin + (5, 0, 0)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0', 2, 3)]),
@@ -111,7 +108,6 @@ describe('mate(fastened) — phase 06', () => {
       localNormal: new Vector3(0, 0, 1),
     };
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         { instanceId: 'A', position: new Vector3(0, 0, 0), quaternion: new Quaternion(), grounded: true, connectors: [topConnector] },
@@ -156,7 +152,6 @@ describe('mate(fastened) — phase 06', () => {
       localNormal: new Vector3(0, 0, 1),
     };
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         { instanceId: 'A', position: new Vector3(0, 0, 0), quaternion: new Quaternion(), grounded: true, connectors: [flat] },
@@ -191,7 +186,6 @@ describe('mate(fastened) — phase 06', () => {
       localNormal: new Vector3(0, 0, 1),
     };
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         { instanceId: 'A', position: new Vector3(0, 0, 0), quaternion: new Quaternion(), grounded: false, connectors: [flat] },
@@ -219,7 +213,6 @@ describe('mate(fastened) — phase 06', () => {
 
   it('default fastened orients the follower face-to-face (Z anti-parallel)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -240,7 +233,6 @@ describe('mate(fastened) — phase 06', () => {
 
   it('flip() produces back-to-back orientation (Z parallel)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -258,7 +250,6 @@ describe('mate(fastened) — phase 06', () => {
 
   it('rotate(90) rotates follower 90° about driver Z', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),

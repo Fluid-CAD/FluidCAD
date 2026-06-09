@@ -51,7 +51,6 @@ function planar(
 describe('mate(planar) — phase 10', () => {
   it('grounded + free body, planar mate → 3 DOF', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -65,7 +64,6 @@ describe('mate(planar) — phase 10', () => {
 
   it('two free bodies + planar → 9 DOF (12 - 3)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), false, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -81,7 +79,6 @@ describe('mate(planar) — phase 10', () => {
     const a = flatConnector('c0', 0, 0);
     const b = flatConnector('c1', 0, 0);
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [a]),
@@ -101,7 +98,6 @@ describe('mate(planar) — phase 10', () => {
 
   it('drag in-plane translates the book to the cursor', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -124,7 +120,6 @@ describe('mate(planar) — phase 10', () => {
     // Cursor includes a Z component (into/out of the plane). The book
     // should ignore that Z and just slide to the in-plane projection.
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -146,7 +141,6 @@ describe('mate(planar) — phase 10', () => {
 
   it('successive drags accumulate (slide preserved across solves)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const o1 = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -190,7 +184,6 @@ describe('mate(planar) — phase 10', () => {
 
   it('default warm-starts face-to-face (Z anti-parallel)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -208,7 +201,6 @@ describe('mate(planar) — phase 10', () => {
 
   it('flip() warm-starts back-to-back (Z parallel)', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -226,7 +218,6 @@ describe('mate(planar) — phase 10', () => {
 
   it('rotate(45) seeds the angular position', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -248,7 +239,6 @@ describe('mate(planar) — phase 10', () => {
 
   it('offset(0, 0, 5) lifts the book 5 above the table; in-plane drag preserves the gap', async () => {
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
@@ -296,7 +286,6 @@ describe('mate(planar) — phase 10', () => {
       localNormal: new Vector3(0, 0, 1),
     };
     const solver = new Solver();
-    await solver.ensureReady();
     const out = solver.solve({
       bodies: [
         { instanceId: 'A', position: new Vector3(0, 0, 0), quaternion: new Quaternion(), grounded: true, connectors: [topConnector] },
@@ -322,8 +311,8 @@ describe('mate(planar) — phase 10', () => {
   });
 
   it('drag-of-driver carries follower on the plane', async () => {
-    // Both bodies free + planar mate. Driving body A by free-body drag
-    // (slvs `dragged[]`) translates A; the post-fixup carries B with it.
+    // Both bodies free + planar mate. The free-body drag target
+    // translates A; the post-fixup carries B with it.
     const flat: ConnectorState = {
       connectorId: 'c',
       localOrigin: new Vector3(0, 0, 0),
@@ -331,7 +320,6 @@ describe('mate(planar) — phase 10', () => {
       localNormal: new Vector3(0, 0, 1),
     };
     const solver = new Solver();
-    await solver.ensureReady();
     // Settle first with both at origin so the planar is satisfied.
     const settle = solver.solve({
       bodies: [

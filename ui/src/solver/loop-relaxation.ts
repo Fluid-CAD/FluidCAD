@@ -82,22 +82,15 @@ const LM_SKIP_THRESHOLD = 1e-6;
  * relaxation pass. Mutates body poses in-place when LM converges (or
  * settles on a low-residual config); leaves them at warm-start poses
  * on outright failure.
- *
- * `skipComponentIndices` enumerates components that the slvs-solvable
- * path is handling natively (see slvs-loop.ts). Those components have
- * had their loop bodies' lock flags cleared and emit real slvs
- * constraints, so the JS-side LM would just fight slvs.
  */
 export function applyLoopRelaxations(
   bodies: BodyState[],
   components: Component[],
   drag: LoopDragInfo = {},
-  skipComponentIndices: Set<number> = new Set(),
 ): void {
   if (components.length === 0) return;
   const bodyById = new Map(bodies.map(b => [b.instanceId, b]));
-  components.forEach((component, idx) => {
-    if (skipComponentIndices.has(idx)) return;
+  components.forEach((component) => {
     if (!shouldRelax(component, drag)) return;
     relaxComponent(component, bodyById, drag);
   });

@@ -16,28 +16,22 @@ export type BodyState = {
   grounded: boolean;
   connectors: ConnectorState[];
   /**
-   * When true, the body's quaternion params are placed in GROUP_GROUND while
-   * its origin params stay in GROUP_ACTIVE. The solver treats orientation as
-   * a known constant and only solves the body's position. Mate compilers
-   * (e.g. fastened) flip this on for follower bodies whose orientation is
-   * fully determined by a "driver" body's pose, after the controller has
-   * pre-set the right quaternion via warm-start.
+   * Set by the warm-start when the body's orientation is fully determined
+   * by its driver (a follower whose quaternion the warm-start has already
+   * computed). It is not counted as a free DOF, and the post-solve fixup
+   * re-derives it from the solved driver pose.
    */
   lockOrientation?: boolean;
   /**
-   * When true, the body's origin params are placed in GROUP_GROUND too.
-   * Set on fastened-mate followers whose full pose (origin + orientation) is
-   * fully determined by the driver. The solver then doesn't move the body at
-   * all, and a post-solve fixup writes the follower's pose from the actual
-   * solved driver pose.
+   * Set by the warm-start when the body's origin is also fully determined
+   * by its driver (a follower whose full pose — origin + orientation — the
+   * warm-start has computed). The body isn't moved by the solve, and a
+   * post-solve fixup writes its pose from the solved driver pose.
    */
   lockPosition?: boolean;
 };
 
-/**
- * Mate compilation lands in phases 06+. Kept here so phase 05's solver can
- * accept an empty array now and not change shape later.
- */
+/** One mate (joint) between two connectors. */
 export type MateRecord = {
   mateId: string;
   type: 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot';
@@ -58,9 +52,9 @@ export type SolverInput = {
    * not re-derive it. This avoids the offset drifting as the body moves
    * across successive solves.
    *
-   * Used by free-body slvs `dragged[]` pinning. Mate-aware drag handlers
-   * use `draggedCursorWorld` + `draggedGrabLocal` instead — see those
-   * fields for why.
+   * Used to translate a dragged free body (one with no mates). Mate-aware
+   * drag handlers use `draggedCursorWorld` + `draggedGrabLocal` instead —
+   * see those fields for why.
    */
   draggedTargetOrigin?: Vector3;
   /**

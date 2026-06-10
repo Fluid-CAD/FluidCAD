@@ -12,7 +12,10 @@ export class ShapeProps {
     const oc = getOC();
 
     const volumeProps = new oc.GProp_GProps();
-    oc.BRepGProp.VolumeProperties(shape, volumeProps, false, false, false);
+    // Eps-driven adaptive integration: the default fixed-order quadrature
+    // under-integrates faces trimmed by fitted B-spline pcurves (seen with
+    // wrap() pads — ~7% volume error) while this overload stays exact.
+    oc.BRepGProp.VolumeProperties(shape, volumeProps, 1e-6, false, false);
     const volumeMm3 = volumeProps.Mass();
     const cog = volumeProps.CentreOfMass();
     const centroid = { x: cog.X(), y: cog.Y(), z: cog.Z() };

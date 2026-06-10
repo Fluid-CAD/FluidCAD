@@ -1006,6 +1006,69 @@ export interface IRib extends IBooleanOperation {
   extend(): this;
 }
 
+export interface IWrap extends IBooleanOperation {
+  /**
+   * Selects the faces lying on the target surface (the base of the wrap).
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  startFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects the raised (or recessed) faces offset from the target surface by the wrap thickness.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  endFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the base faces of the wrap.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  startEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the offset faces of the wrap.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  endEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects the wall faces created from the outer boundary of each wrapped region.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  sideFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the wall faces, excluding edges shared with base/offset faces.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  sideEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects the wall faces created from holes inside a wrapped region.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  internalFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges bounding the hole walls of the wrap.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Enables or disables drill mode, which partitions the sketch into face regions
+   * before wrapping.
+   * @param value - `true` to enable (default), `false` to disable.
+   */
+  drill(value?: boolean): this;
+
+  /**
+   * Restricts wrapping to only the sketch regions containing the given points.
+   * @param points - 2D points in the sketch plane identifying regions to wrap.
+   */
+  pick(...points: Point2DLike[]): this;
+}
+
 export type ShellJoinType = 'arc' | 'intersection' | 'tangent';
 
 export interface IShell extends ISceneObject {

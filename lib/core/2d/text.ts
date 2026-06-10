@@ -18,11 +18,36 @@ interface TextFunction {
    * @param text - The string to render.
    */
   (plane: PlaneLike | ISceneObject, text: string): IText;
+  /**
+   * Renders a text string following a planar curve. Each glyph is placed
+   * upright along the path's arc length; the text plane is the path's plane.
+   * Works inside a sketch (following a curve of that sketch) or standalone.
+   * The path is consumed — mark it `.reusable()` to keep it, e.g. to lay
+   * several texts on one path.
+   * @param text - The string to render.
+   * @param path - The curve to follow: a sketch curve (line/arc/circle), a
+   *   whole sketch, a planar primitive, or a selected edge/edge loop
+   *   (e.g. `select(edge().circle())`).
+   */
+  (text: string, path: ISceneObject): IText;
 }
 
 function build(context: SceneParserContext): TextFunction {
   return function text(): IText {
     const first = arguments[0];
+    const second = arguments[1];
+
+    // A trailing scene object is a path to follow: `text("Hi", path)`.
+    // Valid both standalone and inside a sketch (following a sketch curve).
+    if (arguments.length >= 2 && second instanceof SceneObject) {
+      if (typeof first !== "string") {
+        throw new Error("text: when following a path, the first argument must be the text string.");
+      }
+      const obj = new Text(first, null, second);
+      context.addSceneObject(obj);
+      return obj;
+    }
+
     // A leading plane/face is only valid standalone and only when a string
     // follows it; `text("xy")` (one arg) renders the literal string "xy".
     const standalone = arguments.length >= 2 && (isPlaneLike(first) || first instanceof SceneObject);

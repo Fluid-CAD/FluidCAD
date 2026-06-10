@@ -198,10 +198,16 @@ export interface IText extends IExtrudableGeometry {
   italic(value?: boolean): this;
 
   /**
-   * Horizontal alignment of the text relative to its origin point.
-   * @param value - `"left"` (default), `"center"`, or `"right"`.
+   * Horizontal alignment of the text. For straight text it is relative to the
+   * origin point; for text along a path it positions the run against the
+   * path: `"start"` begins at the path's start, `"center"` centers on the
+   * midpoint, `"end"` finishes at the path's end, and `"stretch"` justifies
+   * the glyphs evenly across the whole path (path text only). `"left"` and
+   * `"right"` are synonyms of `"start"` and `"end"`.
+   * @param value - `"left"`/`"start"` (default), `"center"`,
+   *   `"right"`/`"end"`, or `"stretch"`.
    */
-  align(value: "left" | "center" | "right"): this;
+  align(value: "left" | "center" | "right" | "start" | "end" | "stretch"): this;
 
   /**
    * Line-height multiplier for multi-line text (newlines in the string).
@@ -214,6 +220,31 @@ export interface IText extends IExtrudableGeometry {
    * @param value - The additional advance per glyph.
    */
   letterSpacing(value: number): this;
+
+  /**
+   * Shifts the baseline perpendicular to the path, in model units: positive
+   * values move the text toward its "up" side, negative below the path.
+   * Only applies to text following a path (`text(string, path)`).
+   * @param value - The perpendicular baseline shift.
+   */
+  offset(value: number): this;
+
+  /**
+   * Mirrors the text to the other side of the path, reversing the reading
+   * direction. On a closed path (circle, loop) text sits on the outside by
+   * default — `.flip()` moves it inside. On an open path it mirrors the text
+   * below the curve. Only applies to text following a path.
+   * @param value - Whether to flip (defaults to true).
+   */
+  flip(value?: boolean): this;
+
+  /**
+   * Shifts where the text starts along the path, as an arc-length distance
+   * from the path's start (combines with `align()`). On a closed path the
+   * text wraps around. Only applies to text following a path.
+   * @param distance - The arc-length shift in model units.
+   */
+  startAt(distance: number): this;
 }
 
 export interface IOffset extends IExtrudableGeometry {

@@ -170,14 +170,19 @@ Renders the italic/oblique face of the font.
 ### align()
 
 ```ts
-align(value: "left" | "right" | "center"): this
+align(value: "left" | "right" | "center" | "start" | "end" | "stretch"): this
 ```
 
-Horizontal alignment of the text relative to its origin point.
+Horizontal alignment of the text. For straight text it is relative to the
+origin point; for text along a path it positions the run against the
+path: `"start"` begins at the path's start, `"center"` centers on the
+midpoint, `"end"` finishes at the path's end, and `"stretch"` justifies
+the glyphs evenly across the whole path (path text only). `"left"` and
+`"right"` are synonyms of `"start"` and `"end"`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `value` | "left" \| "right" \| "center" | `"left"` (default), `"center"`, or `"right"`. |
+| `value` | "left" \| "right" \| "center" \| "start" \| "end" \| "stretch" | `"left"`/`"start"` (default), `"center"`, `"right"`/`"end"`, or `"stretch"`. |
 
 ---
 
@@ -206,4 +211,53 @@ Extra spacing added between glyphs, in model units (default 0).
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `value` | number | The additional advance per glyph. |
+
+---
+
+### offset()
+
+```ts
+offset(value: number): this
+```
+
+Shifts the baseline perpendicular to the path, in model units: positive
+values move the text toward its "up" side, negative below the path.
+Only applies to text following a path (`text(string, path)`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | number | The perpendicular baseline shift. |
+
+---
+
+### flip()
+
+```ts
+flip(value?: boolean): this
+```
+
+Mirrors the text to the other side of the path, reversing the reading
+direction. On a closed path (circle, loop) text sits on the outside by
+default — `.flip()` moves it inside. On an open path it mirrors the text
+below the curve. Only applies to text following a path.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | boolean | Whether to flip (defaults to true). *(optional)* |
+
+---
+
+### startAt()
+
+```ts
+startAt(distance: number): this
+```
+
+Shifts where the text starts along the path, as an arc-length distance
+from the path's start (combines with `align()`). On a closed path the
+text wraps around. Only applies to text following a path.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance` | number | The arc-length shift in model units. |
 

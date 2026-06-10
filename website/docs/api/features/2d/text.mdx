@@ -7,6 +7,7 @@ description: "Renders a text string as extrudable outline geometry inside the cu
 import text_alignExample from '!!raw-loader!../../_examples/text-align.js';
 import text_basicExample from '!!raw-loader!../../_examples/text-basic.js';
 import text_fontExample from '!!raw-loader!../../_examples/text-font.js';
+import text_pathExample from '!!raw-loader!../../_examples/text-path.js';
 import CodeBlock from '@theme/CodeBlock';
 
 # text()
@@ -46,6 +47,23 @@ Renders a text string on a specific plane (standalone, outside a sketch).
 | `plane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane (e.g. "xy") or face to render the text on. |
 | `text` | string | The string to render. |
 
+---
+
+```ts
+text(text: string, path: SceneObject): Text
+```
+
+Renders a text string following a planar curve. Each glyph is placed
+upright along the path's arc length; the text plane is the path's plane.
+Works inside a sketch (following a curve of that sketch) or standalone.
+The path is consumed — mark it `.reusable()` to keep it, e.g. to lay
+several texts on one path.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `text` | string | The string to render. |
+| `path` | [SceneObject](/docs/api/types/scene-object) | The curve to follow: a sketch curve (line/arc/circle), a whole sketch, a planar primitive, or a selected edge/edge loop (e.g. `select(edge().circle())`). |
+
 ## Examples
 
 <CodeBlock language="js">{text_alignExample}</CodeBlock>
@@ -59,3 +77,7 @@ Renders a text string on a specific plane (standalone, outside a sketch).
 <CodeBlock language="js">{text_fontExample}</CodeBlock>
 
 ![text example](/img/docs/api/text-font.png)
+
+<CodeBlock language="js">{text_pathExample}</CodeBlock>
+
+![text example](/img/docs/api/text-path.png)

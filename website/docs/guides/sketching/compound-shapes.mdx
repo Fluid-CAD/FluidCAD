@@ -11,6 +11,10 @@ import compoundSlotEdge from '!!raw-loader!./_examples/compound-slot-edge.js';
 import compoundText from '!!raw-loader!./_examples/compound-text.js';
 import compoundTextFonts from '!!raw-loader!./_examples/compound-text-fonts.js';
 import compoundTextExtruded from '!!raw-loader!./_examples/compound-text-extruded.js';
+import compoundTextPath from '!!raw-loader!./_examples/compound-text-path.js';
+import compoundTextPathAlign from '!!raw-loader!./_examples/compound-text-path-align.js';
+import compoundTextPathFlip from '!!raw-loader!./_examples/compound-text-path-flip.js';
+import compoundTextPathOffset from '!!raw-loader!./_examples/compound-text-path-offset.js';
 
 # Compound Geometries
 
@@ -99,3 +103,39 @@ Because `text()` is ordinary sketch geometry, you extrude it like any other prof
 ![Extruded 3D text](/img/docs/sketching/compound-text-extruded.png)
 
 For multi-line strings (`\n`), set `.align("left" | "center" | "right")`, and fine-tune spacing with `.lineSpacing()` and `.letterSpacing()`.
+
+### Text along a path
+
+`text(string, path)` lays the glyphs along a curve instead of a straight baseline. The path can be a curve in the same sketch, a whole sketch, a standalone primitive (e.g. `circle("xy", 80)`), or edges selected from existing geometry (e.g. `select(edge().circle())` for a cylinder rim). The path must be planar; the text lies in the path's plane.
+
+<CodeBlock language="js">{compoundTextPath}</CodeBlock>
+
+![Text along an arc](/img/docs/sketching/compound-text-path.png)
+
+Like other consuming features, the text consumes its path: the curve becomes the baseline and is removed from the scene, so it never leaks into an extruded profile. Mark the path `.reusable()` to keep it — e.g. to lay several texts on one path, as the flip and offset examples below do.
+
+Glyph spacing is measured as arc length, so kerning and `.letterSpacing()` behave exactly like straight text. To slide the text start along the path by an arc-length distance, use `.startAt(d)`.
+
+#### Aligning on a path
+
+`.align()` positions the run against the path: `"start"` begins at the path's start, `"center"` centers it on the midpoint, `"end"` finishes at the path's end, and `"stretch"` justifies the glyphs evenly across the whole path (`"left"`/`"right"` work as synonyms of `"start"`/`"end"`):
+
+<CodeBlock language="js">{compoundTextPathAlign}</CodeBlock>
+
+![Path text alignment: start, center, end, stretch](/img/docs/sketching/compound-text-path-align.png)
+
+#### Outside or inside: flip
+
+On a closed path (a full circle) the text wraps around and sits on the **outside** by default — `"stretch"` then spaces the glyphs evenly around the loop. `.flip()` mirrors the text to the other side of the path and reverses the reading direction: on a circle it moves the text inside; on an open curve it mirrors the text below the path:
+
+<CodeBlock language="js">{compoundTextPathFlip}</CodeBlock>
+
+![Text outside and inside a circle](/img/docs/sketching/compound-text-path-flip.png)
+
+#### Floating off the path: offset
+
+`.offset(d)` shifts the baseline perpendicular to the path — positive values float the text above the curve, negative values tuck it below:
+
+<CodeBlock language="js">{compoundTextPathOffset}</CodeBlock>
+
+![Text offset above and below an arc](/img/docs/sketching/compound-text-path-offset.png)

@@ -7,7 +7,7 @@ import revolve from "../../core/revolve.js";
 import cylinder from "../../core/cylinder.js";
 import select from "../../core/select.js";
 import plane from "../../core/plane.js";
-import { circle, line, move, rect, text, vMove } from "../../core/2d/index.js";
+import { circle, line, move, rect, slot, text, vMove } from "../../core/2d/index.js";
 import { face } from "../../filters/index.js";
 import { Wrap } from "../../features/wrap.js";
 import { Extrude } from "../../features/extrude.js";
@@ -266,6 +266,30 @@ describe("wrap", () => {
       expect(countShapes(scene)).toBe(1);
       expect(facesState(w, 'end-faces')).toHaveLength(1);
       expect(facesState(w, 'side-faces')).toHaveLength(4);
+    });
+  });
+
+  describe("slot decals", () => {
+    // The slot's tangent line-to-arc junctions exposed the miscompiled
+    // Geom2dAPI_PointsToBSpline binding (cap pcurves bulged 70% past the
+    // samples, rendering as fins). The in-house interpolation keeps the
+    // wrapped boundary exact.
+    it("wraps a slot with an exact pad volume", () => {
+      cylinder(25, 80).translate(0, 0, 0);
+      const faceSelection = select(face().cylinder());
+      sketch(plane("front", 40), () => {
+        slot([0, 10], [0, 50], 5);
+      });
+
+      const w = wrap(1, faceSelection) as Wrap;
+      const scene = render();
+
+      expect(w.getError()).toBeNull();
+      expect(countShapes(scene)).toBe(1);
+      // Slot region (10×40 rect + π·5² disc) wrapped from r=25 to r=26.
+      const area = 10 * 40 + Math.PI * 25;
+      const expected = Math.PI * 625 * 80 + (area / 25) * ((26 * 26 - 25 * 25) / 2);
+      expect(volumeOf(w)).toBeCloseTo(expected, 1);
     });
   });
 

@@ -18,11 +18,10 @@ import { Point } from "../math/point.js";
 import {
   ConeDevelopment, CylinderDevelopment, Development, UV,
 } from "./wrap-development.js";
+import { interpolateBSpline2d } from "../math/bspline-interpolation.js";
 
 /** Sample points per curved sketch edge before fitting its UV pcurve. */
 const CURVED_EDGE_SAMPLES = 48;
-/** Approximation tolerance for fitted UV pcurves. */
-const FIT_TOLERANCE_2D = 1e-6;
 /** Margin (radians) kept free so a wrapped region never closes on itself. */
 const FULL_TURN_MARGIN = 1e-3;
 /** Walls are ruled along the surface normal, so their normals are (near) perpendicular to it. */
@@ -314,55 +313,39 @@ export class WrapOps {
     return result;
   }
 
-  /** Fits the developed UV samples of one sketch edge with a 2D B-spline. */
+  /**
+   * Interpolates the developed UV samples of one sketch edge with a 2D
+   * B-spline that passes exactly through every sample (so adjacent wire
+   * edges meet bit-exactly — no endpoint snapping needed).
+   *
+   * The poles/knots are computed in-house: fluidcad-ocjs currently
+   * miscompiles `Geom2dAPI_PointsToBSpline` — both its array constructors
+   * (NaN poles) and its `Init` path (the "fit" of a clean semicircle bulged
+   * 70% past the samples). `Geom2d_BSplineCurve`'s array constructor is
+   * unaffected.
+   */
   private static fitUvCurve(samples: UV[]): Geom2d_BSplineCurve {
     const oc = getOC();
+    const data = interpolateBSpline2d(samples.map(s => ({ x: s.u, y: s.v })));
 
-    const points = new oc.NCollection_Array1_gp_Pnt2d(1, samples.length);
-    for (let i = 0; i < samples.length; i++) {
-      const point = new oc.gp_Pnt2d(samples[i].u, samples[i].v);
-      points.SetValue(i + 1, point);
+    const poles = new oc.NCollection_Array1_gp_Pnt2d(1, data.poles.length);
+    for (let i = 0; i < data.poles.length; i++) {
+      const point = new oc.gp_Pnt2d(data.poles[i].x, data.poles[i].y);
+      poles.SetValue(i + 1, point);
       point.delete();
     }
-
-    // The array-taking constructors are miscompiled in the current
-    // fluidcad-ocjs build (the fit reads garbage and returns NaN poles);
-    // the empty-constructor + Init path is unaffected.
-    //
-    // The fit must stay CUBIC (DegMax = 3, not OCC's default 8): higher
-    // degrees satisfy the tolerance at the samples but oscillate between
-    // them near the clamped ends — a sub-sample-width flick that the
-    // deflection-driven mesher then traces as a visible notch at every
-    // glyph joint (the "weird O edges" bug).
-    const fit = new oc.Geom2dAPI_PointsToBSpline();
-    fit.Init(points, 3, 3, oc.GeomAbs_Shape.GeomAbs_C2, FIT_TOLERANCE_2D);
-    try {
-      if (!fit.IsDone()) {
-        throw new Error("wrap(): failed to fit a sketch edge onto the target surface");
-      }
-      const curve = fit.Curve();
-      WrapOps.snapEndPoles(curve, samples[0], samples[samples.length - 1]);
-      return curve;
-    } finally {
-      fit.delete();
-      points.delete();
+    const knots = new oc.NCollection_Array1_double(1, data.knots.length);
+    const multiplicities = new oc.NCollection_Array1_int(1, data.knots.length);
+    for (let i = 0; i < data.knots.length; i++) {
+      knots.SetValue(i + 1, data.knots[i]);
+      multiplicities.SetValue(i + 1, data.multiplicities[i]);
     }
-  }
 
-  /**
-   * Pins the fitted curve's endpoints to the exact endpoint samples. The fit
-   * only guarantees the ends within its tolerance, but adjacent wire edges
-   * must meet within wire-building precision; on a clamped B-spline the first
-   * and last poles ARE the endpoints, so moving them is an exact, local fix.
-   */
-  private static snapEndPoles(curve: Geom2d_BSplineCurve, start: UV, end: UV): void {
-    const oc = getOC();
-    const startPole = new oc.gp_Pnt2d(start.u, start.v);
-    const endPole = new oc.gp_Pnt2d(end.u, end.v);
-    curve.SetPole(1, startPole);
-    curve.SetPole(curve.NbPoles(), endPole);
-    startPole.delete();
-    endPole.delete();
+    const curve = new oc.Geom2d_BSplineCurve(poles, knots, multiplicities, data.degree);
+    poles.delete();
+    knots.delete();
+    multiplicities.delete();
+    return curve;
   }
 
   /** Thickens the wrapped face along the surface normal into a solid. */

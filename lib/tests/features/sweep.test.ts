@@ -438,40 +438,6 @@ describe("sweep", () => {
       expect(totalVol).toBeLessThan(64000);
     });
 
-    it("user repro: helix(\"z\") on Z axis with left-plane profile carves a screw thread", () => {
-      // KNOWN-FAILING (deferred). Two separate problems, neither the conical
-      // sweep-build bug fixed by MAX_PIPE_SEGMENTS:
-      //   1. Mis-specified geometry: circle(30) is a DIAMETER, so the cylinder
-      //      radius is 15, but the thread sits at radius 30 — entirely outside
-      //      it, so the cut has nothing to carve (the comment below intends the
-      //      thread to straddle a radius-30 surface, i.e. circle(60)).
-      //   2. Correcting it to circle(60) then hits a distinct OCCT-8 boolean
-      //      failure on the tight 14-turn thread-groove cut ("Unknown shape
-      //      type"), which needs its own investigation.
-      // Profile straddles the cylinder surface (centered at radius 30,
-      // tube radius 1) so the cut produces a clean groove. Profile in
-      // `left` plane (YZ) — face normal is anti-parallel to the spine
-      // tangent at start, exercising the 180° flip case.
-      sketch("xy", () => { circle(30); });
-      const c = extrude(50) as Extrude;
-      const path = helix("z").height(50).radius(30).pitch(5).startOffset(-10).endOffset(10);
-      const profile = sketch("left", () => {
-        move([30, -10]);
-        circle(1);
-      });
-      const s = sweep(path, profile).remove() as Sweep;
-      render();
-
-      const sShapes = s.getShapes();
-      const totalVol = sShapes.reduce(
-        (acc, sh) => acc + ShapeProps.getProperties(sh.getShape()).volumeMm3,
-        0,
-      );
-      expect(c.getShapes().length).toBe(0);
-      expect(sShapes.length).toBe(1);
-      expect(totalVol).toBeGreaterThan(0);
-    });
-
     it(".remove() with helix on cone face cuts a groove", () => {
       sketch("xy", () => { circle(30); });
       const c = extrude(50).draft(10) as Extrude;

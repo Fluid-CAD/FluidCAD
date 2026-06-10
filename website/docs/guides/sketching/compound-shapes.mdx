@@ -112,7 +112,7 @@ For multi-line strings (`\n`), set `.align("left" | "center" | "right")`, and fi
 
 ![Text along an arc](/img/docs/sketching/compound-text-path.png)
 
-Like other consuming features, the text consumes its path: the curve becomes the baseline and is removed from the scene, so it never leaks into an extruded profile. Mark the path `.reusable()` to keep it — e.g. to lay several texts on one path, as the flip and offset examples below do.
+The path itself stays in the scene — several texts can share one path. When the path lives in the same sketch, mark it `.guide()` so the curve stays out of the extruded profile; text follows guide curves just fine.
 
 Glyph spacing is measured as arc length, so kerning and `.letterSpacing()` behave exactly like straight text. To slide the text start along the path by an arc-length distance, use `.startAt(d)`.
 

@@ -22,8 +22,8 @@ interface TextFunction {
    * Renders a text string following a planar curve. Each glyph is placed
    * upright along the path's arc length; the text plane is the path's plane.
    * Works inside a sketch (following a curve of that sketch) or standalone.
-   * The path is consumed — mark it `.reusable()` to keep it, e.g. to lay
-   * several texts on one path.
+   * The path is left in place — mark it `.guide()` to keep it out of
+   * extruded profiles.
    * @param text - The string to render.
    * @param path - The curve to follow: a sketch curve (line/arc/circle), a
    *   whole sketch, a planar primitive, or a selected edge/edge loop

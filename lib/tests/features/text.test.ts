@@ -361,9 +361,9 @@ describe("text along a path", () => {
     expect(Math.abs(bbox.maxZ)).toBeLessThan(0.2);
   });
 
-  it("consumes the path so it stays out of the extruded profile", () => {
+  it("extrudes in-sketch path text whose guide path stays out of the profile", () => {
     sketch("xy", () => {
-      const a = arc([0, 0], [100, 0]).center([50, -200]).cw();
+      const a = arc([0, 0], [100, 0]).center([50, -200]).cw().guide();
       text("Hi", a).size(12);
     });
     const e = extrude(4);
@@ -375,18 +375,8 @@ describe("text along a path", () => {
     expect(bbox.maxZ - bbox.minZ).toBeCloseTo(4, 0);
   });
 
-  it("a consumed path cannot feed a second text", () => {
+  it("multiple texts can share one path", () => {
     const ring = circle("xy", 100);
-    const first = text("ONE", ring).size(8) as Text;
-    const second = text("TWO", ring).size(8) as Text;
-    render();
-
-    expect(first.getError()).toBeFalsy();
-    expect(second.getError()).toBeTruthy();
-  });
-
-  it("a reusable path feeds multiple texts", () => {
-    const ring = circle("xy", 100).reusable();
     const outside = text("OUTSIDE", ring).size(8) as Text;
     const inside = text("INSIDE", ring).size(8).flip() as Text;
     render();

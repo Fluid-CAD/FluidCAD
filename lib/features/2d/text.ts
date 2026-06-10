@@ -174,11 +174,6 @@ export class Text extends ExtrudableGeometryBase implements IText {
       );
 
       this.addShapes(edges);
-
-      // Consume the path like other consuming features (helix source, text
-      // plane): its curve served as the baseline, not scene geometry. Paths
-      // marked `.reusable()` are kept for further consumers.
-      this.path.removeShapes(this);
     } finally {
       sampler.dispose();
     }

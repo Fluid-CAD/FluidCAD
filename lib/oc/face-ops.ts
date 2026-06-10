@@ -1,4 +1,4 @@
-import type { gp_Cylinder, gp_Pln, TopoDS_Face, TopoDS_Wire } from "fluidcad-ocjs";
+import type { gp_Cone, gp_Cylinder, gp_Pln, TopoDS_Face, TopoDS_Wire } from "fluidcad-ocjs";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Plane } from "../math/plane.js";
@@ -286,6 +286,18 @@ export class FaceOps {
     if (!faceMaker.IsDone()) {
       faceMaker.delete();
       throw new Error("Failed to create face from cylinder");
+    }
+    const face = faceMaker.Face();
+    faceMaker.delete();
+    return face;
+  }
+
+  static makeFaceFromCone(cone: gp_Cone): TopoDS_Face {
+    const oc = getOC();
+    const faceMaker = new oc.BRepBuilderAPI_MakeFace(cone);
+    if (!faceMaker.IsDone()) {
+      faceMaker.delete();
+      throw new Error("Failed to create face from cone");
     }
     const face = faceMaker.Face();
     faceMaker.delete();

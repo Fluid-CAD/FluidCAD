@@ -1,0 +1,252 @@
+---
+sidebar_position: 12.6
+title: "Wrap"
+description: "The Wrap type. Extends BooleanOperation."
+---
+
+# Wrap
+
+Extends [`BooleanOperation`](/docs/api/types/boolean-operation)
+
+
+<details>
+<summary>Inherited from [`BooleanOperation`](/docs/api/types/boolean-operation)</summary>
+
+### add()
+
+```ts
+add(): this
+```
+
+Additive boolean operation — fuses the result with all intersecting scene objects.
+Use `.scope()` to target specific objects.
+
+---
+
+### 'new'()
+
+```ts
+'new'(): this
+```
+
+No boolean operation — keeps the result as a standalone shape,
+separate from all other scene objects.
+
+---
+
+### remove()
+
+```ts
+remove(): this
+```
+
+Subtractive boolean operation — cuts the result from all intersecting scene objects.
+Use `.scope()` to target specific objects.
+
+---
+
+### scope()
+
+```ts
+scope(...objects: SceneObject[]): this
+```
+
+Narrows the boolean operation scope to specific target objects.
+Must be chained after `.add()` or `.remove()`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The target objects to operate on. *(optional)* |
+
+
+</details>
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### reusable()
+
+```ts
+reusable(): this
+```
+
+Marks this object as reusable. Reusable objects retain their shapes when
+consumed by features (e.g., extrude, revolve), allowing multiple features
+to reference the same source geometry. Use `remove(obj)` to force-remove
+shapes from a reusable object.
+
+
+</details>
+
+## Methods
+
+### startFaces()
+
+```ts
+startFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+```
+
+Selects the faces lying on the target surface (the base of the wrap).
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### endFaces()
+
+```ts
+endFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+```
+
+Selects the raised (or recessed) faces offset from the target surface by the wrap thickness.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### startEdges()
+
+```ts
+startEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges on the base faces of the wrap.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### endEdges()
+
+```ts
+endEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges on the offset faces of the wrap.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### sideFaces()
+
+```ts
+sideFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+```
+
+Selects the wall faces created from the outer boundary of each wrapped region.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### sideEdges()
+
+```ts
+sideEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges on the wall faces, excluding edges shared with base/offset faces.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### internalFaces()
+
+```ts
+internalFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+```
+
+Selects the wall faces created from holes inside a wrapped region.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### internalEdges()
+
+```ts
+internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+```
+
+Selects edges bounding the hole walls of the wrap.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+
+---
+
+### drill()
+
+```ts
+drill(value?: boolean): this
+```
+
+Enables or disables drill mode, which partitions the sketch into face regions
+before wrapping.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | boolean | `true` to enable (default), `false` to disable. *(optional)* |
+
+---
+
+### pick()
+
+```ts
+pick(...points: Point2DLike[]): this
+```
+
+Restricts wrapping to only the sketch regions containing the given points.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...points` | [Point2DLike](/docs/api/types/point2dlike)[] | 2D points in the sketch plane identifying regions to wrap. *(optional)* |
+

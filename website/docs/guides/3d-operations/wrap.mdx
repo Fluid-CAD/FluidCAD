@@ -1,0 +1,110 @@
+---
+sidebar_position: 11
+title: "Wrap"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import wrapBasic from '!!raw-loader!./_examples/wrap-basic.js';
+import wrapText from '!!raw-loader!./_examples/wrap-text.js';
+import wrapEngrave from '!!raw-loader!./_examples/wrap-engrave.js';
+import wrapRing from '!!raw-loader!./_examples/wrap-ring.js';
+import wrapCone from '!!raw-loader!./_examples/wrap-cone.js';
+
+# Wrap
+
+`wrap()` takes a flat sketch and bends it onto a curved face — like applying a label to a bottle. The sketch is *developed* onto the surface, preserving every length and angle, then raised from the surface by the given thickness. It's the tool for embossed logos, engraved text, and any feature that has to follow a cylindrical or conical wall.
+
+<CodeBlock language="js">{wrapBasic}</CodeBlock>
+
+![Basic wrap](/img/docs/3d-operations/wrap-basic.png)
+
+The first argument is the pad thickness, measured along the surface normal. The last argument is the target face — typically a `select(face().cylinder())` or `select(face().cone())` selection. An explicit sketch can be passed in between; otherwise the last sketch is used:
+
+```js
+wrap(2, target)             // wraps the last sketch
+wrap(2, decal, target)      // wraps a specific sketch
+```
+
+## True wrap, not a projection
+
+A projection would squash the sketch as the surface curves away. `wrap()` instead unrolls the surface flat, places the sketch on it, and rolls it back up — a 30mm-wide rectangle becomes exactly 30mm of arc. Text stays readable at any width, and a sketch wide enough would go all the way around the target (up to one full turn).
+
+The placement follows the sketch plane:
+
+- The sketch plane's origin "touches down" on the nearest point of the surface — sketch coordinates are measured from there along the unrolled surface.
+- The direction of the surface axis maps to the sketch plane's matching in-plane direction, so for the usual setup — a plane tangent to (or offset from) the cylinder — the sketch wraps exactly as drawn.
+
+The sketch plane doesn't need to touch the surface: its offset is ignored, only its origin and orientation matter.
+
+## Text decals
+
+Text wraps glyph by glyph with no distortion — the classic engraved-bottle look:
+
+<CodeBlock language="js">{wrapText}</CodeBlock>
+
+![Wrapped text](/img/docs/3d-operations/wrap-text.png)
+
+## Engraving
+
+Chain `.remove()` to sink the sketch into the surface instead of raising it — the thickness becomes the engraving depth:
+
+<CodeBlock language="js">{wrapEngrave}</CodeBlock>
+
+![Engraved text](/img/docs/3d-operations/wrap-engrave.png)
+
+## Holes
+
+Sketch regions keep their holes: nest a profile inside another and the inner region is subtracted, walls and all. A frame with a window:
+
+<CodeBlock language="js">{wrapRing}</CodeBlock>
+
+![Wrapped frame with a window](/img/docs/3d-operations/wrap-ring.png)
+
+## Conical faces
+
+Cones unroll into a fan rather than a flat strip, and `wrap()` accounts for that — features curve with the cone's development, staying true to their sketched dimensions along the surface:
+
+<CodeBlock language="js">{wrapCone}</CodeBlock>
+
+![Slot wrapped onto a cone](/img/docs/3d-operations/wrap-cone.png)
+
+## Fusion scope
+
+`wrap()` is a boolean operation with the usual scope controls:
+
+```js
+wrap(2, target)                   // fuse with all touching solids (default)
+wrap(2, target).remove()          // engrave instead of emboss
+wrap(2, target).new()             // keep the pad as a separate solid
+wrap(2, target).add().scope(c)    // fuse only with `c`
+```
+
+## Region picking
+
+Like `extrude()`, the sketch is partitioned into regions first. Use `.pick()` to wrap only the regions containing the given points, or `.drill(false)` to disable hole drilling:
+
+```js
+wrap(2, target).pick([5, 25])     // only the region containing this point
+wrap(2, target).drill(false)      // treat nested profiles as separate regions
+```
+
+## Accessing geometry
+
+```js
+const w = wrap(2, target)
+
+w.startFaces()      // faces lying on the target surface (the pad's base)
+w.endFaces()        // raised (or engraved) faces offset by the thickness
+w.sideFaces()       // walls around each region's outer boundary
+w.internalFaces()   // walls of holes inside a region
+w.startEdges()      // edges on the base faces
+w.endEdges()        // edges on the offset faces
+w.sideEdges()       // edges along the outer walls
+w.internalEdges()   // edges along the hole walls
+```
+
+## Limitations
+
+- The target must be a **cylindrical or conical** face — the only surfaces a sketch can wrap onto without distortion. For other faces, consider [`extrude()` up to a face](/docs/guides/3d-operations/extrude) instead.
+- The sketch cannot be wider than one full turn around the target.
+- The sketch plane must not be perpendicular to the target's axis (there would be no direction to wrap around), and its origin must not lie on the axis.

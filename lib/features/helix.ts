@@ -221,9 +221,7 @@ export class Helix extends SceneObject implements IHelix {
     const edge = HelixOps.makeHelix(cs, startRadius, endRadius, zStart, zEnd, turns);
     this.addShape(edge);
 
-    if (!(this.source instanceof AxisObjectBase)) {
-      this.source.removeShapes(this);
-    }
+    this.source.removeShapes(this);
   }
 
   private deriveTurnsFromHeight(height: number): number {

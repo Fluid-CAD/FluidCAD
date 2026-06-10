@@ -99,6 +99,7 @@ export const features: FeatureEntry[] = [
   { name: 'draft', displayName: 'draft', category: '3d', sourceFile: 'core/draft.ts', interfaceName: 'DraftFunction', returnType: 'IDraft', sidebarPosition: 15 },
   { name: 'rib', displayName: 'rib', category: '3d', sourceFile: 'core/rib.ts', interfaceName: 'RibFunction', returnType: 'IRib', relatedGuide: '/docs/guides/3d-operations/rib', sidebarPosition: 16 },
   { name: 'wrap', displayName: 'wrap', category: '3d', sourceFile: 'core/wrap.ts', interfaceName: 'WrapFunction', returnType: 'IWrap', relatedGuide: '/docs/guides/3d-operations/wrap', sidebarPosition: 17 },
+  { name: 'helix', displayName: 'helix', category: '3d', sourceFile: 'core/helix.ts', interfaceName: 'HelixFunction', returnType: 'IHelix', relatedGuide: '/docs/guides/3d-operations/helix', sidebarPosition: 18 },
 
   // Transforms
   { name: 'translate', displayName: 'translate', category: 'transforms', sourceFile: 'core/translate.ts', interfaceName: 'TranslateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/transforms', sidebarPosition: 1 },
@@ -139,6 +140,7 @@ export const types: TypeEntry[] = [
   { name: 'IDraft', displayName: 'Draft', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 29 },
   { name: 'IRib', displayName: 'Rib', sourceFile: 'core/interfaces.ts', extendsType: 'IBooleanOperation', sidebarPosition: 12.5 },
   { name: 'IWrap', displayName: 'Wrap', sourceFile: 'core/interfaces.ts', extendsType: 'IBooleanOperation', sidebarPosition: 12.6 },
+  { name: 'IHelix', displayName: 'Helix', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 12.7 },
   { name: 'IArcPoints', displayName: 'ArcPoints', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 13 },
   { name: 'IArcAngles', displayName: 'ArcAngles', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 14 },
   { name: 'IRect', displayName: 'Rect', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 15 },
@@ -243,6 +245,7 @@ export const typeDisplayNameMap: Record<string, string> = {
   'IDraft': 'Draft',
   'IRib': 'Rib',
   'IWrap': 'Wrap',
+  'IHelix': 'Helix',
   'IArcPoints': 'ArcPoints',
   'IArcAngles': 'ArcAngles',
   'IRect': 'Rect',

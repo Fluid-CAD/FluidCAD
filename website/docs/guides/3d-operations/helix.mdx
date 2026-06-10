@@ -1,0 +1,100 @@
+---
+sidebar_position: 14
+title: "Helix"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import helixBasic from '!!raw-loader!./_examples/helix-basic.js';
+import helixSpring from '!!raw-loader!./_examples/helix-spring.js';
+import helixFace from '!!raw-loader!./_examples/helix-face.js';
+import helixThread from '!!raw-loader!./_examples/helix-thread.js';
+import helixGroove from '!!raw-loader!./_examples/helix-groove.js';
+import helixTapered from '!!raw-loader!./_examples/helix-tapered.js';
+
+# Helix
+
+`helix()` creates a helical wire — the curve that springs, threads, and coils are built from. On its own it renders as a wire; pair it with [`sweep()`](/docs/guides/3d-operations/sweep) to turn it into a solid.
+
+<CodeBlock language="js">{helixBasic}</CodeBlock>
+
+![Basic helix](/img/docs/3d-operations/helix-basic.png)
+
+The argument is the axis to coil around — a named axis like `"z"`, anything axis-like, or an existing scene object (see [deriving from geometry](#deriving-from-geometry) below).
+
+## Sizing
+
+Three chained methods control the proportions, and any two determine the third:
+
+```js
+helix("z").pitch(10).turns(4)       // height = 40
+helix("z").pitch(10).height(40)     // turns = 4
+helix("z").turns(4).height(40)      // pitch = 10
+```
+
+- `.pitch(p)` — axial rise per full revolution.
+- `.turns(n)` — number of revolutions; fractional values are fine.
+- `.height(h)` — total axial extent.
+
+Unset values fall back to sensible defaults: `turns` defaults to 1, `radius` to 20, and `height` to 50 (or `pitch × turns` when a pitch is given).
+
+## Springs
+
+Sweep a small profile along the helix to get a spring. The profile is positioned at the path start automatically:
+
+<CodeBlock language="js">{helixSpring}</CodeBlock>
+
+![Helical spring](/img/docs/3d-operations/helix-spring.png)
+
+## Deriving from geometry
+
+Instead of an axis, pass a scene object and the helix takes its frame from the geometry:
+
+- **Cylindrical face** — axis, radius, and height come from the face.
+- **Conical face** — the helix follows the cone's taper; radii are derived from the face geometry (`.radius()`/`.endRadius()` are ignored).
+- **Line edge** — the line becomes the axis, its length the height.
+- **Circular edge** — the circle's normal becomes the axis, its radius the helix radius.
+
+<CodeBlock language="js">{helixFace}</CodeBlock>
+
+![Helix from a cylindrical face](/img/docs/3d-operations/helix-face.png)
+
+Use `select(...)` to narrow a body down to the single face or edge the helix should read from.
+
+## Threads and grooves
+
+A helix at the surface of a cylinder is the spine of a thread. Sweep a profile along it and the result fuses with the cylinder (the default for boolean operations):
+
+<CodeBlock language="js">{helixThread}</CodeBlock>
+
+![Helical thread](/img/docs/3d-operations/helix-thread.png)
+
+Chain `.remove()` on the sweep to carve a groove instead:
+
+<CodeBlock language="js">{helixGroove}</CodeBlock>
+
+![Helical groove](/img/docs/3d-operations/helix-groove.png)
+
+### Running past the ends
+
+Real threads run off the ends of the stock rather than stopping flush. `.startOffset()` and `.endOffset()` shift the helix ends along the axis, in axial mm:
+
+```js
+helix("z").height(50).startOffset(-5).endOffset(5)   // 5mm overshoot each side
+```
+
+A negative start offset extends the start; a positive end offset extends the end (and vice versa to trim). On a conical face the extension follows the cone's natural taper.
+
+## Tapered helixes
+
+When `.endRadius()` differs from `.radius()`, the radius blends linearly along the height — a conical helix:
+
+<CodeBlock language="js">{helixTapered}</CodeBlock>
+
+![Tapered helix spring](/img/docs/3d-operations/helix-tapered.png)
+
+The same shape falls out automatically when the source is a conical face. `.endRadius()` is ignored for face and circular-edge sources, where the radii come from the geometry.
+
+## Limitations
+
+- Turns must be positive and the pitch non-zero; a tapered helix must keep its end radius above zero.
+- A face source must be cylindrical or conical; an edge source must be a line or a circle. Multi-shape sources need a `select(...)` to single out one face or edge.

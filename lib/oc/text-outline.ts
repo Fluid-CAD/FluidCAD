@@ -5,7 +5,7 @@ import { Plane } from "../math/plane.js";
 import { Point, Point2D } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 
-export type TextAlign = "left" | "center" | "right" | "start" | "end" | "stretch";
+export type TextAlign = "left" | "center" | "right" | "start" | "end" | "space-between" | "space-around";
 
 export interface TextLayoutOptions {
   /** Em size in model units (mm). */
@@ -33,7 +33,7 @@ export interface TextPathOptions {
   startAt: number;
   /** Mirror the text to the other side of the path, reversing direction. */
   flip: boolean;
-  /** Whether the path is a closed loop (affects `stretch` gap distribution). */
+  /** Whether the path is a closed loop (affects `space-between` gap distribution). */
   closed: boolean;
 }
 
@@ -102,17 +102,23 @@ export class TextOutline {
     const align = this.resolveAlign(opts.align);
 
     let s0 = path.startAt;
-    let stretchGap = 0;
+    let justifyGap = 0;
     if (align === "center") {
       s0 += (path.length - total) / 2;
     } else if (align === "right") {
       s0 += path.length - total;
-    } else if (align === "stretch" && run.glyphs.length > 1) {
+    } else if (align === "space-between" && run.glyphs.length > 1) {
       // Justify across the whole path: distribute the leftover arc length
       // evenly between glyphs. On a closed loop the wrap-around gap counts
       // too, so the glyphs end up evenly spaced around the loop.
       const gaps = path.closed ? run.glyphs.length : run.glyphs.length - 1;
-      stretchGap = (path.length - total) / gaps;
+      justifyGap = (path.length - total) / gaps;
+    } else if (align === "space-around" && run.glyphs.length > 0) {
+      // Every glyph gets an equal share of the leftover arc length, half on
+      // each side — so the run starts and ends half a gap from the path's
+      // ends (on a closed loop this just phase-shifts the even spacing).
+      justifyGap = (path.length - total) / run.glyphs.length;
+      s0 += justifyGap / 2;
     }
 
     let pen = 0;
@@ -134,12 +140,12 @@ export class TextOutline {
         return anchor.add(tangent.multiply(dx)).add(up.multiply(dy));
       };
       this.buildGlyph(run.glyphs[i], scale, toWorld, out);
-      pen += adv + opts.letterSpacing + stretchGap;
+      pen += adv + opts.letterSpacing + justifyGap;
     }
   }
 
   /** Maps the path-friendly alignment synonyms onto the base values. */
-  private static resolveAlign(align: TextAlign): "left" | "center" | "right" | "stretch" {
+  private static resolveAlign(align: TextAlign): "left" | "center" | "right" | "space-between" | "space-around" {
     if (align === "start") {
       return "left";
     }

@@ -12,7 +12,7 @@ import compoundText from '!!raw-loader!./_examples/compound-text.js';
 import compoundTextFonts from '!!raw-loader!./_examples/compound-text-fonts.js';
 import compoundTextExtruded from '!!raw-loader!./_examples/compound-text-extruded.js';
 import compoundTextPath from '!!raw-loader!./_examples/compound-text-path.js';
-import compoundTextPathAlign from '!!raw-loader!./_examples/compound-text-path-align.js';
+import compoundTextPathAlignStart from '!!raw-loader!./_examples/compound-text-path-align-start.js';
 import compoundTextPathFlip from '!!raw-loader!./_examples/compound-text-path-flip.js';
 import compoundTextPathOffset from '!!raw-loader!./_examples/compound-text-path-offset.js';
 
@@ -118,15 +118,33 @@ Glyph spacing is measured as arc length, so kerning and `.letterSpacing()` behav
 
 #### Aligning on a path
 
-`.align()` positions the run against the path: `"start"` begins at the path's start, `"center"` centers it on the midpoint, `"end"` finishes at the path's end, and `"stretch"` justifies the glyphs evenly across the whole path (`"left"`/`"right"` work as synonyms of `"start"`/`"end"`):
+`.align()` positions the run against the path (`"left"` and `"right"` work as synonyms of `"start"` and `"end"`):
 
-<CodeBlock language="js">{compoundTextPathAlign}</CodeBlock>
+<CodeBlock language="js">{compoundTextPathAlignStart.replace(/^\/\/ @screenshot.*\n/, '')}</CodeBlock>
 
-![Path text alignment: start, center, end, stretch](/img/docs/sketching/compound-text-path-align.png)
+`"start"` (the default) begins the text at the path's start:
+
+![Path text aligned to the start](/img/docs/sketching/compound-text-path-align-start.png)
+
+`"center"` centers it on the path's midpoint:
+
+![Path text centered on the path](/img/docs/sketching/compound-text-path-align-center.png)
+
+`"end"` finishes at the path's end:
+
+![Path text aligned to the end](/img/docs/sketching/compound-text-path-align-end.png)
+
+`"space-between"` justifies the glyphs evenly across the whole path, first glyph at the start and last at the end:
+
+![Path text justified with space-between](/img/docs/sketching/compound-text-path-align-space-between.png)
+
+`"space-around"` also distributes the glyphs evenly, but with half a gap before the first glyph and after the last — like the CSS flexbox value:
+
+![Path text distributed with space-around](/img/docs/sketching/compound-text-path-align-space-around.png)
 
 #### Outside or inside: flip
 
-On a closed path (a full circle) the text wraps around and sits on the **outside** by default — `"stretch"` then spaces the glyphs evenly around the loop. `.flip()` mirrors the text to the other side of the path and reverses the reading direction: on a circle it moves the text inside; on an open curve it mirrors the text below the path:
+On a closed path (a full circle) the text wraps around and sits on the **outside** by default — `"space-between"` and `"space-around"` then space the glyphs evenly around the loop. `.flip()` mirrors the text to the other side of the path and reverses the reading direction: on a circle it moves the text inside; on an open curve it mirrors the text below the path:
 
 <CodeBlock language="js">{compoundTextPathFlip}</CodeBlock>
 

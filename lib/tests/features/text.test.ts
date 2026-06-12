@@ -308,17 +308,33 @@ describe("text along a path", () => {
     expect(mean).toBeLessThan(50);
   });
 
-  it("stretches text across the full path", () => {
+  it("justifies text across the full path with space-between", () => {
     const path = sketch("xy", () => {
       hLine(100);
     });
-    const t = text("AB", path).size(10).align("stretch") as Text;
+    const t = text("AB", path).size(10).align("space-between") as Text;
     render();
 
     expect(t.getError()).toBeFalsy();
     const bbox = getBoundingBoxOfShapes(t.getShapes());
     expect(bbox.minX).toBeLessThan(12);
     expect(bbox.maxX).toBeGreaterThan(88);
+  });
+
+  it("leaves half a gap at each end with space-around", () => {
+    const path = sketch("xy", () => {
+      hLine(100);
+    });
+    const t = text("AB", path).size(10).align("space-around") as Text;
+    render();
+
+    expect(t.getError()).toBeFalsy();
+    const bbox = getBoundingBoxOfShapes(t.getShapes());
+    // Two glyphs each get half their leftover share at the run's ends, so
+    // the text stays well clear of both path ends and centers on the path.
+    expect(bbox.minX).toBeGreaterThan(10);
+    expect(bbox.maxX).toBeLessThan(90);
+    expect((bbox.minX + bbox.maxX) / 2).toBeCloseTo(50, 0);
   });
 
   it("accepts start/end alignment synonyms", () => {
@@ -334,11 +350,18 @@ describe("text along a path", () => {
     expect(bbox.maxX).toBeGreaterThan(85);
   });
 
-  it("rejects stretch alignment without a path", () => {
-    const t = text("xy", "Hi").align("stretch") as Text;
+  it("rejects space-between alignment without a path", () => {
+    const t = text("xy", "Hi").align("space-between") as Text;
     render();
 
-    expect(t.getError()).toMatch(/stretch/i);
+    expect(t.getError()).toMatch(/space-between/i);
+  });
+
+  it("rejects space-around alignment without a path", () => {
+    const t = text("xy", "Hi").align("space-around") as Text;
+    render();
+
+    expect(t.getError()).toMatch(/space-around/i);
   });
 
   it("follows an arc drawn in the same sketch", () => {

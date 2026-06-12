@@ -91,9 +91,9 @@ export class Text extends ExtrudableGeometryBase implements IText {
         "Use the text(string, path) form, or remove these modifiers.",
       );
     }
-    if (this._align === "stretch") {
+    if (this._align === "space-between" || this._align === "space-around") {
       throw new BuildError(
-        "text: align('stretch') only applies to text following a path.",
+        `text: align('${this._align}') only applies to text following a path.`,
         "Use the text(string, path) form, or pick left/center/right.",
       );
     }

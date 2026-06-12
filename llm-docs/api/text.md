@@ -27,8 +27,10 @@ Chain methods:
 - `.size(height)` — cap height in mm (default 10).
 - `.font(name)` / `.weight(400 | "bold")` / `.bold()` / `.italic()` —
   typeface selection; system fonts are resolved by family name.
-- `.align("left" | "center" | "right" | "start" | "end" | "stretch")` —
-  alignment relative to the cursor, or along a path.
+- `.align("left" | "center" | "right" | "start" | "end" | "space-between" | "space-around")` —
+  alignment relative to the cursor, or along a path; `"space-between"` and
+  `"space-around"` distribute glyphs over the whole path like the CSS
+  flexbox values (path text only).
 - `.lineSpacing(factor)` / `.letterSpacing(extra)` — multi-line and
   tracking control.
 - Path layout only: `.offset(distance)` — shift glyphs off the path,

@@ -15,7 +15,7 @@ interface Text extends ExtrudableGeometry {
   weight(value: string | number): this;
   bold(): this;
   italic(value?: boolean): this;
-  align(value: "left" | "right" | "center" | "start" | "end" | "stretch"): this;
+  align(value: "left" | "right" | "center" | "start" | "end" | "space-between" | "space-around"): this;
   lineSpacing(value: number): this;
   letterSpacing(value: number): this;
   offset(value: number): this;
@@ -74,13 +74,15 @@ Renders the italic/oblique face of the font.
 Horizontal alignment of the text. For straight text it is relative to the
 origin point; for text along a path it positions the run against the
 path: `"start"` begins at the path's start, `"center"` centers on the
-midpoint, `"end"` finishes at the path's end, and `"stretch"` justifies
-the glyphs evenly across the whole path (path text only). `"left"` and
-`"right"` are synonyms of `"start"` and `"end"`.
+midpoint, `"end"` finishes at the path's end, `"space-between"` justifies
+the glyphs evenly across the whole path, and `"space-around"` spreads
+them with half a gap before the first glyph and after the last, like the
+CSS flexbox value (both path text only). `"left"` and `"right"` are
+synonyms of `"start"` and `"end"`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `"left"` \| `"right"` \| `"center"` \| `"start"` \| `"end"` \| `"stretch"` | `"left"`/`"start"` (default), `"center"`, `"right"`/`"end"`, or `"stretch"`. |
+| `value` | `"left"` \| `"right"` \| `"center"` \| `"start"` \| `"end"` \| `"space-between"` \| `"space-around"` | `"left"`/`"start"` (default), `"center"`, `"right"`/`"end"`, `"space-between"`, or `"space-around"`. |
 
 ### `lineSpacing()`
 

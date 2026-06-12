@@ -103,6 +103,14 @@ function discoverExamples(docsDir) {
     const arMatch = firstLines.match(/\/\/ @screenshot.*aspectRatio\s+([\d.]+)/);
     const aspectRatio = arMatch ? parseFloat(arMatch[1]) : null;
 
+    // Parse size annotation, e.g. "// @screenshot size 2400x1600". A taller
+    // render shrinks constant-pixel-size overlays (vertex dots, cursor)
+    // relative to the geometry. Takes precedence over aspectRatio.
+    const sizeMatch = firstLines.match(/\/\/ @screenshot.*size\s+(\d+)x(\d+)/);
+    const size = sizeMatch
+      ? { width: parseInt(sizeMatch[1], 10), height: parseInt(sizeMatch[2], 10) }
+      : null;
+
     // Compute output path
     const outputPath = examplePathToImagePath(filePath, docsDir);
     const name = basename(filePath, '.js');
@@ -119,6 +127,7 @@ function discoverExamples(docsDir) {
       waitForInput,
       emptyScene,
       aspectRatio,
+      size,
       source: relPath,
     });
   }
@@ -307,7 +316,7 @@ async function main() {
     let done = 0;
     let failed = 0;
     for (const config of allScreenshots) {
-      const { id, outputPath, code, showAxes, noAutoCrop, hideGrid, waitForInput, emptyScene, aspectRatio } = config;
+      const { id, outputPath, code, showAxes, noAutoCrop, hideGrid, waitForInput, emptyScene, aspectRatio, size } = config;
 
       mkdirSync(dirname(outputPath), { recursive: true });
 
@@ -345,7 +354,7 @@ async function main() {
 
       // Capture screenshot
       try {
-        const arSize = aspectRatio ? { width: Math.round(800 * aspectRatio), height: 800 } : {};
+        const arSize = size ?? (aspectRatio ? { width: Math.round(800 * aspectRatio), height: 800 } : {});
         const options = {
           ...DEFAULT_SCREENSHOT_OPTIONS,
           ...(showAxes ? { showAxes: true } : {}),

@@ -201,13 +201,15 @@ export interface IText extends IExtrudableGeometry {
    * Horizontal alignment of the text. For straight text it is relative to the
    * origin point; for text along a path it positions the run against the
    * path: `"start"` begins at the path's start, `"center"` centers on the
-   * midpoint, `"end"` finishes at the path's end, and `"stretch"` justifies
-   * the glyphs evenly across the whole path (path text only). `"left"` and
-   * `"right"` are synonyms of `"start"` and `"end"`.
+   * midpoint, `"end"` finishes at the path's end, `"space-between"` justifies
+   * the glyphs evenly across the whole path, and `"space-around"` spreads
+   * them with half a gap before the first glyph and after the last, like the
+   * CSS flexbox value (both path text only). `"left"` and `"right"` are
+   * synonyms of `"start"` and `"end"`.
    * @param value - `"left"`/`"start"` (default), `"center"`,
-   *   `"right"`/`"end"`, or `"stretch"`.
+   *   `"right"`/`"end"`, `"space-between"`, or `"space-around"`.
    */
-  align(value: "left" | "center" | "right" | "start" | "end" | "stretch"): this;
+  align(value: "left" | "center" | "right" | "start" | "end" | "space-between" | "space-around"): this;
 
   /**
    * Line-height multiplier for multi-line text (newlines in the string).

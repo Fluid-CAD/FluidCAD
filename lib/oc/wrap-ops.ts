@@ -74,14 +74,16 @@ export class WrapOps {
    * are approximated by OCCT and oscillate visibly near the wall joints.
    */
   static wrap(regionFaces: Face[], sketchPlane: Plane, targetFace: Face, thickness: number): WrapResult {
-    const oc = getOC();
     const development = WrapOps.createDevelopment(targetFace, sketchPlane);
     const surface = WrapOps.makeSurface(development);
 
-    // A FORWARD face's outward material normal is the natural surface normal
-    // (away from the axis); a REVERSED face (e.g. a bore wall) flips it.
-    const reversed = targetFace.getShape().Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED;
-    const signedOffset = reversed ? -thickness : thickness;
+    // Positive thickness must grow out of the material. The rebuilt
+    // development surface always thickens toward the development's outward
+    // normal (away from the axis), so flip the offset when the target face's
+    // material normal points toward the axis (e.g. a bore wall).
+    const signedOffset = WrapOps.isInwardFacing(targetFace, development)
+      ? -thickness
+      : thickness;
 
     const result: WrapResult = {
       solids: [],
@@ -136,6 +138,34 @@ export class WrapOps {
     }
 
     throw new Error(`wrap() requires a cylindrical or conical target face, got a ${surfaceType} face`);
+  }
+
+  /**
+   * Whether the target face's material-outward normal points toward the
+   * surface axis (a bore wall) rather than away from it (an outer wall).
+   * The TopAbs orientation flag alone cannot tell: prism-swept lateral
+   * faces carry a reverse-parameterized surface (intrinsic normal inward,
+   * flag REVERSED) yet still face away from the axis.
+   */
+  private static isInwardFacing(targetFace: Face, development: Development): boolean {
+    const oc = getOC();
+    const rawFace = oc.TopoDS.Face(targetFace.getShape());
+    const bounds = oc.BRepTools.UVBounds(rawFace);
+    const u = (bounds.UMin + bounds.UMax) / 2;
+    const v = (bounds.VMin + bounds.VMax) / 2;
+
+    const surface = oc.BRep_Tool.Surface(rawFace);
+    const props = new oc.GeomLProp_SLProps(surface, u, v, 1, 1e-6);
+    let normal = props.Normal();
+    if (rawFace.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED) {
+      normal = normal.Reversed();
+    }
+    const oriented = Convert.toVector3dFromGpDir(normal);
+    const point = Convert.toPoint(props.Value(), true);
+    props.delete();
+    surface.delete();
+
+    return oriented.dot(development.surfaceNormalAt(point)) < 0;
   }
 
   /** Builds the recentered Geom surface (sketch anchor at u = 0). */

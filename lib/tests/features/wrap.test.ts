@@ -74,6 +74,29 @@ describe("wrap", () => {
       expect(facesState(w, 'internal-faces')).toHaveLength(0);
     });
 
+    it("classifies end faces of regions far around the cylinder", () => {
+      // Regions whose wrapped angle exceeds ~45° of the sketch anchor used to
+      // land in side-faces: the face normal was sampled at fixed UV (0, 0)
+      // instead of at the same point as the development-normal probe.
+      const { faceSelection } = setupCylinderScene();
+      sketch(plane("front", 50), () => {
+        rect(10, 10);
+        move([60, 0]);
+        rect(10, 10);
+        move([-60, 0]);
+        rect(10, 10);
+      });
+
+      const w = wrap(2, faceSelection) as Wrap;
+      render();
+
+      expect(w.getError()).toBeNull();
+      expect(facesState(w, 'start-faces')).toHaveLength(3);
+      expect(facesState(w, 'end-faces')).toHaveLength(3);
+      expect(facesState(w, 'side-faces')).toHaveLength(12);
+      expect(facesState(w, 'internal-faces')).toHaveLength(0);
+    });
+
     it("classifies hole walls as internal faces", () => {
       const { faceSelection } = setupCylinderScene();
       sketch(plane("front", 50), () => {
@@ -317,6 +340,29 @@ describe("wrap", () => {
       expect(countShapes(scene)).toBe(1);
       expect(w.getShapes()).toHaveLength(1);
       expect(volumeOf(w)).toBeGreaterThan(Math.PI * 25 * 25 * 80);
+    });
+
+    it("classifies an end face for every glyph of a centered decal", () => {
+      // User repro: centered text on an extruded cylinder — the outermost
+      // glyphs ("h", "d") wrap more than 45° away from the sketch anchor and
+      // used to lose their end-face classification.
+      sketch("top", () => {
+        circle(50);
+      });
+      extrude(80);
+      const decal = sketch(plane("front", 30), () => {
+        vMove(20);
+        text("hello world").align('center');
+      });
+      const faceSelection = select(face().cylinder());
+
+      const w = wrap(1, decal, faceSelection) as Wrap;
+      render();
+
+      expect(w.getError()).toBeNull();
+      const startFaces = facesState(w, 'start-faces');
+      expect(startFaces.length).toBeGreaterThan(0);
+      expect(facesState(w, 'end-faces')).toHaveLength(startFaces.length);
     });
 
     it("engraves every glyph into the cylinder", () => {

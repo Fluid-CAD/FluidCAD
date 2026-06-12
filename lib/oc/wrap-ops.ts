@@ -6,7 +6,6 @@ import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Explorer } from "./explorer.js";
 import { FaceQuery } from "./face-query.js";
-import { FaceOps } from "./face-ops.js";
 import { WireOps } from "./wire-ops.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
@@ -15,6 +14,7 @@ import { ShapeFactory } from "../common/shape-factory.js";
 import { Wire } from "../common/wire.js";
 import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
+import { Vector3d } from "../math/vector3d.js";
 import {
   ConeDevelopment, CylinderDevelopment, Development, UV,
 } from "./wrap-development.js";
@@ -148,24 +148,8 @@ export class WrapOps {
    * flag REVERSED) yet still face away from the axis.
    */
   private static isInwardFacing(targetFace: Face, development: Development): boolean {
-    const oc = getOC();
-    const rawFace = oc.TopoDS.Face(targetFace.getShape());
-    const bounds = oc.BRepTools.UVBounds(rawFace);
-    const u = (bounds.UMin + bounds.UMax) / 2;
-    const v = (bounds.VMin + bounds.VMax) / 2;
-
-    const surface = oc.BRep_Tool.Surface(rawFace);
-    const props = new oc.GeomLProp_SLProps(surface, u, v, 1, 1e-6);
-    let normal = props.Normal();
-    if (rawFace.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED) {
-      normal = normal.Reversed();
-    }
-    const oriented = Convert.toVector3dFromGpDir(normal);
-    const point = Convert.toPoint(props.Value(), true);
-    props.delete();
-    surface.delete();
-
-    return oriented.dot(development.surfaceNormalAt(point)) < 0;
+    const probe = WrapOps.probeFace(targetFace);
+    return probe.normal.dot(development.surfaceNormalAt(probe.point)) < 0;
   }
 
   /** Builds the recentered Geom surface (sketch anchor at u = 0). */
@@ -421,9 +405,8 @@ export class WrapOps {
           continue;
         }
 
-        const probe = WrapOps.faceMidPoint(face);
-        const normal = FaceOps.calculateNormal(face);
-        const aligned = Math.abs(normal.dot(development.surfaceNormalAt(probe))) > ALIGNED_NORMAL_THRESHOLD;
+        const probe = WrapOps.probeFace(face);
+        const aligned = Math.abs(probe.normal.dot(development.surfaceNormalAt(probe.point))) > ALIGNED_NORMAL_THRESHOLD;
         if (aligned) {
           out.endFaces.push(face);
         } else if (WrapOps.sharesEdgeWith(face, holeEdges)) {
@@ -460,14 +443,33 @@ export class WrapOps {
     return face.getEdges().some(faceEdge => edges.some(edge => faceEdge.getShape().IsSame(edge)));
   }
 
-  /** A point on the face's surface at the middle of its UV bounds. */
-  private static faceMidPoint(face: Face): Point {
+  /**
+   * Samples the face at the middle of its UV bounds: the surface point and
+   * the material-outward normal (oriented by the face's TopAbs flag) at that
+   * SAME parameter. Classification compares this normal against the
+   * development normal at the sampled point — sampling both at one location
+   * keeps the comparison angle-independent on periodic surfaces, where the
+   * normal rotates with u (a normal taken anywhere else drifts by the angular
+   * distance and breaks the alignment test past ~45°).
+   */
+  private static probeFace(face: Face): { point: Point; normal: Vector3d } {
     const oc = getOC();
     const rawFace = oc.TopoDS.Face(face.getShape());
     const bounds = oc.BRepTools.UVBounds(rawFace);
-    const adaptor = new oc.BRepAdaptor_Surface(rawFace, true);
-    const point = Convert.toPoint(adaptor.Value((bounds.UMin + bounds.UMax) / 2, (bounds.VMin + bounds.VMax) / 2), true);
-    adaptor.delete();
-    return point;
+    const u = (bounds.UMin + bounds.UMax) / 2;
+    const v = (bounds.VMin + bounds.VMax) / 2;
+
+    const surface = oc.BRep_Tool.Surface(rawFace);
+    const props = new oc.GeomLProp_SLProps(surface, u, v, 1, 1e-6);
+    let rawNormal = props.Normal();
+    if (rawFace.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED) {
+      rawNormal = rawNormal.Reversed();
+    }
+    const normal = Convert.toVector3dFromGpDir(rawNormal);
+    const point = Convert.toPoint(props.Value(), true);
+    props.delete();
+    surface.delete();
+
+    return { point, normal };
   }
 }

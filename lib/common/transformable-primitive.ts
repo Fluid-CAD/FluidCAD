@@ -1,4 +1,5 @@
-import { SceneObject } from "./scene-object.js";
+import { BuildSceneObjectContext, SceneObject } from "./scene-object.js";
+import { Shape } from "./shape.js";
 import { Matrix4 } from "../math/matrix4.js";
 import type { AxisLike } from "../math/axis.js";
 import type { PlaneLike } from "../math/plane.js";
@@ -6,12 +7,41 @@ import type { PointLike } from "../math/point.js";
 import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { rad } from "../helpers/math-helpers.js";
+import { ShapeOps } from "../oc/shape-ops.js";
 import { type NumberParam, isNumberParam, resolveParam } from "../core/param.js";
 
 export abstract class TransformablePrimitive extends SceneObject {
 
   transform(matrix: Matrix4): this {
     this.composeAppliedTransform(matrix);
+    return this;
+  }
+
+  /**
+   * Adds a primitive's built shape, baking in the clone transform when this
+   * primitive is a repeat/mirror copy. The renderer post-applies the user's
+   * own transform (translate/rotate/mirror) after build, so the clone
+   * transform is conjugated to land outside it:
+   * own · (own⁻¹ · clone · own) = clone · own.
+   */
+  protected addPrimitiveShape(shape: Shape, context?: BuildSceneObjectContext) {
+    const cloneTransform = context?.getTransform() ?? null;
+    if (cloneTransform) {
+      const own = this.getAppliedTransform();
+      const matrix = own
+        ? own.inverse().multiply(cloneTransform).multiply(own)
+        : cloneTransform;
+      shape = ShapeOps.transform(shape, matrix);
+    }
+    this.addShape(shape);
+  }
+
+  /** Carries the user's own transform onto a repeat/mirror copy. */
+  protected syncPrimitiveWith(source: TransformablePrimitive): this {
+    const applied = source.getAppliedTransform();
+    if (applied) {
+      this.transform(applied);
+    }
     return this;
   }
 

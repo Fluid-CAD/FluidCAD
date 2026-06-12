@@ -37,6 +37,7 @@ export class SelectSceneObject extends SceneObject implements ISelect {
 
     let sceneObjects = context.getSceneObjects();
     let excludedObjects: Shape[] = [];
+    let narrowedToCloneGroup = false;
 
     if (transform) {
       filters = filters.map(f => f.transform(transform));
@@ -44,7 +45,14 @@ export class SelectSceneObject extends SceneObject implements ISelect {
       if (!this.constraintObject && parent) {
         const snapshot = parent.getSnapshot();
         excludedObjects = snapshot ? Array.from(snapshot.values()).flat() : [];
-        sceneObjects = context.getSceneObjectsFromTo(parent, this);
+        // Restrict to this clone instance's own siblings. Other instances of
+        // the same repeat share the parent container but carry a different
+        // clone transform, and the container itself would re-expose their
+        // shapes through getChildShapes.
+        const transformRef = this.getTransformRef();
+        sceneObjects = context.getSceneObjectsFromTo(parent, this)
+          .filter(o => o.getTransformRef() === transformRef);
+        narrowedToCloneGroup = true;
       }
     }
 
@@ -69,7 +77,17 @@ export class SelectSceneObject extends SceneObject implements ISelect {
     }
     const fromFilters = this.injectFromMembershipSets(filters);
     try {
-      const filteredShapes = this.applyFilters(allShapes, filters);
+      let filteredShapes = this.applyFilters(allShapes, filters);
+      if (filteredShapes.length === 0 && narrowedToCloneGroup) {
+        // Nothing matched within the cloned group: the original selection
+        // resolved to geometry outside the repeated objects (e.g. a wrap
+        // target face on a base solid). Reuse that resolution — re-running
+        // the transformed filters against base geometry cannot match.
+        const source = this.getCloneSource();
+        if (source instanceof SelectSceneObject) {
+          filteredShapes = source.getAddedShapes();
+        }
+      }
       this.addShapes(filteredShapes);
     } finally {
       for (const { filter, set } of fromFilters) {

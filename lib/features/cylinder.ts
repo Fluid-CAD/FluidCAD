@@ -1,4 +1,5 @@
 import { TransformablePrimitive } from "../common/transformable-primitive.js";
+import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Primitives } from "../oc/primitives.js";
 
 export class Cylinder extends TransformablePrimitive  {
@@ -7,9 +8,13 @@ export class Cylinder extends TransformablePrimitive  {
     super();
   }
 
-  build() {
+  build(context?: BuildSceneObjectContext) {
     const cyl = Primitives.makeCylinder(this.radius, this.height);
-    this.addShapes([cyl]);
+    this.addPrimitiveShape(cyl, context);
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    return new Cylinder(this.radius, this.height).syncPrimitiveWith(this);
   }
 
   compareTo(other: Cylinder): boolean {

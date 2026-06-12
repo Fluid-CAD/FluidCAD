@@ -313,6 +313,15 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this._transform ? this._transform.resolve() : null;
   }
 
+  /**
+   * The raw clone-transform reference set by cloneWithTransform. All clones
+   * belonging to one repeat/mirror instance share the same LazyMatrix, so
+   * reference identity distinguishes instances of the same container.
+   */
+  getTransformRef(): LazyMatrix | null {
+    return this._transform;
+  }
+
   setCloneSource(source: SceneObject): void {
     this._cloneSource = source;
   }

@@ -1,4 +1,5 @@
 import { TransformablePrimitive } from "../common/transformable-primitive.js";
+import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Primitives } from "../oc/primitives.js";
 
 export class Sphere extends TransformablePrimitive {
@@ -7,9 +8,13 @@ export class Sphere extends TransformablePrimitive {
     super();
   }
 
-  build() {
+  build(context?: BuildSceneObjectContext) {
     const sphere = Primitives.makeSphere(this.radius, this.angle);
-    this.addShapes([sphere]);
+    this.addPrimitiveShape(sphere, context);
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    return new Sphere(this.radius, this.angle).syncPrimitiveWith(this);
   }
 
   compareTo(other: Sphere): boolean {

@@ -1,4 +1,4 @@
-import type { TopoDS_Shape } from "fluidcad-ocjs";
+import type { TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "../init.js";
 import { Mesh } from "../mesh.js";
 import type { MeasureDistanceValue, MeasureVec } from "./measure-types.js";

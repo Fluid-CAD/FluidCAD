@@ -2,7 +2,7 @@ import type {
     gp_Pln,
   TopoDS_Face,
   TopoDS_Wire,
-} from "fluidcad-ocjs";
+} from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { ShapeOps } from "./shape-ops.js";
 import { Convert } from "./convert.js";

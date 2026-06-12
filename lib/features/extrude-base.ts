@@ -22,7 +22,7 @@ import { type NumberParam, resolveParam } from "../core/param.js";
 import { getOC } from "../oc/init.js";
 import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
-import type { TopAbs_ShapeEnum } from "fluidcad-ocjs";
+import type { TopAbs_ShapeEnum } from "ocjs-fluidcad";
 
 /** A 3D op's classified face buckets. Each is empty if the op doesn't produce that category. */
 export type ClassifiedFaces = {

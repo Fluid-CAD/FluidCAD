@@ -1,4 +1,4 @@
-import type { BRepAdaptor_CompCurve, TopoDS_Wire } from "fluidcad-ocjs";
+import type { BRepAdaptor_CompCurve, TopoDS_Wire } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Wire } from "../common/wire.js";

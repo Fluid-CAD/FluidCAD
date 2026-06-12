@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { SceneObject } from "../../common/scene-object.js";
 import { Face } from "../../common/face.js";
 import { Edge } from "../../common/edge.js";
-import type { TopoDS_Face, TopoDS_Edge } from "fluidcad-ocjs";
+import type { TopoDS_Face, TopoDS_Edge } from "ocjs-fluidcad";
 
 class FakeSceneObject extends SceneObject {
   private _container: boolean;

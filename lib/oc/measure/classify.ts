@@ -1,4 +1,4 @@
-import type { BRepAdaptor_Curve, BRepAdaptor_Surface, gp_Ax1, gp_Dir, gp_Pnt, TopoDS_Shape } from "fluidcad-ocjs";
+import type { BRepAdaptor_Curve, BRepAdaptor_Surface, gp_Ax1, gp_Dir, gp_Pnt, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "../init.js";
 import type { MeasureEntityKind, MeasureVec } from "./measure-types.js";
 import { cross, dot, len, scale, sub } from "./vec.js";

@@ -1,7 +1,7 @@
 import type {
   Geom2d_BSplineCurve, Geom_Surface,
   BRepAdaptor_Curve, TopAbs_ShapeEnum, TopoDS_Edge, TopoDS_Face, TopoDS_Wire,
-} from "fluidcad-ocjs";
+} from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Explorer } from "./explorer.js";

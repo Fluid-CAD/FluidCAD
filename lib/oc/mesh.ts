@@ -1,4 +1,4 @@
-import type { TopoDS_Edge, TopoDS_Face, TopoDS_Shape } from "fluidcad-ocjs";
+import type { TopoDS_Edge, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";

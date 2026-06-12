@@ -15,7 +15,7 @@ import { Explorer } from "./explorer.js";
 import { BooleanOps } from "./boolean-ops.js";
 import { Convert } from "./convert.js";
 import { getOC } from "./init.js";
-import type { TopoDS_Shape, TopoDS_Wire } from "fluidcad-ocjs";
+import type { TopoDS_Shape, TopoDS_Wire } from "ocjs-fluidcad";
 
 export interface RibConformResult {
   solids: Shape[];

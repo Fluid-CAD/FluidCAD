@@ -1,4 +1,4 @@
-import type { TopoDS_Shape, TopTools_MapOfShape } from "fluidcad-ocjs";
+import type { TopoDS_Shape, TopTools_MapOfShape } from "ocjs-fluidcad";
 import { Matrix4 } from "../math/matrix4.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { FilterBuilderBase } from "../filters/filter-builder-base.js";

@@ -1,4 +1,4 @@
-import type { TopoDS_Shape, TopTools_IndexedMapOfShape } from "fluidcad-ocjs";
+import type { TopoDS_Shape, TopTools_IndexedMapOfShape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 
 /**

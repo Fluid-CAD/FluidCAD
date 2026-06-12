@@ -2,6 +2,7 @@
   "name": "@fluidcad/mcp",
   "version": "0.0.33",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "MCP server for FluidCAD — lets LLM agents drive a running FluidCAD workspace.",
   "main": "./dist/server.js",

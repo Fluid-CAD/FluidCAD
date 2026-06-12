@@ -307,4 +307,4 @@ See the [MCP README](mcp/README.md) for the full tool surface, transport details
 
 ## License
 
-LGPL-2.1
+MIT

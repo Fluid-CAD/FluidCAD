@@ -3,6 +3,7 @@
   "version": "0.0.36",
   "description": "Parametric CAD modeling library using javascript",
   "author": "Marwan Aouida <contact@marwan.dev>",
+  "license": "MIT",
   "homepage": "https://fluidcad.io",
   "repository": {
     "type": "git",

@@ -18,11 +18,10 @@ import wrapCone from '!!raw-loader!./_examples/wrap-cone.js';
 
 ![Basic wrap](/img/docs/3d-operations/wrap-basic.png)
 
-The first argument is the pad thickness, measured along the surface normal. The last argument is the target face — typically a `select(face().cylinder())` or `select(face().cone())` selection. An explicit sketch can be passed in between; otherwise the last sketch is used:
+The first argument is the pad thickness, measured along the surface normal. The middle argument is the sketch to wrap, and the last argument is the target face — typically a `select(face().cylinder())` or `select(face().cone())` selection. Both the sketch and the face are required:
 
 ```js
-wrap(2, target)             // wraps the last sketch
-wrap(2, decal, target)      // wraps a specific sketch
+wrap(2, decal, target)      // wrap the sketch `decal` onto the face `target`
 ```
 
 ## True wrap, not a projection
@@ -73,10 +72,10 @@ Cones unroll into a fan rather than a flat strip, and `wrap()` accounts for that
 `wrap()` is a boolean operation with the usual scope controls:
 
 ```js
-wrap(2, target)                   // fuse with all touching solids (default)
-wrap(2, target).remove()          // engrave instead of emboss
-wrap(2, target).new()             // keep the pad as a separate solid
-wrap(2, target).add().scope(c)    // fuse only with `c`
+wrap(2, decal, target)                  // fuse with all touching solids (default)
+wrap(2, decal, target).remove()         // engrave instead of emboss
+wrap(2, decal, target).new()            // keep the pad as a separate solid
+wrap(2, decal, target).add().scope(c)   // fuse only with `c`
 ```
 
 ## Region picking
@@ -84,14 +83,14 @@ wrap(2, target).add().scope(c)    // fuse only with `c`
 Like `extrude()`, the sketch is partitioned into regions first. Use `.pick()` to wrap only the regions containing the given points, or `.drill(false)` to disable hole drilling:
 
 ```js
-wrap(2, target).pick([5, 25])     // only the region containing this point
-wrap(2, target).drill(false)      // treat nested profiles as separate regions
+wrap(2, decal, target).pick([5, 25])    // only the region containing this point
+wrap(2, decal, target).drill(false)     // treat nested profiles as separate regions
 ```
 
 ## Accessing geometry
 
 ```js
-const w = wrap(2, target)
+const w = wrap(2, decal, target)
 
 w.startFaces()      // faces lying on the target surface (the pad's base)
 w.endFaces()        // raised (or engraved) faces offset by the thickness

@@ -1,7 +1,7 @@
 ---
 sidebar_position: 17
 title: "wrap"
-description: "Wraps the last sketch onto a curved face, raising it from the surface by the given thickness (emboss). Chain `.remove()` to sink it into the surface instead (deboss), or `.new()` to keep the wrapped pad standalone. The sketch is developed onto the surface with its lengths preserved — a true wrap, not a projection. Cylindrical and conical faces are supported."
+description: "Wraps the given sketch onto a curved face, raising it from the surface by the given thickness (emboss). Chain `.remove()` to sink it into the surface instead (deboss), or `.new()` to keep the wrapped pad standalone. The sketch is developed onto the surface with its lengths preserved — a true wrap, not a projection. Cylindrical and conical faces are supported."
 ---
 
 import wrap_basicExample from '!!raw-loader!../../_examples/wrap-basic.js';
@@ -9,7 +9,7 @@ import CodeBlock from '@theme/CodeBlock';
 
 # wrap()
 
-Wraps the last sketch onto a curved face, raising it from the surface by
+Wraps the given sketch onto a curved face, raising it from the surface by
 the given thickness (emboss). Chain `.remove()` to sink it into the
 surface instead (deboss), or `.new()` to keep the wrapped pad standalone.
 The sketch is developed onto the surface with its lengths preserved — a
@@ -24,10 +24,10 @@ See the [guide](/docs/guides/3d-operations/wrap) for detailed usage examples.
 ## Signatures
 
 ```ts
-wrap(thickness: NumberParam, face: SceneObject): Wrap
+wrap(thickness: NumberParam, sketch: SceneObject, face: SceneObject): Wrap
 ```
 
-Wraps the last sketch onto a curved face, raising it from the surface by
+Wraps the given sketch onto a curved face, raising it from the surface by
 the given thickness (emboss). Chain `.remove()` to sink it into the
 surface instead (deboss), or `.new()` to keep the wrapped pad standalone.
 The sketch is developed onto the surface with its lengths preserved — a
@@ -36,20 +36,7 @@ true wrap, not a projection. Cylindrical and conical faces are supported.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `thickness` | NumberParam | Pad thickness measured along the surface normal (must be positive) |
-| `face` | [SceneObject](/docs/api/types/scene-object) | The target face to wrap onto |
-
----
-
-```ts
-wrap(thickness: NumberParam, sketch: SceneObject, face: SceneObject): Wrap
-```
-
-Wraps the given sketch onto a curved face.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `thickness` | NumberParam | Pad thickness measured along the surface normal (must be positive) |
-| `sketch` | [SceneObject](/docs/api/types/scene-object) | The sketch to wrap |
+| `sketch` | [SceneObject](/docs/api/types/scene-object) | The sketch to wrap onto the face |
 | `face` | [SceneObject](/docs/api/types/scene-object) | The target face to wrap onto |
 
 ## Examples

@@ -1,6 +1,6 @@
 ---
 id: api/wrap
-title: wrap(thickness, sketch?, face)
+title: wrap(thickness, sketch, face)
 summary: Develops a sketch onto a cylindrical or conical face and raises it by a thickness — embossed or engraved labels, logos, and features that follow a curved wall.
 tags: [api, 3d, solid]
 symbols: [wrap]
@@ -12,7 +12,6 @@ seeAlso: [api/sketch, api/types/text, api/select, api/extrude]
 Imported from `fluidcad/core`.
 
 ```ts
-wrap(thickness, face: SceneObject)                        // wraps the last sketch
 wrap(thickness, sketch: SceneObject, face: SceneObject)
 ```
 
@@ -50,14 +49,14 @@ import { face } from "fluidcad/filters";
 cylinder(25, 60);
 const target = select(face().cylinder());
 
-sketch(plane("front", 25), () => {
+const decal = sketch(plane("front", 25), () => {
     move([0, 24]);
     text("FLUID").size(12);
 });
 
-wrap(1, target);
+wrap(1, decal, target);
 ```
 
-Use `wrap(1, target).remove()` on the same scene to engrave the text
+Use `wrap(1, decal, target).remove()` on the same scene to engrave the text
 instead. See [[api/types/text]] for text options and [[api/select]] for
 picking the target face.

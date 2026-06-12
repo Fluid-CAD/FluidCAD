@@ -11,8 +11,8 @@ revolve("z");
 
 const target = select(face().cone());
 
-sketch(plane("front", 26), () => {
+const decal = sketch(plane("front", 26), () => {
     slot([-8, 25], [8, 25], 4);
 });
 
-wrap(1.5, target);
+wrap(1.5, decal, target);

@@ -36,11 +36,59 @@ export type ShapeProperties = {
 
 export type ImportResult = { success: boolean; fileName?: string; error?: string };
 
+export type MeasureVec = { x: number; y: number; z: number };
+
+export type MeasureDistanceValue = {
+  value: number;
+  from: MeasureVec;
+  to: MeasureVec;
+};
+
+export type MeasureEntityRef = {
+  shapeId: string;
+  kind: 'face' | 'edge';
+  index: number;
+};
+
+export type MeasureEntityInfo = {
+  ref: MeasureEntityRef;
+  geomType: string;
+  area?: number;
+  length?: number;
+  radius?: number;
+};
+
+export type MeasurePrimaryKey =
+  | 'parallelDist'
+  | 'centerDist'
+  | 'axisDist'
+  | 'minDist'
+  | 'angle'
+  | 'totalArea'
+  | 'totalLength';
+
+export type MeasureResult = {
+  entities: MeasureEntityInfo[];
+  primary: MeasurePrimaryKey;
+  primaryLabel: string;
+  minDist?: MeasureDistanceValue;
+  maxDist?: MeasureDistanceValue;
+  parallelDist?: MeasureDistanceValue;
+  centerDist?: MeasureDistanceValue;
+  axisDist?: MeasureDistanceValue;
+  angleDeg?: number;
+  angleLabel?: string;
+  totalArea?: number;
+  totalLength?: number;
+};
+
 export interface UserPreferences {
   theme: string;
   showGrid: boolean;
   cameraMode: 'perspective' | 'orthographic';
   showBuildTimings: boolean;
+  measureLengthUnit?: 'mm' | 'cm' | 'm' | 'in';
+  measureAngleUnit?: 'deg' | 'rad';
 }
 
 // ---------------------------------------------------------------------------
@@ -227,6 +275,13 @@ export function getEdgeProperties(
 
 export function getShapeProperties(shapeId: string): Promise<ShapeProperties | null> {
   return getJson('/api/shape-properties', { shapeId });
+}
+
+export function measureEntities(
+  entities: MeasureEntityRef[],
+  signal?: AbortSignal,
+): Promise<MeasureResult | null> {
+  return postJson('/api/measure', { entities }, signal);
 }
 
 export function getMaterials(): Promise<Material[] | null> {

@@ -26,6 +26,10 @@ function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
 const HIGHLIGHT_EDGE_LINE_WIDTH = 2;
 const HOVER_EDGE_LINE_WIDTH = 2;
 
+export type SelectionModifiers = { additive: boolean };
+
+export type SelectedEntity = { shapeId: string; sub: NonNullable<SubSelection> };
+
 // How much to blend non-sketch object colors toward the scene background while
 // sketch mode is active. Higher = more faded. Opaque tint avoids the three.js
 // transparency sort/overdraw cost on complex scenes.
@@ -50,13 +54,13 @@ export class Viewer {
   isRegionPicking = false;
   isDrawing = false;
 
-  private selectionHandler: ((shapeId: string | null, sub: SubSelection) => void) | null = null;
+  private selectionHandler: ((shapeId: string | null, sub: SubSelection, modifiers: SelectionModifiers) => void) | null = null;
   private centroidIndicator = new CentroidIndicator();
   private hoverState: { shapeId: string; sub: SubSelection } | null = null;
   private hoverFaceOverlayMeshes: Mesh[] = [];
   private hoverRafId: number | null = null;
   private isMouseDown = false;
-  private highlightedSub: SubSelection = null;
+  private highlightedEntities: SelectedEntity[] = [];
   private activeSketchId: string | null = null;
   private hiddenShapeIds = new Set<string>();
   private shapeOpacities = new Map<string, number>();
@@ -90,7 +94,7 @@ export class Viewer {
     return this.sceneObjects;
   }
 
-  setSelectionHandler(fn: (shapeId: string | null, sub: SubSelection) => void): void {
+  setSelectionHandler(fn: (shapeId: string | null, sub: SubSelection, modifiers: SelectionModifiers) => void): void {
     this.selectionHandler = fn;
   }
 
@@ -136,11 +140,12 @@ export class Viewer {
       }
 
       this.clearHover();
+      const modifiers: SelectionModifiers = { additive: e.ctrlKey || e.metaKey || e.shiftKey };
       const result = this.pickAt(e.clientX, e.clientY);
       if (result) {
-        this.selectionHandler(result.shapeId, result.sub);
+        this.selectionHandler(result.shapeId, result.sub, modifiers);
       } else {
-        this.selectionHandler(null, null);
+        this.selectionHandler(null, null, modifiers);
       }
     });
   }
@@ -262,7 +267,8 @@ export class Viewer {
   updateView(sceneObjects: SceneObjectRender[], isRollback = false, rollbackStop?: number): void {
     this.sceneObjects = sceneObjects;
     this.highlightedShapeId = null;
-    this.highlightedSub = null;
+    this.highlightedEntities = [];
+    this.faceHighlightMeshes = [];
     this.hoverState = null;
     this.hoverFaceOverlayMeshes = [];
     this.ctx.renderer.domElement.style.cursor = '';
@@ -366,12 +372,12 @@ export class Viewer {
     });
 
     this.highlightedShapeId = shapeId;
-    this.highlightedSub = null;
+    this.highlightedEntities = [];
     this.ctx.render();
   }
 
   clearHighlight(): void {
-    if (!this.highlightedShapeId && this.faceHighlightMeshes.length === 0) {
+    if (!this.highlightedShapeId && this.highlightedEntities.length === 0 && this.faceHighlightMeshes.length === 0) {
       return;
     }
 
@@ -402,13 +408,33 @@ export class Viewer {
     this.faceHighlightMeshes = [];
 
     this.highlightedShapeId = null;
-    this.highlightedSub = null;
+    this.highlightedEntities = [];
+    this.ctx.render();
+  }
+
+  /** Highlight a set of faces/edges at once (e.g. a measure selection). Replaces any previous highlight. */
+  highlightEntities(entities: SelectedEntity[]): void {
+    this.clearHighlight();
+    for (const entity of entities) {
+      if (entity.sub.type === 'face') {
+        this.applyFaceHighlight(entity.shapeId, entity.sub.index);
+      } else {
+        this.applyEdgeHighlight(entity.shapeId, entity.sub.index);
+      }
+    }
+    this.highlightedEntities = entities;
     this.ctx.render();
   }
 
   highlightFace(shapeId: string, faceIndex: number): void {
-    this.clearHighlight();
+    this.highlightEntities([{ shapeId, sub: { type: 'face', index: faceIndex } }]);
+  }
 
+  highlightEdge(shapeId: string, edgeIndex: number): void {
+    this.highlightEntities([{ shapeId, sub: { type: 'edge', index: edgeIndex } }]);
+  }
+
+  private applyFaceHighlight(shapeId: string, faceIndex: number): void {
     this.ctx.scene.traverse((obj) => {
       if (!(obj as Mesh).isMesh) {
         return;
@@ -471,15 +497,9 @@ export class Viewer {
       (mesh.parent ?? this.ctx.scene).add(overlayMesh);
       this.faceHighlightMeshes.push(overlayMesh);
     });
-
-    this.highlightedShapeId = shapeId;
-    this.highlightedSub = { type: 'face', index: faceIndex };
-    this.ctx.render();
   }
 
-  highlightEdge(shapeId: string, edgeIndex: number): void {
-    this.clearHighlight();
-
+  private applyEdgeHighlight(shapeId: string, edgeIndex: number): void {
     this.ctx.scene.traverse((obj) => {
       if (!(obj as LineSegments).isLine && !obj.userData.isEdgeLine) {
         return;
@@ -501,15 +521,15 @@ export class Viewer {
         return;
       }
 
+      // Skip if already highlighted, so the saved original color isn't overwritten.
+      if (obj.userData.originalColor !== undefined) {
+        return;
+      }
       obj.userData.originalColor = (obj as any).material.color.getHex();
       (obj as any).material.color.set(themeColors.highlightColor);
       obj.userData.originalLineWidth = (obj as any).material.linewidth;
       (obj as any).material.linewidth = HIGHLIGHT_EDGE_LINE_WIDTH;
     });
-
-    this.highlightedShapeId = shapeId;
-    this.highlightedSub = { type: 'edge', index: edgeIndex };
-    this.ctx.render();
   }
 
   // ---------------------------------------------------------------------------
@@ -569,10 +589,12 @@ export class Viewer {
       return;
     }
 
-    // Don't hover-highlight the currently selected face/edge.
-    if (this.highlightedShapeId === result.shapeId &&
-        this.highlightedSub?.type === result.sub?.type &&
-        this.highlightedSub?.index === result.sub?.index) {
+    // Don't hover-highlight a currently selected face/edge.
+    const isSelected = this.highlightedEntities.some((entity) =>
+      entity.shapeId === result.shapeId &&
+      entity.sub.type === result.sub?.type &&
+      entity.sub.index === result.sub?.index);
+    if (isSelected) {
       if (this.hoverState) {
         this.clearHover();
       }

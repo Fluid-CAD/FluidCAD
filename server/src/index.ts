@@ -7,6 +7,7 @@ import { createServerCore } from './server-core.ts';
 import { createPropertiesRouter } from './routes/properties.ts';
 import { createParamsRouter } from './routes/params.ts';
 import { createHitTestRouter } from './routes/hit-test.ts';
+import { createMeasureRouter } from './routes/measure.ts';
 import { createTimelineRouter } from './routes/timeline.ts';
 import { createSketchEditsRouter } from './routes/sketch-edits.ts';
 import { createExportRouter } from './routes/export.ts';
@@ -84,6 +85,7 @@ app.use('/api', createHealthRouter({
 app.use('/api', createPropertiesRouter(fluidCadServer));
 app.use('/api', createParamsRouter(fluidCadServer, sendToExtension, broadcastToUI));
 app.use('/api', createHitTestRouter(fluidCadServer));
+app.use('/api', createMeasureRouter(fluidCadServer));
 app.use('/api', createTimelineRouter(fluidCadServer, sendToExtension, broadcastToUI));
 app.use('/api', createSketchEditsRouter(fluidCadServer, sendToExtension, WORKSPACE_PATH));
 app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));

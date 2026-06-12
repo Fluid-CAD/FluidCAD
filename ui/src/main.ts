@@ -11,6 +11,7 @@ import { FileImporter } from './ui/file-importer';
 import { TrimPickService } from './interactive/trim-pick-service';
 import { RegionPickService } from './interactive/region-pick-service';
 import { SketchToolbarService } from './interactive/sketch-toolbar-service';
+import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { onThemeChange } from './scene/theme-colors';
 import { loadPreferences, gotoSource } from './api';
@@ -31,6 +32,7 @@ loadPreferences().then((prefs) => {
     document.documentElement.setAttribute('data-theme', prefs.theme);
     applyPreferences(prefs);
     timelinePanel.setShowBuildTimings(!!prefs.showBuildTimings);
+    measureController.applyPreferences(prefs);
   }
 });
 
@@ -40,6 +42,7 @@ loadPreferences().then((prefs) => {
 
 const shapePropertiesModal = new ShapePropertiesModal(container);
 const selectionInfoOverlay = new SelectionInfoOverlay(container);
+const measureController = new MeasureController(container, viewer);
 const exportDialog = new ExportDialog(container, viewer.sceneContext);
 
 const fileImporter = new FileImporter(container, {
@@ -87,6 +90,7 @@ const errorBanner = new ErrorBanner(container, (loc) => {
 // ---------------------------------------------------------------------------
 
 shapePropertiesModal.setOpenHandler(() => {
+  measureController.clearSelection();
   viewer.clearHighlight();
   selectionInfoOverlay.hide();
 });
@@ -99,28 +103,32 @@ shapePropertiesModal.setCentroidHandler((centroid) => {
   }
 });
 
-viewer.setSelectionHandler((shapeId, sub) => {
-  if (shapeId) {
-    if (shapePropertiesModal.isOpen) {
+viewer.setSelectionHandler((shapeId, sub, modifiers) => {
+  if (shapePropertiesModal.isOpen) {
+    measureController.clearSelection();
+    if (shapeId) {
       viewer.highlightShape(shapeId);
-    } else if (sub?.type === 'face') {
-      viewer.highlightFace(shapeId, sub.index);
-    } else if (sub?.type === 'edge') {
-      viewer.highlightEdge(shapeId, sub.index);
     } else {
       viewer.clearHighlight();
     }
-  } else {
-    viewer.clearHighlight();
+    shapePropertiesModal.setSelectedShape(shapeId);
+    selectionInfoOverlay.hide();
+    return;
   }
-  shapePropertiesModal.setSelectedShape(shapeId);
-  if (shapeId !== null && sub !== null) {
-    if (sub.type === 'face') {
-      selectionInfoOverlay.showForFace(shapeId, sub.index);
+
+  // The measure controller owns the selection set (plain click replaces,
+  // ctrl/shift-click accumulates) and the matching viewer highlights.
+  const selection = measureController.handleClick(shapeId, sub, modifiers.additive);
+  if (selection.length === 1) {
+    const entity = selection[0];
+    shapePropertiesModal.setSelectedShape(entity.shapeId);
+    if (entity.sub.type === 'face') {
+      selectionInfoOverlay.showForFace(entity.shapeId, entity.sub.index);
     } else {
-      selectionInfoOverlay.showForEdge(shapeId, sub.index);
+      selectionInfoOverlay.showForEdge(entity.shapeId, entity.sub.index);
     }
   } else {
+    shapePropertiesModal.setSelectedShape(selection.length > 0 ? selection[0].shapeId : null);
     selectionInfoOverlay.hide();
   }
 });
@@ -234,6 +242,7 @@ function connectWebSocket() {
         viewer.isTrimming = !isRollback && trimService.state === 'picking-active';
         viewer.isDrawing = !isRollback && sketchService.hasActiveDrawingTool;
         viewer.updateView(msg.result, isRollback, msg.rollbackStop);
+        measureController.onSceneRendered();
         if (msg.absPath) {
           viewer.setFileName(msg.absPath);
         }
@@ -261,15 +270,18 @@ function connectWebSocket() {
         break;
       }
       case 'highlight-shape':
+        measureController.clearSelection();
         viewer.highlightShape(msg.shapeId);
         shapePropertiesModal.setSelectedShape(msg.shapeId);
         break;
       case 'clear-highlight':
+        measureController.clearSelection();
         viewer.clearHighlight();
         shapePropertiesModal.setSelectedShape(null);
         selectionInfoOverlay.hide();
         break;
       case 'show-shape-properties':
+        measureController.clearSelection();
         viewer.clearHighlight();
         selectionInfoOverlay.hide();
         shapePropertiesModal.show(msg.shapeId);

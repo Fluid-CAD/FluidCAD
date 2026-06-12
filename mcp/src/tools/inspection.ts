@@ -182,6 +182,23 @@ export async function hitTest(input: HitTestInput) {
   return callWithClient(input, (client) => client.postJson<unknown>('/api/hit-test', body));
 }
 
+export type MeasureEntityInput = { shapeId: string; kind: 'face' | 'edge'; index: number };
+export type MeasureInput = WorkspaceArg & { entities: MeasureEntityInput[] };
+export async function measure(input: MeasureInput) {
+  const entities = input?.entities;
+  if (!Array.isArray(entities) || entities.length < 1 || entities.length > 8) {
+    return err('invalid-input', '`entities` must be an array of 1-8 face/edge references.');
+  }
+  for (const entity of entities) {
+    const validKind = entity?.kind === 'face' || entity?.kind === 'edge';
+    const validIndex = typeof entity?.index === 'number' && Number.isInteger(entity.index) && entity.index >= 0;
+    if (!entity || typeof entity.shapeId !== 'string' || !entity.shapeId || !validKind || !validIndex) {
+      return err('invalid-input', 'Each entity needs a `shapeId`, a `kind` (face|edge) and a non-negative `index`.');
+    }
+  }
+  return callWithClient(input, (client) => client.postJson<unknown>('/api/measure', { entities }));
+}
+
 function isVec3(value: unknown): value is [number, number, number] {
   return (
     Array.isArray(value) &&

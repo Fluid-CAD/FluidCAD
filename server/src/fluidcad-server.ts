@@ -19,6 +19,7 @@ type SceneManager = {
   getShapeProperties(scene: any, shapeId: string): any;
   getFaceProperties(scene: any, shapeId: string, faceIndex: number): any;
   getEdgeProperties(scene: any, shapeId: string, edgeIndex: number): any;
+  measure(scene: any, refs: { shapeId: string; kind: 'face' | 'edge'; index: number }[]): any;
   hitTest(
     scene: any,
     shapeId: string,
@@ -408,6 +409,17 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.getEdgeProperties(scene, shapeId, edgeIndex);
+  }
+
+  measure(refs: { shapeId: string; kind: 'face' | 'edge'; index: number }[]): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.measure(scene, refs);
   }
 
   exportShapes(

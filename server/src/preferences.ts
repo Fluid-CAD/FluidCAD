@@ -2,11 +2,16 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 
+export type MeasureLengthUnit = 'mm' | 'cm' | 'm' | 'in';
+export type MeasureAngleUnit = 'deg' | 'rad';
+
 export interface Preferences {
   theme: string;
   showGrid: boolean;
   cameraMode: 'perspective' | 'orthographic';
   showBuildTimings: boolean;
+  measureLengthUnit: MeasureLengthUnit;
+  measureAngleUnit: MeasureAngleUnit;
 }
 
 const DEFAULTS: Preferences = {
@@ -14,6 +19,8 @@ const DEFAULTS: Preferences = {
   showGrid: true,
   cameraMode: 'orthographic',
   showBuildTimings: false,
+  measureLengthUnit: 'mm',
+  measureAngleUnit: 'deg',
 };
 
 function getConfigDir(): string {

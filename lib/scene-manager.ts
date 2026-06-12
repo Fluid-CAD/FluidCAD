@@ -17,6 +17,9 @@ import type { EdgeProperties } from "./oc/edge-props.js";
 import { Explorer } from "./oc/explorer.js";
 import { OccHitTest } from "./oc/hit-test.js";
 import type { HitTestResult } from "./oc/hit-test.js";
+import { MeasureOps } from "./oc/measure/measure-ops.js";
+import type { MeasureInput } from "./oc/measure/measure-ops.js";
+import type { MeasureEntityRef, MeasureResult } from "./oc/measure/measure-types.js";
 
 class SceneManager {
   currentScene: Scene = new Scene();
@@ -94,6 +97,25 @@ class SceneManager {
     return null;
   }
 
+  measure(scene: Scene, refs: MeasureEntityRef[]): MeasureResult | null {
+    const inputs: MeasureInput[] = [];
+    for (const ref of refs) {
+      const shape = findShapeById(scene, ref.shapeId);
+      if (!shape) {
+        return null;
+      }
+      const subShapes = ref.kind === 'face' ? Explorer.findFacesWrapped(shape) : Explorer.findEdgesWrapped(shape);
+      if (ref.index < 0 || ref.index >= subShapes.length) {
+        return null;
+      }
+      inputs.push({ ref, shape: subShapes[ref.index].getShape() });
+    }
+    if (inputs.length === 0) {
+      return null;
+    }
+    return MeasureOps.measure(inputs);
+  }
+
   exportShapes(scene: Scene, shapeIds: string[], options: ExportOptions): { data: string | Uint8Array; fileName: string } {
     const solids: Solid[] = [];
     for (const obj of scene.getAllSceneObjects()) {
@@ -127,6 +149,17 @@ class SceneManager {
     }
     return null;
   }
+}
+
+function findShapeById(scene: Scene, shapeId: string) {
+  for (const obj of scene.getAllSceneObjects()) {
+    for (const shape of obj.getAddedShapes()) {
+      if (shape.id === shapeId) {
+        return shape;
+      }
+    }
+  }
+  return null;
 }
 
 let currentManager: SceneManager | null = null;

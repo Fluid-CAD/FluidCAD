@@ -29,6 +29,12 @@ export function createPreferencesRouter(): Router {
       if (typeof body.showBuildTimings === 'boolean') {
         current.showBuildTimings = body.showBuildTimings;
       }
+      if (['mm', 'cm', 'm', 'in'].includes(body.measureLengthUnit)) {
+        current.measureLengthUnit = body.measureLengthUnit;
+      }
+      if (['deg', 'rad'].includes(body.measureAngleUnit)) {
+        current.measureAngleUnit = body.measureAngleUnit;
+      }
       await savePreferences(current);
       res.json(current);
     } catch (err: any) {

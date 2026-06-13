@@ -75,6 +75,20 @@ When you sketch on a face, the current position is automatically placed at the *
 
 This is how you build on top of existing geometry — sketch on the top face, then extrude or cut from there.
 
+### Planes from an edge
+
+You can also build a plane from a selected **edge**. The plane sits at a point along the edge, oriented **normal to the edge** — the edge's tangent at that point becomes the plane normal. This is handy for positioning a profile to sweep along a curve or helix:
+
+```js
+const e = extrude(30)
+
+plane(e.sideEdges(0), 'start')   // at the edge start
+plane(e.sideEdges(0), 0.5)       // halfway along (same as 'middle')
+plane(e.sideEdges(0), 1)         // at the end
+```
+
+The position is a name — `'start'`, `'middle'`, `'end'` — or a normalized value from `0` (start) to `1` (end). At the start the normal faces **outward** (away from the edge), like a start cap; `'middle'` and `'end'` follow the edge's forward direction.
+
 ## Movement
 
 Inside a sketch, there is a **current position** — think of it as a pen on paper. Drawing commands start from the current position, and movement commands reposition it without drawing.

@@ -1,4 +1,4 @@
-import type { TopoDS_Shape, TopoDS_Wire, gp_Dir, gp_Trsf, BRepBuilderAPI_Transform } from "ocjs-fluidcad";
+import type { TopoDS_Shape, TopoDS_Wire, gp_Dir } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Explorer } from "./explorer.js";
@@ -37,65 +37,42 @@ export class SweepOps {
 
     const profilePlane = profileFaces[0].getPlane();
 
-    // Fixed binormal: profile plane's "up" direction (perpendicular to xDir
-    // and to the face normal). Locking it via SetMode stops the swept profile
-    // from twisting along helical spines (clean spring instead of a wobbling
-    // ribbon). The binormal stays in WORLD coords — it's the user's intended
-    // "up" direction even when we pre-canonicalize the profile below.
-    const binormalVec = profilePlane.yDirection;
+    // Fixed binormal for MakePipeShell's `SetMode`: it locks the section's
+    // "up", so the profile keeps a constant angle to it instead of twisting
+    // along the spine. The correct direction is the axis the spine's tangent
+    // rotates around — the plane normal for a planar spine, the coil axis for a
+    // helix. The tangent keeps a constant, non-zero angle to that axis, so the
+    // section never flips and the result is a clean coil.
+    //
+    // The profile plane's own "up" (used previously) only works when it happens
+    // to equal that axis — true for a profile sketched on a world plane, but
+    // NOT for a plane built off a helix, whose in-plane axes are arbitrary.
+    // A wrong (e.g. roughly horizontal) binormal lets the helix tangent rotate
+    // into it, collapsing `Normal = BiNormal × Tangent` ~twice per turn and
+    // shredding the section into a self-intersecting ribbon. A straight spine
+    // has no rotation axis (the cross products vanish); there the profile's up
+    // is well-defined and never aligns with the constant tangent, so use it.
+    const spineAxis = SweepOps.tangentRotationAxis(spineWire.getShape() as TopoDS_Wire);
+    const binormalVec = spineAxis ?? profilePlane.yDirection;
     const [binormalDir, disposeBinormal] = Convert.toGpDir(binormalVec);
 
-    // Decide whether to pre-canonicalize the profile.
-    //
-    // OCC's `MakePipeShell.Add(_, false, true)` (no contact, with correction)
-    // works for most profile orientations: it rotates the profile to align
-    // its plane normal with the spine tangent, around an axis given by
-    // `profile.normal × spine.tangent`. That axis is well-defined unless
-    // the two are *anti-parallel* — in which case the cross product is
-    // zero, the rotation axis is undefined, and OCC produces a degenerate
-    // sweep.
-    //
-    // For the well-behaved case we keep the user's drawn position (so the
-    // swept solid lands where the user expects). For the antiparallel case
-    // we manually canonicalize to (origin, XY plane), then call
-    // `Add(_, false, false)`. The canonicalization is necessary because
-    // `GeomFill_SectionPlacement::Transformation` builds its trsf as
-    // `Tf.SetTransformation(Saxe = gp_Ax3(0, +Z, +X), Paxe = trihedron)` —
-    // it implicitly assumes the section is at the world origin in XY and
-    // produces offset placements otherwise.
+    // `Add(_, false, true)` (no contact, with correction) rotates the profile
+    // to sit perpendicular to the spine tangent, about an axis given by
+    // `profile.normal × spine.tangent`. That axis is undefined when the two are
+    // anti-parallel — but then the profile plane is *already* perpendicular to
+    // the spine (its normal is ∥ -tangent), so no correction is needed: skip it
+    // and keep the profile's drawn position.
     const spineTangent = SweepOps.getSpineTangent(spineWire.getShape() as TopoDS_Wire);
     const isAntiParallel = profilePlane.normal.dot(spineTangent) < -0.999;
-
-    let trsf: gp_Trsf | null = null;
-    let withCorrection = true;
-    if (isAntiParallel) {
-      const profileCentroid = SweepOps.getFaceCentroid(profileFaces[0].getShape());
-      trsf = SweepOps.profileToCanonicalFrameTrsf(
-        profileCentroid,
-        profilePlane.normal,
-        profilePlane.xDirection,
-      );
-      withCorrection = false;
-    }
+    const withCorrection = !isAntiParallel;
 
     try {
       for (const face of profileFaces) {
-        let workingFace: TopoDS_Shape;
-        let transformer: BRepBuilderAPI_Transform | null = null;
-        if (trsf) {
-          transformer = new oc.BRepBuilderAPI_Transform(trsf);
-          transformer.Perform(face.getShape(), true);
-          workingFace = transformer.Shape();
-        } else {
-          workingFace = face.getShape();
-        }
-        const ocFace = oc.TopoDS.Face(workingFace);
-
+        const ocFace = oc.TopoDS.Face(face.getShape());
         const outerWire = oc.BRepTools.OuterWire(ocFace);
-        const innerWires = trsf
-          ? Explorer.findShapes(workingFace, Explorer.getOcShapeType("wire"))
-              .filter(w => !w.IsSame(outerWire))
-          : face.getWires().map(w => w.getShape()).filter(w => !w.IsSame(outerWire));
+        const innerWires = face.getWires()
+          .map(w => w.getShape())
+          .filter(w => !w.IsSame(outerWire));
 
         const outer = SweepOps.sweepWire(spineWire.getShape(), outerWire, binormalDir, withCorrection);
 
@@ -155,11 +132,8 @@ export class SweepOps {
         for (const s of solids) {
           allSolids.push(Solid.fromTopoDSSolid(Explorer.toSolid(s)));
         }
-
-        transformer?.delete();
       }
     } finally {
-      trsf?.delete();
       disposeBinormal();
     }
 
@@ -183,10 +157,10 @@ export class SweepOps {
   ): WireSweep {
     const oc = getOC();
     const pipe = new oc.BRepOffsetAPI_MakePipeShell(spine);
-    // Fixed binormal (the profile plane's "up"): keeps the swept profile from
-    // twisting along the spine — a clean spring rather than a wobbling ribbon —
-    // and is well-defined on straight spines, where Frenet is not (zero
-    // curvature ⇒ undefined normal).
+    // Fixed binormal (the spine's tangent-rotation axis; see makeSweep): keeps
+    // the swept section from twisting — a clean coil rather than a wobbling
+    // ribbon — and is well-defined on straight spines, where Frenet is not
+    // (zero curvature ⇒ undefined normal).
     pipe.SetMode(binormalDir);
     // Give the swept-surface approximation enough spans for tapered/tight
     // helical spines (see MAX_PIPE_SEGMENTS) — at OCCT's default budget the
@@ -216,6 +190,44 @@ export class SweepOps {
     return { solid, firstFace, lastFace };
   }
 
+  /**
+   * The axis the spine's tangent rotates around, = normalize(Σ Tᵢ × Tᵢ₊₁) over
+   * tangents sampled along the spine. For a planar spine this is the plane
+   * normal; for a helix it is the coil axis. For a straight spine the tangent
+   * is constant, every cross product vanishes, and it returns null.
+   */
+  private static tangentRotationAxis(spine: TopoDS_Wire): Vector3d | null {
+    const oc = getOC();
+    const adaptor = new oc.BRepAdaptor_CompCurve(spine, false);
+    const u0 = adaptor.FirstParameter();
+    const u1 = adaptor.LastParameter();
+    const SAMPLES = 64;
+
+    const tangents: Vector3d[] = [];
+    const pnt = new oc.gp_Pnt();
+    const vec = new oc.gp_Vec();
+    for (let i = 0; i <= SAMPLES; i++) {
+      const u = u0 + ((u1 - u0) * i) / SAMPLES;
+      adaptor.D1(u, pnt, vec);
+      const t = new Vector3d(vec.X(), vec.Y(), vec.Z());
+      if (t.length() > 1e-9) {
+        tangents.push(t.normalize());
+      }
+    }
+    pnt.delete();
+    vec.delete();
+    adaptor.delete();
+
+    let axis = new Vector3d(0, 0, 0);
+    for (let i = 0; i + 1 < tangents.length; i++) {
+      axis = axis.add(tangents[i].cross(tangents[i + 1]));
+    }
+    if (axis.length() < 1e-6) {
+      return null;
+    }
+    return axis.normalize();
+  }
+
   /** Unit tangent of the spine wire at its first parameter. */
   private static getSpineTangent(spine: TopoDS_Wire): Vector3d {
     const oc = getOC();
@@ -230,64 +242,5 @@ export class SweepOps {
     tan.delete();
     adaptor.delete();
     return tangent;
-  }
-
-  /** World-space centroid of a planar face (uses surface-area properties). */
-  private static getFaceCentroid(face: TopoDS_Shape): Vector3d {
-    const oc = getOC();
-    const ocFace = oc.TopoDS.Face(face);
-    const props = new oc.GProp_GProps();
-    oc.BRepGProp.SurfaceProperties(ocFace, props, false, false);
-    const c = props.CentreOfMass();
-    const out = new Vector3d(c.X(), c.Y(), c.Z());
-    c.delete();
-    props.delete();
-    return out;
-  }
-
-  /**
-   * Build a world-to-world trsf that lays a planar face flat in world XY
-   * with its centroid at the world origin.
-   *
-   * `gp_Trsf::SetTransformation(A, B)` builds the transformation that maps
-   * frame A onto frame B (i.e., A's origin → B's origin, A's axes → B's
-   * axes). To move the profile *from* its current frame *to* the canonical
-   * frame, we pass the canonical frame as A and the profile's frame as B —
-   * counterintuitive but matches OCC's convention as verified empirically.
-   *
-   * The canonical frame is what OCC's MakePipeShell expects when
-   * WithContact/WithCorrection are both false: `Saxe = gp_Ax3(0, +Z, +X)`.
-   */
-  private static profileToCanonicalFrameTrsf(
-    centroid: Vector3d,
-    normal: Vector3d,
-    xDir: Vector3d,
-  ) {
-    const oc = getOC();
-    const [originPnt, disposeOriginPnt] = Convert.toGpPnt(
-      centroid as unknown as Parameters<typeof Convert.toGpPnt>[0],
-    );
-    const [normalDirGp, disposeNormalDir] = Convert.toGpDir(normal);
-    const [xDirGp, disposeXDirGp] = Convert.toGpDir(xDir);
-    const profileAx3 = new oc.gp_Ax3(originPnt, normalDirGp, xDirGp);
-
-    const zeroPnt = new oc.gp_Pnt(0, 0, 0);
-    const zDir = new oc.gp_Dir(0, 0, 1);
-    const xDirWorld = new oc.gp_Dir(1, 0, 0);
-    const canonicalAx3 = new oc.gp_Ax3(zeroPnt, zDir, xDirWorld);
-
-    const trsf = new oc.gp_Trsf();
-    trsf.SetTransformation(canonicalAx3, profileAx3);
-
-    profileAx3.delete();
-    canonicalAx3.delete();
-    zeroPnt.delete();
-    zDir.delete();
-    xDirWorld.delete();
-    disposeOriginPnt();
-    disposeNormalDir();
-    disposeXDirGp();
-
-    return trsf;
   }
 }

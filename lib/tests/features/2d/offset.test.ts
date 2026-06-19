@@ -1,9 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../../setup.js";
 import sketch from "../../../core/sketch.js";
-import { circle, rect, hLine, vLine, offset } from "../../../core/2d/index.js";
+import { circle, rect, hLine, vLine, aLine, line, offset } from "../../../core/2d/index.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { ShapeOps } from "../../../oc/shape-ops.js";
+import { Edge } from "../../../common/edge.js";
 
 describe("offset", () => {
   setupOC();
@@ -52,6 +53,91 @@ describe("offset", () => {
       // Offset produces new edges alongside the original open wire
       const shapes = s.getShapes();
       expect(shapes.length).toBeGreaterThan(2);
+    });
+  });
+
+  // Regression: a single straight segment has no curvature to imply an offset
+  // plane, so BRepOffsetAPI_MakeOffset needs the sketch plane as a reference
+  // face. Without it, the offset failed with "Failed to offset wire" and no
+  // offset edge was produced.
+  describe("offset single open line", () => {
+    const endpoints = (edge: Edge) => [edge.getFirstVertex().toPoint(), edge.getLastVertex().toPoint()];
+
+    it("offsets a single hLine to a parallel line at the right distance", () => {
+      const s = sketch("xy", () => {
+        hLine(100);
+        offset(10);
+      }) as Sketch;
+      render();
+
+      const shapes = s.getShapes();
+      expect(shapes.length).toBe(2);
+      const [a, b] = endpoints(shapes[1] as Edge);
+      expect(Math.abs(a.y)).toBeCloseTo(10, 6);
+      expect(Math.abs(b.y)).toBeCloseTo(10, 6);
+      expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeCloseTo(100, 6);
+    });
+
+    it("offsets a single vLine to a parallel line at the right distance", () => {
+      const s = sketch("xy", () => {
+        vLine(100);
+        offset(10);
+      }) as Sketch;
+      render();
+
+      const shapes = s.getShapes();
+      expect(shapes.length).toBe(2);
+      const [a, b] = endpoints(shapes[1] as Edge);
+      expect(Math.abs(a.x)).toBeCloseTo(10, 6);
+      expect(Math.abs(b.x)).toBeCloseTo(10, 6);
+      expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeCloseTo(100, 6);
+    });
+
+    it("offsets a single aLine, preserving its length", () => {
+      const s = sketch("xy", () => {
+        aLine(30, 100);
+        offset(10);
+      }) as Sketch;
+      render();
+
+      const shapes = s.getShapes();
+      expect(shapes.length).toBe(2);
+      const [a, b] = endpoints(shapes[1] as Edge);
+      expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeCloseTo(100, 6);
+    });
+
+    it("offsets a single line, preserving its length", () => {
+      const s = sketch("xy", () => {
+        line([100, 50]);
+        offset(10);
+      }) as Sketch;
+      render();
+
+      const shapes = s.getShapes();
+      expect(shapes.length).toBe(2);
+      const [a, b] = endpoints(shapes[1] as Edge);
+      expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeCloseTo(Math.hypot(100, 50), 6);
+    });
+
+    it("offsets a single line to the opposite side with a negative distance", () => {
+      const sPos = sketch("xy", () => {
+        hLine(100);
+        offset(10);
+      }) as Sketch;
+      render();
+      const posY = endpoints(sPos.getShapes()[1] as Edge)[0].y;
+
+      const sNeg = sketch("xy", () => {
+        hLine(100);
+        offset(-10);
+      }) as Sketch;
+      render();
+      const negShapes = sNeg.getShapes();
+      expect(negShapes.length).toBe(2);
+      const negY = endpoints(negShapes[1] as Edge)[0].y;
+
+      expect(Math.abs(negY)).toBeCloseTo(10, 6);
+      expect(Math.sign(negY)).toBe(-Math.sign(posY));
     });
   });
 

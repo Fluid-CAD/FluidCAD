@@ -6,7 +6,6 @@ import { WireOps } from "./wire-ops.js";
 import { FaceOps } from "./face-ops.js";
 import { EdgeOps } from "./edge-ops.js";
 import { Explorer } from "./explorer.js";
-import { Convert } from "./convert.js";
 import { getOC } from "./init.js";
 import type { TopAbs_ShapeEnum, TopoDS_Wire } from "ocjs-fluidcad";
 
@@ -62,7 +61,7 @@ export class ThinFaceMaker {
   }
 
   private static makeSingleOffsetFace(wire: Wire, isClosed: boolean, plane: Plane, offset: number): { face: Face; inwardEdges: Edge[]; outwardEdges: Edge[] } {
-    const offsetWire = this.doOffset(wire, plane, offset, isClosed);
+    const offsetWire = WireOps.offsetWireOnPlane(wire, offset, isClosed, plane);
 
     if (isClosed) {
       // Determine which wire is outer (larger) vs inner based on offset sign
@@ -97,8 +96,8 @@ export class ThinFaceMaker {
       offset2 = -offset2;
     }
 
-    const wire1 = this.doOffset(wire, plane, offset1, isClosed);
-    const wire2 = this.doOffset(wire, plane, offset2, isClosed);
+    const wire1 = WireOps.offsetWireOnPlane(wire, offset1, isClosed, plane);
+    const wire2 = WireOps.offsetWireOnPlane(wire, offset2, isClosed, plane);
 
     if (isClosed) {
       // The wire with the larger offset is the outer boundary
@@ -128,35 +127,6 @@ export class ThinFaceMaker {
   }
 
   /**
-   * Offsets a wire by the given distance, handling both closed and open wires.
-   * For closed wires, WireOps.offsetWire handles negative distances natively.
-   * For open wires, negative distances are handled by reversing the wire,
-   * offsetting with the absolute value, then reversing back.
-   *
-   * If the wire-only offset throws (e.g. "Offset wire is not closed." on
-   * wires whose corners are GeomAbs_OffsetCurve segments from `offset()` over
-   * a drafted body's filleted bottom), retries with a planar face as the
-   * offset spine — that path supplies an explicit normal which keeps the
-   * algorithm stable on the same input.
-   */
-  private static doOffset(wire: Wire, plane: Plane, distance: number, isClosed: boolean): Wire {
-    if (!isClosed) {
-      if (distance < 0) {
-        const reversed = WireOps.reverseWire(wire);
-        const offsetResult = this.offsetWireOnPlane(reversed, plane, -distance, true);
-        return WireOps.reverseWire(offsetResult);
-      }
-      return this.offsetWireOnPlane(wire, plane, distance, true);
-    }
-
-    try {
-      return WireOps.offsetWire(wire, distance, false);
-    } catch {
-      return this.offsetWireOnPlane(wire, plane, distance, false);
-    }
-  }
-
-  /**
    * Merges adjacent edges that share the same underlying curve into a single
    * edge (e.g. two conic-arc segments at a filleted corner produced by
    * `offset()` over the section of a drafted body's fillets). Without this,
@@ -178,50 +148,6 @@ export class ThinFaceMaker {
     const wires = Explorer.findShapes<TopoDS_Wire>(result, oc.TopAbs_ShapeEnum.TopAbs_WIRE as TopAbs_ShapeEnum);
     if (wires.length === 0) {
       return wire;
-    }
-    return Wire.fromTopoDSWire(oc.TopoDS.Wire(wires[0]));
-  }
-
-  /**
-   * Offsets an open wire on a given plane, using a planar face as reference
-   * so that BRepOffsetAPI_MakeOffset knows the offset direction.
-   * Only handles positive distances — use doOffset for sign handling.
-   */
-  private static offsetWireOnPlane(wire: Wire, plane: Plane, distance: number, isOpen: boolean): Wire {
-    const oc = getOC();
-    const [pln, disposePlane] = Convert.toGpPln(plane);
-
-    const faceMaker = new oc.BRepBuilderAPI_MakeFace(pln);
-    if (!faceMaker.IsDone()) {
-      faceMaker.delete();
-      disposePlane();
-      throw new Error("Failed to create reference face for thin offset");
-    }
-
-    const face = faceMaker.Face();
-    faceMaker.delete();
-    disposePlane();
-
-    const maker = new oc.BRepOffsetAPI_MakeOffset();
-    maker.Init(face, oc.GeomAbs_JoinType.GeomAbs_Arc, isOpen);
-    maker.AddWire(wire.getShape() as TopoDS_Wire);
-    maker.Perform(distance, 0);
-
-    if (!maker.IsDone()) {
-      maker.delete();
-      throw new Error("Failed to offset wire for thin extrude");
-    }
-
-    const result = maker.Shape();
-    maker.delete();
-
-    if (Explorer.isWire(result)) {
-      return Wire.fromTopoDSWire(oc.TopoDS.Wire(result));
-    }
-
-    const wires = Explorer.findShapes<TopoDS_Wire>(result, oc.TopAbs_ShapeEnum.TopAbs_WIRE as TopAbs_ShapeEnum);
-    if (wires.length === 0) {
-      throw new Error("Thin offset produced no usable wire");
     }
     return Wire.fromTopoDSWire(oc.TopoDS.Wire(wires[0]));
   }

@@ -69,10 +69,10 @@ export class Offset extends ExtrudableGeometryBase {
     }
 
     let lastOffsetWire: Wire = null;
+    const plane = this.getPlane();
 
     for (const wireInfo of wires) {
-      const isOpen = !wireInfo.wire.isClosed()
-      const offsetWire = WireOps.offsetWire(wireInfo.wire, this.distance, isOpen);
+      const offsetWire = WireOps.offsetWireOnPlane(wireInfo.wire, this.distance, wireInfo.wire.isClosed(), plane);
       lastOffsetWire = offsetWire;
       const edges = offsetWire.getEdges();
 

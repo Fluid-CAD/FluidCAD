@@ -25,9 +25,40 @@ export class WireOps {
     return Wire.fromTopoDSWire(WireOps.buildWireRaw(edges.map(e => e.getShape() as TopoDS_Edge)));
   }
 
-  static offsetWire(shape: Wire | Edge, distance: number, isOpen: boolean): Wire {
+  static offsetWire(shape: Wire | Edge, distance: number, isOpen: boolean, plane?: Plane): Wire {
     const wire = shape instanceof Wire ? shape : WireOps.makeWireFromEdges([shape]);
-    return Wire.fromTopoDSWire(WireOps.offsetWireRaw(wire.getShape() as TopoDS_Wire, distance, isOpen));
+    return Wire.fromTopoDSWire(WireOps.offsetWireRaw(wire.getShape() as TopoDS_Wire, distance, isOpen, plane));
+  }
+
+  /**
+   * Offsets a wire by `distance` on `plane`, handling open/closed wires and
+   * negative distances.
+   *
+   * The plane is passed as a reference face so BRepOffsetAPI_MakeOffset can
+   * resolve an offset direction even for wires with no curvature to imply a
+   * plane (e.g. a single straight segment, which otherwise fails outright).
+   *
+   * For open wires a negative distance offsets to the *opposite* side — the
+   * face-based offset does not flip sides on a sign change by itself, so the
+   * wire is reversed, offset by the magnitude, then reversed back. For closed
+   * wires the plane-less offset is tried first (the path circles rely on, where
+   * the sign selects inward/outward) and the face-based offset is the fallback.
+   */
+  static offsetWireOnPlane(wire: Wire, distance: number, isClosed: boolean, plane: Plane): Wire {
+    if (!isClosed) {
+      if (distance < 0) {
+        const reversed = WireOps.reverseWire(wire);
+        const offsetResult = WireOps.offsetWire(reversed, -distance, true, plane);
+        return WireOps.reverseWire(offsetResult);
+      }
+      return WireOps.offsetWire(wire, distance, true, plane);
+    }
+
+    try {
+      return WireOps.offsetWire(wire, distance, false);
+    } catch {
+      return WireOps.offsetWire(wire, distance, false, plane);
+    }
   }
 
   static isCWRaw(wire: TopoDS_Wire, normal: Vector3d): boolean {
@@ -245,10 +276,32 @@ export class WireOps {
     return (dx * dx + dy * dy + dz * dz) < 1e-14;
   }
 
-  static offsetWireRaw(wire: TopoDS_Wire, distance: number, isOpen: boolean): TopoDS_Wire {
+  static offsetWireRaw(wire: TopoDS_Wire, distance: number, isOpen: boolean, plane?: Plane): TopoDS_Wire {
     const oc = getOC();
     const maker = new oc.BRepOffsetAPI_MakeOffset();
-    maker.Init(oc.GeomAbs_JoinType.GeomAbs_Arc, isOpen);
+
+    // BRepOffsetAPI_MakeOffset can't infer an offset direction from a wire with
+    // no curvature (e.g. a single straight segment), so the face-less Init
+    // fails with "Failed to offset wire". Initializing it with a planar
+    // reference face supplies the normal it needs — pass `plane` whenever the
+    // offset happens on a known sketch/target plane.
+    if (plane) {
+      const [pln, disposePlane] = Convert.toGpPln(plane);
+      const faceMaker = new oc.BRepBuilderAPI_MakeFace(pln);
+      if (!faceMaker.IsDone()) {
+        faceMaker.delete();
+        disposePlane();
+        maker.delete();
+        throw new Error("Failed to create reference face for wire offset");
+      }
+      const face = faceMaker.Face();
+      faceMaker.delete();
+      disposePlane();
+      maker.Init(face, oc.GeomAbs_JoinType.GeomAbs_Arc, isOpen);
+    } else {
+      maker.Init(oc.GeomAbs_JoinType.GeomAbs_Arc, isOpen);
+    }
+
     maker.AddWire(wire);
     maker.Perform(distance, 0);
 

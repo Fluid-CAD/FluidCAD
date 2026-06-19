@@ -343,6 +343,12 @@ export class TimelinePanel {
   // Build timings
   // ---------------------------------------------------------------------------
 
+  private hasBuildTimings(): boolean {
+    return this.sceneObjects.some(
+      (o) => !o.parentId && !o.fromCache && o.buildDurationMs != null,
+    );
+  }
+
   private updateHistoryTotal(): void {
     if (!this.showBuildTimings) {
       this.historyTotalLabel.classList.add('hidden');
@@ -416,6 +422,12 @@ export class TimelinePanel {
       savePreference('showBuildTimings', next);
       this.closeDropdown();
       this.renderTimeline();
+      // Build timings are only recorded for objects that actually rebuild, so
+      // enabling the toggle on a fully-cached scene would show nothing. Force a
+      // fresh recompute so the times populate immediately.
+      if (next && !this.hasBuildTimings()) {
+        this.recomputeScene();
+      }
     });
 
     dropdown.querySelector('[data-action="recompute"]')!.addEventListener('click', () => {

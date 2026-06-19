@@ -9,7 +9,7 @@ export function createParamsRouter(
   const router = Router();
 
   router.post('/recompute', async (_req, res) => {
-    const data = await fluidCadServer.recomputeCurrentFile();
+    const data = await fluidCadServer.recomputeCurrentFile(true);
     if (!data) {
       res.status(404).json({ error: 'No active scene' });
       return;

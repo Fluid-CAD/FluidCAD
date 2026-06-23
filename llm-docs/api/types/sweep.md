@@ -1,7 +1,7 @@
 ---
 id: api/types/sweep
 title: Sweep
-summary: "The Sweep type. Extends BooleanOperation; adds 15 methods."
+summary: "The Sweep type. Extends BooleanOperation; adds 16 methods."
 tags: [api, type, interface]
 symbols: [Sweep, ISweep]
 seeAlso: [api/sweep, api/types/boolean-operation]
@@ -20,6 +20,7 @@ interface Sweep extends BooleanOperation {
   internalEdges(...args: (number | EdgeFilter)[]): SceneObject;
   draft(value: NumberParam | [NumberParam, NumberParam]): this;
   endOffset(value: NumberParam): this;
+  extend(side: SweepSide, amount: NumberParam): this;
   drill(value?: boolean): this;
   pick(...points: Point2DLike[]): this;
   thin(offset: NumberParam): this;
@@ -128,6 +129,17 @@ Offsets the end face by a specified distance along the sweep direction.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `value` | `NumberParam` | The offset distance. |
+
+### `extend()`
+
+Extends the swept solid beyond the path at the given end by `amount`,
+continuing straight along the path's tangent direction there. Chain twice to
+extend both ends, e.g. `.extend('start', 10).extend('end', 5)`.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `side` | `SweepSide` | Which end of the path to extend: `'start'` or `'end'`. |
+| `amount` | `NumberParam` | Distance to extend, in mm (positive; non-positive is a no-op). |
 
 ### `drill()`
 

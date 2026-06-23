@@ -794,6 +794,9 @@ export interface ILoft extends IBooleanOperation {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
+/** Which end of a sweep path to extend. */
+export type SweepSide = "start" | "end";
+
 export interface ISweep extends IBooleanOperation {
   /**
    * Selects faces at the start (profile plane) of the sweep.
@@ -854,6 +857,15 @@ export interface ISweep extends IBooleanOperation {
    * @param value - The offset distance.
    */
   endOffset(value: NumberParam): this;
+
+  /**
+   * Extends the swept solid beyond the path at the given end by `amount`,
+   * continuing straight along the path's tangent direction there. Chain twice to
+   * extend both ends, e.g. `.extend('start', 10).extend('end', 5)`.
+   * @param side - Which end of the path to extend: `'start'` or `'end'`.
+   * @param amount - Distance to extend, in mm (positive; non-positive is a no-op).
+   */
+  extend(side: SweepSide, amount: NumberParam): this;
 
   /**
    * Enables or disables drill mode.

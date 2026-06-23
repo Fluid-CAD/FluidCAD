@@ -610,4 +610,103 @@ describe("sweep", () => {
       expect(radialExtent).toBeLessThan(30);
     });
   });
+
+  describe("extend", () => {
+    it("extends the run-out past the path end along the tangent", () => {
+      const profile = sketch("xy", () => {
+        circle(10);
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      const s = sweep(path, profile).extend("end", 20) as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const shapes = s.getShapes();
+      expect(shapes).toHaveLength(1);
+      expect(shapes[0].getType()).toBe("solid");
+
+      // Straight Z sweep with flat caps: Z extent = path length + extension.
+      const bbox = ShapeOps.getBoundingBox(shapes[0]);
+      expect(bbox.maxZ - bbox.minZ).toBeCloseTo(70, 0);
+    });
+
+    it("extends the lead-in before the path start along the tangent", () => {
+      const profile = sketch("xy", () => {
+        circle(10);
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      const s = sweep(path, profile).extend("start", 20) as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const bbox = ShapeOps.getBoundingBox(s.getShapes()[0]);
+      expect(bbox.maxZ - bbox.minZ).toBeCloseTo(70, 0);
+    });
+
+    it("extends both ends when chained", () => {
+      const profile = sketch("xy", () => {
+        circle(10);
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      const s = sweep(path, profile).extend("start", 10).extend("end", 20) as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const bbox = ShapeOps.getBoundingBox(s.getShapes()[0]);
+      expect(bbox.maxZ - bbox.minZ).toBeCloseTo(80, 0);
+    });
+
+    it("adds volume proportional to the extension length", () => {
+      const profile = sketch("xy", () => {
+        circle(10); // diameter 10 ⇒ radius 5 ⇒ area 25π
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      const s = sweep(path, profile).extend("end", 30) as Sweep;
+      render();
+
+      // Right cylinder: π·5²·(50 + 30).
+      const vol = ShapeProps.getProperties(s.getShapes()[0].getShape()).volumeMm3;
+      const expected = 25 * Math.PI * 80;
+      expect(vol).toBeGreaterThan(expected * 0.98);
+      expect(vol).toBeLessThan(expected * 1.02);
+    });
+
+    it("is a no-op for a non-positive amount", () => {
+      const profile = sketch("xy", () => {
+        circle(10);
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      const s = sweep(path, profile).extend("end", 0) as Sweep;
+      render();
+
+      const bbox = ShapeOps.getBoundingBox(s.getShapes()[0]);
+      expect(bbox.maxZ - bbox.minZ).toBeCloseTo(50, 0);
+    });
+
+    it("throws on an invalid side", () => {
+      const profile = sketch("xy", () => {
+        circle(10);
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      expect(() => sweep(path, profile).extend("middle" as any, 10)).toThrow();
+    });
+  });
 });

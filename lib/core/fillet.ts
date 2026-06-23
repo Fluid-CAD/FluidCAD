@@ -70,6 +70,14 @@ function build(context: SceneParserContext): FilletFunction {
         context.addSceneObject(fillet);
         return fillet;
       }
+
+      if (arguments.length >= 2 && isNumberParam(arguments[0])) {
+        const radius = resolveParam(arguments[0] as NumberParam);
+        const objects = Array.from(arguments).slice(1) as GeometrySceneObject[];
+        const fillet = new Fillet2D(radius, ...objects);
+        context.addSceneObject(fillet);
+        return fillet;
+      }
     }
     else {
       const args = Array.from(arguments);

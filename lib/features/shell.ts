@@ -80,8 +80,19 @@ export class Shell extends SceneObject implements IShell {
         const originalObj = shapeObjMap.get(shape);
         originalObj.removeShape(shape, this);
       } catch {
+        // OCCT's MakeThickSolid could not offset the inner wall. Keep the
+        // original (un-shelled) solid in the scene so downstream features
+        // still have geometry to work with, but surface the failure instead
+        // of silently serving an unchanged part.
         newShapes.push(shape);
         console.warn("Shell: Failed to create thick solid.");
+        this.setError(
+          "shell: could not hollow the solid — wall offset failed.\n" +
+          "Hint: the wall may be thicker than a nearby feature or radius of " +
+          "curvature, or a cut/groove may open onto a removed face. Try a " +
+          "thinner wall, fewer/simpler open faces, or shelling before cutting " +
+          "small features."
+        );
       }
     }
 

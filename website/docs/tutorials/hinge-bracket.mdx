@@ -201,11 +201,11 @@ remove(spine)
 ### Top pin hole
 
 ```js
-circle("top", 16)
+sketch("top", () => circle(16))
 cut(-26)
 ```
 
-`circle("top", 16)` drops a circle of radius 16 on the top plane at the origin. `cut(-26)` removes 26 units of material downward, boring the hinge-pin hole through the top boss.
+`sketch("top", () => circle(16))` drops a circle of radius 16 on the top plane at the origin. `cut(-26)` removes 26 units of material downward, boring the hinge-pin hole through the top boss.
 
 ### Bore through the boss
 

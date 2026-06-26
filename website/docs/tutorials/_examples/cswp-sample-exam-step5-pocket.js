@@ -47,7 +47,7 @@ sketch(p1, () => {
 });
 
 const cylBody1 = extrude(-D)
-circle(cylBody1.startFaces(), E)
+sketch(cylBody1.startFaces(), () => circle(E))
 const cylCut1 = cut()
 
 chamfer(2, cylCut1.startEdges(), cylCut1.endEdges())
@@ -61,7 +61,7 @@ sketch(p2, () => {
 });
 
 const cylBody2 = extrude(-D)
-circle(cylBody2.startFaces(), E)
+sketch(cylBody2.startFaces(), () => circle(E))
 const cylCut2 = cut()
 
 chamfer(2, cylCut2.startEdges(), cylCut2.endEdges())
@@ -75,11 +75,11 @@ sketch("xy", () => {
 const corner = extrude(35);
 
 // Through-all hole
-circle(corner.endFaces(), 15)
+sketch(corner.endFaces(), () => circle(15))
 cut()
 
 // Counterbore
-circle(corner.endFaces(), 30)
+sketch(corner.endFaces(), () => circle(30))
 cut(10)
 
 // Face pocket (cut only, before fillet)

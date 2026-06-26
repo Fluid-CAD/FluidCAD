@@ -13,20 +13,6 @@ sketch("xy", () => {
 })
 ```
 
-## Using 2D geometries outside a sketch
-
-Most 2D geometries can be used outside a `sketch()` block by passing the plane as the first argument. This is consistent across every 2D shape:
-
-```js
-circle("xy", 50)               // circle on the XY plane
-rect("front", 100, 60)         // rectangle on the front plane
-line("xz", [0, 0], [100, 50])  // line on the XZ plane
-slot("xy", 80, 20)             // slot on the XY plane
-arc("front", 50, 0, 90)        // arc on the front plane
-```
-
-This is a shorthand — it's equivalent to wrapping the shape in a `sketch()` call on that plane.
-
 ## Sketch planes
 
 A sketch needs a plane to draw on. You can use string names, custom planes, or faces from previous operations.

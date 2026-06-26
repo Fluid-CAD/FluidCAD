@@ -26,20 +26,6 @@ Draws a slot with the given length and end radius.
 ---
 
 ```ts
-slot(targetPlane: SceneObject | PlaneLike, distance: NumberParam, radius: NumberParam): Slot
-```
-
-Draws a slot on a specific plane.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
-| `distance` | NumberParam | The slot length |
-| `radius` | NumberParam | The end cap radius |
-
----
-
-```ts
 slot(start: Point2DLike, distance: NumberParam, radius: NumberParam): Slot
 ```
 
@@ -78,32 +64,3 @@ Creates a slot from a geometry edge with the given radius.
 | `geometry` | [SceneObject](/docs/api/types/scene-object) | The source geometry edge |
 | `radius` | NumberParam | The end cap radius |
 | `deleteSource` | BooleanParam | Whether to delete the source geometry (defaults to true) *(optional)* |
-
----
-
-```ts
-slot(targetPlane: SceneObject | PlaneLike, geometry: SceneObject, radius: NumberParam): Slot
-```
-
-Creates a slot from a geometry edge on a specific plane.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
-| `geometry` | [SceneObject](/docs/api/types/scene-object) | The source geometry edge |
-| `radius` | NumberParam | The end cap radius |
-
----
-
-```ts
-slot(targetPlane: SceneObject | PlaneLike, geometry: SceneObject, radius: NumberParam, deleteSource: BooleanParam): Slot
-```
-
-Creates a slot from a geometry edge, optionally keeping the source, on a specific plane.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to draw on |
-| `geometry` | [SceneObject](/docs/api/types/scene-object) | The source geometry edge |
-| `radius` | NumberParam | The end cap radius |
-| `deleteSource` | BooleanParam | Whether to delete the source geometry |

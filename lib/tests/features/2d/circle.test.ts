@@ -62,16 +62,4 @@ describe("circle", () => {
       expect(getFacesByType(solid, "cylinder")).toHaveLength(1);
     });
   });
-
-  describe("standalone with targetPlane", () => {
-    it("should create a circle on a specific plane", () => {
-      circle("xy", 60);
-      const e = extrude(10) as ExtrudeBase;
-      render();
-
-      const solid = e.getShapes()[0] as Solid;
-      const bbox = ShapeOps.getBoundingBox(solid);
-      expect(bbox.maxX - bbox.minX).toBeCloseTo(60, 0);
-    });
-  });
 });

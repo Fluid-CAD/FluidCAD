@@ -2,11 +2,7 @@ import { isPoint2DLike, Point2DLike } from "../../math/point.js";
 import { Arc } from "../../features/2d/arc.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
-import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
-import { isPlaneLike, PlaneLike } from "../../math/plane.js";
-import { SceneObject } from "../../common/scene-object.js";
-import { resolvePlane } from "../../helpers/resolve.js";
-import { IArcPoints, IArcAngles, ISceneObject } from "../interfaces.js";
+import { IArcPoints, IArcAngles } from "../interfaces.js";
 import { type NumberParam, resolveParam } from "../param.js";
 
 interface ArcFunction {
@@ -34,72 +30,33 @@ interface ArcFunction {
    * @param endAngle - The end angle in degrees, relative to the current tangent (defaults to 180)
    */
   (radius: NumberParam, startAngle?: NumberParam, endAngle?: NumberParam): IArcAngles;
-
-  /**
-   * Draws an arc to an end point on a specific plane.
-   * @param targetPlane - The plane to draw on
-   * @param endPoint - The end point of the arc
-   */
-  (targetPlane: PlaneLike | ISceneObject, endPoint: Point2DLike): IArcPoints;
-  /**
-   * Draws an arc between two points on a specific plane.
-   * @param targetPlane - The plane to draw on
-   * @param startPoint - The start point of the arc
-   * @param endPoint - The end point of the arc
-   */
-  (targetPlane: PlaneLike | ISceneObject, startPoint: Point2DLike, endPoint: Point2DLike): IArcPoints;
-  /**
-   * Draws an arc by radius and angle range on a specific plane.
-   * @param targetPlane - The plane to draw on
-   * @param radius - The arc radius
-   * @param startAngle - The start angle in degrees
-   * @param endAngle - The end angle in degrees
-   */
-  (targetPlane: PlaneLike | ISceneObject, radius: NumberParam, startAngle: NumberParam, endAngle: NumberParam): IArcAngles;
 }
 
 function build(context: SceneParserContext): ArcFunction {
   return function arc() {
-    let planeObj: PlaneObjectBase | null = null;
-    let argOffset = 0;
-
-    // Detect plane as first argument (only valid outside a sketch)
-    if (arguments.length > 0) {
-      const firstArg = arguments[0];
-      if (isPlaneLike(firstArg) || (firstArg instanceof SceneObject && !isPoint2DLike(firstArg))) {
-        if (context.getActiveSketch() !== null) {
-          throw new Error("arc(plane, ...) cannot be used inside a sketch. Use arc(...) instead.");
-        }
-        planeObj = resolvePlane(firstArg, context);
-        argOffset = 1;
-      }
-    }
-
-    const argCount = arguments.length - argOffset;
-
     // (startPoint, endPoint) — two Point2DLike args, default center = current position
-    if (argCount >= 2 && isPoint2DLike(arguments[argOffset]) && isPoint2DLike(arguments[argOffset + 1])) {
-      const start = normalizePoint2D(arguments[argOffset] as Point2DLike);
-      const end = normalizePoint2D(arguments[argOffset + 1] as Point2DLike);
-      const arcObj = Arc.twoPoints(start, end, planeObj);
+    if (arguments.length >= 2 && isPoint2DLike(arguments[0]) && isPoint2DLike(arguments[1])) {
+      const start = normalizePoint2D(arguments[0] as Point2DLike);
+      const end = normalizePoint2D(arguments[1] as Point2DLike);
+      const arcObj = Arc.twoPoints(start, end);
       context.addSceneObject(arcObj);
       return arcObj;
     }
 
     // (endPoint) — single Point2DLike arg
-    if (isPoint2DLike(arguments[argOffset])) {
-      const end = normalizePoint2D(arguments[argOffset] as Point2DLike);
-      const arcObj = Arc.toPoint(end, planeObj);
+    if (isPoint2DLike(arguments[0])) {
+      const end = normalizePoint2D(arguments[0] as Point2DLike);
+      const arcObj = Arc.toPoint(end);
       context.addSceneObject(arcObj);
       return arcObj;
     }
 
     // (radius, startAngle?, endAngle?) — all numeric args
-    const radius = resolveParam(arguments[argOffset] as NumberParam) || 100;
-    const startAngle = resolveParam(arguments[argOffset + 1] as NumberParam) || 0;
-    const endAngle = argCount >= 3 ? resolveParam(arguments[argOffset + 2] as NumberParam) : 180;
+    const radius = resolveParam(arguments[0] as NumberParam) || 100;
+    const startAngle = resolveParam(arguments[1] as NumberParam) || 0;
+    const endAngle = arguments.length >= 3 ? resolveParam(arguments[2] as NumberParam) : 180;
 
-    const arcObj = Arc.fromAngles(radius, startAngle, endAngle, planeObj);
+    const arcObj = Arc.fromAngles(radius, startAngle, endAngle);
     context.addSceneObject(arcObj);
     return arcObj;
   } as ArcFunction;

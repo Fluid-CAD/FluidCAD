@@ -1,5 +1,5 @@
 // @screenshot waitForInput
-import { text, extrude } from 'fluidcad/core';
+import { sketch, text, extrude } from 'fluidcad/core';
 
-text("xy", "Hello").size(20)
+sketch("xy", () => text("Hello").size(20))
 extrude(6)

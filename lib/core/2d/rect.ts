@@ -1,12 +1,9 @@
-import { Point2DLike, isPoint2DLike } from "../../math/point.js";
+import { Point2DLike } from "../../math/point.js";
 import { Move } from "../../features/2d/move.js";
 import { Rect } from "../../features/2d/rect.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
-import { isPlaneLike, PlaneLike } from "../../math/plane.js";
-import { SceneObject } from "../../common/scene-object.js";
-import { resolvePlane } from "../../helpers/resolve.js";
-import { IRect, ISceneObject } from "../interfaces.js";
+import { IRect } from "../interfaces.js";
 import { type NumberParam, isNumberParam, resolveParam } from "../param.js";
 
 interface RectFunction {
@@ -23,33 +20,10 @@ interface RectFunction {
    * @param height - The rectangle height (defaults to width)
    */
   (start: Point2DLike, width: NumberParam, height?: NumberParam): IRect;
-  /**
-   * Draws a rectangle with given dimensions on a specific plane.
-   * @param targetPlane - The plane to draw on
-   * @param width - The rectangle width
-   * @param height - The rectangle height
-   */
-  (targetPlane: PlaneLike | ISceneObject, width: NumberParam, height: NumberParam): IRect;
 }
 
 function build(context: SceneParserContext): RectFunction {
   return function cRect() {
-    // Detect plane as first argument (only valid outside a sketch)
-    if (arguments.length > 0) {
-      const firstArg = arguments[0];
-      if (isPlaneLike(firstArg) || (firstArg instanceof SceneObject && !isPoint2DLike(firstArg))) {
-        if (context.getActiveSketch() !== null) {
-          throw new Error("rect(plane, ...) cannot be used inside a sketch. Use rect(...) instead.");
-        }
-        const planeObj = resolvePlane(firstArg, context);
-        const width = resolveParam(arguments[1] as NumberParam);
-        const height = resolveParam(arguments[2] as NumberParam);
-        const rect = new Rect(width, height, planeObj);
-        context.addSceneObject(rect);
-        return rect;
-      }
-    }
-
     const argCount = arguments.length;
 
     if (argCount === 1) {

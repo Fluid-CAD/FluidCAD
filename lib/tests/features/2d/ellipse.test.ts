@@ -80,40 +80,5 @@ describe("ellipse", () => {
       render();
       expect(negEllipse?.getError()).toMatch(/positive/i);
     });
-
-    it("throws when given a plane inside a sketch", () => {
-      expect(() => {
-        sketch("xy", () => {
-          (ellipse as any)("xy", 30, 20);
-        });
-        render();
-      }).toThrow();
-    });
-  });
-
-  describe("standalone with targetPlane", () => {
-    it("creates an ellipse on a specific plane", () => {
-      ellipse("xy", 60, 40);
-      const e = extrude(10) as ExtrudeBase;
-      render();
-
-      const solid = e.getShapes()[0] as Solid;
-      const bbox = ShapeOps.getBoundingBox(solid);
-      expect(bbox.maxX - bbox.minX).toBeCloseTo(120, 0);
-      expect(bbox.maxY - bbox.minY).toBeCloseTo(80, 0);
-    });
-
-    it("creates an ellipse on a plane at a given center", () => {
-      ellipse("xy", [10, 20], 30, 15);
-      const e = extrude(10) as ExtrudeBase;
-      render();
-
-      const solid = e.getShapes()[0] as Solid;
-      const bbox = ShapeOps.getBoundingBox(solid);
-      expect(bbox.centerX).toBeCloseTo(10, 0);
-      expect(bbox.centerY).toBeCloseTo(20, 0);
-      expect(bbox.maxX - bbox.minX).toBeCloseTo(60, 0);
-      expect(bbox.maxY - bbox.minY).toBeCloseTo(30, 0);
-    });
   });
 });

@@ -198,20 +198,6 @@ describe("offset", () => {
     });
   });
 
-  describe("specific targets (standalone)", () => {
-    it("should offset source geometries onto a target plane", () => {
-      const s = sketch("xy", () => {
-        circle(40);
-      }) as Sketch;
-
-      offset("xy", 5, false, s);
-
-      render();
-
-      // Offset edges should exist on the target plane
-    });
-  });
-
   describe("default distance", () => {
     it("should use default distance of 1", () => {
       const s = sketch("xy", () => {

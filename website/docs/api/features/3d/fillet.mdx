@@ -17,26 +17,26 @@ See the [guide](/docs/guides/3d-operations/fillet) for detailed usage examples.
 ## Signatures
 
 ```ts
-fillet(radius?: number): SceneObject
+fillet(radius?: NumberParam): SceneObject
 ```
 
 Fillets selected edges with the given radius.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `radius` | number | The fillet radius (defaults to 1) *(optional)* |
+| `radius` | NumberParam | The fillet radius (defaults to 1) *(optional)* |
 
 ---
 
 ```ts
-fillet(radius: number, ...sceneObjects: SceneObject[]): SceneObject
+fillet(radius: NumberParam, ...sceneObjects: SceneObject[]): SceneObject
 ```
 
 Fillets the given edge selections with the given radius.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `radius` | number | The fillet radius |
+| `radius` | NumberParam | The fillet radius |
 | `...sceneObjects` | [SceneObject](/docs/api/types/scene-object)[] | The edge selections to fillet *(optional)* |
 
 ---
@@ -54,7 +54,7 @@ fillet(objects: Geometry[]): SceneObject
 ---
 
 ```ts
-fillet(objects: Geometry[], radius: number): SceneObject
+fillet(objects: Geometry[], radius: NumberParam): SceneObject
 ```
 
 [2D] Fillets corners between the given geometries with a radius.
@@ -62,17 +62,17 @@ fillet(objects: Geometry[], radius: number): SceneObject
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `objects` | [Geometry](/docs/api/types/geometry)[] | The geometries whose corners to fillet |
-| `radius` | number | The fillet radius |
+| `radius` | NumberParam | The fillet radius |
 
 ---
 
 ```ts
-fillet(radius: number, ...objects: Geometry[]): SceneObject
+fillet(radius: NumberParam, ...objects: Geometry[]): SceneObject
 ```
 
 [2D] Fillets corners at the given radius and geometries.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `radius` | number | The fillet radius |
+| `radius` | NumberParam | The fillet radius |
 | `...objects` | [Geometry](/docs/api/types/geometry)[] | The geometries whose corners to fillet *(optional)* |

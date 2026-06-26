@@ -39,10 +39,10 @@ repeat("circular", "z", {
 })
 
 // Base
-polygon("xy", sides, 150);
+sketch("xy", () => polygon(sides, 150));
 
 const pl1 = extrude(12)
 
-polygon(pl1.endFaces(), sides, 115);
+sketch(pl1.endFaces(), () => polygon(sides, 115));
 
 extrude(12)

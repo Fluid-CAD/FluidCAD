@@ -1,0 +1,70 @@
+---
+sidebar_position: 9
+title: "text"
+description: "Renders a text string as extrudable outline geometry inside the current sketch, at the sketch cursor."
+---
+
+import text_alignExample from '!!raw-loader!../../_examples/text-align.js';
+import text_basicExample from '!!raw-loader!../../_examples/text-basic.js';
+import text_fontExample from '!!raw-loader!../../_examples/text-font.js';
+import text_pathExample from '!!raw-loader!../../_examples/text-path.js';
+import CodeBlock from '@theme/CodeBlock';
+
+# text()
+
+Renders a text string as extrudable outline geometry inside the current
+sketch, at the sketch cursor.
+
+**Returns**: [**`Text`**](/docs/api/types/text)
+
+:::tip
+See the [guide](/docs/guides/sketching/compound-shapes) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+text(text: string): Text
+```
+
+Renders a text string as extrudable outline geometry inside the current
+sketch, at the sketch cursor.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `text` | string | The string to render. |
+
+---
+
+```ts
+text(text: string, path: SceneObject): Text
+```
+
+Renders a text string following a planar curve. Each glyph is placed
+upright along the path's arc length; the text plane is the path's plane.
+Works inside a sketch (following a curve of that sketch) or standalone.
+The path is left in place — mark it `.guide()` to keep it out of
+extruded profiles.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `text` | string | The string to render. |
+| `path` | [SceneObject](/docs/api/types/scene-object) | The curve to follow: a sketch curve (line/arc/circle), a whole sketch, a planar primitive, or a selected edge/edge loop (e.g. `select(edge().circle())`). |
+
+## Examples
+
+<CodeBlock language="js">{text_alignExample}</CodeBlock>
+
+![text example](/img/docs/api/text-align.png)
+
+<CodeBlock language="js">{text_basicExample}</CodeBlock>
+
+![text example](/img/docs/api/text-basic.png)
+
+<CodeBlock language="js">{text_fontExample}</CodeBlock>
+
+![text example](/img/docs/api/text-font.png)
+
+<CodeBlock language="js">{text_pathExample}</CodeBlock>
+
+![text example](/img/docs/api/text-path.png)

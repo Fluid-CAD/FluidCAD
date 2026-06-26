@@ -84,8 +84,18 @@ export class Rib extends ExtrudeBase implements IRib {
     let direction: Vector3d;
     let distance: number;
     if (this._parallel) {
+      // The in-plane extrude direction is plane.normal × spineDir — a cross
+      // product, hence a pseudovector. Under a mirror clone (repeat("mirror",
+      // …)) both operands are already reflected, and for a reflection
+      // M(a) × M(b) = −M(a × b): the recomputed perpendicular points to the
+      // opposite side, sending the mirrored rib the wrong way. Flip it back
+      // when this instance's clone transform is a reflection. Proper
+      // transforms (linear/circular/rotate repeats, det > 0) need no fix, and
+      // normal-mode direction (±plane.normal) is linear so it is never
+      // affected.
+      const mirrorSign = context.getTransform()?.isMirroring() ? -1 : 1;
       const perpDir = RibOps.computeSpinePerpendicularDirection(spineWire, plane);
-      direction = perpDir.multiply(dirSign);
+      direction = perpDir.multiply(dirSign * mirrorSign);
       distance = p.record('Compute extrude distance', () =>
         RibOps.computeExtrudeDistanceAlongDirection(direction, plane.origin, scopeShapes),
       );

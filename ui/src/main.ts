@@ -14,6 +14,7 @@ import { FileImporter } from './ui/file-importer';
 import { TrimPickService } from './interactive/trim-pick-service';
 import { RegionPickService } from './interactive/region-pick-service';
 import { SketchToolbarService } from './interactive/sketch-toolbar-service';
+import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly } from './types';
 import { onThemeChange } from './scene/theme-colors';
@@ -40,6 +41,7 @@ loadPreferences().then((prefs) => {
     if (currentRail?.kind === 'part') {
       currentRail.timeline.setShowBuildTimings(pendingShowBuildTimings);
     }
+    measureController.applyPreferences(prefs);
   }
 });
 
@@ -49,6 +51,7 @@ loadPreferences().then((prefs) => {
 
 const shapePropertiesModal = new ShapePropertiesModal(container);
 const selectionInfoOverlay = new SelectionInfoOverlay(container);
+const measureController = new MeasureController(container, viewer);
 const exportDialog = new ExportDialog(container, viewer.sceneContext);
 // ---------------------------------------------------------------------------
 // Left-rail abstraction. The same DOM container hosts either the part-design
@@ -80,7 +83,7 @@ function disposeRail(): void {
   currentRail = null;
 }
 
-function buildPartRail(): LeftRail {
+function buildPartRail(): Extract<LeftRail, { kind: 'part' }> {
   const timeline = new TimelinePanel(
     container,
     (shapeId) => viewer.highlightShape(shapeId),
@@ -272,6 +275,7 @@ const errorBanner = new ErrorBanner(container, (loc) => {
 // ---------------------------------------------------------------------------
 
 shapePropertiesModal.setOpenHandler(() => {
+  measureController.clearSelection();
   viewer.clearHighlight();
   selectionInfoOverlay.hide();
 });
@@ -350,36 +354,68 @@ function formatMateLabel(mate: { type: string; mateId: string }): string {
   return `${mate.type} (${mate.mateId})`;
 }
 
-viewer.setSelectionHandler((shapeId, sub, instanceId) => {
-  if (shapeId) {
-    if (shapePropertiesModal.isOpen) {
+viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
+  // Shape-properties modal owns a whole-shape selection while open.
+  if (shapePropertiesModal.isOpen) {
+    measureController.clearSelection();
+    if (shapeId) {
       viewer.highlightShape(shapeId, instanceId);
-    } else if (sub?.type === 'face') {
-      viewer.highlightFace(shapeId, sub.index, instanceId);
-    } else if (sub?.type === 'edge') {
-      viewer.highlightEdge(shapeId, sub.index, instanceId);
     } else {
       viewer.clearHighlight();
     }
-  } else {
-    // Click in empty 3D space — clear face/edge selection AND the
-    // parts/joints panel-driven instance tint so the user has a clean
-    // way to deselect a row.
-    viewer.clearHighlight();
-    viewer.clearInstanceHighlight();
-    if (currentRail?.kind === 'assembly') {
+    shapePropertiesModal.setSelectedShape(shapeId);
+    selectionInfoOverlay.hide();
+    return;
+  }
+
+  // Assembly mode: instance-aware viewport selection drives the parts/joints
+  // panels; the measure tool is a part-design inspection tool and isn't active
+  // here.
+  if (currentRail?.kind === 'assembly') {
+    if (shapeId) {
+      if (sub?.type === 'face') {
+        viewer.highlightFace(shapeId, sub.index, instanceId);
+      } else if (sub?.type === 'edge') {
+        viewer.highlightEdge(shapeId, sub.index, instanceId);
+      } else {
+        viewer.clearHighlight();
+      }
+    } else {
+      // Click in empty 3D space — clear face/edge selection AND the
+      // parts/joints panel-driven instance tint so the user has a clean
+      // way to deselect a row.
+      viewer.clearHighlight();
+      viewer.clearInstanceHighlight();
       currentRail.parts.setSelected(null);
       currentRail.joints.setSelected(null);
     }
-  }
-  shapePropertiesModal.setSelectedShape(shapeId);
-  if (shapeId !== null && sub !== null) {
-    if (sub.type === 'face') {
-      selectionInfoOverlay.showForFace(shapeId, sub.index);
+    shapePropertiesModal.setSelectedShape(shapeId);
+    if (shapeId !== null && sub !== null) {
+      if (sub.type === 'face') {
+        selectionInfoOverlay.showForFace(shapeId, sub.index);
+      } else {
+        selectionInfoOverlay.showForEdge(shapeId, sub.index);
+      }
     } else {
-      selectionInfoOverlay.showForEdge(shapeId, sub.index);
+      selectionInfoOverlay.hide();
+    }
+    return;
+  }
+
+  // Part-design mode: the measure controller owns the selection set (plain
+  // click replaces, ctrl/shift-click accumulates) and the matching viewer
+  // highlights.
+  const selection = measureController.handleClick(shapeId, sub, modifiers.additive);
+  if (selection.length === 1) {
+    const entity = selection[0];
+    shapePropertiesModal.setSelectedShape(entity.shapeId);
+    if (entity.sub.type === 'face') {
+      selectionInfoOverlay.showForFace(entity.shapeId, entity.sub.index);
+    } else {
+      selectionInfoOverlay.showForEdge(entity.shapeId, entity.sub.index);
     }
   } else {
+    shapePropertiesModal.setSelectedShape(selection.length > 0 ? selection[0].shapeId : null);
     selectionInfoOverlay.hide();
   }
 });
@@ -499,6 +535,7 @@ function connectWebSocket() {
         } else {
           viewer.updateView(msg.result, isRollback, msg.rollbackStop);
         }
+        measureController.onSceneRendered();
         if (msg.absPath) {
           viewer.setFileName(msg.absPath);
         }
@@ -536,15 +573,18 @@ function connectWebSocket() {
         break;
       }
       case 'highlight-shape':
+        measureController.clearSelection();
         viewer.highlightShape(msg.shapeId);
         shapePropertiesModal.setSelectedShape(msg.shapeId);
         break;
       case 'clear-highlight':
+        measureController.clearSelection();
         viewer.clearHighlight();
         shapePropertiesModal.setSelectedShape(null);
         selectionInfoOverlay.hide();
         break;
       case 'show-shape-properties':
+        measureController.clearSelection();
         viewer.clearHighlight();
         selectionInfoOverlay.hide();
         shapePropertiesModal.show(msg.shapeId);

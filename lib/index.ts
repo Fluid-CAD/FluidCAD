@@ -1,6 +1,7 @@
 import { Scene } from "./rendering/scene.js";
 import { AssemblyScene } from "./rendering/assembly-scene.js";
 import { loadOC } from "./load.js";
+import { FontRegistry } from "./io/font-registry.js";
 import { createManager, getCurrentScene, getSceneManager } from "./scene-manager.js";
 import { SceneObject, SourceLocation } from "./common/scene-object.js";
 import { SelectSceneObject } from "./features/select.js";
@@ -144,7 +145,7 @@ export interface FluidCADOptions {
 }
 
 export async function init(options?: FluidCADOptions) {
-  await loadOC();
+  await Promise.all([loadOC(), FontRegistry.init()]);
   const existing = getSceneManager();
   if (existing) {
     return existing;

@@ -1,14 +1,10 @@
-import { Point2DLike, isPoint2DLike } from "../../math/point.js";
+import { Point2DLike } from "../../math/point.js";
 import { Circle } from "../../features/2d/circle.js";
 import { Move } from "../../features/2d/move.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
 import { LazyVertex } from "../../features/lazy-vertex.js";
-import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
-import { isPlaneLike, PlaneLike } from "../../math/plane.js";
-import { SceneObject } from "../../common/scene-object.js";
-import { resolvePlane } from "../../helpers/resolve.js";
-import { IExtrudableGeometry, ISceneObject } from "../interfaces.js";
+import { IExtrudableGeometry } from "../interfaces.js";
 import { type NumberParam, resolveParam } from "../param.js";
 
 interface CircleFunction {
@@ -23,12 +19,6 @@ interface CircleFunction {
    * @param diameter - The circle diameter (defaults to 40)
    */
   (diameter?: NumberParam): IExtrudableGeometry;
-  /**
-   * Draws a circle with a given diameter on a specific plane.
-   * @param targetPlane - The plane to draw on
-   * @param diameter - The circle diameter
-   */
-  (targetPlane: PlaneLike | ISceneObject, diameter: NumberParam): IExtrudableGeometry;
 }
 
 function build(context: SceneParserContext): CircleFunction {
@@ -36,37 +26,23 @@ function build(context: SceneParserContext): CircleFunction {
     let diameter: number;
     let center: LazyVertex;
     let circle: Circle;
-    let planeObj: PlaneObjectBase | null = null;
-    let argOffset = 0;
 
-    // Detect plane as first argument (only valid outside a sketch)
-    if (arguments.length > 0) {
-      const firstArg = arguments[0];
-      if (isPlaneLike(firstArg) || (firstArg instanceof SceneObject && !isPoint2DLike(firstArg))) {
-        if (context.getActiveSketch() !== null) {
-          throw new Error("circle(plane, ...) cannot be used inside a sketch. Use circle(...) instead.");
-        }
-        planeObj = resolvePlane(firstArg, context);
-        argOffset = 1;
-      }
-    }
-
-    const argCount = arguments.length - argOffset;
+    const argCount = arguments.length;
 
     if (argCount === 0) {
       diameter = 40;
-      circle = new Circle(diameter, null, planeObj);
+      circle = new Circle(diameter, null, null);
       context.addSceneObject(circle);
     }
     else if (argCount === 1) {
-      diameter = resolveParam(arguments[argOffset] as NumberParam) || 40;
-      circle = new Circle(diameter, null, planeObj);
+      diameter = resolveParam(arguments[0] as NumberParam) || 40;
+      circle = new Circle(diameter, null, null);
       context.addSceneObject(circle);
     }
     else {
-      center = normalizePoint2D(arguments[argOffset]);
-      diameter = resolveParam(arguments[argOffset + 1] as NumberParam) || 40;
-      circle = new Circle(diameter, null, planeObj);
+      center = normalizePoint2D(arguments[0]);
+      diameter = resolveParam(arguments[1] as NumberParam) || 40;
+      circle = new Circle(diameter, null, null);
       const move = new Move(center);
       context.addSceneObjects([move, circle]);
     }

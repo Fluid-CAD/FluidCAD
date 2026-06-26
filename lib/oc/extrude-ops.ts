@@ -1,4 +1,4 @@
-import type { BRepPrimAPI_MakeRevol, gp_Pln, gp_Vec, TopAbs_ShapeEnum, TopoDS_Face, TopoDS_Shape } from "fluidcad-ocjs";
+import type { BRepPrimAPI_MakeRevol, gp_Pln, gp_Vec, TopAbs_ShapeEnum, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Vector3d } from "../math/vector3d.js";

@@ -26,6 +26,7 @@ import {
   getShapeProperties,
   hitTest,
   listShapes,
+  measure,
 } from './tools/inspection.ts';
 import {
   getCameraState,
@@ -310,6 +311,32 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
     async ({ workspace, shapeId, edgeIndex }) =>
       toMcp(await getEdgeProperties({ workspace, shapeId, edgeIndex })),
+  );
+
+  const measureEntityArg = z.object({
+    shapeId: shapeIdArg,
+    kind: z.enum(['face', 'edge']).describe('Whether the index refers to a face or an edge of the shape.'),
+    index: z.number().int().nonnegative().describe('Zero-based face/edge index inside the shape.'),
+  });
+
+  server.registerTool(
+    'measure',
+    {
+      title: 'Measure distances and angles between faces/edges',
+      description:
+        'Measures the selected faces/edges like a CAD measure tool. One entity returns its area/length; two entities ' +
+        'return min/max distance with their realizing points, plus parallel/center/axis distance and angle when the ' +
+        'geometry relation supports them. `primary` names the headline value. All lengths are mm, angles deg.',
+      inputSchema: {
+        ...workspaceArg,
+        entities: z
+          .array(measureEntityArg)
+          .min(1)
+          .max(8)
+          .describe('Faces/edges to measure (1-8). Pairwise measurements are computed when exactly 2 are given.'),
+      },
+    },
+    async ({ workspace, entities }) => toMcp(await measure({ workspace, entities })),
   );
 
   const namedViewArg = z.enum([

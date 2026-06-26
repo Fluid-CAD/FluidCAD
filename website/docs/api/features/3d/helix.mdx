@@ -1,0 +1,53 @@
+---
+sidebar_position: 18
+title: "helix"
+description: "Creates a helix wire along the given axis. Use chained methods (.pitch(), .turns(), .height(), .radius(), .endRadius()) to configure geometry."
+---
+
+import helix_basicExample from '!!raw-loader!../../_examples/helix-basic.js';
+import CodeBlock from '@theme/CodeBlock';
+
+# helix()
+
+Creates a helix wire along the given axis. Use chained methods (.pitch(),
+.turns(), .height(), .radius(), .endRadius()) to configure geometry.
+
+**Returns**: [**`Helix`**](/docs/api/types/helix)
+
+:::tip
+See the [guide](/docs/guides/3d-operations/helix) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+helix(axis: AxisLike): Helix
+```
+
+Creates a helix wire along the given axis. Use chained methods (.pitch(),
+.turns(), .height(), .radius(), .endRadius()) to configure geometry.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to build the helix around. |
+
+---
+
+```ts
+helix(source: SceneObject): Helix
+```
+
+Creates a helix wire derived from a scene object's geometry.
+- A cylindrical or conical face: axis + radii + height come from the face.
+- A line edge: axis = the line, height = line length.
+- A circular edge: axis = circle normal at center, radius = circle radius.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `source` | [SceneObject](/docs/api/types/scene-object) | The scene object whose face/edge defines the helix. |
+
+## Examples
+
+<CodeBlock language="js">{helix_basicExample}</CodeBlock>
+
+![helix example](/img/docs/api/helix-basic.png)

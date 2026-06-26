@@ -196,6 +196,93 @@ export interface IGeometry extends ISceneObject {
 
 export interface IExtrudableGeometry extends IGeometry {}
 
+export interface IText extends IExtrudableGeometry {
+  /**
+   * Sets the text height (em size) in model units. Default 10.
+   * @param value - The em size.
+   */
+  size(value: number): this;
+
+  /**
+   * Sets the font. A name without a font extension (e.g. `"Arial"`) is resolved
+   * to a system font; a value ending in `.ttf`/`.otf`/`.ttc`/`.woff` (e.g.
+   * `"fonts/Brand.ttf"`) is loaded as a workspace-relative file. When omitted, a
+   * default system font is used.
+   * @param name - A system family name or a workspace-relative font file path.
+   */
+  font(name: string): this;
+
+  /**
+   * Sets the font weight: a number (100–900) or a name such as `"regular"`,
+   * `"medium"`, or `"bold"`. Resolves to the matching face (or the wght axis of a
+   * variable font).
+   * @param value - The weight as a number or name.
+   */
+  weight(value: number | string): this;
+
+  /**
+   * Shortcut for `weight(700)`.
+   */
+  bold(): this;
+
+  /**
+   * Renders the italic/oblique face of the font.
+   * @param value - Whether to use italic (defaults to true).
+   */
+  italic(value?: boolean): this;
+
+  /**
+   * Horizontal alignment of the text. For straight text it is relative to the
+   * origin point; for text along a path it positions the run against the
+   * path: `"start"` begins at the path's start, `"center"` centers on the
+   * midpoint, `"end"` finishes at the path's end, `"space-between"` justifies
+   * the glyphs evenly across the whole path, and `"space-around"` spreads
+   * them with half a gap before the first glyph and after the last, like the
+   * CSS flexbox value (both path text only). `"left"` and `"right"` are
+   * synonyms of `"start"` and `"end"`.
+   * @param value - `"left"`/`"start"` (default), `"center"`,
+   *   `"right"`/`"end"`, `"space-between"`, or `"space-around"`.
+   */
+  align(value: "left" | "center" | "right" | "start" | "end" | "space-between" | "space-around"): this;
+
+  /**
+   * Line-height multiplier for multi-line text (newlines in the string).
+   * @param value - Multiplier on the font's natural line height (default 1).
+   */
+  lineSpacing(value: number): this;
+
+  /**
+   * Extra spacing added between glyphs, in model units (default 0).
+   * @param value - The additional advance per glyph.
+   */
+  letterSpacing(value: number): this;
+
+  /**
+   * Shifts the baseline perpendicular to the path, in model units: positive
+   * values move the text toward its "up" side, negative below the path.
+   * Only applies to text following a path (`text(string, path)`).
+   * @param value - The perpendicular baseline shift.
+   */
+  offset(value: number): this;
+
+  /**
+   * Mirrors the text to the other side of the path, reversing the reading
+   * direction. On a closed path (circle, loop) text sits on the outside by
+   * default — `.flip()` moves it inside. On an open path it mirrors the text
+   * below the curve. Only applies to text following a path.
+   * @param value - Whether to flip (defaults to true).
+   */
+  flip(value?: boolean): this;
+
+  /**
+   * Shifts where the text starts along the path, as an arc-length distance
+   * from the path's start (combines with `align()`). On a closed path the
+   * text wraps around. Only applies to text following a path.
+   * @param distance - The arc-length shift in model units.
+   */
+  startAt(distance: number): this;
+}
+
 export interface IOffset extends IExtrudableGeometry {
   /**
    * Closes an open offset by joining it back to the source wire with
@@ -741,6 +828,9 @@ export interface ILoft extends IBooleanOperation {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
+/** Which end of a sweep path to extend. */
+export type SweepSide = "start" | "end";
+
 export interface ISweep extends IBooleanOperation {
   /**
    * Selects faces at the start (profile plane) of the sweep.
@@ -801,6 +891,15 @@ export interface ISweep extends IBooleanOperation {
    * @param value - The offset distance.
    */
   endOffset(value: NumberParam): this;
+
+  /**
+   * Extends the swept solid beyond the path at the given end by `amount`,
+   * continuing straight along the path's tangent direction there. Chain twice to
+   * extend both ends, e.g. `.extend('start', 10).extend('end', 5)`.
+   * @param side - Which end of the path to extend: `'start'` or `'end'`.
+   * @param amount - Distance to extend, in mm (positive; non-positive is a no-op).
+   */
+  extend(side: SweepSide, amount: NumberParam): this;
 
   /**
    * Enables or disables drill mode.
@@ -953,6 +1052,69 @@ export interface IRib extends IBooleanOperation {
    * with the target solids' walls.
    */
   extend(): this;
+}
+
+export interface IWrap extends IBooleanOperation {
+  /**
+   * Selects the faces lying on the target surface (the base of the wrap).
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  startFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects the raised (or recessed) faces offset from the target surface by the wrap thickness.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  endFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the base faces of the wrap.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  startEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the offset faces of the wrap.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  endEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects the wall faces created from the outer boundary of each wrapped region.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  sideFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges on the wall faces, excluding edges shared with base/offset faces.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  sideEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects the wall faces created from holes inside a wrapped region.
+   * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
+   */
+  internalFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Selects edges bounding the hole walls of the wrap.
+   * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
+   */
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+
+  /**
+   * Enables or disables drill mode, which partitions the sketch into face regions
+   * before wrapping.
+   * @param value - `true` to enable (default), `false` to disable.
+   */
+  drill(value?: boolean): this;
+
+  /**
+   * Restricts wrapping to only the sketch regions containing the given points.
+   * @param points - 2D points in the sketch plane identifying regions to wrap.
+   */
+  pick(...points: Point2DLike[]): this;
 }
 
 export type ShellJoinType = 'arc' | 'intersection' | 'tangent';

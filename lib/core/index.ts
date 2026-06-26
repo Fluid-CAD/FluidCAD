@@ -1,9 +1,9 @@
 export type {
   ISceneObject, ITransformable, IBooleanOperation, IPlane, IAxis, ISelect,
-  IGeometry, IExtrudableGeometry, IRect, ISlot, IPolygon,
+  IGeometry, IExtrudableGeometry, IText, IRect, ISlot, IPolygon,
   ITwoObjectsTangentLine, ITangentArcTwoObjects,
   IConnector, IPart,
-  IExtrude, ICut, ICommon, ISweep, ILoft, IRevolve, IDraft, IRib, IHelix
+  IExtrude, ICut, ICommon, ISweep, ILoft, IRevolve, IDraft, IRib, IHelix, IWrap
 } from "./interfaces.js";
 export { default as axis } from "./axis.js";
 export { default as local } from "./local.js";
@@ -30,6 +30,7 @@ export { default as load } from "./load.js";
 export { default as loft } from "./loft.js";
 export { default as sweep } from "./sweep.js";
 export { default as rib } from "./rib.js";
+export { default as wrap } from "./wrap.js";
 export { default as helix } from "./helix.js";
 export { default as color } from "./color.js";
 export { default as draft } from "./draft.js";

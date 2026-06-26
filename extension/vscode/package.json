@@ -4,8 +4,8 @@
   "displayName": "FluidCAD",
   "author": "Marwan Aouida <contact@marwan.dev>",
   "description": "",
-  "version": "0.0.36",
-  "license": "LGPL-2.1",
+  "version": "0.0.38",
+  "license": "MIT",
   "icon": "resources/logo.png",
   "repository": {
     "type": "git",

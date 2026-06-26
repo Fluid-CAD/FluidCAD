@@ -1,4 +1,4 @@
-import type { gp_Pln, gp_Cylinder, gp_Cone, TopAbs_ShapeEnum, TopoDS_Shape } from "fluidcad-ocjs";
+import type { gp_Pln, gp_Cylinder, gp_Cone, TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { FaceOps } from "./face-ops.js";
@@ -125,6 +125,24 @@ export class FaceQuery {
     const rawFace = FaceOps.makeFaceFromCylinder(cylMaker.Value());
     cylinder.delete();
     cylMaker.delete();
+    return Face.fromTopoDSFace(rawFace);
+  }
+
+  static makeInfiniteConicalFace(face: Shape, offset?: number): Face {
+    const cone = FaceQuery.getSurfaceAdaptorConeRaw(face.getShape());
+    if (offset) {
+      // The parallel surface at normal distance `offset` is the coaxial cone
+      // with the same semi-angle and a reference radius enlarged by
+      // offset / cos(semiAngle).
+      const radius = cone.RefRadius() + offset / Math.cos(cone.SemiAngle());
+      if (radius < 0) {
+        cone.delete();
+        throw new Error("endOffset is too large for the conical target face");
+      }
+      cone.SetRadius(radius);
+    }
+    const rawFace = FaceOps.makeFaceFromCone(cone);
+    cone.delete();
     return Face.fromTopoDSFace(rawFace);
   }
 

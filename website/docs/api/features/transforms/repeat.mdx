@@ -96,7 +96,7 @@ Creates a mirrored instance of objects across a plane.
 ---
 
 ```ts
-repeat(type: "rotate", axis: AxisLike, angle?: number, ...objects: SceneObject[]): SceneObject
+repeat(type: "rotate", axis: AxisLike, angle?: NumberParam, ...objects: SceneObject[]): SceneObject
 ```
 
 Creates a rotated clone of objects around an axis.
@@ -105,7 +105,7 @@ Creates a rotated clone of objects around an axis.
 |-----------|------|-------------|
 | `type` | "rotate" | Must be `'rotate'` |
 | `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to rotate around |
-| `angle` | number | The rotation angle in degrees (defaults to 90) *(optional)* |
+| `angle` | NumberParam | The rotation angle in degrees (defaults to 90) *(optional)* |
 | `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to rotate (defaults to last object) *(optional)* |
 
 ---

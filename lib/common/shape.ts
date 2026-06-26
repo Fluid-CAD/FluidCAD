@@ -1,4 +1,4 @@
-import type { TopoDS_Shape } from "fluidcad-ocjs";
+import type { TopoDS_Shape } from "ocjs-fluidcad";
 import { ShapeType } from "./shape-type.js";
 import { SceneObjectMesh } from "../rendering/scene.js";
 import { Matrix4 } from "../math/matrix4.js";

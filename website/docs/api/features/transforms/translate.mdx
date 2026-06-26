@@ -17,88 +17,88 @@ See the [guide](/docs/guides/transforms) for detailed usage examples.
 ## Signatures
 
 ```ts
-translate(x: number, ...targets: SceneObject[]): ITranslate
+translate(x: NumberParam, ...targets: SceneObject[]): ITranslate
 ```
 
 Translates objects along the X axis.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `x` | number | The X distance |
+| `x` | NumberParam | The X distance |
 | `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
 
 ---
 
 ```ts
-translate(x: number, copy: boolean, ...targets: SceneObject[]): ITranslate
+translate(x: NumberParam, copy: BooleanParam, ...targets: SceneObject[]): ITranslate
 ```
 
 Translates objects along the X axis, optionally making a copy.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `x` | number | The X distance |
-| `copy` | boolean | Whether to copy instead of move |
+| `x` | NumberParam | The X distance |
+| `copy` | BooleanParam | Whether to copy instead of move |
 | `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
 
 ---
 
 ```ts
-translate(x: number, y: number, ...targets: SceneObject[]): ITranslate
+translate(x: NumberParam, y: NumberParam, ...targets: SceneObject[]): ITranslate
 ```
 
 Translates objects along the X and Y axes.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `x` | number | The X distance |
-| `y` | number | The Y distance |
+| `x` | NumberParam | The X distance |
+| `y` | NumberParam | The Y distance |
 | `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
 
 ---
 
 ```ts
-translate(x: number, y: number, copy: boolean, ...targets: SceneObject[]): ITranslate
+translate(x: NumberParam, y: NumberParam, copy: BooleanParam, ...targets: SceneObject[]): ITranslate
 ```
 
 Translates objects along the X and Y axes, optionally making a copy.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `x` | number | The X distance |
-| `y` | number | The Y distance |
-| `copy` | boolean | Whether to copy instead of move |
+| `x` | NumberParam | The X distance |
+| `y` | NumberParam | The Y distance |
+| `copy` | BooleanParam | Whether to copy instead of move |
 | `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
 
 ---
 
 ```ts
-translate(x: number, y: number, z: number, ...targets: SceneObject[]): ITranslate
+translate(x: NumberParam, y: NumberParam, z: NumberParam, ...targets: SceneObject[]): ITranslate
 ```
 
 Translates objects along all three axes.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `x` | number | The X distance |
-| `y` | number | The Y distance |
-| `z` | number | The Z distance |
+| `x` | NumberParam | The X distance |
+| `y` | NumberParam | The Y distance |
+| `z` | NumberParam | The Z distance |
 | `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
 
 ---
 
 ```ts
-translate(x: number, y: number, z: number, copy: boolean, ...targets: SceneObject[]): ITranslate
+translate(x: NumberParam, y: NumberParam, z: NumberParam, copy: BooleanParam, ...targets: SceneObject[]): ITranslate
 ```
 
 Translates objects along all three axes, optionally making a copy.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `x` | number | The X distance |
-| `y` | number | The Y distance |
-| `z` | number | The Z distance |
-| `copy` | boolean | Whether to copy instead of move |
+| `x` | NumberParam | The X distance |
+| `y` | NumberParam | The Y distance |
+| `z` | NumberParam | The Z distance |
+| `copy` | BooleanParam | Whether to copy instead of move |
 | `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
 
 ---

@@ -15,3 +15,4 @@ ui/dist/
 llm-docs/index.json
 llm-docs/api/index.json
 
+.gstack/

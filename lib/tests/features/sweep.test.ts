@@ -4,7 +4,9 @@ import sketch from "../../core/sketch.js";
 import sweep from "../../core/sweep.js";
 import extrude from "../../core/extrude.js";
 import helix from "../../core/helix.js";
-import { circle, rect, vLine, hLine, arc, move } from "../../core/2d/index.js";
+import cylinder from "../../core/cylinder.js";
+import plane from "../../core/plane.js";
+import { circle, rect, vLine, hLine, arc, line, move, hMove } from "../../core/2d/index.js";
 import { Sweep } from "../../features/sweep.js";
 import { Extrude } from "../../features/extrude.js";
 import { Sketch } from "../../features/2d/sketch.js";
@@ -437,31 +439,6 @@ describe("sweep", () => {
       expect(totalVol).toBeLessThan(64000);
     });
 
-    it("user repro: helix(\"z\") on Z axis with left-plane profile carves a screw thread", () => {
-      // Profile straddles the cylinder surface (centered at radius 30,
-      // tube radius 1) so the cut produces a clean groove. Profile in
-      // `left` plane (YZ) — face normal is anti-parallel to the spine
-      // tangent at start, exercising the 180° flip case.
-      sketch("xy", () => { circle(30); });
-      const c = extrude(50) as Extrude;
-      const path = helix("z").height(50).radius(30).pitch(5).startOffset(-10).endOffset(10);
-      const profile = sketch("left", () => {
-        move([30, -10]);
-        circle(1);
-      });
-      const s = sweep(path, profile).remove() as Sweep;
-      render();
-
-      const sShapes = s.getShapes();
-      const totalVol = sShapes.reduce(
-        (acc, sh) => acc + ShapeProps.getProperties(sh.getShape()).volumeMm3,
-        0,
-      );
-      expect(c.getShapes().length).toBe(0);
-      expect(sShapes.length).toBe(1);
-      expect(totalVol).toBeGreaterThan(0);
-    });
-
     it(".remove() with helix on cone face cuts a groove", () => {
       sketch("xy", () => { circle(30); });
       const c = extrude(50).draft(10) as Extrude;
@@ -482,6 +459,254 @@ describe("sweep", () => {
       expect(sShapes.length).toBe(1);
       expect(totalVol).toBeGreaterThan(56000);
       expect(totalVol).toBeLessThan(62000);
+    });
+  });
+
+  describe("conical (tapered) helix sweep", () => {
+    // A tapered helical spine (endRadius ≠ radius) produces a swept surface
+    // that needs many approximation spans; at MakePipeShell's small default
+    // segment budget the build silently fails (PipeNotDone). SweepOps raises
+    // the budget (MAX_PIPE_SEGMENTS), so these build with the fixed binormal.
+    it("sweeps a circle along an outward-tapering helix", () => {
+      const path = helix("z").height(100).pitch(10).radius(15).endRadius(25);
+      const profile = sketch("left", () => {
+        hMove(15);
+        circle(2);
+      });
+      const s = sweep(path, profile) as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const shapes = s.getShapes();
+      expect(shapes).toHaveLength(1);
+      expect(shapes[0].getType()).toBe("solid");
+
+      const props = ShapeProps.getProperties(shapes[0].getShape());
+      expect(props.volumeMm3).toBeGreaterThan(0);
+
+      const bbox = ShapeOps.getBoundingBox(shapes[0]);
+      // End radius 25 + tube radius 2 ⇒ ~54mm across; height 100 ⇒ ~100mm tall.
+      expect(bbox.maxX - bbox.minX).toBeGreaterThan(50);
+      expect(bbox.maxZ - bbox.minZ).toBeGreaterThan(95);
+    });
+
+    it("sweeps a circle along an inward-tapering helix", () => {
+      const path = helix("z").height(80).pitch(8).radius(25).endRadius(12);
+      const profile = sketch("left", () => {
+        hMove(25);
+        circle(1.5);
+      });
+      const s = sweep(path, profile) as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const shapes = s.getShapes();
+      expect(shapes).toHaveLength(1);
+      expect(shapes[0].getType()).toBe("solid");
+      expect(ShapeProps.getProperties(shapes[0].getShape()).volumeMm3).toBeGreaterThan(0);
+    });
+  });
+
+  describe("helix sweep tangent to a cylinder (fuzzy boolean)", () => {
+    // A helix at the cylinder's own radius makes a swept thread that touches
+    // the cylinder tangentially along the contact curves. At zero boolean fuzz
+    // OCCT's BOPAlgo silently no-ops (cut removes nothing; fuse returns an empty
+    // compound). BooleanOps' small fuzzy value resolves the contact. Volume
+    // ≈ a radius-15 / height-50 cylinder = π·225·50 ≈ 35343 mm³.
+    const CYL_VOL = Math.PI * 225 * 50;
+
+    it("removes a helical groove from the cylinder surface", () => {
+      cylinder(15, 50);
+      const path = helix("z").height(50).radius(15).pitch(5).startOffset(-5).endOffset(5);
+      const profile = sketch("left", () => { move([15, 0]); circle(3); });
+      const s = sweep(path, profile).remove() as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const shapes = s.getShapes();
+      expect(shapes).toHaveLength(1);
+      const vol = ShapeProps.getProperties(shapes[0].getShape()).volumeMm3;
+      // A real groove was carved: less than the full cylinder, but most remains.
+      expect(vol).toBeGreaterThan(CYL_VOL * 0.8);
+      expect(vol).toBeLessThan(CYL_VOL - 100);
+    });
+
+    it("fuses a helical thread onto the cylinder surface", () => {
+      cylinder(15, 50);
+      const path = helix("z").height(50).radius(15).pitch(5).startOffset(-5).endOffset(5);
+      const profile = sketch("left", () => { move([15, 0]); circle(3); });
+      const s = sweep(path, profile).add() as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const shapes = s.getShapes();
+      expect(shapes).toHaveLength(1);
+      // A thread was added: more than the bare cylinder.
+      expect(ShapeProps.getProperties(shapes[0].getShape()).volumeMm3).toBeGreaterThan(CYL_VOL + 100);
+    });
+
+    it("removes a groove when the helix has no start/end offset", () => {
+      cylinder(15, 50);
+      const path = helix("z").height(50).radius(15).pitch(5);
+      const profile = sketch("left", () => { move([15, 0]); circle(3); });
+      const s = sweep(path, profile).remove() as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const shapes = s.getShapes();
+      expect(shapes).toHaveLength(1);
+      const vol = ShapeProps.getProperties(shapes[0].getShape()).volumeMm3;
+      expect(vol).toBeGreaterThan(CYL_VOL * 0.8);
+      expect(vol).toBeLessThan(CYL_VOL - 100);
+    });
+  });
+
+  describe("helix thread sweep (asymmetric profile)", () => {
+    // An asymmetric profile swept along a helix is the case that exposes
+    // section twist — a rotationally symmetric circle (used by the tests above)
+    // looks identical no matter how the section spins, so it can't catch a
+    // wobbling trihedron. This sweeps a thread-like trapezoid drawn on a plane
+    // built off the helix (plane(h)), the orientation a user reaches for.
+    //
+    // The fixed binormal must track the helix axis. With the wrong binormal the
+    // section flips ~twice per turn, producing a self-intersecting ribbon whose
+    // mass piles up on one side (centroid leaves the axis) and whose volume
+    // collapses to a fraction of the real thread. For a whole number of turns a
+    // correct thread is axisymmetric: its centroid sits on the coil axis.
+    it("produces a clean axisymmetric coil, not a wobbling ribbon", () => {
+      const h = helix("z").height(80).radius(25).pitch(10); // 8 full turns
+      const p = plane(h);
+      const profile = sketch(p, () => {
+        line([3, 0], [-3, 0]);
+        line([-2, -6]);
+        line([2, -6]);
+        line([3, 0]);
+      });
+      const s = sweep(h, profile) as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const shapes = s.getShapes();
+      expect(shapes).toHaveLength(1);
+
+      const props = ShapeProps.getProperties(shapes[0].getShape());
+
+      // Centroid on the coil (Z) axis — a wobbling ribbon piled it out at the
+      // ~25mm coil radius instead.
+      const radialOffset = Math.hypot(props.centroid.x, props.centroid.y);
+      expect(radialOffset).toBeLessThan(1);
+      expect(props.centroid.z).toBeCloseTo(40, 0);
+
+      // Real thread volume ≈ profile area (30mm²) × coil length (~1260mm).
+      // The wobble collapsed this to ~1500mm³; a section that collapses toward
+      // the axis (wrong trihedron the other way) drops it to a few thousand.
+      expect(props.volumeMm3).toBeGreaterThan(25000);
+      expect(props.volumeMm3).toBeLessThan(40000);
+
+      // The coil sits at the helix radius (~25mm), not collapsed onto the axis.
+      const bbox = ShapeOps.getBoundingBox(shapes[0]);
+      const radialExtent = Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY) / 2;
+      expect(radialExtent).toBeGreaterThan(23);
+      expect(radialExtent).toBeLessThan(30);
+    });
+  });
+
+  describe("extend", () => {
+    it("extends the run-out past the path end along the tangent", () => {
+      const profile = sketch("xy", () => {
+        circle(10);
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      const s = sweep(path, profile).extend("end", 20) as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const shapes = s.getShapes();
+      expect(shapes).toHaveLength(1);
+      expect(shapes[0].getType()).toBe("solid");
+
+      // Straight Z sweep with flat caps: Z extent = path length + extension.
+      const bbox = ShapeOps.getBoundingBox(shapes[0]);
+      expect(bbox.maxZ - bbox.minZ).toBeCloseTo(70, 0);
+    });
+
+    it("extends the lead-in before the path start along the tangent", () => {
+      const profile = sketch("xy", () => {
+        circle(10);
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      const s = sweep(path, profile).extend("start", 20) as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const bbox = ShapeOps.getBoundingBox(s.getShapes()[0]);
+      expect(bbox.maxZ - bbox.minZ).toBeCloseTo(70, 0);
+    });
+
+    it("extends both ends when chained", () => {
+      const profile = sketch("xy", () => {
+        circle(10);
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      const s = sweep(path, profile).extend("start", 10).extend("end", 20) as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const bbox = ShapeOps.getBoundingBox(s.getShapes()[0]);
+      expect(bbox.maxZ - bbox.minZ).toBeCloseTo(80, 0);
+    });
+
+    it("adds volume proportional to the extension length", () => {
+      const profile = sketch("xy", () => {
+        circle(10); // diameter 10 ⇒ radius 5 ⇒ area 25π
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      const s = sweep(path, profile).extend("end", 30) as Sweep;
+      render();
+
+      // Right cylinder: π·5²·(50 + 30).
+      const vol = ShapeProps.getProperties(s.getShapes()[0].getShape()).volumeMm3;
+      const expected = 25 * Math.PI * 80;
+      expect(vol).toBeGreaterThan(expected * 0.98);
+      expect(vol).toBeLessThan(expected * 1.02);
+    });
+
+    it("is a no-op for a non-positive amount", () => {
+      const profile = sketch("xy", () => {
+        circle(10);
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      const s = sweep(path, profile).extend("end", 0) as Sweep;
+      render();
+
+      const bbox = ShapeOps.getBoundingBox(s.getShapes()[0]);
+      expect(bbox.maxZ - bbox.minZ).toBeCloseTo(50, 0);
+    });
+
+    it("throws on an invalid side", () => {
+      const profile = sketch("xy", () => {
+        circle(10);
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      expect(() => sweep(path, profile).extend("middle" as any, 10)).toThrow();
     });
   });
 });

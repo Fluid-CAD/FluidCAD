@@ -54,7 +54,9 @@ function findExamples(featureName: string): ExampleFile[] {
 
     return {
       importName,
-      relativePath: `./_examples/${f}`,
+      // Feature pages live at docs/api/features/<category>/, examples at
+      // docs/api/_examples/ — so the import is two levels up.
+      relativePath: `../../_examples/${f}`,
       screenshotPath,
     };
   });

@@ -25,6 +25,7 @@ import { ViewportGizmo } from 'three-viewport-gizmo';
 import { CameraControlsAdapter } from './camera-controls-adapter';
 import { themeColors, onThemeChange } from './theme-colors';
 import { LineResolutionRegistry } from '../meshes/shape-meshes/line-resolution';
+import { setScreenScaleSource } from '../meshes/screen-scale';
 
 // Install camera-controls with only the Three.js submodules it needs
 CameraControls.install({
@@ -111,6 +112,10 @@ export class SceneContext {
     this.perspCamera.position.set(50, -50, 40);
     this.perspCamera.up.copy(Z_UP);
     this.perspCamera.lookAt(0, 0, 0);
+
+    // Let screen-space markers size themselves on creation against the live
+    // renderer + active camera (the getter always returns the current one).
+    setScreenScaleSource(this.renderer, () => this.camera);
 
     // Lighting
     this.dirLight = new DirectionalLight(0xffffff, 1);

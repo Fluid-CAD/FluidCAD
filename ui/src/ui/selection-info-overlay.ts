@@ -25,7 +25,7 @@ export class SelectionInfoOverlay {
 
   constructor(container: HTMLElement) {
     this.el = document.createElement('div');
-    this.el.className = 'absolute bottom-[22px] right-16 w-[200px] panel-bg border border-base-content/10 rounded-lg p-3 z-[150] shadow-[0_4px_24px_rgba(0,0,0,0.5)] text-base-content text-xs pointer-events-none select-none hidden';
+    this.el.className = 'absolute bottom-6 right-[76px] w-[200px] panel-bg border border-base-content/10 rounded-lg p-3 z-[150] shadow-[0_4px_24px_rgba(0,0,0,0.5)] text-base-content text-xs pointer-events-none select-none hidden';
     container.appendChild(this.el);
   }
 
@@ -145,7 +145,8 @@ export class SelectionInfoOverlay {
       .map(r => `<div class="flex justify-between items-baseline py-0.5"><span class="text-base-content/50 text-[11px]">${r.label}</span><span class="text-base-content/90 text-xs font-medium">${r.value}</span></div>`)
       .join('');
 
-    this.el.innerHTML = `<div class="badge badge-primary badge-outline badge-sm mb-2">${badge}</div>${rowsHtml}`;
+    const hint = '<div class="text-[10px] text-base-content/40 mt-1.5 pt-1.5 border-t border-base-content/10">Ctrl+click another face/edge to measure</div>';
+    this.el.innerHTML = `<div class="badge badge-primary badge-outline badge-sm mb-2">${badge}</div>${rowsHtml}${hint}`;
     this.el.classList.remove('hidden');
   }
 }

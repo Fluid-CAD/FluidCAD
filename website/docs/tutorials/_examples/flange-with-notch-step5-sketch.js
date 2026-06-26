@@ -21,4 +21,4 @@ extrude(46);
 remove(baseSketch);
 
 // notch
-rect(plane("xy", 46), 30, 70).centered()
+sketch(plane("xy", 46), () => rect(30, 70).centered())

@@ -4,7 +4,7 @@ import { ShapeHistoryTracker } from "../../common/shape-history-tracker.js";
 import { Primitives } from "../../oc/primitives.js";
 import { Explorer } from "../../oc/explorer.js";
 import { Convert } from "../../oc/convert.js";
-import type { TopAbs_ShapeEnum } from "fluidcad-ocjs";
+import type { TopAbs_ShapeEnum } from "ocjs-fluidcad";
 
 function countFaces(shape: { getShape(): any }): number {
   const oc = getOC();

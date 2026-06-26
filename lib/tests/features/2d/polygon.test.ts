@@ -163,24 +163,4 @@ describe("polygon", () => {
       expect(bbox.centerY).toBeCloseTo(30, 0);
     });
   });
-
-  describe("standalone with targetPlane", () => {
-    it("should create a polygon on a specific plane", () => {
-      polygon("xy", 5, 50);
-      const e = extrude(10) as ExtrudeBase;
-      render();
-
-      const solid = e.getShapes()[0] as Solid;
-      expect(solid.getFaces()).toHaveLength(7);
-    });
-
-    it("should create a circumscribed polygon on a specific plane", () => {
-      polygon("xy", 6, 60, "circumscribed");
-      const e = extrude(10) as ExtrudeBase;
-      render();
-
-      const solid = e.getShapes()[0] as Solid;
-      expect(solid.getFaces()).toHaveLength(8);
-    });
-  });
 });

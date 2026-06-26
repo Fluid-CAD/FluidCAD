@@ -70,28 +70,28 @@ Must be chained after `.remove()`.
 ### draft()
 
 ```ts
-draft(value: number | [number, number]): this
+draft(value: NumberParam | [NumberParam, NumberParam]): this
 ```
 
 Applies a draft (taper) angle to the cut walls.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `value` | number \| [number, number] | A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft. |
+| `value` | NumberParam \| [NumberParam, NumberParam] | A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft. |
 
 ---
 
 ### endOffset()
 
 ```ts
-endOffset(value: number): this
+endOffset(value: NumberParam): this
 ```
 
 Offsets the cut end face by a specified distance along the cut direction.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `value` | number | The offset distance. |
+| `value` | NumberParam | The offset distance. |
 
 ---
 
@@ -176,7 +176,7 @@ Restricts the cut to only the sketch regions containing the given points.
 ### thin()
 
 ```ts
-thin(offset: number): this
+thin(offset: NumberParam): this
 ```
 
 Enables thin cut mode — offsets the profile edges to cut a thin-walled shape
@@ -184,14 +184,14 @@ instead of cutting filled faces. Positive values offset outward, negative values
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `offset` | number | The wall offset distance. Positive = outward, negative = inward. |
+| `offset` | NumberParam | The wall offset distance. Positive = outward, negative = inward. |
 
 ---
 
 ### thin()
 
 ```ts
-thin(offset1: number, offset2: number): this
+thin(offset1: NumberParam, offset2: NumberParam): this
 ```
 
 Enables thin cut mode with two offset directions.
@@ -200,6 +200,6 @@ the second offset is automatically flipped.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `offset1` | number | The first wall offset distance. Positive = outward, negative = inward. |
-| `offset2` | number | The second wall offset distance, in the opposite direction of offset1. |
+| `offset1` | NumberParam | The first wall offset distance. Positive = outward, negative = inward. |
+| `offset2` | NumberParam | The second wall offset distance, in the opposite direction of offset1. |
 

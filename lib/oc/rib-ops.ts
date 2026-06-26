@@ -7,6 +7,7 @@ import { Plane } from "../math/plane.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { WireOps } from "./wire-ops.js";
+import { WireExtendOps } from "./wire-extend-ops.js";
 import { FaceOps } from "./face-ops.js";
 import { EdgeOps } from "./edge-ops.js";
 import { CleanShapeLineage, ShapeOps } from "./shape-ops.js";
@@ -15,7 +16,7 @@ import { Explorer } from "./explorer.js";
 import { BooleanOps } from "./boolean-ops.js";
 import { Convert } from "./convert.js";
 import { getOC } from "./init.js";
-import type { TopoDS_Shape, TopoDS_Wire } from "fluidcad-ocjs";
+import type { TopoDS_Shape, TopoDS_Wire } from "ocjs-fluidcad";
 
 export interface RibConformResult {
   solids: Shape[];
@@ -197,20 +198,9 @@ export class RibOps {
   // overlaps every cavity boundary regardless of curvature (drafted cones,
   // fillets, etc.) — so the cut produces a clean blend on every face it touches.
   static extendSpineWire(spineWire: Wire, scopeShapes: Shape[], _plane: Plane): Wire {
-    const edges = spineWire.getEdges();
-    if (edges.length === 0) {
+    if (spineWire.getEdges().length === 0) {
       return spineWire;
     }
-
-    const firstVertex = spineWire.getFirstVertex().toPoint();
-    const lastVertex = spineWire.getLastVertex().toPoint();
-
-    const lastEdge = edges[edges.length - 1];
-    const endTangent = EdgeOps.getEdgeTangentAtEnd(lastEdge).normalize();
-
-    const firstEdge = edges[0];
-    const firstEdgeEnd = EdgeOps.getLastVertex(firstEdge).toPoint();
-    const startTangent = firstVertex.vectorTo(firstEdgeEnd).normalize();
 
     let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
@@ -230,16 +220,9 @@ export class RibOps {
     }
     const ext = 2 * diag;
 
-    const startExtPoint = firstVertex.add(startTangent.multiply(-ext));
-    const endExtPoint = lastVertex.add(endTangent.multiply(ext));
-
-    const newEdges: Edge[] = [
-      EdgeOps.makeLineEdge(startExtPoint, firstVertex),
-      ...edges,
-      EdgeOps.makeLineEdge(lastVertex, endExtPoint),
-    ];
-
-    return WireOps.makeWireFromEdges(newEdges);
+    let extended = WireExtendOps.extendWire(spineWire, "start", ext);
+    extended = WireExtendOps.extendWire(extended, "end", ext);
+    return extended;
   }
 
   static computeExtrudeDistanceAlongDirection(direction: Vector3d, origin: Point, scopeShapes: Shape[]): number {

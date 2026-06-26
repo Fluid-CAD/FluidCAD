@@ -4,7 +4,10 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import select from "../../core/select.js";
 import rotate from "../../core/rotate.js";
-import { circle, move, rect } from "../../core/2d/index.js";
+import { circle, move, rect, slot } from "../../core/2d/index.js";
+import plane from "../../core/plane.js";
+import { ShapeProps } from "../../oc/props.js";
+import { getSceneManager } from "../../scene-manager.js";
 import { Solid } from "../../common/solid.js";
 import { ExtrudeToFace } from "../../features/extrude-to-face.js";
 import { Extrude } from "../../features/extrude.js";
@@ -262,6 +265,49 @@ describe("extrude to face", () => {
       const shapes = e.getShapes();
       expect(shapes).toHaveLength(1);
       expect(shapes[0].getType()).toBe("solid");
+    });
+  });
+
+  describe("conical face", () => {
+    function buildDraftedScenario(endOffset?: number): number {
+      getSceneManager().startScene();
+
+      sketch("top", () => {
+        circle(50);
+      });
+      const base = extrude(50).draft(-8) as Extrude;
+
+      sketch(plane("front", 50), () => {
+        slot([0, 10], [0, 30], 5);
+      });
+
+      let e = extrude(base.sideFaces()) as ExtrudeToFace;
+      if (endOffset !== undefined) {
+        e = e.endOffset(endOffset) as ExtrudeToFace;
+      }
+
+      render();
+
+      let volume = 0;
+      for (const s of e.getShapes()) {
+        volume += ShapeProps.getProperties(s.getShape()).volumeMm3;
+      }
+      return volume;
+    }
+
+    it("should extrude up to a drafted (conical) side face", () => {
+      const volume = buildDraftedScenario();
+      expect(volume).toBeGreaterThan(0);
+    });
+
+    it("should respect endOffset against a conical target face", () => {
+      const without = buildDraftedScenario();
+      const withOffset = buildDraftedScenario(2);
+
+      // endOffset(2) stops the extrusion short of the cone, so the result
+      // stays a separate, smaller solid instead of fusing with the base.
+      expect(withOffset).not.toBeCloseTo(without, 1);
+      expect(withOffset).toBeLessThan(without);
     });
   });
 

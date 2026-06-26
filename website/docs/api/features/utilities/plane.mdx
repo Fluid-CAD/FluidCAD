@@ -51,11 +51,13 @@ Creates a plane with an offset.
 plane(selection: SceneObject): Plane
 ```
 
-Creates a plane from a face selection.
+Creates a plane from a selection. A selected face yields that face's
+plane; a selected edge yields a plane at the edge start, oriented normal
+to the edge and facing outward (away from the edge body), like a start cap.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `selection` | [SceneObject](/docs/api/types/scene-object) | The selected face to create a plane from |
+| `selection` | [SceneObject](/docs/api/types/scene-object) | The selected face or edge to create a plane from |
 
 ---
 
@@ -73,15 +75,35 @@ Creates a plane from a face selection with transform options.
 ---
 
 ```ts
-plane(selection: SceneObject, offset: number): Plane
+plane(selection: SceneObject, offsetOrPosition: number): Plane
 ```
 
-Creates a plane from a face selection with an offset.
+Creates a plane from a selection with a numeric second argument. For a
+face, the number is the offset distance along the face normal. For an
+edge, it is a normalized position from `0` (start) to `1` (end), and the
+plane is created at that point oriented normal to the edge. The normal
+follows the edge's forward direction, except at the start (`0`) where it
+faces outward (away from the edge body), so both ends read like caps.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `selection` | [SceneObject](/docs/api/types/scene-object) | The selected face to create a plane from |
-| `offset` | number | The offset distance |
+| `selection` | [SceneObject](/docs/api/types/scene-object) | The selected face or edge |
+| `offsetOrPosition` | number | Face: offset distance. Edge: normalized 0–1 position. |
+
+---
+
+```ts
+plane(edge: SceneObject, position: "start" | "middle" | "end"): Plane
+```
+
+Creates a plane at a named position along an edge, oriented normal to the
+edge. At `'start'` the normal faces outward (away from the edge body);
+`'middle'` and `'end'` follow the edge's forward direction.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `edge` | [SceneObject](/docs/api/types/scene-object) | The selected edge |
+| `position` | "start" \| "middle" \| "end" | `'start'`, `'middle'`, or `'end'` |
 
 ---
 

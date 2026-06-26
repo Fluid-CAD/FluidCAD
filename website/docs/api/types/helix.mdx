@@ -1,0 +1,150 @@
+---
+sidebar_position: 12.7
+title: "Helix"
+description: "The Helix type. Extends SceneObject."
+---
+
+# Helix
+
+Extends [`SceneObject`](/docs/api/types/scene-object)
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### reusable()
+
+```ts
+reusable(): this
+```
+
+Marks this object as reusable. Reusable objects retain their shapes when
+consumed by features (e.g., extrude, revolve), allowing multiple features
+to reference the same source geometry. Use `remove(obj)` to force-remove
+shapes from a reusable object.
+
+
+</details>
+
+## Methods
+
+### pitch()
+
+```ts
+pitch(pitch: number): this
+```
+
+Axial rise per turn (distance along the helix axis covered per full revolution).
+If unset, derived from `height / turns`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `pitch` | number |  |
+
+---
+
+### turns()
+
+```ts
+turns(turns: number): this
+```
+
+Number of full turns. Fractional values are allowed. Default 1.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `turns` | number |  |
+
+---
+
+### startOffset()
+
+```ts
+startOffset(offset: number): this
+```
+
+Shifts the start of the helix along its axis, in axial mm. Positive values
+trim the start (move it toward the end); negative values extend it. Default 0.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `offset` | number |  |
+
+---
+
+### endOffset()
+
+```ts
+endOffset(offset: number): this
+```
+
+Extends (positive) or trims (negative) the helix at its end, in axial mm.
+Default 0.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `offset` | number |  |
+
+---
+
+### height()
+
+```ts
+height(height: number): this
+```
+
+Total axial height. Overrides face/edge-derived height when set. For line-edge
+input, defaults to the line length. For circular-edge / pure-axis input,
+defaults to 50 if neither this nor `pitch * turns` determine it.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `height` | number |  |
+
+---
+
+### radius()
+
+```ts
+radius(radius: number): this
+```
+
+Start radius. Defaults to 20 for axis/line-edge input. For a cylindrical
+face input, defaults to the face's radius and may be overridden (useful for
+sweep/fuse workflows where the helix tube must overlap the cylinder
+volumetrically — offset by ~1mm to avoid pure tangency). Ignored on
+conical face input (radius is derived from face geometry).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `radius` | number |  |
+
+---
+
+### endRadius()
+
+```ts
+endRadius(radius: number): this
+```
+
+End radius — when different from `radius()`, produces a conical helix.
+Defaults to `radius()`. Ignored on face/circle inputs.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `radius` | number |  |
+

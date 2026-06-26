@@ -1,4 +1,4 @@
-import { TopoDS_Shape } from "fluidcad-ocjs";
+import { TopoDS_Shape } from "ocjs-fluidcad";
 import { Edge } from "../common/edge.js";
 import { Wire } from "../common/wire.js";
 import { Plane } from "../math/plane.js";

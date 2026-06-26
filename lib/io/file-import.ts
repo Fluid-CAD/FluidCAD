@@ -1,5 +1,5 @@
 import * as fs from "fs";
-import { join } from "path";
+import { join, resolve, sep } from "path";
 import { Shape } from "../common/shape.js";
 import { OcIO } from "../oc/io.js";
 import { getSceneManager } from "../scene-manager.js";
@@ -31,6 +31,34 @@ function readWorkspaceAsset(relPath: string): { text: string; exists: true } | {
     return { exists: false };
   }
   return { text: fs.readFileSync(filePath, 'utf8'), exists: true };
+}
+
+/**
+ * Reads a workspace asset as raw bytes (e.g. a font file). Consults the
+ * AssetProvider first (hub mode), then the workspace filesystem. Paths are
+ * workspace-relative and confined to the workspace root (no `..` traversal).
+ * Returns null when the asset cannot be found.
+ */
+export function readWorkspaceAssetBytes(relPath: string): Uint8Array | null {
+  if (assetProvider) {
+    const bytes = assetProvider(relPath);
+    if (bytes) {
+      return bytes;
+    }
+  }
+  const sceneManager = getSceneManager();
+  if (!sceneManager) {
+    return null;
+  }
+  const root = resolve(sceneManager.rootPath);
+  const filePath = resolve(root, relPath);
+  if (filePath !== root && !filePath.startsWith(root + sep)) {
+    return null;
+  }
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+  return fs.readFileSync(filePath);
 }
 
 export class FileImport {

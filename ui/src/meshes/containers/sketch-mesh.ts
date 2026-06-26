@@ -22,6 +22,10 @@ const NON_INTERACTIVE_EDGE_COLOR = '#6a5acd';
 const VERTEX_RADIUS = 2;
 const VERTEX_SEGMENTS = 16;
 const VERTEX_PX_RADIUS = 6;
+// Non-interactive edges (text outlines, derived curves) can carry dozens of
+// joints; full-size dots would drown the geometry, so keep them subtle.
+const NON_INTERACTIVE_VERTEX_PX_RADIUS = 3;
+const NON_INTERACTIVE_VERTEX_OPACITY = 0.6;
 const META_VERTEX_COLOR = '#8899aa';
 const META_VERTEX_RADIUS = 1.5;
 const META_VERTEX_PX_RADIUS = 4.5;
@@ -149,7 +153,7 @@ export class SketchMesh extends Group {
     const uniqueMeta = this.dedup(metaVertices, EPSILON_SQ);
 
     this.addVertexDots(uniqueEndpoints, normal, VERTEX_RADIUS, VERTEX_PX_RADIUS, SKETCH_EDGE_COLOR, 1);
-    this.addVertexDots(uniqueNonInteractive, normal, VERTEX_RADIUS, VERTEX_PX_RADIUS, NON_INTERACTIVE_EDGE_COLOR, 1);
+    this.addVertexDots(uniqueNonInteractive, normal, VERTEX_RADIUS, NON_INTERACTIVE_VERTEX_PX_RADIUS, NON_INTERACTIVE_EDGE_COLOR, NON_INTERACTIVE_VERTEX_OPACITY);
     this.addVertexDots(uniqueMeta, normal, META_VERTEX_RADIUS, META_VERTEX_PX_RADIUS, META_VERTEX_COLOR, 0.5);
   }
 

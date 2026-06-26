@@ -7,7 +7,7 @@ import type {
   TopoDS_Solid,
   TopoDS_Wire,
   TopoDS_Vertex,
-} from "fluidcad-ocjs";
+} from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";

@@ -2,7 +2,7 @@ import type {
   TopTools_ListOfShape,
   TopAbs_ShapeEnum,
   TopoDS_Shape,
-} from "fluidcad-ocjs";
+} from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Matrix4 } from "../math/matrix4.js";

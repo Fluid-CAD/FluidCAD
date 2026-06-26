@@ -4,7 +4,7 @@ import { insertPoint, setPickPoints, addPick, removePick } from '../api';
 import { SceneObjectRender, PlaneData } from '../types';
 import { Viewer } from '../viewer';
 
-const EXTRUDABLE_TYPES = ['extrude', 'cut', 'cut-symmetric', 'revolve', 'sweep'];
+const EXTRUDABLE_TYPES = ['extrude', 'cut', 'cut-symmetric', 'revolve', 'sweep', 'wrap'];
 
 export class RegionPickService {
   private viewer: Viewer;

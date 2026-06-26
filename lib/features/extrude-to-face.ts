@@ -165,6 +165,8 @@ export class ExtrudeToFace extends ExtrudeBase {
       const surfaceType = FaceQuery.getSurfaceType(targetFace);
       if (surfaceType === 'cylinder') {
         splitTargetFace = this.resizeCylindricalFace(targetFace);
+      } else if (surfaceType === 'cone') {
+        splitTargetFace = this.resizeConicalFace(targetFace);
       } else {
         splitTargetFace = targetFace;
       }
@@ -187,6 +189,10 @@ export class ExtrudeToFace extends ExtrudeBase {
 
   private resizeCylindricalFace(targetFace: Face): Face {
     return FaceQuery.makeInfiniteCylindricalFace(targetFace, this.getEndOffset());
+  }
+
+  private resizeConicalFace(targetFace: Face): Face {
+    return FaceQuery.makeInfiniteConicalFace(targetFace, this.getEndOffset());
   }
 
   /**

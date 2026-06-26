@@ -4,7 +4,7 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import fillet from "../../core/fillet.js";
 import fuse from "../../core/fuse.js";
-import { hMove, rect } from "../../core/2d/index.js";
+import { arc, hMove, rect, vLine, hLine, vMove, back } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { Sketch } from "../../features/2d/sketch.js";
@@ -67,6 +67,48 @@ describe("fillet2d", () => {
       expect(getEdgesByType(solid, "arc")).toHaveLength(8);
       // 4 shortened sides per face (8) + 4 vertical edges each split into segments (8) = 16
       expect(getEdgesByType(solid, "line")).toHaveLength(16);
+    });
+
+    it("should fillet a corner passed as radius-first spread args", () => {
+      const s = sketch("xy", () => {
+        const l1 = hLine(40);
+        const l2 = vLine(-40);
+        fillet(8, l1, l2);
+      }) as Sketch;
+
+      render();
+
+      // The corner is rounded: each line is shortened and one fillet arc inserted.
+      // Before the radius-first spread dispatch existed, fillet(8, l1, l2) was a
+      // silent no-op (returned undefined) and produced 0 arcs.
+      expect(getEdgesByType(s.getEdges(), "arc")).toHaveLength(1);
+      expect(getEdgesByType(s.getEdges(), "line")).toHaveLength(2);
+    });
+
+    it("fillets an arc/line corner passed as radius-first spread args", () => {
+      // The exact shape from the original bug report: a fillet between an arc (l1)
+      // and a line (l2) requested as fillet(radius, l2, l1). Before the radius-first
+      // spread form was dispatched, this was a silent no-op while fillet(8) (all
+      // corners) rounded the same arc/line corner.
+      const s = sketch("front", () => {
+        vMove(10);
+        const gl = hLine(140).guide().centered();
+        back();
+        vMove(33 + 16);
+        hLine(8);
+        vLine(-16);
+        hLine(15 - 8);
+        const l1 = arc(gl.end()).radius(55);
+        const l2 = vLine(-10);
+        fillet(8, l2, l1);
+      }) as Sketch;
+
+      render();
+
+      // Baseline (no fillet) is 1 arc; rounding the arc/line corner shortens the
+      // original arc and inserts the fillet arc -> 2 arcs. The array form
+      // fillet([l2, l1], 8) produces the identical result.
+      expect(getEdgesByType(s.getEdges(), "arc")).toHaveLength(2);
     });
   });
 

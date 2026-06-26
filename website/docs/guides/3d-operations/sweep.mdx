@@ -5,6 +5,7 @@ title: "Sweep"
 
 import CodeBlock from '@theme/CodeBlock';
 import sweepBasic from '!!raw-loader!./_examples/sweep-basic.js';
+import sweepExtend from '!!raw-loader!./_examples/sweep-extend.js';
 import sweepThin from '!!raw-loader!./_examples/sweep-thin.js';
 import sweepThinOpen from '!!raw-loader!./_examples/sweep-thin-open.js';
 
@@ -17,6 +18,20 @@ import sweepThinOpen from '!!raw-loader!./_examples/sweep-thin-open.js';
 ![Sweep along a curved path](/img/docs/3d-operations/sweep-basic.png)
 
 The first argument is the path (spine), the second is the profile to sweep. The profile and path should be on different planes.
+
+## Extend
+
+`.extend()` continues the swept solid past the end of the path, running straight along the path's tangent at that end. It's useful for lead-ins and run-outs — for example, extending a pipe straight past its last bend:
+
+<CodeBlock language="js">{sweepExtend}</CodeBlock>
+
+![Sweep extended past the path end](/img/docs/3d-operations/sweep-extend.png)
+
+```js
+sweep(spine, profile).extend("end", 80)                      // 80 units past the end
+sweep(spine, profile).extend("start", 20)                    // 20 units before the start
+sweep(spine, profile).extend("start", 20).extend("end", 80)  // both ends
+```
 
 ## Thin sweep
 

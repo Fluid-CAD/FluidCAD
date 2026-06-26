@@ -5,6 +5,7 @@ import extrude from "../../core/extrude.js";
 import shell from "../../core/shell.js";
 import fillet from "../../core/fillet.js";
 import rib from "../../core/rib.js";
+import plane from "../../core/plane.js";
 import { rect, circle, move, aLine, hLine, line } from "../../core/2d/index.js";
 import { Rib } from "../../features/rib.js";
 import { countShapes } from "../utils.js";
@@ -342,6 +343,67 @@ describe("rib", () => {
         expect(cVol / origVol).toBeGreaterThan(0.7);
         expect(cVol / origVol).toBeLessThan(1.3);
       }
+    });
+
+    it("repeat mirror keeps the parallel rib on the correct side", async () => {
+      const repeatModule = await import("../../core/repeat.js");
+      const repeat = (repeatModule as { default: (...args: unknown[]) => SceneObject }).default;
+
+      // Box centered on the origin and symmetric across the front (XZ) plane,
+      // so mirroring across "front" (Y → −Y) maps the scope onto itself. The
+      // correctly-mirrored rib is then congruent to the original reflected in
+      // Y only — its X and Z position are unchanged.
+      sketch("top", () => {
+        rect(100, 100).centered();
+      });
+      const box = extrude(60);
+      const s = shell(-4, box.endFaces()) as unknown as SceneObject;
+
+      // Diagonal spine on an offset front plane (Y = 20), placed off-centre in
+      // the XZ plane so that a flipped in-plane extrude direction would throw
+      // the rib to a clearly different X/Z position.
+      sketch(plane("front", 20), () => {
+        move([-30, 10]);
+        aLine(45, 25);
+      });
+
+      const r = rib(5).parallel().new().scope(s).extend() as Rib;
+
+      repeat("mirror", "front", r);
+      render();
+
+      const bboxCenter = (shape: Parameters<typeof ShapeOps.getBoundingBox>[0]) => {
+        const bb = ShapeOps.getBoundingBox(shape);
+        return {
+          x: (bb.minX + bb.maxX) / 2,
+          y: (bb.minY + bb.maxY) / 2,
+          z: (bb.minZ + bb.maxZ) / 2,
+        };
+      };
+
+      expect(r.getShapes().length).toBeGreaterThan(0);
+      const orig = bboxCenter(r.getShapes()[0]);
+
+      const sceneMod = await import("../../scene-manager.js");
+      const scene = (sceneMod as { getCurrentScene: () => { getSceneObjects: () => SceneObject[] } }).getCurrentScene();
+      const ribClones = scene.getSceneObjects().filter(o =>
+        o instanceof Rib && o !== r &&
+        (o as unknown as { getCloneSource: () => SceneObject | null }).getCloneSource() === r
+      );
+      expect(ribClones.length).toBe(1);
+
+      const clone = ribClones[0];
+      expect(clone.getShapes().length).toBeGreaterThan(0);
+      const cl = bboxCenter(clone.getShapes()[0]);
+
+      // Mirroring across the front (XZ) plane flips Y only: the in-plane (X, Z)
+      // position must be preserved. Before the fix the clone's perpendicular
+      // extrude direction was negated (a cross product is a pseudovector under
+      // reflection), throwing the rib to the opposite side — its X/Z centre
+      // lands far from the original.
+      expect(Math.abs(cl.x - orig.x)).toBeLessThan(1);
+      expect(Math.abs(cl.z - orig.z)).toBeLessThan(1);
+      expect(Math.abs(cl.y + orig.y)).toBeLessThan(1);
     });
 
     it("extended rib in .new() mode unifies coplanar artifact faces", () => {

@@ -1,4 +1,4 @@
-import type { TopoDS_Vertex } from "fluidcad-ocjs";
+import type { TopoDS_Vertex } from "ocjs-fluidcad";
 import { ShapeType } from "./shape-type.js";
 import { Shape } from "./shape.js";
 import { Point, Point2D } from "../math/point.js";

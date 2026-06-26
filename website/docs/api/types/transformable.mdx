@@ -61,45 +61,45 @@ object's own shapes after build. Chained calls compose left-to-right:
 ### translate()
 
 ```ts
-translate(x: number): this
+translate(x: NumberParam): this
 ```
 
 Translate along X.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `x` | number | Distance along world X. |
+| `x` | NumberParam | Distance along world X. |
 
 ---
 
 ### translate()
 
 ```ts
-translate(x: number, y: number): this
+translate(x: NumberParam, y: NumberParam): this
 ```
 
 Translate along X and Y.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `x` | number |  |
-| `y` | number |  |
+| `x` | NumberParam |  |
+| `y` | NumberParam |  |
 
 ---
 
 ### translate()
 
 ```ts
-translate(x: number, y: number, z: number): this
+translate(x: NumberParam, y: NumberParam, z: NumberParam): this
 ```
 
 Translate along X, Y, and Z.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `x` | number |  |
-| `y` | number |  |
-| `z` | number |  |
+| `x` | NumberParam |  |
+| `y` | NumberParam |  |
+| `z` | NumberParam |  |
 
 ---
 
@@ -120,21 +120,21 @@ Translate by a point-like offset in world space.
 ### rotate()
 
 ```ts
-rotate(angle: number): this
+rotate(angle: NumberParam): this
 ```
 
 Rotate by an angle around world Z through the origin.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `angle` | number | Rotation in degrees. |
+| `angle` | NumberParam | Rotation in degrees. |
 
 ---
 
 ### rotate()
 
 ```ts
-rotate(axis: AxisLike, angle: number): this
+rotate(axis: AxisLike, angle: NumberParam): this
 ```
 
 Rotate around an axis by an angle.
@@ -142,7 +142,7 @@ Rotate around an axis by an angle.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to rotate around. Use `local(...)` to reference a sketch-local axis. |
-| `angle` | number | Rotation in degrees. |
+| `angle` | NumberParam | Rotation in degrees. |
 
 ---
 

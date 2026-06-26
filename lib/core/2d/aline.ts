@@ -1,9 +1,6 @@
 import { AngledLine } from "../../features/2d/aline.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
-import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
-import { isPlaneLike, PlaneLike } from "../../math/plane.js";
 import { SceneObject } from "../../common/scene-object.js";
-import { resolvePlane } from "../../helpers/resolve.js";
 import { IALine, ISceneObject } from "../interfaces.js";
 import { type NumberParam, resolveParam } from "../param.js";
 
@@ -23,42 +20,17 @@ interface ALineFunction {
    * @param target - The geometry to intersect with
    */
   (angle: NumberParam, target: ISceneObject): IALine;
-  /**
-   * Draws a line at the given angle on a specific plane.
-   * @param targetPlane - The plane to draw on
-   * @param angle - The angle in degrees
-   * @param length - The line length
-   */
-  (targetPlane: PlaneLike | ISceneObject, angle: NumberParam, length: NumberParam): IALine;
 }
 
 function build(context: SceneParserContext): ALineFunction {
   return function line() {
-    let planeObj: PlaneObjectBase | null = null;
-    let argOffset = 0;
-    const inSketch = context.getActiveSketch() !== null;
-
-    if (arguments.length > 0) {
-      const firstArg = arguments[0];
-      if (isPlaneLike(firstArg)) {
-        if (inSketch) {
-          throw new Error("aLine(plane, ...) cannot be used inside a sketch. Use aLine(...) instead.");
-        }
-        planeObj = resolvePlane(firstArg, context);
-        argOffset = 1;
-      } else if (!inSketch && firstArg instanceof SceneObject) {
-        planeObj = resolvePlane(firstArg, context);
-        argOffset = 1;
-      }
-    }
-
-    const angle: number = resolveParam(arguments[argOffset] as NumberParam);
-    const second = arguments[argOffset + 1];
+    const angle: number = resolveParam(arguments[0] as NumberParam);
+    const second = arguments[1];
     const lengthOrTarget: number | SceneObject = second instanceof SceneObject
       ? second
       : resolveParam(second as NumberParam);
 
-    const aline = new AngledLine(angle, lengthOrTarget, planeObj);
+    const aline = new AngledLine(angle, lengthOrTarget, null);
     context.addSceneObject(aline);
 
     return aline;

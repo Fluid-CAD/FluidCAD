@@ -17,34 +17,34 @@ See the [guide](/docs/guides/transforms) for detailed usage examples.
 ## Signatures
 
 ```ts
-rotate(angle: number, ...targets: SceneObject[]): IRotate
+rotate(angle: NumberParam, ...targets: SceneObject[]): IRotate
 ```
 
 [2D] Rotates geometry by an angle inside a sketch.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `angle` | number | The rotation angle in degrees |
+| `angle` | NumberParam | The rotation angle in degrees |
 | `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The geometries to rotate (defaults to last object) *(optional)* |
 
 ---
 
 ```ts
-rotate(angle: number, copy: boolean, ...targets: SceneObject[]): IRotate
+rotate(angle: NumberParam, copy: BooleanParam, ...targets: SceneObject[]): IRotate
 ```
 
 [2D] Rotates geometry by an angle inside a sketch, optionally making a copy.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `angle` | number | The rotation angle in degrees |
-| `copy` | boolean | Whether to copy instead of move |
+| `angle` | NumberParam | The rotation angle in degrees |
+| `copy` | BooleanParam | Whether to copy instead of move |
 | `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The geometries to rotate (defaults to last object) *(optional)* |
 
 ---
 
 ```ts
-rotate(axis: AxisLike, angle: number, ...targets: SceneObject[]): IRotate
+rotate(axis: AxisLike, angle: NumberParam, ...targets: SceneObject[]): IRotate
 ```
 
 [3D] Rotates objects around an axis by an angle.
@@ -52,13 +52,13 @@ rotate(axis: AxisLike, angle: number, ...targets: SceneObject[]): IRotate
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to rotate around |
-| `angle` | number | The rotation angle in degrees |
+| `angle` | NumberParam | The rotation angle in degrees |
 | `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to rotate (defaults to last object) *(optional)* |
 
 ---
 
 ```ts
-rotate(axis: AxisLike, angle: number, copy: boolean, ...targets: SceneObject[]): IRotate
+rotate(axis: AxisLike, angle: NumberParam, copy: BooleanParam, ...targets: SceneObject[]): IRotate
 ```
 
 [3D] Rotates objects around an axis by an angle, optionally making a copy.
@@ -66,6 +66,6 @@ rotate(axis: AxisLike, angle: number, copy: boolean, ...targets: SceneObject[]):
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to rotate around |
-| `angle` | number | The rotation angle in degrees |
-| `copy` | boolean | Whether to copy instead of move |
+| `angle` | NumberParam | The rotation angle in degrees |
+| `copy` | BooleanParam | Whether to copy instead of move |
 | `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to rotate (defaults to last object) *(optional)* |

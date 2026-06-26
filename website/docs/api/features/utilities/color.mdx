@@ -17,24 +17,24 @@ See the [guide](/docs/guides/3d-operations/color) for detailed usage examples.
 ## Signatures
 
 ```ts
-color(color: string): SceneObject
+color(color: StringParam): SceneObject
 ```
 
 Applies a color to the last selection.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `color` | string | The color value (CSS color string) |
+| `color` | StringParam | The color value (CSS color string) |
 
 ---
 
 ```ts
-color(color: string, selection: SceneObject): SceneObject
+color(color: StringParam, selection: SceneObject): SceneObject
 ```
 
 Applies a color to the given selection.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `color` | string | The color value (CSS color string) |
+| `color` | StringParam | The color value (CSS color string) |
 | `selection` | [SceneObject](/docs/api/types/scene-object) | The face or edge selection to color |

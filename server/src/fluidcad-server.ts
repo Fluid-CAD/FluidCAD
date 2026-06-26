@@ -45,6 +45,7 @@ type SceneManager = {
   getShapeProperties(scene: any, shapeId: string): any;
   getFaceProperties(scene: any, shapeId: string, faceIndex: number): any;
   getEdgeProperties(scene: any, shapeId: string, edgeIndex: number): any;
+  measure(scene: any, refs: { shapeId: string; kind: 'face' | 'edge'; index: number }[]): any;
   hitTest(
     scene: any,
     shapeId: string,
@@ -383,13 +384,23 @@ export class FluidCadServer {
     return this.rollback(this.currentFileName, index);
   }
 
-  async recomputeCurrentFile(): Promise<SceneRenderedData | null> {
+  async recomputeCurrentFile(forceFullRebuild = false): Promise<SceneRenderedData | null> {
     if (!this.currentFilePath) {
       return null;
     }
     const sessionId = this.currentFileName;
     this.renderingCache.delete(sessionId);
     this.lastRendered.delete(sessionId);
+    if (forceFullRebuild) {
+      // Drop the incremental-compare baseline so every object is rebuilt from
+      // scratch instead of being carried over as cached. Without this, an
+      // unchanged file compares equal at every index, the whole scene is
+      // marked cached, and the render reuses all geometry — so the explicit
+      // "Recompute scene" action does no visible work and reports no build
+      // timings (buildDurationMs is only recorded for objects that rebuild).
+      // Param edits keep the baseline so slider drags stay fast.
+      this.previousScenes.delete(sessionId);
+    }
     return this.processFileInternal(sessionId, this.currentFilePath, true);
   }
 
@@ -461,6 +472,17 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.getEdgeProperties(scene, shapeId, edgeIndex);
+  }
+
+  measure(refs: { shapeId: string; kind: 'face' | 'edge'; index: number }[]): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.measure(scene, refs);
   }
 
   exportShapes(

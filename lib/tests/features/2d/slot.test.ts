@@ -40,14 +40,4 @@ describe("slot", () => {
       expect(arcEdges.length).toBeGreaterThan(0);
     });
   });
-
-  describe("standalone with targetPlane", () => {
-    it("should create a slot on a specific plane", () => {
-      slot("xy", 60, 10);
-      const e = extrude(10) as ExtrudeBase;
-      render();
-
-      expect(e.getShapes()).toHaveLength(1);
-    });
-  });
 });

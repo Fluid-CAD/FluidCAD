@@ -24,3 +24,14 @@ export { SweepOps } from "./sweep-ops.js";
 export { SectionOps } from "./section-ops.js";
 export { HelixOps } from "./helix-ops.js";
 export type { ShapeProperties } from './props.js';
+export { MeasureOps } from "./measure/measure-ops.js";
+export type { MeasureInput } from "./measure/measure-ops.js";
+export type {
+  MeasureResult,
+  MeasureEntityRef,
+  MeasureEntityInfo,
+  MeasureEntityKind,
+  MeasureDistanceValue,
+  MeasurePrimaryKey,
+  MeasureVec,
+} from "./measure/measure-types.js";

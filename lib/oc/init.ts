@@ -1,5 +1,5 @@
-import initOpenCascade from "fluidcad-ocjs"
-import type { OpenCascadeInstance } from "fluidcad-ocjs";
+import initOpenCascade from "ocjs-fluidcad"
+import type { OpenCascadeInstance } from "ocjs-fluidcad";
 
 let oc: OpenCascadeInstance | null = null;
 

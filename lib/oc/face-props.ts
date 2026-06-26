@@ -1,4 +1,4 @@
-import type { TopAbs_ShapeEnum, TopoDS_Shape } from "fluidcad-ocjs";
+import type { TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 

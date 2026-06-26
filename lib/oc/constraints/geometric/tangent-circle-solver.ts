@@ -1,4 +1,4 @@
-import { GccAna_Circ2d2TanRad, GccEnt_QualifiedCirc, GccEnt_QualifiedLin, gp_Circ, gp_Lin, gp_Pnt2d } from "fluidcad-ocjs";
+import { GccAna_Circ2d2TanRad, GccEnt_QualifiedCirc, GccEnt_QualifiedLin, gp_Circ, gp_Lin, gp_Pnt2d } from "ocjs-fluidcad";
 import { Edge } from "../../../common/edge.js";
 import { Shape } from "../../../common/shape.js";
 import { Vertex } from "../../../common/vertex.js";

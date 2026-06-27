@@ -1288,3 +1288,212 @@ export function setRectDimensions(
     return result;
   });
 }
+
+// ---------------------------------------------------------------------------
+// Feature-on-selection edits — wrap an existing top-level feature call in a
+// `const` binding and append a new feature statement at program scope. Used by
+// the interactive "click an edge/face → apply feature" flow, where the
+// generated code needs to name the producing feature, e.g.
+//   extrude(10)            ->  const e = extrude(10)
+//                              fillet(5, e.endEdges(0))
+// See plans/interactive-selection/.
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk up from `node` to the statement that is a direct child of the program
+ * root or an enclosing block — i.e. the top-level statement that contains the
+ * call. Returns `expression_statement` for `extrude(10)`, `lexical_declaration`
+ * for `const e = extrude(10)`, or `export_statement` for an exported binding.
+ */
+function findEnclosingProgramStatement(node: TSNode): TSNode | null {
+  let cur: TSNode | null = node;
+  while (cur && cur.parent) {
+    const pt = cur.parent.type;
+    if (pt === 'program' || pt === 'statement_block') {
+      return cur;
+    }
+    cur = cur.parent;
+  }
+  return null;
+}
+
+/**
+ * From a `lexical_declaration`/`variable_declaration`, return the name of the
+ * declarator whose initializer subtree contains `call`. Falls back to the first
+ * identifier-named declarator. Returns null for destructuring patterns (which
+ * the feature-on-selection flow cannot reuse).
+ */
+function existingDeclaratorName(declNode: TSNode, call: TSNode): string | null {
+  const declarators = declNode.namedChildren.filter(c => c.type === 'variable_declarator');
+  const containing = declarators.find(d => {
+    const value = d.childForFieldName('value');
+    return value && call.startIndex >= value.startIndex && call.endIndex <= value.endIndex;
+  });
+  const target = containing ?? declarators[0];
+  if (!target) {
+    return null;
+  }
+  const name = target.childForFieldName('name');
+  return name && name.type === 'identifier' ? name.text : null;
+}
+
+function collectIdentifierNames(tree: TSTree): Set<string> {
+  const names = new Set<string>();
+  for (const node of walkTree(tree.rootNode)) {
+    if (node.type === 'identifier') {
+      names.add(node.text);
+    }
+  }
+  return names;
+}
+
+function pickFreshNameFromTree(tree: TSTree, base: string): string {
+  const used = collectIdentifierNames(tree);
+  if (!used.has(base)) {
+    return base;
+  }
+  for (let i = 2; i < 10_000; i++) {
+    const candidate = `${base}${i}`;
+    if (!used.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `${base}_x`;
+}
+
+/**
+ * Pick a variable name based on `base` that does not collide with any
+ * identifier already present in `code`.
+ */
+export async function pickFreshVariableName(code: string, base: string): Promise<string> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  return pickFreshNameFromTree(tree, base);
+}
+
+export type WrapCallResult = {
+  newCode: string;
+  /** The binding name to reference the feature by, or null if none could be established. */
+  variableName: string | null;
+  /** True when the call already had a `const`/`let`/`var` binding we reused. */
+  alreadyBound: boolean;
+};
+
+/**
+ * Ensure the top-level feature call on `sourceLine` is bound to a variable.
+ *
+ * - Already bound (`const e = extrude(10)`): returns the existing name, no edit.
+ * - Anonymous top-level (`extrude(10)`): wraps it as `const <name> = extrude(10)`
+ *   using a collision-free name derived from `preferredName`.
+ * - Anything else (call nested in arguments, destructuring binding, no call on
+ *   the row): no edit, `variableName: null`.
+ *
+ * Wrapping prepends text on the same row, so it does NOT shift any row numbers —
+ * callers can keep using `sourceLine` for a follow-up insert.
+ */
+export async function wrapCallInVariable(
+  code: string,
+  sourceLine: number,
+  preferredName: string,
+): Promise<WrapCallResult> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const lines = splitLines(code);
+  const call = findEditableCallAt(tree, lines, sourceLine);
+  if (!call) {
+    return { newCode: code, variableName: null, alreadyBound: false };
+  }
+  const stmt = findEnclosingProgramStatement(call);
+  if (!stmt) {
+    return { newCode: code, variableName: null, alreadyBound: false };
+  }
+
+  const declNode =
+    stmt.type === 'lexical_declaration' || stmt.type === 'variable_declaration'
+      ? stmt
+      : stmt.type === 'export_statement'
+        ? stmt.namedChildren.find(
+            c => c.type === 'lexical_declaration' || c.type === 'variable_declaration',
+          ) ?? null
+        : null;
+
+  if (declNode) {
+    return { newCode: code, variableName: existingDeclaratorName(declNode, call), alreadyBound: true };
+  }
+
+  if (stmt.type !== 'expression_statement') {
+    // Call is nested (e.g. an argument) or part of a non-statement construct.
+    return { newCode: code, variableName: null, alreadyBound: false };
+  }
+
+  const name = pickFreshNameFromTree(tree, preferredName);
+  const newCode = spliceCode(code, stmt.startIndex, stmt.startIndex, `const ${name} = `);
+  return { newCode, variableName: name, alreadyBound: false };
+}
+
+/**
+ * Insert `statement` on its own line immediately after the top-level statement
+ * containing the feature call on `sourceLine`, matching that statement's indent,
+ * and ensure the leading function symbol is imported.
+ */
+export async function insertStatementAfterFeature(
+  code: string,
+  sourceLine: number,
+  statement: string,
+): Promise<CodeEditResult> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const lines = splitLines(code);
+  const call = findEditableCallAt(tree, lines, sourceLine);
+  if (!call) {
+    return { newCode: code };
+  }
+  const stmt = findEnclosingProgramStatement(call);
+  if (!stmt) {
+    return { newCode: code };
+  }
+
+  const insertRow = stmt.endPosition.row + 1;
+  const indent = indentOf(lines, stmt.startPosition.row);
+  const newLine = statement.split('\n').map(l => `${indent}${l}`).join('\n');
+  lines.splice(insertRow, 0, newLine);
+  let result = joinLines(lines);
+
+  const funcName = statement.match(/^(\w+)\s*\(/)?.[1];
+  if (funcName) {
+    result = await ensureSymbolImport(result, funcName);
+  }
+  return { newCode: result };
+}
+
+export type ApplyFeatureToSelectionResult = {
+  newCode: string;
+  /** The binding name used for the producing feature, or null if the edit was a no-op. */
+  variableName: string | null;
+};
+
+/**
+ * Orchestrate the interactive "apply feature to selection" edit: bind the
+ * producing feature to a variable (if needed), then append the new feature
+ * statement after it. `buildStatement` receives the resolved variable name so
+ * the caller can compose e.g. `fillet(5, e.endEdges(0))`.
+ *
+ * Returns the original code unchanged (variableName: null) when no binding can
+ * be established for the producing call.
+ */
+export async function applyFeatureToSelection(
+  code: string,
+  opts: {
+    producerLine: number;
+    preferredName: string;
+    buildStatement: (variableName: string) => string;
+  },
+): Promise<ApplyFeatureToSelectionResult> {
+  const wrapped = await wrapCallInVariable(code, opts.producerLine, opts.preferredName);
+  if (!wrapped.variableName) {
+    return { newCode: code, variableName: null };
+  }
+  const statement = opts.buildStatement(wrapped.variableName);
+  const inserted = await insertStatementAfterFeature(wrapped.newCode, opts.producerLine, statement);
+  return { newCode: inserted.newCode, variableName: wrapped.variableName };
+}

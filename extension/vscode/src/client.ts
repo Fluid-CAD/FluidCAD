@@ -31,6 +31,7 @@ import {
   handleUpdateDimension,
   handleUpdateDimensionExpression,
   handleSetRectDimensions,
+  handleApplyFeatureToSelection,
 } from './code-edits';
 import { updateDiagnostics, type CompileError } from './diagnostics';
 
@@ -191,6 +192,10 @@ export class Client {
       }
       case 'set-rect-dimensions': {
         handleSetRectDimensions(this, msg);
+        break;
+      }
+      case 'apply-feature-to-selection': {
+        handleApplyFeatureToSelection(this, msg);
         break;
       }
       case 'export-complete': {

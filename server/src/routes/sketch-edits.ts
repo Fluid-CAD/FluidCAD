@@ -21,8 +21,35 @@ import {
   extractVariablesInScope,
   setRectDimensions,
 } from '../code-editor.ts';
+import { FeatureOnSelection } from '../feature-on-selection.ts';
+import type { FeatureEditSpec, SupportedFeature } from '../feature-on-selection.ts';
 
 const NEW_VAR_NAME_RE = /^[a-zA-Z_$][\w$]*$/;
+
+const SUPPORTED_FEATURES: SupportedFeature[] = ['fillet', 'chamfer'];
+
+function isSubSelection(input: unknown): input is { type: 'edge' | 'face'; index: number } {
+  if (typeof input !== 'object' || input === null) {
+    return false;
+  }
+  const obj = input as { type?: unknown; index?: unknown };
+  return (obj.type === 'edge' || obj.type === 'face') && typeof obj.index === 'number';
+}
+
+function isFeatureEditSpec(input: unknown): input is FeatureEditSpec {
+  if (typeof input !== 'object' || input === null) {
+    return false;
+  }
+  const s = input as Record<string, unknown>;
+  return (
+    typeof s.producerLine === 'number' &&
+    typeof s.featureType === 'string' &&
+    typeof s.accessor === 'string' &&
+    typeof s.index === 'number' &&
+    typeof s.amount === 'number' &&
+    SUPPORTED_FEATURES.includes(s.feature as SupportedFeature)
+  );
+}
 
 function validateNewVariable(input: unknown): { name: string; initializer: string } | null | false {
   if (input === undefined || input === null) {
@@ -176,6 +203,45 @@ export function createSketchEditsRouter(
       newVariable: nv,
     });
     res.json({ success: true });
+  });
+
+  // Interactive "click an edge/face → apply feature" — resolve the click to a
+  // construction-relative selector kernel-side, then forward the synthesis spec
+  // to the editor to perform the source edit. See plans/interactive-selection/.
+  router.post('/apply-feature-to-selection', (req, res) => {
+    const { shapeId, sub, feature, amount } = req.body;
+    if (
+      typeof shapeId !== 'string' ||
+      !isSubSelection(sub) ||
+      !SUPPORTED_FEATURES.includes(feature) ||
+      typeof amount !== 'number' || !(amount > 0)
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+
+    const explanation = fluidCadServer.explainSelection(shapeId, sub);
+    if (!explanation || explanation.kind !== 'classified') {
+      res.status(409).json({ error: 'no-construction-relative-selector', explanation });
+      return;
+    }
+    if (!explanation.sourceLocation || typeof explanation.sourceLocation.line !== 'number') {
+      res.status(409).json({ error: 'producing-feature-has-no-source-location', explanation });
+      return;
+    }
+
+    sendToExtension({
+      type: 'apply-feature-to-selection',
+      spec: {
+        producerLine: explanation.sourceLocation.line,
+        featureType: explanation.featureType,
+        accessor: explanation.accessor,
+        index: explanation.index,
+        feature,
+        amount,
+      },
+    });
+    res.json({ success: true, explanation });
   });
 
   router.post('/update-position', (req, res) => {
@@ -512,6 +578,20 @@ export function createSketchEditsRouter(
     }
     try {
       const result = await insertGeometryCallWithVariable(code, sketchSourceLine, statement, nv);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/apply-feature-to-selection', async (req, res) => {
+    const { code, spec } = req.body;
+    if (typeof code !== 'string' || !isFeatureEditSpec(spec)) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await FeatureOnSelection.buildFeatureEdit(code, spec);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

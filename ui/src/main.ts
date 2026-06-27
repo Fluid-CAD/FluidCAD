@@ -14,7 +14,7 @@ import { SketchToolbarService } from './interactive/sketch-toolbar-service';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, gotoSource } from './api';
+import { loadPreferences, gotoSource, applyFeatureToSelection } from './api';
 import { applyPreferences } from './scene/viewer-settings';
 import { installVSCodeKeyboardBridge } from './keyboard-bridge';
 
@@ -103,6 +103,9 @@ shapePropertiesModal.setCentroidHandler((centroid) => {
   }
 });
 
+// The most recent single edge/face selection, for the apply-feature shortcut.
+let currentSingleSelection: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } } | null = null;
+
 viewer.setSelectionHandler((shapeId, sub, modifiers) => {
   if (shapePropertiesModal.isOpen) {
     measureController.clearSelection();
@@ -113,6 +116,7 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
     }
     shapePropertiesModal.setSelectedShape(shapeId);
     selectionInfoOverlay.hide();
+    currentSingleSelection = null;
     return;
   }
 
@@ -121,6 +125,7 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
   const selection = measureController.handleClick(shapeId, sub, modifiers.additive);
   if (selection.length === 1) {
     const entity = selection[0];
+    currentSingleSelection = { shapeId: entity.shapeId, sub: entity.sub };
     shapePropertiesModal.setSelectedShape(entity.shapeId);
     if (entity.sub.type === 'face') {
       selectionInfoOverlay.showForFace(entity.shapeId, entity.sub.index);
@@ -128,8 +133,32 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
       selectionInfoOverlay.showForEdge(entity.shapeId, entity.sub.index);
     }
   } else {
+    currentSingleSelection = null;
     shapePropertiesModal.setSelectedShape(selection.length > 0 ? selection[0].shapeId : null);
     selectionInfoOverlay.hide();
+  }
+});
+
+// Stage-1 interactive feature shortcut: with a single edge/face selected,
+// press F to fillet it (radius 5) or C to chamfer it (distance 1). The server
+// synthesizes a construction-relative selector and writes the code edit.
+// See plans/interactive-selection/.
+window.addEventListener('keydown', (event) => {
+  if (event.metaKey || event.ctrlKey || event.altKey) {
+    return;
+  }
+  const target = event.target as HTMLElement | null;
+  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+    return;
+  }
+  if (!currentSingleSelection) {
+    return;
+  }
+  const key = event.key.toLowerCase();
+  if (key === 'f') {
+    applyFeatureToSelection(currentSingleSelection.shapeId, currentSingleSelection.sub, 'fillet', 5);
+  } else if (key === 'c') {
+    applyFeatureToSelection(currentSingleSelection.shapeId, currentSingleSelection.sub, 'chamfer', 1);
   }
 });
 

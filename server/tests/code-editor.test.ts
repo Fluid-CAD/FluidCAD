@@ -12,6 +12,10 @@ import {
   insertGeometryCall,
   updateGeometryPosition,
   updateDimension,
+  wrapCallInVariable,
+  insertStatementAfterFeature,
+  applyFeatureToSelection,
+  pickFreshVariableName,
 } from '../src/code-editor.ts';
 
 describe('addBreakpoint', () => {
@@ -567,5 +571,158 @@ describe('updateDimension', () => {
     const code = `vLine([5, 10], height / 2)\n`;
     const result = await updateDimension(code, 1, 100);
     expect(result.newCode).toBe(`vLine([5, 10], 100)\n`);
+  });
+});
+
+describe('wrapCallInVariable', () => {
+  it('wraps an anonymous top-level call in a const binding', async () => {
+    const code = [
+      `import { sketch, extrude } from 'fluidcad/core';`,
+      `sketch(XY, () => { circle(50) })`,
+      `extrude(10)`,
+      ``,
+    ].join('\n');
+    const result = await wrapCallInVariable(code, 3, 'e');
+    expect(result.alreadyBound).toBe(false);
+    expect(result.variableName).toBe('e');
+    expect(result.newCode).toContain('const e = extrude(10)');
+  });
+
+  it('reuses an existing binding without editing', async () => {
+    const code = [
+      `import { extrude } from 'fluidcad/core';`,
+      `const body = extrude(10)`,
+      ``,
+    ].join('\n');
+    const result = await wrapCallInVariable(code, 2, 'e');
+    expect(result.alreadyBound).toBe(true);
+    expect(result.variableName).toBe('body');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('reuses a binding even when the feature has a chained call', async () => {
+    const code = [
+      `const e = extrude(sk).pick([1, 2])`,
+      ``,
+    ].join('\n');
+    const result = await wrapCallInVariable(code, 1, 'x');
+    expect(result.alreadyBound).toBe(true);
+    expect(result.variableName).toBe('e');
+  });
+
+  it('avoids name collisions', async () => {
+    const code = [
+      `const e = 5`,
+      `const e2 = 6`,
+      `extrude(10)`,
+      ``,
+    ].join('\n');
+    const result = await wrapCallInVariable(code, 3, 'e');
+    expect(result.variableName).toBe('e3');
+    expect(result.newCode).toContain('const e3 = extrude(10)');
+  });
+
+  it('wraps the whole chain for an anonymous chained call', async () => {
+    const code = [`extrude(sk).pick([1, 2])`, ``].join('\n');
+    const result = await wrapCallInVariable(code, 1, 'e');
+    expect(result.newCode).toContain('const e = extrude(sk).pick([1, 2])');
+  });
+
+  it('does not wrap a call nested in arguments', async () => {
+    const code = [`fillet(5, extrude(10).endEdges())`, ``].join('\n');
+    const result = await wrapCallInVariable(code, 1, 'e');
+    // The outermost call on the row is fillet(...), which is already a top-level
+    // expression statement — so it would wrap fillet itself, not extrude. We only
+    // assert it produces a binding for the outermost call here.
+    expect(result.variableName).toBe('e');
+    expect(result.newCode).toContain('const e = fillet(5, extrude(10).endEdges())');
+  });
+
+  it('is a no-op when no call is on the row', async () => {
+    const code = [`const a = 1`, ``].join('\n');
+    const result = await wrapCallInVariable(code, 1, 'e');
+    expect(result.variableName).toBe(null);
+    expect(result.newCode).toBe(code);
+  });
+});
+
+describe('insertStatementAfterFeature', () => {
+  it('inserts a statement after the feature and adds the import', async () => {
+    const code = [
+      `import { extrude } from 'fluidcad/core';`,
+      `const e = extrude(10)`,
+      ``,
+    ].join('\n');
+    const result = await insertStatementAfterFeature(code, 2, 'fillet(5, e.endEdges(0))');
+    expect(result.newCode).toBe([
+      `import {fillet, extrude } from 'fluidcad/core';`,
+      `const e = extrude(10)`,
+      `fillet(5, e.endEdges(0))`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('matches the indent of the anchor statement', async () => {
+    const code = [
+      `part(() => {`,
+      `  const e = extrude(10)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await insertStatementAfterFeature(code, 2, 'fillet(5, e.endEdges(0))');
+    expect(result.newCode).toContain('\n  fillet(5, e.endEdges(0))\n');
+  });
+});
+
+describe('applyFeatureToSelection', () => {
+  it('binds an anonymous extrude and appends the fillet (the canonical flow)', async () => {
+    const code = [
+      `import { sketch, extrude } from 'fluidcad/core';`,
+      `sketch(XY, () => { circle(50) })`,
+      `extrude(10)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureToSelection(code, {
+      producerLine: 3,
+      preferredName: 'e',
+      buildStatement: (v) => `fillet(5, ${v}.endEdges(0))`,
+    });
+    expect(result.variableName).toBe('e');
+    expect(result.newCode).toBe([
+      `import {fillet, sketch, extrude } from 'fluidcad/core';`,
+      `sketch(XY, () => { circle(50) })`,
+      `const e = extrude(10)`,
+      `fillet(5, e.endEdges(0))`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('reuses an existing binding and only appends', async () => {
+    const code = [
+      `import { extrude, fillet } from 'fluidcad/core';`,
+      `const body = extrude(10)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureToSelection(code, {
+      producerLine: 2,
+      preferredName: 'e',
+      buildStatement: (v) => `fillet(5, ${v}.endEdges(0))`,
+    });
+    expect(result.variableName).toBe('body');
+    expect(result.newCode).toBe([
+      `import { extrude, fillet } from 'fluidcad/core';`,
+      `const body = extrude(10)`,
+      `fillet(5, body.endEdges(0))`,
+      ``,
+    ].join('\n'));
+  });
+});
+
+describe('pickFreshVariableName', () => {
+  it('returns the base when unused', async () => {
+    expect(await pickFreshVariableName(`const a = 1\n`, 'e')).toBe('e');
+  });
+  it('suffixes when the base is taken', async () => {
+    expect(await pickFreshVariableName(`const e = 1\n`, 'e')).toBe('e2');
   });
 });

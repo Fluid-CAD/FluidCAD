@@ -82,6 +82,18 @@ export function insertGeometry(
   );
 }
 
+export type FeatureEditResult = { newCode: string; selector: string | null; variableName: string | null };
+
+export function applyFeatureToSelection(
+  serverUrl: string, code: string, spec: unknown, logger: vscode.OutputChannel,
+) {
+  return postCodeEdit<FeatureEditResult>(
+    serverUrl, 'apply-feature-to-selection',
+    { code, spec },
+    logger,
+  );
+}
+
 
 export function updatePosition(
   serverUrl: string, code: string, sourceLine: number, newPosition: [number, number], logger: vscode.OutputChannel,

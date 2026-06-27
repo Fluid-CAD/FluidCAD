@@ -214,6 +214,26 @@ export type SetRectDimensionsMessage = {
   sourceLocation: { line: number; column: number };
 };
 
+export type FeatureOnSelectionSpec = {
+  /** 1-indexed source line of the producing feature's call. */
+  producerLine: number;
+  /** `getType()` of the producing feature — drives the variable-name choice. */
+  featureType: string;
+  /** Classified accessor on the producing feature, e.g. "endEdges". */
+  accessor: string;
+  /** Argument for the accessor: the picked sub-shape's bucket position. */
+  index: number;
+  /** The feature to apply to the selection. */
+  feature: 'fillet' | 'chamfer';
+  /** Numeric parameter — fillet radius or chamfer distance. */
+  amount: number;
+};
+
+export type ApplyFeatureToSelectionMessage = {
+  type: 'apply-feature-to-selection';
+  spec: FeatureOnSelectionSpec;
+};
+
 
 export type ServerToExtensionMessage =
   | ReadyMessage
@@ -236,7 +256,8 @@ export type ServerToExtensionMessage =
   | SetChainPositionsMessage
   | UpdateDimensionMessage
   | UpdateDimensionExpressionMessage
-  | SetRectDimensionsMessage;
+  | SetRectDimensionsMessage
+  | ApplyFeatureToSelectionMessage;
 
 // ---------------------------------------------------------------------------
 // WebSocket: Server → UI messages

@@ -19,6 +19,7 @@ type SceneManager = {
   getShapeProperties(scene: any, shapeId: string): any;
   getFaceProperties(scene: any, shapeId: string, faceIndex: number): any;
   getEdgeProperties(scene: any, shapeId: string, edgeIndex: number): any;
+  explainSelection(scene: any, shapeId: string, sub: { type: 'edge' | 'face'; index: number }): any;
   measure(scene: any, refs: { shapeId: string; kind: 'face' | 'edge'; index: number }[]): any;
   hitTest(
     scene: any,
@@ -419,6 +420,22 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.getEdgeProperties(scene, shapeId, edgeIndex);
+  }
+
+  /**
+   * Attribute a clicked edge/face to the feature that classified it, returning a
+   * construction-relative selector (e.g. `endEdges`, index 0) for the
+   * interactive "apply feature to selection" flow. See plans/interactive-selection/.
+   */
+  explainSelection(shapeId: string, sub: { type: 'edge' | 'face'; index: number }): any {
+    if (!this.sceneManager) {
+      return { kind: 'none' };
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return { kind: 'none' };
+    }
+    return this.sceneManager.explainSelection(scene, shapeId, sub);
   }
 
   measure(refs: { shapeId: string; kind: 'face' | 'edge'; index: number }[]): any {

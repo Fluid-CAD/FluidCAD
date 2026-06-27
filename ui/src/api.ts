@@ -184,6 +184,20 @@ export function insertGeometry(
   });
 }
 
+/**
+ * Apply a feature (fillet/chamfer) to a clicked edge/face. The server resolves
+ * the click to a construction-relative selector and drives the source edit.
+ * Resolves to the kernel explanation, or null if no stable selector was found.
+ */
+export function applyFeatureToSelection(
+  shapeId: string,
+  sub: { type: 'edge' | 'face'; index: number },
+  feature: 'fillet' | 'chamfer',
+  amount: number,
+): Promise<{ success: boolean; explanation?: unknown } | null> {
+  return postJson('/api/apply-feature-to-selection', { shapeId, sub, feature, amount });
+}
+
 
 // ---------------------------------------------------------------------------
 // Drag / position updates (fire-and-forget)

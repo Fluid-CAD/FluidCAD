@@ -100,6 +100,45 @@ function renderSignatureCode(name: string, sig: SignatureInfo): string {
   return `${name}(${params}): ${retDisplay}`;
 }
 
+// ── Overload index helpers ──
+
+/** Concise label for an overload heading, e.g. `arc(radius, startAngle?)`. */
+function overloadLabel(name: string, sig: SignatureInfo): string {
+  const params = sig.params.map(p => {
+    // Surface string-literal discriminators (e.g. `"first-face"`) verbatim:
+    // they're what distinguish otherwise identically-named overloads.
+    if (/^"[^"]*"(\s*\|\s*"[^"]*")*$/.test(p.type)) {
+      return p.type;
+    }
+    if (p.name.startsWith('...')) {
+      return p.name;
+    }
+    return `${p.name}${p.optional ? '?' : ''}`;
+  }).join(', ');
+  return `${name}(${params})`;
+}
+
+/** Slugify arbitrary text into an anchor id (lowercase, dashes between runs). */
+function slugifyAnchor(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** Returns an anchor not already in `used`, numbering on collision. */
+function uniqueAnchor(base: string, used: Set<string>): string {
+  const root = base || 'overload';
+  let anchor = root;
+  let n = 2;
+  while (used.has(anchor)) {
+    anchor = `${root}-${n}`;
+    n++;
+  }
+  used.add(anchor);
+  return anchor;
+}
+
 function renderParamsTable(params: ParamInfo[]): string {
   if (params.length === 0) {
     return '';
@@ -145,6 +184,7 @@ export function renderFeaturePage(
 ): string {
   const nonPlaneSignatures = signatures.filter(s => !s.isPlaneVariant);
   const hasPlaneVariants = signatures.some(s => s.isPlaneVariant);
+  const hasMultipleOverloads = nonPlaneSignatures.length > 1;
 
   // Use first signature's description as page intro
   const introDesc = nonPlaneSignatures[0]?.description || signatures[0]?.description || '';
@@ -175,13 +215,19 @@ export function renderFeaturePage(
   lines.push('---');
   lines.push('');
 
-  // Imports for examples
+  // Imports
+  const importLines: string[] = [];
   for (const ex of examples) {
-    lines.push(`import ${ex.importName} from '!!raw-loader!${ex.relativePath}';`);
+    importLines.push(`import ${ex.importName} from '!!raw-loader!${ex.relativePath}';`);
   }
   if (examples.length > 0) {
-    lines.push(`import CodeBlock from '@theme/CodeBlock';`);
-    lines.push('');
+    importLines.push(`import CodeBlock from '@theme/CodeBlock';`);
+  }
+  if (hasMultipleOverloads) {
+    importLines.push(`import OverloadIndex from '@site/src/components/docs/OverloadIndex';`);
+  }
+  if (importLines.length > 0) {
+    lines.push(...importLines, '');
   }
 
   // Title
@@ -210,10 +256,43 @@ export function renderFeaturePage(
   lines.push('## Signatures');
   lines.push('');
 
+  // Concise label + stable anchor per overload, shared by the index and the
+  // detail headings so their links line up.
+  const usedAnchors = new Set<string>();
+  const overloadMeta = nonPlaneSignatures.map(sig => {
+    const label = overloadLabel(feature.displayName, sig);
+    return { label, anchor: uniqueAnchor(slugifyAnchor(label), usedAnchors) };
+  });
+
+  // Overload index: a syntax-highlighted, clickable summary of every signature
+  // (with its JSDoc) that scrolls down to the matching detail section. Rendered
+  // by the OverloadIndex component since inline markdown code isn't highlighted.
+  if (hasMultipleOverloads) {
+    const overloadEntries = nonPlaneSignatures.map((sig, i) => ({
+      signature: renderSignatureCode(feature.displayName, sig),
+      anchor: overloadMeta[i].anchor,
+      description: sig.description
+        ? cleanDescription(sig.description).replace(/\s*\n\s*/g, ' ').trim()
+        : '',
+    }));
+    lines.push(`<OverloadIndex overloads={${JSON.stringify(overloadEntries, null, 2)}} />`);
+    lines.push('');
+  }
+
   const renderedOptionsTypes = new Set<string>();
 
   for (let i = 0; i < nonPlaneSignatures.length; i++) {
     const sig = nonPlaneSignatures[i];
+
+    // Anchored heading so the index links have a scroll target. Only when
+    // there are multiple overloads — single-signature pages stay unchanged.
+    // The id uses MDX comment syntax ({/* #id */}); the classic {#id} form is
+    // parsed as a JS expression in .mdx and breaks compilation.
+    if (hasMultipleOverloads) {
+      lines.push(`### ${overloadMeta[i].label} {/* #${overloadMeta[i].anchor} */}`);
+      lines.push('');
+    }
+
     lines.push('```ts');
     lines.push(renderSignatureCode(feature.displayName, sig));
     lines.push('```');
@@ -245,11 +324,6 @@ export function renderFeaturePage(
         lines.push(renderOptionsTable(props));
         lines.push('');
       }
-    }
-
-    if (i < nonPlaneSignatures.length - 1) {
-      lines.push('---');
-      lines.push('');
     }
   }
 

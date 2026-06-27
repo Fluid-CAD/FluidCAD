@@ -1,0 +1,93 @@
+.list {
+  list-style: none;
+  margin: 0 0 2rem;
+  padding: 0;
+  counter-reset: overload;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.item {
+  counter-increment: overload;
+  margin: 0;
+}
+
+/* Each row is a clickable card linking to the detailed signature below. */
+.row {
+  display: block;
+  position: relative;
+  padding: 0.7rem 2.5rem 0.7rem 2.75rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 8px;
+  background: var(--ifm-background-surface-color);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.row:hover {
+  border-color: var(--ifm-color-primary);
+  background: var(--ifm-color-emphasis-100);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  text-decoration: none;
+}
+
+/* Overload number, rendered in the left gutter. */
+.row::before {
+  content: counter(overload);
+  position: absolute;
+  left: 0;
+  top: 0.7rem;
+  width: 2.75rem;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ifm-color-emphasis-500);
+}
+
+/* "Jump" affordance, revealed on hover. */
+.row::after {
+  content: '→';
+  position: absolute;
+  right: 1rem;
+  top: 0.7rem;
+  color: var(--ifm-color-primary);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.row:hover::after {
+  opacity: 1;
+}
+
+.signature {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.description {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--ifm-color-content-secondary);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.descCode {
+  background: var(--ifm-color-emphasis-200);
+  border: none;
+  padding: 0.05rem 0.3rem;
+  font-size: 0.85em;
+  border-radius: 4px;
+  vertical-align: baseline;
+}

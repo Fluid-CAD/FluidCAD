@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Quaternion, Vector3 } from 'three';
 import {
   Solver,
+  mateReadoutValue,
   type BodyState,
   type ConnectorState,
   type MateRecord,
@@ -520,5 +521,72 @@ describe('mate(slider) — phase 08', () => {
     expect(out.result).toBe('okay');
     const carriage = out.bodies.find(o => o.instanceId === ID(1))!;
     expect(carriage.position.z).toBeCloseTo(8, 4);
+  });
+
+  it('clamps slide travel to the max limit on drag', async () => {
+    const solver = new Solver();
+    const out = solver.solve({
+      bodies: [
+        body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
+        body(ID(1), false, new Vector3(0, 0, 0), [flatConnector('c1')]),
+      ],
+      mates: [slider({ i: ID(0), c: 'c0' }, { i: ID(1), c: 'c1' }, { limits: [0, 10] })],
+      draggedInstanceId: ID(1),
+      draggedCursorWorld: new Vector3(0, 0, 20),
+      draggedGrabLocal: new Vector3(0, 0, 0),
+    });
+    expect(out.result).toBe('okay');
+    const carriage = out.bodies.find(o => o.instanceId === ID(1))!;
+    const cWorld = new Vector3(0, 0, 0).applyQuaternion(carriage.quaternion).add(carriage.position);
+    expect(cWorld.z).toBeCloseTo(10, 4);
+  });
+
+  it('clamps slide travel to the min limit on drag', async () => {
+    const solver = new Solver();
+    const out = solver.solve({
+      bodies: [
+        body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
+        body(ID(1), false, new Vector3(0, 0, 0), [flatConnector('c1')]),
+      ],
+      mates: [slider({ i: ID(0), c: 'c0' }, { i: ID(1), c: 'c1' }, { limits: [-5, 10] })],
+      draggedInstanceId: ID(1),
+      draggedCursorWorld: new Vector3(0, 0, -20),
+      draggedGrabLocal: new Vector3(0, 0, 0),
+    });
+    expect(out.result).toBe('okay');
+    const carriage = out.bodies.find(o => o.instanceId === ID(1))!;
+    const cWorld = new Vector3(0, 0, 0).applyQuaternion(carriage.quaternion).add(carriage.position);
+    expect(cWorld.z).toBeCloseTo(-5, 4);
+  });
+
+  it('a drag within the limit range slides freely', async () => {
+    const solver = new Solver();
+    const out = solver.solve({
+      bodies: [
+        body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
+        body(ID(1), false, new Vector3(0, 0, 0), [flatConnector('c1')]),
+      ],
+      mates: [slider({ i: ID(0), c: 'c0' }, { i: ID(1), c: 'c1' }, { limits: [0, 10] })],
+      draggedInstanceId: ID(1),
+      draggedCursorWorld: new Vector3(0, 0, 6),
+      draggedGrabLocal: new Vector3(0, 0, 0),
+    });
+    expect(out.result).toBe('okay');
+    const carriage = out.bodies.find(o => o.instanceId === ID(1))!;
+    const cWorld = new Vector3(0, 0, 0).applyQuaternion(carriage.quaternion).add(carriage.position);
+    expect(cWorld.z).toBeCloseTo(6, 4);
+  });
+
+  it('mateReadoutValue reports the slide distance in mm', () => {
+    const driverConn = flatConnector('c0');
+    const followerConn = flatConnector('c1');
+    const driver = body(ID(0), true, new Vector3(0, 0, 0), [driverConn]);
+    const follower = body(ID(1), false, new Vector3(0, 0, 5), [followerConn]);
+    const r = mateReadoutValue(
+      slider({ i: ID(0), c: 'c0' }, { i: ID(1), c: 'c1' }),
+      driver, driverConn, follower, followerConn,
+    );
+    expect(r?.kind).toBe('slide');
+    expect(r?.value).toBeCloseTo(5, 4);
   });
 });

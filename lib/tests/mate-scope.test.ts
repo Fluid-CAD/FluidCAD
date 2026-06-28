@@ -171,4 +171,57 @@ describe("mate scope and validation", () => {
     mate("planar", a.connectors.top, b.connectors.top).offset(0, 0, 5);
     expect(scene.getMates()[0].options?.offset).toEqual([0, 0, 5]);
   });
+
+  it("slider mate records .limits", () => {
+    const { p, scene } = startAssembly();
+    const a = insert(p);
+    const b = insert(p);
+    mate("slider", a.connectors.top, b.connectors.top).limits(0, 50);
+    expect(scene.getMates()[0].options?.limits).toEqual([0, 50]);
+  });
+
+  it("revolute mate records .limits", () => {
+    const { p, scene } = startAssembly();
+    const a = insert(p);
+    const b = insert(p);
+    mate("revolute", a.connectors.top, b.connectors.top).limits(-90, 90);
+    expect(scene.getMates()[0].options?.limits).toEqual([-90, 90]);
+  });
+
+  it(".limits on a non-slider/revolute mate throws", () => {
+    const { p } = startAssembly();
+    const a = insert(p);
+    const b = insert(p);
+    expect(() =>
+      mate("fastened", a.connectors.top, b.connectors.top).limits(0, 10),
+    ).toThrow(/only supported on/i);
+    const c = insert(p);
+    const d = insert(p);
+    expect(() =>
+      mate("cylindrical", c.connectors.top, d.connectors.top).limits(0, 10),
+    ).toThrow(/only supported on/i);
+  });
+
+  it(".limits requires min strictly less than max", () => {
+    const { p } = startAssembly();
+    const a = insert(p);
+    const b = insert(p);
+    expect(() =>
+      mate("slider", a.connectors.top, b.connectors.top).limits(10, 10),
+    ).toThrow(/strictly less than/i);
+    const c = insert(p);
+    const d = insert(p);
+    expect(() =>
+      mate("revolute", c.connectors.top, d.connectors.top).limits(20, 5),
+    ).toThrow(/strictly less than/i);
+  });
+
+  it(".limits rejects non-finite bounds", () => {
+    const { p } = startAssembly();
+    const a = insert(p);
+    const b = insert(p);
+    expect(() =>
+      mate("slider", a.connectors.top, b.connectors.top).limits(0, Infinity),
+    ).toThrow(/finite/i);
+  });
 });

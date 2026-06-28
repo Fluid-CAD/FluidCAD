@@ -38,6 +38,22 @@ export type TreeDragInfo = {
   draggedGrabLocal?: Vector3;
 };
 
+/** Clamp a scalar DOF value to an optional [min, max] motion-limit range. */
+function clampToLimits(value: number, limits?: [number, number]): number {
+  if (!limits) return value;
+  return Math.min(limits[1], Math.max(limits[0], value));
+}
+
+/**
+ * Shift `angle` (degrees) by whole turns onto the 360° branch nearest
+ * `ref`, so a per-frame sequence of atan2 measurements stays continuous
+ * across the ±180° branch cut. Used by revolute limits: the cut would
+ * otherwise fall right on a `limits(.., 180)` bound and flip the clamp.
+ */
+function unwrapAngleNear(angle: number, ref: number): number {
+  return angle + 360 * Math.round((ref - angle) / 360);
+}
+
 /**
  * Walk every component's tree edges in BFS order, applying the
  * appropriate per-mate warm-start to each. After this returns, every
@@ -261,6 +277,45 @@ function seedRevoluteEdge(
   // (the rigid cluster pivots as one).
   applyRevoluteDragRotation(driver, follower, driverConn, allMates, drag, bodyById, clusters);
 
+  // Enforce hinge-angle limits: measure the follower's signed angle about
+  // the pivot Z (0 = connector X axes aligned, same scale as options.rotate)
+  // and, if it's outside [min, max], rotate it back by the overshoot. Runs
+  // for both the freshly-seeded rest angle and a dragged angle, so an
+  // out-of-range rest angle is pulled into range too.
+  if (options.limits) {
+    const rawAngle = signedAngleAboutZ(driver, driverConn, follower, followerConn);
+    let angle = rawAngle;
+    let prevAngle = Number.NaN;
+    // signedAngleAboutZ wraps at ±180° (atan2 branch cut). When the limit
+    // range brushes that cut — e.g. limits(0, 180) puts the max bound right
+    // on it — the raw measurement flips sign at the open end and the clamp
+    // snaps the hinge to the wrong bound (the "drag back from 180° jumps"
+    // bug). Unwrap onto the branch nearest the previous frame's angle so the
+    // measurement stays continuous; a hinge pushed past 180° then pins at
+    // 180° instead of flipping to 0.
+    if (wasSatisfied && driverSnap && followerSnap) {
+      prevAngle = signedAngleAboutZ(driverSnap, driverConn, followerSnap, followerConn);
+      angle = unwrapAngleNear(rawAngle, prevAngle);
+    }
+    const clamped = clampToLimits(angle, options.limits);
+    if ((globalThis as { __mateDebug?: boolean }).__mateDebug) {
+      console.log('[revolute-limit]', JSON.stringify({
+        wasSatisfied,
+        raw: Number(rawAngle.toFixed(1)),
+        prev: Number(prevAngle.toFixed(1)),
+        unwrapped: Number(angle.toFixed(1)),
+        clamped: Number(clamped.toFixed(1)),
+      }));
+    }
+    if (clamped !== angle) {
+      const axis = driverConn.localNormal.clone()
+        .applyQuaternion(driver.quaternion).normalize();
+      const dq = new Quaternion()
+        .setFromAxisAngle(axis, ((clamped - angle) * Math.PI) / 180);
+      follower.quaternion = dq.multiply(follower.quaternion);
+    }
+  }
+
   // Re-derive position from the (possibly rotated) orientation so the
   // connector frames truly coincide in world space, regardless of which
   // path set the orientation above.
@@ -375,6 +430,9 @@ function rotateFollowerTowardWorld(
   const cross = new Vector3().crossVectors(fromInPlane, toInPlane);
   const sin = cross.dot(axis);
   const angle = Math.atan2(sin, cos);
+  if ((globalThis as { __mateDebug?: boolean }).__mateDebug) {
+    console.log('[revolute-drag] deltaDeg', Number(((angle * 180) / Math.PI).toFixed(1)));
+  }
   if (Math.abs(angle) < 1e-9) return;
 
   const dq = new Quaternion().setFromAxisAngle(axis, angle);
@@ -445,6 +503,7 @@ function seedSliderEdge(
   }
 
   effectiveZ += sliderDragDelta(driver, follower, driverConn, allMates, drag, bodyById, clusters);
+  effectiveZ = clampToLimits(effectiveZ, options.limits);
 
   const target = computeFastenedTargetPose(driver, driverConn, followerConn, {
     ...options,
@@ -713,24 +772,65 @@ function currentCylindricalState(
     .applyQuaternion(driver.quaternion).add(driver.position);
   const dZ = driverConn.localNormal.clone()
     .applyQuaternion(driver.quaternion).normalize();
-  const dX = driverConn.localXDirection.clone()
-    .applyQuaternion(driver.quaternion).normalize();
   const fOrigin = followerConn.localOrigin.clone()
     .applyQuaternion(follower.quaternion).add(follower.position);
+
+  const slide = fOrigin.clone().sub(dOrigin).dot(dZ);
+  const angle = signedAngleAboutZ(driver, driverConn, follower, followerConn);
+  return { slide, angle };
+}
+
+/**
+ * Signed angle (degrees) of the follower connector's X axis relative to
+ * the driver connector's X axis, measured about the driver's Z (normal).
+ * 0 = X axes aligned. This is the revolute hinge angle / cylindrical spin.
+ * Returns 0 if the follower X is degenerately parallel to the axis.
+ */
+function signedAngleAboutZ(
+  driver: BodyState,
+  driverConn: ConnectorState,
+  follower: BodyState,
+  followerConn: ConnectorState,
+): number {
+  const dZ = driverConn.localNormal.clone()
+    .applyQuaternion(driver.quaternion).normalize();
+  const dX = driverConn.localXDirection.clone()
+    .applyQuaternion(driver.quaternion).normalize();
   const fX = followerConn.localXDirection.clone()
     .applyQuaternion(follower.quaternion).normalize();
 
-  const slide = fOrigin.clone().sub(dOrigin).dot(dZ);
-
   const fXInPlane = fX.clone().sub(dZ.clone().multiplyScalar(fX.dot(dZ)));
-  if (fXInPlane.length() < 1e-9) {
-    return { slide, angle: 0 };
-  }
+  if (fXInPlane.length() < 1e-9) return 0;
   fXInPlane.normalize();
   const cos = Math.min(1, Math.max(-1, fXInPlane.dot(dX)));
   const sin = new Vector3().crossVectors(dX, fXInPlane).dot(dZ);
-  const angle = (Math.atan2(sin, cos) * 180) / Math.PI;
-  return { slide, angle };
+  return (Math.atan2(sin, cos) * 180) / Math.PI;
+}
+
+export type MateReadout = { kind: 'angle' | 'slide'; value: number };
+
+/**
+ * The live value of a 1-DOF mate's free parameter, for display while
+ * dragging: revolute → hinge angle (degrees), slider → slide distance
+ * (mm). This is the SAME quantity (and sign convention) the limit clamp
+ * operates on — measured from the driver/follower pair the solver itself
+ * uses — so a readout sitting at a bound reads exactly the limit value.
+ * Returns null for mate types without a single scalar DOF.
+ */
+export function mateReadoutValue(
+  mate: MateRecord,
+  driver: BodyState,
+  driverConn: ConnectorState,
+  follower: BodyState,
+  followerConn: ConnectorState,
+): MateReadout | null {
+  if (mate.type === 'revolute') {
+    return { kind: 'angle', value: signedAngleAboutZ(driver, driverConn, follower, followerConn) };
+  }
+  if (mate.type === 'slider') {
+    return { kind: 'slide', value: currentSliderZOffset(driver, driverConn, follower, followerConn) };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

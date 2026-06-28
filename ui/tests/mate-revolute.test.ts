@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Quaternion, Vector3 } from 'three';
 import {
   Solver,
+  mateReadoutValue,
   type BodyState,
   type ConnectorState,
   type MateRecord,
@@ -45,6 +46,19 @@ function revolute(
     connectorB: { instanceId: b.i, connectorId: b.c },
     options,
   };
+}
+
+/**
+ * Hinge angle (deg) of a follower whose connector X is local +X, measured
+ * about world Z relative to world +X. Matches the solver's
+ * `signedAngleAboutZ` when the driver is the grounded identity frame.
+ */
+function hingeAngleDeg(followerQuat: Quaternion): number {
+  const fX = new Vector3(1, 0, 0).applyQuaternion(followerQuat);
+  const fXInPlane = new Vector3(fX.x, fX.y, 0);
+  if (fXInPlane.length() < 1e-9) return 0;
+  fXInPlane.normalize();
+  return (Math.atan2(fXInPlane.y, fXInPlane.x) * 180) / Math.PI;
 }
 
 describe('mate(revolute) — phase 07', () => {
@@ -544,5 +558,108 @@ describe('mate(revolute) — phase 07', () => {
     const leftH2 = h2.localOrigin.clone()
       .applyQuaternion(leftOut.quaternion).add(leftOut.position);
     expect(topH1.distanceTo(leftH2)).toBeLessThan(1e-4);
+  });
+
+  it('clamps the hinge angle to the max limit on drag', async () => {
+    // Drag the follower's grab point ~90° CCW; with limits [0, 45] the
+    // hinge should stop at 45°.
+    const solver = new Solver();
+    const out = solver.solve({
+      bodies: [
+        body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
+        body(ID(1), false, new Vector3(0, 0, 0), [flatConnector('c1')]),
+      ],
+      mates: [revolute({ i: ID(0), c: 'c0' }, { i: ID(1), c: 'c1' }, { limits: [0, 45] })],
+      draggedInstanceId: ID(1),
+      draggedGrabLocal: new Vector3(10, 0, 0),
+      draggedCursorWorld: new Vector3(0, 10, 0),
+    });
+    expect(out.result).toBe('okay');
+    const follower = out.bodies.find(o => o.instanceId === ID(1))!;
+    expect(hingeAngleDeg(follower.quaternion)).toBeCloseTo(45, 2);
+  });
+
+  it('pulls an out-of-range rest angle up to the min limit', async () => {
+    // No drag; the natural rest angle is 0, which is below min=20, so the
+    // hinge seeds clamped at 20°.
+    const solver = new Solver();
+    const out = solver.solve({
+      bodies: [
+        body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
+        body(ID(1), false, new Vector3(50, 0, 0), [flatConnector('c1')]),
+      ],
+      mates: [revolute({ i: ID(0), c: 'c0' }, { i: ID(1), c: 'c1' }, { limits: [20, 80] })],
+    });
+    expect(out.result).toBe('okay');
+    const follower = out.bodies.find(o => o.instanceId === ID(1))!;
+    expect(hingeAngleDeg(follower.quaternion)).toBeCloseTo(20, 2);
+  });
+
+  it('a drag within the limit range rotates freely', async () => {
+    // Drag the follower's grab point ~45° CCW; with wide limits the hinge
+    // lands at 45° unclamped.
+    const solver = new Solver();
+    const out = solver.solve({
+      bodies: [
+        body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
+        body(ID(1), false, new Vector3(0, 0, 0), [flatConnector('c1')]),
+      ],
+      mates: [revolute({ i: ID(0), c: 'c0' }, { i: ID(1), c: 'c1' }, { limits: [-90, 90] })],
+      draggedInstanceId: ID(1),
+      draggedGrabLocal: new Vector3(10, 0, 0),
+      draggedCursorWorld: new Vector3(10, 10, 0),
+    });
+    expect(out.result).toBe('okay');
+    const follower = out.bodies.find(o => o.instanceId === ID(1))!;
+    expect(hingeAngleDeg(follower.quaternion)).toBeCloseTo(45, 2);
+  });
+
+  it('mateReadoutValue reports the hinge angle in degrees', () => {
+    const driverConn = flatConnector('c0');
+    const followerConn = flatConnector('c1');
+    const driver = body(ID(0), true, new Vector3(0, 0, 0), [driverConn]);
+    const follower = body(ID(1), false, new Vector3(0, 0, 0), [followerConn]);
+    follower.quaternion = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), (30 * Math.PI) / 180);
+    const r = mateReadoutValue(
+      revolute({ i: ID(0), c: 'c0' }, { i: ID(1), c: 'c1' }),
+      driver, driverConn, follower, followerConn,
+    );
+    expect(r?.kind).toBe('angle');
+    expect(r?.value).toBeCloseTo(30, 3);
+  });
+
+  it('dragging a 180° hinge past the limit pins at 180° instead of flipping (atan2 unwrap)', () => {
+    // limits(0, 180) puts the max bound right on the atan2 branch cut. Open
+    // to ~170°, then drag past 180°: the hinge must stay pinned at 180°, not
+    // wrap to a negative measurement and snap shut to 0°.
+    const solver = new Solver();
+    const at = (deg: number) => {
+      const r = (deg * Math.PI) / 180;
+      return new Vector3(10 * Math.cos(r), 10 * Math.sin(r), 0);
+    };
+    const dragTo = (cursor: Vector3, prev?: { position: Vector3; quaternion: Quaternion }) =>
+      solver.solve({
+        bodies: [
+          body(ID(0), true, new Vector3(0, 0, 0), [flatConnector('c0')]),
+          {
+            instanceId: ID(1), grounded: false,
+            position: prev?.position ?? new Vector3(0, 0, 0),
+            quaternion: prev?.quaternion ?? new Quaternion(),
+            connectors: [flatConnector('c1')],
+          },
+        ],
+        mates: [revolute({ i: ID(0), c: 'c0' }, { i: ID(1), c: 'c1' }, { limits: [0, 180] })],
+        draggedInstanceId: ID(1),
+        draggedGrabLocal: new Vector3(10, 0, 0),
+        draggedCursorWorld: cursor,
+      });
+
+    let out = dragTo(at(170));
+    let f = out.bodies.find(o => o.instanceId === ID(1))!;
+    expect(hingeAngleDeg(f.quaternion)).toBeCloseTo(170, 0);
+
+    out = dragTo(at(190), { position: f.position.clone(), quaternion: f.quaternion.clone() });
+    f = out.bodies.find(o => o.instanceId === ID(1))!;
+    expect(Math.abs(hingeAngleDeg(f.quaternion))).toBeCloseTo(180, 0);
   });
 });

@@ -34,6 +34,26 @@ export class MateBuilder {
     return this;
   }
 
+  limits(min: number, max: number): this {
+    if (this.mate.type !== "slider" && this.mate.type !== "revolute") {
+      throw new Error(
+        `mate('${this.mate.type}').limits(${min}, ${max}) — motion limits are only supported on 'slider' (travel along Z, in mm) and 'revolute' (hinge angle about Z, in degrees) mates.`,
+      );
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      throw new Error(
+        `mate('${this.mate.type}').limits(${min}, ${max}) — both limits must be finite numbers.`,
+      );
+    }
+    if (min >= max) {
+      throw new Error(
+        `mate('${this.mate.type}').limits(${min}, ${max}) — min must be strictly less than max.`,
+      );
+    }
+    this.ensureOptions().limits = [min, max];
+    return this;
+  }
+
   private ensureOptions() {
     if (!this.mate.options) {
       this.mate.options = {};

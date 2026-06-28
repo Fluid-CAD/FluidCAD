@@ -28,7 +28,7 @@ export type SerializedAssembly = {
     connectorA: { instanceId: string; connectorId: string };
     connectorB: { instanceId: string; connectorId: string };
     status: 'satisfied' | 'redundant' | 'inconsistent';
-    options?: { rotate?: number; flip?: boolean; offset?: [number, number, number] };
+    options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number] };
     sourceLocation?: { filePath: string; line: number; column: number };
   }>;
 };

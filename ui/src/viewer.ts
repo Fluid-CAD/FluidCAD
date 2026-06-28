@@ -3,7 +3,7 @@ import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { SceneModeManager } from './scene/scene-mode';
 import { buildSceneMesh } from './meshes/mesh-factory';
 import { PlaneData, SceneObjectPart, SceneObjectRender, SerializedAssembly, SerializedAssemblyMate, SubSelection } from './types';
-import { AssemblyController, InstanceDragReleaseHandler, SolverUpdateHandler } from './scene/assembly-controller';
+import { AssemblyController, DragValueHandler, InstanceDragReleaseHandler, SolverUpdateHandler } from './scene/assembly-controller';
 import { SettingsPanel } from './ui/settings-panel';
 import { CentroidIndicator } from './scene/centroid-indicator';
 import { viewerSettings } from './scene/viewer-settings';
@@ -121,6 +121,7 @@ export class Viewer {
   private assemblyController: AssemblyController | null = null;
   private pendingDragReleaseHandler: InstanceDragReleaseHandler | null = null;
   private pendingSolverUpdateHandler: SolverUpdateHandler | null = null;
+  private pendingDragValueHandler: DragValueHandler | null = null;
 
   constructor(containerId: string) {
     const container = document.getElementById(containerId)!;
@@ -493,6 +494,11 @@ export class Viewer {
     this.assemblyController?.setSolverUpdateHandler(handler);
   }
 
+  setDragValueHandler(handler: DragValueHandler | null): void {
+    this.pendingDragValueHandler = handler;
+    this.assemblyController?.setDragValueHandler(handler);
+  }
+
   updateAssemblyView(sceneObjects: SceneObjectRender[], assembly: SerializedAssembly): void {
     // The render result contains every Part declared in the file, including
     // ones never passed to `insert(...)` (calling `getExtrusion('80x160', …)`
@@ -522,6 +528,7 @@ export class Viewer {
       );
       this.assemblyController.setDragReleaseHandler(this.pendingDragReleaseHandler);
       this.assemblyController.setSolverUpdateHandler(this.pendingSolverUpdateHandler);
+      this.assemblyController.setDragValueHandler(this.pendingDragValueHandler);
       // When the controller claims a drag, eagerly clear any face/edge/instance
       // highlight that was set earlier (e.g. by a prior click or parts-panel
       // row). Otherwise it would visually "stick" through the drag and the

@@ -1,8 +1,8 @@
 import { Box3, Camera, Group, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3, WebGLRenderer } from 'three';
 import { ConnectorData, SceneObjectRender, SerializedAssembly, SerializedAssemblyInstance, SerializedAssemblyMate } from '../types';
 import { buildObjectMesh } from '../meshes/mesh-factory';
-import { Solver, buildMateGraph, isInstanceFullyLocked } from '../solver';
-import type { BodyState, ConnectorState, MateRecord, SolverInput, SolverOutput } from '../solver';
+import { Solver, buildMateGraph, isInstanceFullyLocked, mateReadoutValue } from '../solver';
+import type { BodyState, ConnectorState, MateReadout, MateRecord, SolverInput, SolverOutput } from '../solver';
 
 const DRAG_THRESHOLD_PX = 4;
 
@@ -21,6 +21,22 @@ export type InstanceDragClaimHandler = () => void;
 
 export type SolverUpdateHandler = (output: SolverOutput) => void;
 
+export type DragValueHandler = (readout: MateReadout | null) => void;
+
+/**
+ * The slider/revolute tree edge incident to the dragged instance, resolved
+ * once at drag-start (mate topology is fixed for the gesture). Holds the
+ * driver/follower ids + their body-local connector frames so the live value
+ * can be recomputed from the solved poses each frame.
+ */
+type ReadoutEdge = {
+  mate: MateRecord;
+  driverId: string;
+  driverConn: ConnectorState;
+  followerId: string;
+  followerConn: ConnectorState;
+};
+
 export class AssemblyController {
   private container = new Group();
   private instances = new Map<string, InstanceState>();
@@ -30,6 +46,7 @@ export class AssemblyController {
   private dragReleaseHandler: InstanceDragReleaseHandler | null = null;
   private dragClaimHandler: InstanceDragClaimHandler | null = null;
   private solverUpdateHandler: SolverUpdateHandler | null = null;
+  private dragValueHandler: DragValueHandler | null = null;
   private solver = new Solver();
   /**
    * Instance whose connectors are currently revealed by hover. Connectors
@@ -79,6 +96,9 @@ export class AssemblyController {
      *  the result would be identical. */
     lastSolvedClientX: number;
     lastSolvedClientY: number;
+    /** The slider/revolute joint being manipulated, resolved at drag-start;
+     *  null when the dragged body isn't on one (no live value shown). */
+    readoutEdge: ReadoutEdge | null;
   } | null = null;
 
   constructor(
@@ -277,7 +297,7 @@ export class AssemblyController {
    * with zero DOFs. Built fresh per pointerdown so it reflects any mate /
    * grounded changes since the last gesture.
    */
-  private computeLockedInstanceIds(): Set<string> {
+  private collectBodies(): BodyState[] {
     const bodies: BodyState[] = [];
     for (const state of this.instances.values()) {
       bodies.push({
@@ -288,6 +308,11 @@ export class AssemblyController {
         connectors: state.connectors,
       });
     }
+    return bodies;
+  }
+
+  private computeLockedInstanceIds(): Set<string> {
+    const bodies = this.collectBodies();
     const graph = buildMateGraph(bodies, this.mates);
     const locked = new Set<string>();
     for (const body of bodies) {
@@ -302,16 +327,7 @@ export class AssemblyController {
     draggedInstanceId?: string,
     draggedTargetOrigin?: Vector3,
   ): SolverInput {
-    const bodies: BodyState[] = [];
-    for (const state of this.instances.values()) {
-      bodies.push({
-        instanceId: state.data.instanceId,
-        position: state.group.position.clone(),
-        quaternion: state.group.quaternion.clone(),
-        grounded: state.data.grounded,
-        connectors: state.connectors,
-      });
-    }
+    const bodies = this.collectBodies();
     return {
       bodies,
       mates: this.mates,
@@ -328,6 +344,63 @@ export class AssemblyController {
       state.group.position.copy(solved.position);
       state.group.quaternion.copy(solved.quaternion);
     }
+  }
+
+  /**
+   * Resolve the slider/revolute joint the user is about to manipulate, so a
+   * live value can be shown while dragging. Uses the same `buildMateGraph`
+   * (seeded on the dragged instance) the solver uses, so driver/follower —
+   * and thus the value's sign — match the warm-start and the limit clamp.
+   * Prefers the edge whose follower IS the dragged body (its joint to its
+   * driver); falls back to one where it drives a follower.
+   */
+  private findReadoutEdge(draggedInstanceId: string): ReadoutEdge | null {
+    const graph = buildMateGraph(this.collectBodies(), this.mates, draggedInstanceId);
+    let fallback: ReadoutEdge | null = null;
+    for (const comp of graph.components) {
+      for (const edge of comp.treeEdges) {
+        if (edge.mate.type !== 'slider' && edge.mate.type !== 'revolute') continue;
+        const isChild = edge.child.instanceId === draggedInstanceId;
+        const isParent = edge.parent.instanceId === draggedInstanceId;
+        if (!isChild && !isParent) continue;
+        const re: ReadoutEdge = {
+          mate: edge.mate,
+          driverId: edge.parent.instanceId,
+          driverConn: edge.parentConn,
+          followerId: edge.child.instanceId,
+          followerConn: edge.childConn,
+        };
+        if (isChild) return re;
+        fallback ??= re;
+      }
+    }
+    return fallback;
+  }
+
+  /**
+   * Compute the active joint's live value from the solved poses and push it
+   * to the readout handler. No-op when there's no joint or the solve failed
+   * (keeps the last shown value rather than flickering the pill off).
+   */
+  private emitDragValue(out: SolverOutput): void {
+    if (!this.dragValueHandler || !this.dragState) return;
+    const edge = this.dragState.readoutEdge;
+    if (!edge || out.result !== 'okay') return;
+    const byId = new Map(out.bodies.map(b => [b.instanceId, b]));
+    const d = byId.get(edge.driverId);
+    const f = byId.get(edge.followerId);
+    if (!d || !f) return;
+    const driver: BodyState = {
+      instanceId: edge.driverId, position: d.position, quaternion: d.quaternion,
+      grounded: false, connectors: [],
+    };
+    const follower: BodyState = {
+      instanceId: edge.followerId, position: f.position, quaternion: f.quaternion,
+      grounded: false, connectors: [],
+    };
+    this.dragValueHandler(
+      mateReadoutValue(edge.mate, driver, edge.driverConn, follower, edge.followerConn),
+    );
   }
 
   private runSolverRefresh(): void {
@@ -445,6 +518,7 @@ export class AssemblyController {
       downY: e.clientY,
       lastSolvedClientX: Number.NaN,
       lastSolvedClientY: Number.NaN,
+      readoutEdge: this.findReadoutEdge(hit.instanceId),
     };
     (this.renderer.domElement as HTMLElement).setPointerCapture(e.pointerId);
     // Block camera-controls and any other pointerdown listeners on the canvas.
@@ -523,6 +597,7 @@ export class AssemblyController {
       // the status so the joints panel can flash the failing mate.
     }
     this.solverUpdateHandler?.(out);
+    this.emitDragValue(out);
     if (debugPerf) {
       const tDone = performance.now();
       const buf = (globalThis as any).__solverPerfBuf ??= [];
@@ -559,6 +634,7 @@ export class AssemblyController {
         this.dragReleaseHandler(released.instanceId, { x: p.x, y: p.y, z: p.z });
       }
     }
+    this.dragValueHandler?.(null);
     e.stopImmediatePropagation();
   };
 
@@ -568,6 +644,10 @@ export class AssemblyController {
 
   setDragClaimHandler(handler: InstanceDragClaimHandler | null): void {
     this.dragClaimHandler = handler;
+  }
+
+  setDragValueHandler(handler: DragValueHandler | null): void {
+    this.dragValueHandler = handler;
   }
 
   private toNDC(e: PointerEvent): Vector2 {

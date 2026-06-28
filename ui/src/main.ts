@@ -5,6 +5,7 @@ import { TimelinePanel } from './ui/timeline-panel';
 import { PartsPanel } from './ui/parts-panel';
 import { JointsPanel } from './ui/joints-panel';
 import { DofStatus } from './ui/dof-status';
+import { DragReadout } from './ui/drag-readout';
 import { ParamsPanel } from './ui/params-panel';
 import { ExportDialog } from './ui/export-dialog';
 import { BreakpointIndicator } from './ui/breakpoint-indicator';
@@ -62,7 +63,7 @@ const exportDialog = new ExportDialog(container, viewer.sceneContext);
 
 type LeftRail =
   | { kind: 'part'; timeline: TimelinePanel }
-  | { kind: 'assembly'; parts: PartsPanel; joints: JointsPanel; dof: DofStatus; instanceVisibility: Map<string, boolean> };
+  | { kind: 'assembly'; parts: PartsPanel; joints: JointsPanel; dof: DofStatus; dragReadout: DragReadout; instanceVisibility: Map<string, boolean> };
 
 let currentRail: LeftRail | null = null;
 
@@ -79,6 +80,7 @@ function disposeRail(): void {
     currentRail.parts.dispose();
     currentRail.joints.dispose();
     currentRail.dof.hide();
+    currentRail.dragReadout.dispose();
   }
   currentRail = null;
 }
@@ -154,7 +156,8 @@ function buildAssemblyRail(): LeftRail {
   );
   const dof = new DofStatus(container, (_mateId) => { /* phase 05+ */ });
   dof.show();
-  return { kind: 'assembly', parts, joints, dof, instanceVisibility: visibility };
+  const dragReadout = new DragReadout(container);
+  return { kind: 'assembly', parts, joints, dof, dragReadout, instanceVisibility: visibility };
 }
 
 function ensureRailFor(kind: 'part' | 'assembly'): LeftRail {
@@ -305,6 +308,11 @@ viewer.setInstanceDragReleaseHandler((instanceId, position) => {
   updateInsertChain(inst.sourceLocation, {
     translate: [position.x, position.y, position.z],
   });
+});
+
+viewer.setDragValueHandler((readout) => {
+  if (currentRail?.kind !== 'assembly') return;
+  currentRail.dragReadout.update(readout);
 });
 
 viewer.setSolverUpdateHandler((output) => {

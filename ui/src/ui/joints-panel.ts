@@ -115,6 +115,10 @@ export class JointsPanel {
       const dotColor = STATUS_COLORS[mate.status];
       const selected = this.selectedId === mate.mateId;
       const selectedClass = selected ? ' bg-primary/10' : '';
+      const limits = mate.options?.limits;
+      const limitsLine = limits
+        ? `<span class="pl-4 text-[10px] text-base-content/40">${limits[0]} – ${limits[1]}${mate.type === 'revolute' ? '°' : ' mm'}</span>`
+        : '';
       html += `
         <div class="group flex items-start gap-2 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-base-content/80${selectedClass}" data-mate-id="${mate.mateId}">
           <div class="flex-1 min-w-0 flex flex-col leading-tight">
@@ -124,6 +128,7 @@ export class JointsPanel {
             </span>
             <span class="pl-4 text-[10px] text-base-content/50 truncate">${escapeHtml(aName)}</span>
             <span class="pl-4 text-[10px] text-base-content/50 truncate">${escapeHtml(bName)}</span>
+            ${limitsLine}
           </div>
           <button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${mate.mateId}">${DOTS_SVG}</button>
         </div>

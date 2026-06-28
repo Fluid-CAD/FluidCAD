@@ -37,7 +37,7 @@ export type MateRecord = {
   type: 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot';
   connectorA: { instanceId: string; connectorId: string };
   connectorB: { instanceId: string; connectorId: string };
-  options?: { rotate?: number; flip?: boolean; offset?: [number, number, number] };
+  options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number] };
 };
 
 export type SolverInput = {

@@ -10,6 +10,7 @@ import { Loft } from "../../features/loft.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ShapeProps } from "../../oc/props.js";
+import { getOC } from "../../oc/init.js";
 
 function volumeOf(l: Loft): number {
   const shapes = l.getShapes();
@@ -146,6 +147,60 @@ describe("loft guides", () => {
       expect(Math.max(bbox.maxX, bbox.maxY)).toBeGreaterThan(36);
       expect(Math.min(bbox.minX, bbox.minY)).toBeLessThan(-36);
       expect(bbox.maxZ).toBeCloseTo(80, 0);
+    });
+
+    it("keeps the railed corner edges exactly on both rails (vertex matching)", () => {
+      const p1 = sketch("top", () => {
+        polygon(4, 50, "circumscribed");
+      });
+      const p2 = sketch(plane("top", 80), () => {
+        circle(30);
+      });
+      const g1 = sketch("right", () => {
+        bezier([Math.sqrt(2) * 25, 0], [50, 40], [15, 80]);
+        mirror(local("y"));
+      }).reusable();
+
+      const l = loft(p1, p2).guides(g1) as Loft;
+      const sideEdges = l.sideEdges();
+      addToScene(sideEdges);
+
+      render();
+
+      // Rail radius at height z for bezier [(25√2,0),(50,40),(15,80)] (z = 80t).
+      const railRadius = (z: number) => {
+        const t = z / 80;
+        return (1 - t) * (1 - t) * Math.sqrt(2) * 25 + 2 * t * (1 - t) * 50 + t * t * 15;
+      };
+
+      // Exactly two corner edges (one per rail) must lie on the rails all
+      // the way up — no sideways drift, no radial deviation. The two
+      // un-railed corners taper straight and must not match.
+      const oc = getOC();
+      const point = new oc.gp_Pnt();
+      let railedEdges = 0;
+      for (const edge of sideEdges.getShapes()) {
+        const raw = oc.TopoDS.Edge(edge.getShape());
+        const info = oc.BRep_Tool.Curve(raw, 0, 1);
+
+        let maxDeviation = 0;
+        for (let i = 0; i <= 16; i++) {
+          const t = info.First + ((info.Last - info.First) * i) / 16;
+          info.returnValue.D0(t, point);
+          const inPlane = Math.max(Math.abs(point.X()), Math.abs(point.Y()));
+          const offPlane = Math.min(Math.abs(point.X()), Math.abs(point.Y()));
+          maxDeviation = Math.max(
+            maxDeviation,
+            Math.abs(inPlane - railRadius(point.Z())),
+            offPlane,
+          );
+        }
+        if (maxDeviation < 0.1) {
+          railedEdges++;
+        }
+      }
+      point.delete();
+      expect(railedEdges).toBe(2);
     });
 
     it("rides both rails, bulging both sides of a rectangular loft", () => {

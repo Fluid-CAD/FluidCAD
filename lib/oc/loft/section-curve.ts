@@ -65,8 +65,12 @@ export class SectionCurve {
    * scale, and the only cross-piece constraint is agreement at the shared
    * junction pole — so each piece is chain-scaled to match its predecessor's
    * trailing weight (the first piece is anchored at weight 1).
+   *
+   * Pieces span parameter ranges proportional to their arc length, unless
+   * `spans` prescribes the fractions explicitly (rail-contact alignment
+   * re-proportions sections so matching features share parameters).
    */
-  static concatenate(pieces: Geom_BSplineCurve[], closed: boolean): Geom_BSplineCurve {
+  static concatenate(pieces: Geom_BSplineCurve[], closed: boolean, spans?: number[]): Geom_BSplineCurve {
     const degree = Math.max(...pieces.map(piece => piece.Degree()));
     for (const piece of pieces) {
       if (piece.Degree() < degree) {
@@ -87,7 +91,7 @@ export class SectionCurve {
     }
 
     // Piece spans proportional to arc length, over a total range of [0, 1].
-    const lengths = pieces.map(piece => SectionCurve.approximateLength(piece));
+    const lengths = spans ?? pieces.map(piece => SectionCurve.approximateLength(piece));
     const totalLength = lengths.reduce((sum, length) => sum + length, 0);
     if (totalLength <= 0) {
       throw new Error("Loft profile wire is degenerate (zero total length).");

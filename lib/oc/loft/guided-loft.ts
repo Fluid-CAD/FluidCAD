@@ -61,7 +61,7 @@ export class GuidedLoft {
       }
     }
 
-    const compatible = SectionCompatibility.build(profileWires.map(w => w.getShape()));
+    let compatible = SectionCompatibility.build(profileWires.map(w => w.getShape()));
 
     const guides = guideWires.map(wire => {
       const curve = SectionCurve.fromWire(wire.getShape());
@@ -72,6 +72,25 @@ export class GuidedLoft {
     const anchors = guides.map((guide, guideIndex) =>
       GuidedLoft.anchorGuide(guide, guideIndex, compatible),
     );
+
+    // Vertex matching: re-proportion the sections so each rail's contact
+    // sits at ONE parameter on every profile. Otherwise the flow line under
+    // the rail drifts sideways between profiles (a corner riding a rail
+    // would leave the rail), because the pinned point u-lerps while the
+    // corner stays at its own knot.
+    const wrap = (u: number) => ((u % 1) + 1) % 1;
+    const contactParams = compatible.sections.map((_, k) =>
+      guides.map((_, g) => wrap(anchors[g][k].u)),
+    );
+    const alignment = SectionCompatibility.alignParameters(compatible, contactParams);
+    compatible = alignment.compatible;
+    alignment.targets.forEach((target, g) => {
+      if (target !== null) {
+        for (const anchor of anchors[g]) {
+          anchor.u = target;
+        }
+      }
+    });
 
     const base = GuidedLoft.skinBase(compatible, anchors, startCondition, endCondition);
     const { sections, params } = GuidedLoft.buildSectionStack(compatible, base, guides, anchors);

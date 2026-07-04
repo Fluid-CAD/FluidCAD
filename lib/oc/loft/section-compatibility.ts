@@ -83,6 +83,140 @@ export class SectionCompatibility {
     return secondTry;
   }
 
+  /**
+   * Re-proportions every section's parameterization so that the given
+   * per-section parameters land on shared targets (their cross-section
+   * averages), then re-unifies the basis. Rail-guided lofts use this to make
+   * each rail's contact sit at one parameter on every profile — otherwise
+   * the surface's flow lines (and any profile corner riding a rail) drift
+   * away from the rail between and at the profiles.
+   *
+   * `sectionParams[k]` lists the contact parameters of section k, one per
+   * rail, in matching order across sections. Parameters at the seam are
+   * aligned already and are ignored. Returns the input unchanged when there
+   * is nothing to align or when the re-unified sections would lose their
+   * shared weight vector (exotic rational cases degrade gracefully).
+   */
+  static alignParameters(
+    compatible: CompatibleSections,
+    sectionParams: number[][],
+  ): { compatible: CompatibleSections; targets: (number | null)[] } {
+    const sectionCount = compatible.sections.length;
+    const railCount = sectionParams[0].length;
+    const noTargets = new Array<number | null>(railCount).fill(null);
+
+    // Rails aligned by the seam itself (or wrapping across it on some
+    // profile) are left alone; only rails interior on every profile move.
+    const interior = (u: number) => u > 1e-4 && u < 1 - 1e-4;
+    const interiorRails: number[] = [];
+    for (let g = 0; g < railCount; g++) {
+      if (sectionParams.every(params => interior(params[g]))) {
+        interiorRails.push(g);
+      }
+    }
+    if (interiorRails.length === 0) {
+      return { compatible, targets: noTargets };
+    }
+    interiorRails.sort((a, b) => sectionParams[0][a] - sectionParams[0][b]);
+
+    // Rails must keep the same order around every profile.
+    const splits = sectionParams.map(params => interiorRails.map(g => params[g]));
+    for (const params of splits) {
+      for (let j = 1; j < params.length; j++) {
+        if (params[j] <= params[j - 1]) {
+          return { compatible, targets: noTargets };
+        }
+      }
+    }
+
+    const targets = interiorRails.map((_, j) =>
+      splits.reduce((sum, params) => sum + params[j], 0) / sectionCount,
+    );
+    const railTargets: (number | null)[] = [...noTargets];
+    interiorRails.forEach((g, j) => {
+      railTargets[g] = targets[j];
+    });
+
+    const aligned = splits.every(params =>
+      params.every((u, j) => Math.abs(u - targets[j]) < SectionCompatibility.KNOT_TOLERANCE),
+    );
+    if (aligned) {
+      return { compatible, targets: railTargets };
+    }
+
+    const oc = getOC();
+    const curves = compatible.sections.map((section, k) => {
+      const curve = CurveData.build({
+        poles: section.poles,
+        weights: compatible.weights,
+        knots: compatible.knots,
+        multiplicities: compatible.multiplicities,
+        degree: compatible.degree,
+      });
+
+      const bounds = [0, ...splits[k], 1];
+      const pieces: Geom_BSplineCurve[] = [];
+      for (let i = 0; i + 1 < bounds.length; i++) {
+        pieces.push(oc.GeomConvert.SplitBSplineCurve(curve, bounds[i], bounds[i + 1], 1e-9, true));
+      }
+      curve.delete();
+
+      const targetSpans = [targets[0], ...targets.slice(1).map((t, j) => t - targets[j]), 1 - targets[targets.length - 1]];
+      const reproportioned = SectionCurve.concatenate(pieces, true, targetSpans);
+      for (const piece of pieces) {
+        piece.delete();
+      }
+      return reproportioned;
+    });
+
+    const rebuilt = SectionCompatibility.rebuildAligned(curves, compatible);
+    if (!rebuilt) {
+      return { compatible, targets: noTargets };
+    }
+    return { compatible: rebuilt, targets: railTargets };
+  }
+
+  /** Re-unifies re-proportioned section curves, keeping the original frames. */
+  private static rebuildAligned(
+    curves: Geom_BSplineCurve[],
+    original: CompatibleSections,
+  ): CompatibleSections | null {
+    try {
+      SectionCompatibility.unifyDegree(curves);
+      SectionCompatibility.unifyKnots(curves);
+
+      const datas = curves.map(curve => CurveData.read(curve));
+      const poleCount = datas[0].poles.length;
+      for (const data of datas) {
+        if (data.poles.length !== poleCount) {
+          return null;
+        }
+      }
+
+      const weights = SectionCompatibility.sharedWeights(datas.map(data => data.weights), poleCount);
+      if (weights === undefined) {
+        return null;
+      }
+
+      return {
+        degree: datas[0].degree,
+        knots: datas[0].knots,
+        multiplicities: datas[0].multiplicities,
+        weights,
+        creases: SectionCompatibility.detectCreases(curves),
+        sections: datas.map((data, i) => ({
+          poles: data.poles,
+          centroid: original.sections[i].centroid,
+          normal: original.sections[i].normal,
+        })),
+      };
+    } finally {
+      for (const curve of curves) {
+        curve.delete();
+      }
+    }
+  }
+
   /** Returns null when the sections end up with mismatched weight vectors. */
   private static buildFromCurves(curves: Geom_BSplineCurve[]): CompatibleSections | null {
     try {

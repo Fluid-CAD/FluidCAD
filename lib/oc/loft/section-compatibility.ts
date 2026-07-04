@@ -56,6 +56,13 @@ export class SectionCompatibility {
   private static readonly WEIGHT_TOLERANCE = 1e-9;
   /** Tangent turns above this (radians) across a knot count as a profile corner. */
   private static readonly CREASE_ANGLE = 0.01;
+  /**
+   * Relative curvature jumps above this across a knot count as a feature
+   * boundary (e.g. the tangent line→arc junctions of an offset wire's
+   * rounded corner). Well below any real feature transition, well above the
+   * ~1% wobble of polynomial-approximated conics.
+   */
+  private static readonly CREASE_CURVATURE_JUMP = 0.3;
 
   static build(wires: TopoDS_Wire[]): CompatibleSections {
     // Mixed rational/polynomial sections can never share a weight vector —
@@ -494,20 +501,29 @@ export class SectionCompatibility {
   }
 
   /**
-   * Interior knots where any section makes a real corner: only knots of full
-   * multiplicity (structurally C0) can, and the tangent turn across them is
-   * measured on every section — profile corners turn by degrees, while
-   * smooth junctions from concatenation or seam moves turn by ~0.
+   * Interior knots where any section changes character: only knots of full
+   * multiplicity (structurally C0) can. Two kinds of feature boundary count:
+   * a tangent kink (a profile corner — turns by degrees, while smooth
+   * junctions from concatenation or seam moves turn by ~0), and a curvature
+   * jump (the tangent line→arc junctions of rounded/offset corners — the
+   * legacy loft splits faces there too, and without the split the near-crease
+   * band renders smeared and offers no edge).
    */
   private static detectCreases(curves: Geom_BSplineCurve[]): number[] {
     const oc = getOC();
     const degree = curves[0].Degree();
     const point = new oc.gp_Pnt();
-    const vector = new oc.gp_Vec();
+    const first = new oc.gp_Vec();
+    const second = new oc.gp_Vec();
 
-    const tangentAt = (curve: Geom_BSplineCurve, t: number): Vector3d => {
-      curve.D1(t, point, vector);
-      return new Vector3d(vector.X(), vector.Y(), vector.Z()).normalize();
+    const stateAt = (curve: Geom_BSplineCurve, t: number): { direction: Vector3d; curvature: number } => {
+      curve.D2(t, point, first, second);
+      const tangent = new Vector3d(first.X(), first.Y(), first.Z());
+      const speed = tangent.length();
+      const curvature = tangent
+        .cross(new Vector3d(second.X(), second.Y(), second.Z()))
+        .length() / (speed * speed * speed);
+      return { direction: tangent.normalize(), curvature };
     };
 
     const creases: number[] = [];
@@ -519,10 +535,17 @@ export class SectionCompatibility {
       const step = Math.min(knot - curves[0].Knot(i - 1), curves[0].Knot(i + 1) - knot) * 1e-3;
 
       for (const curve of curves) {
-        const angle = Math.acos(Math.min(1, Math.max(-1,
-          tangentAt(curve, knot - step).dot(tangentAt(curve, knot + step)),
-        )));
-        if (angle > SectionCompatibility.CREASE_ANGLE) {
+        const before = stateAt(curve, knot - step);
+        const after = stateAt(curve, knot + step);
+
+        const angle = Math.acos(Math.min(1, Math.max(-1, before.direction.dot(after.direction))));
+        const maxCurvature = Math.max(before.curvature, after.curvature);
+        const curvatureJump = maxCurvature > 1e-4
+          ? Math.abs(before.curvature - after.curvature) / maxCurvature
+          : 0;
+
+        if (angle > SectionCompatibility.CREASE_ANGLE
+          || curvatureJump > SectionCompatibility.CREASE_CURVATURE_JUMP) {
           creases.push(knot);
           break;
         }
@@ -530,7 +553,8 @@ export class SectionCompatibility {
     }
 
     point.delete();
-    vector.delete();
+    first.delete();
+    second.delete();
     return creases;
   }
 

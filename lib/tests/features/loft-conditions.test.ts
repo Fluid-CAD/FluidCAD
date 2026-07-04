@@ -246,6 +246,10 @@ describe("loft start/end conditions", () => {
       });
 
       const l = loft(p1, p2).startCondition("normal", 1).thin(2) as Loft;
+      const sides = l.sideFaces();
+      const caps = l.startFaces();
+      addToScene(sides);
+      addToScene(caps);
 
       render();
 
@@ -260,6 +264,13 @@ describe("loft start/end conditions", () => {
       const volume = ShapeProps.getProperties(shapes[0].getShape()).volumeMm3;
       expect(volume).toBeGreaterThan(10000);
       expect(volume).toBeLessThan(60000);
+
+      // The outward offset rounds the outer wall's corners into arcs; the
+      // line→arc curvature jumps must still split faces (8 outer: 4 flats +
+      // 4 corner bands) alongside the sharp inner wall's 4 — otherwise the
+      // outer corners render smeared with no edges to select.
+      expect(sides.getShapes()).toHaveLength(12);
+      expect(caps.getShapes()).toHaveLength(1);
     });
 
     it("builds a thin-walled barrel", () => {

@@ -87,6 +87,42 @@ export class WireOps {
     return signedArea < 0;
   }
 
+  /**
+   * Groups edges into connected chains — one wire per chain — via
+   * `ShapeAnalysis_FreeBounds.ConnectEdgesToWires`. Edge ends within
+   * `tolerance` of each other connect; disconnected groups come back as
+   * separate wires (e.g. a guide sketch holding a curve and its mirror).
+   *
+   * V8-binding gotcha: the plain-name dispatcher can resolve to the
+   * deprecated out-parameter overload, which returns a `{ wires }` envelope
+   * instead of the sequence itself — unwrap at runtime.
+   */
+  static connectEdgesToWires(edges: Edge[], tolerance = 1e-6): Wire[] {
+    const oc = getOC();
+    const input = new oc.NCollection_HSequence_TopoDS_Shape();
+    for (const edge of edges) {
+      input.Append(edge.getShape());
+    }
+
+    const result = oc.ShapeAnalysis_FreeBounds.ConnectEdgesToWires(input, tolerance, false) as any;
+    const isEnvelope = result && typeof result.Sequence !== "function" && result.wires;
+    const handle = isEnvelope ? result.wires : result;
+
+    const wires: Wire[] = [];
+    const sequence = handle.Sequence();
+    for (let i = 1; i <= sequence.Length(); i++) {
+      wires.push(Wire.fromTopoDSWire(oc.TopoDS.Wire(sequence.Value(i))));
+    }
+
+    input.delete();
+    if (isEnvelope && typeof result[Symbol.dispose] === "function") {
+      result[Symbol.dispose]();
+    } else if (typeof handle.delete === "function") {
+      handle.delete();
+    }
+    return wires;
+  }
+
   static makeWireFromEdgesRaw(edges: TopoDS_Edge[]): TopoDS_Wire {
     const oc = getOC();
     const wireMaker = new oc.BRepBuilderAPI_MakeWire();

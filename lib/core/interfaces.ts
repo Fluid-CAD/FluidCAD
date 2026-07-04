@@ -713,7 +713,42 @@ export interface IRevolve extends IBooleanOperation {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
+/**
+ * How a loft leaves (or arrives at) an end profile:
+ * - `'none'` — no constraint (default).
+ * - `'normal'` — the surface takes off perpendicular to the profile plane.
+ * - `'tangent'` — the surface takes off inside the profile plane, directed
+ *   outward, so the profile plane becomes a tangency plane.
+ */
+export type LoftConditionType = 'none' | 'normal' | 'tangent';
+
 export interface ILoft extends IBooleanOperation {
+  /**
+   * Adds side guide curves (rails) the loft surface must follow. Supports one
+   * or two guides in total; a single argument may carry several separate
+   * curves (e.g. a sketch holding a curve and its mirror) — each connected
+   * chain counts as one guide. Every guide must pass through every profile.
+   * Cannot be combined with start/end conditions or thin mode.
+   * @param guides - Sketches or edges forming the guide curves.
+   */
+  guides(...guides: ISceneObject[]): this;
+
+  /**
+   * Constrains how the surface leaves the first profile.
+   * @param type - `'none'`, `'normal'` or `'tangent'` — see {@link LoftConditionType}.
+   * @param magnitude - Scales the takeoff strength; defaults to 1. Negative
+   * values flip the direction (e.g. inward instead of outward for `'tangent'`).
+   */
+  startCondition(type: LoftConditionType, magnitude?: NumberParam): this;
+
+  /**
+   * Constrains how the surface arrives at the last profile.
+   * @param type - `'none'`, `'normal'` or `'tangent'` — see {@link LoftConditionType}.
+   * @param magnitude - Scales the arrival strength; defaults to 1. Negative
+   * values flip the direction (e.g. inward instead of outward for `'tangent'`).
+   */
+  endCondition(type: LoftConditionType, magnitude?: NumberParam): this;
+
   /**
    * Selects faces on the first profile plane of the loft.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.

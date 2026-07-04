@@ -1,6 +1,6 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Explorer } from "../oc/explorer.js";
-import { LoftOps } from "../oc/loft-ops.js";
+import { LoftOps, LoftOptions, LoftEndCondition } from "../oc/loft-ops.js";
 import { Wire } from "../common/wire.js";
 import { Face } from "../common/face.js";
 import { Extrudable } from "../helpers/types.js";
@@ -8,8 +8,9 @@ import { FaceMaker2 } from "../oc/face-maker2.js";
 import { FaceOps } from "../oc/face-ops.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { Plane } from "../math/plane.js";
-import { ILoft } from "../core/interfaces.js";
-import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
+import { ILoft, LoftConditionType } from "../core/interfaces.js";
+import { type NumberParam, resolveParam } from "../core/param.js";
+import { fuseWithSceneObjects, cutWithSceneObjects, wiresFromSceneObjectEdges } from "../helpers/scene-helpers.js";
 import { ExtrudeBase } from "./extrude-base.js";
 import { ThinFaceMaker } from "../oc/thin-face-maker.js";
 import { Shape } from "../common/shape.js";
@@ -17,6 +18,9 @@ import { requireShapes } from "../common/operand-check.js";
 
 export class Loft extends ExtrudeBase implements ILoft {
   private _profiles: SceneObject[] = [];
+  private _guides: SceneObject[] = [];
+  private _startCondition?: LoftEndCondition;
+  private _endCondition?: LoftEndCondition;
 
   constructor(...profiles: SceneObject[]) {
     super();
@@ -27,9 +31,79 @@ export class Loft extends ExtrudeBase implements ILoft {
     return this._profiles;
   }
 
+  /**
+   * Adds side guide curves the loft surface must follow. FluidCAD supports
+   * one or two guides (the underlying OCC algorithm has no notion of more);
+   * each guide must pass through every profile.
+   */
+  guides(...guides: SceneObject[]): this {
+    if (guides.length === 0) {
+      throw new Error("loft.guides: provide at least one guide curve.");
+    }
+    this._guides = guides;
+    return this;
+  }
+
+  /**
+   * Constrains how the surface leaves the first profile: 'normal' takes off
+   * perpendicular to the profile plane, 'tangent' takes off inside the
+   * profile plane (outward), 'none' clears the constraint. The magnitude
+   * scales the takeoff strength (default 1).
+   */
+  startCondition(type: LoftConditionType, magnitude?: NumberParam): this {
+    this._startCondition = Loft.resolveCondition("startCondition", type, magnitude);
+    return this;
+  }
+
+  /**
+   * Constrains how the surface arrives at the last profile — see
+   * {@link startCondition}.
+   */
+  endCondition(type: LoftConditionType, magnitude?: NumberParam): this {
+    this._endCondition = Loft.resolveCondition("endCondition", type, magnitude);
+    return this;
+  }
+
+  private static resolveCondition(
+    method: string,
+    type: LoftConditionType,
+    magnitude: NumberParam | undefined,
+  ): LoftEndCondition | undefined {
+    if (type === "none") {
+      if (magnitude !== undefined) {
+        throw new Error(`loft.${method}: magnitude has no effect with 'none'.`);
+      }
+      return undefined;
+    }
+    if (type !== "normal" && type !== "tangent") {
+      throw new Error(`loft.${method}: expected 'none', 'normal' or 'tangent', got '${type}'.`);
+    }
+    const value = magnitude === undefined ? 1 : resolveParam(magnitude);
+    if (value === 0) {
+      throw new Error(`loft.${method}: magnitude must be non-zero.`);
+    }
+    return { kind: type, magnitude: value };
+  }
+
+  private hasConditions(): boolean {
+    return this._startCondition !== undefined || this._endCondition !== undefined;
+  }
+
   override validate() {
     for (let i = 0; i < this._profiles.length; i++) {
       requireShapes(this._profiles[i], `profile ${i + 1}`, "loft");
+    }
+    for (let i = 0; i < this._guides.length; i++) {
+      requireShapes(this._guides[i], `guide ${i + 1}`, "loft");
+    }
+    if (this._guides.length > 2) {
+      throw new Error("Loft supports at most two guide curves.");
+    }
+    if (this._guides.length > 0 && this.hasConditions()) {
+      throw new Error("Loft guides cannot be combined with start/end conditions.");
+    }
+    if (this._guides.length > 0 && this.isThin()) {
+      throw new Error("Loft guides cannot be combined with thin mode.");
     }
   }
 
@@ -39,10 +113,11 @@ export class Loft extends ExtrudeBase implements ILoft {
     }
 
     const p = context.getProfiler();
+    const options = p.record('Resolve loft options', () => this.resolveLoftOptions());
     let newShapes: Shape[];
 
     if (this.isThin()) {
-      newShapes = p.record('Build thin loft', () => this.buildThinLoft());
+      newShapes = p.record('Build thin loft', () => this.buildThinLoft(options));
     } else {
       const allWires: Wire[] = [];
 
@@ -52,17 +127,23 @@ export class Loft extends ExtrudeBase implements ILoft {
         if (wires.length === 0) {
           throw new Error("Could not extract wire from profile.");
         }
+        if (options && wires.length !== 1) {
+          throw new Error("Loft with guides or start/end conditions requires exactly one region per profile.");
+        }
 
         for (const wire of wires) {
           allWires.push(wire);
         }
       }
 
-      newShapes = p.record('Make loft', () => LoftOps.makeLoft(allWires));
+      newShapes = p.record('Make loft', () => LoftOps.makeLoft(allWires, options));
     }
 
     for (const profile of this.profiles) {
       profile.removeShapes(this);
+    }
+    for (const guide of this._guides) {
+      guide.removeShapes(this);
     }
 
     // Classify faces into start/end/side using profile planes
@@ -130,7 +211,34 @@ export class Loft extends ExtrudeBase implements ILoft {
     this.setFinalShapes(this.getShapes());
   }
 
-  private buildThinLoft(): Shape[] {
+  /**
+   * The options for `LoftOps.makeLoft`, with guide objects resolved to wires.
+   * A single guide argument may carry several separate curves (e.g. a sketch
+   * with a curve and its mirror) — each connected chain counts as one guide.
+   * Returns undefined for a plain loft, keeping the legacy multi-wire path
+   * untouched.
+   */
+  private resolveLoftOptions(): LoftOptions | undefined {
+    if (this._guides.length === 0 && !this.hasConditions()) {
+      return undefined;
+    }
+
+    let guides: Wire[] | undefined;
+    if (this._guides.length > 0) {
+      guides = this._guides.flatMap((guide, i) => wiresFromSceneObjectEdges(guide, `loft guide ${i + 1}`));
+      if (guides.length > 2) {
+        throw new Error(`Loft supports at most two guide curves, got ${guides.length}.`);
+      }
+    }
+
+    return {
+      startCondition: this._startCondition,
+      endCondition: this._endCondition,
+      guides,
+    };
+  }
+
+  private buildThinLoft(options?: LoftOptions): Shape[] {
     const outerWires: Wire[] = [];
     const innerWires: Wire[] = [];
 
@@ -152,10 +260,10 @@ export class Loft extends ExtrudeBase implements ILoft {
       }
     }
 
-    const outerSolids = LoftOps.makeLoft(outerWires);
+    const outerSolids = LoftOps.makeLoft(outerWires, options);
 
     if (innerWires.length > 0 && innerWires.length === outerWires.length) {
-      const innerSolids = LoftOps.makeLoft(innerWires);
+      const innerSolids = LoftOps.makeLoft(innerWires, options);
       const outerFuse = BooleanOps.fuse(outerSolids);
       const innerFuse = BooleanOps.fuse(innerSolids);
       const cutResult = BooleanOps.cutShapes(outerFuse.result[0], innerFuse.result[0]);
@@ -229,12 +337,17 @@ export class Loft extends ExtrudeBase implements ILoft {
   }
 
   override getDependencies(): SceneObject[] {
-    return [...this._profiles];
+    return [...this._profiles, ...this._guides];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const profiles = this._profiles.map(p => remap.get(p) || p);
-    return new Loft(...profiles).syncWith(this);
+    const copy = new Loft(...profiles);
+    copy.syncWith(this);
+    copy._guides = this._guides.map(g => remap.get(g) || g);
+    copy._startCondition = this._startCondition ? { ...this._startCondition } : undefined;
+    copy._endCondition = this._endCondition ? { ...this._endCondition } : undefined;
+    return copy;
   }
 
   compareTo(other: Loft): boolean {
@@ -256,7 +369,29 @@ export class Loft extends ExtrudeBase implements ILoft {
       }
     }
 
+    if (this._guides.length !== other._guides.length) {
+      return false;
+    }
+
+    for (let i = 0; i < this._guides.length; i++) {
+      if (!this._guides[i].compareTo(other._guides[i])) {
+        return false;
+      }
+    }
+
+    if (!Loft.conditionsEqual(this._startCondition, other._startCondition)
+      || !Loft.conditionsEqual(this._endCondition, other._endCondition)) {
+      return false;
+    }
+
     return true;
+  }
+
+  private static conditionsEqual(a: LoftEndCondition | undefined, b: LoftEndCondition | undefined): boolean {
+    if (a === undefined || b === undefined) {
+      return a === b;
+    }
+    return a.kind === b.kind && a.magnitude === b.magnitude;
   }
 
   getType(): string {
@@ -266,6 +401,9 @@ export class Loft extends ExtrudeBase implements ILoft {
   serialize() {
     return {
       profiles: this.profiles.map(f => f.serialize()),
+      guides: this._guides.length > 0 ? this._guides.map(g => g.serialize()) : undefined,
+      startCondition: this._startCondition,
+      endCondition: this._endCondition,
       operationMode: this._operationMode !== 'add' ? this._operationMode : undefined,
       thin: this._thin,
     }

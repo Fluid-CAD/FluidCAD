@@ -111,6 +111,12 @@ function discoverExamples(docsDir) {
       ? { width: parseInt(sizeMatch[1], 10), height: parseInt(sizeMatch[2], 10) }
       : null;
 
+    // Parse view annotation, e.g. "// @screenshot view iso-ftr". Captures from
+    // a fixed named view (front, top, iso-ftr, ...) instead of the UI client's
+    // current camera, making the shot reproducible without manual framing.
+    const viewMatch = firstLines.match(/\/\/ @screenshot.*view\s+([a-z-]+)/);
+    const view = viewMatch ? viewMatch[1] : null;
+
     // Compute output path
     const outputPath = examplePathToImagePath(filePath, docsDir);
     const name = basename(filePath, '.js');
@@ -128,6 +134,7 @@ function discoverExamples(docsDir) {
       emptyScene,
       aspectRatio,
       size,
+      view,
       source: relPath,
     });
   }
@@ -316,7 +323,7 @@ async function main() {
     let done = 0;
     let failed = 0;
     for (const config of allScreenshots) {
-      const { id, outputPath, code, showAxes, noAutoCrop, hideGrid, waitForInput, emptyScene, aspectRatio, size } = config;
+      const { id, outputPath, code, showAxes, noAutoCrop, hideGrid, waitForInput, emptyScene, aspectRatio, size, view } = config;
 
       mkdirSync(dirname(outputPath), { recursive: true });
 
@@ -360,6 +367,7 @@ async function main() {
           ...(showAxes ? { showAxes: true } : {}),
           ...(hideGrid ? { showGrid: false } : {}),
           ...(noAutoCrop ? { autoCrop: false, fitToModel: false, transparent: false } : {}),
+          ...(view ? { view: { kind: 'named', name: view } } : {}),
           ...arSize,
         };
         const png = await takeScreenshot(PORT, options);

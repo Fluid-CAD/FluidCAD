@@ -1,0 +1,227 @@
+---
+sidebar_position: 13
+title: "45 Degree Custom Elbow"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import customElbowFinal from '!!raw-loader!./_examples/custom-elbow-final.js';
+
+# Building a 45 Degree Custom Elbow
+
+![Finished 45 degree custom elbow](/img/docs/tutorials/custom-elbow-final.png)
+
+In this tutorial, you'll build a 45° pipe elbow with a square base flange and a round slotted flange, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=LiixZYdDycc). It covers reusable spine sketches, sweeping individual sketch regions, boring with a removal sweep, sketching on swept end faces, circular sketch copies, stepped slot cuts, and circular feature repeats around an axis built from a sketch segment.
+
+Create a new file called `custom-elbow.fluid.js` in your project.
+
+## Setup
+
+Start with the imports.
+
+```js
+import { axis, circle, copy, cut, extrude, hMove, move, rect, remove, repeat,
+    sketch, slot, sweep, tArc, tLine, vLine } from "fluidcad/core";
+```
+
+Everything comes from **`fluidcad/core`** — the sketching primitives, the 3D operations, and the pattern utilities.
+
+## Step 1: The elbow spine
+
+The whole part hangs off a single path: a vertical run, a 45° bend, and a straight exit. We draw it once on the front plane and reuse it for everything else — the pipe sweep, the bore sweep, and the pattern axis at the end.
+
+```js
+const spine = sketch("front", () => {
+    vLine(1.5)
+    tArc(-4, 45);
+    const topSegment = tLine(1.5);
+
+    return {
+        topSegment
+    }
+}).reusable();
+```
+
+`vLine(1.5)` draws a vertical line 1.5 units straight up from the origin. `tArc(-4, 45)` continues from its end with a tangent arc of radius 4 that stops once the path direction has turned to 45° — the negative radius flips the sweep direction so the arc bends away from the vertical run instead of curling back over it. `tLine(1.5)` then extends the path 1.5 units in a straight line, tangent to the arc, so the exit leg leaves at exactly 45°.
+
+We return `topSegment` from the sketch callback — whatever the callback returns is attached as `.regions` on the sketch, so `spine.regions.topSegment` gives us a named handle on that last straight segment. We'll turn it into the pattern axis in the final step.
+
+Normally the next 3D operation consumes a sketch. This spine is used three times, so `.reusable()` keeps it alive across all of them.
+
+![Spine sketch](/img/docs/tutorials/custom-elbow-step1.png)
+
+## Step 2: The pipe
+
+### Sketch the profile
+
+The pipe cross-section is two concentric circles on the top plane, centered where the spine starts.
+
+```js
+const profile = sketch("top", () => {
+    const innerPipe = circle(1.5)
+    const outerPipe = circle(2);
+
+    return {
+        innerPipe,
+        outerPipe
+    }
+});
+```
+
+`circle(1.5)` is the bore — 1.5 units in diameter — and `circle(2)` is the pipe's outside diameter, giving a 0.25 wall. Returning both attaches them as named regions, so we can hand each circle to a different sweep.
+
+![Pipe profile](/img/docs/tutorials/custom-elbow-step2-sketch.png)
+
+### Sweep the outer pipe
+
+```js
+const pipe = sweep(spine, profile.regions.outerPipe);
+```
+
+`sweep(spine, profile.regions.outerPipe)` drives the outer circle along the spine, producing a solid bent rod. Because we pass one specific region instead of the whole sketch, the `innerPipe` region stays available — we'll sweep it later to bore the pipe out. We capture the result as `pipe` so we can sketch on its end face in step 4.
+
+![Swept pipe](/img/docs/tutorials/custom-elbow-step2.png)
+
+## Step 3: The base flange
+
+### Sketch the plate
+
+The base flange is a rounded square plate with four bolt holes, drawn on the top plane around the foot of the pipe.
+
+```js
+sketch("top", () => {
+    rect(3.5).centered().radius(0.5)
+    move([-2.5 / 2, -2.5 / 2])
+    const c = circle(0.5)
+    copy("circular", [0, 0], {
+        count: 4,
+        angle: 360
+    }, c)
+});
+```
+
+`rect(3.5).centered().radius(0.5)` draws a 3.5-unit square centered on the origin with 0.5-radius rounded corners. `move([-2.5 / 2, -2.5 / 2])` jumps the cursor to one corner of the 2.5 × 2.5 bolt pattern, and `circle(0.5)` places a 0.5-diameter bolt hole there. `copy("circular", [0, 0], { count: 4, angle: 360 }, c)` copies that hole 4 times evenly around the sketch origin, landing one hole near each corner of the plate. Because the holes are closed shapes inside the plate outline, they extrude as cutouts automatically.
+
+![Base flange sketch](/img/docs/tutorials/custom-elbow-step3-sketch.png)
+
+### Extrude the plate
+
+```js
+extrude(.375)
+```
+
+`extrude(.375)` raises the plate 0.375 units. It fuses with the bottom of the pipe into a single body.
+
+![Base flange](/img/docs/tutorials/custom-elbow-step3.png)
+
+## Step 4: The upper flange
+
+### Sketch on the pipe's end face
+
+The round flange sits on the angled end of the pipe, so we sketch directly on the face the sweep finished on.
+
+```js
+sketch(pipe.endFaces(), () => {
+    circle(4)
+});
+```
+
+`pipe.endFaces()` returns the face at the end of the sweep path — the 45° face. Sketching on it orients the sketch to that plane, with the origin at the face center, so `circle(4)` drops a 4-diameter flange disc concentric with the pipe.
+
+![Upper flange sketch](/img/docs/tutorials/custom-elbow-step4-sketch.png)
+
+### Extrude back into the pipe
+
+```js
+const upperFlange = extrude(-.625)
+```
+
+`extrude(-.625)` extrudes 0.625 units in the negative direction — back down the pipe — so the flange ends up flush with the pipe's end instead of floating past it. We keep it as `upperFlange` to sketch the bolt slots on it next.
+
+![Upper flange](/img/docs/tutorials/custom-elbow-step4.png)
+
+## Step 5: Boring the pipe
+
+So far the pipe is a solid rod, and both flanges block its ends. One sweep opens the whole passage.
+
+```js
+sweep(spine, profile.regions.innerPipe).remove()
+```
+
+This sweeps the 1.5-diameter `innerPipe` region along the same reusable spine, and `.remove()` turns the sweep into a subtraction — instead of adding the swept solid, it carves it out of everything it passes through. The pipe wall, the base plate, and the upper flange all get bored in a single operation.
+
+![Bored elbow](/img/docs/tutorials/custom-elbow-step5.png)
+
+## Step 6: The bolt slots
+
+### Sketch two stacked slots
+
+The upper flange carries four radial bolt slots, each with a wider shallow relief around a narrower through-slot. We sketch one pair and pattern it later.
+
+```js
+const slots = sketch(upperFlange.endFaces(), () => {
+    hMove(3.25 / 2)
+    const outerSlot = slot(1, .75 / 2)
+    const innerSlot = slot(1, .45 / 2)
+
+    return {
+        outerSlot,
+        innerSlot
+    }
+});
+```
+
+`upperFlange.endFaces()` is the face the flange extrusion finished on, so the sketch origin sits on the pipe centerline. `hMove(3.25 / 2)` slides the cursor out to the 3.25-diameter bolt circle. `slot(1, .75 / 2)` draws a slot 1 unit long with 0.375-radius end caps — 0.75 wide — extending radially outward from the cursor, and `slot(1, .45 / 2)` draws a narrower 0.45-wide slot on the same footprint. Returning both gives us a named region for each, because the two slots get cut to different depths.
+
+![Slot sketch](/img/docs/tutorials/custom-elbow-step6-sketch.png)
+
+### Cut each slot to its own depth
+
+```js
+const s1 = cut(slots.regions.innerSlot)
+const s2 = cut(.25, slots.regions.outerSlot)
+```
+
+`cut(slots.regions.innerSlot)` with no depth cuts the narrow slot all the way through the flange. `cut(.25, slots.regions.outerSlot)` cuts the wide slot only 0.25 deep, leaving a stepped recess around the through-slot. We capture both cuts as `s1` and `s2` — they're the features we're about to pattern.
+
+![Stepped slot cut](/img/docs/tutorials/custom-elbow-step6.png)
+
+## Step 7: Pattern the slots and clean up
+
+```js
+const a = axis(spine.regions.topSegment)
+
+repeat("circular", a, {
+    count: 4,
+    angle: 360
+}, s1, s2)
+
+remove(spine);
+```
+
+`axis(spine.regions.topSegment)` builds an axis from the spine's straight exit segment — the segment we named back in step 1. That line is the pipe's centerline through the upper flange, exactly the axis the bolt pattern revolves around. `repeat("circular", a, { count: 4, angle: 360 }, s1, s2)` repeats both cuts 4 times evenly around it, giving four stepped slots at 90° spacing.
+
+Finally, `remove(spine)` deletes the reusable spine sketch from the scene — every consumer is done with it, so it shouldn't linger in the rendered model.
+
+![Finished 45 degree custom elbow](/img/docs/tutorials/custom-elbow-final.png)
+
+## Full code
+
+<CodeBlock language="js">{customElbowFinal}</CodeBlock>
+
+## What you practiced
+
+- **`sketch().reusable()`** — keeping one path sketch alive for multiple consumers (two sweeps and an axis)
+- **returning shapes from a sketch** — attaching named `.regions` handles to geometry for later reference
+- **`tArc(radius, endAngle)`** — tangent arcs that stop at a target direction, with a negative radius to flip the bend
+- **`tLine(length)`** — straight segments that continue tangent to the previous arc
+- **`sweep(path, region)`** — sweeping one named region of a multi-region profile, leaving the rest available
+- **`sweep().remove()`** — using a sweep as a subtraction to bore through several features at once
+- **`sketch(op.endFaces(), ...)`** — sketching directly on the face an operation finished on
+- **`extrude(-depth)`** — extruding backwards so a face-based feature stays flush with its face
+- **`rect().centered().radius()`** — centered rounded-corner plates
+- **`copy("circular", center, options, shape)`** — circular copies of sketch geometry
+- **`slot(length, radius)`** — slots drawn from the cursor with round end caps
+- **`cut(depth, region)`** — cutting different regions of one sketch to different depths
+- **`axis(segment)`** — turning a named sketch segment into a pattern axis
+- **`repeat("circular", axis, options, ...features)`** — patterning multiple cut features around an axis
+- **`remove()`** — clearing a reusable sketch once every consumer is done with it

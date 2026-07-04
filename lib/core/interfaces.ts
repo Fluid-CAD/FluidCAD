@@ -728,7 +728,9 @@ export interface ILoft extends IBooleanOperation {
    * or two guides in total; a single argument may carry several separate
    * curves (e.g. a sketch holding a curve and its mirror) — each connected
    * chain counts as one guide. Every guide must pass through every profile.
-   * Cannot be combined with start/end conditions or thin mode.
+   * Composes with start/end conditions (the condition fades out around each
+   * guide's contact point — rails win locally, the condition shapes the
+   * rest). Cannot be combined with thin mode.
    * @param guides - Sketches or edges forming the guide curves.
    */
   guides(...guides: ISceneObject[]): this;

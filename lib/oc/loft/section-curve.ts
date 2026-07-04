@@ -1,7 +1,6 @@
 import type { Geom_BSplineCurve, TopoDS_Edge, TopoDS_Wire } from "ocjs-fluidcad";
 import { getOC } from "../init.js";
 import { CurveData } from "./curve-data.js";
-import { interpolateWithDerivatives } from "../../math/bspline-interpolation.js";
 
 /**
  * Turns a profile wire into a single clamped B-spline curve, parameterized
@@ -13,8 +12,12 @@ import { interpolateWithDerivatives } from "../../math/bspline-interpolation.js"
  * vector instead of matching edges pairwise.
  */
 export class SectionCurve {
-  /** Approximation budget for rational→polynomial section conversion. */
-  private static readonly APPROX_TOLERANCE = 1e-6;
+  // Rational→polynomial section conversion tolerance (mm). Loose enough to
+  // keep pole counts small — pole count drives the cost of every downstream
+  // stage (knot union, skinning, surface, meshing). Caps always sew exactly
+  // (they share the section's poles), so this only bounds the deviation of
+  // the loft wall from the true profile curve.
+  private static readonly APPROX_TOLERANCE = 1e-4;
   private static readonly LENGTH_SAMPLES = 32;
 
   /**
@@ -142,61 +145,112 @@ export class SectionCurve {
 
   /**
    * Approximates any B-spline with a polynomial (non-rational) one within
-   * `tolerance`, by interpolating progressively denser samples with the end
-   * tangents pinned (so G1 seams stay G1). Used when rational sections
-   * cannot be skinned exactly — see `SectionCompatibility`.
+   * `tolerance`, as a chain of cubic Hermite segments (position + tangent
+   * matched at the ends of every segment, so the result stays G1). Segments
+   * split at the curve's own knots — rational conversions are typically only
+   * C1 there, and keeping the reduced-continuity points on segment
+   * boundaries preserves O(h⁴) convergence — then subdivide until every
+   * segment fits. Pole count stays proportional to the geometry's curvature
+   * (a circle needs a few dozen poles), never to a sample budget.
    */
   static toPolynomial(curve: Geom_BSplineCurve, tolerance: number): Geom_BSplineCurve {
     const oc = getOC();
-    const first = curve.FirstParameter();
-    const last = curve.LastParameter();
-
     const point = new oc.gp_Pnt();
     const vector = new oc.gp_Vec();
-    curve.D1(first, point, vector);
-    const startDerivative = [vector.X(), vector.Y(), vector.Z()];
-    curve.D1(last, point, vector);
-    const endDerivative = [vector.X(), vector.Y(), vector.Z()];
+
+    const spans: [number, number][] = [];
+    for (let i = 1; i < curve.NbKnots(); i++) {
+      spans.push([curve.Knot(i), curve.Knot(i + 1)]);
+    }
 
     try {
-      // Rational conversions are typically only C1 at interior knots, which
-      // caps interpolation convergence at O(h²) — the generous sample budget
-      // (affordable thanks to the banded solver) absorbs that.
-      let sampleCount = Math.max(32, 4 * curve.NbPoles());
-      for (let attempt = 0; attempt < 9; attempt++) {
-        const params: number[] = [];
-        const points: number[][] = [];
-        for (let i = 0; i <= sampleCount; i++) {
-          const t = first + ((last - first) * i) / sampleCount;
-          params.push(t);
-          curve.D0(t, point);
-          points.push([point.X(), point.Y(), point.Z()]);
+      for (let subdivisions = 1; subdivisions <= 64; subdivisions *= 2) {
+        const breakpoints: number[] = [spans[0][0]];
+        for (const [a, b] of spans) {
+          for (let m = 1; m <= subdivisions; m++) {
+            breakpoints.push(a + ((b - a) * m) / subdivisions);
+          }
         }
 
-        const data = interpolateWithDerivatives(points, params, startDerivative, endDerivative);
-        const candidate = CurveData.build({ ...data, weights: null });
+        const samples = breakpoints.map(t => {
+          curve.D1(t, point, vector);
+          return {
+            position: [point.X(), point.Y(), point.Z()],
+            tangent: [vector.X(), vector.Y(), vector.Z()],
+          };
+        });
 
-        const candidatePoint = new oc.gp_Pnt();
-        let maxDeviation = 0;
-        for (let i = 0; i < sampleCount; i++) {
-          const t = first + ((last - first) * (i + 0.5)) / sampleCount;
-          curve.D0(t, point);
-          candidate.D0(t, candidatePoint);
-          maxDeviation = Math.max(maxDeviation, point.Distance(candidatePoint));
+        // One cubic Bézier per segment in Hermite form.
+        const segments: number[][][] = [];
+        for (let s = 0; s + 1 < breakpoints.length; s++) {
+          const h = (breakpoints[s + 1] - breakpoints[s]) / 3;
+          const from = samples[s];
+          const to = samples[s + 1];
+          segments.push([
+            from.position,
+            from.position.map((v, d) => v + from.tangent[d] * h),
+            to.position.map((v, d) => v - to.tangent[d] * h),
+            to.position,
+          ]);
         }
-        candidatePoint.delete();
 
-        if (maxDeviation <= tolerance) {
-          return candidate;
+        if (SectionCurve.maxHermiteDeviation(curve, breakpoints, segments) <= tolerance) {
+          return SectionCurve.assembleCubicSegments(breakpoints, segments);
         }
-        candidate.delete();
-        sampleCount *= 2;
       }
       throw new Error("Loft could not approximate a rational profile curve within tolerance.");
     } finally {
       point.delete();
       vector.delete();
     }
+  }
+
+  /** Largest distance between the Hermite segments and the curve, sampled inside each segment. */
+  private static maxHermiteDeviation(
+    curve: Geom_BSplineCurve,
+    breakpoints: number[],
+    segments: number[][][],
+  ): number {
+    const oc = getOC();
+    const point = new oc.gp_Pnt();
+    let maxDeviation = 0;
+
+    for (let s = 0; s < segments.length; s++) {
+      const [p0, p1, p2, p3] = segments[s];
+      for (const local of [0.25, 0.5, 0.75]) {
+        const t = breakpoints[s] + (breakpoints[s + 1] - breakpoints[s]) * local;
+        curve.D0(t, point);
+
+        const u = 1 - local;
+        const b0 = u * u * u;
+        const b1 = 3 * u * u * local;
+        const b2 = 3 * u * local * local;
+        const b3 = local * local * local;
+        const dx = b0 * p0[0] + b1 * p1[0] + b2 * p2[0] + b3 * p3[0] - point.X();
+        const dy = b0 * p0[1] + b1 * p1[1] + b2 * p2[1] + b3 * p3[1] - point.Y();
+        const dz = b0 * p0[2] + b1 * p1[2] + b2 * p2[2] + b3 * p3[2] - point.Z();
+        maxDeviation = Math.max(maxDeviation, Math.hypot(dx, dy, dz));
+      }
+    }
+
+    point.delete();
+    return maxDeviation;
+  }
+
+  /** Joins cubic Bézier segments into one B-spline over the original parameter range. */
+  private static assembleCubicSegments(breakpoints: number[], segments: number[][][]): Geom_BSplineCurve {
+    const degree = 3;
+    const knots = [...breakpoints];
+    const multiplicities = breakpoints.map((_, i) =>
+      i === 0 || i === breakpoints.length - 1 ? degree + 1 : degree,
+    );
+
+    const poles: number[][] = [segments[0][0]];
+    for (const segment of segments) {
+      poles.push(segment[1], segment[2], segment[3]);
+    }
+
+    return CurveData.build({ poles, weights: null, knots, multiplicities, degree });
   }
 
   /** Curve arc length approximated by chord sampling — used only to proportion knot spans. */

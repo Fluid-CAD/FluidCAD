@@ -22,14 +22,14 @@ export class LoftOps {
    * guides dispatch to `GuidedLoft` (virtual sections carried onto the
    * rails) and start/end conditions to `ConstrainedLoft` (derivative-pinned
    * skinning) — both in-house skins, since OCC can neither constrain end
-   * tangency nor follow rails without distorting sections. Guides and
-   * conditions are mutually exclusive — the feature layer validates that
-   * before calling.
+   * tangency nor follow rails without distorting sections. Conditions
+   * compose with guides: the condition fades out around each guide contact
+   * (the rails own their sides of the surface).
    */
   static makeLoft(wires: Wire[], options?: LoftOptions): Solid[] {
     const guides = options?.guides ?? [];
     if (guides.length > 0) {
-      return GuidedLoft.build(wires, guides);
+      return GuidedLoft.build(wires, guides, options?.startCondition, options?.endCondition);
     }
     if (options?.startCondition || options?.endCondition) {
       return ConstrainedLoft.build(wires, options.startCondition, options.endCondition);

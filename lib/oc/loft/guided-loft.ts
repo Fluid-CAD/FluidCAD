@@ -5,7 +5,7 @@ import { Solid } from "../../common/solid.js";
 import { SectionCompatibility, CompatibleSections } from "./section-compatibility.js";
 import { SectionCurve } from "./section-curve.js";
 import { CurveData, RationalBSplineData } from "./curve-data.js";
-import { Skinning, SkinnedGrid } from "./skinning.js";
+import { Skinning, SkinnedGrid, LoftEndCondition } from "./skinning.js";
 import { evaluateBSplinePoint, closestCurveParameter, flattenKnots } from "./curve-eval.js";
 
 /** Where a guide meets one profile: guide parameter, section parameter, and the guide point. */
@@ -30,14 +30,28 @@ interface GuideAnchor {
  *
  * Guides must pass through every profile: sections are pinned where they
  * were sketched, so a rail that misses a profile is unsatisfiable.
+ *
+ * Start/end conditions compose with guides: the condition's takeoff field
+ * fades smoothly to the natural (unconstrained) takeoff around each guide's
+ * contact point — the rails own their sides of the surface, the condition
+ * shapes the rest. The faded fields drive both the base skin (so the
+ * virtual sections carry the conditioned shape) and the final re-skin (so
+ * the takeoff is pinned exactly where the condition is in force).
  */
 export class GuidedLoft {
   /** Virtual sections inserted between consecutive profiles. */
   private static readonly SECTIONS_PER_SPAN = 7;
   /** How far (mm) a guide may sit from a profile boundary and still count as touching. */
   private static readonly CONTACT_TOLERANCE = 1e-3;
+  /** Fallback condition-falloff radius (in section parameter) for a single guide. */
+  private static readonly SINGLE_GUIDE_FALLOFF = 0.25;
 
-  static build(profileWires: Wire[], guideWires: Wire[]): Solid[] {
+  static build(
+    profileWires: Wire[],
+    guideWires: Wire[],
+    startCondition?: LoftEndCondition,
+    endCondition?: LoftEndCondition,
+  ): Solid[] {
     if (guideWires.length < 1 || guideWires.length > 2) {
       throw new Error("Guided loft supports one or two guide curves.");
     }
@@ -48,7 +62,6 @@ export class GuidedLoft {
     }
 
     const compatible = SectionCompatibility.build(profileWires.map(w => w.getShape()));
-    const base = Skinning.skinSections(compatible);
 
     const guides = guideWires.map(wire => {
       const curve = SectionCurve.fromWire(wire.getShape());
@@ -60,9 +73,126 @@ export class GuidedLoft {
       GuidedLoft.anchorGuide(guide, guideIndex, compatible),
     );
 
+    const base = GuidedLoft.skinBase(compatible, anchors, startCondition, endCondition);
     const { sections, params } = GuidedLoft.buildSectionStack(compatible, base, guides, anchors);
-    const skinned = Skinning.interpolateColumns(sections, params);
+    const skinned = Skinning.interpolateColumns(
+      sections,
+      params,
+      GuidedLoft.stackField(compatible, anchors, startCondition, base.averageLength, sections, params, false),
+      GuidedLoft.stackField(compatible, anchors, endCondition, base.averageLength, sections, params, true),
+    );
     return [Skinning.buildLoftSolid(compatible, skinned.grid, skinned.vBasis)];
+  }
+
+  /**
+   * The unguided base skin, with any end conditions already faded around the
+   * guide contacts (blended towards the natural chord takeoff, per column).
+   */
+  private static skinBase(
+    compatible: CompatibleSections,
+    anchors: GuideAnchor[][],
+    startCondition: LoftEndCondition | undefined,
+    endCondition: LoftEndCondition | undefined,
+  ): SkinnedGrid {
+    const { sections } = compatible;
+    const { params, averageLength } = Skinning.loftParameters(sections);
+    const columns = sections.map(section => section.poles);
+
+    const startField = GuidedLoft.stackField(
+      compatible, anchors, startCondition, averageLength, columns, params, false,
+    );
+    const endField = GuidedLoft.stackField(
+      compatible, anchors, endCondition, averageLength, columns, params, true,
+    );
+
+    const { grid, vBasis } = Skinning.interpolateColumns(columns, params, startField, endField);
+    return { grid, vBasis, params, averageLength };
+  }
+
+  /**
+   * The condition's takeoff field for one end of a section stack, faded to
+   * the stack's own natural takeoff (the chord to the neighbouring section)
+   * around each guide contact. Null when no condition applies to that end.
+   */
+  private static stackField(
+    compatible: CompatibleSections,
+    anchors: GuideAnchor[][],
+    condition: LoftEndCondition | undefined,
+    averageLength: number,
+    sections: number[][][],
+    params: number[],
+    isEnd: boolean,
+  ): number[][] | null {
+    if (!condition) {
+      return null;
+    }
+
+    const endIndex = isEnd ? compatible.sections.length - 1 : 0;
+    const conditionField = Skinning.derivativeField(
+      compatible.sections[endIndex], condition, averageLength, isEnd,
+    );
+
+    const contacts = anchors.map(anchor => {
+      const u = anchor[endIndex].u;
+      return ((u % 1) + 1) % 1;
+    });
+    const weights = GuidedLoft.falloffWeights(compatible, contacts);
+
+    const last = sections.length - 1;
+    const [nearIndex, farIndex] = isEnd ? [last, last - 1] : [0, 1];
+    const chordSpan = Math.abs(params[nearIndex] - params[farIndex]);
+
+    return conditionField.map((target, i) => {
+      // Natural takeoff: the chord towards the neighbouring stack section
+      // (points along increasing v at both ends).
+      const natural = sections[nearIndex][i].map((v, d) =>
+        ((isEnd ? v - sections[farIndex][i][d] : sections[farIndex][i][d] - v)) / chordSpan,
+      );
+      const w = weights[i];
+      return target.map((t, d) => natural[d] + (t - natural[d]) * w);
+    });
+  }
+
+  /**
+   * Per-column condition weight: 0 at each guide contact, smoothstepping to
+   * 1 beyond the falloff radius (half the closest contact separation for two
+   * guides). Columns are located by their Greville parameters.
+   */
+  private static falloffWeights(compatible: CompatibleSections, contacts: number[]): number[] {
+    const circularDistance = (a: number, b: number) => {
+      const d = Math.abs(a - b) % 1;
+      return Math.min(d, 1 - d);
+    };
+
+    let radius = GuidedLoft.SINGLE_GUIDE_FALLOFF;
+    for (let a = 0; a < contacts.length; a++) {
+      for (let b = a + 1; b < contacts.length; b++) {
+        radius = Math.min(radius, circularDistance(contacts[a], contacts[b]) / 2);
+      }
+    }
+    radius = Math.max(radius, 0.05);
+
+    const flat = flattenKnots(compatible.knots, compatible.multiplicities);
+    const degree = compatible.degree;
+    const poleCount = compatible.sections[0].poles.length;
+
+    const weights: number[] = [];
+    for (let i = 0; i < poleCount; i++) {
+      let greville = 0;
+      for (let j = 1; j <= degree; j++) {
+        greville += flat[i + j];
+      }
+      greville /= degree;
+      const wrapped = ((greville % 1) + 1) % 1;
+
+      let distance = Infinity;
+      for (const contact of contacts) {
+        distance = Math.min(distance, circularDistance(wrapped, contact));
+      }
+      const t = Math.min(1, Math.max(0, distance / radius));
+      weights.push(t * t * (3 - 2 * t));
+    }
+    return weights;
   }
 
   /**

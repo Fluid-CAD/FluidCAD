@@ -128,6 +128,8 @@ describe("loft guides", () => {
       }).reusable();
 
       const l = loft(p1, p2).guides(g1) as Loft;
+      const sides = l.sideFaces();
+      addToScene(sides);
 
       render();
 
@@ -135,6 +137,9 @@ describe("loft guides", () => {
       const shapes = l.getShapes();
       expect(shapes).toHaveLength(1);
       expect(ShapeProps.getProperties(shapes[0].getShape()).volumeMm3).toBeGreaterThan(0);
+
+      // The square's corners must be real edges: one wall face per side.
+      expect(sides.getShapes()).toHaveLength(4);
 
       // Both rails bow out past the square's corners (±25√2 ≈ ±35.36).
       const bbox = ShapeOps.getBoundingBox(shapes[0]);
@@ -180,6 +185,74 @@ describe("loft guides", () => {
     });
   });
 
+  describe("guides with conditions", () => {
+    function guidedSquareToCircle(withCondition: boolean) {
+      const p1 = sketch("top", () => {
+        polygon(4, 50, "circumscribed");
+      });
+      const p2 = sketch(plane("top", 80), () => {
+        circle(30);
+      });
+      const g1 = sketch("right", () => {
+        bezier([Math.sqrt(2) * 25, 0], [50, 40], [15, 80]);
+        mirror(local("y"));
+      }).reusable();
+
+      // `.new()` — the two variants overlap almost everywhere; fusing two
+      // nearly-coincident B-spline solids is exactly the boolean OCC hates.
+      const l = loft(p1, p2).guides(g1).new() as Loft;
+      if (withCondition) {
+        l.startCondition("normal");
+      }
+      return l;
+    }
+
+    it("applies a start condition away from the guide contacts", () => {
+      const plain = guidedSquareToCircle(false);
+      render();
+      expect(plain.getError()).toBeNull();
+      const plainVolume = ShapeProps.getProperties(plain.getShapes()[0].getShape()).volumeMm3;
+
+      const conditioned = guidedSquareToCircle(true);
+      render();
+      expect(conditioned.getError()).toBeNull();
+      const shapes = conditioned.getShapes();
+      expect(shapes).toHaveLength(1);
+
+      // The normal takeoff swells the un-guided sides of the square, so the
+      // conditioned loft encloses more material than the guided-only one —
+      // while the rails still pin the bulge to the same overall envelope.
+      const volume = ShapeProps.getProperties(shapes[0].getShape()).volumeMm3;
+      expect(volume).toBeGreaterThan(plainVolume * 1.01);
+      expect(volume).toBeLessThan(plainVolume * 1.5);
+    });
+
+    it("supports conditions on both ends alongside a guide", () => {
+      const [s1, s2] = circleProfiles();
+      const guide = sketch("xz", () => {
+        move([40, 0]);
+        vLine(60);
+      });
+
+      const l = loft(s1, s2)
+        .guides(guide)
+        .startCondition("tangent")
+        .endCondition("tangent") as Loft;
+
+      render();
+
+      expect(l.getError()).toBeNull();
+      const shapes = l.getShapes();
+      expect(shapes).toHaveLength(1);
+
+      // Straight rail + tangent bulge: more volume than the plain cylinder,
+      // but the rail keeps its side straight so less than the free barrel.
+      const cylinder = Math.PI * 40 * 40 * 60;
+      const volume = ShapeProps.getProperties(shapes[0].getShape()).volumeMm3;
+      expect(volume).toBeGreaterThan(cylinder * 1.05);
+    });
+  });
+
   describe("validation", () => {
     it("rejects calling guides() with no arguments", () => {
       const [s1, s2] = circleProfiles();
@@ -197,17 +270,6 @@ describe("loft guides", () => {
       render();
 
       expect(l.getError()).toContain("at most two guide curves");
-    });
-
-    it("rejects combining guides with conditions", () => {
-      const [s1, s2] = circleProfiles();
-      const guide = sketch("xz", () => { move([40, 0]); vLine(60); });
-
-      const l = loft(s1, s2).guides(guide).startCondition("normal") as Loft;
-
-      render();
-
-      expect(l.getError()).toContain("cannot be combined with start/end conditions");
     });
 
     it("rejects combining guides with thin mode", () => {

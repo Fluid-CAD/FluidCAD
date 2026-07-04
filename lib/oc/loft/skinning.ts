@@ -25,6 +25,8 @@ export interface LoftSurfaceBasis {
   multiplicities: number[];
   /** Shared weight vector, or null when polynomial. */
   weights: number[] | null;
+  /** Interior u-knots with a real profile corner — face-split points. */
+  creases?: number[];
 }
 
 export interface SkinnedGrid {
@@ -106,7 +108,7 @@ export class Skinning {
    * columns (the standard skinning parameterization), plus the average
    * flow-line length used to scale condition magnitudes.
    */
-  private static loftParameters(
+  static loftParameters(
     sections: CompatibleSection[],
   ): { params: number[]; averageLength: number } {
     const sectionCount = sections.length;
@@ -158,7 +160,7 @@ export class Skinning {
    * tangent arrival must descend back from the bulge — the in-plane
    * derivative flips inward so a positive magnitude bulges both ends outward.
    */
-  private static derivativeField(
+  static derivativeField(
     section: CompatibleSection,
     condition: LoftEndCondition,
     averageLength: number,
@@ -245,21 +247,40 @@ export class Skinning {
       disposeVMults();
     }
 
-    const faceMaker = new oc.BRepBuilderAPI_MakeFace(surface, Skinning.SEWING_TOLERANCE);
-    if (!faceMaker.IsDone()) {
+    // Split the wall at profile corners: a corner buried inside one face has
+    // no edge to render, select or fillet, and its mesh normals smear. Each
+    // u-range between creases (the seam is always a boundary) becomes its
+    // own face; smooth profiles keep the single closed face.
+    const ranges = Skinning.uRanges(uBasis);
+    const sideFaces: TopoDS_Shape[] = [];
+    for (const [from, to] of ranges) {
+      let piece: Geom_BSplineSurface = surface;
+      if (ranges.length > 1) {
+        piece = oc.GeomConvert.SplitBSplineSurface(surface, from, to, true, 1e-9, true);
+      }
+      const faceMaker = new oc.BRepBuilderAPI_MakeFace(piece, Skinning.SEWING_TOLERANCE);
+      const isDone = faceMaker.IsDone();
+      if (isDone) {
+        sideFaces.push(faceMaker.Face());
+      }
       faceMaker.delete();
-      surface.delete();
-      throw new Error("Loft failed to build its side surface.");
+      if (piece !== surface) {
+        piece.delete();
+      }
+      if (!isDone) {
+        surface.delete();
+        throw new Error("Loft failed to build its side surface.");
+      }
     }
-    const sideFace = faceMaker.Face();
-    faceMaker.delete();
     surface.delete();
 
     const startCap = Skinning.capFace(uBasis, grid.map(row => row[0]));
     const endCap = Skinning.capFace(uBasis, grid.map(row => row[row.length - 1]));
 
     const sewing = new oc.BRepBuilderAPI_Sewing(Skinning.SEWING_TOLERANCE, true, true, true, false);
-    sewing.Add(sideFace);
+    for (const sideFace of sideFaces) {
+      sewing.Add(sideFace);
+    }
     sewing.Add(startCap);
     sewing.Add(endCap);
     const progress = new oc.Message_ProgressRange();
@@ -276,7 +297,10 @@ export class Skinning {
     return Skinning.solidFromShell(sewn);
   }
 
-  /** Planar cap built from the section's exact boundary curve. */
+  /**
+   * Planar cap built from the section's exact boundary curve, segmented at
+   * the same crease points as the wall faces so sewing pairs edges exactly.
+   */
   private static capFace(uBasis: LoftSurfaceBasis, poles: number[][]): TopoDS_Shape {
     const oc = getOC();
     const boundary: Geom_BSplineCurve = CurveData.build({
@@ -287,12 +311,22 @@ export class Skinning {
       degree: uBasis.degree,
     });
 
-    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(boundary);
-    const edge = edgeMaker.Edge();
-    edgeMaker.delete();
+    const ranges = Skinning.uRanges(uBasis);
+    const wireMaker = new oc.BRepBuilderAPI_MakeWire();
+    for (const [from, to] of ranges) {
+      let segment: Geom_BSplineCurve = boundary;
+      if (ranges.length > 1) {
+        segment = oc.GeomConvert.SplitBSplineCurve(boundary, from, to, 1e-9, true);
+      }
+      const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(segment);
+      wireMaker.Add(edgeMaker.Edge());
+      edgeMaker.delete();
+      if (segment !== boundary) {
+        segment.delete();
+      }
+    }
     boundary.delete();
 
-    const wireMaker = new oc.BRepBuilderAPI_MakeWire(edge);
     const wire = wireMaker.Wire();
     wireMaker.delete();
 
@@ -304,6 +338,20 @@ export class Skinning {
     const face = faceMaker.Face();
     faceMaker.delete();
     return face;
+  }
+
+  /** Consecutive u-ranges between profile corners; one full range when the profile is smooth. */
+  private static uRanges(uBasis: LoftSurfaceBasis): [number, number][] {
+    const bounds = [
+      uBasis.knots[0],
+      ...(uBasis.creases ?? []),
+      uBasis.knots[uBasis.knots.length - 1],
+    ];
+    const ranges: [number, number][] = [];
+    for (let i = 0; i + 1 < bounds.length; i++) {
+      ranges.push([bounds[i], bounds[i + 1]]);
+    }
+    return ranges;
   }
 
   /** Wraps the sewn shell into a correctly-oriented solid. */

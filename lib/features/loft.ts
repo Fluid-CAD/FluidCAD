@@ -99,9 +99,6 @@ export class Loft extends ExtrudeBase implements ILoft {
     if (this._guides.length > 2) {
       throw new Error("Loft supports at most two guide curves.");
     }
-    if (this._guides.length > 0 && this.hasConditions()) {
-      throw new Error("Loft guides cannot be combined with start/end conditions.");
-    }
     if (this._guides.length > 0 && this.isThin()) {
       throw new Error("Loft guides cannot be combined with thin mode.");
     }

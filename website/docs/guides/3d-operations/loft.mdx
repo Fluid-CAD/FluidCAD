@@ -42,7 +42,11 @@ With two guides the surface rides both rails — the second guide is kept in con
 loft(s1, s2).guides(rightRail, leftRail)
 ```
 
-Guides cannot be combined with start/end conditions or `.thin()`.
+Guides compose with start/end conditions: the condition fades out around each guide's contact point, so the rails keep their sides of the surface while the condition shapes the rest. Guides cannot be combined with `.thin()`.
+
+```js
+loft(s1, s2).guides(rail).startCondition('normal')
+```
 
 ## Start and end conditions
 

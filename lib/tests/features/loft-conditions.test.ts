@@ -49,11 +49,17 @@ describe("loft start/end conditions", () => {
         rect(100, 50).centered();
       });
       const l = loft(s1, s2).startCondition("normal").endCondition("normal") as Loft;
+      const sides = l.sideFaces();
+      addToScene(sides);
 
       render();
 
       const expected = 100 * 50 * 40;
       expect(Math.abs(volumeOf(l) - expected) / expected).toBeLessThan(1e-4);
+
+      // Profile corners split the wall into one face per side, so the
+      // corners are real edges (renderable, selectable, filletable).
+      expect(sides.getShapes()).toHaveLength(4);
     });
 
     it("bulges a tapered loft outward compared to the unconstrained loft", () => {

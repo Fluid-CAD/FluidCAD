@@ -27,6 +27,13 @@ export interface CompatibleSections {
   multiplicities: number[];
   /** Shared weight vector, or null when all sections are polynomial. */
   weights: number[] | null;
+  /**
+   * Interior knots where at least one section has a real tangent kink
+   * (profile corners). The skinned surface must be split into separate
+   * faces there — a corner buried inside one face renders with smeared
+   * normals and offers no edge to select or fillet.
+   */
+  creases: number[];
   sections: CompatibleSection[];
 }
 
@@ -47,13 +54,24 @@ export class SectionCompatibility {
   /** Knots closer than this (curves live on [0, 1]) are treated as one. */
   private static readonly KNOT_TOLERANCE = 1e-9;
   private static readonly WEIGHT_TOLERANCE = 1e-9;
+  /** Tangent turns above this (radians) across a knot count as a profile corner. */
+  private static readonly CREASE_ANGLE = 0.01;
 
   static build(wires: TopoDS_Wire[]): CompatibleSections {
-    const firstTry = SectionCompatibility.buildFromCurves(
-      wires.map(wire => SectionCurve.fromWire(wire)),
-    );
-    if (firstTry) {
-      return firstTry;
+    // Mixed rational/polynomial sections can never share a weight vector —
+    // skip the doomed rational pass and go straight to the polynomial one.
+    const curves = wires.map(wire => SectionCurve.fromWire(wire));
+    const rationalCount = curves.filter(curve => curve.IsRational()).length;
+    const mixed = rationalCount > 0 && rationalCount < curves.length;
+    if (!mixed) {
+      const firstTry = SectionCompatibility.buildFromCurves(curves);
+      if (firstTry) {
+        return firstTry;
+      }
+    } else {
+      for (const curve of curves) {
+        curve.delete();
+      }
     }
 
     const secondTry = SectionCompatibility.buildFromCurves(
@@ -92,6 +110,7 @@ export class SectionCompatibility {
         knots: datas[0].knots,
         multiplicities: datas[0].multiplicities,
         weights,
+        creases: SectionCompatibility.detectCreases(curves),
         sections: datas.map((data, i) => ({
           poles: data.poles,
           centroid: frames[i].centroid,
@@ -338,6 +357,47 @@ export class SectionCompatibility {
       disposeKnots();
       disposeMults();
     }
+  }
+
+  /**
+   * Interior knots where any section makes a real corner: only knots of full
+   * multiplicity (structurally C0) can, and the tangent turn across them is
+   * measured on every section — profile corners turn by degrees, while
+   * smooth junctions from concatenation or seam moves turn by ~0.
+   */
+  private static detectCreases(curves: Geom_BSplineCurve[]): number[] {
+    const oc = getOC();
+    const degree = curves[0].Degree();
+    const point = new oc.gp_Pnt();
+    const vector = new oc.gp_Vec();
+
+    const tangentAt = (curve: Geom_BSplineCurve, t: number): Vector3d => {
+      curve.D1(t, point, vector);
+      return new Vector3d(vector.X(), vector.Y(), vector.Z()).normalize();
+    };
+
+    const creases: number[] = [];
+    for (let i = 2; i < curves[0].NbKnots(); i++) {
+      if (curves[0].Multiplicity(i) < degree) {
+        continue;
+      }
+      const knot = curves[0].Knot(i);
+      const step = Math.min(knot - curves[0].Knot(i - 1), curves[0].Knot(i + 1) - knot) * 1e-3;
+
+      for (const curve of curves) {
+        const angle = Math.acos(Math.min(1, Math.max(-1,
+          tangentAt(curve, knot - step).dot(tangentAt(curve, knot + step)),
+        )));
+        if (angle > SectionCompatibility.CREASE_ANGLE) {
+          creases.push(knot);
+          break;
+        }
+      }
+    }
+
+    point.delete();
+    vector.delete();
+    return creases;
   }
 
   private static nearestRepresentative(representatives: number[], value: number): number {

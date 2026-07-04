@@ -37,6 +37,16 @@ export class LoftOps {
     return LoftOps.makeThruSectionsLoft(wires);
   }
 
+  /**
+   * Thin-walled loft with start/end conditions: both walls are skinned with
+   * the same conditions and assembled directly with ring caps — see
+   * `ConstrainedLoft.buildThin`. (The condition-less thin loft stays on the
+   * legacy ThruSections + boolean path in the feature layer.)
+   */
+  static makeThinLoft(outerWires: Wire[], innerWires: Wire[], options: LoftOptions): Solid[] {
+    return ConstrainedLoft.buildThin(outerWires, innerWires, options.startCondition, options.endCondition);
+  }
+
   private static makeThruSectionsLoft(wires: Wire[]): Solid[] {
     const oc = getOC();
 

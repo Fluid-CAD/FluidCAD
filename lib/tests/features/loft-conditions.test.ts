@@ -237,6 +237,31 @@ describe("loft start/end conditions", () => {
   });
 
   describe("thin loft with conditions", () => {
+    it("builds a thin square-to-circle transition without booleans", () => {
+      const p1 = sketch("xy", () => {
+        rect(70, 70).centered();
+      });
+      const p2 = sketch(plane("xy", { offset: 80 }), () => {
+        circle(30);
+      });
+
+      const l = loft(p1, p2).startCondition("normal", 1).thin(2) as Loft;
+
+      render();
+
+      expect(l.getError()).toBeNull();
+      const shapes = l.getShapes();
+      expect(shapes).toHaveLength(1);
+
+      // A ~2mm wall over an ~80-tall transition: far less material than the
+      // filled loft, far more than nothing. (The walls + ring caps are
+      // assembled directly — a boolean between the two shells used to take
+      // seconds.)
+      const volume = ShapeProps.getProperties(shapes[0].getShape()).volumeMm3;
+      expect(volume).toBeGreaterThan(10000);
+      expect(volume).toBeLessThan(60000);
+    });
+
     it("builds a thin-walled barrel", () => {
       const [s1, s2] = circlePair(80, 80, 50);
       const l = loft(s1, s2).thin(-4).startCondition("tangent").endCondition("tangent") as Loft;

@@ -1,4 +1,4 @@
-import type { Geom_BSplineCurve, Geom_BSplineSurface, TopoDS_Shape, TopAbs_ShapeEnum } from "ocjs-fluidcad";
+import type { Geom_BSplineCurve, Geom_BSplineSurface, TopoDS_Shape, TopoDS_Wire, TopAbs_ShapeEnum } from "ocjs-fluidcad";
 import { getOC } from "../init.js";
 import { Explorer } from "../explorer.js";
 import { ShapeProps } from "../props.js";
@@ -210,6 +210,24 @@ export class Skinning {
     grid: number[][][],
     vBasis: BSplineCurveData,
   ): Solid {
+    const faces = Skinning.sideFaces(uBasis, grid, vBasis);
+    faces.push(Skinning.capFace(uBasis, grid.map(row => row[0])));
+    faces.push(Skinning.capFace(uBasis, grid.map(row => row[row.length - 1])));
+    return Skinning.sewSolid(faces);
+  }
+
+  /**
+   * The wall faces of a skinned grid, split at profile corners: a corner
+   * buried inside one face has no edge to render, select or fillet, and its
+   * mesh normals smear. Each u-range between creases (the seam is always a
+   * boundary) becomes its own face; smooth profiles keep the single closed
+   * face.
+   */
+  static sideFaces(
+    uBasis: LoftSurfaceBasis,
+    grid: number[][][],
+    vBasis: BSplineCurveData,
+  ): TopoDS_Shape[] {
     const oc = getOC();
 
     const [poles, disposePoles] = NCollections.toArray2Pnt(grid);
@@ -247,12 +265,8 @@ export class Skinning {
       disposeVMults();
     }
 
-    // Split the wall at profile corners: a corner buried inside one face has
-    // no edge to render, select or fillet, and its mesh normals smear. Each
-    // u-range between creases (the seam is always a boundary) becomes its
-    // own face; smooth profiles keep the single closed face.
     const ranges = Skinning.uRanges(uBasis);
-    const sideFaces: TopoDS_Shape[] = [];
+    const faces: TopoDS_Shape[] = [];
     for (const [from, to] of ranges) {
       let piece: Geom_BSplineSurface = surface;
       if (ranges.length > 1) {
@@ -261,7 +275,7 @@ export class Skinning {
       const faceMaker = new oc.BRepBuilderAPI_MakeFace(piece, Skinning.SEWING_TOLERANCE);
       const isDone = faceMaker.IsDone();
       if (isDone) {
-        sideFaces.push(faceMaker.Face());
+        faces.push(faceMaker.Face());
       }
       faceMaker.delete();
       if (piece !== surface) {
@@ -273,16 +287,16 @@ export class Skinning {
       }
     }
     surface.delete();
+    return faces;
+  }
 
-    const startCap = Skinning.capFace(uBasis, grid.map(row => row[0]));
-    const endCap = Skinning.capFace(uBasis, grid.map(row => row[row.length - 1]));
-
+  /** Sews faces into a watertight shell and wraps it into a solid. */
+  static sewSolid(faces: TopoDS_Shape[]): Solid {
+    const oc = getOC();
     const sewing = new oc.BRepBuilderAPI_Sewing(Skinning.SEWING_TOLERANCE, true, true, true, false);
-    for (const sideFace of sideFaces) {
-      sewing.Add(sideFace);
+    for (const face of faces) {
+      sewing.Add(face);
     }
-    sewing.Add(startCap);
-    sewing.Add(endCap);
     const progress = new oc.Message_ProgressRange();
     sewing.Perform(progress);
     progress.delete();
@@ -298,10 +312,10 @@ export class Skinning {
   }
 
   /**
-   * Planar cap built from the section's exact boundary curve, segmented at
-   * the same crease points as the wall faces so sewing pairs edges exactly.
+   * The section's exact boundary as a wire, segmented at the same crease
+   * points as the wall faces so sewing pairs edges exactly.
    */
-  private static capFace(uBasis: LoftSurfaceBasis, poles: number[][]): TopoDS_Shape {
+  static capWire(uBasis: LoftSurfaceBasis, poles: number[][]): TopoDS_Wire {
     const oc = getOC();
     const boundary: Geom_BSplineCurve = CurveData.build({
       poles,
@@ -329,8 +343,13 @@ export class Skinning {
 
     const wire = wireMaker.Wire();
     wireMaker.delete();
+    return wire;
+  }
 
-    const faceMaker = new oc.BRepBuilderAPI_MakeFace(wire, true);
+  /** Planar cap built from the section's exact boundary curve. */
+  private static capFace(uBasis: LoftSurfaceBasis, poles: number[][]): TopoDS_Shape {
+    const oc = getOC();
+    const faceMaker = new oc.BRepBuilderAPI_MakeFace(Skinning.capWire(uBasis, poles), true);
     if (!faceMaker.IsDone()) {
       faceMaker.delete();
       throw new Error("Loft could not cap a profile — guided and conditioned lofts require planar profiles.");

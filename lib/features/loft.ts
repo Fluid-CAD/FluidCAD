@@ -257,6 +257,13 @@ export class Loft extends ExtrudeBase implements ILoft {
       }
     }
 
+    // With conditions, both walls come from the in-house skin — assemble the
+    // thin solid directly (walls + ring caps). Booleans between two
+    // nearly-parallel B-spline shells take OCC seconds.
+    if (options && innerWires.length > 0 && innerWires.length === outerWires.length) {
+      return LoftOps.makeThinLoft(outerWires, innerWires, options);
+    }
+
     const outerSolids = LoftOps.makeLoft(outerWires, options);
 
     if (innerWires.length > 0 && innerWires.length === outerWires.length) {

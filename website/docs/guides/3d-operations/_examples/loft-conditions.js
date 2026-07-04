@@ -1,14 +1,17 @@
-import { sketch, loft, plane } from 'fluidcad/core';
-import { circle } from 'fluidcad/core';
+import { sketch, plane, loft, polygon, circle } from 'fluidcad/core';
 
-const s1 = sketch("xy", () => {
-    circle(80)
+const p1 = sketch("top", () => {
+    polygon(4, 50, "circumscribed")
 })
 
-const s2 = sketch(plane("xy", { offset: 60 }), () => {
-    circle(80)
+const p2 = sketch(plane("top", 80), () => {
+    circle(30)
 })
 
-// Tangent takeoff at both ends turns the straight loft into a barrel
-// highlight-next-line
-loft(s1, s2).startCondition('tangent').endCondition('tangent')
+// The surface leaves the square and arrives at the circle perpendicular
+// to their planes, swelling the transition outward
+loft(p1, p2)
+    // highlight-start
+    .startCondition('normal', 1)
+    .endCondition('normal', 1)
+    // highlight-end

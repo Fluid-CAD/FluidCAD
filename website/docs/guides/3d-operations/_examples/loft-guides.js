@@ -1,18 +1,18 @@
-import { sketch, loft, plane } from 'fluidcad/core';
-import { circle, bezier } from 'fluidcad/core';
+import { sketch, plane, loft, polygon, circle, bezier, mirror, local } from 'fluidcad/core';
 
-const s1 = sketch("xy", () => {
-    circle(80)
+const p1 = sketch("top", () => {
+    polygon(4, 50, "circumscribed")
 })
 
-const s2 = sketch(plane("xy", { offset: 60 }), () => {
-    circle(80)
+const p2 = sketch(plane("top", 80), () => {
+    circle(30)
 })
 
-// A side rail bowing out to x ≈ 52 at mid-height
-const rail = sketch("xz", () => {
-    bezier([40, 0], [65, 30], [40, 60])
-})
+// One sketch, two rails: the bezier and its mirror each count as one guide
+const g1 = sketch("right", () => {
+    bezier([Math.sqrt(2) * 25, 0], [50, 40], [15, 80])
+    mirror(local("y"))
+}).reusable()
 
 // highlight-next-line
-loft(s1, s2).guides(rail)
+loft(p1, p2).guides(g1)

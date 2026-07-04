@@ -34,18 +34,18 @@ The profiles must be on different planes (typically parallel planes at different
 
 <CodeBlock language="js">{loftGuides}</CodeBlock>
 
-![Loft with a guide rail](/img/docs/3d-operations/loft-guides.png)
+![Loft riding two guide rails](/img/docs/3d-operations/loft-guides.png)
 
-With two guides the surface rides both rails — the second guide is kept in contact with the section boundary:
+Here the bezier and its mirror form two rails; the square's corners ride them all the way up to the circle. Guides can also be passed as separate arguments:
 
 ```js
-loft(s1, s2).guides(rightRail, leftRail)
+loft(p1, p2).guides(rightRail, leftRail)
 ```
 
 Guides compose with start/end conditions: the condition fades out around each guide's contact point, so the rails keep their sides of the surface while the condition shapes the rest. Guides cannot be combined with `.thin()`.
 
 ```js
-loft(s1, s2).guides(rail).startCondition('normal')
+loft(p1, p2).guides(g1).startCondition('normal')
 ```
 
 ## Start and end conditions
@@ -58,14 +58,14 @@ loft(s1, s2).guides(rail).startCondition('normal')
 
 <CodeBlock language="js">{loftConditions}</CodeBlock>
 
-![Loft with tangent end conditions](/img/docs/3d-operations/loft-conditions.png)
+![Loft with normal end conditions](/img/docs/3d-operations/loft-conditions.png)
 
 An optional second argument scales the takeoff strength (default `1`). Negative values flip the direction — a `'tangent'` condition with a negative magnitude pinches inward instead of bulging:
 
 ```js
-loft(s1, s2).startCondition('normal', 2)     // stronger perpendicular takeoff
-loft(s1, s2).endCondition('tangent', -0.5)   // gentle inward pinch at the top
-loft(s1, s2).startCondition('normal')        // conditions can differ per end
+loft(p1, p2).startCondition('normal', 2)     // stronger perpendicular takeoff
+loft(p1, p2).endCondition('tangent', -0.5)   // gentle inward pinch at the top
+loft(p1, p2).startCondition('normal')        // conditions can differ per end
           .endCondition('tangent')
 ```
 

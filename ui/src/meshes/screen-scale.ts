@@ -1,5 +1,6 @@
 import {
   Camera,
+  Line,
   Object3D,
   OrthographicCamera,
   PerspectiveCamera,
@@ -72,6 +73,33 @@ let _getCamera: (() => Camera) | null = null;
 export function setScreenScaleSource(renderer: WebGLRenderer, getCamera: () => Camera): void {
   _renderer = renderer;
   _getCamera = getCamera;
+}
+
+const _lineCenter = new Vector3();
+
+/**
+ * Re-evaluates pixels-per-world-unit at the line's center before every draw,
+ * so dash patterns authored in pixels keep a constant on-screen size across
+ * zoom levels (for perspective cameras the center is an approximation — the
+ * pattern is not re-derived per vertex).
+ */
+export function trackPixelsPerWorld(line: Line, apply: (pixelsPerWorld: number) => void): void {
+  if (line.geometry.boundingSphere === null) {
+    line.geometry.computeBoundingSphere();
+  }
+  line.onBeforeRender = (renderer, _scene, camera) => {
+    const sphere = line.geometry.boundingSphere;
+    if (sphere) {
+      _lineCenter.copy(sphere.center);
+    } else {
+      _lineCenter.set(0, 0, 0);
+    }
+    _lineCenter.applyMatrix4(line.matrixWorld);
+    const worldPerPixel = pixelsToWorld(renderer, camera, _lineCenter, 1);
+    if (Number.isFinite(worldPerPixel) && worldPerPixel > 0) {
+      apply(1 / worldPerPixel);
+    }
+  };
 }
 
 export function applyConstantPixelSize(

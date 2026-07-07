@@ -3,18 +3,22 @@ import { isTopLevel } from '../helpers/scene-utils';
 import { SceneObjectRender, SubSelection } from '../types';
 import { SelectedEntity, Viewer } from '../viewer';
 import { Navbar } from '../ui/navbar';
-
-const ICON_FILLET =
-  '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20v-8a8 8 0 0 1 8-8h8"/><path d="M4 20h3M20 4v3" opacity="0.4"/></svg>';
-const ICON_CHAMFER =
-  '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20v-9l7-7h9"/><path d="M4 20h3M20 4v3" opacity="0.4"/></svg>';
+import { ICON_IMG_FALLBACK } from '../ui/object-icons';
 
 export type ModifyFeatureKind = 'fillet' | 'chamfer';
 
-const FEATURES: Record<ModifyFeatureKind, { label: string; valueLabel: string; icon: string; defaultValue: number }> = {
-  fillet: { label: 'Fillet', valueLabel: 'Radius', icon: ICON_FILLET, defaultValue: 1 },
-  chamfer: { label: 'Chamfer', valueLabel: 'Distance', icon: ICON_CHAMFER, defaultValue: 1 },
+const FEATURES: Record<ModifyFeatureKind, { label: string; valueLabel: string; defaultValue: number }> = {
+  fillet: { label: 'Fillet', valueLabel: 'Radius', defaultValue: 1 },
+  chamfer: { label: 'Chamfer', valueLabel: 'Distance', defaultValue: 1 },
 };
+
+/** Same artwork the timeline shows for the feature (`/icons/<type>.png`). */
+function featureIconImg(kind: ModifyFeatureKind): string {
+  return `<img src="/icons/${kind}.png" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />`;
+}
+
+const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
+const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
 
 function sameEntity(a: SelectedEntity, b: SelectedEntity): boolean {
   return a.shapeId === b.shapeId && a.sub.type === b.sub.type && a.sub.index === b.sub.index;
@@ -22,10 +26,11 @@ function sameEntity(a: SelectedEntity, b: SelectedEntity): boolean {
 
 /**
  * Select→apply-feature pick mode: the `modify` toolbar group (Fillet /
- * Chamfer) arms an edge-only pick mode; picked edges accumulate as a
- * highlighted selection; Apply asks the server to synthesize the selector
- * expression and write the feature call into the source file. The re-render is
- * the preview and editor undo is the rollback.
+ * Chamfer) arms a pick mode over edges and faces (a face selection means "all
+ * edges of that face" — the features explode faces at build time); picks
+ * accumulate as a highlighted selection; Apply asks the server to synthesize
+ * the selector expression and write the feature call into the source file.
+ * The re-render is the preview and editor undo is the rollback.
  */
 export class ModifyPickService {
   private feature: ModifyFeatureKind | null = null;
@@ -46,14 +51,14 @@ export class ModifyPickService {
     container: HTMLElement,
     private viewer: Viewer,
     private navbar: Navbar,
-    private hooks: { onEnter?: () => void } = {},
+    private hooks: { onEnter?: () => SelectedEntity[] | void } = {},
   ) {
     const group = navbar.addGroup('modify', { visible: false });
     for (const kind of ['fillet', 'chamfer'] as ModifyFeatureKind[]) {
       const btn = document.createElement('button');
-      btn.className = 'btn btn-ghost btn-sm gap-1.5 text-base-content/70 hover:text-base-content';
+      btn.className = BTN_BASE;
       btn.title = `${FEATURES[kind].label} edges`;
-      btn.innerHTML = `<span class="[&>svg]:size-4">${FEATURES[kind].icon}</span><span class="text-sm font-normal">${FEATURES[kind].label}</span>`;
+      btn.innerHTML = featureIconImg(kind);
       btn.addEventListener('click', () => {
         if (this.feature === kind) {
           this.exit();
@@ -152,14 +157,16 @@ export class ModifyPickService {
   enter(feature: ModifyFeatureKind): void {
     const wasActive = this.feature !== null;
     this.feature = feature;
+    // The hook hands over whatever was highlighted before the mode armed
+    // (and clears that owner's selection) — those picks become the tool's
+    // initial input. Switching fillet↔chamfer keeps the in-mode selection.
+    const seed = this.hooks.onEnter?.();
     if (!wasActive) {
-      this.entities = [];
+      this.entities = Array.isArray(seed) ? [...seed] : [];
     }
-    this.hooks.onEnter?.();
-    this.viewer.pickFilter = 'edge';
     this.viewer.clearHover();
 
-    this.titleIcon.innerHTML = FEATURES[feature].icon;
+    this.titleIcon.innerHTML = featureIconImg(feature);
     this.titleText.textContent = `${FEATURES[feature].label} mode`;
     this.valueLabel.textContent = FEATURES[feature].valueLabel;
     if (!this.valueInput.value) {
@@ -177,7 +184,6 @@ export class ModifyPickService {
     }
     this.feature = null;
     this.entities = [];
-    this.viewer.pickFilter = 'all';
     this.viewer.clearHighlight();
     this.activeBar.classList.add('hidden');
     this.setMessage(null);
@@ -186,11 +192,11 @@ export class ModifyPickService {
 
   /**
    * Routes viewer clicks while the mode is armed. Plain clicks accumulate
-   * (fillet is inherently multi-edge); clicking a selected edge deselects it;
-   * clicking empty space keeps the selection (misclicks shouldn't wipe it).
+   * (fillet is inherently multi-pick); clicking a selected entity deselects
+   * it; clicking empty space keeps the selection (misclicks shouldn't wipe it).
    */
   handleClick(shapeId: string | null, sub: SubSelection): void {
-    if (!this.feature || !shapeId || !sub || sub.type !== 'edge') {
+    if (!this.feature || !shapeId || !sub) {
       return;
     }
     this.setMessage(null);
@@ -214,7 +220,7 @@ export class ModifyPickService {
       return;
     }
     if (this.entities.length === 0) {
-      this.setMessage('Pick at least one edge first.');
+      this.setMessage('Pick at least one edge or face first.');
       return;
     }
     const value = parseFloat(this.valueInput.value);
@@ -241,14 +247,22 @@ export class ModifyPickService {
   }
 
   private refresh(): void {
-    const n = this.entities.length;
-    this.countText.textContent = `${n} edge${n === 1 ? '' : 's'}`;
+    const edges = this.entities.filter(e => e.sub.type === 'edge').length;
+    const faces = this.entities.length - edges;
+    const parts: string[] = [];
+    if (edges > 0) {
+      parts.push(`${edges} edge${edges === 1 ? '' : 's'}`);
+    }
+    if (faces > 0) {
+      parts.push(`${faces} face${faces === 1 ? '' : 's'}`);
+    }
+    this.countText.textContent = parts.length > 0 ? parts.join(' + ') : '0 selected';
     this.syncButtons();
   }
 
   private syncButtons(): void {
     for (const [kind, btn] of this.buttons) {
-      btn.classList.toggle('btn-active', this.feature === kind);
+      btn.className = this.feature === kind ? BTN_ACTIVE : BTN_BASE;
     }
   }
 

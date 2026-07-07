@@ -5,7 +5,7 @@ import { EdgeProps } from "../oc/edge-props.js";
 import { FaceProps } from "../oc/face-props.js";
 import { SelectionIndex } from "./selection-index.js";
 import { attributePick, PickAttribution } from "./attribution.js";
-import { synthesizeEdgeSelectors } from "./synthesis.js";
+import { synthesizeSelectors } from "./synthesis.js";
 import {
   ApplyFeatureEditSpec,
   ApplyFeatureKind,
@@ -33,9 +33,10 @@ export function explainSelection(scene: Scene, refs: PickRef[]): ExplainResult {
 
 /**
  * Synthesize the code edit for applying `fillet`/`chamfer` to the picked
- * edges: oracle-verified selector parts plus the producer call sites the
- * transform must bind. Returns a structured refusal (with the failing pick)
- * when the selection can't be expressed safely.
+ * edges and faces (a face selection fillets all of the face's edges):
+ * oracle-verified selector parts plus the producer call sites the transform
+ * must bind. Returns a structured refusal (with the failing pick) when the
+ * selection can't be expressed safely.
  */
 export function synthesizeApplyFeature(
   scene: Scene,
@@ -44,13 +45,13 @@ export function synthesizeApplyFeature(
   value: number,
 ): ApplyFeatureSynthesis {
   if (refs.length === 0) {
-    return { ok: false, reason: 'no edges selected' };
+    return { ok: false, reason: 'nothing selected' };
   }
 
   const index = new SelectionIndex(scene);
   try {
     const attributions = refs.map(ref => attributePick(scene, index, ref));
-    const synthesis = synthesizeEdgeSelectors(index, attributions);
+    const synthesis = synthesizeSelectors(index, attributions);
     if (synthesis.ok === false) {
       return { ok: false, reason: synthesis.reason, pick: synthesis.pick };
     }

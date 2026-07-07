@@ -64,6 +64,18 @@ function setLocation(obj: unknown, line: number) {
   (obj as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line, column: 0 });
 }
 
+/** Refs of the solid's faces where every edge midpoint satisfies `where`. */
+function faceRefsWhere(solid: Shape, where: (mid: { x: number; y: number; z: number }) => boolean): PickRef[] {
+  const refs: PickRef[] = [];
+  Explorer.findFacesWrapped(solid).forEach((f, index) => {
+    const mids = f.getEdges().map(e => EdgeOps.getEdgeMidPoint(e));
+    if (mids.length > 0 && mids.every(where)) {
+      refs.push({ shapeId: solid.id, sub: { type: 'face', index } });
+    }
+  });
+  return refs;
+}
+
 describe("selection attribution", () => {
   setupOC();
 
@@ -262,6 +274,83 @@ describe("apply-feature synthesis", () => {
       expect(result.spec.parts).toHaveLength(2);
       const accessors = result.spec.parts.map(p => p.accessor).sort();
       expect(accessors).toEqual(["endEdges", "sideEdges"]);
+      expect(result.spec.producers).toHaveLength(1);
+    }
+  });
+
+  it("emits a whole-bucket face selector for a picked end face", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30);
+    setLocation(e, 4);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    // The top face is the only face whose edges all sit at z = 30.
+    const topFaceRefs = faceRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6);
+    expect(topFaceRefs).toHaveLength(1);
+
+    const result = synthesizeApplyFeature(scene, topFaceRefs, 'fillet', 3);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spec.parts).toHaveLength(1);
+      expect(result.spec.parts[0].accessor).toBe("endFaces");
+      expect(result.spec.parts[0].indices).toBeNull();
+      expect(result.preview).toBe("fillet(3, e.endFaces())");
+    }
+  });
+
+  it("emits face bucket indices for a picked side face", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30);
+    setLocation(e, 4);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    // A side face spans both z = 0 and z = 30 edges; pick one of the four.
+    const sideFaceRefs = faceRefsWhere(solid, m => m.z > -1e-6 && m.z < 30 + 1e-6)
+      .filter(ref => {
+        const face = Explorer.findFacesWrapped(solid)[ref.sub.index];
+        const zs = face.getEdges().map(eg => EdgeOps.getEdgeMidPoint(eg).z);
+        return Math.min(...zs) < 1e-6 && Math.max(...zs) > 30 - 1e-6;
+      })
+      .slice(0, 1);
+    expect(sideFaceRefs).toHaveLength(1);
+
+    const result = synthesizeApplyFeature(scene, sideFaceRefs, 'chamfer', 2);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spec.parts).toHaveLength(1);
+      expect(result.spec.parts[0].accessor).toBe("sideFaces");
+      expect(result.spec.parts[0].indices).toHaveLength(1);
+      expect(result.preview).toMatch(/^chamfer\(2, e\.sideFaces\(\d\)\)$/);
+    }
+  });
+
+  it("mixes face and edge picks into separate selector args", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30);
+    setLocation(e, 4);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const refs = [
+      ...faceRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6),
+      ...edgeRefsWhere(solid, m => Math.abs(m.z) < 1e-6).slice(0, 1),
+    ];
+    expect(refs).toHaveLength(2);
+
+    const result = synthesizeApplyFeature(scene, refs, 'fillet', 1);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spec.parts).toHaveLength(2);
+      const accessors = result.spec.parts.map(p => p.accessor).sort();
+      expect(accessors).toEqual(["endFaces", "startEdges"]);
       expect(result.spec.producers).toHaveLength(1);
     }
   });

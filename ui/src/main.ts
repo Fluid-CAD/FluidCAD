@@ -92,9 +92,13 @@ const trimService = new TrimPickService(container, viewer);
 const regionService = new RegionPickService(container, viewer);
 const sketchService = new SketchToolbarService(container, viewer, trimService, navbar);
 const modifyService = new ModifyPickService(container, viewer, navbar, {
+  // Hand the current highlight over as the tool's initial input: whatever the
+  // user already clicked (measure owns that selection) seeds the pick set.
   onEnter: () => {
+    const seed = [...measureController.selection];
     measureController.clearSelection();
     selectionInfoOverlay.hide();
+    return seed;
   },
 });
 

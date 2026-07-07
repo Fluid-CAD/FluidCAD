@@ -102,6 +102,49 @@ describe('select→apply-feature end to end', () => {
     expect(ShapeProps.getProperties(newSolid.getShape()).volumeMm3).toBeLessThan(100 * 50 * 30);
   });
 
+  it('fillets a picked face through a synthesized face selector', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    sketch('xy', () => { rect(100, 50) });
+    const e = extrude(30);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
+
+    const scene = render();
+    const solid = findSolid(scene);
+    // Pick the top face (the only face whose edges all sit at z = 30).
+    const picks: PickRef[] = [];
+    Explorer.findFacesWrapped(solid).forEach((f, index) => {
+      const mids = f.getEdges().map(eg => EdgeOps.getEdgeMidPoint(eg));
+      if (mids.every(m => Math.abs(m.z - 30) < 1e-6)) {
+        picks.push({ shapeId: solid.id, sub: { type: 'face', index } });
+      }
+    });
+    expect(picks).toHaveLength(1);
+
+    const synthesis = synthesizeApplyFeature(scene, picks, 'fillet', 3);
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      return;
+    }
+    expect(synthesis.preview).toBe('fillet(3, e.endFaces())');
+
+    const edited = await applyFeatureEdit(code, synthesis.spec);
+    expect(edited.error).toBeUndefined();
+
+    // Executing the edit fillets every edge of the top face (the whole rim).
+    const rerun = runFluid(edited.newCode);
+    const newSolid = findSolid(rerun) as Solid;
+    const cylinders = newSolid.getFaces()
+      .filter(f => FaceProps.getProperties(f.getShape()).surfaceType === 'cylinder');
+    expect(cylinders.length).toBeGreaterThanOrEqual(4);
+  });
+
   it('chamfers a picked subset through synthesized bucket indices', async () => {
     const code = [
       `import { sketch, rect, extrude } from 'fluidcad/core'`,

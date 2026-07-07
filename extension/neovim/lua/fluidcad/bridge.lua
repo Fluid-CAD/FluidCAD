@@ -226,6 +226,15 @@ function M.handle_message(msg)
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.set_rect_dimensions(code, msg.sourceLocation.line, msg.startPoint, msg.width, msg.height)
       end)
+    elseif msg.type == 'apply-feature-edit' then
+      M.apply_code_edit(msg.spec and msg.spec.filePath, function(code_api, code)
+        local result = code_api.apply_feature(code, msg.spec)
+        if result and result.error and result.error ~= vim.NIL then
+          vim.notify('[fluidcad] ' .. result.error, vim.log.levels.ERROR)
+          return nil
+        end
+        return result
+      end)
     elseif msg.type == 'update-dimension' then
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.update_dimension(code, msg.sourceLocation.line, msg.newValue)

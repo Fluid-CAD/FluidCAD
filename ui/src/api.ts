@@ -284,6 +284,54 @@ export function measureEntities(
   return postJson('/api/measure', { entities }, signal);
 }
 
+// ---------------------------------------------------------------------------
+// Select → apply feature
+// ---------------------------------------------------------------------------
+
+export type ApplyFeatureEntity = {
+  shapeId: string;
+  sub: { type: 'edge' | 'face'; index: number };
+};
+
+export type ApplyFeatureResponse = {
+  success: boolean;
+  preview?: string;
+  reason?: string;
+};
+
+/**
+ * Ask the server to synthesize and apply a fillet/chamfer for the picked
+ * edges. Unlike `postJson`, failure bodies are surfaced — a 422 carries the
+ * human-readable reason the selection couldn't be expressed as code.
+ */
+export async function applyFeature(
+  feature: 'fillet' | 'chamfer',
+  value: number,
+  entities: ApplyFeatureEntity[],
+): Promise<ApplyFeatureResponse> {
+  try {
+    const res = await fetch('/api/apply-feature', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ feature, value, entities }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+export function explainSelection(
+  entities: ApplyFeatureEntity[],
+  signal?: AbortSignal,
+): Promise<{ picks: any[] } | null> {
+  return postJson('/api/selection/explain', { entities }, signal);
+}
+
 export function getMaterials(): Promise<Material[] | null> {
   return getJson('/api/materials');
 }

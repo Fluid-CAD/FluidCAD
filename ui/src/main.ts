@@ -14,6 +14,7 @@ import { ICON_FILE_IMPORT } from './ui/icons';
 import { TrimPickService } from './interactive/trim-pick-service';
 import { RegionPickService } from './interactive/region-pick-service';
 import { SketchToolbarService } from './interactive/sketch-toolbar-service';
+import { ModifyPickService } from './interactive/modify-pick-service';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { onThemeChange } from './scene/theme-colors';
@@ -90,6 +91,12 @@ viewer.setParamsToggleHandler(() => {
 const trimService = new TrimPickService(container, viewer);
 const regionService = new RegionPickService(container, viewer);
 const sketchService = new SketchToolbarService(container, viewer, trimService, navbar);
+const modifyService = new ModifyPickService(container, viewer, navbar, {
+  onEnter: () => {
+    measureController.clearSelection();
+    selectionInfoOverlay.hide();
+  },
+});
 
 const breakpointIndicator = new BreakpointIndicator(container, () => {
   if (regionService.state === 'picking-active') {
@@ -122,6 +129,12 @@ shapePropertiesModal.setCentroidHandler((centroid) => {
 });
 
 viewer.setSelectionHandler((shapeId, sub, modifiers) => {
+  // An armed modify mode (fillet/chamfer) owns clicks outright.
+  if (modifyService.isActive) {
+    modifyService.handleClick(shapeId, sub);
+    return;
+  }
+
   if (shapePropertiesModal.isOpen) {
     measureController.clearSelection();
     if (shapeId) {
@@ -268,10 +281,12 @@ function connectWebSocket() {
           trimService.reset();
           regionService.reset();
           sketchService.update([]);
+          modifyService.update([]);
         } else {
           trimService.update(msg.result);
           regionService.update(msg.result);
           sketchService.update(msg.result);
+          modifyService.update(msg.result);
         }
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1);
         if (msg.params !== undefined) {

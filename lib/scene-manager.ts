@@ -20,6 +20,8 @@ import type { HitTestResult } from "./oc/hit-test.js";
 import { MeasureOps } from "./oc/measure/measure-ops.js";
 import type { MeasureInput } from "./oc/measure/measure-ops.js";
 import type { MeasureEntityRef, MeasureResult } from "./oc/measure/measure-types.js";
+import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
+import type { ApplyFeatureKind, ApplyFeatureSynthesis, ExplainResult, PickRef } from "./selection/types.js";
 
 class SceneManager {
   currentScene: Scene = new Scene();
@@ -131,6 +133,19 @@ class SceneManager {
     }
 
     return FileExport.exportShapes(solids, options);
+  }
+
+  explainSelection(scene: Scene, refs: PickRef[]): ExplainResult {
+    return explainSelection(scene, refs);
+  }
+
+  synthesizeApplyFeature(
+    scene: Scene,
+    refs: PickRef[],
+    feature: ApplyFeatureKind,
+    value: number,
+  ): ApplyFeatureSynthesis {
+    return synthesizeApplyFeature(scene, refs, feature, value);
   }
 
   hitTest(

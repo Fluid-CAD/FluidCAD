@@ -147,6 +147,27 @@ export async function handleInsertGeometry(
   }
 }
 
+export async function handleApplyFeatureEdit(client: Client, msg: { spec: unknown }) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    client.logger.appendLine(`[apply-feature] No editor found for ${client.currentFileName}`);
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.applyFeature(client.serverUrl, doc.getText(), msg.spec, client.logger);
+  if (!result) {
+    return;
+  }
+  if (result.error) {
+    client.logger.appendLine(`[apply-feature] ${result.error}`);
+    vscode.window.showErrorMessage(`FluidCAD: ${result.error}`);
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
 export async function handleUpdateDimension(
   client: Client,
   msg: { newValue: number; sourceLocation: { line: number } },

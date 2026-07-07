@@ -109,6 +109,10 @@ function M.update_dimension_expression(code, source_line, expression, sketch_sou
   })
 end
 
+function M.apply_feature(code, spec)
+  return post('apply-feature', { code = code, spec = spec })
+end
+
 
 --- Replace the entire contents of `bufnr` with `new_code`. Returns true on
 --- success.

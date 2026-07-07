@@ -1,6 +1,6 @@
 import { createRequire } from 'module';
 
-type TSNode = {
+export type TSNode = {
   type: string;
   text: string;
   startPosition: { row: number; column: number };
@@ -14,7 +14,7 @@ type TSNode = {
   descendantForPosition(pos: { row: number; column: number }): TSNode | null;
 };
 
-type TSTree = { rootNode: TSNode };
+export type TSTree = { rootNode: TSNode };
 
 type TSParser = {
   setLanguage(lang: any): void;
@@ -64,7 +64,7 @@ async function getParser(): Promise<TSParser> {
 export type BreakpointEditResult = { newCode: string; breakpointLine: number | null };
 export type CodeEditResult = { newCode: string };
 
-function splitLines(code: string): string[] {
+export function splitLines(code: string): string[] {
   return code.split('\n');
 }
 
@@ -77,7 +77,7 @@ function isBlankRow(lines: string[], row: number): boolean {
   return line === undefined || line.trim() === '';
 }
 
-function indentOf(lines: string[], row: number): string {
+export function indentOf(lines: string[], row: number): string {
   if (row < 0 || row >= lines.length) {
     return '';
   }
@@ -85,7 +85,7 @@ function indentOf(lines: string[], row: number): string {
   return m ? m[1] : '';
 }
 
-function* walkTree(node: TSNode): Generator<TSNode> {
+export function* walkTree(node: TSNode): Generator<TSNode> {
   yield node;
   for (const child of node.namedChildren) {
     yield* walkTree(child);
@@ -109,7 +109,7 @@ function* walkTree(node: TSNode): Generator<TSNode> {
  * Returns `null` when no call starts on that row, preserving the existing
  * silent-no-op contract of the edit functions.
  */
-function findEditableCallAt(tree: TSTree, lines: string[], sourceLine: number): TSNode | null {
+export function findEditableCallAt(tree: TSTree, lines: string[], sourceLine: number): TSNode | null {
   const row = resolveSourceRow(lines, sourceLine);
   if (row < 0) {
     return null;
@@ -220,7 +220,7 @@ function collectChainPointArgs(call: TSNode): TSNode[] {
   return pointArgs;
 }
 
-function spliceCode(code: string, startIndex: number, endIndex: number, replacement: string): string {
+export function spliceCode(code: string, startIndex: number, endIndex: number, replacement: string): string {
   return code.slice(0, startIndex) + replacement + code.slice(endIndex);
 }
 
@@ -729,7 +729,7 @@ function findSketchBody(call: TSNode): TSNode | null {
  * Ensure a symbol is present in the `import { ... } from 'fluidcad'` or
  * `'fluidcad/core'` statement. Returns modified code if the symbol was added.
  */
-async function ensureSymbolImport(code: string, symbol: string): Promise<string> {
+export async function ensureSymbolImport(code: string, symbol: string): Promise<string> {
   const p = await getParser();
   const tree = p.parse(code);
   const importNode = findFluidCadImport(tree);

@@ -53,6 +53,12 @@ export class Viewer {
   isTrimming = false;
   isRegionPicking = false;
   isDrawing = false;
+  /**
+   * Restricts what pickAt() returns while a pick mode is active (e.g. edge-only
+   * for fillet/chamfer). Faces still participate in occlusion testing so edges
+   * hidden behind the solid don't become pickable — they just can't be *hit*.
+   */
+  pickFilter: 'all' | 'edge' | 'face' = 'all';
 
   private selectionHandler: ((shapeId: string | null, sub: SubSelection, modifiers: SelectionModifiers) => void) | null = null;
   private centroidIndicator = new CentroidIndicator();
@@ -208,26 +214,28 @@ export class Viewer {
     const rayDir = raycaster.ray.direction;
     const segPt = new Vector3();
     const toSeg = new Vector3();
-    for (const edgeHit of edgeHits) {
-      // LineSegments2 hits expose `pointOnLine` (closest point on the segment
-      // in world space); the old BufferGeometry index path doesn't apply.
-      const pointOnLine = (edgeHit as { pointOnLine?: Vector3 }).pointOnLine;
-      if (pointOnLine) {
-        segPt.copy(pointOnLine);
-      } else {
-        segPt.copy(edgeHit.point);
-      }
-      const edgeDist = rayDir.dot(toSeg.copy(segPt).sub(rayOrigin));
-      if (edgeDist <= faceDist + 1e-3) {
-        const edgeIndex = edgeHit.object.userData.edgeIndex as number;
-        const shapeId = this.findShapeIdForObject(edgeHit.object);
-        if (shapeId) {
-          return { shapeId, sub: { type: 'edge', index: edgeIndex } };
+    if (this.pickFilter !== 'face') {
+      for (const edgeHit of edgeHits) {
+        // LineSegments2 hits expose `pointOnLine` (closest point on the segment
+        // in world space); the old BufferGeometry index path doesn't apply.
+        const pointOnLine = (edgeHit as { pointOnLine?: Vector3 }).pointOnLine;
+        if (pointOnLine) {
+          segPt.copy(pointOnLine);
+        } else {
+          segPt.copy(edgeHit.point);
+        }
+        const edgeDist = rayDir.dot(toSeg.copy(segPt).sub(rayOrigin));
+        if (edgeDist <= faceDist + 1e-3) {
+          const edgeIndex = edgeHit.object.userData.edgeIndex as number;
+          const shapeId = this.findShapeIdForObject(edgeHit.object);
+          if (shapeId) {
+            return { shapeId, sub: { type: 'edge', index: edgeIndex } };
+          }
         }
       }
     }
 
-    if (bestFace) {
+    if (bestFace && this.pickFilter !== 'edge') {
       const mapping: number[] | undefined = bestFace.object.userData.faceMapping;
       if (!mapping || bestFace.faceIndex == null) {
         return null;

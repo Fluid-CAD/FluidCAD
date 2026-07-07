@@ -130,6 +130,12 @@ export function updateDimensionExpression(
   );
 }
 
+export function applyFeature(
+  serverUrl: string, code: string, spec: unknown, logger: vscode.OutputChannel,
+) {
+  return postCodeEdit<CodeEditResult & { error?: string }>(serverUrl, 'apply-feature', { code, spec }, logger);
+}
+
 
 /**
  * Replace the entire contents of `doc` with `newCode` in a single workspace

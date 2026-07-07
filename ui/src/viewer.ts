@@ -260,10 +260,6 @@ export class Viewer {
     this.modeManager.sketchEnabled = enable;
   }
 
-  setFileName(_absPath: string): void {
-    // File name is now shown in the timeline panel header
-  }
-
   updateView(sceneObjects: SceneObjectRender[], isRollback = false, rollbackStop?: number): void {
     this.sceneObjects = sceneObjects;
     this.highlightedShapeId = null;

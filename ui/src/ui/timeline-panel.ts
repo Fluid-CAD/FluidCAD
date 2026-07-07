@@ -1,6 +1,6 @@
 import type { SceneObjectRender } from '../types';
 import { savePreference, recompute, rollback, addBreakpoint, gotoSource } from '../api';
-import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_CUBE, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT } from './icons';
+import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 
@@ -15,12 +15,11 @@ function formatDuration(ms: number): string {
 
 export class TimelinePanel {
   private panel: HTMLDivElement;
-  private fileLabel: HTMLSpanElement;
   private timelineBody: HTMLDivElement;
   private contentWrapper: HTMLDivElement;
-  private positioner: HTMLDivElement;
   private shapesPanel: ShapesPanel;
   private loaded = false;
+  private userHidden = false;
   private sceneObjects: SceneObjectRender[] = [];
   private rollbackStop = -1;
   private collapsedIds = new Set<string>();
@@ -30,7 +29,6 @@ export class TimelinePanel {
   private showBuildTimings = false;
   private historyTotalLabel!: HTMLSpanElement;
   private hoverPopover: HTMLDivElement | null = null;
-  private onImportFile: () => void;
 
   constructor(
     container: HTMLElement,
@@ -41,40 +39,16 @@ export class TimelinePanel {
     onSetShapeTransparency: (shapeId: string, opacity: number) => void,
     getShapeTransparency: (shapeId: string) => number,
     onResetAllTransparency: () => void,
-    onImportFile: () => void,
   ) {
-    this.onImportFile = onImportFile;
     this.panel = document.createElement('div');
-    this.panel.className = 'absolute left-6 top-6 bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
+    // Docked below the top bars (top bar + navbar ≈ 92px) with breathing room.
+    this.panel.className = 'absolute left-6 top-[116px] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
     container.appendChild(this.panel);
     this.applyPanelWidth();
 
-    const logoRow = document.createElement('div');
-    logoRow.className = 'flex items-center gap-1.5 px-1 pb-1 shrink-0';
-    logoRow.innerHTML = `<img src="/logo.png" alt="FluidCAD" class="h-6 w-auto opacity-70" /><span class="text-[18px] font-bold text-base-content/70">FluidCAD</span>`;
-    this.panel.appendChild(logoRow);
-
-    const fileRow = document.createElement('div');
-    fileRow.className = 'flex items-center gap-2 px-1 pb-1 shrink-0';
-    fileRow.innerHTML = `
-      <span class="text-base-content/50 [&>svg]:size-4">${ICON_CUBE}</span>
-      <span data-ref="filename" class="text-base text-base-content/70 truncate"></span>
-      <button data-ref="import-btn" class="ml-auto w-5 h-5 min-h-0 btn btn-circle btn-ghost border border-base-content/30 hover:border-base-content/50 p-0 text-base-content/40 hover:text-base-content/70 shrink-0 tooltip tooltip-right" data-tip="Import File">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      </button>
-    `;
-    this.panel.appendChild(fileRow);
-    this.fileLabel = fileRow.querySelector('[data-ref="filename"]')!;
-    fileRow.querySelector('[data-ref="import-btn"]')!.addEventListener('click', () => this.onImportFile());
-
-    this.positioner = document.createElement('div');
-    this.positioner.className = 'relative flex-1 min-h-0 overflow-hidden';
-    this.panel.appendChild(this.positioner);
-
     this.contentWrapper = document.createElement('div');
-    this.contentWrapper.className = 'absolute inset-0 flex flex-col gap-1 overflow-y-auto';
-    this.contentWrapper.style.transition = 'transform 0.25s ease, opacity 0.25s ease';
-    this.positioner.appendChild(this.contentWrapper);
+    this.contentWrapper.className = 'flex-1 min-h-0 flex flex-col gap-1 overflow-y-auto';
+    this.panel.appendChild(this.contentWrapper);
 
     // Timeline accordion section
     const timelineHeader = document.createElement('div');
@@ -120,17 +94,11 @@ export class TimelinePanel {
 
   }
 
-  update(sceneObjects: SceneObjectRender[], rollbackStop: number, absPath?: string): void {
+  update(sceneObjects: SceneObjectRender[], rollbackStop: number): void {
     this.sceneObjects = sceneObjects;
     this.rollbackStop = rollbackStop;
-    if (absPath) {
-      const fileName = absPath.split('/').pop() || absPath;
-      this.fileLabel.textContent = fileName;
-    }
-    if (!this.loaded) {
-      this.loaded = true;
-      this.panel.classList.remove('hidden');
-    }
+    this.loaded = true;
+    this.syncVisibility();
     this.renderTimeline(true);
     this.shapesPanel.update(sceneObjects);
     this.updateHistoryTotal();
@@ -148,20 +116,18 @@ export class TimelinePanel {
     }
   }
 
-  slideOut(): void {
-    this.contentWrapper.style.transform = 'translateX(-100%)';
-    this.contentWrapper.style.opacity = '0';
-    this.contentWrapper.style.pointerEvents = 'none';
+  /** Toggle panel visibility (driven by the top-bar hamburger). */
+  togglePanel(): void {
+    this.userHidden = !this.userHidden;
+    this.syncVisibility();
   }
 
-  slideIn(): void {
-    this.contentWrapper.style.transform = '';
-    this.contentWrapper.style.opacity = '';
-    this.contentWrapper.style.pointerEvents = '';
+  get isPanelVisible(): boolean {
+    return this.loaded && !this.userHidden;
   }
 
-  get toolbarHost(): HTMLElement {
-    return this.positioner;
+  private syncVisibility(): void {
+    this.panel.classList.toggle('hidden', !(this.loaded && !this.userHidden));
   }
 
   // ---------------------------------------------------------------------------

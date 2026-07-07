@@ -53,13 +53,15 @@ const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
 const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
 
 export class SketchToolbar {
-  private el: HTMLDivElement;
+  private host: HTMLElement;
+  private setGroupVisible: (visible: boolean) => void;
   private inner: HTMLDivElement;
   private snapMenu: HTMLDivElement | null = null;
   private onToolSelect: (toolId: ToolId | null) => void;
   private activeToolId: ToolId | null = null;
   private buttons = new Map<ToolId, HTMLButtonElement>();
   private shortcutManager: ShortcutManager;
+  private visible = false;
 
   private boundKeyDown: (e: KeyboardEvent) => void;
   private boundCloseSnapMenu: (e: MouseEvent) => void;
@@ -69,23 +71,30 @@ export class SketchToolbar {
   onSnapVerticesChange: ((checked: boolean) => void) | null = null;
   onSnapGridChange: ((checked: boolean) => void) | null = null;
 
-  constructor(toolbarHost: HTMLElement, onToolSelect: (toolId: ToolId | null) => void) {
+  constructor(
+    host: HTMLElement,
+    onToolSelect: (toolId: ToolId | null) => void,
+    setGroupVisible: (visible: boolean) => void,
+  ) {
     this.onToolSelect = onToolSelect;
+    this.host = host;
+    this.setGroupVisible = setGroupVisible;
 
-    this.el = document.createElement('div');
-    this.el.className = 'absolute top-1/2 -translate-y-1/2 left-0 select-none pointer-events-auto flex flex-col items-center gap-1.5';
-    this.el.style.transition = 'transform 0.25s ease, opacity 0.25s ease';
-    this.el.style.transform = 'translateX(-100%)';
-    this.el.style.opacity = '0';
-
+    // The sketch tools group, rendered directly into its navbar group host.
+    // The group's DOM visibility is owned by the navbar (which also reflows the
+    // inter-group dividers); this class only decides *when* via show()/hide().
+    // Layout: drawing tools first, then the snap-settings cog on the right.
     this.inner = document.createElement('div');
-    this.inner.className = 'flex flex-col gap-0.5 panel-bg border border-base-content/10 rounded-md p-1';
-    this.el.appendChild(this.inner);
+    this.inner.className = 'flex flex-row items-center gap-0.5';
+    this.host.appendChild(this.inner);
 
-    this.buildSnapButton();
     this.renderTools();
 
-    toolbarHost.appendChild(this.el);
+    const sep = document.createElement('div');
+    sep.className = 'w-px h-5 bg-base-content/[0.12] mx-0.5 shrink-0';
+    this.host.appendChild(sep);
+
+    this.buildSnapButton();
 
     this.boundKeyDown = this.handleKeyDown.bind(this);
     this.boundCloseSnapMenu = this.handleCloseSnapMenu.bind(this);
@@ -97,15 +106,15 @@ export class SketchToolbar {
   }
 
   show(): void {
-    this.el.style.transform = '';
-    this.el.style.opacity = '';
+    this.visible = true;
+    this.setGroupVisible(true);
     window.addEventListener('keydown', this.boundKeyDown);
     this.shortcutManager.enable();
   }
 
   hide(): void {
-    this.el.style.transform = 'translateX(-100%)';
-    this.el.style.opacity = '0';
+    this.visible = false;
+    this.setGroupVisible(false);
     this.closeSnapMenu();
     window.removeEventListener('keydown', this.boundKeyDown);
     this.shortcutManager.disable();
@@ -115,7 +124,7 @@ export class SketchToolbar {
   }
 
   get isVisible(): boolean {
-    return this.el.style.transform === '';
+    return this.visible;
   }
 
   setActiveTool(toolId: ToolId | null): void {
@@ -155,14 +164,14 @@ export class SketchToolbar {
     });
     cogWrapper.appendChild(cogBtn);
 
-    this.el.appendChild(cogWrapper);
+    this.host.appendChild(cogWrapper);
   }
 
   private openSnapMenu(anchor: HTMLElement): void {
     this.closeSnapMenu();
 
     const menu = document.createElement('div');
-    menu.className = 'absolute left-full top-1/2 -translate-y-1/2 ml-2 z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)] p-2 flex flex-col gap-2 whitespace-nowrap';
+    menu.className = 'absolute top-full right-0 mt-2 z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)] p-2 flex flex-col gap-2 whitespace-nowrap';
 
     const vertexCheckbox = document.createElement('input');
     vertexCheckbox.type = 'checkbox';
@@ -226,33 +235,16 @@ export class SketchToolbar {
     for (let i = 0; i < TOOL_LAYOUT.length; i++) {
       if (i > 0) {
         const sep = document.createElement('div');
-        sep.className = 'h-px bg-base-content/[0.08] my-0.5';
+        sep.className = 'w-px h-5 bg-base-content/[0.12] mx-0.5 shrink-0';
         this.inner.appendChild(sep);
       }
 
       const entry = TOOL_LAYOUT[i];
-      if (isGroup(entry)) {
-        this.renderGroup(entry);
-      } else {
-        this.inner.appendChild(this.createToolButton(entry));
+      const tools = isGroup(entry) ? entry.tools : [entry];
+      for (const tool of tools) {
+        this.inner.appendChild(this.createToolButton(tool));
       }
     }
-  }
-
-  private renderGroup(group: ToolGroup): void {
-    if (group.tools.length === 1) {
-      this.inner.appendChild(this.createToolButton(group.tools[0]));
-      return;
-    }
-
-    const wrapper = document.createElement('div');
-    wrapper.className = 'flex flex-col items-center';
-
-    for (const tool of group.tools) {
-      wrapper.appendChild(this.createToolButton(tool));
-    }
-
-    this.inner.appendChild(wrapper);
   }
 
   private createToolButton(tool: ToolDef): HTMLElement {
@@ -266,7 +258,7 @@ export class SketchToolbar {
 
     const shortcut = TOOL_SHORTCUTS[tool.id];
     const tip = document.createElement('div');
-    tip.className = 'absolute left-full top-1/2 -translate-y-1/2 ml-2 px-2 py-1 rounded bg-base-300 text-base-content text-xs whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity flex items-center gap-1.5';
+    tip.className = 'absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 rounded bg-base-300 text-base-content text-xs whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity flex items-center gap-1.5 z-[200]';
     tip.innerHTML = shortcut
       ? `${tool.label} <kbd class="kbd kbd-xs">${shortcut}</kbd>`
       : tool.label;

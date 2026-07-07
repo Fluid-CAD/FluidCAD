@@ -8,6 +8,9 @@ import { BreakpointIndicator } from './ui/breakpoint-indicator';
 import { ErrorBanner } from './ui/error-banner';
 import { LoadingOverlay } from './ui/loading-overlay';
 import { FileImporter } from './ui/file-importer';
+import { TopBar } from './ui/top-bar';
+import { Navbar } from './ui/navbar';
+import { ICON_FILE_IMPORT } from './ui/icons';
 import { TrimPickService } from './interactive/trim-pick-service';
 import { RegionPickService } from './interactive/region-pick-service';
 import { SketchToolbarService } from './interactive/sketch-toolbar-service';
@@ -59,8 +62,23 @@ const timelinePanel = new TimelinePanel(
   (shapeId, opacity) => viewer.setShapeTransparency(shapeId, opacity),
   (shapeId) => viewer.getShapeTransparency(shapeId),
   () => viewer.resetAllTransparency(),
-  () => fileImporter.openPicker(),
 );
+
+// Top application bar (logo, feature-tree toggle, file name) and the secondary
+// tool bar below it (host for conditionally-visible tool groups).
+const topBar = new TopBar(container, {
+  onToggleTree: () => timelinePanel.togglePanel(),
+});
+const navbar = new Navbar(container);
+
+// Import group — always visible for now.
+const importGroup = navbar.addGroup('import');
+const importBtn = document.createElement('button');
+importBtn.className = 'btn btn-ghost btn-sm gap-1.5 text-base-content/70 hover:text-base-content';
+importBtn.title = 'Import file';
+importBtn.innerHTML = `<span class="[&>svg]:size-4">${ICON_FILE_IMPORT}</span><span class="text-sm font-normal">Import</span>`;
+importBtn.addEventListener('click', () => fileImporter.openPicker());
+importGroup.appendChild(importBtn);
 
 const paramsPanel = new ParamsPanel(viewer.settingsPanelHost);
 
@@ -71,7 +89,7 @@ viewer.setParamsToggleHandler(() => {
 
 const trimService = new TrimPickService(container, viewer);
 const regionService = new RegionPickService(container, viewer);
-const sketchService = new SketchToolbarService(container, viewer, trimService, timelinePanel);
+const sketchService = new SketchToolbarService(container, viewer, trimService, navbar);
 
 const breakpointIndicator = new BreakpointIndicator(container, () => {
   if (regionService.state === 'picking-active') {
@@ -244,7 +262,7 @@ function connectWebSocket() {
         viewer.updateView(msg.result, isRollback, msg.rollbackStop);
         measureController.onSceneRendered();
         if (msg.absPath) {
-          viewer.setFileName(msg.absPath);
+          topBar.setFileName(msg.absPath);
         }
         if (isRollback) {
           trimService.reset();
@@ -255,7 +273,7 @@ function connectWebSocket() {
           regionService.update(msg.result);
           sketchService.update(msg.result);
         }
-        timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1, msg.absPath);
+        timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1);
         if (msg.params !== undefined) {
           paramsPanel.update(msg.params);
           viewer.setParamsButtonVisible(paramsPanel.hasAnyParams);

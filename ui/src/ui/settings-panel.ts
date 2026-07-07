@@ -36,7 +36,7 @@ export class SettingsPanel {
     document.head.appendChild(style);
 
     this.wrapper = document.createElement('div');
-    this.wrapper.className = 'absolute right-7 top-[100px] z-[100] flex flex-col items-end select-none';
+    this.wrapper.className = 'absolute right-7 top-[116px] z-[100] flex flex-col items-end select-none';
     container.appendChild(this.wrapper);
     const wrapper = this.wrapper;
 

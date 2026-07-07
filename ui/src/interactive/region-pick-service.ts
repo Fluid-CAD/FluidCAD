@@ -20,10 +20,10 @@ export class RegionPickService {
 
     this.triggerBtn = document.createElement('div');
     this.triggerBtn.id = 'fluidcad-region-pick-trigger';
-    this.triggerBtn.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto hidden';
+    this.triggerBtn.className = 'absolute top-[116px] right-[76px] z-[999] pointer-events-auto hidden';
     this.triggerBtn.innerHTML = `
-      <button class="flex items-center gap-3 panel-bg border border-base-content/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none cursor-pointer hover:border-base-content/20 transition-colors">
-        <span class="[&>svg]:size-5">${ICON_WAND}</span>
+      <button class="flex items-center gap-2 bg-info text-info-content rounded-lg px-4 py-2 text-xs leading-none select-none cursor-pointer shadow-md hover:bg-info/90 transition-colors">
+        <span class="[&>svg]:size-4">${ICON_WAND}</span>
         <span>Pick Regions</span>
       </button>
     `;
@@ -31,12 +31,12 @@ export class RegionPickService {
 
     this.activeBar = document.createElement('div');
     this.activeBar.id = 'fluidcad-region-pick-active';
-    this.activeBar.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto hidden';
+    this.activeBar.className = 'absolute top-[116px] right-[76px] z-[999] pointer-events-auto hidden';
     this.activeBar.innerHTML = `
-      <div class="flex items-center gap-3 panel-bg border border-base-content/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none">
+      <div class="flex items-center gap-2 bg-info text-info-content rounded-lg px-4 py-2 text-xs leading-none select-none shadow-md">
         <span>Region Picking Mode</span>
-        <div class="h-4 w-px bg-base-content/10"></div>
-        <button class="text-base-content/60 hover:text-base-content transition-colors cursor-pointer" id="exit-region-pick">Exit</button>
+        <div class="h-3.5 w-px bg-info-content/25"></div>
+        <button class="text-info-content/70 hover:text-info-content transition-colors cursor-pointer" id="exit-region-pick">Exit</button>
       </div>
     `;
     container.appendChild(this.activeBar);

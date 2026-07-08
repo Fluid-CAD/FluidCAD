@@ -325,6 +325,31 @@ function findFluidCadImport(tree: TSTree): TSNode | null {
   return null;
 }
 
+/** Find a top-level import statement whose source is exactly `module`. */
+function findImportForModule(tree: TSTree, module: string): TSNode | null {
+  for (const node of tree.rootNode.namedChildren) {
+    if (node.type !== 'import_statement') {
+      continue;
+    }
+    const source = node.childForFieldName('source');
+    if (source && source.text.slice(1, -1) === module) {
+      return node;
+    }
+  }
+  return null;
+}
+
+/** The last top-level import statement, if any. */
+function findLastImport(tree: TSTree): TSNode | null {
+  let last: TSNode | null = null;
+  for (const node of tree.rootNode.namedChildren) {
+    if (node.type === 'import_statement') {
+      last = node;
+    }
+  }
+  return last;
+}
+
 function findNamedImports(importNode: TSNode): TSNode | null {
   for (const node of walkTree(importNode)) {
     if (node.type === 'named_imports') {
@@ -726,15 +751,29 @@ function findSketchBody(call: TSNode): TSNode | null {
 }
 
 /**
- * Ensure a symbol is present in the `import { ... } from 'fluidcad'` or
- * `'fluidcad/core'` statement. Returns modified code if the symbol was added.
+ * Ensure a symbol is present in the named imports for `module`. The default
+ * module accepts both the `'fluidcad'` and `'fluidcad/core'` spellings; other
+ * modules (e.g. `'fluidcad/filters'`) are matched exactly, and a missing
+ * import statement is added after the last existing import.
+ * Returns modified code if the symbol was added.
  */
-export async function ensureSymbolImport(code: string, symbol: string): Promise<string> {
+export async function ensureSymbolImport(
+  code: string,
+  symbol: string,
+  module = 'fluidcad/core',
+): Promise<string> {
   const p = await getParser();
   const tree = p.parse(code);
-  const importNode = findFluidCadImport(tree);
+  const importNode = module === 'fluidcad/core'
+    ? findFluidCadImport(tree)
+    : findImportForModule(tree, module);
   if (!importNode) {
-    return `import { ${symbol} } from 'fluidcad/core';\n` + code;
+    const statement = `import { ${symbol} } from '${module}';`;
+    const lastImport = findLastImport(tree);
+    if (lastImport) {
+      return spliceCode(code, lastImport.endIndex, lastImport.endIndex, `\n${statement}`);
+    }
+    return `${statement}\n` + code;
   }
   const namedImports = findNamedImports(importNode);
   if (!namedImports) {

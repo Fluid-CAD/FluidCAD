@@ -19,6 +19,8 @@ export type PickAttribution = {
   pickedKey: number | null;
   /** The SceneObject whose added shape owns the rendered solid. */
   solidOwner: SceneObject | null;
+  /** The rendered solid the pick was resolved against. */
+  solidShape: Shape | null;
   /** Classified origin — the winning bucket hit, if any. */
   producer: BucketHit | null;
   /** Set when no bucket contains the pick but lineage found an ancestor. */
@@ -35,7 +37,7 @@ const LINEAGE_MAX_DEPTH = 8;
  */
 export function attributePick(scene: Scene, index: SelectionIndex, ref: PickRef): PickAttribution {
   const none: PickAttribution = {
-    ref, picked: null, pickedKey: null, solidOwner: null, producer: null, lineage: null,
+    ref, picked: null, pickedKey: null, solidOwner: null, solidShape: null, producer: null, lineage: null,
   };
 
   const resolved = resolvePickShape(scene, ref);
@@ -53,6 +55,7 @@ export function attributePick(scene: Scene, index: SelectionIndex, ref: PickRef)
     picked: resolved.sub,
     pickedKey,
     solidOwner: resolved.owner,
+    solidShape: resolved.shape,
     producer,
     lineage,
   };

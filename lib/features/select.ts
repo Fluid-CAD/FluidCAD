@@ -9,8 +9,8 @@ import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
 import { ShapeType } from "../common/shape-type.js";
 import { Face } from "../common/face.js";
-import { BelongsToFaceFilter, NotBelongsToFaceFilter } from "../filters/edge/belongs-to-face.js";
 import { FromSceneObjectFilter } from "../filters/from-object.js";
+import { injectBelongsToFaceScope } from "../filters/scope-injection.js";
 import { TopologyIndex } from "../oc/topology-index.js";
 import { ShapeHasher } from "../oc/shape-hash.js";
 
@@ -179,45 +179,23 @@ export class SelectSceneObject extends SceneObject implements ISelect {
   }
 
   private injectScopeFaces(filters: FilterBuilderBase<Shape>[], sceneObjects: SceneObject[]): ShapeHasher | null {
-    let scopeSolids: Solid[] | null = null;
-    let extraFaces: Face[] | null = null;
-    let faceByHash: Map<number, Face[]> | null = null;
-    let hasher: ShapeHasher | null = null;
-
-    for (const builder of filters) {
-      for (const filter of builder.getFilters()) {
-        if (filter instanceof BelongsToFaceFilter || filter instanceof NotBelongsToFaceFilter) {
-          if (!scopeSolids) {
-            if (this.constraintObject) {
-              const constraintShapes = this.constraintObject.getShapes();
-              scopeSolids = constraintShapes.filter(s => s.isSolid()) as Solid[];
-              // Faces directly in the constraint (not part of a solid) need the
-              // legacy linear-scan path since they don't have a cached index.
-              extraFaces = constraintShapes
-                .filter(s => !s.isSolid())
-                .flatMap(s => s.getSubShapes("face")) as Face[];
-            } else {
-              scopeSolids = sceneObjects.flatMap(obj => obj.getShapes({}, 'solid')) as Solid[];
-              extraFaces = [];
-            }
-
-            faceByHash = new Map<number, Face[]>();
-            hasher = new ShapeHasher();
-            for (const solid of scopeSolids) {
-              for (const face of solid.getFaces()) {
-                addToBucket(faceByHash, face, hasher);
-              }
-            }
-            for (const face of extraFaces) {
-              addToBucket(faceByHash, face, hasher);
-            }
-          }
-          filter.setScopeIndex(scopeSolids, extraFaces!, faceByHash!, hasher!);
-        }
+    return injectBelongsToFaceScope(filters, () => {
+      if (this.constraintObject) {
+        const constraintShapes = this.constraintObject.getShapes();
+        return {
+          solids: constraintShapes.filter(s => s.isSolid()) as Solid[],
+          // Faces directly in the constraint (not part of a solid) need the
+          // legacy linear-scan path since they don't have a cached index.
+          extraFaces: constraintShapes
+            .filter(s => !s.isSolid())
+            .flatMap(s => s.getSubShapes("face")) as Face[],
+        };
       }
-    }
-
-    return hasher;
+      return {
+        solids: sceneObjects.flatMap(obj => obj.getShapes({}, 'solid')) as Solid[],
+        extraFaces: [],
+      };
+    });
   }
 
   applyFilters(shapes: Shape[], filters: FilterBuilderBase<Shape>[]): Shape[] {
@@ -278,13 +256,4 @@ export class SelectSceneObject extends SceneObject implements ISelect {
   }
 }
 
-function addToBucket(faceByHash: Map<number, Face[]>, face: Face, hasher: ShapeHasher) {
-  const hash = hasher.key(face.getShape());
-  let bucket = faceByHash.get(hash);
-  if (!bucket) {
-    bucket = [];
-    faceByHash.set(hash, bucket);
-  }
-  bucket.push(face);
-}
 

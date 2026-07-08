@@ -301,7 +301,7 @@ describe("apply-feature synthesis", () => {
     }
   });
 
-  it("emits face bucket indices for a picked side face", () => {
+  it("emits an induced face filter for a picked side face", () => {
     sketch("xy", () => {
       rect(100, 50);
     });
@@ -325,8 +325,67 @@ describe("apply-feature synthesis", () => {
     if (result.ok) {
       expect(result.spec.parts).toHaveLength(1);
       expect(result.spec.parts[0].accessor).toBe("sideFaces");
-      expect(result.spec.parts[0].indices).toHaveLength(1);
-      expect(result.preview).toMatch(/^chamfer\(2, e\.sideFaces\(\d\)\)$/);
+      // The four side faces are separable by plane predicates, so the filter
+      // form wins over a bucket index.
+      expect(result.spec.parts[0].indices).toBeNull();
+      expect(result.spec.parts[0].filterArgs).toMatch(/^face\(\)\./);
+      expect(result.preview).toMatch(/^chamfer\(2, e\.sideFaces\(face\(\)\./);
+      expect(result.spec.imports).toContain("face");
+    }
+  });
+
+  it("emits a qualitative edge filter when it separates the pick (tier 1)", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30);
+    setLocation(e, 4);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    // The vertical corner edge at the origin: only its two containing
+    // principal planes tell it apart from the other three side edges.
+    const cornerRefs = edgeRefsWhere(solid, m =>
+      Math.abs(m.x) < 1e-6 && Math.abs(m.y) < 1e-6 && Math.abs(m.z - 15) < 1e-6);
+    expect(cornerRefs).toHaveLength(1);
+
+    const result = synthesizeApplyFeature(scene, cornerRefs, 'fillet', 2);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spec.parts).toHaveLength(1);
+      expect(result.spec.parts[0].accessor).toBe("sideEdges");
+      expect(result.spec.parts[0].indices).toBeNull();
+      expect(result.spec.parts[0].filterArgs).toBe("edge().onPlane('xz').onPlane('yz')");
+      expect(result.preview).toBe("fillet(2, e.sideEdges(edge().onPlane('xz').onPlane('yz')))");
+      expect(result.spec.imports).toContain("edge");
+    }
+  });
+
+  it("prefers a qualitative direction filter for a symmetric pair (tier 1)", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30);
+    setLocation(e, 4);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    // The two short top edges: the y-direction predicate separates them from
+    // the long pair without any numeric constant.
+    const shortRefs = edgeRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6)
+      .filter(ref => {
+        const mid = EdgeOps.getEdgeMidPoint(Explorer.findEdgesWrapped(solid)[ref.sub.index]);
+        return Math.abs(mid.y - 25) < 1e-6;
+      });
+    expect(shortRefs).toHaveLength(2);
+
+    const result = synthesizeApplyFeature(scene, shortRefs, 'fillet', 3);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spec.parts).toHaveLength(1);
+      expect(result.spec.parts[0].indices).toBeNull();
+      expect(result.spec.parts[0].filterArgs).toBe("edge().verticalTo('xz')");
+      expect(result.preview).toBe("fillet(3, e.endEdges(edge().verticalTo('xz')))");
     }
   });
 
@@ -355,7 +414,7 @@ describe("apply-feature synthesis", () => {
     }
   });
 
-  it("refuses edges on repeated instances with a geometric-filter hint", () => {
+  it("synthesizes a scene-wide select() for a repeat-instance pick (tier 3)", () => {
     sketch("xy", () => {
       rect(20, 20);
     });
@@ -368,16 +427,89 @@ describe("apply-feature synthesis", () => {
     const solids = findSolids(scene);
     expect(solids.length).toBe(3);
 
-    // A clone instance solid: attribution lands on the clone, which cannot be
-    // variable-bound.
+    // The middle instance's whole top rim: no variable can be bound to a
+    // clone, so the synthesizer brackets the instance with plane predicates.
     const cloneSolid = solids[1];
-    const refs = edgeRefsWhere(cloneSolid, m => Math.abs(m.z - 10) < 1e-6).slice(0, 1);
-    expect(refs).toHaveLength(1);
+    const refs = edgeRefsWhere(cloneSolid, m => Math.abs(m.z - 10) < 1e-6);
+    expect(refs).toHaveLength(4);
+
+    const result = synthesizeApplyFeature(scene, refs, 'fillet', 2);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spec.parts).toHaveLength(1);
+      expect(result.spec.parts[0].producer).toBeNull();
+      expect(result.spec.parts[0].accessor).toBe("select");
+      expect(result.spec.parts[0].filterArgs).toMatch(/^edge\(\)\./);
+      expect(result.spec.producers).toHaveLength(1);
+      expect(result.spec.producers[0].bind).toBe(false);
+      expect(result.spec.imports).toEqual(expect.arrayContaining(["select", "edge"]));
+      expect(result.preview).toMatch(/^fillet\(2, select\(edge\(\)\./);
+    }
+  });
+
+  it("splits a select() across args when one conjunction can't cover the picks", () => {
+    sketch("xy", () => {
+      rect(20, 20);
+    });
+    const e = extrude(10).new();
+    setLocation(e, 4);
+    const r = repeat("linear", "x", { count: 3, offset: 40 }, e);
+    setLocation(r, 6);
+
+    const scene = render();
+    const solids = findSolids(scene);
+
+    // One edge on each clone instance, on opposite sides (y = 0 vs y = 20):
+    // no single conjunction covers both without also matching their twins, so
+    // the synthesizer must fall back to one arg per pick. (The original
+    // instance is bindable, so both picks must land on clones.)
+    const refs = [
+      ...edgeRefsWhere(solids[1], m => Math.abs(m.y) < 1e-6 && Math.abs(m.z - 10) < 1e-6),
+      ...edgeRefsWhere(solids[2], m => Math.abs(m.y - 20) < 1e-6 && Math.abs(m.z - 10) < 1e-6),
+    ];
+    expect(refs).toHaveLength(2);
+
+    const result = synthesizeApplyFeature(scene, refs, 'fillet', 1);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spec.parts).toHaveLength(1);
+      expect(result.spec.parts[0].accessor).toBe("select");
+      expect(result.spec.parts[0].filterArgs).toMatch(/^edge\(\)\..*, edge\(\)\./);
+    }
+  });
+
+  it("refuses when even a scene-wide filter cannot isolate the picks", () => {
+    // A 3×3 grid built from one call site: every box is a shared-call-site
+    // twin, and the centre one cannot be bracketed within the conjunction
+    // budget. The refusal must say so instead of writing fragile code.
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        sketch("xy", () => {
+          move([i * 40, j * 40]);
+          rect(20, 20);
+        });
+        const e = extrude(10).new();
+        setLocation(e, 4);
+      }
+    }
+
+    const scene = render();
+    const solids = findSolids(scene);
+    expect(solids.length).toBe(9);
+
+    const centre = solids.find(s => {
+      const mids = Explorer.findEdgesWrapped(s).map(eg => EdgeOps.getEdgeMidPoint(eg));
+      return mids.every(m => m.x > 39 && m.x < 61 && m.y > 39 && m.y < 61);
+    });
+    expect(centre).toBeDefined();
+
+    const refs = edgeRefsWhere(centre!, m => Math.abs(m.z - 10) < 1e-6);
+    expect(refs).toHaveLength(4);
 
     const result = synthesizeApplyFeature(scene, refs, 'fillet', 2);
     expect(result.ok).toBe(false);
     if (result.ok === false) {
-      expect(result.reason).toMatch(/repeat|geometric filter|loop or helper/);
+      expect(result.reason).toMatch(/loop or helper|geometric filter/);
     }
   });
 
@@ -424,18 +556,20 @@ describe("apply-feature synthesis", () => {
     }
   });
 
-  it("refuses fillet-born edges with an unclassified explanation", () => {
+  it("synthesizes a select() for fillet-born edges (tier 3)", () => {
     sketch("xy", () => {
       rect(100, 50);
     });
     const e = extrude(30);
     setLocation(e, 4);
     select(edge().verticalTo("xy"));
-    fillet(5);
+    const f = fillet(5);
+    setLocation(f, 6);
 
     const scene = render();
     const solid = findSolid(scene);
-    // Pick one of the arc edges the fillet created.
+    // Pick one of the arc edges the fillet created — classified by no bucket,
+    // but isolable by curve class plus position.
     const arcRefs: PickRef[] = [];
     Explorer.findEdgesWrapped(solid).forEach((eg: Edge, index: number) => {
       if (arcRefs.length === 0 && eg.getType() === "edge") {
@@ -451,9 +585,13 @@ describe("apply-feature synthesis", () => {
     expect(arcRefs).toHaveLength(1);
 
     const result = synthesizeApplyFeature(scene, arcRefs, 'fillet', 2);
-    expect(result.ok).toBe(false);
-    if (result.ok === false) {
-      expect(result.reason).toMatch(/not classified|reshaped/);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spec.parts).toHaveLength(1);
+      expect(result.spec.parts[0].producer).toBeNull();
+      expect(result.spec.parts[0].accessor).toBe("select");
+      expect(result.spec.producers[0].bind).toBe(false);
+      expect(result.preview).toMatch(/^fillet\(2, select\(edge\(\)\./);
     }
   });
 });

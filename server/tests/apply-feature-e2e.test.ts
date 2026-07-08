@@ -145,6 +145,85 @@ describe('select→apply-feature end to end', () => {
     expect(cylinders.length).toBeGreaterThanOrEqual(4);
   });
 
+  it('fillets one repeat instance through a synthesized scene-wide select()', async () => {
+    const code = [
+      `import { sketch, rect, extrude, repeat } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(20, 20) })`,
+      `const e = extrude(10).new()`,
+      `repeat('linear', 'x', { count: 3, offset: 40 }, e)`,
+      ``,
+    ].join('\n');
+
+    sketch('xy', () => { rect(20, 20) });
+    const e = (extrude(10) as any).new();
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
+    const r = core.repeat('linear', 'x', { count: 3, offset: 40 }, e);
+    (r as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 5, column: 0 });
+
+    const scene = render();
+    const solids: Shape[] = [];
+    const seen = new Set<string>();
+    for (const obj of scene.getAllSceneObjects()) {
+      if (obj.isContainer()) {
+        continue;
+      }
+      for (const shape of obj.getShapes()) {
+        if (shape.getType() === 'solid' && !seen.has(shape.id)) {
+          seen.add(shape.id);
+          solids.push(shape);
+        }
+      }
+    }
+    expect(solids).toHaveLength(3);
+
+    // The middle instance (x ∈ [40, 60]) is a clone — no variable to bind.
+    const middle = solids.find(s => {
+      const xs = Explorer.findEdgesWrapped(s).map(eg => EdgeOps.getEdgeMidPoint(eg).x);
+      return Math.min(...xs) > 30 && Math.max(...xs) < 70;
+    })!;
+    expect(middle).toBeDefined();
+    const picks = topEdgeRefs(middle, 10);
+    expect(picks).toHaveLength(4);
+
+    const synthesis = synthesizeApplyFeature(scene, picks, 'fillet', 2);
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      return;
+    }
+    expect(synthesis.preview).toMatch(/^fillet\(2, select\(edge\(\)\./);
+
+    const edited = await applyFeatureEdit(code, synthesis.spec);
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(`import { edge } from 'fluidcad/filters';`);
+    expect(edited.newCode).toContain('fillet(2, select(edge().');
+    // The repeat statement is untouched — no variable was bound to a clone.
+    expect(edited.newCode).toContain(`repeat('linear', 'x', { count: 3, offset: 40 }, e)`);
+
+    // Execute the edited program: exactly one instance gains fillet
+    // cylinders, the other two stay plain boxes.
+    const rerun = runFluid(edited.newCode);
+    const rerunSolids: Solid[] = [];
+    const rerunSeen = new Set<string>();
+    for (const obj of rerun.getAllSceneObjects()) {
+      if (obj.isContainer()) {
+        continue;
+      }
+      for (const shape of obj.getShapes()) {
+        if (shape.getType() === 'solid' && !rerunSeen.has(shape.id)) {
+          rerunSeen.add(shape.id);
+          rerunSolids.push(shape as Solid);
+        }
+      }
+    }
+    expect(rerunSolids).toHaveLength(3);
+
+    const cylinderCounts = rerunSolids.map(s => s.getFaces()
+      .filter(f => FaceProps.getProperties(f.getShape()).surfaceType === 'cylinder').length);
+    expect(cylinderCounts.filter(c => c >= 4)).toHaveLength(1);
+    expect(cylinderCounts.filter(c => c === 0)).toHaveLength(2);
+  });
+
   it('chamfers a picked subset through synthesized bucket indices', async () => {
     const code = [
       `import { sketch, rect, extrude } from 'fluidcad/core'`,

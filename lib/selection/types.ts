@@ -61,14 +61,25 @@ export type ApplyFeatureEditSpec = {
     column: number;
     featureType: string;
     nameHint: string;
+    /**
+     * True when the transform must bind this call to a variable. False marks
+     * an anchor-only entry: its statement locates the insertion scope for a
+     * spec whose parts are all global `select()` expressions.
+     */
+    bind: boolean;
   }[];
   parts: {
-    /** Index into `producers`. */
-    producer: number;
+    /** Index into `producers`, or null for a global `select()` part. */
+    producer: number | null;
+    /** Accessor on the producer's variable, or `select` when producer is null. */
     accessor: string;
-    /** Bucket indices to select, or null for the whole bucket. */
+    /** Bucket indices to select, or null. */
     indices: number[] | null;
+    /** Rendered filter-builder arguments, e.g. `edge().circle(5)`, or null. */
+    filterArgs: string | null;
   }[];
+  /** Symbols beyond the feature itself the edit needs imported (`select`, `edge`, `face`). */
+  imports: string[];
 };
 
 export type ApplyFeatureSynthesis =

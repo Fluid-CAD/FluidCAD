@@ -51,13 +51,20 @@ export function synthesizeApplyFeature(
   const index = new SelectionIndex(scene);
   try {
     const attributions = refs.map(ref => attributePick(scene, index, ref));
-    const synthesis = synthesizeSelectors(index, attributions);
+    const synthesis = synthesizeSelectors(scene, index, attributions);
     if (synthesis.ok === false) {
       return { ok: false, reason: synthesis.reason, pick: synthesis.pick };
     }
 
+    // Anchor-only entries ride the producers list with bind: false — they
+    // locate the insertion scope when no producer variable is bound.
+    const located = synthesis.producers.map(p => ({ feature: p, bind: true }));
+    if (synthesis.anchor) {
+      located.push({ feature: synthesis.anchor, bind: false });
+    }
+
     const filePaths = new Set(
-      synthesis.producers.map(p => p.getSourceLocation()!.filePath),
+      located.map(l => l.feature.getSourceLocation()!.filePath),
     );
     if (filePaths.size > 1) {
       return { ok: false, reason: 'the picked edges come from features in different files' };
@@ -67,26 +74,48 @@ export function synthesizeApplyFeature(
       feature,
       value,
       filePath: filePaths.values().next().value!,
-      producers: synthesis.producers.map(p => {
-        const loc = p.getSourceLocation()!;
+      producers: located.map(l => {
+        const loc = l.feature.getSourceLocation()!;
         return {
           line: loc.line,
           column: loc.column,
-          featureType: p.getType(),
-          nameHint: nameHintFor(p.getType()),
+          featureType: l.feature.getType(),
+          nameHint: nameHintFor(l.feature.getType()),
+          bind: l.bind,
         };
       }),
       parts: synthesis.parts.map(part => ({
-        producer: synthesis.producers.indexOf(part.producer),
+        producer: part.producer ? synthesis.producers.indexOf(part.producer) : null,
         accessor: part.accessor,
         indices: part.indices,
+        filterArgs: part.filterArgs,
       })),
+      imports: collectImports(synthesis.parts),
     };
 
     return { ok: true, spec, preview: buildPreview(spec) };
   } finally {
     index.dispose();
   }
+}
+
+/** Symbols the emitted statement references beyond the feature itself. */
+function collectImports(parts: { producer: unknown; filterArgs: string | null }[]): string[] {
+  const imports = new Set<string>();
+  for (const part of parts) {
+    if (part.producer === null) {
+      imports.add('select');
+    }
+    if (part.filterArgs) {
+      if (/\bedge\(/.test(part.filterArgs)) {
+        imports.add('edge');
+      }
+      if (/\bface\(/.test(part.filterArgs)) {
+        imports.add('face');
+      }
+    }
+  }
+  return [...imports];
 }
 
 function explainPick(scene: Scene, index: SelectionIndex, ref: PickRef): PickExplanation {
@@ -154,6 +183,9 @@ function buildPreview(spec: ApplyFeatureEditSpec): string {
   const names = new Map<number, string>();
   const used = new Set<string>();
   spec.producers.forEach((p, i) => {
+    if (!p.bind) {
+      return;
+    }
     let name = p.nameHint;
     let suffix = 1;
     while (used.has(name)) {
@@ -164,8 +196,12 @@ function buildPreview(spec: ApplyFeatureEditSpec): string {
     names.set(i, name);
   });
 
-  const args = spec.parts.map(part =>
-    `${names.get(part.producer)}.${part.accessor}(${part.indices?.join(', ') ?? ''})`,
-  );
+  const args = spec.parts.map(part => {
+    const selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
+    if (part.producer === null) {
+      return `select(${selectorArgs})`;
+    }
+    return `${names.get(part.producer)}.${part.accessor}(${selectorArgs})`;
+  });
   return `${spec.feature}(${spec.value}, ${args.join(', ')})`;
 }

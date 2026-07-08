@@ -23,12 +23,23 @@ export type ApplyFeatureEditSpec = {
     column: number;
     featureType: string;
     nameHint: string;
+    /**
+     * True when the call must be bound to a variable. False marks an
+     * anchor-only entry whose statement just locates the insertion scope
+     * (used when every part is a global `select()` expression).
+     */
+    bind: boolean;
   }[];
   parts: {
-    producer: number;
+    /** Index into `producers`, or null for a global `select()` part. */
+    producer: number | null;
     accessor: string;
     indices: number[] | null;
+    /** Rendered filter-builder arguments, e.g. `edge().circle(5)`. */
+    filterArgs: string | null;
   }[];
+  /** Extra symbols the statement references (`select`, `edge`, `face`). */
+  imports: string[];
 };
 
 export type ApplyFeatureEditResult = {
@@ -52,6 +63,8 @@ type ProducerBinding = {
   scope: TSNode;
   varName: string | null;
   needsBinding: boolean;
+  /** False for anchor-only entries — never named, never referenced by parts. */
+  bind: boolean;
 };
 
 /**
@@ -81,6 +94,21 @@ export async function applyFeatureEdit(
     if (!call) {
       return { newCode: code, error: `no call found at line ${producer.line} — is the file in sync with the last render?` };
     }
+
+    if (!producer.bind) {
+      // Anchor-only: the statement locates the insertion scope for a
+      // select()-based edit. No variable is bound, so any statement will do —
+      // but the scope must be one that runs once per build, not a loop body,
+      // hence the walk up to the enclosing function body (or module root).
+      const statement = enclosingStatement(call);
+      if (!statement) {
+        return { newCode: code, error: `no statement found at line ${producer.line}` };
+      }
+      const scope = enclosingFunctionScope(statement);
+      bindings.push({ call, statement, scope, varName: null, needsBinding: false, bind: false });
+      continue;
+    }
+
     const root = chainRootCallee(call);
     if (!root || !PRODUCER_CALLEES.has(root)) {
       return {
@@ -94,13 +122,19 @@ export async function applyFeatureEdit(
     if ('error' in resolved) {
       return { newCode: code, error: resolved.error };
     }
-    bindings.push(resolved);
+    bindings.push({ ...resolved, bind: true });
   }
 
   const scope = bindings[0].scope;
   for (const binding of bindings) {
     if (!sameNode(binding.scope, scope)) {
       return { newCode: code, error: 'the picked edges come from features in different scopes' };
+    }
+  }
+
+  for (const part of spec.parts) {
+    if (part.producer !== null && !spec.producers[part.producer]?.bind) {
+      return { newCode: code, error: 'malformed edit spec: a selector part references an unbound producer' };
     }
   }
 
@@ -127,6 +161,9 @@ export async function applyFeatureEdit(
   }
 
   result = await ensureSymbolImport(result, spec.feature);
+  for (const symbol of spec.imports ?? []) {
+    result = await ensureSymbolImport(result, symbol, MODULE_FOR_IMPORT[symbol] ?? 'fluidcad/core');
+  }
   return { newCode: result };
 }
 
@@ -167,7 +204,7 @@ function chainRootCallee(call: TSNode): string | null {
  * - anything else (the call is nested inside another expression) → refuse
  *   rather than rewrite user code speculatively.
  */
-function resolveStatement(call: TSNode): ProducerBinding | { error: string } {
+function resolveStatement(call: TSNode): Omit<ProducerBinding, 'bind'> | { error: string } {
   const parent = call.parent;
   const valueOfDeclarator = parent?.type === 'variable_declarator'
     ? parent.childForFieldName('value')
@@ -211,6 +248,40 @@ function enclosingScope(node: TSNode): TSNode {
   return node;
 }
 
+/** Nearest ancestor that is a direct child of a statement_block or program. */
+function enclosingStatement(node: TSNode): TSNode | null {
+  let current: TSNode | null = node;
+  while (current && current.parent) {
+    if (current.parent.type === 'statement_block' || current.parent.type === 'program') {
+      return current;
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
+const FUNCTION_NODE_TYPES = new Set([
+  'function_declaration', 'function_expression', 'arrow_function',
+  'method_definition', 'generator_function', 'generator_function_declaration',
+]);
+
+/**
+ * Nearest enclosing scope that executes once per build: a function body or
+ * the program root, skipping loop/conditional statement blocks. A statement
+ * inserted at the end of this scope runs after the whole model is built.
+ */
+function enclosingFunctionScope(node: TSNode): TSNode {
+  let scope = enclosingScope(node);
+  while (scope.type === 'statement_block') {
+    const parent = scope.parent;
+    if (parent && FUNCTION_NODE_TYPES.has(parent.type)) {
+      return scope;
+    }
+    scope = enclosingScope(scope);
+  }
+  return scope;
+}
+
 /**
  * Pick collision-free variable names for producers that need binding.
  * Collision-checked against every identifier in the file, matching how the
@@ -245,12 +316,21 @@ function allocateNames(root: TSNode, bindings: ProducerBinding[], spec: ApplyFea
 
 function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[]): string {
   const args = spec.parts.map(part => {
+    const selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
+    if (part.producer === null) {
+      return `select(${selectorArgs})`;
+    }
     const name = bindings[part.producer].varName;
-    const indices = part.indices ? part.indices.join(', ') : '';
-    return `${name}.${part.accessor}(${indices})`;
+    return `${name}.${part.accessor}(${selectorArgs})`;
   });
   return `${spec.feature}(${formatNumber(spec.value)}, ${args.join(', ')})`;
 }
+
+const MODULE_FOR_IMPORT: Record<string, string> = {
+  select: 'fluidcad/core',
+  edge: 'fluidcad/filters',
+  face: 'fluidcad/filters',
+};
 
 function formatNumber(value: number): string {
   return Number.isFinite(value) ? String(value) : '1';

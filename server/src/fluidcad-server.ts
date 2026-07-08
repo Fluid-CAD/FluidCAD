@@ -33,8 +33,16 @@ type SceneManager = {
       seed: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
       members: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[];
     }[],
+    options?: {
+      namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
+      params?: { name: string; value: number }[];
+    },
   ): any;
   expandTangentChain(
+    scene: any,
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+  ): any;
+  expandBucket(
     scene: any,
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
   ): any;
@@ -147,6 +155,11 @@ export class FluidCadServer {
   getCurrentCode(): string | null {
     if (!this.currentFileName) return null;
     return this.host.getBuffer(this.currentFileName);
+  }
+
+  /** Param definitions from the last render — currentValue is override-aware. */
+  getParamDefinitions(): { label: string; currentValue: unknown }[] {
+    return getParamRegistry().getDefinitions();
   }
 
   async init(workspacePath: string) {
@@ -471,6 +484,10 @@ export class FluidCadServer {
       seed: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
       members: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[];
     }[] = [],
+    options?: {
+      namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
+      params?: { name: string; value: number }[];
+    },
   ): any {
     if (!this.sceneManager) {
       return null;
@@ -479,7 +496,7 @@ export class FluidCadServer {
     if (!scene) {
       return null;
     }
-    return this.sceneManager.synthesizeApplyFeature(scene, refs, feature, value, chains);
+    return this.sceneManager.synthesizeApplyFeature(scene, refs, feature, value, chains, options);
   }
 
   expandTangentChain(
@@ -493,6 +510,19 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.expandTangentChain(scene, ref);
+  }
+
+  expandBucket(
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+  ): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.expandBucket(scene, ref);
   }
 
   exportShapes(

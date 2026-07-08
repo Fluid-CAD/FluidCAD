@@ -4,6 +4,7 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
 import fillet from "../../core/fillet.js";
+import part from "../../core/part.js";
 import select from "../../core/select.js";
 import repeat from "../../core/repeat.js";
 import { circle, move, rect } from "../../core/2d/index.js";
@@ -16,7 +17,7 @@ import { Extrude } from "../../features/extrude.js";
 import { Explorer } from "../../oc/explorer.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { explainSelection, synthesizeApplyFeature } from "../../selection/explain.js";
-import { expandTangentChain } from "../../selection/expand.js";
+import { expandBucket, expandTangentChain } from "../../selection/expand.js";
 import type { PickRef } from "../../selection/types.js";
 
 function findSolids(scene: Scene): Shape[] {
@@ -711,6 +712,292 @@ describe("apply-feature synthesis", () => {
       expect(result.spec.parts[0].accessor).toBe("select");
       expect(result.spec.producers[0].bind).toBe(false);
       expect(result.preview).toMatch(/^fillet\(2, select\(edge\(\)\./);
+    }
+  });
+});
+
+describe("producer naming", () => {
+  setupOC();
+
+  function makeBoxScene(): { scene: Scene; refs: PickRef[] } {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30);
+    setLocation(e, 4);
+    const scene = render();
+    const solid = findSolid(scene);
+    return { scene, refs: edgeRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6) };
+  }
+
+  it("prefers namer-provided names in the preview and spec rendering", () => {
+    const { scene, refs } = makeBoxScene();
+
+    const result = synthesizeApplyFeature(scene, refs, 'fillet', 3, [], { namer: () => ['base'] });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.preview).toBe('fillet(3, base.endEdges())');
+      expect(result.args).toBe('base.endEdges()');
+    }
+  });
+
+  it("labels clone picks honestly in the teach-mode expression", () => {
+    sketch("xy", () => {
+      rect(20, 20);
+    });
+    const e = extrude(10).new();
+    setLocation(e, 4);
+    const r = repeat("linear", "x", { count: 3, offset: 40 }, e);
+    setLocation(r, 6);
+
+    const scene = render();
+    const solids = findSolids(scene);
+    expect(solids).toHaveLength(3);
+    const clone = solids.find(s => {
+      const xs = Explorer.findEdgesWrapped(s).map(eg => EdgeOps.getEdgeMidPoint(eg).x);
+      return Math.min(...xs) > 30;
+    })!;
+
+    const pick = explainSelection(scene, [allEdgeRefs(clone)[0]]).picks[0];
+    expect(pick.attributed).toBe(true);
+    expect(pick.producer!.isClone).toBe(true);
+    // No variable can be bound to a clone — the accessor form (`e.endEdges(0)`)
+    // would be a lie, so the tooltip says what will really be synthesized.
+    expect(pick.expression).toContain('(repeat instance)');
+    expect(pick.expression).toContain('select()');
+    expect(pick.expression).not.toMatch(/^e\./);
+  });
+
+  it("falls back to hint names when the namer throws or returns null", () => {
+    const { scene, refs } = makeBoxScene();
+
+    const throwing = synthesizeApplyFeature(scene, refs, 'fillet', 3, [], {
+      namer: () => {
+        throw new Error('boom');
+      },
+    });
+    expect(throwing.ok).toBe(true);
+    if (throwing.ok) {
+      expect(throwing.preview).toBe('fillet(3, e.endEdges())');
+    }
+
+    const nulling = synthesizeApplyFeature(scene, refs, 'fillet', 3, [], { namer: () => [null] });
+    expect(nulling.ok).toBe(true);
+    if (nulling.ok) {
+      expect(nulling.preview).toBe('fillet(3, e.endEdges())');
+    }
+  });
+});
+
+describe("part()-scoped select() synthesis", () => {
+  setupOC();
+
+  /**
+   * Two identical parts, both filleted: every fillet-born arc in part "a"
+   * has a geometrically identical twin in part "b". Only a universe scoped
+   * to the picked part can isolate one — an unscoped select() would match
+   * both twins and fail verification.
+   */
+  function makeTwinPartScene(): { scene: Scene; solids: Shape[] } {
+    part("a", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(30);
+      setLocation(e, 4);
+      select(edge().verticalTo("xy"));
+      const f = fillet(5);
+      setLocation(f, 6);
+    });
+    part("b", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(30);
+      setLocation(e, 10);
+      select(edge().verticalTo("xy"));
+      const f = fillet(5);
+      setLocation(f, 12);
+    });
+    const scene = render();
+    const solids = findSolids(scene);
+    expect(solids).toHaveLength(2);
+    return { scene, solids };
+  }
+
+  function arcPickOf(scene: Scene, solid: Shape): PickRef {
+    const explained = explainSelection(scene, allEdgeRefs(solid));
+    const unattributed = explained.picks.find(p => !p.attributed && !p.error && !p.lineage);
+    expect(unattributed).toBeDefined();
+    return unattributed!.ref;
+  }
+
+  it("synthesizes a select() scoped to the picked solid's part", () => {
+    const { scene, solids } = makeTwinPartScene();
+    const pick = arcPickOf(scene, solids[0]);
+
+    const result = synthesizeApplyFeature(scene, [pick], 'fillet', 2);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.args).toMatch(/^select\(edge\(\)\./);
+      expect(result.spec.producers).toHaveLength(1);
+      expect(result.spec.producers[0].bind).toBe(false);
+    }
+  });
+
+  it("refuses picks spanning two part() scopes", () => {
+    const { scene, solids } = makeTwinPartScene();
+    const pickA = arcPickOf(scene, solids[0]);
+    const pickB = arcPickOf(scene, solids[1]);
+
+    const result = synthesizeApplyFeature(scene, [pickA, pickB], 'fillet', 2);
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.reason).toContain('part() scopes');
+    }
+  });
+});
+
+describe("parameter linking", () => {
+  setupOC();
+
+  /**
+   * The single top edge at y = 50 of a 100×50×30 box: among the four end
+   * edges only `onPlane('xz', -50)` isolates it (the xz normal is −y, so the
+   * offset is signed). That gives a deterministic, linkable dimension
+   * constant to exercise.
+   */
+  function makeOffsetEdgeScene(): { scene: Scene; refs: PickRef[] } {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30);
+    setLocation(e, 4);
+    const scene = render();
+    const solid = findSolid(scene);
+    const refs = edgeRefsWhere(solid, m =>
+      Math.abs(m.y - 50) < 1e-6 && Math.abs(m.z - 30) < 1e-6);
+    expect(refs).toHaveLength(1);
+    return { scene, refs };
+  }
+
+  it("renders a dimension constant as the user's variable when values match exactly", () => {
+    const { scene, refs } = makeOffsetEdgeScene();
+
+    const plain = synthesizeApplyFeature(scene, refs, 'fillet', 3);
+    expect(plain.ok).toBe(true);
+    if (plain.ok !== true) {
+      return;
+    }
+    expect(plain.args).toContain("onPlane('xz', -50)");
+
+    const linked = synthesizeApplyFeature(scene, refs, 'fillet', 3, [], {
+      params: [{ name: 'backOffset', value: -50 }],
+    });
+    expect(linked.ok).toBe(true);
+    if (linked.ok) {
+      expect(linked.args).toContain("onPlane('xz', backOffset)");
+    }
+  });
+
+  it("does not link when values differ", () => {
+    const { scene, refs } = makeOffsetEdgeScene();
+
+    const result = synthesizeApplyFeature(scene, refs, 'fillet', 3, [], {
+      params: [{ name: 'backOffset', value: 50 }],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.args).toContain("onPlane('xz', -50)");
+      expect(result.args).not.toContain('backOffset');
+    }
+  });
+});
+
+describe("bucket expansion (double-click gesture)", () => {
+  setupOC();
+
+  it("expands an end edge to the whole end bucket", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    extrude(30);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const seedRefs = edgeRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6);
+    expect(seedRefs).toHaveLength(4);
+
+    const expansion = expandBucket(scene, seedRefs[0]);
+    expect(expansion.ok).toBe(true);
+    if (expansion.ok) {
+      expect(expansion.members).toHaveLength(4);
+      const zs = expansion.members.map(m =>
+        EdgeOps.getEdgeMidPoint(Explorer.findEdgesWrapped(solid)[m.sub.index] as Edge).z);
+      expect(zs.every(z => Math.abs(z - 30) < 1e-6)).toBe(true);
+    }
+  });
+
+  it("expands to the same bucket the seed attributes to, even after a cut", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    extrude(30);
+
+    // Notch the top: the cut splits two top-rim edges and consumes material,
+    // so as-built buckets and the final solid disagree about some members.
+    sketch("xz", () => {
+      move([0, 25]);
+      rect(20, 10);
+    });
+    cut(100);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const survivors = edgeRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6);
+    expect(survivors.length).toBeGreaterThan(0);
+    const seed = survivors[0];
+
+    const seedPick = explainSelection(scene, [seed]).picks[0];
+    expect(seedPick.attributed).toBe(true);
+
+    const expansion = expandBucket(scene, seed);
+    expect(expansion.ok).toBe(true);
+    if (expansion.ok) {
+      // The gesture's contract: every member attributes to the same bucket
+      // the seed (and the teach-mode tooltip) reports, the seed is included,
+      // and vanished as-built members are skipped rather than invented.
+      expect(expansion.members.length).toBeGreaterThan(0);
+      expect(expansion.members.length).toBeLessThanOrEqual(seedPick.producer!.bucketSize);
+      expect(expansion.members.some(m => m.sub.index === seed.sub.index)).toBe(true);
+      const memberPicks = explainSelection(scene, expansion.members).picks;
+      for (const pick of memberPicks) {
+        expect(pick.attributed).toBe(true);
+        expect(pick.producer!.featureType).toBe(seedPick.producer!.featureType);
+        expect(pick.producer!.bucketKey).toBe(seedPick.producer!.bucketKey);
+      }
+    }
+  });
+
+  it("refuses a pick with no classified bucket", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    extrude(30);
+    select(edge().verticalTo("xy"));
+    fillet(5);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    // A fillet-born arc edge attributes to no bucket.
+    const explained = explainSelection(scene, allEdgeRefs(solid));
+    const unattributed = explained.picks.find(p => !p.attributed && !p.lineage);
+    expect(unattributed).toBeDefined();
+
+    const expansion = expandBucket(scene, unattributed!.ref);
+    expect(expansion.ok).toBe(false);
+    if (expansion.ok === false) {
+      expect(expansion.reason).toContain("bucket");
     }
   });
 });

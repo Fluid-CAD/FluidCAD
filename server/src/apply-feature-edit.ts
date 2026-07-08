@@ -180,6 +180,176 @@ export async function applyFeatureEdit(
 }
 
 /**
+ * Build a synchronous producer→name lookup over `code` for the synthesis
+ * preview, using exactly the binding rules `applyFeatureEdit` applies:
+ * reuse an existing `const` name, otherwise allocate the hint suffixed past
+ * every identifier already in the file. Returning the same names the
+ * transform will write keeps the previewed expression (and any
+ * selectorOverride the user types against it) truthful. Producers this can't
+ * resolve (stale line, non-producer callee, nested call) map to null and the
+ * synthesis falls back to plain hint names.
+ */
+export async function makeProducerNamer(
+  code: string,
+): Promise<(producers: { line: number; nameHint: string }[]) => (string | null)[]> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const lines = splitLines(code);
+
+  const fileIdentifiers = new Set<string>();
+  for (const node of walkTree(tree.rootNode)) {
+    if (node.type === 'identifier'
+      || node.type === 'property_identifier'
+      || node.type === 'shorthand_property_identifier') {
+      fileIdentifiers.add(node.text);
+    }
+  }
+
+  return (producers) => {
+    const used = new Set(fileIdentifiers);
+    return producers.map(producer => {
+      const call = findEditableCallAt(tree, lines, producer.line);
+      if (!call) {
+        return null;
+      }
+      const root = chainRootCallee(call);
+      if (!root || !PRODUCER_CALLEES.has(root)) {
+        return null;
+      }
+      const resolved = resolveStatement(call);
+      if ('error' in resolved) {
+        return null;
+      }
+      if (!resolved.needsBinding && resolved.varName) {
+        return resolved.varName;
+      }
+      const hint = producer.nameHint || 'f';
+      let name = hint;
+      let suffix = 1;
+      while (used.has(name)) {
+        suffix++;
+        name = `${hint}${suffix}`;
+      }
+      used.add(name);
+      return name;
+    });
+  };
+}
+
+export type ExtractedParam = {
+  name: string;
+  value: number;
+  /** Set for `param("Label", 12)` declarations — resolve against the registry. */
+  label?: string;
+};
+
+/** Numeric literal text of a node, accepting a unary minus. */
+function numericLiteralText(node: TSNode): string | null {
+  if (node.type === 'number') {
+    return node.text;
+  }
+  if (node.type === 'unary_expression' && node.text.startsWith('-')
+    && node.namedChildren.length === 1 && node.namedChildren[0].type === 'number') {
+    return node.text;
+  }
+  return null;
+}
+
+/**
+ * Extract the file's top-level numeric constants for parameter linking:
+ * synthesis renders a dimension constant as the user's variable when the
+ * values match exactly. Two initializer forms qualify — a plain numeric
+ * literal (`const height = 30`) and a `param("Label", 12)` declaration
+ * (which returns the resolved number at runtime; the label lets the caller
+ * substitute the registry's current, override-aware value). Only
+ * program-root declarations qualify — they are in scope wherever the
+ * feature statement is inserted; function-local variables are skipped
+ * rather than risking a reference error.
+ */
+export async function extractNumericParams(code: string): Promise<ExtractedParam[]> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const params: ExtractedParam[] = [];
+
+  for (const statement of tree.rootNode.namedChildren) {
+    if (statement.type !== 'lexical_declaration' && statement.type !== 'variable_declaration') {
+      continue;
+    }
+    for (const declarator of statement.namedChildren) {
+      if (declarator.type !== 'variable_declarator') {
+        continue;
+      }
+      const name = declarator.childForFieldName('name');
+      const value = declarator.childForFieldName('value');
+      if (!name || name.type !== 'identifier' || !value) {
+        continue;
+      }
+
+      const literal = numericLiteralText(value);
+      if (literal !== null) {
+        const parsed = Number(literal);
+        if (Number.isFinite(parsed)) {
+          params.push({ name: name.text, value: parsed });
+        }
+        continue;
+      }
+
+      // const x = param("Label", 12[, ...]) — link by the param's value.
+      if (value.type === 'call_expression') {
+        const fn = value.childForFieldName('function');
+        const args = value.childForFieldName('arguments');
+        if (!fn || fn.type !== 'identifier' || fn.text !== 'param' || !args) {
+          continue;
+        }
+        const [labelNode, defaultNode] = args.namedChildren;
+        if (!labelNode || labelNode.type !== 'string' || !defaultNode) {
+          continue;
+        }
+        const defaultText = numericLiteralText(defaultNode);
+        if (defaultText === null) {
+          continue;
+        }
+        const parsed = Number(defaultText);
+        if (Number.isFinite(parsed)) {
+          params.push({
+            name: name.text,
+            value: parsed,
+            label: labelNode.text.slice(1, -1),
+          });
+        }
+      }
+    }
+  }
+  return params;
+}
+
+/**
+ * Replace `param()`-declared defaults with the registry's current values —
+ * the scene was built with those, so linking against the source default when
+ * an override is active would emit a filter that matches nothing. Params
+ * whose current value is not a finite number (select/text) never link; a
+ * label the registry doesn't know keeps the source default.
+ */
+export function resolveParamValues(
+  entries: ExtractedParam[],
+  definitions: { label: string; currentValue: unknown }[],
+): { name: string; value: number }[] {
+  const byLabel = new Map(definitions.map(d => [d.label, d.currentValue]));
+  const resolved: { name: string; value: number }[] = [];
+  for (const entry of entries) {
+    if (entry.label === undefined || !byLabel.has(entry.label)) {
+      resolved.push({ name: entry.name, value: entry.value });
+      continue;
+    }
+    const current = byLabel.get(entry.label);
+    if (typeof current === 'number' && Number.isFinite(current)) {
+      resolved.push({ name: entry.name, value: current });
+    }
+  }
+  return resolved;
+}
+
+/**
  * web-tree-sitter mints a fresh wrapper object on every node access, so
  * reference equality between wrappers is meaningless — compare by span.
  */

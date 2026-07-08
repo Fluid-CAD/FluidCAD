@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { FluidCadServer } from '../fluidcad-server.ts';
-import { applyFeatureEdit } from '../apply-feature-edit.ts';
+import { applyFeatureEdit, extractNumericParams, makeProducerNamer, resolveParamValues } from '../apply-feature-edit.ts';
 
 const MAX_ENTITIES = 32;
 
@@ -85,7 +85,7 @@ export function createApplyFeatureRouter(
   // edit spec to the editor extension, which owns the live buffer.
   // `preview: true` runs synthesis only (backs the expression field);
   // `selectorOverride` replaces the argument list with user-edited text.
-  router.post('/apply-feature', (req, res) => {
+  router.post('/apply-feature', async (req, res) => {
     const { feature, value, preview, selectorOverride } = req.body ?? {};
     const picks = validatePicks(req.body?.entities);
     if (!picks) {
@@ -112,7 +112,22 @@ export function createApplyFeatureRouter(
     }
 
     try {
-      const synthesis = fluidCadServer.synthesizeApplyFeature(picks, feature, value, chains);
+      // Source-derived context from the live buffer: the namer keeps
+      // previewed variable names truthful to the transform (reused const
+      // names, collisions suffixed past file identifiers); params let
+      // synthesized dimension constants render as the user's own variables.
+      // Without a buffer, synthesis falls back to hints and bare numbers.
+      const code = fluidCadServer.getCurrentCode();
+      const options = code
+        ? {
+          namer: await makeProducerNamer(code),
+          params: resolveParamValues(
+            await extractNumericParams(code),
+            fluidCadServer.getParamDefinitions(),
+          ),
+        }
+        : undefined;
+      const synthesis = fluidCadServer.synthesizeApplyFeature(picks, feature, value, chains, options);
       if (!synthesis) {
         res.status(404).json({ success: false, reason: 'No rendered scene' });
         return;
@@ -150,6 +165,30 @@ export function createApplyFeatureRouter(
     }
     try {
       const result = fluidCadServer.expandTangentChain(pick);
+      if (!result) {
+        res.status(404).json({ error: 'No rendered scene' });
+        return;
+      }
+      if (result.ok === false) {
+        res.status(422).json({ error: result.reason });
+        return;
+      }
+      res.json({ members: result.members });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? String(err) });
+    }
+  });
+
+  // Expand a picked edge/face to its whole classified bucket — the
+  // double-click gesture. Read-only against the last render.
+  router.post('/selection/expand-bucket', (req, res) => {
+    const pick = validatePick(req.body?.entity);
+    if (!pick) {
+      res.status(400).json({ error: 'entity must be a {shapeId, sub:{type, index}} pick' });
+      return;
+    }
+    try {
+      const result = fluidCadServer.expandBucket(pick);
       if (!result) {
         res.status(404).json({ error: 'No rendered scene' });
         return;

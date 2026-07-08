@@ -1,4 +1,4 @@
-import { applyFeature, expandTangents, explainSelection, ApplyFeatureChain, ApplyFeatureResponse } from '../api';
+import { applyFeature, expandBucket, expandTangents, explainSelection, ApplyFeatureChain, ApplyFeatureResponse } from '../api';
 import { isTopLevel } from '../helpers/scene-utils';
 import { SceneObjectRender, SubSelection } from '../types';
 import { SelectedEntity, Viewer } from '../viewer';
@@ -322,6 +322,40 @@ export class ModifyPickService {
       this.viewer.clearHighlight();
     }
     this.refresh();
+  }
+
+  /**
+   * Double-click: expand the pick to its whole classified bucket ("the whole
+   * top rim"). The gesture's own two single clicks have already toggled the
+   * entity; the expansion merges every surviving bucket member as a plain
+   * pick, so the seed ends up selected either way.
+   */
+  async handleDoubleClick(shapeId: string | null, sub: SubSelection): Promise<void> {
+    if (!this.feature || !shapeId || !sub) {
+      return;
+    }
+    this.hideContextMenu();
+    this.hideTooltip();
+
+    const entity: SelectedEntity = { shapeId, sub };
+    const result = await expandBucket(entity);
+    if (!this.feature) {
+      return;
+    }
+    if ('error' in result) {
+      this.setMessage(result.error);
+      return;
+    }
+    this.setMessage(null);
+    const have = new Set(this.entities.map(entityKey));
+    const added = result.members
+      .map(m => ({ shapeId: m.shapeId, sub: m.sub }))
+      .filter(m => !have.has(entityKey(m)));
+    if (added.length > 0) {
+      this.entities = [...this.entities, ...added];
+      this.viewer.highlightEntities(this.entities);
+      this.refresh();
+    }
   }
 
   /** Teach-mode tooltip: hover → attribution expression, debounced + cached. */

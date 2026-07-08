@@ -2,7 +2,8 @@ import { Shape } from "../common/shape.js";
 import { Scene } from "../rendering/scene.js";
 import { Explorer } from "../oc/explorer.js";
 import { TangentExpander } from "../filters/tangent-expander.js";
-import { resolvePickShape } from "./attribution.js";
+import { attributePick, resolvePickShape } from "./attribution.js";
+import { SelectionIndex } from "./selection-index.js";
 import { PickRef } from "./types.js";
 
 export type ExpandTangentsResult =
@@ -48,4 +49,50 @@ export function expandTangentChain(scene: Scene, ref: PickRef): ExpandTangentsRe
       sub: { type: ref.sub.type, index },
     })),
   };
+}
+
+/**
+ * Expand a picked edge (or face) to its whole classified bucket — the
+ * double-click gesture ("the whole top rim"). Bucket members are as-built
+ * wrappers; the `IsSame`-consistent hash keys bridge them onto the picked
+ * solid's mesh-order universe, so members a later boolean consumed are
+ * skipped naturally.
+ */
+export function expandBucket(scene: Scene, ref: PickRef): ExpandTangentsResult {
+  const index = new SelectionIndex(scene);
+  try {
+    const attr = attributePick(scene, index, ref);
+    if (attr.error) {
+      return { ok: false, reason: attr.error };
+    }
+    if (!attr.producer) {
+      return { ok: false, reason: 'this pick has no classified bucket to expand to' };
+    }
+
+    const memberKeys = new Set(attr.producer.bucket.memberKeys);
+    const universe: Shape[] = ref.sub.type === 'face'
+      ? Explorer.findFacesWrapped(attr.solidShape)
+      : Explorer.findEdgesWrapped(attr.solidShape);
+
+    const indices: number[] = [];
+    universe.forEach((shape, universeIndex) => {
+      if (memberKeys.has(index.keyOf(shape))) {
+        indices.push(universeIndex);
+      }
+    });
+
+    if (indices.length === 0) {
+      return { ok: false, reason: 'no bucket member survives on the current solid' };
+    }
+
+    return {
+      ok: true,
+      members: indices.map(universeIndex => ({
+        shapeId: ref.shapeId,
+        sub: { type: ref.sub.type, index: universeIndex },
+      })),
+    };
+  } finally {
+    index.dispose();
+  }
 }

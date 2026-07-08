@@ -47,6 +47,16 @@ export class Chamfer extends SceneObject {
       }
     }
 
+    if (edges.length === 0) {
+      this.setError(
+        this.selections.length === 0
+          ? "chamfer: no edges selected — nothing was chamfered."
+          : "chamfer: the selection resolved to no edges — nothing was chamfered.\n" +
+            "Hint: a later operation may have removed the selected edges, or the " +
+            "filter matched nothing. Re-select on the final model or widen the filter."
+      );
+    }
+
     const newShapes = [];
 
     const shapeObjectMap = new Map<Shape, SceneObject>();
@@ -110,9 +120,24 @@ export class Chamfer extends SceneObject {
           newShapes.push(cleaned);
         }
       } catch {
+        // OCCT refused the chamfer (distance too large for the adjacent
+        // geometry, tangency trouble, …). Keep the original solid in the
+        // scene, but surface the failure instead of silently skipping it.
         console.error("Fillet: Failed to create chamfer.");
+        this.setError(
+          "chamfer: could not chamfer the selected edges — the distance may be " +
+          "too large for the adjacent geometry. The solid was left unchamfered."
+        );
         continue;
       }
+    }
+
+    if (edges.length > 0) {
+      this.setError(
+        `chamfer: ${edges.length} selected edge(s) matched no solid in the scene ` +
+        "and were skipped.\n" +
+        "Hint: a later operation may have consumed them — re-select on the final model."
+      );
     }
 
     for (const selection of this.selections) {

@@ -16,6 +16,8 @@ import {
   PickDescriptors,
   PickExplanation,
   PickRef,
+  ProducerNamer,
+  SynthesizeOptions,
   nameHintFor,
 } from "./types.js";
 
@@ -50,6 +52,7 @@ export function synthesizeApplyFeature(
   feature: ApplyFeatureKind,
   value: number,
   chains: PickChain[] = [],
+  options: SynthesizeOptions = {},
 ): ApplyFeatureSynthesis {
   if (refs.length === 0 && chains.length === 0) {
     return { ok: false, reason: 'nothing selected' };
@@ -66,7 +69,7 @@ export function synthesizeApplyFeature(
       members: c.members.map(m => attributePick(scene, index, m)),
     }));
 
-    const synthesis = synthesizeSelectors(scene, index, attributions, chainInputs);
+    const synthesis = synthesizeSelectors(scene, index, attributions, chainInputs, options.params ?? []);
     if (synthesis.ok === false) {
       return { ok: false, reason: synthesis.reason, pick: synthesis.pick };
     }
@@ -86,7 +89,7 @@ export function synthesizeApplyFeature(
     }
 
     const winners = synthesis.groups.map(g => g.winner);
-    const names = allocateNames(synthesis.producers);
+    const names = allocateNames(synthesis.producers, options.namer);
     const renderParts = (parts: SelectorPart[]) =>
       parts.map(part => renderPartArgs(part, names)).join(', ');
 
@@ -145,14 +148,43 @@ function refKey(ref: PickRef): string {
 }
 
 /**
- * Preview names per bound producer, mirroring the transform's hint-suffix
- * allocation. The transform additionally collision-checks against the file's
- * identifiers, so a colliding file variable can still shift the final name.
+ * Preview names per bound producer. When a `namer` is provided (the server
+ * builds one over the live buffer with the transform's own binding logic),
+ * its names win — so the preview shows the reused `const` name or the
+ * collision-free allocation the transform will actually write. Without one,
+ * fall back to the plain hint-suffix scheme.
  */
-function allocateNames(producers: SceneObject[]): Map<SceneObject, string> {
+function allocateNames(producers: SceneObject[], namer?: ProducerNamer): Map<SceneObject, string> {
+  let external: (string | null)[] | null = null;
+  if (namer) {
+    try {
+      const described = producers.map(producer => {
+        const loc = producer.getSourceLocation()!;
+        return {
+          line: loc.line,
+          column: loc.column,
+          featureType: producer.getType(),
+          nameHint: nameHintFor(producer.getType()),
+        };
+      });
+      const result = namer(described);
+      if (Array.isArray(result) && result.length === producers.length) {
+        external = result;
+      }
+    } catch {
+      // A namer failure must never block synthesis — fall back to hints.
+    }
+  }
+
   const names = new Map<SceneObject, string>();
   const used = new Set<string>();
-  for (const producer of producers) {
+  producers.forEach((producer, producerIndex) => {
+    const externalName = external ? external[producerIndex] : null;
+    if (typeof externalName === 'string' && externalName.length > 0) {
+      names.set(producer, externalName);
+      used.add(externalName);
+      return;
+    }
     const hint = nameHintFor(producer.getType());
     let name = hint;
     let suffix = 1;
@@ -162,7 +194,7 @@ function allocateNames(producers: SceneObject[]): Map<SceneObject, string> {
     }
     used.add(name);
     names.set(producer, name);
-  }
+  });
   return names;
 }
 
@@ -221,10 +253,19 @@ function explainPick(scene: Scene, index: SelectionIndex, ref: PickRef): PickExp
       sharedCallSite: index.isSharedCallSite(feature),
       isClone: !!feature.getCloneSource(),
     };
-    const hint = nameHintFor(feature.getType());
     const at = loc ? ` @ line ${loc.line}` : '';
-    explanation.expression =
-      `${hint}.${def.accessor}(${attr.producer.index}) — ${def.key.replace('-', ' ')} of ${feature.getType()}()${at}`;
+    const bindable = !explanation.producer.sharedCallSite && !explanation.producer.isClone;
+    if (bindable) {
+      const hint = nameHintFor(feature.getType());
+      explanation.expression =
+        `${hint}.${def.accessor}(${attr.producer.index}) — ${def.key.replace('-', ' ')} of ${feature.getType()}()${at}`;
+    } else {
+      // No variable can be bound to a clone or shared call site, so the
+      // accessor form would be a lie — say what will actually be synthesized.
+      const why = explanation.producer.isClone ? 'repeat instance' : 'shared call site';
+      explanation.expression =
+        `${def.key.replace('-', ' ')} of ${feature.getType()}()${at} (${why}) — a geometric select() will be synthesized`;
+    }
   } else if (attr.lineage) {
     explanation.lineage = {
       classifiedAccessor: attr.lineage.classified?.bucket.def.accessor ?? null,

@@ -68,6 +68,16 @@ export class Fillet extends SceneObject {
     console.log('Fillet: Target edges total count:', edges.length);
     console.log('Fillet: Scene objects count:', sceneObjectsMap.size);
 
+    if (edges.length === 0) {
+      this.setError(
+        selections.length === 0
+          ? "fillet: no edges selected — nothing was filleted."
+          : "fillet: the selection resolved to no edges — nothing was filleted.\n" +
+            "Hint: a later operation may have removed the selected edges, or the " +
+            "filter matched nothing. Re-select on the final model or widen the filter."
+      );
+    }
+
     const sceneShapeObjectMap = new Map<Shape, SceneObject>();
 
     for (const [obj, shapes] of sceneObjectsMap.entries()) {
@@ -102,9 +112,24 @@ export class Fillet extends SceneObject {
           addedShapes.push(newSolid);
         }
       } catch {
+        // OCCT refused the fillet (radius too large for the adjacent
+        // geometry, tangency trouble, …). Keep the original solid in the
+        // scene, but surface the failure instead of silently skipping it.
         console.error("Fillet: Failed to create fillet.");
+        this.setError(
+          "fillet: could not fillet the selected edges — the radius may be " +
+          "too large for the adjacent geometry. The solid was left unfilleted."
+        );
         continue;
       }
+    }
+
+    if (edges.length > 0) {
+      this.setError(
+        `fillet: ${edges.length} selected edge(s) matched no solid in the scene ` +
+        "and were skipped.\n" +
+        "Hint: a later operation may have consumed them — re-select on the final model."
+      );
     }
 
     for (const selection of selections) {

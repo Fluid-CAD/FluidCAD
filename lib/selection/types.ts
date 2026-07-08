@@ -111,6 +111,31 @@ export type ApplyFeatureSynthesis =
   | { ok: false; reason: string; pick?: PickRef };
 
 /**
+ * Optional hook giving synthesis the variable names the code transform will
+ * actually use (reused `const` bindings, file-collision-free hint names).
+ * Called with the bindable producers in spec order; returns one name per
+ * producer, null meaning "no better knowledge — allocate a default hint".
+ * Implementations must be pure lookups over already-parsed source.
+ */
+export type ProducerNamer = (producers: {
+  line: number;
+  column: number;
+  featureType: string;
+  nameHint: string;
+}[]) => (string | null)[];
+
+/**
+ * Source-derived context for synthesis, built server-side from the live
+ * buffer: `namer` keeps previewed variable names truthful to the transform;
+ * `params` are the file's top-level numeric constants, letting dimension
+ * constants render as the user's own variables (`onPlane('xy', height)`).
+ */
+export type SynthesizeOptions = {
+  namer?: ProducerNamer;
+  params?: { name: string; value: number }[];
+};
+
+/**
  * Chain-root callees the code transform accepts at a producer's source line.
  * Guards against binding a variable to a wrapper call (e.g. `repeat(...)`)
  * whose line a clone inherited.

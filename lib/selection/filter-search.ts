@@ -1,4 +1,5 @@
 import { Edge } from "../common/edge.js";
+import { SceneObject } from "../common/scene-object.js";
 import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
@@ -10,7 +11,7 @@ import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { injectBelongsToFaceScope } from "../filters/scope-injection.js";
 import { SelectionIndex, BucketRecord } from "./selection-index.js";
 import { PickAttribution } from "./attribution.js";
-import { Atom, instantiateEdgeAtoms, instantiateFaceAtoms } from "./atoms.js";
+import { Atom, ParameterLink, instantiateEdgeAtoms, instantiateFaceAtoms } from "./atoms.js";
 import { induceConjunction } from "./induction.js";
 import { probeEdge, probeFace } from "./probe.js";
 
@@ -40,7 +41,11 @@ export type InducedFilter = {
   builders: FilterBuilderBase<Shape>[];
 };
 
-export function bucketContext(bucket: BucketRecord, orSplit: boolean): InductionContext {
+export function bucketContext(
+  bucket: BucketRecord,
+  orSplit: boolean,
+  params: ParameterLink[] = [],
+): InductionContext {
   return {
     universeKeys: bucket.memberKeys,
     kindFn: bucket.def.kind,
@@ -50,19 +55,33 @@ export function bucketContext(bucket: BucketRecord, orSplit: boolean): Induction
         attrs.map(a => probeEdge(a.picked as Edge, a.solidShape)),
         bucket.members as Edge[],
         false,
+        params,
       ) as Atom<FilterBuilderBase<Shape>>[]
       : instantiateFaceAtoms(
         attrs.map(a => probeFace(a.picked as Face)),
         bucket.members as Face[],
+        params,
       ) as Atom<FilterBuilderBase<Shape>>[],
     orSplit,
   };
 }
 
-export function globalContext(scene: Scene, index: SelectionIndex, kind: 'edge' | 'face'): InductionContext {
+export function globalContext(
+  scene: Scene,
+  index: SelectionIndex,
+  kind: 'edge' | 'face',
+  params: ParameterLink[] = [],
+  partScope: SceneObject | null = null,
+): InductionContext {
   const solids: Solid[] = [];
   const seenSolids = new Set<string>();
   for (const obj of scene.getAllSceneObjects()) {
+    // A select() statement inserted inside a part() body only sees that
+    // part's objects (getPartScopedObjectsUpTo); mirror it here so
+    // verification runs over the same universe the emitted code will.
+    if (partScope && scene.findEnclosingPart(obj) !== partScope) {
+      continue;
+    }
     for (const shape of obj.getShapes({}, 'solid')) {
       if (shape instanceof Solid && !seenSolids.has(shape.id)) {
         seenSolids.add(shape.id);
@@ -103,10 +122,12 @@ export function globalContext(scene: Scene, index: SelectionIndex, kind: 'edge' 
         attrs.map(a => probeEdge(a.picked as Edge, a.solidShape)),
         universe as Edge[],
         true,
+        params,
       ) as Atom<FilterBuilderBase<Shape>>[]
       : instantiateFaceAtoms(
         attrs.map(a => probeFace(a.picked as Face)),
         universe as Face[],
+        params,
       ) as Atom<FilterBuilderBase<Shape>>[],
     orSplit: true,
   };

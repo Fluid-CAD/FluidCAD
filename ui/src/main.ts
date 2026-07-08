@@ -146,6 +146,12 @@ viewer.setContextMenuHandler((shapeId, sub, clientX, clientY) => {
   }
 });
 
+viewer.setDoubleClickHandler((shapeId, sub) => {
+  if (modifyService.isActive) {
+    modifyService.handleDoubleClick(shapeId, sub);
+  }
+});
+
 viewer.setSelectionHandler((shapeId, sub, modifiers) => {
   // An armed modify mode (fillet/chamfer) owns clicks outright.
   if (modifyService.isActive) {

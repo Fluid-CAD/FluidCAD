@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
@@ -7,8 +7,11 @@ import select from "../../core/select.js";
 import cylinder from "../../core/cylinder.js";
 import { circle, rect } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
+import { Extrude } from "../../features/extrude.js";
+import { Chamfer } from "../../features/chamfer.js";
 import { countShapes } from "../utils.js";
 import { getEdgesByType, getFacesByType } from "../utils.js";
+import { FilletOps } from "../../oc/fillet-ops.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ShapeProps } from "../../oc/props.js";
 import { edge } from "../../filters/index.js";
@@ -204,6 +207,62 @@ describe("chamfer", () => {
       const scene = render();
 
       expect(countShapes(scene)).toBe(1);
+    });
+  });
+
+  describe("failure surfacing", () => {
+    function findSolid() {
+      return render().getAllSceneObjects()
+        .flatMap(o => o.getShapes())
+        .find(s => s.getType() === "solid") as Solid;
+    }
+
+    it("flags an error when a lazy selection resolves to no edges", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(30) as Extrude;
+
+      // Accessor selections are lazy, so validate() can't see their
+      // emptiness — the build itself must surface it.
+      const c = chamfer(5, e.endEdges(edge().circle(999))) as Chamfer;
+
+      const solid = findSolid();
+
+      expect(c.getError()).toBeTruthy();
+      expect(c.getError()).toContain("chamfer");
+      expect(c.getError()).toContain("no edges");
+
+      // The solid is untouched, just no longer silently.
+      expect(ShapeProps.getProperties(solid.getShape()).volumeMm3).toBeCloseTo(100 * 50 * 30, 1);
+    });
+
+    it("flags an error instead of silently skipping when OCCT refuses the chamfer", () => {
+      const spy = vi.spyOn(FilletOps, "makeChamfer").mockImplementation(() => {
+        throw new Error("chamfer failed");
+      });
+
+      try {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+        extrude(30);
+
+        select(edge().verticalTo("xy"));
+        const c = chamfer(5) as Chamfer;
+
+        const solid = findSolid();
+
+        expect(c.getError()).toBeTruthy();
+        expect(c.getError()).toContain("distance");
+
+        // The original solid is preserved so downstream features still
+        // have geometry to work with.
+        expect(solid).toBeDefined();
+        expect(ShapeProps.getProperties(solid.getShape()).volumeMm3).toBeCloseTo(100 * 50 * 30, 1);
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 });

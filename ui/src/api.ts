@@ -361,8 +361,22 @@ export async function applyFeature(
 export async function expandTangents(
   entity: ApplyFeatureEntity,
 ): Promise<{ members: ApplyFeatureEntity[] } | { error: string }> {
+  return expandSelection('/api/selection/expand-tangents', entity);
+}
+
+/** Expand a picked edge/face to its whole classified bucket. */
+export async function expandBucket(
+  entity: ApplyFeatureEntity,
+): Promise<{ members: ApplyFeatureEntity[] } | { error: string }> {
+  return expandSelection('/api/selection/expand-bucket', entity);
+}
+
+async function expandSelection(
+  endpoint: string,
+  entity: ApplyFeatureEntity,
+): Promise<{ members: ApplyFeatureEntity[] } | { error: string }> {
   try {
-    const res = await fetch('/api/selection/expand-tangents', {
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ entity }),

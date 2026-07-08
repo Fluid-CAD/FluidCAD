@@ -7,6 +7,7 @@ import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { SelectionIndex, BucketRecord } from "./selection-index.js";
 import { PickAttribution } from "./attribution.js";
+import { ParameterLink } from "./atoms.js";
 import { PickRef } from "./types.js";
 import {
   bucketContext,
@@ -66,6 +67,7 @@ export function synthesizeSelectors(
   index: SelectionIndex,
   attributions: PickAttribution[],
   chains: SelectorChain[] = [],
+  params: ParameterLink[] = [],
 ): SelectorSynthesis {
   const allAttributions = [
     ...attributions,
@@ -112,7 +114,7 @@ export function synthesizeSelectors(
   };
 
   for (const [bucket, groupAttrs] of bucketGroups) {
-    const failure = addGroup(synthesizeBucketCandidates(index, bucket, groupAttrs));
+    const failure = addGroup(synthesizeBucketCandidates(index, bucket, groupAttrs, params));
     if (failure) {
       return failure;
     }
@@ -123,14 +125,14 @@ export function synthesizeSelectors(
     if (pool.length === 0) {
       continue;
     }
-    const failure = addGroup(synthesizeGlobalCandidates(scene, index, kind, pool));
+    const failure = addGroup(synthesizeGlobalCandidates(scene, index, kind, pool, params));
     if (failure) {
       return failure;
     }
   }
 
   for (const chain of chains) {
-    const failure = addGroup(synthesizeChainCandidates(scene, index, chain));
+    const failure = addGroup(synthesizeChainCandidates(scene, index, chain, params));
     if (failure) {
       return failure;
     }
@@ -179,6 +181,7 @@ function synthesizeBucketCandidates(
   index: SelectionIndex,
   bucket: BucketRecord,
   groupAttrs: PickAttribution[],
+  params: ParameterLink[],
 ): GroupResult {
   const pickKeys = new Set(groupAttrs.map(a => a.pickedKey!));
   const feature = bucket.feature;
@@ -193,7 +196,7 @@ function synthesizeBucketCandidates(
   }
 
   if (!wholeBucket) {
-    const induced = induceFilterArgs(index, bucketContext(bucket, false), groupAttrs, pickKeys);
+    const induced = induceFilterArgs(index, bucketContext(bucket, false, params), groupAttrs, pickKeys);
     if (induced) {
       candidates.push({
         producer: feature,
@@ -237,14 +240,17 @@ function synthesizeGlobalCandidates(
   index: SelectionIndex,
   kind: 'edge' | 'face',
   pool: PickAttribution[],
+  params: ParameterLink[],
 ): GroupResult {
-  const guard = multiPartGuard(scene, kind, pool[0].ref);
-  if (guard) {
-    return guard;
+  const scope = resolvePartScope(scene, pool);
+  if (scope.ok === false) {
+    return scope;
   }
 
   const pickKeys = new Set(pool.map(a => a.pickedKey!));
-  const induced = induceFilterArgs(index, globalContext(scene, index, kind), pool, pickKeys);
+  const induced = induceFilterArgs(
+    index, globalContext(scene, index, kind, params, scope.part), pool, pickKeys,
+  );
   if (!induced) {
     return { ok: false, reason: globalFailureReason(kind, pool), pick: pool[0].ref };
   }
@@ -269,6 +275,7 @@ function synthesizeChainCandidates(
   scene: Scene,
   index: SelectionIndex,
   chain: SelectorChain,
+  params: ParameterLink[],
 ): GroupResult {
   const kind = chain.seed.ref.sub.type;
   const members = chain.members;
@@ -293,7 +300,7 @@ function synthesizeChainCandidates(
       });
     }
 
-    const ctx = bucketContext(bucket, false);
+    const ctx = bucketContext(bucket, false, params);
     const seedInduced = induceFilterArgs(index, ctx, [chain.seed], seedKeys);
     if (seedInduced) {
       for (const builder of seedInduced.builders) {
@@ -340,12 +347,12 @@ function synthesizeChainCandidates(
     // scene-wide universe.
   }
 
-  const guard = multiPartGuard(scene, kind, chain.seed.ref);
-  if (guard) {
-    return guard;
+  const scope = resolvePartScope(scene, [chain.seed]);
+  if (scope.ok === false) {
+    return scope;
   }
 
-  const globalCtx = globalContext(scene, index, kind);
+  const globalCtx = globalContext(scene, index, kind, params, scope.part);
   const candidates: SelectorPart[] = [];
 
   const seedInduced = induceFilterArgs(index, globalCtx, [chain.seed], seedKeys);
@@ -382,15 +389,25 @@ function synthesizeChainCandidates(
   return { ok: true, candidates };
 }
 
-function multiPartGuard(scene: Scene, kind: 'edge' | 'face', pick: PickRef): { ok: false; reason: string; pick: PickRef } | null {
-  if (scene.getAllSceneObjects().some(o => o.getType() === 'part')) {
+/**
+ * The part() scope a select()-based edit will execute in: the container all
+ * picked solids live in (null = unparted, which sees the whole scene). One
+ * statement executes in one scope, so picks spanning different parts are
+ * refused rather than emitting a select() that cannot reach half of them.
+ */
+function resolvePartScope(
+  scene: Scene,
+  pool: PickAttribution[],
+): { ok: true; part: SceneObject | null } | { ok: false; reason: string; pick: PickRef } {
+  const parts = new Set(pool.map(a => scene.findEnclosingPart(a.solidOwner!)));
+  if (parts.size > 1) {
     return {
       ok: false,
-      reason: `the picked ${kind}s need a scene-wide select(), which is not supported in multi-part files yet — select them in code with a geometric filter`,
-      pick,
+      reason: 'the picked entities live in different part() scopes — one statement cannot select across parts; apply the feature per part',
+      pick: pool[0].ref,
     };
   }
-  return null;
+  return { ok: true, part: parts.values().next().value ?? null };
 }
 
 /** Honest failure message for picks even a scene-wide filter can't separate. */

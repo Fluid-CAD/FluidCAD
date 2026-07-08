@@ -28,6 +28,31 @@ export type Atom<B> = {
 export type EdgeAtom = Atom<EdgeFilterBuilder>;
 export type FaceAtom = Atom<FaceFilterBuilder>;
 
+/**
+ * A user source variable a synthesized constant may link to: when a
+ * dimension-like constant equals `value` exactly, the atom's rendered text
+ * emits `name` instead of the bare number (`onPlane('xy', height)`), so the
+ * selector tracks the user's parameter through future edits. Counts
+ * (`edgeCount`) and synthetic gap thresholds (`above`/`below`) never link —
+ * a name there would imply provenance the number doesn't have.
+ */
+export type ParameterLink = { name: string; value: number };
+
+/**
+ * Format a dimension-like constant, preferring the name of an exactly-equal
+ * user parameter. Exact equality (post-rounding) keeps the verification
+ * invariant intact: the emitted expression evaluates to the same number the
+ * verified builder used.
+ */
+function linkedConstant(value: number, params: ParameterLink[]): { text: string; value: number } {
+  const c = formatConstant(value);
+  const match = params.find(p => p.value === c.value);
+  if (match) {
+    return { text: match.name, value: c.value };
+  }
+  return c;
+}
+
 type PrincipalPlane = { name: 'xy' | 'xz' | 'yz'; axis: 'z' | 'y' | 'x' };
 
 const PRINCIPAL_PLANES: PrincipalPlane[] = [
@@ -65,6 +90,7 @@ export function instantiateEdgeAtoms(
   probes: EdgeProbe[],
   universe: Edge[],
   allowScoped: boolean,
+  params: ParameterLink[] = [],
 ): EdgeAtom[] {
   const atoms: EdgeAtom[] = [];
 
@@ -73,7 +99,7 @@ export function instantiateEdgeAtoms(
     atoms.push({ code: '.line()', addTo: b => b.line(), weight: 30, constants: 0, needsScope: false });
     const length = sharedNumber(probes.map(p => p.props.length));
     if (length !== null) {
-      const c = formatConstant(length);
+      const c = linkedConstant(length, params);
       atoms.push({ code: `.line(${c.text})`, addTo: b => b.line(c.value), weight: 15, constants: 1, needsScope: false });
     }
   }
@@ -81,7 +107,7 @@ export function instantiateEdgeAtoms(
     atoms.push({ code: '.arc()', addTo: b => b.arc(), weight: 30, constants: 0, needsScope: false });
     const radius = sharedNumber(probes.map(p => p.props.radius));
     if (radius !== null) {
-      const c = formatConstant(radius);
+      const c = linkedConstant(radius, params);
       atoms.push({ code: `.arc(${c.text})`, addTo: b => b.arc(c.value), weight: 15, constants: 1, needsScope: false });
     }
   }
@@ -89,7 +115,7 @@ export function instantiateEdgeAtoms(
     atoms.push({ code: '.circle()', addTo: b => b.circle(), weight: 30, constants: 0, needsScope: false });
     const radius = sharedNumber(probes.map(p => p.props.radius));
     if (radius !== null) {
-      const c = formatConstant(radius * 2);
+      const c = linkedConstant(radius * 2, params);
       atoms.push({ code: `.circle(${c.text})`, addTo: b => b.circle(c.value), weight: 15, constants: 1, needsScope: false });
     }
   }
@@ -109,7 +135,7 @@ export function instantiateEdgeAtoms(
     const coords = probes.flatMap(p => [...p.ends, p.mid]).map(pt => pt[plane.axis]);
     const shared = sharedNumber(coords);
     if (shared !== null) {
-      atoms.push(onPlaneAtom<EdgeFilterBuilder>(plane, shared, (b, offset) =>
+      atoms.push(onPlaneAtom<EdgeFilterBuilder>(plane, shared, params, (b, offset) =>
         offset === 0 ? b.onPlane(plane.name) : b.onPlane(plane.name, offset)));
     }
   }
@@ -121,13 +147,17 @@ export function instantiateEdgeAtoms(
     (b, plane, offset) => offset === 0 ? b.below(plane) : b.below(plane, offset)));
 
   if (allowScoped) {
-    atoms.push(...belongsToFaceAtoms(probes));
+    atoms.push(...belongsToFaceAtoms(probes, params));
   }
 
   return atoms;
 }
 
-export function instantiateFaceAtoms(probes: FaceProbe[], universe: Face[]): FaceAtom[] {
+export function instantiateFaceAtoms(
+  probes: FaceProbe[],
+  universe: Face[],
+  params: ParameterLink[] = [],
+): FaceAtom[] {
   const atoms: FaceAtom[] = [];
 
   const surfaceClass = sharedString(probes.map(p => p.props.surfaceType));
@@ -138,7 +168,7 @@ export function instantiateFaceAtoms(probes: FaceProbe[], universe: Face[]): Fac
     atoms.push({ code: '.cylinder()', addTo: b => b.cylinder(), weight: 30, constants: 0, needsScope: false });
     const radius = sharedNumber(probes.map(p => p.props.radius));
     if (radius !== null) {
-      const c = formatConstant(radius * 2);
+      const c = linkedConstant(radius * 2, params);
       atoms.push({ code: `.cylinder(${c.text})`, addTo: b => b.cylinder(c.value), weight: 15, constants: 1, needsScope: false });
     }
   }
@@ -146,7 +176,7 @@ export function instantiateFaceAtoms(probes: FaceProbe[], universe: Face[]): Fac
     atoms.push({ code: '.circle()', addTo: b => b.circle(), weight: 30, constants: 0, needsScope: false });
     const radius = sharedNumber(probes.map(p => p.props.radius));
     if (radius !== null) {
-      const c = formatConstant(radius * 2);
+      const c = linkedConstant(radius * 2, params);
       atoms.push({ code: `.circle(${c.text})`, addTo: b => b.circle(c.value), weight: 15, constants: 1, needsScope: false });
     }
   }
@@ -158,8 +188,8 @@ export function instantiateFaceAtoms(probes: FaceProbe[], universe: Face[]): Fac
     const major = sharedNumber(probes.map(p => p.props.majorRadius));
     const minor = sharedNumber(probes.map(p => p.props.minorRadius));
     if (major !== null && minor !== null) {
-      const a = formatConstant(major);
-      const b2 = formatConstant(minor);
+      const a = linkedConstant(major, params);
+      const b2 = linkedConstant(minor, params);
       atoms.push({
         code: `.torus(${a.text}, ${b2.text})`,
         addTo: b => b.torus(a.value, b2.value),
@@ -178,7 +208,7 @@ export function instantiateFaceAtoms(probes: FaceProbe[], universe: Face[]): Fac
     const coords = probes.flatMap(p => p.points).map(pt => pt[plane.axis]);
     const shared = sharedNumber(coords);
     if (shared !== null) {
-      atoms.push(onPlaneAtom<FaceFilterBuilder>(plane, shared, (b, offset) =>
+      atoms.push(onPlaneAtom<FaceFilterBuilder>(plane, shared, params, (b, offset) =>
         offset === 0 ? b.onPlane(plane.name) : b.onPlane(plane.name, offset)));
     }
   }
@@ -205,8 +235,9 @@ export function instantiateFaceAtoms(probes: FaceProbe[], universe: Face[]): Fac
     ));
     for (const text of sharedMembers(diameterSets).slice(0, 2)) {
       const value = Number(text);
+      const c = linkedConstant(value, params);
       atoms.push({
-        code: `.hasEdge(edge().circle(${text}))`,
+        code: `.hasEdge(edge().circle(${c.text}))`,
         addTo: b => b.hasEdge(new EdgeFilterBuilder().circle(value)),
         weight: 12, constants: 1, needsScope: false,
       });
@@ -226,7 +257,7 @@ export function instantiateFaceAtoms(probes: FaceProbe[], universe: Face[]): Fac
  * `belongsToFace(face()...)` atoms from the picked edges' adjacent faces.
  * Scope-dependent: only valid inside a `select()`.
  */
-function belongsToFaceAtoms(probes: EdgeProbe[]): EdgeAtom[] {
+function belongsToFaceAtoms(probes: EdgeProbe[], params: ParameterLink[]): EdgeAtom[] {
   const atoms: EdgeAtom[] = [];
   if (probes.some(p => p.adjacentFaces.length === 0)) {
     return atoms;
@@ -245,8 +276,9 @@ function belongsToFaceAtoms(probes: EdgeProbe[]): EdgeAtom[] {
     ));
     for (const text of sharedMembers(diameterSets).slice(0, 2)) {
       const value = Number(text);
+      const c = linkedConstant(value, params);
       atoms.push({
-        code: `.belongsToFace(face().cylinder(${text}))`,
+        code: `.belongsToFace(face().cylinder(${c.text}))`,
         addTo: b => b.belongsToFace(new FaceFilterBuilder().cylinder(value)),
         weight: 14, constants: 1, needsScope: true,
       });
@@ -281,6 +313,7 @@ function belongsToFaceAtoms(probes: EdgeProbe[]): EdgeAtom[] {
 function onPlaneAtom<B>(
   plane: PrincipalPlane,
   axisCoordinate: number,
+  params: ParameterLink[],
   addTo: (b: B, offset: number) => unknown,
 ): Atom<B> {
   const offset = planeNormalSign(plane) * axisCoordinate;
@@ -291,7 +324,7 @@ function onPlaneAtom<B>(
       weight: 22, constants: 0, needsScope: false,
     };
   }
-  const c = formatConstant(offset);
+  const c = linkedConstant(offset, params);
   return {
     code: `.onPlane('${plane.name}', ${c.text})`,
     addTo: b => addTo(b, c.value),

@@ -63,6 +63,7 @@ export class Viewer {
   private selectionHandler: ((shapeId: string | null, sub: SubSelection, modifiers: SelectionModifiers) => void) | null = null;
   private hoverHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
   private contextMenuHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
+  private doubleClickHandler: ((shapeId: string | null, sub: SubSelection) => void) | null = null;
   private centroidIndicator = new CentroidIndicator();
   private hoverState: { shapeId: string; sub: SubSelection } | null = null;
   private hoverFaceOverlayMeshes: Mesh[] = [];
@@ -116,6 +117,11 @@ export class Viewer {
     this.contextMenuHandler = fn;
   }
 
+  /** Notified on a non-drag double-click over the canvas (pick may be null). */
+  setDoubleClickHandler(fn: (shapeId: string | null, sub: SubSelection) => void): void {
+    this.doubleClickHandler = fn;
+  }
+
   get settingsPanelHost(): HTMLElement {
     return this.settingsPanel.panelHost;
   }
@@ -165,6 +171,22 @@ export class Viewer {
       } else {
         this.selectionHandler(null, null, modifiers);
       }
+    });
+
+    // Non-drag double-click. The two single-click selections have already
+    // fired by the time this arrives (DOM event order), so the handler sees
+    // the selection as the clicks left it.
+    canvas.addEventListener('dblclick', (e) => {
+      if (!this.doubleClickHandler || this.isTrimming || this.isRegionPicking || this.modeManager.isSketchMode) {
+        return;
+      }
+      const dx = e.clientX - downX;
+      const dy = e.clientY - downY;
+      if (dx * dx + dy * dy > 64) {
+        return; // was a drag (> 8px)
+      }
+      const result = this.pickAt(e.clientX, e.clientY);
+      this.doubleClickHandler(result?.shapeId ?? null, result?.sub ?? null);
     });
 
     // Non-drag right-click. OrbitControls suppresses the browser menu on the

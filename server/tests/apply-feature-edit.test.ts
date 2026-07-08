@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { applyFeatureEdit, type ApplyFeatureEditSpec } from '../src/apply-feature-edit.ts';
+import {
+  applyFeatureEdit,
+  extractNumericParams,
+  makeProducerNamer,
+  resolveParamValues,
+  type ApplyFeatureEditSpec,
+} from '../src/apply-feature-edit.ts';
 
 function spec(overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSpec {
   return {
@@ -327,5 +333,149 @@ describe('applyFeatureEdit', () => {
     }));
     expect(result.newCode).toContain(`import { chamfer } from 'fluidcad/core';`);
     expect(result.newCode).toContain(`chamfer(1.5, e.endEdges(0, 1))`);
+  });
+});
+
+describe('part()-scoped insertion', () => {
+  it('inserts a select()-based edit at the end of the enclosing part() body', async () => {
+    const code = [
+      `import { part, sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `part('a', () => {`,
+      `    sketch('xy', () => { rect(20, 20) })`,
+      `    extrude(10)`,
+      `})`,
+      ``,
+      `part('b', () => {`,
+      `    sketch('xy', () => { rect(30, 30) })`,
+      `    extrude(5)`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, spec({
+      producers: [{ line: 5, column: 0, featureType: 'extrude', nameHint: 'e', bind: false }],
+      parts: [{ producer: null, accessor: 'select', indices: null, filterArgs: 'edge().arc()' }],
+      imports: ['select', 'edge'],
+    }));
+    expect(result.error).toBeUndefined();
+    // The statement lands inside part 'a', after its extrude and before the
+    // closing brace — never at the end of the file where the select() would
+    // resolve against a different (or no) part scope.
+    const insertedAt = result.newCode.indexOf(`fillet(3, select(edge().arc()))`);
+    expect(insertedAt).toBeGreaterThan(result.newCode.indexOf('extrude(10)'));
+    expect(insertedAt).toBeLessThan(result.newCode.indexOf(`part('b'`));
+    // No variable was bound to the anchor.
+    expect(result.newCode).not.toContain('const e = extrude(10)');
+  });
+});
+
+describe('makeProducerNamer', () => {
+  it('returns the existing const name for a bound producer', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const base = extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const namer = await makeProducerNamer(code);
+    expect(namer([{ line: 4, nameHint: 'e' }])).toEqual(['base']);
+  });
+
+  it('suffixes past colliding file identifiers for a bare statement', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `const e = 42`,
+      `sketch('xy', () => { rect(100, e) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const namer = await makeProducerNamer(code);
+    // `e` is taken by the user's own variable — the transform would write
+    // `const e2 = extrude(30)`, so the preview must say `e2` too.
+    expect(namer([{ line: 5, nameHint: 'e' }])).toEqual(['e2']);
+  });
+
+  it('maps unresolvable producers to null', async () => {
+    const code = [
+      `import { repeat } from 'fluidcad/core'`,
+      ``,
+      `repeat('linear', ['x'], { count: 3, length: 30 })`,
+      ``,
+    ].join('\n');
+
+    const namer = await makeProducerNamer(code);
+    // Line 3 is not a producer callee; line 99 has no call at all.
+    expect(namer([
+      { line: 3, nameHint: 'e' },
+      { line: 99, nameHint: 'e' },
+    ])).toEqual([null, null]);
+  });
+});
+
+describe('extractNumericParams', () => {
+  it('collects top-level numeric const/let/var declarations', async () => {
+    const code = [
+      `import { sketch } from 'fluidcad/core'`,
+      ``,
+      `const height = 30`,
+      `let width = 12.5`,
+      `var depth = -4`,
+      `const name = 'hello'`,
+      `const computed = 10 + 5`,
+      `function build() {`,
+      `  const local = 7`,
+      `}`,
+      ``,
+    ].join('\n');
+
+    const params = await extractNumericParams(code);
+    expect(params).toEqual([
+      { name: 'height', value: 30 },
+      { name: 'width', value: 12.5 },
+      { name: 'depth', value: -4 },
+    ]);
+  });
+
+  it('extracts param() declarations with their label and numeric default', async () => {
+    const code = [
+      `import { param } from 'fluidcad/core'`,
+      ``,
+      `const baseThickness = param("Base Thickness", 12)`,
+      `const sides = param("Sides", 6, 'number', { min: 3, max: 12 })`,
+      `const offset = param('Offset', -4)`,
+      `const label = param("Label", 'engraved')`,
+      ``,
+    ].join('\n');
+
+    const params = await extractNumericParams(code);
+    expect(params).toEqual([
+      { name: 'baseThickness', value: 12, label: 'Base Thickness' },
+      { name: 'sides', value: 6, label: 'Sides' },
+      { name: 'offset', value: -4, label: 'Offset' },
+    ]);
+  });
+
+  it('resolves param() entries against the registry, override-aware', () => {
+    const entries = [
+      { name: 'height', value: 30 },
+      { name: 'baseThickness', value: 12, label: 'Base Thickness' },
+      { name: 'engraving', value: 1, label: 'Engraving' },
+      { name: 'legacy', value: 5, label: 'Removed Param' },
+    ];
+    const definitions = [
+      { label: 'Base Thickness', currentValue: 15 },   // overridden in the UI
+      { label: 'Engraving', currentValue: 'deep' },    // non-numeric — never links
+    ];
+
+    expect(resolveParamValues(entries, definitions)).toEqual([
+      { name: 'height', value: 30 },
+      { name: 'baseThickness', value: 15 },
+      { name: 'legacy', value: 5 },
+    ]);
   });
 });

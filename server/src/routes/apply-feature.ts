@@ -6,23 +6,53 @@ const MAX_ENTITIES = 32;
 
 type RawPick = { shapeId?: unknown; sub?: { type?: unknown; index?: unknown } };
 
-function validatePicks(entities: unknown): { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[] | null {
+type Pick = { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
+
+function validatePick(raw: RawPick | undefined): Pick | null {
+  const validType = raw?.sub?.type === 'edge' || raw?.sub?.type === 'face';
+  const validIndex = Number.isInteger(raw?.sub?.index) && (raw!.sub!.index as number) >= 0;
+  if (!raw || typeof raw.shapeId !== 'string' || !raw.shapeId || !validType || !validIndex) {
+    return null;
+  }
+  return {
+    shapeId: raw.shapeId,
+    sub: { type: raw.sub!.type as 'edge' | 'face', index: raw.sub!.index as number },
+  };
+}
+
+function validatePicks(entities: unknown): Pick[] | null {
   if (!Array.isArray(entities) || entities.length < 1 || entities.length > MAX_ENTITIES) {
     return null;
   }
   const picks = [];
   for (const raw of entities as RawPick[]) {
-    const validType = raw?.sub?.type === 'edge' || raw?.sub?.type === 'face';
-    const validIndex = Number.isInteger(raw?.sub?.index) && (raw!.sub!.index as number) >= 0;
-    if (!raw || typeof raw.shapeId !== 'string' || !raw.shapeId || !validType || !validIndex) {
+    const pick = validatePick(raw);
+    if (!pick) {
       return null;
     }
-    picks.push({
-      shapeId: raw.shapeId,
-      sub: { type: raw.sub!.type as 'edge' | 'face', index: raw.sub!.index as number },
-    });
+    picks.push(pick);
   }
   return picks;
+}
+
+/** Tangent chains: `{seed, members}` groups; absent/empty is fine. */
+function validateChains(chains: unknown): { seed: Pick; members: Pick[] }[] | null {
+  if (chains === undefined || chains === null) {
+    return [];
+  }
+  if (!Array.isArray(chains) || chains.length > MAX_ENTITIES) {
+    return null;
+  }
+  const result = [];
+  for (const raw of chains as { seed?: RawPick; members?: unknown }[]) {
+    const seed = validatePick(raw?.seed);
+    const members = validatePicks(raw?.members);
+    if (!seed || !members) {
+      return null;
+    }
+    result.push({ seed, members });
+  }
+  return result;
 }
 
 export function createApplyFeatureRouter(
@@ -53,11 +83,18 @@ export function createApplyFeatureRouter(
 
   // Synthesize the selector expressions for the picked edges and relay the
   // edit spec to the editor extension, which owns the live buffer.
+  // `preview: true` runs synthesis only (backs the expression field);
+  // `selectorOverride` replaces the argument list with user-edited text.
   router.post('/apply-feature', (req, res) => {
-    const { feature, value } = req.body ?? {};
+    const { feature, value, preview, selectorOverride } = req.body ?? {};
     const picks = validatePicks(req.body?.entities);
     if (!picks) {
       res.status(400).json({ error: `entities must be 1-${MAX_ENTITIES} picks of {shapeId, sub:{type, index}}` });
+      return;
+    }
+    const chains = validateChains(req.body?.chains);
+    if (!chains) {
+      res.status(400).json({ error: 'chains must be {seed, members} pick groups' });
       return;
     }
     if (feature !== 'fillet' && feature !== 'chamfer') {
@@ -68,9 +105,14 @@ export function createApplyFeatureRouter(
       res.status(400).json({ error: 'value must be a positive number' });
       return;
     }
+    if (selectorOverride !== undefined
+      && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
+      res.status(400).json({ error: 'selectorOverride must be a non-empty string (max 500 chars)' });
+      return;
+    }
 
     try {
-      const synthesis = fluidCadServer.synthesizeApplyFeature(picks, feature, value);
+      const synthesis = fluidCadServer.synthesizeApplyFeature(picks, feature, value, chains);
       if (!synthesis) {
         res.status(404).json({ success: false, reason: 'No rendered scene' });
         return;
@@ -79,10 +121,46 @@ export function createApplyFeatureRouter(
         res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
         return;
       }
-      sendToExtension({ type: 'apply-feature-edit', spec: synthesis.spec });
+      if (preview === true) {
+        res.json({
+          success: true,
+          preview: synthesis.preview,
+          args: synthesis.args,
+          alternatives: synthesis.alternatives,
+        });
+        return;
+      }
+      const spec = typeof selectorOverride === 'string' && selectorOverride.trim() !== synthesis.args
+        ? { ...synthesis.spec, rawArgs: selectorOverride.trim() }
+        : synthesis.spec;
+      sendToExtension({ type: 'apply-feature-edit', spec });
       res.json({ success: true, preview: synthesis.preview });
     } catch (err: any) {
       res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+    }
+  });
+
+  // Expand a picked edge/face to its tangent chain on the owning solid —
+  // the "Select with tangents" gesture. Read-only against the last render.
+  router.post('/selection/expand-tangents', (req, res) => {
+    const pick = validatePick(req.body?.entity);
+    if (!pick) {
+      res.status(400).json({ error: 'entity must be a {shapeId, sub:{type, index}} pick' });
+      return;
+    }
+    try {
+      const result = fluidCadServer.expandTangentChain(pick);
+      if (!result) {
+        res.status(404).json({ error: 'No rendered scene' });
+        return;
+      }
+      if (result.ok === false) {
+        res.status(422).json({ error: result.reason });
+        return;
+      }
+      res.json({ members: result.members });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? String(err) });
     }
   });
 

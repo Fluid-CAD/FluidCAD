@@ -1,16 +1,18 @@
 import { Scene } from "../rendering/scene.js";
+import { SceneObject } from "../common/scene-object.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { EdgeProps } from "../oc/edge-props.js";
 import { FaceProps } from "../oc/face-props.js";
 import { SelectionIndex } from "./selection-index.js";
 import { attributePick, PickAttribution } from "./attribution.js";
-import { synthesizeSelectors } from "./synthesis.js";
+import { synthesizeSelectors, SelectorChain, SelectorPart } from "./synthesis.js";
 import {
   ApplyFeatureEditSpec,
   ApplyFeatureKind,
   ApplyFeatureSynthesis,
   ExplainResult,
+  PickChain,
   PickDescriptors,
   PickExplanation,
   PickRef,
@@ -35,23 +37,36 @@ export function explainSelection(scene: Scene, refs: PickRef[]): ExplainResult {
  * Synthesize the code edit for applying `fillet`/`chamfer` to the picked
  * edges and faces (a face selection fillets all of the face's edges):
  * oracle-verified selector parts plus the producer call sites the transform
- * must bind. Returns a structured refusal (with the failing pick) when the
- * selection can't be expressed safely.
+ * must bind. Tangent chains (right-click "Select with tangents") arrive as
+ * seed + expanded members and synthesize `.withTangents()` selectors. The
+ * result carries the winning argument list plus up to three verified
+ * alternative renderings for the UI's expression dropdown. Returns a
+ * structured refusal (with the failing pick) when the selection can't be
+ * expressed safely.
  */
 export function synthesizeApplyFeature(
   scene: Scene,
   refs: PickRef[],
   feature: ApplyFeatureKind,
   value: number,
+  chains: PickChain[] = [],
 ): ApplyFeatureSynthesis {
-  if (refs.length === 0) {
+  if (refs.length === 0 && chains.length === 0) {
     return { ok: false, reason: 'nothing selected' };
   }
 
   const index = new SelectionIndex(scene);
   try {
-    const attributions = refs.map(ref => attributePick(scene, index, ref));
-    const synthesis = synthesizeSelectors(scene, index, attributions);
+    // Chain members are routed through their chain, never as free picks.
+    const chained = new Set(chains.flatMap(c => c.members.map(refKey)));
+    const freeRefs = refs.filter(r => !chained.has(refKey(r)));
+    const attributions = freeRefs.map(ref => attributePick(scene, index, ref));
+    const chainInputs: SelectorChain[] = chains.map(c => ({
+      seed: attributePick(scene, index, c.seed),
+      members: c.members.map(m => attributePick(scene, index, m)),
+    }));
+
+    const synthesis = synthesizeSelectors(scene, index, attributions, chainInputs);
     if (synthesis.ok === false) {
       return { ok: false, reason: synthesis.reason, pick: synthesis.pick };
     }
@@ -70,6 +85,11 @@ export function synthesizeApplyFeature(
       return { ok: false, reason: 'the picked edges come from features in different files' };
     }
 
+    const winners = synthesis.groups.map(g => g.winner);
+    const names = allocateNames(synthesis.producers);
+    const renderParts = (parts: SelectorPart[]) =>
+      parts.map(part => renderPartArgs(part, names)).join(', ');
+
     const spec: ApplyFeatureEditSpec = {
       feature,
       value,
@@ -84,19 +104,74 @@ export function synthesizeApplyFeature(
           bind: l.bind,
         };
       }),
-      parts: synthesis.parts.map(part => ({
+      parts: winners.map(part => ({
         producer: part.producer ? synthesis.producers.indexOf(part.producer) : null,
         accessor: part.accessor,
         indices: part.indices,
         filterArgs: part.filterArgs,
       })),
-      imports: collectImports(synthesis.parts),
+      imports: collectImports(winners),
     };
 
-    return { ok: true, spec, preview: buildPreview(spec) };
+    // Statement-level alternatives: vary one group at a time, in group order,
+    // walking each group's verified runner-ups.
+    const args = renderParts(winners);
+    const alternatives: string[] = [];
+    for (let i = 0; i < synthesis.groups.length && alternatives.length < 3; i++) {
+      for (const alt of synthesis.groups[i].alternatives) {
+        if (alternatives.length >= 3) {
+          break;
+        }
+        const variant = [...winners];
+        variant[i] = alt;
+        alternatives.push(renderParts(variant));
+      }
+    }
+
+    return {
+      ok: true,
+      spec,
+      preview: `${feature}(${value}, ${args})`,
+      args,
+      alternatives,
+    };
   } finally {
     index.dispose();
   }
+}
+
+function refKey(ref: PickRef): string {
+  return `${ref.shapeId}:${ref.sub.type}:${ref.sub.index}`;
+}
+
+/**
+ * Preview names per bound producer, mirroring the transform's hint-suffix
+ * allocation. The transform additionally collision-checks against the file's
+ * identifiers, so a colliding file variable can still shift the final name.
+ */
+function allocateNames(producers: SceneObject[]): Map<SceneObject, string> {
+  const names = new Map<SceneObject, string>();
+  const used = new Set<string>();
+  for (const producer of producers) {
+    const hint = nameHintFor(producer.getType());
+    let name = hint;
+    let suffix = 1;
+    while (used.has(name)) {
+      suffix++;
+      name = `${hint}${suffix}`;
+    }
+    used.add(name);
+    names.set(producer, name);
+  }
+  return names;
+}
+
+function renderPartArgs(part: SelectorPart, names: Map<SceneObject, string>): string {
+  const selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
+  if (part.producer === null) {
+    return `select(${selectorArgs})`;
+  }
+  return `${names.get(part.producer)}.${part.accessor}(${selectorArgs})`;
 }
 
 /** Symbols the emitted statement references beyond the feature itself. */
@@ -179,29 +254,3 @@ function describe(attr: PickAttribution): PickDescriptors | undefined {
   }
 }
 
-function buildPreview(spec: ApplyFeatureEditSpec): string {
-  const names = new Map<number, string>();
-  const used = new Set<string>();
-  spec.producers.forEach((p, i) => {
-    if (!p.bind) {
-      return;
-    }
-    let name = p.nameHint;
-    let suffix = 1;
-    while (used.has(name)) {
-      suffix++;
-      name = `${p.nameHint}${suffix}`;
-    }
-    used.add(name);
-    names.set(i, name);
-  });
-
-  const args = spec.parts.map(part => {
-    const selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
-    if (part.producer === null) {
-      return `select(${selectorArgs})`;
-    }
-    return `${names.get(part.producer)}.${part.accessor}(${selectorArgs})`;
-  });
-  return `${spec.feature}(${spec.value}, ${args.join(', ')})`;
-}

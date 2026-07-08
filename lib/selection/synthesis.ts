@@ -1,20 +1,19 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
-import { Shape } from "../common/shape.js";
-import { Solid } from "../common/solid.js";
 import { Scene } from "../rendering/scene.js";
 import { ShapeFilter } from "../filters/filter.js";
-import { FilterBuilderBase } from "../filters/filter-builder-base.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
-import { injectBelongsToFaceScope } from "../filters/scope-injection.js";
 import { SelectionIndex, BucketRecord } from "./selection-index.js";
 import { PickAttribution } from "./attribution.js";
 import { PickRef } from "./types.js";
-import { Atom, instantiateEdgeAtoms, instantiateFaceAtoms } from "./atoms.js";
-import { induceConjunction } from "./induction.js";
-import { probeEdge, probeFace } from "./probe.js";
+import {
+  bucketContext,
+  globalContext,
+  induceFilterArgs,
+  resolvesExactly,
+} from "./filter-search.js";
 
 export type SelectorPart = {
   /** Producer to bind (tiers 0–2, 4), or null for a global `select()` (tier 3). */
@@ -28,13 +27,25 @@ export type SelectorPart = {
   tier: 0 | 1 | 2 | 3 | 4;
 };
 
+/** One selector group: the winning form plus verified runner-up forms. */
+export type SelectorGroup = {
+  winner: SelectorPart;
+  alternatives: SelectorPart[];
+};
+
+/** A tangent-chain pick: the edge the user right-clicked plus the expansion. */
+export type SelectorChain = {
+  seed: PickAttribution;
+  members: PickAttribution[];
+};
+
 export type SelectorSynthesis =
   | {
     ok: true;
     producers: SceneObject[];
     /** Statement to anchor scope/insertion on when no producer is bound. */
     anchor: SceneObject | null;
-    parts: SelectorPart[];
+    groups: SelectorGroup[];
   }
   | { ok: false; reason: string; pick?: PickRef };
 
@@ -45,21 +56,28 @@ export type SelectorSynthesis =
  * 4 (bucket indices). Picks that cannot be bound — repeat/mirror clones,
  * loop/helper call sites, unclassified geometry — go through tier 3: a
  * scene-wide `select()` with an induced filter, which needs no variable.
+ * Tangent chains synthesize a seed-isolating filter with `.withTangents()`.
  * Every candidate is verified by executing the same resolution the emitted
- * code would run, and required to resolve to exactly the picked set.
+ * code would run; each group also keeps its verified runner-up forms so the
+ * UI can offer alternatives.
  */
 export function synthesizeSelectors(
   scene: Scene,
   index: SelectionIndex,
   attributions: PickAttribution[],
+  chains: SelectorChain[] = [],
 ): SelectorSynthesis {
-  for (const attr of attributions) {
+  const allAttributions = [
+    ...attributions,
+    ...chains.flatMap(c => c.members),
+  ];
+  for (const attr of allAttributions) {
     if (attr.error) {
       return { ok: false, reason: attr.error, pick: attr.ref };
     }
   }
 
-  // Route picks: bindable classified picks group by (producer, bucket);
+  // Route free picks: bindable classified picks group by (producer, bucket);
   // everything else pools into a per-kind global select() attempt.
   const bucketGroups = new Map<BucketRecord, PickAttribution[]>();
   const globalPools: { edge: PickAttribution[]; face: PickAttribution[] } = { edge: [], face: [] };
@@ -79,17 +97,25 @@ export function synthesizeSelectors(
   }
 
   const producers: SceneObject[] = [];
-  const parts: SelectorPart[] = [];
+  const groups: SelectorGroup[] = [];
 
-  for (const [bucket, groupAttrs] of bucketGroups) {
-    const result = synthesizeBucketPart(index, bucket, groupAttrs);
+  const addGroup = (result: GroupResult): { ok: false; reason: string; pick?: PickRef } | null => {
     if (result.ok === false) {
       return result;
     }
-    if (!producers.includes(bucket.feature)) {
-      producers.push(bucket.feature);
+    const bound = result.candidates[0].producer;
+    if (bound && !producers.includes(bound)) {
+      producers.push(bound);
     }
-    parts.push(result.part);
+    groups.push({ winner: result.candidates[0], alternatives: result.candidates.slice(1) });
+    return null;
+  };
+
+  for (const [bucket, groupAttrs] of bucketGroups) {
+    const failure = addGroup(synthesizeBucketCandidates(index, bucket, groupAttrs));
+    if (failure) {
+      return failure;
+    }
   }
 
   for (const kind of ['edge', 'face'] as const) {
@@ -97,26 +123,32 @@ export function synthesizeSelectors(
     if (pool.length === 0) {
       continue;
     }
-    const result = synthesizeGlobalPart(scene, index, kind, pool);
-    if (result.ok === false) {
-      return result;
+    const failure = addGroup(synthesizeGlobalCandidates(scene, index, kind, pool));
+    if (failure) {
+      return failure;
     }
-    parts.push(result.part);
+  }
+
+  for (const chain of chains) {
+    const failure = addGroup(synthesizeChainCandidates(scene, index, chain));
+    if (failure) {
+      return failure;
+    }
   }
 
   let anchor: SceneObject | null = null;
   if (producers.length === 0) {
-    anchor = findAnchor(attributions);
+    anchor = findAnchor(allAttributions);
     if (!anchor) {
       return {
         ok: false,
         reason: 'no source location is available to anchor the edit',
-        pick: attributions[0].ref,
+        pick: allAttributions[0].ref,
       };
     }
   }
 
-  return { ok: true, producers, anchor, parts };
+  return { ok: true, producers, anchor, groups };
 }
 
 /** Returns a failure reason when the producer cannot be bound to a variable, null when it can. */
@@ -133,85 +165,65 @@ function checkBindable(index: SelectionIndex, feature: SceneObject): string | nu
   return null;
 }
 
-type PartResult =
-  | { ok: true; part: SelectorPart }
+type GroupResult =
+  | { ok: true; candidates: SelectorPart[] }
   | { ok: false; reason: string; pick: PickRef };
 
-/** Bucket-tier synthesis: tier 0, then induced filter (1–2), then indices (4). */
-function synthesizeBucketPart(
+/**
+ * Bucket-tier candidates, ranked: tier 0 (whole bucket), tiers 1–2 (induced
+ * filter), tier 4 (indices). Bucket accessors never inject `belongsToFace`
+ * scope, so those atoms are excluded here; the evaluation mirrors
+ * `resolveEdges`/`resolveFaces` exactly.
+ */
+function synthesizeBucketCandidates(
   index: SelectionIndex,
   bucket: BucketRecord,
   groupAttrs: PickAttribution[],
-): PartResult {
+): GroupResult {
   const pickKeys = new Set(groupAttrs.map(a => a.pickedKey!));
   const feature = bucket.feature;
+  const candidates: SelectorPart[] = [];
 
   const wholeBucket = bucket.memberKeys.length === pickKeys.size
     && bucket.memberKeys.every(k => pickKeys.has(k));
-  if (wholeBucket) {
-    const part: SelectorPart = {
+  if (wholeBucket && resolvesExactly(index, new ShapeFilter(bucket.members).apply(), pickKeys)) {
+    candidates.push({
       producer: feature, accessor: bucket.def.accessor, indices: null, filterArgs: null, tier: 0,
-    };
-    const resolved = new ShapeFilter(bucket.members).apply();
-    if (resolvesExactly(index, resolved, pickKeys)) {
-      return { ok: true, part };
-    }
-    // Whole-bucket resolution disagreeing with the picks means a later op
-    // consumed part of the bucket — fall through to the narrower tiers.
+    });
   }
 
-  // Tiers 1–2: induce a filter conjunction over the bucket universe.
-  // The evaluation mirrors `resolveEdges`/`resolveFaces` exactly (a plain
-  // ShapeFilter over the bucket state array), so induction results hold at
-  // accessor-resolution time. `belongsToFace` atoms are excluded: bucket
-  // accessors never inject the face-lookup scope those predicates need.
-  const induced = induceFilterArgs(index, {
-    universeKeys: bucket.memberKeys,
-    kindFn: bucket.def.kind,
-    evaluate: builders => new ShapeFilter(bucket.members, ...builders).apply(),
-    instantiate: attrs => bucket.def.kind === 'edge'
-      ? instantiateEdgeAtoms(
-        attrs.map(a => probeEdge(a.picked as Edge, a.solidShape)),
-        bucket.members as Edge[],
-        false,
-      ) as Atom<FilterBuilderBase<Shape>>[]
-      : instantiateFaceAtoms(
-        attrs.map(a => probeFace(a.picked as Face)),
-        bucket.members as Face[],
-      ) as Atom<FilterBuilderBase<Shape>>[],
-    orSplit: false,
-  }, groupAttrs, pickKeys);
-  if (induced) {
-    return {
-      ok: true,
-      part: {
+  if (!wholeBucket) {
+    const induced = induceFilterArgs(index, bucketContext(bucket, false), groupAttrs, pickKeys);
+    if (induced) {
+      candidates.push({
         producer: feature,
         accessor: bucket.def.accessor,
         indices: null,
         filterArgs: induced.filterArgs,
         tier: induced.constants === 0 ? 1 : 2,
-      },
-    };
+      });
+    }
   }
 
-  // Tier 4: bucket indices — the floor, always available.
   const indices = groupAttrs.map(a => a.producer!.index).sort((a, b) => a - b);
-  const part: SelectorPart = {
-    producer: feature, accessor: bucket.def.accessor, indices, filterArgs: null, tier: 4,
-  };
   const builders = bucket.def.kind === 'edge'
     ? indices.map(i => new EdgeFilterBuilder().atIndex(i, bucket.members as Edge[]))
     : indices.map(i => new FaceFilterBuilder().atIndex(i, bucket.members as Face[]));
-  const resolved = new ShapeFilter(bucket.members, ...builders).apply();
-  if (!resolvesExactly(index, resolved, pickKeys)) {
-    const call = `${part.accessor}(${indices.join(', ')})`;
+  if (resolvesExactly(index, new ShapeFilter(bucket.members, ...builders).apply(), pickKeys)) {
+    candidates.push({
+      producer: feature, accessor: bucket.def.accessor, indices, filterArgs: null, tier: 4,
+    });
+  }
+
+  if (candidates.length === 0) {
+    const call = `${bucket.def.accessor}(${indices.join(', ')})`;
     return {
       ok: false,
       reason: `synthesized selector ${call} did not resolve back to the picked ${bucket.def.kind}s — refusing to write it`,
       pick: groupAttrs[0].ref,
     };
   }
-  return { ok: true, part };
+  return { ok: true, candidates };
 }
 
 /**
@@ -220,185 +232,165 @@ function synthesizeBucketPart(
  * `belongsToFace` scope injection replicated for both atom evaluation and
  * final verification.
  */
-function synthesizeGlobalPart(
+function synthesizeGlobalCandidates(
   scene: Scene,
   index: SelectionIndex,
   kind: 'edge' | 'face',
   pool: PickAttribution[],
-): PartResult {
-  if (scene.getAllSceneObjects().some(o => o.getType() === 'part')) {
-    return {
-      ok: false,
-      reason: `the picked ${kind}s need a scene-wide select(), which is not supported in multi-part files yet — select them in code with a geometric filter`,
-      pick: pool[0].ref,
-    };
-  }
-
-  const solids: Solid[] = [];
-  const seenSolids = new Set<string>();
-  for (const obj of scene.getAllSceneObjects()) {
-    for (const shape of obj.getShapes({}, 'solid')) {
-      if (shape instanceof Solid && !seenSolids.has(shape.id)) {
-        seenSolids.add(shape.id);
-        solids.push(shape);
-      }
-    }
-  }
-
-  const universe: Shape[] = [];
-  const universeKeys: number[] = [];
-  const seenKeys = new Set<number>();
-  for (const solid of solids) {
-    for (const sub of solid.getSubShapes(kind)) {
-      const key = index.keyOf(sub);
-      if (!seenKeys.has(key)) {
-        seenKeys.add(key);
-        universe.push(sub);
-        universeKeys.push(key);
-      }
-    }
+): GroupResult {
+  const guard = multiPartGuard(scene, kind, pool[0].ref);
+  if (guard) {
+    return guard;
   }
 
   const pickKeys = new Set(pool.map(a => a.pickedKey!));
-  const induced = induceFilterArgs(index, {
-    universeKeys,
-    kindFn: kind,
-    evaluate: builders => {
-      const hasher = injectBelongsToFaceScope(builders, () => ({ solids, extraFaces: [] }));
-      try {
-        return new ShapeFilter(universe, ...builders).apply();
-      } finally {
-        if (hasher) {
-          hasher.delete();
-        }
-      }
-    },
-    instantiate: attrs => kind === 'edge'
-      ? instantiateEdgeAtoms(
-        attrs.map(a => probeEdge(a.picked as Edge, a.solidShape)),
-        universe as Edge[],
-        true,
-      ) as Atom<FilterBuilderBase<Shape>>[]
-      : instantiateFaceAtoms(
-        attrs.map(a => probeFace(a.picked as Face)),
-        universe as Face[],
-      ) as Atom<FilterBuilderBase<Shape>>[],
-    orSplit: true,
-  }, pool, pickKeys);
-
+  const induced = induceFilterArgs(index, globalContext(scene, index, kind), pool, pickKeys);
   if (!induced) {
     return { ok: false, reason: globalFailureReason(kind, pool), pick: pool[0].ref };
   }
   return {
     ok: true,
-    part: { producer: null, accessor: 'select', indices: null, filterArgs: induced.filterArgs, tier: 3 },
+    candidates: [
+      { producer: null, accessor: 'select', indices: null, filterArgs: induced.filterArgs, tier: 3 },
+    ],
   };
 }
-
-type InductionContext = {
-  universeKeys: number[];
-  kindFn: 'edge' | 'face';
-  /** Runs builders over the universe exactly as the emitted code would. */
-  evaluate: (builders: FilterBuilderBase<Shape>[]) => Shape[];
-  /** Instantiates candidate atoms from the given picks' geometry. */
-  instantiate: (attrs: PickAttribution[]) => Atom<FilterBuilderBase<Shape>>[];
-  /** Allow degrading to one filter arg per pick (OR across args). */
-  orSplit: boolean;
-};
 
 /**
- * Induce filter-builder arguments that resolve to exactly the picked set:
- * one conjunction covering all picks, or (when allowed) one per pick. The
- * returned `filterArgs` is the rendered argument list; a final oracle pass
- * over the composed builders guards against any drift between induction and
- * the code that will be written.
+ * Tangent-chain candidates. When every member classifies into one bindable
+ * bucket: tier 0 if the chain covers it exactly, then a seed-isolating filter
+ * with `.withTangents()` (the runtime `ShapeFilter` expands tangency over the
+ * same bucket array), then a plain member conjunction, then indices.
+ * Otherwise the same ladder runs over the scene-wide `select()` universe.
+ * Every `.withTangents()` candidate is verified by running the real filter —
+ * expansion included — and requiring it to resolve to exactly the chain.
  */
-function induceFilterArgs(
+function synthesizeChainCandidates(
+  scene: Scene,
   index: SelectionIndex,
-  ctx: InductionContext,
-  attrs: PickAttribution[],
-  pickKeys: Set<number>,
-): { filterArgs: string; constants: number } | null {
-  const universeSet = new Set(ctx.universeKeys);
-  for (const key of pickKeys) {
-    if (!universeSet.has(key)) {
-      return null;
+  chain: SelectorChain,
+): GroupResult {
+  const kind = chain.seed.ref.sub.type;
+  const members = chain.members;
+  const memberKeys = new Set(members.map(a => a.pickedKey!));
+  const seedKeys = new Set([chain.seed.pickedKey!]);
+
+  const buckets = members.map(a => a.producer ? a.producer.bucket : null);
+  const bucket = buckets[0];
+  const sameBindableBucket = bucket !== null
+    && buckets.every(b => b === bucket)
+    && checkBindable(index, bucket.feature) === null;
+
+  if (sameBindableBucket) {
+    const candidates: SelectorPart[] = [];
+    const feature = bucket.feature;
+
+    const wholeBucket = bucket.memberKeys.length === memberKeys.size
+      && bucket.memberKeys.every(k => memberKeys.has(k));
+    if (wholeBucket && resolvesExactly(index, new ShapeFilter(bucket.members).apply(), memberKeys)) {
+      candidates.push({
+        producer: feature, accessor: bucket.def.accessor, indices: null, filterArgs: null, tier: 0,
+      });
     }
-  }
 
-  const evaluateAtoms = (atoms: Atom<FilterBuilderBase<Shape>>[]) => {
-    const matches = new Map<Atom<FilterBuilderBase<Shape>>, Set<number>>();
-    for (const atom of atoms) {
-      const builder = newBuilder(ctx.kindFn);
-      atom.addTo(builder);
-      const resolved = ctx.evaluate([builder]);
-      matches.set(atom, new Set(resolved.map(s => index.keyOf(s))));
-    }
-    return matches;
-  };
-
-  let conjunctions: Atom<FilterBuilderBase<Shape>>[][] | null = null;
-
-  const atoms = ctx.instantiate(attrs);
-  const conjunction = induceConjunction(atoms, evaluateAtoms(atoms), pickKeys, universeSet);
-  if (conjunction) {
-    conjunctions = [conjunction];
-  } else if (ctx.orSplit && attrs.length >= 2 && attrs.length <= 3) {
-    conjunctions = [];
-    for (const attr of attrs) {
-      const single = ctx.instantiate([attr]);
-      const singleConjunction = induceConjunction(
-        single, evaluateAtoms(single), new Set([attr.pickedKey!]), universeSet,
-      );
-      if (!singleConjunction) {
-        conjunctions = null;
-        break;
+    const ctx = bucketContext(bucket, false);
+    const seedInduced = induceFilterArgs(index, ctx, [chain.seed], seedKeys);
+    if (seedInduced) {
+      for (const builder of seedInduced.builders) {
+        builder.withTangents();
       }
-      conjunctions.push(singleConjunction);
+      if (resolvesExactly(index, ctx.evaluate(seedInduced.builders), memberKeys)) {
+        candidates.push({
+          producer: feature,
+          accessor: bucket.def.accessor,
+          indices: null,
+          filterArgs: `${seedInduced.filterArgs}.withTangents()`,
+          tier: seedInduced.constants === 0 ? 1 : 2,
+        });
+      }
     }
-  }
-  if (!conjunctions) {
-    return null;
+
+    if (!wholeBucket) {
+      const plain = induceFilterArgs(index, ctx, members, memberKeys);
+      if (plain) {
+        candidates.push({
+          producer: feature,
+          accessor: bucket.def.accessor,
+          indices: null,
+          filterArgs: plain.filterArgs,
+          tier: plain.constants === 0 ? 1 : 2,
+        });
+      }
+    }
+
+    const indices = members.map(a => a.producer!.index).sort((a, b) => a - b);
+    const builders = bucket.def.kind === 'edge'
+      ? indices.map(i => new EdgeFilterBuilder().atIndex(i, bucket.members as Edge[]))
+      : indices.map(i => new FaceFilterBuilder().atIndex(i, bucket.members as Face[]));
+    if (resolvesExactly(index, new ShapeFilter(bucket.members, ...builders).apply(), memberKeys)) {
+      candidates.push({
+        producer: feature, accessor: bucket.def.accessor, indices, filterArgs: null, tier: 4,
+      });
+    }
+
+    if (candidates.length > 0) {
+      return { ok: true, candidates };
+    }
+    // The chain crosses what the bucket can express — fall through to the
+    // scene-wide universe.
   }
 
-  // Final oracle pass over the composed builders, exactly as emitted.
-  const builders = conjunctions.map(conj => {
-    const builder = newBuilder(ctx.kindFn);
-    for (const atom of conj) {
-      atom.addTo(builder);
-    }
-    return builder;
-  });
-  if (!resolvesExactly(index, ctx.evaluate(builders), pickKeys)) {
-    return null;
+  const guard = multiPartGuard(scene, kind, chain.seed.ref);
+  if (guard) {
+    return guard;
   }
 
-  const filterArgs = conjunctions
-    .map(conj => `${ctx.kindFn}()${conj.map(a => a.code).join('')}`)
-    .join(', ');
-  const constants = conjunctions.reduce(
-    (sum, conj) => sum + conj.reduce((s, a) => s + a.constants, 0), 0,
-  );
-  return { filterArgs, constants };
+  const globalCtx = globalContext(scene, index, kind);
+  const candidates: SelectorPart[] = [];
+
+  const seedInduced = induceFilterArgs(index, globalCtx, [chain.seed], seedKeys);
+  if (seedInduced) {
+    for (const builder of seedInduced.builders) {
+      builder.withTangents();
+    }
+    if (resolvesExactly(index, globalCtx.evaluate(seedInduced.builders), memberKeys)) {
+      candidates.push({
+        producer: null,
+        accessor: 'select',
+        indices: null,
+        filterArgs: `${seedInduced.filterArgs}.withTangents()`,
+        tier: 3,
+      });
+    }
+  }
+
+  const plain = induceFilterArgs(index, globalCtx, members, memberKeys);
+  if (plain) {
+    candidates.push({
+      producer: null, accessor: 'select', indices: null, filterArgs: plain.filterArgs, tier: 3,
+    });
+  }
+
+  if (candidates.length === 0) {
+    return {
+      ok: false,
+      reason: `no geometric filter isolates the tangent chain's seed ${kind} — `
+        + `select the chain in code with a geometric filter and .withTangents()`,
+      pick: chain.seed.ref,
+    };
+  }
+  return { ok: true, candidates };
 }
 
-function newBuilder(kind: 'edge' | 'face'): FilterBuilderBase<Shape> {
-  return kind === 'edge'
-    ? new EdgeFilterBuilder() as unknown as FilterBuilderBase<Shape>
-    : new FaceFilterBuilder() as unknown as FilterBuilderBase<Shape>;
-}
-
-function resolvesExactly(index: SelectionIndex, resolved: Shape[], pickKeys: Set<number>): boolean {
-  const keys = new Set(resolved.map(s => index.keyOf(s)));
-  if (keys.size !== pickKeys.size) {
-    return false;
+function multiPartGuard(scene: Scene, kind: 'edge' | 'face', pick: PickRef): { ok: false; reason: string; pick: PickRef } | null {
+  if (scene.getAllSceneObjects().some(o => o.getType() === 'part')) {
+    return {
+      ok: false,
+      reason: `the picked ${kind}s need a scene-wide select(), which is not supported in multi-part files yet — select them in code with a geometric filter`,
+      pick,
+    };
   }
-  for (const key of pickKeys) {
-    if (!keys.has(key)) {
-      return false;
-    }
-  }
-  return true;
+  return null;
 }
 
 /** Honest failure message for picks even a scene-wide filter can't separate. */

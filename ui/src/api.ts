@@ -293,35 +293,87 @@ export type ApplyFeatureEntity = {
   sub: { type: 'edge' | 'face'; index: number };
 };
 
+/** A tangent chain: the right-clicked pick plus its full expansion. */
+export type ApplyFeatureChain = {
+  seed: ApplyFeatureEntity;
+  members: ApplyFeatureEntity[];
+};
+
 export type ApplyFeatureResponse = {
   success: boolean;
   preview?: string;
+  /** The selector argument list alone (preview requests). */
+  args?: string;
+  /** Verified alternative renderings of the argument list (preview requests). */
+  alternatives?: string[];
   reason?: string;
 };
 
+export type ApplyFeatureOptions = {
+  chains?: ApplyFeatureChain[];
+  /** User-edited argument list; replaces the synthesized selectors verbatim. */
+  selectorOverride?: string;
+  /** Synthesize only — return the expression preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
 /**
- * Ask the server to synthesize and apply a fillet/chamfer for the picked
- * edges. Unlike `postJson`, failure bodies are surfaced — a 422 carries the
- * human-readable reason the selection couldn't be expressed as code.
+ * Ask the server to synthesize (and, unless `preview` is set, apply) a
+ * fillet/chamfer for the picked edges. Unlike `postJson`, failure bodies are
+ * surfaced — a 422 carries the human-readable reason the selection couldn't
+ * be expressed as code.
  */
 export async function applyFeature(
   feature: 'fillet' | 'chamfer',
   value: number,
   entities: ApplyFeatureEntity[],
+  options: ApplyFeatureOptions = {},
 ): Promise<ApplyFeatureResponse> {
   try {
     const res = await fetch('/api/apply-feature', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ feature, value, entities }),
+      signal: options.signal,
+      body: JSON.stringify({
+        feature,
+        value,
+        entities,
+        chains: options.chains,
+        selectorOverride: options.selectorOverride,
+        preview: options.preview,
+      }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {
       return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
     }
     return body ?? { success: false, reason: 'Empty server response' };
-  } catch {
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err;
+    }
     return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/** Expand a picked edge/face to its tangent chain on the owning solid. */
+export async function expandTangents(
+  entity: ApplyFeatureEntity,
+): Promise<{ members: ApplyFeatureEntity[] } | { error: string }> {
+  try {
+    const res = await fetch('/api/selection/expand-tangents', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ entity }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { error: body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { error: 'Empty server response' };
+  } catch {
+    return { error: 'Could not reach the FluidCAD server' };
   }
 }
 

@@ -29,6 +29,14 @@ type SceneManager = {
     refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],
     feature: 'fillet' | 'chamfer',
     value: number,
+    chains?: {
+      seed: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
+      members: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[];
+    }[],
+  ): any;
+  expandTangentChain(
+    scene: any,
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
   ): any;
   hitTest(
     scene: any,
@@ -459,6 +467,10 @@ export class FluidCadServer {
     refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],
     feature: 'fillet' | 'chamfer',
     value: number,
+    chains: {
+      seed: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
+      members: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[];
+    }[] = [],
   ): any {
     if (!this.sceneManager) {
       return null;
@@ -467,7 +479,20 @@ export class FluidCadServer {
     if (!scene) {
       return null;
     }
-    return this.sceneManager.synthesizeApplyFeature(scene, refs, feature, value);
+    return this.sceneManager.synthesizeApplyFeature(scene, refs, feature, value, chains);
+  }
+
+  expandTangentChain(
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+  ): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.expandTangentChain(scene, ref);
   }
 
   exportShapes(

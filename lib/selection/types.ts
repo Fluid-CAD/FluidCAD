@@ -49,6 +49,15 @@ export type ExplainResult = {
 export type ApplyFeatureKind = 'fillet' | 'chamfer';
 
 /**
+ * A tangent chain from the "Select with tangents" gesture: the pick the user
+ * right-clicked plus the full expansion (`seed` included in `members`).
+ */
+export type PickChain = {
+  seed: PickRef;
+  members: PickRef[];
+};
+
+/**
  * Everything the tree-sitter code transform needs, and nothing kernel-side —
  * the transform stays a testable string function.
  */
@@ -80,10 +89,25 @@ export type ApplyFeatureEditSpec = {
   }[];
   /** Symbols beyond the feature itself the edit needs imported (`select`, `edge`, `face`). */
   imports: string[];
+  /**
+   * User-edited replacement for the whole selector argument list (expression
+   * transparency). When set, the transform emits it verbatim instead of
+   * rendering `parts`, and derives extra imports from its text.
+   */
+  rawArgs?: string;
 };
 
 export type ApplyFeatureSynthesis =
-  | { ok: true; spec: ApplyFeatureEditSpec; preview: string }
+  | {
+    ok: true;
+    spec: ApplyFeatureEditSpec;
+    /** Full statement preview, e.g. `fillet(3, e.endEdges())`. */
+    preview: string;
+    /** The selector argument list alone — what the UI's expression field edits. */
+    args: string;
+    /** Up to three verified alternative renderings of the argument list. */
+    alternatives: string[];
+  }
   | { ok: false; reason: string; pick?: PickRef };
 
 /**

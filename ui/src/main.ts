@@ -132,6 +132,20 @@ shapePropertiesModal.setCentroidHandler((centroid) => {
   }
 });
 
+// An armed modify mode (fillet/chamfer) owns hover (teach-mode tooltip) and
+// right-click (tangent-chain selection).
+viewer.setHoverHandler((shapeId, sub, clientX, clientY) => {
+  if (modifyService.isActive) {
+    modifyService.handleHover(shapeId, sub, clientX, clientY);
+  }
+});
+
+viewer.setContextMenuHandler((shapeId, sub, clientX, clientY) => {
+  if (modifyService.isActive) {
+    modifyService.handleContextMenu(shapeId, sub, clientX, clientY);
+  }
+});
+
 viewer.setSelectionHandler((shapeId, sub, modifiers) => {
   // An armed modify mode (fillet/chamfer) owns clicks outright.
   if (modifyService.isActive) {

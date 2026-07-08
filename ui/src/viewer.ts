@@ -61,6 +61,8 @@ export class Viewer {
   pickFilter: 'all' | 'edge' | 'face' = 'all';
 
   private selectionHandler: ((shapeId: string | null, sub: SubSelection, modifiers: SelectionModifiers) => void) | null = null;
+  private hoverHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
+  private contextMenuHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
   private centroidIndicator = new CentroidIndicator();
   private hoverState: { shapeId: string; sub: SubSelection } | null = null;
   private hoverFaceOverlayMeshes: Mesh[] = [];
@@ -102,6 +104,16 @@ export class Viewer {
 
   setSelectionHandler(fn: (shapeId: string | null, sub: SubSelection, modifiers: SelectionModifiers) => void): void {
     this.selectionHandler = fn;
+  }
+
+  /** Notified when the hovered sub-shape changes (null = nothing hovered). */
+  setHoverHandler(fn: (shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void): void {
+    this.hoverHandler = fn;
+  }
+
+  /** Notified on a non-drag right-click over the canvas (pick may be null). */
+  setContextMenuHandler(fn: (shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void): void {
+    this.contextMenuHandler = fn;
   }
 
   get settingsPanelHost(): HTMLElement {
@@ -153,6 +165,22 @@ export class Viewer {
       } else {
         this.selectionHandler(null, null, modifiers);
       }
+    });
+
+    // Non-drag right-click. OrbitControls suppresses the browser menu on the
+    // canvas; this hook adds pick-aware context actions on top.
+    canvas.addEventListener('contextmenu', (e) => {
+      if (!this.contextMenuHandler || this.isTrimming || this.isRegionPicking || this.modeManager.isSketchMode) {
+        return;
+      }
+      const dx = e.clientX - downX;
+      const dy = e.clientY - downY;
+      if (dx * dx + dy * dy > 64) {
+        return; // was a right-drag (pan)
+      }
+      e.preventDefault();
+      const result = this.pickAt(e.clientX, e.clientY);
+      this.contextMenuHandler(result?.shapeId ?? null, result?.sub ?? null, e.clientX, e.clientY);
     });
   }
 
@@ -614,6 +642,7 @@ export class Viewer {
     } else if (result.sub?.type === 'edge') {
       this.applyHoverEdge(result.shapeId, result.sub.index);
     }
+    this.hoverHandler?.(result.shapeId, result.sub, clientX, clientY);
   }
 
   clearHover(): void {
@@ -637,6 +666,9 @@ export class Viewer {
       }
     });
 
+    if (this.hoverState) {
+      this.hoverHandler?.(null, null, 0, 0);
+    }
     this.hoverState = null;
     this.ctx.renderer.domElement.style.cursor = '';
     this.ctx.requestRender();

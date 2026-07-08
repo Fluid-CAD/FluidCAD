@@ -290,6 +290,28 @@ describe('applyFeatureEdit', () => {
     expect(result.newCode).toBe(code);
   });
 
+  it('emits a user-edited argument list verbatim and derives its imports', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, spec({
+      // Synthesis produced endEdges(2); the user widened it to the whole
+      // bucket plus a select() — the override wins and brings its imports.
+      rawArgs: 'e.endEdges(), select(edge().circle(5))',
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`fillet(3, e.endEdges(), select(edge().circle(5)))`);
+    expect(result.newCode).toContain(` select,`);
+    expect(result.newCode).toContain(`import { edge } from 'fluidcad/filters';`);
+    // The producer still gets bound — the override references its variable.
+    expect(result.newCode).toContain(`const e = extrude(30)`);
+  });
+
   it('adds the import when none exists', async () => {
     const code = [
       `sketch('xy', () => { rect(100, 50) })`,

@@ -40,6 +40,12 @@ export type ApplyFeatureEditSpec = {
   }[];
   /** Extra symbols the statement references (`select`, `edge`, `face`). */
   imports: string[];
+  /**
+   * User-edited replacement for the whole selector argument list. Emitted
+   * verbatim instead of rendering `parts`; extra imports are derived from
+   * its text.
+   */
+  rawArgs?: string;
 };
 
 export type ApplyFeatureEditResult = {
@@ -161,7 +167,13 @@ export async function applyFeatureEdit(
   }
 
   result = await ensureSymbolImport(result, spec.feature);
-  for (const symbol of spec.imports ?? []) {
+  const imports = new Set(spec.imports ?? []);
+  if (spec.rawArgs?.trim()) {
+    for (const symbol of importsForRawArgs(spec.rawArgs)) {
+      imports.add(symbol);
+    }
+  }
+  for (const symbol of imports) {
     result = await ensureSymbolImport(result, symbol, MODULE_FOR_IMPORT[symbol] ?? 'fluidcad/core');
   }
   return { newCode: result };
@@ -315,6 +327,10 @@ function allocateNames(root: TSNode, bindings: ProducerBinding[], spec: ApplyFea
 }
 
 function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[]): string {
+  const rawArgs = spec.rawArgs?.trim();
+  if (rawArgs) {
+    return `${spec.feature}(${formatNumber(spec.value)}, ${rawArgs})`;
+  }
   const args = spec.parts.map(part => {
     const selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
     if (part.producer === null) {
@@ -331,6 +347,21 @@ const MODULE_FOR_IMPORT: Record<string, string> = {
   edge: 'fluidcad/filters',
   face: 'fluidcad/filters',
 };
+
+/**
+ * Symbols a user-edited argument list references. The synthesized path
+ * computes imports kernel-side; an override is free text, so they are
+ * re-derived here from the same three call spellings.
+ */
+function importsForRawArgs(rawArgs: string): string[] {
+  const symbols: string[] = [];
+  for (const symbol of Object.keys(MODULE_FOR_IMPORT)) {
+    if (new RegExp(`\\b${symbol}\\(`).test(rawArgs)) {
+      symbols.push(symbol);
+    }
+  }
+  return symbols;
+}
 
 function formatNumber(value: number): string {
   return Number.isFinite(value) ? String(value) : '1';

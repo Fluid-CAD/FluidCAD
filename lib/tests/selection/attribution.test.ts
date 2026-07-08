@@ -16,6 +16,7 @@ import { Extrude } from "../../features/extrude.js";
 import { Explorer } from "../../oc/explorer.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { explainSelection, synthesizeApplyFeature } from "../../selection/explain.js";
+import { expandTangentChain } from "../../selection/expand.js";
 import type { PickRef } from "../../selection/types.js";
 
 function findSolids(scene: Scene): Shape[] {
@@ -510,6 +511,124 @@ describe("apply-feature synthesis", () => {
     expect(result.ok).toBe(false);
     if (result.ok === false) {
       expect(result.reason).toMatch(/loop or helper|geometric filter/);
+    }
+  });
+
+  it("returns verified alternative renderings alongside the winner", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30);
+    setLocation(e, 4);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const cornerRefs = edgeRefsWhere(solid, m =>
+      Math.abs(m.x) < 1e-6 && Math.abs(m.y) < 1e-6 && Math.abs(m.z - 15) < 1e-6);
+
+    const result = synthesizeApplyFeature(scene, cornerRefs, 'fillet', 2);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // Winner is the filter form; the index form survives as an alternative.
+      expect(result.args).toBe("e.sideEdges(edge().onPlane('xz').onPlane('yz'))");
+      expect(result.alternatives.length).toBeGreaterThanOrEqual(1);
+      expect(result.alternatives.some(a => /^e\.sideEdges\(\d\)$/.test(a))).toBe(true);
+    }
+  });
+
+  it("expands a tangent chain across a rounded rim", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+      fillet(5);
+    });
+    const e = extrude(20);
+    setLocation(e, 5);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    // Any top-rim edge expands to the full rounded rim: 4 lines + 4 arcs.
+    const seedRefs = edgeRefsWhere(solid, m =>
+      Math.abs(m.y) < 1e-6 && Math.abs(m.z - 20) < 1e-6);
+    expect(seedRefs).toHaveLength(1);
+
+    const expansion = expandTangentChain(scene, seedRefs[0]);
+    expect(expansion.ok).toBe(true);
+    if (expansion.ok) {
+      expect(expansion.members).toHaveLength(8);
+      const zs = expansion.members.map(m =>
+        EdgeOps.getEdgeMidPoint(Explorer.findEdgesWrapped(solid)[m.sub.index]).z);
+      expect(zs.every(z => Math.abs(z - 20) < 1e-6)).toBe(true);
+    }
+  });
+
+  it("synthesizes a whole-bucket selector for a chain covering the bucket, with a withTangents alternative", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+      fillet(5);
+    });
+    const e = extrude(20);
+    setLocation(e, 5);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const seedRefs = edgeRefsWhere(solid, m =>
+      Math.abs(m.y) < 1e-6 && Math.abs(m.z - 20) < 1e-6);
+    const expansion = expandTangentChain(scene, seedRefs[0]);
+    expect(expansion.ok).toBe(true);
+    if (expansion.ok === false) {
+      return;
+    }
+
+    const result = synthesizeApplyFeature(scene, expansion.members, 'fillet', 2, [
+      { seed: seedRefs[0], members: expansion.members },
+    ]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // The chain covers the end-edges bucket exactly — the whole-bucket form
+      // wins, and the tangent-chain form survives as an alternative.
+      expect(result.args).toBe("e.endEdges()");
+      expect(result.alternatives.some(a => a.includes(".withTangents()"))).toBe(true);
+    }
+  });
+
+  it("synthesizes a select() withTangents chain on a repeat instance", () => {
+    sketch("xy", () => {
+      rect(20, 20);
+      fillet(5);
+    });
+    const e = extrude(10).new();
+    setLocation(e, 5);
+    const r = repeat("linear", "x", { count: 3, offset: 40 }, e);
+    setLocation(r, 7);
+
+    const scene = render();
+    const solids = findSolids(scene);
+    expect(solids).toHaveLength(3);
+    const middle = solids.find(s => {
+      const xs = Explorer.findEdgesWrapped(s).map(eg => EdgeOps.getEdgeMidPoint(eg).x);
+      return Math.min(...xs) > 30 && Math.max(...xs) < 70;
+    })!;
+    expect(middle).toBeDefined();
+
+    const seedRefs = edgeRefsWhere(middle, m =>
+      Math.abs(m.y) < 1e-6 && Math.abs(m.z - 10) < 1e-6);
+    expect(seedRefs).toHaveLength(1);
+    const expansion = expandTangentChain(scene, seedRefs[0]);
+    expect(expansion.ok).toBe(true);
+    if (expansion.ok === false) {
+      return;
+    }
+    expect(expansion.members).toHaveLength(8);
+
+    const result = synthesizeApplyFeature(scene, expansion.members, 'fillet', 1, [
+      { seed: seedRefs[0], members: expansion.members },
+    ]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spec.parts).toHaveLength(1);
+      expect(result.spec.parts[0].accessor).toBe("select");
+      expect(result.args).toMatch(/^select\(edge\(\)\./);
+      expect(result.args).toContain(".withTangents()");
     }
   });
 

@@ -46,7 +46,7 @@ export type ExplainResult = {
   picks: PickExplanation[];
 };
 
-export type ApplyFeatureKind = 'fillet' | 'chamfer';
+export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch';
 
 /**
  * A tangent chain from the "Select with tangents" gesture: the pick the user
@@ -63,7 +63,8 @@ export type PickChain = {
  */
 export type ApplyFeatureEditSpec = {
   feature: ApplyFeatureKind;
-  value: number;
+  /** Numeric parameter (radius/distance/thickness); absent for sketch. */
+  value?: number;
   filePath: string;
   producers: {
     line: number;

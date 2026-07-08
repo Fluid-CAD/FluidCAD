@@ -5,11 +5,44 @@ import { SelectedEntity, Viewer } from '../viewer';
 import { Navbar } from '../ui/navbar';
 import { ICON_IMG_FALLBACK } from '../ui/object-icons';
 
-export type ModifyFeatureKind = 'fillet' | 'chamfer';
+export type ModifyFeatureKind = 'sketch' | 'fillet' | 'chamfer' | 'shell';
 
-const FEATURES: Record<ModifyFeatureKind, { label: string; valueLabel: string; defaultValue: number }> = {
-  fillet: { label: 'Fillet', valueLabel: 'Radius', defaultValue: 1 },
-  chamfer: { label: 'Chamfer', valueLabel: 'Distance', defaultValue: 1 },
+type FeatureConfig = {
+  label: string;
+  buttonTitle: string;
+  /** Value-row label; null hides the row (the feature has no numeric parameter). */
+  valueLabel: string | null;
+  defaultValue: number | null;
+  /** What `pickAt()` may return while the mode is armed. */
+  pickFilter: 'all' | 'face';
+  /** Positive-only value, or any nonzero (shell hollows inward with a negative). */
+  valueSign: 'positive' | 'nonzero' | null;
+  /** Apply on the first pick instead of accumulating toward an Apply click. */
+  immediate: boolean;
+  /** Static text after the editable args in the expression row. */
+  exprSuffix: string;
+};
+
+/** Toolbar order — Sketch first, then Fillet, Chamfer, Shell. */
+const FEATURE_ORDER: ModifyFeatureKind[] = ['sketch', 'fillet', 'chamfer', 'shell'];
+
+const FEATURES: Record<ModifyFeatureKind, FeatureConfig> = {
+  sketch: {
+    label: 'Sketch', buttonTitle: 'Sketch on a face', valueLabel: null, defaultValue: null,
+    pickFilter: 'face', valueSign: null, immediate: true, exprSuffix: ', () => { ... })',
+  },
+  fillet: {
+    label: 'Fillet', buttonTitle: 'Fillet edges', valueLabel: 'Radius', defaultValue: 1,
+    pickFilter: 'all', valueSign: 'positive', immediate: false, exprSuffix: ')',
+  },
+  chamfer: {
+    label: 'Chamfer', buttonTitle: 'Chamfer edges', valueLabel: 'Distance', defaultValue: 1,
+    pickFilter: 'all', valueSign: 'positive', immediate: false, exprSuffix: ')',
+  },
+  shell: {
+    label: 'Shell', buttonTitle: 'Shell (pick the faces to open)', valueLabel: 'Thickness', defaultValue: -2,
+    pickFilter: 'face', valueSign: 'nonzero', immediate: false, exprSuffix: ')',
+  },
 };
 
 /** Same artwork the timeline shows for the feature (`/icons/<type>.png`). */
@@ -32,15 +65,20 @@ function entityKey(e: SelectedEntity): string {
 }
 
 /**
- * Select→apply-feature pick mode: the `modify` toolbar group (Fillet /
- * Chamfer) arms a pick mode over edges and faces (a face selection means "all
- * edges of that face" — the features explode faces at build time); picks
+ * Select→apply-feature pick mode: the `modify` toolbar group (Sketch / Fillet
+ * / Chamfer / Shell) arms a pick mode over edges and faces (for fillet and
+ * chamfer a face selection means "all edges of that face" — the features
+ * explode faces at build time; shell and sketch pick faces only); picks
  * accumulate as a highlighted selection; right-click offers "Select with
  * tangents" (the chain becomes a `.withTangents()` selector); the expression
  * row shows the synthesized code before Apply and is editable, with verified
  * alternatives in a dropdown; hovering shows the teach-mode attribution
  * tooltip. Apply asks the server to write the feature call into the source
  * file — the re-render is the preview and editor undo is the rollback.
+ *
+ * Sketch deviates deliberately: it takes exactly one face and applies
+ * immediately — on entry when a face is already highlighted, otherwise on the
+ * first face click — writing `sketch(<selector>, () => {})` and exiting.
  */
 export class ModifyPickService {
   private feature: ModifyFeatureKind | null = null;
@@ -51,16 +89,21 @@ export class ModifyPickService {
   private activeBar: HTMLDivElement;
   private titleIcon: HTMLElement;
   private titleText: HTMLElement;
+  private valueDivider: HTMLElement;
+  private valueWrap: HTMLElement;
   private valueLabel: HTMLElement;
   private valueInput: HTMLInputElement;
   private countText: HTMLElement;
   private applyBtn: HTMLButtonElement;
   private message: HTMLDivElement;
   private applying = false;
+  /** Last entered value per feature — a fillet radius makes a bad shell thickness. */
+  private valueByFeature = new Map<ModifyFeatureKind, string>();
 
   private exprRow: HTMLDivElement;
   private exprPrefix: HTMLElement;
   private exprInput: HTMLInputElement;
+  private exprSuffix: HTMLElement;
   private altBtn: HTMLButtonElement;
   private altMenu: HTMLDivElement;
   private synthesizedArgs: string | null = null;
@@ -83,10 +126,10 @@ export class ModifyPickService {
     private hooks: { onEnter?: () => SelectedEntity[] | void } = {},
   ) {
     const group = navbar.addGroup('modify', { visible: false });
-    for (const kind of ['fillet', 'chamfer'] as ModifyFeatureKind[]) {
+    for (const kind of FEATURE_ORDER) {
       const btn = document.createElement('button');
       btn.className = BTN_BASE;
-      btn.title = `${FEATURES[kind].label} edges`;
+      btn.title = FEATURES[kind].buttonTitle;
       btn.innerHTML = featureIconImg(kind);
       btn.addEventListener('click', () => {
         if (this.feature === kind) {
@@ -107,10 +150,10 @@ export class ModifyPickService {
         <div class="flex items-center gap-2 bg-info text-info-content rounded-lg px-3 py-2 text-xs leading-none select-none shadow-md">
           <span class="[&>svg]:size-4" data-role="icon"></span>
           <span data-role="title">Fillet</span>
-          <div class="h-3.5 w-px bg-info-content/25"></div>
-          <label class="flex items-center gap-1">
+          <div data-role="value-divider" class="h-3.5 w-px bg-info-content/25"></div>
+          <label data-role="value-wrap" class="flex items-center gap-1">
             <span class="text-info-content/70" data-role="value-label">Radius</span>
-            <input data-role="value" type="number" min="0.05" step="0.5"
+            <input data-role="value" type="number" step="0.5"
               class="w-14 bg-info-content/15 rounded px-1.5 py-1 text-info-content text-xs outline-none focus:bg-info-content/25" />
           </label>
           <div class="h-3.5 w-px bg-info-content/25"></div>
@@ -124,7 +167,7 @@ export class ModifyPickService {
           <span data-role="expr-prefix" class="font-mono text-base-content/50 select-none whitespace-nowrap"></span>
           <input data-role="expr" type="text" spellcheck="false" autocomplete="off"
             class="font-mono w-[320px] bg-transparent text-base-content outline-none" />
-          <span class="font-mono text-base-content/50 select-none">)</span>
+          <span data-role="expr-suffix" class="font-mono text-base-content/50 select-none whitespace-pre">)</span>
           <button data-role="alts" title="Alternative selectors"
             class="hidden text-base-content/50 hover:text-base-content px-1 cursor-pointer transition-colors">▾</button>
           <div data-role="alts-menu"
@@ -137,6 +180,8 @@ export class ModifyPickService {
 
     this.titleIcon = this.activeBar.querySelector('[data-role="icon"]')!;
     this.titleText = this.activeBar.querySelector('[data-role="title"]')!;
+    this.valueDivider = this.activeBar.querySelector('[data-role="value-divider"]')!;
+    this.valueWrap = this.activeBar.querySelector('[data-role="value-wrap"]')!;
     this.valueLabel = this.activeBar.querySelector('[data-role="value-label"]')!;
     this.valueInput = this.activeBar.querySelector('[data-role="value"]')!;
     this.countText = this.activeBar.querySelector('[data-role="count"]')!;
@@ -145,6 +190,7 @@ export class ModifyPickService {
     this.exprRow = this.activeBar.querySelector('[data-role="expr-row"]')!;
     this.exprPrefix = this.activeBar.querySelector('[data-role="expr-prefix"]')!;
     this.exprInput = this.activeBar.querySelector('[data-role="expr"]')!;
+    this.exprSuffix = this.activeBar.querySelector('[data-role="expr-suffix"]')!;
     this.altBtn = this.activeBar.querySelector('[data-role="alts"]')!;
     this.altMenu = this.activeBar.querySelector('[data-role="alts-menu"]')!;
 
@@ -157,7 +203,12 @@ export class ModifyPickService {
       }
       e.stopPropagation();
     });
-    this.valueInput.addEventListener('input', () => this.syncExprPrefix());
+    this.valueInput.addEventListener('input', () => {
+      if (this.feature) {
+        this.valueByFeature.set(this.feature, this.valueInput.value);
+      }
+      this.syncExprPrefix();
+    });
     this.exprInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -251,26 +302,61 @@ export class ModifyPickService {
   enter(feature: ModifyFeatureKind): void {
     const wasActive = this.feature !== null;
     this.feature = feature;
+    const config = FEATURES[feature];
     // The hook hands over whatever was highlighted before the mode armed
     // (and clears that owner's selection) — those picks become the tool's
-    // initial input. Switching fillet↔chamfer keeps the in-mode selection.
+    // initial input. Switching between features keeps the in-mode selection.
     const seed = this.hooks.onEnter?.();
     if (!wasActive) {
       this.entities = Array.isArray(seed) ? [...seed] : [];
       this.chains = [];
     }
+    // Face-only features can't use edge picks carried over from measure or a
+    // previous mode; chains losing a member go with them.
+    if (config.pickFilter === 'face') {
+      const faces = this.entities.filter(e => e.sub.type === 'face');
+      if (faces.length !== this.entities.length) {
+        const faceKeys = new Set(faces.map(entityKey));
+        this.chains = this.chains.filter(c => c.members.every(m => faceKeys.has(entityKey(m))));
+        this.entities = faces;
+      }
+    }
+    if (config.immediate) {
+      // Single-pick mode: more than one carried-over face is ambiguous.
+      this.chains = [];
+      if (this.entities.length > 1) {
+        this.entities = [];
+      }
+    }
     this.viewer.clearHover();
+    this.viewer.pickFilter = config.pickFilter;
 
     this.titleIcon.innerHTML = featureIconImg(feature);
-    this.titleText.textContent = `${FEATURES[feature].label} mode`;
-    this.valueLabel.textContent = FEATURES[feature].valueLabel;
-    if (!this.valueInput.value) {
-      this.valueInput.value = String(FEATURES[feature].defaultValue);
+    this.titleText.textContent = `${config.label} mode`;
+    if (config.valueLabel === null) {
+      this.valueDivider.classList.add('hidden');
+      this.valueWrap.classList.add('hidden');
+    } else {
+      this.valueDivider.classList.remove('hidden');
+      this.valueWrap.classList.remove('hidden');
+      this.valueLabel.textContent = config.valueLabel;
+      if (config.valueSign === 'positive') {
+        this.valueInput.min = '0.05';
+      } else {
+        this.valueInput.removeAttribute('min');
+      }
+      this.valueInput.value = this.valueByFeature.get(feature) ?? String(config.defaultValue);
     }
+    this.exprSuffix.textContent = config.exprSuffix;
     this.activeBar.classList.remove('hidden');
     this.setMessage(null);
     this.refresh();
     this.viewer.highlightEntities(this.entities);
+
+    // Sketch applies immediately when a face was already highlighted on entry.
+    if (config.immediate && this.entities.length === 1) {
+      this.apply();
+    }
   }
 
   exit(): void {
@@ -278,6 +364,7 @@ export class ModifyPickService {
       return;
     }
     this.feature = null;
+    this.viewer.pickFilter = 'all';
     this.entities = [];
     this.chains = [];
     this.cancelPreview();
@@ -303,6 +390,15 @@ export class ModifyPickService {
     this.hideContextMenu();
     this.setMessage(null);
     const entity: SelectedEntity = { shapeId, sub };
+    if (FEATURES[this.feature].immediate) {
+      // Single-pick immediate mode: the click replaces the selection and applies.
+      this.entities = [entity];
+      this.chains = [];
+      this.viewer.highlightEntities(this.entities);
+      this.refresh();
+      this.apply();
+      return;
+    }
     const chain = this.chains.find(c => c.members.some(m => sameEntity(m, entity)));
     if (chain) {
       const memberKeys = new Set(chain.members.map(entityKey));
@@ -332,6 +428,10 @@ export class ModifyPickService {
    */
   async handleDoubleClick(shapeId: string | null, sub: SubSelection): Promise<void> {
     if (!this.feature || !shapeId || !sub) {
+      return;
+    }
+    if (FEATURES[this.feature].immediate) {
+      // Single-pick mode has no bucket expansion — the first click already applied.
       return;
     }
     this.hideContextMenu();
@@ -411,7 +511,7 @@ export class ModifyPickService {
 
   /** Right-click on an edge/face: offer tangent-chain selection. */
   handleContextMenu(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): void {
-    if (!this.feature) {
+    if (!this.feature || FEATURES[this.feature].immediate) {
       return;
     }
     this.hideContextMenu();
@@ -462,14 +562,24 @@ export class ModifyPickService {
     if (!this.feature || this.applying) {
       return;
     }
+    const config = FEATURES[this.feature];
     if (this.entities.length === 0) {
-      this.setMessage('Pick at least one edge or face first.');
+      this.setMessage(config.pickFilter === 'face'
+        ? 'Pick a face first.'
+        : 'Pick at least one edge or face first.');
       return;
     }
-    const value = parseFloat(this.valueInput.value);
-    if (!Number.isFinite(value) || value <= 0) {
-      this.setMessage(`Enter a positive ${FEATURES[this.feature].valueLabel.toLowerCase()}.`);
-      return;
+    let value: number | null = null;
+    if (config.valueLabel !== null) {
+      value = parseFloat(this.valueInput.value);
+      const invalid = !Number.isFinite(value)
+        || (config.valueSign === 'positive' ? value <= 0 : value === 0);
+      if (invalid) {
+        this.setMessage(config.valueSign === 'nonzero'
+          ? `Enter a nonzero ${config.valueLabel.toLowerCase()} (negative hollows inward).`
+          : `Enter a positive ${config.valueLabel.toLowerCase()}.`);
+        return;
+      }
     }
 
     const edited = this.exprInput.value.trim();
@@ -490,6 +600,11 @@ export class ModifyPickService {
         this.exit();
       } else {
         this.setMessage(result.reason ?? 'Could not apply the feature.');
+        if (config.immediate) {
+          // The retry path for the single-pick mode: surface the editable
+          // expression so the selector can be fixed and re-applied.
+          this.schedulePreview();
+        }
       }
     } finally {
       this.applying = false;
@@ -532,7 +647,7 @@ export class ModifyPickService {
   }
 
   private async runPreview(): Promise<void> {
-    if (!this.feature) {
+    if (!this.feature || this.applying) {
       return;
     }
     const seq = ++this.previewSeq;
@@ -541,9 +656,15 @@ export class ModifyPickService {
     this.previewAbort = abort;
 
     // The argument list is independent of the numeric parameter; any valid
-    // value satisfies the endpoint.
-    const value = parseFloat(this.valueInput.value);
-    const previewValue = Number.isFinite(value) && value > 0 ? value : 1;
+    // value satisfies the endpoint (sketch has none at all).
+    const config = FEATURES[this.feature];
+    let previewValue: number | null = null;
+    if (config.valueLabel !== null) {
+      const value = parseFloat(this.valueInput.value);
+      const valid = Number.isFinite(value)
+        && (config.valueSign === 'positive' ? value > 0 : value !== 0);
+      previewValue = valid ? value : config.defaultValue!;
+    }
 
     let result: ApplyFeatureResponse;
     try {
@@ -597,7 +718,12 @@ export class ModifyPickService {
     if (!this.feature) {
       return;
     }
-    const value = this.valueInput.value.trim() || String(FEATURES[this.feature].defaultValue);
+    const config = FEATURES[this.feature];
+    if (config.valueLabel === null) {
+      this.exprPrefix.textContent = `${this.feature}(`;
+      return;
+    }
+    const value = this.valueInput.value.trim() || String(config.defaultValue);
     this.exprPrefix.textContent = `${this.feature}(${value}, `;
   }
 

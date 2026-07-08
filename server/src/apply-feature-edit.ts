@@ -15,8 +15,9 @@ import {
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer';
-  value: number;
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch';
+  /** Numeric parameter (radius/distance/thickness); absent for sketch. */
+  value?: number;
   filePath: string;
   producers: {
     line: number;
@@ -74,10 +75,12 @@ type ProducerBinding = {
 };
 
 /**
- * Apply a synthesized fillet/chamfer to source text: bind each producer call
- * to a variable (reusing an existing `const`, or prepending `const <name> = `
- * to a bare expression statement), append the feature statement at the end of
- * the producers' enclosing scope, and ensure the feature is imported.
+ * Apply a synthesized feature statement (fillet/chamfer/shell/sketch) to
+ * source text: bind each producer call to a variable (reusing an existing
+ * `const`, or prepending `const <name> = ` to a bare expression statement),
+ * append the feature statement at the end of the producers' enclosing scope,
+ * and ensure the feature is imported. A sketch statement carries an empty
+ * multi-line callback body instead of a numeric parameter.
  *
  * Pure string-in/string-out; returns `{ newCode: code, error }` and changes
  * nothing when the edit cannot be applied safely.
@@ -88,6 +91,9 @@ export async function applyFeatureEdit(
 ): Promise<ApplyFeatureEditResult> {
   if (!spec.producers.length || !spec.parts.length) {
     return { newCode: code, error: 'empty edit spec' };
+  }
+  if (spec.feature === 'sketch' && spec.parts.length > 1 && !spec.rawArgs?.trim()) {
+    return { newCode: code, error: 'sketch takes a single face selection' };
   }
 
   const parser = await getJavaScriptParser();
@@ -146,9 +152,9 @@ export async function applyFeatureEdit(
 
   allocateNames(tree.rootNode, bindings, spec);
 
-  const statementText = buildStatement(spec, bindings);
-  const useSemicolon = bindings.some(b => b.statement.text.trimEnd().endsWith(';'));
   const insertion = findInsertionPoint(scope, lines, bindings);
+  const statementText = buildStatement(spec, bindings, insertion.indent);
+  const useSemicolon = bindings.some(b => b.statement.text.trimEnd().endsWith(';'));
 
   type Edit = { index: number; text: string };
   const edits: Edit[] = [
@@ -496,20 +502,26 @@ function allocateNames(root: TSNode, bindings: ProducerBinding[], spec: ApplyFea
   }
 }
 
-function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[]): string {
+/**
+ * Render the feature statement. Most features are
+ * `<feature>(<value>, <selectors>)`; `sketch` instead wraps the selector with
+ * an empty callback body — a blank line for the user's first sketch entity,
+ * with the closing brace at the statement's own indent.
+ */
+function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[], indent: string): string {
   const rawArgs = spec.rawArgs?.trim();
-  if (rawArgs) {
-    return `${spec.feature}(${formatNumber(spec.value)}, ${rawArgs})`;
-  }
-  const args = spec.parts.map(part => {
+  const args = rawArgs ?? spec.parts.map(part => {
     const selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
     if (part.producer === null) {
       return `select(${selectorArgs})`;
     }
     const name = bindings[part.producer].varName;
     return `${name}.${part.accessor}(${selectorArgs})`;
-  });
-  return `${spec.feature}(${formatNumber(spec.value)}, ${args.join(', ')})`;
+  }).join(', ');
+  if (spec.feature === 'sketch') {
+    return `sketch(${args}, () => {\n\n${indent}})`;
+  }
+  return `${spec.feature}(${formatNumber(spec.value)}, ${args})`;
 }
 
 const MODULE_FOR_IMPORT: Record<string, string> = {
@@ -533,7 +545,7 @@ function importsForRawArgs(rawArgs: string): string[] {
   return symbols;
 }
 
-function formatNumber(value: number): string {
+function formatNumber(value: number | undefined): string {
   return Number.isFinite(value) ? String(value) : '1';
 }
 
@@ -541,22 +553,23 @@ function formatNumber(value: number): string {
  * End-of-scope insertion point: after the scope's last statement, but before
  * a trailing `return`. Inserting at the end matches what the user saw — the
  * picked edges survived to the final model, so resolving the selection after
- * the last statement is guaranteed to find them.
+ * the last statement is guaranteed to find them. `indent` is the statement
+ * indent at the insertion point, for statements with internal newlines.
  */
 function findInsertionPoint(
   scope: TSNode,
   lines: string[],
   bindings: ProducerBinding[],
-): { index: number; wrap: (stmt: string) => string } {
+): { index: number; indent: string; wrap: (stmt: string) => string } {
   const children = scope.namedChildren;
   const last = children.length > 0 ? children[children.length - 1] : null;
 
   if (last && last.type === 'return_statement') {
     const indent = indentOf(lines, last.startPosition.row);
-    return { index: last.startIndex, wrap: (stmt) => `${stmt}\n${indent}` };
+    return { index: last.startIndex, indent, wrap: (stmt) => `${stmt}\n${indent}` };
   }
 
   const anchor = last ?? bindings[0].statement;
   const indent = indentOf(lines, anchor.startPosition.row);
-  return { index: anchor.endIndex, wrap: (stmt) => `\n${indent}${stmt}` };
+  return { index: anchor.endIndex, indent, wrap: (stmt) => `\n${indent}${stmt}` };
 }

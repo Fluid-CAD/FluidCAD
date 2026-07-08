@@ -343,6 +343,52 @@ describe("shell", () => {
   });
 
   describe("failure surfacing", () => {
+    it("flags an error when a lazy selection resolves to no faces", () => {
+      sketch("xy", () => {
+        rect(100, 100);
+      });
+      const e = extrude(50) as Extrude;
+
+      // Accessor selections are lazy, so validate() can't see their
+      // emptiness — the build itself must surface it.
+      const s = shell(-2, e.endFaces(face().circle(999))) as Shell;
+
+      const scene = render();
+
+      expect(s.getError()).toBeTruthy();
+      expect(s.getError()).toContain("shell");
+      expect(s.getError()).toContain("no faces");
+
+      // The solid is untouched, just no longer silently.
+      const solid = scene.getAllSceneObjects()
+        .flatMap(o => o.getShapes())
+        .find(sh => sh.getType() === "solid") as Solid;
+      expect(ShapeProps.getProperties(solid.getShape()).volumeMm3).toBeCloseTo(100 * 100 * 50, 1);
+    });
+
+    it("flags an error when the selected faces match no solid in the scene", () => {
+      // Force the face→solid match to fail, standing in for a selection
+      // whose faces a later operation consumed.
+      const spy = vi.spyOn(Solid.prototype, "hasFace").mockReturnValue(false);
+
+      try {
+        sketch("xy", () => {
+          rect(100, 100);
+        });
+        extrude(50);
+
+        select(face().onPlane("xy", 50));
+        const s = shell(5) as Shell;
+
+        render();
+
+        expect(s.getError()).toBeTruthy();
+        expect(s.getError()).toContain("matched no solid");
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     it("flags an error instead of silently serving the original solid when the offset fails", () => {
       // OCCT's MakeThickSolid throws on geometry it cannot hollow (a wall
       // thicker than a nearby feature, a cut opening onto a removed face,

@@ -336,6 +336,123 @@ describe('applyFeatureEdit', () => {
   });
 });
 
+describe('shell and sketch statement templates', () => {
+  it('emits shell with a negative thickness and imports it', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, spec({
+      feature: 'shell',
+      value: -2,
+      parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`import {shell, sketch, rect, extrude } from 'fluidcad/core'`);
+    expect(result.newCode).toContain(`const e = extrude(30)`);
+    expect(result.newCode).toContain(`shell(-2, e.endFaces())`);
+  });
+
+  it('emits sketch with an empty multi-line callback and no numeric parameter', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, spec({
+      feature: 'sketch',
+      value: undefined,
+      parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      `sketch(e.endFaces(), () => {`,
+      ``,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('indents the sketch callback body inside a function scope and keeps semicolon style', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core';`,
+      ``,
+      `export function bracket() {`,
+      `  sketch('xy', () => { rect(100, 50) });`,
+      `  const e = extrude(30);`,
+      `  return e;`,
+      `}`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, spec({
+      feature: 'sketch',
+      value: undefined,
+      producers: [{ line: 5, column: 2, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain([
+      `  sketch(e.endFaces(), () => {`,
+      ``,
+      `  });`,
+      `  return e;`,
+    ].join('\n'));
+  });
+
+  it('refuses a sketch spec with more than one selector part', async () => {
+    const code = [
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, spec({
+      feature: 'sketch',
+      value: undefined,
+      producers: [{ line: 2, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [
+        { producer: 0, accessor: 'endFaces', indices: null, filterArgs: null },
+        { producer: 0, accessor: 'startFaces', indices: null, filterArgs: null },
+      ],
+    }));
+    expect(result.error).toBe('sketch takes a single face selection');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('wraps a user-edited argument list in the sketch callback template', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, spec({
+      feature: 'sketch',
+      value: undefined,
+      parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+      rawArgs: 'select(face().onPlane(\'xy\', 30))',
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`sketch(select(face().onPlane('xy', 30)), () => {`);
+    expect(result.newCode).toMatch(/import \{\s*select,/);
+    expect(result.newCode).toContain(`import { face } from 'fluidcad/filters';`);
+  });
+});
+
 describe('part()-scoped insertion', () => {
   it('inserts a select()-based edit at the end of the enclosing part() body', async () => {
     const code = [

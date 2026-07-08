@@ -320,13 +320,14 @@ export type ApplyFeatureOptions = {
 
 /**
  * Ask the server to synthesize (and, unless `preview` is set, apply) a
- * fillet/chamfer for the picked edges. Unlike `postJson`, failure bodies are
- * surfaced — a 422 carries the human-readable reason the selection couldn't
- * be expressed as code.
+ * feature for the picked entities. `value` is the numeric parameter
+ * (radius/distance/thickness); pass null for sketch, which has none. Unlike
+ * `postJson`, failure bodies are surfaced — a 422 carries the human-readable
+ * reason the selection couldn't be expressed as code.
  */
 export async function applyFeature(
-  feature: 'fillet' | 'chamfer',
-  value: number,
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch',
+  value: number | null,
   entities: ApplyFeatureEntity[],
   options: ApplyFeatureOptions = {},
 ): Promise<ApplyFeatureResponse> {
@@ -337,7 +338,7 @@ export async function applyFeature(
       signal: options.signal,
       body: JSON.stringify({
         feature,
-        value,
+        value: value ?? undefined,
         entities,
         chains: options.chains,
         selectorOverride: options.selectorOverride,

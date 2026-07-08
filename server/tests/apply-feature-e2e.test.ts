@@ -224,6 +224,139 @@ describe('select→apply-feature end to end', () => {
     expect(cylinderCounts.filter(c => c === 0)).toHaveLength(2);
   });
 
+  it('shells the picked top face through synthesized code', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    sketch('xy', () => { rect(100, 50) });
+    const e = extrude(30);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const picks: PickRef[] = [];
+    Explorer.findFacesWrapped(solid).forEach((f, index) => {
+      const mids = f.getEdges().map(eg => EdgeOps.getEdgeMidPoint(eg));
+      if (mids.every(m => Math.abs(m.z - 30) < 1e-6)) {
+        picks.push({ shapeId: solid.id, sub: { type: 'face', index } });
+      }
+    });
+    expect(picks).toHaveLength(1);
+
+    const synthesis = synthesizeApplyFeature(scene, picks, 'shell', -2);
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      return;
+    }
+    expect(synthesis.preview).toBe('shell(-2, e.endFaces())');
+
+    const edited = await applyFeatureEdit(code, synthesis.spec);
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain('const e = extrude(30)');
+    expect(edited.newCode).toContain('shell(-2, e.endFaces())');
+
+    // Executing the edit hollows the box: material removed, inner walls added.
+    const rerun = runFluid(edited.newCode);
+    const newSolid = findSolid(rerun) as Solid;
+    expect(ShapeProps.getProperties(newSolid.getShape()).volumeMm3).toBeLessThan(100 * 50 * 30);
+    expect(newSolid.getFaces().length).toBeGreaterThan(6);
+  });
+
+  it('inserts an empty sketch on the picked face and the model still renders green', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    sketch('xy', () => { rect(100, 50) });
+    const e = extrude(30);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const picks: PickRef[] = [];
+    Explorer.findFacesWrapped(solid).forEach((f, index) => {
+      const mids = f.getEdges().map(eg => EdgeOps.getEdgeMidPoint(eg));
+      if (mids.every(m => Math.abs(m.z - 30) < 1e-6)) {
+        picks.push({ shapeId: solid.id, sub: { type: 'face', index } });
+      }
+    });
+    expect(picks).toHaveLength(1);
+
+    // Sketch has no numeric parameter.
+    const synthesis = synthesizeApplyFeature(scene, picks, 'sketch');
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      return;
+    }
+    expect(synthesis.preview).toBe('sketch(e.endFaces(), () => { ... })');
+    expect(synthesis.spec.value).toBeUndefined();
+
+    const edited = await applyFeatureEdit(code, synthesis.spec);
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain([
+      `sketch(e.endFaces(), () => {`,
+      ``,
+      `})`,
+    ].join('\n'));
+
+    // The empty sketch must not break the model: no compile error (runFluid
+    // would throw) and no feature errors on any scene object.
+    const rerun = runFluid(edited.newCode);
+    const errors = rerun.getAllSceneObjects()
+      .map(o => o.getError())
+      .filter(Boolean);
+    expect(errors).toEqual([]);
+    const newSolid = findSolid(rerun) as Solid;
+    expect(ShapeProps.getProperties(newSolid.getShape()).volumeMm3).toBeCloseTo(100 * 50 * 30, 1);
+  });
+
+  it('refuses a sketch over more than one face', () => {
+    sketch('xy', () => { rect(100, 50) });
+    const e = extrude(30);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const picks: PickRef[] = [
+      { shapeId: solid.id, sub: { type: 'face', index: 0 } },
+      { shapeId: solid.id, sub: { type: 'face', index: 1 } },
+    ];
+
+    const synthesis = synthesizeApplyFeature(scene, picks, 'sketch');
+    expect(synthesis.ok).toBe(false);
+    if (synthesis.ok !== false) {
+      return;
+    }
+    expect(synthesis.reason).toContain('single face');
+  });
+
+  it('refuses a sketch on an edge pick', () => {
+    sketch('xy', () => { rect(100, 50) });
+    const e = extrude(30);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const picks = topEdgeRefs(solid, 30).slice(0, 1);
+    expect(picks).toHaveLength(1);
+
+    const synthesis = synthesizeApplyFeature(scene, picks, 'sketch');
+    expect(synthesis.ok).toBe(false);
+    if (synthesis.ok !== false) {
+      return;
+    }
+    expect(synthesis.reason).toContain('single face');
+  });
+
   it('chamfers a picked subset through synthesized bucket indices', async () => {
     const code = [
       `import { sketch, rect, extrude } from 'fluidcad/core'`,

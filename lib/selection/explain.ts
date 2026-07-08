@@ -36,26 +36,36 @@ export function explainSelection(scene: Scene, refs: PickRef[]): ExplainResult {
 }
 
 /**
- * Synthesize the code edit for applying `fillet`/`chamfer` to the picked
- * edges and faces (a face selection fillets all of the face's edges):
- * oracle-verified selector parts plus the producer call sites the transform
- * must bind. Tangent chains (right-click "Select with tangents") arrive as
- * seed + expanded members and synthesize `.withTangents()` selectors. The
- * result carries the winning argument list plus up to three verified
- * alternative renderings for the UI's expression dropdown. Returns a
- * structured refusal (with the failing pick) when the selection can't be
- * expressed safely.
+ * Synthesize the code edit for applying a feature to the picked edges and
+ * faces: oracle-verified selector parts plus the producer call sites the
+ * transform must bind. `fillet`/`chamfer` take edges (a face pick fillets all
+ * of the face's edges), `shell` takes the faces to remove, `sketch` takes
+ * exactly one face and no numeric value. Tangent chains (right-click "Select
+ * with tangents") arrive as seed + expanded members and synthesize
+ * `.withTangents()` selectors. The result carries the winning argument list
+ * plus up to three verified alternative renderings for the UI's expression
+ * dropdown. Returns a structured refusal (with the failing pick) when the
+ * selection can't be expressed safely.
  */
 export function synthesizeApplyFeature(
   scene: Scene,
   refs: PickRef[],
   feature: ApplyFeatureKind,
-  value: number,
+  value?: number,
   chains: PickChain[] = [],
   options: SynthesizeOptions = {},
 ): ApplyFeatureSynthesis {
   if (refs.length === 0 && chains.length === 0) {
     return { ok: false, reason: 'nothing selected' };
+  }
+  if (feature === 'sketch') {
+    if (chains.length > 0 || refs.length !== 1 || refs[0].sub.type !== 'face') {
+      return {
+        ok: false,
+        reason: 'sketch needs a single face — pick exactly one face',
+        pick: refs[0],
+      };
+    }
   }
 
   const index = new SelectionIndex(scene);
@@ -95,7 +105,7 @@ export function synthesizeApplyFeature(
 
     const spec: ApplyFeatureEditSpec = {
       feature,
-      value,
+      ...(feature === 'sketch' ? {} : { value }),
       filePath: filePaths.values().next().value!,
       producers: located.map(l => {
         const loc = l.feature.getSourceLocation()!;
@@ -134,7 +144,7 @@ export function synthesizeApplyFeature(
     return {
       ok: true,
       spec,
-      preview: `${feature}(${value}, ${args})`,
+      preview: renderPreview(feature, value, args),
       args,
       alternatives,
     };
@@ -145,6 +155,17 @@ export function synthesizeApplyFeature(
 
 function refKey(ref: PickRef): string {
   return `${ref.shapeId}:${ref.sub.type}:${ref.sub.index}`;
+}
+
+/**
+ * One-line statement preview per feature. The transform writes sketch's
+ * callback as a real multi-line empty body; the preview stands in for it.
+ */
+function renderPreview(feature: ApplyFeatureKind, value: number | undefined, args: string): string {
+  if (feature === 'sketch') {
+    return `sketch(${args}, () => { ... })`;
+  }
+  return `${feature}(${value}, ${args})`;
 }
 
 /**

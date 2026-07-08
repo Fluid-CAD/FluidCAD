@@ -716,6 +716,95 @@ describe("apply-feature synthesis", () => {
   });
 });
 
+describe("shell and sketch synthesis", () => {
+  setupOC();
+
+  it("previews shell with the thickness and a face selector", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30);
+    setLocation(e, 4);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const topFaceRefs = faceRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6);
+    expect(topFaceRefs).toHaveLength(1);
+
+    const result = synthesizeApplyFeature(scene, topFaceRefs, 'shell', -2);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spec.value).toBe(-2);
+      expect(result.spec.parts).toHaveLength(1);
+      expect(result.spec.parts[0].accessor).toBe("endFaces");
+      expect(result.preview).toBe("shell(-2, e.endFaces())");
+      expect(result.args).toBe("e.endFaces()");
+    }
+  });
+
+  it("previews sketch with the callback template and no numeric value", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30);
+    setLocation(e, 4);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const topFaceRefs = faceRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6);
+    expect(topFaceRefs).toHaveLength(1);
+
+    const result = synthesizeApplyFeature(scene, topFaceRefs, 'sketch');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spec.value).toBeUndefined();
+      expect(result.spec.parts).toHaveLength(1);
+      expect(result.preview).toBe("sketch(e.endFaces(), () => { ... })");
+      expect(result.args).toBe("e.endFaces()");
+    }
+  });
+
+  it("refuses a sketch over two faces", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30);
+    setLocation(e, 4);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const refs: PickRef[] = [
+      { shapeId: solid.id, sub: { type: 'face', index: 0 } },
+      { shapeId: solid.id, sub: { type: 'face', index: 1 } },
+    ];
+
+    const result = synthesizeApplyFeature(scene, refs, 'sketch');
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.reason).toContain("single face");
+    }
+  });
+
+  it("refuses a sketch on an edge pick", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30);
+    setLocation(e, 4);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const refs = edgeRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6).slice(0, 1);
+    expect(refs).toHaveLength(1);
+
+    const result = synthesizeApplyFeature(scene, refs, 'sketch');
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.reason).toContain("single face");
+    }
+  });
+});
+
 describe("producer naming", () => {
   setupOC();
 

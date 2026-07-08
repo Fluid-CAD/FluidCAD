@@ -144,7 +144,7 @@ class SceneManager {
     scene: Scene,
     refs: PickRef[],
     feature: ApplyFeatureKind,
-    value: number,
+    value?: number,
     chains: PickChain[] = [],
     options: SynthesizeOptions = {},
   ): ApplyFeatureSynthesis {

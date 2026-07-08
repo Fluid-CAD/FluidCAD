@@ -53,25 +53,41 @@ export class Shell extends SceneObject implements IShell {
       }
     }
 
-    if (!shapeObjMap.size) {
-      return;
-    }
-
     const allFaceShapes: Shape[] = [];
     for (const sel of this.faceSelections) {
       allFaceShapes.push(...sel.getShapes());
     }
     const faces = allFaceShapes as Face[];
 
+    if (faces.length === 0) {
+      // Accessor selections are lazy, so validate() can't see their
+      // emptiness — the build itself must surface it.
+      this.setError(
+        this._faceSelections.length === 0
+          ? "shell: no faces selected — nothing was shelled."
+          : "shell: the selection resolved to no faces — nothing was shelled.\n" +
+            "Hint: a later operation may have removed the selected faces, or " +
+            "the filter matched nothing. Re-select on the final model or " +
+            "widen the filter."
+      );
+    }
+
+    if (!shapeObjMap.size) {
+      return;
+    }
+
     const newShapes: Shape[] = [];
     const allTargetShapes = Array.from(shapeObjMap.keys());
+    let unmatchedFaces = faces;
 
     for (const shape of allTargetShapes) {
       const solid = shape as Solid;
-      const targetFaces = faces.filter(f => solid.hasFace(f.getShape()));
+      const targetFaces = unmatchedFaces.filter(f => solid.hasFace(f.getShape()));
       if (!targetFaces.length) {
         continue;
       }
+
+      unmatchedFaces = unmatchedFaces.filter(f => !targetFaces.includes(f));
 
       try {
         const newShape = ShellOps.makeThickSolid(shape, targetFaces, this.thickness, this._joinType);
@@ -94,6 +110,15 @@ export class Shell extends SceneObject implements IShell {
           "small features."
         );
       }
+    }
+
+    if (unmatchedFaces.length > 0) {
+      this.setError(
+        `shell: ${unmatchedFaces.length} selected face(s) matched no solid in ` +
+        "the scene and were skipped.\n" +
+        "Hint: a later operation may have consumed them — re-select on the " +
+        "final model."
+      );
     }
 
     for (const sel of this.faceSelections) {

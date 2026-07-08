@@ -97,13 +97,23 @@ export function createApplyFeatureRouter(
       res.status(400).json({ error: 'chains must be {seed, members} pick groups' });
       return;
     }
-    if (feature !== 'fillet' && feature !== 'chamfer') {
-      res.status(400).json({ error: 'feature must be "fillet" or "chamfer"' });
+    if (feature !== 'fillet' && feature !== 'chamfer' && feature !== 'shell' && feature !== 'sketch') {
+      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell" or "sketch"' });
       return;
     }
-    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-      res.status(400).json({ error: 'value must be a positive number' });
-      return;
+    // Per-feature numeric parameter: fillet/chamfer need a positive radius or
+    // distance; shell needs a nonzero thickness (negative is the idiom —
+    // shell(-2, …) hollows inward); sketch has no numeric parameter at all.
+    if (feature === 'shell') {
+      if (typeof value !== 'number' || !Number.isFinite(value) || value === 0) {
+        res.status(400).json({ error: 'value must be a nonzero number (negative hollows inward)' });
+        return;
+      }
+    } else if (feature !== 'sketch') {
+      if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+        res.status(400).json({ error: 'value must be a positive number' });
+        return;
+      }
     }
     if (selectorOverride !== undefined
       && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
@@ -127,7 +137,9 @@ export function createApplyFeatureRouter(
           ),
         }
         : undefined;
-      const synthesis = fluidCadServer.synthesizeApplyFeature(picks, feature, value, chains, options);
+      const synthesis = fluidCadServer.synthesizeApplyFeature(
+        picks, feature, feature === 'sketch' ? undefined : value, chains, options,
+      );
       if (!synthesis) {
         res.status(404).json({ success: false, reason: 'No rendered scene' });
         return;

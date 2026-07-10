@@ -25,9 +25,12 @@ const fakeSynthesis = {
 let currentSynthesis: any;
 /** Per-test live buffer; reset to null before each test. */
 let currentCode: string | null;
+/** Per-test live-buffer file name; reset before each test. */
+let currentFileName: string | null;
 
 const fakeServer = {
   getCurrentCode: () => currentCode,
+  getCurrentFileName: () => currentFileName,
   getParamDefinitions: () => [],
   synthesizeApplyFeature: (
     _picks: unknown, feature: string, value: number | undefined,
@@ -77,6 +80,7 @@ describe('apply-feature route validation', () => {
     relayed = [];
     currentSynthesis = fakeSynthesis;
     currentCode = null;
+    currentFileName = null;
   });
 
   it('rejects an unknown feature', async () => {
@@ -541,5 +545,130 @@ describe('apply-feature route validation', () => {
       body: JSON.stringify({ lines: [3] }),
     });
     expect((await res.json()).names).toEqual([null]);
+  });
+
+  describe('in-place statement edit routes', () => {
+    const EDIT_CODE = [
+      `import { sketch, rect, extrude, shell } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      `shell(-2, e.endFaces())`,
+      ``,
+    ].join('\n');
+    const EDIT_TARGET = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };
+
+    async function postParse(body: unknown): Promise<{ status: number; body: any }> {
+      const res = await fetch(`${baseUrl}/api/feature/parse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return { status: res.status, body: await res.json() };
+    }
+
+    it('parses the statement at a line for the dialog prefill', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await postParse({ filePath: '/ws/m.fluid.js', line: 4 });
+      expect(status).toBe(200);
+      expect(body).toEqual({
+        ok: true,
+        parsed: { feature: 'extrude', op: 'add', distance: 30, thin: null, profileText: null },
+        statement: 'extrude(30)',
+      });
+    });
+
+    it('refuses to parse a feature from another file', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await postParse({ filePath: '/ws/other.fluid.js', line: 4 });
+      expect(status).toBe(422);
+      expect(body.error).toContain('different file');
+    });
+
+    it('404s the parse without a code buffer', async () => {
+      const { status } = await postParse({ filePath: '/ws/m.fluid.js', line: 4 });
+      expect(status).toBe(404);
+    });
+
+    it('relays an extrude edit spec and previews the exact statement', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'extrude', edit: EDIT_TARGET, op: 'add', distance: 45, thin: [2],
+      });
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(body.preview).toBe('extrude(45).thin(2)');
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed).toHaveLength(1);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'extrude',
+        edit: { line: 4, column: 0, extrude: { op: 'add', distance: 45, thin: [2] } },
+        producers: [],
+        parts: [],
+      });
+    });
+
+    it('previews an edit without relaying when preview is set', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'extrude', edit: EDIT_TARGET, op: 'remove', distance: null, thin: null, preview: true,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('cut()');
+      expect(relayed).toHaveLength(0);
+    });
+
+    it('rejects a malformed edit op', async () => {
+      const { status } = await post({
+        feature: 'extrude', edit: EDIT_TARGET, op: 'subtract', distance: 10, thin: null,
+      });
+      expect(status).toBe(400);
+    });
+
+    it('422s an edit whose statement no longer matches the feature', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'sweep', edit: EDIT_TARGET, op: 'add', thin: null,
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('not');
+      expect(relayed).toHaveLength(0);
+    });
+
+    it('relays a shell edit with the selector override as rawArgs', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'shell',
+        edit: { filePath: '/ws/m.fluid.js', line: 5, column: 0 },
+        value: -3,
+        selectorOverride: `face().onPlane('xy')`,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`shell(-3, face().onPlane('xy'))`);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'shell',
+        value: -3,
+        rawArgs: `face().onPlane('xy')`,
+        edit: { line: 5, column: 0 },
+      });
+    });
+
+    it('refuses an edit in a different file than the live buffer', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'extrude',
+        edit: { filePath: '/ws/other.fluid.js', line: 4, column: 0 },
+        op: 'add', distance: 10, thin: null,
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('different file');
+    });
   });
 });

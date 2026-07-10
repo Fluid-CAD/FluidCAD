@@ -1,4 +1,6 @@
-import { applyExtrude, ApplyFeatureResponse, ExtrudeProfileRef } from '../../api';
+import {
+  applyExtrude, applyExtrudeEdit, ApplyFeatureResponse, ExtrudeProfileRef, FeatureEditTarget, ParsedFeatureStatement,
+} from '../../api';
 import { SceneObjectRender } from '../../types';
 import { Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
@@ -34,6 +36,8 @@ export class ExtrudeFeatureService {
   private sceneObjects: SceneObjectRender[] = [];
   private labelSignature = '';
   private applying = false;
+  /** Statement being edited in place (timeline double-click), or null. */
+  private editTarget: FeatureEditTarget | null = null;
   private previewTimer: number | null = null;
   private previewAbort: AbortController | null = null;
   private previewSeq = 0;
@@ -88,6 +92,13 @@ export class ExtrudeFeatureService {
     if (!this.armed) {
       return;
     }
+    if (this.editTarget) {
+      // Edit mode tracks a statement, not the scene: the dialog rides out
+      // renders (including the breakpoint render the double-click placed);
+      // the preview re-parses the statement in case it changed.
+      this.schedulePreview();
+      return;
+    }
     if (!this.available) {
       this.exit();
       return;
@@ -96,6 +107,28 @@ export class ExtrudeFeatureService {
     this.panel.setOptions(this.options);
     this.refreshSketchLabels();
     this.refreshHighlight();
+    this.schedulePreview();
+  }
+
+  /**
+   * Open the dialog over an existing extrude/cut statement (timeline
+   * double-click). No picking is involved — the profile is fixed to the
+   * statement's own — and Apply rewrites the statement in place.
+   */
+  enterEdit(target: FeatureEditTarget, parsed: Extract<ParsedFeatureStatement, { feature: 'extrude' }>): void {
+    if (this.armed) {
+      this.exit();
+    }
+    this.hooks.onEnter?.();
+    this.armed = true;
+    this.editTarget = target;
+    this.syncButton();
+    this.panel.showEdit({
+      op: parsed.op,
+      distance: parsed.distance,
+      thin: parsed.thin,
+      profileLabel: parsed.profileText ?? 'Current sketch (implicit)',
+    });
     this.schedulePreview();
   }
 
@@ -135,6 +168,7 @@ export class ExtrudeFeatureService {
       return;
     }
     this.armed = false;
+    this.editTarget = null;
     this.viewer.pickSketchWires = false;
     this.viewer.clearHighlight();
     this.syncButton();
@@ -175,7 +209,7 @@ export class ExtrudeFeatureService {
    * otherwise close the dialog mid-flow.
    */
   handleTimelinePick(obj: SceneObjectRender): boolean {
-    if (!this.armed) {
+    if (!this.armed || this.editTarget) {
       return false;
     }
     const sketch = resolveSketchRow(obj, this.sceneObjects);
@@ -188,7 +222,7 @@ export class ExtrudeFeatureService {
 
   /** A sketch wire was clicked in the 3D view: selects it as the profile. */
   handleSketchPick(shapeId: string): boolean {
-    if (!this.armed) {
+    if (!this.armed || this.editTarget) {
       return false;
     }
     const sketch = resolveSketchByShapeId(shapeId, this.sceneObjects);
@@ -219,6 +253,22 @@ export class ExtrudeFeatureService {
     const values = this.panel.values();
     if ('error' in values) {
       this.panel.setMessage(values.error);
+      return;
+    }
+    if (this.editTarget) {
+      this.applying = true;
+      this.panel.setApplyEnabled(false);
+      try {
+        const result = await applyExtrudeEdit(this.editTarget, values);
+        if (result.success) {
+          this.exit();
+        } else {
+          this.panel.setMessage(result.reason ?? 'Could not apply the edit.');
+        }
+      } finally {
+        this.applying = false;
+        this.panel.setApplyEnabled(true);
+      }
       return;
     }
     const option = this.panel.selectedOption();
@@ -269,8 +319,8 @@ export class ExtrudeFeatureService {
       return;
     }
     const values = this.panel.values();
-    const option = this.panel.selectedOption();
-    if (!option || 'error' in values) {
+    const option = this.editTarget ? null : this.panel.selectedOption();
+    if ('error' in values || (!this.editTarget && !option)) {
       this.panel.setPreview(null);
       return;
     }
@@ -281,12 +331,14 @@ export class ExtrudeFeatureService {
 
     let result: ApplyFeatureResponse;
     try {
-      result = await applyExtrude({
-        ...values,
-        profile: profileRef(option),
-        preview: true,
-        signal: abort.signal,
-      });
+      result = this.editTarget
+        ? await applyExtrudeEdit(this.editTarget, { ...values, preview: true, signal: abort.signal })
+        : await applyExtrude({
+          ...values,
+          profile: profileRef(option!),
+          preview: true,
+          signal: abort.signal,
+        });
     } catch {
       return; // aborted
     }
@@ -294,6 +346,11 @@ export class ExtrudeFeatureService {
       return;
     }
     this.panel.setPreview(result.success ? result.preview ?? null : null);
+    if (this.editTarget && !result.success && result.reason) {
+      // The statement changed shape under the dialog (an undo, a concurrent
+      // edit) — surface the refusal before Apply.
+      this.panel.setMessage(result.reason);
+    }
   }
 
   private cancelPreview(): void {

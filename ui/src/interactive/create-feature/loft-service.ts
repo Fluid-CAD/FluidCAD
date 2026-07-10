@@ -1,4 +1,7 @@
-import { applyLoft, ApplyFeatureResponse, LoftApplyOptions, LoftProfileRef, SketchSourceRef } from '../../api';
+import {
+  applyLoft, applyLoftEdit, ApplyFeatureResponse, FeatureEditTarget, LoftApplyOptions, LoftProfileRef,
+  ParsedFeatureStatement, SketchSourceRef,
+} from '../../api';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
@@ -47,6 +50,8 @@ export class LoftFeatureService {
   private hasSolid = false;
   private sceneSketchActive = false;
   private suspendedSketchUI = false;
+  /** Statement being edited in place (timeline double-click), or null. */
+  private editTarget: FeatureEditTarget | null = null;
 
   private items: LoftProfileItem[] = [];
   private guides: SketchProfileOption[] = [];
@@ -98,9 +103,9 @@ export class LoftFeatureService {
     return this.armed;
   }
 
-  /** Face picks are live the whole time the dialog is armed. */
+  /** Face picks are live the whole time the dialog is armed (create only). */
   get isFacePicking(): boolean {
-    return this.armed;
+    return this.armed && !this.editTarget;
   }
 
   /** True while the armed dialog has suspended sketch editing. */
@@ -119,6 +124,13 @@ export class LoftFeatureService {
     this.navbar.setGroupVisible('create', this.available, 'loft');
     this.syncButton();
     if (!this.armed) {
+      return;
+    }
+    if (this.editTarget) {
+      // Edit mode tracks a statement, not the scene: the dialog rides out
+      // renders (including the breakpoint render the double-click placed);
+      // the preview re-parses the statement in case it changed.
+      this.schedulePreview();
       return;
     }
     if (!this.available) {
@@ -151,6 +163,33 @@ export class LoftFeatureService {
       .filter((option): option is SketchProfileOption => option !== undefined);
     this.refreshSketchLabels();
     this.refreshProfilesUI();
+    this.schedulePreview();
+  }
+
+  /**
+   * Open the dialog over an existing loft statement (timeline double-click).
+   * No picking is involved — the profiles and guides are fixed to the
+   * statement's own — and Apply rewrites the statement in place.
+   */
+  enterEdit(target: FeatureEditTarget, parsed: Extract<ParsedFeatureStatement, { feature: 'loft' }>): void {
+    if (this.armed) {
+      this.exit();
+    }
+    this.hooks.onEnter?.();
+    this.armed = true;
+    this.editTarget = target;
+    this.items = [];
+    this.guides = [];
+    this.syncButton();
+    this.panel.showEdit({
+      op: parsed.op,
+      thin: parsed.thin,
+      startCondition: parsed.startCondition,
+      endCondition: parsed.endCondition,
+      profileLabels: parsed.profileTexts,
+      guideLabels: parsed.guideTexts,
+    });
+    this.syncApplyEnabled();
     this.schedulePreview();
   }
 
@@ -187,6 +226,7 @@ export class LoftFeatureService {
       return;
     }
     this.armed = false;
+    this.editTarget = null;
     this.syncButton();
     this.cancelPreview();
     this.items = [];
@@ -225,7 +265,7 @@ export class LoftFeatureService {
    * close the dialog mid-flow.
    */
   handleTimelinePick(obj: SceneObjectRender): boolean {
-    if (!this.armed) {
+    if (!this.armed || this.editTarget) {
       return false;
     }
     const sketch = resolveSketchRow(obj, this.sceneObjects);
@@ -238,7 +278,7 @@ export class LoftFeatureService {
 
   /** A sketch wire was clicked in the 3D view: same as a timeline pick. */
   handleSketchPick(shapeId: string): boolean {
-    if (!this.armed) {
+    if (!this.armed || this.editTarget) {
       return false;
     }
     const sketch = resolveSketchByShapeId(shapeId, this.sceneObjects);
@@ -339,6 +379,27 @@ export class LoftFeatureService {
 
   private async apply(): Promise<void> {
     if (!this.armed || this.applying) {
+      return;
+    }
+    if (this.editTarget) {
+      const values = this.panel.values();
+      if ('error' in values) {
+        this.panel.setMessage(values.error);
+        return;
+      }
+      this.applying = true;
+      this.syncApplyEnabled();
+      try {
+        const result = await applyLoftEdit(this.editTarget, values);
+        if (result.success) {
+          this.exit({ resume: 'lazy' });
+        } else {
+          this.panel.setMessage(result.reason ?? 'Could not apply the edit.');
+        }
+      } finally {
+        this.applying = false;
+        this.syncApplyEnabled();
+      }
       return;
     }
     const request = this.buildRequest();
@@ -503,7 +564,9 @@ export class LoftFeatureService {
   }
 
   private syncApplyEnabled(): void {
-    this.panel.setApplyEnabled(!this.applying && this.items.length >= 2);
+    // Edit mode has no chip list — the statement's own profiles satisfy the
+    // two-profile floor.
+    this.panel.setApplyEnabled(!this.applying && (this.editTarget !== null || this.items.length >= 2));
   }
 
   private syncButton(): void {
@@ -530,7 +593,9 @@ export class LoftFeatureService {
     if (!this.armed || this.applying) {
       return;
     }
-    const request = this.buildRequest();
+    // Edit mode previews from the form values alone — the profiles and
+    // guides stay whatever the statement already says.
+    const request = this.editTarget ? this.panel.values() : this.buildRequest();
     if ('error' in request) {
       this.panel.setPreview(null);
       return;
@@ -542,7 +607,16 @@ export class LoftFeatureService {
 
     let result: ApplyFeatureResponse;
     try {
-      result = await applyLoft({ ...request, preview: true, signal: abort.signal });
+      result = this.editTarget
+        ? await applyLoftEdit(this.editTarget, {
+          op: request.op,
+          thin: request.thin,
+          startCondition: request.startCondition ?? null,
+          endCondition: request.endCondition ?? null,
+          preview: true,
+          signal: abort.signal,
+        })
+        : await applyLoft({ ...(request as LoftApplyOptions), preview: true, signal: abort.signal });
     } catch {
       return; // aborted
     }

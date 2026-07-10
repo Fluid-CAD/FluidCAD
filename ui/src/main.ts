@@ -21,7 +21,8 @@ import { LoftFeatureService } from './interactive/create-feature/loft-service';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, gotoSource } from './api';
+import { loadPreferences, gotoSource, parseFeatureAt } from './api';
+import type { SceneObjectRender } from './types';
 import { applyPreferences } from './scene/viewer-settings';
 import { installVSCodeKeyboardBridge } from './keyboard-bridge';
 
@@ -135,6 +136,65 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
 timelinePanel.onFeatureIntercept = (obj) =>
   extrudeService.handleTimelinePick(obj) || sweepService.handleTimelinePick(obj)
   || loftService.handleTimelinePick(obj);
+// Double-clicking an editable feature row (the enter-breakpoint gesture)
+// also opens that feature's dialog prefilled from its statement.
+timelinePanel.onFeatureEdit = (obj) => {
+  void openFeatureEditor(obj);
+};
+
+/** Timeline `type` → the dialog that edits it (cut is extrude's remove op). */
+const EDITABLE_ROW_TYPES = new Set(['extrude', 'cut', 'sweep', 'loft', 'shell', 'fillet', 'chamfer']);
+
+/**
+ * Parse the double-clicked row's statement and open the matching dialog in
+ * edit mode. Statements the dialogs can't faithfully represent (variable
+ * dimensions, unrecognized chains) surface the parse refusal as a toast and
+ * leave the plain breakpoint behavior in place.
+ */
+async function openFeatureEditor(obj: SceneObjectRender): Promise<void> {
+  if (!obj.type || !EDITABLE_ROW_TYPES.has(obj.type) || !obj.sourceLocation) {
+    return;
+  }
+  const target = obj.sourceLocation;
+  const result = await parseFeatureAt(target);
+  if (result.ok === false) {
+    showEditRefusal(result.reason);
+    return;
+  }
+  const parsed = result.parsed;
+  if (parsed.feature === 'extrude') {
+    extrudeService.enterEdit(target, parsed);
+  } else if (parsed.feature === 'sweep') {
+    sweepService.enterEdit(target, parsed);
+  } else if (parsed.feature === 'loft') {
+    loftService.enterEdit(target, parsed);
+  } else {
+    modifyService.enterEdit(target, parsed);
+  }
+}
+
+// Transient toast for edit-dialog refusals — there is no dialog to carry the
+// message yet when the double-clicked statement can't be edited.
+let editRefusalToast: HTMLDivElement | null = null;
+let editRefusalTimer: number | null = null;
+
+function showEditRefusal(reason: string): void {
+  if (!editRefusalToast) {
+    editRefusalToast = document.createElement('div');
+    editRefusalToast.className = 'absolute top-[116px] left-1/2 -translate-x-1/2 z-[1003] max-w-[440px] '
+      + 'bg-base-100 border border-base-300 text-base-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md';
+    container.appendChild(editRefusalToast);
+  }
+  editRefusalToast.textContent = `Can't edit this feature in a dialog: ${reason}`;
+  editRefusalToast.classList.remove('hidden');
+  if (editRefusalTimer !== null) {
+    window.clearTimeout(editRefusalTimer);
+  }
+  editRefusalTimer = window.setTimeout(() => {
+    editRefusalTimer = null;
+    editRefusalToast?.classList.add('hidden');
+  }, 5000);
+}
 const sketchService = new SketchToolbarService(container, viewer, trimService, navbar);
 const modifyService = new ModifyPickService(container, viewer, navbar, {
   // Hand the current highlight over as the tool's initial input: whatever the

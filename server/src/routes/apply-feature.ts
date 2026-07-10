@@ -1,10 +1,13 @@
 import { Router } from 'express';
 import type { FluidCadServer } from '../fluidcad-server.ts';
 import {
-  applyFeatureEdit, extractNumericParams, makeProducerNamer, renderExtrudeStatement, renderLoftStatement,
-  renderSelectorPartExpr, renderSweepStatement, resolveParamValues, resolveSketchNames,
-  type ApplyFeatureEditSpec, type ExtrudeEditOptions, type LoftEditOptions, type SweepEditOptions,
+  applyFeatureEdit, extractNumericParams, makeProducerNamer, parseFeatureStatement, renderEditedStatement,
+  renderExtrudeStatement, renderLoftStatement, renderSelectorPartExpr, renderSweepStatement, resolveParamValues,
+  resolveSketchNames,
+  type ApplyFeatureEditSpec, type ExtrudeEditOptions, type FeatureStatementEditTarget, type LoftEditOptions,
+  type SweepEditOptions,
 } from '../apply-feature-edit.ts';
+import { normalizePath } from '../normalize-path.ts';
 
 const MAX_ENTITIES = 32;
 
@@ -288,6 +291,106 @@ function validateLoft(body: any): LoftRequest | { error: string } {
   };
 }
 
+/** Features whose statements the dialogs can rewrite in place. */
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer']);
+
+type StatementEditRequest = {
+  feature: ApplyFeatureEditSpec['feature'];
+  target: SketchLoc;
+  edit: FeatureStatementEditTarget;
+  value?: number;
+  rawArgs?: string;
+};
+
+/**
+ * The in-place edit request's shape: the statement location plus the
+ * dialog-editable options for that feature. Everything the dialog doesn't
+ * edit is re-read from the statement at apply time, so nothing else rides.
+ */
+function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
+  const { feature, selectorOverride } = body ?? {};
+  if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
+    return { error: 'feature must be "extrude", "sweep", "loft", "shell", "fillet" or "chamfer" for an edit' };
+  }
+  const target = validateSketchLoc(body?.edit);
+  if (!target) {
+    return { error: 'edit must be the {filePath, line, column} of the feature statement' };
+  }
+  const edit: FeatureStatementEditTarget = { line: target.line, column: target.column };
+  const kind = feature as ApplyFeatureEditSpec['feature'];
+  const base = { feature: kind, target, edit };
+
+  if (feature === 'extrude') {
+    const { op, distance } = body ?? {};
+    if (op !== 'add' && op !== 'remove' && op !== 'new') {
+      return { error: 'op must be "add", "remove" or "new"' };
+    }
+    if (distance === null) {
+      if (op !== 'remove') {
+        return { error: 'distance may be null (through-all) only for a remove' };
+      }
+    } else if (typeof distance !== 'number' || !Number.isFinite(distance) || distance === 0) {
+      return { error: 'distance must be a nonzero number (negative extrudes the other way)' };
+    }
+    const thin = validateThinOffsets(body?.thin);
+    if ('error' in thin) {
+      return thin;
+    }
+    edit.extrude = { op, distance, thin: thin.offsets };
+    return base;
+  }
+
+  if (feature === 'sweep' || feature === 'loft') {
+    const { op } = body ?? {};
+    if (op !== 'add' && op !== 'remove' && op !== 'new') {
+      return { error: 'op must be "add", "remove" or "new"' };
+    }
+    const thin = validateThinOffsets(body?.thin);
+    if ('error' in thin) {
+      return thin;
+    }
+    if (feature === 'sweep') {
+      edit.sweep = { op, thin: thin.offsets };
+      return base;
+    }
+    const startResult = validateLoftCondition('startCondition', body?.startCondition);
+    if ('error' in startResult) {
+      return startResult;
+    }
+    const endResult = validateLoftCondition('endCondition', body?.endCondition);
+    if ('error' in endResult) {
+      return endResult;
+    }
+    edit.loft = {
+      op,
+      thin: thin.offsets,
+      startCondition: startResult.condition ?? undefined,
+      endCondition: endResult.condition ?? undefined,
+    };
+    return base;
+  }
+
+  // Shell / fillet / chamfer: the numeric value plus an optional edited
+  // selector argument list (the expression row).
+  const { value } = body ?? {};
+  if (feature === 'shell') {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value === 0) {
+      return { error: 'value must be a nonzero number (negative hollows inward)' };
+    }
+  } else if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return { error: 'value must be a positive number' };
+  }
+  if (selectorOverride !== undefined
+    && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
+    return { error: 'selectorOverride must be a non-empty string (max 500 chars)' };
+  }
+  return {
+    ...base,
+    value,
+    rawArgs: typeof selectorOverride === 'string' ? selectorOverride.trim() : undefined,
+  };
+}
+
 /** Tangent chains: `{seed, members}` groups; absent/empty is fine. */
 function validateChains(chains: unknown): { seed: Pick; members: Pick[] }[] | null {
   if (chains === undefined || chains === null) {
@@ -340,6 +443,62 @@ export function createApplyFeatureRouter(
   // `selectorOverride` replaces the argument list with user-edited text.
   router.post('/apply-feature', async (req, res) => {
     const { feature, value, preview, selectorOverride } = req.body ?? {};
+
+    // In-place statement edit (timeline double-click → edit dialog): the
+    // statement at the location is re-parsed from the live buffer and its
+    // dialog options replaced — no pick synthesis is involved.
+    if (req.body?.edit !== undefined && req.body?.edit !== null) {
+      const request = validateStatementEdit(req.body);
+      if ('error' in request) {
+        res.status(400).json({ error: request.error });
+        return;
+      }
+      try {
+        // The transform edits the live buffer's file only.
+        const currentFile = fluidCadServer.getCurrentFileName();
+        if (currentFile && normalizePath(request.target.filePath) !== normalizePath(currentFile)) {
+          res.status(422).json({ success: false, reason: 'that feature lives in a different file than the one being edited' });
+          return;
+        }
+        const spec: ApplyFeatureEditSpec = {
+          feature: request.feature,
+          value: request.value,
+          rawArgs: request.rawArgs,
+          filePath: request.target.filePath,
+          producers: [],
+          parts: [],
+          imports: [],
+          edit: request.edit,
+        };
+        // Truthful preview: parse the live buffer and render the exact
+        // statement the transform will write. Refusals (a reshaped or
+        // non-literal statement) surface here, before any edit is sent.
+        let statement: string | undefined;
+        const code = fluidCadServer.getCurrentCode();
+        if (code) {
+          const parsed = await parseFeatureStatement(code, request.edit.line);
+          if (parsed.ok === false) {
+            res.status(422).json({ success: false, reason: parsed.reason });
+            return;
+          }
+          const rendered = renderEditedStatement(parsed.parsed, spec);
+          if ('error' in rendered) {
+            res.status(422).json({ success: false, reason: rendered.error });
+            return;
+          }
+          statement = rendered.statement;
+        }
+        if (preview === true) {
+          res.json({ success: true, preview: statement });
+          return;
+        }
+        sendToExtension({ type: 'apply-feature-edit', spec });
+        res.json({ success: true, preview: statement });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
 
     // Extrude takes no pick selection — its profile is a sketch statement.
     // The transform re-verifies that the line holds a sketch() call.
@@ -794,6 +953,38 @@ export function createApplyFeatureRouter(
       res.json({ success: true, preview: synthesis.preview });
     } catch (err: any) {
       res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+    }
+  });
+
+  // Read the feature statement at a source line into its dialog-editable
+  // options — the read half of the timeline double-click → edit-dialog round
+  // trip. Read-only over the live buffer.
+  router.post('/feature/parse', async (req, res) => {
+    const { line, filePath } = req.body ?? {};
+    if (!Number.isInteger(line) || line < 1) {
+      res.status(400).json({ error: 'line must be a positive integer' });
+      return;
+    }
+    try {
+      const code = fluidCadServer.getCurrentCode();
+      if (!code) {
+        res.status(404).json({ error: 'No live code buffer' });
+        return;
+      }
+      const currentFile = fluidCadServer.getCurrentFileName();
+      if (typeof filePath === 'string' && filePath && currentFile
+        && normalizePath(filePath) !== normalizePath(currentFile)) {
+        res.status(422).json({ error: 'that feature lives in a different file than the one being edited' });
+        return;
+      }
+      const result = await parseFeatureStatement(code, line);
+      if (result.ok === false) {
+        res.status(422).json({ error: result.reason });
+        return;
+      }
+      res.json({ ok: true, parsed: result.parsed, statement: result.statement });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? String(err) });
     }
   });
 

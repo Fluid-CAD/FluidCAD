@@ -73,6 +73,13 @@ class ConditionRow {
     this.sync();
   }
 
+  /** Programmatic condition (edit-mode prefill); no change event fires. */
+  set(condition: LoftConditionRef | null): void {
+    this.select.value = condition ? condition.type : 'none';
+    this.magnitude.value = condition ? String(condition.magnitude) : '1';
+    this.sync();
+  }
+
   /** The condition to write, null for none, or the blocking message. */
   values(): { condition: LoftConditionRef | null } | { error: string } {
     const type = this.select.value;
@@ -223,6 +230,7 @@ export class LoftPanel {
     // and unconditioned takeoffs.
     this.sketchOptions = [];
     this.guideOptions = [];
+    this.shell.setTitle(null);
     this.setProfiles([]);
     this.setSketchOptions([]);
     this.setGuides([]);
@@ -232,6 +240,67 @@ export class LoftPanel {
     this.setThinBlocked(false);
     this.setArmedSection('profiles');
     this.shell.show();
+  }
+
+  /**
+   * Open prefilled from an existing statement (edit mode). The profile and
+   * guide chips name the statement's own argument expressions and are fixed
+   * — no removal, reordering, picking or adding; the op tabs, conditions and
+   * thin control edit in place.
+   */
+  showEdit(state: {
+    op: FeatureOp;
+    thin: [number] | null;
+    startCondition: LoftConditionRef | null;
+    endCondition: LoftConditionRef | null;
+    profileLabels: string[];
+    guideLabels: string[];
+  }): void {
+    this.sketchOptions = [];
+    this.guideOptions = [];
+    this.shell.setTitle('Edit loft');
+    this.setStaticChips(this.chipList, state.profileLabels, true);
+    this.setStaticChips(this.guideChipList, state.guideLabels, false);
+    this.lockAddSelect(this.addSelect);
+    this.lockAddSelect(this.addGuideSelect);
+    this.setHint(null);
+    this.tabs.setOp(state.op);
+    this.thin.setValues(state.thin);
+    this.setThinBlocked(state.guideLabels.length > 0);
+    this.startCondition.set(state.startCondition);
+    this.endCondition.set(state.endCondition);
+    this.addSelect.classList.remove('select-primary');
+    this.addGuideSelect.classList.remove('select-primary');
+    this.shell.show();
+  }
+
+  /** Render fixed, display-only chips (edit mode): no handle, no remove. */
+  private setStaticChips(host: HTMLElement, labels: string[], numbered: boolean): void {
+    host.replaceChildren(...labels.map((text, index) => {
+      const row = document.createElement('div');
+      row.className = 'flex items-center gap-1.5 rounded-md px-2 py-1 bg-base-200 border border-base-300';
+      const badge = document.createElement('span');
+      badge.className = numbered
+        ? 'badge badge-sm badge-primary badge-soft shrink-0'
+        : 'badge badge-sm badge-soft shrink-0';
+      badge.textContent = numbered ? String(index + 1) : 'G';
+      const label = document.createElement('span');
+      label.className = 'flex-1 truncate font-mono text-[11px]';
+      label.textContent = text;
+      label.title = text;
+      row.append(badge, label);
+      return row;
+    }));
+    host.classList.toggle('hidden', labels.length === 0);
+  }
+
+  private lockAddSelect(select: HTMLSelectElement): void {
+    const placeholder = document.createElement('option');
+    placeholder.value = ADD_PLACEHOLDER;
+    placeholder.textContent = 'Fixed while editing';
+    select.replaceChildren(placeholder);
+    select.value = ADD_PLACEHOLDER;
+    select.disabled = true;
   }
 
   hide(): void {

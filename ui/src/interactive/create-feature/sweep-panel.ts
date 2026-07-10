@@ -108,8 +108,31 @@ export class SweepPanel {
     // choices would otherwise be revived by source-line matching.
     this.profileOptions = [];
     this.pathOptions = [];
+    this.shell.setTitle(null);
     this.setOptions(profiles, paths, allowEdgePicking);
     this.setArmedSlot('path');
+    this.shell.show();
+  }
+
+  /**
+   * Open prefilled from an existing statement (edit mode). The path and
+   * profile slots are fixed — they name the statement's own expressions and
+   * can't change; the op tabs and thin control edit in place.
+   */
+  showEdit(state: { op: FeatureOp; thin: [number] | null; pathLabel: string; profileLabel: string }): void {
+    this.profileOptions = [];
+    this.pathOptions = [];
+    this.allowEdgePicking = false;
+    this.shell.setTitle('Edit sweep');
+    this.profileSelect.replaceChildren(makeOption('', state.profileLabel));
+    this.profileSelect.disabled = true;
+    this.pathSelect.replaceChildren(makeOption('', state.pathLabel));
+    this.pathSelect.disabled = true;
+    this.countBox.classList.add('hidden');
+    this.profileSelect.classList.remove('select-primary');
+    this.pathSelect.classList.remove('select-primary');
+    this.tabs.setOp(state.op);
+    this.thin.setValues(state.thin);
     this.shell.show();
   }
 

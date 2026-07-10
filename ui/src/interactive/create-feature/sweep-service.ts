@@ -1,5 +1,6 @@
 import {
-  applySweep, ApplyFeatureChain, ApplyFeatureResponse, expandBucket, expandTangents, SweepApplyOptions,
+  applySweep, applySweepEdit, ApplyFeatureChain, ApplyFeatureResponse, expandBucket, expandTangents,
+  FeatureEditTarget, ParsedFeatureStatement, SweepApplyOptions,
 } from '../../api';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
@@ -46,6 +47,8 @@ export class SweepFeatureService {
   private hasSolid = false;
   private sceneSketchActive = false;
   private suspendedSketchUI = false;
+  /** Statement being edited in place (timeline double-click), or null. */
+  private editTarget: FeatureEditTarget | null = null;
 
   private entities: SelectedEntity[] = [];
   private chains: { seed: SelectedEntity; members: SelectedEntity[] }[] = [];
@@ -108,7 +111,7 @@ export class SweepFeatureService {
 
   /** Edge picks are live — the viewer routes clicks here. */
   get isEdgePicking(): boolean {
-    return this.armed && this.panel.pathSelection()?.kind === 'edges';
+    return this.armed && !this.editTarget && this.panel.pathSelection()?.kind === 'edges';
   }
 
   /** True while armed edge picking has suspended sketch editing. */
@@ -131,6 +134,13 @@ export class SweepFeatureService {
     if (!this.armed) {
       return;
     }
+    if (this.editTarget) {
+      // Edit mode tracks a statement, not the scene: the dialog rides out
+      // renders (including the breakpoint render the double-click placed);
+      // the preview re-parses the statement in case it changed.
+      this.schedulePreview();
+      return;
+    }
     if (!this.available) {
       this.exit({ resume: 'lazy' });
       return;
@@ -149,6 +159,28 @@ export class SweepFeatureService {
     this.syncEdgePicking();
     this.refreshHighlight();
     this.refreshPickCount();
+    this.schedulePreview();
+  }
+
+  /**
+   * Open the dialog over an existing sweep statement (timeline
+   * double-click). No picking is involved — the path and profile are fixed
+   * to the statement's own — and Apply rewrites the statement in place.
+   */
+  enterEdit(target: FeatureEditTarget, parsed: Extract<ParsedFeatureStatement, { feature: 'sweep' }>): void {
+    if (this.armed) {
+      this.exit();
+    }
+    this.hooks.onEnter?.();
+    this.armed = true;
+    this.editTarget = target;
+    this.syncButton();
+    this.panel.showEdit({
+      op: parsed.op,
+      thin: parsed.thin,
+      pathLabel: parsed.pathText,
+      profileLabel: parsed.profileText ?? 'Current sketch (implicit)',
+    });
     this.schedulePreview();
   }
 
@@ -184,6 +216,7 @@ export class SweepFeatureService {
       return;
     }
     this.armed = false;
+    this.editTarget = null;
     this.syncButton();
     this.cancelPreview();
     this.entities = [];
@@ -301,7 +334,7 @@ export class SweepFeatureService {
    * can't close the dialog mid-flow.
    */
   handleTimelinePick(obj: SceneObjectRender): boolean {
-    if (!this.armed) {
+    if (!this.armed || this.editTarget) {
       return false;
     }
     const sketch = resolveSketchRow(obj, this.sceneObjects);
@@ -317,7 +350,7 @@ export class SweepFeatureService {
    * sketch lands in the focused slot.
    */
   handleSketchPick(shapeId: string): boolean {
-    if (!this.armed) {
+    if (!this.armed || this.editTarget) {
       return false;
     }
     const sketch = resolveSketchByShapeId(shapeId, this.sceneObjects);
@@ -342,6 +375,27 @@ export class SweepFeatureService {
 
   private async apply(): Promise<void> {
     if (!this.armed || this.applying) {
+      return;
+    }
+    if (this.editTarget) {
+      const values = this.panel.values();
+      if ('error' in values) {
+        this.panel.setMessage(values.error);
+        return;
+      }
+      this.applying = true;
+      this.panel.setApplyEnabled(false);
+      try {
+        const result = await applySweepEdit(this.editTarget, values);
+        if (result.success) {
+          this.exit({ resume: 'lazy' });
+        } else {
+          this.panel.setMessage(result.reason ?? 'Could not apply the edit.');
+        }
+      } finally {
+        this.applying = false;
+        this.panel.setApplyEnabled(true);
+      }
       return;
     }
     const request = this.buildRequest();
@@ -545,7 +599,9 @@ export class SweepFeatureService {
     if (!this.armed || this.applying) {
       return;
     }
-    const request = this.buildRequest();
+    // Edit mode previews from the form values alone — the path and profile
+    // stay whatever the statement already says.
+    const request = this.editTarget ? this.panel.values() : this.buildRequest();
     if ('error' in request) {
       this.panel.setPreview(null);
       return;
@@ -557,7 +613,9 @@ export class SweepFeatureService {
 
     let result: ApplyFeatureResponse;
     try {
-      result = await applySweep({ ...request, preview: true, signal: abort.signal });
+      result = this.editTarget
+        ? await applySweepEdit(this.editTarget, { op: request.op, thin: request.thin, preview: true, signal: abort.signal })
+        : await applySweep({ ...(request as SweepApplyOptions), preview: true, signal: abort.signal });
     } catch {
       return; // aborted
     }

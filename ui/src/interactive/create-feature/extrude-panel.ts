@@ -98,7 +98,35 @@ export class ExtrudePanel {
     // A fresh arming starts from defaults — the previous session's choice
     // would otherwise be revived by source-line matching.
     this.options = [];
+    this.shell.setTitle(null);
     this.setOptions(options);
+    this.syncControls();
+    this.shell.show();
+  }
+
+  /**
+   * Open prefilled from an existing statement (edit mode). The profile slot
+   * is fixed — it names the statement's own profile and can't change; the
+   * op tabs, distance, through-all and thin controls edit in place.
+   */
+  showEdit(state: {
+    op: FeatureOp;
+    distance: number | null;
+    thin: [number] | null;
+    profileLabel: string;
+  }): void {
+    this.options = [];
+    this.shell.setTitle('Edit extrude');
+    const fixed = document.createElement('option');
+    fixed.textContent = state.profileLabel;
+    this.profileSelect.replaceChildren(fixed);
+    this.profileSelect.disabled = true;
+    this.tabs.setOp(state.op);
+    if (state.distance !== null) {
+      this.distanceInput.value = String(state.distance);
+    }
+    this.throughCheckbox.checked = state.distance === null;
+    this.thin.setValues(state.thin);
     this.syncControls();
     this.shell.show();
   }

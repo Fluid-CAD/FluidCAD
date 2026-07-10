@@ -1182,3 +1182,223 @@ describe('loft statement templates', () => {
     expect(result.error).toContain('malformed');
   });
 });
+
+// ---------------------------------------------------------------------------
+// In-place statement editing (timeline double-click → edit dialog)
+// ---------------------------------------------------------------------------
+
+import { parseFeatureStatement, type FeatureStatementEditTarget } from '../src/apply-feature-edit.ts';
+
+const editBase = [
+  `import { sketch, rect, extrude } from 'fluidcad/core'`,
+  ``,
+  `const s = sketch('xy', () => { rect(100, 50) })`,
+].join('\n');
+
+function editSpec(
+  feature: ApplyFeatureEditSpec['feature'],
+  edit: FeatureStatementEditTarget,
+  overrides: Partial<ApplyFeatureEditSpec> = {},
+): ApplyFeatureEditSpec {
+  return {
+    feature,
+    filePath: '/ws/model.fluid.js',
+    producers: [],
+    parts: [],
+    imports: [],
+    edit,
+    ...overrides,
+  };
+}
+
+describe('parseFeatureStatement', () => {
+  it('reads a plain extrude', async () => {
+    const code = `${editBase}\nextrude(30)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toEqual({
+      ok: true,
+      parsed: { feature: 'extrude', op: 'add', distance: 30, thin: null, profileText: null },
+      statement: 'extrude(30)',
+    });
+  });
+
+  it('reads a bound thin new extrude', async () => {
+    const code = `${editBase}\nconst body = extrude(25, s).thin(2).new()\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toEqual({
+      ok: true,
+      parsed: { feature: 'extrude', op: 'new', distance: 25, thin: [2], profileText: 's' },
+      statement: 'extrude(25, s).thin(2).new()',
+    });
+  });
+
+  it('reads a through-all bound cut', async () => {
+    const code = `${editBase}\ncut(s)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toEqual({
+      ok: true,
+      parsed: { feature: 'extrude', op: 'remove', distance: null, thin: null, profileText: 's' },
+      statement: 'cut(s)',
+    });
+  });
+
+  it('reads a sweep with a remove chain', async () => {
+    const code = `${editBase}\nconst p = sketch('xz', () => { rect(1, 60) })\nsweep(p, s).remove()\n`;
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toEqual({
+      ok: true,
+      parsed: { feature: 'sweep', op: 'remove', thin: null, pathText: 'p', profileText: 's' },
+      statement: 'sweep(p, s).remove()',
+    });
+  });
+
+  it('reads a loft with guides and conditions', async () => {
+    const code = `${editBase}\nloft(s, s2, e.endFaces()).guides(g).startCondition('normal').endCondition('tangent', 2).new()\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'loft',
+        op: 'new',
+        thin: null,
+        profileTexts: ['s', 's2', 'e.endFaces()'],
+        guideTexts: ['g'],
+        startCondition: { type: 'normal', magnitude: 1 },
+        endCondition: { type: 'tangent', magnitude: 2 },
+      },
+    });
+  });
+
+  it('reads a shell keeping the selector args verbatim', async () => {
+    const code = `${editBase}\nshell(-2, e.endFaces(),  face().onPlane('xy'))\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toEqual({
+      ok: true,
+      parsed: { feature: 'shell', value: -2, argsText: `e.endFaces(),  face().onPlane('xy')` },
+      statement: `shell(-2, e.endFaces(),  face().onPlane('xy'))`,
+    });
+  });
+
+  it('keeps chained calls after the options out of the statement span', async () => {
+    const code = `${editBase}\nextrude(10).fillet(2, e => e.endEdges())\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', op: 'add', distance: 10 },
+      statement: 'extrude(10)',
+    });
+  });
+
+  it('refuses a variable distance', async () => {
+    const code = `${editBase}\nextrude(height)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('not a plain number');
+    }
+  });
+
+  it('refuses an option chain hiding behind an unknown member', async () => {
+    const code = `${editBase}\nextrude(10).color('red').new()\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false });
+  });
+
+  it('refuses a non-feature call', async () => {
+    const result = await parseFeatureStatement(editBase, 3);
+    expect(result).toMatchObject({ ok: false });
+  });
+});
+
+describe('applyFeatureEdit (in-place statement edit)', () => {
+  it('replaces the distance in place', async () => {
+    const code = `${editBase}\nextrude(30)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: { op: 'add', distance: 45, thin: null },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`${editBase}\nextrude(45)\n`);
+  });
+
+  it('switches add to a through-all cut and imports cut', async () => {
+    const code = `${editBase}\nextrude(30)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: { op: 'remove', distance: null, thin: null },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`cut()`);
+    expect(result.newCode).toContain(`cut,`);
+    expect(result.newCode).not.toContain(`extrude(30)`);
+  });
+
+  it('preserves the binding and a chained suffix', async () => {
+    const code = `${editBase}\nconst body = extrude(25, s).thin(2).fillet(1, e => e.endEdges());\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: { op: 'add', distance: 40, thin: null },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const body = extrude(40, s).fillet(1, e => e.endEdges());`);
+  });
+
+  it('adds thin and remove chains to a sweep', async () => {
+    const code = `${editBase}\nconst p = sketch('xz', () => { rect(1, 60) })\nsweep(p, s)\n`;
+    const result = await applyFeatureEdit(code, editSpec('sweep', {
+      line: 5, column: 0,
+      sweep: { op: 'remove', thin: [1.5] },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`sweep(p, s).thin(1.5).remove()`);
+  });
+
+  it('rewrites loft conditions while keeping profiles and guides verbatim', async () => {
+    const code = `${editBase}\nloft(s, s2).guides(g).startCondition('normal')\n`;
+    const result = await applyFeatureEdit(code, editSpec('loft', {
+      line: 4, column: 0,
+      loft: { op: 'new', thin: null, endCondition: { type: 'tangent', magnitude: 2 } },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`loft(s, s2).guides(g).endCondition('tangent', 2).new()`);
+  });
+
+  it('refuses thin on a loft that has guides', async () => {
+    const code = `${editBase}\nloft(s, s2).guides(g)\n`;
+    const result = await applyFeatureEdit(code, editSpec('loft', {
+      line: 4, column: 0,
+      loft: { op: 'add', thin: [2] },
+    }));
+    expect(result.error).toContain('thin walls');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('replaces a shell value and keeps its selector', async () => {
+    const code = `${editBase}\nshell(-2, e.endFaces())\n`;
+    const result = await applyFeatureEdit(code, editSpec('shell', {
+      line: 4, column: 0,
+    }, { value: -3 }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`shell(-3, e.endFaces())`);
+  });
+
+  it('applies an edited selector argument list and its imports', async () => {
+    const code = `${editBase}\nshell(-2, e.endFaces())\n`;
+    const result = await applyFeatureEdit(code, editSpec('shell', {
+      line: 4, column: 0,
+    }, { value: -2, rawArgs: `face().onPlane('xy')` }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`shell(-2, face().onPlane('xy'))`);
+    expect(result.newCode).toContain(`from 'fluidcad/filters'`);
+  });
+
+  it('refuses when the statement is not the expected feature', async () => {
+    const code = `${editBase}\nfillet(2, e.endEdges())\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: { op: 'add', distance: 10, thin: null },
+    }));
+    expect(result.error).toContain('expected a extrude');
+    expect(result.newCode).toBe(code);
+  });
+});

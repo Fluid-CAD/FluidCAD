@@ -31,6 +31,14 @@ export class OpTabs {
     return this.current;
   }
 
+  /** Programmatic tab choice (edit-mode prefill); no change event fires. */
+  setOp(op: FeatureOp): void {
+    this.current = op;
+    for (const [kind, tab] of this.tabs) {
+      tab.className = kind === op ? TAB_ACTIVE : TAB_BASE;
+    }
+  }
+
   private set(op: FeatureOp): void {
     if (this.current === op) {
       return;
@@ -110,6 +118,15 @@ export class ThinControl {
     }
   }
 
+  /** Programmatic offsets (edit-mode prefill); no change event fires. */
+  setValues(thin: [number] | null): void {
+    this.checkbox.checked = thin !== null;
+    if (thin !== null) {
+      this.input.value = String(thin[0]);
+    }
+    this.sync();
+  }
+
   /** The `.thin()` offsets, null when off, or the message for a bad value. */
   values(): { thin: [number] | null } | { error: string } {
     if (!this.checkbox.checked) {
@@ -140,8 +157,11 @@ export class PanelShell {
   private root: HTMLDivElement;
   private preview: HTMLDivElement;
   private message: HTMLDivElement;
+  private titleText: HTMLSpanElement;
+  private readonly defaultTitle: string;
 
   constructor(container: HTMLElement, id: string, title: string, iconSrc: string) {
+    this.defaultTitle = title;
     this.root = document.createElement('div');
     this.root.id = id;
     this.root.className = 'absolute top-[116px] right-[76px] z-[999] pointer-events-auto hidden';
@@ -150,7 +170,7 @@ export class PanelShell {
         <div data-role="body" class="flex flex-col items-stretch gap-3.5 w-60 bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
           <div class="flex items-center gap-2.5">
             <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
-            <span class="font-medium text-sm">${title}</span>
+            <span data-role="title" class="font-medium text-sm">${title}</span>
           </div>
         </div>
         <div data-role="preview" class="hidden max-w-[380px] bg-base-100 border border-base-300 rounded-lg px-3 py-1.5 font-mono text-[11px] text-base-content shadow-md"></div>
@@ -161,6 +181,7 @@ export class PanelShell {
     this.body = this.root.querySelector('[data-role="body"]')!;
     this.preview = this.root.querySelector('[data-role="preview"]')!;
     this.message = this.root.querySelector('[data-role="message"]')!;
+    this.titleText = this.root.querySelector('[data-role="title"]')!;
 
     // Escape closes the dialog only from inside it — in sketch mode the
     // drawing tools own the global Escape.
@@ -177,6 +198,11 @@ export class PanelShell {
 
   get isVisible(): boolean {
     return !this.root.classList.contains('hidden');
+  }
+
+  /** Retitle the dialog ("Edit extrude"); null restores the create title. */
+  setTitle(title: string | null): void {
+    this.titleText.textContent = title ?? this.defaultTitle;
   }
 
   show(): void {

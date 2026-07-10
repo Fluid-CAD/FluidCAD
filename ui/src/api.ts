@@ -452,6 +452,164 @@ export async function applyLoft(options: LoftApplyOptions): Promise<ApplyFeature
   }, options.signal);
 }
 
+// ---------------------------------------------------------------------------
+// Feature statement editing (timeline double-click → edit dialog)
+// ---------------------------------------------------------------------------
+
+/** The statement a double-clicked timeline row edits, by source location. */
+export type FeatureEditTarget = SketchSourceRef;
+
+export type FeatureOpKind = 'add' | 'remove' | 'new';
+
+/**
+ * An existing statement's dialog-editable reading (mirror of the server's
+ * `ParsedFeatureStatement`). Expressions the dialogs don't edit (profiles,
+ * paths, selector args) arrive as verbatim source text.
+ */
+export type ParsedFeatureStatement =
+  | {
+      feature: 'extrude';
+      op: FeatureOpKind;
+      distance: number | null;
+      thin: [number] | null;
+      profileText: string | null;
+    }
+  | {
+      feature: 'sweep';
+      op: FeatureOpKind;
+      thin: [number] | null;
+      pathText: string;
+      profileText: string | null;
+    }
+  | {
+      feature: 'loft';
+      op: FeatureOpKind;
+      thin: [number] | null;
+      profileTexts: string[];
+      guideTexts: string[];
+      startCondition: LoftConditionRef | null;
+      endCondition: LoftConditionRef | null;
+    }
+  | { feature: 'shell' | 'fillet' | 'chamfer'; value: number; argsText: string };
+
+export type ParseFeatureResult =
+  | { ok: true; parsed: ParsedFeatureStatement; statement: string }
+  | { ok: false; reason: string };
+
+/**
+ * Read the feature statement at a timeline row's source location into its
+ * dialog-editable options. A refusal (`ok: false`) carries the reason the
+ * statement can't be edited in a dialog.
+ */
+export async function parseFeatureAt(target: { filePath: string; line: number }): Promise<ParseFeatureResult> {
+  try {
+    const res = await fetch('/api/feature/parse', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ filePath: target.filePath, line: target.line }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || body?.ok !== true) {
+      return { ok: false, reason: body?.error ?? `Request failed (${res.status})` };
+    }
+    return { ok: true, parsed: body.parsed, statement: body.statement };
+  } catch {
+    return { ok: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+export type ExtrudeEditOptions = {
+  op: FeatureOpKind;
+  distance: number | null;
+  thin: [number] | [number, number] | null;
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the extrude/cut statement at `edit` in place. */
+export async function applyExtrudeEdit(
+  edit: FeatureEditTarget,
+  options: ExtrudeEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'extrude',
+    edit,
+    op: options.op,
+    distance: options.distance,
+    thin: options.thin,
+    preview: options.preview,
+  }, options.signal);
+}
+
+export type SweepEditOptions = {
+  op: FeatureOpKind;
+  thin: [number] | [number, number] | null;
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the sweep statement at `edit` in place. */
+export async function applySweepEdit(
+  edit: FeatureEditTarget,
+  options: SweepEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'sweep',
+    edit,
+    op: options.op,
+    thin: options.thin,
+    preview: options.preview,
+  }, options.signal);
+}
+
+export type LoftEditOptions = {
+  op: FeatureOpKind;
+  thin: [number] | [number, number] | null;
+  startCondition: LoftConditionRef | null;
+  endCondition: LoftConditionRef | null;
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the loft statement at `edit` in place. */
+export async function applyLoftEdit(
+  edit: FeatureEditTarget,
+  options: LoftEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'loft',
+    edit,
+    op: options.op,
+    thin: options.thin,
+    startCondition: options.startCondition,
+    endCondition: options.endCondition,
+    preview: options.preview,
+  }, options.signal);
+}
+
+export type ValueFeatureEditOptions = {
+  value: number;
+  /** Edited selector argument list; omitted keeps the statement's verbatim. */
+  selectorOverride?: string;
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the shell/fillet/chamfer statement at `edit` in place. */
+export async function applyValueFeatureEdit(
+  feature: 'shell' | 'fillet' | 'chamfer',
+  edit: FeatureEditTarget,
+  options: ValueFeatureEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature,
+    edit,
+    value: options.value,
+    selectorOverride: options.selectorOverride,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /**
  * Variable names of the sketch statements at the given source lines (dialog
  * labels). Unbound or unresolvable lines come back null; failures degrade to

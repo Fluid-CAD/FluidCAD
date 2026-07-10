@@ -53,6 +53,39 @@ export type ApplyFeatureEditSpec = {
    * its text.
    */
   rawArgs?: string;
+  /**
+   * In-place statement edit (timeline double-click → edit dialog): rewrite
+   * the existing feature statement at this location instead of inserting a
+   * new one. `producers`/`parts` are ignored (send them empty).
+   */
+  edit?: FeatureStatementEditTarget;
+};
+
+/**
+ * Dialog edits to apply over the feature statement at `line`. Only the
+ * options the dialogs expose ride here — argument expressions they don't
+ * edit (profiles, paths, selector args) are re-read from the statement at
+ * apply time and preserved verbatim. Fillet/chamfer/shell reuse the spec's
+ * top-level `value` (and `rawArgs` when the selector text was edited).
+ */
+export type FeatureStatementEditTarget = {
+  line: number;
+  column: number;
+  extrude?: {
+    op: 'add' | 'remove' | 'new';
+    distance: number | null;
+    thin: [number] | [number, number] | null;
+  };
+  sweep?: {
+    op: 'add' | 'remove' | 'new';
+    thin: [number] | [number, number] | null;
+  };
+  loft?: {
+    op: 'add' | 'remove' | 'new';
+    thin: [number] | [number, number] | null;
+    startCondition?: LoftConditionSpec;
+    endCondition?: LoftConditionSpec;
+  };
 };
 
 /**
@@ -165,6 +198,9 @@ export async function applyFeatureEdit(
   code: string,
   spec: ApplyFeatureEditSpec,
 ): Promise<ApplyFeatureEditResult> {
+  if (spec.edit) {
+    return applyStatementEdit(code, spec);
+  }
   if (spec.feature === 'extrude') {
     // Extrude takes no selector parts: its single producer is the profile
     // sketch (implicit consumption or a bound variable), not a pick selection.
@@ -902,6 +938,463 @@ function resolveInsertion(
     }
   }
   return findInsertionPoint(scope, lines, bindings);
+}
+
+// ---------------------------------------------------------------------------
+// In-place statement editing (timeline double-click → edit dialog)
+// ---------------------------------------------------------------------------
+
+/** Feature kinds whose statements the edit dialogs can rewrite in place. */
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer';
+
+/**
+ * An existing statement's dialog-editable reading. Argument expressions the
+ * dialogs don't edit (profiles, paths, selector args) are carried as
+ * verbatim source text and re-emitted unchanged; numeric options must be
+ * plain literals — a variable distance is edited through the params panel,
+ * not this dialog.
+ */
+export type ParsedFeatureStatement =
+  | {
+    feature: 'extrude';
+    op: 'add' | 'remove' | 'new';
+    /** null = through-all remove (`cut()` with no distance). */
+    distance: number | null;
+    thin: [number] | null;
+    /** Trailing profile argument text (`s`), or null for implicit consumption. */
+    profileText: string | null;
+  }
+  | {
+    feature: 'sweep';
+    op: 'add' | 'remove' | 'new';
+    thin: [number] | null;
+    pathText: string;
+    profileText: string | null;
+  }
+  | {
+    feature: 'loft';
+    op: 'add' | 'remove' | 'new';
+    thin: [number] | null;
+    profileTexts: string[];
+    guideTexts: string[];
+    startCondition: LoftConditionSpec | null;
+    endCondition: LoftConditionSpec | null;
+  }
+  | {
+    feature: 'shell' | 'fillet' | 'chamfer';
+    value: number;
+    /** Selector argument list after the value, verbatim (`''` when absent). */
+    argsText: string;
+  };
+
+const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
+  extrude: 'extrude',
+  cut: 'extrude',
+  sweep: 'sweep',
+  loft: 'loft',
+  shell: 'shell',
+  fillet: 'fillet',
+  chamfer: 'chamfer',
+};
+
+/**
+ * Chain members the dialogs edit, per feature. They must form a prefix of
+ * the member chain: anything after the first unrecognized member (a chained
+ * `.fillet()`, `.color()` …) is preserved verbatim, but a recognized member
+ * hiding *behind* an unrecognized one would leave the dialog lying about the
+ * statement, so that shape refuses to parse.
+ */
+const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
+  extrude: new Set(['thin', 'remove', 'new']),
+  sweep: new Set(['thin', 'remove', 'new']),
+  loft: new Set(['guides', 'startCondition', 'endCondition', 'thin', 'remove', 'new']),
+  shell: new Set(),
+  fillet: new Set(),
+  chamfer: new Set(),
+};
+
+type ChainSegment = { name: string; args: TSNode[]; endIndex: number };
+
+/** Split a call chain into its root call and member calls, in source order. */
+function decomposeChain(call: TSNode): { root: ChainSegment; members: ChainSegment[] } | null {
+  const segments: ChainSegment[] = [];
+  let current: TSNode | null = call;
+  while (current && current.type === 'call_expression') {
+    const argsNode = current.childForFieldName('arguments');
+    const args = argsNode ? argsNode.namedChildren.filter(a => a.type !== 'comment') : [];
+    const fn = current.childForFieldName('function');
+    if (!fn) {
+      return null;
+    }
+    if (fn.type === 'identifier') {
+      segments.push({ name: fn.text, args, endIndex: current.endIndex });
+      segments.reverse();
+      const [root, ...members] = segments;
+      return { root, members };
+    }
+    if (fn.type === 'member_expression') {
+      const prop = fn.childForFieldName('property');
+      if (!prop) {
+        return null;
+      }
+      segments.push({ name: prop.text, args, endIndex: current.endIndex });
+      current = fn.childForFieldName('object');
+      continue;
+    }
+    return null;
+  }
+  return null;
+}
+
+/** Numeric literal value of an argument node, or null when it is anything else. */
+function numericArgValue(node: TSNode): number | null {
+  const text = numericLiteralText(node);
+  if (text === null) {
+    return null;
+  }
+  const value = Number(text);
+  return Number.isFinite(value) ? value : null;
+}
+
+type ChainParse =
+  | { parsed: ParsedFeatureStatement; start: number; end: number }
+  | { error: string };
+
+/**
+ * Read the feature chain rooted at `call` into its dialog-editable options.
+ * `start`/`end` span the chain root through its last recognized option
+ * member — the range an edit replaces; a `const x = ` binding before it and
+ * unrecognized chained calls after it survive untouched.
+ */
+function parseFeatureChain(call: TSNode, code: string): ChainParse {
+  const chain = decomposeChain(call);
+  if (!chain) {
+    return { error: 'the call at that line is not a plain feature call chain' };
+  }
+  const feature = EDITABLE_CALLEES[chain.root.name];
+  if (!feature) {
+    return { error: `${chain.root.name}() is not an editable feature statement` };
+  }
+
+  const options = OPTION_MEMBERS[feature];
+  const recognized = new Map<string, ChainSegment>();
+  let end = chain.root.endIndex;
+  let stopped = false;
+  for (const member of chain.members) {
+    if (!stopped && options.has(member.name)) {
+      if (recognized.has(member.name)) {
+        return { error: `the statement chains .${member.name}() twice` };
+      }
+      recognized.set(member.name, member);
+      end = member.endIndex;
+      continue;
+    }
+    stopped = true;
+    if (options.has(member.name)) {
+      return { error: `a .${member.name}() chain follows other calls the dialog cannot edit — edit the statement in the source instead` };
+    }
+  }
+  const start = call.startIndex;
+  const args = chain.root.args;
+
+  if (feature === 'shell' || feature === 'fillet' || feature === 'chamfer') {
+    if (args.length === 0) {
+      return { error: `the ${feature}() call has no arguments` };
+    }
+    const value = numericArgValue(args[0]);
+    if (value === null) {
+      return { error: `the ${feature}() ${feature === 'shell' ? 'thickness' : feature === 'fillet' ? 'radius' : 'distance'} is not a plain number — edit it in the source` };
+    }
+    const argsText = args.length > 1
+      ? code.slice(args[1].startIndex, args[args.length - 1].endIndex)
+      : '';
+    return { parsed: { feature, value, argsText }, start, end };
+  }
+
+  const isCut = chain.root.name === 'cut';
+  const hasRemove = recognized.has('remove');
+  const hasNew = recognized.has('new');
+  if ((isCut || hasRemove) && hasNew) {
+    return { error: 'the statement chains both a remove and .new()' };
+  }
+  const op: 'add' | 'remove' | 'new' = isCut || hasRemove ? 'remove' : hasNew ? 'new' : 'add';
+
+  let thin: [number] | null = null;
+  const thinSeg = recognized.get('thin');
+  if (thinSeg) {
+    if (thinSeg.args.length !== 1) {
+      return { error: 'only a single-offset .thin() can be edited in the dialog' };
+    }
+    const offset = numericArgValue(thinSeg.args[0]);
+    if (offset === null) {
+      return { error: 'the .thin() offset is not a plain number — edit it in the source' };
+    }
+    thin = [offset];
+  }
+
+  if (feature === 'extrude') {
+    if (args.length > 2) {
+      return { error: 'the extrude has more arguments than the dialog understands' };
+    }
+    let distance: number | null = null;
+    let profileText: string | null = null;
+    if (args.length > 0) {
+      const first = numericArgValue(args[0]);
+      if (first !== null) {
+        distance = first;
+        if (args.length === 2) {
+          profileText = args[1].text;
+        }
+      } else if (isCut && args.length === 1) {
+        // The through-all bound-profile idiom the create dialog writes: cut(s).
+        profileText = args[0].text;
+      } else {
+        return { error: `the ${chain.root.name}() distance is not a plain number — edit it in the source` };
+      }
+    }
+    if (distance === null && op !== 'remove') {
+      return { error: 'an extrude with no distance is not editable in the dialog' };
+    }
+    return { parsed: { feature, op, distance, thin, profileText }, start, end };
+  }
+
+  if (feature === 'sweep') {
+    if (args.length < 1 || args.length > 2) {
+      return { error: 'the sweep has more arguments than the dialog understands' };
+    }
+    return {
+      parsed: { feature, op, thin, pathText: args[0].text, profileText: args[1]?.text ?? null },
+      start,
+      end,
+    };
+  }
+
+  // Loft: every root argument is a profile expression, in order.
+  if (args.length < 2) {
+    return { error: 'the loft has fewer than two profiles' };
+  }
+  const guideSeg = recognized.get('guides');
+  if (guideSeg && (guideSeg.args.length < 1 || guideSeg.args.length > 2)) {
+    return { error: 'the .guides() chain must carry one or two guides' };
+  }
+  const startParse = parseConditionSegment(recognized.get('startCondition'));
+  if ('error' in startParse) {
+    return startParse;
+  }
+  const endParse = parseConditionSegment(recognized.get('endCondition'));
+  if ('error' in endParse) {
+    return endParse;
+  }
+  return {
+    parsed: {
+      feature: 'loft',
+      op,
+      thin,
+      profileTexts: args.map(a => a.text),
+      guideTexts: guideSeg ? guideSeg.args.map(a => a.text) : [],
+      startCondition: startParse.condition,
+      endCondition: endParse.condition,
+    },
+    start,
+    end,
+  };
+}
+
+/**
+ * One `.startCondition(…)`/`.endCondition(…)` member: a plain 'normal' /
+ * 'tangent' string plus an optional numeric magnitude (default 1). A 'none'
+ * argument reads as no condition — the API's 'none' merely clears one.
+ */
+function parseConditionSegment(
+  seg: ChainSegment | undefined,
+): { condition: LoftConditionSpec | null } | { error: string } {
+  if (!seg) {
+    return { condition: null };
+  }
+  if (seg.args.length < 1 || seg.args.length > 2) {
+    return { error: `the .${seg.name}() chain has an argument shape the dialog cannot edit` };
+  }
+  const typeNode = seg.args[0];
+  if (typeNode.type !== 'string') {
+    return { error: `the .${seg.name}() type is not a plain string — edit it in the source` };
+  }
+  const type = typeNode.text.slice(1, -1);
+  if (type === 'none') {
+    return { condition: null };
+  }
+  if (type !== 'normal' && type !== 'tangent') {
+    return { error: `the .${seg.name}() type '${type}' is not one the dialog knows` };
+  }
+  let magnitude = 1;
+  if (seg.args.length === 2) {
+    const parsed = numericArgValue(seg.args[1]);
+    if (parsed === null || parsed === 0) {
+      return { error: `the .${seg.name}() magnitude is not a plain nonzero number — edit it in the source` };
+    }
+    magnitude = parsed;
+  }
+  return { condition: { type, magnitude } };
+}
+
+/**
+ * Read the feature statement at `line` of `code` into its dialog-editable
+ * options — the read half of the double-click → edit-dialog round trip.
+ * `statement` is the chain text the dialog would rewrite, for display.
+ */
+export async function parseFeatureStatement(
+  code: string,
+  line: number,
+): Promise<{ ok: true; parsed: ParsedFeatureStatement; statement: string } | { ok: false; reason: string }> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const lines = splitLines(code);
+  const call = findEditableCallAt(tree, lines, line);
+  if (!call) {
+    return { ok: false, reason: `no call found at line ${line} — is the file in sync with the last render?` };
+  }
+  const chain = parseFeatureChain(call, code);
+  if ('error' in chain) {
+    return { ok: false, reason: chain.error };
+  }
+  return { ok: true, parsed: chain.parsed, statement: code.slice(chain.start, chain.end) };
+}
+
+function validEditOp(op: unknown): op is 'add' | 'remove' | 'new' {
+  return op === 'add' || op === 'remove' || op === 'new';
+}
+
+function validEditThin(thin: unknown): thin is [number] | [number, number] | null {
+  if (thin === null) {
+    return true;
+  }
+  return Array.isArray(thin) && thin.length >= 1 && thin.length <= 2
+    && thin.every(t => typeof t === 'number' && Number.isFinite(t) && t > 0);
+}
+
+function validEditCondition(condition: LoftConditionSpec | undefined): boolean {
+  return condition === undefined
+    || ((condition.type === 'normal' || condition.type === 'tangent')
+      && Number.isFinite(condition.magnitude) && condition.magnitude !== 0);
+}
+
+/**
+ * Render the statement `spec`'s dialog options produce over the parsed
+ * statement, keeping the expressions the dialog doesn't edit verbatim.
+ * Shared with the route's preview so the previewed text is exactly what the
+ * transform writes.
+ */
+export function renderEditedStatement(
+  parsed: ParsedFeatureStatement,
+  spec: Pick<ApplyFeatureEditSpec, 'feature' | 'value' | 'rawArgs' | 'edit'>,
+): { statement: string } | { error: string } {
+  if (spec.feature !== parsed.feature) {
+    return {
+      error: `the statement is a ${parsed.feature}, not a ${spec.feature} — `
+        + 'is the file in sync with the last render?',
+    };
+  }
+  if (parsed.feature === 'extrude') {
+    const opts = spec.edit?.extrude;
+    if (!opts || !validEditOp(opts.op) || !validEditThin(opts.thin)) {
+      return { error: 'malformed extrude edit spec' };
+    }
+    if (opts.distance === null) {
+      if (opts.op !== 'remove') {
+        return { error: 'distance may be null (through-all) only for a remove' };
+      }
+    } else if (typeof opts.distance !== 'number' || !Number.isFinite(opts.distance) || opts.distance === 0) {
+      return { error: 'malformed extrude edit spec' };
+    }
+    return {
+      statement: renderExtrudeStatement(
+        { op: opts.op, distance: opts.distance, thin: opts.thin, profile: parsed.profileText ? 'bound' : 'implicit' },
+        parsed.profileText,
+      ),
+    };
+  }
+  if (parsed.feature === 'sweep') {
+    const opts = spec.edit?.sweep;
+    if (!opts || !validEditOp(opts.op) || !validEditThin(opts.thin)) {
+      return { error: 'malformed sweep edit spec' };
+    }
+    return {
+      statement: renderSweepStatement({ op: opts.op, thin: opts.thin }, parsed.pathText, parsed.profileText),
+    };
+  }
+  if (parsed.feature === 'loft') {
+    const opts = spec.edit?.loft;
+    if (!opts || !validEditOp(opts.op) || !validEditThin(opts.thin)
+      || !validEditCondition(opts.startCondition) || !validEditCondition(opts.endCondition)) {
+      return { error: 'malformed loft edit spec' };
+    }
+    if (parsed.guideTexts.length > 0 && opts.thin) {
+      return { error: 'loft guides cannot be combined with thin walls' };
+    }
+    return {
+      statement: renderLoftStatement(
+        { op: opts.op, thin: opts.thin, startCondition: opts.startCondition, endCondition: opts.endCondition },
+        parsed.profileTexts,
+        parsed.guideTexts,
+      ),
+    };
+  }
+  if (typeof spec.value !== 'number' || !Number.isFinite(spec.value) || spec.value === 0) {
+    return { error: `the ${parsed.feature} value must be a nonzero number` };
+  }
+  const args = spec.rawArgs?.trim() || parsed.argsText;
+  return {
+    statement: args
+      ? `${parsed.feature}(${formatNumber(spec.value)}, ${args})`
+      : `${parsed.feature}(${formatNumber(spec.value)})`,
+  };
+}
+
+/**
+ * Rewrite the feature statement at `spec.edit.line` in place: re-parse the
+ * chain from the live source (nothing captured at dialog-open time can go
+ * stale), apply the dialog's options over it, and splice the rendered chain
+ * over the old one. A `const x = ` binding and any chained calls after the
+ * recognized options survive untouched.
+ */
+async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Promise<ApplyFeatureEditResult> {
+  const edit = spec.edit!;
+  if (!Number.isInteger(edit.line) || edit.line < 1) {
+    return { newCode: code, error: 'malformed edit spec: bad line' };
+  }
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const lines = splitLines(code);
+  const call = findEditableCallAt(tree, lines, edit.line);
+  if (!call) {
+    return { newCode: code, error: `no call found at line ${edit.line} — is the file in sync with the last render?` };
+  }
+  const chain = parseFeatureChain(call, code);
+  if ('error' in chain) {
+    return { newCode: code, error: chain.error };
+  }
+  if (chain.parsed.feature !== spec.feature) {
+    return {
+      newCode: code,
+      error: `the statement at line ${edit.line} is a ${chain.parsed.feature}, `
+        + `expected a ${spec.feature} — is the file in sync with the last render?`,
+    };
+  }
+  const rendered = renderEditedStatement(chain.parsed, spec);
+  if ('error' in rendered) {
+    return { newCode: code, error: rendered.error };
+  }
+
+  let result = spliceCode(code, chain.start, chain.end, rendered.statement);
+  const callee = spec.feature === 'extrude'
+    ? (edit.extrude!.op === 'remove' ? 'cut' : 'extrude')
+    : spec.feature;
+  result = await ensureSymbolImport(result, callee);
+  if (spec.rawArgs?.trim()) {
+    for (const symbol of importsForRawArgs(spec.rawArgs)) {
+      result = await ensureSymbolImport(result, symbol, MODULE_FOR_IMPORT[symbol] ?? 'fluidcad/core');
+    }
+  }
+  return { newCode: result };
 }
 
 /**

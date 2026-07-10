@@ -22,6 +22,13 @@ export class TimelinePanel {
    */
   onFeatureIntercept?: (obj: SceneObjectRender) => boolean;
 
+  /**
+   * A row was double-clicked (the enter-breakpoint gesture). Fired after the
+   * breakpoint is placed so an editable feature row can also open its edit
+   * dialog against the paused scene.
+   */
+  onFeatureEdit?: (obj: SceneObjectRender) => void;
+
   private panel: HTMLDivElement;
   private timelineBody: HTMLDivElement;
   private contentWrapper: HTMLDivElement;
@@ -212,6 +219,10 @@ export class TimelinePanel {
         const index = parseInt(el.dataset.index!, 10);
         this.addBreakpointAfter(index);
         this.goToSource(this.sceneObjects[index]);
+        const obj = this.sceneObjects[index];
+        if (obj) {
+          this.onFeatureEdit?.(obj);
+        }
       });
     });
 

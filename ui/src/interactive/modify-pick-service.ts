@@ -1,4 +1,7 @@
-import { applyFeature, expandBucket, expandTangents, explainSelection, ApplyFeatureChain, ApplyFeatureResponse } from '../api';
+import {
+  applyFeature, applyValueFeatureEdit, expandBucket, expandTangents, explainSelection,
+  ApplyFeatureChain, ApplyFeatureResponse, FeatureEditTarget, ParsedFeatureStatement,
+} from '../api';
 import { isTopLevel } from '../helpers/scene-utils';
 import { SceneObjectRender, SubSelection } from '../types';
 import { SelectedEntity, Viewer } from '../viewer';
@@ -105,6 +108,10 @@ export class ModifyPickService {
   private sceneSketchActive = false;
   /** Sketch editing is suspended while the sketch-on-face pick is armed. */
   private suspendedSketchUI = false;
+  /** Statement being edited in place (timeline double-click), or null. */
+  private editTarget: FeatureEditTarget | null = null;
+  /** The statement's own selector args — the override-detection baseline. */
+  private editArgsText: string | null = null;
 
   private buttons = new Map<ModifyFeatureKind, HTMLButtonElement>();
   private activeBar: HTMLDivElement;
@@ -335,6 +342,11 @@ export class ModifyPickService {
     this.navbar.setGroupVisible('create', hasSolid, 'sketch');
     this.syncButtons();
     if (this.feature) {
+      if (this.editTarget) {
+        // Edit mode tracks a statement, not the scene: the dialog rides out
+        // renders (including the breakpoint render the double-click placed).
+        return;
+      }
       const available = this.feature === 'sketch' ? hasSolid : modifyVisible;
       if (!available) {
         // Scene-driven exit: the update that brought us here already rendered
@@ -349,8 +361,60 @@ export class ModifyPickService {
     }
   }
 
+  /**
+   * Open the dialog over an existing fillet/chamfer/shell statement
+   * (timeline double-click). No picking is involved — the expression row
+   * holds the statement's own selector args, editable as free text — and
+   * Apply rewrites the statement in place.
+   */
+  enterEdit(
+    target: FeatureEditTarget,
+    parsed: Extract<ParsedFeatureStatement, { feature: 'shell' | 'fillet' | 'chamfer' }>,
+  ): void {
+    if (this.suspendedSketchUI) {
+      this.resumeSketchUI(true);
+    }
+    this.hooks.onEnter?.();
+    this.feature = parsed.feature;
+    this.editTarget = target;
+    this.editArgsText = parsed.argsText;
+    this.entities = [];
+    this.chains = [];
+    this.cancelPreview();
+    this.viewer.clearHover();
+    this.viewer.clearHighlight();
+    this.viewer.pickFilter = 'all';
+
+    const config = FEATURES[parsed.feature];
+    this.titleIcon.innerHTML = featureIconImg(parsed.feature);
+    this.titleText.textContent = `Edit ${config.label.toLowerCase()}`;
+    this.valueWrap.classList.remove('hidden');
+    this.valueLabel.textContent = config.valueLabel!;
+    if (config.valueSign === 'positive') {
+      this.valueInput.min = '0.05';
+    } else {
+      this.valueInput.removeAttribute('min');
+    }
+    this.valueInput.value = String(parsed.value);
+    // No selection field: the picks are fixed to the statement's own args.
+    this.countBox.classList.add('hidden');
+    this.exprSuffix.textContent = config.exprSuffix;
+    this.synthesizedArgs = parsed.argsText;
+    this.alternatives = [];
+    this.exprInput.value = parsed.argsText;
+    this.syncExprPrefix();
+    this.renderAlternatives();
+    this.exprRow.classList.remove('hidden');
+    this.exprRow.classList.add('flex');
+    this.activeBar.classList.remove('hidden');
+    this.setMessage(null);
+    this.syncButtons();
+  }
+
   enter(feature: ModifyFeatureKind): void {
     const wasActive = this.feature !== null;
+    this.editTarget = null;
+    this.editArgsText = null;
     // Only the sketch feature runs suspended; switching away restores first.
     if (this.suspendedSketchUI && feature !== 'sketch') {
       this.resumeSketchUI(true);
@@ -427,6 +491,8 @@ export class ModifyPickService {
       return;
     }
     this.feature = null;
+    this.editTarget = null;
+    this.editArgsText = null;
     this.viewer.pickFilter = 'all';
     this.entities = [];
     this.chains = [];
@@ -468,7 +534,7 @@ export class ModifyPickService {
    * the selection (misclicks shouldn't wipe it).
    */
   handleClick(shapeId: string | null, sub: SubSelection): void {
-    if (!this.feature || !shapeId || !sub || sub.type === 'sketch') {
+    if (!this.feature || this.editTarget || !shapeId || !sub || sub.type === 'sketch') {
       return;
     }
     this.hideContextMenu();
@@ -511,7 +577,7 @@ export class ModifyPickService {
    * pick, so the seed ends up selected either way.
    */
   async handleDoubleClick(shapeId: string | null, sub: SubSelection): Promise<void> {
-    if (!this.feature || !shapeId || !sub || sub.type === 'sketch') {
+    if (!this.feature || this.editTarget || !shapeId || !sub || sub.type === 'sketch') {
       return;
     }
     if (FEATURES[this.feature].immediate) {
@@ -544,7 +610,7 @@ export class ModifyPickService {
 
   /** Teach-mode tooltip: hover → attribution expression, debounced + cached. */
   handleHover(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): void {
-    if (!this.feature) {
+    if (!this.feature || this.editTarget) {
       return;
     }
     if (this.tooltipTimer !== null) {
@@ -595,7 +661,7 @@ export class ModifyPickService {
 
   /** Right-click on an edge/face: offer tangent-chain selection. */
   handleContextMenu(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): void {
-    if (!this.feature || FEATURES[this.feature].immediate) {
+    if (!this.feature || this.editTarget || FEATURES[this.feature].immediate) {
       return;
     }
     this.hideContextMenu();
@@ -647,7 +713,7 @@ export class ModifyPickService {
       return;
     }
     const config = FEATURES[this.feature];
-    if (this.entities.length === 0) {
+    if (!this.editTarget && this.entities.length === 0) {
       this.setMessage(config.pickFilter === 'face'
         ? 'Pick a face first.'
         : 'Pick at least one edge or face first.');
@@ -664,6 +730,33 @@ export class ModifyPickService {
           : `Enter a positive ${config.valueLabel.toLowerCase()}.`);
         return;
       }
+    }
+
+    if (this.editTarget) {
+      // In-place statement edit: the selector args stay verbatim unless the
+      // expression row was edited away from the statement's own text.
+      const editedArgs = this.exprInput.value.trim();
+      const selectorOverride = editedArgs !== '' && editedArgs !== this.editArgsText
+        ? editedArgs
+        : undefined;
+      this.applying = true;
+      this.applyBtn.disabled = true;
+      try {
+        const result = await applyValueFeatureEdit(
+          this.feature as 'shell' | 'fillet' | 'chamfer',
+          this.editTarget,
+          { value: value!, selectorOverride },
+        );
+        if (result.success) {
+          this.exit({ resume: 'lazy' });
+        } else {
+          this.setMessage(result.reason ?? 'Could not apply the edit.');
+        }
+      } finally {
+        this.applying = false;
+        this.applyBtn.disabled = false;
+      }
+      return;
     }
 
     const edited = this.exprInput.value.trim();

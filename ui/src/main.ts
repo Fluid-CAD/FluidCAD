@@ -102,6 +102,9 @@ const extrudeService = new ExtrudeFeatureService(container, navbar, {
     selectionInfoOverlay.hide();
   },
 });
+// An armed extrude dialog takes sketch rows clicked in the timeline as its
+// profile instead of the default rollback-preview.
+timelinePanel.onFeatureIntercept = (obj) => extrudeService.handleTimelinePick(obj);
 const sketchService = new SketchToolbarService(container, viewer, trimService, navbar);
 const modifyService = new ModifyPickService(container, viewer, navbar, {
   // Hand the current highlight over as the tool's initial input: whatever the
@@ -113,6 +116,10 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
     selectionInfoOverlay.hide();
     return seed;
   },
+  // Sketch-on-face armed from inside a sketch: the sketch toolbar and tools
+  // release input while faces are picked, and return if the pick is cancelled.
+  onSuspendSketchUI: () => sketchService.update([]),
+  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
 });
 
 const breakpointIndicator = new BreakpointIndicator(container, () => {
@@ -323,7 +330,9 @@ function connectWebSocket() {
         } else {
           trimService.update(msg.result);
           regionService.update(msg.result);
-          sketchService.update(msg.result);
+          // While the sketch-on-face pick has sketch editing suspended, the
+          // sketch toolbar must not re-take the bar on incoming renders.
+          sketchService.update(modifyService.sketchUISuspended ? [] : msg.result);
           modifyService.update(msg.result);
           extrudeService.update(msg.result);
         }

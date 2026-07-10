@@ -3,8 +3,14 @@ interface ToolbarGroup {
   host: HTMLDivElement;
   /** Divider rendered *before* this group; shown only when a visible group precedes it. */
   divider: HTMLDivElement;
-  /** Intended visibility from the group's activation condition. */
+  /** Intended visibility — true when any contributor slot votes visible. */
   visible: boolean;
+  /**
+   * Per-contributor visibility votes. A group shared by several services
+   * (the create group hosts the Sketch and Extrude buttons from different
+   * owners) shows while any contributor still needs it.
+   */
+  slots: Map<string, boolean>;
   /** When visible, suppresses every non-exclusive group (takes over the bar). */
   exclusive: boolean;
   /**
@@ -62,6 +68,7 @@ export class Navbar {
       host,
       divider,
       visible: opts.visible ?? true,
+      slots: new Map([['default', opts.visible ?? true]]),
       exclusive: opts.exclusive ?? false,
       anchor: opts.anchor ?? 'start',
       immune: opts.immune ?? false,
@@ -86,14 +93,28 @@ export class Navbar {
     return host;
   }
 
-  /** Show or hide a group as its activation condition changes. */
-  setGroupVisible(key: string, visible: boolean): void {
+  /**
+   * Show or hide a group as its activation condition changes. A `slot` names
+   * the contributor for groups with several owners — the group shows while
+   * any slot votes visible (each owner still hides its own buttons).
+   */
+  setGroupVisible(key: string, visible: boolean, slot = 'default'): void {
     const group = this.groups.find((g) => g.key === key);
-    if (!group || group.visible === visible) {
+    if (!group) {
       return;
     }
-    group.visible = visible;
+    group.slots.set(slot, visible);
+    const next = [...group.slots.values()].some(Boolean);
+    if (group.visible === next) {
+      return;
+    }
+    group.visible = next;
     this.reflow();
+  }
+
+  /** Content host of an already-registered group, for a second contributor. */
+  getGroup(key: string): HTMLElement | null {
+    return this.groups.find((g) => g.key === key)?.host ?? null;
   }
 
   /** A group shows only if its condition holds and no exclusive group is overriding it. */

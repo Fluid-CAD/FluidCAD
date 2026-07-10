@@ -25,7 +25,9 @@ export class ExtrudeFeatureService {
   private panel: ExtrudePanel;
   private button: HTMLButtonElement;
   private armed = false;
+  private available = false;
   private options: SketchProfileOption[] = [];
+  private sceneObjects: SceneObjectRender[] = [];
   private applying = false;
   private previewTimer: number | null = null;
   private previewAbort: AbortController | null = null;
@@ -69,12 +71,17 @@ export class ExtrudeFeatureService {
    * entity re-renders the scene, and closing would fight the user.
    */
   update(sceneObjects: SceneObjectRender[]): void {
+    this.sceneObjects = sceneObjects;
     this.options = collectSketchProfiles(sceneObjects);
-    this.navbar.setGroupVisible('create', this.options.length > 0);
+    this.available = this.options.length > 0;
+    // The group is shared with the Sketch button — vote via our own slot and
+    // hide our own button; the group shows while either contributor needs it.
+    this.navbar.setGroupVisible('create', this.available, 'extrude');
+    this.syncButton();
     if (!this.armed) {
       return;
     }
-    if (this.options.length === 0) {
+    if (!this.available) {
       this.exit();
       return;
     }
@@ -88,7 +95,7 @@ export class ExtrudeFeatureService {
     }
     this.hooks.onEnter?.();
     this.armed = true;
-    this.button.className = BTN_ACTIVE;
+    this.syncButton();
     this.panel.show(this.options);
     this.schedulePreview();
   }
@@ -98,9 +105,48 @@ export class ExtrudeFeatureService {
       return;
     }
     this.armed = false;
-    this.button.className = BTN_BASE;
+    this.syncButton();
     this.cancelPreview();
     this.panel.hide();
+  }
+
+  private syncButton(): void {
+    this.button.className = this.armed ? BTN_ACTIVE : BTN_BASE;
+    this.button.classList.toggle('hidden', !this.available);
+  }
+
+  /**
+   * A timeline row was clicked while the dialog is armed. A sketch row (or a
+   * child entity of one — the rect/circle rows nested under it) selects that
+   * sketch as the profile. Returns true to consume the click — including on
+   * an already-consumed sketch, where the timeline's default rollback would
+   * otherwise close the dialog mid-flow.
+   */
+  handleTimelinePick(obj: SceneObjectRender): boolean {
+    if (!this.armed) {
+      return false;
+    }
+    let sketch: SceneObjectRender | undefined =
+      obj.type === 'sketch' ? obj : undefined;
+    if (!sketch && obj.parentId != null) {
+      const parent = this.sceneObjects.find(o => o.id === obj.parentId);
+      if (parent?.type === 'sketch') {
+        sketch = parent;
+      }
+    }
+    if (!sketch?.sourceLocation) {
+      return false;
+    }
+    const loc = sketch.sourceLocation;
+    const index = this.options.findIndex(o => o.filePath === loc.filePath && o.line === loc.line);
+    if (index < 0) {
+      this.panel.setMessage('That sketch was already consumed — only sketches still rendered in the scene can be extruded.');
+      return true;
+    }
+    this.panel.selectProfile(index);
+    this.panel.setMessage(null);
+    this.schedulePreview();
+    return true;
   }
 
   private async apply(): Promise<void> {

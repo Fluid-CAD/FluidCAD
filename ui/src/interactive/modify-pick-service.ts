@@ -23,7 +23,11 @@ type FeatureConfig = {
   exprSuffix: string;
 };
 
-/** Toolbar order — Sketch first, then Fillet, Chamfer, Shell. */
+/**
+ * Toolbar order — Sketch first, then Fillet, Chamfer, Shell. Sketch renders
+ * in the create group (shared with Extrude, immune to the sketch-toolbar
+ * takeover); the rest form the modify group.
+ */
 const FEATURE_ORDER: ModifyFeatureKind[] = ['sketch', 'fillet', 'chamfer', 'shell'];
 
 const FEATURES: Record<ModifyFeatureKind, FeatureConfig> = {
@@ -85,12 +89,22 @@ function entityKey(e: SelectedEntity): string {
  *
  * Sketch deviates deliberately: it takes exactly one face and applies
  * immediately — on entry when a face is already highlighted, otherwise on the
- * first face click — writing `sketch(<selector>, () => {})` and exiting.
+ * first face click — writing `sketch(<selector>, () => {})` and exiting. Its
+ * button lives in the create group, which stays visible in sketch mode:
+ * arming it there *suspends* sketch editing (free 3D camera, sketch UI
+ * released via the hooks) so a face can be picked; cancelling resumes the
+ * sketch being edited, applying lets the incoming render enter the new one.
  */
 export class ModifyPickService {
   private feature: ModifyFeatureKind | null = null;
   private entities: SelectedEntity[] = [];
   private chains: { seed: SelectedEntity; members: SelectedEntity[] }[] = [];
+  /** Faces exist to sketch on — drives the create-group Sketch button. */
+  private sketchAvailable = false;
+  /** The scene ends with an unconsumed sketch (scene-derived sketch mode). */
+  private sceneSketchActive = false;
+  /** Sketch editing is suspended while the sketch-on-face pick is armed. */
+  private suspendedSketchUI = false;
 
   private buttons = new Map<ModifyFeatureKind, HTMLButtonElement>();
   private activeBar: HTMLDivElement;
@@ -130,9 +144,16 @@ export class ModifyPickService {
     private container: HTMLElement,
     private viewer: Viewer,
     private navbar: Navbar,
-    private hooks: { onEnter?: () => SelectedEntity[] | void } = {},
+    private hooks: {
+      onEnter?: () => SelectedEntity[] | void;
+      /** Sketch-on-face armed while a sketch is edited — release the sketch UI. */
+      onSuspendSketchUI?: () => void;
+      /** The suspension ended without an apply — restore the sketch UI. */
+      onResumeSketchUI?: () => void;
+    } = {},
   ) {
     const group = navbar.addGroup('modify', { visible: false });
+    const createHost = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     for (const kind of FEATURE_ORDER) {
       const btn = document.createElement('button');
       btn.className = BTN_BASE;
@@ -145,7 +166,12 @@ export class ModifyPickService {
           this.enter(kind);
         }
       });
-      group.appendChild(btn);
+      if (kind === 'sketch') {
+        // Ahead of the Extrude button, so the create group reads Sketch first.
+        createHost.prepend(btn);
+      } else {
+        group.appendChild(btn);
+      }
       this.buttons.set(kind, btn);
     }
 
@@ -282,26 +308,40 @@ export class ModifyPickService {
     return this.feature !== null;
   }
 
+  /** True while the armed sketch-on-face pick has suspended sketch editing. */
+  get sketchUISuspended(): boolean {
+    return this.suspendedSketchUI;
+  }
+
   /**
-   * Scene re-rendered: recompute toolbar visibility (solids present, not in
-   * sketch mode) and drop the now-stale selection while keeping the mode armed.
+   * Scene re-rendered: recompute toolbar visibility and drop the now-stale
+   * selection while keeping the mode armed. The modify group needs solids
+   * and no active sketch; the Sketch button (create group) needs only solids
+   * — starting a new sketch from inside one is a supported flow.
    */
   update(sceneObjects: SceneObjectRender[]): void {
     const hasSolid = sceneObjects.some(o =>
       o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
     const active = this.findActiveObject(sceneObjects);
     const sketchMode = active?.type === 'sketch';
-    const visible = hasSolid && !sketchMode;
+    const modifyVisible = hasSolid && !sketchMode;
 
     this.tooltipCache.clear();
     this.hideTooltip();
     this.hideContextMenu();
-    this.navbar.setGroupVisible('modify', visible);
-    if (this.feature && !visible) {
-      this.exit();
-      return;
-    }
+    this.sceneSketchActive = sketchMode;
+    this.sketchAvailable = hasSolid;
+    this.navbar.setGroupVisible('modify', modifyVisible);
+    this.navbar.setGroupVisible('create', hasSolid, 'sketch');
+    this.syncButtons();
     if (this.feature) {
+      const available = this.feature === 'sketch' ? hasSolid : modifyVisible;
+      if (!available) {
+        // Scene-driven exit: the update that brought us here already rendered
+        // the right view, so any sketch-UI resume stays lazy.
+        this.exit({ resume: 'lazy' });
+        return;
+      }
       // Shape ids may have changed; the viewer already cleared highlights.
       this.entities = [];
       this.chains = [];
@@ -311,8 +351,17 @@ export class ModifyPickService {
 
   enter(feature: ModifyFeatureKind): void {
     const wasActive = this.feature !== null;
+    // Only the sketch feature runs suspended; switching away restores first.
+    if (this.suspendedSketchUI && feature !== 'sketch') {
+      this.resumeSketchUI(true);
+    }
     this.feature = feature;
     const config = FEATURES[feature];
+    // Arming sketch-on-face from inside a sketch: release the sketch UI so
+    // the camera is free and clicks pick faces instead of drawing.
+    if (feature === 'sketch' && this.sceneSketchActive) {
+      this.suspendSketchUI();
+    }
     // The hook hands over whatever was highlighted before the mode armed
     // (and clears that owner's selection) — those picks become the tool's
     // initial input. Switching between features keeps the in-mode selection.
@@ -367,7 +416,13 @@ export class ModifyPickService {
     }
   }
 
-  exit(): void {
+  /**
+   * `resume: 'lazy'` re-enables sketch editing without forcing the mode
+   * transition — used when a render is already on its way (an apply went
+   * through, or the exit was scene-driven). User cancels default to
+   * `'immediate'`, which restores the suspended sketch view right now.
+   */
+  exit(opts: { resume?: 'immediate' | 'lazy' } = {}): void {
     if (!this.feature) {
       return;
     }
@@ -383,6 +438,27 @@ export class ModifyPickService {
     this.activeBar.classList.add('hidden');
     this.setMessage(null);
     this.syncButtons();
+    this.resumeSketchUI((opts.resume ?? 'immediate') === 'immediate');
+  }
+
+  private suspendSketchUI(): void {
+    if (this.suspendedSketchUI) {
+      return;
+    }
+    this.suspendedSketchUI = true;
+    this.viewer.suspendSketchEditing();
+    this.hooks.onSuspendSketchUI?.();
+  }
+
+  private resumeSketchUI(immediate: boolean): void {
+    if (!this.suspendedSketchUI) {
+      return;
+    }
+    this.suspendedSketchUI = false;
+    this.viewer.resumeSketchEditing(immediate);
+    if (immediate) {
+      this.hooks.onResumeSketchUI?.();
+    }
   }
 
   /**
@@ -604,8 +680,9 @@ export class ModifyPickService {
       });
       if (result.success) {
         // The editor round-trip re-renders the scene; that render is the
-        // preview and editor undo is the rollback.
-        this.exit();
+        // preview and editor undo is the rollback. A suspended sketch UI
+        // resumes lazily — the incoming render enters the new sketch.
+        this.exit({ resume: 'lazy' });
       } else {
         this.setMessage(result.reason ?? 'Could not apply the feature.');
         if (config.immediate) {
@@ -800,6 +877,9 @@ export class ModifyPickService {
     for (const [kind, btn] of this.buttons) {
       btn.className = this.feature === kind ? BTN_ACTIVE : BTN_BASE;
     }
+    // The sketch button hides itself — its create group is shared with
+    // Extrude and may be visible for the other contributor.
+    this.buttons.get('sketch')!.classList.toggle('hidden', !this.sketchAvailable);
   }
 
   private setMessage(text: string | null): void {

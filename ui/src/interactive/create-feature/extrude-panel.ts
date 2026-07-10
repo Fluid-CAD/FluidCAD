@@ -201,6 +201,13 @@ export class ExtrudePanel {
     return this.options[Number(this.profileSelect.value)] ?? null;
   }
 
+  /** Programmatic profile choice (a timeline pick); no change event fires. */
+  selectProfile(index: number): void {
+    if (this.options[index]) {
+      this.profileSelect.value = String(index);
+    }
+  }
+
   values(): ExtrudeValues {
     const throughAll = this.op === 'remove' && this.throughCheckbox.checked;
     let distance: number | null = null;

@@ -323,6 +323,39 @@ export class Viewer {
     this.modeManager.sketchEnabled = enable;
   }
 
+  /**
+   * Temporarily leave sketch editing while the scene still ends with a
+   * sketch: restore the free 3D camera, unlock the projection, and rebuild
+   * the mesh un-ghosted so faces can be picked (the sketch-on-face flow from
+   * inside a sketch). {@link resumeSketchEditing} undoes it; scene updates
+   * arriving while suspended stay in the default mode.
+   */
+  suspendSketchEditing(): void {
+    this.modeManager.sketchEnabled = false;
+    if (this.modeManager.isSketchMode) {
+      this.modeManager.enterDefaultMode();
+    }
+    this.activeSketchId = null;
+    this.settingsPanel.setProjectionLocked(false);
+    this.settingsPanel.setFitButtonVisible(true);
+    this.settingsPanel.setSectionViewVisible(false);
+    this.clearHover();
+    this.rebuildSceneMesh();
+  }
+
+  /**
+   * Re-enable sketch editing after {@link suspendSketchEditing}. With
+   * `immediate`, re-run the mode transition against the current scene now
+   * (the cancel path); without, the next scene render performs it (the
+   * applied path — a render of the new sketch is already on its way).
+   */
+  resumeSketchEditing(immediate: boolean): void {
+    this.modeManager.sketchEnabled = true;
+    if (immediate && this.sceneObjects) {
+      this.updateView(this.sceneObjects);
+    }
+  }
+
   updateView(sceneObjects: SceneObjectRender[], isRollback = false, rollbackStop?: number): void {
     this.sceneObjects = sceneObjects;
     this.highlightedShapeId = null;
@@ -337,7 +370,10 @@ export class Viewer {
     if (!isRollback) {
       const activeObject = this.findActiveObject(sceneObjects);
 
-      if (activeObject?.type === 'sketch' && activeObject.object?.plane) {
+      // A disabled mode manager (suspendSketchEditing / region picking) makes
+      // a trailing sketch render like any other scene — no camera lock, no
+      // ghosting — so faces stay pickable in the free 3D view.
+      if (activeObject?.type === 'sketch' && activeObject.object?.plane && this.modeManager.sketchEnabled) {
         if (!this.modeManager.isSketchMode) {
           this.modeManager.enterSketchMode(activeObject.object.plane);
         } else {

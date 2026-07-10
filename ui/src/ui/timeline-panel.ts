@@ -14,6 +14,14 @@ function formatDuration(ms: number): string {
 }
 
 export class TimelinePanel {
+  /**
+   * Pre-empts a timeline row's default click (rollback preview + go to
+   * source). An armed pick dialog consumes clicks on rows it can use —
+   * e.g. the extrude dialog takes a sketch row as its profile — by
+   * returning true.
+   */
+  onFeatureIntercept?: (obj: SceneObjectRender) => boolean;
+
   private panel: HTMLDivElement;
   private timelineBody: HTMLDivElement;
   private contentWrapper: HTMLDivElement;
@@ -190,8 +198,12 @@ export class TimelinePanel {
           return;
         }
         const index = parseInt(el.dataset.index!, 10);
+        const obj = this.sceneObjects[index];
+        if (obj && this.onFeatureIntercept?.(obj)) {
+          return;
+        }
         this.rollbackTo(index);
-        this.goToSource(this.sceneObjects[index]);
+        this.goToSource(obj);
       });
       el.addEventListener('dblclick', (e) => {
         if ((e.target as HTMLElement).closest('[data-toggle]')) {

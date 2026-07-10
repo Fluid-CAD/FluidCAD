@@ -55,6 +55,10 @@ export class SceneModeManager {
     this.enabled = value;
   }
 
+  get sketchEnabled(): boolean {
+    return this.enabled;
+  }
+
   // -------------------------------------------------------------------------
   // Public mode transitions
   // -------------------------------------------------------------------------

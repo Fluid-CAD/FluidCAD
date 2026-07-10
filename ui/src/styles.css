@@ -93,3 +93,17 @@
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
+
+/* The Three.js viewport fills this container, which is inset below the top
+   application bar (TopBar, h-12 = 48px) and the secondary tool bar (Navbar,
+   top-12 + h-11 = 92px total) so the scene starts flush beneath the toolbar
+   instead of bleeding underneath it. UI chrome (bars, panels, overlays) stays
+   on the full-size #fluidcad-viewer parent. */
+#fluidcad-scene {
+  position: absolute;
+  inset: 92px 0 0 0;
+}
+
+#fluidcad-scene canvas {
+  display: block;
+}

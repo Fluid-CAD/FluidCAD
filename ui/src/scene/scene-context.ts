@@ -133,8 +133,12 @@ export class SceneContext {
     // Adapter for gizmo compatibility
     this._adapter = new CameraControlsAdapter(this._cc);
 
-    // Viewport gizmo
+    // Viewport gizmo. Mount it in the same container the renderer fills (the
+    // toolbar-inset #fluidcad-scene) so it renders at the top-right of the
+    // visible viewport; on document.body it would anchor to the window top and
+    // fall above the inset canvas, clipping the gizmo away.
     this.gizmo = new ViewportGizmo(this.camera, this.renderer, {
+      container,
       size: 80,
       type: 'sphere',
     });

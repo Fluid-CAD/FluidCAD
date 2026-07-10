@@ -76,7 +76,12 @@ export class Viewer {
 
   constructor(containerId: string) {
     const container = document.getElementById(containerId)!;
-    this.ctx = new SceneContext(container);
+    // The renderer fills a dedicated sub-container inset below the toolbar
+    // (see #fluidcad-scene in styles.css); it sizes, resizes, and raycasts
+    // against this element, so the scene starts under the toolbar with no
+    // coordinate offsets. UI chrome stays on the full-size outer container.
+    const sceneContainer = document.getElementById('fluidcad-scene') ?? container;
+    this.ctx = new SceneContext(sceneContainer);
     this.modeManager = new SceneModeManager(this.ctx);
     this.settingsPanel = new SettingsPanel(container, (mode) => this.ctx.switchCamera(mode));
     this.settingsPanel.setFitHandler(() => this.fitViewToScene());

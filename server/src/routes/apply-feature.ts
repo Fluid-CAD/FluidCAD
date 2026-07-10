@@ -161,27 +161,64 @@ function validateSweep(body: any): SweepRequest | { error: string } {
 /** Ordered loft profile inputs: sketches and picked faces, mixed freely. */
 type LoftProfileInput = ({ kind: 'sketch' } & SketchLoc) | { kind: 'face'; pick: Pick };
 
+type LoftCondition = { type: 'normal' | 'tangent'; magnitude: number };
+
 type LoftRequest = {
   op: 'add' | 'remove' | 'new';
   thin: [number] | [number, number] | null;
   profiles: LoftProfileInput[];
+  guides: SketchLoc[];
+  startCondition: LoftCondition | null;
+  endCondition: LoftCondition | null;
 };
 
 const MAX_LOFT_PROFILES = 16;
 
 /**
+ * One `.startCondition()`/`.endCondition()` request field: absent/null means
+ * no chain ('none' never reaches the wire — it only clears the dialog field).
+ */
+function validateLoftCondition(
+  which: string,
+  raw: unknown,
+): { condition: LoftCondition | null } | { error: string } {
+  if (raw === undefined || raw === null) {
+    return { condition: null };
+  }
+  const { type, magnitude } = raw as { type?: unknown; magnitude?: unknown };
+  if (type !== 'normal' && type !== 'tangent') {
+    return { error: `${which} type must be "normal" or "tangent"` };
+  }
+  if (typeof magnitude !== 'number' || !Number.isFinite(magnitude) || magnitude === 0) {
+    return { error: `${which} magnitude must be a nonzero number` };
+  }
+  return { condition: { type, magnitude } };
+}
+
+/**
  * The loft request's shape: two or more ordered profiles, each a sketch or a
- * picked face. Order is the loft's argument order. Duplicates are rejected
- * here — the same sketch or face twice is never a valid loft.
+ * picked face. Order is the loft's argument order. Up to two guide sketches
+ * and the start/end takeoff conditions ride along. Duplicates are rejected
+ * here — the same sketch or face twice is never a valid loft, and a profile
+ * can't double as a guide (a guide must cross every profile, so a curve lying
+ * IN a profile can never be one). Guides exclude thin mode (kernel rule).
  */
 function validateLoft(body: any): LoftRequest | { error: string } {
-  const { op, thin, profiles } = body ?? {};
+  const { op, thin, profiles, guides } = body ?? {};
   if (op !== 'add' && op !== 'remove' && op !== 'new') {
     return { error: 'op must be "add", "remove" or "new"' };
   }
   const thinResult = validateThinOffsets(thin);
   if ('error' in thinResult) {
     return thinResult;
+  }
+  const startResult = validateLoftCondition('startCondition', body?.startCondition);
+  if ('error' in startResult) {
+    return startResult;
+  }
+  const endResult = validateLoftCondition('endCondition', body?.endCondition);
+  if ('error' in endResult) {
+    return endResult;
   }
   if (!Array.isArray(profiles) || profiles.length < 2 || profiles.length > MAX_LOFT_PROFILES) {
     return { error: `profiles must be 2-${MAX_LOFT_PROFILES} ordered loft profiles` };
@@ -220,7 +257,35 @@ function validateLoft(body: any): LoftRequest | { error: string } {
       return { error: 'each profile must be {kind: "sketch", filePath, line} or {kind: "face", entity}' };
     }
   }
-  return { op, thin: thinResult.offsets, profiles: result };
+  const guideLocs: SketchLoc[] = [];
+  if (guides !== undefined && guides !== null) {
+    if (!Array.isArray(guides) || guides.length > 2) {
+      return { error: 'guides must be at most two guide sketches' };
+    }
+    for (const raw of guides) {
+      const loc = validateSketchLoc(raw);
+      if (!loc) {
+        return { error: 'a guide must carry the sketch {filePath, line}' };
+      }
+      if (filePath !== null && loc.filePath !== filePath) {
+        return { error: 'the guide sketches live in a different file than the profiles' };
+      }
+      filePath = loc.filePath;
+      const key = `sketch:${loc.filePath}:${loc.line}`;
+      if (seen.has(key)) {
+        return { error: 'a guide must be a different sketch from every profile and other guide' };
+      }
+      seen.add(key);
+      guideLocs.push(loc);
+    }
+  }
+  if (guideLocs.length > 0 && thinResult.offsets) {
+    return { error: 'loft guides cannot be combined with thin walls' };
+  }
+  return {
+    op, thin: thinResult.offsets, profiles: result, guides: guideLocs,
+    startCondition: startResult.condition, endCondition: endResult.condition,
+  };
 }
 
 /** Tangent chains: `{seed, members}` groups; absent/empty is fine. */
@@ -558,6 +623,25 @@ export function createApplyFeatureRouter(
           profiles.push({ kind: 'selector', part: parts.length - 1 });
         }
 
+        // Guides are bound sketch producers like sketch profiles, merged the
+        // same way (a sketch can't double as profile and guide — validateLoft
+        // rejected that — but the merge keeps the invariant local).
+        const guides: NonNullable<LoftEditOptions['guides']> = [];
+        for (const guide of request.guides) {
+          if (filePath !== null && guide.filePath !== filePath) {
+            res.status(422).json({ success: false, reason: 'the loft guides come from features in different files' });
+            return;
+          }
+          filePath = guide.filePath;
+          guides.push({
+            kind: 'sketch',
+            producer: mergeProducer({
+              line: guide.line, column: guide.column,
+              featureType: 'sketch', nameHint: 'g', bind: true,
+            }),
+          });
+        }
+
         // Truthful preview names: one namer pass over the bound producers in
         // spec order — the same allocation walk the transform runs. Unnamed
         // producers fall back to collision-suffixed hints.
@@ -601,8 +685,16 @@ export function createApplyFeatureRouter(
           return renderSelectorPartExpr(part, part.producer === null ? null : producerVars[part.producer]);
         });
 
-        const options: LoftEditOptions = { op: request.op, thin: request.thin, profiles };
-        const statement = renderLoftStatement(options, profileExprs);
+        const guideExprs = guides.map(guide => producerVars[guide.producer] ?? 'g');
+        const options: LoftEditOptions = {
+          op: request.op,
+          thin: request.thin,
+          profiles,
+          guides: guides.length > 0 ? guides : undefined,
+          startCondition: request.startCondition ?? undefined,
+          endCondition: request.endCondition ?? undefined,
+        };
+        const statement = renderLoftStatement(options, profileExprs, guideExprs);
         if (preview === true) {
           res.json({ success: true, preview: statement });
           return;

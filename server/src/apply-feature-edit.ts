@@ -91,18 +91,38 @@ export type SweepEditOptions = {
 
 /**
  * How a loft statement is rendered and placed: `loft(<profile>, <profile>, …)`
- * plus `.thin(…)` / `.remove()` / `.new()` chains. Profiles are ordered —
+ * plus `.guides(…)` / `.startCondition(…)` / `.endCondition(…)` /
+ * `.thin(…)` / `.remove()` / `.new()` chains. Profiles are ordered —
  * their order IS the argument order. Every profile is explicit (loft never
  * consumes the last sketch): a sketch profile binds its producer to a
  * variable; a selector profile renders one entry of `parts` (a picked face).
- * All-sketch lofts insert directly after the latest input statement so a
- * later active sketch stays active; any selector profile forces end-of-scope
- * insertion, where the picked faces are known to resolve.
+ * Guides are always bound sketch producers, at most two — the kernel takes
+ * no more — and exclude thin mode (`Loft.validate` throws on the combination).
+ * All-sketch lofts insert directly after the latest input statement (guides
+ * included — the statement references their variables) so a later active
+ * sketch stays active; any selector profile forces end-of-scope insertion,
+ * where the picked faces are known to resolve.
  */
 export type LoftEditOptions = {
   op: 'add' | 'remove' | 'new';
   thin: [number] | [number, number] | null;
   profiles: ({ kind: 'sketch'; producer: number } | { kind: 'selector'; part: number })[];
+  /** Guide-curve sketches the loft surface must follow, in argument order. */
+  guides?: { kind: 'sketch'; producer: number }[];
+  /** Takeoff constraint at the first profile; absent renders no chain. */
+  startCondition?: LoftConditionSpec;
+  /** Arrival constraint at the last profile; absent renders no chain. */
+  endCondition?: LoftConditionSpec;
+};
+
+/**
+ * One rendered `.startCondition(…)`/`.endCondition(…)` chain. 'none' is
+ * represented by absence — the API's 'none' merely clears a condition, so the
+ * dialog never writes it. A magnitude of 1 (the API default) is omitted.
+ */
+export type LoftConditionSpec = {
+  type: 'normal' | 'tangent';
+  magnitude: number;
 };
 
 export type ApplyFeatureEditResult = {
@@ -168,6 +188,7 @@ export async function applyFeatureEdit(
     const selectorParts = lo?.profiles
       ?.filter((p): p is { kind: 'selector'; part: number } => p?.kind === 'selector')
       .map(p => p.part) ?? [];
+    const guides = lo?.guides ?? [];
     const valid = lo !== undefined
       && spec.producers.length > 0
       && Array.isArray(lo.profiles) && lo.profiles.length >= 2
@@ -176,9 +197,17 @@ export async function applyFeatureEdit(
         : p?.kind === 'selector' && Number.isInteger(p.part) && p.part >= 0 && p.part < spec.parts.length)
       // Every selector part belongs to exactly one profile.
       && selectorParts.length === spec.parts.length
-      && new Set(selectorParts).size === selectorParts.length;
+      && new Set(selectorParts).size === selectorParts.length
+      && Array.isArray(guides) && guides.length <= 2
+      && guides.every(g => g?.kind === 'sketch' && isSketchProducer(spec, g.producer))
+      && [lo.startCondition, lo.endCondition].every(c => c === undefined
+        || ((c.type === 'normal' || c.type === 'tangent')
+          && Number.isFinite(c.magnitude) && c.magnitude !== 0));
     if (!valid) {
       return { newCode: code, error: 'malformed loft edit spec' };
+    }
+    if (guides.length > 0 && lo.thin) {
+      return { newCode: code, error: 'loft guides cannot be combined with thin walls' };
     }
   } else if (!spec.producers.length || !spec.parts.length) {
     return { newCode: code, error: 'empty edit spec' };
@@ -686,14 +715,31 @@ export function renderSweepStatement(
 
 /**
  * Render a loft statement from its ordered profile expressions: `loft(s, s2)`
- * plus `.thin(…)` / `.remove()` / `.new()` chains. Shared with the route's
- * preview so the previewed text is exactly what the transform writes.
+ * plus `.guides(g)`, `.startCondition('normal')` / `.endCondition('tangent',
+ * 2)` (the default magnitude 1 is omitted), and the `.thin(…)` / `.remove()`
+ * / `.new()` chains. Shared with the route's preview so the previewed text is
+ * exactly what the transform writes.
  */
 export function renderLoftStatement(
-  lo: Pick<LoftEditOptions, 'op' | 'thin'>,
+  lo: Pick<LoftEditOptions, 'op' | 'thin' | 'startCondition' | 'endCondition'>,
   profileExprs: string[],
+  guideExprs: string[] = [],
 ): string {
-  return `loft(${profileExprs.join(', ')})` + renderOpChains(lo);
+  let statement = `loft(${profileExprs.join(', ')})`;
+  if (guideExprs.length > 0) {
+    statement += `.guides(${guideExprs.join(', ')})`;
+  }
+  statement += renderConditionChain('startCondition', lo.startCondition);
+  statement += renderConditionChain('endCondition', lo.endCondition);
+  return statement + renderOpChains(lo);
+}
+
+function renderConditionChain(method: string, condition: LoftConditionSpec | undefined): string {
+  if (!condition) {
+    return '';
+  }
+  const magnitude = condition.magnitude === 1 ? '' : `, ${formatNumber(condition.magnitude)}`;
+  return `.${method}('${condition.type}'${magnitude})`;
 }
 
 /**
@@ -766,7 +812,8 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
       const part = spec.parts[profile.part];
       return renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName);
     });
-    return renderLoftStatement(lo, profileExprs);
+    const guideExprs = (lo.guides ?? []).map(guide => bindings[guide.producer].varName!);
+    return renderLoftStatement(lo, profileExprs, guideExprs);
   }
   const args = renderSelectorArgs(spec, bindings);
   if (spec.feature === 'sketch') {
@@ -846,7 +893,9 @@ function resolveInsertion(
     const sketches = spec.loft!.profiles
       .filter((p): p is { kind: 'sketch'; producer: number } => p.kind === 'sketch');
     if (sketches.length === spec.loft!.profiles.length) {
-      const latest = sketches
+      // Guides are inputs too — the statement references their variables, so
+      // it must land after the latest of profiles AND guides.
+      const latest = [...sketches, ...(spec.loft!.guides ?? [])]
         .map(p => bindings[p.producer].statement)
         .reduce((a, b) => (b.endIndex >= a.endIndex ? b : a));
       return afterStatementInsertion(latest, lines);

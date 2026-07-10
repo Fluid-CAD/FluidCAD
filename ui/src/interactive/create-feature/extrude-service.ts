@@ -6,7 +6,7 @@ import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { ExtrudePanel } from './extrude-panel';
 import {
   collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
-  SketchProfileOption,
+  SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 
 const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
@@ -63,6 +63,7 @@ export class ExtrudeFeatureService {
     this.panel.onExit = () => this.exit();
     this.panel.onChange = () => {
       this.panel.setMessage(null);
+      this.refreshHighlight();
       this.schedulePreview();
     };
   }
@@ -94,6 +95,7 @@ export class ExtrudeFeatureService {
     this.viewer.pickSketchWires = true;
     this.panel.setOptions(this.options);
     this.refreshSketchLabels();
+    this.refreshHighlight();
     this.schedulePreview();
   }
 
@@ -108,6 +110,7 @@ export class ExtrudeFeatureService {
     this.syncButton();
     this.panel.show(this.options);
     this.refreshSketchLabels();
+    this.refreshHighlight();
     this.schedulePreview();
   }
 
@@ -133,9 +136,30 @@ export class ExtrudeFeatureService {
     }
     this.armed = false;
     this.viewer.pickSketchWires = false;
+    this.viewer.clearHighlight();
     this.syncButton();
     this.cancelPreview();
     this.panel.hide();
+  }
+
+  /**
+   * Highlight the selected profile's wires in the 3D view. The active sketch
+   * is skipped: extrude never suspends sketch editing, and painting the
+   * sketch being edited would fight the sketch tools' own rendering.
+   */
+  private refreshHighlight(): void {
+    if (!this.armed) {
+      return;
+    }
+    const option = this.panel.selectedOption();
+    const wireIds = option && option.kind === 'other'
+      ? sketchWireShapeIds(option, this.sceneObjects)
+      : [];
+    if (wireIds.length > 0) {
+      this.viewer.highlightEntities([], wireIds);
+    } else {
+      this.viewer.clearHighlight();
+    }
   }
 
   private syncButton(): void {
@@ -184,6 +208,7 @@ export class ExtrudeFeatureService {
     }
     this.panel.selectProfile(index);
     this.panel.setMessage(null);
+    this.refreshHighlight();
     this.schedulePreview();
   }
 

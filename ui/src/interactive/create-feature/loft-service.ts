@@ -1,4 +1,4 @@
-import { applyLoft, ApplyFeatureResponse, LoftApplyOptions, LoftProfileRef } from '../../api';
+import { applyLoft, ApplyFeatureResponse, LoftApplyOptions, LoftProfileRef, SketchSourceRef } from '../../api';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
@@ -6,7 +6,7 @@ import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { LoftPanel } from './loft-panel';
 import {
   collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
-  SketchProfileOption,
+  SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 
 const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
@@ -29,9 +29,12 @@ type LoftProfileItem =
  * order. Profiles come from three sources: face picks in the 3D view (live
  * the whole time the dialog is armed — each click appends a chip, clicking a
  * picked face removes it), the add-sketch dropdown, and timeline sketch
- * clicks. Arming from inside a sketch suspends sketch editing immediately
- * (the sweep behavior) so the camera is free and clicks pick faces. Apply
- * writes `loft(<profiles…>)` with `.thin()`/`.remove()`/`.new()` chains.
+ * clicks. Up to two guide sketches ride in their own section — sketch picks
+ * land in whichever section was focused last — and the start/end takeoff
+ * conditions in theirs. Arming from inside a sketch suspends sketch editing
+ * immediately (the sweep behavior) so the camera is free and clicks pick
+ * faces. Apply writes `loft(<profiles…>)` with `.guides()`/`.startCondition()`
+ * /`.endCondition()`/`.thin()`/`.remove()`/`.new()` chains.
  */
 export class LoftFeatureService {
   private panel: LoftPanel;
@@ -46,6 +49,7 @@ export class LoftFeatureService {
   private suspendedSketchUI = false;
 
   private items: LoftProfileItem[] = [];
+  private guides: SketchProfileOption[] = [];
   private labelSignature = '';
 
   private previewTimer: number | null = null;
@@ -86,6 +90,8 @@ export class LoftFeatureService {
     this.panel.onAddSketch = (option) => this.addSketchProfile(option);
     this.panel.onRemoveProfile = (index) => this.removeProfile(index);
     this.panel.onReorderProfile = (from, to) => this.reorderProfile(from, to);
+    this.panel.onAddGuide = (option) => this.addGuide(option);
+    this.panel.onRemoveGuide = (index) => this.removeGuide(index);
   }
 
   get isActive(): boolean {
@@ -127,7 +133,8 @@ export class LoftFeatureService {
     this.viewer.pickFilter = 'face';
     this.viewer.pickSketchWires = true;
     // Shape ids changed with the render: face chips are stale and drop;
-    // sketch chips are line-addressed and survive while still offered.
+    // sketch chips (and guides) are line-addressed and survive while still
+    // offered.
     this.items = this.items.filter((item): item is LoftProfileItem & { kind: 'sketch' } => {
       if (item.kind !== 'sketch') {
         return false;
@@ -139,6 +146,9 @@ export class LoftFeatureService {
       item.option = refreshed;
       return true;
     });
+    this.guides = this.guides
+      .map(guide => this.findOption(guide.filePath, guide.line))
+      .filter((option): option is SketchProfileOption => option !== undefined);
     this.refreshSketchLabels();
     this.refreshProfilesUI();
     this.schedulePreview();
@@ -160,6 +170,7 @@ export class LoftFeatureService {
     this.viewer.pickFilter = 'face';
     this.viewer.pickSketchWires = true;
     this.items = [];
+    this.guides = [];
     this.panel.show();
     this.refreshSketchLabels();
     this.refreshProfilesUI();
@@ -179,6 +190,7 @@ export class LoftFeatureService {
     this.syncButton();
     this.cancelPreview();
     this.items = [];
+    this.guides = [];
     this.viewer.clearHighlight();
     this.viewer.pickFilter = 'all';
     this.viewer.pickSketchWires = false;
@@ -237,6 +249,7 @@ export class LoftFeatureService {
     return true;
   }
 
+  /** Sketch picks land in whichever section was focused last. */
   private pickSketch(sketch: SceneObjectRender): void {
     const loc = sketch.sourceLocation!;
     const option = this.findOption(loc.filePath, loc.line);
@@ -244,21 +257,58 @@ export class LoftFeatureService {
       this.panel.setMessage('That sketch was already consumed — only sketches still rendered in the scene can be used.');
       return;
     }
-    this.addSketchProfile(option);
+    if (this.panel.armedSection === 'guides') {
+      this.addGuide(option);
+    } else {
+      this.addSketchProfile(option);
+    }
+  }
+
+  /** True when the sketch is already in the loft, as a profile or a guide. */
+  private usesSketch(filePath: string, line: number): boolean {
+    return this.items.some(item => item.kind === 'sketch'
+        && item.option.filePath === filePath && item.option.line === line)
+      || this.guides.some(guide => guide.filePath === filePath && guide.line === line);
   }
 
   private addSketchProfile(option: SketchProfileOption): void {
     if (!this.armed) {
       return;
     }
-    const duplicate = this.items.some(item => item.kind === 'sketch'
-      && item.option.filePath === option.filePath && item.option.line === option.line);
-    if (duplicate) {
-      this.panel.setMessage('That sketch is already a profile — each profile must be different.');
+    if (this.usesSketch(option.filePath, option.line)) {
+      this.panel.setMessage('That sketch is already in the loft — each profile and guide must be different.');
       return;
     }
     this.panel.setMessage(null);
     this.items = [...this.items, { kind: 'sketch', option }];
+    this.refreshProfilesUI();
+    this.schedulePreview();
+  }
+
+  private addGuide(option: SketchProfileOption): void {
+    if (!this.armed) {
+      return;
+    }
+    if (this.guides.length >= 2) {
+      this.panel.setMessage('A loft takes at most two guides.');
+      return;
+    }
+    if (this.usesSketch(option.filePath, option.line)) {
+      this.panel.setMessage('That sketch is already in the loft — each profile and guide must be different.');
+      return;
+    }
+    this.panel.setMessage(null);
+    this.guides = [...this.guides, option];
+    this.refreshProfilesUI();
+    this.schedulePreview();
+  }
+
+  private removeGuide(index: number): void {
+    if (index < 0 || index >= this.guides.length) {
+      return;
+    }
+    this.panel.setMessage(null);
+    this.guides = this.guides.filter((_, i) => i !== index);
     this.refreshProfilesUI();
     this.schedulePreview();
   }
@@ -338,7 +388,26 @@ export class LoftFeatureService {
         profiles.push({ kind: 'face', entity: item.entity });
       }
     }
-    return { op: values.op, thin: values.thin, profiles };
+    const guides: SketchSourceRef[] = [];
+    for (const guide of this.guides) {
+      if (!guide.hasGeometry) {
+        return { error: `Nothing is drawn in "${guide.label}" yet.` };
+      }
+      guides.push({ filePath: guide.filePath, line: guide.line, column: guide.column });
+    }
+    // The panel blocks the thin toggle while guides exist; this only guards
+    // against a state the UI failed to keep out.
+    if (guides.length > 0 && values.thin) {
+      return { error: 'Guides cannot be combined with thin walls — remove the guides first.' };
+    }
+    return {
+      op: values.op,
+      thin: values.thin,
+      profiles,
+      guides,
+      startCondition: values.startCondition,
+      endCondition: values.endCondition,
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -349,22 +418,35 @@ export class LoftFeatureService {
     this.panel.setProfiles(this.items.map(item => ({
       label: item.kind === 'sketch' ? item.option.label : 'Picked face',
     })));
-    this.panel.setSketchOptions(this.profiles.filter(option =>
-      !this.items.some(item => item.kind === 'sketch'
-        && item.option.filePath === option.filePath && item.option.line === option.line)));
+    this.panel.setGuides(this.guides.map(guide => ({ label: guide.label })));
+    // Both dropdowns offer the sketches not already in the loft — a sketch
+    // can be a profile or a guide, never both.
+    const remaining = this.profiles.filter(option => !this.usesSketch(option.filePath, option.line));
+    this.panel.setSketchOptions(remaining);
+    const guidesFull = this.guides.length >= 2;
+    this.panel.setGuideOptions(guidesFull ? [] : remaining, guidesFull);
+    this.panel.setThinBlocked(this.guides.length > 0);
     const count = this.items.length;
     if (count === 0) {
-      this.panel.setHint('Pick faces in 3D or add sketches', true);
+      this.panel.setHint('Pick faces in 3D or add sketches');
     } else if (count === 1) {
-      this.panel.setHint('1 profile — add at least one more', true);
+      this.panel.setHint('1 profile — add at least one more');
     } else {
-      this.panel.setHint(`${count} profiles — chip order is the loft order`, false);
+      this.panel.setHint(null);
     }
     const faces = this.items
       .filter((item): item is LoftProfileItem & { kind: 'face' } => item.kind === 'face')
       .map(item => item.entity);
-    if (faces.length > 0) {
-      this.viewer.highlightEntities(faces);
+    // Every selected input lights up: picked faces plus the wires of every
+    // profile and guide sketch.
+    const wireIds = [
+      ...this.items
+        .filter((item): item is LoftProfileItem & { kind: 'sketch' } => item.kind === 'sketch')
+        .map(item => item.option),
+      ...this.guides,
+    ].flatMap(option => sketchWireShapeIds(option, this.sceneObjects));
+    if (faces.length > 0 || wireIds.length > 0) {
+      this.viewer.highlightEntities(faces, wireIds);
     } else {
       this.viewer.clearHighlight();
     }
@@ -416,6 +498,7 @@ export class LoftFeatureService {
         }
       }
     }
+    this.guides = this.guides.map(guide => this.findOption(guide.filePath, guide.line) ?? guide);
     this.refreshProfilesUI();
   }
 

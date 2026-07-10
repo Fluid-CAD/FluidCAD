@@ -427,6 +427,95 @@ describe('apply-feature route validation', () => {
     expect(status).toBe(400);
   });
 
+  const LOFT_GUIDE = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
+
+  it('relays guides as bound producers and previews the .guides chain', async () => {
+    const { status, body } = await post({
+      feature: 'loft', op: 'add', thin: null,
+      profiles: [LOFT_S1, LOFT_S2], guides: [LOFT_GUIDE],
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('loft(s, s2).guides(g)');
+    expect(synthesizeCalls).toEqual([]);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'loft',
+      loft: {
+        profiles: [{ kind: 'sketch', producer: 0 }, { kind: 'sketch', producer: 1 }],
+        guides: [{ kind: 'sketch', producer: 2 }],
+      },
+      producers: [
+        { line: 3, nameHint: 's', bind: true },
+        { line: 4, nameHint: 's', bind: true },
+        { line: 6, featureType: 'sketch', nameHint: 'g', bind: true },
+      ],
+    });
+  });
+
+  it('previews condition chains, omitting the default magnitude', async () => {
+    const { body } = await post({
+      feature: 'loft', op: 'add', thin: null, profiles: [LOFT_S1, LOFT_S2],
+      startCondition: { type: 'normal', magnitude: 1 },
+      endCondition: { type: 'tangent', magnitude: 2 },
+      preview: true,
+    });
+    expect(body.preview).toBe(`loft(s, s2).startCondition('normal').endCondition('tangent', 2)`);
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('rejects guides combined with thin walls', async () => {
+    const { status, body } = await post({
+      feature: 'loft', op: 'add', thin: [2],
+      profiles: [LOFT_S1, LOFT_S2], guides: [LOFT_GUIDE],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('thin walls');
+  });
+
+  it('rejects a guide duplicating a profile sketch', async () => {
+    const { status, body } = await post({
+      feature: 'loft', op: 'add', thin: null,
+      profiles: [LOFT_S1, LOFT_S2], guides: [{ ...LOFT_GUIDE, line: LOFT_S1.line }],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('different sketch');
+  });
+
+  it('rejects more than two guides', async () => {
+    const { status, body } = await post({
+      feature: 'loft', op: 'add', thin: null, profiles: [LOFT_S1, LOFT_S2],
+      guides: [6, 7, 8].map(line => ({ ...LOFT_GUIDE, line })),
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('at most two');
+  });
+
+  it('rejects a guide from a different file than the profiles', async () => {
+    const { status, body } = await post({
+      feature: 'loft', op: 'add', thin: null, profiles: [LOFT_S1, LOFT_S2],
+      guides: [{ ...LOFT_GUIDE, filePath: '/ws/other.fluid.js' }],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('different file');
+  });
+
+  it('rejects a zero condition magnitude', async () => {
+    const { status, body } = await post({
+      feature: 'loft', op: 'add', thin: null, profiles: [LOFT_S1, LOFT_S2],
+      startCondition: { type: 'normal', magnitude: 0 },
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('nonzero');
+  });
+
+  it('rejects an unknown condition type', async () => {
+    const { status, body } = await post({
+      feature: 'loft', op: 'add', thin: null, profiles: [LOFT_S1, LOFT_S2],
+      endCondition: { type: 'smooth', magnitude: 1 },
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('"normal" or "tangent"');
+  });
+
   it('resolves bound sketch names and nulls for everything else', async () => {
     currentCode = [
       `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,

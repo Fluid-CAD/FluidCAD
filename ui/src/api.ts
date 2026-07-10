@@ -416,12 +416,19 @@ export type LoftProfileRef =
   | ({ kind: 'sketch' } & SketchSourceRef)
   | { kind: 'face'; entity: ApplyFeatureEntity };
 
+/** A `.startCondition()`/`.endCondition()` takeoff constraint; null = none. */
+export type LoftConditionRef = { type: 'normal' | 'tangent'; magnitude: number };
+
 export type LoftApplyOptions = {
   op: 'add' | 'remove' | 'new';
   /** `.thin()` offsets, or null for a plain loft. */
   thin: [number] | [number, number] | null;
   /** Ordered profiles — the loft's argument order. */
   profiles: LoftProfileRef[];
+  /** Up to two guide-curve sketches (`.guides(…)`); excludes thin mode. */
+  guides: SketchSourceRef[];
+  startCondition: LoftConditionRef | null;
+  endCondition: LoftConditionRef | null;
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -438,6 +445,9 @@ export async function applyLoft(options: LoftApplyOptions): Promise<ApplyFeature
     op: options.op,
     thin: options.thin,
     profiles: options.profiles,
+    guides: options.guides,
+    startCondition: options.startCondition,
+    endCondition: options.endCondition,
     preview: options.preview,
   }, options.signal);
 }

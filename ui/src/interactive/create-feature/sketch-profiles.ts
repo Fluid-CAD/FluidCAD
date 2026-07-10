@@ -105,6 +105,35 @@ export function resolveSketchByShapeId(
   return owner ? resolveSketchRow(owner, sceneObjects) : undefined;
 }
 
+/**
+ * Shape ids of the wires a sketch renders — its direct children's non-meta,
+ * non-guide shapes, mirroring what SketchMesh draws as wire lines. These are
+ * the highlight targets for a sketch selected in a create dialog. Addressed
+ * by source location like the options, so it re-resolves after every render.
+ */
+export function sketchWireShapeIds(
+  option: { filePath: string; line: number },
+  sceneObjects: SceneObjectRender[],
+): string[] {
+  const sketch = sceneObjects.find(o => o.type === 'sketch'
+    && o.sourceLocation?.filePath === option.filePath && o.sourceLocation?.line === option.line);
+  if (!sketch) {
+    return [];
+  }
+  const ids: string[] = [];
+  for (const obj of sceneObjects) {
+    if (obj.parentId !== sketch.id) {
+      continue;
+    }
+    for (const shape of obj.sceneShapes ?? []) {
+      if (!shape.isMetaShape && !shape.isGuide && shape.shapeId) {
+        ids.push(shape.shapeId);
+      }
+    }
+  }
+  return ids;
+}
+
 function toOption(
   obj: SceneObjectRender,
   kind: 'active' | 'other',

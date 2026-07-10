@@ -25,6 +25,9 @@ function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
 
 const HIGHLIGHT_EDGE_LINE_WIDTH = 2;
 const HOVER_EDGE_LINE_WIDTH = 2;
+// Sketch wires already render at width 2 — a selected sketch needs the extra
+// width on top of the highlight color to stand out from its neighbors.
+const HIGHLIGHT_SKETCH_WIRE_LINE_WIDTH = 3;
 
 export type SelectionModifiers = { additive: boolean };
 
@@ -51,6 +54,7 @@ export class Viewer {
   private settingsPanel: SettingsPanel;
   private sceneObjects: SceneObjectRender[] = [];
   private highlightedShapeId: string | null = null;
+  private highlightedSketchWires: string[] = [];
   private faceHighlightMeshes: Mesh[] = [];
   private hasRendered = false;
   private lastFitBox: Box3 | null = null;
@@ -500,7 +504,8 @@ export class Viewer {
   }
 
   clearHighlight(): void {
-    if (!this.highlightedShapeId && this.highlightedEntities.length === 0 && this.faceHighlightMeshes.length === 0) {
+    if (!this.highlightedShapeId && this.highlightedEntities.length === 0
+      && this.highlightedSketchWires.length === 0 && this.faceHighlightMeshes.length === 0) {
       return;
     }
 
@@ -532,11 +537,16 @@ export class Viewer {
 
     this.highlightedShapeId = null;
     this.highlightedEntities = [];
+    this.highlightedSketchWires = [];
     this.ctx.render();
   }
 
-  /** Highlight a set of faces/edges at once (e.g. a measure selection). Replaces any previous highlight. */
-  highlightEntities(entities: SelectedEntity[]): void {
+  /**
+   * Highlight a set of faces/edges at once (e.g. a measure selection), plus
+   * optionally whole sketch wires by shape id (a create dialog's selected
+   * sketch inputs). Replaces any previous highlight.
+   */
+  highlightEntities(entities: SelectedEntity[], sketchWireShapeIds: string[] = []): void {
     this.clearHighlight();
     for (const entity of entities) {
       if (entity.sub.type === 'face') {
@@ -545,7 +555,11 @@ export class Viewer {
         this.applyEdgeHighlight(entity.shapeId, entity.sub.index);
       }
     }
+    for (const shapeId of sketchWireShapeIds) {
+      this.applySketchWireHighlight(shapeId);
+    }
     this.highlightedEntities = entities;
+    this.highlightedSketchWires = sketchWireShapeIds;
     this.ctx.render();
   }
 
@@ -652,6 +666,31 @@ export class Viewer {
       (obj as any).material.color.set(themeColors.highlightColor);
       obj.userData.originalLineWidth = (obj as any).material.linewidth;
       (obj as any).material.linewidth = HIGHLIGHT_EDGE_LINE_WIDTH;
+    });
+  }
+
+  /**
+   * Tint every line of a sketch wire shape (a create dialog's selected sketch
+   * input). The whole EdgeMesh group is addressed by its shapeId — sketch
+   * wires have no per-edge sub-selection.
+   */
+  private applySketchWireHighlight(shapeId: string): void {
+    const group = this.findMeshByShapeId(shapeId);
+    if (!group) {
+      return;
+    }
+    group.traverse((obj) => {
+      if (!(obj as LineSegments).isLine && !obj.userData.isEdgeLine) {
+        return;
+      }
+      // Skip if already highlighted, so the saved original color isn't overwritten.
+      if (obj.userData.originalColor !== undefined) {
+        return;
+      }
+      obj.userData.originalColor = (obj as any).material.color.getHex();
+      (obj as any).material.color.set(themeColors.highlightColor);
+      obj.userData.originalLineWidth = (obj as any).material.linewidth;
+      (obj as any).material.linewidth = HIGHLIGHT_SKETCH_WIRE_LINE_WIDTH;
     });
   }
 

@@ -8,7 +8,7 @@ import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { SweepPanel } from './sweep-panel';
 import {
   collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
-  SketchProfileOption,
+  SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 
 const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
@@ -85,6 +85,7 @@ export class SweepFeatureService {
     this.panel.onExit = () => this.exit();
     this.panel.onChange = () => {
       this.panel.setMessage(null);
+      this.refreshHighlight();
       this.schedulePreview();
     };
     this.panel.onPathModeChange = () => this.syncEdgePicking();
@@ -146,6 +147,7 @@ export class SweepFeatureService {
     this.panel.setOptions(this.profiles, this.profiles, this.hasSolid);
     this.refreshSketchLabels();
     this.syncEdgePicking();
+    this.refreshHighlight();
     this.refreshPickCount();
     this.schedulePreview();
   }
@@ -167,6 +169,7 @@ export class SweepFeatureService {
     this.panel.show(this.profiles, this.profiles, this.hasSolid);
     this.refreshSketchLabels();
     this.syncEdgePicking();
+    this.refreshHighlight();
     this.refreshPickCount();
     this.schedulePreview();
   }
@@ -218,11 +221,7 @@ export class SweepFeatureService {
         this.entities = [...this.entities, entity];
       }
     }
-    if (this.entities.length > 0) {
-      this.viewer.highlightEntities(this.entities);
-    } else {
-      this.viewer.clearHighlight();
-    }
+    this.refreshHighlight();
     this.refreshPickCount();
     this.schedulePreview();
   }
@@ -247,7 +246,7 @@ export class SweepFeatureService {
       .filter(m => m.sub?.type === 'edge' && !have.has(entityKey(m as SelectedEntity))) as SelectedEntity[];
     if (added.length > 0) {
       this.entities = [...this.entities, ...added];
-      this.viewer.highlightEntities(this.entities);
+      this.refreshHighlight();
       this.refreshPickCount();
       this.schedulePreview();
     }
@@ -284,7 +283,7 @@ export class SweepFeatureService {
         ...members,
       ];
       this.chains.push({ seed: entity, members });
-      this.viewer.highlightEntities(this.entities);
+      this.refreshHighlight();
       this.refreshPickCount();
       this.schedulePreview();
     });
@@ -337,6 +336,7 @@ export class SweepFeatureService {
     }
     this.panel.setMessage(null);
     this.syncEdgePicking();
+    this.refreshHighlight();
     this.schedulePreview();
   }
 
@@ -436,10 +436,10 @@ export class SweepFeatureService {
       if (this.entities.length > 0) {
         this.entities = [];
         this.chains = [];
-        this.viewer.clearHighlight();
       }
       this.hideContextMenu();
     }
+    this.refreshHighlight();
     this.refreshPickCount();
   }
 
@@ -477,6 +477,31 @@ export class SweepFeatureService {
     }
     this.profiles = labeled;
     this.panel.setOptions(labeled, labeled, this.hasSolid);
+  }
+
+  /**
+   * Repaint the viewport selection: the picked path edges plus the wires of
+   * the sketches chosen in the slots — the dialog's inputs stay visible in 3D.
+   */
+  private refreshHighlight(): void {
+    if (!this.armed) {
+      return;
+    }
+    const sketches: SketchProfileOption[] = [];
+    const profile = this.panel.selectedProfile();
+    if (profile) {
+      sketches.push(profile);
+    }
+    const path = this.panel.pathSelection();
+    if (path?.kind === 'sketch') {
+      sketches.push(path.option);
+    }
+    const wireIds = sketches.flatMap(option => sketchWireShapeIds(option, this.sceneObjects));
+    if (this.entities.length > 0 || wireIds.length > 0) {
+      this.viewer.highlightEntities(this.entities, wireIds);
+    } else {
+      this.viewer.clearHighlight();
+    }
   }
 
   private refreshPickCount(): void {

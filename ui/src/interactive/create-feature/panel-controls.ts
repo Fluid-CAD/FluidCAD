@@ -53,6 +53,7 @@ export class ThinControl {
   onSubmit?: () => void;
 
   private checkbox: HTMLInputElement;
+  private toggle: HTMLElement;
   private valueWrap: HTMLElement;
   private input: HTMLInputElement;
 
@@ -64,6 +65,7 @@ export class ThinControl {
       <span class="text-base-content/70">Thin walls</span>
     `;
     container.appendChild(toggle);
+    this.toggle = toggle;
 
     this.valueWrap = document.createElement('label');
     this.valueWrap.className = 'hidden flex-col gap-1.5';
@@ -89,6 +91,23 @@ export class ThinControl {
       }
       e.stopPropagation();
     });
+  }
+
+  /**
+   * Block the toggle while the feature's current inputs exclude thin mode
+   * (loft guides). Blocking unchecks — a checked-but-ignored toggle would
+   * lie about the statement being written.
+   */
+  setBlocked(blocked: boolean, reason: string): void {
+    this.checkbox.disabled = blocked;
+    this.toggle.title = blocked ? reason : '';
+    this.toggle.classList.toggle('opacity-50', blocked);
+    this.toggle.classList.toggle('cursor-not-allowed', blocked);
+    this.toggle.classList.toggle('cursor-pointer', !blocked);
+    if (blocked && this.checkbox.checked) {
+      this.checkbox.checked = false;
+      this.sync();
+    }
   }
 
   /** The `.thin()` offsets, null when off, or the message for a bad value. */

@@ -1097,4 +1097,88 @@ describe('loft statement templates', () => {
     ));
     expect(result.error).toContain('malformed');
   });
+
+  const threeSketchCode = [
+    `import { sketch, rect, circle, bezier } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { rect(10, 10) })`,
+    `sketch('xz', () => { circle(5) })`,
+    `sketch('yz', () => { bezier([0, 0], [5, 10], [0, 20]) })`,
+    ``,
+  ].join('\n');
+
+  const threeProducers: Partial<ApplyFeatureEditSpec> = {
+    producers: [
+      { line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+      { line: 4, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+      { line: 5, column: 0, featureType: 'sketch', nameHint: 'g', bind: true },
+    ],
+  };
+
+  it('chains .guides() and inserts after the latest input — the guide', async () => {
+    const result = await applyFeatureEdit(threeSketchCode, loftSpec(
+      { guides: [{ kind: 'sketch', producer: 2 }] },
+      threeProducers,
+    ));
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const guideRow = lines.findIndex(l => l.startsWith(`const g = sketch('yz'`));
+    expect(guideRow).toBeGreaterThan(-1);
+    expect(lines[guideRow + 1]).toBe(`loft(s, s2).guides(g)`);
+  });
+
+  it('renders condition chains, omitting the default magnitude', async () => {
+    const result = await applyFeatureEdit(twoSketchCode, loftSpec({
+      startCondition: { type: 'normal', magnitude: 1 },
+      endCondition: { type: 'tangent', magnitude: 2.5 },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`loft(s, s2).startCondition('normal').endCondition('tangent', 2.5)`);
+  });
+
+  it('orders condition chains ahead of thin and the op chain', async () => {
+    // Conditions compose with thin (both walls are conditioned); guides don't.
+    const result = await applyFeatureEdit(twoSketchCode, loftSpec({
+      op: 'new', thin: [1.5],
+      endCondition: { type: 'normal', magnitude: 1 },
+    }));
+    expect(result.newCode).toContain(`loft(s, s2).endCondition('normal').thin(1.5).new()`);
+  });
+
+  it('refuses guides combined with thin walls', async () => {
+    const result = await applyFeatureEdit(threeSketchCode, loftSpec(
+      { thin: [2], guides: [{ kind: 'sketch', producer: 2 }] },
+      threeProducers,
+    ));
+    expect(result.error).toContain('thin walls');
+    expect(result.newCode).toBe(threeSketchCode);
+  });
+
+  it('refuses more than two guides', async () => {
+    const result = await applyFeatureEdit(twoSketchCode, loftSpec({
+      guides: [0, 0, 0].map(producer => ({ kind: 'sketch' as const, producer })),
+    }));
+    expect(result.error).toContain('malformed');
+  });
+
+  it('refuses a guide whose producer is not a sketch', async () => {
+    const result = await applyFeatureEdit(twoSketchCode, loftSpec(
+      { guides: [{ kind: 'sketch', producer: 2 }] },
+      {
+        producers: [
+          { line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+          { line: 4, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+          { line: 5, column: 0, featureType: 'extrude', nameHint: 'e', bind: true },
+        ],
+      },
+    ));
+    expect(result.error).toContain('malformed');
+  });
+
+  it('refuses a zero condition magnitude', async () => {
+    const result = await applyFeatureEdit(twoSketchCode, loftSpec({
+      startCondition: { type: 'normal', magnitude: 0 },
+    }));
+    expect(result.error).toContain('malformed');
+  });
 });

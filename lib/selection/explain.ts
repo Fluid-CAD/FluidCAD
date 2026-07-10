@@ -74,6 +74,13 @@ export function synthesizeApplyFeature(
       return { ok: false, reason: 'a sweep path takes edges — pick edges only', pick: face };
     }
   }
+  if (feature === 'loft') {
+    // Each pick is one loft profile: a face selection.
+    const edge = [...refs, ...chains.flatMap(c => c.members)].find(r => r.sub.type !== 'face');
+    if (edge) {
+      return { ok: false, reason: 'a loft profile is a face — pick faces only', pick: edge };
+    }
+  }
 
   const index = new SelectionIndex(scene);
   try {
@@ -112,7 +119,7 @@ export function synthesizeApplyFeature(
 
     const spec: ApplyFeatureEditSpec = {
       feature,
-      ...(feature === 'sketch' || feature === 'sweep' ? {} : { value }),
+      ...(feature === 'sketch' || feature === 'sweep' || feature === 'loft' ? {} : { value }),
       filePath: filePaths.values().next().value!,
       producers: located.map(l => {
         const loc = l.feature.getSourceLocation()!;
@@ -175,6 +182,10 @@ function renderPreview(feature: ApplyFeatureKind, value: number | undefined, arg
   if (feature === 'sweep') {
     // The args are the path selector; the route composes the full statement.
     return `sweep(${args})`;
+  }
+  if (feature === 'loft') {
+    // The args are one profile's selector; the route composes the statement.
+    return `loft(${args})`;
   }
   return `${feature}(${value}, ${args})`;
 }

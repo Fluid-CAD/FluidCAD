@@ -911,3 +911,190 @@ describe('sweep statement templates', () => {
     expect(result.error).toContain('malformed');
   });
 });
+
+describe('loft statement templates', () => {
+  function loftSpec(
+    loft: Partial<NonNullable<ApplyFeatureEditSpec['loft']>> = {},
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec {
+    return {
+      feature: 'loft',
+      filePath: '/ws/model.fluid.js',
+      loft: {
+        op: 'add', thin: null,
+        profiles: [{ kind: 'sketch', producer: 0 }, { kind: 'sketch', producer: 1 }],
+        ...loft,
+      },
+      producers: [
+        { line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+        { line: 4, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+      ],
+      parts: [],
+      imports: [],
+      ...overrides,
+    };
+  }
+
+  const twoSketchCode = [
+    `import { sketch, rect, circle } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { rect(10, 10) })`,
+    `sketch('xz', () => { circle(5) })`,
+    ``,
+  ].join('\n');
+
+  it('binds both sketches and inserts directly after the latest input', async () => {
+    const result = await applyFeatureEdit(twoSketchCode, loftSpec());
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const firstRow = lines.findIndex(l => l === `const s = sketch('xy', () => { rect(10, 10) })`);
+    expect(firstRow).toBeGreaterThan(-1);
+    expect(lines[firstRow + 1]).toBe(`const s2 = sketch('xz', () => { circle(5) })`);
+    expect(lines[firstRow + 2]).toBe(`loft(s, s2)`);
+    expect(result.newCode).toMatch(/import \{ ?loft,/);
+  });
+
+  it('keeps a later active sketch active when every input is earlier', async () => {
+    const code = [
+      `import { sketch, rect, circle, polygon } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xz', () => { circle(5) })`,
+      `sketch('yz', () => { polygon(6, 20) })`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, loftSpec());
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const loftRow = lines.findIndex(l => l === `loft(s, s2)`);
+    expect(loftRow).toBeGreaterThan(-1);
+    // The uninvolved sketch stays last, so it remains the active sketch.
+    expect(lines[loftRow + 1]).toBe(`sketch('yz', () => { polygon(6, 20) })`);
+  });
+
+  it('preserves the profile argument order independent of producer order', async () => {
+    const code = [
+      `import { sketch, rect, circle, polygon } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xz', () => { circle(5) })`,
+      `sketch('yz', () => { polygon(6, 20) })`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, loftSpec(
+      {
+        profiles: [
+          { kind: 'sketch', producer: 2 },
+          { kind: 'sketch', producer: 0 },
+          { kind: 'sketch', producer: 1 },
+        ],
+      },
+      {
+        producers: [
+          { line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+          { line: 4, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+          { line: 5, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+        ],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`loft(s3, s, s2)`);
+  });
+
+  it('renders a selector profile at end of scope', async () => {
+    const code = [
+      `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      `sketch('xz', () => { circle(5) })`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, loftSpec(
+      { profiles: [{ kind: 'sketch', producer: 0 }, { kind: 'selector', part: 0 }] },
+      {
+        producers: [
+          { line: 5, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+          { line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true },
+        ],
+        parts: [{ producer: 1, accessor: 'endFaces', indices: null, filterArgs: null }],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    expect(result.newCode).toContain(`const e = extrude(30)`);
+    const loftRow = lines.findIndex(l => l === `loft(s, e.endFaces())`);
+    expect(loftRow).toBeGreaterThan(lines.findIndex(l => l.startsWith(`const s = sketch('xz'`)));
+  });
+
+  it('chains .thin() and .remove()', async () => {
+    const result = await applyFeatureEdit(twoSketchCode, loftSpec({ op: 'remove', thin: [2] }));
+    expect(result.newCode).toContain(`loft(s, s2).thin(2).remove()`);
+  });
+
+  it('chains .new()', async () => {
+    const result = await applyFeatureEdit(twoSketchCode, loftSpec({ op: 'new' }));
+    expect(result.newCode).toContain(`loft(s, s2).new()`);
+  });
+
+  it('reuses existing const bindings for the profile sketches', async () => {
+    const code = [
+      `import { sketch, rect, circle } from 'fluidcad/core'`,
+      ``,
+      `const base = sketch('xy', () => { rect(10, 10) })`,
+      `const tip = sketch('xz', () => { circle(5) })`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, loftSpec());
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`loft(base, tip)`);
+  });
+
+  it('refuses when a sketch producer line is not a sketch call', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, loftSpec(
+      {},
+      {
+        producers: [
+          { line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+          { line: 4, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+        ],
+      },
+    ));
+    expect(result.error).toContain('expected a sketch() call');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses fewer than two profiles', async () => {
+    const result = await applyFeatureEdit(twoSketchCode, loftSpec(
+      { profiles: [{ kind: 'sketch', producer: 0 }] },
+    ));
+    expect(result.error).toContain('malformed');
+  });
+
+  it('refuses a selector profile without its part', async () => {
+    const result = await applyFeatureEdit(twoSketchCode, loftSpec(
+      { profiles: [{ kind: 'sketch', producer: 0 }, { kind: 'selector', part: 0 }] },
+    ));
+    expect(result.error).toContain('malformed');
+  });
+
+  it('refuses parts no profile references', async () => {
+    const result = await applyFeatureEdit(twoSketchCode, loftSpec(
+      {},
+      { parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }] },
+    ));
+    expect(result.error).toContain('malformed');
+  });
+});

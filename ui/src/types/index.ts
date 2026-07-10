@@ -100,6 +100,12 @@ export type SceneObjectMesh = {
 export type SubSelection =
   | { type: 'face'; index: number }
   | { type: 'edge'; index: number }
+  /**
+   * A sketch wire hit — only produced while a create dialog has enabled
+   * `viewer.pickSketchWires`; the pick identifies the owning sketch, so the
+   * index carries no meaning (always 0).
+   */
+  | { type: 'sketch'; index: number }
   | null;
 
 export type SceneObjectPart = {

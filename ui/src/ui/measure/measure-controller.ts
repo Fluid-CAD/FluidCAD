@@ -82,7 +82,8 @@ export class MeasureController {
    * the entity in the set. Returns the resulting selection.
    */
   handleClick(shapeId: string | null, sub: SubSelection, additive: boolean): SelectedEntity[] {
-    if (!shapeId || !sub) {
+    // Sketch-wire picks belong to the create dialogs, never to measurement.
+    if (!shapeId || !sub || sub.type === 'sketch') {
       if (additive && this.entities.length > 0) {
         return this.entities; // missed ctrl-click shouldn't wipe a selection in progress
       }

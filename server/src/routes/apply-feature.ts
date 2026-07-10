@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import type { FluidCadServer } from '../fluidcad-server.ts';
 import {
-  applyFeatureEdit, extractNumericParams, makeProducerNamer, renderExtrudeStatement, renderSweepStatement,
-  resolveParamValues, resolveSketchNames,
-  type ApplyFeatureEditSpec, type ExtrudeEditOptions, type SweepEditOptions,
+  applyFeatureEdit, extractNumericParams, makeProducerNamer, renderExtrudeStatement, renderLoftStatement,
+  renderSelectorPartExpr, renderSweepStatement, resolveParamValues, resolveSketchNames,
+  type ApplyFeatureEditSpec, type ExtrudeEditOptions, type LoftEditOptions, type SweepEditOptions,
 } from '../apply-feature-edit.ts';
 
 const MAX_ENTITIES = 32;
@@ -156,6 +156,71 @@ function validateSweep(body: any): SweepRequest | { error: string } {
     return { ...base, path: { kind: 'edges', picks, chains } };
   }
   return { error: 'path must be {kind: "sketch", filePath, line} or {kind: "edges", entities}' };
+}
+
+/** Ordered loft profile inputs: sketches and picked faces, mixed freely. */
+type LoftProfileInput = ({ kind: 'sketch' } & SketchLoc) | { kind: 'face'; pick: Pick };
+
+type LoftRequest = {
+  op: 'add' | 'remove' | 'new';
+  thin: [number] | [number, number] | null;
+  profiles: LoftProfileInput[];
+};
+
+const MAX_LOFT_PROFILES = 16;
+
+/**
+ * The loft request's shape: two or more ordered profiles, each a sketch or a
+ * picked face. Order is the loft's argument order. Duplicates are rejected
+ * here — the same sketch or face twice is never a valid loft.
+ */
+function validateLoft(body: any): LoftRequest | { error: string } {
+  const { op, thin, profiles } = body ?? {};
+  if (op !== 'add' && op !== 'remove' && op !== 'new') {
+    return { error: 'op must be "add", "remove" or "new"' };
+  }
+  const thinResult = validateThinOffsets(thin);
+  if ('error' in thinResult) {
+    return thinResult;
+  }
+  if (!Array.isArray(profiles) || profiles.length < 2 || profiles.length > MAX_LOFT_PROFILES) {
+    return { error: `profiles must be 2-${MAX_LOFT_PROFILES} ordered loft profiles` };
+  }
+  const result: LoftProfileInput[] = [];
+  const seen = new Set<string>();
+  let filePath: string | null = null;
+  for (const raw of profiles) {
+    if (raw?.kind === 'sketch') {
+      const loc = validateSketchLoc(raw);
+      if (!loc) {
+        return { error: 'a sketch profile must carry the sketch {filePath, line}' };
+      }
+      if (filePath !== null && loc.filePath !== filePath) {
+        return { error: 'the profile sketches live in different files' };
+      }
+      filePath = loc.filePath;
+      const key = `sketch:${loc.filePath}:${loc.line}`;
+      if (seen.has(key)) {
+        return { error: 'each profile must be a different sketch' };
+      }
+      seen.add(key);
+      result.push({ kind: 'sketch', ...loc });
+    } else if (raw?.kind === 'face') {
+      const pick = validatePick(raw.entity);
+      if (!pick || pick.sub.type !== 'face') {
+        return { error: 'a face profile must carry a {shapeId, sub:{type:"face", index}} pick' };
+      }
+      const key = `face:${pick.shapeId}:${pick.sub.index}`;
+      if (seen.has(key)) {
+        return { error: 'the same face was picked twice — each profile must be different' };
+      }
+      seen.add(key);
+      result.push({ kind: 'face', pick });
+    } else {
+      return { error: 'each profile must be {kind: "sketch", filePath, line} or {kind: "face", entity}' };
+    }
+  }
+  return { op, thin: thinResult.offsets, profiles: result };
 }
 
 /** Tangent chains: `{seed, members}` groups; absent/empty is fine. */
@@ -393,6 +458,173 @@ export function createApplyFeatureRouter(
       return;
     }
 
+    // Loft takes an ordered list of profiles — sketches and picked faces
+    // mixed freely. Face picks run synthesis ONE AT A TIME: the kernel groups
+    // picks by (producer, bucket), so a batched call would merge same-bucket
+    // faces into one part and destroy profile order and arity.
+    if (feature === 'loft') {
+      const request = validateLoft(req.body);
+      if ('error' in request) {
+        res.status(400).json({ error: request.error });
+        return;
+      }
+      try {
+        const code = fluidCadServer.getCurrentCode();
+        // Built on the first face profile — an all-sketch loft never runs
+        // synthesis. Only `params` is passed: a namer would only shape
+        // synthesis's own preview strings, which this branch discards
+        // (profiles are re-rendered from the parts below).
+        let synthOptions: { params: { name: string; value: number }[] } | undefined;
+        let synthOptionsReady = false;
+
+        const producers: ApplyFeatureEditSpec['producers'] = [];
+        const parts: ApplyFeatureEditSpec['parts'] = [];
+        const imports = new Set<string>();
+        const profiles: LoftEditOptions['profiles'] = [];
+        let filePath: string | null = null;
+
+        // Producers merge across the per-pick synthesis calls (and the sketch
+        // profiles) by call site; a bind:true entry wins over an anchor.
+        const producerIndex = new Map<string, number>();
+        const mergeProducer = (producer: ApplyFeatureEditSpec['producers'][number]): number => {
+          const key = `${producer.line}:${producer.column}`;
+          const existing = producerIndex.get(key);
+          if (existing === undefined) {
+            producerIndex.set(key, producers.length);
+            producers.push(producer);
+            return producers.length - 1;
+          }
+          if (producer.bind && !producers[existing].bind) {
+            producers[existing] = producer;
+          }
+          return existing;
+        };
+
+        for (const profile of request.profiles) {
+          if (profile.kind === 'sketch') {
+            // validateLoft holds sketches to one file; this catches a sketch
+            // following a face pick synthesized from a different file.
+            if (filePath !== null && profile.filePath !== filePath) {
+              res.status(422).json({ success: false, reason: 'the loft profiles come from features in different files' });
+              return;
+            }
+            filePath = profile.filePath;
+            profiles.push({
+              kind: 'sketch',
+              producer: mergeProducer({
+                line: profile.line, column: profile.column,
+                featureType: 'sketch', nameHint: 's', bind: true,
+              }),
+            });
+            continue;
+          }
+          if (!synthOptionsReady) {
+            synthOptionsReady = true;
+            if (code) {
+              synthOptions = {
+                params: resolveParamValues(
+                  await extractNumericParams(code),
+                  fluidCadServer.getParamDefinitions(),
+                ),
+              };
+            }
+          }
+          const synthesis = fluidCadServer.synthesizeApplyFeature(
+            [profile.pick], 'loft', undefined, [], synthOptions,
+          );
+          if (!synthesis) {
+            res.status(404).json({ success: false, reason: 'No rendered scene' });
+            return;
+          }
+          if (!synthesis.ok) {
+            res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
+            return;
+          }
+          if (synthesis.spec.parts.length !== 1) {
+            res.status(422).json({ success: false, reason: 'a loft profile must be a single face selection' });
+            return;
+          }
+          if (filePath !== null && synthesis.spec.filePath !== filePath) {
+            res.status(422).json({ success: false, reason: 'the loft profiles come from features in different files' });
+            return;
+          }
+          filePath = synthesis.spec.filePath;
+          const remap = synthesis.spec.producers.map(mergeProducer);
+          const part = synthesis.spec.parts[0];
+          parts.push({ ...part, producer: part.producer === null ? null : remap[part.producer] });
+          for (const symbol of synthesis.spec.imports) {
+            imports.add(symbol);
+          }
+          profiles.push({ kind: 'selector', part: parts.length - 1 });
+        }
+
+        // Truthful preview names: one namer pass over the bound producers in
+        // spec order — the same allocation walk the transform runs. Unnamed
+        // producers fall back to collision-suffixed hints.
+        const names: (string | null)[] = producers.map((): null => null);
+        if (code) {
+          const namer = await makeProducerNamer(code);
+          const bound = producers
+            .map((producer, index) => ({ producer, index }))
+            .filter(entry => entry.producer.bind);
+          const resolved = namer(bound.map(({ producer }) => ({
+            line: producer.line, nameHint: producer.nameHint, featureType: producer.featureType,
+          })));
+          bound.forEach((entry, i) => {
+            names[entry.index] = resolved[i];
+          });
+        }
+        const used = new Set(names.filter((n): n is string => n !== null));
+        const producerVars = producers.map((producer, i) => {
+          if (!producer.bind) {
+            return null;
+          }
+          if (names[i]) {
+            return names[i];
+          }
+          const hint = producer.nameHint || 'f';
+          let name = hint;
+          let suffix = 1;
+          while (used.has(name)) {
+            suffix++;
+            name = `${hint}${suffix}`;
+          }
+          used.add(name);
+          return name;
+        });
+
+        const profileExprs = profiles.map(profile => {
+          if (profile.kind === 'sketch') {
+            return producerVars[profile.producer] ?? 's';
+          }
+          const part = parts[profile.part];
+          return renderSelectorPartExpr(part, part.producer === null ? null : producerVars[part.producer]);
+        });
+
+        const options: LoftEditOptions = { op: request.op, thin: request.thin, profiles };
+        const statement = renderLoftStatement(options, profileExprs);
+        if (preview === true) {
+          res.json({ success: true, preview: statement });
+          return;
+        }
+        sendToExtension({
+          type: 'apply-feature-edit',
+          spec: {
+            feature: 'loft',
+            loft: options,
+            filePath: filePath!,
+            producers,
+            parts,
+            imports: [...imports],
+          },
+        });
+        res.json({ success: true, preview: statement });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
+
     const picks = validatePicks(req.body?.entities);
     if (!picks) {
       res.status(400).json({ error: `entities must be 1-${MAX_ENTITIES} picks of {shapeId, sub:{type, index}}` });
@@ -404,7 +636,7 @@ export function createApplyFeatureRouter(
       return;
     }
     if (feature !== 'fillet' && feature !== 'chamfer' && feature !== 'shell' && feature !== 'sketch') {
-      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude" or "sweep"' });
+      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude", "sweep" or "loft"' });
       return;
     }
     // Per-feature numeric parameter: fillet/chamfer need a positive radius or

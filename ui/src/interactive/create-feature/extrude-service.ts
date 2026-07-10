@@ -1,10 +1,12 @@
 import { applyExtrude, ApplyFeatureResponse, ExtrudeProfileRef } from '../../api';
 import { SceneObjectRender } from '../../types';
+import { Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { ExtrudePanel } from './extrude-panel';
 import {
-  collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchRow, SketchProfileOption,
+  collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
+  SketchProfileOption,
 } from './sketch-profiles';
 
 const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
@@ -38,6 +40,7 @@ export class ExtrudeFeatureService {
 
   constructor(
     container: HTMLElement,
+    private viewer: Viewer,
     private navbar: Navbar,
     private hooks: { onEnter?: () => void } = {},
   ) {
@@ -88,6 +91,7 @@ export class ExtrudeFeatureService {
       this.exit();
       return;
     }
+    this.viewer.pickSketchWires = true;
     this.panel.setOptions(this.options);
     this.refreshSketchLabels();
     this.schedulePreview();
@@ -99,6 +103,8 @@ export class ExtrudeFeatureService {
     }
     this.hooks.onEnter?.();
     this.armed = true;
+    // Clicking a sketch's wires in the 3D view selects it as the profile.
+    this.viewer.pickSketchWires = true;
     this.syncButton();
     this.panel.show(this.options);
     this.refreshSketchLabels();
@@ -126,6 +132,7 @@ export class ExtrudeFeatureService {
       return;
     }
     this.armed = false;
+    this.viewer.pickSketchWires = false;
     this.syncButton();
     this.cancelPreview();
     this.panel.hide();
@@ -151,16 +158,33 @@ export class ExtrudeFeatureService {
     if (!sketch?.sourceLocation) {
       return false;
     }
-    const loc = sketch.sourceLocation;
+    this.pickSketch(sketch);
+    return true;
+  }
+
+  /** A sketch wire was clicked in the 3D view: selects it as the profile. */
+  handleSketchPick(shapeId: string): boolean {
+    if (!this.armed) {
+      return false;
+    }
+    const sketch = resolveSketchByShapeId(shapeId, this.sceneObjects);
+    if (!sketch?.sourceLocation) {
+      return false;
+    }
+    this.pickSketch(sketch);
+    return true;
+  }
+
+  private pickSketch(sketch: SceneObjectRender): void {
+    const loc = sketch.sourceLocation!;
     const index = this.options.findIndex(o => o.filePath === loc.filePath && o.line === loc.line);
     if (index < 0) {
       this.panel.setMessage('That sketch was already consumed — only sketches still rendered in the scene can be extruded.');
-      return true;
+      return;
     }
     this.panel.selectProfile(index);
     this.panel.setMessage(null);
     this.schedulePreview();
-    return true;
   }
 
   private async apply(): Promise<void> {

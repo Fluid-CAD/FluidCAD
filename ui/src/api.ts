@@ -411,6 +411,37 @@ export async function applySweep(options: SweepApplyOptions): Promise<ApplyFeatu
   }, options.signal);
 }
 
+/** One ordered loft profile: a sketch, or a face picked in the 3D view. */
+export type LoftProfileRef =
+  | ({ kind: 'sketch' } & SketchSourceRef)
+  | { kind: 'face'; entity: ApplyFeatureEntity };
+
+export type LoftApplyOptions = {
+  op: 'add' | 'remove' | 'new';
+  /** `.thin()` offsets, or null for a plain loft. */
+  thin: [number] | [number, number] | null;
+  /** Ordered profiles — the loft's argument order. */
+  profiles: LoftProfileRef[];
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a loft statement
+ * over the ordered profiles. Same endpoint and response shape as
+ * {@link applyFeature}.
+ */
+export async function applyLoft(options: LoftApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'loft',
+    op: options.op,
+    thin: options.thin,
+    profiles: options.profiles,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /**
  * Variable names of the sketch statements at the given source lines (dialog
  * labels). Unbound or unresolvable lines come back null; failures degrade to

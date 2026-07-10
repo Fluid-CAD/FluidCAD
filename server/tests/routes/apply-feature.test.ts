@@ -18,7 +18,10 @@ const fakeSynthesis = {
   alternatives: [],
 };
 
-/** Per-test synthesis result; reset to `fakeSynthesis` before each test. */
+/**
+ * Per-test synthesis result; reset to `fakeSynthesis` before each test. An
+ * array yields one entry per call, in order (loft synthesizes per face pick).
+ */
 let currentSynthesis: any;
 /** Per-test live buffer; reset to null before each test. */
 let currentCode: string | null;
@@ -30,6 +33,9 @@ const fakeServer = {
     _picks: unknown, feature: string, value: number | undefined,
   ) => {
     synthesizeCalls.push({ feature, value });
+    if (Array.isArray(currentSynthesis)) {
+      return currentSynthesis[Math.min(synthesizeCalls.length, currentSynthesis.length) - 1];
+    }
     return currentSynthesis;
   },
 };
@@ -76,7 +82,7 @@ describe('apply-feature route validation', () => {
   it('rejects an unknown feature', async () => {
     const { status, body } = await post({ feature: 'draft', value: 2, entities: [PICK] });
     expect(status).toBe(400);
-    expect(body.error).toContain('"extrude" or "sweep"');
+    expect(body.error).toContain('"sweep" or "loft"');
   });
 
   it('rejects a non-positive fillet value', async () => {
@@ -276,6 +282,149 @@ describe('apply-feature route validation', () => {
     });
     expect(status).toBe(400);
     expect(body.error).toContain('different sketches');
+  });
+
+  const LOFT_S1 = { kind: 'sketch', filePath: '/ws/m.fluid.js', line: 3, column: 0 };
+  const LOFT_S2 = { kind: 'sketch', filePath: '/ws/m.fluid.js', line: 4, column: 0 };
+  const loftFace = (index: number, shapeId = 'shape-1') =>
+    ({ kind: 'face', entity: { shapeId, sub: { type: 'face', index } } });
+
+  /** One per-pick synthesis result: a single-part face selector. */
+  const loftSynthesis = (accessor: string, line = 5) => ({
+    ok: true,
+    spec: {
+      feature: 'loft',
+      filePath: '/ws/m.fluid.js',
+      producers: [{ line, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor, indices: null, filterArgs: null }],
+      imports: [],
+    },
+    preview: '', args: '', alternatives: [],
+  });
+
+  it('relays a two-sketch loft with ordered bound profiles', async () => {
+    const { status, body } = await post({
+      feature: 'loft', op: 'add', thin: null, profiles: [LOFT_S1, LOFT_S2],
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('loft(s, s2)');
+    expect(synthesizeCalls).toEqual([]);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'loft',
+      loft: {
+        op: 'add',
+        profiles: [{ kind: 'sketch', producer: 0 }, { kind: 'sketch', producer: 1 }],
+      },
+      producers: [
+        { line: 3, featureType: 'sketch', nameHint: 's', bind: true },
+        { line: 4, featureType: 'sketch', nameHint: 's', bind: true },
+      ],
+      parts: [],
+    });
+  });
+
+  it('previews loft thin and remove chains without relaying', async () => {
+    const { body } = await post({
+      feature: 'loft', op: 'remove', thin: [2], profiles: [LOFT_S1, LOFT_S2], preview: true,
+    });
+    expect(body.preview).toBe('loft(s, s2).thin(2).remove()');
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('synthesizes face profiles one pick at a time and merges shared producers', async () => {
+    currentSynthesis = [loftSynthesis('endFaces'), loftSynthesis('startFaces')];
+    const { status, body } = await post({
+      feature: 'loft', op: 'add', thin: null,
+      profiles: [LOFT_S1, loftFace(0), loftFace(1)],
+    });
+    expect(status).toBe(200);
+    expect(synthesizeCalls).toEqual([
+      { feature: 'loft', value: undefined },
+      { feature: 'loft', value: undefined },
+    ]);
+    expect(body.preview).toBe('loft(s, e.endFaces(), e.startFaces())');
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'loft',
+      loft: {
+        profiles: [
+          { kind: 'sketch', producer: 0 },
+          { kind: 'selector', part: 0 },
+          { kind: 'selector', part: 1 },
+        ],
+      },
+      producers: [
+        { line: 3, featureType: 'sketch', bind: true },
+        { line: 5, featureType: 'extrude', bind: true },
+      ],
+      parts: [
+        { producer: 1, accessor: 'endFaces' },
+        { producer: 1, accessor: 'startFaces' },
+      ],
+    });
+  });
+
+  it('suffixes distinct face producers past the shared hint', async () => {
+    currentSynthesis = [loftSynthesis('endFaces', 5), loftSynthesis('endFaces', 9)];
+    const { body } = await post({
+      feature: 'loft', op: 'add', thin: null,
+      profiles: [loftFace(0), loftFace(1, 'shape-2')], preview: true,
+    });
+    expect(body.preview).toBe('loft(e.endFaces(), e2.endFaces())');
+  });
+
+  it('refuses a sketch profile from a different file than a preceding face pick', async () => {
+    currentSynthesis = loftSynthesis('endFaces');
+    const { status, body } = await post({
+      feature: 'loft', op: 'add', thin: null,
+      profiles: [loftFace(0), { ...LOFT_S1, filePath: '/ws/other.fluid.js' }],
+    });
+    expect(status).toBe(422);
+    expect(body.reason).toContain('different files');
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('refuses a multi-part face synthesis', async () => {
+    const twoParts = loftSynthesis('endFaces');
+    twoParts.spec.parts.push({ producer: 0, accessor: 'startFaces', indices: null, filterArgs: null });
+    currentSynthesis = twoParts;
+    const { status, body } = await post({
+      feature: 'loft', op: 'add', thin: null, profiles: [LOFT_S1, loftFace(0)],
+    });
+    expect(status).toBe(422);
+    expect(body.reason).toContain('single face selection');
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('rejects a duplicated sketch profile', async () => {
+    const { status, body } = await post({
+      feature: 'loft', op: 'add', thin: null, profiles: [LOFT_S1, LOFT_S1],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('different sketch');
+  });
+
+  it('rejects the same face picked twice', async () => {
+    const { status, body } = await post({
+      feature: 'loft', op: 'add', thin: null, profiles: [loftFace(0), loftFace(0)],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('picked twice');
+  });
+
+  it('rejects fewer than two profiles', async () => {
+    const { status, body } = await post({
+      feature: 'loft', op: 'add', thin: null, profiles: [LOFT_S1],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('2-');
+  });
+
+  it('rejects an edge pick as a loft profile', async () => {
+    const { status } = await post({
+      feature: 'loft', op: 'add', thin: null,
+      profiles: [LOFT_S1, { kind: 'face', entity: { shapeId: 'shape-1', sub: { type: 'edge', index: 0 } } }],
+    });
+    expect(status).toBe(400);
   });
 
   it('resolves bound sketch names and nulls for everything else', async () => {

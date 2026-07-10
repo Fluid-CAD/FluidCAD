@@ -28,7 +28,11 @@ const HOVER_EDGE_LINE_WIDTH = 2;
 
 export type SelectionModifiers = { additive: boolean };
 
-export type SelectedEntity = { shapeId: string; sub: NonNullable<SubSelection> };
+// Sketch-wire picks route a dialog action and are never held as a selection.
+export type SelectedEntity = {
+  shapeId: string;
+  sub: Exclude<NonNullable<SubSelection>, { type: 'sketch' }>;
+};
 
 // How much to blend non-sketch object colors toward the scene background while
 // sketch mode is active. Higher = more faded. Opaque tint avoids the three.js
@@ -59,6 +63,14 @@ export class Viewer {
    * hidden behind the solid don't become pickable — they just can't be *hit*.
    */
   pickFilter: 'all' | 'edge' | 'face' = 'all';
+  /**
+   * Makes sketch wires pickable, independent of `pickFilter` — the armed
+   * create dialogs (extrude/sweep/loft) enable it so clicking a sketch's
+   * geometry selects that sketch as an input. A hit returns the wire's
+   * shapeId with `sub.type === 'sketch'`; the owning sketch is resolved by
+   * the consumer.
+   */
+  pickSketchWires = false;
 
   private selectionHandler: ((shapeId: string | null, sub: SubSelection, modifiers: SelectionModifiers) => void) | null = null;
   private hoverHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
@@ -227,6 +239,7 @@ export class Viewer {
 
     const faceCandidates: Mesh[] = [];
     const edgeCandidates: LineSegments[] = [];
+    const sketchWireCandidates: LineSegments[] = [];
 
     this.ctx.scene.traverse((obj) => {
       if (obj.userData.isMetaShape) {
@@ -236,14 +249,29 @@ export class Viewer {
         faceCandidates.push(obj as Mesh);
       } else if (((obj as LineSegments).isLine || obj.userData.isEdgeLine) && obj.userData.edgeIndex !== undefined) {
         edgeCandidates.push(obj as LineSegments);
+      } else if (this.pickSketchWires && obj.userData.isSketchWire) {
+        sketchWireCandidates.push(obj as LineSegments);
       }
     });
 
     const faceHits = faceCandidates.length > 0 ? raycaster.intersectObjects(faceCandidates, false) : [];
     const edgeHits = edgeCandidates.length > 0 ? raycaster.intersectObjects(edgeCandidates, false) : [];
+    const sketchWireHits = sketchWireCandidates.length > 0
+      ? raycaster.intersectObjects(sketchWireCandidates, false)
+      : [];
 
-    if (faceHits.length === 0 && edgeHits.length === 0) {
+    if (faceHits.length === 0 && edgeHits.length === 0 && sketchWireHits.length === 0) {
       return null;
+    }
+
+    // Sketch wires render on top of the model (no depth test), so a visible
+    // wire is pickable regardless of face occlusion, and as thin targets
+    // they outrank face hits within the line threshold.
+    for (const wireHit of sketchWireHits) {
+      const shapeId = this.findShapeIdForObject(wireHit.object);
+      if (shapeId) {
+        return { shapeId, sub: { type: 'sketch', index: 0 } };
+      }
     }
 
     // Pick the closest face hit whose triangle normal faces the camera.

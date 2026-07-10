@@ -468,7 +468,7 @@ export class ModifyPickService {
    * the selection (misclicks shouldn't wipe it).
    */
   handleClick(shapeId: string | null, sub: SubSelection): void {
-    if (!this.feature || !shapeId || !sub) {
+    if (!this.feature || !shapeId || !sub || sub.type === 'sketch') {
       return;
     }
     this.hideContextMenu();
@@ -511,7 +511,7 @@ export class ModifyPickService {
    * pick, so the seed ends up selected either way.
    */
   async handleDoubleClick(shapeId: string | null, sub: SubSelection): Promise<void> {
-    if (!this.feature || !shapeId || !sub) {
+    if (!this.feature || !shapeId || !sub || sub.type === 'sketch') {
       return;
     }
     if (FEATURES[this.feature].immediate) {
@@ -551,7 +551,7 @@ export class ModifyPickService {
       window.clearTimeout(this.tooltipTimer);
       this.tooltipTimer = null;
     }
-    if (!shapeId || !sub) {
+    if (!shapeId || !sub || sub.type === 'sketch') {
       this.hideTooltip();
       return;
     }
@@ -599,7 +599,7 @@ export class ModifyPickService {
       return;
     }
     this.hideContextMenu();
-    if (!shapeId || !sub) {
+    if (!shapeId || !sub || sub.type === 'sketch') {
       return;
     }
     this.hideTooltip();

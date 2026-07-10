@@ -7,7 +7,8 @@ import { Navbar } from '../../ui/navbar';
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { SweepPanel } from './sweep-panel';
 import {
-  collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchRow, SketchProfileOption,
+  collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
+  SketchProfileOption,
 } from './sketch-profiles';
 
 const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
@@ -138,6 +139,7 @@ export class SweepFeatureService {
     if (this.sceneSketchActive) {
       this.suspendSketchUI();
     }
+    this.viewer.pickSketchWires = true;
     // Shape ids changed with the render; the viewer already cleared highlights.
     this.entities = [];
     this.chains = [];
@@ -160,6 +162,7 @@ export class SweepFeatureService {
     if (this.sceneSketchActive) {
       this.suspendSketchUI();
     }
+    this.viewer.pickSketchWires = true;
     this.syncButton();
     this.panel.show(this.profiles, this.profiles, this.hasSolid);
     this.refreshSketchLabels();
@@ -184,6 +187,7 @@ export class SweepFeatureService {
     this.chains = [];
     this.viewer.clearHighlight();
     this.viewer.pickFilter = 'all';
+    this.viewer.pickSketchWires = false;
     this.hideContextMenu();
     this.panel.hide();
     this.resumeSketchUI((opts.resume ?? 'immediate') === 'immediate');
@@ -305,15 +309,35 @@ export class SweepFeatureService {
     if (!sketch?.sourceLocation) {
       return false;
     }
-    const loc = sketch.sourceLocation;
+    this.pickSketch(sketch);
+    return true;
+  }
+
+  /**
+   * A sketch wire was clicked in the 3D view: same as a timeline pick — the
+   * sketch lands in the focused slot.
+   */
+  handleSketchPick(shapeId: string): boolean {
+    if (!this.armed) {
+      return false;
+    }
+    const sketch = resolveSketchByShapeId(shapeId, this.sceneObjects);
+    if (!sketch?.sourceLocation) {
+      return false;
+    }
+    this.pickSketch(sketch);
+    return true;
+  }
+
+  private pickSketch(sketch: SceneObjectRender): void {
+    const loc = sketch.sourceLocation!;
     if (!this.panel.selectSketch(this.panel.armedSlot, loc.filePath, loc.line)) {
       this.panel.setMessage('That sketch was already consumed — only sketches still rendered in the scene can be used.');
-      return true;
+      return;
     }
     this.panel.setMessage(null);
     this.syncEdgePicking();
     this.schedulePreview();
-    return true;
   }
 
   private async apply(): Promise<void> {

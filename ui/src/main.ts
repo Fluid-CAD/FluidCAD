@@ -17,6 +17,7 @@ import { SketchToolbarService } from './interactive/sketch-toolbar-service';
 import { ModifyPickService } from './interactive/modify-pick-service';
 import { ExtrudeFeatureService } from './interactive/create-feature/extrude-service';
 import { SweepFeatureService } from './interactive/create-feature/sweep-service';
+import { LoftFeatureService } from './interactive/create-feature/loft-service';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { onThemeChange } from './scene/theme-colors';
@@ -95,10 +96,11 @@ const regionService = new RegionPickService(viewer, navbar);
 // Registered before the sketch toolbar so the create group renders ahead of
 // the sketch tools; its `immune` flag keeps it visible in sketch mode, where
 // extruding the active sketch is the primary flow.
-const extrudeService = new ExtrudeFeatureService(container, navbar, {
+const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
   onEnter: () => {
     modifyService.exit();
     sweepService.exit();
+    loftService.exit();
     measureController.clearSelection();
     viewer.clearHighlight();
     selectionInfoOverlay.hide();
@@ -108,6 +110,19 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
   onEnter: () => {
     modifyService.exit();
     extrudeService.exit();
+    loftService.exit();
+    measureController.clearSelection();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
+  },
+  onSuspendSketchUI: () => sketchService.update([]),
+  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+});
+const loftService = new LoftFeatureService(container, viewer, navbar, {
+  onEnter: () => {
+    modifyService.exit();
+    extrudeService.exit();
+    sweepService.exit();
     measureController.clearSelection();
     viewer.clearHighlight();
     selectionInfoOverlay.hide();
@@ -118,7 +133,8 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
 // An armed create dialog takes sketch rows clicked in the timeline as its
 // profile/path instead of the default rollback-preview.
 timelinePanel.onFeatureIntercept = (obj) =>
-  extrudeService.handleTimelinePick(obj) || sweepService.handleTimelinePick(obj);
+  extrudeService.handleTimelinePick(obj) || sweepService.handleTimelinePick(obj)
+  || loftService.handleTimelinePick(obj);
 const sketchService = new SketchToolbarService(container, viewer, trimService, navbar);
 const modifyService = new ModifyPickService(container, viewer, navbar, {
   // Hand the current highlight over as the tool's initial input: whatever the
@@ -126,6 +142,7 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
   onEnter: () => {
     extrudeService.exit();
     sweepService.exit();
+    loftService.exit();
     const seed = [...measureController.selection];
     measureController.clearSelection();
     selectionInfoOverlay.hide();
@@ -192,6 +209,20 @@ viewer.setDoubleClickHandler((shapeId, sub) => {
 });
 
 viewer.setSelectionHandler((shapeId, sub, modifiers) => {
+  // A sketch-wire pick exists only while a create dialog is armed (the
+  // dialogs enable viewer.pickSketchWires) — it selects that sketch as the
+  // dialog's input and never reaches the measure selection.
+  if (sub?.type === 'sketch') {
+    if (shapeId) {
+      const consumed = extrudeService.handleSketchPick(shapeId)
+        || sweepService.handleSketchPick(shapeId)
+        || loftService.handleSketchPick(shapeId);
+      if (consumed) {
+        return;
+      }
+    }
+    return;
+  }
   // An armed modify mode (fillet/chamfer) owns clicks outright.
   if (modifyService.isActive) {
     modifyService.handleClick(shapeId, sub);
@@ -200,6 +231,11 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
   // The sweep dialog's live path picking owns edge clicks the same way.
   if (sweepService.isEdgePicking) {
     sweepService.handleClick(shapeId, sub);
+    return;
+  }
+  // The armed loft dialog owns face clicks — each pick is one profile.
+  if (loftService.isFacePicking) {
+    loftService.handleClick(shapeId, sub);
     return;
   }
 
@@ -352,16 +388,19 @@ function connectWebSocket() {
           modifyService.update([]);
           extrudeService.update([]);
           sweepService.update([]);
+          loftService.update([]);
         } else {
           trimService.update(msg.result);
           regionService.update(msg.result);
           // While a pick mode has sketch editing suspended, the sketch
           // toolbar must not re-take the bar on incoming renders.
-          const sketchSuspended = modifyService.sketchUISuspended || sweepService.sketchUISuspended;
+          const sketchSuspended = modifyService.sketchUISuspended
+            || sweepService.sketchUISuspended || loftService.sketchUISuspended;
           sketchService.update(sketchSuspended ? [] : msg.result);
           modifyService.update(msg.result);
           extrudeService.update(msg.result);
           sweepService.update(msg.result);
+          loftService.update(msg.result);
         }
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1);
         if (msg.params !== undefined) {

@@ -92,6 +92,19 @@ export function resolveSketchRow(
   return undefined;
 }
 
+/**
+ * Resolve a picked sketch-wire shape to its sketch: the shape belongs to a
+ * sketch entity object (rect/circle/line — the sketch's children), whose
+ * parent is the sketch itself.
+ */
+export function resolveSketchByShapeId(
+  shapeId: string,
+  sceneObjects: SceneObjectRender[],
+): SceneObjectRender | undefined {
+  const owner = sceneObjects.find(o => o.sceneShapes?.some(s => s.shapeId === shapeId));
+  return owner ? resolveSketchRow(owner, sceneObjects) : undefined;
+}
+
 function toOption(
   obj: SceneObjectRender,
   kind: 'active' | 'other',

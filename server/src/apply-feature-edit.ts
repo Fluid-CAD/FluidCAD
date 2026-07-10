@@ -15,13 +15,15 @@ import {
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: number;
   /** Extrude-only payload; the profile is a sketch, not a pick selection. */
   extrude?: ExtrudeEditOptions;
   /** Sweep-only payload; `parts` (if any) render the path selector. */
   sweep?: SweepEditOptions;
+  /** Loft-only payload; each `parts` entry renders one profile's selector. */
+  loft?: LoftEditOptions;
   filePath: string;
   producers: {
     line: number;
@@ -87,6 +89,22 @@ export type SweepEditOptions = {
   path: { kind: 'sketch'; producer: number } | { kind: 'selector' };
 };
 
+/**
+ * How a loft statement is rendered and placed: `loft(<profile>, <profile>, …)`
+ * plus `.thin(…)` / `.remove()` / `.new()` chains. Profiles are ordered —
+ * their order IS the argument order. Every profile is explicit (loft never
+ * consumes the last sketch): a sketch profile binds its producer to a
+ * variable; a selector profile renders one entry of `parts` (a picked face).
+ * All-sketch lofts insert directly after the latest input statement so a
+ * later active sketch stays active; any selector profile forces end-of-scope
+ * insertion, where the picked faces are known to resolve.
+ */
+export type LoftEditOptions = {
+  op: 'add' | 'remove' | 'new';
+  thin: [number] | [number, number] | null;
+  profiles: ({ kind: 'sketch'; producer: number } | { kind: 'selector'; part: number })[];
+};
+
 export type ApplyFeatureEditResult = {
   newCode: string;
   error?: string;
@@ -135,8 +153,7 @@ export async function applyFeatureEdit(
     }
   } else if (spec.feature === 'sweep') {
     const sw = spec.sweep;
-    const sketchProducer = (i: number) => Number.isInteger(i) && i >= 0
-      && i < spec.producers.length && spec.producers[i].featureType === 'sketch';
+    const sketchProducer = (i: number) => isSketchProducer(spec, i);
     const valid = sw !== undefined
       && spec.producers.length > 0
       && (sw.path.kind === 'selector'
@@ -145,6 +162,23 @@ export async function applyFeatureEdit(
       && (sw.profile === 'implicit' || sketchProducer(sw.profile.producer));
     if (!valid) {
       return { newCode: code, error: 'malformed sweep edit spec' };
+    }
+  } else if (spec.feature === 'loft') {
+    const lo = spec.loft;
+    const selectorParts = lo?.profiles
+      ?.filter((p): p is { kind: 'selector'; part: number } => p?.kind === 'selector')
+      .map(p => p.part) ?? [];
+    const valid = lo !== undefined
+      && spec.producers.length > 0
+      && Array.isArray(lo.profiles) && lo.profiles.length >= 2
+      && lo.profiles.every(p => p?.kind === 'sketch'
+        ? isSketchProducer(spec, p.producer)
+        : p?.kind === 'selector' && Number.isInteger(p.part) && p.part >= 0 && p.part < spec.parts.length)
+      // Every selector part belongs to exactly one profile.
+      && selectorParts.length === spec.parts.length
+      && new Set(selectorParts).size === selectorParts.length;
+    if (!valid) {
+      return { newCode: code, error: 'malformed loft edit spec' };
     }
   } else if (!spec.producers.length || !spec.parts.length) {
     return { newCode: code, error: 'empty edit spec' };
@@ -455,6 +489,12 @@ export function resolveParamValues(
   return resolved;
 }
 
+/** Whether producer index `i` is a valid sketch producer of `spec`. */
+function isSketchProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
+  return Number.isInteger(i) && i >= 0 && i < spec.producers.length
+    && spec.producers[i].featureType === 'sketch';
+}
+
 /**
  * web-tree-sitter mints a fresh wrapper object on every node access, so
  * reference equality between wrappers is meaningless — compare by span.
@@ -610,6 +650,23 @@ function statementCallee(spec: ApplyFeatureEditSpec): string {
   return spec.feature;
 }
 
+/** The `.thin(…)` / `.remove()` / `.new()` chains shared by sweep and loft. */
+function renderOpChains(opts: {
+  op: 'add' | 'remove' | 'new';
+  thin: [number] | [number, number] | null;
+}): string {
+  let chains = '';
+  if (opts.thin) {
+    chains += `.thin(${opts.thin.map(formatNumber).join(', ')})`;
+  }
+  if (opts.op === 'remove') {
+    chains += '.remove()';
+  } else if (opts.op === 'new') {
+    chains += '.new()';
+  }
+  return chains;
+}
+
 /**
  * Render a sweep statement: `sweep(<path>[, <profile>])` plus `.thin(…)` and
  * the `.remove()` / `.new()` operation chains. Shared with the route's
@@ -624,16 +681,35 @@ export function renderSweepStatement(
   if (profileVar) {
     args.push(profileVar);
   }
-  let statement = `sweep(${args.join(', ')})`;
-  if (sw.thin) {
-    statement += `.thin(${sw.thin.map(formatNumber).join(', ')})`;
+  return `sweep(${args.join(', ')})` + renderOpChains(sw);
+}
+
+/**
+ * Render a loft statement from its ordered profile expressions: `loft(s, s2)`
+ * plus `.thin(…)` / `.remove()` / `.new()` chains. Shared with the route's
+ * preview so the previewed text is exactly what the transform writes.
+ */
+export function renderLoftStatement(
+  lo: Pick<LoftEditOptions, 'op' | 'thin'>,
+  profileExprs: string[],
+): string {
+  return `loft(${profileExprs.join(', ')})` + renderOpChains(lo);
+}
+
+/**
+ * Render one selector part as an expression: `select(<args>)` for a global
+ * part, `<var>.<accessor>(<args>)` on a bound producer. Shared with the
+ * route, which renders loft profiles part-by-part with the namer's names.
+ */
+export function renderSelectorPartExpr(
+  part: ApplyFeatureEditSpec['parts'][number],
+  producerVar: string | null,
+): string {
+  const selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
+  if (part.producer === null) {
+    return `select(${selectorArgs})`;
   }
-  if (sw.op === 'remove') {
-    statement += '.remove()';
-  } else if (sw.op === 'new') {
-    statement += '.new()';
-  }
-  return statement;
+  return `${producerVar}.${part.accessor}(${selectorArgs})`;
 }
 
 /**
@@ -681,6 +757,17 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     const profileVar = sw.profile === 'implicit' ? null : bindings[sw.profile.producer].varName!;
     return renderSweepStatement(sw, pathExpr, profileVar);
   }
+  if (spec.feature === 'loft') {
+    const lo = spec.loft!;
+    const profileExprs = lo.profiles.map(profile => {
+      if (profile.kind === 'sketch') {
+        return bindings[profile.producer].varName!;
+      }
+      const part = spec.parts[profile.part];
+      return renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName);
+    });
+    return renderLoftStatement(lo, profileExprs);
+  }
   const args = renderSelectorArgs(spec, bindings);
   if (spec.feature === 'sketch') {
     return `sketch(${args}, () => {\n\n${indent}})`;
@@ -691,14 +778,9 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
 /** The selector argument list: the user-edited override, or rendered parts. */
 function renderSelectorArgs(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[]): string {
   const rawArgs = spec.rawArgs?.trim();
-  return rawArgs ?? spec.parts.map(part => {
-    const selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
-    if (part.producer === null) {
-      return `select(${selectorArgs})`;
-    }
-    const name = bindings[part.producer].varName;
-    return `${name}.${part.accessor}(${selectorArgs})`;
-  }).join(', ');
+  return rawArgs ?? spec.parts
+    .map(part => renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName))
+    .join(', ');
 }
 
 const MODULE_FOR_IMPORT: Record<string, string> = {
@@ -737,11 +819,11 @@ function afterStatementInsertion(
 
 /**
  * Where the feature statement goes. Statements whose inputs are all explicit
- * sketch variables insert directly after the later input — a later active
+ * sketch variables insert directly after the latest input — a later active
  * sketch stays the active one (bound-profile extrude; bound-profile sweep
- * with a sketch path). Everything else inserts at end of scope: a selector
- * must resolve on the final model, and an implicit profile must consume the
- * scope's last sketch.
+ * with a sketch path; all-sketch loft). Everything else inserts at end of
+ * scope: a selector must resolve on the final model, and an implicit profile
+ * must consume the scope's last sketch.
  */
 function resolveInsertion(
   spec: ApplyFeatureEditSpec,
@@ -758,6 +840,16 @@ function resolveInsertion(
       const path = bindings[sw.path.producer].statement;
       const profile = bindings[sw.profile.producer].statement;
       return afterStatementInsertion(path.endIndex >= profile.endIndex ? path : profile, lines);
+    }
+  }
+  if (spec.feature === 'loft') {
+    const sketches = spec.loft!.profiles
+      .filter((p): p is { kind: 'sketch'; producer: number } => p.kind === 'sketch');
+    if (sketches.length === spec.loft!.profiles.length) {
+      const latest = sketches
+        .map(p => bindings[p.producer].statement)
+        .reduce((a, b) => (b.endIndex >= a.endIndex ? b : a));
+      return afterStatementInsertion(latest, lines);
     }
   }
   return findInsertionPoint(scope, lines, bindings);

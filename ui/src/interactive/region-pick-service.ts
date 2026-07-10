@@ -3,6 +3,7 @@ import { RegionPickMode } from './region-pick-mode';
 import { insertPoint, setPickPoints, addPick, removePick } from '../api';
 import { SceneObjectRender, PlaneData } from '../types';
 import { Viewer } from '../viewer';
+import { Navbar } from '../ui/navbar';
 
 const EXTRUDABLE_TYPES = ['extrude', 'cut', 'cut-symmetric', 'revolve', 'sweep', 'wrap'];
 
@@ -15,31 +16,34 @@ export class RegionPickService {
   private activeMode: RegionPickMode | null = null;
   private activeSourceLine: number | null = null;
 
-  constructor(container: HTMLElement, viewer: Viewer) {
+  constructor(viewer: Viewer, private navbar: Navbar) {
     this.viewer = viewer;
+
+    // Trailing toolbar group: the "Pick Regions" prompt and the active-mode
+    // status render at the end of the navbar (see Navbar anchor: 'end').
+    const host = navbar.addGroup('region', { anchor: 'end', visible: false });
 
     this.triggerBtn = document.createElement('div');
     this.triggerBtn.id = 'fluidcad-region-pick-trigger';
-    this.triggerBtn.className = 'absolute top-[116px] right-[76px] z-[999] pointer-events-auto hidden';
+    this.triggerBtn.className = 'flex items-center hidden';
     this.triggerBtn.innerHTML = `
-      <button class="flex items-center gap-2 bg-info text-info-content rounded-lg px-4 py-2 text-xs leading-none select-none cursor-pointer shadow-md hover:bg-info/90 transition-colors">
+      <button class="btn btn-sm btn-outline btn-info gap-1.5 text-xs font-normal">
         <span class="[&>svg]:size-4">${ICON_WAND}</span>
         <span>Pick Regions</span>
       </button>
     `;
-    container.appendChild(this.triggerBtn);
+    host.appendChild(this.triggerBtn);
 
     this.activeBar = document.createElement('div');
     this.activeBar.id = 'fluidcad-region-pick-active';
-    this.activeBar.className = 'absolute top-[116px] right-[76px] z-[999] pointer-events-auto hidden';
+    this.activeBar.className = 'flex items-center gap-2 text-xs select-none hidden';
     this.activeBar.innerHTML = `
-      <div class="flex items-center gap-2 bg-info text-info-content rounded-lg px-4 py-2 text-xs leading-none select-none shadow-md">
-        <span>Region Picking Mode</span>
-        <div class="h-3.5 w-px bg-info-content/25"></div>
-        <button class="text-info-content/70 hover:text-info-content transition-colors cursor-pointer" id="exit-region-pick">Exit</button>
-      </div>
+      <span class="[&>svg]:size-4 text-info">${ICON_WAND}</span>
+      <span class="text-info font-medium">Region Picking Mode</span>
+      <div class="h-4 w-px bg-base-content/15"></div>
+      <button class="btn btn-ghost btn-xs" id="exit-region-pick">Exit</button>
     `;
-    container.appendChild(this.activeBar);
+    host.appendChild(this.activeBar);
 
     this.triggerBtn.querySelector('button')!.addEventListener('click', () => {
       this.enter();
@@ -49,11 +53,24 @@ export class RegionPickService {
     });
   }
 
+  /** Show the trailing group only while a bar (prompt or active status) is visible. */
+  private syncGroup(): void {
+    const hasBar =
+      !this.triggerBtn.classList.contains('hidden') ||
+      !this.activeBar.classList.contains('hidden');
+    this.navbar.setGroupVisible('region', hasBar);
+  }
+
   get state(): 'idle' | 'icon-visible' | 'picking-active' {
     return this._state;
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
+    this.updateImpl(sceneObjects);
+    this.syncGroup();
+  }
+
+  private updateImpl(sceneObjects: SceneObjectRender[]): void {
     const triggerInfo = this.hasRegionPickingTrigger(sceneObjects);
 
     const hasPlane = (triggerInfo.extrudeObj as any)?.object?.pickPlane || triggerInfo.sketchObj?.object?.plane;
@@ -129,6 +146,7 @@ export class RegionPickService {
       this.activeBar.classList.add('hidden');
       this.triggerBtn.classList.add('hidden');
     }
+    this.syncGroup();
   }
 
   reset(): void {
@@ -139,6 +157,7 @@ export class RegionPickService {
     this.lastInfo = null;
     this.viewer.isRegionPicking = false;
     this.viewer.toggleSketchMode(true);
+    this.syncGroup();
   }
 
   private activateInteractive(info: { extrudeObj: any; sketchObj: any }): void {

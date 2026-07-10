@@ -88,8 +88,8 @@ viewer.setParamsToggleHandler(() => {
   viewer.setParamsButtonActive(paramsPanel.isVisible);
 });
 
-const trimService = new TrimPickService(container, viewer);
-const regionService = new RegionPickService(container, viewer);
+const trimService = new TrimPickService(viewer, navbar);
+const regionService = new RegionPickService(viewer, navbar);
 const sketchService = new SketchToolbarService(container, viewer, trimService, navbar);
 const modifyService = new ModifyPickService(container, viewer, navbar, {
   // Hand the current highlight over as the tool's initial input: whatever the

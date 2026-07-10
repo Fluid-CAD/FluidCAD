@@ -7,6 +7,13 @@ interface ToolbarGroup {
   visible: boolean;
   /** When visible, suppresses every non-exclusive group (takes over the bar). */
   exclusive: boolean;
+  /**
+   * `'end'` groups always render after every `'start'` group and are immune to
+   * the exclusive-group takeover — used for trailing status groups (region /
+   * trim picking) that must stay last and remain visible even while the sketch
+   * toolbar owns the bar.
+   */
+  anchor: 'start' | 'end';
 }
 
 /**
@@ -34,7 +41,10 @@ export class Navbar {
    * with buttons. `visible` controls whether the group is shown initially;
    * `exclusive` groups hide every other group whenever they are visible.
    */
-  addGroup(key: string, opts: { visible?: boolean; exclusive?: boolean } = {}): HTMLElement {
+  addGroup(
+    key: string,
+    opts: { visible?: boolean; exclusive?: boolean; anchor?: 'start' | 'end' } = {},
+  ): HTMLElement {
     const divider = document.createElement('div');
     divider.className = 'w-px h-5 bg-base-content/[0.12] mx-1 shrink-0 hidden';
 
@@ -47,11 +57,24 @@ export class Navbar {
       divider,
       visible: opts.visible ?? true,
       exclusive: opts.exclusive ?? false,
+      anchor: opts.anchor ?? 'start',
     };
 
-    this.groups.push(group);
-    this.el.appendChild(divider);
-    this.el.appendChild(host);
+    // Keep 'end'-anchored groups after every 'start' group in both the array
+    // and the DOM, so a trailing group stays last even when 'start' groups are
+    // registered later.
+    const firstEnd = group.anchor === 'start'
+      ? this.groups.find((g) => g.anchor === 'end')
+      : undefined;
+    if (firstEnd) {
+      this.groups.splice(this.groups.indexOf(firstEnd), 0, group);
+      this.el.insertBefore(divider, firstEnd.divider);
+      this.el.insertBefore(host, firstEnd.divider);
+    } else {
+      this.groups.push(group);
+      this.el.appendChild(divider);
+      this.el.appendChild(host);
+    }
     this.reflow();
     return host;
   }
@@ -70,6 +93,11 @@ export class Navbar {
   private isEffectivelyVisible(group: ToolbarGroup): boolean {
     if (!group.visible) {
       return false;
+    }
+    // Trailing status groups show whenever they have content, even while an
+    // exclusive group (e.g. the sketch toolbar) has taken over the bar.
+    if (group.anchor === 'end') {
+      return true;
     }
     const exclusiveActive = this.groups.some((g) => g.exclusive && g.visible);
     return exclusiveActive ? group.exclusive : true;

@@ -313,6 +313,11 @@ export type ApplyFeatureOptions = {
   chains?: ApplyFeatureChain[];
   /** User-edited argument list; replaces the synthesized selectors verbatim. */
   selectorOverride?: string;
+  /**
+   * Pick-less sketch only (empty `entities`): the origin plane the statement
+   * targets — `sketch('<plane>', () => {})`.
+   */
+  plane?: 'xy' | 'xz' | 'yz';
   /** Synthesize only — return the expression preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -337,6 +342,7 @@ export async function applyFeature(
     entities,
     chains: options.chains,
     selectorOverride: options.selectorOverride,
+    plane: options.plane,
     preview: options.preview,
   }, options.signal);
 }

@@ -94,6 +94,11 @@ viewer.setParamsToggleHandler(() => {
 
 const trimService = new TrimPickService(viewer, navbar);
 const regionService = new RegionPickService(viewer, navbar);
+// The Sketch button (create group) stays visible while a create dialog is
+// up — it disables instead. Recomputed on every dialog arm/disarm.
+const syncSketchButtonBlocked = () => modifyService.setCreateDialogActive(
+  extrudeService.isActive || sweepService.isActive || loftService.isActive,
+);
 // Registered before the sketch toolbar so the create group renders ahead of
 // the sketch tools; its `immune` flag keeps it visible in sketch mode, where
 // extruding the active sketch is the primary flow.
@@ -106,6 +111,7 @@ const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
     viewer.clearHighlight();
     selectionInfoOverlay.hide();
   },
+  onActiveChange: syncSketchButtonBlocked,
 });
 const sweepService = new SweepFeatureService(container, viewer, navbar, {
   onEnter: () => {
@@ -116,6 +122,7 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
     viewer.clearHighlight();
     selectionInfoOverlay.hide();
   },
+  onActiveChange: syncSketchButtonBlocked,
   onSuspendSketchUI: () => sketchService.update([]),
   onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
 });
@@ -128,6 +135,7 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
     viewer.clearHighlight();
     selectionInfoOverlay.hide();
   },
+  onActiveChange: syncSketchButtonBlocked,
   onSuspendSketchUI: () => sketchService.update([]),
   onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
 });

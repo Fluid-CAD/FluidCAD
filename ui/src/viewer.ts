@@ -7,6 +7,7 @@ import { SettingsPanel } from './ui/settings-panel';
 import { CentroidIndicator } from './scene/centroid-indicator';
 import { viewerSettings } from './scene/viewer-settings';
 import { themeColors } from './scene/theme-colors';
+import { StandardPlaneId, StandardPlanes } from './scene/standard-planes';
 
 /** Recursively expand `box` to include `object`, skipping meta-shape subtrees. */
 function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
@@ -30,6 +31,13 @@ const HOVER_EDGE_LINE_WIDTH = 2;
 const HIGHLIGHT_SKETCH_WIRE_LINE_WIDTH = 3;
 
 export type SelectionModifiers = { additive: boolean };
+
+/** What pickAt() resolves: a sub-shape, or a shown origin plane. */
+type PickResult = { shapeId: string; sub: SubSelection } | { standardPlane: StandardPlaneId };
+
+function isPlanePick(result: PickResult | null): result is { standardPlane: StandardPlaneId } {
+  return result !== null && 'standardPlane' in result;
+}
 
 // Sketch-wire picks route a dialog action and are never held as a selection.
 export type SelectedEntity = {
@@ -85,6 +93,8 @@ export class Viewer {
   private hoverFaceOverlayMeshes: Mesh[] = [];
   private hoverRafId: number | null = null;
   private isMouseDown = false;
+  private standardPlanes = new StandardPlanes();
+  private standardPlanePickHandler: ((plane: StandardPlaneId) => void) | null = null;
   private highlightedEntities: SelectedEntity[] = [];
   private activeSketchId: string | null = null;
   private hiddenShapeIds = new Set<string>();
@@ -187,6 +197,10 @@ export class Viewer {
       this.clearHover();
       const modifiers: SelectionModifiers = { additive: e.ctrlKey || e.metaKey || e.shiftKey };
       const result = this.pickAt(e.clientX, e.clientY);
+      if (isPlanePick(result)) {
+        this.standardPlanePickHandler?.(result.standardPlane);
+        return;
+      }
       if (result) {
         this.selectionHandler(result.shapeId, result.sub, modifiers);
       } else {
@@ -207,6 +221,9 @@ export class Viewer {
         return; // was a drag (> 8px)
       }
       const result = this.pickAt(e.clientX, e.clientY);
+      if (isPlanePick(result)) {
+        return;
+      }
       this.doubleClickHandler(result?.shapeId ?? null, result?.sub ?? null);
     });
 
@@ -223,15 +240,20 @@ export class Viewer {
       }
       e.preventDefault();
       const result = this.pickAt(e.clientX, e.clientY);
+      if (isPlanePick(result)) {
+        return;
+      }
       this.contextMenuHandler(result?.shapeId ?? null, result?.sub ?? null, e.clientX, e.clientY);
     });
   }
 
   /**
    * Client-side raycaster picking across all shapes.  Returns the closest
-   * front-facing face or edge hit together with its shapeId.
+   * front-facing face or edge hit together with its shapeId — or, while the
+   * origin planes are shown and one is the closest visible target, that
+   * plane.
    */
-  private pickAt(clientX: number, clientY: number): { shapeId: string; sub: SubSelection } | null {
+  private pickAt(clientX: number, clientY: number): PickResult | null {
     const camera = this.ctx.camera;
     const rect = this.ctx.renderer.domElement.getBoundingClientRect();
     const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
@@ -263,8 +285,11 @@ export class Viewer {
     const sketchWireHits = sketchWireCandidates.length > 0
       ? raycaster.intersectObjects(sketchWireCandidates, false)
       : [];
+    // Origin-plane quads participate only while shown (armed sketch mode).
+    const planeTargets = this.standardPlanes.pickTargets;
+    const planeHits = planeTargets.length > 0 ? raycaster.intersectObjects(planeTargets, false) : [];
 
-    if (faceHits.length === 0 && edgeHits.length === 0 && sketchWireHits.length === 0) {
+    if (faceHits.length === 0 && edgeHits.length === 0 && sketchWireHits.length === 0 && planeHits.length === 0) {
       return null;
     }
 
@@ -297,6 +322,7 @@ export class Viewer {
     // Edge depth test: project actual closest point on the edge segment onto
     // the pick ray and compare with the face depth.
     const faceDist = bestFace != null ? bestFace.distance : Infinity;
+    const planeDist = planeHits.length > 0 ? planeHits[0].distance : Infinity;
     const rayOrigin = raycaster.ray.origin;
     const rayDir = raycaster.ray.direction;
     const segPt = new Vector3();
@@ -312,13 +338,22 @@ export class Viewer {
           segPt.copy(edgeHit.point);
         }
         const edgeDist = rayDir.dot(toSeg.copy(segPt).sub(rayOrigin));
-        if (edgeDist <= faceDist + 1e-3) {
+        if (edgeDist <= faceDist + 1e-3 && edgeDist <= planeDist + 1e-3) {
           const edgeIndex = edgeHit.object.userData.edgeIndex as number;
           const shapeId = this.findShapeIdForObject(edgeHit.object);
           if (shapeId) {
             return { shapeId, sub: { type: 'edge', index: edgeIndex } };
           }
         }
+      }
+    }
+
+    // An origin plane wins where it is the closest visible target; the tie
+    // goes to coplanar geometry (sketching on the face that lies ON a plane).
+    if (planeHits.length > 0 && planeDist < faceDist - 1e-3) {
+      const planeId = this.standardPlanes.planeIdFor(planeHits[0].object);
+      if (planeId) {
+        return { standardPlane: planeId };
       }
     }
 
@@ -353,6 +388,37 @@ export class Viewer {
 
   toggleSketchMode(enable: boolean): void {
     this.modeManager.sketchEnabled = enable;
+  }
+
+  /**
+   * Show the origin planes (xy/xz/yz) as pick targets — the armed sketch mode
+   * offers them for a plane sketch. A click on one calls `onPick` instead of
+   * the selection handler; scene faces in front of a plane keep their picks.
+   * Re-showing while visible re-sizes the planes to the current scene.
+   */
+  showStandardPlanes(onPick: (plane: StandardPlaneId) => void): void {
+    this.standardPlanePickHandler = onPick;
+    this.standardPlanes.show(this.ctx.scene, this.sceneBoundsForPlanes());
+    this.ctx.requestRender();
+  }
+
+  hideStandardPlanes(): void {
+    if (!this.standardPlanes.visible) {
+      return;
+    }
+    this.standardPlanePickHandler = null;
+    this.standardPlanes.hide();
+    this.ctx.requestRender();
+  }
+
+  private sceneBoundsForPlanes(): Box3 | null {
+    const mesh = this.ctx.scene.getObjectByName('compiledMesh');
+    if (!mesh) {
+      return null;
+    }
+    const box = new Box3();
+    expandBoxExcludingMeta(box, mesh);
+    return box.isEmpty() ? null : box;
   }
 
   /**
@@ -735,6 +801,22 @@ export class Viewer {
 
     const result = this.pickAt(clientX, clientY);
 
+    // Origin-plane hover: brighten the quad; anything else clears it.
+    if (isPlanePick(result)) {
+      if (this.hoverState) {
+        this.clearHover();
+      }
+      if (this.standardPlanes.setHover(result.standardPlane)) {
+        this.ctx.requestRender();
+      }
+      this.ctx.renderer.domElement.style.cursor = 'pointer';
+      return;
+    }
+    if (this.standardPlanes.setHover(null)) {
+      this.ctx.renderer.domElement.style.cursor = '';
+      this.ctx.requestRender();
+    }
+
     // Same as current hover — skip.
     if (this.hoverState && result &&
         this.hoverState.shapeId === result.shapeId &&
@@ -800,6 +882,7 @@ export class Viewer {
       this.hoverHandler?.(null, null, 0, 0);
     }
     this.hoverState = null;
+    this.standardPlanes.setHover(null);
     this.ctx.renderer.domElement.style.cursor = '';
     this.ctx.requestRender();
   }

@@ -18,6 +18,11 @@ export type ApplyFeatureEditSpec = {
   feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: number;
+  /**
+   * Pick-less sketch (empty `producers`/`parts`): the origin plane the
+   * statement targets; absent renders the bare default-plane form.
+   */
+  sketchPlane?: 'xy' | 'xz' | 'yz';
   /** Extrude-only payload; the profile is a sketch, not a pick selection. */
   extrude?: ExtrudeEditOptions;
   /** Sweep-only payload; `parts` (if any) render the path selector. */
@@ -201,6 +206,9 @@ export async function applyFeatureEdit(
   if (spec.edit) {
     return applyStatementEdit(code, spec);
   }
+  if (spec.feature === 'sketch' && spec.producers.length === 0 && spec.parts.length === 0) {
+    return applyPlaneSketch(code, spec.sketchPlane);
+  }
   if (spec.feature === 'extrude') {
     // Extrude takes no selector parts: its single producer is the profile
     // sketch (implicit consumption or a bound variable), not a pick selection.
@@ -356,6 +364,38 @@ export async function applyFeatureEdit(
     result = await ensureSymbolImport(result, symbol, MODULE_FOR_IMPORT[symbol] ?? 'fluidcad/core');
   }
   return { newCode: result };
+}
+
+/**
+ * The pick-less sketch statement: no face selector — `sketch('<plane>', ()
+ * => {})` on an origin plane (bare `sketch(() => {})` when no plane rides
+ * the spec), appended after the file's last statement — before a trailing
+ * `return`, matching the file's semicolon style — or becomes an empty
+ * file's first.
+ */
+async function applyPlaneSketch(
+  code: string,
+  plane: 'xy' | 'xz' | 'yz' | undefined,
+): Promise<ApplyFeatureEditResult> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const lines = splitLines(code);
+  const children = tree.rootNode.namedChildren;
+  const last = children.length > 0 ? children[children.length - 1] : null;
+  const args = plane ? `'${plane}', ` : '';
+
+  let result: string;
+  if (!last) {
+    result = spliceCode(code, code.length, code.length, `sketch(${args}() => {\n\n});\n`);
+  } else {
+    const useSemicolon = children.some(c => c.text.trimEnd().endsWith(';'));
+    const indent = indentOf(lines, last.startPosition.row);
+    const statement = `sketch(${args}() => {\n\n${indent}})${useSemicolon ? ';' : ''}`;
+    result = last.type === 'return_statement'
+      ? spliceCode(code, last.startIndex, last.startIndex, `${statement}\n${indent}`)
+      : spliceCode(code, last.endIndex, last.endIndex, `\n${indent}${statement}`);
+  }
+  return { newCode: await ensureSymbolImport(result, 'sketch') };
 }
 
 /**

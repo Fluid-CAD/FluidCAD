@@ -453,6 +453,69 @@ describe('shell and sketch statement templates', () => {
   });
 });
 
+describe('plane sketch (no picks)', () => {
+  const planeSpec = () => spec({ feature: 'sketch', value: undefined, producers: [], parts: [] });
+
+  it('appends the statement after the last statement without binding anything', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, planeSpec());
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      `sketch(() => {`,
+      ``,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('starts an empty file with the statement and its import', async () => {
+    const result = await applyFeatureEdit('', planeSpec());
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { sketch } from 'fluidcad/core';`,
+      `sketch(() => {`,
+      ``,
+      `});`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('targets the plane the spec carries', async () => {
+    const result = await applyFeatureEdit('', { ...planeSpec(), sketchPlane: 'xz' });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`sketch('xz', () => {`);
+  });
+
+  it('matches the file semicolon style', async () => {
+    const code = [
+      `import { sketch, rect } from 'fluidcad/core';`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) });`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, planeSpec());
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain([
+      `sketch('xy', () => { rect(100, 50) });`,
+      `sketch(() => {`,
+      ``,
+      `});`,
+    ].join('\n'));
+  });
+});
+
 describe('part()-scoped insertion', () => {
   it('inserts a select()-based edit at the end of the enclosing part() body', async () => {
     const code = [

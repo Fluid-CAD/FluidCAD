@@ -876,6 +876,33 @@ export function createApplyFeatureRouter(
       return;
     }
 
+    // A pick-less sketch: no face selector — a sketch on an origin plane,
+    // appended after the file's last statement. No synthesis is involved;
+    // `plane` picks the target ('xy'/'xz'/'yz'), absent defaults to xy.
+    if (feature === 'sketch' && Array.isArray(req.body?.entities) && req.body.entities.length === 0) {
+      const plane = req.body?.plane;
+      if (plane !== undefined && plane !== 'xy' && plane !== 'xz' && plane !== 'yz') {
+        res.status(400).json({ error: 'plane must be "xy", "xz" or "yz"' });
+        return;
+      }
+      const filePath = fluidCadServer.getCurrentFileName();
+      if (!filePath) {
+        res.status(404).json({ success: false, reason: 'No rendered scene' });
+        return;
+      }
+      const statement = `sketch(${plane ? `'${plane}', ` : ''}() => {\n\n})`;
+      if (preview === true) {
+        res.json({ success: true, preview: statement, args: '' });
+        return;
+      }
+      sendToExtension({
+        type: 'apply-feature-edit',
+        spec: { feature: 'sketch', sketchPlane: plane, filePath, producers: [], parts: [], imports: [] },
+      });
+      res.json({ success: true, preview: statement });
+      return;
+    }
+
     const picks = validatePicks(req.body?.entities);
     if (!picks) {
       res.status(400).json({ error: `entities must be 1-${MAX_ENTITIES} picks of {shapeId, sub:{type, index}}` });

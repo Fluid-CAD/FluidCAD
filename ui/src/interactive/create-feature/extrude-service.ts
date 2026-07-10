@@ -46,7 +46,11 @@ export class ExtrudeFeatureService {
     container: HTMLElement,
     private viewer: Viewer,
     private navbar: Navbar,
-    private hooks: { onEnter?: () => void } = {},
+    private hooks: {
+      onEnter?: () => void;
+      /** Armed or disarmed — lets the Sketch button owner re-check `isActive`. */
+      onActiveChange?: () => void;
+    } = {},
   ) {
     const group = navbar.addGroup('create', { visible: false, immune: true });
     this.button = document.createElement('button');
@@ -199,6 +203,9 @@ export class ExtrudeFeatureService {
   private syncButton(): void {
     this.button.className = this.armed ? BTN_ACTIVE : BTN_BASE;
     this.button.classList.toggle('hidden', !this.available);
+    // Every armed flip lands here — the Sketch button disables while a
+    // create dialog is up.
+    this.hooks.onActiveChange?.();
   }
 
   /**

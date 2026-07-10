@@ -121,6 +121,53 @@ describe('apply-feature route validation', () => {
     expect(synthesizeCalls).toEqual([{ feature: 'sketch', value: undefined }]);
   });
 
+  it('relays a pick-less sketch as a plane-sketch spec without synthesis', async () => {
+    currentFileName = '/ws/m.fluid.js';
+    const { status, body } = await post({ feature: 'sketch', entities: [], plane: 'xz' });
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(synthesizeCalls).toEqual([]);
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0].spec).toEqual({
+      feature: 'sketch', sketchPlane: 'xz', filePath: '/ws/m.fluid.js', producers: [], parts: [], imports: [],
+    });
+  });
+
+  it('previews a pick-less sketch without relaying', async () => {
+    currentFileName = '/ws/m.fluid.js';
+    const { status, body } = await post({ feature: 'sketch', entities: [], preview: true });
+    expect(status).toBe(200);
+    expect(body.preview).toContain('sketch(() => {');
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('previews the picked plane in the statement', async () => {
+    currentFileName = '/ws/m.fluid.js';
+    const { status, body } = await post({ feature: 'sketch', entities: [], plane: 'yz', preview: true });
+    expect(status).toBe(200);
+    expect(body.preview).toContain(`sketch('yz', () => {`);
+  });
+
+  it('rejects an unknown plane on a pick-less sketch', async () => {
+    currentFileName = '/ws/m.fluid.js';
+    const { status, body } = await post({ feature: 'sketch', entities: [], plane: 'top' });
+    expect(status).toBe(400);
+    expect(body.error).toContain('plane');
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('refuses a pick-less sketch before any render', async () => {
+    const { status, body } = await post({ feature: 'sketch', entities: [] });
+    expect(status).toBe(404);
+    expect(body.reason).toBe('No rendered scene');
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('still rejects empty picks for the other features', async () => {
+    const { status } = await post({ feature: 'fillet', value: 3, entities: [] });
+    expect(status).toBe(400);
+  });
+
   const PROFILE = { mode: 'active', filePath: '/ws/m.fluid.js', line: 3, column: 0 };
 
   it('relays an extrude spec without touching pick synthesis', async () => {

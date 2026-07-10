@@ -89,7 +89,6 @@ export class ModifyPickService {
   private activeBar: HTMLDivElement;
   private titleIcon: HTMLElement;
   private titleText: HTMLElement;
-  private valueDivider: HTMLElement;
   private valueWrap: HTMLElement;
   private valueLabel: HTMLElement;
   private valueInput: HTMLInputElement;
@@ -147,20 +146,23 @@ export class ModifyPickService {
     this.activeBar.className = 'absolute top-[116px] right-[76px] z-[999] pointer-events-auto hidden';
     this.activeBar.innerHTML = `
       <div class="flex flex-col items-end gap-1.5">
-        <div class="flex items-center gap-2 bg-info text-info-content rounded-lg px-3 py-2 text-xs leading-none select-none shadow-md">
-          <span class="[&>svg]:size-4" data-role="icon"></span>
-          <span data-role="title">Fillet</span>
-          <div data-role="value-divider" class="h-3.5 w-px bg-info-content/25"></div>
-          <label data-role="value-wrap" class="flex items-center gap-1">
-            <span class="text-info-content/70" data-role="value-label">Radius</span>
+        <div class="flex flex-col items-stretch gap-3.5 w-60 bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
+          <div class="flex items-center gap-2.5">
+            <span class="flex items-center [&>svg]:size-4" data-role="icon"></span>
+            <span data-role="title" class="font-medium text-sm">Fillet</span>
+          </div>
+          <label data-role="value-wrap" class="flex flex-col gap-1.5">
+            <span class="text-base-content/70" data-role="value-label">Radius</span>
             <input data-role="value" type="number" step="0.5"
-              class="w-14 bg-info-content/15 rounded px-1.5 py-1 text-info-content text-xs outline-none focus:bg-info-content/25" />
+              class="input input-sm input-bordered w-full text-xs" />
           </label>
-          <div class="h-3.5 w-px bg-info-content/25"></div>
-          <span data-role="count" class="text-info-content/80 whitespace-nowrap">0 edges</span>
-          <button data-role="apply"
-            class="bg-info-content text-info rounded px-2.5 py-1 font-medium cursor-pointer transition-opacity disabled:opacity-40 disabled:cursor-default">Apply</button>
-          <button data-role="exit" class="text-info-content/70 hover:text-info-content transition-colors cursor-pointer">Exit</button>
+          <div class="flex items-center gap-2 bg-base-200 border border-base-300 rounded-md px-3 py-2.5 text-base-content/70">
+            <span data-role="count" class="whitespace-nowrap">0 edges</span>
+          </div>
+          <div class="flex items-center gap-2 pt-1">
+            <button data-role="apply" class="btn btn-primary btn-sm flex-1">Apply</button>
+            <button data-role="exit" class="btn btn-ghost btn-sm">Exit</button>
+          </div>
         </div>
         <div data-role="expr-row"
           class="hidden relative items-center gap-1 bg-base-100 border border-base-300 rounded-lg pl-2.5 pr-1 py-1.5 text-xs shadow-md">
@@ -180,7 +182,6 @@ export class ModifyPickService {
 
     this.titleIcon = this.activeBar.querySelector('[data-role="icon"]')!;
     this.titleText = this.activeBar.querySelector('[data-role="title"]')!;
-    this.valueDivider = this.activeBar.querySelector('[data-role="value-divider"]')!;
     this.valueWrap = this.activeBar.querySelector('[data-role="value-wrap"]')!;
     this.valueLabel = this.activeBar.querySelector('[data-role="value-label"]')!;
     this.valueInput = this.activeBar.querySelector('[data-role="value"]')!;
@@ -334,10 +335,8 @@ export class ModifyPickService {
     this.titleIcon.innerHTML = featureIconImg(feature);
     this.titleText.textContent = `${config.label} mode`;
     if (config.valueLabel === null) {
-      this.valueDivider.classList.add('hidden');
       this.valueWrap.classList.add('hidden');
     } else {
-      this.valueDivider.classList.remove('hidden');
       this.valueWrap.classList.remove('hidden');
       this.valueLabel.textContent = config.valueLabel;
       if (config.valueSign === 'positive') {

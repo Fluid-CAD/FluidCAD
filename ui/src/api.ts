@@ -331,19 +331,64 @@ export async function applyFeature(
   entities: ApplyFeatureEntity[],
   options: ApplyFeatureOptions = {},
 ): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature,
+    value: value ?? undefined,
+    entities,
+    chains: options.chains,
+    selectorOverride: options.selectorOverride,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/** The profile sketch an extrude consumes, addressed by its source location. */
+export type ExtrudeProfileRef = {
+  /** `active` consumes the sketch implicitly; `bound` binds it to a variable. */
+  mode: 'active' | 'bound';
+  filePath: string;
+  line: number;
+  column: number;
+};
+
+export type ExtrudeApplyOptions = {
+  op: 'add' | 'remove' | 'new';
+  /** Extrusion distance; null is a through-all remove. */
+  distance: number | null;
+  /** `.thin()` offsets, or null for a plain extrude. */
+  thin: [number] | [number, number] | null;
+  profile: ExtrudeProfileRef;
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) an extrude/cut
+ * statement consuming a sketch profile. Same endpoint and response shape as
+ * {@link applyFeature}, but no pick selection is involved.
+ */
+export async function applyExtrude(options: ExtrudeApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'extrude',
+    op: options.op,
+    distance: options.distance,
+    thin: options.thin,
+    profile: options.profile,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/** Shared POST for /api/apply-feature: failure bodies surface their reason. */
+async function postApplyFeature(
+  payload: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<ApplyFeatureResponse> {
   try {
     const res = await fetch('/api/apply-feature', {
       method: 'POST',
       headers: JSON_HEADERS,
-      signal: options.signal,
-      body: JSON.stringify({
-        feature,
-        value: value ?? undefined,
-        entities,
-        chains: options.chains,
-        selectorOverride: options.selectorOverride,
-        preview: options.preview,
-      }),
+      signal,
+      body: JSON.stringify(payload),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {

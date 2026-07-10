@@ -596,3 +596,167 @@ describe('extractNumericParams', () => {
     ]);
   });
 });
+
+describe('extrude statement templates', () => {
+  function extrudeSpec(
+    extrude: Partial<NonNullable<ApplyFeatureEditSpec['extrude']>> = {},
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec {
+    return {
+      feature: 'extrude',
+      filePath: '/ws/model.fluid.js',
+      extrude: { op: 'add', distance: 25, thin: null, profile: 'implicit', ...extrude },
+      producers: [{ line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: false }],
+      parts: [],
+      imports: [],
+      ...overrides,
+    };
+  }
+
+  const activeSketchCode = [
+    `import { sketch, rect } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { rect(100, 50) })`,
+    ``,
+  ].join('\n');
+
+  it('appends an implicit-profile extrude after the active sketch', async () => {
+    const result = await applyFeatureEdit(activeSketchCode, extrudeSpec());
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const sketchRow = lines.findIndex(l => l.startsWith(`sketch('xy'`));
+    expect(lines[sketchRow + 1]).toBe(`extrude(25)`);
+    expect(result.newCode).toMatch(/import \{ ?extrude,/);
+  });
+
+  it('renders a through-all remove as cut() and imports cut', async () => {
+    const result = await applyFeatureEdit(activeSketchCode, extrudeSpec({ op: 'remove', distance: null }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`cut()`);
+    expect(result.newCode).toMatch(/import \{ ?cut,/);
+    expect(result.newCode).not.toMatch(/import \{ ?extrude,/);
+  });
+
+  it('renders a depth-limited remove as cut(depth)', async () => {
+    const result = await applyFeatureEdit(activeSketchCode, extrudeSpec({ op: 'remove', distance: 7 }));
+    expect(result.newCode).toContain(`cut(7)`);
+  });
+
+  it('chains .thin() and .new() after the call', async () => {
+    const result = await applyFeatureEdit(activeSketchCode, extrudeSpec({ op: 'new', distance: 10, thin: [2] }));
+    expect(result.newCode).toContain(`extrude(10).thin(2).new()`);
+  });
+
+  it('renders both thin offsets', async () => {
+    const result = await applyFeatureEdit(activeSketchCode, extrudeSpec({ thin: [1.5, 3] }));
+    expect(result.newCode).toContain(`extrude(25).thin(1.5, 3)`);
+  });
+
+  it('binds a bound-profile sketch and inserts directly after it', async () => {
+    const code = [
+      `import { sketch, rect, circle } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xz', () => { circle(10) })`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, extrudeSpec(
+      { profile: 'bound' },
+      { producers: [{ line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: true }] },
+    ));
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const boundRow = lines.findIndex(l => l === `const s = sketch('xy', () => { rect(100, 50) })`);
+    expect(boundRow).toBeGreaterThan(-1);
+    expect(lines[boundRow + 1]).toBe(`extrude(25, s)`);
+    // The later sketch stays last, so it remains the active sketch.
+    expect(lines[boundRow + 2]).toBe(`sketch('xz', () => { circle(10) })`);
+  });
+
+  it('reuses an existing const binding for the bound profile', async () => {
+    const code = [
+      `import { sketch, rect, circle } from 'fluidcad/core'`,
+      ``,
+      `const profile = sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xz', () => { circle(10) })`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, extrudeSpec(
+      { profile: 'bound' },
+      { producers: [{ line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: true }] },
+    ));
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const profileRow = lines.findIndex(l => l === `const profile = sketch('xy', () => { rect(100, 50) })`);
+    expect(lines[profileRow + 1]).toBe(`extrude(25, profile)`);
+  });
+
+  it('matches the file semicolon style', async () => {
+    const code = [
+      `import { sketch, rect } from 'fluidcad/core';`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) });`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, extrudeSpec());
+    expect(result.newCode).toContain(`extrude(25);`);
+  });
+
+  it('refuses when the profile line is not a sketch call', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, extrudeSpec(
+      {},
+      { producers: [{ line: 4, column: 0, featureType: 'sketch', nameHint: 's', bind: false }] },
+    ));
+    expect(result.error).toContain('extrude()');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a malformed spec carrying selector parts', async () => {
+    const result = await applyFeatureEdit(activeSketchCode, extrudeSpec(
+      {},
+      { parts: [{ producer: 0, accessor: 'endEdges', indices: null, filterArgs: null }] },
+    ));
+    expect(result.error).toContain('malformed');
+  });
+});
+
+describe('makeProducerNamer — sketch producers', () => {
+  it('resolves a bound sketch by its const name', async () => {
+    const code = [
+      `import { sketch, rect } from 'fluidcad/core'`,
+      ``,
+      `const profile = sketch('xy', () => { rect(100, 50) })`,
+      ``,
+    ].join('\n');
+
+    const namer = await makeProducerNamer(code);
+    expect(namer([{ line: 3, nameHint: 's', featureType: 'sketch' }])).toEqual(['profile']);
+  });
+
+  it('allocates the hint for a bare sketch statement and refuses non-sketch lines', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const namer = await makeProducerNamer(code);
+    expect(namer([
+      { line: 3, nameHint: 's', featureType: 'sketch' },
+      { line: 4, nameHint: 's', featureType: 'sketch' },
+    ])).toEqual(['s', null]);
+  });
+});

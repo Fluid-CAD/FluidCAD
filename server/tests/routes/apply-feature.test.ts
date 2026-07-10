@@ -69,7 +69,7 @@ describe('apply-feature route validation', () => {
   it('rejects an unknown feature', async () => {
     const { status, body } = await post({ feature: 'draft', value: 2, entities: [PICK] });
     expect(status).toBe(400);
-    expect(body.error).toContain('"shell" or "sketch"');
+    expect(body.error).toContain('"sketch" or "extrude"');
   });
 
   it('rejects a non-positive fillet value', async () => {
@@ -102,5 +102,77 @@ describe('apply-feature route validation', () => {
     const { status } = await post({ feature: 'sketch', value: -99, entities: [PICK], preview: true });
     expect(status).toBe(200);
     expect(synthesizeCalls).toEqual([{ feature: 'sketch', value: undefined }]);
+  });
+
+  const PROFILE = { mode: 'active', filePath: '/ws/m.fluid.js', line: 3, column: 0 };
+
+  it('relays an extrude spec without touching pick synthesis', async () => {
+    const { status, body } = await post({
+      feature: 'extrude', op: 'add', distance: 25, thin: null, profile: PROFILE,
+    });
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.preview).toBe('extrude(25)');
+    expect(synthesizeCalls).toEqual([]);
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'extrude',
+      extrude: { op: 'add', distance: 25, thin: null, profile: 'implicit' },
+      producers: [{ line: 3, featureType: 'sketch', bind: false }],
+      parts: [],
+    });
+  });
+
+  it('previews a through-all remove as cut() without relaying', async () => {
+    const { status, body } = await post({
+      feature: 'extrude', op: 'remove', distance: null, profile: PROFILE, preview: true,
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('cut()');
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('previews thin and new chains', async () => {
+    const { body } = await post({
+      feature: 'extrude', op: 'new', distance: 10, thin: [2], profile: PROFILE, preview: true,
+    });
+    expect(body.preview).toBe('extrude(10).thin(2).new()');
+  });
+
+  it('binds a bound profile and falls back to the hint name without a code buffer', async () => {
+    const { body } = await post({
+      feature: 'extrude', op: 'add', distance: 25, profile: { ...PROFILE, mode: 'bound' },
+    });
+    expect(body.preview).toBe('extrude(25, s)');
+    expect(relayed[0].spec.extrude.profile).toBe('bound');
+    expect(relayed[0].spec.producers[0].bind).toBe(true);
+  });
+
+  it('rejects a through-all add', async () => {
+    const { status, body } = await post({
+      feature: 'extrude', op: 'add', distance: null, profile: PROFILE,
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('through-all');
+  });
+
+  it('rejects a zero distance', async () => {
+    const { status } = await post({ feature: 'extrude', op: 'add', distance: 0, profile: PROFILE });
+    expect(status).toBe(400);
+  });
+
+  it('rejects malformed thin offsets', async () => {
+    const { status } = await post({
+      feature: 'extrude', op: 'add', distance: 25, thin: [0], profile: PROFILE,
+    });
+    expect(status).toBe(400);
+  });
+
+  it('rejects a profile without a source line', async () => {
+    const { status, body } = await post({
+      feature: 'extrude', op: 'add', distance: 25, profile: { mode: 'active', filePath: '/ws/m.fluid.js' },
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('profile');
   });
 });

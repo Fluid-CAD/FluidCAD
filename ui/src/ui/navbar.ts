@@ -14,6 +14,12 @@ interface ToolbarGroup {
    * toolbar owns the bar.
    */
   anchor: 'start' | 'end';
+  /**
+   * A `'start'` group that survives the exclusive-group takeover in place —
+   * used for the create-feature group, which must stay reachable while the
+   * sketch toolbar owns the bar (extruding is how a sketch gets finished).
+   */
+  immune: boolean;
 }
 
 /**
@@ -43,7 +49,7 @@ export class Navbar {
    */
   addGroup(
     key: string,
-    opts: { visible?: boolean; exclusive?: boolean; anchor?: 'start' | 'end' } = {},
+    opts: { visible?: boolean; exclusive?: boolean; anchor?: 'start' | 'end'; immune?: boolean } = {},
   ): HTMLElement {
     const divider = document.createElement('div');
     divider.className = 'w-px h-5 bg-base-content/[0.12] mx-1 shrink-0 hidden';
@@ -58,6 +64,7 @@ export class Navbar {
       visible: opts.visible ?? true,
       exclusive: opts.exclusive ?? false,
       anchor: opts.anchor ?? 'start',
+      immune: opts.immune ?? false,
     };
 
     // Keep 'end'-anchored groups after every 'start' group in both the array
@@ -94,9 +101,10 @@ export class Navbar {
     if (!group.visible) {
       return false;
     }
-    // Trailing status groups show whenever they have content, even while an
-    // exclusive group (e.g. the sketch toolbar) has taken over the bar.
-    if (group.anchor === 'end') {
+    // Trailing status groups and immune groups show whenever they have
+    // content, even while an exclusive group (e.g. the sketch toolbar) has
+    // taken over the bar.
+    if (group.anchor === 'end' || group.immune) {
       return true;
     }
     const exclusiveActive = this.groups.some((g) => g.exclusive && g.visible);

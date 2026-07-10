@@ -15,9 +15,11 @@ import {
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: number;
+  /** Extrude-only payload; the profile is a sketch, not a pick selection. */
+  extrude?: ExtrudeEditOptions;
   filePath: string;
   producers: {
     line: number;
@@ -47,6 +49,22 @@ export type ApplyFeatureEditSpec = {
    * its text.
    */
   rawArgs?: string;
+};
+
+/**
+ * How an extrude statement is rendered and placed. The single producer is the
+ * profile *sketch* call. `implicit` inserts at the end of the sketch's scope
+ * and consumes it as the last sketch (`extrude(25)`); `bound` binds the sketch
+ * to a variable and inserts directly after its statement (`const s = …;
+ * extrude(25, s)`) so a later active sketch stays active.
+ */
+export type ExtrudeEditOptions = {
+  op: 'add' | 'remove' | 'new';
+  /** Extrusion distance; null renders a through-all `cut()` (remove only). */
+  distance: number | null;
+  /** `.thin(a)` / `.thin(a, b)` offsets, or null for a plain extrude. */
+  thin: [number] | [number, number] | null;
+  profile: 'implicit' | 'bound';
 };
 
 export type ApplyFeatureEditResult = {
@@ -89,7 +107,13 @@ export async function applyFeatureEdit(
   code: string,
   spec: ApplyFeatureEditSpec,
 ): Promise<ApplyFeatureEditResult> {
-  if (!spec.producers.length || !spec.parts.length) {
+  if (spec.feature === 'extrude') {
+    // Extrude takes no selector parts: its single producer is the profile
+    // sketch (implicit consumption or a bound variable), not a pick selection.
+    if (!spec.extrude || spec.producers.length !== 1 || spec.parts.length !== 0) {
+      return { newCode: code, error: 'malformed extrude edit spec' };
+    }
+  } else if (!spec.producers.length || !spec.parts.length) {
     return { newCode: code, error: 'empty edit spec' };
   }
   if (spec.feature === 'sketch' && spec.parts.length > 1 && !spec.rawArgs?.trim()) {
@@ -107,6 +131,19 @@ export async function applyFeatureEdit(
       return { newCode: code, error: `no call found at line ${producer.line} — is the file in sync with the last render?` };
     }
 
+    // The extrude producer is its profile sketch; a stale line pointing at
+    // some other call would extrude the wrong profile, so check both modes.
+    if (spec.feature === 'extrude') {
+      const root = chainRootCallee(call);
+      if (root !== 'sketch') {
+        return {
+          newCode: code,
+          error: `the call at line ${producer.line} is ${root ? `${root}()` : 'not a feature call'}, `
+            + `expected the profile sketch() call — is the file in sync with the last render?`,
+        };
+      }
+    }
+
     if (!producer.bind) {
       // Anchor-only: the statement locates the insertion scope for a
       // select()-based edit. No variable is bound, so any statement will do —
@@ -122,7 +159,8 @@ export async function applyFeatureEdit(
     }
 
     const root = chainRootCallee(call);
-    if (!root || !PRODUCER_CALLEES.has(root)) {
+    const validCallee = spec.feature === 'extrude' ? root === 'sketch' : root !== null && PRODUCER_CALLEES.has(root);
+    if (!validCallee) {
       return {
         newCode: code,
         error: `the call at line ${producer.line} is ${root ? `${root}()` : 'not a feature call'}, `
@@ -152,7 +190,13 @@ export async function applyFeatureEdit(
 
   allocateNames(tree.rootNode, bindings, spec);
 
-  const insertion = findInsertionPoint(scope, lines, bindings);
+  // A bound extrude profile targets its sketch explicitly, so the statement
+  // goes directly after that sketch — a later active sketch stays the active
+  // one. Everything else inserts at the end of the scope, where the picked
+  // selection (or the implicitly consumed last sketch) is known to resolve.
+  const insertion = spec.feature === 'extrude' && spec.extrude!.profile === 'bound'
+    ? afterStatementInsertion(bindings[0].statement, lines)
+    : findInsertionPoint(scope, lines, bindings);
   const statementText = buildStatement(spec, bindings, insertion.indent);
   const useSemicolon = bindings.some(b => b.statement.text.trimEnd().endsWith(';'));
 
@@ -172,7 +216,7 @@ export async function applyFeatureEdit(
     result = spliceCode(result, edit.index, edit.index, edit.text);
   }
 
-  result = await ensureSymbolImport(result, spec.feature);
+  result = await ensureSymbolImport(result, statementCallee(spec));
   const imports = new Set(spec.imports ?? []);
   if (spec.rawArgs?.trim()) {
     for (const symbol of importsForRawArgs(spec.rawArgs)) {
@@ -197,7 +241,7 @@ export async function applyFeatureEdit(
  */
 export async function makeProducerNamer(
   code: string,
-): Promise<(producers: { line: number; nameHint: string }[]) => (string | null)[]> {
+): Promise<(producers: { line: number; nameHint: string; featureType?: string }[]) => (string | null)[]> {
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code);
   const lines = splitLines(code);
@@ -219,7 +263,10 @@ export async function makeProducerNamer(
         return null;
       }
       const root = chainRootCallee(call);
-      if (!root || !PRODUCER_CALLEES.has(root)) {
+      // Sketch producers only name extrude profiles — the pick features never
+      // attribute to a sketch, so the looser callee stays scoped by type.
+      const valid = producer.featureType === 'sketch' ? root === 'sketch' : root !== null && PRODUCER_CALLEES.has(root);
+      if (!valid) {
         return null;
       }
       const resolved = resolveStatement(call);
@@ -502,13 +549,51 @@ function allocateNames(root: TSNode, bindings: ProducerBinding[], spec: ApplyFea
   }
 }
 
+/** The function the rendered statement calls — extrude's remove op is `cut()`. */
+function statementCallee(spec: ApplyFeatureEditSpec): string {
+  if (spec.feature === 'extrude') {
+    return spec.extrude!.op === 'remove' ? 'cut' : 'extrude';
+  }
+  return spec.feature;
+}
+
+/**
+ * Render an extrude statement from its options: `extrude(25)` / `cut()`
+ * (through-all) / `extrude(25, s)` for a bound profile, plus `.thin(…)` and
+ * `.new()` chains. Shared with the route's preview so the previewed text is
+ * exactly what the transform writes.
+ */
+export function renderExtrudeStatement(ext: ExtrudeEditOptions, profileVar: string | null): string {
+  const callee = ext.op === 'remove' ? 'cut' : 'extrude';
+  const callArgs: string[] = [];
+  if (ext.distance !== null) {
+    callArgs.push(formatNumber(ext.distance));
+  }
+  if (ext.profile === 'bound') {
+    callArgs.push(profileVar ?? 's');
+  }
+  let statement = `${callee}(${callArgs.join(', ')})`;
+  if (ext.thin) {
+    statement += `.thin(${ext.thin.map(formatNumber).join(', ')})`;
+  }
+  if (ext.op === 'new') {
+    statement += '.new()';
+  }
+  return statement;
+}
+
 /**
  * Render the feature statement. Most features are
  * `<feature>(<value>, <selectors>)`; `sketch` instead wraps the selector with
  * an empty callback body — a blank line for the user's first sketch entity,
- * with the closing brace at the statement's own indent.
+ * with the closing brace at the statement's own indent; `extrude` renders
+ * from its options — `extrude(25)` / `cut()` (through-all) / a bound profile
+ * variable as the trailing argument — plus `.thin(…)` and `.new()` chains.
  */
 function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[], indent: string): string {
+  if (spec.feature === 'extrude') {
+    return renderExtrudeStatement(spec.extrude!, bindings[0].varName);
+  }
   const rawArgs = spec.rawArgs?.trim();
   const args = rawArgs ?? spec.parts.map(part => {
     const selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
@@ -547,6 +632,15 @@ function importsForRawArgs(rawArgs: string): string[] {
 
 function formatNumber(value: number | undefined): string {
   return Number.isFinite(value) ? String(value) : '1';
+}
+
+/** Insertion point directly after `statement`, at its own indent. */
+function afterStatementInsertion(
+  statement: TSNode,
+  lines: string[],
+): { index: number; indent: string; wrap: (stmt: string) => string } {
+  const indent = indentOf(lines, statement.startPosition.row);
+  return { index: statement.endIndex, indent, wrap: (stmt) => `\n${indent}${stmt}` };
 }
 
 /**

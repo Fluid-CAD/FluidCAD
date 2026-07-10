@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import type { FluidCadServer } from '../fluidcad-server.ts';
-import { applyFeatureEdit, extractNumericParams, makeProducerNamer, resolveParamValues } from '../apply-feature-edit.ts';
+import {
+  applyFeatureEdit, extractNumericParams, makeProducerNamer, renderExtrudeStatement, resolveParamValues,
+  type ExtrudeEditOptions,
+} from '../apply-feature-edit.ts';
 
 const MAX_ENTITIES = 32;
 
@@ -33,6 +36,55 @@ function validatePicks(entities: unknown): Pick[] | null {
     picks.push(pick);
   }
   return picks;
+}
+
+/**
+ * The extrude request's shape. No pick selection: the profile is a sketch,
+ * addressed by the source location the scene render reported for it —
+ * `active` consumes it implicitly, `bound` binds it to a variable.
+ */
+type ExtrudeRequest = {
+  op: 'add' | 'remove' | 'new';
+  distance: number | null;
+  thin: [number] | [number, number] | null;
+  profile: { mode: 'active' | 'bound'; filePath: string; line: number; column: number };
+};
+
+function validateExtrude(body: any): ExtrudeRequest | { error: string } {
+  const { op, distance, thin, profile } = body ?? {};
+  if (op !== 'add' && op !== 'remove' && op !== 'new') {
+    return { error: 'op must be "add", "remove" or "new"' };
+  }
+  if (distance === null) {
+    if (op !== 'remove') {
+      return { error: 'distance may be null (through-all) only for a remove' };
+    }
+  } else if (typeof distance !== 'number' || !Number.isFinite(distance) || distance === 0) {
+    return { error: 'distance must be a nonzero number (negative extrudes the other way)' };
+  }
+  let thinOffsets: [number] | [number, number] | null = null;
+  if (thin !== undefined && thin !== null) {
+    const valid = Array.isArray(thin) && thin.length >= 1 && thin.length <= 2
+      && thin.every((t: unknown) => typeof t === 'number' && Number.isFinite(t) && t > 0);
+    if (!valid) {
+      return { error: 'thin must be one or two positive offsets' };
+    }
+    thinOffsets = thin.length === 1 ? [thin[0]] : [thin[0], thin[1]];
+  }
+  const mode = profile?.mode;
+  const validProfile = (mode === 'active' || mode === 'bound')
+    && typeof profile.filePath === 'string' && profile.filePath.length > 0
+    && Number.isInteger(profile.line) && profile.line >= 1;
+  if (!validProfile) {
+    return { error: 'profile must be {mode: "active"|"bound", filePath, line} of the sketch' };
+  }
+  return {
+    op, distance, thin: thinOffsets,
+    profile: {
+      mode, filePath: profile.filePath, line: profile.line,
+      column: Number.isInteger(profile.column) && profile.column >= 0 ? profile.column : 0,
+    },
+  };
 }
 
 /** Tangent chains: `{seed, members}` groups; absent/empty is fine. */
@@ -87,6 +139,61 @@ export function createApplyFeatureRouter(
   // `selectorOverride` replaces the argument list with user-edited text.
   router.post('/apply-feature', async (req, res) => {
     const { feature, value, preview, selectorOverride } = req.body ?? {};
+
+    // Extrude takes no pick selection — its profile is a sketch statement.
+    // The transform re-verifies that the line holds a sketch() call.
+    if (feature === 'extrude') {
+      const request = validateExtrude(req.body);
+      if ('error' in request) {
+        res.status(400).json({ error: request.error });
+        return;
+      }
+      try {
+        const options: ExtrudeEditOptions = {
+          op: request.op,
+          distance: request.distance,
+          thin: request.thin,
+          profile: request.profile.mode === 'bound' ? 'bound' : 'implicit',
+        };
+        // Truthful preview name for a bound profile: the same resolution the
+        // transform runs (reused const, collision-suffixed hint).
+        let profileVar: string | null = null;
+        if (request.profile.mode === 'bound') {
+          const code = fluidCadServer.getCurrentCode();
+          if (code) {
+            const namer = await makeProducerNamer(code);
+            profileVar = namer([{ line: request.profile.line, nameHint: 's', featureType: 'sketch' }])[0];
+          }
+        }
+        const statement = renderExtrudeStatement(options, profileVar);
+        if (preview === true) {
+          res.json({ success: true, preview: statement });
+          return;
+        }
+        sendToExtension({
+          type: 'apply-feature-edit',
+          spec: {
+            feature: 'extrude',
+            extrude: options,
+            filePath: request.profile.filePath,
+            producers: [{
+              line: request.profile.line,
+              column: request.profile.column,
+              featureType: 'sketch',
+              nameHint: 's',
+              bind: request.profile.mode === 'bound',
+            }],
+            parts: [],
+            imports: [],
+          },
+        });
+        res.json({ success: true, preview: statement });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
+
     const picks = validatePicks(req.body?.entities);
     if (!picks) {
       res.status(400).json({ error: `entities must be 1-${MAX_ENTITIES} picks of {shapeId, sub:{type, index}}` });
@@ -98,7 +205,7 @@ export function createApplyFeatureRouter(
       return;
     }
     if (feature !== 'fillet' && feature !== 'chamfer' && feature !== 'shell' && feature !== 'sketch') {
-      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell" or "sketch"' });
+      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch" or "extrude"' });
       return;
     }
     // Per-feature numeric parameter: fillet/chamfer need a positive radius or

@@ -15,6 +15,7 @@ import { TrimPickService } from './interactive/trim-pick-service';
 import { RegionPickService } from './interactive/region-pick-service';
 import { SketchToolbarService } from './interactive/sketch-toolbar-service';
 import { ModifyPickService } from './interactive/modify-pick-service';
+import { ExtrudeFeatureService } from './interactive/create-feature/extrude-service';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { onThemeChange } from './scene/theme-colors';
@@ -90,11 +91,23 @@ viewer.setParamsToggleHandler(() => {
 
 const trimService = new TrimPickService(viewer, navbar);
 const regionService = new RegionPickService(viewer, navbar);
+// Registered before the sketch toolbar so the create group renders ahead of
+// the sketch tools; its `immune` flag keeps it visible in sketch mode, where
+// extruding the active sketch is the primary flow.
+const extrudeService = new ExtrudeFeatureService(container, navbar, {
+  onEnter: () => {
+    modifyService.exit();
+    measureController.clearSelection();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
+  },
+});
 const sketchService = new SketchToolbarService(container, viewer, trimService, navbar);
 const modifyService = new ModifyPickService(container, viewer, navbar, {
   // Hand the current highlight over as the tool's initial input: whatever the
   // user already clicked (measure owns that selection) seeds the pick set.
   onEnter: () => {
+    extrudeService.exit();
     const seed = [...measureController.selection];
     measureController.clearSelection();
     selectionInfoOverlay.hide();
@@ -306,11 +319,13 @@ function connectWebSocket() {
           regionService.reset();
           sketchService.update([]);
           modifyService.update([]);
+          extrudeService.update([]);
         } else {
           trimService.update(msg.result);
           regionService.update(msg.result);
           sketchService.update(msg.result);
           modifyService.update(msg.result);
+          extrudeService.update(msg.result);
         }
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1);
         if (msg.params !== undefined) {

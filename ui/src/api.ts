@@ -378,6 +378,61 @@ export async function applyExtrude(options: ExtrudeApplyOptions): Promise<ApplyF
   }, options.signal);
 }
 
+/** A sketch input addressed by its rendered source location. */
+export type SketchSourceRef = { filePath: string; line: number; column: number };
+
+export type SweepApplyOptions = {
+  op: 'add' | 'remove' | 'new';
+  /** `.thin()` offsets, or null for a plain sweep. */
+  thin: [number] | [number, number] | null;
+  profile: ExtrudeProfileRef;
+  /** The path: another sketch, or picked edges to synthesize a selector from. */
+  path:
+    | ({ kind: 'sketch' } & SketchSourceRef)
+    | { kind: 'edges'; entities: ApplyFeatureEntity[]; chains?: ApplyFeatureChain[] };
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a sweep statement
+ * consuming a sketch profile along a path. Same endpoint and response shape
+ * as {@link applyFeature}.
+ */
+export async function applySweep(options: SweepApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'sweep',
+    op: options.op,
+    thin: options.thin,
+    profile: options.profile,
+    path: options.path,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/**
+ * Variable names of the sketch statements at the given source lines (dialog
+ * labels). Unbound or unresolvable lines come back null; failures degrade to
+ * all-null — the labels are cosmetic.
+ */
+export async function fetchSketchNames(lines: number[]): Promise<(string | null)[]> {
+  try {
+    const res = await fetch('/api/sketch-names', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ lines }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !Array.isArray(body?.names)) {
+      return lines.map(() => null);
+    }
+    return body.names;
+  } catch {
+    return lines.map(() => null);
+  }
+}
+
 /** Shared POST for /api/apply-feature: failure bodies surface their reason. */
 async function postApplyFeature(
   payload: Record<string, unknown>,

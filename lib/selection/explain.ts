@@ -67,6 +67,13 @@ export function synthesizeApplyFeature(
       };
     }
   }
+  if (feature === 'sweep') {
+    // The picks describe the sweep path: a wire built from edges.
+    const face = [...refs, ...chains.flatMap(c => c.members)].find(r => r.sub.type !== 'edge');
+    if (face) {
+      return { ok: false, reason: 'a sweep path takes edges — pick edges only', pick: face };
+    }
+  }
 
   const index = new SelectionIndex(scene);
   try {
@@ -105,7 +112,7 @@ export function synthesizeApplyFeature(
 
     const spec: ApplyFeatureEditSpec = {
       feature,
-      ...(feature === 'sketch' ? {} : { value }),
+      ...(feature === 'sketch' || feature === 'sweep' ? {} : { value }),
       filePath: filePaths.values().next().value!,
       producers: located.map(l => {
         const loc = l.feature.getSourceLocation()!;
@@ -164,6 +171,10 @@ function refKey(ref: PickRef): string {
 function renderPreview(feature: ApplyFeatureKind, value: number | undefined, args: string): string {
   if (feature === 'sketch') {
     return `sketch(${args}, () => { ... })`;
+  }
+  if (feature === 'sweep') {
+    // The args are the path selector; the route composes the full statement.
+    return `sweep(${args})`;
   }
   return `${feature}(${value}, ${args})`;
 }

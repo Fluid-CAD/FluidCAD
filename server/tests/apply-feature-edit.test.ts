@@ -760,3 +760,154 @@ describe('makeProducerNamer — sketch producers', () => {
     ])).toEqual(['s', null]);
   });
 });
+
+describe('sweep statement templates', () => {
+  function sweepSpec(
+    sweep: Partial<NonNullable<ApplyFeatureEditSpec['sweep']>> = {},
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec {
+    return {
+      feature: 'sweep',
+      filePath: '/ws/model.fluid.js',
+      sweep: {
+        op: 'add', thin: null, profile: 'implicit',
+        path: { kind: 'sketch', producer: 0 },
+        ...sweep,
+      },
+      producers: [
+        { line: 3, column: 0, featureType: 'sketch', nameHint: 'p', bind: true },
+        { line: 4, column: 0, featureType: 'sketch', nameHint: 's', bind: false },
+      ],
+      parts: [],
+      imports: [],
+      ...overrides,
+    };
+  }
+
+  const twoSketchCode = [
+    `import { sketch, rect, circle } from 'fluidcad/core'`,
+    ``,
+    `sketch('xz', () => { circle(5) })`,
+    `sketch('xy', () => { rect(10, 10) })`,
+    ``,
+  ].join('\n');
+
+  it('binds a sketch path and appends sweep(p) after the implicit profile', async () => {
+    const result = await applyFeatureEdit(twoSketchCode, sweepSpec());
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const pathRow = lines.findIndex(l => l === `const p = sketch('xz', () => { circle(5) })`);
+    expect(pathRow).toBeGreaterThan(-1);
+    // End-of-scope insertion: after the (implicit-profile) active sketch.
+    expect(lines[pathRow + 1]).toBe(`sketch('xy', () => { rect(10, 10) })`);
+    expect(lines[pathRow + 2]).toBe(`sweep(p)`);
+    expect(result.newCode).toMatch(/import \{ ?sweep,/);
+  });
+
+  it('inserts a fully-bound sweep after the later input sketch', async () => {
+    const code = [
+      `import { sketch, rect, circle, polygon } from 'fluidcad/core'`,
+      ``,
+      `sketch('xz', () => { circle(5) })`,
+      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('yz', () => { polygon(6, 20) })`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, sweepSpec(
+      { profile: { producer: 1 }, path: { kind: 'sketch', producer: 0 } },
+      {
+        producers: [
+          { line: 3, column: 0, featureType: 'sketch', nameHint: 'p', bind: true },
+          { line: 4, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+        ],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const profileRow = lines.findIndex(l => l === `const s = sketch('xy', () => { rect(10, 10) })`);
+    expect(profileRow).toBeGreaterThan(-1);
+    expect(lines[profileRow + 1]).toBe(`sweep(p, s)`);
+    // The later sketch stays last, so it remains the active sketch.
+    expect(lines[profileRow + 2]).toBe(`sketch('yz', () => { polygon(6, 20) })`);
+  });
+
+  it('renders a selector path at end of scope with the implicit profile', async () => {
+    const code = [
+      `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      `sketch('xz', () => { circle(5) })`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, sweepSpec(
+      { path: { kind: 'selector' } },
+      {
+        producers: [
+          { line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true },
+          { line: 5, column: 0, featureType: 'sketch', nameHint: 's', bind: false },
+        ],
+        parts: [{ producer: 0, accessor: 'endEdges', indices: [2], filterArgs: null }],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    expect(result.newCode).toContain(`const e = extrude(30)`);
+    const sweepRow = lines.findIndex(l => l === `sweep(e.endEdges(2))`);
+    expect(sweepRow).toBeGreaterThan(lines.findIndex(l => l.startsWith(`sketch('xz'`)));
+  });
+
+  it('chains .thin() and .remove()', async () => {
+    const result = await applyFeatureEdit(twoSketchCode, sweepSpec({ op: 'remove', thin: [2] }));
+    expect(result.newCode).toContain(`sweep(p).thin(2).remove()`);
+  });
+
+  it('chains .new()', async () => {
+    const result = await applyFeatureEdit(twoSketchCode, sweepSpec({ op: 'new' }));
+    expect(result.newCode).toContain(`sweep(p).new()`);
+  });
+
+  it('reuses an existing const binding for the path sketch', async () => {
+    const code = [
+      `import { sketch, rect, circle } from 'fluidcad/core'`,
+      ``,
+      `const spine = sketch('xz', () => { circle(5) })`,
+      `sketch('xy', () => { rect(10, 10) })`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, sweepSpec());
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const spine = sketch('xz', () => { circle(5) })`);
+    expect(result.newCode).toContain(`sweep(spine)`);
+  });
+
+  it('refuses when a sketch producer line is not a sketch call', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, sweepSpec(
+      {},
+      {
+        producers: [
+          { line: 4, column: 0, featureType: 'sketch', nameHint: 'p', bind: true },
+          { line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: false },
+        ],
+      },
+    ));
+    expect(result.error).toContain('expected a sketch() call');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a selector path without parts', async () => {
+    const result = await applyFeatureEdit(twoSketchCode, sweepSpec({ path: { kind: 'selector' } }));
+    expect(result.error).toContain('malformed');
+  });
+});

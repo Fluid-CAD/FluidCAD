@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import type { FluidCadServer } from '../fluidcad-server.ts';
 import {
-  applyFeatureEdit, extractNumericParams, makeProducerNamer, renderExtrudeStatement, resolveParamValues,
-  type ExtrudeEditOptions,
+  applyFeatureEdit, extractNumericParams, makeProducerNamer, renderExtrudeStatement, renderSweepStatement,
+  resolveParamValues, resolveSketchNames,
+  type ApplyFeatureEditSpec, type ExtrudeEditOptions, type SweepEditOptions,
 } from '../apply-feature-edit.ts';
 
 const MAX_ENTITIES = 32;
@@ -38,16 +39,44 @@ function validatePicks(entities: unknown): Pick[] | null {
   return picks;
 }
 
+/** A sketch addressed by the source location the scene render reported. */
+type SketchLoc = { filePath: string; line: number; column: number };
+
+/** One or two positive `.thin()` offsets; absent means a plain feature. */
+function validateThinOffsets(thin: unknown): { offsets: [number] | [number, number] | null } | { error: string } {
+  if (thin === undefined || thin === null) {
+    return { offsets: null };
+  }
+  const valid = Array.isArray(thin) && thin.length >= 1 && thin.length <= 2
+    && thin.every((t: unknown) => typeof t === 'number' && Number.isFinite(t) && t > 0);
+  if (!valid) {
+    return { error: 'thin must be one or two positive offsets' };
+  }
+  return { offsets: thin.length === 1 ? [thin[0]] : [thin[0], thin[1]] };
+}
+
+function validateSketchLoc(loc: any): SketchLoc | null {
+  const valid = loc && typeof loc.filePath === 'string' && loc.filePath.length > 0
+    && Number.isInteger(loc.line) && loc.line >= 1;
+  if (!valid) {
+    return null;
+  }
+  return {
+    filePath: loc.filePath,
+    line: loc.line,
+    column: Number.isInteger(loc.column) && loc.column >= 0 ? loc.column : 0,
+  };
+}
+
 /**
- * The extrude request's shape. No pick selection: the profile is a sketch,
- * addressed by the source location the scene render reported for it —
+ * The extrude request's shape. No pick selection: the profile is a sketch —
  * `active` consumes it implicitly, `bound` binds it to a variable.
  */
 type ExtrudeRequest = {
   op: 'add' | 'remove' | 'new';
   distance: number | null;
   thin: [number] | [number, number] | null;
-  profile: { mode: 'active' | 'bound'; filePath: string; line: number; column: number };
+  profile: { mode: 'active' | 'bound' } & SketchLoc;
 };
 
 function validateExtrude(body: any): ExtrudeRequest | { error: string } {
@@ -62,29 +91,71 @@ function validateExtrude(body: any): ExtrudeRequest | { error: string } {
   } else if (typeof distance !== 'number' || !Number.isFinite(distance) || distance === 0) {
     return { error: 'distance must be a nonzero number (negative extrudes the other way)' };
   }
-  let thinOffsets: [number] | [number, number] | null = null;
-  if (thin !== undefined && thin !== null) {
-    const valid = Array.isArray(thin) && thin.length >= 1 && thin.length <= 2
-      && thin.every((t: unknown) => typeof t === 'number' && Number.isFinite(t) && t > 0);
-    if (!valid) {
-      return { error: 'thin must be one or two positive offsets' };
-    }
-    thinOffsets = thin.length === 1 ? [thin[0]] : [thin[0], thin[1]];
+  const thinResult = validateThinOffsets(thin);
+  if ('error' in thinResult) {
+    return thinResult;
   }
   const mode = profile?.mode;
-  const validProfile = (mode === 'active' || mode === 'bound')
-    && typeof profile.filePath === 'string' && profile.filePath.length > 0
-    && Number.isInteger(profile.line) && profile.line >= 1;
-  if (!validProfile) {
+  const loc = validateSketchLoc(profile);
+  if ((mode !== 'active' && mode !== 'bound') || !loc) {
     return { error: 'profile must be {mode: "active"|"bound", filePath, line} of the sketch' };
   }
-  return {
-    op, distance, thin: thinOffsets,
-    profile: {
-      mode, filePath: profile.filePath, line: profile.line,
-      column: Number.isInteger(profile.column) && profile.column >= 0 ? profile.column : 0,
-    },
-  };
+  return { op, distance, thin: thinResult.offsets, profile: { mode, ...loc } };
+}
+
+/**
+ * The sweep request's shape: the profile is a sketch (like extrude); the
+ * path is either another sketch or edge picks to synthesize a selector from.
+ */
+type SweepRequest = {
+  op: 'add' | 'remove' | 'new';
+  thin: [number] | [number, number] | null;
+  profile: { mode: 'active' | 'bound' } & SketchLoc;
+  path:
+    | ({ kind: 'sketch' } & SketchLoc)
+    | { kind: 'edges'; picks: Pick[]; chains: { seed: Pick; members: Pick[] }[] };
+};
+
+function validateSweep(body: any): SweepRequest | { error: string } {
+  const { op, thin, profile, path } = body ?? {};
+  if (op !== 'add' && op !== 'remove' && op !== 'new') {
+    return { error: 'op must be "add", "remove" or "new"' };
+  }
+  const thinResult = validateThinOffsets(thin);
+  if ('error' in thinResult) {
+    return thinResult;
+  }
+  const mode = profile?.mode;
+  const profileLoc = validateSketchLoc(profile);
+  if ((mode !== 'active' && mode !== 'bound') || !profileLoc) {
+    return { error: 'profile must be {mode: "active"|"bound", filePath, line} of the sketch' };
+  }
+  const base = { op, thin: thinResult.offsets, profile: { mode, ...profileLoc } };
+  if (path?.kind === 'sketch') {
+    const pathLoc = validateSketchLoc(path);
+    if (!pathLoc) {
+      return { error: 'a sketch path must carry the sketch {filePath, line}' };
+    }
+    if (pathLoc.filePath !== profileLoc.filePath) {
+      return { error: 'the profile and path sketches live in different files' };
+    }
+    if (pathLoc.line === profileLoc.line) {
+      return { error: 'the profile and path must be different sketches' };
+    }
+    return { ...base, path: { kind: 'sketch', ...pathLoc } };
+  }
+  if (path?.kind === 'edges') {
+    const picks = validatePicks(path.entities);
+    if (!picks) {
+      return { error: `path entities must be 1-${MAX_ENTITIES} picks of {shapeId, sub:{type, index}}` };
+    }
+    const chains = validateChains(path.chains);
+    if (!chains) {
+      return { error: 'path chains must be {seed, members} pick groups' };
+    }
+    return { ...base, path: { kind: 'edges', picks, chains } };
+  }
+  return { error: 'path must be {kind: "sketch", filePath, line} or {kind: "edges", entities}' };
 }
 
 /** Tangent chains: `{seed, members}` groups; absent/empty is fine. */
@@ -194,6 +265,134 @@ export function createApplyFeatureRouter(
       return;
     }
 
+    // Sweep composes a profile sketch with a path (a second sketch, or edge
+    // picks synthesized into a selector) — no shared pick validation applies.
+    if (feature === 'sweep') {
+      const request = validateSweep(req.body);
+      if ('error' in request) {
+        res.status(400).json({ error: request.error });
+        return;
+      }
+      try {
+        const code = fluidCadServer.getCurrentCode();
+        const producers: ApplyFeatureEditSpec['producers'] = [];
+        let parts: ApplyFeatureEditSpec['parts'] = [];
+        let imports: string[] = [];
+        let pathArgs: string | null = null;
+        let alternatives: string[] | undefined;
+
+        if (request.path.kind === 'edges') {
+          const options = code
+            ? {
+              namer: await makeProducerNamer(code),
+              params: resolveParamValues(
+                await extractNumericParams(code),
+                fluidCadServer.getParamDefinitions(),
+              ),
+            }
+            : undefined;
+          const synthesis = fluidCadServer.synthesizeApplyFeature(
+            request.path.picks, 'sweep', undefined, request.path.chains, options,
+          );
+          if (!synthesis) {
+            res.status(404).json({ success: false, reason: 'No rendered scene' });
+            return;
+          }
+          if (!synthesis.ok) {
+            res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
+            return;
+          }
+          // The path argument is ONE SceneObject — a multi-part selection
+          // has no single-expression rendering.
+          if (synthesis.spec.parts.length !== 1) {
+            res.status(422).json({
+              success: false,
+              reason: 'the picked edges must form a single selection — use "Select with tangents" or pick edges of one feature',
+            });
+            return;
+          }
+          if (synthesis.spec.filePath !== request.profile.filePath) {
+            res.status(422).json({ success: false, reason: 'the path edges and the profile sketch come from different files' });
+            return;
+          }
+          producers.push(...synthesis.spec.producers);
+          parts = synthesis.spec.parts;
+          imports = synthesis.spec.imports;
+          pathArgs = synthesis.args;
+          alternatives = synthesis.alternatives;
+        }
+
+        let path: SweepEditOptions['path'];
+        if (request.path.kind === 'sketch') {
+          producers.push({
+            line: request.path.line, column: request.path.column,
+            featureType: 'sketch', nameHint: 'p', bind: true,
+          });
+          path = { kind: 'sketch', producer: producers.length - 1 };
+        } else {
+          path = { kind: 'selector' };
+        }
+        // The profile rides the producer list in both modes: bound entries
+        // get a variable, the implicit anchor verifies the sketch call and
+        // (with a sketch path) locates the insertion scope.
+        producers.push({
+          line: request.profile.line, column: request.profile.column,
+          featureType: 'sketch', nameHint: 's', bind: request.profile.mode === 'bound',
+        });
+        const profile: SweepEditOptions['profile'] = request.profile.mode === 'bound'
+          ? { producer: producers.length - 1 }
+          : 'implicit';
+
+        // Truthful preview names for the sketch inputs — one namer pass so
+        // collision suffixes stay consistent across both.
+        let pathVar: string | null = null;
+        let profileVar: string | null = null;
+        if (code) {
+          const namer = await makeProducerNamer(code);
+          const queries: { line: number; nameHint: string; featureType?: string }[] = [];
+          if (request.path.kind === 'sketch') {
+            queries.push({ line: request.path.line, nameHint: 'p', featureType: 'sketch' });
+          }
+          if (request.profile.mode === 'bound') {
+            queries.push({ line: request.profile.line, nameHint: 's', featureType: 'sketch' });
+          }
+          const names = queries.length > 0 ? namer(queries) : [];
+          let next = 0;
+          if (request.path.kind === 'sketch') {
+            pathVar = names[next++];
+          }
+          if (request.profile.mode === 'bound') {
+            profileVar = names[next++];
+          }
+        }
+
+        const options: SweepEditOptions = { op: request.op, thin: request.thin, profile, path };
+        const pathExpr = request.path.kind === 'edges' ? pathArgs! : (pathVar ?? 'p');
+        const statement = renderSweepStatement(
+          options, pathExpr, request.profile.mode === 'bound' ? profileVar ?? 's' : null,
+        );
+        if (preview === true) {
+          res.json({ success: true, preview: statement, args: pathArgs ?? undefined, alternatives });
+          return;
+        }
+        sendToExtension({
+          type: 'apply-feature-edit',
+          spec: {
+            feature: 'sweep',
+            sweep: options,
+            filePath: request.profile.filePath,
+            producers,
+            parts,
+            imports,
+          },
+        });
+        res.json({ success: true, preview: statement });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
+
     const picks = validatePicks(req.body?.entities);
     if (!picks) {
       res.status(400).json({ error: `entities must be 1-${MAX_ENTITIES} picks of {shapeId, sub:{type, index}}` });
@@ -205,7 +404,7 @@ export function createApplyFeatureRouter(
       return;
     }
     if (feature !== 'fillet' && feature !== 'chamfer' && feature !== 'shell' && feature !== 'sketch') {
-      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch" or "extrude"' });
+      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude" or "sweep"' });
       return;
     }
     // Per-feature numeric parameter: fillet/chamfer need a positive radius or
@@ -271,6 +470,30 @@ export function createApplyFeatureRouter(
       res.json({ success: true, preview: synthesis.preview });
     } catch (err: any) {
       res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+    }
+  });
+
+  // Variable names of the sketch statements at the given source lines, for
+  // create-dialog labels ("spine — line 3"). Read-only over the live buffer;
+  // lines without a bound sketch resolve to null.
+  router.post('/sketch-names', async (req, res) => {
+    const { lines } = req.body ?? {};
+    const valid = Array.isArray(lines) && lines.length <= 64
+      && lines.every((l: unknown) => Number.isInteger(l) && (l as number) >= 1);
+    if (!valid) {
+      res.status(400).json({ error: 'lines must be up to 64 positive integers' });
+      return;
+    }
+    const lineNumbers = lines as number[];
+    try {
+      const code = fluidCadServer.getCurrentCode();
+      if (!code) {
+        res.json({ names: lineNumbers.map((): null => null) });
+        return;
+      }
+      res.json({ names: await resolveSketchNames(code, lineNumbers) });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? String(err) });
     }
   });
 

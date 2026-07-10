@@ -1,9 +1,11 @@
 import { applyExtrude, ApplyFeatureResponse, ExtrudeProfileRef } from '../../api';
-import { isTopLevel } from '../../helpers/scene-utils';
 import { SceneObjectRender } from '../../types';
 import { Navbar } from '../../ui/navbar';
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
-import { ExtrudePanel, SketchProfileOption } from './extrude-panel';
+import { ExtrudePanel } from './extrude-panel';
+import {
+  collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchRow, SketchProfileOption,
+} from './sketch-profiles';
 
 const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
 const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
@@ -28,6 +30,7 @@ export class ExtrudeFeatureService {
   private available = false;
   private options: SketchProfileOption[] = [];
   private sceneObjects: SceneObjectRender[] = [];
+  private labelSignature = '';
   private applying = false;
   private previewTimer: number | null = null;
   private previewAbort: AbortController | null = null;
@@ -86,6 +89,7 @@ export class ExtrudeFeatureService {
       return;
     }
     this.panel.setOptions(this.options);
+    this.refreshSketchLabels();
     this.schedulePreview();
   }
 
@@ -97,7 +101,24 @@ export class ExtrudeFeatureService {
     this.armed = true;
     this.syncButton();
     this.panel.show(this.options);
+    this.refreshSketchLabels();
     this.schedulePreview();
+  }
+
+  /**
+   * Async label pass: sketches bound to variables show their names in the
+   * dropdown ("spine — line 3"). Applied only if the dialog is still armed
+   * on the same option set when the lookup lands.
+   */
+  private async refreshSketchLabels(): Promise<void> {
+    const signature = optionsSignature(this.options);
+    this.labelSignature = signature;
+    const labeled = await labelWithSketchNames(this.options);
+    if (!this.armed || this.labelSignature !== signature) {
+      return;
+    }
+    this.options = labeled;
+    this.panel.setOptions(labeled);
   }
 
   exit(): void {
@@ -126,14 +147,7 @@ export class ExtrudeFeatureService {
     if (!this.armed) {
       return false;
     }
-    let sketch: SceneObjectRender | undefined =
-      obj.type === 'sketch' ? obj : undefined;
-    if (!sketch && obj.parentId != null) {
-      const parent = this.sceneObjects.find(o => o.id === obj.parentId);
-      if (parent?.type === 'sketch') {
-        sketch = parent;
-      }
-    }
+    const sketch = resolveSketchRow(obj, this.sceneObjects);
     if (!sketch?.sourceLocation) {
       return false;
     }
@@ -253,65 +267,3 @@ function profileRef(option: SketchProfileOption): ExtrudeProfileRef {
   };
 }
 
-/**
- * The sketches an extrude could consume right now: the active sketch (the
- * last top-level object, while sketch mode is on) plus every other sketch
- * still rendering geometry — a consumed sketch's shapes are removed by its
- * consumer, so "has visible shapes" is exactly "unconsumed". The active
- * sketch is offered even while empty; Apply refuses it with a hint.
- */
-function collectSketchProfiles(sceneObjects: SceneObjectRender[]): SketchProfileOption[] {
-  let lastTopLevel: SceneObjectRender | undefined;
-  for (let i = sceneObjects.length - 1; i >= 0; i--) {
-    if (isTopLevel(sceneObjects[i], sceneObjects)) {
-      lastTopLevel = sceneObjects[i];
-      break;
-    }
-  }
-  const active = lastTopLevel?.type === 'sketch' && lastTopLevel.sourceLocation ? lastTopLevel : undefined;
-
-  const options: SketchProfileOption[] = [];
-  if (active) {
-    options.push(toOption(active, 'active', sceneObjects));
-  }
-  for (const obj of sceneObjects) {
-    if (obj === active || obj.type !== 'sketch' || !obj.sourceLocation) {
-      continue;
-    }
-    if (!hasRenderedGeometry(obj, sceneObjects)) {
-      continue;
-    }
-    options.push(toOption(obj, 'other', sceneObjects));
-  }
-  return options;
-}
-
-function toOption(
-  obj: SceneObjectRender,
-  kind: 'active' | 'other',
-  sceneObjects: SceneObjectRender[],
-): SketchProfileOption {
-  const loc = obj.sourceLocation!;
-  return {
-    kind,
-    label: kind === 'active' ? 'Active sketch' : `Sketch — line ${loc.line}`,
-    filePath: loc.filePath,
-    line: loc.line,
-    column: loc.column,
-    hasGeometry: hasRenderedGeometry(obj, sceneObjects),
-  };
-}
-
-/**
- * A sketch's drawn geometry renders on its child objects (each entity — rect,
- * circle, line — is its own scene object under the sketch), so walk the
- * subtree, not just the sketch's own shapes.
- */
-function hasRenderedGeometry(obj: SceneObjectRender, sceneObjects: SceneObjectRender[]): boolean {
-  if ((obj.sceneShapes ?? []).some(s => !s.isMetaShape && !s.isGuide && (s.meshes?.length ?? 0) > 0)) {
-    return true;
-  }
-  return sceneObjects.some(child =>
-    child !== obj && child.parentId != null && child.parentId === obj.id
-    && hasRenderedGeometry(child, sceneObjects));
-}

@@ -18,14 +18,19 @@ const fakeSynthesis = {
   alternatives: [],
 };
 
+/** Per-test synthesis result; reset to `fakeSynthesis` before each test. */
+let currentSynthesis: any;
+/** Per-test live buffer; reset to null before each test. */
+let currentCode: string | null;
+
 const fakeServer = {
-  getCurrentCode: () => null,
+  getCurrentCode: () => currentCode,
   getParamDefinitions: () => [],
   synthesizeApplyFeature: (
     _picks: unknown, feature: string, value: number | undefined,
   ) => {
     synthesizeCalls.push({ feature, value });
-    return fakeSynthesis;
+    return currentSynthesis;
   },
 };
 
@@ -64,12 +69,14 @@ describe('apply-feature route validation', () => {
   beforeEach(() => {
     synthesizeCalls = [];
     relayed = [];
+    currentSynthesis = fakeSynthesis;
+    currentCode = null;
   });
 
   it('rejects an unknown feature', async () => {
     const { status, body } = await post({ feature: 'draft', value: 2, entities: [PICK] });
     expect(status).toBe(400);
-    expect(body.error).toContain('"sketch" or "extrude"');
+    expect(body.error).toContain('"extrude" or "sweep"');
   });
 
   it('rejects a non-positive fillet value', async () => {
@@ -174,5 +181,127 @@ describe('apply-feature route validation', () => {
     });
     expect(status).toBe(400);
     expect(body.error).toContain('profile');
+  });
+
+  const SWEEP_PROFILE = { mode: 'active', filePath: '/ws/m.fluid.js', line: 7, column: 0 };
+  const SWEEP_PATH = { kind: 'sketch', filePath: '/ws/m.fluid.js', line: 3, column: 0 };
+
+  it('relays a sketch-path sweep with an implicit profile', async () => {
+    const { status, body } = await post({
+      feature: 'sweep', op: 'add', thin: null, profile: SWEEP_PROFILE, path: SWEEP_PATH,
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('sweep(p)');
+    expect(synthesizeCalls).toEqual([]);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'sweep',
+      sweep: { op: 'add', profile: 'implicit', path: { kind: 'sketch', producer: 0 } },
+      producers: [
+        { line: 3, featureType: 'sketch', nameHint: 'p', bind: true },
+        { line: 7, featureType: 'sketch', nameHint: 's', bind: false },
+      ],
+      parts: [],
+    });
+  });
+
+  it('previews a bound-profile sweep with thin and remove chains', async () => {
+    const { body } = await post({
+      feature: 'sweep', op: 'remove', thin: [2],
+      profile: { ...SWEEP_PROFILE, mode: 'bound' }, path: SWEEP_PATH, preview: true,
+    });
+    expect(body.preview).toBe('sweep(p, s).thin(2).remove()');
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('synthesizes an edges path and merges producers ahead of the profile', async () => {
+    currentSynthesis = {
+      ok: true,
+      spec: {
+        feature: 'sweep',
+        filePath: '/ws/m.fluid.js',
+        producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'endEdges', indices: null, filterArgs: null }],
+        imports: [],
+      },
+      preview: 'sweep(e.endEdges())',
+      args: 'e.endEdges()',
+      alternatives: [],
+    };
+    const { status, body } = await post({
+      feature: 'sweep', op: 'new', profile: SWEEP_PROFILE,
+      path: { kind: 'edges', entities: [{ shapeId: 'shape-1', sub: { type: 'edge', index: 2 } }] },
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('sweep(e.endEdges()).new()');
+    expect(synthesizeCalls).toEqual([{ feature: 'sweep', value: undefined }]);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'sweep',
+      sweep: { op: 'new', profile: 'implicit', path: { kind: 'selector' } },
+      producers: [
+        { line: 4, featureType: 'extrude', bind: true },
+        { line: 7, featureType: 'sketch', bind: false },
+      ],
+      parts: [{ producer: 0, accessor: 'endEdges' }],
+    });
+  });
+
+  it('refuses a multi-part edges path', async () => {
+    currentSynthesis = {
+      ok: true,
+      spec: {
+        feature: 'sweep',
+        filePath: '/ws/m.fluid.js',
+        producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [
+          { producer: 0, accessor: 'endEdges', indices: null, filterArgs: null },
+          { producer: 0, accessor: 'sideEdges', indices: null, filterArgs: null },
+        ],
+        imports: [],
+      },
+      preview: '', args: '', alternatives: [],
+    };
+    const { status, body } = await post({
+      feature: 'sweep', op: 'add', profile: SWEEP_PROFILE,
+      path: { kind: 'edges', entities: [{ shapeId: 'shape-1', sub: { type: 'edge', index: 2 } }] },
+    });
+    expect(status).toBe(422);
+    expect(body.reason).toContain('single selection');
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('rejects the same sketch as profile and path', async () => {
+    const { status, body } = await post({
+      feature: 'sweep', op: 'add', profile: SWEEP_PROFILE,
+      path: { ...SWEEP_PATH, line: SWEEP_PROFILE.line },
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('different sketches');
+  });
+
+  it('resolves bound sketch names and nulls for everything else', async () => {
+    currentCode = [
+      `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,
+      ``,
+      `const spine = sketch('xz', () => { circle(5) })`,
+      `sketch('xy', () => { rect(10, 10) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+    const res = await fetch(`${baseUrl}/api/sketch-names`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lines: [3, 4, 5, 99] }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).names).toEqual(['spine', null, null, null]);
+  });
+
+  it('returns all-null sketch names without a code buffer', async () => {
+    const res = await fetch(`${baseUrl}/api/sketch-names`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lines: [3] }),
+    });
+    expect((await res.json()).names).toEqual([null]);
   });
 });

@@ -16,6 +16,7 @@ import { RegionPickService } from './interactive/region-pick-service';
 import { SketchToolbarService } from './interactive/sketch-toolbar-service';
 import { ModifyPickService } from './interactive/modify-pick-service';
 import { ExtrudeFeatureService } from './interactive/create-feature/extrude-service';
+import { SweepFeatureService } from './interactive/create-feature/sweep-service';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { onThemeChange } from './scene/theme-colors';
@@ -97,20 +98,34 @@ const regionService = new RegionPickService(viewer, navbar);
 const extrudeService = new ExtrudeFeatureService(container, navbar, {
   onEnter: () => {
     modifyService.exit();
+    sweepService.exit();
     measureController.clearSelection();
     viewer.clearHighlight();
     selectionInfoOverlay.hide();
   },
 });
-// An armed extrude dialog takes sketch rows clicked in the timeline as its
-// profile instead of the default rollback-preview.
-timelinePanel.onFeatureIntercept = (obj) => extrudeService.handleTimelinePick(obj);
+const sweepService = new SweepFeatureService(container, viewer, navbar, {
+  onEnter: () => {
+    modifyService.exit();
+    extrudeService.exit();
+    measureController.clearSelection();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
+  },
+  onSuspendSketchUI: () => sketchService.update([]),
+  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+});
+// An armed create dialog takes sketch rows clicked in the timeline as its
+// profile/path instead of the default rollback-preview.
+timelinePanel.onFeatureIntercept = (obj) =>
+  extrudeService.handleTimelinePick(obj) || sweepService.handleTimelinePick(obj);
 const sketchService = new SketchToolbarService(container, viewer, trimService, navbar);
 const modifyService = new ModifyPickService(container, viewer, navbar, {
   // Hand the current highlight over as the tool's initial input: whatever the
   // user already clicked (measure owns that selection) seeds the pick set.
   onEnter: () => {
     extrudeService.exit();
+    sweepService.exit();
     const seed = [...measureController.selection];
     measureController.clearSelection();
     selectionInfoOverlay.hide();
@@ -163,12 +178,16 @@ viewer.setHoverHandler((shapeId, sub, clientX, clientY) => {
 viewer.setContextMenuHandler((shapeId, sub, clientX, clientY) => {
   if (modifyService.isActive) {
     modifyService.handleContextMenu(shapeId, sub, clientX, clientY);
+  } else if (sweepService.isEdgePicking) {
+    sweepService.handleContextMenu(shapeId, sub, clientX, clientY);
   }
 });
 
 viewer.setDoubleClickHandler((shapeId, sub) => {
   if (modifyService.isActive) {
     modifyService.handleDoubleClick(shapeId, sub);
+  } else if (sweepService.isEdgePicking) {
+    sweepService.handleDoubleClick(shapeId, sub);
   }
 });
 
@@ -176,6 +195,11 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
   // An armed modify mode (fillet/chamfer) owns clicks outright.
   if (modifyService.isActive) {
     modifyService.handleClick(shapeId, sub);
+    return;
+  }
+  // The sweep dialog's live path picking owns edge clicks the same way.
+  if (sweepService.isEdgePicking) {
+    sweepService.handleClick(shapeId, sub);
     return;
   }
 
@@ -327,14 +351,17 @@ function connectWebSocket() {
           sketchService.update([]);
           modifyService.update([]);
           extrudeService.update([]);
+          sweepService.update([]);
         } else {
           trimService.update(msg.result);
           regionService.update(msg.result);
-          // While the sketch-on-face pick has sketch editing suspended, the
-          // sketch toolbar must not re-take the bar on incoming renders.
-          sketchService.update(modifyService.sketchUISuspended ? [] : msg.result);
+          // While a pick mode has sketch editing suspended, the sketch
+          // toolbar must not re-take the bar on incoming renders.
+          const sketchSuspended = modifyService.sketchUISuspended || sweepService.sketchUISuspended;
+          sketchService.update(sketchSuspended ? [] : msg.result);
           modifyService.update(msg.result);
           extrudeService.update(msg.result);
+          sweepService.update(msg.result);
         }
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1);
         if (msg.params !== undefined) {

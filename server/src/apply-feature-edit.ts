@@ -15,11 +15,13 @@ import {
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: number;
   /** Extrude-only payload; the profile is a sketch, not a pick selection. */
   extrude?: ExtrudeEditOptions;
+  /** Sweep-only payload; `parts` (if any) render the path selector. */
+  sweep?: SweepEditOptions;
   filePath: string;
   producers: {
     line: number;
@@ -65,6 +67,24 @@ export type ExtrudeEditOptions = {
   /** `.thin(a)` / `.thin(a, b)` offsets, or null for a plain extrude. */
   thin: [number] | [number, number] | null;
   profile: 'implicit' | 'bound';
+};
+
+/**
+ * How a sweep statement is rendered and placed: `sweep(<path>[, <profile>])`
+ * plus `.thin(…)` / `.remove()` / `.new()` chains. The profile is a sketch —
+ * `implicit` consumes the last sketch (an anchor-only producer verifies it),
+ * `{producer}` binds that sketch to a variable. The path is either a bound
+ * sketch producer or the selector rendered from `parts` (edge picks). With
+ * both ends being sketches and a bound profile, the statement inserts right
+ * after the later of the two so a later active sketch stays active; every
+ * other combination inserts at end of scope, where an implicit profile is
+ * the last sketch and a selector path is known to resolve.
+ */
+export type SweepEditOptions = {
+  op: 'add' | 'remove' | 'new';
+  thin: [number] | [number, number] | null;
+  profile: 'implicit' | { producer: number };
+  path: { kind: 'sketch'; producer: number } | { kind: 'selector' };
 };
 
 export type ApplyFeatureEditResult = {
@@ -113,6 +133,19 @@ export async function applyFeatureEdit(
     if (!spec.extrude || spec.producers.length !== 1 || spec.parts.length !== 0) {
       return { newCode: code, error: 'malformed extrude edit spec' };
     }
+  } else if (spec.feature === 'sweep') {
+    const sw = spec.sweep;
+    const sketchProducer = (i: number) => Number.isInteger(i) && i >= 0
+      && i < spec.producers.length && spec.producers[i].featureType === 'sketch';
+    const valid = sw !== undefined
+      && spec.producers.length > 0
+      && (sw.path.kind === 'selector'
+        ? spec.parts.length >= 1
+        : spec.parts.length === 0 && sketchProducer(sw.path.producer))
+      && (sw.profile === 'implicit' || sketchProducer(sw.profile.producer));
+    if (!valid) {
+      return { newCode: code, error: 'malformed sweep edit spec' };
+    }
   } else if (!spec.producers.length || !spec.parts.length) {
     return { newCode: code, error: 'empty edit spec' };
   }
@@ -131,15 +164,16 @@ export async function applyFeatureEdit(
       return { newCode: code, error: `no call found at line ${producer.line} — is the file in sync with the last render?` };
     }
 
-    // The extrude producer is its profile sketch; a stale line pointing at
-    // some other call would extrude the wrong profile, so check both modes.
-    if (spec.feature === 'extrude') {
+    // Sketch producers (extrude/sweep profiles, sweep paths) must anchor the
+    // sketch call itself in both modes — a stale line pointing at some other
+    // call would consume the wrong profile or path.
+    if (producer.featureType === 'sketch') {
       const root = chainRootCallee(call);
       if (root !== 'sketch') {
         return {
           newCode: code,
           error: `the call at line ${producer.line} is ${root ? `${root}()` : 'not a feature call'}, `
-            + `expected the profile sketch() call — is the file in sync with the last render?`,
+            + `expected a sketch() call — is the file in sync with the last render?`,
         };
       }
     }
@@ -159,7 +193,9 @@ export async function applyFeatureEdit(
     }
 
     const root = chainRootCallee(call);
-    const validCallee = spec.feature === 'extrude' ? root === 'sketch' : root !== null && PRODUCER_CALLEES.has(root);
+    const validCallee = producer.featureType === 'sketch'
+      ? root === 'sketch'
+      : root !== null && PRODUCER_CALLEES.has(root);
     if (!validCallee) {
       return {
         newCode: code,
@@ -190,13 +226,7 @@ export async function applyFeatureEdit(
 
   allocateNames(tree.rootNode, bindings, spec);
 
-  // A bound extrude profile targets its sketch explicitly, so the statement
-  // goes directly after that sketch — a later active sketch stays the active
-  // one. Everything else inserts at the end of the scope, where the picked
-  // selection (or the implicitly consumed last sketch) is known to resolve.
-  const insertion = spec.feature === 'extrude' && spec.extrude!.profile === 'bound'
-    ? afterStatementInsertion(bindings[0].statement, lines)
-    : findInsertionPoint(scope, lines, bindings);
+  const insertion = resolveInsertion(spec, bindings, scope, lines);
   const statementText = buildStatement(spec, bindings, insertion.indent);
   const useSemicolon = bindings.some(b => b.statement.text.trimEnd().endsWith(';'));
 
@@ -287,6 +317,29 @@ export async function makeProducerNamer(
       return name;
     });
   };
+}
+
+/**
+ * The variable names sketch statements are bound to, for dialog labels:
+ * `const spine = sketch(…)` at one of `lines` resolves to `'spine'`; a bare
+ * sketch statement, a non-sketch line, or an unparsable one resolves to null.
+ * Purely cosmetic — the transform re-resolves bindings itself at apply time.
+ */
+export async function resolveSketchNames(code: string, lines: number[]): Promise<(string | null)[]> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const srcLines = splitLines(code);
+  return lines.map(line => {
+    const call = findEditableCallAt(tree, srcLines, line);
+    if (!call || chainRootCallee(call) !== 'sketch') {
+      return null;
+    }
+    const resolved = resolveStatement(call);
+    if ('error' in resolved || resolved.needsBinding) {
+      return null;
+    }
+    return resolved.varName;
+  });
 }
 
 export type ExtractedParam = {
@@ -558,6 +611,32 @@ function statementCallee(spec: ApplyFeatureEditSpec): string {
 }
 
 /**
+ * Render a sweep statement: `sweep(<path>[, <profile>])` plus `.thin(…)` and
+ * the `.remove()` / `.new()` operation chains. Shared with the route's
+ * preview so the previewed text is exactly what the transform writes.
+ */
+export function renderSweepStatement(
+  sw: Pick<SweepEditOptions, 'op' | 'thin'>,
+  pathExpr: string,
+  profileVar: string | null,
+): string {
+  const args = [pathExpr];
+  if (profileVar) {
+    args.push(profileVar);
+  }
+  let statement = `sweep(${args.join(', ')})`;
+  if (sw.thin) {
+    statement += `.thin(${sw.thin.map(formatNumber).join(', ')})`;
+  }
+  if (sw.op === 'remove') {
+    statement += '.remove()';
+  } else if (sw.op === 'new') {
+    statement += '.new()';
+  }
+  return statement;
+}
+
+/**
  * Render an extrude statement from its options: `extrude(25)` / `cut()`
  * (through-all) / `extrude(25, s)` for a bound profile, plus `.thin(…)` and
  * `.new()` chains. Shared with the route's preview so the previewed text is
@@ -594,8 +673,25 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   if (spec.feature === 'extrude') {
     return renderExtrudeStatement(spec.extrude!, bindings[0].varName);
   }
+  if (spec.feature === 'sweep') {
+    const sw = spec.sweep!;
+    const pathExpr = sw.path.kind === 'sketch'
+      ? bindings[sw.path.producer].varName!
+      : renderSelectorArgs(spec, bindings);
+    const profileVar = sw.profile === 'implicit' ? null : bindings[sw.profile.producer].varName!;
+    return renderSweepStatement(sw, pathExpr, profileVar);
+  }
+  const args = renderSelectorArgs(spec, bindings);
+  if (spec.feature === 'sketch') {
+    return `sketch(${args}, () => {\n\n${indent}})`;
+  }
+  return `${spec.feature}(${formatNumber(spec.value)}, ${args})`;
+}
+
+/** The selector argument list: the user-edited override, or rendered parts. */
+function renderSelectorArgs(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[]): string {
   const rawArgs = spec.rawArgs?.trim();
-  const args = rawArgs ?? spec.parts.map(part => {
+  return rawArgs ?? spec.parts.map(part => {
     const selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
     if (part.producer === null) {
       return `select(${selectorArgs})`;
@@ -603,10 +699,6 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     const name = bindings[part.producer].varName;
     return `${name}.${part.accessor}(${selectorArgs})`;
   }).join(', ');
-  if (spec.feature === 'sketch') {
-    return `sketch(${args}, () => {\n\n${indent}})`;
-  }
-  return `${spec.feature}(${formatNumber(spec.value)}, ${args})`;
 }
 
 const MODULE_FOR_IMPORT: Record<string, string> = {
@@ -641,6 +733,34 @@ function afterStatementInsertion(
 ): { index: number; indent: string; wrap: (stmt: string) => string } {
   const indent = indentOf(lines, statement.startPosition.row);
   return { index: statement.endIndex, indent, wrap: (stmt) => `\n${indent}${stmt}` };
+}
+
+/**
+ * Where the feature statement goes. Statements whose inputs are all explicit
+ * sketch variables insert directly after the later input — a later active
+ * sketch stays the active one (bound-profile extrude; bound-profile sweep
+ * with a sketch path). Everything else inserts at end of scope: a selector
+ * must resolve on the final model, and an implicit profile must consume the
+ * scope's last sketch.
+ */
+function resolveInsertion(
+  spec: ApplyFeatureEditSpec,
+  bindings: ProducerBinding[],
+  scope: TSNode,
+  lines: string[],
+): { index: number; indent: string; wrap: (stmt: string) => string } {
+  if (spec.feature === 'extrude' && spec.extrude!.profile === 'bound') {
+    return afterStatementInsertion(bindings[0].statement, lines);
+  }
+  if (spec.feature === 'sweep') {
+    const sw = spec.sweep!;
+    if (sw.path.kind === 'sketch' && sw.profile !== 'implicit') {
+      const path = bindings[sw.path.producer].statement;
+      const profile = bindings[sw.profile.producer].statement;
+      return afterStatementInsertion(path.endIndex >= profile.endIndex ? path : profile, lines);
+    }
+  }
+  return findInsertionPoint(scope, lines, bindings);
 }
 
 /**

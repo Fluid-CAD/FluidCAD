@@ -53,6 +53,13 @@ function featureIconImg(kind: ModifyFeatureKind): string {
 const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
 const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
 
+// The selection field. While it awaits its first pick it wears the active
+// (primary) outline and prompts "Pick a face/edge"; once populated it settles
+// into the neutral fill and shows the selection count.
+const COUNT_BOX_BASE = 'flex items-center gap-2 rounded-md px-3 py-2.5 border transition-colors';
+const COUNT_BOX_IDLE = 'bg-base-200 border-base-300 text-base-content/70';
+const COUNT_BOX_ACTIVE = 'bg-primary/10 border-primary text-primary';
+
 const PREVIEW_DEBOUNCE_MS = 250;
 const TOOLTIP_DEBOUNCE_MS = 200;
 
@@ -92,6 +99,7 @@ export class ModifyPickService {
   private valueWrap: HTMLElement;
   private valueLabel: HTMLElement;
   private valueInput: HTMLInputElement;
+  private countBox: HTMLElement;
   private countText: HTMLElement;
   private applyBtn: HTMLButtonElement;
   private message: HTMLDivElement;
@@ -156,8 +164,8 @@ export class ModifyPickService {
             <input data-role="value" type="number" step="0.5"
               class="input input-sm input-bordered w-full text-xs" />
           </label>
-          <div class="flex items-center gap-2 bg-base-200 border border-base-300 rounded-md px-3 py-2.5 text-base-content/70">
-            <span data-role="count" class="whitespace-nowrap">0 edges</span>
+          <div data-role="count-box" class="${COUNT_BOX_BASE} ${COUNT_BOX_ACTIVE}">
+            <span data-role="count" class="whitespace-nowrap">Pick an edge</span>
           </div>
           <div class="flex items-center gap-2 pt-1">
             <button data-role="apply" class="btn btn-primary btn-sm flex-1">Apply</button>
@@ -185,6 +193,7 @@ export class ModifyPickService {
     this.valueWrap = this.activeBar.querySelector('[data-role="value-wrap"]')!;
     this.valueLabel = this.activeBar.querySelector('[data-role="value-label"]')!;
     this.valueInput = this.activeBar.querySelector('[data-role="value"]')!;
+    this.countBox = this.activeBar.querySelector('[data-role="count-box"]')!;
     this.countText = this.activeBar.querySelector('[data-role="count"]')!;
     this.applyBtn = this.activeBar.querySelector('[data-role="apply"]')!;
     this.message = this.activeBar.querySelector('[data-role="message"]')!;
@@ -612,6 +621,9 @@ export class ModifyPickService {
   }
 
   private refresh(): void {
+    if (!this.feature) {
+      return;
+    }
     const edges = this.entities.filter(e => e.sub.type === 'edge').length;
     const faces = this.entities.length - edges;
     const parts: string[] = [];
@@ -624,7 +636,16 @@ export class ModifyPickService {
     if (this.chains.length > 0) {
       parts.push(`${this.chains.length} chain${this.chains.length === 1 ? '' : 's'}`);
     }
-    this.countText.textContent = parts.length > 0 ? parts.join(' + ') : '0 selected';
+    // Empty selection field: prompt for the first pick and wear the active
+    // (primary) outline; face-only features ask for a face, the rest an edge.
+    const empty = parts.length === 0;
+    if (empty) {
+      const noun = FEATURES[this.feature].pickFilter === 'face' ? 'a face' : 'an edge';
+      this.countText.textContent = `Pick ${noun}`;
+    } else {
+      this.countText.textContent = parts.join(' + ');
+    }
+    this.countBox.className = `${COUNT_BOX_BASE} ${empty ? COUNT_BOX_ACTIVE : COUNT_BOX_IDLE}`;
     this.syncButtons();
     this.schedulePreview();
   }

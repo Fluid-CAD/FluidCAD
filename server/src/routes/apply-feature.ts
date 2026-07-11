@@ -2,10 +2,11 @@ import { Router } from 'express';
 import type { FluidCadServer } from '../fluidcad-server.ts';
 import {
   applyFeatureEdit, extractNumericParams, makeProducerNamer, parseFeatureStatement, renderEditedStatement,
-  renderExtrudeStatement, renderLoftStatement, renderSelectorPartExpr, renderSweepStatement, resolveParamValues,
+  renderExtrudeStatement, renderLoftStatement, renderPlaneBaseExprs, renderPlaneStatement,
+  renderSelectorPartExpr, renderSweepStatement, resolveParamValues,
   resolveSketchNames,
   type ApplyFeatureEditSpec, type ExtrudeEditOptions, type FeatureStatementEditTarget, type LoftEditOptions,
-  type SweepEditOptions,
+  type PlaneEditOptions, type SweepEditOptions,
 } from '../apply-feature-edit.ts';
 import { normalizePath } from '../normalize-path.ts';
 
@@ -344,6 +345,181 @@ function validateLoft(body: any): LoftRequest | { error: string } {
     op, thin: thinResult.offsets, profiles: result, guides: guideLocs,
     startCondition: startResult.condition, endCondition: endResult.condition,
   };
+}
+
+/** One base of a plane request: a standard plane, a viewport pick, or an existing plane feature. */
+type PlaneBaseInput =
+  | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
+  | { kind: 'pick'; pick: Pick }
+  | { kind: 'plane'; loc: SketchLoc };
+
+type PlaneRequest = {
+  type: 'offset' | 'mid' | 'edge';
+  offset: number | null;
+  rotateX: number | null;
+  rotateY: number | null;
+  rotateZ: number | null;
+  position: number | null;
+  bases: PlaneBaseInput[];
+};
+
+/**
+ * The plane request's shape: one base for an offset plane, two for a mid
+ * plane — each a standard origin plane, a picked face/edge, or an existing
+ * plane feature addressed by its source location — or a single picked EDGE
+ * plus a normalized 0–1 position for an edge plane. The offset and per-axis
+ * rotations are optional (offset/mid only — the edge form's second argument
+ * is the position); duplicates are rejected (a mid plane between a base and
+ * itself is degenerate).
+ */
+function validatePlane(body: any): PlaneRequest | { error: string } {
+  const { type, bases } = body ?? {};
+  if (type !== 'offset' && type !== 'mid' && type !== 'edge') {
+    return { error: 'type must be "offset", "mid" or "edge"' };
+  }
+  const numbers: Record<string, number | null> = {};
+  for (const key of ['offset', 'rotateX', 'rotateY', 'rotateZ', 'position'] as const) {
+    const raw = body?.[key];
+    if (raw === undefined || raw === null) {
+      numbers[key] = null;
+      continue;
+    }
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+      return { error: `${key} must be a finite number` };
+    }
+    numbers[key] = raw;
+  }
+  if (type === 'edge') {
+    if (numbers.position === null || numbers.position < 0 || numbers.position > 1) {
+      return { error: 'position must be a number between 0 (start) and 1 (end)' };
+    }
+    if (numbers.offset !== null || numbers.rotateX !== null || numbers.rotateY !== null || numbers.rotateZ !== null) {
+      return { error: 'an edge plane takes a position only — no offset or rotation' };
+    }
+  } else if (numbers.position !== null) {
+    return { error: 'position is only valid for an edge plane' };
+  }
+  const expected = type === 'mid' ? 2 : 1;
+  if (!Array.isArray(bases) || bases.length !== expected) {
+    return {
+      error: type === 'mid'
+        ? 'a mid plane takes exactly two bases'
+        : `an ${type} plane takes exactly one base`,
+    };
+  }
+  const result: PlaneBaseInput[] = [];
+  const seen = new Set<string>();
+  for (const raw of bases) {
+    let key: string;
+    if (raw?.kind === 'standard') {
+      if (raw.plane !== 'xy' && raw.plane !== 'xz' && raw.plane !== 'yz') {
+        return { error: 'a standard base must be "xy", "xz" or "yz"' };
+      }
+      key = `standard:${raw.plane}`;
+      result.push({ kind: 'standard', plane: raw.plane });
+    } else if (raw?.kind === 'pick') {
+      const pick = validatePick(raw.entity);
+      if (!pick) {
+        return { error: 'a picked base must carry a {shapeId, sub:{type, index}} pick' };
+      }
+      key = `pick:${pick.shapeId}:${pick.sub.type}:${pick.sub.index}`;
+      result.push({ kind: 'pick', pick });
+    } else if (raw?.kind === 'plane') {
+      const loc = validateSketchLoc(raw);
+      if (!loc) {
+        return { error: 'a plane base must carry the plane {filePath, line}' };
+      }
+      key = `plane:${loc.filePath}:${loc.line}`;
+      result.push({ kind: 'plane', loc });
+    } else {
+      return { error: 'each base must be {kind: "standard"|"pick"|"plane", …}' };
+    }
+    if (seen.has(key)) {
+      return { error: 'the two bases must be different' };
+    }
+    seen.add(key);
+  }
+  if (type === 'edge' && (result[0].kind !== 'pick' || result[0].pick.sub.type !== 'edge')) {
+    return { error: 'an edge plane takes a single picked edge as its base' };
+  }
+  return {
+    type,
+    offset: numbers.offset,
+    rotateX: numbers.rotateX,
+    rotateY: numbers.rotateY,
+    rotateZ: numbers.rotateZ,
+    position: numbers.position,
+    bases: result,
+  };
+}
+
+/**
+ * Producers merged by call site across per-pick synthesis calls (and the
+ * request's own sketch/plane inputs); a bind:true entry wins over an anchor.
+ * Shared by the loft and plane branches.
+ */
+function makeProducerMerger(): {
+  producers: ApplyFeatureEditSpec['producers'];
+  merge: (producer: ApplyFeatureEditSpec['producers'][number]) => number;
+} {
+  const producers: ApplyFeatureEditSpec['producers'] = [];
+  const index = new Map<string, number>();
+  const merge = (producer: ApplyFeatureEditSpec['producers'][number]): number => {
+    const key = `${producer.line}:${producer.column}`;
+    const existing = index.get(key);
+    if (existing === undefined) {
+      index.set(key, producers.length);
+      producers.push(producer);
+      return producers.length - 1;
+    }
+    if (producer.bind && !producers[existing].bind) {
+      producers[existing] = producer;
+    }
+    return existing;
+  };
+  return { producers, merge };
+}
+
+/**
+ * Truthful preview names: one namer pass over the bound producers in spec
+ * order — the same allocation walk the transform runs. Unnamed producers fall
+ * back to collision-suffixed hints; unbound (anchor) entries stay null.
+ */
+async function allocateProducerVars(
+  producers: ApplyFeatureEditSpec['producers'],
+  code: string | null,
+): Promise<(string | null)[]> {
+  const names: (string | null)[] = producers.map((): null => null);
+  if (code) {
+    const namer = await makeProducerNamer(code);
+    const bound = producers
+      .map((producer, index) => ({ producer, index }))
+      .filter(entry => entry.producer.bind);
+    const resolved = namer(bound.map(({ producer }) => ({
+      line: producer.line, nameHint: producer.nameHint, featureType: producer.featureType,
+    })));
+    bound.forEach((entry, i) => {
+      names[entry.index] = resolved[i];
+    });
+  }
+  const used = new Set(names.filter((n): n is string => n !== null));
+  return producers.map((producer, i) => {
+    if (!producer.bind) {
+      return null;
+    }
+    if (names[i]) {
+      return names[i];
+    }
+    const hint = producer.nameHint || 'f';
+    let name = hint;
+    let suffix = 1;
+    while (used.has(name)) {
+      suffix++;
+      name = `${hint}${suffix}`;
+    }
+    used.add(name);
+    return name;
+  });
 }
 
 /** Features whose statements the dialogs can rewrite in place. */
@@ -749,28 +925,11 @@ export function createApplyFeatureRouter(
         let synthOptions: { params: { name: string; value: number }[] } | undefined;
         let synthOptionsReady = false;
 
-        const producers: ApplyFeatureEditSpec['producers'] = [];
+        const { producers, merge: mergeProducer } = makeProducerMerger();
         const parts: ApplyFeatureEditSpec['parts'] = [];
         const imports = new Set<string>();
         const profiles: LoftEditOptions['profiles'] = [];
         let filePath: string | null = null;
-
-        // Producers merge across the per-pick synthesis calls (and the sketch
-        // profiles) by call site; a bind:true entry wins over an anchor.
-        const producerIndex = new Map<string, number>();
-        const mergeProducer = (producer: ApplyFeatureEditSpec['producers'][number]): number => {
-          const key = `${producer.line}:${producer.column}`;
-          const existing = producerIndex.get(key);
-          if (existing === undefined) {
-            producerIndex.set(key, producers.length);
-            producers.push(producer);
-            return producers.length - 1;
-          }
-          if (producer.bind && !producers[existing].bind) {
-            producers[existing] = producer;
-          }
-          return existing;
-        };
 
         for (const profile of request.profiles) {
           if (profile.kind === 'sketch') {
@@ -849,40 +1008,7 @@ export function createApplyFeatureRouter(
           });
         }
 
-        // Truthful preview names: one namer pass over the bound producers in
-        // spec order — the same allocation walk the transform runs. Unnamed
-        // producers fall back to collision-suffixed hints.
-        const names: (string | null)[] = producers.map((): null => null);
-        if (code) {
-          const namer = await makeProducerNamer(code);
-          const bound = producers
-            .map((producer, index) => ({ producer, index }))
-            .filter(entry => entry.producer.bind);
-          const resolved = namer(bound.map(({ producer }) => ({
-            line: producer.line, nameHint: producer.nameHint, featureType: producer.featureType,
-          })));
-          bound.forEach((entry, i) => {
-            names[entry.index] = resolved[i];
-          });
-        }
-        const used = new Set(names.filter((n): n is string => n !== null));
-        const producerVars = producers.map((producer, i) => {
-          if (!producer.bind) {
-            return null;
-          }
-          if (names[i]) {
-            return names[i];
-          }
-          const hint = producer.nameHint || 'f';
-          let name = hint;
-          let suffix = 1;
-          while (used.has(name)) {
-            suffix++;
-            name = `${hint}${suffix}`;
-          }
-          used.add(name);
-          return name;
-        });
+        const producerVars = await allocateProducerVars(producers, code);
 
         const profileExprs = profiles.map(profile => {
           if (profile.kind === 'sketch') {
@@ -912,6 +1038,135 @@ export function createApplyFeatureRouter(
             feature: 'loft',
             loft: options,
             filePath: filePath!,
+            producers,
+            parts,
+            imports: [...imports],
+          },
+        });
+        res.json({ success: true, preview: statement });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
+
+    // Plane takes one base (offset) or two (mid) — standard planes, picked
+    // faces/edges, or existing plane features, mixed freely. Picks run
+    // synthesis one at a time like loft profiles, so each base keeps its own
+    // selector part.
+    if (feature === 'plane') {
+      const request = validatePlane(req.body);
+      if ('error' in request) {
+        res.status(400).json({ error: request.error });
+        return;
+      }
+      try {
+        const code = fluidCadServer.getCurrentCode();
+        // Built lazily on the first pick base — a standard/plane-only request
+        // never runs synthesis. Only `params` is passed: synthesis's own
+        // preview strings are discarded (bases re-render from the parts).
+        let synthOptions: { params: { name: string; value: number }[] } | undefined;
+        let synthOptionsReady = false;
+
+        const { producers, merge: mergeProducer } = makeProducerMerger();
+        const parts: ApplyFeatureEditSpec['parts'] = [];
+        const imports = new Set<string>();
+        const bases: PlaneEditOptions['bases'] = [];
+        let filePath: string | null = null;
+
+        for (const base of request.bases) {
+          if (base.kind === 'standard') {
+            bases.push({ kind: 'standard', plane: base.plane });
+            continue;
+          }
+          if (base.kind === 'plane') {
+            if (filePath !== null && base.loc.filePath !== filePath) {
+              res.status(422).json({ success: false, reason: 'the plane bases come from features in different files' });
+              return;
+            }
+            filePath = base.loc.filePath;
+            bases.push({
+              kind: 'plane',
+              producer: mergeProducer({
+                line: base.loc.line, column: base.loc.column,
+                featureType: 'plane', nameHint: 'p', bind: true,
+              }),
+            });
+            continue;
+          }
+          if (!synthOptionsReady) {
+            synthOptionsReady = true;
+            if (code) {
+              synthOptions = {
+                params: resolveParamValues(
+                  await extractNumericParams(code),
+                  fluidCadServer.getParamDefinitions(),
+                ),
+              };
+            }
+          }
+          const synthesis = fluidCadServer.synthesizeApplyFeature(
+            [base.pick], 'plane', undefined, [], synthOptions,
+          );
+          if (!synthesis) {
+            res.status(404).json({ success: false, reason: 'No rendered scene' });
+            return;
+          }
+          if (!synthesis.ok) {
+            res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
+            return;
+          }
+          if (synthesis.spec.parts.length !== 1) {
+            res.status(422).json({ success: false, reason: 'a plane base must be a single face or edge selection' });
+            return;
+          }
+          if (filePath !== null && synthesis.spec.filePath !== filePath) {
+            res.status(422).json({ success: false, reason: 'the plane bases come from features in different files' });
+            return;
+          }
+          filePath = synthesis.spec.filePath;
+          const remap = synthesis.spec.producers.map(mergeProducer);
+          const part = synthesis.spec.parts[0];
+          parts.push({ ...part, producer: part.producer === null ? null : remap[part.producer] });
+          for (const symbol of synthesis.spec.imports) {
+            imports.add(symbol);
+          }
+          bases.push({ kind: 'selector', part: parts.length - 1 });
+        }
+
+        // Standard-only bases reference no existing statement — the edit
+        // still needs a file to land in.
+        if (filePath === null) {
+          filePath = fluidCadServer.getCurrentFileName();
+          if (!filePath) {
+            res.status(404).json({ success: false, reason: 'No rendered scene' });
+            return;
+          }
+        }
+
+        const options: PlaneEditOptions = {
+          type: request.type,
+          offset: request.offset,
+          rotateX: request.rotateX,
+          rotateY: request.rotateY,
+          rotateZ: request.rotateZ,
+          position: request.position,
+          bases,
+        };
+        const producerVars = await allocateProducerVars(producers, code);
+        const statement = renderPlaneStatement(
+          options, renderPlaneBaseExprs(options, parts, i => producerVars[i]),
+        );
+        if (preview === true) {
+          res.json({ success: true, preview: statement });
+          return;
+        }
+        sendToExtension({
+          type: 'apply-feature-edit',
+          spec: {
+            feature: 'plane',
+            plane: options,
+            filePath,
             producers,
             parts,
             imports: [...imports],
@@ -1063,15 +1318,19 @@ export function createApplyFeatureRouter(
     }
   });
 
-  // Variable names of the sketch statements at the given source lines, for
-  // create-dialog labels ("spine — line 3"). Read-only over the live buffer;
-  // lines without a bound sketch resolve to null.
+  // Variable names of the sketch (or plane) statements at the given source
+  // lines, for create-dialog labels ("spine — line 3"). Read-only over the
+  // live buffer; lines without a bound statement resolve to null.
   router.post('/sketch-names', async (req, res) => {
-    const { lines } = req.body ?? {};
+    const { lines, callee } = req.body ?? {};
     const valid = Array.isArray(lines) && lines.length <= 64
       && lines.every((l: unknown) => Number.isInteger(l) && (l as number) >= 1);
     if (!valid) {
       res.status(400).json({ error: 'lines must be up to 64 positive integers' });
+      return;
+    }
+    if (callee !== undefined && callee !== 'sketch' && callee !== 'plane') {
+      res.status(400).json({ error: 'callee must be "sketch" or "plane"' });
       return;
     }
     const lineNumbers = lines as number[];
@@ -1081,7 +1340,7 @@ export function createApplyFeatureRouter(
         res.json({ names: lineNumbers.map((): null => null) });
         return;
       }
-      res.json({ names: await resolveSketchNames(code, lineNumbers) });
+      res.json({ names: await resolveSketchNames(code, lineNumbers, callee ?? 'sketch') });
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? String(err) });
     }

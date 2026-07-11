@@ -98,7 +98,9 @@ export class PlaneFromObject extends PlaneObjectBase {
   /**
    * Builds a plane normal to `edge` at the configured position. The edge
    * tangent at that point becomes the plane normal; the in-plane axes are
-   * an arbitrary (but deterministic) basis around it.
+   * an arbitrary (but deterministic) basis around it. Transform options
+   * post-transform the derived plane (position defaults to the start),
+   * exactly like the face path.
    */
   private buildFromEdge(context: BuildSceneObjectContext | undefined, edge: Edge) {
     const t = normalizeEdgePosition(this.optionsOrPosition);
@@ -116,6 +118,13 @@ export class PlaneFromObject extends PlaneObjectBase {
     // Unlike the face path, an edge is only *referenced* to derive the plane —
     // it is not consumed, so it stays available to its owning solid and to
     // other features.
+
+    const options = this.optionsOrPosition;
+    if (typeof options === 'object' && options !== null) {
+      const matrix = plane.getTransformMatrix(options);
+      plane = plane.applyMatrix(matrix);
+      center = center.transform(matrix);
+    }
 
     const transform = context?.getTransform() ?? null;
     if (transform) {
@@ -245,6 +254,11 @@ function normalizeEdgePosition(
   if (typeof position === 'number') {
     return position;
   }
+  // Transform options act on the derived plane, not the position — the
+  // plane is taken at the edge start, then offset/rotated.
+  if (typeof position === 'object') {
+    return 0;
+  }
   switch (position) {
     case 'start':
       return 0;
@@ -252,8 +266,9 @@ function normalizeEdgePosition(
       return 0.5;
     case 'end':
       return 1;
+    default:
+      throw new Error(
+        "Plane: an edge plane takes a 0–1 position, 'start'/'middle'/'end', or transform options"
+      );
   }
-  throw new Error(
-    "Plane: an edge plane takes a 0–1 position or 'start'/'middle'/'end', not transform options"
-  );
 }

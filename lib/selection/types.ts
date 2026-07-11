@@ -46,7 +46,7 @@ export type ExplainResult = {
   picks: PickExplanation[];
 };
 
-export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'sweep' | 'loft';
+export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'sweep' | 'loft' | 'plane';
 
 /**
  * A tangent chain from the "Select with tangents" gesture: the pick the user
@@ -156,6 +156,7 @@ export function nameHintFor(featureType: string): string {
     case 'rib': return 'rib';
     case 'wrap': return 'wr';
     case 'shell': return 'sh';
+    case 'plane': return 'p';
     default: return 'f';
   }
 }

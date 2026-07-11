@@ -18,6 +18,7 @@ import { ModifyPickService } from './interactive/modify-pick-service';
 import { ExtrudeFeatureService } from './interactive/create-feature/extrude-service';
 import { SweepFeatureService } from './interactive/create-feature/sweep-service';
 import { LoftFeatureService } from './interactive/create-feature/loft-service';
+import { PlaneFeatureService } from './interactive/create-feature/plane-service';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { onThemeChange } from './scene/theme-colors';
@@ -97,7 +98,7 @@ const regionService = new RegionPickService(viewer, navbar);
 // The Sketch button (create group) stays visible while a create dialog is
 // up — it disables instead. Recomputed on every dialog arm/disarm.
 const syncSketchButtonBlocked = () => modifyService.setCreateDialogActive(
-  extrudeService.isActive || sweepService.isActive || loftService.isActive,
+  extrudeService.isActive || sweepService.isActive || loftService.isActive || planeService.isActive,
 );
 // Registered before the sketch toolbar so the create group renders ahead of
 // the sketch tools; its `immune` flag keeps it visible in sketch mode, where
@@ -107,6 +108,7 @@ const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
     modifyService.exit();
     sweepService.exit();
     loftService.exit();
+    planeService.exit();
     measureController.clearSelection();
     viewer.clearHighlight();
     selectionInfoOverlay.hide();
@@ -118,6 +120,7 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     loftService.exit();
+    planeService.exit();
     measureController.clearSelection();
     viewer.clearHighlight();
     selectionInfoOverlay.hide();
@@ -131,6 +134,7 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     sweepService.exit();
+    planeService.exit();
     measureController.clearSelection();
     viewer.clearHighlight();
     selectionInfoOverlay.hide();
@@ -139,11 +143,32 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
   onSuspendSketchUI: () => sketchService.update([]),
   onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
 });
-// An armed create dialog takes sketch rows clicked in the timeline as its
-// profile/path instead of the default rollback-preview.
+// Constructed after the other create services: its button prepends ahead of
+// Extrude, and the Sketch button (modify service) prepends ahead of it —
+// the group reads Sketch, Plane, Extrude, Sweep, Loft.
+const planeService = new PlaneFeatureService(container, viewer, navbar, {
+  // The current highlight seeds the dialog (one edge → edge type, one face →
+  // offset, two faces → mid), like the modify tools.
+  onEnter: () => {
+    modifyService.exit();
+    extrudeService.exit();
+    sweepService.exit();
+    loftService.exit();
+    const seed = [...measureController.selection];
+    measureController.clearSelection();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
+    return seed;
+  },
+  onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: () => sketchService.update([]),
+  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+});
+// An armed create dialog takes sketch (or plane) rows clicked in the
+// timeline as its input instead of the default rollback-preview.
 timelinePanel.onFeatureIntercept = (obj) =>
   extrudeService.handleTimelinePick(obj) || sweepService.handleTimelinePick(obj)
-  || loftService.handleTimelinePick(obj);
+  || loftService.handleTimelinePick(obj) || planeService.handleTimelinePick(obj);
 // Double-clicking an editable feature row (the enter-breakpoint gesture)
 // also opens that feature's dialog prefilled from its statement.
 timelinePanel.onFeatureEdit = (obj) => {
@@ -211,6 +236,7 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
     extrudeService.exit();
     sweepService.exit();
     loftService.exit();
+    planeService.exit();
     const seed = [...measureController.selection];
     measureController.clearSelection();
     selectionInfoOverlay.hide();
@@ -266,7 +292,8 @@ viewer.setHoverHandler((shapeId, sub, clientX, clientY) => {
 const createDialogPicking = () =>
   (extrudeService.isActive && !extrudeService.isEditing)
   || (sweepService.isActive && !sweepService.isEditing)
-  || (loftService.isActive && !loftService.isEditing);
+  || (loftService.isActive && !loftService.isEditing)
+  || planeService.isActive;
 
 viewer.setContextMenuHandler((shapeId, sub, clientX, clientY) => {
   if (modifyService.isActive && !modifyService.isEditing) {
@@ -317,6 +344,11 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
   // The armed loft dialog owns face clicks — each pick is one profile.
   if (loftService.isFacePicking) {
     loftService.handleClick(shapeId, sub);
+    return;
+  }
+  // The armed plane dialog owns clicks while a base slot is in pick mode.
+  if (planeService.isPicking) {
+    planeService.handleClick(shapeId, sub);
     return;
   }
 
@@ -475,18 +507,21 @@ function connectWebSocket() {
           extrudeService.update([]);
           sweepService.update([]);
           loftService.update([]);
+          planeService.update([]);
         } else {
           trimService.update(msg.result);
           regionService.update(msg.result);
           // While a pick mode has sketch editing suspended, the sketch
           // toolbar must not re-take the bar on incoming renders.
           const sketchSuspended = modifyService.sketchUISuspended
-            || sweepService.sketchUISuspended || loftService.sketchUISuspended;
+            || sweepService.sketchUISuspended || loftService.sketchUISuspended
+            || planeService.sketchUISuspended;
           sketchService.update(sketchSuspended ? [] : msg.result);
           modifyService.update(msg.result);
           extrudeService.update(msg.result);
           sweepService.update(msg.result);
           loftService.update(msg.result);
+          planeService.update(msg.result);
         }
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1);
         if (msg.params !== undefined) {

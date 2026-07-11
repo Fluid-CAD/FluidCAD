@@ -18,7 +18,11 @@ export class PlaneMiddleRenderable extends PlaneObjectBase {
     const xDirection = plane1.xDirection;
     const normal = plane1.normal;
 
-    const result = new Plane(midpoint, xDirection, normal);
+    let result = new Plane(midpoint, xDirection, normal);
+
+    if (this.options) {
+      result = result.transform(this.options);
+    }
 
     this.setState('plane', result);
 

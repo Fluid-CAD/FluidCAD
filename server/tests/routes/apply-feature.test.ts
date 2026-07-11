@@ -605,6 +605,206 @@ describe('apply-feature route validation', () => {
     expect(body.error).toContain('"normal" or "tangent"');
   });
 
+  /** One per-pick plane synthesis result: a single-part selector. */
+  const planeSynthesis = (accessor: string, line = 5) => ({
+    ok: true,
+    spec: {
+      feature: 'plane',
+      filePath: '/ws/m.fluid.js',
+      producers: [{ line, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor, indices: null, filterArgs: null }],
+      imports: [],
+    },
+    preview: '', args: '', alternatives: [],
+  });
+  const planePick = (index: number, type = 'face', shapeId = 'shape-1') =>
+    ({ kind: 'pick', entity: { shapeId, sub: { type, index } } });
+
+  it('relays a standard-base offset plane without synthesis', async () => {
+    currentFileName = '/ws/m.fluid.js';
+    const { status, body } = await post({
+      feature: 'plane', type: 'offset', offset: 10,
+      bases: [{ kind: 'standard', plane: 'xy' }],
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe(`plane('xy', 10)`);
+    expect(synthesizeCalls).toEqual([]);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'plane',
+      filePath: '/ws/m.fluid.js',
+      plane: { type: 'offset', offset: 10, bases: [{ kind: 'standard', plane: 'xy' }] },
+      producers: [],
+      parts: [],
+    });
+  });
+
+  it('404s a standard-only plane without a rendered scene', async () => {
+    const { status } = await post({
+      feature: 'plane', type: 'offset', offset: 10,
+      bases: [{ kind: 'standard', plane: 'xy' }],
+    });
+    expect(status).toBe(404);
+  });
+
+  it('previews plane rotation options without relaying', async () => {
+    currentFileName = '/ws/m.fluid.js';
+    const { body } = await post({
+      feature: 'plane', type: 'offset', offset: 10, rotateX: 15,
+      bases: [{ kind: 'standard', plane: 'xz' }], preview: true,
+    });
+    expect(body.preview).toBe(`plane('xz', { offset: 10, rotateX: 15 })`);
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('synthesizes a picked plane base and renders the offset form', async () => {
+    currentSynthesis = planeSynthesis('endFaces');
+    const { status, body } = await post({
+      feature: 'plane', type: 'offset', offset: 5, bases: [planePick(0)],
+    });
+    expect(status).toBe(200);
+    expect(synthesizeCalls).toEqual([{ feature: 'plane', value: undefined }]);
+    expect(body.preview).toBe('plane(e.endFaces(), 5)');
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'plane',
+      plane: { bases: [{ kind: 'selector', part: 0 }] },
+      producers: [{ line: 5, featureType: 'extrude', bind: true }],
+      parts: [{ producer: 0, accessor: 'endFaces' }],
+    });
+  });
+
+  it('wraps picked bases in a mid plane and merges shared producers', async () => {
+    currentSynthesis = [planeSynthesis('endFaces'), planeSynthesis('startFaces')];
+    const { status, body } = await post({
+      feature: 'plane', type: 'mid',
+      bases: [planePick(0), planePick(1)],
+    });
+    expect(status).toBe(200);
+    expect(synthesizeCalls).toHaveLength(2);
+    expect(body.preview).toBe('plane(plane(e.endFaces()), plane(e.startFaces()))');
+    expect(relayed[0].spec).toMatchObject({
+      plane: { type: 'mid', bases: [{ kind: 'selector', part: 0 }, { kind: 'selector', part: 1 }] },
+      producers: [{ line: 5, featureType: 'extrude', bind: true }],
+      parts: [{ producer: 0, accessor: 'endFaces' }, { producer: 0, accessor: 'startFaces' }],
+    });
+  });
+
+  it('binds existing plane features as mid bases', async () => {
+    const { status, body } = await post({
+      feature: 'plane', type: 'mid', rotateY: 30,
+      bases: [
+        { kind: 'plane', filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+        { kind: 'plane', filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+      ],
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe(`plane(p, p2, { rotateY: 30 })`);
+    expect(synthesizeCalls).toEqual([]);
+    expect(relayed[0].spec).toMatchObject({
+      plane: { type: 'mid', bases: [{ kind: 'plane', producer: 0 }, { kind: 'plane', producer: 1 }] },
+      producers: [
+        { line: 3, featureType: 'plane', nameHint: 'p', bind: true },
+        { line: 4, featureType: 'plane', nameHint: 'p', bind: true },
+      ],
+    });
+  });
+
+  it('synthesizes an edge plane with its position', async () => {
+    currentSynthesis = planeSynthesis('sideEdges');
+    const { status, body } = await post({
+      feature: 'plane', type: 'edge', position: 0.5, bases: [planePick(2, 'edge')],
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('plane(e.sideEdges(), 0.5)');
+    expect(relayed[0].spec).toMatchObject({
+      plane: { type: 'edge', position: 0.5, bases: [{ kind: 'selector', part: 0 }] },
+    });
+  });
+
+  it('rejects an edge plane without a position', async () => {
+    const { status, body } = await post({
+      feature: 'plane', type: 'edge', bases: [planePick(2, 'edge')],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('position');
+  });
+
+  it('rejects an edge plane with a face pick', async () => {
+    const { status, body } = await post({
+      feature: 'plane', type: 'edge', position: 0.5, bases: [planePick(0)],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('picked edge');
+  });
+
+  it('rejects rotation on an edge plane', async () => {
+    const { status, body } = await post({
+      feature: 'plane', type: 'edge', position: 0.5, rotateX: 15, bases: [planePick(2, 'edge')],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('no offset or rotation');
+  });
+
+  it('rejects a position on an offset plane', async () => {
+    const { status, body } = await post({
+      feature: 'plane', type: 'offset', position: 0.5, bases: [{ kind: 'standard', plane: 'xy' }],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('only valid for an edge plane');
+  });
+
+  it('rejects a mid plane with one base', async () => {
+    const { status, body } = await post({
+      feature: 'plane', type: 'mid', bases: [{ kind: 'standard', plane: 'xy' }],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('exactly two bases');
+  });
+
+  it('rejects duplicate plane bases', async () => {
+    const { status, body } = await post({
+      feature: 'plane', type: 'mid',
+      bases: [{ kind: 'standard', plane: 'xy' }, { kind: 'standard', plane: 'xy' }],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('must be different');
+  });
+
+  it('rejects a non-finite plane rotation', async () => {
+    const { status, body } = await post({
+      feature: 'plane', type: 'offset', rotateX: 'lots',
+      bases: [{ kind: 'standard', plane: 'xy' }],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('rotateX');
+  });
+
+  it('refuses plane bases from different files', async () => {
+    currentSynthesis = planeSynthesis('endFaces');
+    const { status, body } = await post({
+      feature: 'plane', type: 'mid',
+      bases: [planePick(0), { kind: 'plane', filePath: '/ws/other.fluid.js', line: 3, column: 0 }],
+    });
+    expect(status).toBe(422);
+    expect(body.reason).toContain('different files');
+  });
+
+  it('resolves bound plane names with the plane callee', async () => {
+    currentCode = [
+      `import { plane, sketch, rect } from 'fluidcad/core'`,
+      ``,
+      `const top = plane('xy', 30)`,
+      `sketch('xy', () => { rect(10, 10) })`,
+      ``,
+    ].join('\n');
+    const res = await fetch(`${baseUrl}/api/sketch-names`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lines: [3, 4], callee: 'plane' }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).names).toEqual(['top', null]);
+  });
+
   it('resolves bound sketch names and nulls for everything else', async () => {
     currentCode = [
       `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,

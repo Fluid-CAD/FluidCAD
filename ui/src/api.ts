@@ -474,6 +474,50 @@ export async function applyLoft(options: LoftApplyOptions): Promise<ApplyFeature
   }, options.signal);
 }
 
+/**
+ * One base of a plane request: a standard origin plane, a face/edge picked in
+ * the 3D view, or an existing plane feature addressed by its source location.
+ */
+export type PlaneBaseRef =
+  | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
+  | { kind: 'pick'; entity: ApplyFeatureEntity }
+  | ({ kind: 'plane' } & SketchSourceRef);
+
+export type PlaneApplyOptions = {
+  /** `offset`/`edge` take one base; `mid` takes two. */
+  type: 'offset' | 'mid' | 'edge';
+  /** Normal offset distance; null renders none. Offset type only. */
+  offset: number | null;
+  /** Rotation in degrees around the plane's local axes; null renders none. */
+  rotateX: number | null;
+  rotateY: number | null;
+  rotateZ: number | null;
+  /** Normalized 0–1 position along the edge (edge type only). */
+  position: number | null;
+  bases: PlaneBaseRef[];
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a plane statement
+ * over the base(s). Same endpoint and response shape as {@link applyFeature}.
+ */
+export async function applyPlane(options: PlaneApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'plane',
+    type: options.type,
+    offset: options.offset,
+    rotateX: options.rotateX,
+    rotateY: options.rotateY,
+    rotateZ: options.rotateZ,
+    position: options.position,
+    bases: options.bases,
+    preview: options.preview,
+  }, options.signal);
+}
+
 // ---------------------------------------------------------------------------
 // Feature statement editing (timeline double-click → edit dialog)
 // ---------------------------------------------------------------------------
@@ -638,16 +682,19 @@ export async function applyValueFeatureEdit(
 }
 
 /**
- * Variable names of the sketch statements at the given source lines (dialog
- * labels). Unbound or unresolvable lines come back null; failures degrade to
- * all-null — the labels are cosmetic.
+ * Variable names of the sketch (or plane) statements at the given source
+ * lines (dialog labels). Unbound or unresolvable lines come back null;
+ * failures degrade to all-null — the labels are cosmetic.
  */
-export async function fetchSketchNames(lines: number[]): Promise<(string | null)[]> {
+export async function fetchSketchNames(
+  lines: number[],
+  callee: 'sketch' | 'plane' = 'sketch',
+): Promise<(string | null)[]> {
   try {
     const res = await fetch('/api/sketch-names', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ lines }),
+      body: JSON.stringify({ lines, callee }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok || !Array.isArray(body?.names)) {

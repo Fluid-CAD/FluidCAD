@@ -1681,3 +1681,184 @@ describe('applyFeatureEdit (in-place statement edit)', () => {
     expect(result.newCode).toBe(code);
   });
 });
+
+describe('plane statement templates', () => {
+  const planeOptions = (over: Partial<import('../src/apply-feature-edit.ts').PlaneEditOptions> = {}) => ({
+    type: 'offset' as const,
+    offset: null,
+    rotateX: null,
+    rotateY: null,
+    rotateZ: null,
+    bases: [{ kind: 'standard' as const, plane: 'xy' as const }],
+    ...over,
+  });
+
+  const planeSpec = (
+    pl: ReturnType<typeof planeOptions>,
+    over: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec => ({
+    feature: 'plane',
+    filePath: '/ws/model.fluid.js',
+    plane: pl,
+    producers: [],
+    parts: [],
+    imports: [],
+    ...over,
+  });
+
+  const base = [
+    `import { sketch, rect, extrude } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { rect(100, 50) })`,
+    `extrude(30)`,
+    ``,
+  ].join('\n');
+
+  it('appends a standard-base offset plane at top level and imports plane', async () => {
+    const result = await applyFeatureEdit(base, planeSpec(planeOptions({ offset: 10 })));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`import {plane, sketch, rect, extrude } from 'fluidcad/core'`);
+    expect(result.newCode).toContain(`extrude(30)\nplane('xy', 10)`);
+  });
+
+  it('renders a bare standard plane without options', async () => {
+    const result = await applyFeatureEdit(base, planeSpec(planeOptions()));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`plane('xy')`);
+  });
+
+  it('renders rotation as a transform options object', async () => {
+    const result = await applyFeatureEdit(base, planeSpec(planeOptions({ offset: 10, rotateX: 15, rotateZ: -30 })));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`plane('xy', { offset: 10, rotateX: 15, rotateZ: -30 })`);
+  });
+
+  it('appends a standard-base plane before an active breakpoint', async () => {
+    const code = [
+      `import { sketch, rect, extrude, breakpoint } from 'fluidcad/core'`,
+      ``,
+      `extrude(30)`,
+      `breakpoint()`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, planeSpec(planeOptions({ offset: 5 })));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`plane('xy', 5)\nbreakpoint()`);
+  });
+
+  it('renders an offset plane from a picked face selector at end of scope', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      `sketch('xz', () => { rect(10, 10) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, planeSpec(
+      planeOptions({ offset: 5, bases: [{ kind: 'selector', part: 0 }] }),
+      {
+        producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const e = extrude(30)`);
+    // End-of-scope: after the later sketch, so the selection resolves on the
+    // final model.
+    expect(result.newCode).toContain(`sketch('xz', () => { rect(10, 10) })\nplane(e.endFaces(), 5)`);
+  });
+
+  it('wraps selector bases for a mid plane', async () => {
+    const result = await applyFeatureEdit(base, planeSpec(
+      planeOptions({
+        type: 'mid',
+        rotateY: 30,
+        bases: [{ kind: 'selector', part: 0 }, { kind: 'standard', plane: 'xz' }],
+      }),
+      {
+        producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`plane(plane(e.endFaces()), 'xz', { rotateY: 30 })`);
+  });
+
+  it('keeps the object form for a mid plane with only an offset', async () => {
+    const result = await applyFeatureEdit(base, planeSpec(planeOptions({
+      type: 'mid',
+      offset: 10,
+      bases: [{ kind: 'standard', plane: 'xy' }, { kind: 'standard', plane: 'xz' }],
+    })));
+    expect(result.error).toBeUndefined();
+    // plane(p1, p2, …) reads its third argument as options — never a bare number.
+    expect(result.newCode).toContain(`plane('xy', 'xz', { offset: 10 })`);
+  });
+
+  it('binds plane producers and inserts a mid plane after the latest input', async () => {
+    const code = [
+      `import { sketch, rect, extrude, plane } from 'fluidcad/core'`,
+      ``,
+      `plane('xy')`,
+      `plane('xy', 40)`,
+      `sketch('xz', () => { rect(10, 10) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, planeSpec(
+      planeOptions({
+        type: 'mid',
+        bases: [{ kind: 'plane', producer: 0 }, { kind: 'plane', producer: 1 }],
+      }),
+      {
+        producers: [
+          { line: 3, column: 0, featureType: 'plane', nameHint: 'p', bind: true },
+          { line: 4, column: 0, featureType: 'plane', nameHint: 'p', bind: true },
+        ],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const p = plane('xy')`);
+    // Inserted directly after the later input, before the trailing sketch.
+    expect(result.newCode).toContain(`const p2 = plane('xy', 40)\nplane(p, p2)\nsketch('xz'`);
+  });
+
+  it('renders an edge plane with its normalized position', async () => {
+    const result = await applyFeatureEdit(base, planeSpec(
+      planeOptions({ type: 'edge', position: 0.5, bases: [{ kind: 'selector', part: 0 }] }),
+      {
+        producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'sideEdges', indices: [0], filterArgs: null }],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`plane(e.sideEdges(0), 0.5)`);
+  });
+
+  it('refuses an edge plane carrying rotation', async () => {
+    const result = await applyFeatureEdit(base, planeSpec(
+      planeOptions({ type: 'edge', position: 0.5, rotateX: 15, bases: [{ kind: 'selector', part: 0 }] }),
+      {
+        producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'sideEdges', indices: [0], filterArgs: null }],
+      },
+    ));
+    expect(result.error).toContain('malformed plane edit spec');
+    expect(result.newCode).toBe(base);
+  });
+
+  it('refuses when a plane producer line is not a plane call', async () => {
+    const result = await applyFeatureEdit(base, planeSpec(
+      planeOptions({ bases: [{ kind: 'plane', producer: 0 }] }),
+      { producers: [{ line: 4, column: 0, featureType: 'plane', nameHint: 'p', bind: true }] },
+    ));
+    expect(result.error).toContain('expected a plane() call');
+    expect(result.newCode).toBe(base);
+  });
+
+  it('refuses a malformed mid spec with a single base', async () => {
+    const result = await applyFeatureEdit(base, planeSpec(planeOptions({ type: 'mid' })));
+    expect(result.error).toContain('malformed plane edit spec');
+    expect(result.newCode).toBe(base);
+  });
+});

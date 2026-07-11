@@ -42,7 +42,8 @@ export function explainSelection(scene: Scene, refs: PickRef[]): ExplainResult {
  * faces: oracle-verified selector parts plus the producer call sites the
  * transform must bind. `fillet`/`chamfer` take edges (a face pick fillets all
  * of the face's edges), `shell` takes the faces to remove, `sketch` takes
- * exactly one face and no numeric value. Tangent chains (right-click "Select
+ * exactly one face and no numeric value, `plane` takes exactly one face or
+ * edge (a plane base) and no numeric value. Tangent chains (right-click "Select
  * with tangents") arrive as seed + expanded members and synthesize
  * `.withTangents()` selectors. The result carries the winning argument list
  * plus up to three verified alternative renderings for the UI's expression
@@ -69,6 +70,16 @@ export function synthesizeApplyFeature(
       };
     }
   }
+  if (feature === 'plane') {
+    // Each synthesis call names ONE plane base: a single face or edge.
+    if (chains.length > 0 || refs.length !== 1) {
+      return {
+        ok: false,
+        reason: 'a plane base is a single face or edge — pick exactly one',
+        pick: refs[0],
+      };
+    }
+  }
   if (feature === 'sweep') {
     // The picks describe the sweep path: a wire built from edges.
     const face = [...refs, ...chains.flatMap(c => c.members)].find(r => r.sub.type !== 'edge');
@@ -90,12 +101,13 @@ export function synthesizeApplyFeature(
     const chained = new Set(chains.flatMap(c => c.members.map(refKey)));
     const freeRefs = refs.filter(r => !chained.has(refKey(r)));
     const attributions = freeRefs.map(ref => attributePick(scene, index, ref));
-    // sketch() only extracts the plane from its face argument, so a face
-    // reshaped by later features may still be named by its classified
-    // ancestor's accessor — re-home the pick before synthesis routes it to a
-    // geometric select(). Every other feature uses the face itself, where the
-    // ancestor accessor would resolve to geometry the final solid lost.
-    if (feature === 'sketch') {
+    // sketch() and plane() only extract the plane from their face argument,
+    // so a face reshaped by later features may still be named by its
+    // classified ancestor's accessor — re-home the pick before synthesis
+    // routes it to a geometric select(). Every other feature uses the face
+    // itself, where the ancestor accessor would resolve to geometry the final
+    // solid lost. (Edge picks pass through: the re-home is face-only.)
+    if (feature === 'sketch' || feature === 'plane') {
       for (let i = 0; i < attributions.length; i++) {
         attributions[i] = rehomePlaneFacePick(index, attributions[i]);
       }
@@ -105,10 +117,11 @@ export function synthesizeApplyFeature(
       members: c.members.map(m => attributePick(scene, index, m)),
     }));
 
-    // Sketch names a plane, not geometry — prefer the compact index form
-    // over induced filters with baked-in geometry constants.
+    // Sketch and plane name a plane/reference, not geometry — prefer the
+    // compact index form over induced filters with baked-in constants.
     const synthesis = synthesizeSelectors(
-      scene, index, attributions, chainInputs, options.params ?? [], feature === 'sketch',
+      scene, index, attributions, chainInputs, options.params ?? [],
+      feature === 'sketch' || feature === 'plane',
     );
     if (synthesis.ok === false) {
       return { ok: false, reason: synthesis.reason, pick: synthesis.pick };
@@ -135,7 +148,8 @@ export function synthesizeApplyFeature(
 
     const spec: ApplyFeatureEditSpec = {
       feature,
-      ...(feature === 'sketch' || feature === 'sweep' || feature === 'loft' ? {} : { value }),
+      ...(feature === 'sketch' || feature === 'sweep' || feature === 'loft' || feature === 'plane'
+        ? {} : { value }),
       filePath: filePaths.values().next().value!,
       producers: located.map(l => {
         const loc = l.feature.getSourceLocation()!;
@@ -277,6 +291,10 @@ function renderPreview(feature: ApplyFeatureKind, value: number | undefined, arg
   if (feature === 'loft') {
     // The args are one profile's selector; the route composes the statement.
     return `loft(${args})`;
+  }
+  if (feature === 'plane') {
+    // The args are one base's selector; the route composes the statement.
+    return `plane(${args})`;
   }
   return `${feature}(${value}, ${args})`;
 }

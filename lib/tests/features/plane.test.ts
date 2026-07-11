@@ -258,6 +258,44 @@ describe("plane", () => {
       expectSamePoint(nStart, nEnd.negate());
     });
 
+    it("should apply transform options to a plane from an edge", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(30) as Extrude;
+
+      const pStart = plane(e.startEdges(0)) as PlaneObjectBase;
+      const pOffset = plane(e.startEdges(0), { offset: 10 }) as PlaneObjectBase;
+
+      render();
+
+      const base = pStart.getPlane();
+      const moved = pOffset.getPlane();
+      // The offset moves the origin along the plane normal (the edge tangent).
+      const expected = base.origin.add(base.normal.multiply(10));
+      expectSamePoint(moved.origin, expected);
+      expectSamePoint(moved.normal, base.normal);
+    });
+
+    it("should apply rotation options to a plane from an edge", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(30) as Extrude;
+
+      const pStart = plane(e.startEdges(0)) as PlaneObjectBase;
+      const pRot = plane(e.startEdges(0), { rotateX: 90 }) as PlaneObjectBase;
+
+      render();
+
+      const base = pStart.getPlane();
+      const rot = pRot.getPlane();
+      // A 90° rotation around the plane's own X axis turns the normal
+      // perpendicular to itself; the origin stays put.
+      expectSamePoint(rot.origin, base.origin);
+      expect(rot.normal.dot(base.normal)).toBeCloseTo(0);
+    });
+
     it("should still treat a numeric argument on a face as a normal offset", () => {
       sketch("xy", () => {
         rect(100, 50);
@@ -307,6 +345,32 @@ describe("plane", () => {
       render();
 
       const pl = mid.getPlane();
+      expect(Math.abs(pl.normal.y)).toBeCloseTo(1);
+      expect(pl.normal.z).toBeCloseTo(0);
+    });
+
+    it("should offset a mid plane along its normal", () => {
+      const p1 = plane("xy") as PlaneObjectBase;
+      const p2 = plane("xy", { offset: 40 }) as PlaneObjectBase;
+      const mid = plane(p1, p2, { offset: 5 }) as PlaneObjectBase;
+
+      render();
+
+      const pl = mid.getPlane();
+      expect(pl.origin.z).toBeCloseTo(25);
+      expect(pl.normal.z).toBeCloseTo(1);
+    });
+
+    it("should rotate a mid plane", () => {
+      const p1 = plane("xy") as PlaneObjectBase;
+      const p2 = plane("xy", { offset: 40 }) as PlaneObjectBase;
+      const mid = plane(p1, p2, { rotateX: 90 }) as PlaneObjectBase;
+
+      render();
+
+      const pl = mid.getPlane();
+      expect(pl.origin.z).toBeCloseTo(20);
+      // XY normal (Z) rotated 90° around the plane's X axis lands on ±Y.
       expect(Math.abs(pl.normal.y)).toBeCloseTo(1);
       expect(pl.normal.z).toBeCloseTo(0);
     });

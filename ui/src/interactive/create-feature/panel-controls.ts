@@ -6,48 +6,62 @@ const TAB_BASE = 'btn btn-sm join-item flex-1 font-normal';
 const TAB_ACTIVE = 'btn btn-sm join-item flex-1 btn-soft btn-primary';
 
 /**
- * The boolean-operation tab row (Add / Remove / New) shared by the
- * create-feature dialogs. Renders into `host` (a `join` row).
+ * A mutually-exclusive tab row shared by the create-feature dialogs.
+ * Renders into `host` (a `join` row).
  */
-export class OpTabs {
+export class ChoiceTabs<T extends string> {
   onChange?: () => void;
 
-  private tabs = new Map<FeatureOp, HTMLButtonElement>();
-  private current: FeatureOp = 'add';
+  private tabs = new Map<T, HTMLButtonElement>();
+  private current: T;
 
-  constructor(host: HTMLElement, ops: { op: FeatureOp; label: string; title: string }[]) {
-    for (const { op, label, title } of ops) {
+  constructor(host: HTMLElement, choices: { key: T; label: string; title: string }[], initial: T) {
+    this.current = initial;
+    for (const { key, label, title } of choices) {
       const tab = document.createElement('button');
-      tab.className = op === this.current ? TAB_ACTIVE : TAB_BASE;
+      tab.className = key === this.current ? TAB_ACTIVE : TAB_BASE;
       tab.textContent = label;
       tab.title = title;
-      tab.addEventListener('click', () => this.set(op));
+      tab.addEventListener('click', () => this.set(key));
       host.appendChild(tab);
-      this.tabs.set(op, tab);
+      this.tabs.set(key, tab);
     }
   }
 
-  get op(): FeatureOp {
+  get value(): T {
     return this.current;
   }
 
   /** Programmatic tab choice (edit-mode prefill); no change event fires. */
-  setOp(op: FeatureOp): void {
-    this.current = op;
+  setValue(key: T): void {
+    this.current = key;
     for (const [kind, tab] of this.tabs) {
-      tab.className = kind === op ? TAB_ACTIVE : TAB_BASE;
+      tab.className = kind === key ? TAB_ACTIVE : TAB_BASE;
     }
   }
 
-  private set(op: FeatureOp): void {
-    if (this.current === op) {
+  private set(key: T): void {
+    if (this.current === key) {
       return;
     }
-    this.current = op;
-    for (const [kind, tab] of this.tabs) {
-      tab.className = kind === op ? TAB_ACTIVE : TAB_BASE;
-    }
+    this.setValue(key);
     this.onChange?.();
+  }
+}
+
+/** The boolean-operation tab row (Add / Remove / New). */
+export class OpTabs extends ChoiceTabs<FeatureOp> {
+  constructor(host: HTMLElement, ops: { op: FeatureOp; label: string; title: string }[]) {
+    super(host, ops.map(({ op, label, title }) => ({ key: op, label, title })), 'add');
+  }
+
+  get op(): FeatureOp {
+    return this.value;
+  }
+
+  /** Programmatic tab choice (edit-mode prefill); no change event fires. */
+  setOp(op: FeatureOp): void {
+    this.setValue(op);
   }
 }
 

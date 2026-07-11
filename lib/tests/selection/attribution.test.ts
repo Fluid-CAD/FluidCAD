@@ -750,6 +750,91 @@ describe("shell and sketch synthesis", () => {
     }
   });
 
+  it("synthesizes a plane base from a face pick", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30);
+    setLocation(e, 4);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const topFaceRefs = faceRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6);
+    expect(topFaceRefs).toHaveLength(1);
+
+    const result = synthesizeApplyFeature(scene, topFaceRefs, 'plane');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spec.value).toBeUndefined();
+      expect(result.spec.parts).toHaveLength(1);
+      expect(result.args).toBe("e.endFaces()");
+      expect(result.preview).toBe("plane(e.endFaces())");
+    }
+  });
+
+  it("synthesizes a plane base from an edge pick", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30);
+    setLocation(e, 4);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const edgeRefs = edgeRefsWhere(solid, m => Math.abs(m.z - 15) < 1e-6);
+    expect(edgeRefs.length).toBeGreaterThan(0);
+
+    const result = synthesizeApplyFeature(scene, [edgeRefs[0]], 'plane');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spec.parts).toHaveLength(1);
+      expect(result.args).toMatch(/^e\.sideEdges\(\d+\)$/);
+    }
+  });
+
+  it("refuses a multi-pick plane base", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    extrude(30);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const refs = allEdgeRefs(solid).slice(0, 2);
+
+    const result = synthesizeApplyFeature(scene, refs, 'plane');
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.reason).toContain("single face or edge");
+    }
+  });
+
+  it("re-homes a reshaped end-face pick for a plane base", () => {
+    sketch("xy", () => {
+      rect(100, 100);
+    });
+    const e = extrude(50) as Extrude;
+    setLocation(e, 4);
+    sketch(e.endFaces(), () => {
+      move([50, 50]);
+      circle(20);
+    });
+    cut(30);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const topFaceRefs = faceRefsWhere(solid, m => Math.abs(m.z - 50) < 1e-6);
+    expect(topFaceRefs).toHaveLength(1);
+
+    // plane() only needs the plane — the ancestor accessor names it, exactly
+    // like the sketch re-home.
+    const result = synthesizeApplyFeature(scene, topFaceRefs, 'plane');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.args).toBe("e.endFaces()");
+    }
+  });
+
   it("re-homes a chamfer-consumed end face via the coplanar bucket scan", () => {
     sketch("xy", () => {
       circle(73.71);

@@ -16,7 +16,7 @@ import {
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: number;
   /**
@@ -30,6 +30,8 @@ export type ApplyFeatureEditSpec = {
   sweep?: SweepEditOptions;
   /** Loft-only payload; each `parts` entry renders one profile's selector. */
   loft?: LoftEditOptions;
+  /** Plane-only payload; each `parts` entry renders one base's selector. */
+  plane?: PlaneEditOptions;
   filePath: string;
   producers: {
     line: number;
@@ -179,6 +181,42 @@ export type LoftConditionSpec = {
   magnitude: number;
 };
 
+/**
+ * One base of a plane statement: a standard origin plane (renders as its
+ * string literal, no producer involved), a picked face/edge rendered from a
+ * `parts` entry, or an existing plane feature bound to a variable.
+ */
+export type PlaneBaseSpec =
+  | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
+  | { kind: 'selector'; part: number }
+  | { kind: 'plane'; producer: number };
+
+/**
+ * How a plane statement is rendered and placed: `plane(<base>)` for an offset
+ * plane — with a bare numeric offset (`plane('xy', 10)`) or a transform
+ * options object when rotation rides along — `plane(<b1>, <b2>, …)` for a
+ * mid plane, or `plane(<edge>, <position>)` for a plane normal to an edge at
+ * a 0–1 position along it. A mid base must be plane-like, so a picked
+ * face/edge selector is wrapped in its own `plane(…)` there. With only
+ * standard bases the spec carries no producers at all and the statement
+ * appends at top level; with plane-variable bases and no selectors it inserts
+ * right after the latest input statement; any selector base forces
+ * end-of-scope insertion, where the picked geometry is known to resolve.
+ */
+export type PlaneEditOptions = {
+  type: 'offset' | 'mid' | 'edge';
+  /** Normal offset distance; null/0 renders none. Offset/mid types only. */
+  offset: number | null;
+  /** Rotation in degrees around the plane's local axes; null/0 renders none. */
+  rotateX: number | null;
+  rotateY: number | null;
+  rotateZ: number | null;
+  /** Normalized 0–1 position along the edge (edge type only). */
+  position?: number | null;
+  /** One base for an offset/edge plane, two for a mid plane. */
+  bases: PlaneBaseSpec[];
+};
+
 export type ApplyFeatureEditResult = {
   newCode: string;
   error?: string;
@@ -269,6 +307,43 @@ export async function applyFeatureEdit(
     if (guides.length > 0 && lo.thin) {
       return { newCode: code, error: 'loft guides cannot be combined with thin walls' };
     }
+  } else if (spec.feature === 'plane') {
+    const pl = spec.plane;
+    const selectorParts = pl?.bases
+      ?.filter((b): b is { kind: 'selector'; part: number } => b?.kind === 'selector')
+      .map(b => b.part) ?? [];
+    const valid = pl !== undefined
+      && Array.isArray(pl.bases)
+      && (pl.type === 'mid' ? pl.bases.length === 2
+        : (pl.type === 'offset' || pl.type === 'edge') && pl.bases.length === 1)
+      && pl.bases.every(b =>
+        b?.kind === 'standard' ? (b.plane === 'xy' || b.plane === 'xz' || b.plane === 'yz')
+          : b?.kind === 'plane' ? isPlaneProducer(spec, b.producer)
+            : b?.kind === 'selector' && Number.isInteger(b.part) && b.part >= 0 && b.part < spec.parts.length)
+      // Every selector part belongs to exactly one base.
+      && selectorParts.length === spec.parts.length
+      && new Set(selectorParts).size === selectorParts.length
+      && [pl.offset, pl.rotateX, pl.rotateY, pl.rotateZ]
+        .every(v => v === null || (typeof v === 'number' && Number.isFinite(v)))
+      // The edge form is a picked edge plus a normalized position — the
+      // second argument slot is taken, so no offset/rotation can ride.
+      && (pl.type !== 'edge' || (
+        pl.bases[0]?.kind === 'selector'
+        && typeof pl.position === 'number' && Number.isFinite(pl.position)
+        && pl.position >= 0 && pl.position <= 1
+        && [pl.offset, pl.rotateX, pl.rotateY, pl.rotateZ].every(v => v === null)));
+    if (!valid) {
+      return { newCode: code, error: 'malformed plane edit spec' };
+    }
+    // Standard-only bases involve no existing statement — the plane appends
+    // at top level like the pick-less sketch.
+    if (spec.producers.length === 0 && spec.parts.length === 0) {
+      return appendTopLevelStatement(
+        code,
+        () => renderPlaneStatement(pl, renderPlaneBaseExprs(pl, spec.parts, () => null)),
+        'plane',
+      );
+    }
   } else if (!spec.producers.length || !spec.parts.length) {
     return { newCode: code, error: 'empty edit spec' };
   }
@@ -287,16 +362,17 @@ export async function applyFeatureEdit(
       return { newCode: code, error: `no call found at line ${producer.line} — is the file in sync with the last render?` };
     }
 
-    // Sketch producers (extrude/sweep profiles, sweep paths) must anchor the
-    // sketch call itself in both modes — a stale line pointing at some other
-    // call would consume the wrong profile or path.
-    if (producer.featureType === 'sketch') {
+    // Sketch and plane producers (profiles, paths, plane bases) must anchor
+    // their own call in both modes — a stale line pointing at some other call
+    // would consume the wrong input.
+    const requiredRoot = requiredChainRoot(producer.featureType);
+    if (requiredRoot) {
       const root = chainRootCallee(call);
-      if (root !== 'sketch') {
+      if (root !== requiredRoot) {
         return {
           newCode: code,
           error: `the call at line ${producer.line} is ${root ? `${root}()` : 'not a feature call'}, `
-            + `expected a sketch() call — is the file in sync with the last render?`,
+            + `expected a ${requiredRoot}() call — is the file in sync with the last render?`,
         };
       }
     }
@@ -316,8 +392,8 @@ export async function applyFeatureEdit(
     }
 
     const root = chainRootCallee(call);
-    const validCallee = producer.featureType === 'sketch'
-      ? root === 'sketch'
+    const validCallee = requiredRoot
+      ? root === requiredRoot
       : root !== null && PRODUCER_CALLEES.has(root);
     if (!validCallee) {
       return {
@@ -385,36 +461,49 @@ export async function applyFeatureEdit(
 /**
  * The pick-less sketch statement: no face selector — `sketch('<plane>', ()
  * => {})` on an origin plane (bare `sketch(() => {})` when no plane rides
- * the spec), appended after the file's last statement — before the first
- * `breakpoint();` (a paused build never runs statements after it) or a
- * trailing `return`, matching the file's semicolon style — or becomes an
- * empty file's first.
+ * the spec), appended at top level.
  */
 async function applyPlaneSketch(
   code: string,
   plane: 'xy' | 'xz' | 'yz' | undefined,
+): Promise<ApplyFeatureEditResult> {
+  const args = plane ? `'${plane}', ` : '';
+  return appendTopLevelStatement(code, indent => `sketch(${args}() => {\n\n${indent}})`, 'sketch');
+}
+
+/**
+ * Append a statement that references no existing code (pick-less sketch,
+ * standard-base plane) after the file's last statement — before the first
+ * `breakpoint();` (a paused build never runs statements after it) or a
+ * trailing `return`, matching the file's semicolon style — or as an empty
+ * file's first. `statementFor` receives the insertion indent (for multi-line
+ * bodies) and renders without the trailing semicolon.
+ */
+async function appendTopLevelStatement(
+  code: string,
+  statementFor: (indent: string) => string,
+  callee: string,
 ): Promise<ApplyFeatureEditResult> {
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code);
   const lines = splitLines(code);
   const children = tree.rootNode.namedChildren;
   const last = children.length > 0 ? children[children.length - 1] : null;
-  const args = plane ? `'${plane}', ` : '';
 
   let result: string;
   if (!last) {
-    result = spliceCode(code, code.length, code.length, `sketch(${args}() => {\n\n});\n`);
+    result = spliceCode(code, code.length, code.length, `${statementFor('')};\n`);
   } else {
     const useSemicolon = children.some(c => c.text.trimEnd().endsWith(';'));
     const before = children.find(isBreakpointStatement)
       ?? (last.type === 'return_statement' ? last : null);
     const indent = indentOf(lines, (before ?? last).startPosition.row);
-    const statement = `sketch(${args}() => {\n\n${indent}})${useSemicolon ? ';' : ''}`;
+    const statement = `${statementFor(indent)}${useSemicolon ? ';' : ''}`;
     result = before
       ? spliceCode(code, before.startIndex, before.startIndex, `${statement}\n${indent}`)
       : spliceCode(code, last.endIndex, last.endIndex, `\n${indent}${statement}`);
   }
-  return { newCode: await ensureSymbolImport(result, 'sketch') };
+  return { newCode: await ensureSymbolImport(result, callee) };
 }
 
 /**
@@ -451,9 +540,10 @@ export async function makeProducerNamer(
         return null;
       }
       const root = chainRootCallee(call);
-      // Sketch producers only name extrude profiles — the pick features never
-      // attribute to a sketch, so the looser callee stays scoped by type.
-      const valid = producer.featureType === 'sketch' ? root === 'sketch' : root !== null && PRODUCER_CALLEES.has(root);
+      // Sketch/plane producers must name their own call — the pick features
+      // never attribute to one, so the looser callee stays scoped by type.
+      const requiredRoot = requiredChainRoot(producer.featureType ?? '');
+      const valid = requiredRoot ? root === requiredRoot : root !== null && PRODUCER_CALLEES.has(root);
       if (!valid) {
         return null;
       }
@@ -478,18 +568,22 @@ export async function makeProducerNamer(
 }
 
 /**
- * The variable names sketch statements are bound to, for dialog labels:
+ * The variable names statements of `callee` are bound to, for dialog labels:
  * `const spine = sketch(…)` at one of `lines` resolves to `'spine'`; a bare
- * sketch statement, a non-sketch line, or an unparsable one resolves to null.
- * Purely cosmetic — the transform re-resolves bindings itself at apply time.
+ * statement, a different callee at the line, or an unparsable one resolves to
+ * null. Purely cosmetic — the transform re-resolves bindings at apply time.
  */
-export async function resolveSketchNames(code: string, lines: number[]): Promise<(string | null)[]> {
+export async function resolveSketchNames(
+  code: string,
+  lines: number[],
+  callee: string = 'sketch',
+): Promise<(string | null)[]> {
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code);
   const srcLines = splitLines(code);
   return lines.map(line => {
     const call = findEditableCallAt(tree, srcLines, line);
-    if (!call || chainRootCallee(call) !== 'sketch') {
+    if (!call || chainRootCallee(call) !== callee) {
       return null;
     }
     const resolved = resolveStatement(call);
@@ -617,6 +711,28 @@ export function resolveParamValues(
 function isSketchProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
   return Number.isInteger(i) && i >= 0 && i < spec.producers.length
     && spec.producers[i].featureType === 'sketch';
+}
+
+/** Whether producer index `i` is a valid plane producer of `spec`. */
+function isPlaneProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
+  return Number.isInteger(i) && i >= 0 && i < spec.producers.length
+    && spec.producers[i].featureType === 'plane';
+}
+
+/**
+ * Producer feature types whose source line must hold exactly that call —
+ * sketch and plane inputs are referenced by identity, so any other callee at
+ * the line means the file is out of sync. Null falls back to the general
+ * `PRODUCER_CALLEES` allowlist.
+ */
+function requiredChainRoot(featureType: string): 'sketch' | 'plane' | null {
+  if (featureType === 'sketch') {
+    return 'sketch';
+  }
+  if (featureType === 'plane') {
+    return 'plane';
+  }
+  return null;
 }
 
 /**
@@ -893,6 +1009,67 @@ export function renderExtrudeStatement(ext: ExtrudeEditOptions, profileVar: stri
 }
 
 /**
+ * Render a plane statement from its rendered base expressions:
+ * `plane('xy')` / `plane('xy', 10)` (offset only keeps the bare-number
+ * shorthand) / `plane(e.endFaces(), { offset: 10, rotateX: 15 })` /
+ * `plane(p, 'xz', { rotateY: 30 })` (mid). Shared with the route's preview so
+ * the previewed text is exactly what the transform writes.
+ */
+export function renderPlaneStatement(pl: PlaneEditOptions, baseExprs: string[]): string {
+  if (pl.type === 'edge') {
+    // The second argument is the normalized position, not an offset — the
+    // edge form takes no transform options.
+    return `plane(${baseExprs[0]}, ${formatNumber(pl.position ?? 0)})`;
+  }
+  const entries: string[] = [];
+  if (pl.offset !== null && pl.offset !== 0) {
+    entries.push(`offset: ${formatNumber(pl.offset)}`);
+  }
+  const rotations: [string, number | null][] = [
+    ['rotateX', pl.rotateX], ['rotateY', pl.rotateY], ['rotateZ', pl.rotateZ],
+  ];
+  let hasRotation = false;
+  for (const [key, value] of rotations) {
+    if (value !== null && value !== 0) {
+      hasRotation = true;
+      entries.push(`${key}: ${formatNumber(value)}`);
+    }
+  }
+  let optionsArg = '';
+  if (entries.length > 0) {
+    optionsArg = !hasRotation && pl.type === 'offset'
+      ? `, ${formatNumber(pl.offset!)}`
+      : `, { ${entries.join(', ')} }`;
+  }
+  return `plane(${baseExprs.join(', ')}${optionsArg})`;
+}
+
+/**
+ * Render each plane base as an expression: `'xy'` for a standard plane, the
+ * bound variable for an existing plane feature, or the selector part for a
+ * picked face/edge. A mid plane needs plane-like arguments, so a raw selector
+ * is wrapped in its own `plane(…)` there. Shared with the route, which passes
+ * its namer's variables; the transform passes its bindings'.
+ */
+export function renderPlaneBaseExprs(
+  pl: PlaneEditOptions,
+  parts: ApplyFeatureEditSpec['parts'],
+  varFor: (producer: number) => string | null,
+): string[] {
+  return pl.bases.map(base => {
+    if (base.kind === 'standard') {
+      return `'${base.plane}'`;
+    }
+    if (base.kind === 'plane') {
+      return varFor(base.producer) ?? 'p';
+    }
+    const part = parts[base.part];
+    const expr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+    return pl.type === 'mid' ? `plane(${expr})` : expr;
+  });
+}
+
+/**
  * Render the feature statement. Most features are
  * `<feature>(<value>, <selectors>)`; `sketch` instead wraps the selector with
  * an empty callback body — a blank line for the user's first sketch entity,
@@ -923,6 +1100,12 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     });
     const guideExprs = (lo.guides ?? []).map(guide => bindings[guide.producer].varName!);
     return renderLoftStatement(lo, profileExprs, guideExprs);
+  }
+  if (spec.feature === 'plane') {
+    const pl = spec.plane!;
+    return renderPlaneStatement(
+      pl, renderPlaneBaseExprs(pl, spec.parts, i => bindings[i].varName),
+    );
   }
   const args = renderSelectorArgs(spec, bindings);
   if (spec.feature === 'sketch') {
@@ -996,6 +1179,19 @@ function resolveInsertion(
       const path = bindings[sw.path.producer].statement;
       const profile = bindings[sw.profile.producer].statement;
       return afterStatementInsertion(path.endIndex >= profile.endIndex ? path : profile, lines);
+    }
+  }
+  if (spec.feature === 'plane') {
+    // Selector-free bases are explicit plane variables (standard-only specs
+    // never reach here — they append at top level with no producers at all):
+    // insert right after the latest input statement.
+    const planeBases = spec.plane!.bases
+      .filter((b): b is { kind: 'plane'; producer: number } => b.kind === 'plane');
+    if (planeBases.length > 0 && spec.plane!.bases.every(b => b.kind !== 'selector')) {
+      const latest = planeBases
+        .map(b => bindings[b.producer].statement)
+        .reduce((a, b) => (b.endIndex >= a.endIndex ? b : a));
+      return afterStatementInsertion(latest, lines);
     }
   }
   if (spec.feature === 'loft') {

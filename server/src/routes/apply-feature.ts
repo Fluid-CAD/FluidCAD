@@ -1039,53 +1039,53 @@ export function createApplyFeatureRouter(
     }
   });
 
+  // The single-pick selection queries share a shape: validate the pick, run
+  // a read-only query against the last render, surface not-ok reasons as 422.
+  const selectionQueryRoute = (
+    path: string,
+    run: (pick: Pick) => any,
+    project: (result: any) => unknown,
+  ): void => {
+    router.post(path, (req, res) => {
+      const pick = validatePick(req.body?.entity);
+      if (!pick) {
+        res.status(400).json({ error: 'entity must be a {shapeId, sub:{type, index}} pick' });
+        return;
+      }
+      try {
+        const result = run(pick);
+        if (!result) {
+          res.status(404).json({ error: 'No rendered scene' });
+          return;
+        }
+        if (result.ok === false) {
+          res.status(422).json({ error: result.reason });
+          return;
+        }
+        res.json(project(result));
+      } catch (err: any) {
+        res.status(500).json({ error: err?.message ?? String(err) });
+      }
+    });
+  };
+
   // Expand a picked edge/face to its tangent chain on the owning solid —
-  // the "Select with tangents" gesture. Read-only against the last render.
-  router.post('/selection/expand-tangents', (req, res) => {
-    const pick = validatePick(req.body?.entity);
-    if (!pick) {
-      res.status(400).json({ error: 'entity must be a {shapeId, sub:{type, index}} pick' });
-      return;
-    }
-    try {
-      const result = fluidCadServer.expandTangentChain(pick);
-      if (!result) {
-        res.status(404).json({ error: 'No rendered scene' });
-        return;
-      }
-      if (result.ok === false) {
-        res.status(422).json({ error: result.reason });
-        return;
-      }
-      res.json({ members: result.members });
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message ?? String(err) });
-    }
-  });
+  // the "Select with tangents" gesture.
+  selectionQueryRoute('/selection/expand-tangents',
+    pick => fluidCadServer.expandTangentChain(pick),
+    result => ({ members: result.members }));
 
   // Expand a picked edge/face to its whole classified bucket — the
-  // double-click gesture. Read-only against the last render.
-  router.post('/selection/expand-bucket', (req, res) => {
-    const pick = validatePick(req.body?.entity);
-    if (!pick) {
-      res.status(400).json({ error: 'entity must be a {shapeId, sub:{type, index}} pick' });
-      return;
-    }
-    try {
-      const result = fluidCadServer.expandBucket(pick);
-      if (!result) {
-        res.status(404).json({ error: 'No rendered scene' });
-        return;
-      }
-      if (result.ok === false) {
-        res.status(422).json({ error: result.reason });
-        return;
-      }
-      res.json({ members: result.members });
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message ?? String(err) });
-    }
-  });
+  // double-click gesture.
+  selectionQueryRoute('/selection/expand-bucket',
+    pick => fluidCadServer.expandBucket(pick),
+    result => ({ members: result.members }));
+
+  // Every multi-select group a pick can expand to (the right-click menu):
+  // tangent chain, classified bucket, same-type and equal-measure edges.
+  selectionQueryRoute('/selection/groups',
+    pick => fluidCadServer.listSelectionGroups(pick),
+    result => ({ groups: result.groups }));
 
   // Pure source transform: the extension sends the live buffer plus the edit
   // spec and gets the fully edited text back (same shape as /api/code/*).

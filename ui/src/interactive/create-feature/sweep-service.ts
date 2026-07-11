@@ -1,7 +1,9 @@
 import {
-  applySweep, applySweepEdit, ApplyFeatureChain, ApplyFeatureResponse, expandBucket, expandTangents,
-  FeatureEditTarget, ParsedFeatureStatement, SweepApplyOptions,
+  applySweep, applySweepEdit, ApplyFeatureChain, ApplyFeatureResponse, expandBucket,
+  FeatureEditTarget, ParsedFeatureStatement, SelectionGroupKind, SweepApplyOptions,
 } from '../../api';
+import { entityKey, mergeUniqueEntities, sameEntity } from '../../helpers/entities';
+import { SelectionContextMenu } from '../selection-menu';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
@@ -17,20 +19,13 @@ const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
 
 const PREVIEW_DEBOUNCE_MS = 250;
 
-function sameEntity(a: SelectedEntity, b: SelectedEntity): boolean {
-  return a.shapeId === b.shapeId && a.sub.type === b.sub.type && a.sub.index === b.sub.index;
-}
-
-function entityKey(e: SelectedEntity): string {
-  return `${e.shapeId}:${e.sub.type}:${e.sub.index}`;
-}
-
 /**
  * The Sweep dialog on the create rails: a profile sketch swept along a path.
  * Both slots take sketches (dropdown or timeline click into the focused
  * slot); the path alternatively takes edge picks in the 3D view — plain
- * clicks accumulate, right-click offers "Select with tangents", double-click
- * expands the classified bucket, exactly like the modify rails. Arming edge
+ * clicks accumulate, right-click offers the multi-select menu (tangent
+ * chain, classified bucket, occluded picks), double-click expands the
+ * classified bucket, exactly like the modify rails. Arming edge
  * picking while a sketch is being edited suspends sketch editing (same
  * mechanism as sketch-on-face) so the camera is free and clicks pick edges.
  * Apply writes `sweep(<path>[, <profile>])` with `.thin()`/`.remove()`/
@@ -52,7 +47,7 @@ export class SweepFeatureService {
 
   private entities: SelectedEntity[] = [];
   private chains: { seed: SelectedEntity; members: SelectedEntity[] }[] = [];
-  private contextMenu: HTMLDivElement;
+  private selectionMenu: SelectionContextMenu;
   private labelSignature = '';
 
   private previewTimer: number | null = null;
@@ -60,7 +55,7 @@ export class SweepFeatureService {
   private previewSeq = 0;
 
   constructor(
-    private container: HTMLElement,
+    container: HTMLElement,
     private viewer: Viewer,
     private navbar: Navbar,
     private hooks: {
@@ -95,15 +90,17 @@ export class SweepFeatureService {
     };
     this.panel.onPathModeChange = () => this.syncEdgePicking();
 
-    // Right-click menu ("Select with tangents") for path edge picks.
-    this.contextMenu = document.createElement('div');
-    this.contextMenu.id = 'fluidcad-sweep-pick-menu';
-    this.contextMenu.className = 'hidden absolute z-[1002] bg-base-100 border border-base-300 rounded-lg shadow-lg py-1 text-xs';
-    container.appendChild(this.contextMenu);
-    document.addEventListener('click', (e) => {
-      if (!this.contextMenu.classList.contains('hidden') && !this.contextMenu.contains(e.target as Node)) {
-        this.hideContextMenu();
-      }
+    // Right-click menu for path edge picks: multi-select groups + sibling
+    // buckets ("Select other"). A path is one connected chain, so the
+    // geometric same-type/equal groups (scattered edges) are not offered.
+    this.selectionMenu = new SelectionContextMenu(container, 'fluidcad-sweep-pick-menu', {
+      kinds: ['tangent', 'classified', 'sibling'],
+      onSelectGroup: (kind, seed, members) => this.applyGroup(kind, seed, members),
+      onPreview: (members) => {
+        if (this.isEdgePicking) {
+          this.refreshHighlight(members ?? []);
+        }
+      },
     });
   }
 
@@ -242,7 +239,11 @@ export class SweepFeatureService {
     }
     this.hideContextMenu();
     this.panel.setMessage(null);
-    const entity: SelectedEntity = { shapeId, sub };
+    this.toggleEntity({ shapeId, sub });
+  }
+
+  /** Toggle a plain pick; a chain member toggles its whole chain off. */
+  private toggleEntity(entity: SelectedEntity): void {
     const chain = this.chains.find(c => c.members.some(m => sameEntity(m, entity)));
     if (chain) {
       const memberKeys = new Set(chain.members.map(entityKey));
@@ -275,19 +276,22 @@ export class SweepFeatureService {
       this.panel.setMessage(result.error);
       return;
     }
-    const have = new Set(this.entities.map(entityKey));
-    const added = result.members
-      .map(m => ({ shapeId: m.shapeId, sub: m.sub }))
-      .filter(m => m.sub?.type === 'edge' && !have.has(entityKey(m as SelectedEntity))) as SelectedEntity[];
-    if (added.length > 0) {
-      this.entities = [...this.entities, ...added];
-      this.refreshHighlight();
-      this.refreshPickCount();
-      this.schedulePreview();
-    }
+    this.mergeEntities(result.members.map(m => ({ shapeId: m.shapeId, sub: m.sub })));
   }
 
-  /** Right-click on an edge: offer tangent-chain selection for the path. */
+  /** Merge group members into the path selection as plain picks. */
+  private mergeEntities(members: SelectedEntity[]): void {
+    const merged = mergeUniqueEntities(this.entities, members.filter(m => m.sub.type === 'edge'));
+    if (merged.length === this.entities.length) {
+      return;
+    }
+    this.entities = merged;
+    this.refreshHighlight();
+    this.refreshPickCount();
+    this.schedulePreview();
+  }
+
+  /** Right-click on an edge: the multi-select menu for that path pick. */
   handleContextMenu(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): void {
     if (!this.isEdgePicking) {
       return;
@@ -296,38 +300,37 @@ export class SweepFeatureService {
     if (!shapeId || !sub || sub.type !== 'edge') {
       return;
     }
-    const entity: SelectedEntity = { shapeId, sub };
-    const item = document.createElement('button');
-    item.className = 'block w-full text-left px-3 py-1.5 hover:bg-base-200 cursor-pointer whitespace-nowrap';
-    item.textContent = 'Select with tangents';
-    item.addEventListener('click', async () => {
-      this.hideContextMenu();
-      const result = await expandTangents(entity);
-      if (!this.isEdgePicking) {
-        return;
-      }
-      if ('error' in result) {
-        this.panel.setMessage(result.error);
-        return;
-      }
-      const members = result.members.map(m => ({ shapeId: m.shapeId, sub: m.sub })) as SelectedEntity[];
-      const memberKeys = new Set(members.map(entityKey));
-      this.chains = this.chains.filter(c => !c.members.some(m => memberKeys.has(entityKey(m))));
-      this.entities = [
-        ...this.entities.filter(e => !memberKeys.has(entityKey(e))),
-        ...members,
-      ];
-      this.chains.push({ seed: entity, members });
-      this.refreshHighlight();
-      this.refreshPickCount();
-      this.schedulePreview();
-    });
-    this.contextMenu.replaceChildren(item);
+    // The hover tint would otherwise be stashed as an "original" color by the
+    // preview highlight and stick around after the preview restores it.
+    this.viewer.clearHover();
+    void this.selectionMenu.open({ shapeId, sub }, clientX, clientY);
+  }
 
-    const rect = this.container.getBoundingClientRect();
-    this.contextMenu.style.left = `${clientX - rect.left}px`;
-    this.contextMenu.style.top = `${clientY - rect.top}px`;
-    this.contextMenu.classList.remove('hidden');
+  /** A multi-select menu group was clicked. */
+  private applyGroup(kind: SelectionGroupKind, seed: SelectedEntity, members: SelectedEntity[]): void {
+    if (!this.isEdgePicking) {
+      return;
+    }
+    this.panel.setMessage(null);
+    if (kind === 'tangent') {
+      this.addChain(seed, members);
+    } else {
+      this.mergeEntities(members);
+    }
+  }
+
+  /** Record a tangent chain: it owns its members, replacing overlapping picks. */
+  private addChain(seed: SelectedEntity, members: SelectedEntity[]): void {
+    const memberKeys = new Set(members.map(entityKey));
+    this.chains = this.chains.filter(c => !c.members.some(m => memberKeys.has(entityKey(m))));
+    this.entities = [
+      ...this.entities.filter(e => !memberKeys.has(entityKey(e))),
+      ...members,
+    ];
+    this.chains.push({ seed, members });
+    this.refreshHighlight();
+    this.refreshPickCount();
+    this.schedulePreview();
   }
 
   /**
@@ -537,9 +540,10 @@ export class SweepFeatureService {
 
   /**
    * Repaint the viewport selection: the picked path edges plus the wires of
-   * the sketches chosen in the slots — the dialog's inputs stay visible in 3D.
+   * the sketches chosen in the slots — the dialog's inputs stay visible in
+   * 3D. `previewMembers` (a hovered menu item) show on top of the selection.
    */
-  private refreshHighlight(): void {
+  private refreshHighlight(previewMembers: SelectedEntity[] = []): void {
     if (!this.armed) {
       return;
     }
@@ -553,8 +557,9 @@ export class SweepFeatureService {
       sketches.push(path.option);
     }
     const wireIds = sketches.flatMap(option => sketchWireShapeIds(option, this.sceneObjects));
-    if (this.entities.length > 0 || wireIds.length > 0) {
-      this.viewer.highlightEntities(this.entities, wireIds);
+    const shown = mergeUniqueEntities(this.entities, previewMembers);
+    if (shown.length > 0 || wireIds.length > 0) {
+      this.viewer.highlightEntities(shown, wireIds);
     } else {
       this.viewer.clearHighlight();
     }
@@ -574,7 +579,7 @@ export class SweepFeatureService {
   }
 
   private hideContextMenu(): void {
-    this.contextMenu.classList.add('hidden');
+    this.selectionMenu.hide();
   }
 
   private syncButton(): void {

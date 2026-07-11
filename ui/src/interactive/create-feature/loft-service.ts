@@ -2,6 +2,7 @@ import {
   applyLoft, applyLoftEdit, ApplyFeatureResponse, FeatureEditTarget, LoftApplyOptions, LoftProfileRef,
   ParsedFeatureStatement, SketchSourceRef,
 } from '../../api';
+import { sameEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
@@ -16,10 +17,6 @@ const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
 const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
 
 const PREVIEW_DEBOUNCE_MS = 250;
-
-function sameEntity(a: SelectedEntity, b: SelectedEntity): boolean {
-  return a.shapeId === b.shapeId && a.sub.type === b.sub.type && a.sub.index === b.sub.index;
-}
 
 /** One ordered profile in the dialog: a sketch or a face picked in 3D. */
 type LoftProfileItem =

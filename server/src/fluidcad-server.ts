@@ -46,6 +46,10 @@ type SceneManager = {
     scene: any,
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
   ): any;
+  listSelectionGroups(
+    scene: any,
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+  ): any;
   hitTest(
     scene: any,
     shapeId: string,
@@ -523,6 +527,19 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.expandBucket(scene, ref);
+  }
+
+  listSelectionGroups(
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+  ): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.listSelectionGroups(scene, ref);
   }
 
   exportShapes(

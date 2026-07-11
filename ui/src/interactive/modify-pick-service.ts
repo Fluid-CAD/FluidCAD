@@ -1,8 +1,10 @@
 import {
-  applyFeature, applyValueFeatureEdit, expandBucket, expandTangents, explainSelection,
-  ApplyFeatureChain, ApplyFeatureResponse, FeatureEditTarget, ParsedFeatureStatement,
+  applyFeature, applyValueFeatureEdit, expandBucket, explainSelection,
+  ApplyFeatureChain, ApplyFeatureResponse, FeatureEditTarget, ParsedFeatureStatement, SelectionGroupKind,
 } from '../api';
+import { entityKey, mergeUniqueEntities, sameEntity } from '../helpers/entities';
 import { isTopLevel } from '../helpers/scene-utils';
+import { SelectionContextMenu } from './selection-menu';
 import { StandardPlaneId } from '../scene/standard-planes';
 import { SceneObjectRender, SubSelection } from '../types';
 import { SelectedEntity, Viewer } from '../viewer';
@@ -71,21 +73,14 @@ const COUNT_BOX_ACTIVE = 'bg-primary/10 border-primary text-primary';
 const PREVIEW_DEBOUNCE_MS = 250;
 const TOOLTIP_DEBOUNCE_MS = 200;
 
-function sameEntity(a: SelectedEntity, b: SelectedEntity): boolean {
-  return a.shapeId === b.shapeId && a.sub.type === b.sub.type && a.sub.index === b.sub.index;
-}
-
-function entityKey(e: SelectedEntity): string {
-  return `${e.shapeId}:${e.sub.type}:${e.sub.index}`;
-}
-
 /**
  * Select→apply-feature pick mode: the `modify` toolbar group (Sketch / Fillet
  * / Chamfer / Shell) arms a pick mode over edges and faces (for fillet and
  * chamfer a face selection means "all edges of that face" — the features
  * explode faces at build time; shell and sketch pick faces only); picks
- * accumulate as a highlighted selection; right-click offers "Select with
- * tangents" (the chain becomes a `.withTangents()` selector); the expression
+ * accumulate as a highlighted selection; right-click offers the multi-select
+ * menu (tangent chain — a `.withTangents()` selector —, classified bucket,
+ * same-type / equal-measure edges, occluded picks); the expression
  * row shows the synthesized code before Apply and is editable, with verified
  * alternatives in a dropdown; hovering shows the teach-mode attribution
  * tooltip. Apply asks the server to write the feature call into the source
@@ -156,7 +151,7 @@ export class ModifyPickService {
   private tooltipAbort: AbortController | null = null;
   private tooltipCache = new Map<string, string>();
 
-  private contextMenu: HTMLDivElement;
+  private selectionMenu: SelectionContextMenu;
 
   constructor(
     private container: HTMLElement,
@@ -282,16 +277,14 @@ export class ModifyPickService {
       + 'bg-base-100/95 border border-base-300 rounded px-2 py-1 font-mono text-[11px] text-base-content shadow-md';
     container.appendChild(this.tooltip);
 
-    // Right-click menu ("Select with tangents").
-    this.contextMenu = document.createElement('div');
-    this.contextMenu.id = 'fluidcad-modify-pick-menu';
-    this.contextMenu.className = 'hidden absolute z-[1002] bg-base-100 border border-base-300 rounded-lg shadow-lg py-1 text-xs';
-    container.appendChild(this.contextMenu);
+    // Right-click menu: multi-select groups + sibling buckets ("Select other").
+    this.selectionMenu = new SelectionContextMenu(container, 'fluidcad-modify-pick-menu', {
+      kinds: ['tangent', 'classified', 'same-type', 'equal', 'sibling'],
+      onSelectGroup: (kind, seed, members) => this.applyGroup(kind, seed, members),
+      onPreview: (members) => this.previewSelection(members),
+    });
 
     document.addEventListener('click', (e) => {
-      if (!this.contextMenu.classList.contains('hidden') && !this.contextMenu.contains(e.target as Node)) {
-        this.hideContextMenu();
-      }
       if (!this.altMenu.classList.contains('hidden')
         && !this.altMenu.contains(e.target as Node) && e.target !== this.altBtn) {
         this.altMenu.classList.add('hidden');
@@ -303,11 +296,8 @@ export class ModifyPickService {
         return;
       }
       if (e.key === 'Escape') {
+        // An open selection menu consumes Escape itself (capture phase).
         e.preventDefault();
-        if (!this.contextMenu.classList.contains('hidden')) {
-          this.hideContextMenu();
-          return;
-        }
         if (!this.altMenu.classList.contains('hidden')) {
           this.altMenu.classList.add('hidden');
           return;
@@ -347,7 +337,7 @@ export class ModifyPickService {
 
     this.tooltipCache.clear();
     this.hideTooltip();
-    this.hideContextMenu();
+    this.selectionMenu.hide();
     this.sceneSketchActive = sketchMode;
     this.sketchAvailable = hasSolid;
     this.navbar.setGroupVisible('modify', modifyVisible);
@@ -525,7 +515,7 @@ export class ModifyPickService {
     this.cancelPreview();
     this.hideExpression();
     this.hideTooltip();
-    this.hideContextMenu();
+    this.selectionMenu.hide();
     this.viewer.clearHighlight();
     this.activeBar.classList.add('hidden');
     this.setMessage(null);
@@ -601,7 +591,7 @@ export class ModifyPickService {
     if (!this.feature || this.editTarget || !shapeId || !sub || sub.type === 'sketch') {
       return;
     }
-    this.hideContextMenu();
+    this.selectionMenu.hide();
     this.setMessage(null);
     const entity: SelectedEntity = { shapeId, sub };
     if (FEATURES[this.feature].immediate) {
@@ -613,6 +603,11 @@ export class ModifyPickService {
       this.apply();
       return;
     }
+    this.toggleEntity(entity);
+  }
+
+  /** Toggle a plain pick; a chain member toggles its whole chain off. */
+  private toggleEntity(entity: SelectedEntity): void {
     const chain = this.chains.find(c => c.members.some(m => sameEntity(m, entity)));
     if (chain) {
       const memberKeys = new Set(chain.members.map(entityKey));
@@ -648,7 +643,7 @@ export class ModifyPickService {
       // Single-pick mode has no bucket expansion — the first click already applied.
       return;
     }
-    this.hideContextMenu();
+    this.selectionMenu.hide();
     this.hideTooltip();
 
     const entity: SelectedEntity = { shapeId, sub };
@@ -661,15 +656,18 @@ export class ModifyPickService {
       return;
     }
     this.setMessage(null);
-    const have = new Set(this.entities.map(entityKey));
-    const added = result.members
-      .map(m => ({ shapeId: m.shapeId, sub: m.sub }))
-      .filter(m => !have.has(entityKey(m)));
-    if (added.length > 0) {
-      this.entities = [...this.entities, ...added];
-      this.viewer.highlightEntities(this.entities);
-      this.refresh();
+    this.mergeEntities(result.members.map(m => ({ shapeId: m.shapeId, sub: m.sub })));
+  }
+
+  /** Merge group members into the selection as plain picks. */
+  private mergeEntities(members: SelectedEntity[]): void {
+    const merged = mergeUniqueEntities(this.entities, members);
+    if (merged.length === this.entities.length) {
+      return;
     }
+    this.entities = merged;
+    this.viewer.highlightEntities(this.entities);
+    this.refresh();
   }
 
   /** Teach-mode tooltip: hover → attribution expression, debounced + cached. */
@@ -685,7 +683,7 @@ export class ModifyPickService {
       this.hideTooltip();
       return;
     }
-    if (!this.contextMenu.classList.contains('hidden')) {
+    if (this.selectionMenu.isOpen) {
       return;
     }
 
@@ -723,39 +721,47 @@ export class ModifyPickService {
     }, TOOLTIP_DEBOUNCE_MS);
   }
 
-  /** Right-click on an edge/face: offer tangent-chain selection. */
+  /** Right-click on an edge/face: the multi-select menu for that pick. */
   handleContextMenu(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): void {
     if (!this.feature || this.editTarget || FEATURES[this.feature].immediate) {
       return;
     }
-    this.hideContextMenu();
+    this.selectionMenu.hide();
     if (!shapeId || !sub || sub.type === 'sketch') {
       return;
     }
     this.hideTooltip();
+    // The hover tint would otherwise be stashed as an "original" color by the
+    // preview highlight and stick around after the preview restores it.
+    this.viewer.clearHover();
+    void this.selectionMenu.open({ shapeId, sub }, clientX, clientY);
+  }
 
-    const entity: SelectedEntity = { shapeId, sub };
-    const item = document.createElement('button');
-    item.className = 'block w-full text-left px-3 py-1.5 hover:bg-base-200 cursor-pointer whitespace-nowrap';
-    item.textContent = 'Select with tangents';
-    item.addEventListener('click', async () => {
-      this.hideContextMenu();
-      const result = await expandTangents(entity);
-      if (!this.feature) {
-        return;
-      }
-      if ('error' in result) {
-        this.setMessage(result.error);
-        return;
-      }
-      this.addChain(entity, result.members.map(m => ({ shapeId: m.shapeId, sub: m.sub })));
-    });
-    this.contextMenu.replaceChildren(item);
+  /** A multi-select menu group was clicked. */
+  private applyGroup(kind: SelectionGroupKind, seed: SelectedEntity, members: SelectedEntity[]): void {
+    if (!this.feature) {
+      return;
+    }
+    if (kind === 'tangent') {
+      // Tangent chains stay chains — they synthesize to `.withTangents()`.
+      this.addChain(seed, members);
+    } else {
+      this.setMessage(null);
+      this.mergeEntities(members);
+    }
+  }
 
-    const rect = this.container.getBoundingClientRect();
-    this.contextMenu.style.left = `${clientX - rect.left}px`;
-    this.contextMenu.style.top = `${clientY - rect.top}px`;
-    this.contextMenu.classList.remove('hidden');
+  /** Menu-hover preview: show the selection as the hovered click would leave it. */
+  private previewSelection(members: SelectedEntity[] | null): void {
+    if (!this.feature) {
+      return;
+    }
+    const shown = members ? mergeUniqueEntities(this.entities, members) : this.entities;
+    if (shown.length > 0) {
+      this.viewer.highlightEntities(shown);
+    } else {
+      this.viewer.clearHighlight();
+    }
   }
 
   private addChain(seed: SelectedEntity, members: SelectedEntity[]): void {
@@ -1027,10 +1033,6 @@ export class ModifyPickService {
     this.tooltipAbort?.abort();
     this.tooltipAbort = null;
     this.tooltip.classList.add('hidden');
-  }
-
-  private hideContextMenu(): void {
-    this.contextMenu.classList.add('hidden');
   }
 
   private syncButtons(): void {

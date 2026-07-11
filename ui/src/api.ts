@@ -663,24 +663,41 @@ async function postApplyFeature(
   }
 }
 
+/** `sibling` = the producing feature's other classified buckets ("Select other"). */
+export type SelectionGroupKind = 'tangent' | 'classified' | 'same-type' | 'equal' | 'sibling';
+
+/** One right-click multi-select option: what it's called and what it selects. */
+export type SelectionGroup = {
+  kind: SelectionGroupKind;
+  label: string;
+  members: ApplyFeatureEntity[];
+};
+
 /** Expand a picked edge/face to its tangent chain on the owning solid. */
 export async function expandTangents(
   entity: ApplyFeatureEntity,
 ): Promise<{ members: ApplyFeatureEntity[] } | { error: string }> {
-  return expandSelection('/api/selection/expand-tangents', entity);
+  return selectionQuery('/api/selection/expand-tangents', entity);
 }
 
 /** Expand a picked edge/face to its whole classified bucket. */
 export async function expandBucket(
   entity: ApplyFeatureEntity,
 ): Promise<{ members: ApplyFeatureEntity[] } | { error: string }> {
-  return expandSelection('/api/selection/expand-bucket', entity);
+  return selectionQuery('/api/selection/expand-bucket', entity);
 }
 
-async function expandSelection(
+/** Every multi-select group a pick can expand to (the right-click menu). */
+export async function fetchSelectionGroups(
+  entity: ApplyFeatureEntity,
+): Promise<{ groups: SelectionGroup[] } | { error: string }> {
+  return selectionQuery('/api/selection/groups', entity);
+}
+
+async function selectionQuery<T>(
   endpoint: string,
   entity: ApplyFeatureEntity,
-): Promise<{ members: ApplyFeatureEntity[] } | { error: string }> {
+): Promise<T | { error: string }> {
   try {
     const res = await fetch(endpoint, {
       method: 'POST',
@@ -691,7 +708,7 @@ async function expandSelection(
     if (!res.ok) {
       return { error: body?.error ?? `Request failed (${res.status})` };
     }
-    return body ?? { error: 'Empty server response' };
+    return (body as T) ?? { error: 'Empty server response' };
   } catch {
     return { error: 'Could not reach the FluidCAD server' };
   }

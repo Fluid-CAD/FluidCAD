@@ -265,6 +265,11 @@ viewer.setContextMenuHandler((shapeId, sub, clientX, clientY) => {
     modifyService.handleContextMenu(shapeId, sub, clientX, clientY);
   } else if (sweepService.isEdgePicking) {
     sweepService.handleContextMenu(shapeId, sub, clientX, clientY);
+  } else if (!extrudeService.isActive && !sweepService.isActive && !loftService.isActive
+    && !shapePropertiesModal.isOpen) {
+    // Neutral mode: the multi-select menu accumulates a measure selection,
+    // which seeds the modify tools when one arms.
+    measureController.handleContextMenu(shapeId, sub, clientX, clientY);
   }
 });
 
@@ -320,8 +325,13 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
   }
 
   // The measure controller owns the selection set (plain click replaces,
-  // ctrl/shift-click accumulates) and the matching viewer highlights.
-  const selection = measureController.handleClick(shapeId, sub, modifiers.additive);
+  // ctrl/shift-click accumulates, right-click menu merges groups) and the
+  // matching viewer highlights; onSelectionChanged reflects every change
+  // into the info overlay and the properties modal.
+  measureController.handleClick(shapeId, sub, modifiers.additive);
+});
+
+measureController.onSelectionChanged = (selection) => {
   if (selection.length === 1) {
     const entity = selection[0];
     shapePropertiesModal.setSelectedShape(entity.shapeId);
@@ -334,7 +344,7 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
     shapePropertiesModal.setSelectedShape(selection.length > 0 ? selection[0].shapeId : null);
     selectionInfoOverlay.hide();
   }
-});
+};
 
 // ---------------------------------------------------------------------------
 // Screenshot handling

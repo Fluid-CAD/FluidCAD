@@ -21,7 +21,8 @@ import { MeasureOps } from "./oc/measure/measure-ops.js";
 import type { MeasureInput } from "./oc/measure/measure-ops.js";
 import type { MeasureEntityRef, MeasureResult } from "./oc/measure/measure-types.js";
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
-import { expandBucket, expandTangentChain, ExpandTangentsResult } from "./selection/expand.js";
+import { expandBucket, expandTangentChain, ExpandBucketResult, ExpandTangentsResult } from "./selection/expand.js";
+import { listSelectionGroups, SelectionGroupsResult } from "./selection/selection-groups.js";
 import type { ApplyFeatureKind, ApplyFeatureSynthesis, ExplainResult, PickChain, PickRef, SynthesizeOptions } from "./selection/types.js";
 
 class SceneManager {
@@ -155,8 +156,12 @@ class SceneManager {
     return expandTangentChain(scene, ref);
   }
 
-  expandBucket(scene: Scene, ref: PickRef): ExpandTangentsResult {
+  expandBucket(scene: Scene, ref: PickRef): ExpandBucketResult {
     return expandBucket(scene, ref);
+  }
+
+  listSelectionGroups(scene: Scene, ref: PickRef): SelectionGroupsResult {
+    return listSelectionGroups(scene, ref);
   }
 
   hitTest(

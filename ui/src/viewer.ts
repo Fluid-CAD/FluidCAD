@@ -1,4 +1,4 @@
-import { Box3, BufferAttribute, BufferGeometry, Color, LineSegments, Mesh, MeshPhongMaterial, Object3D, Vector3 } from 'three';
+import { Box3, BufferAttribute, BufferGeometry, Color, Intersection, LineSegments, Mesh, MeshPhongMaterial, Object3D, Raycaster, Vector3 } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { SceneModeManager } from './scene/scene-mode';
 import { buildSceneMesh } from './meshes/mesh-factory';
@@ -185,6 +185,12 @@ export class Viewer {
     });
 
     canvas.addEventListener('mouseup', (e) => {
+      // Left releases only: a right-click release arrives right after the
+      // `contextmenu` event (before it on some platforms) and would both
+      // toggle a selection and dismiss the menu the right-click just opened.
+      if (e.button !== 0) {
+        return;
+      }
       if (!this.selectionHandler || this.isTrimming || this.isRegionPicking || this.modeManager.isSketchMode) {
         return;
       }
@@ -247,14 +253,14 @@ export class Viewer {
     });
   }
 
-  /**
-   * Client-side raycaster picking across all shapes.  Returns the closest
-   * front-facing face or edge hit together with its shapeId — or, while the
-   * origin planes are shown and one is the closest visible target, that
-   * plane.
-   */
-  private pickAt(clientX: number, clientY: number): PickResult | null {
-    const camera = this.ctx.camera;
+  /** The raycast every pick query shares: candidates collected, hits by distance. */
+  private castPick(clientX: number, clientY: number): {
+    raycaster: Raycaster;
+    faceHits: Intersection[];
+    edgeHits: Intersection[];
+    sketchWireHits: Intersection[];
+    planeHits: Intersection[];
+  } {
     const rect = this.ctx.renderer.domElement.getBoundingClientRect();
     const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
     const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
@@ -288,6 +294,27 @@ export class Viewer {
     // Origin-plane quads participate only while shown (armed sketch mode).
     const planeTargets = this.standardPlanes.pickTargets;
     const planeHits = planeTargets.length > 0 ? raycaster.intersectObjects(planeTargets, false) : [];
+
+    return { raycaster, faceHits, edgeHits, sketchWireHits, planeHits };
+  }
+
+  /** Closest point of an edge hit projected onto the pick ray — its depth. */
+  private static edgeHitDepth(hit: Intersection, raycaster: Raycaster): number {
+    // LineSegments2 hits expose `pointOnLine` (closest point on the segment
+    // in world space); the old BufferGeometry index path doesn't apply.
+    const pointOnLine = (hit as { pointOnLine?: Vector3 }).pointOnLine ?? hit.point;
+    return raycaster.ray.direction.dot(new Vector3().copy(pointOnLine).sub(raycaster.ray.origin));
+  }
+
+  /**
+   * Client-side raycaster picking across all shapes.  Returns the closest
+   * front-facing face or edge hit together with its shapeId — or, while the
+   * origin planes are shown and one is the closest visible target, that
+   * plane.
+   */
+  private pickAt(clientX: number, clientY: number): PickResult | null {
+    const camera = this.ctx.camera;
+    const { raycaster, faceHits, edgeHits, sketchWireHits, planeHits } = this.castPick(clientX, clientY);
 
     if (faceHits.length === 0 && edgeHits.length === 0 && sketchWireHits.length === 0 && planeHits.length === 0) {
       return null;
@@ -323,21 +350,9 @@ export class Viewer {
     // the pick ray and compare with the face depth.
     const faceDist = bestFace != null ? bestFace.distance : Infinity;
     const planeDist = planeHits.length > 0 ? planeHits[0].distance : Infinity;
-    const rayOrigin = raycaster.ray.origin;
-    const rayDir = raycaster.ray.direction;
-    const segPt = new Vector3();
-    const toSeg = new Vector3();
     if (this.pickFilter !== 'face') {
       for (const edgeHit of edgeHits) {
-        // LineSegments2 hits expose `pointOnLine` (closest point on the segment
-        // in world space); the old BufferGeometry index path doesn't apply.
-        const pointOnLine = (edgeHit as { pointOnLine?: Vector3 }).pointOnLine;
-        if (pointOnLine) {
-          segPt.copy(pointOnLine);
-        } else {
-          segPt.copy(edgeHit.point);
-        }
-        const edgeDist = rayDir.dot(toSeg.copy(segPt).sub(rayOrigin));
+        const edgeDist = Viewer.edgeHitDepth(edgeHit, raycaster);
         if (edgeDist <= faceDist + 1e-3 && edgeDist <= planeDist + 1e-3) {
           const edgeIndex = edgeHit.object.userData.edgeIndex as number;
           const shapeId = this.findShapeIdForObject(edgeHit.object);

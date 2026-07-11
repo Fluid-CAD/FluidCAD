@@ -3,6 +3,7 @@ import {
   ensureSymbolImport,
   findEditableCallAt,
   indentOf,
+  isBreakpointStatement,
   splitLines,
   spliceCode,
   walkTree,
@@ -384,9 +385,10 @@ export async function applyFeatureEdit(
 /**
  * The pick-less sketch statement: no face selector — `sketch('<plane>', ()
  * => {})` on an origin plane (bare `sketch(() => {})` when no plane rides
- * the spec), appended after the file's last statement — before a trailing
- * `return`, matching the file's semicolon style — or becomes an empty
- * file's first.
+ * the spec), appended after the file's last statement — before the first
+ * `breakpoint();` (a paused build never runs statements after it) or a
+ * trailing `return`, matching the file's semicolon style — or becomes an
+ * empty file's first.
  */
 async function applyPlaneSketch(
   code: string,
@@ -404,10 +406,12 @@ async function applyPlaneSketch(
     result = spliceCode(code, code.length, code.length, `sketch(${args}() => {\n\n});\n`);
   } else {
     const useSemicolon = children.some(c => c.text.trimEnd().endsWith(';'));
-    const indent = indentOf(lines, last.startPosition.row);
+    const before = children.find(isBreakpointStatement)
+      ?? (last.type === 'return_statement' ? last : null);
+    const indent = indentOf(lines, (before ?? last).startPosition.row);
     const statement = `sketch(${args}() => {\n\n${indent}})${useSemicolon ? ';' : ''}`;
-    result = last.type === 'return_statement'
-      ? spliceCode(code, last.startIndex, last.startIndex, `${statement}\n${indent}`)
+    result = before
+      ? spliceCode(code, before.startIndex, before.startIndex, `${statement}\n${indent}`)
       : spliceCode(code, last.endIndex, last.endIndex, `\n${indent}${statement}`);
   }
   return { newCode: await ensureSymbolImport(result, 'sketch') };
@@ -1546,6 +1550,11 @@ async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Pro
  * picked edges survived to the final model, so resolving the selection after
  * the last statement is guaranteed to find them. `indent` is the statement
  * indent at the insertion point, for statements with internal newlines.
+ *
+ * With an active `breakpoint();` the model the user saw is the paused one —
+ * statements after the breakpoint never ran and the selection resolved
+ * against the paused state — so the statement lands before the first
+ * breakpoint that follows the producers, not after it.
  */
 function findInsertionPoint(
   scope: TSNode,
@@ -1553,6 +1562,14 @@ function findInsertionPoint(
   bindings: ProducerBinding[],
 ): { index: number; indent: string; wrap: (stmt: string) => string } {
   const children = scope.namedChildren;
+
+  const latestProducerEnd = Math.max(...bindings.map(b => b.statement.endIndex));
+  const breakpointStmt = children.find(c => isBreakpointStatement(c) && c.startIndex >= latestProducerEnd);
+  if (breakpointStmt) {
+    const indent = indentOf(lines, breakpointStmt.startPosition.row);
+    return { index: breakpointStmt.startIndex, indent, wrap: (stmt) => `${stmt}\n${indent}` };
+  }
+
   const last = children.length > 0 ? children[children.length - 1] : null;
 
   if (last && last.type === 'return_statement') {

@@ -550,6 +550,96 @@ describe('part()-scoped insertion', () => {
   });
 });
 
+describe('breakpoint-aware insertion', () => {
+  it('inserts the feature before an active breakpoint, not at end of scope', async () => {
+    const code = [
+      `import { sketch, rect, extrude, color, breakpoint } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      `breakpoint()`,
+      `color('red')`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, spec());
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const filletRow = lines.indexOf(`fillet(3, e.endEdges(2))`);
+    expect(filletRow).toBeGreaterThan(lines.indexOf(`const e = extrude(30)`));
+    expect(filletRow).toBeLessThan(lines.indexOf(`breakpoint()`));
+  });
+
+  it('inserts before the breakpoint inside a function body, keeping the indent', async () => {
+    const code = [
+      `import { sketch, rect, extrude, breakpoint } from 'fluidcad/core'`,
+      ``,
+      `export function bracket() {`,
+      `  sketch('xy', () => { rect(100, 50) })`,
+      `  const e = extrude(30)`,
+      `  breakpoint()`,
+      `  return e`,
+      `}`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, spec({
+      producers: [{ line: 5, column: 2, featureType: 'extrude', nameHint: 'e', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const filletRow = lines.indexOf(`  fillet(3, e.endEdges(2))`);
+    expect(filletRow).toBeGreaterThan(-1);
+    expect(filletRow).toBeLessThan(lines.indexOf(`  breakpoint()`));
+  });
+
+  it('ignores a breakpoint that precedes the producer', async () => {
+    const code = [
+      `import { sketch, rect, extrude, breakpoint } from 'fluidcad/core'`,
+      ``,
+      `breakpoint()`,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, spec({
+      producers: [{ line: 5, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    expect(lines.indexOf(`fillet(3, e.endEdges(2))`)).toBeGreaterThan(lines.indexOf(`const e = extrude(30)`));
+  });
+
+  it('inserts a plane sketch before an active breakpoint', async () => {
+    const code = [
+      `import { sketch, rect, extrude, breakpoint } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      `breakpoint()`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(
+      code,
+      spec({ feature: 'sketch', value: undefined, producers: [], parts: [] }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { sketch, rect, extrude, breakpoint } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      `sketch(() => {`,
+      ``,
+      `})`,
+      `breakpoint()`,
+      ``,
+    ].join('\n'));
+  });
+});
+
 describe('makeProducerNamer', () => {
   it('returns the existing const name for a bound producer', async () => {
     const code = [

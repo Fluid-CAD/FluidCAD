@@ -261,7 +261,7 @@ async function withParsedCode(
  * Comments, conditional expressions, or shadowed identifiers all fall out
  * of this match because the AST disambiguates them for us.
  */
-function isBreakpointStatement(node: TSNode): boolean {
+export function isBreakpointStatement(node: TSNode): boolean {
   if (node.type !== 'expression_statement') {
     return false;
   }

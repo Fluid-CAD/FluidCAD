@@ -102,6 +102,11 @@ export class LoftFeatureService {
     return this.armed;
   }
 
+  /** Edit mode never consumes viewport picks — the viewport stays neutral. */
+  get isEditing(): boolean {
+    return this.editTarget !== null;
+  }
+
   /** Face picks are live the whole time the dialog is armed (create only). */
   get isFacePicking(): boolean {
     return this.armed && !this.editTarget;

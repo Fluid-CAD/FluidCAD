@@ -80,6 +80,11 @@ export class ExtrudeFeatureService {
     return this.armed;
   }
 
+  /** Edit mode never consumes viewport picks — the viewport stays neutral. */
+  get isEditing(): boolean {
+    return this.editTarget !== null;
+  }
+
   /**
    * Scene re-rendered: recompute the offered profiles and button visibility.
    * The dialog stays open across re-renders — in sketch mode every drawn

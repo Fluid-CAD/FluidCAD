@@ -316,6 +316,11 @@ export class ModifyPickService {
     return this.feature !== null;
   }
 
+  /** Edit mode never consumes viewport picks — the viewport stays neutral. */
+  get isEditing(): boolean {
+    return this.editTarget !== null;
+  }
+
   /** True while the armed sketch-on-face pick has suspended sketch editing. */
   get sketchUISuspended(): boolean {
     return this.suspendedSketchUI;

@@ -260,13 +260,20 @@ viewer.setHoverHandler((shapeId, sub, clientX, clientY) => {
   }
 });
 
+// A dialog only owns the viewport while it consumes picks — edit-mode
+// dialogs never do (a breakpoint double-click leaves one open over the
+// paused build), so the neutral selection stays available under them.
+const createDialogPicking = () =>
+  (extrudeService.isActive && !extrudeService.isEditing)
+  || (sweepService.isActive && !sweepService.isEditing)
+  || (loftService.isActive && !loftService.isEditing);
+
 viewer.setContextMenuHandler((shapeId, sub, clientX, clientY) => {
-  if (modifyService.isActive) {
+  if (modifyService.isActive && !modifyService.isEditing) {
     modifyService.handleContextMenu(shapeId, sub, clientX, clientY);
   } else if (sweepService.isEdgePicking) {
     sweepService.handleContextMenu(shapeId, sub, clientX, clientY);
-  } else if (!extrudeService.isActive && !sweepService.isActive && !loftService.isActive
-    && !shapePropertiesModal.isOpen) {
+  } else if (!createDialogPicking() && !shapePropertiesModal.isOpen) {
     // Neutral mode: the multi-select menu accumulates a measure selection,
     // which seeds the modify tools when one arms.
     measureController.handleContextMenu(shapeId, sub, clientX, clientY);
@@ -296,8 +303,9 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
     }
     return;
   }
-  // An armed modify mode (fillet/chamfer) owns clicks outright.
-  if (modifyService.isActive) {
+  // An armed modify mode (fillet/chamfer) owns clicks outright; its edit
+  // dialog doesn't pick, so clicks under it stay neutral like the rest.
+  if (modifyService.isActive && !modifyService.isEditing) {
     modifyService.handleClick(shapeId, sub);
     return;
   }

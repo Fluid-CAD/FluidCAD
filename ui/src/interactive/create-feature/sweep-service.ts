@@ -108,6 +108,11 @@ export class SweepFeatureService {
     return this.armed;
   }
 
+  /** Edit mode never consumes viewport picks — the viewport stays neutral. */
+  get isEditing(): boolean {
+    return this.editTarget !== null;
+  }
+
   /** Edge picks are live — the viewer routes clicks here. */
   get isEdgePicking(): boolean {
     return this.armed && !this.editTarget && this.panel.pathSelection()?.kind === 'edges';

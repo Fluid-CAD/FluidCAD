@@ -15,6 +15,20 @@ export class FaceOps {
 
   static getPlaneRaw(face: TopoDS_Face): Plane {
     console.log("Extracting plane from face...");
+    const plane = FaceOps.tryGetPlaneRaw(face);
+    if (!plane) {
+      throw new Error("Face is not planar");
+    }
+    return plane;
+  }
+
+  /** The face's plane, or null when the face is not planar. Never throws. */
+  static tryGetPlane(face: Face | TopoDS_Face): Plane | null {
+    const rawFace = face instanceof Face ? face.getShape() as TopoDS_Face : face;
+    return FaceOps.tryGetPlaneRaw(rawFace);
+  }
+
+  static tryGetPlaneRaw(face: TopoDS_Face): Plane | null {
     const oc = getOC();
     const topoFace = oc.TopoDS.Face(face);
     const adaptor = new oc.BRepAdaptor_Surface(topoFace, true);
@@ -23,7 +37,7 @@ export class FaceOps {
 
     if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
       adaptor.delete();
-      throw new Error("Face is not planar");
+      return null;
     }
 
     let pln = adaptor.Plane();

@@ -2,12 +2,13 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
+import chamfer from "../../core/chamfer.js";
 import cut from "../../core/cut.js";
 import fillet from "../../core/fillet.js";
 import part from "../../core/part.js";
 import select from "../../core/select.js";
 import repeat from "../../core/repeat.js";
-import { circle, move, rect } from "../../core/2d/index.js";
+import { circle, move, polygon, rect } from "../../core/2d/index.js";
 import { edge } from "../../filters/index.js";
 import { Scene } from "../../rendering/scene.js";
 import { SceneObject } from "../../common/scene-object.js";
@@ -16,6 +17,7 @@ import { Edge } from "../../common/edge.js";
 import { Extrude } from "../../features/extrude.js";
 import { Explorer } from "../../oc/explorer.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
+import { FaceOps } from "../../oc/face-ops.js";
 import { explainSelection, synthesizeApplyFeature } from "../../selection/explain.js";
 import { expandBucket, expandTangentChain } from "../../selection/expand.js";
 import type { PickRef } from "../../selection/types.js";
@@ -706,6 +708,122 @@ describe("shell and sketch synthesis", () => {
       expect(result.spec.parts).toHaveLength(1);
       expect(result.preview).toBe("sketch(e.endFaces(), () => { ... })");
       expect(result.args).toBe("e.endFaces()");
+    }
+  });
+
+  it("re-homes a reshaped end-face pick to its classified ancestor for sketch", () => {
+    sketch("xy", () => {
+      rect(100, 100);
+    });
+    const e = extrude(50) as Extrude;
+    setLocation(e, 4);
+    sketch(e.endFaces(), () => {
+      move([50, 50]);
+      circle(20);
+    });
+    cut(30);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    // The pocket rim reshaped the top face: it belongs to no bucket any more,
+    // but it still lies on the extrude's end plane.
+    const topFaceRefs = faceRefsWhere(solid, m => Math.abs(m.z - 50) < 1e-6);
+    expect(topFaceRefs).toHaveLength(1);
+    const explained = explainSelection(scene, topFaceRefs);
+    expect(explained.picks[0].attributed).toBe(false);
+
+    // sketch() only needs the plane — the ancestor accessor names it.
+    const result = synthesizeApplyFeature(scene, topFaceRefs, 'sketch');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.args).toBe("e.endFaces()");
+      expect(result.preview).toBe("sketch(e.endFaces(), () => { ... })");
+      expect(result.spec.parts).toHaveLength(1);
+      expect(result.spec.parts[0].accessor).toBe("endFaces");
+    }
+
+    // Features that consume the face itself must never re-home: the ancestor
+    // no longer exists on the final solid.
+    const shellResult = synthesizeApplyFeature(scene, topFaceRefs, 'shell', -2);
+    if (shellResult.ok) {
+      expect(shellResult.args).not.toContain("endFaces");
+    }
+  });
+
+  it("re-homes a chamfer-consumed end face via the coplanar bucket scan", () => {
+    sketch("xy", () => {
+      circle(73.71);
+      polygon(6, 165.66);
+    });
+    const e = extrude(25) as Extrude;
+    setLocation(e, 4);
+    chamfer(
+      1,
+      e.sideEdges(),
+      e.startEdges(edge().line()),
+      e.endEdges(edge().line()),
+      e.internalEdges(edge().line()),
+    );
+    chamfer(5, e.endEdges(edge().circle()));
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const topFaceRefs = faceRefsWhere(solid, m => Math.abs(m.z - 25) < 1e-6);
+    expect(topFaceRefs).toHaveLength(1);
+    // chamfer records no modified-face history, so lineage finds no ancestor
+    // here — the coplanar bucket scan must still name the end plane.
+    const explained = explainSelection(scene, topFaceRefs);
+    expect(explained.picks[0].attributed).toBe(false);
+
+    const result = synthesizeApplyFeature(scene, topFaceRefs, 'sketch');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.args).toBe("e.endFaces()");
+      expect(result.preview).toBe("sketch(e.endFaces(), () => { ... })");
+    }
+  });
+
+  it("prefers the indexed sideFaces form for chamfer-consumed side faces", () => {
+    sketch("xy", () => {
+      circle(73.71);
+      polygon(6, 165.66);
+    });
+    const e = extrude(25) as Extrude;
+    setLocation(e, 4);
+    chamfer(
+      1,
+      e.sideEdges(),
+      e.startEdges(edge().line()),
+      e.endEdges(edge().line()),
+      e.internalEdges(edge().line()),
+    );
+    chamfer(5, e.endEdges(edge().circle()));
+
+    const scene = render();
+    const solid = findSolid(scene);
+    // The six hex flats: vertical planes at the polygon's inradius. The
+    // chamfer strips along the vertical edges sit farther out and stay on
+    // the select() fallback — no classified face shares their plane.
+    const inradius = (165.66 / 2) * Math.cos(Math.PI / 6);
+    const sideRefs: PickRef[] = [];
+    Explorer.findFacesWrapped(solid).forEach((f, index) => {
+      const plane = FaceOps.tryGetPlane(f);
+      const dist = plane ? plane.origin.x * plane.normal.x + plane.origin.y * plane.normal.y : null;
+      if (plane && Math.abs(plane.normal.z) < 1e-6 && Math.abs(dist! - inradius) < 1e-6) {
+        sideRefs.push({ shapeId: solid.id, sub: { type: 'face', index } });
+      }
+    });
+    expect(sideRefs).toHaveLength(6);
+
+    for (const ref of sideRefs) {
+      const result = synthesizeApplyFeature(scene, [ref], 'sketch');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        // A sketch plane wants the compact index form, not a geometric
+        // filter with baked-in constants; filters remain as alternatives.
+        expect(result.args).toMatch(/^e\.sideFaces\(\d\)$/);
+        expect(result.alternatives.length).toBeGreaterThan(0);
+      }
     }
   });
 

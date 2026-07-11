@@ -4,9 +4,11 @@ import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { EdgeProps } from "../oc/edge-props.js";
 import { FaceProps } from "../oc/face-props.js";
-import { SelectionIndex } from "./selection-index.js";
+import { FaceOps } from "../oc/face-ops.js";
+import { Plane } from "../math/plane.js";
+import { BucketHit, SelectionIndex } from "./selection-index.js";
 import { attributePick, PickAttribution } from "./attribution.js";
-import { synthesizeSelectors, SelectorChain, SelectorPart } from "./synthesis.js";
+import { checkBindable, synthesizeSelectors, SelectorChain, SelectorPart } from "./synthesis.js";
 import {
   ApplyFeatureEditSpec,
   ApplyFeatureKind,
@@ -88,12 +90,26 @@ export function synthesizeApplyFeature(
     const chained = new Set(chains.flatMap(c => c.members.map(refKey)));
     const freeRefs = refs.filter(r => !chained.has(refKey(r)));
     const attributions = freeRefs.map(ref => attributePick(scene, index, ref));
+    // sketch() only extracts the plane from its face argument, so a face
+    // reshaped by later features may still be named by its classified
+    // ancestor's accessor — re-home the pick before synthesis routes it to a
+    // geometric select(). Every other feature uses the face itself, where the
+    // ancestor accessor would resolve to geometry the final solid lost.
+    if (feature === 'sketch') {
+      for (let i = 0; i < attributions.length; i++) {
+        attributions[i] = rehomePlaneFacePick(index, attributions[i]);
+      }
+    }
     const chainInputs: SelectorChain[] = chains.map(c => ({
       seed: attributePick(scene, index, c.seed),
       members: c.members.map(m => attributePick(scene, index, m)),
     }));
 
-    const synthesis = synthesizeSelectors(scene, index, attributions, chainInputs, options.params ?? []);
+    // Sketch names a plane, not geometry — prefer the compact index form
+    // over induced filters with baked-in geometry constants.
+    const synthesis = synthesizeSelectors(
+      scene, index, attributions, chainInputs, options.params ?? [], feature === 'sketch',
+    );
     if (synthesis.ok === false) {
       return { ok: false, reason: synthesis.reason, pick: synthesis.pick };
     }
@@ -169,6 +185,81 @@ export function synthesizeApplyFeature(
 
 function refKey(ref: PickRef): string {
   return `${ref.shapeId}:${ref.sub.type}:${ref.sub.index}`;
+}
+
+const REHOME_PLANE_TOLERANCE = 1e-6;
+
+/**
+ * Re-home a face pick to a classified stand-in for plane-only consumers.
+ * A face reshaped by later features belongs to no bucket, so synthesis falls
+ * back to a geometric select(); but sketch() never touches the face's
+ * geometry — only the plane it lies on — and any bindable classified planar
+ * face on that same plane names the plane just as well (the accessor resolves
+ * to the pre-modification face, whose plane is what sketch extracts). The
+ * lineage ancestor is preferred when history recorded one; otherwise the
+ * classified face buckets are scanned for a coplanar member (latest feature
+ * first, mirroring the attribution preference order). Both routes require a
+ * bindable feature and coplanarity with a same-side normal; anything else
+ * keeps the original attribution (and its select() fallback).
+ */
+function rehomePlaneFacePick(index: SelectionIndex, attr: PickAttribution): PickAttribution {
+  if (attr.producer || !(attr.picked instanceof Face)) {
+    return attr;
+  }
+  const pickedPlane = FaceOps.tryGetPlane(attr.picked);
+  if (!pickedPlane) {
+    return attr;
+  }
+
+  const ancestor = attr.lineage ? attr.lineage.classified : null;
+  const hit = ancestor && isCoplanarBindableFaceHit(index, ancestor, pickedPlane)
+    ? ancestor
+    : findCoplanarClassifiedFace(index, pickedPlane);
+  if (!hit) {
+    return attr;
+  }
+  return {
+    ...attr,
+    picked: hit.bucket.members[hit.index],
+    pickedKey: hit.bucket.memberKeys[hit.index],
+    producer: hit,
+    lineage: null,
+  };
+}
+
+/** True when the hit's feature can be bound and its member face lies on `plane` facing the same way. */
+function isCoplanarBindableFaceHit(index: SelectionIndex, hit: BucketHit, plane: Plane): boolean {
+  if (hit.bucket.def.kind !== 'face' || checkBindable(index, hit.bucket.feature) !== null) {
+    return false;
+  }
+  const member = hit.bucket.members[hit.index];
+  if (!(member instanceof Face)) {
+    return false;
+  }
+  const memberPlane = FaceOps.tryGetPlane(member);
+  return memberPlane !== null
+    && plane.isCoplanarWith(memberPlane, REHOME_PLANE_TOLERANCE, REHOME_PLANE_TOLERANCE)
+    && plane.normal.dot(memberPlane.normal) > 0;
+}
+
+/**
+ * First classified face on `plane` in bucket scan order — buckets were indexed
+ * latest-feature-first with specific categories (end/start/side/…) first, so
+ * the name mirrors what attribution would have preferred.
+ */
+function findCoplanarClassifiedFace(index: SelectionIndex, plane: Plane): BucketHit | null {
+  for (const bucket of index.buckets) {
+    if (bucket.def.kind !== 'face') {
+      continue;
+    }
+    for (let i = 0; i < bucket.members.length; i++) {
+      const hit: BucketHit = { bucket, index: i };
+      if (isCoplanarBindableFaceHit(index, hit, plane)) {
+        return hit;
+      }
+    }
+  }
+  return null;
 }
 
 /**

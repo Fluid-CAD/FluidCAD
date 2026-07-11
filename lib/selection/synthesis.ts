@@ -60,7 +60,10 @@ export type SelectorSynthesis =
  * Tangent chains synthesize a seed-isolating filter with `.withTangents()`.
  * Every candidate is verified by executing the same resolution the emitted
  * code would run; each group also keeps its verified runner-up forms so the
- * UI can offer alternatives.
+ * UI can offer alternatives. `preferBucketIndices` ranks the index form
+ * (tier 4) above induced filters within a bucket — plane-only consumers like
+ * sketch want the compact `sideFaces(2)` over a filter with baked-in
+ * geometry constants; the filter forms stay on as alternatives.
  */
 export function synthesizeSelectors(
   scene: Scene,
@@ -68,6 +71,7 @@ export function synthesizeSelectors(
   attributions: PickAttribution[],
   chains: SelectorChain[] = [],
   params: ParameterLink[] = [],
+  preferBucketIndices: boolean = false,
 ): SelectorSynthesis {
   const allAttributions = [
     ...attributions,
@@ -114,7 +118,9 @@ export function synthesizeSelectors(
   };
 
   for (const [bucket, groupAttrs] of bucketGroups) {
-    const failure = addGroup(synthesizeBucketCandidates(index, bucket, groupAttrs, params));
+    const failure = addGroup(
+      synthesizeBucketCandidates(index, bucket, groupAttrs, params, preferBucketIndices),
+    );
     if (failure) {
       return failure;
     }
@@ -154,7 +160,7 @@ export function synthesizeSelectors(
 }
 
 /** Returns a failure reason when the producer cannot be bound to a variable, null when it can. */
-function checkBindable(index: SelectionIndex, feature: SceneObject): string | null {
+export function checkBindable(index: SelectionIndex, feature: SceneObject): string | null {
   if (feature.getCloneSource()) {
     return `this selection belongs to a repeated ${feature.getType()}() instance (repeat/mirror)`;
   }
@@ -182,6 +188,7 @@ function synthesizeBucketCandidates(
   bucket: BucketRecord,
   groupAttrs: PickAttribution[],
   params: ParameterLink[],
+  preferIndices: boolean = false,
 ): GroupResult {
   const pickKeys = new Set(groupAttrs.map(a => a.pickedKey!));
   const feature = bucket.feature;
@@ -225,6 +232,11 @@ function synthesizeBucketCandidates(
       reason: `synthesized selector ${call} did not resolve back to the picked ${bucket.def.kind}s — refusing to write it`,
       pick: groupAttrs[0].ref,
     };
+  }
+  if (preferIndices) {
+    // Whole bucket stays first, then indices, then filters (stable sort).
+    const rank = (c: SelectorPart) => (c.tier === 0 ? 0 : c.tier === 4 ? 1 : 2);
+    candidates.sort((a, b) => rank(a) - rank(b));
   }
   return { ok: true, candidates };
 }

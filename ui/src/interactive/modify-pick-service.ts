@@ -25,6 +25,8 @@ type FeatureConfig = {
   valueSign: 'positive' | 'nonzero' | null;
   /** Apply on the first pick instead of accumulating toward an Apply click. */
   immediate: boolean;
+  /** List each pick as a removable chip row instead of a bare count. */
+  selectionList: boolean;
   /** Static text after the editable args in the expression row. */
   exprSuffix: string;
 };
@@ -39,19 +41,19 @@ const FEATURE_ORDER: ModifyFeatureKind[] = ['sketch', 'fillet', 'chamfer', 'shel
 const FEATURES: Record<ModifyFeatureKind, FeatureConfig> = {
   sketch: {
     label: 'Sketch', buttonTitle: 'Sketch on a face or an origin plane', valueLabel: null, defaultValue: null,
-    pickFilter: 'face', valueSign: null, immediate: true, exprSuffix: ', () => { ... })',
+    pickFilter: 'face', valueSign: null, immediate: true, selectionList: false, exprSuffix: ', () => { ... })',
   },
   fillet: {
     label: 'Fillet', buttonTitle: 'Fillet edges', valueLabel: 'Radius', defaultValue: 1,
-    pickFilter: 'all', valueSign: 'positive', immediate: false, exprSuffix: ')',
+    pickFilter: 'all', valueSign: 'positive', immediate: false, selectionList: true, exprSuffix: ')',
   },
   chamfer: {
     label: 'Chamfer', buttonTitle: 'Chamfer edges', valueLabel: 'Distance', defaultValue: 1,
-    pickFilter: 'all', valueSign: 'positive', immediate: false, exprSuffix: ')',
+    pickFilter: 'all', valueSign: 'positive', immediate: false, selectionList: true, exprSuffix: ')',
   },
   shell: {
     label: 'Shell', buttonTitle: 'Shell (pick the faces to open)', valueLabel: 'Thickness', defaultValue: -2,
-    pickFilter: 'face', valueSign: 'nonzero', immediate: false, exprSuffix: ')',
+    pickFilter: 'face', valueSign: 'nonzero', immediate: false, selectionList: false, exprSuffix: ')',
   },
 };
 
@@ -128,6 +130,7 @@ export class ModifyPickService {
   private valueInput: HTMLInputElement;
   private countBox: HTMLElement;
   private countText: HTMLElement;
+  private chipList: HTMLElement;
   private applyBtn: HTMLButtonElement;
   private message: HTMLDivElement;
   private applying = false;
@@ -203,6 +206,7 @@ export class ModifyPickService {
             <input data-role="value" type="number" step="0.5"
               class="input input-sm input-bordered w-full text-xs" />
           </label>
+          <div data-role="chip-list" class="flex flex-col gap-1 hidden"></div>
           <div data-role="count-box" class="${COUNT_BOX_BASE} ${COUNT_BOX_ACTIVE}">
             <span data-role="count" class="whitespace-nowrap">Pick an edge</span>
           </div>
@@ -234,6 +238,7 @@ export class ModifyPickService {
     this.valueInput = this.activeBar.querySelector('[data-role="value"]')!;
     this.countBox = this.activeBar.querySelector('[data-role="count-box"]')!;
     this.countText = this.activeBar.querySelector('[data-role="count"]')!;
+    this.chipList = this.activeBar.querySelector('[data-role="chip-list"]')!;
     this.applyBtn = this.activeBar.querySelector('[data-role="apply"]')!;
     this.message = this.activeBar.querySelector('[data-role="message"]')!;
     this.exprRow = this.activeBar.querySelector('[data-role="expr-row"]')!;
@@ -411,6 +416,8 @@ export class ModifyPickService {
     this.valueInput.value = String(parsed.value);
     // No selection field: the picks are fixed to the statement's own args.
     this.countBox.classList.add('hidden');
+    this.chipList.replaceChildren();
+    this.chipList.classList.add('hidden');
     this.exprSuffix.textContent = config.exprSuffix;
     this.synthesizedArgs = parsed.argsText;
     this.alternatives = [];
@@ -869,6 +876,7 @@ export class ModifyPickService {
     if (!this.feature) {
       return;
     }
+    const config = FEATURES[this.feature];
     const edges = this.entities.filter(e => e.sub.type === 'edge').length;
     const faces = this.entities.length - edges;
     const parts: string[] = [];
@@ -888,14 +896,76 @@ export class ModifyPickService {
     if (empty) {
       const noun = this.feature === 'sketch'
         ? (this.sketchAvailable ? 'a face or a plane' : 'a plane')
-        : FEATURES[this.feature].pickFilter === 'face' ? 'a face' : 'an edge';
+        : config.pickFilter === 'face' ? 'a face' : 'an edge';
       this.countText.textContent = `Pick ${noun}`;
     } else {
       this.countText.textContent = parts.join(' + ');
     }
-    this.countBox.className = `${COUNT_BOX_BASE} ${empty ? COUNT_BOX_ACTIVE : COUNT_BOX_IDLE}`;
+    // Listing features swap the count box for the chip rows once picks exist
+    // (the loft-panel pattern: the prompt box only prompts).
+    const showCount = !config.selectionList || empty;
+    this.countBox.className = `${COUNT_BOX_BASE} ${empty ? COUNT_BOX_ACTIVE : COUNT_BOX_IDLE}${showCount ? '' : ' hidden'}`;
+    this.renderChipList(config.selectionList);
     this.syncButtons();
     this.schedulePreview();
+  }
+
+  /**
+   * The removable per-pick rows (fillet/chamfer): one chip per plain pick, a
+   * whole tangent chain as a single chip — its ✕ removes the chain like a
+   * viewport click on a member would. Hovering a chip shows just that chip's
+   * entities so the row can be told apart from its siblings.
+   */
+  private renderChipList(enabled: boolean): void {
+    if (!enabled) {
+      this.chipList.replaceChildren();
+      this.chipList.classList.add('hidden');
+      return;
+    }
+    const chainOf = new Map<string, { seed: SelectedEntity; members: SelectedEntity[] }>();
+    for (const chain of this.chains) {
+      for (const member of chain.members) {
+        chainOf.set(entityKey(member), chain);
+      }
+    }
+    const seen = new Set<unknown>();
+    const rows: { label: string; members: SelectedEntity[] }[] = [];
+    for (const entity of this.entities) {
+      const chain = chainOf.get(entityKey(entity));
+      if (chain) {
+        if (!seen.has(chain)) {
+          seen.add(chain);
+          rows.push({
+            label: `Tangent chain (${chain.members.length} edges)`,
+            members: chain.members,
+          });
+        }
+      } else {
+        rows.push({ label: entity.sub.type === 'face' ? 'Face' : 'Edge', members: [entity] });
+      }
+    }
+
+    this.chipList.replaceChildren(...rows.map((chip, index) => {
+      const row = document.createElement('div');
+      row.className = 'flex items-center gap-1.5 rounded-md pl-2 pr-1 py-1 bg-base-200 border border-base-300';
+      const badge = document.createElement('span');
+      badge.className = 'badge badge-sm badge-primary badge-soft shrink-0';
+      badge.textContent = String(index + 1);
+      const label = document.createElement('span');
+      label.className = 'flex-1 truncate';
+      label.textContent = chip.label;
+      label.title = chip.label;
+      const remove = document.createElement('button');
+      remove.className = 'btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-base-content shrink-0 text-[9px]';
+      remove.title = 'Remove this selection';
+      remove.textContent = '✕';
+      remove.addEventListener('click', () => this.toggleEntity(chip.members[0]));
+      row.addEventListener('mouseenter', () => this.viewer.highlightEntities(chip.members));
+      row.addEventListener('mouseleave', () => this.previewSelection(null));
+      row.append(badge, label, remove);
+      return row;
+    }));
+    this.chipList.classList.toggle('hidden', rows.length === 0);
   }
 
   // -------------------------------------------------------------------------

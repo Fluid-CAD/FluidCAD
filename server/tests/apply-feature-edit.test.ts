@@ -668,7 +668,10 @@ describe('extrude statement templates', () => {
     return {
       feature: 'extrude',
       filePath: '/ws/model.fluid.js',
-      extrude: { op: 'add', distance: 25, thin: null, profile: 'implicit', ...extrude },
+      extrude: {
+        op: 'add', distance: 25, distance2: null, symmetric: false, draft: null, drill: true,
+        thin: null, profile: 'implicit', ...extrude,
+      },
       producers: [{ line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: false }],
       parts: [],
       imports: [],
@@ -713,6 +716,25 @@ describe('extrude statement templates', () => {
   it('renders both thin offsets', async () => {
     const result = await applyFeatureEdit(activeSketchCode, extrudeSpec({ thin: [1.5, 3] }));
     expect(result.newCode).toContain(`extrude(25).thin(1.5, 3)`);
+  });
+
+  it('renders a two-distance extrude', async () => {
+    const result = await applyFeatureEdit(activeSketchCode, extrudeSpec({ distance: 10, distance2: 20 }));
+    expect(result.newCode).toContain(`extrude(10, 20)`);
+  });
+
+  it('chains .symmetric(), .draft() and .drill(false) before thin and new', async () => {
+    const result = await applyFeatureEdit(activeSketchCode, extrudeSpec({
+      op: 'new', distance: 10, symmetric: true, draft: -2.5, drill: false, thin: [1],
+    }));
+    expect(result.newCode).toContain(`extrude(10).symmetric().draft(-2.5).drill(false).thin(1).new()`);
+  });
+
+  it('renders a symmetric through-all cut', async () => {
+    const result = await applyFeatureEdit(activeSketchCode, extrudeSpec({
+      op: 'remove', distance: null, symmetric: true,
+    }));
+    expect(result.newCode).toContain(`cut().symmetric()`);
   });
 
   it('binds a bound-profile sketch and inserts directly after it', async () => {
@@ -1274,13 +1296,25 @@ function editSpec(
   };
 }
 
+function extrudeEditOptions(
+  overrides: Partial<NonNullable<FeatureStatementEditTarget['extrude']>> = {},
+): NonNullable<FeatureStatementEditTarget['extrude']> {
+  return {
+    op: 'add', distance: 25, distance2: null, symmetric: false, draft: null, drill: true,
+    thin: null, ...overrides,
+  };
+}
+
 describe('parseFeatureStatement', () => {
   it('reads a plain extrude', async () => {
     const code = `${editBase}\nextrude(30)\n`;
     const result = await parseFeatureStatement(code, 4);
     expect(result).toEqual({
       ok: true,
-      parsed: { feature: 'extrude', op: 'add', distance: 30, thin: null, profileText: null },
+      parsed: {
+        feature: 'extrude', op: 'add', distance: 30, distance2: null, symmetric: false,
+        draft: null, drill: true, thin: null, profileText: null,
+      },
       statement: 'extrude(30)',
     });
   });
@@ -1290,7 +1324,10 @@ describe('parseFeatureStatement', () => {
     const result = await parseFeatureStatement(code, 4);
     expect(result).toEqual({
       ok: true,
-      parsed: { feature: 'extrude', op: 'new', distance: 25, thin: [2], profileText: 's' },
+      parsed: {
+        feature: 'extrude', op: 'new', distance: 25, distance2: null, symmetric: false,
+        draft: null, drill: true, thin: [2], profileText: 's',
+      },
       statement: 'extrude(25, s).thin(2).new()',
     });
   });
@@ -1300,9 +1337,67 @@ describe('parseFeatureStatement', () => {
     const result = await parseFeatureStatement(code, 4);
     expect(result).toEqual({
       ok: true,
-      parsed: { feature: 'extrude', op: 'remove', distance: null, thin: null, profileText: 's' },
+      parsed: {
+        feature: 'extrude', op: 'remove', distance: null, distance2: null, symmetric: false,
+        draft: null, drill: true, thin: null, profileText: 's',
+      },
       statement: 'cut(s)',
     });
+  });
+
+  it('reads a two-distance bound extrude with draft and drill chains', async () => {
+    const code = `${editBase}\nextrude(10, 20, s).draft(5).drill(false)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'extrude', op: 'add', distance: 10, distance2: 20, symmetric: false,
+        draft: 5, drill: false, thin: null, profileText: 's',
+      },
+      statement: 'extrude(10, 20, s).draft(5).drill(false)',
+    });
+  });
+
+  it('reads a symmetric extrude and a bare .drill() as true', async () => {
+    const code = `${editBase}\nextrude(30).symmetric().drill()\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', symmetric: true, drill: true, distance: 30, distance2: null },
+    });
+  });
+
+  it('refuses .symmetric() on a two-distance extrude', async () => {
+    const code = `${editBase}\nextrude(10, 20).symmetric()\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('symmetric');
+    }
+  });
+
+  it('refuses a per-side draft array', async () => {
+    const code = `${editBase}\nextrude(10).draft([2, 4])\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('draft');
+    }
+  });
+
+  it('refuses a non-literal .drill() argument', async () => {
+    const code = `${editBase}\nextrude(10).drill(flag)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('drill');
+    }
+  });
+
+  it('refuses an extrude with three numeric arguments', async () => {
+    const code = `${editBase}\nextrude(10, 20, 30)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false });
   });
 
   it('reads a sweep with a remove chain', async () => {
@@ -1378,7 +1473,7 @@ describe('applyFeatureEdit (in-place statement edit)', () => {
     const code = `${editBase}\nextrude(30)\n`;
     const result = await applyFeatureEdit(code, editSpec('extrude', {
       line: 4, column: 0,
-      extrude: { op: 'add', distance: 45, thin: null },
+      extrude: extrudeEditOptions({ distance: 45 }),
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe(`${editBase}\nextrude(45)\n`);
@@ -1388,7 +1483,7 @@ describe('applyFeatureEdit (in-place statement edit)', () => {
     const code = `${editBase}\nextrude(30)\n`;
     const result = await applyFeatureEdit(code, editSpec('extrude', {
       line: 4, column: 0,
-      extrude: { op: 'remove', distance: null, thin: null },
+      extrude: extrudeEditOptions({ op: 'remove', distance: null }),
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`cut()`);
@@ -1400,10 +1495,41 @@ describe('applyFeatureEdit (in-place statement edit)', () => {
     const code = `${editBase}\nconst body = extrude(25, s).thin(2).fillet(1, e => e.endEdges());\n`;
     const result = await applyFeatureEdit(code, editSpec('extrude', {
       line: 4, column: 0,
-      extrude: { op: 'add', distance: 40, thin: null },
+      extrude: extrudeEditOptions({ distance: 40 }),
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`const body = extrude(40, s).fillet(1, e => e.endEdges());`);
+  });
+
+  it('adds direction and taper chains in place', async () => {
+    const code = `${editBase}\nextrude(30)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: extrudeEditOptions({ distance: 30, symmetric: true, draft: -2, drill: false }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`extrude(30).symmetric().draft(-2).drill(false)`);
+  });
+
+  it('switches a symmetric extrude to two distances', async () => {
+    const code = `${editBase}\nextrude(30, s).symmetric().drill(false)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: extrudeEditOptions({ distance: 10, distance2: 20 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`extrude(10, 20, s)\n`);
+    expect(result.newCode).not.toContain(`.symmetric()`);
+  });
+
+  it('refuses a two-distance symmetric edit spec', async () => {
+    const code = `${editBase}\nextrude(30)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: extrudeEditOptions({ distance: 10, distance2: 20, symmetric: true }),
+    }));
+    expect(result.error).toContain('symmetric');
+    expect(result.newCode).toBe(code);
   });
 
   it('adds thin and remove chains to a sweep', async () => {
@@ -1459,7 +1585,7 @@ describe('applyFeatureEdit (in-place statement edit)', () => {
     const code = `${editBase}\nfillet(2, e.endEdges())\n`;
     const result = await applyFeatureEdit(code, editSpec('extrude', {
       line: 4, column: 0,
-      extrude: { op: 'add', distance: 10, thin: null },
+      extrude: extrudeEditOptions({ distance: 10 }),
     }));
     expect(result.error).toContain('expected a extrude');
     expect(result.newCode).toBe(code);

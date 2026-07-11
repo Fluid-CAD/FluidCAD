@@ -79,6 +79,10 @@ export type FeatureStatementEditTarget = {
   extrude?: {
     op: 'add' | 'remove' | 'new';
     distance: number | null;
+    distance2: number | null;
+    symmetric: boolean;
+    draft: number | null;
+    drill: boolean;
     thin: [number] | [number, number] | null;
   };
   sweep?: {
@@ -104,6 +108,17 @@ export type ExtrudeEditOptions = {
   op: 'add' | 'remove' | 'new';
   /** Extrusion distance; null renders a through-all `cut()` (remove only). */
   distance: number | null;
+  /**
+   * Opposite-direction distance; non-null renders the two-distance form
+   * `extrude(d1, d2)`. Excludes `symmetric` and a through-all `distance`.
+   */
+  distance2: number | null;
+  /** `.symmetric()` — the distance is split equally across the sketch plane. */
+  symmetric: boolean;
+  /** `.draft(angle)` taper in degrees, or null for a straight extrude. */
+  draft: number | null;
+  /** False renders `.drill(false)` — inner closed regions extrude as solid. */
+  drill: boolean;
   /** `.thin(a)` / `.thin(a, b)` offsets, or null for a plain extrude. */
   thin: [number] | [number, number] | null;
   profile: 'implicit' | 'bound';
@@ -836,20 +851,34 @@ export function renderSelectorPartExpr(
 
 /**
  * Render an extrude statement from its options: `extrude(25)` / `cut()`
- * (through-all) / `extrude(25, s)` for a bound profile, plus `.thin(…)` and
- * `.new()` chains. Shared with the route's preview so the previewed text is
- * exactly what the transform writes.
+ * (through-all) / `extrude(10, 20)` (two distances) / `extrude(25, s)` for a
+ * bound profile, plus `.symmetric()` / `.draft(…)` / `.drill(false)` /
+ * `.thin(…)` / `.new()` chains. Shared with the route's preview so the
+ * previewed text is exactly what the transform writes.
  */
 export function renderExtrudeStatement(ext: ExtrudeEditOptions, profileVar: string | null): string {
   const callee = ext.op === 'remove' ? 'cut' : 'extrude';
   const callArgs: string[] = [];
   if (ext.distance !== null) {
     callArgs.push(formatNumber(ext.distance));
+    if (ext.distance2 !== null) {
+      callArgs.push(formatNumber(ext.distance2));
+    }
   }
   if (ext.profile === 'bound') {
     callArgs.push(profileVar ?? 's');
   }
   let statement = `${callee}(${callArgs.join(', ')})`;
+  if (ext.symmetric) {
+    statement += '.symmetric()';
+  }
+  if (ext.draft !== null) {
+    statement += `.draft(${formatNumber(ext.draft)})`;
+  }
+  if (!ext.drill) {
+    // True is the API default, so only the opt-out is written.
+    statement += '.drill(false)';
+  }
   if (ext.thin) {
     statement += `.thin(${ext.thin.map(formatNumber).join(', ')})`;
   }
@@ -1000,6 +1029,12 @@ export type ParsedFeatureStatement =
     op: 'add' | 'remove' | 'new';
     /** null = through-all remove (`cut()` with no distance). */
     distance: number | null;
+    /** Second distance of a two-distance `extrude(d1, d2)`, or null. */
+    distance2: number | null;
+    symmetric: boolean;
+    /** `.draft(angle)` taper in degrees, or null when the chain is absent. */
+    draft: number | null;
+    drill: boolean;
     thin: [number] | null;
     /** Trailing profile argument text (`s`), or null for implicit consumption. */
     profileText: string | null;
@@ -1045,7 +1080,7 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
  * statement, so that shape refuses to parse.
  */
 const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
-  extrude: new Set(['thin', 'remove', 'new']),
+  extrude: new Set(['symmetric', 'draft', 'drill', 'thin', 'remove', 'new']),
   sweep: new Set(['thin', 'remove', 'new']),
   loft: new Set(['guides', 'startCondition', 'endCondition', 'thin', 'remove', 'new']),
   shell: new Set(),
@@ -1094,6 +1129,17 @@ function numericArgValue(node: TSNode): number | null {
   }
   const value = Number(text);
   return Number.isFinite(value) ? value : null;
+}
+
+/** Boolean literal value of an argument node, or null when it is anything else. */
+function booleanArgValue(node: TSNode): boolean | null {
+  if (node.type === 'true') {
+    return true;
+  }
+  if (node.type === 'false') {
+    return false;
+  }
+  return null;
 }
 
 type ChainParse =
@@ -1173,29 +1219,74 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
   }
 
   if (feature === 'extrude') {
-    if (args.length > 2) {
+    // Leading numeric literals are distances — one, or two for the
+    // two-distance form extrude(d1, d2); a single trailing non-numeric
+    // argument is the bound profile expression, kept verbatim. A cut()
+    // with no distance is the through-all remove.
+    const distances: number[] = [];
+    while (distances.length < Math.min(args.length, 2)) {
+      const value = numericArgValue(args[distances.length]);
+      if (value === null) {
+        break;
+      }
+      distances.push(value);
+    }
+    const rest = args.slice(distances.length);
+    if (rest.length > 1 || (rest.length === 1 && numericArgValue(rest[0]) !== null)) {
       return { error: 'the extrude has more arguments than the dialog understands' };
     }
-    let distance: number | null = null;
-    let profileText: string | null = null;
-    if (args.length > 0) {
-      const first = numericArgValue(args[0]);
-      if (first !== null) {
-        distance = first;
-        if (args.length === 2) {
-          profileText = args[1].text;
-        }
-      } else if (isCut && args.length === 1) {
-        // The through-all bound-profile idiom the create dialog writes: cut(s).
-        profileText = args[0].text;
-      } else {
-        return { error: `the ${chain.root.name}() distance is not a plain number — edit it in the source` };
+    const profileText = rest.length === 1 ? rest[0].text : null;
+    const distance = distances[0] ?? null;
+    const distance2 = distances[1] ?? null;
+    if (distance === null && !isCut) {
+      // extrude(x) is ambiguous between a variable distance and a bound
+      // profile at the default distance — neither is dialog-editable.
+      return {
+        error: profileText !== null
+          ? `the ${chain.root.name}() distance is not a plain number — edit it in the source`
+          : 'an extrude with no distance is not editable in the dialog',
+      };
+    }
+
+    const symmetricSeg = recognized.get('symmetric');
+    if (symmetricSeg && symmetricSeg.args.length > 0) {
+      return { error: 'the .symmetric() chain has arguments the dialog cannot edit' };
+    }
+    const symmetric = symmetricSeg !== undefined;
+    if (symmetric && distance2 !== null) {
+      return { error: `a two-distance ${chain.root.name}() cannot chain .symmetric() — edit it in the source` };
+    }
+
+    let draft: number | null = null;
+    const draftSeg = recognized.get('draft');
+    if (draftSeg) {
+      if (draftSeg.args.length !== 1) {
+        return { error: 'the .draft() chain has an argument shape the dialog cannot edit' };
+      }
+      draft = numericArgValue(draftSeg.args[0]);
+      if (draft === null) {
+        // Also covers the [start, end] per-side form the dialog doesn't offer.
+        return { error: 'the .draft() angle is not a plain number — edit it in the source' };
       }
     }
-    if (distance === null && op !== 'remove') {
-      return { error: 'an extrude with no distance is not editable in the dialog' };
+
+    let drill = true;
+    const drillSeg = recognized.get('drill');
+    if (drillSeg) {
+      if (drillSeg.args.length > 1) {
+        return { error: 'the .drill() chain has more arguments than the dialog understands' };
+      }
+      if (drillSeg.args.length === 1) {
+        const value = booleanArgValue(drillSeg.args[0]);
+        if (value === null) {
+          return { error: 'the .drill() argument is not a plain boolean — edit it in the source' };
+        }
+        drill = value;
+      }
+      // A bare .drill() means true — the API default.
     }
-    return { parsed: { feature, op, distance, thin, profileText }, start, end };
+
+    return { parsed: { feature, op, distance, distance2, symmetric, draft, drill, thin, profileText }, start, end };
   }
 
   if (feature === 'sweep') {
@@ -1317,6 +1408,10 @@ function validEditCondition(condition: LoftConditionSpec | undefined): boolean {
       && Number.isFinite(condition.magnitude) && condition.magnitude !== 0);
 }
 
+function validNonzeroOrNull(value: unknown): value is number | null {
+  return value === null || (typeof value === 'number' && Number.isFinite(value) && value !== 0);
+}
+
 /**
  * Render the statement `spec`'s dialog options produce over the parsed
  * statement, keeping the expressions the dialog doesn't edit verbatim.
@@ -1335,19 +1430,27 @@ export function renderEditedStatement(
   }
   if (parsed.feature === 'extrude') {
     const opts = spec.edit?.extrude;
-    if (!opts || !validEditOp(opts.op) || !validEditThin(opts.thin)) {
+    if (!opts || !validEditOp(opts.op) || !validEditThin(opts.thin)
+      || !validNonzeroOrNull(opts.distance2) || !validNonzeroOrNull(opts.draft)
+      || typeof opts.symmetric !== 'boolean' || typeof opts.drill !== 'boolean') {
       return { error: 'malformed extrude edit spec' };
     }
     if (opts.distance === null) {
       if (opts.op !== 'remove') {
         return { error: 'distance may be null (through-all) only for a remove' };
       }
+      if (opts.distance2 !== null) {
+        return { error: 'a two-distance extrude cannot be through-all' };
+      }
     } else if (typeof opts.distance !== 'number' || !Number.isFinite(opts.distance) || opts.distance === 0) {
       return { error: 'malformed extrude edit spec' };
     }
+    if (opts.distance2 !== null && opts.symmetric) {
+      return { error: 'a two-distance extrude cannot be symmetric' };
+    }
     return {
       statement: renderExtrudeStatement(
-        { op: opts.op, distance: opts.distance, thin: opts.thin, profile: parsed.profileText ? 'bound' : 'implicit' },
+        { ...opts, profile: parsed.profileText ? 'bound' : 'implicit' },
         parsed.profileText,
       ),
     };

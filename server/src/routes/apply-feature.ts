@@ -71,19 +71,38 @@ function validateSketchLoc(loc: any): SketchLoc | null {
   };
 }
 
+/** The dialog-editable extrude options, shared by the create and edit paths. */
+type ExtrudeOptionSet = {
+  op: 'add' | 'remove' | 'new';
+  distance: number | null;
+  distance2: number | null;
+  symmetric: boolean;
+  draft: number | null;
+  drill: boolean;
+  thin: [number] | [number, number] | null;
+};
+
 /**
  * The extrude request's shape. No pick selection: the profile is a sketch —
  * `active` consumes it implicitly, `bound` binds it to a variable.
  */
-type ExtrudeRequest = {
-  op: 'add' | 'remove' | 'new';
-  distance: number | null;
-  thin: [number] | [number, number] | null;
+type ExtrudeRequest = ExtrudeOptionSet & {
   profile: { mode: 'active' | 'bound' } & SketchLoc;
 };
 
-function validateExtrude(body: any): ExtrudeRequest | { error: string } {
-  const { op, distance, thin, profile } = body ?? {};
+function isNonzeroNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value !== 0;
+}
+
+/**
+ * Validate the option fields both extrude requests carry: the boolean op,
+ * the distance(s) — one, two (asymmetric both-ways), or null for a
+ * through-all remove — plus the symmetric / draft / drill / thin chains.
+ * `symmetric` and `distance2` are competing direction modes and exclude
+ * each other; a through-all remove has no explicit distances to pair.
+ */
+function validateExtrudeOptions(body: any): ExtrudeOptionSet | { error: string } {
+  const { op, distance, distance2, symmetric, draft, drill, thin } = body ?? {};
   if (op !== 'add' && op !== 'remove' && op !== 'new') {
     return { error: 'op must be "add", "remove" or "new"' };
   }
@@ -91,19 +110,55 @@ function validateExtrude(body: any): ExtrudeRequest | { error: string } {
     if (op !== 'remove') {
       return { error: 'distance may be null (through-all) only for a remove' };
     }
-  } else if (typeof distance !== 'number' || !Number.isFinite(distance) || distance === 0) {
+  } else if (!isNonzeroNumber(distance)) {
     return { error: 'distance must be a nonzero number (negative extrudes the other way)' };
+  }
+  if (distance2 !== undefined && distance2 !== null) {
+    if (!isNonzeroNumber(distance2)) {
+      return { error: 'distance2 must be a nonzero number' };
+    }
+    if (distance === null) {
+      return { error: 'a two-distance extrude cannot be through-all' };
+    }
+    if (symmetric === true) {
+      return { error: 'a two-distance extrude cannot be symmetric' };
+    }
+  }
+  if (symmetric !== undefined && typeof symmetric !== 'boolean') {
+    return { error: 'symmetric must be a boolean' };
+  }
+  if (draft !== undefined && draft !== null && !isNonzeroNumber(draft)) {
+    return { error: 'draft must be a nonzero taper angle in degrees' };
+  }
+  if (drill !== undefined && typeof drill !== 'boolean') {
+    return { error: 'drill must be a boolean' };
   }
   const thinResult = validateThinOffsets(thin);
   if ('error' in thinResult) {
     return thinResult;
   }
-  const mode = profile?.mode;
-  const loc = validateSketchLoc(profile);
+  return {
+    op,
+    distance,
+    distance2: distance2 ?? null,
+    symmetric: symmetric === true,
+    draft: draft ?? null,
+    drill: drill !== false,
+    thin: thinResult.offsets,
+  };
+}
+
+function validateExtrude(body: any): ExtrudeRequest | { error: string } {
+  const options = validateExtrudeOptions(body);
+  if ('error' in options) {
+    return options;
+  }
+  const mode = body?.profile?.mode;
+  const loc = validateSketchLoc(body?.profile);
   if ((mode !== 'active' && mode !== 'bound') || !loc) {
     return { error: 'profile must be {mode: "active"|"bound", filePath, line} of the sketch' };
   }
-  return { op, distance, thin: thinResult.offsets, profile: { mode, ...loc } };
+  return { ...options, profile: { mode, ...loc } };
 }
 
 /**
@@ -321,22 +376,11 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
   const base = { feature: kind, target, edit };
 
   if (feature === 'extrude') {
-    const { op, distance } = body ?? {};
-    if (op !== 'add' && op !== 'remove' && op !== 'new') {
-      return { error: 'op must be "add", "remove" or "new"' };
+    const options = validateExtrudeOptions(body);
+    if ('error' in options) {
+      return options;
     }
-    if (distance === null) {
-      if (op !== 'remove') {
-        return { error: 'distance may be null (through-all) only for a remove' };
-      }
-    } else if (typeof distance !== 'number' || !Number.isFinite(distance) || distance === 0) {
-      return { error: 'distance must be a nonzero number (negative extrudes the other way)' };
-    }
-    const thin = validateThinOffsets(body?.thin);
-    if ('error' in thin) {
-      return thin;
-    }
-    edit.extrude = { op, distance, thin: thin.offsets };
+    edit.extrude = options;
     return base;
   }
 
@@ -512,6 +556,10 @@ export function createApplyFeatureRouter(
         const options: ExtrudeEditOptions = {
           op: request.op,
           distance: request.distance,
+          distance2: request.distance2,
+          symmetric: request.symmetric,
+          draft: request.draft,
+          drill: request.drill,
           thin: request.thin,
           profile: request.profile.mode === 'bound' ? 'bound' : 'implicit',
         };

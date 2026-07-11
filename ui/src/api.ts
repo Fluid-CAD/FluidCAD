@@ -356,12 +356,24 @@ export type ExtrudeProfileRef = {
   column: number;
 };
 
-export type ExtrudeApplyOptions = {
+/** The extrude options the dialog edits, shared by create and edit applies. */
+export type ExtrudeOptionValues = {
   op: 'add' | 'remove' | 'new';
   /** Extrusion distance; null is a through-all remove. */
   distance: number | null;
+  /** Second (opposite-direction) distance — `extrude(d1, d2)`; excludes symmetric. */
+  distance2: number | null;
+  /** `.symmetric()` — the distance splits equally across the sketch plane. */
+  symmetric: boolean;
+  /** `.draft(angle)` taper in degrees, or null for a straight extrude. */
+  draft: number | null;
+  /** False writes `.drill(false)` — inner closed regions extrude as solid. */
+  drill: boolean;
   /** `.thin()` offsets, or null for a plain extrude. */
   thin: [number] | [number, number] | null;
+};
+
+export type ExtrudeApplyOptions = ExtrudeOptionValues & {
   profile: ExtrudeProfileRef;
   /** Render the statement preview without applying. */
   preview?: boolean;
@@ -378,6 +390,10 @@ export async function applyExtrude(options: ExtrudeApplyOptions): Promise<ApplyF
     feature: 'extrude',
     op: options.op,
     distance: options.distance,
+    distance2: options.distance2,
+    symmetric: options.symmetric,
+    draft: options.draft,
+    drill: options.drill,
     thin: options.thin,
     profile: options.profile,
     preview: options.preview,
@@ -477,6 +493,10 @@ export type ParsedFeatureStatement =
       feature: 'extrude';
       op: FeatureOpKind;
       distance: number | null;
+      distance2: number | null;
+      symmetric: boolean;
+      draft: number | null;
+      drill: boolean;
       thin: [number] | null;
       profileText: string | null;
     }
@@ -524,10 +544,7 @@ export async function parseFeatureAt(target: { filePath: string; line: number })
   }
 }
 
-export type ExtrudeEditOptions = {
-  op: FeatureOpKind;
-  distance: number | null;
-  thin: [number] | [number, number] | null;
+export type ExtrudeEditOptions = ExtrudeOptionValues & {
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -542,6 +559,10 @@ export async function applyExtrudeEdit(
     edit,
     op: options.op,
     distance: options.distance,
+    distance2: options.distance2,
+    symmetric: options.symmetric,
+    draft: options.draft,
+    drill: options.drill,
     thin: options.thin,
     preview: options.preview,
   }, options.signal);

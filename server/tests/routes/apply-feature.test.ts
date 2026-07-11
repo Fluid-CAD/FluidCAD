@@ -203,6 +203,44 @@ describe('apply-feature route validation', () => {
     expect(body.preview).toBe('extrude(10).thin(2).new()');
   });
 
+  it('previews a two-distance extrude', async () => {
+    const { body } = await post({
+      feature: 'extrude', op: 'add', distance: 10, distance2: 20, profile: PROFILE, preview: true,
+    });
+    expect(body.preview).toBe('extrude(10, 20)');
+  });
+
+  it('previews symmetric, draft and drill chains', async () => {
+    const { body } = await post({
+      feature: 'extrude', op: 'add', distance: 30, symmetric: true, draft: 5, drill: false,
+      profile: PROFILE, preview: true,
+    });
+    expect(body.preview).toBe('extrude(30).symmetric().draft(5).drill(false)');
+  });
+
+  it('rejects a two-distance symmetric extrude', async () => {
+    const { status, body } = await post({
+      feature: 'extrude', op: 'add', distance: 10, distance2: 20, symmetric: true, profile: PROFILE,
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('symmetric');
+  });
+
+  it('rejects a two-distance through-all remove', async () => {
+    const { status, body } = await post({
+      feature: 'extrude', op: 'remove', distance: null, distance2: 20, profile: PROFILE,
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('through-all');
+  });
+
+  it('rejects a zero draft angle', async () => {
+    const { status } = await post({
+      feature: 'extrude', op: 'add', distance: 10, draft: 0, profile: PROFILE,
+    });
+    expect(status).toBe(400);
+  });
+
   it('binds a bound profile and falls back to the hint name without a code buffer', async () => {
     const { body } = await post({
       feature: 'extrude', op: 'add', distance: 25, profile: { ...PROFILE, mode: 'bound' },
@@ -621,7 +659,10 @@ describe('apply-feature route validation', () => {
       expect(status).toBe(200);
       expect(body).toEqual({
         ok: true,
-        parsed: { feature: 'extrude', op: 'add', distance: 30, thin: null, profileText: null },
+        parsed: {
+          feature: 'extrude', op: 'add', distance: 30, distance2: null, symmetric: false,
+          draft: null, drill: true, thin: null, profileText: null,
+        },
         statement: 'extrude(30)',
       });
     });

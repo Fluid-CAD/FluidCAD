@@ -130,6 +130,10 @@ export class ExtrudeFeatureService {
     this.panel.showEdit({
       op: parsed.op,
       distance: parsed.distance,
+      distance2: parsed.distance2,
+      symmetric: parsed.symmetric,
+      draft: parsed.draft,
+      drill: parsed.drill,
       thin: parsed.thin,
       profileLabel: parsed.profileText ?? 'Current sketch (implicit)',
     });

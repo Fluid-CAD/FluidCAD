@@ -236,6 +236,8 @@ export class SketchMesh extends Group {
 
     const cursorGroup = new Group();
     cursorGroup.renderOrder = 1;
+    // Drawing chrome, not sketch content — must not participate in camera fits.
+    cursorGroup.userData.isMetaShape = true;
     cursorGroup.add(dot);
     cursorGroup.position.set(currentPosition.x, currentPosition.y, currentPosition.z);
 
@@ -288,6 +290,8 @@ export class SketchMesh extends Group {
 
     const arrowGroup = new Group();
     arrowGroup.renderOrder = 1;
+    // Drawing chrome, not sketch content — must not participate in camera fits.
+    arrowGroup.userData.isMetaShape = true;
     arrowGroup.add(shaft);
     arrowGroup.add(head);
 

@@ -21,8 +21,9 @@ const PREVIEW_DEBOUNCE_MS = 250;
  * group it registers as `immune`, staying visible while the exclusive sketch
  * toolbar owns the bar — extruding is how a sketch gets finished: applying
  * writes `extrude(25)` after the active sketch, whose consumption is also
- * what exits sketch mode. Outside sketch mode the button shows whenever an
- * unconsumed sketch renders; the dialog's dropdown offers those sketches and
+ * what exits sketch mode. Outside sketch mode the button shows whenever the
+ * scene has anything to work from — an unconsumed sketch or a solid (matching
+ * Loft); the dialog's dropdown offers the unconsumed sketches and
  * a chosen one is bound to a variable (`const s = sketch(…)` → `extrude(25,
  * s)`). No 3D picking is involved — the re-render is the preview and editor
  * undo is the rollback, as on the modify rails.
@@ -34,6 +35,7 @@ export class ExtrudeFeatureService {
   private available = false;
   private options: SketchProfileOption[] = [];
   private sceneObjects: SceneObjectRender[] = [];
+  private hasSolid = false;
   private labelSignature = '';
   private applying = false;
   /** Statement being edited in place (timeline double-click), or null. */
@@ -93,7 +95,11 @@ export class ExtrudeFeatureService {
   update(sceneObjects: SceneObjectRender[]): void {
     this.sceneObjects = sceneObjects;
     this.options = collectSketchProfiles(sceneObjects);
-    this.available = this.options.length > 0;
+    this.hasSolid = sceneObjects.some(o =>
+      o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
+    // Offered whenever the scene has anything to work from — like Loft. With
+    // no unconsumed sketch the dialog opens on a placeholder dropdown.
+    this.available = this.hasSolid || this.options.length > 0;
     // The group is shared with the Sketch button — vote via our own slot and
     // hide our own button; the group shows while either contributor needs it.
     this.navbar.setGroupVisible('create', this.available, 'extrude');

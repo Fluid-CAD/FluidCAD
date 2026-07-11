@@ -191,6 +191,14 @@ export class ExtrudePanel {
   setOptions(options: SketchProfileOption[]): void {
     const previous = this.selectedOption();
     this.options = options;
+    if (options.length === 0) {
+      const placeholder = document.createElement('option');
+      placeholder.textContent = 'No sketch — create one first';
+      placeholder.disabled = true;
+      this.profileSelect.replaceChildren(placeholder);
+      this.profileSelect.disabled = true;
+      return;
+    }
     this.profileSelect.replaceChildren(...options.map((option, i) => {
       const el = document.createElement('option');
       el.value = String(i);

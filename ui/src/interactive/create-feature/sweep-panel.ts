@@ -151,8 +151,14 @@ export class SweepPanel {
     this.pathOptions = paths;
     this.allowEdgePicking = allowEdgePicking;
 
-    this.profileSelect.replaceChildren(...profiles.map((option, i) => makeOption(String(i), option.label)));
-    this.profileSelect.value = String(matchOption(profiles, prevProfile));
+    if (profiles.length === 0) {
+      const placeholder = makeOption('', 'No sketch — create one first');
+      placeholder.disabled = true;
+      this.profileSelect.replaceChildren(placeholder);
+    } else {
+      this.profileSelect.replaceChildren(...profiles.map((option, i) => makeOption(String(i), option.label)));
+      this.profileSelect.value = String(matchOption(profiles, prevProfile));
+    }
     this.profileSelect.disabled = profiles.length <= 1;
 
     const pathEntries: HTMLOptionElement[] = [];

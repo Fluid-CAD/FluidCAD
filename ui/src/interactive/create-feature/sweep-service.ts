@@ -129,9 +129,9 @@ export class SweepFeatureService {
     this.hasSolid = sceneObjects.some(o =>
       o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
     this.sceneSketchActive = this.profiles[0]?.kind === 'active';
-    // A sweep needs a profile sketch plus a path source: another sketch, or
-    // solid edges to pick.
-    this.available = this.profiles.length > 0 && (this.hasSolid || this.profiles.length >= 2);
+    // Offered whenever the scene has anything to work from — like Loft. The
+    // dialog itself explains what's missing (a profile sketch, a path).
+    this.available = this.hasSolid || this.profiles.length > 0;
     this.navbar.setGroupVisible('create', this.available, 'sweep');
     this.syncButton();
     this.hideContextMenu();

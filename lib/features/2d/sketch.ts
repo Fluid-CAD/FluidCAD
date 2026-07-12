@@ -277,6 +277,12 @@ export class Sketch extends SceneObject implements Extrudable {
 
   serialize(scope?: Set<SceneObject>) {
     const plane = this.getPlane();
+    if (!plane) {
+      // The plane could not be built (e.g. a sketch on a non-planar face); the
+      // plane object already carries the real error. Emit a benign payload so
+      // this sketch doesn't crash serialization with a null dereference.
+      return { plane: this.planeObj.serialize() };
+    }
     const tangent = this.getTangent(scope);
     return {
       currentPosition: plane.localToWorld(this.getLastPosition(scope)),

@@ -162,8 +162,6 @@ export class PlaneFromObject extends PlaneObjectBase {
   getFromSceneObject(sceneObject: SceneObject) {
     const shapes = sceneObject.getShapes();
 
-    console.log(`Plane: Retrieved ${shapes.length} shapes from selection`, shapes);
-
     if (shapes.length === 0) {
       throw new Error("Plane: Selected object has no shapes to extract plane from");
     }
@@ -175,7 +173,6 @@ export class PlaneFromObject extends PlaneObjectBase {
     }
 
     let plane = sourceFace.getPlane();
-    console.log('Plane: Extracted plane from face', plane.normal);
 
     return { plane, sourceFace };
   }
@@ -220,6 +217,13 @@ export class PlaneFromObject extends PlaneObjectBase {
 
   serialize() {
     const plane = this.getPlane()
+    if (!plane) {
+      // build() failed (e.g. a non-planar source face) and the render layer has
+      // already captured the real error via setError. Emit a benign payload so
+      // serialization doesn't mask that error with a null dereference — and so
+      // one bad plane doesn't abort the whole scene render.
+      return { options: this.optionsOrPosition };
+    }
     return {
       origin: plane.origin,
       xDirection: plane.xDirection,

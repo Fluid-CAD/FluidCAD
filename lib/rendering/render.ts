@@ -375,19 +375,36 @@ export class SceneRenderer {
       ? obj.getName()
       : obj.getType().charAt(0).toUpperCase() + obj.getType().slice(1);
 
+    // Serialization can dereference state that a failed build never produced —
+    // e.g. a sketch whose plane could not be built reads plane.localToWorld.
+    // Contain that to this object (mark it errored) instead of letting one bad
+    // object abort the whole scene render.
+    let serialized: any;
+    let hasError = opts.hasError;
+    let errorMessage = opts.errorMessage;
+    try {
+      serialized = obj.serialize(opts.scope);
+    } catch (error) {
+      const message = describeError(error);
+      obj.setError(message);
+      hasError = true;
+      errorMessage = errorMessage || message;
+      serialized = {};
+    }
+
     const rendered: SceneObjectRender = {
       id: obj.id,
       name: displayName,
       parentId: obj.parentId,
-      object: obj.serialize(opts.scope),
+      object: serialized,
       sceneShapes: opts.sceneShapes,
       type: obj.getType(),
       uniqueType: obj.getUniqueType(),
       fromCache: scene.isCached(obj),
       visible: opts.visible,
       isContainer: obj.isContainer(),
-      hasError: opts.hasError,
-      errorMessage: opts.errorMessage,
+      hasError,
+      errorMessage,
       sourceLocation: obj.getSourceLocation() || undefined,
       buildDurationMs: opts.buildDurationMs,
       profileCategories,

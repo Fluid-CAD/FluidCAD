@@ -26,7 +26,7 @@ export class Color extends SceneObject {
     this._selection = selection ?? null;
   }
 
-  get selection(): SceneObject {
+  get selection(): SceneObject | null {
     return this._selection;
   }
 
@@ -49,23 +49,34 @@ export class Color extends SceneObject {
 
     const allShapes = Array.from(objShapeMap.keys());
 
-    const targetFaces: Face[] = this.selection.getShapes() as Face[];
-    console.log('Color: Target faces from selection:', targetFaces.length);
-
-    // Group faces by their owner solid
+    // Group faces by their owner solid. With an explicit selection we colour
+    // only the selected faces. Without one we colour every face in the current
+    // context, matching `select(face())` followed by `color(...)`: all faces of
+    // all non-meta solids present at this point in the build.
     const facesByOwner = new Map<Solid, Face[]>();
-    for (const face of targetFaces) {
-      const ownerShape = allShapes.find(s => s.hasFace(face.getShape()));
-      if (ownerShape) {
-        let faces = facesByOwner.get(ownerShape);
-        if (!faces) {
-          faces = [];
-          facesByOwner.set(ownerShape, faces);
+    if (this._selection) {
+      const targetFaces: Face[] = this._selection.getShapes() as Face[];
+      for (const face of targetFaces) {
+        const ownerShape = allShapes.find(s => s.hasFace(face.getShape()));
+        if (ownerShape) {
+          let faces = facesByOwner.get(ownerShape);
+          if (!faces) {
+            faces = [];
+            facesByOwner.set(ownerShape, faces);
+          }
+          faces.push(face);
         }
-        faces.push(face);
+        else {
+          console.log('Color: Could not find owner shape for face, skipping. Face:', face);
+        }
       }
-      else {
-        console.log('Color: Could not find owner shape for face, skipping. Face:', face);
+    }
+    else {
+      for (const solid of allShapes) {
+        if (solid.isMetaShape()) {
+          continue;
+        }
+        facesByOwner.set(solid, solid.getFaces());
       }
     }
 
@@ -76,9 +87,9 @@ export class Color extends SceneObject {
         newSolid.setColor(face.getShape(), this.color);
       }
 
-      if (this.selection instanceof SelectSceneObject) {
+      if (this._selection instanceof SelectSceneObject) {
         for (const face of faces) {
-          this.selection.removeShape(face, this);
+          this._selection.removeShape(face, this);
         }
       }
 
@@ -109,7 +120,11 @@ export class Color extends SceneObject {
       return false;
     }
 
-    if (!this.selection.compareTo(other.selection)) {
+    if (!this._selection !== !other._selection) {
+      return false;
+    }
+
+    if (this._selection && other._selection && !this._selection.compareTo(other._selection)) {
       return false;
     }
 

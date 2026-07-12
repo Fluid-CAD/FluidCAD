@@ -34,7 +34,7 @@ export class TrimPickService {
     this.triggerBtn.id = 'fluidcad-trim-pick-trigger';
     this.triggerBtn.className = 'flex items-center hidden';
     this.triggerBtn.innerHTML = `
-      <button class="btn btn-sm btn-outline btn-info gap-1.5 text-xs font-normal">
+      <button class="btn btn-sm btn-outline btn-primary border-dashed gap-1.5 text-xs font-normal">
         <span class="[&>svg]:size-4">${ICON_SCISSORS}</span>
         <span>Interactive Trimming</span>
       </button>
@@ -45,8 +45,8 @@ export class TrimPickService {
     this.activeBar.id = 'fluidcad-trim-pick-active';
     this.activeBar.className = 'flex items-center gap-2 text-xs select-none hidden';
     this.activeBar.innerHTML = `
-      <span class="[&>svg]:size-4 text-info">${ICON_SCISSORS}</span>
-      <span class="text-info font-medium">Trimming Mode</span>
+      <span class="[&>svg]:size-4 text-primary">${ICON_SCISSORS}</span>
+      <span class="text-primary font-medium">Trimming Mode</span>
       <div class="h-4 w-px bg-base-content/15"></div>
       <button class="btn btn-ghost btn-xs" id="exit-trim-pick">Exit</button>
     `;

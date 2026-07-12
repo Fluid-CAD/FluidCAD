@@ -14,8 +14,10 @@ import {
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 
-const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
-const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
+const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2.5 py-1 text-base-content/60';
+const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2.5 py-1';
+/** Small muted caption under the toolbar icon. */
+const BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
 
 const PREVIEW_DEBOUNCE_MS = 250;
 
@@ -34,6 +36,8 @@ const PREVIEW_DEBOUNCE_MS = 250;
 export class SweepFeatureService {
   private panel: SweepPanel;
   private button: HTMLButtonElement;
+  /** daisyUI tooltip wrapper around {@link button}; hides with the button so no phantom toolbar gap. */
+  private buttonWrap: HTMLElement;
   private armed = false;
   private available = false;
   private applying = false;
@@ -69,8 +73,8 @@ export class SweepFeatureService {
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     this.button = document.createElement('button');
     this.button.className = BTN_BASE;
-    this.button.title = 'Sweep a sketch along a path';
-    this.button.innerHTML = `<img src="/icons/sweep.png" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />`;
+    this.button.setAttribute('aria-label', 'Sweep a sketch along a path');
+    this.button.innerHTML = `<img src="/icons/sweep.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain" alt="" /><span class="${BTN_LABEL}">Sweep</span>`;
     this.button.addEventListener('click', () => {
       if (this.armed) {
         this.exit();
@@ -78,7 +82,11 @@ export class SweepFeatureService {
         this.enter();
       }
     });
-    group.appendChild(this.button);
+    this.buttonWrap = document.createElement('span');
+    this.buttonWrap.className = 'tooltip tooltip-bottom';
+    this.buttonWrap.dataset.tip = 'Sweep a sketch along a path';
+    this.buttonWrap.appendChild(this.button);
+    group.appendChild(this.buttonWrap);
 
     this.panel = new SweepPanel(container);
     this.panel.onApply = () => this.apply();
@@ -589,7 +597,7 @@ export class SweepFeatureService {
 
   private syncButton(): void {
     this.button.className = this.armed ? BTN_ACTIVE : BTN_BASE;
-    this.button.classList.toggle('hidden', !this.available);
+    this.buttonWrap.classList.toggle('hidden', !this.available);
     // Every armed flip lands here — the Sketch button disables while a
     // create dialog is up.
     this.hooks.onActiveChange?.();

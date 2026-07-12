@@ -60,13 +60,19 @@ const FEATURES: Record<ModifyFeatureKind, FeatureConfig> = {
   },
 };
 
-/** Same artwork the timeline shows for the feature (`/icons/<type>.png`). */
-function featureIconImg(kind: ModifyFeatureKind): string {
-  return `<img src="/icons/${kind}.png" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />`;
+/**
+ * Same artwork the timeline shows for the feature (`/icons/<type>.png`). The
+ * toolbar buttons render it at 32px (`w-8 h-8`); the dialog title keeps the
+ * smaller default that sits proportionally beside its `text-sm` heading.
+ */
+function featureIconImg(kind: ModifyFeatureKind, sizeClass = 'w-4 h-4'): string {
+  return `<img src="/icons/${kind}.png" ${ICON_IMG_FALLBACK} class="${sizeClass} object-contain" alt="" />`;
 }
 
-const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
-const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
+const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2.5 py-1 text-base-content/60';
+const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2.5 py-1';
+/** Small muted caption under the toolbar icon. */
+const BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
 
 // The selection field. While it awaits its first pick it wears the active
 // (primary) outline and prompts "Pick a face/edge"; once populated it settles
@@ -180,8 +186,8 @@ export class ModifyPickService {
     for (const kind of FEATURE_ORDER) {
       const btn = document.createElement('button');
       btn.className = BTN_BASE;
-      btn.title = FEATURES[kind].buttonTitle;
-      btn.innerHTML = featureIconImg(kind);
+      btn.setAttribute('aria-label', FEATURES[kind].buttonTitle);
+      btn.innerHTML = `${featureIconImg(kind, 'w-8 h-8')}<span class="${BTN_LABEL}">${FEATURES[kind].label}</span>`;
       btn.addEventListener('click', () => {
         if (this.feature === kind) {
           this.exit();
@@ -189,11 +195,15 @@ export class ModifyPickService {
           this.enter(kind);
         }
       });
+      const wrap = document.createElement('span');
+      wrap.className = 'tooltip tooltip-bottom';
+      wrap.dataset.tip = FEATURES[kind].buttonTitle;
+      wrap.appendChild(btn);
       if (kind === 'sketch') {
         // Ahead of the Extrude button, so the create group reads Sketch first.
-        createHost.prepend(btn);
+        createHost.prepend(wrap);
       } else {
-        group.appendChild(btn);
+        group.appendChild(wrap);
       }
       this.buttons.set(kind, btn);
     }

@@ -43,7 +43,7 @@ export class Navbar {
   constructor(container: HTMLElement) {
     this.el = document.createElement('div');
     this.el.className =
-      'absolute top-12 left-0 right-0 h-11 z-[120] flex items-center px-2 ' +
+      'absolute top-12 left-0 right-0 h-14 z-[120] flex items-center px-2 ' +
       'panel-bg border-b border-base-content/10 select-none';
     container.appendChild(this.el);
   }
@@ -58,10 +58,10 @@ export class Navbar {
     opts: { visible?: boolean; exclusive?: boolean; anchor?: 'start' | 'end'; immune?: boolean } = {},
   ): HTMLElement {
     const divider = document.createElement('div');
-    divider.className = 'w-px h-5 bg-base-content/[0.12] mx-1 shrink-0 hidden';
+    divider.className = 'w-px h-8 bg-base-content/[0.12] mx-1 shrink-0 hidden';
 
     const host = document.createElement('div');
-    host.className = 'flex items-center gap-0.5';
+    host.className = 'flex items-center gap-2';
 
     const group: ToolbarGroup = {
       key,

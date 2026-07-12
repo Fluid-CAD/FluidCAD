@@ -11,8 +11,10 @@ import {
 } from './plane-bases';
 import { collectSketchProfiles } from './sketch-profiles';
 
-const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
-const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
+const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2.5 py-1 text-base-content/60';
+const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2.5 py-1';
+/** Small muted caption under the toolbar icon. */
+const BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
 
 const PREVIEW_DEBOUNCE_MS = 250;
 
@@ -66,8 +68,8 @@ export class PlaneFeatureService {
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     this.button = document.createElement('button');
     this.button.className = BTN_BASE;
-    this.button.title = 'Create a construction plane';
-    this.button.innerHTML = `<img src="/icons/plane.png" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />`;
+    this.button.setAttribute('aria-label', 'Create a construction plane');
+    this.button.innerHTML = `<img src="/icons/plane.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain" alt="" /><span class="${BTN_LABEL}">Plane</span>`;
     this.button.addEventListener('click', () => {
       if (this.armed) {
         this.exit();
@@ -75,9 +77,13 @@ export class PlaneFeatureService {
         this.enter();
       }
     });
+    const buttonWrap = document.createElement('span');
+    buttonWrap.className = 'tooltip tooltip-bottom';
+    buttonWrap.dataset.tip = 'Create a construction plane';
+    buttonWrap.appendChild(this.button);
     // Ahead of the Extrude button; the Sketch button prepends later, so the
     // group reads Sketch, Plane, Extrude, …
-    group.prepend(this.button);
+    group.prepend(buttonWrap);
     // A plane can be made from standard planes alone, so the button is
     // always offered (the sketch slot votes the group visible in any scene).
     this.navbar.setGroupVisible('create', true, 'plane');

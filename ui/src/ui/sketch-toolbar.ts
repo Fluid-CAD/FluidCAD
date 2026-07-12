@@ -1,8 +1,15 @@
-import { ICON_LINE, ICON_POLYLINE, ICON_BEZIER, ICON_CIRCLE, ICON_POLYGON, ICON_CENTER_ARC, ICON_THREE_POINT_ARC, ICON_RECT, ICON_ROUNDED_RECT, ICON_SLOT, ICON_SCISSORS, ICON_SETTINGS } from './icons';
+import { ICON_SETTINGS } from './icons';
+import { ICON_IMG_FALLBACK } from './object-icons';
 import { ToolId } from '../interactive/sketch-tool';
 import { ShortcutManager } from './shortcut-manager';
 
-type ToolDef = { id: ToolId; label: string; icon: string };
+/**
+ * Each tool renders a PNG from `/icons` (the same artwork the timeline uses —
+ * `iconPng` is the file's basename). `caption` overrides the text shown under
+ * the icon when `label` is too long for a button (the full `label` still
+ * drives the hover tooltip).
+ */
+type ToolDef = { id: ToolId; label: string; caption?: string; iconPng: string };
 type ToolGroup = { tools: ToolDef[] };
 type ToolEntry = ToolDef | ToolGroup;
 
@@ -12,27 +19,27 @@ function isGroup(entry: ToolEntry): entry is ToolGroup {
 
 const TOOL_LAYOUT: ToolEntry[] = [
   { tools: [
-    { id: 'line', label: 'Line', icon: ICON_LINE },
-    { id: 'polyline', label: 'Polyline', icon: ICON_POLYLINE },
-    { id: 'bezier', label: 'Bezier', icon: ICON_BEZIER },
+    { id: 'line', label: 'Line', iconPng: 'line' },
+    { id: 'polyline', label: 'Polyline', iconPng: 'wire' },
+    { id: 'bezier', label: 'Bezier', iconPng: 'bezier' },
   ]},
   { tools: [
-    { id: 'circle', label: 'Circle', icon: ICON_CIRCLE },
-    { id: 'polygon', label: 'Polygon', icon: ICON_POLYGON },
+    { id: 'circle', label: 'Circle', iconPng: 'circle' },
+    { id: 'polygon', label: 'Polygon', iconPng: 'polygon' },
   ]},
   { tools: [
-    { id: 'rect', label: 'Rectangle', icon: ICON_RECT },
-    { id: 'rounded-rect', label: 'Rounded Rectangle', icon: ICON_ROUNDED_RECT },
+    { id: 'rect', label: 'Rectangle', iconPng: 'rect' },
+    { id: 'rounded-rect', label: 'Rounded Rectangle', caption: 'Rounded', iconPng: 'rounded-rect' },
   ]},
   { tools: [
-    { id: 'arc3', label: '3-Point Arc', icon: ICON_THREE_POINT_ARC },
-    { id: 'arc2', label: 'Center Arc', icon: ICON_CENTER_ARC },
+    { id: 'arc3', label: '3-Point Arc', caption: '3-Pt Arc', iconPng: 'arc' },
+    { id: 'arc2', label: 'Center Arc', iconPng: 'carc' },
   ]},
   { tools: [
-    { id: 'slot', label: 'Slot', icon: ICON_SLOT },
+    { id: 'slot', label: 'Slot', iconPng: 'slot' },
   ]},
   { tools: [
-    { id: 'trim', label: 'Trim', icon: ICON_SCISSORS },
+    { id: 'trim', label: 'Trim', iconPng: 'trim' },
   ]},
 ];
 
@@ -49,8 +56,10 @@ const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   trim: 't',
 };
 
-const BTN_BASE = 'btn btn-ghost btn-square btn-sm text-base-content/60';
-const BTN_ACTIVE = 'btn btn-soft btn-primary btn-square btn-sm';
+const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 text-base-content/60';
+const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2 py-1';
+/** Small muted caption under the toolbar icon. */
+const BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
 
 export class SketchToolbar {
   private host: HTMLElement;
@@ -91,7 +100,7 @@ export class SketchToolbar {
     this.renderTools();
 
     const sep = document.createElement('div');
-    sep.className = 'w-px h-5 bg-base-content/[0.12] mx-0.5 shrink-0';
+    sep.className = 'w-px h-8 bg-base-content/[0.12] mx-0.5 shrink-0';
     this.host.appendChild(sep);
 
     this.buildSnapButton();
@@ -153,7 +162,7 @@ export class SketchToolbar {
 
     const cogBtn = document.createElement('button');
     cogBtn.className = BTN_BASE;
-    cogBtn.innerHTML = `<span class="[&>svg]:size-5">${ICON_SETTINGS}</span>`;
+    cogBtn.innerHTML = `<span class="[&>svg]:size-8">${ICON_SETTINGS}</span><span class="${BTN_LABEL}">Snap</span>`;
     cogBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (this.snapMenu) {
@@ -235,7 +244,7 @@ export class SketchToolbar {
     for (let i = 0; i < TOOL_LAYOUT.length; i++) {
       if (i > 0) {
         const sep = document.createElement('div');
-        sep.className = 'w-px h-5 bg-base-content/[0.12] mx-0.5 shrink-0';
+        sep.className = 'w-px h-8 bg-base-content/[0.12] mx-0.5 shrink-0';
         this.inner.appendChild(sep);
       }
 
@@ -253,7 +262,8 @@ export class SketchToolbar {
 
     const btn = document.createElement('button');
     btn.className = tool.id === this.activeToolId ? BTN_ACTIVE : BTN_BASE;
-    btn.innerHTML = `<span class="[&>svg]:size-5">${tool.icon}</span>`;
+    btn.innerHTML = `<img src="/icons/${tool.iconPng}.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain" alt="" />`
+      + `<span class="${BTN_LABEL}">${tool.caption ?? tool.label}</span>`;
     btn.addEventListener('click', () => this.handleToolClick(tool.id));
 
     const shortcut = TOOL_SHORTCUTS[tool.id];

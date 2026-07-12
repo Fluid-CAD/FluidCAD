@@ -28,6 +28,8 @@ export type ApplyFeatureEditSpec = {
   extrude?: ExtrudeEditOptions;
   /** Sweep-only payload; `parts` (if any) render the path selector. */
   sweep?: SweepEditOptions;
+  /** Shell-only payload; the join type chains after the selector args. */
+  shell?: ShellEditOptions;
   /** Loft-only payload; each `parts` entry renders one profile's selector. */
   loft?: LoftEditOptions;
   /** Plane-only payload; each `parts` entry renders one base's selector. */
@@ -92,6 +94,9 @@ export type FeatureStatementEditTarget = {
     op: 'add' | 'remove' | 'new';
     thin: [number] | [number, number] | null;
   };
+  shell?: {
+    joinType: ShellJoinKind;
+  };
   loft?: {
     op: 'add' | 'remove' | 'new';
     thin: [number] | [number, number] | null;
@@ -143,6 +148,20 @@ export type SweepEditOptions = {
   thin: [number] | [number, number] | null;
   profile: 'implicit' | { producer: number };
   path: { kind: 'sketch'; producer: number } | { kind: 'selector' };
+};
+
+/**
+ * Mirror of the kernel's `ShellJoinType` — how the inner-wall offset closes
+ * corners. 'arc' is the kernel default and renders no chain.
+ */
+export type ShellJoinKind = 'arc' | 'intersection' | 'tangent';
+
+/**
+ * How a shell statement's join type is rendered: a `.join('<type>')` chain
+ * after the selector arguments; 'arc' (the kernel default) renders none.
+ */
+export type ShellEditOptions = {
+  joinType: ShellJoinKind;
 };
 
 /**
@@ -954,6 +973,18 @@ function renderConditionChain(method: string, condition: LoftConditionSpec | und
 }
 
 /**
+ * Render a shell's `.join('<type>')` chain; 'arc' (the kernel default) and
+ * absence render nothing. Shared with the route's preview so the previewed
+ * text is exactly what the transform writes.
+ */
+export function renderShellJoinChain(joinType: ShellJoinKind | undefined): string {
+  if (!joinType || joinType === 'arc') {
+    return '';
+  }
+  return `.join('${joinType}')`;
+}
+
+/**
  * Render one selector part as an expression: `select(<args>)` for a global
  * part, `<var>.<accessor>(<args>)` on a bound producer. Shared with the
  * route, which renders loft profiles part-by-part with the namer's names.
@@ -1111,7 +1142,8 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   if (spec.feature === 'sketch') {
     return `sketch(${args}, () => {\n\n${indent}})`;
   }
-  return `${spec.feature}(${formatNumber(spec.value)}, ${args})`;
+  const joinChain = spec.feature === 'shell' ? renderShellJoinChain(spec.shell?.joinType) : '';
+  return `${spec.feature}(${formatNumber(spec.value)}, ${args})${joinChain}`;
 }
 
 /** The selector argument list: the user-edited override, or rendered parts. */
@@ -1256,7 +1288,15 @@ export type ParsedFeatureStatement =
     endCondition: LoftConditionSpec | null;
   }
   | {
-    feature: 'shell' | 'fillet' | 'chamfer';
+    feature: 'shell';
+    value: number;
+    /** Selector argument list after the value, verbatim (`''` when absent). */
+    argsText: string;
+    /** `.join()` type; 'arc' (the kernel default) when the chain is absent. */
+    joinType: ShellJoinKind;
+  }
+  | {
+    feature: 'fillet' | 'chamfer';
     value: number;
     /** Selector argument list after the value, verbatim (`''` when absent). */
     argsText: string;
@@ -1283,7 +1323,7 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   extrude: new Set(['symmetric', 'draft', 'drill', 'thin', 'remove', 'new']),
   sweep: new Set(['thin', 'remove', 'new']),
   loft: new Set(['guides', 'startCondition', 'endCondition', 'thin', 'remove', 'new']),
-  shell: new Set(),
+  shell: new Set(['join']),
   fillet: new Set(),
   chamfer: new Set(),
 };
@@ -1394,6 +1434,13 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
     const argsText = args.length > 1
       ? code.slice(args[1].startIndex, args[args.length - 1].endIndex)
       : '';
+    if (feature === 'shell') {
+      const joinParse = parseJoinSegment(recognized.get('join'));
+      if ('error' in joinParse) {
+        return joinParse;
+      }
+      return { parsed: { feature, value, argsText, joinType: joinParse.joinType }, start, end };
+    }
     return { parsed: { feature, value, argsText }, start, end };
   }
 
@@ -1529,6 +1576,29 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
     start,
     end,
   };
+}
+
+const SHELL_JOIN_KINDS = new Set<ShellJoinKind>(['arc', 'intersection', 'tangent']);
+
+/**
+ * A shell's `.join(…)` member: a plain 'arc' / 'intersection' / 'tangent'
+ * string. Absence reads as 'arc' — the kernel default.
+ */
+function parseJoinSegment(
+  seg: ChainSegment | undefined,
+): { joinType: ShellJoinKind } | { error: string } {
+  if (!seg) {
+    return { joinType: 'arc' };
+  }
+  const typeNode = seg.args.length === 1 ? seg.args[0] : null;
+  if (!typeNode || typeNode.type !== 'string') {
+    return { error: 'the .join() type is not a plain string — edit it in the source' };
+  }
+  const type = typeNode.text.slice(1, -1) as ShellJoinKind;
+  if (!SHELL_JOIN_KINDS.has(type)) {
+    return { error: `the .join() type '${type}' is not one the dialog knows` };
+  }
+  return { joinType: type };
 }
 
 /**
@@ -1684,11 +1754,20 @@ export function renderEditedStatement(
   if (typeof spec.value !== 'number' || !Number.isFinite(spec.value) || spec.value === 0) {
     return { error: `the ${parsed.feature} value must be a nonzero number` };
   }
+  let joinChain = '';
+  if (parsed.feature === 'shell') {
+    // An edit spec without shell options keeps the statement's own join type.
+    const joinType = spec.edit?.shell?.joinType ?? parsed.joinType;
+    if (!SHELL_JOIN_KINDS.has(joinType)) {
+      return { error: 'malformed shell edit spec' };
+    }
+    joinChain = renderShellJoinChain(joinType);
+  }
   const args = spec.rawArgs?.trim() || parsed.argsText;
   return {
     statement: args
-      ? `${parsed.feature}(${formatNumber(spec.value)}, ${args})`
-      : `${parsed.feature}(${formatNumber(spec.value)})`,
+      ? `${parsed.feature}(${formatNumber(spec.value)}, ${args})${joinChain}`
+      : `${parsed.feature}(${formatNumber(spec.value)})${joinChain}`,
   };
 }
 

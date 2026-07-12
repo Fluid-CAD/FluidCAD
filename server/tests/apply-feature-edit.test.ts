@@ -357,6 +357,45 @@ describe('shell and sketch statement templates', () => {
     expect(result.newCode).toContain(`shell(-2, e.endFaces())`);
   });
 
+  it('emits a shell join chain for a non-default join type', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, spec({
+      feature: 'shell',
+      value: -2,
+      shell: { joinType: 'tangent' },
+      parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`shell(-2, e.endFaces()).join('tangent')`);
+  });
+
+  it('emits no join chain for the default arc join type', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, spec({
+      feature: 'shell',
+      value: -2,
+      shell: { joinType: 'arc' },
+      parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`shell(-2, e.endFaces())`);
+    expect(result.newCode).not.toContain(`.join(`);
+  });
+
   it('emits sketch with an empty multi-line callback and no numeric parameter', async () => {
     const code = [
       `import { sketch, rect, extrude } from 'fluidcad/core'`,
@@ -1522,9 +1561,37 @@ describe('parseFeatureStatement', () => {
     const result = await parseFeatureStatement(code, 4);
     expect(result).toEqual({
       ok: true,
-      parsed: { feature: 'shell', value: -2, argsText: `e.endFaces(),  face().onPlane('xy')` },
+      parsed: { feature: 'shell', value: -2, argsText: `e.endFaces(),  face().onPlane('xy')`, joinType: 'arc' },
       statement: `shell(-2, e.endFaces(),  face().onPlane('xy'))`,
     });
+  });
+
+  it('reads a shell join chain', async () => {
+    const code = `${editBase}\nshell(-2, e.endFaces()).join('tangent')\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toEqual({
+      ok: true,
+      parsed: { feature: 'shell', value: -2, argsText: 'e.endFaces()', joinType: 'tangent' },
+      statement: `shell(-2, e.endFaces()).join('tangent')`,
+    });
+  });
+
+  it('refuses a shell join type it does not know', async () => {
+    const code = `${editBase}\nshell(-2, e.endFaces()).join('bevel')\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain(`'bevel'`);
+    }
+  });
+
+  it('refuses a non-literal shell join type', async () => {
+    const code = `${editBase}\nshell(-2, e.endFaces()).join(mode)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('not a plain string');
+    }
   });
 
   it('keeps chained calls after the options out of the statement span', async () => {
@@ -1669,6 +1736,36 @@ describe('applyFeatureEdit (in-place statement edit)', () => {
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`shell(-2, face().onPlane('xy'))`);
     expect(result.newCode).toContain(`from 'fluidcad/filters'`);
+  });
+
+  it('adds a shell join chain in place', async () => {
+    const code = `${editBase}\nshell(-2, e.endFaces())\n`;
+    const result = await applyFeatureEdit(code, editSpec('shell', {
+      line: 4, column: 0,
+      shell: { joinType: 'intersection' },
+    }, { value: -2 }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`shell(-2, e.endFaces()).join('intersection')`);
+  });
+
+  it('drops the join chain when the edit selects the default arc', async () => {
+    const code = `${editBase}\nshell(-2, e.endFaces()).join('tangent')\n`;
+    const result = await applyFeatureEdit(code, editSpec('shell', {
+      line: 4, column: 0,
+      shell: { joinType: 'arc' },
+    }, { value: -2 }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`shell(-2, e.endFaces())`);
+    expect(result.newCode).not.toContain(`.join(`);
+  });
+
+  it('keeps the statement join type when the edit spec carries none', async () => {
+    const code = `${editBase}\nshell(-3, e.endFaces()).join('tangent')\n`;
+    const result = await applyFeatureEdit(code, editSpec('shell', {
+      line: 4, column: 0,
+    }, { value: -2 }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`shell(-2, e.endFaces()).join('tangent')`);
   });
 
   it('refuses when the statement is not the expected feature', async () => {

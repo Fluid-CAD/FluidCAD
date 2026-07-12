@@ -309,6 +309,9 @@ export type ApplyFeatureResponse = {
   reason?: string;
 };
 
+/** How a shell's inner-wall offset closes corners; 'arc' is the default. */
+export type ShellJoinType = 'arc' | 'intersection' | 'tangent';
+
 export type ApplyFeatureOptions = {
   chains?: ApplyFeatureChain[];
   /** User-edited argument list; replaces the synthesized selectors verbatim. */
@@ -318,6 +321,8 @@ export type ApplyFeatureOptions = {
    * targets — `sketch('<plane>', () => {})`.
    */
   plane?: 'xy' | 'xz' | 'yz';
+  /** Shell only: writes a `.join('<type>')` chain; 'arc' writes none. */
+  joinType?: ShellJoinType;
   /** Synthesize only — return the expression preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -343,6 +348,7 @@ export async function applyFeature(
     chains: options.chains,
     selectorOverride: options.selectorOverride,
     plane: options.plane,
+    joinType: options.joinType,
     preview: options.preview,
   }, options.signal);
 }
@@ -560,7 +566,14 @@ export type ParsedFeatureStatement =
       startCondition: LoftConditionRef | null;
       endCondition: LoftConditionRef | null;
     }
-  | { feature: 'shell' | 'fillet' | 'chamfer'; value: number; argsText: string };
+  | {
+      feature: 'shell';
+      value: number;
+      argsText: string;
+      /** `.join()` type; 'arc' (the kernel default) when the chain is absent. */
+      joinType: ShellJoinType;
+    }
+  | { feature: 'fillet' | 'chamfer'; value: number; argsText: string };
 
 export type ParseFeatureResult =
   | { ok: true; parsed: ParsedFeatureStatement; statement: string }
@@ -662,6 +675,8 @@ export type ValueFeatureEditOptions = {
   value: number;
   /** Edited selector argument list; omitted keeps the statement's verbatim. */
   selectorOverride?: string;
+  /** Shell only: rewrites the `.join('<type>')` chain; 'arc' writes none. */
+  joinType?: ShellJoinType;
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -677,6 +692,7 @@ export async function applyValueFeatureEdit(
     edit,
     value: options.value,
     selectorOverride: options.selectorOverride,
+    joinType: options.joinType,
     preview: options.preview,
   }, options.signal);
 }

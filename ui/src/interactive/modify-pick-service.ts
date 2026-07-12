@@ -1,6 +1,7 @@
 import {
   applyFeature, applyValueFeatureEdit, expandBucket, explainSelection,
   ApplyFeatureChain, ApplyFeatureResponse, FeatureEditTarget, ParsedFeatureStatement, SelectionGroupKind,
+  ShellJoinType,
 } from '../api';
 import { entityKey, mergeUniqueEntities, sameEntity } from '../helpers/entities';
 import { isTopLevel } from '../helpers/scene-utils';
@@ -27,6 +28,8 @@ type FeatureConfig = {
   immediate: boolean;
   /** List each pick as a removable chip row instead of a bare count. */
   selectionList: boolean;
+  /** Show the join-type dropdown (shell's arc/intersection/tangent). */
+  joinRow: boolean;
   /** Static text after the editable args in the expression row. */
   exprSuffix: string;
 };
@@ -41,19 +44,19 @@ const FEATURE_ORDER: ModifyFeatureKind[] = ['sketch', 'fillet', 'chamfer', 'shel
 const FEATURES: Record<ModifyFeatureKind, FeatureConfig> = {
   sketch: {
     label: 'Sketch', buttonTitle: 'Sketch on a face or an origin plane', valueLabel: null, defaultValue: null,
-    pickFilter: 'face', valueSign: null, immediate: true, selectionList: false, exprSuffix: ', () => { ... })',
+    pickFilter: 'face', valueSign: null, immediate: true, selectionList: false, joinRow: false, exprSuffix: ', () => { ... })',
   },
   fillet: {
     label: 'Fillet', buttonTitle: 'Fillet edges', valueLabel: 'Radius', defaultValue: 1,
-    pickFilter: 'all', valueSign: 'positive', immediate: false, selectionList: true, exprSuffix: ')',
+    pickFilter: 'all', valueSign: 'positive', immediate: false, selectionList: true, joinRow: false, exprSuffix: ')',
   },
   chamfer: {
     label: 'Chamfer', buttonTitle: 'Chamfer edges', valueLabel: 'Distance', defaultValue: 1,
-    pickFilter: 'all', valueSign: 'positive', immediate: false, selectionList: true, exprSuffix: ')',
+    pickFilter: 'all', valueSign: 'positive', immediate: false, selectionList: true, joinRow: false, exprSuffix: ')',
   },
   shell: {
     label: 'Shell', buttonTitle: 'Shell (pick the faces to open)', valueLabel: 'Thickness', defaultValue: -2,
-    pickFilter: 'face', valueSign: 'nonzero', immediate: false, selectionList: false, exprSuffix: ')',
+    pickFilter: 'face', valueSign: 'nonzero', immediate: false, selectionList: false, joinRow: true, exprSuffix: ')',
   },
 };
 
@@ -128,6 +131,8 @@ export class ModifyPickService {
   private valueWrap: HTMLElement;
   private valueLabel: HTMLElement;
   private valueInput: HTMLInputElement;
+  private joinWrap: HTMLElement;
+  private joinSelect: HTMLSelectElement;
   private countBox: HTMLElement;
   private countText: HTMLElement;
   private chipList: HTMLElement;
@@ -136,6 +141,8 @@ export class ModifyPickService {
   private applying = false;
   /** Last entered value per feature — a fillet radius makes a bad shell thickness. */
   private valueByFeature = new Map<ModifyFeatureKind, string>();
+  /** Last chosen shell join type — restored the next time shell arms. */
+  private lastJoinType: ShellJoinType = 'arc';
 
   private exprRow: HTMLDivElement;
   private exprPrefix: HTMLElement;
@@ -201,15 +208,23 @@ export class ModifyPickService {
             <span class="flex items-center [&>svg]:size-4" data-role="icon"></span>
             <span data-role="title" class="font-medium text-sm">Fillet</span>
           </div>
+          <div data-role="chip-list" class="flex flex-col gap-1 hidden"></div>
+          <div data-role="count-box" class="${COUNT_BOX_BASE} ${COUNT_BOX_ACTIVE}">
+            <span data-role="count" class="whitespace-nowrap">Pick an edge</span>
+          </div>
           <label data-role="value-wrap" class="flex flex-col gap-1.5">
             <span class="text-base-content/70" data-role="value-label">Radius</span>
             <input data-role="value" type="number" step="0.5"
               class="input input-sm input-bordered w-full text-xs" />
           </label>
-          <div data-role="chip-list" class="flex flex-col gap-1 hidden"></div>
-          <div data-role="count-box" class="${COUNT_BOX_BASE} ${COUNT_BOX_ACTIVE}">
-            <span data-role="count" class="whitespace-nowrap">Pick an edge</span>
-          </div>
+          <label data-role="join-wrap" class="flex flex-col gap-1.5 hidden">
+            <span class="text-base-content/70">Join type</span>
+            <select data-role="join" class="select select-sm select-bordered w-full text-xs">
+              <option value="arc">Arc</option>
+              <option value="intersection">Intersection</option>
+              <option value="tangent">Tangent</option>
+            </select>
+          </label>
           <div class="flex items-center gap-2 pt-1">
             <button data-role="apply" class="btn btn-primary btn-sm flex-1">Apply</button>
             <button data-role="exit" class="btn btn-ghost btn-sm">Exit</button>
@@ -236,6 +251,8 @@ export class ModifyPickService {
     this.valueWrap = this.activeBar.querySelector('[data-role="value-wrap"]')!;
     this.valueLabel = this.activeBar.querySelector('[data-role="value-label"]')!;
     this.valueInput = this.activeBar.querySelector('[data-role="value"]')!;
+    this.joinWrap = this.activeBar.querySelector('[data-role="join-wrap"]')!;
+    this.joinSelect = this.activeBar.querySelector('[data-role="join"]')!;
     this.countBox = this.activeBar.querySelector('[data-role="count-box"]')!;
     this.countText = this.activeBar.querySelector('[data-role="count"]')!;
     this.chipList = this.activeBar.querySelector('[data-role="chip-list"]')!;
@@ -262,6 +279,12 @@ export class ModifyPickService {
         this.valueByFeature.set(this.feature, this.valueInput.value);
       }
       this.syncExprPrefix();
+    });
+    this.joinSelect.addEventListener('change', () => {
+      if (this.feature === 'shell') {
+        this.lastJoinType = this.joinSelect.value as ShellJoinType;
+      }
+      this.syncExprSuffix();
     });
     this.exprInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
@@ -414,11 +437,17 @@ export class ModifyPickService {
       this.valueInput.removeAttribute('min');
     }
     this.valueInput.value = String(parsed.value);
+    if (parsed.feature === 'shell') {
+      this.joinSelect.value = parsed.joinType;
+      this.joinWrap.classList.remove('hidden');
+    } else {
+      this.joinWrap.classList.add('hidden');
+    }
     // No selection field: the picks are fixed to the statement's own args.
     this.countBox.classList.add('hidden');
     this.chipList.replaceChildren();
     this.chipList.classList.add('hidden');
-    this.exprSuffix.textContent = config.exprSuffix;
+    this.syncExprSuffix();
     this.synthesizedArgs = parsed.argsText;
     this.alternatives = [];
     this.exprInput.value = parsed.argsText;
@@ -495,7 +524,13 @@ export class ModifyPickService {
       }
       this.valueInput.value = this.valueByFeature.get(feature) ?? String(config.defaultValue);
     }
-    this.exprSuffix.textContent = config.exprSuffix;
+    if (config.joinRow) {
+      this.joinSelect.value = this.lastJoinType;
+      this.joinWrap.classList.remove('hidden');
+    } else {
+      this.joinWrap.classList.add('hidden');
+    }
+    this.syncExprSuffix();
     this.activeBar.classList.remove('hidden');
     this.setMessage(null);
     this.refresh();
@@ -827,7 +862,7 @@ export class ModifyPickService {
         const result = await applyValueFeatureEdit(
           this.feature as 'shell' | 'fillet' | 'chamfer',
           this.editTarget,
-          { value: value!, selectorOverride },
+          { value: value!, selectorOverride, joinType: this.shellJoinType() ?? undefined },
         );
         if (result.success) {
           this.exit({ resume: 'lazy' });
@@ -852,6 +887,7 @@ export class ModifyPickService {
       const result = await applyFeature(this.feature, value, this.entities, {
         chains: this.apiChains(),
         selectorOverride,
+        joinType: this.shellJoinType() ?? undefined,
       });
       if (result.success) {
         // The editor round-trip re-renders the scene; that render is the
@@ -1063,6 +1099,25 @@ export class ModifyPickService {
     }
     const value = this.valueInput.value.trim() || String(config.defaultValue);
     this.exprPrefix.textContent = `${this.feature}(${value}, `;
+  }
+
+  /** The join dropdown's value while a shell dialog is up, or null. */
+  private shellJoinType(): ShellJoinType | null {
+    if (this.feature !== 'shell') {
+      return null;
+    }
+    return this.joinSelect.value as ShellJoinType;
+  }
+
+  /** A non-default shell join shows as a `.join()` chain after the args. */
+  private syncExprSuffix(): void {
+    if (!this.feature) {
+      return;
+    }
+    const join = this.shellJoinType();
+    this.exprSuffix.textContent = join && join !== 'arc'
+      ? `${FEATURES[this.feature].exprSuffix}.join('${join}')`
+      : FEATURES[this.feature].exprSuffix;
   }
 
   private hideExpression(): void {

@@ -3,10 +3,10 @@ import type { FluidCadServer } from '../fluidcad-server.ts';
 import {
   applyFeatureEdit, extractNumericParams, makeProducerNamer, parseFeatureStatement, renderEditedStatement,
   renderExtrudeStatement, renderLoftStatement, renderPlaneBaseExprs, renderPlaneStatement,
-  renderSelectorPartExpr, renderSweepStatement, resolveParamValues,
+  renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, resolveParamValues,
   resolveSketchNames,
   type ApplyFeatureEditSpec, type ExtrudeEditOptions, type FeatureStatementEditTarget, type LoftEditOptions,
-  type PlaneEditOptions, type SweepEditOptions,
+  type PlaneEditOptions, type ShellJoinKind, type SweepEditOptions,
 } from '../apply-feature-edit.ts';
 import { normalizePath } from '../normalize-path.ts';
 
@@ -57,6 +57,17 @@ function validateThinOffsets(thin: unknown): { offsets: [number] | [number, numb
     return { error: 'thin must be one or two positive offsets' };
   }
   return { offsets: thin.length === 1 ? [thin[0]] : [thin[0], thin[1]] };
+}
+
+/** Shell's optional `.join()` type; absent means 'arc' — the kernel default. */
+function validateShellJoinType(raw: unknown): { joinType: ShellJoinKind } | { error: string } {
+  if (raw === undefined || raw === null) {
+    return { joinType: 'arc' };
+  }
+  if (raw !== 'arc' && raw !== 'intersection' && raw !== 'tangent') {
+    return { error: 'joinType must be "arc", "intersection" or "tangent"' };
+  }
+  return { joinType: raw };
 }
 
 function validateSketchLoc(loc: any): SketchLoc | null {
@@ -591,12 +602,17 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
   }
 
   // Shell / fillet / chamfer: the numeric value plus an optional edited
-  // selector argument list (the expression row).
+  // selector argument list (the expression row); shell adds its join type.
   const { value } = body ?? {};
   if (feature === 'shell') {
     if (typeof value !== 'number' || !Number.isFinite(value) || value === 0) {
       return { error: 'value must be a nonzero number (negative hollows inward)' };
     }
+    const join = validateShellJoinType(body?.joinType);
+    if ('error' in join) {
+      return join;
+    }
+    edit.shell = { joinType: join.joinType };
   } else if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
     return { error: 'value must be a positive number' };
   }
@@ -1222,12 +1238,20 @@ export function createApplyFeatureRouter(
     }
     // Per-feature numeric parameter: fillet/chamfer need a positive radius or
     // distance; shell needs a nonzero thickness (negative is the idiom —
-    // shell(-2, …) hollows inward); sketch has no numeric parameter at all.
+    // shell(-2, …) hollows inward) plus its join type; sketch has no numeric
+    // parameter at all.
+    let shellJoin: ShellJoinKind = 'arc';
     if (feature === 'shell') {
       if (typeof value !== 'number' || !Number.isFinite(value) || value === 0) {
         res.status(400).json({ error: 'value must be a nonzero number (negative hollows inward)' });
         return;
       }
+      const join = validateShellJoinType(req.body?.joinType);
+      if ('error' in join) {
+        res.status(400).json({ error: join.error });
+        return;
+      }
+      shellJoin = join.joinType;
     } else if (feature !== 'sketch') {
       if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
         res.status(400).json({ error: 'value must be a positive number' });
@@ -1267,20 +1291,26 @@ export function createApplyFeatureRouter(
         res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
         return;
       }
+      // Synthesis renders the bare statement; the shell join chain rides the
+      // spec, so the preview must append it to stay truthful.
+      const joinChain = feature === 'shell' ? renderShellJoinChain(shellJoin) : '';
       if (preview === true) {
         res.json({
           success: true,
-          preview: synthesis.preview,
+          preview: synthesis.preview + joinChain,
           args: synthesis.args,
           alternatives: synthesis.alternatives,
         });
         return;
       }
-      const spec = typeof selectorOverride === 'string' && selectorOverride.trim() !== synthesis.args
+      let spec: ApplyFeatureEditSpec = typeof selectorOverride === 'string' && selectorOverride.trim() !== synthesis.args
         ? { ...synthesis.spec, rawArgs: selectorOverride.trim() }
         : synthesis.spec;
+      if (feature === 'shell') {
+        spec = { ...spec, shell: { joinType: shellJoin } };
+      }
       sendToExtension({ type: 'apply-feature-edit', spec });
-      res.json({ success: true, preview: synthesis.preview });
+      res.json({ success: true, preview: synthesis.preview + joinChain });
     } catch (err: any) {
       res.status(500).json({ success: false, reason: err?.message ?? String(err) });
     }

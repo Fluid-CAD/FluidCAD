@@ -106,6 +106,39 @@ describe('apply-feature route validation', () => {
     expect(body.error).toContain('nonzero');
   });
 
+  it('rejects an unknown shell join type', async () => {
+    const { status, body } = await post({ feature: 'shell', value: -2, entities: [PICK], joinType: 'bevel' });
+    expect(status).toBe(400);
+    expect(body.error).toContain('joinType');
+  });
+
+  it('relays the shell join type on the spec and appends it to the preview', async () => {
+    currentSynthesis = {
+      ...fakeSynthesis,
+      spec: { ...fakeSynthesis.spec, feature: 'shell' },
+      preview: 'shell(-2, e.endFaces())',
+      args: 'e.endFaces()',
+    };
+    const { status, body } = await post({ feature: 'shell', value: -2, entities: [PICK], joinType: 'tangent' });
+    expect(status).toBe(200);
+    expect(body.preview).toBe(`shell(-2, e.endFaces()).join('tangent')`);
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0].spec.shell).toEqual({ joinType: 'tangent' });
+  });
+
+  it('leaves the preview and spec bare for the default arc join type', async () => {
+    currentSynthesis = {
+      ...fakeSynthesis,
+      spec: { ...fakeSynthesis.spec, feature: 'shell' },
+      preview: 'shell(-2, e.endFaces())',
+      args: 'e.endFaces()',
+    };
+    const { status, body } = await post({ feature: 'shell', value: -2, entities: [PICK], joinType: 'arc' });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('shell(-2, e.endFaces())');
+    expect(relayed[0].spec.shell).toEqual({ joinType: 'arc' });
+  });
+
   it('accepts sketch without a value and relays the spec to the extension', async () => {
     const { status, body } = await post({ feature: 'sketch', entities: [PICK] });
     expect(status).toBe(200);
@@ -945,6 +978,34 @@ describe('apply-feature route validation', () => {
         rawArgs: `face().onPlane('xy')`,
         edit: { line: 5, column: 0 },
       });
+    });
+
+    it('relays a shell edit join type and previews the chain', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'shell',
+        edit: { filePath: '/ws/m.fluid.js', line: 5, column: 0 },
+        value: -2,
+        joinType: 'intersection',
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`shell(-2, e.endFaces()).join('intersection')`);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'shell',
+        value: -2,
+        edit: { line: 5, column: 0, shell: { joinType: 'intersection' } },
+      });
+    });
+
+    it('rejects an unknown shell edit join type', async () => {
+      const { status } = await post({
+        feature: 'shell',
+        edit: { filePath: '/ws/m.fluid.js', line: 5, column: 0 },
+        value: -2,
+        joinType: 'bevel',
+      });
+      expect(status).toBe(400);
     });
 
     it('refuses an edit in a different file than the live buffer', async () => {

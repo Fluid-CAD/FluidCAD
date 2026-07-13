@@ -153,6 +153,12 @@ export type ApplyFeatureEditSpec = {
    * rendering `parts`, and derives extra imports from its text.
    */
   rawArgs?: string;
+  /**
+   * Strip every `breakpoint();` after the rewrite — set when an edit dialog
+   * applies, clearing the breakpoint it opened with so the model rebuilds to
+   * its tip. Mirrors the server transform's flag; the kernel never sets it.
+   */
+  clearBreakpoints?: boolean;
 };
 
 export type ApplyFeatureSynthesis =

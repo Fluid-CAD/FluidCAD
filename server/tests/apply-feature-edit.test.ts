@@ -2260,6 +2260,41 @@ describe('applyFeatureEdit (re-sourced statement edit)', () => {
     }
   });
 
+  it('strips the breakpoint atomically with the rewrite when clearBreakpoints is set', async () => {
+    const code = [
+      `import { breakpoint, sketch, rect, extrude, shell } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30, s)`,
+      `shell(-2, e.endFaces())`,
+      `breakpoint();`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('shell', {
+      line: 5, column: 0,
+    }, { value: -3, clearBreakpoints: true }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('shell(-3, e.endFaces())');
+    expect(result.newCode).not.toContain('breakpoint()');
+  });
+
+  it('keeps the breakpoint when clearBreakpoints is absent', async () => {
+    const code = [
+      `import { breakpoint, sketch, rect, extrude, shell } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30, s)`,
+      `shell(-2, e.endFaces())`,
+      `breakpoint();`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('shell', {
+      line: 5, column: 0,
+    }, { value: -3 }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('breakpoint()');
+  });
+
   it('refuses a selector sweep path with more than one part', async () => {
     const code = [
       `import { sketch, rect, extrude, sweep } from 'fluidcad/core'`,

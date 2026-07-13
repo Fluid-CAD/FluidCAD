@@ -1123,8 +1123,20 @@ describe('apply-feature route validation', () => {
           producers: [{ line: 4, featureType: 'extrude', bind: true }],
           parts: [{ producer: 0, accessor: 'sideFaces', indices: [0, 2] }],
           edit: { line: 6, column: 0 },
+          // The relayed edit spec clears the breakpoint the dialog opened with.
+          clearBreakpoints: true,
         });
         expect(relayed[0].spec.rawArgs).toBeUndefined();
+      });
+
+      it('sets clearBreakpoints on a value-only edit spec too', async () => {
+        const { status } = await post({
+          feature: 'extrude',
+          edit: { filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+          op: 'add', distance: 45, thin: null,
+        });
+        expect(status).toBe(200);
+        expect(relayed[0].spec.clearBreakpoints).toBe(true);
       });
 
       it('suppresses a selectorOverride equal to the synthesized args', async () => {

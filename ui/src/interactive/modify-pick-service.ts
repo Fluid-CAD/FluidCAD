@@ -495,7 +495,7 @@ export class ModifyPickService {
     this.viewer.pickFilter = config.pickFilter;
     // The session owns the view: free 3D camera over the rolled-back scene.
     this.suspendSketchUI();
-    this.session.begin({ ...info, target }, this.viewer.currentSceneObjects.length);
+    this.session.begin({ ...info, target });
     void this.loadEditSources();
 
     this.titleIcon.innerHTML = featureIconImg(parsed.feature);

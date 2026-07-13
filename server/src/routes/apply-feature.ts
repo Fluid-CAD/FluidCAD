@@ -1102,6 +1102,10 @@ export function createApplyFeatureRouter(
           parts,
           imports: [...importSet],
           edit,
+          // Applying an edit clears the breakpoint the double-click placed —
+          // inside the same transform, so it can't race the rewrite — and the
+          // model rebuilds to its tip.
+          clearBreakpoints: true,
         };
         // Truthful preview: parse the live buffer and render the exact
         // statement the transform will write, with the same variable names

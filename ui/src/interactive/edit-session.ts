@@ -1,4 +1,4 @@
-import { FeatureEditTarget, SelectionBoundaryRef, rollback } from '../api';
+import { FeatureEditTarget, SelectionBoundaryRef, clearBreakpoints, rollback } from '../api';
 import { SceneObjectRender } from '../types';
 
 /** What starts an edit session: the statement, its row, and its exact text. */
@@ -32,8 +32,6 @@ export type EditSessionRenderState =
  */
 export class EditSession {
   private info: EditSessionInfo | null = null;
-  /** Length of the last seen scene — the cancel-restore rollback target. */
-  private sceneLength = 0;
 
   get active(): boolean {
     return this.info !== null;
@@ -61,9 +59,8 @@ export class EditSession {
   }
 
   /** Start the session: roll the view back to just before the statement. */
-  begin(info: EditSessionInfo, sceneLength: number): void {
+  begin(info: EditSessionInfo): void {
     this.info = info;
-    this.sceneLength = sceneLength;
     rollback(info.index - 1);
   }
 
@@ -76,7 +73,6 @@ export class EditSession {
     if (!this.info) {
       return 'inactive';
     }
-    this.sceneLength = result.length;
     const target = this.info.target;
     const index = result.findIndex(o => o.type === this.info!.type
       && o.sourceLocation?.line === target.line
@@ -94,15 +90,21 @@ export class EditSession {
   }
 
   /**
-   * End the session. Only a user cancel restores the full (paused) view —
-   * an apply's re-render supersedes it, and Continue/gone are followed by a
-   * full render already in flight.
+   * End the session. The edit dialog opened by placing a breakpoint after the
+   * feature; leaving it clears that breakpoint so the model rebuilds to its
+   * tip (the full render supersedes the pre-statement rollback):
+   * - `cancel` (Exit): the UI clears the breakpoint — nothing else is writing.
+   * - `apply`: the apply transform strips the breakpoint atomically with the
+   *   rewrite, so a separate clear here could clobber the edit — skip it.
+   * - `continue`: the breakpoint indicator's own handler clears.
+   * - `gone`: a code change already dropped the statement; a full render is in
+   *   flight, so forcing another would fight the user's editing.
    */
   end(reason: 'apply' | 'cancel' | 'continue' | 'gone'): void {
     const wasActive = this.info !== null;
     this.info = null;
-    if (reason === 'cancel' && wasActive && this.sceneLength > 0) {
-      rollback(this.sceneLength - 1);
+    if (reason === 'cancel' && wasActive) {
+      clearBreakpoints();
     }
   }
 }

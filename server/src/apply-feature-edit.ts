@@ -7,6 +7,7 @@ import {
   splitLines,
   spliceCode,
   walkTree,
+  clearBreakpoints as stripBreakpoints,
   type TSNode,
   type TSTree,
 } from './code-editor.ts';
@@ -75,6 +76,13 @@ export type ApplyFeatureEditSpec = {
    * text verbatim.
    */
   edit?: FeatureStatementEditTarget;
+  /**
+   * Strip every `breakpoint();` after the rewrite. Set when an edit dialog
+   * applies: the double-click that opened it placed a breakpoint, and
+   * applying clears it so the model rebuilds to its tip. Done inside this
+   * one transform so the rewrite and the clear never race on the buffer.
+   */
+  clearBreakpoints?: boolean;
 };
 
 /**
@@ -2113,6 +2121,11 @@ async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Pro
   }
   for (const symbol of imports) {
     result = await ensureSymbolImport(result, symbol, MODULE_FOR_IMPORT[symbol] ?? 'fluidcad/core');
+  }
+  // Clearing the edit's breakpoint here — one transform, one write — keeps
+  // the rewrite and the clear from racing had the UI cleared it separately.
+  if (spec.clearBreakpoints) {
+    result = (await stripBreakpoints(result)).newCode;
   }
   return { newCode: result };
 }

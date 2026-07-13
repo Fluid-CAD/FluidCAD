@@ -299,7 +299,7 @@ export class LoftFeatureService {
     this.suspendSketchUI();
     this.viewer.pickFilter = 'face';
     this.viewer.pickSketchWires = true;
-    this.session.begin({ ...info, target }, this.viewer.currentSceneObjects.length);
+    this.session.begin({ ...info, target });
     void this.loadEditSources();
     this.panel.showEdit({
       op: parsed.op,

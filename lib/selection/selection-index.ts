@@ -2,8 +2,8 @@ import { SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
-import { Scene } from "../rendering/scene.js";
 import { ShapeHasher } from "../oc/shape-hash.js";
+import { SelectionScene } from "./types.js";
 
 export type SubShapeKind = 'edge' | 'face';
 
@@ -72,7 +72,7 @@ export class SelectionIndex {
   readonly buckets: BucketRecord[] = [];
   private callSiteCounts = new Map<string, number>();
 
-  constructor(scene: Scene) {
+  constructor(scene: SelectionScene) {
     const objects = scene.getAllSceneObjects();
     for (let i = objects.length - 1; i >= 0; i--) {
       this.indexObject(objects[i]);

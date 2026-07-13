@@ -4,6 +4,9 @@ import { SketchProfileOption } from './sketch-profiles';
 /** Sentinel value for the path dropdown's "pick edges in the 3D view" mode. */
 const PICK_EDGES = '__edges__';
 
+/** Sentinel for edit mode's "keep the statement's own expression" entries. */
+const KEEP = '__keep__';
+
 // The path count box mirrors the modify panel's selection field: primary
 // outline while it awaits picks, neutral fill once populated.
 const COUNT_BOX_BASE = 'flex items-center gap-2 rounded-md px-3 py-2.5 border transition-colors';
@@ -17,7 +20,14 @@ export type SweepValues =
 
 export type SweepPathSelection =
   | { kind: 'edges' }
-  | { kind: 'sketch'; option: SketchProfileOption };
+  | { kind: 'sketch'; option: SketchProfileOption }
+  /** Edit mode only: the statement's own path expression stays. */
+  | { kind: 'keep' };
+
+export type SweepProfileSelection =
+  | { kind: 'sketch'; option: SketchProfileOption }
+  /** Edit mode only: the statement's own profile expression stays. */
+  | { kind: 'keep' };
 
 /**
  * The sweep dialog: operation tabs, the profile-sketch dropdown, and the
@@ -47,6 +57,10 @@ export class SweepPanel {
   private profileOptions: SketchProfileOption[] = [];
   private pathOptions: SketchProfileOption[] = [];
   private allowEdgePicking = false;
+  /** Edit mode: both slots offer a "Current: …" keep entry, selected first. */
+  private editMode = false;
+  private keepPathLabel = '';
+  private keepProfileLabel = '';
 
   constructor(container: HTMLElement) {
     this.shell = new PanelShell(container, 'fluidcad-sweep-panel', 'Sweep mode', '/icons/sweep.png');
@@ -108,6 +122,7 @@ export class SweepPanel {
     // choices would otherwise be revived by source-line matching.
     this.profileOptions = [];
     this.pathOptions = [];
+    this.editMode = false;
     this.shell.setTitle(null);
     this.setOptions(profiles, paths, allowEdgePicking);
     this.setArmedSlot('path');
@@ -115,24 +130,22 @@ export class SweepPanel {
   }
 
   /**
-   * Open prefilled from an existing statement (edit mode). The path and
-   * profile slots are fixed — they name the statement's own expressions and
-   * can't change; the op tabs and thin control edit in place.
+   * Open prefilled from an existing statement (edit mode). Both slots start
+   * on a "Current: …" entry that keeps the statement's own expression
+   * verbatim; choosing another sketch (or edge picking, for the path)
+   * re-sources that slot. The op tabs and thin control edit in place.
    */
   showEdit(state: { op: FeatureOp; thin: [number] | null; pathLabel: string; profileLabel: string }): void {
     this.profileOptions = [];
     this.pathOptions = [];
-    this.allowEdgePicking = false;
+    this.editMode = true;
+    this.keepPathLabel = state.pathLabel;
+    this.keepProfileLabel = state.profileLabel;
     this.shell.setTitle('Edit sweep');
-    this.profileSelect.replaceChildren(makeOption('', state.profileLabel));
-    this.profileSelect.disabled = true;
-    this.pathSelect.replaceChildren(makeOption('', state.pathLabel));
-    this.pathSelect.disabled = true;
-    this.countBox.classList.add('hidden');
-    this.profileSelect.classList.remove('select-primary');
-    this.pathSelect.classList.remove('select-primary');
+    this.setOptions([], [], true);
     this.tabs.setOp(state.op);
     this.thin.setValues(state.thin);
+    this.setArmedSlot('path');
     this.shell.show();
   }
 
@@ -145,23 +158,39 @@ export class SweepPanel {
    * the same sketch is still offered (matched by kind + source location).
    */
   setOptions(profiles: SketchProfileOption[], paths: SketchProfileOption[], allowEdgePicking: boolean): void {
-    const prevProfile = this.selectedProfile();
+    const prevProfile = this.profileSelection();
     const prevPath = this.pathSelection();
     this.profileOptions = profiles;
     this.pathOptions = paths;
     this.allowEdgePicking = allowEdgePicking;
 
-    if (profiles.length === 0) {
+    const profileEntries: HTMLOptionElement[] = [];
+    if (this.editMode) {
+      profileEntries.push(makeOption(KEEP, `Current: ${this.keepProfileLabel}`));
+    }
+    if (profiles.length === 0 && !this.editMode) {
       const placeholder = makeOption('', 'No sketch — create one first');
       placeholder.disabled = true;
-      this.profileSelect.replaceChildren(placeholder);
+      profileEntries.push(placeholder);
     } else {
-      this.profileSelect.replaceChildren(...profiles.map((option, i) => makeOption(String(i), option.label)));
-      this.profileSelect.value = String(matchOption(profiles, prevProfile));
+      profileEntries.push(...profiles.map((option, i) => makeOption(String(i), option.label)));
     }
-    this.profileSelect.disabled = profiles.length <= 1;
+    this.profileSelect.replaceChildren(...profileEntries);
+    if (this.editMode && (!prevProfile || prevProfile.kind === 'keep')) {
+      this.profileSelect.value = KEEP;
+    } else {
+      const prev = prevProfile?.kind === 'sketch' ? prevProfile.option : null;
+      const match = matchOption(profiles, prev);
+      this.profileSelect.value = profiles[match]
+        ? String(match)
+        : this.editMode ? KEEP : String(match);
+    }
+    this.profileSelect.disabled = profileEntries.length <= 1;
 
     const pathEntries: HTMLOptionElement[] = [];
+    if (this.editMode) {
+      pathEntries.push(makeOption(KEEP, `Current: ${this.keepPathLabel}`));
+    }
     if (allowEdgePicking) {
       pathEntries.push(makeOption(PICK_EDGES, 'Pick edges in 3D'));
     }
@@ -171,7 +200,11 @@ export class SweepPanel {
       this.pathSelect.value = PICK_EDGES;
     } else if (prevPath?.kind === 'sketch') {
       const match = matchOption(paths, prevPath.option);
-      this.pathSelect.value = paths[match] ? String(match) : this.defaultPathValue();
+      this.pathSelect.value = paths[match]
+        ? String(match)
+        : this.editMode ? KEEP : this.defaultPathValue();
+    } else if (this.editMode) {
+      this.pathSelect.value = KEEP;
     } else {
       this.pathSelect.value = this.defaultPathValue();
     }
@@ -180,10 +213,23 @@ export class SweepPanel {
   }
 
   selectedProfile(): SketchProfileOption | null {
-    return this.profileOptions[Number(this.profileSelect.value)] ?? null;
+    const selection = this.profileSelection();
+    return selection?.kind === 'sketch' ? selection.option : null;
+  }
+
+  /** The profile slot's state, `keep` included (edit mode only). */
+  profileSelection(): SweepProfileSelection | null {
+    if (this.editMode && this.profileSelect.value === KEEP) {
+      return { kind: 'keep' };
+    }
+    const option = this.profileOptions[Number(this.profileSelect.value)];
+    return option ? { kind: 'sketch', option } : null;
   }
 
   pathSelection(): SweepPathSelection | null {
+    if (this.editMode && this.pathSelect.value === KEEP) {
+      return { kind: 'keep' };
+    }
     if (this.pathSelect.value === PICK_EDGES) {
       return this.allowEdgePicking ? { kind: 'edges' } : null;
     }

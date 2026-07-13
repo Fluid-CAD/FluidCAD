@@ -1,9 +1,8 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
-import { Scene } from "../rendering/scene.js";
 import { Explorer } from "../oc/explorer.js";
 import { SelectionIndex, BucketHit, SubShapeKind } from "./selection-index.js";
-import { PickRef } from "./types.js";
+import { PickRef, SelectionScene } from "./types.js";
 
 export type LineageInfo = {
   /** Classified ancestor's bucket, when one was found walking history back. */
@@ -35,7 +34,7 @@ const LINEAGE_MAX_DEPTH = 8;
  * exploration order the mesh was baked with (`Explorer.find*Wrapped`), then
  * reverse-look it up in the classified buckets. Pure read over a built scene.
  */
-export function attributePick(scene: Scene, index: SelectionIndex, ref: PickRef): PickAttribution {
+export function attributePick(scene: SelectionScene, index: SelectionIndex, ref: PickRef): PickAttribution {
   const none: PickAttribution = {
     ref, picked: null, pickedKey: null, solidOwner: null, solidShape: null, producer: null, lineage: null,
   };
@@ -62,7 +61,7 @@ export function attributePick(scene: Scene, index: SelectionIndex, ref: PickRef)
 }
 
 export function resolvePickShape(
-  scene: Scene,
+  scene: SelectionScene,
   ref: PickRef,
 ): { owner: SceneObject; shape: Shape; sub: Shape } | null {
   for (const obj of scene.getAllSceneObjects()) {
@@ -90,7 +89,7 @@ export function resolvePickShape(
  * no longer exists on the final solid.
  */
 function findLineage(
-  scene: Scene,
+  scene: SelectionScene,
   index: SelectionIndex,
   pickedKey: number,
   kind: SubShapeKind,

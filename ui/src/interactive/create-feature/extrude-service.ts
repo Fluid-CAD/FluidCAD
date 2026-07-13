@@ -1,10 +1,12 @@
 import {
-  applyExtrude, applyExtrudeEdit, ApplyFeatureResponse, ExtrudeProfileRef, FeatureEditTarget, ParsedFeatureStatement,
+  applyExtrude, applyExtrudeEdit, fetchFeatureSources, ApplyFeatureResponse, ExtrudeProfileRef,
+  FeatureEditTarget, ParsedFeatureStatement, SourceSlotRef,
 } from '../../api';
 import { SceneObjectRender } from '../../types';
 import { Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
+import { EditSession, EditSessionInfo } from '../edit-session';
 import { ExtrudePanel } from './extrude-panel';
 import {
   collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
@@ -44,6 +46,12 @@ export class ExtrudeFeatureService {
   private applying = false;
   /** Statement being edited in place (timeline double-click), or null. */
   private editTarget: FeatureEditTarget | null = null;
+  /** View-state half of edit mode: pre-statement rollback + boundary. */
+  private session = new EditSession();
+  /** The statement's current profile source, for highlighting the keep slot. */
+  private sourceProfile: SourceSlotRef | null = null;
+  /** Sketch editing is suspended while an edit session owns the view. */
+  private suspendedSketchUI = false;
   private previewTimer: number | null = null;
   private previewAbort: AbortController | null = null;
   private previewSeq = 0;
@@ -56,6 +64,10 @@ export class ExtrudeFeatureService {
       onEnter?: () => void;
       /** Armed or disarmed — lets the Sketch button owner re-check `isActive`. */
       onActiveChange?: () => void;
+      /** An edit session armed while a sketch is edited — release the sketch UI. */
+      onSuspendSketchUI?: () => void;
+      /** The suspension ended without an apply — restore the sketch UI. */
+      onResumeSketchUI?: () => void;
     } = {},
   ) {
     const group = navbar.addGroup('create', { visible: false, immune: true });
@@ -90,9 +102,54 @@ export class ExtrudeFeatureService {
     return this.armed;
   }
 
-  /** Edit mode never consumes viewport picks — the viewport stays neutral. */
+  /** An edit session is open (the viewport shows the pre-statement rollback). */
   get isEditing(): boolean {
     return this.editTarget !== null;
+  }
+
+  /** True while an edit session has suspended sketch editing. */
+  get sketchUISuspended(): boolean {
+    return this.suspendedSketchUI;
+  }
+
+  /**
+   * Every render lands here. An open edit session owns the view: it keeps
+   * the viewport rolled back to just before the edited statement, and at
+   * that boundary the profile options rebuild from the pre-statement scene —
+   * exactly the sketches the extrude's argument can reference (its own
+   * current profile included, unconsumed there).
+   */
+  handleSceneRendered(sceneObjects: SceneObjectRender[], stop: number, isRollback: boolean): void {
+    const state = this.session.onSceneRendered(sceneObjects, stop, isRollback);
+    if (state === 'inactive') {
+      this.update(isRollback ? [] : sceneObjects);
+      return;
+    }
+    if (!this.armed) {
+      this.session.end('gone');
+      return;
+    }
+    if (state === 'gone') {
+      this.exit({ editEnd: 'gone' });
+      return;
+    }
+    if (state === 'waiting') {
+      if (!isRollback) {
+        this.sourceProfile = null;
+      }
+      return;
+    }
+    // At the boundary: rebuild options from the pre-statement scene.
+    this.sceneObjects = sceneObjects;
+    this.options = collectSketchProfiles(sceneObjects);
+    this.viewer.pickSketchWires = true;
+    this.panel.setOptions(this.options);
+    if (!this.sourceProfile) {
+      void this.loadEditSources();
+    }
+    this.refreshSketchLabels();
+    this.refreshHighlight();
+    this.schedulePreview();
   }
 
   /**
@@ -115,13 +172,6 @@ export class ExtrudeFeatureService {
     if (!this.armed) {
       return;
     }
-    if (this.editTarget) {
-      // Edit mode tracks a statement, not the scene: the dialog rides out
-      // renders (including the breakpoint render the double-click placed);
-      // the preview re-parses the statement in case it changed.
-      this.schedulePreview();
-      return;
-    }
     if (!this.available) {
       this.exit();
       return;
@@ -135,17 +185,29 @@ export class ExtrudeFeatureService {
 
   /**
    * Open the dialog over an existing extrude/cut statement (timeline
-   * double-click). No picking is involved — the profile is fixed to the
-   * statement's own — and Apply rewrites the statement in place.
+   * double-click). The session rolls the viewport back to just before the
+   * statement; the profile dropdown starts on a "Current: …" entry that
+   * keeps the statement's own profile and offers the pre-statement sketches
+   * as replacements — pickable via the dropdown, timeline rows, or wire
+   * clicks in 3D. Apply rewrites the statement in place.
    */
-  enterEdit(target: FeatureEditTarget, parsed: Extract<ParsedFeatureStatement, { feature: 'extrude' }>): void {
+  enterEdit(
+    target: FeatureEditTarget,
+    parsed: Extract<ParsedFeatureStatement, { feature: 'extrude' }>,
+    info: Omit<EditSessionInfo, 'target'>,
+  ): void {
     if (this.armed) {
       this.exit();
     }
     this.hooks.onEnter?.();
     this.armed = true;
     this.editTarget = target;
+    this.sourceProfile = null;
     this.syncButton();
+    this.suspendSketchUI();
+    this.viewer.pickSketchWires = true;
+    this.session.begin({ ...info, target }, this.viewer.currentSceneObjects.length);
+    void this.loadEditSources();
     this.panel.showEdit({
       op: parsed.op,
       distance: parsed.distance,
@@ -159,10 +221,27 @@ export class ExtrudeFeatureService {
     this.schedulePreview();
   }
 
+  /** The statement's current profile, for highlighting the keep entry. */
+  private async loadEditSources(): Promise<void> {
+    const boundary = this.session.boundary;
+    if (!boundary) {
+      return;
+    }
+    const result = await fetchFeatureSources(boundary);
+    if (!this.editTarget || this.session.boundary?.index !== boundary.index) {
+      return;
+    }
+    this.sourceProfile = result.ok && (result.feature === 'extrude' || result.feature === 'cut')
+      ? result.profile
+      : { kind: 'opaque' };
+    this.refreshHighlight();
+  }
+
   enter(): void {
     if (this.armed) {
       return;
     }
+    this.session.end('continue');
     this.hooks.onEnter?.();
     this.armed = true;
     // Clicking a sketch's wires in the 3D view selects it as the profile.
@@ -190,30 +269,62 @@ export class ExtrudeFeatureService {
     this.panel.setOptions(labeled);
   }
 
-  exit(): void {
+  exit(opts: { editEnd?: 'apply' | 'cancel' | 'continue' | 'gone' } = {}): void {
     if (!this.armed) {
       return;
     }
+    this.session.end(opts.editEnd ?? 'cancel');
     this.armed = false;
     this.editTarget = null;
+    this.sourceProfile = null;
     this.viewer.pickSketchWires = false;
     this.viewer.clearHighlight();
     this.syncButton();
     this.cancelPreview();
     this.panel.hide();
+    // An edit session's suspension always resumes lazily — a render follows
+    // every session end (the cancel-restore rollback, an apply's rebuild).
+    this.resumeSketchUI(false);
+  }
+
+  private suspendSketchUI(): void {
+    if (this.suspendedSketchUI) {
+      return;
+    }
+    this.suspendedSketchUI = true;
+    this.viewer.suspendSketchEditing();
+    this.hooks.onSuspendSketchUI?.();
+  }
+
+  private resumeSketchUI(immediate: boolean): void {
+    if (!this.suspendedSketchUI) {
+      return;
+    }
+    this.suspendedSketchUI = false;
+    this.viewer.resumeSketchEditing(immediate);
+    if (immediate) {
+      this.hooks.onResumeSketchUI?.();
+    }
   }
 
   /**
    * Highlight the selected profile's wires in the 3D view. The active sketch
-   * is skipped: extrude never suspends sketch editing, and painting the
-   * sketch being edited would fight the sketch tools' own rendering.
+   * is skipped in create mode: extrude doesn't suspend sketch editing there,
+   * and painting the sketch being edited would fight the sketch tools. An
+   * edit session's keep entry lights up the statement's own profile via the
+   * resolved current source.
    */
   private refreshHighlight(): void {
     if (!this.armed) {
       return;
     }
-    const option = this.panel.selectedOption();
-    const wireIds = option && option.kind === 'other'
+    let option = this.panel.selectedOption();
+    if (!option && this.editTarget && this.panel.profileSelection()?.kind === 'keep'
+      && this.sourceProfile?.kind === 'sketch') {
+      const slot = this.sourceProfile;
+      option = this.options.find(o => o.filePath === slot.filePath && o.line === slot.line) ?? null;
+    }
+    const wireIds = option && (option.kind === 'other' || this.editTarget)
       ? sketchWireShapeIds(option, this.sceneObjects)
       : [];
     if (wireIds.length > 0) {
@@ -239,7 +350,7 @@ export class ExtrudeFeatureService {
    * otherwise close the dialog mid-flow.
    */
   handleTimelinePick(obj: SceneObjectRender): boolean {
-    if (!this.armed || this.editTarget) {
+    if (!this.armed) {
       return false;
     }
     const sketch = resolveSketchRow(obj, this.sceneObjects);
@@ -252,7 +363,7 @@ export class ExtrudeFeatureService {
 
   /** A sketch wire was clicked in the 3D view: selects it as the profile. */
   handleSketchPick(shapeId: string): boolean {
-    if (!this.armed || this.editTarget) {
+    if (!this.armed) {
       return false;
     }
     const sketch = resolveSketchByShapeId(shapeId, this.sceneObjects);
@@ -289,9 +400,12 @@ export class ExtrudeFeatureService {
       this.applying = true;
       this.panel.setApplyEnabled(false);
       try {
-        const result = await applyExtrudeEdit(this.editTarget, values);
+        const result = await applyExtrudeEdit(this.editTarget, {
+          ...values,
+          ...this.editSourceFields(),
+        });
         if (result.success) {
-          this.exit();
+          this.exit({ editEnd: 'apply' });
         } else {
           this.panel.setMessage(result.reason ?? 'Could not apply the edit.');
         }
@@ -362,7 +476,12 @@ export class ExtrudeFeatureService {
     let result: ApplyFeatureResponse;
     try {
       result = this.editTarget
-        ? await applyExtrudeEdit(this.editTarget, { ...values, preview: true, signal: abort.signal })
+        ? await applyExtrudeEdit(this.editTarget, {
+          ...values,
+          ...this.editSourceFields(),
+          preview: true,
+          signal: abort.signal,
+        })
         : await applyExtrude({
           ...values,
           profile: profileRef(option!),
@@ -391,6 +510,26 @@ export class ExtrudeFeatureService {
     this.previewAbort?.abort();
     this.previewAbort = null;
     this.previewSeq++;
+  }
+
+  /**
+   * The edit apply/preview's session fields: the staleness guard plus the
+   * re-sourced profile when the dropdown moved off its "Current: …" entry.
+   */
+  private editSourceFields(): {
+    expectedStatement?: string;
+    profile?: { mode: 'bound' } & { filePath: string; line: number; column: number };
+  } {
+    const selection = this.panel.profileSelection();
+    const profile = selection?.kind === 'sketch'
+      ? {
+        mode: 'bound' as const,
+        filePath: selection.option.filePath,
+        line: selection.option.line,
+        column: selection.option.column,
+      }
+      : undefined;
+    return { expectedStatement: this.session.expectedStatement, profile };
   }
 }
 

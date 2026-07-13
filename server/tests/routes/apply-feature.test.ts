@@ -8,6 +8,8 @@ let baseUrl: string;
 
 /** Calls the route forwarded to the fake server / extension relay. */
 let synthesizeCalls: { feature: string; value: number | undefined }[];
+/** The `before` boundary each synthesis call carried, parallel to the calls. */
+let synthesizeBoundaries: unknown[];
 let relayed: any[];
 
 const fakeSynthesis = {
@@ -28,18 +30,45 @@ let currentCode: string | null;
 /** Per-test live-buffer file name; reset before each test. */
 let currentFileName: string | null;
 
+/** Selection-query calls forwarded to the fake server, with their boundary. */
+let queryCalls: { method: string; before: unknown }[];
+/** Per-test result for the selection query methods. */
+let currentQueryResult: any;
+
 const fakeServer = {
   getCurrentCode: () => currentCode,
   getCurrentFileName: () => currentFileName,
   getParamDefinitions: () => [],
   synthesizeApplyFeature: (
     _picks: unknown, feature: string, value: number | undefined,
+    _chains?: unknown, _options?: unknown, before?: unknown,
   ) => {
     synthesizeCalls.push({ feature, value });
+    synthesizeBoundaries.push(before);
     if (Array.isArray(currentSynthesis)) {
       return currentSynthesis[Math.min(synthesizeCalls.length, currentSynthesis.length) - 1];
     }
     return currentSynthesis;
+  },
+  explainSelection: (_picks: unknown, before?: unknown) => {
+    queryCalls.push({ method: 'explainSelection', before });
+    return currentQueryResult;
+  },
+  expandTangentChain: (_pick: unknown, before?: unknown) => {
+    queryCalls.push({ method: 'expandTangentChain', before });
+    return currentQueryResult;
+  },
+  expandBucket: (_pick: unknown, before?: unknown) => {
+    queryCalls.push({ method: 'expandBucket', before });
+    return currentQueryResult;
+  },
+  listSelectionGroups: (_pick: unknown, before?: unknown) => {
+    queryCalls.push({ method: 'listSelectionGroups', before });
+    return currentQueryResult;
+  },
+  featureSources: (before: unknown) => {
+    queryCalls.push({ method: 'featureSources', before });
+    return currentQueryResult;
   },
 };
 
@@ -77,10 +106,13 @@ describe('apply-feature route validation', () => {
 
   beforeEach(() => {
     synthesizeCalls = [];
+    synthesizeBoundaries = [];
     relayed = [];
     currentSynthesis = fakeSynthesis;
     currentCode = null;
     currentFileName = null;
+    queryCalls = [];
+    currentQueryResult = { ok: true, members: [PICK], groups: [], picks: [] };
   });
 
   it('rejects an unknown feature', async () => {
@@ -1018,6 +1050,273 @@ describe('apply-feature route validation', () => {
       });
       expect(status).toBe(422);
       expect(body.reason).toContain('different file');
+    });
+
+    describe('edit-mode source re-picking', () => {
+      const SOURCE_CODE = [
+        `import { sketch, rect, circle, extrude, sweep, loft, shell } from 'fluidcad/core'`,
+        ``,
+        `const s = sketch('xy', () => { rect(100, 50) })`,
+        `const e = extrude(30)`,
+        `const p = sketch('xz', () => { circle(30) })`,
+        `shell(-2, e.endFaces())`,
+        `sweep(p, s)`,
+        `loft(s, p)`,
+        ``,
+      ].join('\n');
+      const BEFORE = { index: 5, type: 'shell', line: 6, column: 0 };
+      const FACE_PICK = { shapeId: 'shape-1', sub: { type: 'face', index: 2 } };
+      const EDGE_PICK = { shapeId: 'shape-1', sub: { type: 'edge', index: 1 } };
+      const shellSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'shell',
+          filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'sideFaces', indices: [0, 2], filterArgs: null }],
+          imports: [],
+        },
+        preview: 'shell(-3, e.sideFaces(0, 2))',
+        args: 'e.sideFaces(0, 2)',
+        alternatives: ['e.sideFaces(face().onPlane(\'xz\'))'],
+      };
+
+      beforeEach(() => {
+        currentCode = SOURCE_CODE;
+        currentFileName = '/ws/m.fluid.js';
+      });
+
+      it('re-sources an extrude profile without synthesis or a boundary', async () => {
+        const { status, body } = await post({
+          feature: 'extrude',
+          edit: { filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+          op: 'add', distance: 45, thin: null,
+          profile: { mode: 'bound', filePath: '/ws/m.fluid.js', line: 5, column: 0 },
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe('extrude(45, p)');
+        expect(synthesizeCalls).toEqual([]);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'extrude',
+          producers: [{ line: 5, column: 0, featureType: 'sketch', nameHint: 's', bind: true }],
+          parts: [],
+          edit: { line: 4, column: 0, extrude: { profile: { kind: 'sketch', producer: 0 } } },
+        });
+      });
+
+      it('re-picks a shell selection: synthesis with the boundary, parts on the spec', async () => {
+        currentSynthesis = shellSynthesis;
+        const { status, body } = await post({
+          feature: 'shell',
+          edit: { filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+          value: -3,
+          entities: [FACE_PICK],
+          before: BEFORE,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe('shell(-3, e.sideFaces(0, 2))');
+        expect(synthesizeCalls).toEqual([{ feature: 'shell', value: -3 }]);
+        expect(synthesizeBoundaries).toEqual([BEFORE]);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'shell',
+          value: -3,
+          producers: [{ line: 4, featureType: 'extrude', bind: true }],
+          parts: [{ producer: 0, accessor: 'sideFaces', indices: [0, 2] }],
+          edit: { line: 6, column: 0 },
+        });
+        expect(relayed[0].spec.rawArgs).toBeUndefined();
+      });
+
+      it('suppresses a selectorOverride equal to the synthesized args', async () => {
+        currentSynthesis = shellSynthesis;
+        const { status } = await post({
+          feature: 'shell',
+          edit: { filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+          value: -3,
+          entities: [FACE_PICK],
+          selectorOverride: 'e.sideFaces(0, 2)',
+          before: BEFORE,
+        });
+        expect(status).toBe(200);
+        expect(relayed[0].spec.rawArgs).toBeUndefined();
+      });
+
+      it('rejects re-picked geometry without a boundary', async () => {
+        const { status, body } = await post({
+          feature: 'shell',
+          edit: { filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+          value: -3,
+          entities: [FACE_PICK],
+        });
+        expect(status).toBe(400);
+        expect(body.error).toContain('before is required');
+        expect(synthesizeCalls).toEqual([]);
+      });
+
+      it('refuses a stale expectedStatement before relaying', async () => {
+        const { status, body } = await post({
+          feature: 'extrude',
+          edit: { filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+          expectedStatement: 'extrude(31)',
+          op: 'add', distance: 45, thin: null,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('changed since the dialog opened');
+        expect(relayed).toHaveLength(0);
+      });
+
+      it('re-sources a sweep path from picked edges', async () => {
+        currentSynthesis = {
+          ...shellSynthesis,
+          spec: {
+            ...shellSynthesis.spec,
+            feature: 'sweep',
+            parts: [{ producer: 0, accessor: 'sideEdges', indices: [1], filterArgs: null }],
+          },
+          args: 'e.sideEdges(1)',
+          alternatives: [],
+        };
+        const { status, body } = await post({
+          feature: 'sweep',
+          edit: { filePath: '/ws/m.fluid.js', line: 7, column: 0 },
+          op: 'add', thin: null,
+          path: { kind: 'edges', entities: [EDGE_PICK], chains: [] },
+          before: { ...BEFORE, index: 6, type: 'sweep', line: 7 },
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe('sweep(e.sideEdges(1), s)');
+        expect(synthesizeCalls).toEqual([{ feature: 'sweep', value: undefined }]);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'sweep',
+          producers: [{ line: 4, featureType: 'extrude' }],
+          parts: [{ producer: 0, accessor: 'sideEdges', indices: [1] }],
+          edit: { line: 7, sweep: { path: { kind: 'selector' } } },
+        });
+      });
+
+      it('re-sources loft profiles: verbatim keeps, a sketch ref, a face pick', async () => {
+        currentSynthesis = {
+          ...shellSynthesis,
+          spec: {
+            ...shellSynthesis.spec,
+            feature: 'loft',
+            parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+          },
+          args: 'e.endFaces()',
+          alternatives: [],
+        };
+        const { status, body } = await post({
+          feature: 'loft',
+          edit: { filePath: '/ws/m.fluid.js', line: 8, column: 0 },
+          op: 'add', thin: null,
+          profiles: [
+            { kind: 'verbatim', sourceIndex: 1 },
+            { kind: 'sketch', filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+            { kind: 'face', entity: FACE_PICK },
+          ],
+          before: { ...BEFORE, index: 7, type: 'loft', line: 8 },
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe('loft(p, s, e.endFaces())');
+        expect(synthesizeCalls).toEqual([{ feature: 'loft', value: undefined }]);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'loft',
+          producers: [
+            { line: 3, featureType: 'sketch', bind: true },
+            { line: 4, featureType: 'extrude', bind: true },
+          ],
+          parts: [{ producer: 1, accessor: 'endFaces' }],
+          edit: {
+            line: 8,
+            loft: {
+              profiles: [
+                { kind: 'verbatim', sourceIndex: 1 },
+                { kind: 'sketch', producer: 0 },
+                { kind: 'selector', part: 0 },
+              ],
+            },
+          },
+        });
+      });
+
+      it('surfaces a synthesis refusal from the boundary as 422', async () => {
+        currentSynthesis = { ok: false, reason: 'the edited statement no longer matches the rendered scene — re-open the edit dialog' };
+        const { status, body } = await post({
+          feature: 'shell',
+          edit: { filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+          value: -3,
+          entities: [FACE_PICK],
+          before: BEFORE,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('no longer matches');
+        expect(relayed).toHaveLength(0);
+      });
+    });
+  });
+
+  describe('selection query boundary (edit-mode scoping)', () => {
+    const BEFORE = { index: 3, type: 'shell', line: 5, column: 0 };
+
+    async function postTo(path: string, body: unknown): Promise<{ status: number; body: any }> {
+      const res = await fetch(`${baseUrl}/api${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return { status: res.status, body: await res.json() };
+    }
+
+    it('passes the boundary through to the selection queries', async () => {
+      for (const path of ['/selection/expand-bucket', '/selection/expand-tangents', '/selection/groups']) {
+        const { status } = await postTo(path, { entity: PICK, before: BEFORE });
+        expect(status).toBe(200);
+      }
+      const { status } = await postTo('/selection/explain', { entities: [PICK], before: BEFORE });
+      expect(status).toBe(200);
+      expect(queryCalls.map(c => c.before)).toEqual([BEFORE, BEFORE, BEFORE, BEFORE]);
+    });
+
+    it('omits the boundary when the request carries none', async () => {
+      const { status } = await postTo('/selection/expand-bucket', { entity: PICK });
+      expect(status).toBe(200);
+      expect(queryCalls).toEqual([{ method: 'expandBucket', before: undefined }]);
+    });
+
+    it('rejects a malformed boundary', async () => {
+      const { status, body } = await postTo('/selection/expand-bucket', {
+        entity: PICK,
+        before: { index: -1, type: 'shell', line: 5, column: 0 },
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('before must be');
+      expect(queryCalls).toEqual([]);
+    });
+
+    it('surfaces a stale-boundary refusal as 422', async () => {
+      currentQueryResult = { ok: false, reason: 'the edited statement no longer matches the rendered scene — re-open the edit dialog' };
+      const { status, body } = await postTo('/selection/groups', { entity: PICK, before: BEFORE });
+      expect(status).toBe(422);
+      expect(body.error).toContain('no longer matches');
+
+      const explain = await postTo('/selection/explain', { entities: [PICK], before: BEFORE });
+      expect(explain.status).toBe(422);
+      expect(explain.body.error).toContain('no longer matches');
+    });
+
+    it('feature/sources requires a boundary and forwards it', async () => {
+      currentQueryResult = { ok: true, feature: 'shell', selection: { kind: 'entities', entities: [PICK] } };
+      const ok = await postTo('/feature/sources', { before: BEFORE });
+      expect(ok.status).toBe(200);
+      expect(ok.body.feature).toBe('shell');
+      expect(queryCalls).toEqual([{ method: 'featureSources', before: BEFORE }]);
+
+      const missing = await postTo('/feature/sources', {});
+      expect(missing.status).toBe(400);
+
+      currentQueryResult = { ok: false, reason: 'the edited statement no longer matches the rendered scene — re-open the edit dialog' };
+      const stale = await postTo('/feature/sources', { before: BEFORE });
+      expect(stale.status).toBe(422);
     });
   });
 });

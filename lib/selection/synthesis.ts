@@ -1,14 +1,13 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
-import { Scene } from "../rendering/scene.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { SelectionIndex, BucketRecord } from "./selection-index.js";
 import { PickAttribution } from "./attribution.js";
 import { ParameterLink } from "./atoms.js";
-import { PickRef } from "./types.js";
+import { PickRef, SelectionScene } from "./types.js";
 import {
   bucketContext,
   globalContext,
@@ -66,7 +65,7 @@ export type SelectorSynthesis =
  * geometry constants; the filter forms stay on as alternatives.
  */
 export function synthesizeSelectors(
-  scene: Scene,
+  scene: SelectionScene,
   index: SelectionIndex,
   attributions: PickAttribution[],
   chains: SelectorChain[] = [],
@@ -248,7 +247,7 @@ function synthesizeBucketCandidates(
  * final verification.
  */
 function synthesizeGlobalCandidates(
-  scene: Scene,
+  scene: SelectionScene,
   index: SelectionIndex,
   kind: 'edge' | 'face',
   pool: PickAttribution[],
@@ -284,7 +283,7 @@ function synthesizeGlobalCandidates(
  * expansion included — and requiring it to resolve to exactly the chain.
  */
 function synthesizeChainCandidates(
-  scene: Scene,
+  scene: SelectionScene,
   index: SelectionIndex,
   chain: SelectorChain,
   params: ParameterLink[],
@@ -408,7 +407,7 @@ function synthesizeChainCandidates(
  * refused rather than emitting a select() that cannot reach half of them.
  */
 function resolvePartScope(
-  scene: Scene,
+  scene: SelectionScene,
   pool: PickAttribution[],
 ): { ok: true; part: SceneObject | null } | { ok: false; reason: string; pick: PickRef } {
   const parts = new Set(pool.map(a => scene.findEnclosingPart(a.solidOwner!)));

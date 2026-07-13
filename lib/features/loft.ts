@@ -31,6 +31,10 @@ export class Loft extends ExtrudeBase implements ILoft {
     return this._profiles;
   }
 
+  get guideObjects(): SceneObject[] {
+    return this._guides;
+  }
+
   /**
    * Adds side guide curves the loft surface must follow. FluidCAD supports
    * one or two guides (the underlying OCC algorithm has no notion of more);

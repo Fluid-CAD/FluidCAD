@@ -1,10 +1,11 @@
 import {
-  applyFeature, applyValueFeatureEdit, expandBucket, explainSelection,
+  applyFeature, applyValueFeatureEdit, expandBucket, explainSelection, fetchFeatureSources,
   ApplyFeatureChain, ApplyFeatureResponse, FeatureEditTarget, ParsedFeatureStatement, SelectionGroupKind,
   ShellJoinType,
 } from '../api';
 import { entityKey, mergeUniqueEntities, sameEntity } from '../helpers/entities';
 import { isTopLevel } from '../helpers/scene-utils';
+import { EditSession, EditSessionInfo } from './edit-session';
 import { SelectionContextMenu } from './selection-menu';
 import { StandardPlaneId } from '../scene/standard-planes';
 import { SceneObjectRender, SubSelection } from '../types';
@@ -129,6 +130,12 @@ export class ModifyPickService {
   private editTarget: FeatureEditTarget | null = null;
   /** The statement's own selector args — the override-detection baseline. */
   private editArgsText: string | null = null;
+  /** View-state half of edit mode: pre-statement rollback + boundary. */
+  private session = new EditSession();
+  /** Seeded pick set's signature — an unchanged selection applies verbatim. */
+  private seedSignature: string | null = null;
+  /** A full render arrived mid-session — seeds re-fetch at the next boundary. */
+  private editSceneStale = false;
 
   private buttons = new Map<ModifyFeatureKind, HTMLButtonElement>();
   private activeBar: HTMLDivElement;
@@ -320,6 +327,7 @@ export class ModifyPickService {
       kinds: ['tangent', 'classified', 'same-type', 'equal', 'sibling'],
       onSelectGroup: (kind, seed, members) => this.applyGroup(kind, seed, members),
       onPreview: (members) => this.previewSelection(members),
+      boundary: () => this.session.boundary ?? undefined,
     });
 
     document.addEventListener('click', (e) => {
@@ -354,7 +362,7 @@ export class ModifyPickService {
     return this.feature !== null;
   }
 
-  /** Edit mode never consumes viewport picks — the viewport stays neutral. */
+  /** An edit session is open (the viewport shows the pre-statement rollback). */
   get isEditing(): boolean {
     return this.editTarget !== null;
   }
@@ -371,6 +379,57 @@ export class ModifyPickService {
    * — its mode picks a face (starting a new sketch from inside one is a
    * supported flow) or one of the origin planes, which need no scene at all.
    */
+  /**
+   * Every render lands here. An open edit session owns the view: the session
+   * keeps the viewport rolled back to just before the edited statement and
+   * heals index drift; at the boundary the seeds/highlights refresh. Without
+   * a session this is the plain create-mode update (empty list on rollbacks,
+   * matching the old main.ts wiring).
+   */
+  handleSceneRendered(sceneObjects: SceneObjectRender[], stop: number, isRollback: boolean): void {
+    const state = this.session.onSceneRendered(sceneObjects, stop, isRollback);
+    if (state === 'inactive') {
+      this.update(isRollback ? [] : sceneObjects);
+      return;
+    }
+    if (!this.feature) {
+      // The dialog closed but the session lingered (defensive) — drop it.
+      this.session.end('gone');
+      return;
+    }
+    if (state === 'gone') {
+      this.setMessage(null);
+      this.exit({ editEnd: 'gone' });
+      return;
+    }
+    if (state === 'waiting') {
+      if (!isRollback) {
+        // A full render rebuilt the scene: every seeded shape id died. The
+        // re-asserting rollback is in flight; re-seed when it lands.
+        this.editSceneStale = true;
+      }
+      return;
+    }
+    // At the boundary: the meshes were just rebuilt (updateView ran first).
+    this.tooltipCache.clear();
+    this.hideTooltip();
+    this.selectionMenu.hide();
+    if (this.editSceneStale) {
+      this.editSceneStale = false;
+      if (this.picksDirty()) {
+        // The re-picked selection can't survive a scene rebuild — old shape
+        // ids resolve nowhere. Reset to the statement's own selection.
+        this.entities = [];
+        this.chains = [];
+        this.seedSignature = null;
+        this.setMessage('The code changed — the re-picked selection was reset.');
+      }
+      void this.loadEditSources();
+    }
+    this.previewSelection(null);
+    this.refresh();
+  }
+
   update(sceneObjects: SceneObjectRender[]): void {
     const hasSolid = sceneObjects.some(o =>
       o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
@@ -387,11 +446,6 @@ export class ModifyPickService {
     this.navbar.setGroupVisible('create', true, 'sketch');
     this.syncButtons();
     if (this.feature) {
-      if (this.editTarget) {
-        // Edit mode tracks a statement, not the scene: the dialog rides out
-        // renders (including the breakpoint render the double-click placed).
-        return;
-      }
       // Sketch stays armed regardless of the scene — the origin planes are
       // always available targets; the pick features need their solids.
       if (this.feature !== 'sketch' && !modifyVisible) {
@@ -413,30 +467,37 @@ export class ModifyPickService {
 
   /**
    * Open the dialog over an existing fillet/chamfer/shell statement
-   * (timeline double-click). No picking is involved — the expression row
-   * holds the statement's own selector args, editable as free text — and
-   * Apply rewrites the statement in place.
+   * (timeline double-click). The session rolls the viewport back to just
+   * before the statement — the world its arguments see — where the current
+   * selection seeds as removable picks and re-picking is live exactly like
+   * create mode. Apply rewrites the statement in place; an untouched
+   * selection keeps its argument text verbatim.
    */
   enterEdit(
     target: FeatureEditTarget,
     parsed: Extract<ParsedFeatureStatement, { feature: 'shell' | 'fillet' | 'chamfer' }>,
+    info: Omit<EditSessionInfo, 'target'>,
   ): void {
-    if (this.suspendedSketchUI) {
-      this.resumeSketchUI(true);
-    }
     this.hooks.onEnter?.();
     this.feature = parsed.feature;
     this.editTarget = target;
     this.editArgsText = parsed.argsText;
     this.entities = [];
     this.chains = [];
+    this.seedSignature = null;
+    this.editSceneStale = false;
     this.cancelPreview();
     this.viewer.clearHover();
     this.viewer.clearHighlight();
-    this.viewer.pickFilter = 'all';
     this.viewer.hideStandardPlanes();
 
     const config = FEATURES[parsed.feature];
+    this.viewer.pickFilter = config.pickFilter;
+    // The session owns the view: free 3D camera over the rolled-back scene.
+    this.suspendSketchUI();
+    this.session.begin({ ...info, target }, this.viewer.currentSceneObjects.length);
+    void this.loadEditSources();
+
     this.titleIcon.innerHTML = featureIconImg(parsed.feature);
     this.titleText.textContent = `Edit ${config.label.toLowerCase()}`;
     this.valueWrap.classList.remove('hidden');
@@ -453,10 +514,6 @@ export class ModifyPickService {
     } else {
       this.joinWrap.classList.add('hidden');
     }
-    // No selection field: the picks are fixed to the statement's own args.
-    this.countBox.classList.add('hidden');
-    this.chipList.replaceChildren();
-    this.chipList.classList.add('hidden');
     this.syncExprSuffix();
     this.synthesizedArgs = parsed.argsText;
     this.alternatives = [];
@@ -467,13 +524,69 @@ export class ModifyPickService {
     this.exprRow.classList.add('flex');
     this.activeBar.classList.remove('hidden');
     this.setMessage(null);
+    this.refresh();
     this.syncButtons();
+  }
+
+  /**
+   * Seed the pick set with the statement's current selection, resolved by
+   * the server onto the pre-statement solids. Unresolvable selections
+   * (clones, exotic selectors) leave the set empty — new picks then REPLACE
+   * the statement's args instead of extending them. A re-picked (dirty)
+   * selection is never clobbered by a re-seed.
+   */
+  private async loadEditSources(): Promise<void> {
+    const boundary = this.session.boundary;
+    if (!boundary) {
+      return;
+    }
+    const result = await fetchFeatureSources(boundary);
+    if (!this.editTarget || this.session.boundary?.index !== boundary.index || this.picksDirty()) {
+      return;
+    }
+    if (result.ok
+      && (result.feature === 'shell' || result.feature === 'fillet' || result.feature === 'chamfer')
+      && result.selection.kind === 'entities') {
+      this.entities = result.selection.entities.map(e => ({ shapeId: e.shapeId, sub: e.sub }));
+      this.chains = [];
+      this.seedSignature = this.selectionSignature();
+    } else {
+      this.entities = [];
+      this.chains = [];
+      this.seedSignature = null;
+    }
+    this.previewSelection(null);
+    this.refresh();
+  }
+
+  /** Sorted signature of the current pick set, for dirty detection. */
+  private selectionSignature(): string {
+    return this.entities.map(entityKey).sort().join('|');
+  }
+
+  /**
+   * True when the selection no longer matches the seeded one — Apply then
+   * sends the picks for synthesis instead of keeping the args verbatim.
+   */
+  private picksDirty(): boolean {
+    if (!this.editTarget) {
+      return false;
+    }
+    if (this.seedSignature === null) {
+      return this.entities.length > 0;
+    }
+    return this.selectionSignature() !== this.seedSignature || this.chains.length > 0;
   }
 
   enter(feature: ModifyFeatureKind): void {
     const wasActive = this.feature !== null;
+    // Arming a create tool from an edit dialog abandons the session; the
+    // view stays where it is — the tool picks in whatever state is shown.
+    this.session.end('continue');
     this.editTarget = null;
     this.editArgsText = null;
+    this.seedSignature = null;
+    this.editSceneStale = false;
     // Only the sketch feature runs suspended; switching away restores first.
     if (this.suspendedSketchUI && feature !== 'sketch') {
       this.resumeSketchUI(true);
@@ -557,14 +670,24 @@ export class ModifyPickService {
    * transition — used when a render is already on its way (an apply went
    * through, or the exit was scene-driven). User cancels default to
    * `'immediate'`, which restores the suspended sketch view right now.
+   * Ending an edit session always resumes lazily — every session end is
+   * followed by a render (the cancel-restore rollback, an apply's rebuild,
+   * Continue's full render).
    */
-  exit(opts: { resume?: 'immediate' | 'lazy' } = {}): void {
+  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'gone' } = {}): void {
     if (!this.feature) {
       return;
     }
+    const hadSession = this.session.active;
+    this.session.end(opts.editEnd ?? 'cancel');
     this.feature = null;
     this.editTarget = null;
     this.editArgsText = null;
+    this.seedSignature = null;
+    this.editSceneStale = false;
+    if (hadSession) {
+      opts = { ...opts, resume: 'lazy' };
+    }
     this.viewer.pickFilter = 'all';
     this.viewer.hideStandardPlanes();
     this.entities = [];
@@ -645,7 +768,7 @@ export class ModifyPickService {
    * the selection (misclicks shouldn't wipe it).
    */
   handleClick(shapeId: string | null, sub: SubSelection): void {
-    if (!this.feature || this.editTarget || !shapeId || !sub || sub.type === 'sketch') {
+    if (!this.feature || !shapeId || !sub || sub.type === 'sketch') {
       return;
     }
     this.selectionMenu.hide();
@@ -693,7 +816,7 @@ export class ModifyPickService {
    * pick, so the seed ends up selected either way.
    */
   async handleDoubleClick(shapeId: string | null, sub: SubSelection): Promise<void> {
-    if (!this.feature || this.editTarget || !shapeId || !sub || sub.type === 'sketch') {
+    if (!this.feature || !shapeId || !sub || sub.type === 'sketch') {
       return;
     }
     if (FEATURES[this.feature].immediate) {
@@ -704,7 +827,7 @@ export class ModifyPickService {
     this.hideTooltip();
 
     const entity: SelectedEntity = { shapeId, sub };
-    const result = await expandBucket(entity);
+    const result = await expandBucket(entity, this.session.boundary ?? undefined);
     if (!this.feature) {
       return;
     }
@@ -729,7 +852,7 @@ export class ModifyPickService {
 
   /** Teach-mode tooltip: hover → attribution expression, debounced + cached. */
   handleHover(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): void {
-    if (!this.feature || this.editTarget) {
+    if (!this.feature) {
       return;
     }
     if (this.tooltipTimer !== null) {
@@ -758,7 +881,7 @@ export class ModifyPickService {
       const abort = new AbortController();
       this.tooltipAbort = abort;
       try {
-        const result = await explainSelection([entity], abort.signal);
+        const result = await explainSelection([entity], abort.signal, this.session.boundary ?? undefined);
         if (abort.signal.aborted || !this.feature) {
           return;
         }
@@ -780,7 +903,7 @@ export class ModifyPickService {
 
   /** Right-click on an edge/face: the multi-select menu for that pick. */
   handleContextMenu(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): void {
-    if (!this.feature || this.editTarget || FEATURES[this.feature].immediate) {
+    if (!this.feature || FEATURES[this.feature].immediate) {
       return;
     }
     this.selectionMenu.hide();
@@ -840,7 +963,10 @@ export class ModifyPickService {
       return;
     }
     const config = FEATURES[this.feature];
-    if (!this.editTarget && this.entities.length === 0) {
+    // Create mode needs picks; an edit whose seeded selection was emptied
+    // out has nothing to synthesize either (an untouched empty seed is fine
+    // — the statement's own args stay verbatim).
+    if (this.entities.length === 0 && (!this.editTarget || this.picksDirty())) {
       this.setMessage(config.pickFilter === 'face'
         ? 'Pick a face first.'
         : 'Pick at least one edge or face first.');
@@ -860,10 +986,15 @@ export class ModifyPickService {
     }
 
     if (this.editTarget) {
-      // In-place statement edit: the selector args stay verbatim unless the
-      // expression row was edited away from the statement's own text.
+      // In-place statement edit. A re-picked (dirty) selection rides as
+      // picks for synthesis against the pre-statement boundary; otherwise
+      // the selector args stay verbatim unless the expression row was
+      // edited away from its baseline (the statement's own text, or the
+      // last synthesized preview when picks are dirty).
+      const dirty = this.picksDirty();
+      const baseline = dirty ? this.synthesizedArgs : this.editArgsText;
       const editedArgs = this.exprInput.value.trim();
-      const selectorOverride = editedArgs !== '' && editedArgs !== this.editArgsText
+      const selectorOverride = editedArgs !== '' && editedArgs !== baseline
         ? editedArgs
         : undefined;
       this.applying = true;
@@ -872,10 +1003,18 @@ export class ModifyPickService {
         const result = await applyValueFeatureEdit(
           this.feature as 'shell' | 'fillet' | 'chamfer',
           this.editTarget,
-          { value: value!, selectorOverride, joinType: this.shellJoinType() ?? undefined },
+          {
+            value: value!,
+            selectorOverride,
+            joinType: this.shellJoinType() ?? undefined,
+            expectedStatement: this.session.expectedStatement,
+            before: dirty ? this.session.boundary ?? undefined : undefined,
+            entities: dirty ? this.entities : undefined,
+            chains: dirty ? this.apiChains() : undefined,
+          },
         );
         if (result.success) {
-          this.exit({ resume: 'lazy' });
+          this.exit({ editEnd: 'apply' });
         } else {
           this.setMessage(result.reason ?? 'Could not apply the edit.');
         }
@@ -1020,7 +1159,16 @@ export class ModifyPickService {
 
   private schedulePreview(): void {
     this.cancelPreview();
-    if (!this.feature || this.entities.length === 0) {
+    if (!this.feature) {
+      return;
+    }
+    if (this.editTarget) {
+      // The expression row holds the statement's own args (or the last
+      // synthesis) — nothing to re-synthesize until the picks change.
+      if (!this.picksDirty() || this.entities.length === 0) {
+        return;
+      }
+    } else if (this.entities.length === 0) {
       this.hideExpression();
       return;
     }
@@ -1052,11 +1200,22 @@ export class ModifyPickService {
 
     let result: ApplyFeatureResponse;
     try {
-      result = await applyFeature(this.feature, previewValue, this.entities, {
-        chains: this.apiChains(),
-        preview: true,
-        signal: abort.signal,
-      });
+      result = this.editTarget
+        ? await applyValueFeatureEdit(this.feature as 'shell' | 'fillet' | 'chamfer', this.editTarget, {
+          value: previewValue!,
+          joinType: this.shellJoinType() ?? undefined,
+          expectedStatement: this.session.expectedStatement,
+          before: this.session.boundary ?? undefined,
+          entities: this.entities,
+          chains: this.apiChains(),
+          preview: true,
+          signal: abort.signal,
+        })
+        : await applyFeature(this.feature, previewValue, this.entities, {
+          chains: this.apiChains(),
+          preview: true,
+          signal: abort.signal,
+        });
     } catch {
       return; // aborted
     }
@@ -1073,6 +1232,10 @@ export class ModifyPickService {
       this.exprRow.classList.remove('hidden');
       this.exprRow.classList.add('flex');
       this.setMessage(null);
+    } else if (this.editTarget) {
+      // Keep the expression row (it still shows a valid baseline) and
+      // surface the refusal — an unsynthesizable pick, a drifted statement.
+      this.setMessage(result.reason ?? 'Could not synthesize a selector.');
     } else {
       this.hideExpression();
       this.setMessage(result.reason ?? 'Could not synthesize a selector.');

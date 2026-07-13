@@ -1,12 +1,11 @@
 import { Shape } from "../common/shape.js";
-import { Scene } from "../rendering/scene.js";
 import { Explorer } from "../oc/explorer.js";
 import { EdgeProps } from "../oc/edge-props.js";
 import type { EdgeProperties } from "../oc/edge-props.js";
 import { attributePick, resolvePickShape } from "./attribution.js";
 import { bucketMembersOnSolid, expandTangentChain } from "./expand.js";
 import { SelectionIndex } from "./selection-index.js";
-import { PickRef } from "./types.js";
+import { PickRef, SelectionScene } from "./types.js";
 
 /**
  * `sibling` marks the "Select other" section: the producing feature's OTHER
@@ -80,7 +79,7 @@ function accessorLabel(accessor: string): string {
  * beyond the seed), as is an "equal" group identical to its same-type group.
  * Pure read over a built scene.
  */
-export function listSelectionGroups(scene: Scene, ref: PickRef): SelectionGroupsResult {
+export function listSelectionGroups(scene: SelectionScene, ref: PickRef): SelectionGroupsResult {
   const resolved = resolvePickShape(scene, ref);
   if (!resolved) {
     return { ok: false, reason: 'pick does not resolve to a sub-shape in the current scene' };
@@ -110,7 +109,7 @@ export function listSelectionGroups(scene: Scene, ref: PickRef): SelectionGroups
  * Siblings keep single-member buckets: unlike the seed's own bucket, they
  * select edges the pick doesn't already imply.
  */
-function classifiedGroups(scene: Scene, ref: PickRef): SelectionGroup[] {
+function classifiedGroups(scene: SelectionScene, ref: PickRef): SelectionGroup[] {
   const index = new SelectionIndex(scene);
   try {
     const attr = attributePick(scene, index, ref);

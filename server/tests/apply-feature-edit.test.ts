@@ -1959,3 +1959,327 @@ describe('plane statement templates', () => {
     expect(result.newCode).toBe(base);
   });
 });
+
+// ---------------------------------------------------------------------------
+// In-place statement editing with re-sourced slots (edit-mode re-picking)
+// ---------------------------------------------------------------------------
+
+describe('applyFeatureEdit (re-sourced statement edit)', () => {
+  const sketchProducer = (line: number) =>
+    ({ line, column: 0, featureType: 'sketch', nameHint: 's', bind: true });
+  const extrudeProducer = (line: number) =>
+    ({ line, column: 0, featureType: 'extrude', nameHint: 'e', bind: true });
+
+  it('re-sources an extrude profile to a bound sketch, reusing its const', async () => {
+    const code = `${editBase}\nextrude(30)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: extrudeEditOptions({ distance: 45, profile: { kind: 'sketch', producer: 0 } }),
+    }, { producers: [sketchProducer(3)] }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`${editBase}\nextrude(45, s)\n`);
+  });
+
+  it('re-sources an extrude profile to a bare sketch, prepending its binding', async () => {
+    const code = [
+      editBase,
+      `sketch('xz', () => { rect(20, 20) })`,
+      `extrude(30, s)`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 5, column: 0,
+      extrude: extrudeEditOptions({ distance: 30, profile: { kind: 'sketch', producer: 0 } }),
+    }, { producers: [sketchProducer(4)] }));
+    expect(result.error).toBeUndefined();
+    // The existing `s` keeps its name; the new binding suffixes past it.
+    expect(result.newCode).toContain(`const s2 = sketch('xz', () => { rect(20, 20) })`);
+    expect(result.newCode).toContain(`extrude(30, s2)`);
+  });
+
+  it('keeps the profile verbatim when the edit carries kind: keep', async () => {
+    const code = `${editBase}\nextrude(30, s)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: extrudeEditOptions({ distance: 45, profile: { kind: 'keep' } }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`${editBase}\nextrude(45, s)\n`);
+  });
+
+  it('re-sources a sweep path to picked edges rendered from parts', async () => {
+    const code = [
+      `import { sketch, rect, circle, extrude, sweep } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(40)`,
+      `const p = sketch('xz', () => { circle(30) })`,
+      `sweep(p, s)`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('sweep', {
+      line: 6, column: 0,
+      sweep: { op: 'add', thin: null, path: { kind: 'selector' } },
+    }, {
+      producers: [extrudeProducer(4)],
+      parts: [{ producer: 0, accessor: 'sideEdges', indices: [0], filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`sweep(e.sideEdges(0), s)`);
+  });
+
+  it('re-sources a sweep path and profile to other sketches', async () => {
+    const code = [
+      `import { sketch, rect, circle, sweep } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `const p = sketch('xz', () => { circle(30) })`,
+      `const p2 = sketch('yz', () => { circle(10) })`,
+      `sweep(p, s)`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('sweep', {
+      line: 6, column: 0,
+      sweep: {
+        op: 'add', thin: null,
+        path: { kind: 'sketch', producer: 0 },
+        profile: { kind: 'sketch', producer: 1 },
+      },
+    }, { producers: [sketchProducer(5), sketchProducer(3)] }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`sweep(p2, s)`);
+  });
+
+  it('reorders kept loft profiles and appends a re-picked sketch', async () => {
+    const code = [
+      `import { sketch, circle, loft } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { circle(80) })`,
+      `const s2 = sketch('xy', () => { circle(60) })`,
+      `const s3 = sketch('xy', () => { circle(40) })`,
+      `loft(s, s2)`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('loft', {
+      line: 6, column: 0,
+      loft: {
+        op: 'add', thin: null,
+        profiles: [
+          { kind: 'verbatim', sourceIndex: 1 },
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'sketch', producer: 0 },
+        ],
+      },
+    }, { producers: [sketchProducer(5)] }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`loft(s2, s, s3)`);
+  });
+
+  it('removing all guides unlocks thin walls (effective-guide rule)', async () => {
+    const code = [
+      `import { sketch, circle, loft } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { circle(80) })`,
+      `const s2 = sketch('xy', () => { circle(60) })`,
+      `const g = sketch('xz', () => { circle(40) })`,
+      `loft(s, s2).guides(g)`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('loft', {
+      line: 6, column: 0,
+      loft: { op: 'add', thin: [2], guides: [] },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`loft(s, s2).thin(2)`);
+    expect(result.newCode).not.toContain(`.guides(`);
+  });
+
+  it('still refuses thin walls when a kept guide remains', async () => {
+    const code = [
+      `import { sketch, circle, loft } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { circle(80) })`,
+      `const s2 = sketch('xy', () => { circle(60) })`,
+      `const g = sketch('xz', () => { circle(40) })`,
+      `loft(s, s2).guides(g)`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('loft', {
+      line: 6, column: 0,
+      loft: { op: 'add', thin: [2], guides: [{ kind: 'verbatim', sourceIndex: 0 }] },
+    }));
+    expect(result.error).toContain('guides cannot be combined');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('re-sources a shell selection from parts', async () => {
+    const code = [
+      editBase,
+      `const e = extrude(40)`,
+      `shell(-2, e.endFaces())`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('shell', {
+      line: 5, column: 0,
+    }, {
+      value: -3,
+      producers: [extrudeProducer(4)],
+      parts: [{ producer: 0, accessor: 'sideFaces', indices: [0, 2], filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`shell(-3, e.sideFaces(0, 2))`);
+  });
+
+  it('user-edited rawArgs win over re-picked parts and import their filters', async () => {
+    const code = [
+      editBase,
+      `const e = extrude(40)`,
+      `shell(-2, e.endFaces())`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('shell', {
+      line: 5, column: 0,
+    }, {
+      value: -2,
+      rawArgs: `face().onPlane('xy')`,
+      producers: [extrudeProducer(4)],
+      parts: [{ producer: 0, accessor: 'sideFaces', indices: [0], filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`shell(-2, face().onPlane('xy'))`);
+    expect(result.newCode).toContain(`from 'fluidcad/filters'`);
+  });
+
+  it('applies when expectedStatement matches and refuses when it drifted', async () => {
+    const code = `${editBase}\nextrude(30)\n`;
+    const matching = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0, expectedStatement: 'extrude(30)',
+      extrude: extrudeEditOptions({ distance: 45 }),
+    }));
+    expect(matching.error).toBeUndefined();
+    expect(matching.newCode).toContain('extrude(45)');
+
+    const drifted = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0, expectedStatement: 'extrude(31)',
+      extrude: extrudeEditOptions({ distance: 45 }),
+    }));
+    expect(drifted.error).toContain('changed since the dialog opened');
+    expect(drifted.newCode).toBe(code);
+  });
+
+  it('refuses a producer at or after the edited statement (self/forward reference)', async () => {
+    const code = [
+      editBase,
+      `extrude(30, s)`,
+      `sketch('xz', () => { rect(20, 20) })`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: extrudeEditOptions({ distance: 30, profile: { kind: 'sketch', producer: 0 } }),
+    }, { producers: [sketchProducer(5)] }));
+    expect(result.error).toContain('does not precede');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a producer in a different scope than the edited statement', async () => {
+    const code = [
+      editBase,
+      `function make() {`,
+      `  sketch('xz', () => { rect(20, 20) })`,
+      `}`,
+      `extrude(30, s)`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 7, column: 0,
+      extrude: extrudeEditOptions({ distance: 30, profile: { kind: 'sketch', producer: 0 } }),
+    }, { producers: [sketchProducer(5)] }));
+    expect(result.error).toContain('different scope');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses loft selector parts that no profile references', async () => {
+    const code = [
+      `import { sketch, circle, extrude, loft } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { circle(80) })`,
+      `const s2 = sketch('xy', () => { circle(60) })`,
+      `const e = extrude(5)`,
+      `loft(s, s2)`,
+      '',
+    ].join('\n');
+    const withoutList = await applyFeatureEdit(code, editSpec('loft', {
+      line: 6, column: 0,
+      loft: { op: 'add', thin: null },
+    }, {
+      producers: [extrudeProducer(5)],
+      parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+    }));
+    expect(withoutList.error).toContain('selector parts without a profile list');
+
+    const uncovered = await applyFeatureEdit(code, editSpec('loft', {
+      line: 6, column: 0,
+      loft: {
+        op: 'add', thin: null,
+        profiles: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'verbatim', sourceIndex: 1 }],
+      },
+    }, {
+      producers: [extrudeProducer(5)],
+      parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+    }));
+    expect(uncovered.error).toContain('belongs to no profile');
+  });
+
+  it('refuses a kept loft profile whose index drifted off the statement', async () => {
+    const code = [
+      `import { sketch, circle, loft } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { circle(80) })`,
+      `const s2 = sketch('xy', () => { circle(60) })`,
+      `loft(s, s2)`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('loft', {
+      line: 5, column: 0,
+      loft: {
+        op: 'add', thin: null,
+        profiles: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'verbatim', sourceIndex: 5 }],
+      },
+    }));
+    expect(result.error).toContain('no longer matches the statement');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses to parse a to-face cut target as a profile', async () => {
+    const code = `${editBase}\ncut('first-face')\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('to-face');
+    }
+  });
+
+  it('refuses a selector sweep path with more than one part', async () => {
+    const code = [
+      `import { sketch, rect, extrude, sweep } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(40)`,
+      `sweep(s, s)`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('sweep', {
+      line: 5, column: 0,
+      sweep: { op: 'add', thin: null, path: { kind: 'selector' } },
+    }, {
+      producers: [extrudeProducer(4)],
+      parts: [
+        { producer: 0, accessor: 'sideEdges', indices: [0], filterArgs: null },
+        { producer: 0, accessor: 'endEdges', indices: [1], filterArgs: null },
+      ],
+    }));
+    expect(result.error).toContain('exactly one part');
+    expect(result.newCode).toBe(code);
+  });
+});

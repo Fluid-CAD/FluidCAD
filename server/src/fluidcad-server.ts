@@ -23,6 +23,7 @@ type SceneManager = {
   explainSelection(
     scene: any,
     refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],
+    before?: SelectionBoundary,
   ): any;
   synthesizeApplyFeature(
     scene: any,
@@ -37,19 +38,24 @@ type SceneManager = {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       params?: { name: string; value: number }[];
     },
+    before?: SelectionBoundary,
   ): any;
   expandTangentChain(
     scene: any,
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    before?: SelectionBoundary,
   ): any;
   expandBucket(
     scene: any,
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    before?: SelectionBoundary,
   ): any;
   listSelectionGroups(
     scene: any,
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    before?: SelectionBoundary,
   ): any;
+  resolveFeatureSources(scene: any, boundary: SelectionBoundary): any;
   hitTest(
     scene: any,
     shapeId: string,
@@ -76,6 +82,20 @@ export type SceneRenderedData = {
   rollbackStop: number;
   breakpointHit?: boolean;
   params?: ParamDefinition[];
+};
+
+/**
+ * Boundary for edit-mode selection queries: the statement being edited,
+ * addressed by scene position (timeline row) and call site. Queries carrying
+ * one resolve against the objects strictly before it — the world that
+ * statement's arguments see at build time. Validation (index still holds
+ * that call site) happens kernel-side; a stale boundary refuses.
+ */
+export type SelectionBoundary = {
+  index: number;
+  type: string;
+  line: number;
+  column: number;
 };
 
 export type SceneSummaryObject = {
@@ -469,6 +489,7 @@ export class FluidCadServer {
 
   explainSelection(
     refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],
+    before?: SelectionBoundary,
   ): any {
     if (!this.sceneManager) {
       return null;
@@ -477,7 +498,7 @@ export class FluidCadServer {
     if (!scene) {
       return null;
     }
-    return this.sceneManager.explainSelection(scene, refs);
+    return this.sceneManager.explainSelection(scene, refs, before);
   }
 
   synthesizeApplyFeature(
@@ -492,6 +513,7 @@ export class FluidCadServer {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       params?: { name: string; value: number }[];
     },
+    before?: SelectionBoundary,
   ): any {
     if (!this.sceneManager) {
       return null;
@@ -500,11 +522,12 @@ export class FluidCadServer {
     if (!scene) {
       return null;
     }
-    return this.sceneManager.synthesizeApplyFeature(scene, refs, feature, value, chains, options);
+    return this.sceneManager.synthesizeApplyFeature(scene, refs, feature, value, chains, options, before);
   }
 
   expandTangentChain(
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    before?: SelectionBoundary,
   ): any {
     if (!this.sceneManager) {
       return null;
@@ -513,11 +536,12 @@ export class FluidCadServer {
     if (!scene) {
       return null;
     }
-    return this.sceneManager.expandTangentChain(scene, ref);
+    return this.sceneManager.expandTangentChain(scene, ref, before);
   }
 
   expandBucket(
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    before?: SelectionBoundary,
   ): any {
     if (!this.sceneManager) {
       return null;
@@ -526,11 +550,12 @@ export class FluidCadServer {
     if (!scene) {
       return null;
     }
-    return this.sceneManager.expandBucket(scene, ref);
+    return this.sceneManager.expandBucket(scene, ref, before);
   }
 
   listSelectionGroups(
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    before?: SelectionBoundary,
   ): any {
     if (!this.sceneManager) {
       return null;
@@ -539,7 +564,19 @@ export class FluidCadServer {
     if (!scene) {
       return null;
     }
-    return this.sceneManager.listSelectionGroups(scene, ref);
+    return this.sceneManager.listSelectionGroups(scene, ref, before);
+  }
+
+  /** Current sources of the statement at `before`, for edit-dialog seeding. */
+  featureSources(before: SelectionBoundary): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.resolveFeatureSources(scene, before);
   }
 
   exportShapes(

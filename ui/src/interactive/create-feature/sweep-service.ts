@@ -1,8 +1,9 @@
 import {
-  applySweep, applySweepEdit, ApplyFeatureChain, ApplyFeatureResponse, expandBucket,
-  FeatureEditTarget, ParsedFeatureStatement, SelectionGroupKind, SweepApplyOptions,
+  applySweep, applySweepEdit, fetchFeatureSources, ApplyFeatureChain, ApplyFeatureResponse, expandBucket,
+  FeatureEditTarget, ParsedFeatureStatement, SelectionGroupKind, SourceSlotRef, SweepApplyOptions,
 } from '../../api';
 import { entityKey, mergeUniqueEntities, sameEntity } from '../../helpers/entities';
+import { EditSession, EditSessionInfo } from '../edit-session';
 import { SelectionContextMenu } from '../selection-menu';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
@@ -48,6 +49,14 @@ export class SweepFeatureService {
   private suspendedSketchUI = false;
   /** Statement being edited in place (timeline double-click), or null. */
   private editTarget: FeatureEditTarget | null = null;
+  /** View-state half of edit mode: pre-statement rollback + boundary. */
+  private session = new EditSession();
+  /** Current sources of the edited statement, for seeding and highlighting. */
+  private sourceSlots: { profile: SourceSlotRef; path: SourceSlotRef } | null = null;
+  /** The seeded path entities were already offered to edge picking once. */
+  private pathSeedApplied = false;
+  /** A full render arrived mid-session — picks died, sources re-fetch. */
+  private editSceneStale = false;
 
   private entities: SelectedEntity[] = [];
   private chains: { seed: SelectedEntity; members: SelectedEntity[] }[] = [];
@@ -109,6 +118,7 @@ export class SweepFeatureService {
           this.refreshHighlight(members ?? []);
         }
       },
+      boundary: () => this.session.boundary ?? undefined,
     });
   }
 
@@ -116,19 +126,70 @@ export class SweepFeatureService {
     return this.armed;
   }
 
-  /** Edit mode never consumes viewport picks — the viewport stays neutral. */
+  /** An edit session is open (the viewport shows the pre-statement rollback). */
   get isEditing(): boolean {
     return this.editTarget !== null;
   }
 
-  /** Edge picks are live — the viewer routes clicks here. */
+  /** Edge picks are live — the viewer routes clicks here (both modes). */
   get isEdgePicking(): boolean {
-    return this.armed && !this.editTarget && this.panel.pathSelection()?.kind === 'edges';
+    return this.armed && this.panel.pathSelection()?.kind === 'edges';
   }
 
   /** True while armed edge picking has suspended sketch editing. */
   get sketchUISuspended(): boolean {
     return this.suspendedSketchUI;
+  }
+
+  /**
+   * Every render lands here. An open edit session owns the view: it keeps
+   * the viewport rolled back to just before the edited statement, and at
+   * that boundary the slot options rebuild from the pre-statement scene —
+   * exactly the sketches and edges the sweep's arguments can reference.
+   */
+  handleSceneRendered(sceneObjects: SceneObjectRender[], stop: number, isRollback: boolean): void {
+    const state = this.session.onSceneRendered(sceneObjects, stop, isRollback);
+    if (state === 'inactive') {
+      this.update(isRollback ? [] : sceneObjects);
+      return;
+    }
+    if (!this.armed) {
+      this.session.end('gone');
+      return;
+    }
+    if (state === 'gone') {
+      this.exit({ editEnd: 'gone' });
+      return;
+    }
+    if (state === 'waiting') {
+      if (!isRollback) {
+        this.editSceneStale = true;
+      }
+      return;
+    }
+    // At the boundary: rebuild options from the pre-statement scene.
+    this.sceneObjects = sceneObjects;
+    this.profiles = collectSketchProfiles(sceneObjects);
+    this.hideContextMenu();
+    if (this.editSceneStale) {
+      this.editSceneStale = false;
+      if (this.entities.length > 0) {
+        this.entities = [];
+        this.chains = [];
+        this.pathSeedApplied = false;
+        this.panel.setMessage('The code changed — the re-picked path was reset.');
+      }
+      this.sourceSlots = null;
+    }
+    if (!this.sourceSlots) {
+      void this.loadEditSources();
+    }
+    this.panel.setOptions(this.profiles, this.profiles, true);
+    this.refreshSketchLabels();
+    this.syncEdgePicking();
+    this.refreshHighlight();
+    this.refreshPickCount();
+    this.schedulePreview();
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
@@ -144,13 +205,6 @@ export class SweepFeatureService {
     this.syncButton();
     this.hideContextMenu();
     if (!this.armed) {
-      return;
-    }
-    if (this.editTarget) {
-      // Edit mode tracks a statement, not the scene: the dialog rides out
-      // renders (including the breakpoint render the double-click placed);
-      // the preview re-parses the statement in case it changed.
-      this.schedulePreview();
       return;
     }
     if (!this.available) {
@@ -176,30 +230,69 @@ export class SweepFeatureService {
 
   /**
    * Open the dialog over an existing sweep statement (timeline
-   * double-click). No picking is involved — the path and profile are fixed
-   * to the statement's own — and Apply rewrites the statement in place.
+   * double-click). The session rolls the viewport back to just before the
+   * statement; both slots start on "Current: …" entries that keep the
+   * statement's own expressions, and re-sourcing is live — other sketches
+   * via the dropdowns/timeline/wire clicks, path edges by picking in 3D
+   * (seeded with the statement's current edges when they resolve). Apply
+   * rewrites the statement in place.
    */
-  enterEdit(target: FeatureEditTarget, parsed: Extract<ParsedFeatureStatement, { feature: 'sweep' }>): void {
+  enterEdit(
+    target: FeatureEditTarget,
+    parsed: Extract<ParsedFeatureStatement, { feature: 'sweep' }>,
+    info: Omit<EditSessionInfo, 'target'>,
+  ): void {
     if (this.armed) {
       this.exit();
     }
     this.hooks.onEnter?.();
     this.armed = true;
     this.editTarget = target;
+    this.entities = [];
+    this.chains = [];
+    this.sourceSlots = null;
+    this.pathSeedApplied = false;
+    this.editSceneStale = false;
     this.syncButton();
+    this.suspendSketchUI();
+    this.viewer.pickSketchWires = true;
+    this.session.begin({ ...info, target }, this.viewer.currentSceneObjects.length);
+    void this.loadEditSources();
     this.panel.showEdit({
       op: parsed.op,
       thin: parsed.thin,
       pathLabel: parsed.pathText,
       profileLabel: parsed.profileText ?? 'Current sketch (implicit)',
     });
+    this.syncEdgePicking();
     this.schedulePreview();
+  }
+
+  /**
+   * Current sources of the edited statement: the profile/path sketches (for
+   * highlighting) and the path's resolved edges — the seed offered when edge
+   * picking arms, so re-picking starts from the statement's own selection.
+   */
+  private async loadEditSources(): Promise<void> {
+    const boundary = this.session.boundary;
+    if (!boundary) {
+      return;
+    }
+    const result = await fetchFeatureSources(boundary);
+    if (!this.editTarget || this.session.boundary?.index !== boundary.index) {
+      return;
+    }
+    this.sourceSlots = result.ok && result.feature === 'sweep'
+      ? { profile: result.profile, path: result.path }
+      : { profile: { kind: 'opaque' }, path: { kind: 'opaque' } };
+    this.refreshHighlight();
   }
 
   enter(): void {
     if (this.armed) {
       return;
     }
+    this.session.end('continue');
     this.hooks.onEnter?.();
     this.armed = true;
     // Composing a sweep means looking at the whole scene, not down the
@@ -221,14 +314,23 @@ export class SweepFeatureService {
   /**
    * `resume: 'lazy'` re-enables sketch editing without forcing the mode
    * transition — for apply-success and scene-driven exits. User cancels
-   * default to `'immediate'`.
+   * default to `'immediate'`; ending an edit session always resumes lazily
+   * (a render follows every session end).
    */
-  exit(opts: { resume?: 'immediate' | 'lazy' } = {}): void {
+  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'gone' } = {}): void {
     if (!this.armed) {
       return;
     }
+    const hadSession = this.session.active;
+    this.session.end(opts.editEnd ?? 'cancel');
+    if (hadSession) {
+      opts = { ...opts, resume: 'lazy' };
+    }
     this.armed = false;
     this.editTarget = null;
+    this.sourceSlots = null;
+    this.pathSeedApplied = false;
+    this.editSceneStale = false;
     this.syncButton();
     this.cancelPreview();
     this.entities = [];
@@ -352,7 +454,7 @@ export class SweepFeatureService {
    * can't close the dialog mid-flow.
    */
   handleTimelinePick(obj: SceneObjectRender): boolean {
-    if (!this.armed || this.editTarget) {
+    if (!this.armed) {
       return false;
     }
     const sketch = resolveSketchRow(obj, this.sceneObjects);
@@ -368,7 +470,7 @@ export class SweepFeatureService {
    * sketch lands in the focused slot.
    */
   handleSketchPick(shapeId: string): boolean {
-    if (!this.armed || this.editTarget) {
+    if (!this.armed) {
       return false;
     }
     const sketch = resolveSketchByShapeId(shapeId, this.sceneObjects);
@@ -396,17 +498,17 @@ export class SweepFeatureService {
       return;
     }
     if (this.editTarget) {
-      const values = this.panel.values();
-      if ('error' in values) {
-        this.panel.setMessage(values.error);
+      const request = this.buildEditRequest();
+      if ('error' in request) {
+        this.panel.setMessage(request.error);
         return;
       }
       this.applying = true;
       this.panel.setApplyEnabled(false);
       try {
-        const result = await applySweepEdit(this.editTarget, values);
+        const result = await applySweepEdit(this.editTarget, request);
         if (result.success) {
-          this.exit({ resume: 'lazy' });
+          this.exit({ editEnd: 'apply' });
         } else {
           this.panel.setMessage(result.reason ?? 'Could not apply the edit.');
         }
@@ -488,6 +590,63 @@ export class SweepFeatureService {
     };
   }
 
+  /**
+   * The edit-mode apply payload. Slots still on their "Current: …" entry are
+   * omitted, so the transform preserves the statement's expressions byte for
+   * byte; a re-sourced path/profile ships as a sketch ref or edge picks (the
+   * latter synthesized against the session boundary).
+   */
+  private buildEditRequest(): Parameters<typeof applySweepEdit>[1] | { error: string } {
+    const values = this.panel.values();
+    if ('error' in values) {
+      return values;
+    }
+    const pathSel = this.panel.pathSelection();
+    const profileSel = this.panel.profileSelection();
+
+    let path: Parameters<typeof applySweepEdit>[1]['path'];
+    if (pathSel?.kind === 'sketch') {
+      if (!pathSel.option.hasGeometry) {
+        return { error: 'The path sketch has nothing drawn.' };
+      }
+      path = {
+        kind: 'sketch',
+        filePath: pathSel.option.filePath,
+        line: pathSel.option.line,
+        column: pathSel.option.column,
+      };
+    } else if (pathSel?.kind === 'edges') {
+      if (this.entities.length === 0) {
+        return { error: 'Pick the path edges first.' };
+      }
+      path = {
+        kind: 'edges',
+        entities: this.entities,
+        chains: this.chains.map((c): ApplyFeatureChain => ({ seed: c.seed, members: c.members })),
+      };
+    }
+    let profile: Parameters<typeof applySweepEdit>[1]['profile'];
+    if (profileSel?.kind === 'sketch') {
+      if (!profileSel.option.hasGeometry) {
+        return { error: `Nothing is drawn in "${profileSel.option.label}" yet.` };
+      }
+      profile = {
+        kind: 'sketch',
+        filePath: profileSel.option.filePath,
+        line: profileSel.option.line,
+        column: profileSel.option.column,
+      };
+    }
+    return {
+      op: values.op,
+      thin: values.thin,
+      path,
+      profile,
+      expectedStatement: this.session.expectedStatement,
+      before: path?.kind === 'edges' ? this.session.boundary ?? undefined : undefined,
+    };
+  }
+
   // -------------------------------------------------------------------------
   // Edge-pick mode + sketch-editing suspension
   // -------------------------------------------------------------------------
@@ -504,11 +663,22 @@ export class SweepFeatureService {
     if (picking && this.sceneSketchActive) {
       this.suspendSketchUI();
     }
+    if (picking && this.editTarget && !this.pathSeedApplied) {
+      // First arm of edge picking in an edit session: start from the
+      // statement's own path edges (when they resolved) so re-picking is
+      // incremental, not from scratch.
+      this.pathSeedApplied = true;
+      if (this.entities.length === 0 && this.sourceSlots?.path.kind === 'entities') {
+        this.entities = this.sourceSlots.path.entities.map(e => ({ shapeId: e.shapeId, sub: e.sub }));
+      }
+    }
     if (!picking) {
       if (this.entities.length > 0) {
         this.entities = [];
         this.chains = [];
       }
+      // Leaving edge picking re-offers the seed on the next arm.
+      this.pathSeedApplied = false;
       this.hideContextMenu();
     }
     this.refreshHighlight();
@@ -561,6 +731,7 @@ export class SweepFeatureService {
       return;
     }
     const sketches: SketchProfileOption[] = [];
+    const keepEntities: SelectedEntity[] = [];
     const profile = this.panel.selectedProfile();
     if (profile) {
       sketches.push(profile);
@@ -569,8 +740,26 @@ export class SweepFeatureService {
     if (path?.kind === 'sketch') {
       sketches.push(path.option);
     }
+    // Slots kept on the statement's own expressions light up through the
+    // resolved current sources at the rolled-back view.
+    const keepSlot = (slot: SourceSlotRef | undefined): void => {
+      if (slot?.kind === 'entities') {
+        keepEntities.push(...slot.entities.map(e => ({ shapeId: e.shapeId, sub: e.sub })));
+      } else if (slot?.kind === 'sketch') {
+        const option = this.profiles.find(o => o.filePath === slot.filePath && o.line === slot.line);
+        if (option) {
+          sketches.push(option);
+        }
+      }
+    };
+    if (this.panel.profileSelection()?.kind === 'keep') {
+      keepSlot(this.sourceSlots?.profile);
+    }
+    if (path?.kind === 'keep') {
+      keepSlot(this.sourceSlots?.path);
+    }
     const wireIds = sketches.flatMap(option => sketchWireShapeIds(option, this.sceneObjects));
-    const shown = mergeUniqueEntities(this.entities, previewMembers);
+    const shown = mergeUniqueEntities(mergeUniqueEntities(this.entities, keepEntities), previewMembers);
     if (shown.length > 0 || wireIds.length > 0) {
       this.viewer.highlightEntities(shown, wireIds);
     } else {
@@ -622,9 +811,9 @@ export class SweepFeatureService {
     if (!this.armed || this.applying) {
       return;
     }
-    // Edit mode previews from the form values alone — the path and profile
-    // stay whatever the statement already says.
-    const request = this.editTarget ? this.panel.values() : this.buildRequest();
+    // Edit mode previews the full edit payload — re-sourced slots included —
+    // so the preview is the exact statement Apply will write.
+    const request = this.editTarget ? this.buildEditRequest() : this.buildRequest();
     if ('error' in request) {
       this.panel.setPreview(null);
       return;
@@ -637,7 +826,11 @@ export class SweepFeatureService {
     let result: ApplyFeatureResponse;
     try {
       result = this.editTarget
-        ? await applySweepEdit(this.editTarget, { op: request.op, thin: request.thin, preview: true, signal: abort.signal })
+        ? await applySweepEdit(this.editTarget, {
+          ...(request as Parameters<typeof applySweepEdit>[1]),
+          preview: true,
+          signal: abort.signal,
+        })
         : await applySweep({ ...(request as SweepApplyOptions), preview: true, signal: abort.signal });
     } catch {
       return; // aborted

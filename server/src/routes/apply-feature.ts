@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FluidCadServer, SelectionBoundary } from '../fluidcad-server.ts';
 import {
   applyFeatureEdit, extractNumericParams, makeProducerNamer, parseFeatureStatement, renderEditedStatement,
   renderExtrudeStatement, renderLoftStatement, renderPlaneBaseExprs, renderPlaneStatement,
@@ -45,6 +45,25 @@ function validatePicks(entities: unknown): Pick[] | null {
 
 /** A sketch addressed by the source location the scene render reported. */
 type SketchLoc = { filePath: string; line: number; column: number };
+
+/**
+ * Optional edit-mode boundary on selection queries: scope the query to the
+ * scene objects strictly before the statement being edited. `undefined` when
+ * the request carries none, null when it carries a malformed one.
+ */
+function validateBoundary(raw: any): SelectionBoundary | undefined | null {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  const valid = Number.isInteger(raw.index) && raw.index >= 0
+    && typeof raw.type === 'string' && raw.type.length > 0
+    && Number.isInteger(raw.line) && raw.line >= 1
+    && Number.isInteger(raw.column) && raw.column >= 0;
+  if (!valid) {
+    return null;
+  }
+  return { index: raw.index, type: raw.type, line: raw.line, column: raw.column };
+}
 
 /** One or two positive `.thin()` offsets; absent means a plain feature. */
 function validateThinOffsets(thin: unknown): { offsets: [number] | [number, number] | null } | { error: string } {
@@ -536,18 +555,53 @@ async function allocateProducerVars(
 /** Features whose statements the dialogs can rewrite in place. */
 const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer']);
 
+/** One edited loft profile as the request carries it. */
+type EditLoftProfileInput =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'sketch' } & SketchLoc)
+  | { kind: 'face'; pick: Pick };
+
+/** One edited loft guide as the request carries it. */
+type EditLoftGuideInput =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'sketch' } & SketchLoc);
+
 type StatementEditRequest = {
   feature: ApplyFeatureEditSpec['feature'];
   target: SketchLoc;
   edit: FeatureStatementEditTarget;
   value?: number;
   rawArgs?: string;
+  /** Re-picked selection for shell/fillet/chamfer; absent keeps the args. */
+  picks?: Pick[];
+  chains?: { seed: Pick; members: Pick[] }[];
+  /** Re-sourced extrude profile sketch; absent keeps the statement's. */
+  extrudeProfile?: SketchLoc;
+  /** Re-sourced sweep path; absent keeps the statement's. */
+  sweepPath?: ({ kind: 'sketch' } & SketchLoc)
+    | { kind: 'edges'; picks: Pick[]; chains: { seed: Pick; members: Pick[] }[] };
+  /** Re-sourced sweep profile sketch; absent keeps the statement's. */
+  sweepProfile?: SketchLoc;
+  /** Full replacement loft profile list; absent keeps the statement's. */
+  loftProfiles?: EditLoftProfileInput[];
+  /** Full replacement loft guide list; absent keeps the statement's. */
+  loftGuides?: EditLoftGuideInput[];
+  /** True when a source payload carries picks — synthesis needs a boundary. */
+  needsPicks: boolean;
 };
+
+/** A `keep`-or-absent slot value: true when the field re-sources nothing. */
+function isKeepSlot(raw: any): boolean {
+  return raw === undefined || raw === null
+    || raw?.mode === 'keep' || raw?.kind === 'keep';
+}
 
 /**
  * The in-place edit request's shape: the statement location plus the
- * dialog-editable options for that feature. Everything the dialog doesn't
- * edit is re-read from the statement at apply time, so nothing else rides.
+ * dialog-editable options for that feature, plus optional re-sourced slots —
+ * a re-picked selection, profile, path, or profile/guide list. Slots the
+ * request omits are re-read from the statement at apply time and preserved
+ * verbatim.
  */
 function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
@@ -559,8 +613,15 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
     return { error: 'edit must be the {filePath, line, column} of the feature statement' };
   }
   const edit: FeatureStatementEditTarget = { line: target.line, column: target.column };
+  const expected = body?.expectedStatement;
+  if (expected !== undefined) {
+    if (typeof expected !== 'string' || expected.length === 0 || expected.length > 4000) {
+      return { error: 'expectedStatement must be the statement text from /api/feature/parse' };
+    }
+    edit.expectedStatement = expected;
+  }
   const kind = feature as ApplyFeatureEditSpec['feature'];
-  const base = { feature: kind, target, edit };
+  const base = { feature: kind, target, edit, needsPicks: false };
 
   if (feature === 'extrude') {
     const options = validateExtrudeOptions(body);
@@ -568,7 +629,14 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       return options;
     }
     edit.extrude = options;
-    return base;
+    if (isKeepSlot(body?.profile)) {
+      return base;
+    }
+    const loc = validateSketchLoc(body.profile);
+    if (body.profile?.mode !== 'bound' || !loc) {
+      return { error: 'an edited profile must be {mode: "bound", filePath, line} of the sketch' };
+    }
+    return { ...base, extrudeProfile: loc };
   }
 
   if (feature === 'sweep' || feature === 'loft') {
@@ -582,7 +650,41 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
     }
     if (feature === 'sweep') {
       edit.sweep = { op, thin: thin.offsets };
-      return base;
+      const result: StatementEditRequest = base;
+      if (!isKeepSlot(body?.path)) {
+        if (body.path?.kind === 'sketch') {
+          const loc = validateSketchLoc(body.path);
+          if (!loc) {
+            return { error: 'a sketch path must carry the sketch {filePath, line}' };
+          }
+          result.sweepPath = { kind: 'sketch', ...loc };
+        } else if (body.path?.kind === 'edges') {
+          const picks = validatePicks(body.path.entities);
+          if (!picks) {
+            return { error: `path entities must be 1-${MAX_ENTITIES} picks of {shapeId, sub:{type, index}}` };
+          }
+          const chains = validateChains(body.path.chains);
+          if (!chains) {
+            return { error: 'path chains must be {seed, members} pick groups' };
+          }
+          result.sweepPath = { kind: 'edges', picks, chains };
+          result.needsPicks = true;
+        } else {
+          return { error: 'path must be {kind: "sketch", filePath, line} or {kind: "edges", entities}' };
+        }
+      }
+      if (!isKeepSlot(body?.profile)) {
+        const loc = validateSketchLoc(body.profile);
+        if (body.profile?.kind !== 'sketch' || !loc) {
+          return { error: 'an edited sweep profile must be {kind: "sketch", filePath, line}' };
+        }
+        if (result.sweepPath?.kind === 'sketch' && result.sweepPath.line === loc.line
+          && result.sweepPath.filePath === loc.filePath) {
+          return { error: 'the profile and path must be different sketches' };
+        }
+        result.sweepProfile = loc;
+      }
+      return result;
     }
     const startResult = validateLoftCondition('startCondition', body?.startCondition);
     if ('error' in startResult) {
@@ -598,11 +700,28 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       startCondition: startResult.condition ?? undefined,
       endCondition: endResult.condition ?? undefined,
     };
-    return base;
+    const result: StatementEditRequest = base;
+    if (body?.profiles !== undefined && body?.profiles !== null) {
+      const parsed = validateEditLoftProfiles(body.profiles);
+      if ('error' in parsed) {
+        return parsed;
+      }
+      result.loftProfiles = parsed.profiles;
+      result.needsPicks ||= parsed.profiles.some(p => p.kind === 'face');
+    }
+    if (body?.guides !== undefined && body?.guides !== null) {
+      const parsed = validateEditLoftGuides(body.guides, result.loftProfiles);
+      if ('error' in parsed) {
+        return parsed;
+      }
+      result.loftGuides = parsed.guides;
+    }
+    return result;
   }
 
   // Shell / fillet / chamfer: the numeric value plus an optional edited
-  // selector argument list (the expression row); shell adds its join type.
+  // selector argument list (the expression row) or a re-picked selection;
+  // shell adds its join type.
   const { value } = body ?? {};
   if (feature === 'shell') {
     if (typeof value !== 'number' || !Number.isFinite(value) || value === 0) {
@@ -620,11 +739,118 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
     && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
     return { error: 'selectorOverride must be a non-empty string (max 500 chars)' };
   }
-  return {
+  const result: StatementEditRequest = {
     ...base,
     value,
     rawArgs: typeof selectorOverride === 'string' ? selectorOverride.trim() : undefined,
   };
+  if (body?.entities !== undefined && body?.entities !== null) {
+    const picks = validatePicks(body.entities);
+    if (!picks) {
+      return { error: `entities must be 1-${MAX_ENTITIES} picks of {shapeId, sub:{type, index}}` };
+    }
+    const chains = validateChains(body?.chains);
+    if (!chains) {
+      return { error: 'chains must be {seed, members} pick groups' };
+    }
+    result.picks = picks;
+    result.chains = chains;
+    result.needsPicks = true;
+  }
+  return result;
+}
+
+/** The edited loft profile list: verbatim keeps, sketch refs, face picks. */
+function validateEditLoftProfiles(
+  raw: unknown,
+): { profiles: EditLoftProfileInput[] } | { error: string } {
+  if (!Array.isArray(raw) || raw.length < 2 || raw.length > MAX_LOFT_PROFILES) {
+    return { error: `profiles must be 2-${MAX_LOFT_PROFILES} ordered loft profiles` };
+  }
+  const profiles: EditLoftProfileInput[] = [];
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    if (entry?.kind === 'verbatim') {
+      if (!Number.isInteger(entry.sourceIndex) || entry.sourceIndex < 0) {
+        return { error: 'a kept profile must carry its statement argument index' };
+      }
+      const key = `verbatim:${entry.sourceIndex}`;
+      if (seen.has(key)) {
+        return { error: 'the same kept profile appears twice' };
+      }
+      seen.add(key);
+      profiles.push({ kind: 'verbatim', sourceIndex: entry.sourceIndex });
+    } else if (entry?.kind === 'sketch') {
+      const loc = validateSketchLoc(entry);
+      if (!loc) {
+        return { error: 'a sketch profile must carry the sketch {filePath, line}' };
+      }
+      const key = `sketch:${loc.filePath}:${loc.line}`;
+      if (seen.has(key)) {
+        return { error: 'each profile must be a different sketch' };
+      }
+      seen.add(key);
+      profiles.push({ kind: 'sketch', ...loc });
+    } else if (entry?.kind === 'face') {
+      const pick = validatePick(entry.entity);
+      if (!pick || pick.sub.type !== 'face') {
+        return { error: 'a face profile must carry a {shapeId, sub:{type:"face", index}} pick' };
+      }
+      const key = `face:${pick.shapeId}:${pick.sub.index}`;
+      if (seen.has(key)) {
+        return { error: 'the same face was picked twice — each profile must be different' };
+      }
+      seen.add(key);
+      profiles.push({ kind: 'face', pick });
+    } else {
+      return { error: 'each profile must be {kind: "verbatim"|"sketch"|"face", …}' };
+    }
+  }
+  return { profiles };
+}
+
+/** The edited loft guide list; a guide can't double as a sketch profile. */
+function validateEditLoftGuides(
+  raw: unknown,
+  profiles: EditLoftProfileInput[] | undefined,
+): { guides: EditLoftGuideInput[] } | { error: string } {
+  if (!Array.isArray(raw) || raw.length > 2) {
+    return { error: 'guides must be at most two guide sketches' };
+  }
+  const guides: EditLoftGuideInput[] = [];
+  const seen = new Set<string>();
+  for (const profile of profiles ?? []) {
+    if (profile.kind === 'sketch') {
+      seen.add(`sketch:${profile.filePath}:${profile.line}`);
+    }
+  }
+  for (const entry of raw) {
+    if (entry?.kind === 'verbatim') {
+      if (!Number.isInteger(entry.sourceIndex) || entry.sourceIndex < 0) {
+        return { error: 'a kept guide must carry its statement argument index' };
+      }
+      const key = `verbatim-guide:${entry.sourceIndex}`;
+      if (seen.has(key)) {
+        return { error: 'the same kept guide appears twice' };
+      }
+      seen.add(key);
+      guides.push({ kind: 'verbatim', sourceIndex: entry.sourceIndex });
+    } else if (entry?.kind === 'sketch') {
+      const loc = validateSketchLoc(entry);
+      if (!loc) {
+        return { error: 'a guide must carry the sketch {filePath, line}' };
+      }
+      const key = `sketch:${loc.filePath}:${loc.line}`;
+      if (seen.has(key)) {
+        return { error: 'a sketch cannot be both a profile and a guide' };
+      }
+      seen.add(key);
+      guides.push({ kind: 'sketch', ...loc });
+    } else {
+      return { error: 'each guide must be {kind: "verbatim"|"sketch", …}' };
+    }
+  }
+  return { guides };
 }
 
 /** Tangent chains: `{seed, members}` groups; absent/empty is fine. */
@@ -661,10 +887,19 @@ export function createApplyFeatureRouter(
       res.status(400).json({ error: `entities must be 1-${MAX_ENTITIES} picks of {shapeId, sub:{type, index}}` });
       return;
     }
+    const before = validateBoundary(req.body?.before);
+    if (before === null) {
+      res.status(400).json({ error: 'before must be {index, type, line, column}' });
+      return;
+    }
     try {
-      const result = fluidCadServer.explainSelection(picks);
+      const result = fluidCadServer.explainSelection(picks, before);
       if (!result) {
         res.status(404).json({ error: 'No rendered scene' });
+        return;
+      }
+      if (result.ok === false) {
+        res.status(422).json({ error: result.reason });
         return;
       }
       res.json(result);
@@ -682,11 +917,22 @@ export function createApplyFeatureRouter(
 
     // In-place statement edit (timeline double-click → edit dialog): the
     // statement at the location is re-parsed from the live buffer and its
-    // dialog options replaced — no pick synthesis is involved.
+    // dialog options replaced. Re-sourced slots (re-picked selections,
+    // profiles, paths) synthesize selectors against the scene truncated to
+    // the `before` boundary — the world the statement's arguments see.
     if (req.body?.edit !== undefined && req.body?.edit !== null) {
       const request = validateStatementEdit(req.body);
       if ('error' in request) {
         res.status(400).json({ error: request.error });
+        return;
+      }
+      const before = validateBoundary(req.body?.before);
+      if (before === null) {
+        res.status(400).json({ error: 'before must be {index, type, line, column}' });
+        return;
+      }
+      if (request.needsPicks && !before) {
+        res.status(400).json({ error: 'before is required when an edit re-picks geometry' });
         return;
       }
       try {
@@ -696,28 +942,188 @@ export function createApplyFeatureRouter(
           res.status(422).json({ success: false, reason: 'that feature lives in a different file than the one being edited' });
           return;
         }
+        const sketchLocs: SketchLoc[] = [
+          ...(request.extrudeProfile ? [request.extrudeProfile] : []),
+          ...(request.sweepPath?.kind === 'sketch' ? [request.sweepPath] : []),
+          ...(request.sweepProfile ? [request.sweepProfile] : []),
+          ...(request.loftProfiles ?? []).filter((p): p is { kind: 'sketch' } & SketchLoc => p.kind === 'sketch'),
+          ...(request.loftGuides ?? []).filter((g): g is { kind: 'sketch' } & SketchLoc => g.kind === 'sketch'),
+        ];
+        for (const loc of sketchLocs) {
+          if (normalizePath(loc.filePath) !== normalizePath(request.target.filePath)) {
+            res.status(422).json({ success: false, reason: 'a re-sourced sketch lives in a different file than the edited statement' });
+            return;
+          }
+        }
+
+        const code = fluidCadServer.getCurrentCode();
+        const { producers, merge: mergeProducer } = makeProducerMerger();
+        const parts: ApplyFeatureEditSpec['parts'] = [];
+        const importSet = new Set<string>();
+        let synthesizedArgs: string | undefined;
+        let alternatives: string[] = [];
+        let rawArgs = request.rawArgs;
+
+        let synthOptions: {
+          namer?: Awaited<ReturnType<typeof makeProducerNamer>>;
+          params?: { name: string; value: number }[];
+        } | undefined;
+        if (request.needsPicks && code) {
+          synthOptions = {
+            namer: await makeProducerNamer(code),
+            params: resolveParamValues(
+              await extractNumericParams(code),
+              fluidCadServer.getParamDefinitions(),
+            ),
+          };
+        }
+
+        /** Synthesize one re-picked slot against the pre-statement scene. */
+        const synthesizeSlot = (
+          picks: Pick[],
+          kind: 'sweep' | 'loft' | 'fillet' | 'chamfer' | 'shell',
+          value: number | undefined,
+          chains: { seed: Pick; members: Pick[] }[],
+        ): any | null => {
+          const synthesis = fluidCadServer.synthesizeApplyFeature(
+            picks, kind, value, chains, synthOptions, before,
+          );
+          if (!synthesis) {
+            res.status(404).json({ success: false, reason: 'No rendered scene' });
+            return null;
+          }
+          if (!synthesis.ok) {
+            res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
+            return null;
+          }
+          return synthesis;
+        };
+        /** Fold one synthesis result's producers/parts/imports into the spec. */
+        const foldSynthesis = (synthesis: any): number => {
+          const remap = synthesis.spec.producers.map(mergeProducer);
+          for (const part of synthesis.spec.parts) {
+            parts.push({ ...part, producer: part.producer === null ? null : remap[part.producer] });
+          }
+          for (const symbol of synthesis.spec.imports) {
+            importSet.add(symbol);
+          }
+          return parts.length - synthesis.spec.parts.length;
+        };
+        const sketchRef = (loc: SketchLoc, nameHint: string): number => mergeProducer({
+          line: loc.line, column: loc.column, featureType: 'sketch', nameHint, bind: true,
+        });
+
+        const edit = request.edit;
+        if (request.extrudeProfile) {
+          edit.extrude!.profile = { kind: 'sketch', producer: sketchRef(request.extrudeProfile, 's') };
+        }
+        if (request.sweepPath) {
+          if (request.sweepPath.kind === 'sketch') {
+            edit.sweep!.path = { kind: 'sketch', producer: sketchRef(request.sweepPath, 'p') };
+          } else {
+            const synthesis = synthesizeSlot(
+              request.sweepPath.picks, 'sweep', undefined, request.sweepPath.chains,
+            );
+            if (!synthesis) {
+              return;
+            }
+            // The path argument is ONE SceneObject — a multi-part selection
+            // has no single-expression rendering.
+            if (synthesis.spec.parts.length !== 1) {
+              res.status(422).json({
+                success: false,
+                reason: 'the picked edges must form a single selection — use "Select with tangents" or pick edges of one feature',
+              });
+              return;
+            }
+            foldSynthesis(synthesis);
+            edit.sweep!.path = { kind: 'selector' };
+          }
+        }
+        if (request.sweepProfile) {
+          edit.sweep!.profile = { kind: 'sketch', producer: sketchRef(request.sweepProfile, 's') };
+        }
+        if (request.loftProfiles) {
+          const profiles: NonNullable<FeatureStatementEditTarget['loft']>['profiles'] = [];
+          for (const profile of request.loftProfiles) {
+            if (profile.kind === 'verbatim') {
+              profiles.push({ kind: 'verbatim', sourceIndex: profile.sourceIndex });
+              continue;
+            }
+            if (profile.kind === 'sketch') {
+              profiles.push({ kind: 'sketch', producer: sketchRef(profile, 's') });
+              continue;
+            }
+            // Face picks synthesize ONE AT A TIME — the kernel groups picks
+            // by (producer, bucket), and a batched call would merge
+            // same-bucket faces into one part, destroying order and arity.
+            const synthesis = synthesizeSlot([profile.pick], 'loft', undefined, []);
+            if (!synthesis) {
+              return;
+            }
+            if (synthesis.spec.parts.length !== 1) {
+              res.status(422).json({ success: false, reason: 'a loft profile must be a single face selection' });
+              return;
+            }
+            const firstPart = foldSynthesis(synthesis);
+            profiles.push({ kind: 'selector', part: firstPart });
+          }
+          edit.loft!.profiles = profiles;
+        }
+        if (request.loftGuides) {
+          edit.loft!.guides = request.loftGuides.map(guide => guide.kind === 'verbatim'
+            ? { kind: 'verbatim' as const, sourceIndex: guide.sourceIndex }
+            : { kind: 'sketch' as const, producer: sketchRef(guide, 'g') });
+        }
+        if (request.picks) {
+          const synthesis = synthesizeSlot(
+            request.picks,
+            request.feature as 'fillet' | 'chamfer' | 'shell',
+            request.value,
+            request.chains ?? [],
+          );
+          if (!synthesis) {
+            return;
+          }
+          foldSynthesis(synthesis);
+          synthesizedArgs = synthesis.args;
+          alternatives = synthesis.alternatives;
+          // The user's expression text wins only when it differs from what
+          // the picks synthesize — the create path's contract.
+          rawArgs = rawArgs !== undefined && rawArgs !== synthesis.args ? rawArgs : undefined;
+        }
+
         const spec: ApplyFeatureEditSpec = {
           feature: request.feature,
           value: request.value,
-          rawArgs: request.rawArgs,
+          rawArgs,
           filePath: request.target.filePath,
-          producers: [],
-          parts: [],
-          imports: [],
-          edit: request.edit,
+          producers,
+          parts,
+          imports: [...importSet],
+          edit,
         };
         // Truthful preview: parse the live buffer and render the exact
-        // statement the transform will write. Refusals (a reshaped or
-        // non-literal statement) surface here, before any edit is sent.
+        // statement the transform will write, with the same variable names
+        // the transform's binding walk allocates. Refusals (a reshaped
+        // statement, a stale expectedStatement, a bad source list) surface
+        // here, before any edit is sent.
         let statement: string | undefined;
-        const code = fluidCadServer.getCurrentCode();
         if (code) {
           const parsed = await parseFeatureStatement(code, request.edit.line);
           if (parsed.ok === false) {
             res.status(422).json({ success: false, reason: parsed.reason });
             return;
           }
-          const rendered = renderEditedStatement(parsed.parsed, spec);
+          if (edit.expectedStatement !== undefined && parsed.statement !== edit.expectedStatement) {
+            res.status(422).json({
+              success: false,
+              reason: 'the statement changed since the dialog opened — re-open it to edit the current code',
+            });
+            return;
+          }
+          const vars = await allocateProducerVars(spec.producers, code);
+          const rendered = renderEditedStatement(parsed.parsed, spec, i => vars[i] ?? null);
           if ('error' in rendered) {
             res.status(422).json({ success: false, reason: rendered.error });
             return;
@@ -725,7 +1131,12 @@ export function createApplyFeatureRouter(
           statement = rendered.statement;
         }
         if (preview === true) {
-          res.json({ success: true, preview: statement });
+          res.json({
+            success: true,
+            preview: statement,
+            args: synthesizedArgs,
+            alternatives: alternatives.length > 0 ? alternatives : undefined,
+          });
           return;
         }
         sendToExtension({ type: 'apply-feature-edit', spec });
@@ -1376,11 +1787,12 @@ export function createApplyFeatureRouter(
     }
   });
 
-  // The single-pick selection queries share a shape: validate the pick, run
-  // a read-only query against the last render, surface not-ok reasons as 422.
+  // The single-pick selection queries share a shape: validate the pick (and
+  // the optional edit-mode boundary), run a read-only query against the last
+  // render, surface not-ok reasons as 422.
   const selectionQueryRoute = (
     path: string,
-    run: (pick: Pick) => any,
+    run: (pick: Pick, before?: SelectionBoundary) => any,
     project: (result: any) => unknown,
   ): void => {
     router.post(path, (req, res) => {
@@ -1389,8 +1801,13 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: 'entity must be a {shapeId, sub:{type, index}} pick' });
         return;
       }
+      const before = validateBoundary(req.body?.before);
+      if (before === null) {
+        res.status(400).json({ error: 'before must be {index, type, line, column}' });
+        return;
+      }
       try {
-        const result = run(pick);
+        const result = run(pick, before);
         if (!result) {
           res.status(404).json({ error: 'No rendered scene' });
           return;
@@ -1406,22 +1823,47 @@ export function createApplyFeatureRouter(
     });
   };
 
+  // Current sources of the statement being edited, resolved for edit-dialog
+  // seeding: sketch inputs by call site, selection inputs as entities on the
+  // pre-statement solids (what a rollback to just before it displays).
+  router.post('/feature/sources', (req, res) => {
+    const before = validateBoundary(req.body?.before);
+    if (!before) {
+      res.status(400).json({ error: 'before must be {index, type, line, column}' });
+      return;
+    }
+    try {
+      const result = fluidCadServer.featureSources(before);
+      if (!result) {
+        res.status(404).json({ error: 'No rendered scene' });
+        return;
+      }
+      if (result.ok === false) {
+        res.status(422).json({ error: result.reason });
+        return;
+      }
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? String(err) });
+    }
+  });
+
   // Expand a picked edge/face to its tangent chain on the owning solid —
   // the "Select with tangents" gesture.
   selectionQueryRoute('/selection/expand-tangents',
-    pick => fluidCadServer.expandTangentChain(pick),
+    (pick, before) => fluidCadServer.expandTangentChain(pick, before),
     result => ({ members: result.members }));
 
   // Expand a picked edge/face to its whole classified bucket — the
   // double-click gesture.
   selectionQueryRoute('/selection/expand-bucket',
-    pick => fluidCadServer.expandBucket(pick),
+    (pick, before) => fluidCadServer.expandBucket(pick, before),
     result => ({ members: result.members }));
 
   // Every multi-select group a pick can expand to (the right-click menu):
   // tangent chain, classified bucket, same-type and equal-measure edges.
   selectionQueryRoute('/selection/groups',
-    pick => fluidCadServer.listSelectionGroups(pick),
+    (pick, before) => fluidCadServer.listSelectionGroups(pick, before),
     result => ({ groups: result.groups }));
 
   // Pure source transform: the extension sends the live buffer plus the edit

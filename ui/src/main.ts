@@ -114,6 +114,8 @@ const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
     selectionInfoOverlay.hide();
   },
   onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: () => sketchService.update([]),
+  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
 });
 const sweepService = new SweepFeatureService(container, viewer, navbar, {
   onEnter: () => {
@@ -171,8 +173,8 @@ timelinePanel.onFeatureIntercept = (obj) =>
   || loftService.handleTimelinePick(obj) || planeService.handleTimelinePick(obj);
 // Double-clicking an editable feature row (the enter-breakpoint gesture)
 // also opens that feature's dialog prefilled from its statement.
-timelinePanel.onFeatureEdit = (obj) => {
-  void openFeatureEditor(obj);
+timelinePanel.onFeatureEdit = (obj, index) => {
+  void openFeatureEditor(obj, index);
 };
 
 /** Timeline `type` → the dialog that edits it (cut is extrude's remove op). */
@@ -180,11 +182,15 @@ const EDITABLE_ROW_TYPES = new Set(['extrude', 'cut', 'sweep', 'loft', 'shell', 
 
 /**
  * Parse the double-clicked row's statement and open the matching dialog in
- * edit mode. Statements the dialogs can't faithfully represent (variable
- * dimensions, unrecognized chains) surface the parse refusal as a toast and
- * leave the plain breakpoint behavior in place.
+ * edit mode. The row index and its exact statement text ride along: the
+ * edit session rolls the viewport back to just before that row (the world
+ * the statement's arguments see, where its sources can be re-picked) and
+ * the text guards the apply against code that drifted mid-session.
+ * Statements the dialogs can't faithfully represent (variable dimensions,
+ * unrecognized chains) surface the parse refusal as a toast and leave the
+ * plain breakpoint behavior in place.
  */
-async function openFeatureEditor(obj: SceneObjectRender): Promise<void> {
+async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise<void> {
   if (!obj.type || !EDITABLE_ROW_TYPES.has(obj.type) || !obj.sourceLocation) {
     return;
   }
@@ -194,15 +200,16 @@ async function openFeatureEditor(obj: SceneObjectRender): Promise<void> {
     showEditRefusal(result.reason);
     return;
   }
+  const info = { index, type: obj.type, expectedStatement: result.statement };
   const parsed = result.parsed;
   if (parsed.feature === 'extrude') {
-    extrudeService.enterEdit(target, parsed);
+    extrudeService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'sweep') {
-    sweepService.enterEdit(target, parsed);
+    sweepService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'loft') {
-    loftService.enterEdit(target, parsed);
+    loftService.enterEdit(target, parsed, info);
   } else {
-    modifyService.enterEdit(target, parsed);
+    modifyService.enterEdit(target, parsed, info);
   }
 }
 
@@ -255,6 +262,14 @@ const breakpointIndicator = new BreakpointIndicator(container, () => {
   if (trimService.state === 'picking-active') {
     trimService.exit();
   }
+  // Continue leaves the paused build: open edit sessions end WITHOUT their
+  // cancel-restore rollback — the full render Continue triggers supersedes
+  // it, and a session re-assert would fight the view the user asked for.
+  for (const service of [modifyService, extrudeService, sweepService, loftService]) {
+    if (service.isEditing) {
+      service.exit({ editEnd: 'continue' });
+    }
+  }
 });
 const errorBanner = new ErrorBanner(container, (loc) => {
   gotoSource(loc);
@@ -286,17 +301,19 @@ viewer.setHoverHandler((shapeId, sub, clientX, clientY) => {
   }
 });
 
-// A dialog only owns the viewport while it consumes picks — edit-mode
-// dialogs never do (a breakpoint double-click leaves one open over the
-// paused build), so the neutral selection stays available under them.
+// A dialog only owns the viewport while it consumes picks. Edit sessions
+// own picking like create mode (their slots re-pick against the rolled-back
+// scene) — except extrude, whose profile comes from dropdown/timeline/wire
+// clicks only, so face and edge clicks under it stay neutral.
 const createDialogPicking = () =>
   (extrudeService.isActive && !extrudeService.isEditing)
   || (sweepService.isActive && !sweepService.isEditing)
-  || (loftService.isActive && !loftService.isEditing)
-  || planeService.isActive;
+  || sweepService.isEdgePicking
+  || loftService.isFacePicking
+  || planeService.isPicking;
 
 viewer.setContextMenuHandler((shapeId, sub, clientX, clientY) => {
-  if (modifyService.isActive && !modifyService.isEditing) {
+  if (modifyService.isActive) {
     modifyService.handleContextMenu(shapeId, sub, clientX, clientY);
   } else if (sweepService.isEdgePicking) {
     sweepService.handleContextMenu(shapeId, sub, clientX, clientY);
@@ -330,9 +347,9 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
     }
     return;
   }
-  // An armed modify mode (fillet/chamfer) owns clicks outright; its edit
-  // dialog doesn't pick, so clicks under it stay neutral like the rest.
-  if (modifyService.isActive && !modifyService.isEditing) {
+  // An armed modify mode (fillet/chamfer/shell) owns clicks outright, edit
+  // sessions included — re-picking is the point of the rolled-back view.
+  if (modifyService.isActive) {
     modifyService.handleClick(shapeId, sub);
     return;
   }
@@ -499,14 +516,11 @@ function connectWebSocket() {
         if (msg.absPath) {
           topBar.setFileName(msg.absPath);
         }
+        const renderStop = msg.rollbackStop ?? msg.result.length - 1;
         if (isRollback) {
           trimService.reset();
           regionService.reset();
           sketchService.update([]);
-          modifyService.update([]);
-          extrudeService.update([]);
-          sweepService.update([]);
-          loftService.update([]);
           planeService.update([]);
         } else {
           trimService.update(msg.result);
@@ -515,14 +529,18 @@ function connectWebSocket() {
           // toolbar must not re-take the bar on incoming renders.
           const sketchSuspended = modifyService.sketchUISuspended
             || sweepService.sketchUISuspended || loftService.sketchUISuspended
-            || planeService.sketchUISuspended;
+            || planeService.sketchUISuspended || extrudeService.sketchUISuspended;
           sketchService.update(sketchSuspended ? [] : msg.result);
-          modifyService.update(msg.result);
-          extrudeService.update(msg.result);
-          sweepService.update(msg.result);
-          loftService.update(msg.result);
           planeService.update(msg.result);
         }
+        // The edit-capable services see every render: an open edit session
+        // keeps the view rolled back to just before its statement and
+        // rebuilds options/seeds at that boundary; without one this is the
+        // plain update (empty list on rollbacks, as before).
+        modifyService.handleSceneRendered(msg.result, renderStop, isRollback);
+        extrudeService.handleSceneRendered(msg.result, renderStop, isRollback);
+        sweepService.handleSceneRendered(msg.result, renderStop, isRollback);
+        loftService.handleSceneRendered(msg.result, renderStop, isRollback);
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1);
         if (msg.params !== undefined) {
           paramsPanel.update(msg.params);

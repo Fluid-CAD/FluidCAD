@@ -23,7 +23,14 @@ import type { MeasureEntityRef, MeasureResult } from "./oc/measure/measure-types
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
 import { expandBucket, expandTangentChain, ExpandBucketResult, ExpandTangentsResult } from "./selection/expand.js";
 import { listSelectionGroups, SelectionGroupsResult } from "./selection/selection-groups.js";
-import type { ApplyFeatureKind, ApplyFeatureSynthesis, ExplainResult, PickChain, PickRef, SynthesizeOptions } from "./selection/types.js";
+import { resolveFeatureSources, FeatureSourcesResult } from "./selection/feature-sources.js";
+import { resolveScopedScene } from "./selection/types.js";
+import type {
+  ApplyFeatureKind, ApplyFeatureSynthesis, ExplainResult, PickChain, PickRef,
+  SelectionBoundary, SelectionScene, SynthesizeOptions,
+} from "./selection/types.js";
+
+type BoundaryFailure = { ok: false; reason: string };
 
 class SceneManager {
   currentScene: Scene = new Scene();
@@ -137,8 +144,8 @@ class SceneManager {
     return FileExport.exportShapes(solids, options);
   }
 
-  explainSelection(scene: Scene, refs: PickRef[]): ExplainResult {
-    return explainSelection(scene, refs);
+  explainSelection(scene: Scene, refs: PickRef[], before?: SelectionBoundary): ExplainResult | BoundaryFailure {
+    return withBoundary(scene, before, scoped => explainSelection(scoped, refs));
   }
 
   synthesizeApplyFeature(
@@ -148,20 +155,27 @@ class SceneManager {
     value?: number,
     chains: PickChain[] = [],
     options: SynthesizeOptions = {},
+    before?: SelectionBoundary,
   ): ApplyFeatureSynthesis {
-    return synthesizeApplyFeature(scene, refs, feature, value, chains, options);
+    return withBoundary(
+      scene, before, scoped => synthesizeApplyFeature(scoped, refs, feature, value, chains, options),
+    );
   }
 
-  expandTangentChain(scene: Scene, ref: PickRef): ExpandTangentsResult {
-    return expandTangentChain(scene, ref);
+  expandTangentChain(scene: Scene, ref: PickRef, before?: SelectionBoundary): ExpandTangentsResult {
+    return withBoundary(scene, before, scoped => expandTangentChain(scoped, ref));
   }
 
-  expandBucket(scene: Scene, ref: PickRef): ExpandBucketResult {
-    return expandBucket(scene, ref);
+  expandBucket(scene: Scene, ref: PickRef, before?: SelectionBoundary): ExpandBucketResult {
+    return withBoundary(scene, before, scoped => expandBucket(scoped, ref));
   }
 
-  listSelectionGroups(scene: Scene, ref: PickRef): SelectionGroupsResult {
-    return listSelectionGroups(scene, ref);
+  listSelectionGroups(scene: Scene, ref: PickRef, before?: SelectionBoundary): SelectionGroupsResult {
+    return withBoundary(scene, before, scoped => listSelectionGroups(scoped, ref));
+  }
+
+  resolveFeatureSources(scene: Scene, boundary: SelectionBoundary): FeatureSourcesResult {
+    return resolveFeatureSources(scene, boundary);
   }
 
   hitTest(
@@ -180,6 +194,27 @@ class SceneManager {
     }
     return null;
   }
+}
+
+/**
+ * Run a selection query against the scene, truncated to the boundary when one
+ * is given (edit-mode source re-picking). A boundary that no longer matches
+ * the scene refuses — never a silent fall back to the full scene, which would
+ * verify selectors against a world the edited statement can't see.
+ */
+function withBoundary<T>(
+  scene: Scene,
+  before: SelectionBoundary | undefined,
+  run: (scene: SelectionScene) => T,
+): T | BoundaryFailure {
+  if (!before) {
+    return run(scene);
+  }
+  const scoped = resolveScopedScene(scene, before);
+  if (scoped.ok === false) {
+    return scoped;
+  }
+  return run(scoped.scene);
 }
 
 function findShapeById(scene: Scene, shapeId: string) {

@@ -1,4 +1,4 @@
-import { fetchSelectionGroups, SelectionGroup, SelectionGroupKind } from '../api';
+import { fetchSelectionGroups, SelectionBoundaryRef, SelectionGroup, SelectionGroupKind } from '../api';
 import type { SelectedEntity } from '../viewer';
 
 export type SelectionMenuHandlers = {
@@ -8,6 +8,11 @@ export type SelectionMenuHandlers = {
   onSelectGroup: (kind: SelectionGroupKind, seed: SelectedEntity, members: SelectedEntity[]) => void;
   /** Hover preview: what the hovered item would select; null when the hover ends. */
   onPreview: (members: SelectedEntity[] | null) => void;
+  /**
+   * Edit-session boundary provider: while a statement's sources are being
+   * re-picked, the groups resolve against the scene before that statement.
+   */
+  boundary?: () => SelectionBoundaryRef | undefined;
 };
 
 const ITEM_CLASS = 'block w-full text-left px-3 py-1.5 hover:bg-base-200 cursor-pointer whitespace-nowrap';
@@ -69,7 +74,7 @@ export class SelectionContextMenu {
     this.el.style.top = `${clientY - rect.top}px`;
     this.el.classList.remove('hidden');
 
-    const result = await fetchSelectionGroups(seed);
+    const result = await fetchSelectionGroups(seed, this.handlers.boundary?.());
     if (seq !== this.openSeq || !this.isOpen) {
       return;
     }

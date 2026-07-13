@@ -23,8 +23,9 @@ import { EdgeOps } from '../../lib/oc/edge-ops.js';
 import { FaceProps } from '../../lib/oc/face-props.js';
 import { ShapeProps } from '../../lib/oc/props.js';
 import { synthesizeApplyFeature } from '../../lib/selection/explain.js';
+import { scopedSceneBefore } from '../../lib/selection/types.js';
 import type { PickRef } from '../../lib/selection/types.js';
-import { applyFeatureEdit } from '../src/apply-feature-edit.ts';
+import { applyFeatureEdit, type ApplyFeatureEditSpec } from '../src/apply-feature-edit.ts';
 
 function findSolid(scene: Scene): Shape {
   const solid = scene.getAllSceneObjects()
@@ -355,6 +356,74 @@ describe('select→apply-feature end to end', () => {
       return;
     }
     expect(synthesis.reason).toContain('single face');
+  });
+
+  it('re-picks a shell face against the pre-shell world and re-executes', async () => {
+    const code = [
+      `import { sketch, rect, extrude, shell } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      `shell(-2, e.endFaces())`,
+      ``,
+    ].join('\n');
+
+    sketch('xy', () => { rect(100, 50) });
+    const e = extrude(30);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
+    const sh = core.shell(-2, (e as any).endFaces());
+    (sh as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 5, column: 0 });
+
+    const scene = render();
+    const shellIndex = scene.getAllSceneObjects().findIndex(o => o.getType() === 'shell');
+    expect(shellIndex).toBeGreaterThan(0);
+
+    // The box solid pre-shell — removed by the shell in the full render, but
+    // its owner object still holds it, exactly what a rollback displays.
+    const box = scene.getAllSceneObjects()
+      .find(o => o.getType() === 'extrude')!
+      .getAddedShapes()
+      .find(s => s.getType() === 'solid')!;
+    expect(box).toBeDefined();
+
+    // Re-pick: open a SIDE face instead of the top (all edge mids at y = 0).
+    const picks: PickRef[] = [];
+    Explorer.findFacesWrapped(box).forEach((f, index) => {
+      const mids = f.getEdges().map(eg => EdgeOps.getEdgeMidPoint(eg));
+      if (mids.every(m => Math.abs(m.y) < 1e-6)) {
+        picks.push({ shapeId: box.id, sub: { type: 'face', index } });
+      }
+    });
+    expect(picks).toHaveLength(1);
+
+    // Synthesis runs against the scene truncated to before the shell — the
+    // world the shell's arguments see at build time.
+    const synthesis = synthesizeApplyFeature(scopedSceneBefore(scene, shellIndex), picks, 'shell', -3);
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      return;
+    }
+
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'shell',
+      value: -3,
+      filePath: '/ws/model.fluid.js',
+      producers: synthesis.spec.producers,
+      parts: synthesis.spec.parts,
+      imports: synthesis.spec.imports,
+      edit: { line: 5, column: 0, expectedStatement: 'shell(-2, e.endFaces())' },
+    };
+    const edited = await applyFeatureEdit(code, spec);
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).not.toContain('endFaces');
+    expect(edited.newCode).toMatch(/shell\(-3, e\./);
+
+    // Executing the edit hollows through the side: material removed, no errors.
+    const rerun = runFluid(edited.newCode);
+    const errors = rerun.getAllSceneObjects().map(o => o.getError()).filter(Boolean);
+    expect(errors).toEqual([]);
+    const newSolid = findSolid(rerun) as Solid;
+    expect(ShapeProps.getProperties(newSolid.getShape()).volumeMm3).toBeLessThan(100 * 50 * 30);
   });
 
   it('chamfers a picked subset through synthesized bucket indices', async () => {

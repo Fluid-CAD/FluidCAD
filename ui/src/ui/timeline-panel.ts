@@ -25,9 +25,10 @@ export class TimelinePanel {
   /**
    * A row was double-clicked (the enter-breakpoint gesture). Fired after the
    * breakpoint is placed so an editable feature row can also open its edit
-   * dialog against the paused scene.
+   * dialog against the paused scene. `index` is the row's position — the
+   * edit session's rollback boundary and selection scope derive from it.
    */
-  onFeatureEdit?: (obj: SceneObjectRender) => void;
+  onFeatureEdit?: (obj: SceneObjectRender, index: number) => void;
 
   private panel: HTMLDivElement;
   private timelineBody: HTMLDivElement;
@@ -221,7 +222,7 @@ export class TimelinePanel {
         this.goToSource(this.sceneObjects[index]);
         const obj = this.sceneObjects[index];
         if (obj) {
-          this.onFeatureEdit?.(obj);
+          this.onFeatureEdit?.(obj, index);
         }
       });
     });

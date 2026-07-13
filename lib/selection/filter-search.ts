@@ -3,7 +3,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
-import { Scene } from "../rendering/scene.js";
+import { SelectionScene } from "./types.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { FilterBuilderBase } from "../filters/filter-builder-base.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
@@ -67,7 +67,7 @@ export function bucketContext(
 }
 
 export function globalContext(
-  scene: Scene,
+  scene: SelectionScene,
   index: SelectionIndex,
   kind: 'edge' | 'face',
   params: ParameterLink[] = [],

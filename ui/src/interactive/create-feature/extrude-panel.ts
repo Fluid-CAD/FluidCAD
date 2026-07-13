@@ -2,6 +2,9 @@ import { OpTabs, PanelShell, ThinControl } from './panel-controls';
 import { SketchProfileOption } from './sketch-profiles';
 import { ExtrudeOptionValues } from '../../api';
 
+/** Sentinel for edit mode's "keep the statement's own profile" entry. */
+const KEEP = '__keep__';
+
 /** How the extrusion distributes around the sketch plane. */
 export type ExtrudeDirection = 'one' | 'symmetric' | 'two';
 
@@ -36,6 +39,9 @@ export class ExtrudePanel {
   private drillCheckbox: HTMLInputElement;
   private applyBtn: HTMLButtonElement;
   private options: SketchProfileOption[] = [];
+  /** Edit mode: the dropdown offers a "Current: …" keep entry, selected first. */
+  private editMode = false;
+  private keepProfileLabel = '';
 
   constructor(container: HTMLElement) {
     this.shell = new PanelShell(container, 'fluidcad-extrude-panel', 'Extrude mode', '/icons/extrude.png');
@@ -144,6 +150,7 @@ export class ExtrudePanel {
     // A fresh arming starts from defaults — the previous session's choice
     // would otherwise be revived by source-line matching.
     this.options = [];
+    this.editMode = false;
     this.shell.setTitle(null);
     this.setOptions(options);
     this.syncControls();
@@ -152,17 +159,16 @@ export class ExtrudePanel {
 
   /**
    * Open prefilled from an existing statement (edit mode). The profile slot
-   * is fixed — it names the statement's own profile and can't change; the
-   * op tabs, direction, distances, through-all, draft, drill and thin
-   * controls edit in place.
+   * starts on a "Current: …" entry that keeps the statement's own profile
+   * verbatim; choosing another sketch re-sources it. The op tabs, direction,
+   * distances, through-all, draft, drill and thin controls edit in place.
    */
   showEdit(state: ExtrudeOptionValues & { thin: [number] | null; profileLabel: string }): void {
     this.options = [];
+    this.editMode = true;
+    this.keepProfileLabel = state.profileLabel;
     this.shell.setTitle('Edit extrude');
-    const fixed = document.createElement('option');
-    fixed.textContent = state.profileLabel;
-    this.profileSelect.replaceChildren(fixed);
-    this.profileSelect.disabled = true;
+    this.setOptions([]);
     this.tabs.setOp(state.op);
     this.directionSelect.value = directionOf(state);
     if (state.distance !== null) {
@@ -186,12 +192,20 @@ export class ExtrudePanel {
   /**
    * Refresh the profile dropdown after a re-render, keeping the current
    * choice when the same sketch is still offered (matched by kind + source
-   * location — scene ids change every render).
+   * location — scene ids change every render). Edit mode prepends the
+   * "Current: …" keep entry, selected until the user re-sources.
    */
   setOptions(options: SketchProfileOption[]): void {
-    const previous = this.selectedOption();
+    const previous = this.profileSelection();
     this.options = options;
-    if (options.length === 0) {
+    const entries: HTMLOptionElement[] = [];
+    if (this.editMode) {
+      const keep = document.createElement('option');
+      keep.value = KEEP;
+      keep.textContent = `Current: ${this.keepProfileLabel}`;
+      entries.push(keep);
+    }
+    if (options.length === 0 && !this.editMode) {
       const placeholder = document.createElement('option');
       placeholder.textContent = 'No sketch — create one first';
       placeholder.disabled = true;
@@ -199,24 +213,42 @@ export class ExtrudePanel {
       this.profileSelect.disabled = true;
       return;
     }
-    this.profileSelect.replaceChildren(...options.map((option, i) => {
+    entries.push(...options.map((option, i) => {
       const el = document.createElement('option');
       el.value = String(i);
       el.textContent = option.label;
       return el;
     }));
-    let index = 0;
-    if (previous) {
-      const match = options.findIndex(o => o.kind === previous.kind
-        && (o.kind === 'active' || (o.filePath === previous.filePath && o.line === previous.line)));
-      index = match >= 0 ? match : 0;
+    this.profileSelect.replaceChildren(...entries);
+    if (this.editMode && (!previous || previous.kind === 'keep')) {
+      this.profileSelect.value = KEEP;
+    } else {
+      const prev = previous?.kind === 'sketch' ? previous.option : null;
+      let index = 0;
+      if (prev) {
+        const match = options.findIndex(o => o.kind === prev.kind
+          && (o.kind === 'active' || (o.filePath === prev.filePath && o.line === prev.line)));
+        index = match >= 0 ? match : -1;
+      }
+      this.profileSelect.value = index >= 0 && options[index]
+        ? String(index)
+        : this.editMode ? KEEP : '0';
     }
-    this.profileSelect.value = String(index);
-    this.profileSelect.disabled = options.length <= 1;
+    this.profileSelect.disabled = entries.length <= 1;
   }
 
   selectedOption(): SketchProfileOption | null {
-    return this.options[Number(this.profileSelect.value)] ?? null;
+    const selection = this.profileSelection();
+    return selection?.kind === 'sketch' ? selection.option : null;
+  }
+
+  /** The profile slot's state, `keep` included (edit mode only). */
+  profileSelection(): { kind: 'keep' } | { kind: 'sketch'; option: SketchProfileOption } | null {
+    if (this.editMode && this.profileSelect.value === KEEP) {
+      return { kind: 'keep' };
+    }
+    const option = this.options[Number(this.profileSelect.value)];
+    return option ? { kind: 'sketch', option } : null;
   }
 
   /** Programmatic profile choice (a timeline pick); no change event fires. */

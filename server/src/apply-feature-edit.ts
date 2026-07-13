@@ -8,6 +8,7 @@ import {
   spliceCode,
   walkTree,
   type TSNode,
+  type TSTree,
 } from './code-editor.ts';
 
 /**
@@ -66,21 +67,61 @@ export type ApplyFeatureEditSpec = {
   /**
    * In-place statement edit (timeline double-click → edit dialog): rewrite
    * the existing feature statement at this location instead of inserting a
-   * new one. `producers`/`parts` are ignored (send them empty).
+   * new one. `producers`/`parts` participate only when the edit re-sources
+   * an argument slot (a re-picked profile/path/selection): referenced
+   * producers bind exactly like create mode — their statements must precede
+   * the edited one in the same scope — and `parts` render the re-picked
+   * selector expressions. Slots without a source field keep their statement
+   * text verbatim.
    */
   edit?: FeatureStatementEditTarget;
 };
+
+/**
+ * A re-sourced sketch slot of an edited statement: keep the statement's own
+ * argument text, or reference a `producers` entry to bind. Absent fields
+ * read as `keep`, so value-only edits stay byte-identical on those slots.
+ */
+export type EditSketchSource = { kind: 'keep' } | { kind: 'sketch'; producer: number };
+
+/** A re-sourced sweep path: keep, a bound sketch, or the selector from `parts`. */
+export type EditPathSource = EditSketchSource | { kind: 'selector' };
+
+/**
+ * One profile of an edited loft, in argument order: an untouched profile by
+ * its position in the statement's own argument list (`verbatim` — re-read at
+ * apply time, never stale text from dialog-open), a re-picked sketch, or a
+ * re-picked face rendered from `parts`.
+ */
+export type EditLoftProfile =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | { kind: 'sketch'; producer: number }
+  | { kind: 'selector'; part: number };
+
+/** One guide of an edited loft — like profiles, but never a selector. */
+export type EditLoftGuide =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | { kind: 'sketch'; producer: number };
 
 /**
  * Dialog edits to apply over the feature statement at `line`. Only the
  * options the dialogs expose ride here — argument expressions they don't
  * edit (profiles, paths, selector args) are re-read from the statement at
  * apply time and preserved verbatim. Fillet/chamfer/shell reuse the spec's
- * top-level `value` (and `rawArgs` when the selector text was edited).
+ * top-level `value` (and `rawArgs` when the selector text was edited, or
+ * `parts` when the selection was re-picked).
  */
 export type FeatureStatementEditTarget = {
   line: number;
   column: number;
+  /**
+   * Staleness guard: the exact chain text `/api/feature/parse` returned when
+   * the dialog opened. The rewrite refuses when the statement no longer
+   * reads identically — the file changed under the session, and positional
+   * slots (loft `verbatim` indices, the value being replaced) could land on
+   * the wrong expressions.
+   */
+  expectedStatement?: string;
   extrude?: {
     op: 'add' | 'remove' | 'new';
     distance: number | null;
@@ -89,10 +130,16 @@ export type FeatureStatementEditTarget = {
     draft: number | null;
     drill: boolean;
     thin: [number] | [number, number] | null;
+    /** Re-sourced profile; absent keeps the statement's profile text. */
+    profile?: EditSketchSource;
   };
   sweep?: {
     op: 'add' | 'remove' | 'new';
     thin: [number] | [number, number] | null;
+    /** Re-sourced path; absent keeps the statement's path text. */
+    path?: EditPathSource;
+    /** Re-sourced profile; absent keeps the statement's profile text. */
+    profile?: EditSketchSource;
   };
   shell?: {
     joinType: ShellJoinKind;
@@ -102,6 +149,13 @@ export type FeatureStatementEditTarget = {
     thin: [number] | [number, number] | null;
     startCondition?: LoftConditionSpec;
     endCondition?: LoftConditionSpec;
+    /** Full replacement profile list; absent keeps all statement profiles. */
+    profiles?: EditLoftProfile[];
+    /**
+     * Full replacement guide list; absent keeps the statement's guides,
+     * `[]` removes them all.
+     */
+    guides?: EditLoftGuide[];
   };
 };
 
@@ -374,73 +428,12 @@ export async function applyFeatureEdit(
   const tree = parser.parse(code);
   const lines = splitLines(code);
 
-  const bindings: ProducerBinding[] = [];
-  for (const producer of spec.producers) {
-    const call = findEditableCallAt(tree, lines, producer.line);
-    if (!call) {
-      return { newCode: code, error: `no call found at line ${producer.line} — is the file in sync with the last render?` };
-    }
-
-    // Sketch and plane producers (profiles, paths, plane bases) must anchor
-    // their own call in both modes — a stale line pointing at some other call
-    // would consume the wrong input.
-    const requiredRoot = requiredChainRoot(producer.featureType);
-    if (requiredRoot) {
-      const root = chainRootCallee(call);
-      if (root !== requiredRoot) {
-        return {
-          newCode: code,
-          error: `the call at line ${producer.line} is ${root ? `${root}()` : 'not a feature call'}, `
-            + `expected a ${requiredRoot}() call — is the file in sync with the last render?`,
-        };
-      }
-    }
-
-    if (!producer.bind) {
-      // Anchor-only: the statement locates the insertion scope for a
-      // select()-based edit. No variable is bound, so any statement will do —
-      // but the scope must be one that runs once per build, not a loop body,
-      // hence the walk up to the enclosing function body (or module root).
-      const statement = enclosingStatement(call);
-      if (!statement) {
-        return { newCode: code, error: `no statement found at line ${producer.line}` };
-      }
-      const scope = enclosingFunctionScope(statement);
-      bindings.push({ call, statement, scope, varName: null, needsBinding: false, bind: false });
-      continue;
-    }
-
-    const root = chainRootCallee(call);
-    const validCallee = requiredRoot
-      ? root === requiredRoot
-      : root !== null && PRODUCER_CALLEES.has(root);
-    if (!validCallee) {
-      return {
-        newCode: code,
-        error: `the call at line ${producer.line} is ${root ? `${root}()` : 'not a feature call'}, `
-          + `expected a ${producer.featureType}()-producing call`,
-      };
-    }
-
-    const resolved = resolveStatement(call);
-    if ('error' in resolved) {
-      return { newCode: code, error: resolved.error };
-    }
-    bindings.push({ ...resolved, bind: true });
+  const resolved = resolveProducerBindings(tree, lines, spec);
+  if ('error' in resolved) {
+    return { newCode: code, error: resolved.error };
   }
-
+  const bindings = resolved.bindings;
   const scope = bindings[0].scope;
-  for (const binding of bindings) {
-    if (!sameNode(binding.scope, scope)) {
-      return { newCode: code, error: 'the picked edges come from features in different scopes' };
-    }
-  }
-
-  for (const part of spec.parts) {
-    if (part.producer !== null && !spec.producers[part.producer]?.bind) {
-      return { newCode: code, error: 'malformed edit spec: a selector part references an unbound producer' };
-    }
-  }
 
   allocateNames(tree.rootNode, bindings, spec);
 
@@ -821,6 +814,87 @@ function resolveStatement(call: TSNode): Omit<ProducerBinding, 'bind'> | { error
     error: 'the producing call is nested inside another expression — '
       + 'assign it to a variable first, then retry',
   };
+}
+
+/**
+ * Resolve every producer of `spec` to its statement and binding plan —
+ * shared by create mode (insert a new statement) and edit mode (re-source an
+ * existing one). Bindings must share one scope: one statement executes in
+ * one place. Also validates that every selector part references a bound
+ * producer.
+ */
+function resolveProducerBindings(
+  tree: TSTree,
+  lines: string[],
+  spec: ApplyFeatureEditSpec,
+): { bindings: ProducerBinding[] } | { error: string } {
+  const bindings: ProducerBinding[] = [];
+  for (const producer of spec.producers) {
+    const call = findEditableCallAt(tree, lines, producer.line);
+    if (!call) {
+      return { error: `no call found at line ${producer.line} — is the file in sync with the last render?` };
+    }
+
+    // Sketch and plane producers (profiles, paths, plane bases) must anchor
+    // their own call in both modes — a stale line pointing at some other call
+    // would consume the wrong input.
+    const requiredRoot = requiredChainRoot(producer.featureType);
+    if (requiredRoot) {
+      const root = chainRootCallee(call);
+      if (root !== requiredRoot) {
+        return {
+          error: `the call at line ${producer.line} is ${root ? `${root}()` : 'not a feature call'}, `
+            + `expected a ${requiredRoot}() call — is the file in sync with the last render?`,
+        };
+      }
+    }
+
+    if (!producer.bind) {
+      // Anchor-only: the statement locates the insertion scope for a
+      // select()-based edit. No variable is bound, so any statement will do —
+      // but the scope must be one that runs once per build, not a loop body,
+      // hence the walk up to the enclosing function body (or module root).
+      const statement = enclosingStatement(call);
+      if (!statement) {
+        return { error: `no statement found at line ${producer.line}` };
+      }
+      const scope = enclosingFunctionScope(statement);
+      bindings.push({ call, statement, scope, varName: null, needsBinding: false, bind: false });
+      continue;
+    }
+
+    const root = chainRootCallee(call);
+    const validCallee = requiredRoot
+      ? root === requiredRoot
+      : root !== null && PRODUCER_CALLEES.has(root);
+    if (!validCallee) {
+      return {
+        error: `the call at line ${producer.line} is ${root ? `${root}()` : 'not a feature call'}, `
+          + `expected a ${producer.featureType}()-producing call`,
+      };
+    }
+
+    const resolved = resolveStatement(call);
+    if ('error' in resolved) {
+      return { error: resolved.error };
+    }
+    bindings.push({ ...resolved, bind: true });
+  }
+
+  const scope = bindings.length > 0 ? bindings[0].scope : null;
+  for (const binding of bindings) {
+    if (!sameNode(binding.scope, scope!)) {
+      return { error: 'the picked edges come from features in different scopes' };
+    }
+  }
+
+  for (const part of spec.parts) {
+    if (part.producer !== null && !spec.producers[part.producer]?.bind) {
+      return { error: 'malformed edit spec: a selector part references an unbound producer' };
+    }
+  }
+
+  return { bindings };
 }
 
 /** Nearest enclosing statement_block or the program root. */
@@ -1482,6 +1556,12 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
     if (rest.length > 1 || (rest.length === 1 && numericArgValue(rest[0]) !== null)) {
       return { error: 'the extrude has more arguments than the dialog understands' };
     }
+    if (rest.length === 1 && rest[0].type === 'string') {
+      // cut('first-face') / cut('last-face'): the argument is a to-face
+      // target, not a profile — a dialog rewrite would silently change the
+      // cut's semantics.
+      return { error: `a to-face ${chain.root.name}() target is not editable in the dialog — edit it in the source` };
+    }
     const profileText = rest.length === 1 ? rest[0].text : null;
     const distance = distances[0] ?? null;
     const distance2 = distances[1] ?? null;
@@ -1682,15 +1762,120 @@ function validNonzeroOrNull(value: unknown): value is number | null {
   return value === null || (typeof value === 'number' && Number.isFinite(value) && value !== 0);
 }
 
+/** The spec fields `renderEditedStatement` reads. */
+type EditRenderSpec = Pick<ApplyFeatureEditSpec, 'feature' | 'value' | 'rawArgs' | 'edit' | 'producers' | 'parts'>;
+
+/** Variable text of a re-sourced sketch slot: the binding's name, else the hint. */
+function editSourceVar(
+  spec: EditRenderSpec,
+  producer: number,
+  varFor: (producer: number) => string | null,
+): string | { error: string } {
+  if (!isSketchProducer(spec as ApplyFeatureEditSpec, producer)) {
+    return { error: 'malformed edit spec: a re-sourced slot references a non-sketch producer' };
+  }
+  return varFor(producer) ?? spec.producers[producer].nameHint ?? 's';
+}
+
+/**
+ * Resolve an edited loft's profile/guide expressions: `verbatim` entries
+ * re-read the statement's own argument texts by position, re-picked entries
+ * render from producers/parts. Selector parts must be covered exactly once
+ * across the profiles — never dropped, never duplicated.
+ */
+function resolveLoftSources(
+  parsed: Extract<ParsedFeatureStatement, { feature: 'loft' }>,
+  spec: EditRenderSpec,
+  varFor: (producer: number) => string | null,
+): { profileExprs: string[]; guideExprs: string[] } | { error: string } {
+  const opts = spec.edit!.loft!;
+
+  let profileExprs = parsed.profileTexts;
+  if (opts.profiles !== undefined) {
+    if (!Array.isArray(opts.profiles) || opts.profiles.length < 2) {
+      return { error: 'a loft needs at least two profiles' };
+    }
+    const usedVerbatim = new Set<number>();
+    const usedParts = new Set<number>();
+    const exprs: string[] = [];
+    for (const profile of opts.profiles) {
+      if (profile?.kind === 'verbatim') {
+        if (!Number.isInteger(profile.sourceIndex) || profile.sourceIndex < 0
+          || profile.sourceIndex >= parsed.profileTexts.length || usedVerbatim.has(profile.sourceIndex)) {
+          return { error: 'malformed loft edit spec: a kept profile no longer matches the statement' };
+        }
+        usedVerbatim.add(profile.sourceIndex);
+        exprs.push(parsed.profileTexts[profile.sourceIndex]);
+      } else if (profile?.kind === 'sketch') {
+        const varName = editSourceVar(spec, profile.producer, varFor);
+        if (typeof varName !== 'string') {
+          return varName;
+        }
+        exprs.push(varName);
+      } else if (profile?.kind === 'selector') {
+        if (!Number.isInteger(profile.part) || profile.part < 0
+          || profile.part >= spec.parts.length || usedParts.has(profile.part)) {
+          return { error: 'malformed loft edit spec: bad selector profile' };
+        }
+        usedParts.add(profile.part);
+        const part = spec.parts[profile.part];
+        exprs.push(renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer)));
+      } else {
+        return { error: 'malformed loft edit spec: unknown profile kind' };
+      }
+    }
+    if (usedParts.size !== spec.parts.length) {
+      return { error: 'malformed loft edit spec: a selector part belongs to no profile' };
+    }
+    profileExprs = exprs;
+  } else if (spec.parts.length > 0) {
+    return { error: 'malformed loft edit spec: selector parts without a profile list' };
+  }
+
+  let guideExprs = parsed.guideTexts;
+  if (opts.guides !== undefined) {
+    if (!Array.isArray(opts.guides) || opts.guides.length > 2) {
+      return { error: 'a loft takes at most two guides' };
+    }
+    const usedVerbatim = new Set<number>();
+    const exprs: string[] = [];
+    for (const guide of opts.guides) {
+      if (guide?.kind === 'verbatim') {
+        if (!Number.isInteger(guide.sourceIndex) || guide.sourceIndex < 0
+          || guide.sourceIndex >= parsed.guideTexts.length || usedVerbatim.has(guide.sourceIndex)) {
+          return { error: 'malformed loft edit spec: a kept guide no longer matches the statement' };
+        }
+        usedVerbatim.add(guide.sourceIndex);
+        exprs.push(parsed.guideTexts[guide.sourceIndex]);
+      } else if (guide?.kind === 'sketch') {
+        const varName = editSourceVar(spec, guide.producer, varFor);
+        if (typeof varName !== 'string') {
+          return varName;
+        }
+        exprs.push(varName);
+      } else {
+        return { error: 'malformed loft edit spec: unknown guide kind' };
+      }
+    }
+    guideExprs = exprs;
+  }
+
+  return { profileExprs, guideExprs };
+}
+
 /**
  * Render the statement `spec`'s dialog options produce over the parsed
  * statement, keeping the expressions the dialog doesn't edit verbatim.
- * Shared with the route's preview so the previewed text is exactly what the
- * transform writes.
+ * Re-sourced slots (a re-picked profile/path/selection) render from
+ * `producers`/`parts` through `varFor` — the transform passes its bindings'
+ * names, the route's preview passes its namer's, so both emit identical
+ * text. Shared with the route's preview so the previewed text is exactly
+ * what the transform writes.
  */
 export function renderEditedStatement(
   parsed: ParsedFeatureStatement,
-  spec: Pick<ApplyFeatureEditSpec, 'feature' | 'value' | 'rawArgs' | 'edit'>,
+  spec: EditRenderSpec,
+  varFor: (producer: number) => string | null = () => null,
 ): { statement: string } | { error: string } {
   if (spec.feature !== parsed.feature) {
     return {
@@ -1718,10 +1903,18 @@ export function renderEditedStatement(
     if (opts.distance2 !== null && opts.symmetric) {
       return { error: 'a two-distance extrude cannot be symmetric' };
     }
+    let profileText = parsed.profileText;
+    if (opts.profile !== undefined && opts.profile.kind !== 'keep') {
+      const varName = editSourceVar(spec, opts.profile.producer, varFor);
+      if (typeof varName !== 'string') {
+        return varName;
+      }
+      profileText = varName;
+    }
     return {
       statement: renderExtrudeStatement(
-        { ...opts, profile: parsed.profileText ? 'bound' : 'implicit' },
-        parsed.profileText,
+        { ...opts, profile: profileText ? 'bound' : 'implicit' },
+        profileText,
       ),
     };
   }
@@ -1730,8 +1923,34 @@ export function renderEditedStatement(
     if (!opts || !validEditOp(opts.op) || !validEditThin(opts.thin)) {
       return { error: 'malformed sweep edit spec' };
     }
+    let pathText = parsed.pathText;
+    if (opts.path !== undefined && opts.path.kind !== 'keep') {
+      if (opts.path.kind === 'selector') {
+        if (spec.parts.length !== 1) {
+          return { error: 'malformed sweep edit spec: a selector path is exactly one part' };
+        }
+        const part = spec.parts[0];
+        pathText = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+      } else {
+        const varName = editSourceVar(spec, opts.path.producer, varFor);
+        if (typeof varName !== 'string') {
+          return varName;
+        }
+        pathText = varName;
+      }
+    } else if (spec.parts.length > 0) {
+      return { error: 'malformed sweep edit spec: selector parts without a re-sourced path' };
+    }
+    let profileText = parsed.profileText;
+    if (opts.profile !== undefined && opts.profile.kind !== 'keep') {
+      const varName = editSourceVar(spec, opts.profile.producer, varFor);
+      if (typeof varName !== 'string') {
+        return varName;
+      }
+      profileText = varName;
+    }
     return {
-      statement: renderSweepStatement({ op: opts.op, thin: opts.thin }, parsed.pathText, parsed.profileText),
+      statement: renderSweepStatement({ op: opts.op, thin: opts.thin }, pathText, profileText),
     };
   }
   if (parsed.feature === 'loft') {
@@ -1740,14 +1959,20 @@ export function renderEditedStatement(
       || !validEditCondition(opts.startCondition) || !validEditCondition(opts.endCondition)) {
       return { error: 'malformed loft edit spec' };
     }
-    if (parsed.guideTexts.length > 0 && opts.thin) {
+    const sources = resolveLoftSources(parsed, spec, varFor);
+    if ('error' in sources) {
+      return sources;
+    }
+    // The guides⊕thin exclusion holds for the statement being WRITTEN — the
+    // edited guide list when one rides the spec, not the stale parsed one.
+    if (sources.guideExprs.length > 0 && opts.thin) {
       return { error: 'loft guides cannot be combined with thin walls' };
     }
     return {
       statement: renderLoftStatement(
         { op: opts.op, thin: opts.thin, startCondition: opts.startCondition, endCondition: opts.endCondition },
-        parsed.profileTexts,
-        parsed.guideTexts,
+        sources.profileExprs,
+        sources.guideExprs,
       ),
     };
   }
@@ -1763,7 +1988,14 @@ export function renderEditedStatement(
     }
     joinChain = renderShellJoinChain(joinType);
   }
-  const args = spec.rawArgs?.trim() || parsed.argsText;
+  // The user's expression text wins over a re-picked selection (the create
+  // path's contract); with neither, the statement's own args stay verbatim.
+  const partsArgs = spec.parts.length > 0
+    ? spec.parts
+      .map(part => renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer)))
+      .join(', ')
+    : null;
+  const args = spec.rawArgs?.trim() || partsArgs || parsed.argsText;
   return {
     statement: args
       ? `${parsed.feature}(${formatNumber(spec.value)}, ${args})${joinChain}`
@@ -1777,6 +2009,13 @@ export function renderEditedStatement(
  * stale), apply the dialog's options over it, and splice the rendered chain
  * over the old one. A `const x = ` binding and any chained calls after the
  * recognized options survive untouched.
+ *
+ * Re-sourced slots bind their producers exactly like create mode (reuse an
+ * existing `const`, or prepend `const <name> = ` to the bare statement) —
+ * with one extra rule the create path never needs: a producer's statement
+ * must lie strictly before the edited statement in the same scope, because
+ * the rewritten statement executes where it already is. A producer at or
+ * after it would be a self or forward reference.
  */
 async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Promise<ApplyFeatureEditResult> {
   const edit = spec.edit!;
@@ -1801,20 +2040,79 @@ async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Pro
         + `expected a ${spec.feature} — is the file in sync with the last render?`,
     };
   }
-  const rendered = renderEditedStatement(chain.parsed, spec);
+  if (edit.expectedStatement !== undefined
+    && code.slice(chain.start, chain.end) !== edit.expectedStatement) {
+    return {
+      newCode: code,
+      error: 'the statement changed since the dialog opened — re-open it to edit the current code',
+    };
+  }
+
+  let bindings: ProducerBinding[] = [];
+  if (spec.producers.length > 0 || spec.parts.length > 0) {
+    const resolved = resolveProducerBindings(tree, lines, spec);
+    if ('error' in resolved) {
+      return { newCode: code, error: resolved.error };
+    }
+    bindings = resolved.bindings;
+
+    const editedStatement = enclosingStatement(call);
+    if (!editedStatement) {
+      return { newCode: code, error: `no statement found at line ${edit.line}` };
+    }
+    for (let i = 0; i < bindings.length; i++) {
+      const binding = bindings[i];
+      if (binding.statement.startIndex >= chain.start) {
+        return {
+          newCode: code,
+          error: `the input at line ${spec.producers[i].line} does not precede the edited statement — `
+            + 'a statement cannot consume itself or later results',
+        };
+      }
+      if (!sameNode(binding.scope, enclosingScope(editedStatement))) {
+        return {
+          newCode: code,
+          error: `the input at line ${spec.producers[i].line} lives in a different scope than the edited statement`,
+        };
+      }
+    }
+    allocateNames(tree.rootNode, bindings, spec);
+  }
+
+  const rendered = renderEditedStatement(
+    chain.parsed, spec, producer => bindings[producer]?.varName ?? null,
+  );
   if ('error' in rendered) {
     return { newCode: code, error: rendered.error };
   }
 
-  let result = spliceCode(code, chain.start, chain.end, rendered.statement);
+  // Splice highest-offset first: producer bindings precede the statement, so
+  // the statement replacement never shifts under a `const <name> = ` prepend.
+  type Edit = { start: number; end: number; text: string };
+  const edits: Edit[] = [{ start: chain.start, end: chain.end, text: rendered.statement }];
+  for (const binding of bindings) {
+    if (binding.needsBinding) {
+      edits.push({ start: binding.call.startIndex, end: binding.call.startIndex, text: `const ${binding.varName} = ` });
+    }
+  }
+  edits.sort((a, b) => b.start - a.start);
+  let result = code;
+  for (const e of edits) {
+    result = spliceCode(result, e.start, e.end, e.text);
+  }
+
   const callee = spec.feature === 'extrude'
     ? (edit.extrude!.op === 'remove' ? 'cut' : 'extrude')
     : spec.feature;
   result = await ensureSymbolImport(result, callee);
+  const imports = new Set(spec.imports ?? []);
   if (spec.rawArgs?.trim()) {
     for (const symbol of importsForRawArgs(spec.rawArgs)) {
-      result = await ensureSymbolImport(result, symbol, MODULE_FOR_IMPORT[symbol] ?? 'fluidcad/core');
+      imports.add(symbol);
     }
+  }
+  for (const symbol of imports) {
+    result = await ensureSymbolImport(result, symbol, MODULE_FOR_IMPORT[symbol] ?? 'fluidcad/core');
   }
   return { newCode: result };
 }

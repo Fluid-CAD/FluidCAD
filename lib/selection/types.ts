@@ -1,4 +1,61 @@
-import { SourceLocation } from "../common/scene-object.js";
+import { SceneObject, SourceLocation } from "../common/scene-object.js";
+
+/**
+ * The read-only slice of Scene the selection kernel consumes. Scene satisfies
+ * it structurally, so every existing caller passes a full Scene unchanged;
+ * {@link scopedSceneBefore} wraps one to truncate the object list at a
+ * statement boundary, making picks resolve against the world that statement
+ * sees at build time (its inputs), not the finished model.
+ */
+export type SelectionScene = {
+  getAllSceneObjects(): SceneObject[];
+  findEnclosingPart(obj: SceneObject): SceneObject | null;
+};
+
+/** View of `scene` truncated to objects strictly before `boundaryIndex`. */
+export function scopedSceneBefore(scene: SelectionScene, boundaryIndex: number): SelectionScene {
+  const objects = scene.getAllSceneObjects().slice(0, boundaryIndex);
+  return {
+    getAllSceneObjects: () => objects,
+    findEnclosingPart: (obj) => scene.findEnclosingPart(obj),
+  };
+}
+
+/**
+ * The statement whose sources are being re-picked, addressed both ways: by
+ * scene position (`index` — the timeline row) and by call site. Selection
+ * queries scoped to it run against the objects strictly before it — the
+ * world that statement's arguments see at build time.
+ */
+export type SelectionBoundary = {
+  index: number;
+  type: string;
+  line: number;
+  column: number;
+};
+
+/**
+ * Validate a boundary against the scene and return the truncated view.
+ * The index must still hold the same statement's object (call-site match on
+ * type + line + column) — a drifted scene refuses instead of silently
+ * verifying selectors against the wrong world.
+ */
+export function resolveScopedScene(
+  scene: SelectionScene,
+  boundary: SelectionBoundary,
+): { ok: true; scene: SelectionScene } | { ok: false; reason: string } {
+  const obj = scene.getAllSceneObjects()[boundary.index];
+  const loc = obj?.getSourceLocation() ?? null;
+  const matches = !!obj && obj.getType() === boundary.type
+    && !!loc && loc.line === boundary.line && loc.column === boundary.column;
+  if (!matches) {
+    return {
+      ok: false,
+      reason: 'the edited statement no longer matches the rendered scene — re-open the edit dialog',
+    };
+  }
+  return { ok: true, scene: scopedSceneBefore(scene, boundary.index) };
+}
 
 /** A picked sub-shape, exactly as the viewer's `pickAt()` produces it. */
 export type PickSubRef = { type: 'edge' | 'face'; index: number };

@@ -531,6 +531,57 @@ export async function applyPlane(options: PlaneApplyOptions): Promise<ApplyFeatu
 /** The statement a double-clicked timeline row edits, by source location. */
 export type FeatureEditTarget = SketchSourceRef;
 
+/**
+ * The edited statement as a selection boundary: its timeline row plus its
+ * call site. Selection queries carrying one resolve against the scene
+ * objects strictly before it — the world that statement's arguments see at
+ * build time. The server validates the row still holds that call site and
+ * refuses stale ones.
+ */
+export type SelectionBoundaryRef = {
+  index: number;
+  type: string;
+  line: number;
+  column: number;
+};
+
+/**
+ * One source slot of the edited statement, resolved for dialog seeding: a
+ * sketch input by call site, a selection input as pick entities on the
+ * pre-statement solids, or `opaque` — real but not representable as picks
+ * (inline sketches, clones, loop call sites, to-face targets), so the dialog
+ * keeps that slot's verbatim text.
+ */
+export type SourceSlotRef =
+  | { kind: 'sketch'; filePath: string; line: number; column: number }
+  | { kind: 'entities'; entities: ApplyFeatureEntity[] }
+  | { kind: 'opaque' };
+
+export type FeatureSourcesResult =
+  | { ok: true; feature: 'extrude' | 'cut'; profile: SourceSlotRef }
+  | { ok: true; feature: 'sweep'; profile: SourceSlotRef; path: SourceSlotRef }
+  | { ok: true; feature: 'loft'; profiles: SourceSlotRef[]; guides: SourceSlotRef[] }
+  | { ok: true; feature: 'shell' | 'fillet' | 'chamfer'; selection: SourceSlotRef }
+  | { ok: false; reason: string };
+
+/** Current sources of the statement at `before`, for edit-dialog seeding. */
+export async function fetchFeatureSources(before: SelectionBoundaryRef): Promise<FeatureSourcesResult> {
+  try {
+    const res = await fetch('/api/feature/sources', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ before }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || body?.ok !== true) {
+      return { ok: false, reason: body?.error ?? `Request failed (${res.status})` };
+    }
+    return body;
+  } catch {
+    return { ok: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
 export type FeatureOpKind = 'add' | 'remove' | 'new';
 
 /**
@@ -601,7 +652,19 @@ export async function parseFeatureAt(target: { filePath: string; line: number })
   }
 }
 
-export type ExtrudeEditOptions = ExtrudeOptionValues & {
+/**
+ * Session fields every edit apply carries: the statement text captured at
+ * dialog-open (the transform refuses when the code drifted under the
+ * session) and the boundary re-picked geometry resolves against.
+ */
+export type EditSessionFields = {
+  expectedStatement?: string;
+  before?: SelectionBoundaryRef;
+};
+
+export type ExtrudeEditOptions = ExtrudeOptionValues & EditSessionFields & {
+  /** Re-sourced profile sketch; omitted keeps the statement's own. */
+  profile?: { mode: 'bound' } & SketchSourceRef;
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -614,6 +677,8 @@ export async function applyExtrudeEdit(
   return postApplyFeature({
     feature: 'extrude',
     edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
     op: options.op,
     distance: options.distance,
     distance2: options.distance2,
@@ -621,13 +686,19 @@ export async function applyExtrudeEdit(
     draft: options.draft,
     drill: options.drill,
     thin: options.thin,
+    profile: options.profile,
     preview: options.preview,
   }, options.signal);
 }
 
-export type SweepEditOptions = {
+export type SweepEditOptions = EditSessionFields & {
   op: FeatureOpKind;
   thin: [number] | [number, number] | null;
+  /** Re-sourced path; omitted keeps the statement's own. */
+  path?: ({ kind: 'sketch' } & SketchSourceRef)
+    | { kind: 'edges'; entities: ApplyFeatureEntity[]; chains: ApplyFeatureChain[] };
+  /** Re-sourced profile sketch; omitted keeps the statement's own. */
+  profile?: { kind: 'sketch' } & SketchSourceRef;
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -640,17 +711,36 @@ export async function applySweepEdit(
   return postApplyFeature({
     feature: 'sweep',
     edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
     op: options.op,
     thin: options.thin,
+    path: options.path,
+    profile: options.profile,
     preview: options.preview,
   }, options.signal);
 }
 
-export type LoftEditOptions = {
+/** One profile of an edited loft, in argument order. */
+export type LoftEditProfileRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'sketch' } & SketchSourceRef)
+  | { kind: 'face'; entity: ApplyFeatureEntity };
+
+/** One guide of an edited loft — like profiles, but never a face. */
+export type LoftEditGuideRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'sketch' } & SketchSourceRef);
+
+export type LoftEditOptions = EditSessionFields & {
   op: FeatureOpKind;
   thin: [number] | [number, number] | null;
   startCondition: LoftConditionRef | null;
   endCondition: LoftConditionRef | null;
+  /** Full replacement profile list; omitted keeps the statement's own. */
+  profiles?: LoftEditProfileRef[];
+  /** Full replacement guide list; omitted keeps the statement's own. */
+  guides?: LoftEditGuideRef[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -663,20 +753,27 @@ export async function applyLoftEdit(
   return postApplyFeature({
     feature: 'loft',
     edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
     op: options.op,
     thin: options.thin,
     startCondition: options.startCondition,
     endCondition: options.endCondition,
+    profiles: options.profiles,
+    guides: options.guides,
     preview: options.preview,
   }, options.signal);
 }
 
-export type ValueFeatureEditOptions = {
+export type ValueFeatureEditOptions = EditSessionFields & {
   value: number;
   /** Edited selector argument list; omitted keeps the statement's verbatim. */
   selectorOverride?: string;
   /** Shell only: rewrites the `.join('<type>')` chain; 'arc' writes none. */
   joinType?: ShellJoinType;
+  /** Re-picked selection; omitted keeps the statement's own args. */
+  entities?: ApplyFeatureEntity[];
+  chains?: ApplyFeatureChain[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -690,9 +787,13 @@ export async function applyValueFeatureEdit(
   return postApplyFeature({
     feature,
     edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
     value: options.value,
     selectorOverride: options.selectorOverride,
     joinType: options.joinType,
+    entities: options.entities,
+    chains: options.chains,
     preview: options.preview,
   }, options.signal);
 }
@@ -760,33 +861,37 @@ export type SelectionGroup = {
 /** Expand a picked edge/face to its tangent chain on the owning solid. */
 export async function expandTangents(
   entity: ApplyFeatureEntity,
+  before?: SelectionBoundaryRef,
 ): Promise<{ members: ApplyFeatureEntity[] } | { error: string }> {
-  return selectionQuery('/api/selection/expand-tangents', entity);
+  return selectionQuery('/api/selection/expand-tangents', entity, before);
 }
 
 /** Expand a picked edge/face to its whole classified bucket. */
 export async function expandBucket(
   entity: ApplyFeatureEntity,
+  before?: SelectionBoundaryRef,
 ): Promise<{ members: ApplyFeatureEntity[] } | { error: string }> {
-  return selectionQuery('/api/selection/expand-bucket', entity);
+  return selectionQuery('/api/selection/expand-bucket', entity, before);
 }
 
 /** Every multi-select group a pick can expand to (the right-click menu). */
 export async function fetchSelectionGroups(
   entity: ApplyFeatureEntity,
+  before?: SelectionBoundaryRef,
 ): Promise<{ groups: SelectionGroup[] } | { error: string }> {
-  return selectionQuery('/api/selection/groups', entity);
+  return selectionQuery('/api/selection/groups', entity, before);
 }
 
 async function selectionQuery<T>(
   endpoint: string,
   entity: ApplyFeatureEntity,
+  before?: SelectionBoundaryRef,
 ): Promise<T | { error: string }> {
   try {
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ entity }),
+      body: JSON.stringify({ entity, before }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {
@@ -801,8 +906,9 @@ async function selectionQuery<T>(
 export function explainSelection(
   entities: ApplyFeatureEntity[],
   signal?: AbortSignal,
+  before?: SelectionBoundaryRef,
 ): Promise<{ picks: any[] } | null> {
-  return postJson('/api/selection/explain', { entities }, signal);
+  return postJson('/api/selection/explain', { entities, before }, signal);
 }
 
 export function getMaterials(): Promise<Material[] | null> {

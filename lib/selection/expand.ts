@@ -1,10 +1,9 @@
 import { Shape } from "../common/shape.js";
-import { Scene } from "../rendering/scene.js";
 import { Explorer } from "../oc/explorer.js";
 import { TangentExpander } from "../filters/tangent-expander.js";
 import { attributePick, resolvePickShape } from "./attribution.js";
 import { BucketRecord, SelectionIndex } from "./selection-index.js";
-import { PickRef, PickSubRef } from "./types.js";
+import { PickRef, PickSubRef, SelectionScene } from "./types.js";
 
 export type ExpandTangentsResult =
   | { ok: true; members: PickRef[] }
@@ -64,7 +63,7 @@ export function bucketMembersOnSolid(
  * a pick ref in mesh exploration order (the seed included), so the UI can
  * highlight them exactly like ordinary picks.
  */
-export function expandTangentChain(scene: Scene, ref: PickRef): ExpandTangentsResult {
+export function expandTangentChain(scene: SelectionScene, ref: PickRef): ExpandTangentsResult {
   const resolved = resolvePickShape(scene, ref);
   if (!resolved) {
     return { ok: false, reason: 'pick does not resolve to a sub-shape in the current scene' };
@@ -94,7 +93,7 @@ export function expandTangentChain(scene: Scene, ref: PickRef): ExpandTangentsRe
  * Expand a picked edge (or face) to its whole classified bucket — the
  * double-click gesture ("the whole top rim").
  */
-export function expandBucket(scene: Scene, ref: PickRef): ExpandBucketResult {
+export function expandBucket(scene: SelectionScene, ref: PickRef): ExpandBucketResult {
   const index = new SelectionIndex(scene);
   try {
     const attr = attributePick(scene, index, ref);

@@ -503,7 +503,12 @@ export class Viewer {
         this.lastFitBox = null;
       }
     } else {
-      this.activeSketchId = this.findRollbackActiveSketchId(sceneObjects, rollbackStop);
+      // A disabled mode manager (an edit session's pre-statement rollback)
+      // keeps the rolled-back scene un-ghosted even when the stop lands on a
+      // sketch — the session is there to pick geometry, not edit the sketch.
+      this.activeSketchId = this.modeManager.sketchEnabled
+        ? this.findRollbackActiveSketchId(sceneObjects, rollbackStop)
+        : null;
     }
 
     const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking);

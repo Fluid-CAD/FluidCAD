@@ -1,12 +1,13 @@
 import {
-  applyLoft, applyLoftEdit, ApplyFeatureResponse, FeatureEditTarget, LoftApplyOptions, LoftProfileRef,
-  ParsedFeatureStatement, SketchSourceRef,
+  applyLoft, applyLoftEdit, fetchFeatureSources, ApplyFeatureResponse, FeatureEditTarget, LoftApplyOptions,
+  LoftEditGuideRef, LoftEditProfileRef, LoftProfileRef, ParsedFeatureStatement, SketchSourceRef, SourceSlotRef,
 } from '../../api';
 import { sameEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
+import { EditSession, EditSessionInfo } from '../edit-session';
 import { LoftPanel } from './loft-panel';
 import {
   collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
@@ -20,10 +21,21 @@ const BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
 
 const PREVIEW_DEBOUNCE_MS = 250;
 
-/** One ordered profile in the dialog: a sketch or a face picked in 3D. */
+/**
+ * One ordered profile in the dialog: a sketch, a face picked in 3D, or — in
+ * edit mode — one of the statement's own arguments kept verbatim (removable
+ * and reorderable like any chip; re-read from the fresh parse at apply time
+ * by its original argument position).
+ */
 type LoftProfileItem =
   | { kind: 'sketch'; option: SketchProfileOption }
-  | { kind: 'face'; entity: SelectedEntity };
+  | { kind: 'face'; entity: SelectedEntity }
+  | { kind: 'verbatim'; sourceIndex: number; label: string };
+
+/** One guide in the dialog: a sketch, or a kept statement argument. */
+type LoftGuideItem =
+  | { kind: 'sketch'; option: SketchProfileOption }
+  | { kind: 'verbatim'; sourceIndex: number; label: string };
 
 /**
  * The Loft dialog on the create rails: an ordered multi-profile slot. Each
@@ -53,9 +65,18 @@ export class LoftFeatureService {
   private suspendedSketchUI = false;
   /** Statement being edited in place (timeline double-click), or null. */
   private editTarget: FeatureEditTarget | null = null;
+  /** View-state half of edit mode: pre-statement rollback + boundary. */
+  private session = new EditSession();
+  /** Argument counts of the parsed statement — the clean-list baselines. */
+  private editParsedProfiles = 0;
+  private editParsedGuides = 0;
+  /** Current sources per original argument position, for highlighting. */
+  private sourceSlots: { profiles: SourceSlotRef[]; guides: SourceSlotRef[] } | null = null;
+  /** A full render arrived mid-session — face chips died, sources re-fetch. */
+  private editSceneStale = false;
 
   private items: LoftProfileItem[] = [];
-  private guides: SketchProfileOption[] = [];
+  private guides: LoftGuideItem[] = [];
   private labelSignature = '';
 
   private previewTimer: number | null = null;
@@ -110,19 +131,89 @@ export class LoftFeatureService {
     return this.armed;
   }
 
-  /** Edit mode never consumes viewport picks — the viewport stays neutral. */
+  /** An edit session is open (the viewport shows the pre-statement rollback). */
   get isEditing(): boolean {
     return this.editTarget !== null;
   }
 
-  /** Face picks are live the whole time the dialog is armed (create only). */
+  /** Face picks are live the whole time the dialog is armed, in both modes. */
   get isFacePicking(): boolean {
-    return this.armed && !this.editTarget;
+    return this.armed;
   }
 
   /** True while the armed dialog has suspended sketch editing. */
   get sketchUISuspended(): boolean {
     return this.suspendedSketchUI;
+  }
+
+  /**
+   * Every render lands here. An open edit session owns the view: it keeps
+   * the viewport rolled back to just before the edited statement, and at
+   * that boundary the option lists rebuild from the pre-statement scene —
+   * exactly the sketches and solids the loft's arguments can reference.
+   */
+  handleSceneRendered(sceneObjects: SceneObjectRender[], stop: number, isRollback: boolean): void {
+    const state = this.session.onSceneRendered(sceneObjects, stop, isRollback);
+    if (state === 'inactive') {
+      this.update(isRollback ? [] : sceneObjects);
+      return;
+    }
+    if (!this.armed) {
+      this.session.end('gone');
+      return;
+    }
+    if (state === 'gone') {
+      this.exit({ editEnd: 'gone' });
+      return;
+    }
+    if (state === 'waiting') {
+      if (!isRollback) {
+        this.editSceneStale = true;
+      }
+      return;
+    }
+    // At the boundary: rebuild options from the pre-statement scene.
+    this.sceneObjects = sceneObjects;
+    this.profiles = collectSketchProfiles(sceneObjects);
+    if (this.editSceneStale) {
+      this.editSceneStale = false;
+      // A scene rebuild killed every picked face's shape id; sketch chips
+      // re-match by line, verbatim chips are position-addressed and survive.
+      const faces = this.items.filter(item => item.kind === 'face').length;
+      if (faces > 0) {
+        this.items = this.items.filter(item => item.kind !== 'face');
+        this.panel.setMessage('The code changed — re-picked faces were reset.');
+      }
+      this.sourceSlots = null;
+    }
+    this.items = this.items.filter(item => {
+      if (item.kind !== 'sketch') {
+        return true;
+      }
+      const refreshed = this.findOption(item.option.filePath, item.option.line);
+      if (!refreshed) {
+        return false;
+      }
+      item.option = refreshed;
+      return true;
+    });
+    this.guides = this.guides.filter(guide => {
+      if (guide.kind !== 'sketch') {
+        return true;
+      }
+      const refreshed = this.findOption(guide.option.filePath, guide.option.line);
+      if (!refreshed) {
+        return false;
+      }
+      guide.option = refreshed;
+      return true;
+    });
+    if (!this.sourceSlots) {
+      void this.loadEditSources();
+    }
+    this.refreshSketchLabels();
+    this.refreshProfilesUI();
+    this.schedulePreview();
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
@@ -136,13 +227,6 @@ export class LoftFeatureService {
     this.navbar.setGroupVisible('create', this.available, 'loft');
     this.syncButton();
     if (!this.armed) {
-      return;
-    }
-    if (this.editTarget) {
-      // Edit mode tracks a statement, not the scene: the dialog rides out
-      // renders (including the breakpoint render the double-click placed);
-      // the preview re-parses the statement in case it changed.
-      this.schedulePreview();
       return;
     }
     if (!this.available) {
@@ -170,9 +254,17 @@ export class LoftFeatureService {
       item.option = refreshed;
       return true;
     });
-    this.guides = this.guides
-      .map(guide => this.findOption(guide.filePath, guide.line))
-      .filter((option): option is SketchProfileOption => option !== undefined);
+    this.guides = this.guides.filter((guide): guide is LoftGuideItem & { kind: 'sketch' } => {
+      if (guide.kind !== 'sketch') {
+        return false;
+      }
+      const refreshed = this.findOption(guide.option.filePath, guide.option.line);
+      if (!refreshed) {
+        return false;
+      }
+      guide.option = refreshed;
+      return true;
+    });
     this.refreshSketchLabels();
     this.refreshProfilesUI();
     this.schedulePreview();
@@ -180,35 +272,72 @@ export class LoftFeatureService {
 
   /**
    * Open the dialog over an existing loft statement (timeline double-click).
-   * No picking is involved — the profiles and guides are fixed to the
-   * statement's own — and Apply rewrites the statement in place.
+   * The session rolls the viewport back to just before the statement; its
+   * arguments seed the chip lists as verbatim entries — removable and
+   * reorderable like any chip — and face picking / sketch adding is live
+   * exactly like create mode. Apply rewrites the statement in place; an
+   * untouched list keeps its argument texts verbatim.
    */
-  enterEdit(target: FeatureEditTarget, parsed: Extract<ParsedFeatureStatement, { feature: 'loft' }>): void {
+  enterEdit(
+    target: FeatureEditTarget,
+    parsed: Extract<ParsedFeatureStatement, { feature: 'loft' }>,
+    info: Omit<EditSessionInfo, 'target'>,
+  ): void {
     if (this.armed) {
       this.exit();
     }
     this.hooks.onEnter?.();
     this.armed = true;
     this.editTarget = target;
-    this.items = [];
-    this.guides = [];
+    this.editParsedProfiles = parsed.profileTexts.length;
+    this.editParsedGuides = parsed.guideTexts.length;
+    this.items = parsed.profileTexts.map((label, sourceIndex) => ({ kind: 'verbatim', sourceIndex, label }));
+    this.guides = parsed.guideTexts.map((label, sourceIndex) => ({ kind: 'verbatim', sourceIndex, label }));
+    this.sourceSlots = null;
+    this.editSceneStale = false;
     this.syncButton();
+    this.suspendSketchUI();
+    this.viewer.pickFilter = 'face';
+    this.viewer.pickSketchWires = true;
+    this.session.begin({ ...info, target }, this.viewer.currentSceneObjects.length);
+    void this.loadEditSources();
     this.panel.showEdit({
       op: parsed.op,
       thin: parsed.thin,
       startCondition: parsed.startCondition,
       endCondition: parsed.endCondition,
-      profileLabels: parsed.profileTexts,
-      guideLabels: parsed.guideTexts,
     });
-    this.syncApplyEnabled();
+    this.refreshProfilesUI();
     this.schedulePreview();
+  }
+
+  /**
+   * Current sources per original argument position — used purely to light up
+   * the statement's own inputs in the rolled-back view (verbatim chips carry
+   * the truth as text; nothing here feeds the apply payload).
+   */
+  private async loadEditSources(): Promise<void> {
+    const boundary = this.session.boundary;
+    if (!boundary) {
+      return;
+    }
+    const result = await fetchFeatureSources(boundary);
+    if (!this.editTarget || this.session.boundary?.index !== boundary.index) {
+      return;
+    }
+    if (result.ok && result.feature === 'loft') {
+      this.sourceSlots = { profiles: result.profiles, guides: result.guides };
+    } else {
+      this.sourceSlots = { profiles: [], guides: [] };
+    }
+    this.refreshProfilesUI();
   }
 
   enter(): void {
     if (this.armed) {
       return;
     }
+    this.session.end('continue');
     this.hooks.onEnter?.();
     this.armed = true;
     // Composing a loft means looking at the whole scene, not down the active
@@ -231,14 +360,22 @@ export class LoftFeatureService {
   /**
    * `resume: 'lazy'` re-enables sketch editing without forcing the mode
    * transition — for apply-success and scene-driven exits. User cancels
-   * default to `'immediate'`.
+   * default to `'immediate'`; ending an edit session always resumes lazily
+   * (a render follows every session end).
    */
-  exit(opts: { resume?: 'immediate' | 'lazy' } = {}): void {
+  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'gone' } = {}): void {
     if (!this.armed) {
       return;
     }
+    const hadSession = this.session.active;
+    this.session.end(opts.editEnd ?? 'cancel');
+    if (hadSession) {
+      opts = { ...opts, resume: 'lazy' };
+    }
     this.armed = false;
     this.editTarget = null;
+    this.sourceSlots = null;
+    this.editSceneStale = false;
     this.syncButton();
     this.cancelPreview();
     this.items = [];
@@ -277,7 +414,7 @@ export class LoftFeatureService {
    * close the dialog mid-flow.
    */
   handleTimelinePick(obj: SceneObjectRender): boolean {
-    if (!this.armed || this.editTarget) {
+    if (!this.armed) {
       return false;
     }
     const sketch = resolveSketchRow(obj, this.sceneObjects);
@@ -290,7 +427,7 @@ export class LoftFeatureService {
 
   /** A sketch wire was clicked in the 3D view: same as a timeline pick. */
   handleSketchPick(shapeId: string): boolean {
-    if (!this.armed || this.editTarget) {
+    if (!this.armed) {
       return false;
     }
     const sketch = resolveSketchByShapeId(shapeId, this.sceneObjects);
@@ -316,11 +453,25 @@ export class LoftFeatureService {
     }
   }
 
-  /** True when the sketch is already in the loft, as a profile or a guide. */
+  /**
+   * True when the sketch is already in the loft, as a profile or a guide.
+   * A kept (verbatim) chip counts through its resolved current source, so
+   * the add-dropdowns never offer a sketch the statement already references.
+   */
   private usesSketch(filePath: string, line: number): boolean {
-    return this.items.some(item => item.kind === 'sketch'
+    const verbatimUses = (item: { kind: string; sourceIndex?: number }, slots?: SourceSlotRef[]): boolean => {
+      if (item.kind !== 'verbatim' || item.sourceIndex === undefined) {
+        return false;
+      }
+      const slot = slots?.[item.sourceIndex];
+      return slot?.kind === 'sketch' && slot.filePath === filePath && slot.line === line;
+    };
+    return this.items.some(item => (item.kind === 'sketch'
         && item.option.filePath === filePath && item.option.line === line)
-      || this.guides.some(guide => guide.filePath === filePath && guide.line === line);
+        || verbatimUses(item, this.sourceSlots?.profiles))
+      || this.guides.some(guide => (guide.kind === 'sketch'
+        && guide.option.filePath === filePath && guide.option.line === line)
+        || verbatimUses(guide, this.sourceSlots?.guides));
   }
 
   private addSketchProfile(option: SketchProfileOption): void {
@@ -350,7 +501,7 @@ export class LoftFeatureService {
       return;
     }
     this.panel.setMessage(null);
-    this.guides = [...this.guides, option];
+    this.guides = [...this.guides, { kind: 'sketch', option }];
     this.refreshProfilesUI();
     this.schedulePreview();
   }
@@ -394,17 +545,17 @@ export class LoftFeatureService {
       return;
     }
     if (this.editTarget) {
-      const values = this.panel.values();
-      if ('error' in values) {
-        this.panel.setMessage(values.error);
+      const request = this.buildEditRequest();
+      if ('error' in request) {
+        this.panel.setMessage(request.error);
         return;
       }
       this.applying = true;
       this.syncApplyEnabled();
       try {
-        const result = await applyLoftEdit(this.editTarget, values);
+        const result = await applyLoftEdit(this.editTarget, request);
         if (result.success) {
-          this.exit({ resume: 'lazy' });
+          this.exit({ editEnd: 'apply' });
         } else {
           this.panel.setMessage(result.reason ?? 'Could not apply the edit.');
         }
@@ -447,6 +598,9 @@ export class LoftFeatureService {
     }
     const profiles: LoftProfileRef[] = [];
     for (const item of this.items) {
+      if (item.kind === 'verbatim') {
+        return { error: 'A kept profile only exists while editing a statement.' };
+      }
       if (item.kind === 'sketch') {
         if (!item.option.hasGeometry) {
           return { error: `Nothing is drawn in "${item.option.label}" yet.` };
@@ -463,10 +617,13 @@ export class LoftFeatureService {
     }
     const guides: SketchSourceRef[] = [];
     for (const guide of this.guides) {
-      if (!guide.hasGeometry) {
-        return { error: `Nothing is drawn in "${guide.label}" yet.` };
+      if (guide.kind !== 'sketch') {
+        return { error: 'A kept guide only exists while editing a statement.' };
       }
-      guides.push({ filePath: guide.filePath, line: guide.line, column: guide.column });
+      if (!guide.option.hasGeometry) {
+        return { error: `Nothing is drawn in "${guide.option.label}" yet.` };
+      }
+      guides.push({ filePath: guide.option.filePath, line: guide.option.line, column: guide.option.column });
     }
     // The panel blocks the thin toggle while guides exist; this only guards
     // against a state the UI failed to keep out.
@@ -483,15 +640,88 @@ export class LoftFeatureService {
     };
   }
 
+  /**
+   * The edit-mode apply payload. Untouched lists — every chip still a
+   * verbatim entry in its original argument order — are omitted entirely, so
+   * the transform preserves the statement's texts byte for byte. A changed
+   * list ships in full: verbatim keeps by position, sketches by call site,
+   * face picks for synthesis against the session boundary.
+   */
+  private buildEditRequest(): Parameters<typeof applyLoftEdit>[1] | { error: string } {
+    const values = this.panel.values();
+    if ('error' in values) {
+      return values;
+    }
+    if (this.items.length < 2) {
+      return { error: 'A loft needs at least two profiles — pick faces or add sketches.' };
+    }
+    if (this.guides.length > 0 && values.thin) {
+      return { error: 'Guides cannot be combined with thin walls — remove the guides first.' };
+    }
+    const profilesClean = this.items.length === this.editParsedProfiles
+      && this.items.every((item, i) => item.kind === 'verbatim' && item.sourceIndex === i);
+    const guidesClean = this.guides.length === this.editParsedGuides
+      && this.guides.every((guide, i) => guide.kind === 'verbatim' && guide.sourceIndex === i);
+
+    let profiles: LoftEditProfileRef[] | undefined;
+    let hasFacePicks = false;
+    if (!profilesClean) {
+      profiles = [];
+      for (const item of this.items) {
+        if (item.kind === 'verbatim') {
+          profiles.push({ kind: 'verbatim', sourceIndex: item.sourceIndex });
+        } else if (item.kind === 'sketch') {
+          if (!item.option.hasGeometry) {
+            return { error: `Nothing is drawn in "${item.option.label}" yet.` };
+          }
+          profiles.push({
+            kind: 'sketch',
+            filePath: item.option.filePath,
+            line: item.option.line,
+            column: item.option.column,
+          });
+        } else {
+          hasFacePicks = true;
+          profiles.push({ kind: 'face', entity: item.entity });
+        }
+      }
+    }
+    let guides: LoftEditGuideRef[] | undefined;
+    if (!guidesClean) {
+      guides = this.guides.map(guide => guide.kind === 'verbatim'
+        ? { kind: 'verbatim' as const, sourceIndex: guide.sourceIndex }
+        : {
+          kind: 'sketch' as const,
+          filePath: guide.option.filePath,
+          line: guide.option.line,
+          column: guide.option.column,
+        });
+    }
+    return {
+      op: values.op,
+      thin: values.thin,
+      startCondition: values.startCondition,
+      endCondition: values.endCondition,
+      profiles,
+      guides,
+      expectedStatement: this.session.expectedStatement,
+      before: hasFacePicks ? this.session.boundary ?? undefined : undefined,
+    };
+  }
+
   // -------------------------------------------------------------------------
   // Profile list + sketch-editing suspension
   // -------------------------------------------------------------------------
 
   private refreshProfilesUI(): void {
     this.panel.setProfiles(this.items.map(item => ({
-      label: item.kind === 'sketch' ? item.option.label : 'Picked face',
+      label: item.kind === 'sketch' ? item.option.label
+        : item.kind === 'face' ? 'Picked face'
+          : item.label,
     })));
-    this.panel.setGuides(this.guides.map(guide => ({ label: guide.label })));
+    this.panel.setGuides(this.guides.map(guide => ({
+      label: guide.kind === 'sketch' ? guide.option.label : guide.label,
+    })));
     // Both dropdowns offer the sketches not already in the loft — a sketch
     // can be a profile or a guide, never both.
     const remaining = this.profiles.filter(option => !this.usesSketch(option.filePath, option.line));
@@ -510,14 +740,43 @@ export class LoftFeatureService {
     const faces = this.items
       .filter((item): item is LoftProfileItem & { kind: 'face' } => item.kind === 'face')
       .map(item => item.entity);
-    // Every selected input lights up: picked faces plus the wires of every
-    // profile and guide sketch.
-    const wireIds = [
+    const sketches = [
       ...this.items
         .filter((item): item is LoftProfileItem & { kind: 'sketch' } => item.kind === 'sketch')
         .map(item => item.option),
-      ...this.guides,
-    ].flatMap(option => sketchWireShapeIds(option, this.sceneObjects));
+      ...this.guides
+        .filter((guide): guide is LoftGuideItem & { kind: 'sketch' } => guide.kind === 'sketch')
+        .map(guide => guide.option),
+    ];
+    // Kept (verbatim) chips light up through the resolved current sources —
+    // the statement's own faces and sketch wires at the rolled-back view.
+    for (const item of this.items) {
+      if (item.kind === 'verbatim') {
+        const slot = this.sourceSlots?.profiles[item.sourceIndex];
+        if (slot?.kind === 'entities') {
+          faces.push(...slot.entities.map(e => ({ shapeId: e.shapeId, sub: e.sub })));
+        } else if (slot?.kind === 'sketch') {
+          const option = this.findOption(slot.filePath, slot.line);
+          if (option) {
+            sketches.push(option);
+          }
+        }
+      }
+    }
+    for (const guide of this.guides) {
+      if (guide.kind === 'verbatim') {
+        const slot = this.sourceSlots?.guides[guide.sourceIndex];
+        if (slot?.kind === 'sketch') {
+          const option = this.findOption(slot.filePath, slot.line);
+          if (option) {
+            sketches.push(option);
+          }
+        }
+      }
+    }
+    // Every selected input lights up: picked faces plus the wires of every
+    // profile and guide sketch.
+    const wireIds = sketches.flatMap(option => sketchWireShapeIds(option, this.sceneObjects));
     if (faces.length > 0 || wireIds.length > 0) {
       this.viewer.highlightEntities(faces, wireIds);
     } else {
@@ -571,14 +830,19 @@ export class LoftFeatureService {
         }
       }
     }
-    this.guides = this.guides.map(guide => this.findOption(guide.filePath, guide.line) ?? guide);
+    for (const guide of this.guides) {
+      if (guide.kind === 'sketch') {
+        const refreshed = this.findOption(guide.option.filePath, guide.option.line);
+        if (refreshed) {
+          guide.option = refreshed;
+        }
+      }
+    }
     this.refreshProfilesUI();
   }
 
   private syncApplyEnabled(): void {
-    // Edit mode has no chip list — the statement's own profiles satisfy the
-    // two-profile floor.
-    this.panel.setApplyEnabled(!this.applying && (this.editTarget !== null || this.items.length >= 2));
+    this.panel.setApplyEnabled(!this.applying && this.items.length >= 2);
   }
 
   private syncButton(): void {
@@ -608,9 +872,9 @@ export class LoftFeatureService {
     if (!this.armed || this.applying) {
       return;
     }
-    // Edit mode previews from the form values alone — the profiles and
-    // guides stay whatever the statement already says.
-    const request = this.editTarget ? this.panel.values() : this.buildRequest();
+    // Edit mode previews the full edit payload — re-sourced chips included —
+    // so the preview is the exact statement Apply will write.
+    const request = this.editTarget ? this.buildEditRequest() : this.buildRequest();
     if ('error' in request) {
       this.panel.setPreview(null);
       return;
@@ -624,10 +888,7 @@ export class LoftFeatureService {
     try {
       result = this.editTarget
         ? await applyLoftEdit(this.editTarget, {
-          op: request.op,
-          thin: request.thin,
-          startCondition: request.startCondition ?? null,
-          endCondition: request.endCondition ?? null,
+          ...(request as Parameters<typeof applyLoftEdit>[1]),
           preview: true,
           signal: abort.signal,
         })

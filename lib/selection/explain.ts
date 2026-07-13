@@ -1,4 +1,3 @@
-import { Scene } from "../rendering/scene.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
@@ -19,6 +18,7 @@ import {
   PickExplanation,
   PickRef,
   ProducerNamer,
+  SelectionScene,
   SynthesizeOptions,
   nameHintFor,
 } from "./types.js";
@@ -28,7 +28,7 @@ import {
  * pick belongs to and the expression that names it. Backs the
  * `/api/selection/explain` endpoint and the attribution regression tests.
  */
-export function explainSelection(scene: Scene, refs: PickRef[]): ExplainResult {
+export function explainSelection(scene: SelectionScene, refs: PickRef[]): ExplainResult {
   const index = new SelectionIndex(scene);
   try {
     return { picks: refs.map(ref => explainPick(scene, index, ref)) };
@@ -51,7 +51,7 @@ export function explainSelection(scene: Scene, refs: PickRef[]): ExplainResult {
  * selection can't be expressed safely.
  */
 export function synthesizeApplyFeature(
-  scene: Scene,
+  scene: SelectionScene,
   refs: PickRef[],
   feature: ApplyFeatureKind,
   value?: number,
@@ -377,7 +377,7 @@ function collectImports(parts: { producer: unknown; filterArgs: string | null }[
   return [...imports];
 }
 
-function explainPick(scene: Scene, index: SelectionIndex, ref: PickRef): PickExplanation {
+function explainPick(scene: SelectionScene, index: SelectionIndex, ref: PickRef): PickExplanation {
   const attr = attributePick(scene, index, ref);
   const explanation: PickExplanation = {
     ref,

@@ -81,10 +81,10 @@ export class ThinControl {
 
   constructor(container: HTMLElement) {
     const toggle = document.createElement('label');
-    toggle.className = 'flex items-center gap-2 cursor-pointer';
+    toggle.className = 'flex items-center justify-between cursor-pointer';
     toggle.innerHTML = `
-      <input data-role="thin" type="checkbox" class="checkbox checkbox-sm" />
       <span class="text-base-content/70">Thin walls</span>
+      <input data-role="thin" type="checkbox" class="toggle toggle-sm toggle-primary" />
     `;
     container.appendChild(toggle);
     this.toggle = toggle;

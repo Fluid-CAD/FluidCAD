@@ -65,9 +65,9 @@ export class ExtrudePanel {
         <input data-role="distance2" type="number" step="0.5" value="25"
           class="input input-sm input-bordered w-full text-xs" />
       </label>
-      <label data-role="through-wrap" class="hidden items-center gap-2 cursor-pointer">
-        <input data-role="through" type="checkbox" class="checkbox checkbox-sm" />
+      <label data-role="through-wrap" class="hidden items-center justify-between cursor-pointer">
         <span class="text-base-content/70">Through all</span>
+        <input data-role="through" type="checkbox" class="toggle toggle-sm toggle-primary" />
       </label>
       <label class="flex flex-col gap-1.5"
         title="Taper the side walls — positive expands outward, negative tapers inward; 0 is straight">
@@ -75,10 +75,10 @@ export class ExtrudePanel {
         <input data-role="draft" type="number" step="0.5" value="0"
           class="input input-sm input-bordered w-full text-xs" />
       </label>
-      <label class="flex items-center gap-2 cursor-pointer"
+      <label class="flex items-center justify-between cursor-pointer"
         title="Treat inner closed regions of the profile as holes — off extrudes them solid">
-        <input data-role="drill" type="checkbox" class="checkbox checkbox-sm" checked />
         <span class="text-base-content/70">Drill holes</span>
+        <input data-role="drill" type="checkbox" class="toggle toggle-sm toggle-primary" checked />
       </label>
       <div data-role="thin-host" class="contents"></div>
       <div class="flex items-center gap-2 pt-1">

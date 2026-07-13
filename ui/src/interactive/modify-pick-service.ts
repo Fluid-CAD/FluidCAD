@@ -3,9 +3,10 @@ import {
   ApplyFeatureChain, ApplyFeatureResponse, FeatureEditTarget, ParsedFeatureStatement, SelectionGroupKind,
   ShellJoinType,
 } from '../api';
-import { entityKey, mergeUniqueEntities, sameEntity } from '../helpers/entities';
+import { entityKey, mergeUniqueEntities, sameEntity, selectionChipRows } from '../helpers/entities';
 import { isTopLevel } from '../helpers/scene-utils';
 import { EditSession, EditSessionInfo } from './edit-session';
+import { PickSlot } from './pick-slot';
 import { SelectionContextMenu } from './selection-menu';
 import { StandardPlaneId } from '../scene/standard-planes';
 import { SceneObjectRender, SubSelection } from '../types';
@@ -27,8 +28,6 @@ type FeatureConfig = {
   valueSign: 'positive' | 'nonzero' | null;
   /** Apply on the first pick instead of accumulating toward an Apply click. */
   immediate: boolean;
-  /** List each pick as a removable chip row instead of a bare count. */
-  selectionList: boolean;
   /** Show the join-type dropdown (shell's arc/intersection/tangent). */
   joinRow: boolean;
   /** Static text after the editable args in the expression row. */
@@ -45,19 +44,19 @@ const FEATURE_ORDER: ModifyFeatureKind[] = ['sketch', 'fillet', 'chamfer', 'shel
 const FEATURES: Record<ModifyFeatureKind, FeatureConfig> = {
   sketch: {
     label: 'Sketch', buttonTitle: 'Sketch on a face or an origin plane', valueLabel: null, defaultValue: null,
-    pickFilter: 'face', valueSign: null, immediate: true, selectionList: false, joinRow: false, exprSuffix: ', () => { ... })',
+    pickFilter: 'face', valueSign: null, immediate: true, joinRow: false, exprSuffix: ', () => { ... })',
   },
   fillet: {
     label: 'Fillet', buttonTitle: 'Fillet edges', valueLabel: 'Radius', defaultValue: 1,
-    pickFilter: 'all', valueSign: 'positive', immediate: false, selectionList: true, joinRow: false, exprSuffix: ')',
+    pickFilter: 'all', valueSign: 'positive', immediate: false, joinRow: false, exprSuffix: ')',
   },
   chamfer: {
     label: 'Chamfer', buttonTitle: 'Chamfer edges', valueLabel: 'Distance', defaultValue: 1,
-    pickFilter: 'all', valueSign: 'positive', immediate: false, selectionList: true, joinRow: false, exprSuffix: ')',
+    pickFilter: 'all', valueSign: 'positive', immediate: false, joinRow: false, exprSuffix: ')',
   },
   shell: {
-    label: 'Shell', buttonTitle: 'Shell (pick the faces to open)', valueLabel: 'Thickness', defaultValue: -2,
-    pickFilter: 'face', valueSign: 'nonzero', immediate: false, selectionList: false, joinRow: true, exprSuffix: ')',
+    label: 'Shell', buttonTitle: 'Shell', valueLabel: 'Thickness', defaultValue: -2,
+    pickFilter: 'face', valueSign: 'nonzero', immediate: false, joinRow: true, exprSuffix: ')',
   },
 };
 
@@ -74,13 +73,6 @@ const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 text-ba
 const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2 py-1';
 /** Small muted caption under the toolbar icon. */
 const BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
-
-// The selection field. While it awaits its first pick it wears the active
-// (primary) outline and prompts "Pick a face/edge"; once populated it settles
-// into the neutral fill and shows the selection count.
-const COUNT_BOX_BASE = 'flex items-center gap-2 rounded-md px-3 py-2.5 border transition-colors';
-const COUNT_BOX_IDLE = 'bg-base-200 border-base-300 text-base-content/70';
-const COUNT_BOX_ACTIVE = 'bg-primary/10 border-primary text-primary';
 
 const PREVIEW_DEBOUNCE_MS = 250;
 const TOOLTIP_DEBOUNCE_MS = 200;
@@ -146,9 +138,9 @@ export class ModifyPickService {
   private valueInput: HTMLInputElement;
   private joinWrap: HTMLElement;
   private joinSelect: HTMLSelectElement;
-  private countBox: HTMLElement;
-  private countText: HTMLElement;
-  private chipList: HTMLElement;
+  private selectionSlot: PickSlot;
+  /** The rendered selection chip rows — chip index to pick members. */
+  private chipRows: { label: string; members: SelectedEntity[] }[] = [];
   private applyBtn: HTMLButtonElement;
   private message: HTMLDivElement;
   private applying = false;
@@ -225,10 +217,7 @@ export class ModifyPickService {
             <span class="flex items-center [&>svg]:size-4" data-role="icon"></span>
             <span data-role="title" class="font-medium text-sm">Fillet</span>
           </div>
-          <div data-role="chip-list" class="flex flex-col gap-1 hidden"></div>
-          <div data-role="count-box" class="${COUNT_BOX_BASE} ${COUNT_BOX_ACTIVE}">
-            <span data-role="count" class="whitespace-nowrap">Pick an edge</span>
-          </div>
+          <div data-role="selection-slot"></div>
           <label data-role="value-wrap" class="flex flex-col gap-1.5">
             <span class="text-base-content/70" data-role="value-label">Radius</span>
             <input data-role="value" type="number" step="0.5"
@@ -270,9 +259,29 @@ export class ModifyPickService {
     this.valueInput = this.activeBar.querySelector('[data-role="value"]')!;
     this.joinWrap = this.activeBar.querySelector('[data-role="join-wrap"]')!;
     this.joinSelect = this.activeBar.querySelector('[data-role="join"]')!;
-    this.countBox = this.activeBar.querySelector('[data-role="count-box"]')!;
-    this.countText = this.activeBar.querySelector('[data-role="count"]')!;
-    this.chipList = this.activeBar.querySelector('[data-role="chip-list"]')!;
+    this.selectionSlot = new PickSlot(
+      this.activeBar.querySelector('[data-role="selection-slot"]')!,
+      { label: 'Selection', multiple: true },
+    );
+    // Picking is live the whole time a mode is armed — the slot always wears
+    // the pick-target styling.
+    this.selectionSlot.setArmed(true);
+    this.selectionSlot.onRemove = (index) => {
+      const row = this.chipRows[index];
+      if (row) {
+        this.toggleEntity(row.members[0]);
+      }
+    };
+    // Hovering a chip shows just that chip's entities so the row can be told
+    // apart from its siblings; leaving restores the full selection.
+    this.selectionSlot.onChipHover = (index) => {
+      const members = index !== null ? this.chipRows[index]?.members : undefined;
+      if (members) {
+        this.viewer.highlightEntities(members);
+      } else {
+        this.previewSelection(null);
+      }
+    };
     this.applyBtn = this.activeBar.querySelector('[data-role="apply"]')!;
     this.message = this.activeBar.querySelector('[data-role="message"]')!;
     this.exprRow = this.activeBar.querySelector('[data-role="expr-row"]')!;
@@ -500,6 +509,7 @@ export class ModifyPickService {
 
     this.titleIcon.innerHTML = featureIconImg(parsed.feature);
     this.titleText.textContent = `Edit ${config.label.toLowerCase()}`;
+    this.selectionSlot.setMultiple(!config.immediate);
     this.valueWrap.classList.remove('hidden');
     this.valueLabel.textContent = config.valueLabel!;
     if (config.valueSign === 'positive') {
@@ -635,6 +645,9 @@ export class ModifyPickService {
 
     this.titleIcon.innerHTML = featureIconImg(feature);
     this.titleText.textContent = `${config.label} mode`;
+    // The single-pick sketch mode keeps the bare prompt box; the multi-pick
+    // features wrap their chips in the slot container.
+    this.selectionSlot.setMultiple(!config.immediate);
     if (config.valueLabel === null) {
       this.valueWrap.classList.add('hidden');
     } else {
@@ -1062,95 +1075,29 @@ export class ModifyPickService {
       return;
     }
     const config = FEATURES[this.feature];
-    const edges = this.entities.filter(e => e.sub.type === 'edge').length;
-    const faces = this.entities.length - edges;
-    const parts: string[] = [];
-    if (edges > 0) {
-      parts.push(`${edges} edge${edges === 1 ? '' : 's'}`);
-    }
-    if (faces > 0) {
-      parts.push(`${faces} face${faces === 1 ? '' : 's'}`);
-    }
-    if (this.chains.length > 0) {
-      parts.push(`${this.chains.length} chain${this.chains.length === 1 ? '' : 's'}`);
-    }
-    // Empty selection field: prompt for the first pick and wear the active
-    // (primary) outline; face-only features ask for a face, the rest an edge.
-    // Sketch also offers the origin planes — alone when nothing has faces.
-    const empty = parts.length === 0;
-    if (empty) {
+    // Every pick is a removable chip: one per plain pick, a whole tangent
+    // chain as a single chip — its ✕ removes the chain like a viewport click
+    // on a member would. The immediate single-pick mode (sketch) never lists
+    // chips — it applies on the first pick; the prompt is its whole UI.
+    this.chipRows = config.immediate ? [] : selectionChipRows(this.entities, this.chains);
+    this.selectionSlot.setChips(this.chipRows.map((row, index) => ({
+      label: row.label,
+      badge: String(index + 1),
+      removable: true,
+    })));
+    // Empty selection: prompt for the first pick; face-only features ask for
+    // a face, the rest an edge. Sketch also offers the origin planes — alone
+    // when nothing has faces.
+    if (this.chipRows.length === 0) {
       const noun = this.feature === 'sketch'
         ? (this.sketchAvailable ? 'a face or a plane' : 'a plane')
         : config.pickFilter === 'face' ? 'a face' : 'an edge';
-      this.countText.textContent = `Pick ${noun}`;
+      this.selectionSlot.setPrompt(`Pick ${noun}`);
     } else {
-      this.countText.textContent = parts.join(' + ');
+      this.selectionSlot.setPrompt(null);
     }
-    // Listing features swap the count box for the chip rows once picks exist
-    // (the loft-panel pattern: the prompt box only prompts).
-    const showCount = !config.selectionList || empty;
-    this.countBox.className = `${COUNT_BOX_BASE} ${empty ? COUNT_BOX_ACTIVE : COUNT_BOX_IDLE}${showCount ? '' : ' hidden'}`;
-    this.renderChipList(config.selectionList);
     this.syncButtons();
     this.schedulePreview();
-  }
-
-  /**
-   * The removable per-pick rows (fillet/chamfer): one chip per plain pick, a
-   * whole tangent chain as a single chip — its ✕ removes the chain like a
-   * viewport click on a member would. Hovering a chip shows just that chip's
-   * entities so the row can be told apart from its siblings.
-   */
-  private renderChipList(enabled: boolean): void {
-    if (!enabled) {
-      this.chipList.replaceChildren();
-      this.chipList.classList.add('hidden');
-      return;
-    }
-    const chainOf = new Map<string, { seed: SelectedEntity; members: SelectedEntity[] }>();
-    for (const chain of this.chains) {
-      for (const member of chain.members) {
-        chainOf.set(entityKey(member), chain);
-      }
-    }
-    const seen = new Set<unknown>();
-    const rows: { label: string; members: SelectedEntity[] }[] = [];
-    for (const entity of this.entities) {
-      const chain = chainOf.get(entityKey(entity));
-      if (chain) {
-        if (!seen.has(chain)) {
-          seen.add(chain);
-          rows.push({
-            label: `Tangent chain (${chain.members.length} edges)`,
-            members: chain.members,
-          });
-        }
-      } else {
-        rows.push({ label: entity.sub.type === 'face' ? 'Face' : 'Edge', members: [entity] });
-      }
-    }
-
-    this.chipList.replaceChildren(...rows.map((chip, index) => {
-      const row = document.createElement('div');
-      row.className = 'flex items-center gap-1.5 rounded-md pl-2 pr-1 py-1 bg-base-200 border border-base-300';
-      const badge = document.createElement('span');
-      badge.className = 'badge badge-sm badge-primary badge-soft shrink-0';
-      badge.textContent = String(index + 1);
-      const label = document.createElement('span');
-      label.className = 'flex-1 truncate';
-      label.textContent = chip.label;
-      label.title = chip.label;
-      const remove = document.createElement('button');
-      remove.className = 'btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-base-content shrink-0 text-[9px]';
-      remove.title = 'Remove this selection';
-      remove.textContent = '✕';
-      remove.addEventListener('click', () => this.toggleEntity(chip.members[0]));
-      row.addEventListener('mouseenter', () => this.viewer.highlightEntities(chip.members));
-      row.addEventListener('mouseleave', () => this.previewSelection(null));
-      row.append(badge, label, remove);
-      return row;
-    }));
-    this.chipList.classList.toggle('hidden', rows.length === 0);
   }
 
   // -------------------------------------------------------------------------

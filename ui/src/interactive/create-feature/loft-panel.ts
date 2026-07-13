@@ -1,15 +1,6 @@
 import { LoftConditionRef } from '../../api';
 import { FeatureOp, OpTabs, PanelShell, ThinControl } from './panel-controls';
-import { SketchProfileOption } from './sketch-profiles';
-
-/** Sentinel value for the add-profile dropdown's placeholder row. */
-const ADD_PLACEHOLDER = '__add__';
-
-// The profiles hint box mirrors the sweep panel's count box: primary outline
-// while more profiles are needed; it disappears once the loft is applicable
-// (the numbered chips already carry the order).
-const HINT_BOX_BASE = 'flex items-center gap-2 rounded-md px-3 py-2.5 border transition-colors';
-const HINT_BOX_ACTIVE = 'bg-primary/10 border-primary text-primary';
+import { PickSlot } from '../pick-slot';
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type LoftValues =
@@ -99,32 +90,28 @@ class ConditionRow {
 }
 
 /**
- * The loft dialog: operation tabs, the ordered profile list (numbered,
- * removable chips — chip order is argument order), an add-sketch dropdown,
- * the optional guide list (up to two guide sketches), the start/end takeoff
- * conditions, and the thin toggle (blocked while guides exist — the kernel
- * forbids the combination). Faces are added by picking in the 3D view while
- * the dialog is armed; sketches via the dropdowns or timeline clicks, landing
- * in whichever section was focused last (`armedSection`). Pure DOM + form
- * state — the service owns the profile/guide lists, picks, previews, and the
- * apply call.
+ * The loft dialog: operation tabs, the ordered profile slot (numbered,
+ * removable chips in a container — chip order is argument order, rows
+ * drag-reorder by their grip), the optional guide slot (up to two guide
+ * sketches), the start/end takeoff conditions, and the thin toggle (blocked
+ * while guides exist — the kernel forbids the combination). Faces are added
+ * by picking in the 3D view while the dialog is armed; sketches by timeline
+ * or wire clicks, landing in whichever slot was clicked last
+ * (`armedSection`). Pure DOM + form state — the service owns the
+ * profile/guide lists, picks, previews, and the apply call.
  */
 export class LoftPanel {
   onChange?: () => void;
   onApply?: () => void;
   onExit?: () => void;
-  /** A sketch was chosen in the add-profile dropdown. */
-  onAddSketch?: (option: SketchProfileOption) => void;
   /** The chip at `index` (argument order) was removed. */
   onRemoveProfile?: (index: number) => void;
   /** The chip at `from` was dragged to position `to` (argument order). */
   onReorderProfile?: (from: number, to: number) => void;
-  /** A sketch was chosen in the add-guide dropdown. */
-  onAddGuide?: (option: SketchProfileOption) => void;
   /** The guide chip at `index` was removed. */
   onRemoveGuide?: (index: number) => void;
 
-  /** The section a timeline/viewport sketch pick fills — last focused. */
+  /** The slot a timeline/viewport sketch pick fills — last clicked. */
   armedSection: 'profiles' | 'guides' = 'profiles';
 
   private shell: PanelShell;
@@ -132,36 +119,17 @@ export class LoftPanel {
   private thin: ThinControl;
   private startCondition: ConditionRow;
   private endCondition: ConditionRow;
-  private chipList: HTMLElement;
-  private guideChipList: HTMLElement;
-  private hintBox: HTMLElement;
-  private hintText: HTMLElement;
-  private addSelect: HTMLSelectElement;
-  private addGuideSelect: HTMLSelectElement;
+  private profilesSlot: PickSlot;
+  private guidesSlot: PickSlot;
   private applyBtn: HTMLButtonElement;
-  private sketchOptions: SketchProfileOption[] = [];
-  private guideOptions: SketchProfileOption[] = [];
-  /** Chip index a drag started from; null while no drag is live. */
-  private dragIndex: number | null = null;
 
   constructor(container: HTMLElement) {
     this.shell = new PanelShell(container, 'fluidcad-loft-panel', 'Loft mode', '/icons/loft.png');
     this.shell.onEscape = () => this.onExit?.();
     this.shell.body.insertAdjacentHTML('beforeend', `
       <div data-role="tabs" class="join w-full"></div>
-      <div class="flex flex-col gap-1.5">
-        <span class="text-base-content/70">Profiles — in loft order</span>
-        <div data-role="chips" class="flex flex-col gap-1"></div>
-        <div data-role="hint" class="${HINT_BOX_BASE} ${HINT_BOX_ACTIVE}">
-          <span data-role="hint-text" class="leading-snug">Pick faces in 3D or add sketches</span>
-        </div>
-        <select data-role="add" class="select select-sm select-bordered w-full text-xs"></select>
-      </div>
-      <div class="flex flex-col gap-1.5">
-        <span class="text-base-content/70">Guides — optional, up to 2</span>
-        <div data-role="guide-chips" class="flex flex-col gap-1 hidden"></div>
-        <select data-role="add-guide" class="select select-sm select-bordered w-full text-xs"></select>
-      </div>
+      <div data-role="profiles-slot"></div>
+      <div data-role="guides-slot"></div>
       <div data-role="start-condition"></div>
       <div data-role="end-condition"></div>
       <div data-role="thin-host" class="contents"></div>
@@ -193,32 +161,23 @@ export class LoftPanel {
       row.onSubmit = () => this.onApply?.();
     }
 
-    this.chipList = this.shell.body.querySelector('[data-role="chips"]')!;
-    this.guideChipList = this.shell.body.querySelector('[data-role="guide-chips"]')!;
-    this.hintBox = this.shell.body.querySelector('[data-role="hint"]')!;
-    this.hintText = this.shell.body.querySelector('[data-role="hint-text"]')!;
-    this.addSelect = this.shell.body.querySelector('[data-role="add"]')!;
-    this.addGuideSelect = this.shell.body.querySelector('[data-role="add-guide"]')!;
+    this.profilesSlot = new PickSlot(
+      this.shell.body.querySelector('[data-role="profiles-slot"]')!,
+      { label: 'Profiles — in loft order', multiple: true, reorderable: true },
+    );
+    this.guidesSlot = new PickSlot(
+      this.shell.body.querySelector('[data-role="guides-slot"]')!,
+      { label: 'Guides — optional, up to 2', multiple: true },
+    );
+    this.profilesSlot.onArm = () => this.setArmedSection('profiles');
+    this.guidesSlot.onArm = () => this.setArmedSection('guides');
+    this.profilesSlot.onRemove = (index) => this.onRemoveProfile?.(index);
+    this.profilesSlot.onReorder = (from, to) => this.onReorderProfile?.(from, to);
+    this.guidesSlot.onRemove = (index) => this.onRemoveGuide?.(index);
     this.applyBtn = this.shell.body.querySelector('[data-role="apply"]')!;
 
     this.applyBtn.addEventListener('click', () => this.onApply?.());
     this.shell.body.querySelector('[data-role="exit"]')!.addEventListener('click', () => this.onExit?.());
-    this.addSelect.addEventListener('focus', () => this.setArmedSection('profiles'));
-    this.addGuideSelect.addEventListener('focus', () => this.setArmedSection('guides'));
-    this.addSelect.addEventListener('change', () => {
-      const option = this.sketchOptions[Number(this.addSelect.value)];
-      this.addSelect.value = ADD_PLACEHOLDER;
-      if (option) {
-        this.onAddSketch?.(option);
-      }
-    });
-    this.addGuideSelect.addEventListener('change', () => {
-      const option = this.guideOptions[Number(this.addGuideSelect.value)];
-      this.addGuideSelect.value = ADD_PLACEHOLDER;
-      if (option) {
-        this.onAddGuide?.(option);
-      }
-    });
   }
 
   get isVisible(): boolean {
@@ -226,15 +185,11 @@ export class LoftPanel {
   }
 
   show(): void {
-    // A fresh arming starts from empty profile/guide lists, no stale options,
-    // and unconditioned takeoffs.
-    this.sketchOptions = [];
-    this.guideOptions = [];
+    // A fresh arming starts from empty profile/guide lists and
+    // unconditioned takeoffs.
     this.shell.setTitle(null);
     this.setProfiles([]);
-    this.setSketchOptions([]);
     this.setGuides([]);
-    this.setGuideOptions([], false);
     this.startCondition.reset();
     this.endCondition.reset();
     this.setThinBlocked(false);
@@ -255,13 +210,9 @@ export class LoftPanel {
     startCondition: LoftConditionRef | null;
     endCondition: LoftConditionRef | null;
   }): void {
-    this.sketchOptions = [];
-    this.guideOptions = [];
     this.shell.setTitle('Edit loft');
     this.setProfiles([]);
-    this.setSketchOptions([]);
     this.setGuides([]);
-    this.setGuideOptions([], false);
     this.tabs.setOp(state.op);
     this.thin.setValues(state.thin);
     this.startCondition.set(state.startCondition);
@@ -276,160 +227,27 @@ export class LoftPanel {
 
   /**
    * Render the ordered profile chips; chip N is the loft's argument N.
-   * Rows reorder by dragging their grip handle — the drop marker shows on
-   * the top or bottom edge of the hovered row.
+   * Rows reorder by dragging their grip handle.
    */
   setProfiles(chips: LoftProfileChip[]): void {
-    this.dragIndex = null;
-    this.chipList.replaceChildren(...chips.map((chip, index) => {
-      const row = document.createElement('div');
-      row.className = 'flex items-center gap-1.5 rounded-md pl-1.5 pr-1 py-1 bg-base-200 border border-base-300 border-t-2 border-b-2 border-t-transparent border-b-transparent';
-
-      const handle = document.createElement('span');
-      handle.className = 'cursor-grab active:cursor-grabbing text-base-content/40 hover:text-base-content select-none shrink-0 leading-none';
-      handle.textContent = '⠿';
-      handle.title = 'Drag to reorder';
-      handle.draggable = true;
-      handle.addEventListener('dragstart', (e) => {
-        this.dragIndex = index;
-        row.classList.add('opacity-50');
-        if (e.dataTransfer) {
-          e.dataTransfer.effectAllowed = 'move';
-          e.dataTransfer.setData('text/plain', String(index));
-          e.dataTransfer.setDragImage(row, 16, 12);
-        }
-      });
-      handle.addEventListener('dragend', () => {
-        this.dragIndex = null;
-        row.classList.remove('opacity-50');
-        this.clearDropMarkers();
-      });
-
-      row.addEventListener('dragover', (e) => {
-        if (this.dragIndex === null || this.dragIndex === index) {
-          return;
-        }
-        e.preventDefault();
-        if (e.dataTransfer) {
-          e.dataTransfer.dropEffect = 'move';
-        }
-        this.markDrop(row, this.dropsBefore(row, e.clientY));
-      });
-      row.addEventListener('dragleave', () => this.unmarkDrop(row));
-      row.addEventListener('drop', (e) => {
-        const from = this.dragIndex;
-        this.dragIndex = null;
-        this.clearDropMarkers();
-        if (from === null || from === index) {
-          return;
-        }
-        e.preventDefault();
-        let to = index + (this.dropsBefore(row, e.clientY) ? 0 : 1);
-        if (to > from) {
-          to -= 1;
-        }
-        if (to !== from) {
-          this.onReorderProfile?.(from, to);
-        }
-      });
-
-      const badge = document.createElement('span');
-      badge.className = 'badge badge-sm badge-primary badge-soft shrink-0';
-      badge.textContent = String(index + 1);
-      const label = document.createElement('span');
-      label.className = 'flex-1 truncate';
-      label.textContent = chip.label;
-      label.title = chip.label;
-      const remove = document.createElement('button');
-      remove.className = 'btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-base-content shrink-0 text-[9px]';
-      remove.title = 'Remove this profile';
-      remove.textContent = '✕';
-      remove.addEventListener('click', () => this.onRemoveProfile?.(index));
-
-      row.append(handle, badge, label, remove);
-      return row;
-    }));
-    this.chipList.classList.toggle('hidden', chips.length === 0);
-  }
-
-  /** Whether a drop at `clientY` lands before (above) the hovered row. */
-  private dropsBefore(row: HTMLElement, clientY: number): boolean {
-    const rect = row.getBoundingClientRect();
-    return clientY < rect.top + rect.height / 2;
-  }
-
-  private markDrop(row: HTMLElement, before: boolean): void {
-    this.unmarkDrop(row);
-    row.classList.remove(before ? 'border-t-transparent' : 'border-b-transparent');
-    row.classList.add(before ? 'border-t-primary' : 'border-b-primary');
-  }
-
-  private unmarkDrop(row: HTMLElement): void {
-    row.classList.remove('border-t-primary', 'border-b-primary');
-    row.classList.add('border-t-transparent', 'border-b-transparent');
-  }
-
-  private clearDropMarkers(): void {
-    for (const row of this.chipList.children) {
-      this.unmarkDrop(row as HTMLElement);
-    }
-  }
-
-  /** The sketches the dropdown offers (the ones not already in the list). */
-  setSketchOptions(options: SketchProfileOption[]): void {
-    this.sketchOptions = options;
-    const placeholder = document.createElement('option');
-    placeholder.value = ADD_PLACEHOLDER;
-    placeholder.textContent = options.length > 0 ? 'Add a sketch profile…' : 'No sketches to add';
-    this.addSelect.replaceChildren(placeholder, ...options.map((option, i) => {
-      const el = document.createElement('option');
-      el.value = String(i);
-      el.textContent = option.label;
-      return el;
-    }));
-    this.addSelect.value = ADD_PLACEHOLDER;
-    this.addSelect.disabled = options.length === 0;
+    this.profilesSlot.setChips(chips.map((chip, index) => ({
+      label: chip.label,
+      badge: String(index + 1),
+      removable: true,
+    })));
   }
 
   /** Render the guide chips — plain removable rows, no ordering. */
   setGuides(chips: LoftProfileChip[]): void {
-    this.guideChipList.replaceChildren(...chips.map((chip, index) => {
-      const row = document.createElement('div');
-      row.className = 'flex items-center gap-1.5 rounded-md pl-2 pr-1 py-1 bg-base-200 border border-base-300';
-      const badge = document.createElement('span');
-      badge.className = 'badge badge-sm badge-soft shrink-0';
-      badge.textContent = 'G';
-      const label = document.createElement('span');
-      label.className = 'flex-1 truncate';
-      label.textContent = chip.label;
-      label.title = chip.label;
-      const remove = document.createElement('button');
-      remove.className = 'btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-base-content shrink-0 text-[9px]';
-      remove.title = 'Remove this guide';
-      remove.textContent = '✕';
-      remove.addEventListener('click', () => this.onRemoveGuide?.(index));
-      row.append(badge, label, remove);
-      return row;
-    }));
-    this.guideChipList.classList.toggle('hidden', chips.length === 0);
-  }
-
-  /** The sketches the guide dropdown offers; `atCapacity` = two guides set. */
-  setGuideOptions(options: SketchProfileOption[], atCapacity: boolean): void {
-    this.guideOptions = options;
-    const placeholder = document.createElement('option');
-    placeholder.value = ADD_PLACEHOLDER;
-    placeholder.textContent = atCapacity
-      ? 'Two guides max'
-      : options.length > 0 ? 'Add a guide sketch…' : 'No sketches to add';
-    this.addGuideSelect.replaceChildren(placeholder, ...options.map((option, i) => {
-      const el = document.createElement('option');
-      el.value = String(i);
-      el.textContent = option.label;
-      return el;
-    }));
-    this.addGuideSelect.value = ADD_PLACEHOLDER;
-    this.addGuideSelect.disabled = atCapacity || options.length === 0;
+    this.guidesSlot.setChips(chips.map(chip => ({
+      label: chip.label,
+      badge: 'G',
+      badgeMuted: true,
+      removable: true,
+    })));
+    this.guidesSlot.setPrompt(chips.length === 0
+      ? 'Pick a guide sketch in the timeline or 3D view'
+      : null);
   }
 
   /** Guides exclude thin mode — block the toggle while any guide is set. */
@@ -460,18 +278,13 @@ export class LoftPanel {
 
   private setArmedSection(section: 'profiles' | 'guides'): void {
     this.armedSection = section;
-    this.addSelect.classList.toggle('select-primary', section === 'profiles');
-    this.addGuideSelect.classList.toggle('select-primary', section === 'guides');
+    this.profilesSlot.setArmed(section === 'profiles');
+    this.guidesSlot.setArmed(section === 'guides');
   }
 
   /** Profile progress prompt while more profiles are needed; null hides it. */
   setHint(text: string | null): void {
-    if (text === null) {
-      this.hintBox.classList.add('hidden');
-      return;
-    }
-    this.hintText.textContent = text;
-    this.hintBox.className = `${HINT_BOX_BASE} ${HINT_BOX_ACTIVE}`;
+    this.profilesSlot.setPrompt(text);
   }
 
   setPreview(text: string | null): void {

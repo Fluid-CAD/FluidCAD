@@ -42,12 +42,12 @@ type LoftGuideItem =
  * profile is a numbered, removable chip whose order is the loft's argument
  * order. Profiles come from three sources: face picks in the 3D view (live
  * the whole time the dialog is armed — each click appends a chip, clicking a
- * picked face removes it), the add-sketch dropdown, and timeline sketch
- * clicks. Up to two guide sketches ride in their own section — sketch picks
- * land in whichever section was focused last — and the start/end takeoff
- * conditions in theirs. Arming from inside a sketch suspends sketch editing
- * immediately (the sweep behavior) so the camera is free and clicks pick
- * faces. Apply writes `loft(<profiles…>)` with `.guides()`/`.startCondition()`
+ * picked face removes it), sketch-wire picks, and timeline sketch clicks.
+ * Up to two guide sketches ride in their own slot — sketch picks land in
+ * whichever slot was clicked last — and the start/end takeoff conditions in
+ * theirs. Arming from inside a sketch suspends sketch editing immediately
+ * (the sweep behavior) so the camera is free and clicks pick faces. Apply
+ * writes `loft(<profiles…>)` with `.guides()`/`.startCondition()`
  * /`.endCondition()`/`.thin()`/`.remove()`/`.new()` chains.
  */
 export class LoftFeatureService {
@@ -120,10 +120,8 @@ export class LoftFeatureService {
       this.panel.setMessage(null);
       this.schedulePreview();
     };
-    this.panel.onAddSketch = (option) => this.addSketchProfile(option);
     this.panel.onRemoveProfile = (index) => this.removeProfile(index);
     this.panel.onReorderProfile = (from, to) => this.reorderProfile(from, to);
-    this.panel.onAddGuide = (option) => this.addGuide(option);
     this.panel.onRemoveGuide = (index) => this.removeGuide(index);
   }
 
@@ -722,16 +720,10 @@ export class LoftFeatureService {
     this.panel.setGuides(this.guides.map(guide => ({
       label: guide.kind === 'sketch' ? guide.option.label : guide.label,
     })));
-    // Both dropdowns offer the sketches not already in the loft — a sketch
-    // can be a profile or a guide, never both.
-    const remaining = this.profiles.filter(option => !this.usesSketch(option.filePath, option.line));
-    this.panel.setSketchOptions(remaining);
-    const guidesFull = this.guides.length >= 2;
-    this.panel.setGuideOptions(guidesFull ? [] : remaining, guidesFull);
     this.panel.setThinBlocked(this.guides.length > 0);
     const count = this.items.length;
     if (count === 0) {
-      this.panel.setHint('Pick faces in 3D or add sketches');
+      this.panel.setHint('Pick faces in 3D or sketches in the timeline');
     } else if (count === 1) {
       this.panel.setHint('1 profile — add at least one more');
     } else {

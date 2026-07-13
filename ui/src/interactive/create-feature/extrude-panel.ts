@@ -1,9 +1,7 @@
 import { OpTabs, PanelShell, ThinControl } from './panel-controls';
 import { SketchProfileOption } from './sketch-profiles';
+import { PickSlot } from '../pick-slot';
 import { ExtrudeOptionValues } from '../../api';
-
-/** Sentinel for edit mode's "keep the statement's own profile" entry. */
-const KEEP = '__keep__';
 
 /** How the extrusion distributes around the sketch plane. */
 export type ExtrudeDirection = 'one' | 'symmetric' | 'two';
@@ -13,7 +11,8 @@ export type ExtrudeValues = ExtrudeOptionValues | { error: string };
 
 /**
  * The extrude dialog: an Add / Remove / New tab row (the boolean operation),
- * the profile-sketch dropdown, the direction mode (one direction, symmetric,
+ * the profile pick slot (a single chip — filled by clicking a sketch in the
+ * timeline or its wires in 3D), the direction mode (one direction, symmetric,
  * or two distances), the distance fields (through-all on the Remove tab
  * disables them), a draft angle, a drill-holes toggle, and a thin() toggle
  * with its thickness. Pure DOM + form state — the service owns scene data,
@@ -27,7 +26,7 @@ export class ExtrudePanel {
   private shell: PanelShell;
   private tabs: OpTabs;
   private thin: ThinControl;
-  private profileSelect: HTMLSelectElement;
+  private profileSlot: PickSlot;
   private directionSelect: HTMLSelectElement;
   private distanceLabel: HTMLElement;
   private distanceInput: HTMLInputElement;
@@ -39,7 +38,9 @@ export class ExtrudePanel {
   private drillCheckbox: HTMLInputElement;
   private applyBtn: HTMLButtonElement;
   private options: SketchProfileOption[] = [];
-  /** Edit mode: the dropdown offers a "Current: …" keep entry, selected first. */
+  /** The profile slot's state: an option index, the keep entry, or empty. */
+  private selection: number | 'keep' | null = null;
+  /** Edit mode: the slot starts on a "Current: …" chip that keeps the statement's profile. */
   private editMode = false;
   private keepProfileLabel = '';
 
@@ -48,10 +49,7 @@ export class ExtrudePanel {
     this.shell.onEscape = () => this.onExit?.();
     this.shell.body.insertAdjacentHTML('beforeend', `
       <div data-role="tabs" class="join w-full"></div>
-      <label class="flex flex-col gap-1.5">
-        <span class="text-base-content/70">Profile</span>
-        <select data-role="profile" class="select select-sm select-bordered w-full text-xs"></select>
-      </label>
+      <div data-role="profile-slot"></div>
       <label class="flex flex-col gap-1.5" title="How the extrusion distributes around the sketch plane">
         <span class="text-base-content/70">Direction</span>
         <select data-role="direction" class="select select-sm select-bordered w-full text-xs">
@@ -106,7 +104,18 @@ export class ExtrudePanel {
     this.thin.onChange = () => this.onChange?.();
     this.thin.onSubmit = () => this.onApply?.();
 
-    this.profileSelect = this.shell.body.querySelector('[data-role="profile"]')!;
+    this.profileSlot = new PickSlot(
+      this.shell.body.querySelector('[data-role="profile-slot"]')!,
+      { label: 'Profile', multiple: false },
+    );
+    this.profileSlot.onRemove = () => {
+      // Create mode: back to the prompt; edit mode: back to the statement's
+      // own profile (a re-pick is undone, never the profile itself).
+      this.selection = this.editMode ? 'keep' : null;
+      this.renderProfile();
+      this.onChange?.();
+    };
+
     this.directionSelect = this.shell.body.querySelector('[data-role="direction"]')!;
     this.distanceLabel = this.shell.body.querySelector('[data-role="distance-label"]')!;
     this.distanceInput = this.shell.body.querySelector('[data-role="distance"]')!;
@@ -120,7 +129,6 @@ export class ExtrudePanel {
 
     this.applyBtn.addEventListener('click', () => this.onApply?.());
     this.shell.body.querySelector('[data-role="exit"]')!.addEventListener('click', () => this.onExit?.());
-    this.profileSelect.addEventListener('change', () => this.onChange?.());
     this.directionSelect.addEventListener('change', () => {
       this.syncControls();
       this.onChange?.();
@@ -148,23 +156,31 @@ export class ExtrudePanel {
 
   show(options: SketchProfileOption[]): void {
     // A fresh arming starts from defaults — the previous session's choice
-    // would otherwise be revived by source-line matching.
+    // would otherwise be revived by source-line matching. The slot opens on
+    // the first offered sketch (the active one, in sketch mode).
     this.options = [];
+    this.selection = null;
     this.editMode = false;
     this.shell.setTitle(null);
     this.setOptions(options);
+    if (this.selection === null && options.length > 0) {
+      this.selection = 0;
+      this.renderProfile();
+    }
     this.syncControls();
     this.shell.show();
   }
 
   /**
    * Open prefilled from an existing statement (edit mode). The profile slot
-   * starts on a "Current: …" entry that keeps the statement's own profile
-   * verbatim; choosing another sketch re-sources it. The op tabs, direction,
-   * distances, through-all, draft, drill and thin controls edit in place.
+   * starts on a "Current: …" chip that keeps the statement's own profile
+   * verbatim; picking another sketch re-sources it (its ✕ reverts to the
+   * kept profile). The op tabs, direction, distances, through-all, draft,
+   * drill and thin controls edit in place.
    */
   showEdit(state: ExtrudeOptionValues & { thin: [number] | null; profileLabel: string }): void {
     this.options = [];
+    this.selection = 'keep';
     this.editMode = true;
     this.keepProfileLabel = state.profileLabel;
     this.shell.setTitle('Edit extrude');
@@ -190,51 +206,25 @@ export class ExtrudePanel {
   }
 
   /**
-   * Refresh the profile dropdown after a re-render, keeping the current
+   * Refresh the offered sketches after a re-render, keeping the current
    * choice when the same sketch is still offered (matched by kind + source
-   * location — scene ids change every render). Edit mode prepends the
-   * "Current: …" keep entry, selected until the user re-sources.
+   * location — scene ids change every render). A choice that vanished falls
+   * back to the "Current: …" chip in edit mode, or to the pick prompt.
    */
   setOptions(options: SketchProfileOption[]): void {
     const previous = this.profileSelection();
     this.options = options;
-    const entries: HTMLOptionElement[] = [];
-    if (this.editMode) {
-      const keep = document.createElement('option');
-      keep.value = KEEP;
-      keep.textContent = `Current: ${this.keepProfileLabel}`;
-      entries.push(keep);
-    }
-    if (options.length === 0 && !this.editMode) {
-      const placeholder = document.createElement('option');
-      placeholder.textContent = 'No sketch — create one first';
-      placeholder.disabled = true;
-      this.profileSelect.replaceChildren(placeholder);
-      this.profileSelect.disabled = true;
-      return;
-    }
-    entries.push(...options.map((option, i) => {
-      const el = document.createElement('option');
-      el.value = String(i);
-      el.textContent = option.label;
-      return el;
-    }));
-    this.profileSelect.replaceChildren(...entries);
-    if (this.editMode && (!previous || previous.kind === 'keep')) {
-      this.profileSelect.value = KEEP;
+    if (previous?.kind === 'sketch') {
+      const prev = previous.option;
+      const match = options.findIndex(o => o.kind === prev.kind
+        && (o.kind === 'active' || (o.filePath === prev.filePath && o.line === prev.line)));
+      this.selection = match >= 0 ? match : this.editMode ? 'keep' : null;
+    } else if (previous?.kind === 'keep') {
+      this.selection = 'keep';
     } else {
-      const prev = previous?.kind === 'sketch' ? previous.option : null;
-      let index = 0;
-      if (prev) {
-        const match = options.findIndex(o => o.kind === prev.kind
-          && (o.kind === 'active' || (o.filePath === prev.filePath && o.line === prev.line)));
-        index = match >= 0 ? match : -1;
-      }
-      this.profileSelect.value = index >= 0 && options[index]
-        ? String(index)
-        : this.editMode ? KEEP : '0';
+      this.selection = null;
     }
-    this.profileSelect.disabled = entries.length <= 1;
+    this.renderProfile();
   }
 
   selectedOption(): SketchProfileOption | null {
@@ -244,18 +234,43 @@ export class ExtrudePanel {
 
   /** The profile slot's state, `keep` included (edit mode only). */
   profileSelection(): { kind: 'keep' } | { kind: 'sketch'; option: SketchProfileOption } | null {
-    if (this.editMode && this.profileSelect.value === KEEP) {
-      return { kind: 'keep' };
+    if (this.selection === 'keep') {
+      return this.editMode ? { kind: 'keep' } : null;
     }
-    const option = this.options[Number(this.profileSelect.value)];
+    const option = this.selection !== null ? this.options[this.selection] : undefined;
     return option ? { kind: 'sketch', option } : null;
   }
 
   /** Programmatic profile choice (a timeline pick); no change event fires. */
   selectProfile(index: number): void {
     if (this.options[index]) {
-      this.profileSelect.value = String(index);
+      this.selection = index;
+      this.renderProfile();
     }
+  }
+
+  /** The profile slot: one chip (the chosen sketch), or the pick prompt. */
+  private renderProfile(): void {
+    if (this.selection === 'keep') {
+      this.profileSlot.setChips([{
+        label: `Current: ${this.keepProfileLabel}`,
+        badge: '●',
+        removable: false,
+      }]);
+      this.profileSlot.setPrompt(null);
+    } else {
+      const option = this.selection !== null ? this.options[this.selection] : undefined;
+      this.profileSlot.setChips(option
+        ? [{ label: option.label, badge: '●', removable: true }]
+        : []);
+      this.profileSlot.setPrompt(option
+        ? null
+        : this.options.length > 0 || this.editMode
+          ? 'Pick a sketch in the timeline or 3D view'
+          : 'No sketch — create one first');
+    }
+    // The slot is the live pick target whenever there is anything to pick.
+    this.profileSlot.setArmed(this.editMode || this.options.length > 0);
   }
 
   values(): ExtrudeValues {

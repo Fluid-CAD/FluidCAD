@@ -1,17 +1,6 @@
 import { FeatureOp, OpTabs, PanelShell, ThinControl } from './panel-controls';
 import { SketchProfileOption } from './sketch-profiles';
-
-/** Sentinel value for the path dropdown's "pick edges in the 3D view" mode. */
-const PICK_EDGES = '__edges__';
-
-/** Sentinel for edit mode's "keep the statement's own expression" entries. */
-const KEEP = '__keep__';
-
-// The path count box mirrors the modify panel's selection field: primary
-// outline while it awaits picks, neutral fill once populated.
-const COUNT_BOX_BASE = 'flex items-center gap-2 rounded-md px-3 py-2.5 border transition-colors';
-const COUNT_BOX_IDLE = 'bg-base-200 border-base-300 text-base-content/70';
-const COUNT_BOX_ACTIVE = 'bg-primary/10 border-primary text-primary';
+import { PickSlot, PickSlotChip } from '../pick-slot';
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type SweepValues =
@@ -29,35 +18,55 @@ export type SweepProfileSelection =
   /** Edit mode only: the statement's own profile expression stays. */
   | { kind: 'keep' };
 
+/** The path slot's internal state; `null` is the empty pick prompt. */
+type PathState =
+  | { kind: 'keep' }
+  | { kind: 'sketch'; option: SketchProfileOption }
+  | { kind: 'edges' }
+  | null;
+
+type ProfileState =
+  | { kind: 'keep' }
+  | { kind: 'sketch'; option: SketchProfileOption }
+  | null;
+
 /**
- * The sweep dialog: operation tabs, the profile-sketch dropdown, and the
- * path slot — a dropdown offering "Pick edges in 3D" plus the scene's
- * sketches, with a count box while edge picking is live. Timeline picks land
- * in whichever slot was focused last (`armedSlot`). Pure DOM + form state —
- * the service owns scene data, edge picks, previews, and the apply call.
+ * The sweep dialog: operation tabs, the profile pick slot (a single sketch
+ * chip) and the path pick slot — a chip container holding either one path
+ * sketch or the picked path edges (edge picking is live in the 3D view the
+ * whole time the dialog is armed; picking an edge re-sources the path to
+ * edges, picking a sketch re-sources it back). Timeline/wire sketch picks
+ * land in whichever slot was clicked last (`armedSlot`). Pure DOM + form
+ * state — the service owns scene data, edge picks, previews, and the apply
+ * call.
  */
 export class SweepPanel {
   onChange?: () => void;
   onApply?: () => void;
   onExit?: () => void;
-  /** The path dropdown switched between edge picking and a sketch. */
+  /** The path slot switched between edge picking and a sketch. */
   onPathModeChange?: () => void;
+  /** The edge chip at `index` asked to be removed (the service owns picks). */
+  onRemovePathChip?: (index: number) => void;
+  /** An edge chip is hovered (its index) or left (null) — viewport preview. */
+  onPathChipHover?: (index: number | null) => void;
 
-  /** The slot a timeline sketch click fills — the one last focused. */
+  /** The slot a timeline/wire sketch pick fills — the one last clicked. */
   armedSlot: 'profile' | 'path' = 'path';
 
   private shell: PanelShell;
   private tabs: OpTabs;
   private thin: ThinControl;
-  private profileSelect: HTMLSelectElement;
-  private pathSelect: HTMLSelectElement;
-  private countBox: HTMLElement;
-  private countText: HTMLElement;
+  private profileSlot: PickSlot;
+  private pathSlot: PickSlot;
   private applyBtn: HTMLButtonElement;
-  private profileOptions: SketchProfileOption[] = [];
-  private pathOptions: SketchProfileOption[] = [];
+  private options: SketchProfileOption[] = [];
   private allowEdgePicking = false;
-  /** Edit mode: both slots offer a "Current: …" keep entry, selected first. */
+  private profileState: ProfileState = null;
+  private pathState: PathState = null;
+  /** The edge chips the service pushed while the path is picked edges. */
+  private pathEdgeChips: PickSlotChip[] = [];
+  /** Edit mode: both slots start on "Current: …" chips. */
   private editMode = false;
   private keepPathLabel = '';
   private keepProfileLabel = '';
@@ -67,17 +76,8 @@ export class SweepPanel {
     this.shell.onEscape = () => this.onExit?.();
     this.shell.body.insertAdjacentHTML('beforeend', `
       <div data-role="tabs" class="join w-full"></div>
-      <label class="flex flex-col gap-1.5">
-        <span class="text-base-content/70">Profile</span>
-        <select data-role="profile" class="select select-sm select-bordered w-full text-xs"></select>
-      </label>
-      <label class="flex flex-col gap-1.5">
-        <span class="text-base-content/70">Path</span>
-        <select data-role="path" class="select select-sm select-bordered w-full text-xs"></select>
-      </label>
-      <div data-role="count-box" class="hidden ${COUNT_BOX_BASE} ${COUNT_BOX_ACTIVE}">
-        <span data-role="count" class="whitespace-nowrap">Pick edges</span>
-      </div>
+      <div data-role="profile-slot"></div>
+      <div data-role="path-slot"></div>
       <div data-role="thin-host" class="contents"></div>
       <div class="flex items-center gap-2 pt-1">
         <button data-role="apply" class="btn btn-primary btn-sm flex-1">Apply</button>
@@ -95,57 +95,96 @@ export class SweepPanel {
     this.thin.onChange = () => this.onChange?.();
     this.thin.onSubmit = () => this.onApply?.();
 
-    this.profileSelect = this.shell.body.querySelector('[data-role="profile"]')!;
-    this.pathSelect = this.shell.body.querySelector('[data-role="path"]')!;
-    this.countBox = this.shell.body.querySelector('[data-role="count-box"]')!;
-    this.countText = this.shell.body.querySelector('[data-role="count"]')!;
+    this.profileSlot = new PickSlot(
+      this.shell.body.querySelector('[data-role="profile-slot"]')!,
+      { label: 'Profile', multiple: false },
+    );
+    this.pathSlot = new PickSlot(
+      this.shell.body.querySelector('[data-role="path-slot"]')!,
+      { label: 'Path', multiple: true },
+    );
     this.applyBtn = this.shell.body.querySelector('[data-role="apply"]')!;
 
     this.applyBtn.addEventListener('click', () => this.onApply?.());
     this.shell.body.querySelector('[data-role="exit"]')!.addEventListener('click', () => this.onExit?.());
-    this.profileSelect.addEventListener('focus', () => this.setArmedSlot('profile'));
-    this.pathSelect.addEventListener('focus', () => this.setArmedSlot('path'));
-    this.profileSelect.addEventListener('change', () => this.onChange?.());
-    this.pathSelect.addEventListener('change', () => {
-      this.syncPathControls();
-      this.onPathModeChange?.();
+    this.profileSlot.onArm = () => this.armSlot('profile');
+    this.pathSlot.onArm = () => this.armSlot('path');
+    this.profileSlot.onRemove = () => {
+      // Create mode: back to the prompt; edit mode: back to the statement's
+      // own profile (a re-pick is undone, never the profile itself).
+      this.profileState = this.editMode ? { kind: 'keep' } : null;
+      this.renderProfile();
       this.onChange?.();
-    });
+    };
+    this.pathSlot.onRemove = (index) => {
+      if (this.pathState?.kind === 'edges') {
+        this.onRemovePathChip?.(index);
+        return;
+      }
+      if (this.pathState?.kind === 'sketch') {
+        this.pathState = this.editMode ? { kind: 'keep' } : null;
+        this.renderPath();
+        this.onPathModeChange?.();
+        this.onChange?.();
+      }
+    };
+    this.pathSlot.onChipHover = (index) => {
+      if (this.pathState?.kind === 'edges') {
+        this.onPathChipHover?.(index);
+      }
+    };
   }
 
   get isVisible(): boolean {
     return this.shell.isVisible;
   }
 
-  show(profiles: SketchProfileOption[], paths: SketchProfileOption[], allowEdgePicking: boolean): void {
+  show(options: SketchProfileOption[], allowEdgePicking: boolean): void {
     // A fresh arming starts from defaults — the previous session's slot
-    // choices would otherwise be revived by source-line matching.
-    this.profileOptions = [];
-    this.pathOptions = [];
+    // choices would otherwise be revived by source-line matching. The
+    // profile opens on the first offered sketch (the active one, in sketch
+    // mode); the path on a different sketch when one exists, else on the
+    // pick prompt.
+    this.profileState = null;
+    this.pathState = null;
+    this.pathEdgeChips = [];
     this.editMode = false;
     this.shell.setTitle(null);
-    this.setOptions(profiles, paths, allowEdgePicking);
-    this.setArmedSlot('path');
+    this.setOptions(options, allowEdgePicking);
+    if (this.profileState === null && options.length > 0) {
+      this.profileState = { kind: 'sketch', option: options[0] };
+    }
+    if (this.pathState === null) {
+      this.pathState = this.defaultPath();
+    }
+    this.renderProfile();
+    this.renderPath();
+    this.armSlot('path');
     this.shell.show();
   }
 
   /**
    * Open prefilled from an existing statement (edit mode). Both slots start
-   * on a "Current: …" entry that keeps the statement's own expression
-   * verbatim; choosing another sketch (or edge picking, for the path)
-   * re-sources that slot. The op tabs and thin control edit in place.
+   * on a "Current: …" chip that keeps the statement's own expression
+   * verbatim; picking another sketch (or edges, for the path) re-sources
+   * that slot, and its ✕ reverts to the kept expression. The op tabs and
+   * thin control edit in place.
    */
   showEdit(state: { op: FeatureOp; thin: [number] | null; pathLabel: string; profileLabel: string }): void {
-    this.profileOptions = [];
-    this.pathOptions = [];
+    this.options = [];
+    this.allowEdgePicking = true;
+    this.profileState = { kind: 'keep' };
+    this.pathState = { kind: 'keep' };
+    this.pathEdgeChips = [];
     this.editMode = true;
     this.keepPathLabel = state.pathLabel;
     this.keepProfileLabel = state.profileLabel;
     this.shell.setTitle('Edit sweep');
-    this.setOptions([], [], true);
     this.tabs.setOp(state.op);
     this.thin.setValues(state.thin);
-    this.setArmedSlot('path');
+    this.renderProfile();
+    this.renderPath();
+    this.armSlot('path');
     this.shell.show();
   }
 
@@ -154,62 +193,26 @@ export class SweepPanel {
   }
 
   /**
-   * Refresh both dropdowns after a re-render, keeping current choices when
-   * the same sketch is still offered (matched by kind + source location).
+   * Refresh the offered sketches after a re-render, keeping current choices
+   * when the same sketch is still offered (matched by kind + source
+   * location). A choice that vanished falls back to the "Current: …" chip
+   * in edit mode, or to the pick prompt.
    */
-  setOptions(profiles: SketchProfileOption[], paths: SketchProfileOption[], allowEdgePicking: boolean): void {
-    const prevProfile = this.profileSelection();
-    const prevPath = this.pathSelection();
-    this.profileOptions = profiles;
-    this.pathOptions = paths;
+  setOptions(options: SketchProfileOption[], allowEdgePicking: boolean): void {
+    this.options = options;
     this.allowEdgePicking = allowEdgePicking;
-
-    const profileEntries: HTMLOptionElement[] = [];
-    if (this.editMode) {
-      profileEntries.push(makeOption(KEEP, `Current: ${this.keepProfileLabel}`));
+    if (this.profileState?.kind === 'sketch') {
+      const match = matchOption(options, this.profileState.option);
+      this.profileState = match ? { kind: 'sketch', option: match }
+        : this.editMode ? { kind: 'keep' } : null;
     }
-    if (profiles.length === 0 && !this.editMode) {
-      const placeholder = makeOption('', 'No sketch — create one first');
-      placeholder.disabled = true;
-      profileEntries.push(placeholder);
-    } else {
-      profileEntries.push(...profiles.map((option, i) => makeOption(String(i), option.label)));
+    if (this.pathState?.kind === 'sketch') {
+      const match = matchOption(options, this.pathState.option);
+      this.pathState = match ? { kind: 'sketch', option: match }
+        : this.editMode ? { kind: 'keep' } : null;
     }
-    this.profileSelect.replaceChildren(...profileEntries);
-    if (this.editMode && (!prevProfile || prevProfile.kind === 'keep')) {
-      this.profileSelect.value = KEEP;
-    } else {
-      const prev = prevProfile?.kind === 'sketch' ? prevProfile.option : null;
-      const match = matchOption(profiles, prev);
-      this.profileSelect.value = profiles[match]
-        ? String(match)
-        : this.editMode ? KEEP : String(match);
-    }
-    this.profileSelect.disabled = profileEntries.length <= 1;
-
-    const pathEntries: HTMLOptionElement[] = [];
-    if (this.editMode) {
-      pathEntries.push(makeOption(KEEP, `Current: ${this.keepPathLabel}`));
-    }
-    if (allowEdgePicking) {
-      pathEntries.push(makeOption(PICK_EDGES, 'Pick edges in 3D'));
-    }
-    pathEntries.push(...paths.map((option, i) => makeOption(String(i), option.label)));
-    this.pathSelect.replaceChildren(...pathEntries);
-    if (prevPath?.kind === 'edges' && allowEdgePicking) {
-      this.pathSelect.value = PICK_EDGES;
-    } else if (prevPath?.kind === 'sketch') {
-      const match = matchOption(paths, prevPath.option);
-      this.pathSelect.value = paths[match]
-        ? String(match)
-        : this.editMode ? KEEP : this.defaultPathValue();
-    } else if (this.editMode) {
-      this.pathSelect.value = KEEP;
-    } else {
-      this.pathSelect.value = this.defaultPathValue();
-    }
-    this.pathSelect.disabled = pathEntries.length <= 1;
-    this.syncPathControls();
+    this.renderProfile();
+    this.renderPath();
   }
 
   selectedProfile(): SketchProfileOption | null {
@@ -219,41 +222,52 @@ export class SweepPanel {
 
   /** The profile slot's state, `keep` included (edit mode only). */
   profileSelection(): SweepProfileSelection | null {
-    if (this.editMode && this.profileSelect.value === KEEP) {
-      return { kind: 'keep' };
-    }
-    const option = this.profileOptions[Number(this.profileSelect.value)];
-    return option ? { kind: 'sketch', option } : null;
+    return this.profileState;
   }
 
   pathSelection(): SweepPathSelection | null {
-    if (this.editMode && this.pathSelect.value === KEEP) {
-      return { kind: 'keep' };
-    }
-    if (this.pathSelect.value === PICK_EDGES) {
-      return this.allowEdgePicking ? { kind: 'edges' } : null;
-    }
-    const option = this.pathOptions[Number(this.pathSelect.value)];
-    return option ? { kind: 'sketch', option } : null;
+    return this.pathState;
   }
 
   /**
-   * A timeline sketch pick for the armed slot. Returns false when the sketch
-   * isn't among that slot's options.
+   * A timeline/wire sketch pick for the armed slot. Returns false when the
+   * sketch isn't among the offered options.
    */
   selectSketch(slot: 'profile' | 'path', filePath: string, line: number): boolean {
-    const options = slot === 'profile' ? this.profileOptions : this.pathOptions;
-    const index = options.findIndex(o => o.filePath === filePath && o.line === line);
-    if (index < 0) {
+    const option = this.options.find(o => o.filePath === filePath && o.line === line);
+    if (!option) {
       return false;
     }
-    const select = slot === 'profile' ? this.profileSelect : this.pathSelect;
-    select.value = String(index);
-    if (slot === 'path') {
-      this.syncPathControls();
+    if (slot === 'profile') {
+      this.profileState = { kind: 'sketch', option };
+      this.renderProfile();
+    } else {
+      this.pathState = { kind: 'sketch', option };
+      this.pathEdgeChips = [];
+      this.renderPath();
       this.onPathModeChange?.();
     }
     return true;
+  }
+
+  /**
+   * The picked path edges as chips (the service owns the pick set). Any
+   * chips re-source the path to edges; an empty set while the path is
+   * already edges keeps the mode and prompts for picks.
+   */
+  setPathEdgeChips(chips: PickSlotChip[]): void {
+    this.pathEdgeChips = chips;
+    if (chips.length > 0) {
+      this.pathState = { kind: 'edges' };
+    }
+    this.renderPath();
+  }
+
+  /** Reset the path to the statement's own expression (edit) or the prompt. */
+  setPathKeep(): void {
+    this.pathState = this.editMode ? { kind: 'keep' } : null;
+    this.pathEdgeChips = [];
+    this.renderPath();
   }
 
   values(): SweepValues {
@@ -262,13 +276,6 @@ export class SweepPanel {
       return thin;
     }
     return { op: this.tabs.op, thin: thin.thin };
-  }
-
-  /** Edge-pick progress: the count line, wearing the armed outline while empty. */
-  setPickCount(text: string, empty: boolean): void {
-    this.countText.textContent = text;
-    this.countBox.className = `${COUNT_BOX_BASE} ${empty ? COUNT_BOX_ACTIVE : COUNT_BOX_IDLE}`;
-    this.countBox.classList.toggle('hidden', this.pathSelection()?.kind !== 'edges');
   }
 
   setPreview(text: string | null): void {
@@ -283,41 +290,71 @@ export class SweepPanel {
     this.applyBtn.disabled = !enabled;
   }
 
-  private defaultPathValue(): string {
-    // Prefer a concrete sketch (the common sweep spine idiom) that isn't the
-    // chosen profile; fall back to edge picking when none is available.
-    const profile = this.selectedProfile();
-    const other = this.pathOptions.findIndex(o =>
-      !profile || o.filePath !== profile.filePath || o.line !== profile.line);
-    if (other >= 0) {
-      return String(other);
+  private renderProfile(): void {
+    const state = this.profileState;
+    if (state?.kind === 'keep') {
+      this.profileSlot.setChips([{
+        label: `Current: ${this.keepProfileLabel}`,
+        badge: '●',
+        removable: false,
+      }]);
+      this.profileSlot.setPrompt(null);
+    } else {
+      this.profileSlot.setChips(state?.kind === 'sketch'
+        ? [{ label: state.option.label, badge: '●', removable: true }]
+        : []);
+      this.profileSlot.setPrompt(state
+        ? null
+        : this.options.length > 0 || this.editMode
+          ? 'Pick a sketch in the timeline or 3D view'
+          : 'No sketch — create one first');
     }
-    return this.allowEdgePicking ? PICK_EDGES : '';
   }
 
-  private setArmedSlot(slot: 'profile' | 'path'): void {
+  private renderPath(): void {
+    const state = this.pathState;
+    if (state?.kind === 'keep') {
+      this.pathSlot.setChips([{
+        label: `Current: ${this.keepPathLabel}`,
+        badge: '●',
+        removable: false,
+      }]);
+      this.pathSlot.setPrompt(null);
+    } else if (state?.kind === 'sketch') {
+      this.pathSlot.setChips([{ label: state.option.label, badge: '●', removable: true }]);
+      this.pathSlot.setPrompt(null);
+    } else if (state?.kind === 'edges') {
+      this.pathSlot.setChips(this.pathEdgeChips);
+      this.pathSlot.setPrompt(this.pathEdgeChips.length > 0 ? null : 'Pick edges in 3D');
+    } else {
+      this.pathSlot.setChips([]);
+      this.pathSlot.setPrompt(this.allowEdgePicking
+        ? 'Pick edges in 3D or a sketch'
+        : 'Pick a sketch in the timeline or 3D view');
+    }
+  }
+
+  private defaultPath(): PathState {
+    // Prefer a concrete sketch (the common sweep spine idiom) that isn't the
+    // chosen profile; otherwise the prompt invites edge picks.
+    const profile = this.selectedProfile();
+    const other = this.options.find(o =>
+      !profile || o.filePath !== profile.filePath || o.line !== profile.line);
+    return other ? { kind: 'sketch', option: other } : null;
+  }
+
+  private armSlot(slot: 'profile' | 'path'): void {
     this.armedSlot = slot;
-    this.profileSelect.classList.toggle('select-primary', slot === 'profile');
-    this.pathSelect.classList.toggle('select-primary', slot === 'path');
-  }
-
-  private syncPathControls(): void {
-    this.countBox.classList.toggle('hidden', this.pathSelection()?.kind !== 'edges');
+    this.profileSlot.setArmed(slot === 'profile');
+    this.pathSlot.setArmed(slot === 'path');
   }
 }
 
-function makeOption(value: string, label: string): HTMLOptionElement {
-  const el = document.createElement('option');
-  el.value = value;
-  el.textContent = label;
-  return el;
-}
-
-function matchOption(options: SketchProfileOption[], previous: SketchProfileOption | null): number {
-  if (!previous) {
-    return 0;
-  }
-  const match = options.findIndex(o => o.kind === previous.kind
+/** The offered option matching `previous` by kind + source location. */
+function matchOption(
+  options: SketchProfileOption[],
+  previous: SketchProfileOption,
+): SketchProfileOption | undefined {
+  return options.find(o => o.kind === previous.kind
     && (o.kind === 'active' || (o.filePath === previous.filePath && o.line === previous.line)));
-  return match >= 0 ? match : 0;
 }

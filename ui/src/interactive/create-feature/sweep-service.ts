@@ -2,7 +2,7 @@ import {
   applySweep, applySweepEdit, fetchFeatureSources, ApplyFeatureChain, ApplyFeatureResponse, expandBucket,
   FeatureEditTarget, ParsedFeatureStatement, SelectionGroupKind, SourceSlotRef, SweepApplyOptions,
 } from '../../api';
-import { entityKey, mergeUniqueEntities, sameEntity } from '../../helpers/entities';
+import { entityKey, mergeUniqueEntities, sameEntity, selectionChipRows } from '../../helpers/entities';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import { SelectionContextMenu } from '../selection-menu';
 import { SceneObjectRender, SubSelection } from '../../types';
@@ -24,12 +24,13 @@ const PREVIEW_DEBOUNCE_MS = 250;
 
 /**
  * The Sweep dialog on the create rails: a profile sketch swept along a path.
- * Both slots take sketches (dropdown or timeline click into the focused
- * slot); the path alternatively takes edge picks in the 3D view — plain
- * clicks accumulate, right-click offers the multi-select menu (tangent
- * chain, classified bucket, occluded picks), double-click expands the
- * classified bucket, exactly like the modify rails. Arming edge
- * picking while a sketch is being edited suspends sketch editing (same
+ * Both slots take sketches (timeline or wire clicks into the armed slot);
+ * the path alternatively takes edge picks, live in the 3D view the whole
+ * time the dialog is armed — an edge click re-sources the path to picked
+ * edges (listed as removable chips), plain clicks accumulate, right-click
+ * offers the multi-select menu (tangent chain, classified bucket, occluded
+ * picks), double-click expands the classified bucket, exactly like the
+ * modify rails. Arming from inside a sketch suspends sketch editing (same
  * mechanism as sketch-on-face) so the camera is free and clicks pick edges.
  * Apply writes `sweep(<path>[, <profile>])` with `.thin()`/`.remove()`/
  * `.new()` chains — the re-render is the preview, editor undo the rollback.
@@ -60,6 +61,8 @@ export class SweepFeatureService {
 
   private entities: SelectedEntity[] = [];
   private chains: { seed: SelectedEntity; members: SelectedEntity[] }[] = [];
+  /** The rendered path chip rows — chip index to pick members. */
+  private pathChipRows: { label: string; members: SelectedEntity[] }[] = [];
   private selectionMenu: SelectionContextMenu;
   private labelSignature = '';
 
@@ -105,7 +108,18 @@ export class SweepFeatureService {
       this.refreshHighlight();
       this.schedulePreview();
     };
-    this.panel.onPathModeChange = () => this.syncEdgePicking();
+    this.panel.onPathModeChange = () => this.syncPathMode();
+    this.panel.onRemovePathChip = (index) => this.removePathChip(index);
+    this.panel.onPathChipHover = (index) => {
+      // Hovering a chip shows just that chip's edges, so the row can be told
+      // apart from its siblings; leaving restores the full selection.
+      const members = index !== null ? this.pathChipRows[index]?.members : undefined;
+      if (members) {
+        this.viewer.highlightEntities(members);
+      } else {
+        this.refreshHighlight();
+      }
+    };
 
     // Right-click menu for path edge picks: multi-select groups + sibling
     // buckets ("Select other"). A path is one connected chain, so the
@@ -131,9 +145,13 @@ export class SweepFeatureService {
     return this.editTarget !== null;
   }
 
-  /** Edge picks are live — the viewer routes clicks here (both modes). */
+  /**
+   * Edge picks are live the whole time the dialog is armed, in both modes —
+   * an edge click re-sources the path to picked edges. The viewer routes
+   * edge clicks, double-clicks and right-clicks here.
+   */
   get isEdgePicking(): boolean {
-    return this.armed && this.panel.pathSelection()?.kind === 'edges';
+    return this.armed;
   }
 
   /** True while armed edge picking has suspended sketch editing. */
@@ -184,11 +202,10 @@ export class SweepFeatureService {
     if (!this.sourceSlots) {
       void this.loadEditSources();
     }
-    this.panel.setOptions(this.profiles, this.profiles, true);
+    this.panel.setOptions(this.profiles, true);
     this.refreshSketchLabels();
-    this.syncEdgePicking();
+    this.refreshPathChips();
     this.refreshHighlight();
-    this.refreshPickCount();
     this.schedulePreview();
   }
 
@@ -217,14 +234,14 @@ export class SweepFeatureService {
       this.suspendSketchUI();
     }
     this.viewer.pickSketchWires = true;
+    this.viewer.pickFilter = 'edge';
     // Shape ids changed with the render; the viewer already cleared highlights.
     this.entities = [];
     this.chains = [];
-    this.panel.setOptions(this.profiles, this.profiles, this.hasSolid);
+    this.panel.setOptions(this.profiles, this.hasSolid);
     this.refreshSketchLabels();
-    this.syncEdgePicking();
+    this.refreshPathChips();
     this.refreshHighlight();
-    this.refreshPickCount();
     this.schedulePreview();
   }
 
@@ -250,12 +267,14 @@ export class SweepFeatureService {
     this.editTarget = target;
     this.entities = [];
     this.chains = [];
+    this.pathChipRows = [];
     this.sourceSlots = null;
     this.pathSeedApplied = false;
     this.editSceneStale = false;
     this.syncButton();
     this.suspendSketchUI();
     this.viewer.pickSketchWires = true;
+    this.viewer.pickFilter = 'edge';
     this.session.begin({ ...info, target });
     void this.loadEditSources();
     this.panel.showEdit({
@@ -264,7 +283,6 @@ export class SweepFeatureService {
       pathLabel: parsed.pathText,
       profileLabel: parsed.profileText ?? 'Current sketch (implicit)',
     });
-    this.syncEdgePicking();
     this.schedulePreview();
   }
 
@@ -302,12 +320,12 @@ export class SweepFeatureService {
       this.suspendSketchUI();
     }
     this.viewer.pickSketchWires = true;
+    this.viewer.pickFilter = 'edge';
     this.syncButton();
-    this.panel.show(this.profiles, this.profiles, this.hasSolid);
+    this.panel.show(this.profiles, this.hasSolid);
     this.refreshSketchLabels();
-    this.syncEdgePicking();
+    this.refreshPathChips();
     this.refreshHighlight();
-    this.refreshPickCount();
     this.schedulePreview();
   }
 
@@ -335,6 +353,7 @@ export class SweepFeatureService {
     this.cancelPreview();
     this.entities = [];
     this.chains = [];
+    this.pathChipRows = [];
     this.viewer.clearHighlight();
     this.viewer.pickFilter = 'all';
     this.viewer.pickSketchWires = false;
@@ -344,9 +363,11 @@ export class SweepFeatureService {
   }
 
   /**
-   * Routes viewer clicks while edge picking is live: plain clicks accumulate,
-   * clicking a selected edge deselects it (a chain member deselects its whole
-   * chain), empty-space clicks keep the selection.
+   * Routes viewer edge clicks while the dialog is armed: the first pick
+   * re-sources the path to edges (in edit mode seeded with the statement's
+   * own edges, so re-picking is incremental), further plain clicks
+   * accumulate, clicking a selected edge deselects it (a chain member
+   * deselects its whole chain), empty-space clicks keep the selection.
    */
   handleClick(shapeId: string | null, sub: SubSelection): void {
     if (!this.isEdgePicking || !shapeId || !sub || sub.type !== 'edge') {
@@ -354,7 +375,22 @@ export class SweepFeatureService {
     }
     this.hideContextMenu();
     this.panel.setMessage(null);
+    this.ensureEdgesSeed();
     this.toggleEntity({ shapeId, sub });
+  }
+
+  /**
+   * The first edge gesture of an edit session starts from the statement's
+   * own path edges (when they resolve) instead of from scratch.
+   */
+  private ensureEdgesSeed(): void {
+    if (!this.editTarget || this.pathSeedApplied) {
+      return;
+    }
+    this.pathSeedApplied = true;
+    if (this.entities.length === 0 && this.sourceSlots?.path.kind === 'entities') {
+      this.entities = this.sourceSlots.path.entities.map(e => ({ shapeId: e.shapeId, sub: e.sub }));
+    }
   }
 
   /** Toggle a plain pick; a chain member toggles its whole chain off. */
@@ -372,9 +408,21 @@ export class SweepFeatureService {
         this.entities = [...this.entities, entity];
       }
     }
+    // Chips first: an emptied edit selection collapses back to the kept
+    // path, and the highlight must paint that state.
+    this.refreshPathChips();
     this.refreshHighlight();
-    this.refreshPickCount();
     this.schedulePreview();
+  }
+
+  /** A path chip's ✕: remove that pick (a chain chip removes its chain). */
+  private removePathChip(index: number): void {
+    const row = this.pathChipRows[index];
+    if (!row) {
+      return;
+    }
+    this.panel.setMessage(null);
+    this.toggleEntity(row.members[0]);
   }
 
   /** Double-click: expand the pick to its whole classified bucket. */
@@ -383,7 +431,7 @@ export class SweepFeatureService {
       return;
     }
     this.hideContextMenu();
-    const result = await expandBucket({ shapeId, sub });
+    const result = await expandBucket({ shapeId, sub }, this.session.boundary ?? undefined);
     if (!this.isEdgePicking) {
       return;
     }
@@ -391,6 +439,7 @@ export class SweepFeatureService {
       this.panel.setMessage(result.error);
       return;
     }
+    this.ensureEdgesSeed();
     this.mergeEntities(result.members.map(m => ({ shapeId: m.shapeId, sub: m.sub })));
   }
 
@@ -401,8 +450,8 @@ export class SweepFeatureService {
       return;
     }
     this.entities = merged;
+    this.refreshPathChips();
     this.refreshHighlight();
-    this.refreshPickCount();
     this.schedulePreview();
   }
 
@@ -427,6 +476,7 @@ export class SweepFeatureService {
       return;
     }
     this.panel.setMessage(null);
+    this.ensureEdgesSeed();
     if (kind === 'tangent') {
       this.addChain(seed, members);
     } else {
@@ -443,8 +493,8 @@ export class SweepFeatureService {
       ...members,
     ];
     this.chains.push({ seed, members });
+    this.refreshPathChips();
     this.refreshHighlight();
-    this.refreshPickCount();
     this.schedulePreview();
   }
 
@@ -487,8 +537,8 @@ export class SweepFeatureService {
       this.panel.setMessage('That sketch was already consumed — only sketches still rendered in the scene can be used.');
       return;
     }
+    // A path pick already synced the mode via onPathModeChange.
     this.panel.setMessage(null);
-    this.syncEdgePicking();
     this.refreshHighlight();
     this.schedulePreview();
   }
@@ -648,41 +698,26 @@ export class SweepFeatureService {
   }
 
   // -------------------------------------------------------------------------
-  // Edge-pick mode + sketch-editing suspension
+  // Path-mode sync + sketch-editing suspension
   // -------------------------------------------------------------------------
 
   /**
-   * Align the viewer with the path slot: live edge picking narrows the pick
-   * filter and, from inside a sketch, suspends sketch editing so the camera
-   * is free. Switching the path back to a sketch keeps a suspension in place
-   * — the camera shouldn't ping-pong mid-dialog; exit restores it.
+   * The path slot left edge mode (a sketch pick, a ✕ back to the kept
+   * expression): drop the edge picks and re-offer the edit seed on the next
+   * edge gesture.
    */
-  private syncEdgePicking(): void {
-    const picking = this.isEdgePicking;
-    this.viewer.pickFilter = picking ? 'edge' : 'all';
-    if (picking && this.sceneSketchActive) {
-      this.suspendSketchUI();
+  private syncPathMode(): void {
+    if (this.panel.pathSelection()?.kind === 'edges') {
+      return;
     }
-    if (picking && this.editTarget && !this.pathSeedApplied) {
-      // First arm of edge picking in an edit session: start from the
-      // statement's own path edges (when they resolved) so re-picking is
-      // incremental, not from scratch.
-      this.pathSeedApplied = true;
-      if (this.entities.length === 0 && this.sourceSlots?.path.kind === 'entities') {
-        this.entities = this.sourceSlots.path.entities.map(e => ({ shapeId: e.shapeId, sub: e.sub }));
-      }
+    if (this.entities.length > 0 || this.chains.length > 0) {
+      this.entities = [];
+      this.chains = [];
     }
-    if (!picking) {
-      if (this.entities.length > 0) {
-        this.entities = [];
-        this.chains = [];
-      }
-      // Leaving edge picking re-offers the seed on the next arm.
-      this.pathSeedApplied = false;
-      this.hideContextMenu();
-    }
+    this.pathChipRows = [];
+    this.pathSeedApplied = false;
+    this.hideContextMenu();
     this.refreshHighlight();
-    this.refreshPickCount();
   }
 
   private suspendSketchUI(): void {
@@ -707,7 +742,7 @@ export class SweepFeatureService {
 
   /**
    * Async label pass: sketches bound to variables show their names in the
-   * dropdowns ("spine — line 3"). Applied only if the dialog is still armed
+   * chips ("spine — line 3"). Applied only if the dialog is still armed
    * on the same option set when the lookup lands.
    */
   private async refreshSketchLabels(): Promise<void> {
@@ -718,7 +753,7 @@ export class SweepFeatureService {
       return;
     }
     this.profiles = labeled;
-    this.panel.setOptions(labeled, labeled, this.hasSolid);
+    this.panel.setOptions(labeled, this.editTarget ? true : this.hasSolid);
   }
 
   /**
@@ -767,17 +802,24 @@ export class SweepFeatureService {
     }
   }
 
-  private refreshPickCount(): void {
-    const edges = this.entities.length;
-    if (edges === 0) {
-      this.panel.setPickCount('Pick edges', true);
+  /**
+   * Reflect the pick set into the path slot's chips. An edit selection
+   * emptied out by ✕ clicks reverts to the statement's own path — the kept
+   * expression is what Apply would preserve, and it stays reachable.
+   */
+  private refreshPathChips(): void {
+    this.pathChipRows = selectionChipRows(this.entities, this.chains);
+    if (this.pathChipRows.length === 0 && this.editTarget
+      && this.panel.pathSelection()?.kind === 'edges') {
+      this.pathSeedApplied = false;
+      this.panel.setPathKeep();
       return;
     }
-    const parts = [`${edges} edge${edges === 1 ? '' : 's'}`];
-    if (this.chains.length > 0) {
-      parts.push(`${this.chains.length} chain${this.chains.length === 1 ? '' : 's'}`);
-    }
-    this.panel.setPickCount(parts.join(' + '), false);
+    this.panel.setPathEdgeChips(this.pathChipRows.map((row, index) => ({
+      label: row.label,
+      badge: String(index + 1),
+      removable: true,
+    })));
   }
 
   private hideContextMenu(): void {

@@ -1,9 +1,5 @@
 import { PanelShell } from './panel-controls';
-
-// The bases hint box mirrors the loft panel's: primary outline while more
-// bases are needed; it disappears once the plane is applicable.
-const HINT_BOX_BASE = 'flex items-center gap-2 rounded-md px-3 py-2.5 border transition-colors';
-const HINT_BOX_ACTIVE = 'bg-primary/10 border-primary text-primary';
+import { PickSlot } from '../pick-slot';
 
 export type PlaneType = 'offset' | 'mid' | 'edge';
 
@@ -24,14 +20,14 @@ export type PlaneBaseChip = { label: string };
 
 /**
  * The plane dialog: the type dropdown (Offset / Mid plane / From edge), the
- * base chip list — loft-style, filled entirely from the scene: faces are
- * picked in the 3D view while the dialog is armed (edges for the edge type),
- * standard origin planes by clicking their viewport quads, existing plane
- * features via timeline clicks — plus the offset distance (offset type), the
- * 0–1 edge position (edge type) and the per-axis rotation row (offset/mid —
- * the edge form's argument slot is taken by the position). Pure DOM + form
- * state — the service owns the base list, picks, previews, and the apply
- * call.
+ * base pick slot — filled entirely from the scene: faces are picked in the
+ * 3D view while the dialog is armed (edges for the edge type), standard
+ * origin planes by clicking their viewport quads, existing plane features
+ * via timeline clicks — plus the offset distance (offset type), the 0–1
+ * edge position (edge type) and the per-axis rotation row (offset/mid — the
+ * edge form's argument slot is taken by the position). The mid type takes
+ * two bases, so its chips wrap in a container. Pure DOM + form state — the
+ * service owns the base list, picks, previews, and the apply call.
  */
 export class PlanePanel {
   onChange?: () => void;
@@ -44,9 +40,7 @@ export class PlanePanel {
 
   private shell: PanelShell;
   private typeSelect: HTMLSelectElement;
-  private chipList: HTMLElement;
-  private hintBox: HTMLElement;
-  private hintText: HTMLElement;
+  private basesSlot: PickSlot;
   private offsetRow: HTMLElement;
   private offsetInput: HTMLInputElement;
   private positionRow: HTMLElement;
@@ -67,13 +61,7 @@ export class PlanePanel {
           <option value="edge" title="A plane normal to an edge at a position along it — plane(edge, 0.5)">From edge</option>
         </select>
       </label>
-      <div class="flex flex-col gap-1.5">
-        <span data-role="bases-label" class="text-base-content/70">Base</span>
-        <div data-role="chips" class="flex flex-col gap-1"></div>
-        <div data-role="hint" class="${HINT_BOX_BASE} ${HINT_BOX_ACTIVE}">
-          <span data-role="hint-text" class="leading-snug">Pick a face or plane in 3D</span>
-        </div>
-      </div>
+      <div data-role="bases-slot"></div>
       <label data-role="offset-row" class="flex flex-col gap-1.5">
         <span class="text-base-content/70">Offset</span>
         <input data-role="offset" type="number" step="1" value="10"
@@ -102,9 +90,13 @@ export class PlanePanel {
     `);
 
     this.typeSelect = this.shell.body.querySelector('[data-role="type"]')!;
-    this.chipList = this.shell.body.querySelector('[data-role="chips"]')!;
-    this.hintBox = this.shell.body.querySelector('[data-role="hint"]')!;
-    this.hintText = this.shell.body.querySelector('[data-role="hint-text"]')!;
+    this.basesSlot = new PickSlot(
+      this.shell.body.querySelector('[data-role="bases-slot"]')!,
+      { label: 'Base', multiple: false },
+    );
+    // The slot is the live pick target the whole time the dialog is armed.
+    this.basesSlot.setArmed(true);
+    this.basesSlot.onRemove = (index) => this.onRemoveBase?.(index);
     this.offsetRow = this.shell.body.querySelector('[data-role="offset-row"]')!;
     this.offsetInput = this.shell.body.querySelector('[data-role="offset"]')!;
     this.positionRow = this.shell.body.querySelector('[data-role="position-row"]')!;
@@ -175,35 +167,16 @@ export class PlanePanel {
   /** Render the base chips (numbered for a mid plane — argument order). */
   setBases(chips: PlaneBaseChip[]): void {
     const numbered = this.capacity > 1;
-    this.chipList.replaceChildren(...chips.map((chip, index) => {
-      const row = document.createElement('div');
-      row.className = 'flex items-center gap-1.5 rounded-md pl-2 pr-1 py-1 bg-base-200 border border-base-300';
-      const badge = document.createElement('span');
-      badge.className = 'badge badge-sm badge-primary badge-soft shrink-0';
-      badge.textContent = numbered ? String(index + 1) : '●';
-      const label = document.createElement('span');
-      label.className = 'flex-1 truncate';
-      label.textContent = chip.label;
-      label.title = chip.label;
-      const remove = document.createElement('button');
-      remove.className = 'btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-base-content shrink-0 text-[9px]';
-      remove.title = 'Remove this base';
-      remove.textContent = '✕';
-      remove.addEventListener('click', () => this.onRemoveBase?.(index));
-      row.append(badge, label, remove);
-      return row;
-    }));
-    this.chipList.classList.toggle('hidden', chips.length === 0);
+    this.basesSlot.setChips(chips.map((chip, index) => ({
+      label: chip.label,
+      badge: numbered ? String(index + 1) : '●',
+      removable: true,
+    })));
   }
 
   /** Base progress prompt while more bases are needed; null hides it. */
   setHint(text: string | null): void {
-    if (text === null) {
-      this.hintBox.classList.add('hidden');
-      return;
-    }
-    this.hintText.textContent = text;
-    this.hintBox.className = `${HINT_BOX_BASE} ${HINT_BOX_ACTIVE}`;
+    this.basesSlot.setPrompt(text);
   }
 
   values(): PlaneValues {
@@ -258,8 +231,8 @@ export class PlanePanel {
 
   private syncType(): void {
     const type = this.planeType;
-    (this.shell.body.querySelector('[data-role="bases-label"]') as HTMLElement).textContent =
-      type === 'mid' ? 'Bases' : type === 'edge' ? 'Edge' : 'Base';
+    this.basesSlot.setLabel(type === 'mid' ? 'Bases' : type === 'edge' ? 'Edge' : 'Base');
+    this.basesSlot.setMultiple(type === 'mid');
     this.offsetRow.classList.toggle('hidden', type !== 'offset');
     this.offsetRow.classList.toggle('flex', type === 'offset');
     this.positionRow.classList.toggle('hidden', type !== 'edge');

@@ -578,7 +578,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return filteredShapes;
   }
 
-  getChildShapes(filter?: ShapeFilter, type?: ShapeType): Shape[] {
+  getChildShapes(filter?: ShapeFilter, type?: ShapeType, scope?: Set<SceneObject>): Shape[] {
     let shapes: Shape[] = [];
 
     filter = {
@@ -587,23 +587,23 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     }
 
     for (const child of this.children) {
-      shapes = shapes.concat(child.getShapes(filter, type));
+      shapes = shapes.concat(child.getShapes(filter, type, scope));
     }
 
     return shapes;
   }
 
-  getShapes(filter?: ShapeFilter, type?: ShapeType): Shape[] {
+  getShapes(filter?: ShapeFilter, type?: ShapeType, scope?: Set<SceneObject>): Shape[] {
     filter = {
       excludeMeta: filter?.excludeMeta ?? true,
       excludeGuide: filter?.excludeGuide ?? true,
     }
 
     if (this.isContainer()) {
-      return this.getChildShapes(filter, type);
+      return this.getChildShapes(filter, type, scope);
     }
 
-    const ownShapes = this.getOwnShapes(filter);
+    const ownShapes = this.getOwnShapes(filter, scope);
 
     if (type) {
       return ownShapes.filter(s => s.getType() === type);

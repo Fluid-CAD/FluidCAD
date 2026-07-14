@@ -75,14 +75,21 @@ export function globalContext(
 ): InductionContext {
   const solids: Solid[] = [];
   const seenSolids = new Set<string>();
-  for (const obj of scene.getAllSceneObjects()) {
+  const objects = scene.getAllSceneObjects();
+  // Removal scope: a solid only counts as consumed when its consumer is in
+  // this scene's object list. Under an edit boundary the scene is truncated,
+  // and a solid eaten by the edited statement (or anything after it) is still
+  // present in the world the emitted select() executes in — the same scope
+  // rule renderRollback applies.
+  const scope = new Set(objects);
+  for (const obj of objects) {
     // A select() statement inserted inside a part() body only sees that
     // part's objects (getPartScopedObjectsUpTo); mirror it here so
     // verification runs over the same universe the emitted code will.
     if (partScope && scene.findEnclosingPart(obj) !== partScope) {
       continue;
     }
-    for (const shape of obj.getShapes({}, 'solid')) {
+    for (const shape of obj.getShapes({}, 'solid', scope)) {
       if (shape instanceof Solid && !seenSolids.has(shape.id)) {
         seenSolids.add(shape.id);
         solids.push(shape);

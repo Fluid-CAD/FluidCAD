@@ -3,6 +3,9 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
+import fillet from "../../core/fillet.js";
+import shell from "../../core/shell.js";
+import { edge } from "../../filters/index.js";
 import { circle, move, rect } from "../../core/2d/index.js";
 import { Scene } from "../../rendering/scene.js";
 import { Shape } from "../../common/shape.js";
@@ -116,6 +119,48 @@ describe("scoped selection scene", () => {
       expect(result.featureType).toBe("extrude");
       expect(result.accessor).toBe("endEdges");
       expect(result.members).toHaveLength(4);
+    }
+  });
+
+  it("synthesizes a global select() for a pick on a solid consumed by the edited statement", () => {
+    // extrude → fillet (reshapes the side face) → shell. Editing the shell,
+    // the rollback displays the fillet's solid — consumed by the shell itself,
+    // i.e. by a feature OUTSIDE the boundary. The picked side face was trimmed
+    // by the fillet, so no bucket names it and synthesis must go through the
+    // scene-wide select() tier — whose universe has to treat the fillet solid
+    // as present (its consumer is not part of the scoped world).
+    sketch("xy", () => {
+      rect(100, 60).centered().radius(8);
+    });
+    const e = extrude(30);
+    setLocation(e, 4);
+    const f = fillet(3, e.startEdges(edge().above("xz").above("yz")));
+    setLocation(f, 6);
+    const sh = shell(-2, e.endFaces());
+    setLocation(sh, 7);
+
+    const scene = render();
+    const shellIndex = scene.getAllSceneObjects().findIndex(o => o.getType() === "shell");
+    expect(shellIndex).toBeGreaterThan(0);
+    const filleted = solidOf(scene, "fillet");
+
+    // The side face at y = -30, trimmed by the fillet (not the extrude's
+    // original side face, so it belongs to no bucket).
+    const sideRefs = faceRefsWhere(filleted, m => Math.abs(m.y + 30) < 1e-6);
+    expect(sideRefs).toHaveLength(1);
+
+    const scoped = scopedSceneBefore(scene, shellIndex);
+    const explain = explainSelection(scoped, sideRefs);
+    expect(explain.picks[0].error).toBeUndefined();
+    expect(explain.picks[0].attributed).toBe(false); // guards the select() routing
+
+    const synthesis = synthesizeApplyFeature(scoped, sideRefs, "shell", -2);
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok) {
+      expect(synthesis.args).toMatch(/^select\(face\(\)/);
+      expect(synthesis.spec.imports).toContain("select");
+      expect(synthesis.spec.producers).toHaveLength(1);
+      expect(synthesis.spec.producers[0].bind).toBe(false); // anchor-only
     }
   });
 

@@ -64,13 +64,18 @@ export class PickSlot {
   private prompt: string | null = null;
   private armed = false;
   private multiple: boolean;
+  /** Opt a single-pick slot into the bordered container box (heights then
+   * match a sibling multi slot — the sweep dialog's profile beside its path);
+   * defaults to following `multiple`. */
+  private readonly forceBoxed?: boolean;
   private readonly reorderable: boolean;
   /** Chip index a drag started from; null while no drag is live. */
   private dragIndex: number | null = null;
   private rows: HTMLElement[] = [];
 
-  constructor(host: HTMLElement, opts: { label: string; multiple: boolean; reorderable?: boolean }) {
+  constructor(host: HTMLElement, opts: { label: string; multiple: boolean; reorderable?: boolean; boxed?: boolean }) {
     this.multiple = opts.multiple;
+    this.forceBoxed = opts.boxed;
     this.reorderable = opts.reorderable ?? false;
     host.classList.add('flex', 'flex-col', 'gap-1.5');
     this.labelEl = document.createElement('span');
@@ -119,13 +124,18 @@ export class PickSlot {
     this.render();
   }
 
+  /** Whether the chips sit inside the bordered container box. */
+  private get boxed(): boolean {
+    return this.forceBoxed ?? this.multiple;
+  }
+
   private render(): void {
     this.rows = this.chips.map((chip, index) => this.renderChip(chip, index));
     // A single slot never shows chip and prompt together; a container keeps
     // the prompt under its chips while more picks are wanted.
     const promptWanted = this.prompt !== null && (this.multiple || this.rows.length === 0);
     const promptEl = promptWanted ? this.renderPrompt() : null;
-    if (this.multiple) {
+    if (this.boxed) {
       this.listEl.className = `${LIST_BASE} ${this.armed ? LIST_ARMED : LIST_IDLE}`;
     } else {
       this.listEl.className = 'flex flex-col gap-1';
@@ -136,7 +146,7 @@ export class PickSlot {
 
   private renderPrompt(): HTMLElement {
     const el = document.createElement('div');
-    el.className = this.multiple
+    el.className = this.boxed
       ? `${PROMPT_LISTED_BASE} ${this.armed ? PROMPT_LISTED_ARMED : PROMPT_LISTED_IDLE}`
       : `${PROMPT_BARE_BASE} ${this.armed ? PROMPT_BARE_ARMED : PROMPT_BARE_IDLE}`;
     const text = document.createElement('span');
@@ -150,7 +160,7 @@ export class PickSlot {
     const row = document.createElement('div');
     // A bare single chip carries the armed border itself; inside a container
     // the container border does.
-    const outline = !this.multiple && this.armed ? ROW_ARMED : ROW_IDLE;
+    const outline = !this.boxed && this.armed ? ROW_ARMED : ROW_IDLE;
     row.className = `${ROW_BASE} ${outline} ${this.reorderable ? `pl-1.5 ${ROW_DRAG_EXTRA}` : 'pl-2'}`;
 
     if (this.reorderable) {
@@ -158,7 +168,13 @@ export class PickSlot {
       this.wireDropTarget(row, index);
     }
 
-    if (chip.badge) {
+    if (chip.badge === '●') {
+      // The single-pick indicator is a compact dot, not a padded pill badge —
+      // a pill's inline padding floats the dot far off the chip's left edge.
+      const dot = document.createElement('span');
+      dot.className = `w-2 h-2 rounded-full shrink-0 ${chip.badgeMuted ? 'bg-base-content/40' : 'bg-primary'}`;
+      row.appendChild(dot);
+    } else if (chip.badge) {
       const badge = document.createElement('span');
       badge.className = `badge badge-sm badge-soft shrink-0${chip.badgeMuted ? '' : ' badge-primary'}`;
       badge.textContent = chip.badge;

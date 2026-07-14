@@ -97,7 +97,8 @@ export class SweepPanel {
 
     this.profileSlot = new PickSlot(
       this.shell.body.querySelector('[data-role="profile-slot"]')!,
-      { label: 'Profile', multiple: false },
+      // Boxed like the path slot below so the two pickers stand equal height.
+      { label: 'Profile', multiple: false, boxed: true },
     );
     this.pathSlot = new PickSlot(
       this.shell.body.querySelector('[data-role="path-slot"]')!,

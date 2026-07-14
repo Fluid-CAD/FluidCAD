@@ -1,9 +1,10 @@
 import {
-  applyExtrude, applyExtrudeEdit, fetchFeatureSources, ApplyFeatureResponse, ExtrudeProfileRef,
-  FeatureEditTarget, ParsedFeatureStatement, SourceSlotRef,
+  applyExtrude, applyExtrudeEdit, fetchFeatureSources, ApplyFeatureResponse, ExtrudeEditOptions,
+  ExtrudeProfileRef, FeatureEditTarget, ParsedFeatureStatement, SourceSlotRef,
 } from '../../api';
-import { SceneObjectRender } from '../../types';
-import { Viewer } from '../../viewer';
+import { sameEntity } from '../../helpers/entities';
+import { SceneObjectRender, SubSelection } from '../../types';
+import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { EditSession, EditSessionInfo } from '../edit-session';
@@ -29,8 +30,10 @@ const PREVIEW_DEBOUNCE_MS = 250;
  * scene has anything to work from — an unconsumed sketch or a solid (matching
  * Loft); the dialog's dropdown offers the unconsumed sketches and
  * a chosen one is bound to a variable (`const s = sketch(…)` → `extrude(25,
- * s)`). No 3D picking is involved — the re-render is the preview and editor
- * undo is the rollback, as on the modify rails.
+ * s)`). The only 3D picking is the "Up to face" direction mode, where a face
+ * click sets the extrusion's target (`extrude(<face>, s)`); otherwise the
+ * re-render is the preview and editor undo is the rollback, as on the
+ * modify rails.
  */
 export class ExtrudeFeatureService {
   private panel: ExtrudePanel;
@@ -42,6 +45,11 @@ export class ExtrudeFeatureService {
   private options: SketchProfileOption[] = [];
   private sceneObjects: SceneObjectRender[] = [];
   private hasSolid = false;
+  private sceneSketchActive = false;
+  /** The picked up-to-face target ("Up to face" direction, both modes). */
+  private toFaceEntity: SelectedEntity | null = null;
+  /** A full render arrived mid-session — a re-picked face's shape id died. */
+  private editSceneStale = false;
   private labelSignature = '';
   private applying = false;
   /** Statement being edited in place (timeline double-click), or null. */
@@ -50,6 +58,8 @@ export class ExtrudeFeatureService {
   private session = new EditSession();
   /** The statement's current profile source, for highlighting the keep slot. */
   private sourceProfile: SourceSlotRef | null = null;
+  /** The statement's current to-face target, for highlighting its keep chip. */
+  private sourceToFace: SourceSlotRef | null = null;
   /** Sketch editing is suspended while an edit session owns the view. */
   private suspendedSketchUI = false;
   private previewTimer: number | null = null;
@@ -93,6 +103,14 @@ export class ExtrudeFeatureService {
     this.panel.onExit = () => this.exit();
     this.panel.onChange = () => {
       this.panel.setMessage(null);
+      this.syncFacePickMode();
+      this.refreshHighlight();
+      this.schedulePreview();
+    };
+    this.panel.onRemoveFace = () => {
+      this.toFaceEntity = null;
+      this.panel.setFaceChip(null);
+      this.panel.setMessage(null);
       this.refreshHighlight();
       this.schedulePreview();
     };
@@ -105,6 +123,15 @@ export class ExtrudeFeatureService {
   /** An edit session is open (the viewport shows the pre-statement rollback). */
   get isEditing(): boolean {
     return this.editTarget !== null;
+  }
+
+  /**
+   * Face picks are live while the dialog's direction is "Up to face" — the
+   * click sets the extrusion's target face. In edit mode the pick resolves
+   * against the rolled-back pre-statement scene (the loft edit behavior).
+   */
+  get isFacePicking(): boolean {
+    return this.armed && this.panel.isToFace();
   }
 
   /** True while an edit session has suspended sketch editing. */
@@ -136,14 +163,26 @@ export class ExtrudeFeatureService {
     if (state === 'waiting') {
       if (!isRollback) {
         this.sourceProfile = null;
+        this.editSceneStale = true;
       }
       return;
     }
     // At the boundary: rebuild options from the pre-statement scene.
     this.sceneObjects = sceneObjects;
     this.options = collectSketchProfiles(sceneObjects);
+    if (this.editSceneStale) {
+      this.editSceneStale = false;
+      // A scene rebuild killed the re-picked face's shape id; the keep chip
+      // is text-addressed and survives.
+      if (this.toFaceEntity) {
+        this.toFaceEntity = null;
+        this.panel.setFaceChip(null);
+        this.panel.setMessage('The code changed — the re-picked face was reset.');
+      }
+    }
     this.viewer.pickSketchWires = true;
     this.panel.setOptions(this.options);
+    this.syncFacePickMode();
     if (!this.sourceProfile) {
       void this.loadEditSources();
     }
@@ -160,6 +199,7 @@ export class ExtrudeFeatureService {
   update(sceneObjects: SceneObjectRender[]): void {
     this.sceneObjects = sceneObjects;
     this.options = collectSketchProfiles(sceneObjects);
+    this.sceneSketchActive = this.options[0]?.kind === 'active';
     this.hasSolid = sceneObjects.some(o =>
       o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
     // Offered whenever the scene has anything to work from — like Loft. With
@@ -173,11 +213,18 @@ export class ExtrudeFeatureService {
       return;
     }
     if (!this.available) {
-      this.exit();
+      this.exit({ resume: 'lazy' });
       return;
+    }
+    // Shape ids changed with the render — a picked target face is stale and
+    // drops back to the pick prompt (the loft behavior).
+    if (this.toFaceEntity) {
+      this.toFaceEntity = null;
+      this.panel.setFaceChip(null);
     }
     this.viewer.pickSketchWires = true;
     this.panel.setOptions(this.options);
+    this.syncFacePickMode();
     this.refreshSketchLabels();
     this.refreshHighlight();
     this.schedulePreview();
@@ -203,6 +250,9 @@ export class ExtrudeFeatureService {
     this.armed = true;
     this.editTarget = target;
     this.sourceProfile = null;
+    this.sourceToFace = null;
+    this.toFaceEntity = null;
+    this.editSceneStale = false;
     this.syncButton();
     this.suspendSketchUI();
     this.viewer.pickSketchWires = true;
@@ -217,11 +267,13 @@ export class ExtrudeFeatureService {
       drill: parsed.drill,
       thin: parsed.thin,
       profileLabel: parsed.profileText ?? 'Current sketch (implicit)',
+      toFaceLabel: parsed.toFaceText,
     });
+    this.syncFacePickMode();
     this.schedulePreview();
   }
 
-  /** The statement's current profile, for highlighting the keep entry. */
+  /** The statement's current profile and target, for highlighting keep slots. */
   private async loadEditSources(): Promise<void> {
     const boundary = this.session.boundary;
     if (!boundary) {
@@ -231,9 +283,13 @@ export class ExtrudeFeatureService {
     if (!this.editTarget || this.session.boundary?.index !== boundary.index) {
       return;
     }
-    this.sourceProfile = result.ok && (result.feature === 'extrude' || result.feature === 'cut')
-      ? result.profile
-      : { kind: 'opaque' };
+    if (result.ok && (result.feature === 'extrude' || result.feature === 'cut')) {
+      this.sourceProfile = result.profile;
+      this.sourceToFace = result.toFace ?? null;
+    } else {
+      this.sourceProfile = { kind: 'opaque' };
+      this.sourceToFace = null;
+    }
     this.refreshHighlight();
   }
 
@@ -244,10 +300,14 @@ export class ExtrudeFeatureService {
     this.session.end('continue');
     this.hooks.onEnter?.();
     this.armed = true;
+    this.toFaceEntity = null;
     // Clicking a sketch's wires in the 3D view selects it as the profile.
     this.viewer.pickSketchWires = true;
     this.syncButton();
     this.panel.show(this.options);
+    // The direction select persists across sessions — re-arm face picking
+    // when the dialog reopens on "Up to face".
+    this.syncFacePickMode();
     this.refreshSketchLabels();
     this.refreshHighlight();
     this.schedulePreview();
@@ -269,22 +329,36 @@ export class ExtrudeFeatureService {
     this.panel.setOptions(labeled);
   }
 
-  exit(opts: { editEnd?: 'apply' | 'cancel' | 'continue' | 'gone' } = {}): void {
+  /**
+   * `resume: 'lazy'` re-enables sketch editing without forcing the mode
+   * transition — for apply-success and scene-driven exits, where a render
+   * follows. User cancels default to `'immediate'` (a create-mode "Up to
+   * face" suspension has no follow-up render to resume it); ending an edit
+   * session always resumes lazily (a render follows every session end —
+   * the cancel-restore rollback, an apply's rebuild).
+   */
+  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'gone' } = {}): void {
     if (!this.armed) {
       return;
     }
+    const hadSession = this.session.active;
     this.session.end(opts.editEnd ?? 'cancel');
+    if (hadSession) {
+      opts = { ...opts, resume: 'lazy' };
+    }
     this.armed = false;
     this.editTarget = null;
     this.sourceProfile = null;
+    this.sourceToFace = null;
+    this.toFaceEntity = null;
+    this.editSceneStale = false;
+    this.viewer.pickFilter = 'all';
     this.viewer.pickSketchWires = false;
     this.viewer.clearHighlight();
     this.syncButton();
     this.cancelPreview();
     this.panel.hide();
-    // An edit session's suspension always resumes lazily — a render follows
-    // every session end (the cancel-restore rollback, an apply's rebuild).
-    this.resumeSketchUI(false);
+    this.resumeSketchUI((opts.resume ?? 'immediate') === 'immediate');
   }
 
   private suspendSketchUI(): void {
@@ -308,11 +382,11 @@ export class ExtrudeFeatureService {
   }
 
   /**
-   * Highlight the selected profile's wires in the 3D view. The active sketch
-   * is skipped in create mode: extrude doesn't suspend sketch editing there,
-   * and painting the sketch being edited would fight the sketch tools. An
-   * edit session's keep entry lights up the statement's own profile via the
-   * resolved current source.
+   * Highlight the selected profile's wires — and the picked up-to-face
+   * target — in the 3D view. The active sketch is skipped in create mode:
+   * extrude doesn't suspend sketch editing there, and painting the sketch
+   * being edited would fight the sketch tools. An edit session's keep entry
+   * lights up the statement's own profile via the resolved current source.
    */
   private refreshHighlight(): void {
     if (!this.armed) {
@@ -327,8 +401,19 @@ export class ExtrudeFeatureService {
     const wireIds = option && (option.kind === 'other' || this.editTarget)
       ? sketchWireShapeIds(option, this.sceneObjects)
       : [];
-    if (wireIds.length > 0) {
-      this.viewer.highlightEntities([], wireIds);
+    // The target face: the re-pick, or an edit session's keep chip through
+    // the resolved current source (the statement's own face at the boundary).
+    const faces: SelectedEntity[] = [];
+    if (this.isFacePicking) {
+      if (this.toFaceEntity) {
+        faces.push(this.toFaceEntity);
+      } else if (this.editTarget && this.panel.faceSelection()?.kind === 'keep'
+        && this.sourceToFace?.kind === 'entities') {
+        faces.push(...this.sourceToFace.entities.map(e => ({ shapeId: e.shapeId, sub: e.sub })));
+      }
+    }
+    if (wireIds.length > 0 || faces.length > 0) {
+      this.viewer.highlightEntities(faces, wireIds);
     } else {
       this.viewer.clearHighlight();
     }
@@ -387,6 +472,46 @@ export class ExtrudeFeatureService {
     this.schedulePreview();
   }
 
+  /**
+   * Routes viewer clicks while face picking is live: a face click sets the
+   * up-to-face target (clicking the picked face again clears it); empty-space
+   * clicks keep it.
+   */
+  handleClick(shapeId: string | null, sub: SubSelection): void {
+    if (!this.isFacePicking || !shapeId || !sub || sub.type !== 'face') {
+      return;
+    }
+    const entity: SelectedEntity = { shapeId, sub };
+    this.toFaceEntity = this.toFaceEntity && sameEntity(this.toFaceEntity, entity) ? null : entity;
+    this.panel.setFaceChip(this.toFaceEntity ? 'Picked face' : null);
+    this.panel.setMessage(null);
+    this.refreshHighlight();
+    this.schedulePreview();
+  }
+
+  /**
+   * The viewer's pick mode follows the direction select: "Up to face" picks
+   * faces only, and — in create mode — an active sketch releases the view
+   * (the loft/sweep behavior) so the camera is free and clicks reach the
+   * solid. Flipping the direction back restores both. Edit mode owns the
+   * suspension wholesale, so only the pick filter tracks the direction there.
+   */
+  private syncFacePickMode(): void {
+    if (!this.armed) {
+      return;
+    }
+    const picking = this.panel.isToFace();
+    this.viewer.pickFilter = picking ? 'face' : 'all';
+    if (this.editTarget) {
+      return;
+    }
+    if (picking && this.sceneSketchActive) {
+      this.suspendSketchUI();
+    } else if (!picking) {
+      this.resumeSketchUI(true);
+    }
+  }
+
   private async apply(): Promise<void> {
     if (!this.armed || this.applying) {
       return;
@@ -428,11 +553,15 @@ export class ExtrudeFeatureService {
     this.applying = true;
     this.panel.setApplyEnabled(false);
     try {
-      const result = await applyExtrude({ ...values, profile: profileRef(option) });
+      const result = await applyExtrude({
+        ...values,
+        profile: profileRef(option),
+        toFace: this.panel.isToFace() ? this.toFaceEntity ?? undefined : undefined,
+      });
       if (result.success) {
         // The editor round-trip re-renders the scene; that render is the
         // preview and editor undo is the rollback.
-        this.exit();
+        this.exit({ resume: 'lazy' });
       } else {
         this.panel.setMessage(result.reason ?? 'Could not apply the extrude.');
       }
@@ -485,6 +614,7 @@ export class ExtrudeFeatureService {
         : await applyExtrude({
           ...values,
           profile: profileRef(option!),
+          toFace: this.panel.isToFace() ? this.toFaceEntity ?? undefined : undefined,
           preview: true,
           signal: abort.signal,
         });
@@ -495,9 +625,10 @@ export class ExtrudeFeatureService {
       return;
     }
     this.panel.setPreview(result.success ? result.preview ?? null : null);
-    if (this.editTarget && !result.success && result.reason) {
+    if (!result.success && result.reason && (this.editTarget || this.panel.isToFace())) {
       // The statement changed shape under the dialog (an undo, a concurrent
-      // edit) — surface the refusal before Apply.
+      // edit) or the picked target face has no safe selector — surface the
+      // refusal before Apply.
       this.panel.setMessage(result.reason);
     }
   }
@@ -513,13 +644,13 @@ export class ExtrudeFeatureService {
   }
 
   /**
-   * The edit apply/preview's session fields: the staleness guard plus the
-   * re-sourced profile when the dropdown moved off its "Current: …" entry.
+   * The edit apply/preview's session fields: the staleness guard, the
+   * re-sourced profile when the slot moved off its "Current: …" entry, and
+   * the to-face target while that direction is selected — `keep` for the
+   * statement's own target, a face pick (with the boundary it resolves
+   * against) for a re-pick. No toFace field means the distance form.
    */
-  private editSourceFields(): {
-    expectedStatement?: string;
-    profile?: { mode: 'bound' } & { filePath: string; line: number; column: number };
-  } {
+  private editSourceFields(): Pick<ExtrudeEditOptions, 'expectedStatement' | 'before' | 'profile' | 'toFace'> {
     const selection = this.panel.profileSelection();
     const profile = selection?.kind === 'sketch'
       ? {
@@ -529,7 +660,18 @@ export class ExtrudeFeatureService {
         column: selection.option.column,
       }
       : undefined;
-    return { expectedStatement: this.session.expectedStatement, profile };
+    let toFace: ExtrudeEditOptions['toFace'];
+    if (this.panel.isToFace()) {
+      toFace = this.toFaceEntity
+        ? { kind: 'face', entity: this.toFaceEntity }
+        : { kind: 'keep' };
+    }
+    return {
+      expectedStatement: this.session.expectedStatement,
+      before: toFace?.kind === 'face' ? this.session.boundary ?? undefined : undefined,
+      profile,
+      toFace,
+    };
   }
 }
 

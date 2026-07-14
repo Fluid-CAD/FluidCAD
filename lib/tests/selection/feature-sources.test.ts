@@ -96,7 +96,7 @@ describe("feature sources (edit-dialog seeding)", () => {
     }
   });
 
-  it("reports a to-face cut's argument slot as opaque", () => {
+  it("resolves a to-face cut's profile, with an opaque target for a face literal", () => {
     sketch("xy", () => {
       rect(100, 100);
     });
@@ -115,7 +115,40 @@ describe("feature sources (edit-dialog seeding)", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok && result.feature === "cut") {
-      expect(result.profile).toEqual({ kind: "opaque" });
+      expect(result.profile).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 6, column: 0 });
+      // 'first-face' resolves at build time — there is no picked face to seed.
+      expect(result.toFace).toEqual({ kind: "opaque" });
+    }
+  });
+
+  it("resolves a to-face extrude's picked target as entities", () => {
+    sketch("xy", () => {
+      move([200, 0]);
+      rect(100, 50);
+    });
+    const e = extrude(50) as Extrude;
+    setLocation(e, 4);
+    const s2 = sketch("xy", () => {
+      circle(30);
+    });
+    setLocation(s2, 6);
+    const t = extrude(e.endFaces(), s2);
+    setLocation(t, 9);
+
+    const scene = render();
+    const objects = scene.getAllSceneObjects();
+    // Both extrudes share the type 'extrude' — address the statements by line.
+    const box = objects.find(o => o.getSourceLocation()?.line === 4)!
+      .getAddedShapes().filter(s => s.getType() === "solid")[0];
+    const index = objects.findIndex(o => o.getSourceLocation()?.line === 9);
+    expect(index).toBeGreaterThanOrEqual(0);
+    const result = resolveFeatureSources(scene, { index, type: "extrude", line: 9, column: 0 });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "extrude") {
+      expect(result.profile).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 6, column: 0 });
+      const topFace = faceRefsWhere(box, m => Math.abs(m.z - 50) < 1e-6);
+      expect(result.toFace).toEqual({ kind: "entities", entities: topFace });
     }
   });
 

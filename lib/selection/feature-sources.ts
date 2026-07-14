@@ -28,7 +28,12 @@ export type SourceSlot =
   | { kind: 'opaque' };
 
 export type FeatureSources =
-  | { feature: 'extrude' | 'cut'; profile: SourceSlot }
+  | {
+    feature: 'extrude' | 'cut';
+    profile: SourceSlot;
+    /** Up-to-face target; absent for a distance extrude. */
+    toFace?: SourceSlot;
+  }
   | { feature: 'sweep'; profile: SourceSlot; path: SourceSlot }
   | { feature: 'loft'; profiles: SourceSlot[]; guides: SourceSlot[] }
   | { feature: 'shell' | 'fillet' | 'chamfer'; selection: SourceSlot };
@@ -83,13 +88,20 @@ export function resolveFeatureSources(
       };
     }
     if (feature instanceof ExtrudeBase) {
-      return {
-        ok: true,
-        feature: feature.getType() === 'cut' ? 'cut' : 'extrude',
-        // A to-face cut's single argument is the target, not a profile —
-        // runtime truth the statement parser cannot see.
-        profile: feature instanceof ExtrudeToFace ? { kind: 'opaque' } : resolver.profileSlot(feature),
-      };
+      const kind = feature.getType() === 'cut' ? 'cut' as const : 'extrude' as const;
+      if (feature instanceof ExtrudeToFace) {
+        return {
+          ok: true,
+          feature: kind,
+          profile: resolver.profileSlot(feature),
+          // The target face as viewport entities; 'first-face'/'last-face'
+          // literals have no picked face to resolve.
+          toFace: feature.face instanceof SceneObject
+            ? resolver.entitiesSlot([feature.face])
+            : OPAQUE,
+        };
+      }
+      return { ok: true, feature: kind, profile: resolver.profileSlot(feature) };
     }
     return { ok: false, reason: `${feature.getType()}() has no editable sources` };
   } finally {

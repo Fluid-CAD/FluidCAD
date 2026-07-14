@@ -943,6 +943,54 @@ describe('extrude statement templates', () => {
     ));
     expect(result.error).toContain('malformed');
   });
+
+  const toFaceCode = [
+    `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { rect(100, 50) })`,
+    `extrude(30)`,
+    `sketch('xz', () => { circle(10) })`,
+    ``,
+  ].join('\n');
+
+  it('renders a to-face extrude from its selector part at end of scope, even with a bound profile', async () => {
+    const result = await applyFeatureEdit(toFaceCode, extrudeSpec(
+      { profile: 'bound', toFace: true, distance: null },
+      {
+        producers: [
+          { line: 5, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+          { line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true },
+        ],
+        parts: [{ producer: 1, accessor: 'endFaces', indices: null, filterArgs: null }],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    expect(lines).toContain(`const e = extrude(30)`);
+    const profileRow = lines.findIndex(l => l === `const s = sketch('xz', () => { circle(10) })`);
+    // End of scope, not directly after the bound profile — the face selector
+    // must resolve on the final model.
+    expect(lines[profileRow + 1]).toBe(`extrude(e.endFaces(), s)`);
+  });
+
+  it('renders an implicit-profile to-face cut from a global select part', async () => {
+    const result = await applyFeatureEdit(toFaceCode, extrudeSpec(
+      { op: 'remove', toFace: true, distance: null },
+      {
+        producers: [{ line: 5, column: 0, featureType: 'sketch', nameHint: 's', bind: false }],
+        parts: [{ producer: null, accessor: 'select', indices: null, filterArgs: `face().parallelTo('xy')` }],
+        imports: ['select', 'face'],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`cut(select(face().parallelTo('xy')))`);
+    expect(result.newCode).toMatch(/import \{.*select.*\} from 'fluidcad\/core'/);
+  });
+
+  it('refuses a to-face spec without its selector part', async () => {
+    const result = await applyFeatureEdit(activeSketchCode, extrudeSpec({ toFace: true, distance: null }));
+    expect(result.error).toContain('malformed');
+  });
 });
 
 describe('makeProducerNamer — sketch producers', () => {
@@ -1442,7 +1490,7 @@ describe('parseFeatureStatement', () => {
       ok: true,
       parsed: {
         feature: 'extrude', op: 'add', distance: 30, distance2: null, symmetric: false,
-        draft: null, drill: true, thin: null, profileText: null,
+        draft: null, drill: true, thin: null, profileText: null, toFaceText: null,
       },
       statement: 'extrude(30)',
     });
@@ -1455,7 +1503,7 @@ describe('parseFeatureStatement', () => {
       ok: true,
       parsed: {
         feature: 'extrude', op: 'new', distance: 25, distance2: null, symmetric: false,
-        draft: null, drill: true, thin: [2], profileText: 's',
+        draft: null, drill: true, thin: [2], profileText: 's', toFaceText: null,
       },
       statement: 'extrude(25, s).thin(2).new()',
     });
@@ -1468,7 +1516,7 @@ describe('parseFeatureStatement', () => {
       ok: true,
       parsed: {
         feature: 'extrude', op: 'remove', distance: null, distance2: null, symmetric: false,
-        draft: null, drill: true, thin: null, profileText: 's',
+        draft: null, drill: true, thin: null, profileText: 's', toFaceText: null,
       },
       statement: 'cut(s)',
     });
@@ -1481,7 +1529,7 @@ describe('parseFeatureStatement', () => {
       ok: true,
       parsed: {
         feature: 'extrude', op: 'add', distance: 10, distance2: 20, symmetric: false,
-        draft: 5, drill: false, thin: null, profileText: 's',
+        draft: 5, drill: false, thin: null, profileText: 's', toFaceText: null,
       },
       statement: 'extrude(10, 20, s).draft(5).drill(false)',
     });
@@ -1613,6 +1661,49 @@ describe('parseFeatureStatement', () => {
     }
   });
 
+  it('reads a bound to-face extrude', async () => {
+    const code = `${editBase}\nconst e = extrude(30)\nextrude(e.endFaces(), s).draft(3)\n`;
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'extrude', op: 'add', distance: null, distance2: null, symmetric: false,
+        draft: 3, drill: true, thin: null, profileText: 's', toFaceText: 'e.endFaces()',
+      },
+      statement: 'extrude(e.endFaces(), s).draft(3)',
+    });
+  });
+
+  it('reads an implicit to-face cut from a call-expression argument', async () => {
+    const code = `${editBase}\ncut(select(face().parallelTo('xy')))\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'extrude', op: 'remove', distance: null, profileText: null,
+        toFaceText: `select(face().parallelTo('xy'))`,
+      },
+    });
+  });
+
+  it('still reads a bare-identifier cut argument as a through-all profile', async () => {
+    const code = `${editBase}\ncut(s)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', op: 'remove', distance: null, profileText: 's', toFaceText: null },
+    });
+  });
+
+  it('refuses a to-face extrude chaining .symmetric()', async () => {
+    const code = `${editBase}\nconst e = extrude(30)\nextrude(e.endFaces(), s).symmetric()\n`;
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('symmetric');
+    }
+  });
+
   it('refuses an option chain hiding behind an unknown member', async () => {
     const code = `${editBase}\nextrude(10).color('red').new()\n`;
     const result = await parseFeatureStatement(code, 4);
@@ -1686,6 +1777,63 @@ describe('applyFeatureEdit (in-place statement edit)', () => {
       extrude: extrudeEditOptions({ distance: 10, distance2: 20, symmetric: true }),
     }));
     expect(result.error).toContain('symmetric');
+    expect(result.newCode).toBe(code);
+  });
+
+  const toFaceEditBase = `${editBase}\nconst e = extrude(30)`;
+
+  it('keeps a to-face target verbatim while editing other options', async () => {
+    const code = `${toFaceEditBase}\nextrude(e.endFaces(), s)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 5, column: 0,
+      extrude: extrudeEditOptions({ distance: null, draft: 3, toFace: { kind: 'keep' } }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`extrude(e.endFaces(), s).draft(3)\n`);
+  });
+
+  it('switches a distance extrude to a re-picked to-face target', async () => {
+    const code = `${toFaceEditBase}\nextrude(40, s)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 5, column: 0,
+      extrude: extrudeEditOptions({ distance: null, toFace: { kind: 'selector' } }),
+    }, {
+      producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`extrude(e.endFaces(), s)\n`);
+    expect(result.newCode).not.toContain(`extrude(40, s)`);
+  });
+
+  it('switches a to-face extrude back to a distance, dropping the target', async () => {
+    const code = `${toFaceEditBase}\nextrude(e.endFaces(), s)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 5, column: 0,
+      extrude: extrudeEditOptions({ distance: 45 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`extrude(45, s)\n`);
+    expect(result.newCode).not.toContain(`endFaces`);
+  });
+
+  it('refuses to keep a to-face target the statement does not have', async () => {
+    const code = `${editBase}\nextrude(30)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: extrudeEditOptions({ distance: null, toFace: { kind: 'keep' } }),
+    }));
+    expect(result.error).toContain('no to-face target');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a to-face edit carrying a distance', async () => {
+    const code = `${toFaceEditBase}\nextrude(e.endFaces(), s)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 5, column: 0,
+      extrude: extrudeEditOptions({ distance: 25, toFace: { kind: 'keep' } }),
+    }));
+    expect(result.error).toContain('to-face');
     expect(result.newCode).toBe(code);
   });
 
@@ -2256,7 +2404,7 @@ describe('applyFeatureEdit (re-sourced statement edit)', () => {
     const result = await parseFeatureStatement(code, 4);
     expect(result).toMatchObject({ ok: false });
     if (result.ok === false) {
-      expect(result.reason).toContain('to-face');
+      expect(result.reason).toContain('first-face/last-face');
     }
   });
 

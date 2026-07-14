@@ -381,6 +381,8 @@ export type ExtrudeOptionValues = {
 
 export type ExtrudeApplyOptions = ExtrudeOptionValues & {
   profile: ExtrudeProfileRef;
+  /** Up-to-face target: a picked face replacing the distance(s). */
+  toFace?: ApplyFeatureEntity;
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -389,7 +391,8 @@ export type ExtrudeApplyOptions = ExtrudeOptionValues & {
 /**
  * Ask the server to write (or, with `preview`, just render) an extrude/cut
  * statement consuming a sketch profile. Same endpoint and response shape as
- * {@link applyFeature}, but no pick selection is involved.
+ * {@link applyFeature}; the only pick involved is the optional up-to-face
+ * target, synthesized into a face selector server-side.
  */
 export async function applyExtrude(options: ExtrudeApplyOptions): Promise<ApplyFeatureResponse> {
   return postApplyFeature({
@@ -402,6 +405,7 @@ export async function applyExtrude(options: ExtrudeApplyOptions): Promise<ApplyF
     drill: options.drill,
     thin: options.thin,
     profile: options.profile,
+    toFace: options.toFace,
     preview: options.preview,
   }, options.signal);
 }
@@ -558,7 +562,7 @@ export type SourceSlotRef =
   | { kind: 'opaque' };
 
 export type FeatureSourcesResult =
-  | { ok: true; feature: 'extrude' | 'cut'; profile: SourceSlotRef }
+  | { ok: true; feature: 'extrude' | 'cut'; profile: SourceSlotRef; toFace?: SourceSlotRef }
   | { ok: true; feature: 'sweep'; profile: SourceSlotRef; path: SourceSlotRef }
   | { ok: true; feature: 'loft'; profiles: SourceSlotRef[]; guides: SourceSlotRef[] }
   | { ok: true; feature: 'shell' | 'fillet' | 'chamfer'; selection: SourceSlotRef }
@@ -600,6 +604,8 @@ export type ParsedFeatureStatement =
       drill: boolean;
       thin: [number] | null;
       profileText: string | null;
+      /** Up-to-face target argument text, or null for a distance extrude. */
+      toFaceText: string | null;
     }
   | {
       feature: 'sweep';
@@ -665,6 +671,12 @@ export type EditSessionFields = {
 export type ExtrudeEditOptions = ExtrudeOptionValues & EditSessionFields & {
   /** Re-sourced profile sketch; omitted keeps the statement's own. */
   profile?: { mode: 'bound' } & SketchSourceRef;
+  /**
+   * Up-to-face target: `keep` re-emits the statement's own target text,
+   * `face` re-picks it. Omitted writes the distance form (dropping any
+   * target the statement had).
+   */
+  toFace?: { kind: 'keep' } | { kind: 'face'; entity: ApplyFeatureEntity };
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -687,6 +699,7 @@ export async function applyExtrudeEdit(
     drill: options.drill,
     thin: options.thin,
     profile: options.profile,
+    toFace: options.toFace,
     preview: options.preview,
   }, options.signal);
 }

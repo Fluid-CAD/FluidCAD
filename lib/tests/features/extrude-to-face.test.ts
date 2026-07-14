@@ -249,6 +249,39 @@ describe("extrude to face", () => {
     });
   });
 
+  describe("drill", () => {
+    function buildDrillScenario(drill: boolean): number {
+      getSceneManager().startScene();
+
+      sketch("xy", () => {
+        move([200, 0]);
+        rect(100, 50);
+      });
+      const e1 = extrude(50) as Extrude;
+
+      sketch("xy", () => {
+        circle(30);
+        circle(10);
+      });
+      const e2 = extrude(e1.endFaces()).drill(drill).new() as ExtrudeToFace;
+
+      render();
+
+      let volume = 0;
+      for (const s of e2.getShapes()) {
+        volume += ShapeProps.getProperties(s.getShape()).volumeMm3;
+      }
+      return volume;
+    }
+
+    it("should drill nested regions by default and honor drill(false)", () => {
+      // The nested circle drills through: a ⌀30/⌀10 tube up to the 50-high face.
+      expect(buildDrillScenario(true)).toBeCloseTo(Math.PI * (15 * 15 - 5 * 5) * 50, 0);
+      // Without drilling the inner circle fills in — the full cylinder.
+      expect(buildDrillScenario(false)).toBeCloseTo(Math.PI * 15 * 15 * 50, 0);
+    });
+  });
+
   describe("cylindrical face", () => {
     it("should extrude up to a cylindrical face", () => {
       cylinder(50, 80);

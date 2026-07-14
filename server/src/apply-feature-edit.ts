@@ -140,6 +140,12 @@ export type FeatureStatementEditTarget = {
     thin: [number] | [number, number] | null;
     /** Re-sourced profile; absent keeps the statement's profile text. */
     profile?: EditSketchSource;
+    /**
+     * Up-to-face target: `keep` re-emits the statement's own target text,
+     * `selector` renders the re-picked face from `parts`. Absent writes the
+     * distance form (dropping any target the statement had).
+     */
+    toFace?: { kind: 'keep' } | { kind: 'selector' };
   };
   sweep?: {
     op: 'add' | 'remove' | 'new';
@@ -192,6 +198,12 @@ export type ExtrudeEditOptions = {
   /** `.thin(a)` / `.thin(a, b)` offsets, or null for a plain extrude. */
   thin: [number] | [number, number] | null;
   profile: 'implicit' | 'bound';
+  /**
+   * Up-to-face mode: the single selector part (a picked face) renders as the
+   * call's first argument — `extrude(<face>[, s])` / `cut(<face>[, s])` —
+   * in place of the distance(s). Excludes `distance`/`distance2`/`symmetric`.
+   */
+  toFace?: boolean;
 };
 
 /**
@@ -345,9 +357,15 @@ export async function applyFeatureEdit(
     return applyPlaneSketch(code, spec.sketchPlane);
   }
   if (spec.feature === 'extrude') {
-    // Extrude takes no selector parts: its single producer is the profile
-    // sketch (implicit consumption or a bound variable), not a pick selection.
-    if (!spec.extrude || spec.producers.length !== 1 || spec.parts.length !== 0) {
+    // The profile sketch (implicit consumption or a bound variable) is always
+    // producers[0]. A distance extrude carries no selector parts; a to-face
+    // extrude carries exactly one — the target face, whose own producers
+    // follow the profile in the list.
+    const valid = spec.extrude !== undefined && spec.producers.length >= 1
+      && (spec.extrude.toFace
+        ? spec.parts.length === 1
+        : spec.producers.length === 1 && spec.parts.length === 0);
+    if (!valid) {
       return { newCode: code, error: 'malformed extrude edit spec' };
     }
   } else if (spec.feature === 'sweep') {
@@ -1085,14 +1103,21 @@ export function renderSelectorPartExpr(
 /**
  * Render an extrude statement from its options: `extrude(25)` / `cut()`
  * (through-all) / `extrude(10, 20)` (two distances) / `extrude(25, s)` for a
- * bound profile, plus `.symmetric()` / `.draft(…)` / `.drill(false)` /
- * `.thin(…)` / `.new()` chains. Shared with the route's preview so the
- * previewed text is exactly what the transform writes.
+ * bound profile / `extrude(<faceExpr>)` for a to-face extrude, plus
+ * `.symmetric()` / `.draft(…)` / `.drill(false)` / `.thin(…)` / `.new()`
+ * chains. Shared with the route's preview so the previewed text is exactly
+ * what the transform writes.
  */
-export function renderExtrudeStatement(ext: ExtrudeEditOptions, profileVar: string | null): string {
+export function renderExtrudeStatement(
+  ext: ExtrudeEditOptions,
+  profileVar: string | null,
+  faceExpr: string | null = null,
+): string {
   const callee = ext.op === 'remove' ? 'cut' : 'extrude';
   const callArgs: string[] = [];
-  if (ext.distance !== null) {
+  if (faceExpr !== null) {
+    callArgs.push(faceExpr);
+  } else if (ext.distance !== null) {
     callArgs.push(formatNumber(ext.distance));
     if (ext.distance2 !== null) {
       callArgs.push(formatNumber(ext.distance2));
@@ -1192,7 +1217,11 @@ export function renderPlaneBaseExprs(
  */
 function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[], indent: string): string {
   if (spec.feature === 'extrude') {
-    return renderExtrudeStatement(spec.extrude!, bindings[0].varName);
+    const facePart = spec.extrude!.toFace ? spec.parts[0] : null;
+    const faceExpr = facePart
+      ? renderSelectorPartExpr(facePart, facePart.producer === null ? null : bindings[facePart.producer].varName)
+      : null;
+    return renderExtrudeStatement(spec.extrude!, bindings[0].varName, faceExpr);
   }
   if (spec.feature === 'sweep') {
     const sw = spec.sweep!;
@@ -1284,7 +1313,9 @@ function resolveInsertion(
   scope: TSNode,
   lines: string[],
 ): { index: number; indent: string; wrap: (stmt: string) => string } {
-  if (spec.feature === 'extrude' && spec.extrude!.profile === 'bound') {
+  // A to-face extrude references a face selector, which must resolve on the
+  // final model — end of scope, even with a bound profile.
+  if (spec.feature === 'extrude' && spec.extrude!.profile === 'bound' && !spec.extrude!.toFace) {
     return afterStatementInsertion(bindings[0].statement, lines);
   }
   if (spec.feature === 'sweep') {
@@ -1352,6 +1383,8 @@ export type ParsedFeatureStatement =
     thin: [number] | null;
     /** Trailing profile argument text (`s`), or null for implicit consumption. */
     profileText: string | null;
+    /** Up-to-face target argument text, or null for a distance extrude. */
+    toFaceText: string | null;
   }
   | {
     feature: 'sweep';
@@ -1551,7 +1584,9 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
     // Leading numeric literals are distances — one, or two for the
     // two-distance form extrude(d1, d2); a single trailing non-numeric
     // argument is the bound profile expression, kept verbatim. A cut()
-    // with no distance is the through-all remove.
+    // with no distance is the through-all remove. With NO distance, a call
+    // expression (`e.endFaces()`, `select(…)`) is an up-to-face target —
+    // two non-numeric arguments are the target and the profile.
     const distances: number[] = [];
     while (distances.length < Math.min(args.length, 2)) {
       const value = numericArgValue(args[distances.length]);
@@ -1561,19 +1596,32 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
       distances.push(value);
     }
     const rest = args.slice(distances.length);
-    if (rest.length > 1 || (rest.length === 1 && numericArgValue(rest[0]) !== null)) {
+    const restLimit = distances.length === 0 ? 2 : 1;
+    if (rest.length > restLimit || rest.some(arg => numericArgValue(arg) !== null)) {
       return { error: 'the extrude has more arguments than the dialog understands' };
     }
-    if (rest.length === 1 && rest[0].type === 'string') {
-      // cut('first-face') / cut('last-face'): the argument is a to-face
-      // target, not a profile — a dialog rewrite would silently change the
-      // cut's semantics.
-      return { error: `a to-face ${chain.root.name}() target is not editable in the dialog — edit it in the source` };
+    if (rest[0]?.type === 'string') {
+      // extrude/cut('first-face' | 'last-face'): the target may carry face
+      // filters the dialog cannot represent — keep those in the source.
+      return { error: `a first-face/last-face ${chain.root.name}() target is not editable in the dialog — edit it in the source` };
     }
-    const profileText = rest.length === 1 ? rest[0].text : null;
+    let toFaceText: string | null = null;
+    let profileText: string | null = null;
+    if (distances.length === 0 && rest.length === 2) {
+      // extrude(<face>, <profile>): unambiguous — a two-argument call with
+      // no distance is the up-to-face form.
+      toFaceText = rest[0].text;
+      profileText = rest[1].text;
+    } else if (distances.length === 0 && rest.length === 1 && rest[0].type === 'call_expression') {
+      // A call expression can't be a bound profile variable — read it as
+      // the up-to-face target (matches what the create dialog writes).
+      toFaceText = rest[0].text;
+    } else {
+      profileText = rest.length === 1 ? rest[0].text : null;
+    }
     const distance = distances[0] ?? null;
     const distance2 = distances[1] ?? null;
-    if (distance === null && !isCut) {
+    if (distance === null && toFaceText === null && !isCut) {
       // extrude(x) is ambiguous between a variable distance and a bound
       // profile at the default distance — neither is dialog-editable.
       return {
@@ -1590,6 +1638,9 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
     const symmetric = symmetricSeg !== undefined;
     if (symmetric && distance2 !== null) {
       return { error: `a two-distance ${chain.root.name}() cannot chain .symmetric() — edit it in the source` };
+    }
+    if (symmetric && toFaceText !== null) {
+      return { error: `a to-face ${chain.root.name}() cannot chain .symmetric() — edit it in the source` };
     }
 
     let draft: number | null = null;
@@ -1621,7 +1672,7 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
       // A bare .drill() means true — the API default.
     }
 
-    return { parsed: { feature, op, distance, distance2, symmetric, draft, drill, thin, profileText }, start, end };
+    return { parsed: { feature, op, distance, distance2, symmetric, draft, drill, thin, profileText, toFaceText }, start, end };
   }
 
   if (feature === 'sweep') {
@@ -1898,18 +1949,40 @@ export function renderEditedStatement(
       || typeof opts.symmetric !== 'boolean' || typeof opts.drill !== 'boolean') {
       return { error: 'malformed extrude edit spec' };
     }
-    if (opts.distance === null) {
-      if (opts.op !== 'remove') {
-        return { error: 'distance may be null (through-all) only for a remove' };
+    let faceExpr: string | null = null;
+    if (opts.toFace !== undefined) {
+      if (opts.distance !== null || opts.distance2 !== null || opts.symmetric) {
+        return { error: 'a to-face extrude takes no distance and cannot be symmetric' };
       }
-      if (opts.distance2 !== null) {
-        return { error: 'a two-distance extrude cannot be through-all' };
+      if (opts.toFace.kind === 'keep') {
+        if (parsed.toFaceText === null) {
+          return { error: 'the statement has no to-face target to keep — pick a face' };
+        }
+        faceExpr = parsed.toFaceText;
+      } else {
+        if (spec.parts.length !== 1) {
+          return { error: 'malformed extrude edit spec: a re-picked target is exactly one part' };
+        }
+        const part = spec.parts[0];
+        faceExpr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
       }
-    } else if (typeof opts.distance !== 'number' || !Number.isFinite(opts.distance) || opts.distance === 0) {
-      return { error: 'malformed extrude edit spec' };
-    }
-    if (opts.distance2 !== null && opts.symmetric) {
-      return { error: 'a two-distance extrude cannot be symmetric' };
+    } else {
+      if (spec.parts.length > 0) {
+        return { error: 'malformed extrude edit spec: selector parts without a to-face target' };
+      }
+      if (opts.distance === null) {
+        if (opts.op !== 'remove') {
+          return { error: 'distance may be null (through-all) only for a remove' };
+        }
+        if (opts.distance2 !== null) {
+          return { error: 'a two-distance extrude cannot be through-all' };
+        }
+      } else if (typeof opts.distance !== 'number' || !Number.isFinite(opts.distance) || opts.distance === 0) {
+        return { error: 'malformed extrude edit spec' };
+      }
+      if (opts.distance2 !== null && opts.symmetric) {
+        return { error: 'a two-distance extrude cannot be symmetric' };
+      }
     }
     let profileText = parsed.profileText;
     if (opts.profile !== undefined && opts.profile.kind !== 'keep') {
@@ -1919,10 +1992,12 @@ export function renderEditedStatement(
       }
       profileText = varName;
     }
+    const { toFace, ...rest } = opts;
     return {
       statement: renderExtrudeStatement(
-        { ...opts, profile: profileText ? 'bound' : 'implicit' },
+        { ...rest, profile: profileText ? 'bound' : 'implicit', toFace: toFace !== undefined },
         profileText,
+        faceExpr,
       ),
     };
   }

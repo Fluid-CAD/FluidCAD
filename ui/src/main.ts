@@ -304,9 +304,11 @@ viewer.setHoverHandler((shapeId, sub, clientX, clientY) => {
 // A dialog only owns the viewport while it consumes picks. Edit sessions
 // own picking like create mode (their slots re-pick against the rolled-back
 // scene) — except extrude, whose profile comes from dropdown/timeline/wire
-// clicks only, so face and edge clicks under it stay neutral.
+// clicks only; its face clicks are consumed (in both modes) only while the
+// dialog's direction is "Up to face".
 const createDialogPicking = () =>
   (extrudeService.isActive && !extrudeService.isEditing)
+  || extrudeService.isFacePicking
   || (sweepService.isActive && !sweepService.isEditing)
   || sweepService.isEdgePicking
   || loftService.isFacePicking
@@ -356,6 +358,12 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
   // The sweep dialog's live path picking owns edge clicks the same way.
   if (sweepService.isEdgePicking) {
     sweepService.handleClick(shapeId, sub);
+    return;
+  }
+  // The extrude dialog owns face clicks while its direction is "Up to face"
+  // — the pick is the extrusion's target face.
+  if (extrudeService.isFacePicking) {
+    extrudeService.handleClick(shapeId, sub);
     return;
   }
   // The armed loft dialog owns face clicks — each pick is one profile.

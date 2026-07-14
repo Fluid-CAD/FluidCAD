@@ -114,11 +114,14 @@ type ExtrudeOptionSet = {
 };
 
 /**
- * The extrude request's shape. No pick selection: the profile is a sketch —
- * `active` consumes it implicitly, `bound` binds it to a variable.
+ * The extrude request's shape. The profile is a sketch — `active` consumes it
+ * implicitly, `bound` binds it to a variable. `toFace` is the optional
+ * up-to-face target: a picked face to synthesize a selector from, which
+ * replaces the distance(s).
  */
 type ExtrudeRequest = ExtrudeOptionSet & {
   profile: { mode: 'active' | 'bound' } & SketchLoc;
+  toFace?: Pick;
 };
 
 function isNonzeroNumber(value: unknown): value is number {
@@ -131,13 +134,19 @@ function isNonzeroNumber(value: unknown): value is number {
  * through-all remove — plus the symmetric / draft / drill / thin chains.
  * `symmetric` and `distance2` are competing direction modes and exclude
  * each other; a through-all remove has no explicit distances to pair.
+ * `toFace` (the create path's up-to-face mode) replaces the distances
+ * entirely and excludes the symmetric direction mode.
  */
-function validateExtrudeOptions(body: any): ExtrudeOptionSet | { error: string } {
+function validateExtrudeOptions(body: any, toFace = false): ExtrudeOptionSet | { error: string } {
   const { op, distance, distance2, symmetric, draft, drill, thin } = body ?? {};
   if (op !== 'add' && op !== 'remove' && op !== 'new') {
     return { error: 'op must be "add", "remove" or "new"' };
   }
-  if (distance === null) {
+  if (toFace) {
+    if (distance !== undefined && distance !== null) {
+      return { error: 'a to-face extrude takes no distance — the target face bounds it' };
+    }
+  } else if (distance === null) {
     if (op !== 'remove') {
       return { error: 'distance may be null (through-all) only for a remove' };
     }
@@ -145,6 +154,9 @@ function validateExtrudeOptions(body: any): ExtrudeOptionSet | { error: string }
     return { error: 'distance must be a nonzero number (negative extrudes the other way)' };
   }
   if (distance2 !== undefined && distance2 !== null) {
+    if (toFace) {
+      return { error: 'a to-face extrude takes no second distance' };
+    }
     if (!isNonzeroNumber(distance2)) {
       return { error: 'distance2 must be a nonzero number' };
     }
@@ -158,6 +170,9 @@ function validateExtrudeOptions(body: any): ExtrudeOptionSet | { error: string }
   if (symmetric !== undefined && typeof symmetric !== 'boolean') {
     return { error: 'symmetric must be a boolean' };
   }
+  if (symmetric === true && toFace) {
+    return { error: 'a to-face extrude cannot be symmetric' };
+  }
   if (draft !== undefined && draft !== null && !isNonzeroNumber(draft)) {
     return { error: 'draft must be a nonzero taper angle in degrees' };
   }
@@ -170,7 +185,7 @@ function validateExtrudeOptions(body: any): ExtrudeOptionSet | { error: string }
   }
   return {
     op,
-    distance,
+    distance: distance ?? null,
     distance2: distance2 ?? null,
     symmetric: symmetric === true,
     draft: draft ?? null,
@@ -180,7 +195,8 @@ function validateExtrudeOptions(body: any): ExtrudeOptionSet | { error: string }
 }
 
 function validateExtrude(body: any): ExtrudeRequest | { error: string } {
-  const options = validateExtrudeOptions(body);
+  const hasToFace = body?.toFace !== undefined && body?.toFace !== null;
+  const options = validateExtrudeOptions(body, hasToFace);
   if ('error' in options) {
     return options;
   }
@@ -189,7 +205,14 @@ function validateExtrude(body: any): ExtrudeRequest | { error: string } {
   if ((mode !== 'active' && mode !== 'bound') || !loc) {
     return { error: 'profile must be {mode: "active"|"bound", filePath, line} of the sketch' };
   }
-  return { ...options, profile: { mode, ...loc } };
+  if (!hasToFace) {
+    return { ...options, profile: { mode, ...loc } };
+  }
+  const pick = validatePick(body.toFace);
+  if (!pick || pick.sub.type !== 'face') {
+    return { error: 'toFace must be a {shapeId, sub:{type:"face", index}} pick' };
+  }
+  return { ...options, profile: { mode, ...loc }, toFace: pick };
 }
 
 /**
@@ -577,6 +600,8 @@ type StatementEditRequest = {
   chains?: { seed: Pick; members: Pick[] }[];
   /** Re-sourced extrude profile sketch; absent keeps the statement's. */
   extrudeProfile?: SketchLoc;
+  /** Re-picked extrude up-to-face target; the keep case rides the edit target. */
+  extrudeToFace?: Pick;
   /** Re-sourced sweep path; absent keeps the statement's. */
   sweepPath?: ({ kind: 'sketch' } & SketchLoc)
     | { kind: 'edges'; picks: Pick[]; chains: { seed: Pick; members: Pick[] }[] };
@@ -624,19 +649,39 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
   const base = { feature: kind, target, edit, needsPicks: false };
 
   if (feature === 'extrude') {
-    const options = validateExtrudeOptions(body);
+    // The toFace field is NOT a keep-or-absent slot: absent means the
+    // distance form (dropping any target the statement had), `keep` re-emits
+    // the statement's own target text, `face` re-picks it.
+    const toFaceRaw = body?.toFace;
+    const hasToFace = toFaceRaw !== undefined && toFaceRaw !== null;
+    const options = validateExtrudeOptions(body, hasToFace);
     if ('error' in options) {
       return options;
     }
     edit.extrude = options;
+    const result: StatementEditRequest = base;
+    if (hasToFace) {
+      if (toFaceRaw.kind === 'keep') {
+        edit.extrude.toFace = { kind: 'keep' };
+      } else if (toFaceRaw.kind === 'face') {
+        const pick = validatePick(toFaceRaw.entity);
+        if (!pick || pick.sub.type !== 'face') {
+          return { error: 'a re-picked target must carry a {shapeId, sub:{type:"face", index}} pick' };
+        }
+        result.extrudeToFace = pick;
+        result.needsPicks = true;
+      } else {
+        return { error: 'toFace must be {kind: "keep"} or {kind: "face", entity}' };
+      }
+    }
     if (isKeepSlot(body?.profile)) {
-      return base;
+      return result;
     }
     const loc = validateSketchLoc(body.profile);
     if (body.profile?.mode !== 'bound' || !loc) {
       return { error: 'an edited profile must be {mode: "bound", filePath, line} of the sketch' };
     }
-    return { ...base, extrudeProfile: loc };
+    return { ...result, extrudeProfile: loc };
   }
 
   if (feature === 'sweep' || feature === 'loft') {
@@ -981,7 +1026,7 @@ export function createApplyFeatureRouter(
         /** Synthesize one re-picked slot against the pre-statement scene. */
         const synthesizeSlot = (
           picks: Pick[],
-          kind: 'sweep' | 'loft' | 'fillet' | 'chamfer' | 'shell',
+          kind: 'extrude' | 'sweep' | 'loft' | 'fillet' | 'chamfer' | 'shell',
           value: number | undefined,
           chains: { seed: Pick; members: Pick[] }[],
         ): any | null => {
@@ -1016,6 +1061,20 @@ export function createApplyFeatureRouter(
         const edit = request.edit;
         if (request.extrudeProfile) {
           edit.extrude!.profile = { kind: 'sketch', producer: sketchRef(request.extrudeProfile, 's') };
+        }
+        if (request.extrudeToFace) {
+          const synthesis = synthesizeSlot([request.extrudeToFace], 'extrude', undefined, []);
+          if (!synthesis) {
+            return;
+          }
+          // The target argument is ONE SceneObject — a multi-part selection
+          // has no single-expression rendering.
+          if (synthesis.spec.parts.length !== 1) {
+            res.status(422).json({ success: false, reason: 'the extrude target must be a single face selection' });
+            return;
+          }
+          foldSynthesis(synthesis);
+          edit.extrude!.toFace = { kind: 'selector' };
         }
         if (request.sweepPath) {
           if (request.sweepPath.kind === 'sketch') {
@@ -1151,8 +1210,10 @@ export function createApplyFeatureRouter(
       return;
     }
 
-    // Extrude takes no pick selection — its profile is a sketch statement.
-    // The transform re-verifies that the line holds a sketch() call.
+    // Extrude's profile is a sketch statement, never a pick selection — the
+    // transform re-verifies that the line holds a sketch() call. The optional
+    // up-to-face target IS a pick: it synthesizes a face selector rendered as
+    // the call's first argument, in place of the distance(s).
     if (feature === 'extrude') {
       const request = validateExtrude(req.body);
       if ('error' in request) {
@@ -1160,6 +1221,59 @@ export function createApplyFeatureRouter(
         return;
       }
       try {
+        const code = fluidCadServer.getCurrentCode();
+        // The profile stays producers[0] in both modes — the transform's
+        // extrude contract; the face selector's producers follow it.
+        const producers: ApplyFeatureEditSpec['producers'] = [{
+          line: request.profile.line,
+          column: request.profile.column,
+          featureType: 'sketch',
+          nameHint: 's',
+          bind: request.profile.mode === 'bound',
+        }];
+        let parts: ApplyFeatureEditSpec['parts'] = [];
+        let imports: string[] = [];
+        let faceArgs: string | null = null;
+
+        if (request.toFace) {
+          const synthOptions = code
+            ? {
+              namer: await makeProducerNamer(code),
+              params: resolveParamValues(
+                await extractNumericParams(code),
+                fluidCadServer.getParamDefinitions(),
+              ),
+            }
+            : undefined;
+          const synthesis = fluidCadServer.synthesizeApplyFeature(
+            [request.toFace], 'extrude', undefined, [], synthOptions,
+          );
+          if (!synthesis) {
+            res.status(404).json({ success: false, reason: 'No rendered scene' });
+            return;
+          }
+          if (!synthesis.ok) {
+            res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
+            return;
+          }
+          // The target argument is ONE SceneObject — a multi-part selection
+          // has no single-expression rendering.
+          if (synthesis.spec.parts.length !== 1) {
+            res.status(422).json({ success: false, reason: 'the extrude target must be a single face selection' });
+            return;
+          }
+          if (synthesis.spec.filePath !== request.profile.filePath) {
+            res.status(422).json({ success: false, reason: 'the target face and the profile sketch come from different files' });
+            return;
+          }
+          parts = synthesis.spec.parts.map((part: ApplyFeatureEditSpec['parts'][number]) => ({
+            ...part, producer: part.producer === null ? null : part.producer + producers.length,
+          }));
+          producers.push(...synthesis.spec.producers);
+          imports = synthesis.spec.imports;
+          faceArgs = synthesis.args;
+        }
+
         const options: ExtrudeEditOptions = {
           op: request.op,
           distance: request.distance,
@@ -1169,18 +1283,16 @@ export function createApplyFeatureRouter(
           drill: request.drill,
           thin: request.thin,
           profile: request.profile.mode === 'bound' ? 'bound' : 'implicit',
+          toFace: request.toFace !== undefined,
         };
         // Truthful preview name for a bound profile: the same resolution the
         // transform runs (reused const, collision-suffixed hint).
         let profileVar: string | null = null;
-        if (request.profile.mode === 'bound') {
-          const code = fluidCadServer.getCurrentCode();
-          if (code) {
-            const namer = await makeProducerNamer(code);
-            profileVar = namer([{ line: request.profile.line, nameHint: 's', featureType: 'sketch' }])[0];
-          }
+        if (request.profile.mode === 'bound' && code) {
+          const namer = await makeProducerNamer(code);
+          profileVar = namer([{ line: request.profile.line, nameHint: 's', featureType: 'sketch' }])[0];
         }
-        const statement = renderExtrudeStatement(options, profileVar);
+        const statement = renderExtrudeStatement(options, profileVar, faceArgs);
         if (preview === true) {
           res.json({ success: true, preview: statement });
           return;
@@ -1191,15 +1303,9 @@ export function createApplyFeatureRouter(
             feature: 'extrude',
             extrude: options,
             filePath: request.profile.filePath,
-            producers: [{
-              line: request.profile.line,
-              column: request.profile.column,
-              featureType: 'sketch',
-              nameHint: 's',
-              bind: request.profile.mode === 'bound',
-            }],
-            parts: [],
-            imports: [],
+            producers,
+            parts,
+            imports,
           },
         });
         res.json({ success: true, preview: statement });

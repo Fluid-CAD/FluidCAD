@@ -80,6 +80,16 @@ export function synthesizeApplyFeature(
       };
     }
   }
+  if (feature === 'extrude') {
+    // The pick is extrude's up-to-face target: a single face.
+    if (chains.length > 0 || refs.length !== 1 || refs[0].sub.type !== 'face') {
+      return {
+        ok: false,
+        reason: 'extrude extends up to a single face — pick exactly one face',
+        pick: refs[0],
+      };
+    }
+  }
   if (feature === 'sweep') {
     // The picks describe the sweep path: a wire built from edges.
     const face = [...refs, ...chains.flatMap(c => c.members)].find(r => r.sub.type !== 'edge');
@@ -148,8 +158,8 @@ export function synthesizeApplyFeature(
 
     const spec: ApplyFeatureEditSpec = {
       feature,
-      ...(feature === 'sketch' || feature === 'sweep' || feature === 'loft' || feature === 'plane'
-        ? {} : { value }),
+      ...(feature === 'sketch' || feature === 'extrude' || feature === 'sweep' || feature === 'loft'
+        || feature === 'plane' ? {} : { value }),
       filePath: filePaths.values().next().value!,
       producers: located.map(l => {
         const loc = l.feature.getSourceLocation()!;
@@ -283,6 +293,10 @@ function findCoplanarClassifiedFace(index: SelectionIndex, plane: Plane): Bucket
 function renderPreview(feature: ApplyFeatureKind, value: number | undefined, args: string): string {
   if (feature === 'sketch') {
     return `sketch(${args}, () => { ... })`;
+  }
+  if (feature === 'extrude') {
+    // The args are the target-face selector; the route composes the statement.
+    return `extrude(${args})`;
   }
   if (feature === 'sweep') {
     // The args are the path selector; the route composes the full statement.

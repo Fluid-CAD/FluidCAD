@@ -199,7 +199,7 @@ export class Shell extends SceneObject implements IShell {
           ? (this.getState('internal-faces') as Face[] || [])
           : null;
         return this.resolveFaces(faces, args, transform, originalFaces);
-      }, this);
+      }, this, args);
   }
 
   internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
@@ -212,7 +212,7 @@ export class Shell extends SceneObject implements IShell {
           ? (this.getState('internal-edges') as Edge[] || [])
           : null;
         return this.resolveEdges(edges, args, transform, originalEdges);
-      }, this);
+      }, this, args);
   }
 
   private buildSuffix(prefix: string, args: any[]): string {

@@ -65,6 +65,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _reusable: boolean = false;
   private _sourceLocation: SourceLocation | null = null;
   private _error: string | null = null;
+  private _destroyed: boolean = false;
   protected _fusionScope?: FusionScope = 'all';
   protected _operationMode: OperationMode = 'add';
   protected _symmetric: boolean = false;
@@ -751,6 +752,32 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
    * cleanup that depends on knowing the final scene state.
    */
   clean(allObjects: SceneObject[]): void {}
+
+  /**
+   * Called by the rendering pipeline when this object is discarded — its
+   * cache entry was invalidated and a rebuilt instance replaced it, or the
+   * whole scene was torn down. Fires once. Shape memory is reclaimed by the
+   * scene-disposal pass; override `onDestroy` for feature-specific cleanup
+   * (native resources held outside Shape wrappers, watchers, caches).
+   */
+  destroy(): void {
+    if (this._destroyed) {
+      return;
+    }
+    this._destroyed = true;
+    try {
+      this.onDestroy();
+    } catch (error) {
+      console.error(`onDestroy failed for ${this.getUniqueType()}:`, error);
+    }
+  }
+
+  isDestroyed(): boolean {
+    return this._destroyed;
+  }
+
+  /** Feature-specific cleanup hook; the base implementation is a no-op. */
+  protected onDestroy(): void {}
 
   protected generateUniqueName(suffix: string) {
     return `${this.getOrder()}-${this.getUniqueType()}-${suffix}`;

@@ -14,6 +14,9 @@ type SceneManager = {
   renderScene(scene: any): any;
   rollbackScene(scene: any, rollbackIndex: number): any;
   compare(previousScene: any, currentScene: any): any;
+  // Optional: the manager comes from the workspace's fluidcad install, which
+  // may predate scene disposal.
+  disposeScene?(scene: any): void;
   setCurrentFile(filePath: string): void;
   importFile(workspacePath: string, fileName: string, data: Uint8Array): any;
   getShapeProperties(scene: any, shapeId: string): any;
@@ -231,6 +234,10 @@ export class FluidCadServer {
   }
 
   destroySession(sessionId: string): void {
+    const scene = this.previousScenes.get(sessionId);
+    if (scene) {
+      this.sceneManager?.disposeScene?.(scene);
+    }
     this.previousScenes.delete(sessionId);
     this.renderingCache.delete(sessionId);
     this.lastRendered.delete(sessionId);
@@ -367,6 +374,13 @@ export class FluidCadServer {
     const paramsHash = this.computeParamsHash(fileName, code);
     const cached = this.lastRendered.get(fileName);
     if (cached && cached.paramsHash === paramsHash) {
+      // Keep the live-render buffer in sync even when the render itself is
+      // deduped. The module loader serves this overlay for the raw file path
+      // too (save-triggered process-file), so skipping the update would leave
+      // a stale overlay from an earlier broken live-update — the next save
+      // would then compile the old broken code and report its error even
+      // though editor and disk both hold valid content.
+      this.host.setBuffer(`virtual:live-render:${fileName}`, code);
       this.compileError = null;
       this.currentFileName = fileName;
       this.currentFilePath = `virtual:live-render:${fileName}`;
@@ -404,6 +418,10 @@ export class FluidCadServer {
       // "Recompute scene" action does no visible work and reports no build
       // timings (buildDurationMs is only recorded for objects that rebuild).
       // Param edits keep the baseline so slider drags stay fast.
+      const staleScene = this.previousScenes.get(sessionId);
+      if (staleScene) {
+        this.sceneManager?.disposeScene?.(staleScene);
+      }
       this.previousScenes.delete(sessionId);
     }
     return this.processFileInternal(sessionId, this.currentFilePath, true);

@@ -1,6 +1,7 @@
 import { Scene } from "./rendering/scene.js";
 import { SceneRenderer } from "./rendering/render.js";
 import { SceneCompare } from "./rendering/scene-compare.js";
+import { SceneDisposal } from "./rendering/scene-disposal.js";
 import { DEFAULT_MESH_CONFIG } from "./oc/mesh.js";
 import type { MeshConfig } from "./oc/mesh.js";
 import type { FluidCADOptions } from "./index.js";
@@ -61,6 +62,14 @@ class SceneManager {
 
   compare(previous: Scene, current: Scene) {
     return SceneCompare.compare(previous, current);
+  }
+
+  /**
+   * Free a scene that is being dropped without a compare against a
+   * successor (forced full rebuild, session teardown).
+   */
+  disposeScene(scene: Scene) {
+    SceneDisposal.disposeScene(scene);
   }
 
   importFile(workspacePath: string, fileName: string, data: Uint8Array) {

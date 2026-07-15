@@ -413,6 +413,50 @@ export async function applyExtrude(options: ExtrudeApplyOptions): Promise<ApplyF
 /** A sketch input addressed by its rendered source location. */
 export type SketchSourceRef = { filePath: string; line: number; column: number };
 
+/** The revolve options the dialog edits, shared by create and edit applies. */
+export type RevolveOptionValues = {
+  op: 'add' | 'remove' | 'new';
+  /** Sweep angle in degrees; 360 (the API default) writes no argument. */
+  angle: number;
+  /** `.thin()` offsets, or null for a plain revolve. */
+  thin: [number] | [number, number] | null;
+};
+
+/**
+ * The revolve axis: a standard world axis, an existing `axis(…)` statement
+ * addressed by its source location, or a picked edge — synthesized into
+ * `axis(<edge selector>)` server-side.
+ */
+export type RevolveAxisRef =
+  | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
+  | ({ kind: 'axis' } & SketchSourceRef)
+  | { kind: 'edge'; entity: ApplyFeatureEntity };
+
+export type RevolveApplyOptions = RevolveOptionValues & {
+  profile: ExtrudeProfileRef;
+  axis: RevolveAxisRef;
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a revolve
+ * statement sweeping a sketch profile around an axis. Same endpoint and
+ * response shape as {@link applyFeature}.
+ */
+export async function applyRevolve(options: RevolveApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'revolve',
+    op: options.op,
+    angle: options.angle,
+    thin: options.thin,
+    profile: options.profile,
+    axis: options.axis,
+    preview: options.preview,
+  }, options.signal);
+}
+
 export type SweepApplyOptions = {
   op: 'add' | 'remove' | 'new';
   /** `.thin()` offsets, or null for a plain sweep. */
@@ -565,6 +609,7 @@ export type FeatureSourcesResult =
   | { ok: true; feature: 'extrude' | 'cut'; profile: SourceSlotRef; toFace?: SourceSlotRef }
   | { ok: true; feature: 'sweep'; profile: SourceSlotRef; path: SourceSlotRef }
   | { ok: true; feature: 'loft'; profiles: SourceSlotRef[]; guides: SourceSlotRef[] }
+  | { ok: true; feature: 'revolve'; profile: SourceSlotRef; axis: SourceSlotRef }
   | { ok: true; feature: 'shell' | 'fillet' | 'chamfer'; selection: SourceSlotRef }
   | { ok: false; reason: string };
 
@@ -612,6 +657,16 @@ export type ParsedFeatureStatement =
       op: FeatureOpKind;
       thin: [number] | null;
       pathText: string;
+      profileText: string | null;
+    }
+  | {
+      feature: 'revolve';
+      op: FeatureOpKind;
+      /** Sweep angle in degrees; null = omitted (the 360° API default). */
+      angle: number | null;
+      thin: [number] | null;
+      /** Axis argument text, verbatim (`'z'`, `a`, `axis(e.edges(3))`). */
+      axisText: string;
       profileText: string | null;
     }
   | {
@@ -734,6 +789,34 @@ export async function applySweepEdit(
   }, options.signal);
 }
 
+export type RevolveEditOptions = RevolveOptionValues & EditSessionFields & {
+  /** Re-sourced profile sketch; omitted keeps the statement's own. */
+  profile?: { mode: 'bound' } & SketchSourceRef;
+  /** Re-sourced axis; omitted keeps the statement's own. */
+  axis?: RevolveAxisRef;
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the revolve statement at `edit` in place. */
+export async function applyRevolveEdit(
+  edit: FeatureEditTarget,
+  options: RevolveEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'revolve',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    op: options.op,
+    angle: options.angle,
+    thin: options.thin,
+    profile: options.profile,
+    axis: options.axis,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /** One profile of an edited loft, in argument order. */
 export type LoftEditProfileRef =
   | { kind: 'verbatim'; sourceIndex: number }
@@ -818,7 +901,7 @@ export async function applyValueFeatureEdit(
  */
 export async function fetchSketchNames(
   lines: number[],
-  callee: 'sketch' | 'plane' = 'sketch',
+  callee: 'sketch' | 'plane' | 'axis' = 'sketch',
 ): Promise<(string | null)[]> {
   try {
     const res = await fetch('/api/sketch-names', {

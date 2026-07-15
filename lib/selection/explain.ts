@@ -97,6 +97,16 @@ export function synthesizeApplyFeature(
       return { ok: false, reason: 'a sweep path takes edges — pick edges only', pick: face };
     }
   }
+  if (feature === 'revolve') {
+    // The pick is the revolve axis: axis() extracts it from a single edge.
+    if (chains.length > 0 || refs.length !== 1 || refs[0].sub.type !== 'edge') {
+      return {
+        ok: false,
+        reason: 'a revolve axis is a single edge — pick exactly one edge',
+        pick: refs[0],
+      };
+    }
+  }
   if (feature === 'loft') {
     // Each pick is one loft profile: a face selection.
     const edge = [...refs, ...chains.flatMap(c => c.members)].find(r => r.sub.type !== 'face');
@@ -159,7 +169,7 @@ export function synthesizeApplyFeature(
     const spec: ApplyFeatureEditSpec = {
       feature,
       ...(feature === 'sketch' || feature === 'extrude' || feature === 'sweep' || feature === 'loft'
-        || feature === 'plane' ? {} : { value }),
+        || feature === 'plane' || feature === 'revolve' ? {} : { value }),
       filePath: filePaths.values().next().value!,
       producers: located.map(l => {
         const loc = l.feature.getSourceLocation()!;
@@ -309,6 +319,10 @@ function renderPreview(feature: ApplyFeatureKind, value: number | undefined, arg
   if (feature === 'plane') {
     // The args are one base's selector; the route composes the statement.
     return `plane(${args})`;
+  }
+  if (feature === 'revolve') {
+    // The args are the axis-edge selector; the route composes the statement.
+    return `revolve(axis(${args}))`;
   }
   return `${feature}(${value}, ${args})`;
 }

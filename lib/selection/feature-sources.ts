@@ -9,6 +9,8 @@ import { Sweep } from "../features/sweep.js";
 import { Loft } from "../features/loft.js";
 import { ExtrudeBase } from "../features/extrude-base.js";
 import { ExtrudeToFace } from "../features/extrude-to-face.js";
+import { Revolve } from "../features/revolve.js";
+import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
 import {
   PickRef, SelectionBoundary, SelectionScene, resolveScopedScene,
@@ -36,6 +38,7 @@ export type FeatureSources =
   }
   | { feature: 'sweep'; profile: SourceSlot; path: SourceSlot }
   | { feature: 'loft'; profiles: SourceSlot[]; guides: SourceSlot[] }
+  | { feature: 'revolve'; profile: SourceSlot; axis: SourceSlot }
   | { feature: 'shell' | 'fillet' | 'chamfer'; selection: SourceSlot };
 
 export type FeatureSourcesResult =
@@ -87,6 +90,15 @@ export function resolveFeatureSources(
         guides: feature.guideObjects.map(g => resolver.sketchSlot(g)),
       };
     }
+    // Revolve extends ExtrudeBase — its case must come first.
+    if (feature instanceof Revolve) {
+      return {
+        ok: true,
+        feature: 'revolve',
+        profile: resolver.profileSlot(feature),
+        axis: resolver.axisSlot(feature.axis),
+      };
+    }
     if (feature instanceof ExtrudeBase) {
       const kind = feature.getType() === 'cut' ? 'cut' as const : 'extrude' as const;
       if (feature instanceof ExtrudeToFace) {
@@ -125,12 +137,27 @@ class SourceResolver {
 
   /** A sketch input, by call site — opaque when binding it could mis-target. */
   sketchSlot(obj: SceneObject | null): SourceSlot {
-    if (!(obj instanceof Sketch) || obj.getCloneSource()) {
+    return obj instanceof Sketch ? this.callSiteSlot(obj) : OPAQUE;
+  }
+
+  /**
+   * A revolve's axis input, by call site — an axis statement the dialog can
+   * point at and highlight. An axis built inline in the revolve's own
+   * arguments (`revolve('z')`, `revolve(axis(…))`) captures a line on the
+   * statement itself and stays opaque; the dialog keeps its verbatim text.
+   */
+  axisSlot(obj: SceneObject | null): SourceSlot {
+    return obj instanceof AxisObjectBase ? this.callSiteSlot(obj) : OPAQUE;
+  }
+
+  /** An input statement by call site — opaque when binding it could mis-target. */
+  private callSiteSlot(obj: SceneObject): SourceSlot {
+    if (obj.getCloneSource()) {
       return OPAQUE;
     }
     const loc = obj.getSourceLocation();
-    // An inline sketch(...) argument captures a line on/inside the edited
-    // statement itself — it has no standalone statement to re-target.
+    // An inline argument captures a line on/inside the edited statement
+    // itself — it has no standalone statement to re-target.
     if (!loc || loc.line >= this.boundary.line) {
       return OPAQUE;
     }

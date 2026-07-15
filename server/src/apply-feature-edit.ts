@@ -18,7 +18,7 @@ import {
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: number;
   /**
@@ -36,6 +36,8 @@ export type ApplyFeatureEditSpec = {
   loft?: LoftEditOptions;
   /** Plane-only payload; each `parts` entry renders one base's selector. */
   plane?: PlaneEditOptions;
+  /** Revolve-only payload; `parts` (if any) render the axis-edge selector. */
+  revolve?: RevolveEditOptions;
   filePath: string;
   producers: {
     line: number;
@@ -171,6 +173,16 @@ export type FeatureStatementEditTarget = {
      */
     guides?: EditLoftGuide[];
   };
+  revolve?: {
+    op: 'add' | 'remove' | 'new';
+    /** Sweep angle in degrees; 360 renders no angle argument. */
+    angle: number;
+    thin: [number] | [number, number] | null;
+    /** Re-sourced profile; absent keeps the statement's profile text. */
+    profile?: EditSketchSource;
+    /** Re-sourced axis; absent keeps the statement's axis text. */
+    axis?: RevolveAxisSpec;
+  };
 };
 
 /**
@@ -222,6 +234,38 @@ export type SweepEditOptions = {
   thin: [number] | [number, number] | null;
   profile: 'implicit' | { producer: number };
   path: { kind: 'sketch'; producer: number } | { kind: 'selector' };
+};
+
+/**
+ * One revolve axis: a standard world axis (renders as its string literal, no
+ * producer involved), an existing axis statement bound to a variable, or a
+ * picked edge — the single selector part wrapped in `axis(…)`.
+ */
+export type RevolveAxisSpec =
+  | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
+  | { kind: 'axis'; producer: number }
+  | { kind: 'selector' };
+
+/**
+ * How a revolve statement is rendered and placed: `revolve(<axis>[, <angle>]
+ * [, <profile>])` plus `.thin(…)` / `.remove()` / `.new()` chains. The angle
+ * is in degrees; 360 (the API default) renders no argument. The profile is a
+ * sketch — `implicit` consumes the last sketch, `bound` binds producers[0] to
+ * a variable (the extrude contract: the profile is always producers[0]). A
+ * standard axis renders no producer; an axis-statement input binds its
+ * producer to a variable; a picked edge renders the single selector part
+ * wrapped in `axis(…)`. With every input an explicit variable the statement
+ * inserts right after the latest input statement so a later active sketch
+ * stays active; a selector axis or an implicit profile forces end-of-scope
+ * insertion, where the picked edge is known to resolve.
+ */
+export type RevolveEditOptions = {
+  op: 'add' | 'remove' | 'new';
+  /** Sweep angle in degrees; 360 renders no angle argument. */
+  angle: number;
+  thin: [number] | [number, number] | null;
+  profile: 'implicit' | 'bound';
+  axis: RevolveAxisSpec;
 };
 
 /**
@@ -379,6 +423,24 @@ export async function applyFeatureEdit(
       && (sw.profile === 'implicit' || sketchProducer(sw.profile.producer));
     if (!valid) {
       return { newCode: code, error: 'malformed sweep edit spec' };
+    }
+  } else if (spec.feature === 'revolve') {
+    // The profile sketch (implicit consumption or a bound variable) is always
+    // producers[0]. A standard axis involves no other producer; an axis
+    // statement binds one; a picked edge carries exactly one selector part,
+    // whose own producers follow the profile in the list.
+    const rev = spec.revolve;
+    const valid = rev !== undefined && spec.producers.length >= 1
+      && spec.producers[0].featureType === 'sketch'
+      && Number.isFinite(rev.angle) && rev.angle !== 0
+      && (rev.axis.kind === 'selector'
+        ? spec.parts.length === 1
+        : spec.parts.length === 0
+          && (rev.axis.kind === 'standard'
+            ? spec.producers.length === 1
+            : isAxisProducer(spec, rev.axis.producer)));
+    if (!valid) {
+      return { newCode: code, error: 'malformed revolve edit spec' };
     }
   } else if (spec.feature === 'loft') {
     const lo = spec.loft;
@@ -757,18 +819,27 @@ function isPlaneProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
     && spec.producers[i].featureType === 'plane';
 }
 
+/** Whether producer index `i` is a valid axis producer of `spec`. */
+function isAxisProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
+  return Number.isInteger(i) && i >= 0 && i < spec.producers.length
+    && spec.producers[i].featureType === 'axis';
+}
+
 /**
  * Producer feature types whose source line must hold exactly that call —
- * sketch and plane inputs are referenced by identity, so any other callee at
- * the line means the file is out of sync. Null falls back to the general
- * `PRODUCER_CALLEES` allowlist.
+ * sketch, plane and axis inputs are referenced by identity, so any other
+ * callee at the line means the file is out of sync. Null falls back to the
+ * general `PRODUCER_CALLEES` allowlist.
  */
-function requiredChainRoot(featureType: string): 'sketch' | 'plane' | null {
+function requiredChainRoot(featureType: string): 'sketch' | 'plane' | 'axis' | null {
   if (featureType === 'sketch') {
     return 'sketch';
   }
   if (featureType === 'plane') {
     return 'plane';
+  }
+  if (featureType === 'axis') {
+    return 'axis';
   }
   return null;
 }
@@ -1044,6 +1115,48 @@ export function renderSweepStatement(
 }
 
 /**
+ * Render a revolve statement: `revolve(<axis>[, <angle>][, <profile>])` plus
+ * `.thin(…)` and the `.remove()` / `.new()` operation chains. The 360° API
+ * default renders no angle argument. Shared with the route's preview so the
+ * previewed text is exactly what the transform writes.
+ */
+export function renderRevolveStatement(
+  rev: Pick<RevolveEditOptions, 'op' | 'angle' | 'thin'>,
+  axisExpr: string,
+  profileExpr: string | null,
+): string {
+  const args = [axisExpr];
+  if (rev.angle !== 360) {
+    args.push(formatNumber(rev.angle));
+  }
+  if (profileExpr) {
+    args.push(profileExpr);
+  }
+  return `revolve(${args.join(', ')})` + renderOpChains(rev);
+}
+
+/**
+ * Render a revolve's axis argument: `'z'` for a standard world axis, the
+ * bound variable for an existing axis statement, or the picked edge's
+ * selector part wrapped in `axis(…)`. Shared with the route, which passes
+ * its namer's variables; the transform passes its bindings'.
+ */
+export function renderRevolveAxisExpr(
+  axis: RevolveAxisSpec,
+  parts: ApplyFeatureEditSpec['parts'],
+  varFor: (producer: number) => string | null,
+): string {
+  if (axis.kind === 'standard') {
+    return `'${axis.axis}'`;
+  }
+  if (axis.kind === 'axis') {
+    return varFor(axis.producer) ?? 'a';
+  }
+  const part = parts[0];
+  return `axis(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer))})`;
+}
+
+/**
  * Render a loft statement from its ordered profile expressions: `loft(s, s2)`
  * plus `.guides(g)`, `.startCondition('normal')` / `.endCondition('tangent',
  * 2)` (the default magnitude 1 is omitted), and the `.thin(…)` / `.remove()`
@@ -1231,6 +1344,11 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     const profileVar = sw.profile === 'implicit' ? null : bindings[sw.profile.producer].varName!;
     return renderSweepStatement(sw, pathExpr, profileVar);
   }
+  if (spec.feature === 'revolve') {
+    const rev = spec.revolve!;
+    const axisExpr = renderRevolveAxisExpr(rev.axis, spec.parts, i => bindings[i].varName);
+    return renderRevolveStatement(rev, axisExpr, rev.profile === 'bound' ? bindings[0].varName : null);
+  }
   if (spec.feature === 'loft') {
     const lo = spec.loft!;
     const profileExprs = lo.profiles.map(profile => {
@@ -1269,6 +1387,7 @@ const MODULE_FOR_IMPORT: Record<string, string> = {
   select: 'fluidcad/core',
   edge: 'fluidcad/filters',
   face: 'fluidcad/filters',
+  axis: 'fluidcad/core',
 };
 
 /**
@@ -1326,6 +1445,19 @@ function resolveInsertion(
       return afterStatementInsertion(path.endIndex >= profile.endIndex ? path : profile, lines);
     }
   }
+  if (spec.feature === 'revolve' && spec.revolve!.profile === 'bound') {
+    const rev = spec.revolve!;
+    // A picked-edge axis references a selector, which must resolve on the
+    // final model — end of scope, even with a bound profile.
+    if (rev.axis.kind === 'standard') {
+      return afterStatementInsertion(bindings[0].statement, lines);
+    }
+    if (rev.axis.kind === 'axis') {
+      const profile = bindings[0].statement;
+      const axis = bindings[rev.axis.producer].statement;
+      return afterStatementInsertion(axis.endIndex >= profile.endIndex ? axis : profile, lines);
+    }
+  }
   if (spec.feature === 'plane') {
     // Selector-free bases are explicit plane variables (standard-only specs
     // never reach here — they append at top level with no producers at all):
@@ -1359,7 +1491,7 @@ function resolveInsertion(
 // ---------------------------------------------------------------------------
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve';
 
 /**
  * An existing statement's dialog-editable reading. Argument expressions the
@@ -1394,6 +1526,17 @@ export type ParsedFeatureStatement =
     profileText: string | null;
   }
   | {
+    feature: 'revolve';
+    op: 'add' | 'remove' | 'new';
+    /** Sweep angle in degrees; null = omitted (the 360° API default). */
+    angle: number | null;
+    thin: [number] | null;
+    /** Axis argument text, verbatim (`'z'`, `a`, `axis(e.edges(3))`). */
+    axisText: string;
+    /** Trailing profile argument text (`s`), or null for implicit consumption. */
+    profileText: string | null;
+  }
+  | {
     feature: 'loft';
     op: 'add' | 'remove' | 'new';
     thin: [number] | null;
@@ -1425,6 +1568,7 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   shell: 'shell',
   fillet: 'fillet',
   chamfer: 'chamfer',
+  revolve: 'revolve',
 };
 
 /**
@@ -1441,6 +1585,10 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   shell: new Set(['join']),
   fillet: new Set(),
   chamfer: new Set(),
+  // `.symmetric()` is deliberately absent — symmetric revolve is broken in
+  // the OC binding (SetRotation overload), so the dialog never writes it; a
+  // trailing `.symmetric()` chain is preserved verbatim like any other.
+  revolve: new Set(['thin', 'remove', 'new']),
 };
 
 type ChainSegment = { name: string; args: TSNode[]; endIndex: number };
@@ -1681,6 +1829,36 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
     }
     return {
       parsed: { feature, op, thin, pathText: args[0].text, profileText: args[1]?.text ?? null },
+      start,
+      end,
+    };
+  }
+
+  if (feature === 'revolve') {
+    // revolve(<axis>[, <angle>][, <profile>]): the axis is always first,
+    // kept verbatim; a numeric second argument is the angle (360 when
+    // omitted); a trailing non-numeric argument is the bound profile
+    // expression, kept verbatim — the create dialog's own shape. A variable
+    // angle is indistinguishable from a profile, so it reads as one; the
+    // numeric-literal rule mirrors extrude's distances.
+    if (args.length < 1 || args.length > 3) {
+      return { error: 'the revolve has more arguments than the dialog understands' };
+    }
+    const axisText = args[0].text;
+    let angle: number | null = null;
+    let rest = args.slice(1);
+    if (rest.length > 0) {
+      const value = numericArgValue(rest[0]);
+      if (value !== null) {
+        angle = value;
+        rest = rest.slice(1);
+      }
+    }
+    if (rest.length > 1 || (rest.length === 1 && numericArgValue(rest[0]) !== null)) {
+      return { error: 'the revolve has more arguments than the dialog understands' };
+    }
+    return {
+      parsed: { feature, op, angle, thin, axisText, profileText: rest[0]?.text ?? null },
       start,
       end,
     };
@@ -2034,6 +2212,42 @@ export function renderEditedStatement(
     }
     return {
       statement: renderSweepStatement({ op: opts.op, thin: opts.thin }, pathText, profileText),
+    };
+  }
+  if (parsed.feature === 'revolve') {
+    const opts = spec.edit?.revolve;
+    if (!opts || !validEditOp(opts.op) || !validEditThin(opts.thin)
+      || typeof opts.angle !== 'number' || !Number.isFinite(opts.angle) || opts.angle === 0) {
+      return { error: 'malformed revolve edit spec' };
+    }
+    let axisExpr = parsed.axisText;
+    if (opts.axis !== undefined) {
+      if (opts.axis.kind === 'selector') {
+        if (spec.parts.length !== 1) {
+          return { error: 'malformed revolve edit spec: a re-picked axis is exactly one part' };
+        }
+      } else if (opts.axis.kind === 'axis' && !isAxisProducer(spec as ApplyFeatureEditSpec, opts.axis.producer)) {
+        return { error: 'malformed revolve edit spec: the axis references a non-axis producer' };
+      } else if (opts.axis.kind === 'standard'
+        && opts.axis.axis !== 'x' && opts.axis.axis !== 'y' && opts.axis.axis !== 'z') {
+        return { error: 'malformed revolve edit spec: bad standard axis' };
+      }
+      axisExpr = renderRevolveAxisExpr(opts.axis, spec.parts, varFor);
+    } else if (spec.parts.length > 0) {
+      return { error: 'malformed revolve edit spec: selector parts without a re-sourced axis' };
+    }
+    let profileText = parsed.profileText;
+    if (opts.profile !== undefined && opts.profile.kind !== 'keep') {
+      const varName = editSourceVar(spec, opts.profile.producer, varFor);
+      if (typeof varName !== 'string') {
+        return varName;
+      }
+      profileText = varName;
+    }
+    return {
+      statement: renderRevolveStatement(
+        { op: opts.op, angle: opts.angle, thin: opts.thin }, axisExpr, profileText,
+      ),
     };
   }
   if (parsed.feature === 'loft') {

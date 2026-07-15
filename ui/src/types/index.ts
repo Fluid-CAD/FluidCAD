@@ -106,6 +106,12 @@ export type SubSelection =
    * index carries no meaning (always 0).
    */
   | { type: 'sketch'; index: number }
+  /**
+   * An axis line hit — only produced while a dialog has enabled
+   * `viewer.pickAxes`; the pick identifies the owning axis object, so the
+   * index carries no meaning (always 0).
+   */
+  | { type: 'axis'; index: number }
   | null;
 
 export type SceneObjectPart = {

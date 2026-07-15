@@ -8,6 +8,8 @@ import shell from "../../core/shell.js";
 import fillet from "../../core/fillet.js";
 import sweep from "../../core/sweep.js";
 import loft from "../../core/loft.js";
+import revolve from "../../core/revolve.js";
+import axis from "../../core/axis.js";
 import { circle, move, rect, vLine } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { Scene } from "../../rendering/scene.js";
@@ -261,6 +263,54 @@ describe("feature sources (edit-dialog seeding)", () => {
         const verticalEdges = edgeRefsWhere(box, m => Math.abs(m.z - 20) < 1e-6);
         expect(verticalEdges.map(r => r.sub.index)).toContain(result.path.entities[0].sub.index);
       }
+    }
+  });
+
+  it("resolves a revolve's profile and axis-statement call sites", () => {
+    const s = sketch("xz", () => {
+      move([80, 0]);
+      circle(20);
+    });
+    setLocation(s, 2);
+    // Offset along x keeps the axis inside the xz sketch plane.
+    const a = axis("z", { offsetX: -10 });
+    setLocation(a, 5);
+    const r = revolve(a);
+    setLocation(r, 7);
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "revolve", 7));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "revolve") {
+      expect(result.profile).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 2, column: 0 });
+      expect(result.axis).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 5, column: 0 });
+    }
+  });
+
+  it("marks an inline revolve axis opaque", () => {
+    const s = sketch("xz", () => {
+      move([80, 0]);
+      circle(20);
+    });
+    setLocation(s, 2);
+    // revolve('z'): the AxisObject is created inside the revolve call, so it
+    // captures the revolve's own line — no standalone statement to re-target.
+    const r = revolve("z", 180);
+    setLocation(r, 5);
+    const scene = render();
+    for (const obj of scene.getAllSceneObjects()) {
+      if (obj.getType() === "axis") {
+        setLocation(obj, 5);
+      }
+    }
+
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "revolve", 5));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "revolve") {
+      expect(result.profile).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 2, column: 0 });
+      expect(result.axis).toEqual({ kind: "opaque" });
     }
   });
 

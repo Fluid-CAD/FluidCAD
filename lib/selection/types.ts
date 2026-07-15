@@ -103,7 +103,7 @@ export type ExplainResult = {
   picks: PickExplanation[];
 };
 
-export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane';
+export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve';
 
 /**
  * A tangent chain from the "Select with tangents" gesture: the pick the user
@@ -220,6 +220,7 @@ export function nameHintFor(featureType: string): string {
     case 'wrap': return 'wr';
     case 'shell': return 'sh';
     case 'plane': return 'p';
+    case 'axis': return 'a';
     default: return 'f';
   }
 }

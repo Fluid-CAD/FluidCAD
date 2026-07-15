@@ -39,10 +39,11 @@ function isPlanePick(result: PickResult | null): result is { standardPlane: Stan
   return result !== null && 'standardPlane' in result;
 }
 
-// Sketch-wire picks route a dialog action and are never held as a selection.
+// Sketch-wire and axis picks route a dialog action and are never held as a
+// selection.
 export type SelectedEntity = {
   shapeId: string;
-  sub: Exclude<NonNullable<SubSelection>, { type: 'sketch' }>;
+  sub: Exclude<NonNullable<SubSelection>, { type: 'sketch' } | { type: 'axis' }>;
 };
 
 // How much to blend non-sketch object colors toward the scene background while
@@ -73,8 +74,11 @@ export class Viewer {
    * Restricts what pickAt() returns while a pick mode is active (e.g. edge-only
    * for fillet/chamfer). Faces still participate in occlusion testing so edges
    * hidden behind the solid don't become pickable — they just can't be *hit*.
+   * `none` turns solid picking off entirely while the independent channels
+   * (`pickSketchWires`, `pickAxes`) stay live — the revolve dialog's
+   * profile-armed mode, where only sketch wires may be picked.
    */
-  pickFilter: 'all' | 'edge' | 'face' = 'all';
+  pickFilter: 'all' | 'edge' | 'face' | 'none' = 'all';
   /**
    * Makes sketch wires pickable, independent of `pickFilter` — the armed
    * create dialogs (extrude/sweep/loft) enable it so clicking a sketch's
@@ -83,6 +87,14 @@ export class Viewer {
    * the consumer.
    */
   pickSketchWires = false;
+  /**
+   * Makes axis lines (the dashed `axis(…)` guides) pickable, independent of
+   * `pickFilter` — the armed revolve dialog enables it so clicking an axis
+   * selects it as the revolve axis. A hit returns the line's shapeId with
+   * `sub.type === 'axis'`; the owning axis object is resolved by the
+   * consumer.
+   */
+  pickAxes = false;
 
   private selectionHandler: ((shapeId: string | null, sub: SubSelection, modifiers: SelectionModifiers) => void) | null = null;
   private hoverHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
@@ -259,6 +271,7 @@ export class Viewer {
     faceHits: Intersection[];
     edgeHits: Intersection[];
     sketchWireHits: Intersection[];
+    axisHits: Intersection[];
     planeHits: Intersection[];
   } {
     const rect = this.ctx.renderer.domElement.getBoundingClientRect();
@@ -272,6 +285,7 @@ export class Viewer {
     const faceCandidates: Mesh[] = [];
     const edgeCandidates: LineSegments[] = [];
     const sketchWireCandidates: LineSegments[] = [];
+    const axisCandidates: LineSegments[] = [];
 
     this.ctx.scene.traverse((obj) => {
       if (obj.userData.isMetaShape) {
@@ -283,6 +297,8 @@ export class Viewer {
         edgeCandidates.push(obj as LineSegments);
       } else if (this.pickSketchWires && obj.userData.isSketchWire) {
         sketchWireCandidates.push(obj as LineSegments);
+      } else if (this.pickAxes && obj.userData.isAxisLine) {
+        axisCandidates.push(obj as LineSegments);
       }
     });
 
@@ -291,11 +307,12 @@ export class Viewer {
     const sketchWireHits = sketchWireCandidates.length > 0
       ? raycaster.intersectObjects(sketchWireCandidates, false)
       : [];
+    const axisHits = axisCandidates.length > 0 ? raycaster.intersectObjects(axisCandidates, false) : [];
     // Origin-plane quads participate only while shown (armed sketch mode).
     const planeTargets = this.standardPlanes.pickTargets;
     const planeHits = planeTargets.length > 0 ? raycaster.intersectObjects(planeTargets, false) : [];
 
-    return { raycaster, faceHits, edgeHits, sketchWireHits, planeHits };
+    return { raycaster, faceHits, edgeHits, sketchWireHits, axisHits, planeHits };
   }
 
   /** Closest point of an edge hit projected onto the pick ray — its depth. */
@@ -314,9 +331,10 @@ export class Viewer {
    */
   private pickAt(clientX: number, clientY: number): PickResult | null {
     const camera = this.ctx.camera;
-    const { raycaster, faceHits, edgeHits, sketchWireHits, planeHits } = this.castPick(clientX, clientY);
+    const { raycaster, faceHits, edgeHits, sketchWireHits, axisHits, planeHits } = this.castPick(clientX, clientY);
 
-    if (faceHits.length === 0 && edgeHits.length === 0 && sketchWireHits.length === 0 && planeHits.length === 0) {
+    if (faceHits.length === 0 && edgeHits.length === 0 && sketchWireHits.length === 0
+      && axisHits.length === 0 && planeHits.length === 0) {
       return null;
     }
 
@@ -327,6 +345,16 @@ export class Viewer {
       const shapeId = this.findShapeIdForObject(wireHit.object);
       if (shapeId) {
         return { shapeId, sub: { type: 'sketch', index: 0 } };
+      }
+    }
+
+    // Axis lines are thin construction guides usually floating off the
+    // solid — like sketch wires they outrank face hits so picking one never
+    // needs pixel-perfect aim against the geometry behind it.
+    for (const axisHit of axisHits) {
+      const shapeId = this.findShapeIdForObject(axisHit.object);
+      if (shapeId) {
+        return { shapeId, sub: { type: 'axis', index: 0 } };
       }
     }
 
@@ -350,7 +378,7 @@ export class Viewer {
     // the pick ray and compare with the face depth.
     const faceDist = bestFace != null ? bestFace.distance : Infinity;
     const planeDist = planeHits.length > 0 ? planeHits[0].distance : Infinity;
-    if (this.pickFilter !== 'face') {
+    if (this.pickFilter === 'all' || this.pickFilter === 'edge') {
       for (const edgeHit of edgeHits) {
         const edgeDist = Viewer.edgeHitDepth(edgeHit, raycaster);
         if (edgeDist <= faceDist + 1e-3 && edgeDist <= planeDist + 1e-3) {
@@ -873,6 +901,8 @@ export class Viewer {
       this.applyHoverFace(result.shapeId, result.sub.index);
     } else if (result.sub?.type === 'edge') {
       this.applyHoverEdge(result.shapeId, result.sub.index);
+    } else if (result.sub?.type === 'axis') {
+      this.applyHoverAxis(result.shapeId);
     }
     this.hoverHandler?.(result.shapeId, result.sub, clientX, clientY);
   }
@@ -1002,6 +1032,22 @@ export class Viewer {
       (obj as any).material.linewidth = HOVER_EDGE_LINE_WIDTH;
     });
 
+    this.ctx.requestRender();
+  }
+
+  /** Tint a hovered axis line (whole line — axes have no sub-selection). */
+  private applyHoverAxis(shapeId: string): void {
+    const group = this.findMeshByShapeId(shapeId);
+    if (!group) {
+      return;
+    }
+    group.traverse((obj) => {
+      if (!obj.userData.isAxisLine || obj.userData.hoverOriginalColor !== undefined) {
+        return;
+      }
+      obj.userData.hoverOriginalColor = (obj as any).material.color.getHex();
+      (obj as any).material.color.set(themeColors.highlightColor);
+    });
     this.ctx.requestRender();
   }
 

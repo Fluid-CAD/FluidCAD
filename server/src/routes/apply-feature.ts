@@ -3,10 +3,11 @@ import type { FluidCadServer, SelectionBoundary } from '../fluidcad-server.ts';
 import {
   applyFeatureEdit, extractNumericParams, makeProducerNamer, parseFeatureStatement, renderEditedStatement,
   renderExtrudeStatement, renderLoftStatement, renderPlaneBaseExprs, renderPlaneStatement,
+  renderRevolveStatement,
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, resolveParamValues,
   resolveSketchNames,
   type ApplyFeatureEditSpec, type ExtrudeEditOptions, type FeatureStatementEditTarget, type LoftEditOptions,
-  type PlaneEditOptions, type ShellJoinKind, type SweepEditOptions,
+  type PlaneEditOptions, type RevolveEditOptions, type ShellJoinKind, type SweepEditOptions,
 } from '../apply-feature-edit.ts';
 import { normalizePath } from '../normalize-path.ts';
 
@@ -268,6 +269,81 @@ function validateSweep(body: any): SweepRequest | { error: string } {
     return { ...base, path: { kind: 'edges', picks, chains } };
   }
   return { error: 'path must be {kind: "sketch", filePath, line} or {kind: "edges", entities}' };
+}
+
+/**
+ * One revolve axis input: a standard world axis string, an existing axis
+ * statement addressed by its source location, or a picked edge to synthesize
+ * an `axis(<selector>)` from.
+ */
+type RevolveAxisInput =
+  | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
+  | { kind: 'axis'; loc: SketchLoc }
+  | { kind: 'edge'; pick: Pick };
+
+/**
+ * The revolve request's shape: the profile is a sketch (like extrude); the
+ * axis is a standard world axis, an existing axis statement, or a picked
+ * edge. The angle is in degrees — 360 (the API default) renders no argument.
+ */
+type RevolveRequest = {
+  op: 'add' | 'remove' | 'new';
+  angle: number;
+  thin: [number] | [number, number] | null;
+  profile: { mode: 'active' | 'bound' } & SketchLoc;
+  axis: RevolveAxisInput;
+};
+
+/** One revolve axis field: standard string, axis statement, or edge pick. */
+function validateRevolveAxis(raw: any): RevolveAxisInput | { error: string } {
+  if (raw?.kind === 'standard') {
+    if (raw.axis !== 'x' && raw.axis !== 'y' && raw.axis !== 'z') {
+      return { error: 'a standard axis must be "x", "y" or "z"' };
+    }
+    return { kind: 'standard', axis: raw.axis };
+  }
+  if (raw?.kind === 'axis') {
+    const loc = validateSketchLoc(raw);
+    if (!loc) {
+      return { error: 'an axis input must carry the axis {filePath, line}' };
+    }
+    return { kind: 'axis', loc };
+  }
+  if (raw?.kind === 'edge') {
+    const pick = validatePick(raw.entity);
+    if (!pick || pick.sub.type !== 'edge') {
+      return { error: 'a picked axis must carry a {shapeId, sub:{type:"edge", index}} pick' };
+    }
+    return { kind: 'edge', pick };
+  }
+  return { error: 'axis must be {kind: "standard"|"axis"|"edge", …}' };
+}
+
+function validateRevolve(body: any): RevolveRequest | { error: string } {
+  const { op, angle, thin, profile } = body ?? {};
+  if (op !== 'add' && op !== 'remove' && op !== 'new') {
+    return { error: 'op must be "add", "remove" or "new"' };
+  }
+  if (!isNonzeroNumber(angle)) {
+    return { error: 'angle must be a nonzero sweep angle in degrees' };
+  }
+  const thinResult = validateThinOffsets(thin);
+  if ('error' in thinResult) {
+    return thinResult;
+  }
+  const mode = profile?.mode;
+  const profileLoc = validateSketchLoc(profile);
+  if ((mode !== 'active' && mode !== 'bound') || !profileLoc) {
+    return { error: 'profile must be {mode: "active"|"bound", filePath, line} of the sketch' };
+  }
+  const axis = validateRevolveAxis(body?.axis);
+  if ('error' in axis) {
+    return axis;
+  }
+  if (axis.kind === 'axis' && axis.loc.filePath !== profileLoc.filePath) {
+    return { error: 'the axis and the profile sketch live in different files' };
+  }
+  return { op, angle, thin: thinResult.offsets, profile: { mode, ...profileLoc }, axis };
 }
 
 /** Ordered loft profile inputs: sketches and picked faces, mixed freely. */
@@ -576,7 +652,7 @@ async function allocateProducerVars(
 }
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve']);
 
 /** One edited loft profile as the request carries it. */
 type EditLoftProfileInput =
@@ -607,6 +683,10 @@ type StatementEditRequest = {
     | { kind: 'edges'; picks: Pick[]; chains: { seed: Pick; members: Pick[] }[] };
   /** Re-sourced sweep profile sketch; absent keeps the statement's. */
   sweepProfile?: SketchLoc;
+  /** Re-sourced revolve profile sketch; absent keeps the statement's. */
+  revolveProfile?: SketchLoc;
+  /** Re-sourced revolve axis; absent keeps the statement's. */
+  revolveAxis?: RevolveAxisInput;
   /** Full replacement loft profile list; absent keeps the statement's. */
   loftProfiles?: EditLoftProfileInput[];
   /** Full replacement loft guide list; absent keeps the statement's. */
@@ -631,7 +711,7 @@ function isKeepSlot(raw: any): boolean {
 function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "sweep", "loft", "shell", "fillet" or "chamfer" for an edit' };
+    return { error: 'feature must be "extrude", "sweep", "loft", "revolve", "shell", "fillet" or "chamfer" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -682,6 +762,38 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       return { error: 'an edited profile must be {mode: "bound", filePath, line} of the sketch' };
     }
     return { ...result, extrudeProfile: loc };
+  }
+
+  if (feature === 'revolve') {
+    const { op, angle } = body ?? {};
+    if (op !== 'add' && op !== 'remove' && op !== 'new') {
+      return { error: 'op must be "add", "remove" or "new"' };
+    }
+    if (!isNonzeroNumber(angle)) {
+      return { error: 'angle must be a nonzero sweep angle in degrees' };
+    }
+    const thin = validateThinOffsets(body?.thin);
+    if ('error' in thin) {
+      return thin;
+    }
+    edit.revolve = { op, angle, thin: thin.offsets };
+    const result: StatementEditRequest = base;
+    if (!isKeepSlot(body?.axis)) {
+      const axis = validateRevolveAxis(body.axis);
+      if ('error' in axis) {
+        return axis;
+      }
+      result.revolveAxis = axis;
+      result.needsPicks ||= axis.kind === 'edge';
+    }
+    if (isKeepSlot(body?.profile)) {
+      return result;
+    }
+    const loc = validateSketchLoc(body.profile);
+    if (body.profile?.mode !== 'bound' || !loc) {
+      return { error: 'an edited profile must be {mode: "bound", filePath, line} of the sketch' };
+    }
+    return { ...result, revolveProfile: loc };
   }
 
   if (feature === 'sweep' || feature === 'loft') {
@@ -991,6 +1103,8 @@ export function createApplyFeatureRouter(
           ...(request.extrudeProfile ? [request.extrudeProfile] : []),
           ...(request.sweepPath?.kind === 'sketch' ? [request.sweepPath] : []),
           ...(request.sweepProfile ? [request.sweepProfile] : []),
+          ...(request.revolveProfile ? [request.revolveProfile] : []),
+          ...(request.revolveAxis?.kind === 'axis' ? [request.revolveAxis.loc] : []),
           ...(request.loftProfiles ?? []).filter((p): p is { kind: 'sketch' } & SketchLoc => p.kind === 'sketch'),
           ...(request.loftGuides ?? []).filter((g): g is { kind: 'sketch' } & SketchLoc => g.kind === 'sketch'),
         ];
@@ -1026,7 +1140,7 @@ export function createApplyFeatureRouter(
         /** Synthesize one re-picked slot against the pre-statement scene. */
         const synthesizeSlot = (
           picks: Pick[],
-          kind: 'extrude' | 'sweep' | 'loft' | 'fillet' | 'chamfer' | 'shell',
+          kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell',
           value: number | undefined,
           chains: { seed: Pick; members: Pick[] }[],
         ): any | null => {
@@ -1101,6 +1215,36 @@ export function createApplyFeatureRouter(
         }
         if (request.sweepProfile) {
           edit.sweep!.profile = { kind: 'sketch', producer: sketchRef(request.sweepProfile, 's') };
+        }
+        if (request.revolveProfile) {
+          edit.revolve!.profile = { kind: 'sketch', producer: sketchRef(request.revolveProfile, 's') };
+        }
+        if (request.revolveAxis) {
+          if (request.revolveAxis.kind === 'standard') {
+            edit.revolve!.axis = { kind: 'standard', axis: request.revolveAxis.axis };
+          } else if (request.revolveAxis.kind === 'axis') {
+            edit.revolve!.axis = {
+              kind: 'axis',
+              producer: mergeProducer({
+                line: request.revolveAxis.loc.line, column: request.revolveAxis.loc.column,
+                featureType: 'axis', nameHint: 'a', bind: true,
+              }),
+            };
+          } else {
+            const synthesis = synthesizeSlot([request.revolveAxis.pick], 'revolve', undefined, []);
+            if (!synthesis) {
+              return;
+            }
+            // The axis argument is ONE SceneObject — a multi-part selection
+            // has no single-expression rendering.
+            if (synthesis.spec.parts.length !== 1) {
+              res.status(422).json({ success: false, reason: 'the revolve axis must be a single edge selection' });
+              return;
+            }
+            foldSynthesis(synthesis);
+            importSet.add('axis');
+            edit.revolve!.axis = { kind: 'selector' };
+          }
         }
         if (request.loftProfiles) {
           const profiles: NonNullable<FeatureStatementEditTarget['loft']>['profiles'] = [];
@@ -1443,6 +1587,140 @@ export function createApplyFeatureRouter(
       return;
     }
 
+    // Revolve composes a profile sketch around an axis — a standard world
+    // axis, an existing axis statement bound to a variable, or a picked edge
+    // synthesized into `axis(<selector>)`.
+    if (feature === 'revolve') {
+      const request = validateRevolve(req.body);
+      if ('error' in request) {
+        res.status(400).json({ error: request.error });
+        return;
+      }
+      try {
+        const code = fluidCadServer.getCurrentCode();
+        // The profile stays producers[0] in both modes — the transform's
+        // revolve contract; the axis producer / selector producers follow it.
+        const producers: ApplyFeatureEditSpec['producers'] = [{
+          line: request.profile.line,
+          column: request.profile.column,
+          featureType: 'sketch',
+          nameHint: 's',
+          bind: request.profile.mode === 'bound',
+        }];
+        let parts: ApplyFeatureEditSpec['parts'] = [];
+        let imports: string[] = [];
+        let axis: RevolveEditOptions['axis'];
+        let axisArgs: string | null = null;
+        let alternatives: string[] | undefined;
+
+        if (request.axis.kind === 'edge') {
+          const options = code
+            ? {
+              namer: await makeProducerNamer(code),
+              params: resolveParamValues(
+                await extractNumericParams(code),
+                fluidCadServer.getParamDefinitions(),
+              ),
+            }
+            : undefined;
+          const synthesis = fluidCadServer.synthesizeApplyFeature(
+            [request.axis.pick], 'revolve', undefined, [], options,
+          );
+          if (!synthesis) {
+            res.status(404).json({ success: false, reason: 'No rendered scene' });
+            return;
+          }
+          if (!synthesis.ok) {
+            res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
+            return;
+          }
+          // The axis argument is ONE SceneObject — a multi-part selection
+          // has no single-expression rendering.
+          if (synthesis.spec.parts.length !== 1) {
+            res.status(422).json({ success: false, reason: 'the revolve axis must be a single edge selection' });
+            return;
+          }
+          if (synthesis.spec.filePath !== request.profile.filePath) {
+            res.status(422).json({ success: false, reason: 'the axis edge and the profile sketch come from different files' });
+            return;
+          }
+          parts = synthesis.spec.parts.map((part: ApplyFeatureEditSpec['parts'][number]) => ({
+            ...part, producer: part.producer === null ? null : part.producer + producers.length,
+          }));
+          producers.push(...synthesis.spec.producers);
+          imports = [...synthesis.spec.imports, 'axis'];
+          axisArgs = synthesis.args;
+          alternatives = synthesis.alternatives;
+          axis = { kind: 'selector' };
+        } else if (request.axis.kind === 'axis') {
+          producers.push({
+            line: request.axis.loc.line, column: request.axis.loc.column,
+            featureType: 'axis', nameHint: 'a', bind: true,
+          });
+          axis = { kind: 'axis', producer: producers.length - 1 };
+        } else {
+          axis = { kind: 'standard', axis: request.axis.axis };
+        }
+
+        const options: RevolveEditOptions = {
+          op: request.op,
+          angle: request.angle,
+          thin: request.thin,
+          profile: request.profile.mode === 'bound' ? 'bound' : 'implicit',
+          axis,
+        };
+
+        // Truthful preview names for the axis/profile inputs — one namer
+        // pass so collision suffixes stay consistent across both.
+        let axisVar: string | null = null;
+        let profileVar: string | null = null;
+        if (code) {
+          const namer = await makeProducerNamer(code);
+          const queries: { line: number; nameHint: string; featureType?: string }[] = [];
+          if (request.axis.kind === 'axis') {
+            queries.push({ line: request.axis.loc.line, nameHint: 'a', featureType: 'axis' });
+          }
+          if (request.profile.mode === 'bound') {
+            queries.push({ line: request.profile.line, nameHint: 's', featureType: 'sketch' });
+          }
+          const names = queries.length > 0 ? namer(queries) : [];
+          let next = 0;
+          if (request.axis.kind === 'axis') {
+            axisVar = names[next++];
+          }
+          if (request.profile.mode === 'bound') {
+            profileVar = names[next++];
+          }
+        }
+
+        const axisExpr = axis.kind === 'selector'
+          ? `axis(${axisArgs})`
+          : axis.kind === 'axis' ? (axisVar ?? 'a') : `'${axis.axis}'`;
+        const statement = renderRevolveStatement(
+          options, axisExpr, request.profile.mode === 'bound' ? profileVar ?? 's' : null,
+        );
+        if (preview === true) {
+          res.json({ success: true, preview: statement, args: axisArgs ?? undefined, alternatives });
+          return;
+        }
+        sendToExtension({
+          type: 'apply-feature-edit',
+          spec: {
+            feature: 'revolve',
+            revolve: options,
+            filePath: request.profile.filePath,
+            producers,
+            parts,
+            imports,
+          },
+        });
+        res.json({ success: true, preview: statement });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
+
     // Loft takes an ordered list of profiles — sketches and picked faces
     // mixed freely. Face picks run synthesis ONE AT A TIME: the kernel groups
     // picks by (producer, bucket), so a batched call would merge same-bucket
@@ -1754,7 +2032,7 @@ export function createApplyFeatureRouter(
       return;
     }
     if (feature !== 'fillet' && feature !== 'chamfer' && feature !== 'shell' && feature !== 'sketch') {
-      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude", "sweep" or "loft"' });
+      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude", "sweep", "loft", "revolve" or "plane"' });
       return;
     }
     // Per-feature numeric parameter: fillet/chamfer need a positive radius or
@@ -1880,8 +2158,8 @@ export function createApplyFeatureRouter(
       res.status(400).json({ error: 'lines must be up to 64 positive integers' });
       return;
     }
-    if (callee !== undefined && callee !== 'sketch' && callee !== 'plane') {
-      res.status(400).json({ error: 'callee must be "sketch" or "plane"' });
+    if (callee !== undefined && callee !== 'sketch' && callee !== 'plane' && callee !== 'axis') {
+      res.status(400).json({ error: 'callee must be "sketch", "plane" or "axis"' });
       return;
     }
     const lineNumbers = lines as number[];

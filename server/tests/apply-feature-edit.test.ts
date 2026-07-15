@@ -2466,3 +2466,353 @@ describe('applyFeatureEdit (re-sourced statement edit)', () => {
     expect(result.newCode).toBe(code);
   });
 });
+
+describe('revolve statement templates', () => {
+  function revolveSpec(
+    revolve: Partial<NonNullable<ApplyFeatureEditSpec['revolve']>> = {},
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec {
+    return {
+      feature: 'revolve',
+      filePath: '/ws/model.fluid.js',
+      revolve: {
+        op: 'add', angle: 360, thin: null, profile: 'implicit',
+        axis: { kind: 'standard', axis: 'z' },
+        ...revolve,
+      },
+      producers: [
+        { line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: false },
+      ],
+      parts: [],
+      imports: [],
+      ...overrides,
+    };
+  }
+
+  const oneSketchCode = [
+    `import { sketch, circle } from 'fluidcad/core'`,
+    ``,
+    `sketch('xz', () => { circle([80, 0], 40) })`,
+    ``,
+  ].join('\n');
+
+  it('appends an implicit-profile revolve at end of scope and imports revolve', async () => {
+    const result = await applyFeatureEdit(oneSketchCode, revolveSpec());
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const sketchRow = lines.findIndex(l => l.startsWith(`sketch('xz'`));
+    expect(lines[sketchRow + 1]).toBe(`revolve('z')`);
+    expect(result.newCode).toMatch(/import \{ ?revolve,/);
+  });
+
+  it('omits the 360° default angle but renders a partial one', async () => {
+    const result = await applyFeatureEdit(oneSketchCode, revolveSpec({ angle: 275 }));
+    expect(result.newCode).toContain(`revolve('z', 275)`);
+  });
+
+  it('binds a bound profile and inserts directly after it', async () => {
+    const code = [
+      `import { sketch, rect, circle } from 'fluidcad/core'`,
+      ``,
+      `sketch('xz', () => { circle([80, 0], 40) })`,
+      `sketch('xy', () => { rect(10, 10) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, revolveSpec(
+      { profile: 'bound', angle: 90 },
+      { producers: [{ line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: true }] },
+    ));
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const profileRow = lines.findIndex(l => l === `const s = sketch('xz', () => { circle([80, 0], 40) })`);
+    expect(profileRow).toBeGreaterThan(-1);
+    expect(lines[profileRow + 1]).toBe(`revolve('z', 90, s)`);
+    // The later sketch stays last, so it remains the active sketch.
+    expect(lines[profileRow + 2]).toBe(`sketch('xy', () => { rect(10, 10) })`);
+  });
+
+  it('binds an axis statement and inserts after the later input', async () => {
+    const code = [
+      `import { sketch, circle, axis } from 'fluidcad/core'`,
+      ``,
+      `sketch('xz', () => { circle([80, 0], 40) })`,
+      `axis('y', { offsetZ: 290 })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, revolveSpec(
+      { profile: 'bound', axis: { kind: 'axis', producer: 1 } },
+      {
+        producers: [
+          { line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+          { line: 4, column: 0, featureType: 'axis', nameHint: 'a', bind: true },
+        ],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const axisRow = lines.findIndex(l => l === `const a = axis('y', { offsetZ: 290 })`);
+    expect(axisRow).toBeGreaterThan(-1);
+    expect(lines[axisRow + 1]).toBe(`revolve(a, s)`);
+  });
+
+  it('renders a picked-edge axis wrapped in axis() at end of scope', async () => {
+    const code = [
+      `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      `sketch('xz', () => { circle([80, 0], 40) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, revolveSpec(
+      { axis: { kind: 'selector' } },
+      {
+        producers: [
+          { line: 5, column: 0, featureType: 'sketch', nameHint: 's', bind: false },
+          { line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true },
+        ],
+        parts: [{ producer: 1, accessor: 'endEdges', indices: [2], filterArgs: null }],
+        imports: ['axis'],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const e = extrude(30)`);
+    const lines = result.newCode.split('\n');
+    const revolveRow = lines.findIndex(l => l === `revolve(axis(e.endEdges(2)))`);
+    expect(revolveRow).toBeGreaterThan(lines.findIndex(l => l.startsWith(`sketch('xz'`)));
+    expect(result.newCode).toMatch(/import \{ ?axis,/);
+  });
+
+  it('chains .thin() and .remove()', async () => {
+    const result = await applyFeatureEdit(oneSketchCode, revolveSpec({ op: 'remove', angle: 90, thin: [2] }));
+    expect(result.newCode).toContain(`revolve('z', 90).thin(2).remove()`);
+  });
+
+  it('chains .new()', async () => {
+    const result = await applyFeatureEdit(oneSketchCode, revolveSpec({ op: 'new' }));
+    expect(result.newCode).toContain(`revolve('z').new()`);
+  });
+
+  it('refuses a selector axis without its part', async () => {
+    const result = await applyFeatureEdit(oneSketchCode, revolveSpec({ axis: { kind: 'selector' } }));
+    expect(result.error).toContain('malformed');
+    expect(result.newCode).toBe(oneSketchCode);
+  });
+
+  it('refuses when the axis producer line is not an axis call', async () => {
+    const code = [
+      `import { sketch, rect, circle } from 'fluidcad/core'`,
+      ``,
+      `sketch('xz', () => { circle([80, 0], 40) })`,
+      `sketch('xy', () => { rect(10, 10) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, revolveSpec(
+      { profile: 'bound', axis: { kind: 'axis', producer: 1 } },
+      {
+        producers: [
+          { line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+          { line: 4, column: 0, featureType: 'axis', nameHint: 'a', bind: true },
+        ],
+      },
+    ));
+    expect(result.error).toContain('expected a axis() call');
+    expect(result.newCode).toBe(code);
+  });
+});
+
+describe('parseFeatureStatement — revolve', () => {
+  it('reads a plain standard-axis revolve', async () => {
+    const code = `${editBase}\nrevolve('z')\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'revolve', op: 'add', angle: null, thin: null,
+        axisText: `'z'`, profileText: null,
+      },
+      statement: `revolve('z')`,
+    });
+  });
+
+  it('reads a partial angle with a thin chain', async () => {
+    const code = `${editBase}\nrevolve('z', 275).thin(5)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'revolve', angle: 275, thin: [5], axisText: `'z'`, profileText: null },
+    });
+  });
+
+  it('reads a bound axis variable and profile with a remove chain', async () => {
+    const code = `${editBase}\nrevolve(a, s).remove()\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'revolve', op: 'remove', angle: null, thin: null,
+        axisText: 'a', profileText: 's',
+      },
+      statement: `revolve(a, s).remove()`,
+    });
+  });
+
+  it('keeps an axis() call argument verbatim', async () => {
+    const code = `${editBase}\nrevolve(axis(e.endEdges(2)), 90)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'revolve', angle: 90, axisText: 'axis(e.endEdges(2))', profileText: null },
+    });
+  });
+
+  it('keeps a trailing .symmetric() chain out of the statement span', async () => {
+    const code = `${editBase}\nrevolve('z', 180).symmetric()\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'revolve', angle: 180 },
+      statement: `revolve('z', 180)`,
+    });
+  });
+
+  it('refuses extra arguments after the profile slot', async () => {
+    const code = `${editBase}\nrevolve('z', 90, 45)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false });
+  });
+});
+
+describe('applyFeatureEdit (revolve in-place statement edit)', () => {
+  // Like editBase, with revolve already imported so exact-equality
+  // assertions don't trip on the import ensure.
+  const revolveEditBase = [
+    `import { sketch, rect, extrude, revolve } from 'fluidcad/core'`,
+    ``,
+    `const s = sketch('xy', () => { rect(100, 50) })`,
+  ].join('\n');
+
+  function revolveEditOptions(
+    overrides: Partial<NonNullable<FeatureStatementEditTarget['revolve']>> = {},
+  ): NonNullable<FeatureStatementEditTarget['revolve']> {
+    return { op: 'add', angle: 360, thin: null, ...overrides };
+  }
+
+  it('replaces the angle in place', async () => {
+    const code = `${revolveEditBase}\nrevolve('z', 90)\n`;
+    const result = await applyFeatureEdit(code, editSpec('revolve', {
+      line: 4, column: 0,
+      revolve: revolveEditOptions({ angle: 180 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`${revolveEditBase}\nrevolve('z', 180)\n`);
+  });
+
+  it('drops the angle argument for the 360° default', async () => {
+    const code = `${revolveEditBase}\nrevolve('z', 90)\n`;
+    const result = await applyFeatureEdit(code, editSpec('revolve', {
+      line: 4, column: 0,
+      revolve: revolveEditOptions(),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`${revolveEditBase}\nrevolve('z')\n`);
+  });
+
+  it('adds thin and remove chains keeping the axis and profile verbatim', async () => {
+    const code = `${editBase}\nrevolve(axis(e.endEdges(2)), 45, s)\n`;
+    const result = await applyFeatureEdit(code, editSpec('revolve', {
+      line: 4, column: 0,
+      revolve: revolveEditOptions({ op: 'remove', angle: 45, thin: [2] }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`revolve(axis(e.endEdges(2)), 45, s).thin(2).remove()`);
+  });
+
+  it('re-sources the axis to a standard world axis', async () => {
+    const code = `${editBase}\nrevolve(axis(e.endEdges(2)), 45)\n`;
+    const result = await applyFeatureEdit(code, editSpec('revolve', {
+      line: 4, column: 0,
+      revolve: revolveEditOptions({ angle: 45, axis: { kind: 'standard', axis: 'x' } }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`revolve('x', 45)`);
+  });
+
+  it('re-sources the axis to an axis statement, binding it', async () => {
+    const code = [
+      `import { sketch, circle, axis, revolve } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xz', () => { circle([80, 0], 40) })`,
+      `axis('y', { offsetZ: 290 })`,
+      `revolve('z', 45)`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('revolve', {
+      line: 5, column: 0,
+      revolve: revolveEditOptions({ angle: 45, axis: { kind: 'axis', producer: 0 } }),
+    }, {
+      producers: [{ line: 4, column: 0, featureType: 'axis', nameHint: 'a', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const a = axis('y', { offsetZ: 290 })`);
+    expect(result.newCode).toContain(`revolve(a, 45)`);
+  });
+
+  it('re-sources the axis to a picked edge rendered from parts', async () => {
+    const code = [
+      `import { sketch, rect, circle, extrude, revolve } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      `const s = sketch('xz', () => { circle([80, 0], 40) })`,
+      `revolve('z', 45, s)`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('revolve', {
+      line: 6, column: 0,
+      revolve: revolveEditOptions({ angle: 45, axis: { kind: 'selector' } }),
+    }, {
+      producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endEdges', indices: [2], filterArgs: null }],
+      imports: ['axis'],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`revolve(axis(e.endEdges(2)), 45, s)`);
+    expect(result.newCode).toMatch(/import \{ ?axis,/);
+  });
+
+  it('re-sources the profile to a bound sketch, reusing its const', async () => {
+    const code = `${revolveEditBase}\nrevolve('z', 45)\n`;
+    const result = await applyFeatureEdit(code, editSpec('revolve', {
+      line: 4, column: 0,
+      revolve: revolveEditOptions({ angle: 45, profile: { kind: 'sketch', producer: 0 } }),
+    }, {
+      producers: [{ line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`${revolveEditBase}\nrevolve('z', 45, s)\n`);
+  });
+
+  it('refuses selector parts without a re-sourced axis', async () => {
+    const code = `${editBase}\nconst e = extrude(30)\nrevolve('z', 45)\n`;
+    const result = await applyFeatureEdit(code, editSpec('revolve', {
+      line: 5, column: 0,
+      revolve: revolveEditOptions({ angle: 45 }),
+    }, {
+      producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endEdges', indices: [2], filterArgs: null }],
+    }));
+    expect(result.error).toContain('malformed');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a zero angle', async () => {
+    const code = `${editBase}\nrevolve('z', 45)\n`;
+    const result = await applyFeatureEdit(code, editSpec('revolve', {
+      line: 4, column: 0,
+      revolve: revolveEditOptions({ angle: 0 }),
+    }));
+    expect(result.error).toContain('malformed');
+    expect(result.newCode).toBe(code);
+  });
+});

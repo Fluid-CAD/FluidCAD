@@ -18,7 +18,8 @@ export class AxisMesh extends Group {
   constructor(sceneObject: SceneObjectRender) {
     super();
 
-    const meshData = sceneObject.sceneShapes[0]?.meshes[0];
+    const shape = sceneObject.sceneShapes[0];
+    const meshData = shape?.meshes[0];
     if (!meshData) return;
 
     const geometry = new BufferGeometry();
@@ -34,6 +35,14 @@ export class AxisMesh extends Group {
     trackPixelsPerWorld(line, (pixelsPerWorld) => {
       material.scale = pixelsPerWorld;
     });
+
+    // Axis lines are pickable only through the viewer's opt-in axis-pick
+    // channel (the revolve dialog) — mark the raycastable line and address
+    // the group by its shape id for pick resolution and highlighting.
+    if (shape.shapeId) {
+      this.userData.shapeId = shape.shapeId;
+      line.userData.isAxisLine = true;
+    }
 
     this.add(line);
   }

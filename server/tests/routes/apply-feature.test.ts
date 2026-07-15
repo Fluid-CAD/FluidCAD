@@ -118,7 +118,7 @@ describe('apply-feature route validation', () => {
   it('rejects an unknown feature', async () => {
     const { status, body } = await post({ feature: 'draft', value: 2, entities: [PICK] });
     expect(status).toBe(400);
-    expect(body.error).toContain('"sweep" or "loft"');
+    expect(body.error).toContain('"revolve" or "plane"');
   });
 
   it('rejects a non-positive fillet value', async () => {
@@ -541,6 +541,137 @@ describe('apply-feature route validation', () => {
     });
     expect(status).toBe(400);
     expect(body.error).toContain('different sketches');
+  });
+
+  const REVOLVE_PROFILE = { mode: 'active', filePath: '/ws/m.fluid.js', line: 7, column: 0 };
+
+  it('relays a standard-axis revolve with an implicit profile', async () => {
+    const { status, body } = await post({
+      feature: 'revolve', op: 'add', angle: 360, thin: null,
+      profile: REVOLVE_PROFILE, axis: { kind: 'standard', axis: 'z' },
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe(`revolve('z')`);
+    expect(synthesizeCalls).toEqual([]);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'revolve',
+      revolve: { op: 'add', angle: 360, profile: 'implicit', axis: { kind: 'standard', axis: 'z' } },
+      producers: [{ line: 7, featureType: 'sketch', nameHint: 's', bind: false }],
+      parts: [],
+    });
+  });
+
+  it('previews a bound-profile partial revolve with thin and remove chains', async () => {
+    const { body } = await post({
+      feature: 'revolve', op: 'remove', angle: 90, thin: [2],
+      profile: { ...REVOLVE_PROFILE, mode: 'bound' }, axis: { kind: 'standard', axis: 'x' },
+      preview: true,
+    });
+    expect(body.preview).toBe(`revolve('x', 90, s).thin(2).remove()`);
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('relays an axis-statement revolve binding the axis after the profile', async () => {
+    const { status, body } = await post({
+      feature: 'revolve', op: 'add', angle: 360,
+      profile: REVOLVE_PROFILE, axis: { kind: 'axis', filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('revolve(a)');
+    expect(synthesizeCalls).toEqual([]);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'revolve',
+      revolve: { op: 'add', profile: 'implicit', axis: { kind: 'axis', producer: 1 } },
+      producers: [
+        { line: 7, featureType: 'sketch', nameHint: 's', bind: false },
+        { line: 3, featureType: 'axis', nameHint: 'a', bind: true },
+      ],
+      parts: [],
+    });
+  });
+
+  it('synthesizes an edge axis and wraps it in axis()', async () => {
+    currentSynthesis = {
+      ok: true,
+      spec: {
+        feature: 'revolve',
+        filePath: '/ws/m.fluid.js',
+        producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'endEdges', indices: [2], filterArgs: null }],
+        imports: [],
+      },
+      preview: 'revolve(axis(e.endEdges(2)))',
+      args: 'e.endEdges(2)',
+      alternatives: [],
+    };
+    const { status, body } = await post({
+      feature: 'revolve', op: 'new', angle: 360, profile: REVOLVE_PROFILE,
+      axis: { kind: 'edge', entity: { shapeId: 'shape-1', sub: { type: 'edge', index: 2 } } },
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('revolve(axis(e.endEdges(2))).new()');
+    expect(synthesizeCalls).toEqual([{ feature: 'revolve', value: undefined }]);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'revolve',
+      revolve: { op: 'new', profile: 'implicit', axis: { kind: 'selector' } },
+      producers: [
+        { line: 7, featureType: 'sketch', bind: false },
+        { line: 4, featureType: 'extrude', bind: true },
+      ],
+      parts: [{ producer: 1, accessor: 'endEdges' }],
+      imports: ['axis'],
+    });
+  });
+
+  it('refuses a multi-part axis synthesis', async () => {
+    currentSynthesis = {
+      ok: true,
+      spec: {
+        feature: 'revolve',
+        filePath: '/ws/m.fluid.js',
+        producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [
+          { producer: 0, accessor: 'endEdges', indices: null, filterArgs: null },
+          { producer: 0, accessor: 'sideEdges', indices: null, filterArgs: null },
+        ],
+        imports: [],
+      },
+      preview: '', args: '', alternatives: [],
+    };
+    const { status, body } = await post({
+      feature: 'revolve', op: 'add', angle: 360, profile: REVOLVE_PROFILE,
+      axis: { kind: 'edge', entity: { shapeId: 'shape-1', sub: { type: 'edge', index: 2 } } },
+    });
+    expect(status).toBe(422);
+    expect(body.reason).toContain('single edge');
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('rejects a face pick as the axis edge', async () => {
+    const { status, body } = await post({
+      feature: 'revolve', op: 'add', angle: 360, profile: REVOLVE_PROFILE,
+      axis: { kind: 'edge', entity: { shapeId: 'shape-1', sub: { type: 'face', index: 0 } } },
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('edge');
+  });
+
+  it('rejects a zero angle', async () => {
+    const { status, body } = await post({
+      feature: 'revolve', op: 'add', angle: 0, profile: REVOLVE_PROFILE,
+      axis: { kind: 'standard', axis: 'z' },
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('angle');
+  });
+
+  it('rejects an axis statement from a different file than the profile', async () => {
+    const { status, body } = await post({
+      feature: 'revolve', op: 'add', angle: 360, profile: REVOLVE_PROFILE,
+      axis: { kind: 'axis', filePath: '/ws/other.fluid.js', line: 3, column: 0 },
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('different files');
   });
 
   const LOFT_S1 = { kind: 'sketch', filePath: '/ws/m.fluid.js', line: 3, column: 0 };

@@ -228,6 +228,56 @@ describe('apply-feature route validation', () => {
     expect(relayed).toHaveLength(0);
   });
 
+  it('relays a plane-feature sketch as a sketch-on-plane spec without synthesis', async () => {
+    const { status, body } = await post({
+      feature: 'sketch', entities: [],
+      planeRef: { filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+    });
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.preview).toContain('sketch(p, () => {');
+    expect(synthesizeCalls).toEqual([]);
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0].spec).toEqual({
+      feature: 'sketch', sketchOnPlane: true, filePath: '/ws/m.fluid.js',
+      producers: [{ line: 3, column: 0, featureType: 'plane', nameHint: 'p', bind: true }],
+      parts: [], imports: [],
+    });
+  });
+
+  it('previews a plane-feature sketch with the plane variable name', async () => {
+    currentCode = [
+      `import { plane } from 'fluidcad/core'`,
+      ``,
+      `const top = plane('xy', 20)`,
+      ``,
+    ].join('\n');
+    const { status, body } = await post({
+      feature: 'sketch', entities: [], preview: true,
+      planeRef: { filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toContain('sketch(top, () => {');
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('rejects a malformed planeRef on a pick-less sketch', async () => {
+    const { status, body } = await post({ feature: 'sketch', entities: [], planeRef: { line: 3 } });
+    expect(status).toBe(400);
+    expect(body.error).toContain('planeRef');
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('rejects a pick-less sketch carrying both plane and planeRef', async () => {
+    const { status, body } = await post({
+      feature: 'sketch', entities: [], plane: 'xz',
+      planeRef: { filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('mutually exclusive');
+    expect(relayed).toHaveLength(0);
+  });
+
   it('still rejects empty picks for the other features', async () => {
     const { status } = await post({ feature: 'fillet', value: 3, entities: [] });
     expect(status).toBe(400);

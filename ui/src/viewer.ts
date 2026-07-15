@@ -39,11 +39,11 @@ function isPlanePick(result: PickResult | null): result is { standardPlane: Stan
   return result !== null && 'standardPlane' in result;
 }
 
-// Sketch-wire and axis picks route a dialog action and are never held as a
-// selection.
+// Sketch-wire, axis and plane picks route a dialog action and are never held
+// as a selection.
 export type SelectedEntity = {
   shapeId: string;
-  sub: Exclude<NonNullable<SubSelection>, { type: 'sketch' } | { type: 'axis' }>;
+  sub: Exclude<NonNullable<SubSelection>, { type: 'sketch' } | { type: 'axis' } | { type: 'plane' }>;
 };
 
 // How much to blend non-sketch object colors toward the scene background while
@@ -95,6 +95,14 @@ export class Viewer {
    * consumer.
    */
   pickAxes = false;
+  /**
+   * Makes construction-plane quads (the translucent `plane(…)` faces)
+   * pickable, independent of `pickFilter` — the armed sketch mode enables it
+   * so clicking a plane sketches on it. A hit returns the quad's shapeId with
+   * `sub.type === 'plane'`; the owning plane object is resolved by the
+   * consumer.
+   */
+  pickPlanes = false;
 
   private selectionHandler: ((shapeId: string | null, sub: SubSelection, modifiers: SelectionModifiers) => void) | null = null;
   private hoverHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
@@ -273,6 +281,7 @@ export class Viewer {
     sketchWireHits: Intersection[];
     axisHits: Intersection[];
     planeHits: Intersection[];
+    planeQuadHits: Intersection[];
   } {
     const rect = this.ctx.renderer.domElement.getBoundingClientRect();
     const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
@@ -286,6 +295,7 @@ export class Viewer {
     const edgeCandidates: LineSegments[] = [];
     const sketchWireCandidates: LineSegments[] = [];
     const axisCandidates: LineSegments[] = [];
+    const planeQuadCandidates: Mesh[] = [];
 
     this.ctx.scene.traverse((obj) => {
       if (obj.userData.isMetaShape) {
@@ -299,6 +309,8 @@ export class Viewer {
         sketchWireCandidates.push(obj as LineSegments);
       } else if (this.pickAxes && obj.userData.isAxisLine) {
         axisCandidates.push(obj as LineSegments);
+      } else if (this.pickPlanes && obj.userData.isConstructionPlaneQuad) {
+        planeQuadCandidates.push(obj as Mesh);
       }
     });
 
@@ -311,8 +323,11 @@ export class Viewer {
     // Origin-plane quads participate only while shown (armed sketch mode).
     const planeTargets = this.standardPlanes.pickTargets;
     const planeHits = planeTargets.length > 0 ? raycaster.intersectObjects(planeTargets, false) : [];
+    const planeQuadHits = planeQuadCandidates.length > 0
+      ? raycaster.intersectObjects(planeQuadCandidates, false)
+      : [];
 
-    return { raycaster, faceHits, edgeHits, sketchWireHits, axisHits, planeHits };
+    return { raycaster, faceHits, edgeHits, sketchWireHits, axisHits, planeHits, planeQuadHits };
   }
 
   /** Closest point of an edge hit projected onto the pick ray — its depth. */
@@ -331,10 +346,10 @@ export class Viewer {
    */
   private pickAt(clientX: number, clientY: number): PickResult | null {
     const camera = this.ctx.camera;
-    const { raycaster, faceHits, edgeHits, sketchWireHits, axisHits, planeHits } = this.castPick(clientX, clientY);
+    const { raycaster, faceHits, edgeHits, sketchWireHits, axisHits, planeHits, planeQuadHits } = this.castPick(clientX, clientY);
 
     if (faceHits.length === 0 && edgeHits.length === 0 && sketchWireHits.length === 0
-      && axisHits.length === 0 && planeHits.length === 0) {
+      && axisHits.length === 0 && planeHits.length === 0 && planeQuadHits.length === 0) {
       return null;
     }
 
@@ -378,6 +393,7 @@ export class Viewer {
     // the pick ray and compare with the face depth.
     const faceDist = bestFace != null ? bestFace.distance : Infinity;
     const planeDist = planeHits.length > 0 ? planeHits[0].distance : Infinity;
+    const planeQuadDist = planeQuadHits.length > 0 ? planeQuadHits[0].distance : Infinity;
     if (this.pickFilter === 'all' || this.pickFilter === 'edge') {
       for (const edgeHit of edgeHits) {
         const edgeDist = Viewer.edgeHitDepth(edgeHit, raycaster);
@@ -388,6 +404,16 @@ export class Viewer {
             return { shapeId, sub: { type: 'edge', index: edgeIndex } };
           }
         }
+      }
+    }
+
+    // A construction-plane quad behaves like an origin plane: it wins only
+    // where it is the closest visible target — ties go to coplanar geometry
+    // and to the origin planes (a plane coincident with 'xy' sketches as 'xy').
+    if (planeQuadHits.length > 0 && planeQuadDist < faceDist - 1e-3 && planeQuadDist < planeDist - 1e-3) {
+      const shapeId = this.findShapeIdForObject(planeQuadHits[0].object);
+      if (shapeId) {
+        return { shapeId, sub: { type: 'plane', index: 0 } };
       }
     }
 
@@ -677,6 +703,28 @@ export class Viewer {
     this.ctx.render();
   }
 
+  /**
+   * Highlight a construction-plane quad (the neutral-mode "sketch on this
+   * plane" selection): highlight tint plus an opacity raise above the hover
+   * level. Replaces any previous highlight; {@link clearHighlight} restores
+   * it like every other selection tint.
+   */
+  highlightPlaneQuad(shapeId: string): void {
+    this.clearHighlight();
+    const quad = this.findMeshByShapeId(shapeId);
+    const mat = (quad as any)?.material;
+    if (!quad || !mat) {
+      return;
+    }
+    quad.userData.originalColor = mat.color.getHex();
+    quad.userData.originalOpacity = mat.opacity;
+    mat.color.set(themeColors.highlightColor);
+    mat.opacity = 0.3;
+    // Tracked as a shape-level highlight so clearHighlight's restore walk runs.
+    this.highlightedShapeId = shapeId;
+    this.ctx.render();
+  }
+
   highlightFace(shapeId: string, faceIndex: number): void {
     this.highlightEntities([{ shapeId, sub: { type: 'face', index: faceIndex } }]);
   }
@@ -903,6 +951,8 @@ export class Viewer {
       this.applyHoverEdge(result.shapeId, result.sub.index);
     } else if (result.sub?.type === 'axis') {
       this.applyHoverAxis(result.shapeId);
+    } else if (result.sub?.type === 'plane') {
+      this.applyHoverPlaneQuad(result.shapeId);
     }
     this.hoverHandler?.(result.shapeId, result.sub, clientX, clientY);
   }
@@ -925,6 +975,10 @@ export class Viewer {
       if (child.userData.hoverOriginalLineWidth !== undefined) {
         (child as any).material.linewidth = child.userData.hoverOriginalLineWidth;
         delete child.userData.hoverOriginalLineWidth;
+      }
+      if (child.userData.hoverOriginalOpacity !== undefined) {
+        (child as any).material.opacity = child.userData.hoverOriginalOpacity;
+        delete child.userData.hoverOriginalOpacity;
       }
     });
 
@@ -1032,6 +1086,26 @@ export class Viewer {
       (obj as any).material.linewidth = HOVER_EDGE_LINE_WIDTH;
     });
 
+    this.ctx.requestRender();
+  }
+
+  /**
+   * Brighten a hovered construction-plane quad (whole plane — planes have no
+   * sub-selection): highlight tint plus an opacity bump, since the resting
+   * quad is nearly transparent.
+   */
+  private applyHoverPlaneQuad(shapeId: string): void {
+    const quad = this.findMeshByShapeId(shapeId);
+    const mat = (quad as any)?.material;
+    // A selection-highlighted quad (originalColor saved) keeps its stronger tint.
+    if (!quad || !mat || quad.userData.hoverOriginalColor !== undefined
+      || quad.userData.originalColor !== undefined) {
+      return;
+    }
+    quad.userData.hoverOriginalColor = mat.color.getHex();
+    quad.userData.hoverOriginalOpacity = mat.opacity;
+    mat.color.set(themeColors.highlightColor);
+    mat.opacity = 0.25;
     this.ctx.requestRender();
   }
 

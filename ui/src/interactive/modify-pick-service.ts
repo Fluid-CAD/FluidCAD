@@ -5,6 +5,7 @@ import {
 } from '../api';
 import { entityKey, mergeUniqueEntities, sameEntity, selectionChipRows } from '../helpers/entities';
 import { isTopLevel } from '../helpers/scene-utils';
+import { collectPlaneOptions, PlaneOption, resolvePlaneByShapeId } from './create-feature/plane-bases';
 import { EditSession, EditSessionInfo } from './edit-session';
 import { PickSlot } from './pick-slot';
 import { SelectionContextMenu } from './selection-menu';
@@ -43,7 +44,7 @@ const FEATURE_ORDER: ModifyFeatureKind[] = ['sketch', 'fillet', 'chamfer', 'shel
 
 const FEATURES: Record<ModifyFeatureKind, FeatureConfig> = {
   sketch: {
-    label: 'Sketch', buttonTitle: 'Sketch on a face or an origin plane', valueLabel: null, defaultValue: null,
+    label: 'Sketch', buttonTitle: 'Sketch on a face or a plane', valueLabel: null, defaultValue: null,
     pickFilter: 'face', valueSign: null, immediate: true, joinRow: false, exprSuffix: ', () => { ... })',
   },
   fillet: {
@@ -94,7 +95,9 @@ const TOOLTIP_DEBOUNCE_MS = 200;
  * immediately — on entry when a face is already highlighted, otherwise on the
  * first face click — writing `sketch(<selector>, () => {})` and exiting.
  * Arming it also shows the origin planes (xy/xz/yz) in the viewport as pick
- * targets: picking one writes `sketch('<plane>', () => {})` instead. Its
+ * targets — picking one writes `sketch('<plane>', () => {})` instead — and
+ * makes `plane(…)` feature quads pickable (the viewer's opt-in `pickPlanes`
+ * channel): picking one writes `sketch(<planeVar>, () => {})`. Its
  * button lives in the create group and is always offered — in an empty scene
  * the planes are the only targets, and the first sketch starts here; while an
  * extrude/sweep/loft dialog is up the button disables instead of hiding. The
@@ -112,6 +115,14 @@ export class ModifyPickService {
    * origin planes; without solids the planes are the only targets.
    */
   private sketchAvailable = false;
+  /** The `plane(…)` features rendered in the scene — armed sketch mode picks their quads. */
+  private planes: PlaneOption[] = [];
+  /**
+   * A plane quad picked in neutral mode (quads are pickable there too),
+   * held highlighted until the Sketch button consumes it — arming sketch
+   * with a pending plane applies immediately, like a pre-highlighted face.
+   */
+  private pendingPlaneShapeId: string | null = null;
   /** An extrude/sweep/loft dialog is up — the Sketch button disables. */
   private createDialogActive = false;
   /** The scene ends with an unconsumed sketch (scene-derived sketch mode). */
@@ -365,6 +376,9 @@ export class ModifyPickService {
         this.apply();
       }
     });
+
+    // Neutral mode picks plane quads from the start (the pending sketch plane).
+    this.syncPlanePicking();
   }
 
   get isActive(): boolean {
@@ -451,6 +465,9 @@ export class ModifyPickService {
     this.selectionMenu.hide();
     this.sceneSketchActive = sketchMode;
     this.sketchAvailable = hasSolid;
+    this.planes = collectPlaneOptions(sceneObjects);
+    // Shape ids die with every render — a pending plane can't survive one.
+    this.pendingPlaneShapeId = null;
     this.navbar.setGroupVisible('modify', modifyVisible);
     this.navbar.setGroupVisible('create', true, 'sketch');
     this.syncButtons();
@@ -502,6 +519,8 @@ export class ModifyPickService {
 
     const config = FEATURES[parsed.feature];
     this.viewer.pickFilter = config.pickFilter;
+    this.pendingPlaneShapeId = null;
+    this.syncPlanePicking();
     // The session owns the view: free 3D camera over the rolled-back scene.
     this.suspendSketchUI();
     this.session.begin({ ...info, target });
@@ -636,7 +655,12 @@ export class ModifyPickService {
     this.viewer.clearHover();
     this.viewer.pickFilter = config.pickFilter;
     // Sketch offers the origin planes alongside faces (in an empty scene they
-    // are the only targets); the other features never show them.
+    // are the only targets) and keeps `plane(…)` quads pickable; the other
+    // features never show or pick them.
+    this.syncPlanePicking();
+    if (feature !== 'sketch') {
+      this.pendingPlaneShapeId = null;
+    }
     if (feature === 'sketch') {
       this.viewer.showStandardPlanes(this.onPlanePick);
     } else {
@@ -675,6 +699,13 @@ export class ModifyPickService {
     // Sketch applies immediately when a face was already highlighted on entry.
     if (config.immediate && this.entities.length === 1) {
       this.apply();
+      return;
+    }
+    // A plane picked in neutral mode seeds the same immediate apply.
+    if (feature === 'sketch' && this.pendingPlaneShapeId) {
+      const shapeId = this.pendingPlaneShapeId;
+      this.pendingPlaneShapeId = null;
+      this.handlePlanePick(shapeId);
     }
   }
 
@@ -702,6 +733,7 @@ export class ModifyPickService {
       opts = { ...opts, resume: 'lazy' };
     }
     this.viewer.pickFilter = 'all';
+    this.syncPlanePicking();
     this.viewer.hideStandardPlanes();
     this.entities = [];
     this.chains = [];
@@ -745,13 +777,99 @@ export class ModifyPickService {
     }
   }
 
+  /**
+   * A `plane(…)` quad was clicked (the armed sketch mode and neutral mode
+   * both enable `viewer.pickPlanes`). Armed: sketch on that plane feature
+   * right away — `sketch(<planeVar>, () => {})`, referencing the statement
+   * by call site. Neutral: hold the plane highlighted as the pending sketch
+   * plane; the Sketch button consumes it (clicking the quad again releases).
+   */
+  handlePlanePick(shapeId: string): void {
+    if (this.feature !== null && this.feature !== 'sketch') {
+      return;
+    }
+    const plane = resolvePlaneByShapeId(shapeId, this.viewer.currentSceneObjects);
+    const option = plane?.sourceLocation
+      ? this.planes.find(o => o.filePath === plane.sourceLocation!.filePath && o.line === plane.sourceLocation!.line)
+      : undefined;
+    if (!option) {
+      if (this.feature === 'sketch') {
+        this.setMessage('That plane cannot be referenced — only plane() features can be sketched on.');
+      }
+      return;
+    }
+    if (this.feature === 'sketch') {
+      void this.applyStatementPlaneSketch(option);
+      return;
+    }
+    // Neutral mode: toggle the pending selection.
+    if (this.pendingPlaneShapeId === shapeId) {
+      this.pendingPlaneShapeId = null;
+      this.viewer.clearHighlight();
+      return;
+    }
+    this.pendingPlaneShapeId = shapeId;
+    this.viewer.highlightPlaneQuad(shapeId);
+  }
+
+  /** Drop the neutral-mode pending plane (something else was clicked). */
+  clearPendingPlane(): void {
+    if (this.pendingPlaneShapeId === null) {
+      return;
+    }
+    this.pendingPlaneShapeId = null;
+    this.viewer.clearHighlight();
+  }
+
+  /**
+   * The plane-feature sketch apply: `sketch(<planeVar>, () => {})` on the
+   * picked `plane(…)` statement, bound to a variable server-side — no face
+   * selector, no synthesis. The incoming render enters the new sketch.
+   */
+  private async applyStatementPlaneSketch(option: PlaneOption): Promise<void> {
+    if (!this.feature || this.applying) {
+      return;
+    }
+    this.applying = true;
+    this.applyBtn.disabled = true;
+    try {
+      const result = await applyFeature('sketch', null, [], {
+        planeRef: { filePath: option.filePath, line: option.line, column: option.column },
+      });
+      if (result.success) {
+        this.exit({ resume: 'lazy' });
+      } else {
+        this.setMessage(result.reason ?? 'Could not start the sketch.');
+      }
+    } finally {
+      this.applying = false;
+      this.applyBtn.disabled = false;
+    }
+  }
+
   /** An extrude/sweep/loft dialog opened or closed — the Sketch button disables while one is up. */
   setCreateDialogActive(active: boolean): void {
     if (this.createDialogActive === active) {
       return;
     }
     this.createDialogActive = active;
+    if (active) {
+      this.pendingPlaneShapeId = null;
+    }
+    this.syncPlanePicking();
     this.syncButtons();
+  }
+
+  /**
+   * The viewer's plane-quad channel: live while the sketch mode is armed AND
+   * in neutral mode (no feature, no create dialog) — a quad clicked there is
+   * held as the pending sketch plane. The pick features (fillet/chamfer/
+   * shell) and the create dialogs must never have quads intercept their
+   * face/edge clicks.
+   */
+  private syncPlanePicking(): void {
+    this.viewer.pickPlanes = this.feature === 'sketch'
+      || (this.feature === null && !this.createDialogActive);
   }
 
   private suspendSketchUI(): void {
@@ -781,7 +899,7 @@ export class ModifyPickService {
    * the selection (misclicks shouldn't wipe it).
    */
   handleClick(shapeId: string | null, sub: SubSelection): void {
-    if (!this.feature || !shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis') {
+    if (!this.feature || !shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane') {
       return;
     }
     this.selectionMenu.hide();
@@ -829,7 +947,7 @@ export class ModifyPickService {
    * pick, so the seed ends up selected either way.
    */
   async handleDoubleClick(shapeId: string | null, sub: SubSelection): Promise<void> {
-    if (!this.feature || !shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis') {
+    if (!this.feature || !shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane') {
       return;
     }
     if (FEATURES[this.feature].immediate) {
@@ -872,7 +990,7 @@ export class ModifyPickService {
       window.clearTimeout(this.tooltipTimer);
       this.tooltipTimer = null;
     }
-    if (!shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis') {
+    if (!shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane') {
       this.hideTooltip();
       return;
     }
@@ -920,7 +1038,7 @@ export class ModifyPickService {
       return;
     }
     this.selectionMenu.hide();
-    if (!shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis') {
+    if (!shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane') {
       return;
     }
     this.hideTooltip();

@@ -555,6 +555,78 @@ describe('plane sketch (no picks)', () => {
   });
 });
 
+describe('sketch on a plane feature', () => {
+  const onPlaneSpec = (line: number) => spec({
+    feature: 'sketch',
+    value: undefined,
+    sketchOnPlane: true,
+    producers: [{ line, column: 0, featureType: 'plane', nameHint: 'p', bind: true }],
+    parts: [],
+  });
+
+  it('binds the plane statement and appends the sketch at end of scope', async () => {
+    const code = [
+      `import { sketch, rect, extrude, plane } from 'fluidcad/core'`,
+      ``,
+      `plane('xy', 20)`,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, onPlaneSpec(3));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { sketch, rect, extrude, plane } from 'fluidcad/core'`,
+      ``,
+      `const p = plane('xy', 20)`,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      `sketch(p, () => {`,
+      ``,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('reuses an existing const binding of the plane', async () => {
+    const code = [
+      `import { sketch, rect, plane } from 'fluidcad/core'`,
+      ``,
+      `const top = plane('xy', 20)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, onPlaneSpec(3));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const top = plane('xy', 20)`);
+    expect(result.newCode).toContain(`sketch(top, () => {`);
+  });
+
+  it('refuses when the producer line does not hold a plane() call', async () => {
+    const code = [
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, onPlaneSpec(2));
+    expect(result.error).toContain('expected a plane() call');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a malformed spec whose producer is not a plane', async () => {
+    const result = await applyFeatureEdit('extrude(30)\n', spec({
+      feature: 'sketch',
+      value: undefined,
+      sketchOnPlane: true,
+      producers: [{ line: 1, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [],
+    }));
+    expect(result.error).toBe('malformed sketch-on-plane edit spec');
+  });
+});
+
 describe('part()-scoped insertion', () => {
   it('inserts a select()-based edit at the end of the enclosing part() body', async () => {
     const code = [

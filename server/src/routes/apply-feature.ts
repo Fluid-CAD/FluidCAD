@@ -1994,13 +1994,49 @@ export function createApplyFeatureRouter(
       return;
     }
 
-    // A pick-less sketch: no face selector — a sketch on an origin plane,
-    // appended after the file's last statement. No synthesis is involved;
-    // `plane` picks the target ('xy'/'xz'/'yz'), absent defaults to xy.
+    // A pick-less sketch: no face selector — a sketch on an origin plane or
+    // an existing plane() feature, appended after the file's last statement.
+    // No synthesis is involved; `plane` picks an origin target
+    // ('xy'/'xz'/'yz'), `planeRef` an existing plane statement by call site
+    // (bound to a variable — `sketch(p, () => {})`), absent defaults to xy.
     if (feature === 'sketch' && Array.isArray(req.body?.entities) && req.body.entities.length === 0) {
       const plane = req.body?.plane;
       if (plane !== undefined && plane !== 'xy' && plane !== 'xz' && plane !== 'yz') {
         res.status(400).json({ error: 'plane must be "xy", "xz" or "yz"' });
+        return;
+      }
+      if (req.body?.planeRef !== undefined) {
+        const planeRef = validateSketchLoc(req.body.planeRef);
+        if (!planeRef) {
+          res.status(400).json({ error: 'planeRef must be {filePath, line, column} of the plane feature' });
+          return;
+        }
+        if (plane !== undefined) {
+          res.status(400).json({ error: 'plane and planeRef are mutually exclusive' });
+          return;
+        }
+        try {
+          const producers: ApplyFeatureEditSpec['producers'] = [{
+            line: planeRef.line, column: planeRef.column,
+            featureType: 'plane', nameHint: 'p', bind: true,
+          }];
+          const producerVars = await allocateProducerVars(producers, fluidCadServer.getCurrentCode());
+          const statement = `sketch(${producerVars[0] ?? 'p'}, () => {\n\n})`;
+          if (preview === true) {
+            res.json({ success: true, preview: statement, args: '' });
+            return;
+          }
+          sendToExtension({
+            type: 'apply-feature-edit',
+            spec: {
+              feature: 'sketch', sketchOnPlane: true, filePath: planeRef.filePath,
+              producers, parts: [], imports: [],
+            },
+          });
+          res.json({ success: true, preview: statement });
+        } catch (err: any) {
+          res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+        }
         return;
       }
       const filePath = fluidCadServer.getCurrentFileName();

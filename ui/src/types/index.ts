@@ -112,6 +112,12 @@ export type SubSelection =
    * index carries no meaning (always 0).
    */
   | { type: 'axis'; index: number }
+  /**
+   * A construction-plane quad hit — only produced while a dialog has enabled
+   * `viewer.pickPlanes`; the pick identifies the owning plane object, so the
+   * index carries no meaning (always 0).
+   */
+  | { type: 'plane'; index: number }
   | null;
 
 export type SceneObjectPart = {

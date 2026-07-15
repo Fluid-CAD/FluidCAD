@@ -26,6 +26,12 @@ export type ApplyFeatureEditSpec = {
    * statement targets; absent renders the bare default-plane form.
    */
   sketchPlane?: 'xy' | 'xz' | 'yz';
+  /**
+   * Sketch on an existing `plane(…)` feature (empty `parts`): producers[0]
+   * is the plane statement, bound to a variable that becomes the sketch's
+   * first argument — `sketch(p, () => {})`.
+   */
+  sketchOnPlane?: boolean;
   /** Extrude-only payload; the profile is a sketch, not a pick selection. */
   extrude?: ExtrudeEditOptions;
   /** Sweep-only payload; `parts` (if any) render the path selector. */
@@ -504,6 +510,13 @@ export async function applyFeatureEdit(
         () => renderPlaneStatement(pl, renderPlaneBaseExprs(pl, spec.parts, () => null)),
         'plane',
       );
+    }
+  } else if (spec.feature === 'sketch' && spec.sketchOnPlane) {
+    // The single producer is the plane statement the sketch targets; there is
+    // no selector to render.
+    const valid = spec.producers.length === 1 && isPlaneProducer(spec, 0) && spec.parts.length === 0;
+    if (!valid) {
+      return { newCode: code, error: 'malformed sketch-on-plane edit spec' };
     }
   } else if (!spec.producers.length || !spec.parts.length) {
     return { newCode: code, error: 'empty edit spec' };
@@ -1366,6 +1379,9 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     return renderPlaneStatement(
       pl, renderPlaneBaseExprs(pl, spec.parts, i => bindings[i].varName),
     );
+  }
+  if (spec.feature === 'sketch' && spec.sketchOnPlane) {
+    return `sketch(${bindings[0].varName}, () => {\n\n${indent}})`;
   }
   const args = renderSelectorArgs(spec, bindings);
   if (spec.feature === 'sketch') {

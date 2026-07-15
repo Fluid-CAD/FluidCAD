@@ -384,6 +384,21 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
     revolveService.handleClick(shapeId, sub);
     return;
   }
+  // A plane-quad pick exists while the sketch mode is armed (sketch on that
+  // plane right away) or in neutral mode (hold it as the pending sketch
+  // plane — the Sketch button consumes it). Never part of the measure set.
+  if (sub?.type === 'plane') {
+    if (shapeId) {
+      if (!modifyService.isActive) {
+        measureController.clearSelection();
+        selectionInfoOverlay.hide();
+      }
+      modifyService.handlePlanePick(shapeId);
+    }
+    return;
+  }
+  // Any other click drops a neutral-mode pending plane.
+  modifyService.clearPendingPlane();
   // An armed modify mode (fillet/chamfer/shell) owns clicks outright, edit
   // sessions included — re-picking is the point of the rolled-back view.
   if (modifyService.isActive) {

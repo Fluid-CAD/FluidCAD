@@ -71,3 +71,12 @@ export function planeOptionsSignature(options: PlaneOption[]): string {
 export function resolvePlaneRow(obj: SceneObjectRender): SceneObjectRender | undefined {
   return obj.type === 'plane' && obj.sourceLocation ? obj : undefined;
 }
+
+/** Resolve a picked plane quad's shape to its owning plane object. */
+export function resolvePlaneByShapeId(
+  shapeId: string,
+  sceneObjects: SceneObjectRender[],
+): SceneObjectRender | undefined {
+  return sceneObjects.find(o =>
+    o.type === 'plane' && o.sceneShapes?.some(s => s.shapeId === shapeId));
+}

@@ -321,6 +321,12 @@ export type ApplyFeatureOptions = {
    * targets — `sketch('<plane>', () => {})`.
    */
   plane?: 'xy' | 'xz' | 'yz';
+  /**
+   * Pick-less sketch only (empty `entities`): an existing `plane(…)` feature
+   * the statement targets, by call site — `sketch(<planeVar>, () => {})`.
+   * Mutually exclusive with `plane`.
+   */
+  planeRef?: SketchSourceRef;
   /** Shell only: writes a `.join('<type>')` chain; 'arc' writes none. */
   joinType?: ShellJoinType;
   /** Synthesize only — return the expression preview without applying. */
@@ -348,6 +354,7 @@ export async function applyFeature(
     chains: options.chains,
     selectorOverride: options.selectorOverride,
     plane: options.plane,
+    planeRef: options.planeRef,
     joinType: options.joinType,
     preview: options.preview,
   }, options.signal);

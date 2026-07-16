@@ -13,6 +13,7 @@ import {
   removeStatement,
   setPickPoints,
   insertGeometryCallWithVariable,
+  insertLoadCall,
   updateGeometryPosition,
   setLinePosition,
   setChainPositions,
@@ -68,6 +69,11 @@ export function createSketchEditsRouter(
     }
 
     const loadName = fileName.replace(/\.(step|stp)$/i, '');
+    sendToExtension({
+      type: 'insert-load',
+      filePath: fluidCadServer.getCurrentFileName(),
+      fileName: loadName,
+    });
     res.json({ success: true, fileName: loadName });
   });
 
@@ -477,6 +483,20 @@ export function createSketchEditsRouter(
     }
     try {
       const result = await removeStatement(code, sourceLine);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/insert-load', async (req, res) => {
+    const { code, fileName } = req.body;
+    if (typeof code !== 'string' || typeof fileName !== 'string') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await insertLoadCall(code, fileName);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

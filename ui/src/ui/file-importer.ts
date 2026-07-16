@@ -1,4 +1,3 @@
-import { ICON_COPY } from './icons';
 import { importFile } from '../api';
 
 export class FileImporter {
@@ -32,25 +31,8 @@ export class FileImporter {
     this.fileInput.click();
   }
 
-  private showToast(message: string, loadCmd?: string): void {
-    if (loadCmd) {
-      this.importToast.innerHTML = `
-        <div class="flex items-center gap-2">
-          <span>${message} <code class="bg-base-content/10 px-1.5 py-0.5 rounded text-base-content/90">${loadCmd}</code></span>
-          <button class="btn btn-ghost btn-square btn-xs text-base-content/60 import-toast-copy" title="Copy">
-            <span class="[&>svg]:size-3.5">${ICON_COPY}</span>
-          </button>
-        </div>
-      `;
-      this.importToast.querySelector('.import-toast-copy')!.addEventListener('click', () => {
-        navigator.clipboard.writeText(loadCmd);
-        const btn = this.importToast.querySelector('.import-toast-copy')!;
-        btn.setAttribute('title', 'Copied!');
-        setTimeout(() => btn.setAttribute('title', 'Copy'), 1500);
-      });
-    } else {
-      this.importToast.textContent = message;
-    }
+  private showToast(message: string): void {
+    this.importToast.textContent = message;
     this.importToast.classList.remove('hidden');
     if (this.importToastTimer) {
       clearTimeout(this.importToastTimer);
@@ -79,11 +61,12 @@ export class FileImporter {
       }
       const base64 = btoa(binary);
 
+      // On success the server has the extension write the load() call into
+      // the document itself, so the model appearing in the scene is the
+      // feedback — there is nothing to tell the user to paste.
       const result = await importFile(file.name, base64);
       if (!result.success) {
         this.showToast(`Import failed: ${result.error || 'Unknown error'}`);
-      } else {
-        this.showToast('Imported! Use:', `load('${result.fileName}')`);
       }
     } catch (_err) {
       this.showToast('Import failed: network error');

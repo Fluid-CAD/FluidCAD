@@ -895,6 +895,76 @@ export async function insertGeometryCall(
   return { newCode: result };
 }
 
+// ---------------------------------------------------------------------------
+// Load insertion — append a load() call for a freshly imported model
+// ---------------------------------------------------------------------------
+
+/** Escape a file name for embedding in a single-quoted JS string literal. */
+function quoteForSingleQuotes(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+/** The text a string literal node denotes, with its surrounding quotes dropped. */
+function stringLiteralValue(node: TSNode): string | null {
+  if (node.type !== 'string') {
+    return null;
+  }
+  const fragment = node.namedChildren.find(c => c.type === 'string_fragment');
+  return fragment ? fragment.text : '';
+}
+
+/**
+ * Find an existing `load('<fileName>')` call anywhere in the file, so a
+ * re-import of the same model updates the geometry on disk without stacking
+ * a second identical statement into the scene.
+ */
+function findLoadCallFor(tree: TSTree, fileName: string): TSNode | null {
+  for (const node of walkTree(tree.rootNode)) {
+    if (node.type !== 'call_expression') {
+      continue;
+    }
+    const fn = node.childForFieldName('function');
+    if (!fn || fn.type !== 'identifier' || fn.text !== 'load') {
+      continue;
+    }
+    const arg = getArgumentsNode(node)?.namedChild(0);
+    if (arg && stringLiteralValue(arg) === fileName) {
+      return node;
+    }
+  }
+  return null;
+}
+
+/**
+ * Append `load('<fileName>')` as a new top-level statement — what the import
+ * flow calls so the model lands in the scene without the user pasting the
+ * expression themselves. The call goes after the last top-level statement so
+ * the model shows up at the end of the timeline, separated by a blank line,
+ * and the `load` import is pulled in. A no-op when the file already loads
+ * that model.
+ *
+ * @param code - Full source code
+ * @param fileName - Extension-less name of the imported model, e.g. "bracket"
+ */
+export async function insertLoadCall(code: string, fileName: string): Promise<CodeEditResult> {
+  const p = await getParser();
+  if (findLoadCallFor(p.parse(code), fileName)) {
+    return { newCode: code };
+  }
+
+  const withImport = await ensureSymbolImport(code, 'load');
+  const tree = p.parse(withImport);
+  const lines = splitLines(withImport);
+  const children = tree.rootNode.namedChildren;
+  const last = children[children.length - 1];
+  const insertRow = last ? last.endPosition.row + 1 : lines.length;
+
+  const statement = `load('${quoteForSingleQuotes(fileName)}');`;
+  const separated = insertRow > 0 && !isBlankRow(lines, insertRow - 1);
+  lines.splice(insertRow, 0, ...(separated ? ['', statement] : [statement]));
+  return { newCode: joinLines(lines) };
+}
+
 /**
  * Update a point argument of a geometry call.
  *

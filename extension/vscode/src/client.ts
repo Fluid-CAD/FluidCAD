@@ -25,6 +25,7 @@ import {
   handleSetPickPoints,
   handleGotoSource,
   handleInsertGeometry,
+  handleInsertLoad,
   handleUpdatePosition,
   handleSetLinePosition,
   handleSetChainPositions,
@@ -169,6 +170,12 @@ export class Client {
       }
       case 'insert-geometry': {
         handleInsertGeometry(this, msg);
+        break;
+      }
+      case 'insert-load': {
+        handleInsertLoad(this, msg).catch((err) => {
+          this.logger.appendLine(`[insert-load] error: ${err?.stack || err}`);
+        });
         break;
       }
       case 'update-position': {

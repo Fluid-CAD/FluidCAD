@@ -69,6 +69,10 @@ export function removeStatement(serverUrl: string, code: string, sourceLine: num
   return postCodeEdit<CodeEditResult>(serverUrl, 'remove-statement', { code, sourceLine }, logger);
 }
 
+export function insertLoad(serverUrl: string, code: string, fileName: string, logger: vscode.OutputChannel) {
+  return postCodeEdit<CodeEditResult>(serverUrl, 'insert-load', { code, fileName }, logger);
+}
+
 export function setPickPoints(
   serverUrl: string, code: string, sourceLine: number, points: [number, number][], logger: vscode.OutputChannel,
 ) {

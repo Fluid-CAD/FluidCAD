@@ -82,6 +82,10 @@ function M.insert_geometry(code, sketch_source_line, statement, new_variable)
   })
 end
 
+function M.insert_load(code, file_name)
+  return post('insert-load', { code = code, fileName = file_name })
+end
+
 function M.update_position(code, source_line, new_position, point_index)
   return post('update-position', { code = code, sourceLine = source_line, newPosition = new_position, pointIndex = point_index or 0 })
 end

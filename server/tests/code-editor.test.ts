@@ -11,6 +11,7 @@ import {
   removeStatement,
   setPickPoints,
   insertGeometryCall,
+  insertLoadCall,
   updateGeometryPosition,
   updateDimension,
   updateDimensionExpression,
@@ -660,6 +661,50 @@ describe('getDimensionExpression with dimensionOffset', () => {
     const code = `rect(30, 20).centered()\n`;
     const result = await getDimensionExpression(code, 1, 1);
     expect(result?.expression).toBe('30');
+  });
+});
+
+describe('insertLoadCall', () => {
+  it('appends the load call after the last statement and imports load', async () => {
+    const code = `import { extrude } from 'fluidcad/core';\n\nextrude(10);\n`;
+    const result = await insertLoadCall(code, 'bracket');
+    expect(result.newCode).toBe(
+      `import {load, extrude } from 'fluidcad/core';\n\nextrude(10);\n\nload('bracket');\n`,
+    );
+  });
+
+  it('adds the import statement when the file has none', async () => {
+    const code = `extrude(10);\n`;
+    const result = await insertLoadCall(code, 'bracket');
+    expect(result.newCode).toBe(
+      `import { load } from 'fluidcad/core';\nextrude(10);\n\nload('bracket');\n`,
+    );
+  });
+
+  it('reuses an existing load import', async () => {
+    const code = `import { load } from 'fluidcad/core';\n`;
+    const result = await insertLoadCall(code, 'bracket');
+    expect(result.newCode).toBe(`import { load } from 'fluidcad/core';\n\nload('bracket');\n`);
+  });
+
+  it('no-ops when the model is already loaded', async () => {
+    const code = `import { load } from 'fluidcad/core';\n\nload('bracket');\n`;
+    const result = await insertLoadCall(code, 'bracket');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('appends a second load for a different model', async () => {
+    const code = `import { load } from 'fluidcad/core';\n\nload('bracket');\n`;
+    const result = await insertLoadCall(code, 'plate');
+    expect(result.newCode).toBe(
+      `import { load } from 'fluidcad/core';\n\nload('bracket');\n\nload('plate');\n`,
+    );
+  });
+
+  it('escapes quotes in the file name', async () => {
+    const code = `import { load } from 'fluidcad/core';\n`;
+    const result = await insertLoadCall(code, "bob's part");
+    expect(result.newCode).toBe(`import { load } from 'fluidcad/core';\n\nload('bob\\'s part');\n`);
   });
 });
 

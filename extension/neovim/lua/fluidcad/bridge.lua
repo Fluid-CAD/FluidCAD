@@ -210,6 +210,10 @@ function M.handle_message(msg)
       M.apply_code_edit(msg.sketchSourceLocation.filePath, function(code_api, code)
         return code_api.insert_geometry(code, msg.sketchSourceLocation.line, msg.statement, new_var)
       end)
+    elseif msg.type == 'insert-load' then
+      M.apply_code_edit(msg.filePath, function(code_api, code)
+        return code_api.insert_load(code, msg.fileName)
+      end)
     elseif msg.type == 'update-position' then
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.update_position(code, msg.sourceLocation.line, msg.newPosition, msg.pointIndex or 0)

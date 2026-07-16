@@ -12,6 +12,26 @@ function findEditorForCurrentFile(client: Client): vscode.TextEditor | undefined
   return editor;
 }
 
+/**
+ * Resolve the editor showing `filePath`, opening the document when it is not
+ * already visible. Used by the edits that target a file the server names
+ * rather than whatever the user happens to be looking at.
+ */
+async function resolveEditorForPath(filePath: string): Promise<vscode.TextEditor> {
+  const visible = vscode.window.visibleTextEditors.find(
+    e => e.document.fileName === filePath,
+  );
+  if (visible) {
+    return visible;
+  }
+  const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+  return vscode.window.showTextDocument(doc, {
+    viewColumn: vscode.ViewColumn.One,
+    preserveFocus: true,
+    preview: false,
+  });
+}
+
 export async function handleInsertPoint(client: Client, msg: { point: [number, number]; sourceLocation: { line: number } }) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {
@@ -85,22 +105,24 @@ export async function handleRemovePoint(client: Client, msg: { point: [number, n
 export async function handleRemoveFeature(client: Client, msg: { filePath: string; line: number }) {
   // The feature may live in a file other than the active one (imported
   // models), so resolve the document by path like the breakpoint handler.
-  const filePath = msg.filePath || client.currentFileName;
-  let editor = vscode.window.visibleTextEditors.find(
-    e => e.document.fileName === filePath,
-  );
-  if (!editor) {
-    const uri = vscode.Uri.file(filePath);
-    const doc = await vscode.workspace.openTextDocument(uri);
-    editor = await vscode.window.showTextDocument(doc, {
-      viewColumn: vscode.ViewColumn.One,
-      preserveFocus: true,
-      preview: false,
-    });
-  }
+  const editor = await resolveEditorForPath(msg.filePath || client.currentFileName);
   const doc = editor.document;
   const result = await codeApi.removeStatement(
     client.serverUrl, doc.getText(), msg.line, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
+export async function handleInsertLoad(client: Client, msg: { filePath: string; fileName: string }) {
+  const editor = await resolveEditorForPath(msg.filePath || client.currentFileName);
+  const doc = editor.document;
+  const result = await codeApi.insertLoad(
+    client.serverUrl, doc.getText(), msg.fileName, client.logger,
   );
   if (!result) {
     return;

@@ -598,7 +598,51 @@ describe('updateDimensionExpression with dimensionOffset', () => {
   });
 });
 
+describe('updateDimensionExpression with dimensionCall', () => {
+  it('targets rect height past a .radius() call', async () => {
+    const code = `rect(30, 20).radius(5)\n`;
+    const result = await updateDimensionExpression(code, 1, 'h', 0, 'rect');
+    expect(result.newCode).toBe(`rect(30, h).radius(5)\n`);
+  });
+
+  it('targets rect width past .radius() and .centered()', async () => {
+    const code = `rect([5, 10], 30, 20).centered().radius(5)\n`;
+    const result = await updateDimensionExpression(code, 1, 'w', 1, 'rect');
+    expect(result.newCode).toBe(`rect([5, 10], w, 20).centered().radius(5)\n`);
+  });
+
+  it('targets a single fillet radius', async () => {
+    const code = `rect(30, 20).radius(5)\n`;
+    const result = await updateDimensionExpression(code, 1, 'r', 0, 'radius');
+    expect(result.newCode).toBe(`rect(30, 20).radius(r)\n`);
+  });
+
+  it('targets one radius of a per-corner list by offset from the end', async () => {
+    const code = `rect(30, 20).radius(1, 2, 3, 4)\n`;
+    const result = await updateDimensionExpression(code, 1, 'r', 1, 'radius');
+    expect(result.newCode).toBe(`rect(30, 20).radius(1, 2, r, 4)\n`);
+  });
+
+  it('without dimensionCall keeps the outermost-call behavior', async () => {
+    const code = `rect(30, 20).radius(5)\n`;
+    const result = await updateDimensionExpression(code, 1, '7', 0);
+    expect(result.newCode).toBe(`rect(30, 20).radius(7)\n`);
+  });
+});
+
 describe('getDimensionExpression with dimensionOffset', () => {
+  it('dimensionCall reads rect height past a .radius() call', async () => {
+    const code = `rect(30, 20).radius(fillet)\n`;
+    const result = await getDimensionExpression(code, 1, 0, 'rect');
+    expect(result?.expression).toBe('20');
+  });
+
+  it('dimensionCall reads the fillet radius', async () => {
+    const code = `rect(30, 20).radius(fillet)\n`;
+    const result = await getDimensionExpression(code, 1, 0, 'radius');
+    expect(result?.expression).toBe('fillet');
+  });
+
   it('offset 0 returns rect height', async () => {
     const code = `rect([5, 10], 30, height / 2)\n`;
     const result = await getDimensionExpression(code, 1);

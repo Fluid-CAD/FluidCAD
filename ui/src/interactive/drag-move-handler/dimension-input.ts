@@ -118,8 +118,13 @@ export class DimensionInputController {
       if (!hitResult.rectDim) {
         return false;
       }
-      label = hitResult.rectDim === 'width' ? 'W:' : 'H:';
-      value = Math.abs(hitResult.initialValue ?? 0);
+      if (hitResult.rectDim === 'radius') {
+        label = 'R:';
+        value = hitResult.initialValue ?? 0;
+      } else {
+        label = hitResult.rectDim === 'width' ? 'W:' : 'H:';
+        value = Math.abs(hitResult.initialValue ?? 0);
+      }
     } else if (hitResult.uniqueType === 'slot') {
       if (hitResult.hitZone === 'start' || hitResult.hitZone === 'end') {
         if (hitResult.slotHasTwoPoints) {
@@ -230,7 +235,7 @@ export class DimensionInputController {
   ): void {
     const { sourceLocation } = hitResult;
     const numericFallback = String(value);
-    const dimOffset = DimensionInputController.dimensionOffsetFor(hitResult, label);
+    const { offset: dimOffset, call: dimCall } = DimensionInputController.dimensionTargetFor(hitResult, label);
     const isSignedType = hitResult.uniqueType !== 'circle'
       && hitResult.uniqueType !== 'polygon'
       && hitResult.uniqueType !== 'slot';
@@ -255,7 +260,7 @@ export class DimensionInputController {
         }
 
         const sketchSourceLine = this.getSketchSourceLine();
-        updateDimensionExpression(finalExpr, sourceLocation, sketchSourceLine, newVariable, dimOffset);
+        updateDimensionExpression(finalExpr, sourceLocation, sketchSourceLine, newVariable, dimOffset, dimCall);
         if (isDrag) {
           this.onRequestEndResize?.();
         } else {
@@ -265,7 +270,7 @@ export class DimensionInputController {
     });
 
     if (label !== 'D') {
-      getDimensionExpression(sourceLocation.line, dimOffset).then(({ expression }) => {
+      getDimensionExpression(sourceLocation.line, dimOffset, dimCall).then(({ expression }) => {
         if (!expression) {
           return;
         }
@@ -281,13 +286,21 @@ export class DimensionInputController {
     }
   }
 
-  // Width lives one non-array arg before height in rect(...), same as the
-  // slot distance ('D') arg relative to its radius.
-  private static dimensionOffsetFor(hitResult: DragHitResult, label: string): number {
+  // Which call in the member chain and which non-array arg (offset from the
+  // end) holds the dimension: rect width/height live in rect(...), a fillet
+  // radius in .radius(...); the slot distance ('D') sits one arg before its
+  // radius in the same call.
+  private static dimensionTargetFor(
+    hitResult: DragHitResult,
+    label: string,
+  ): { offset: number; call: string | null } {
     if (hitResult.uniqueType === 'rect') {
-      return hitResult.rectDim === 'width' ? 1 : 0;
+      if (hitResult.rectDim === 'radius') {
+        return { offset: hitResult.rectRadiusArgOffset ?? 0, call: 'radius' };
+      }
+      return { offset: hitResult.rectDim === 'width' ? 1 : 0, call: 'rect' };
     }
-    return label === 'D' ? 1 : 0;
+    return { offset: label === 'D' ? 1 : 0, call: null };
   }
 
   // Inverse of SketchTool.applySignedDimension, for seeding the input: the

@@ -249,10 +249,14 @@ function M.handle_message(msg)
         sketch_line = nil
       end
       local dim_offset = msg.dimensionOffset or 0
+      local dim_call = msg.dimensionCall
+      if dim_call == vim.NIL then
+        dim_call = nil
+      end
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.update_dimension_expression(
           code, msg.sourceLocation.line, msg.expression,
-          sketch_line, new_var, dim_offset
+          sketch_line, new_var, dim_offset, dim_call
         )
       end)
     elseif msg.type == 'add-breakpoint' then

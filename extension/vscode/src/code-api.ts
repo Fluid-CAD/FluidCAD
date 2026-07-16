@@ -122,10 +122,11 @@ export function updateDimensionExpression(
   sketchSourceLine: number | null = null,
   newVariable: { name: string; initializer: string } | null = null,
   dimensionOffset = 0,
+  dimensionCall: string | null = null,
 ) {
   return postCodeEdit<CodeEditResult>(
     serverUrl, 'update-dimension-expression',
-    { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset },
+    { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset, dimensionCall },
     logger,
   );
 }

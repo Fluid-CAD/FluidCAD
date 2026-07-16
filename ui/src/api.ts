@@ -227,6 +227,7 @@ export function updateDimensionExpression(
   sketchSourceLine: number | null,
   newVariable?: { name: string; initializer: string } | null,
   dimensionOffset?: number,
+  dimensionCall?: string | null,
 ): void {
   postFireAndForget('/api/update-dimension-expression', {
     expression,
@@ -234,6 +235,7 @@ export function updateDimensionExpression(
     sketchSourceLine,
     newVariable: newVariable ?? null,
     dimensionOffset: dimensionOffset ?? 0,
+    dimensionCall: dimensionCall ?? null,
   });
 }
 
@@ -244,10 +246,12 @@ export function updateDimensionExpression(
 export async function getDimensionExpression(
   sourceLine: number,
   dimensionOffset?: number,
+  dimensionCall?: string | null,
 ): Promise<{ expression: string | null }> {
   return (await postJson('/api/dimension-expression', {
     sourceLine,
     dimensionOffset: dimensionOffset ?? 0,
+    dimensionCall: dimensionCall ?? null,
   })) ?? { expression: null };
 }
 

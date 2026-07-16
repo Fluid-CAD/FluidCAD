@@ -12,7 +12,8 @@ export type DragHitResult = {
   arcArgCount?: number;
   tangentDir?: [number, number];
   rectCentered?: boolean;
-  rectDim?: 'width' | 'height';
+  rectDim?: 'width' | 'height' | 'radius';
+  rectRadiusArgOffset?: number;
   bezierPoleIndex?: number;
   bezierPoles?: [number, number][];
   polygonSides?: number;

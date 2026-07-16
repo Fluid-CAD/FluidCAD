@@ -250,7 +250,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/update-dimension-expression', (req, res) => {
-    const { expression, sourceLocation, sketchSourceLine, newVariable, dimensionOffset } = req.body;
+    const { expression, sourceLocation, sketchSourceLine, newVariable, dimensionOffset, dimensionCall } = req.body;
     if (
       typeof expression !== 'string' ||
       !sourceLocation || typeof sourceLocation.line !== 'number'
@@ -274,6 +274,7 @@ export function createSketchEditsRouter(
       sketchSourceLine: typeof sketchSourceLine === 'number' ? sketchSourceLine : null,
       newVariable: nv,
       dimensionOffset: typeof dimensionOffset === 'number' ? dimensionOffset : 0,
+      dimensionCall: typeof dimensionCall === 'string' ? dimensionCall : null,
     });
     res.json({ success: true });
   });
@@ -323,7 +324,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/dimension-expression', async (req, res) => {
-    const { sourceLine, dimensionOffset } = req.body;
+    const { sourceLine, dimensionOffset, dimensionCall } = req.body;
     if (typeof sourceLine !== 'number') {
       res.status(400).json({ error: 'Invalid request body' });
       return;
@@ -335,7 +336,8 @@ export function createSketchEditsRouter(
     }
     try {
       const result = await getDimensionExpression(code, sourceLine,
-        typeof dimensionOffset === 'number' ? dimensionOffset : 0);
+        typeof dimensionOffset === 'number' ? dimensionOffset : 0,
+        typeof dimensionCall === 'string' ? dimensionCall : null);
       res.json({ expression: result?.expression ?? null });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
@@ -596,7 +598,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/code/update-dimension-expression', async (req, res) => {
-    const { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset } = req.body;
+    const { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset, dimensionCall } = req.body;
     if (
       typeof code !== 'string' || typeof sourceLine !== 'number' ||
       typeof expression !== 'string'
@@ -620,6 +622,7 @@ export function createSketchEditsRouter(
         typeof sketchSourceLine === 'number' ? sketchSourceLine : sourceLine,
         nv,
         offset,
+        typeof dimensionCall === 'string' ? dimensionCall : null,
       );
       res.json(result);
     } catch (err: any) {

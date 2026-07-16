@@ -1013,10 +1013,28 @@ function findNonArrayArgFromEnd(args: TSNode, offset = 0): TSNode | null {
   return null;
 }
 
+// Name of the function a call expression invokes: `rect(...)` -> 'rect',
+// `foo.radius(...)` -> 'radius'.
+function callFunctionName(call: TSNode): string | null {
+  const fn = call.childForFieldName('function');
+  if (!fn) {
+    return null;
+  }
+  if (fn.type === 'identifier') {
+    return fn.text;
+  }
+  if (fn.type === 'member_expression') {
+    const prop = fn.childForFieldName('property');
+    return prop ? prop.text : null;
+  }
+  return null;
+}
+
 export async function getDimensionExpression(
   code: string,
   sourceLine: number,
   dimensionOffset = 0,
+  dimensionCall: string | null = null,
 ): Promise<{ expression: string } | null> {
   const p = await getParser();
   const tree = p.parse(code);
@@ -1024,7 +1042,7 @@ export async function getDimensionExpression(
   let current: TSNode | null = findEditableCallAt(tree, lines, sourceLine);
   while (current && current.type === 'call_expression') {
     const args = getArgumentsNode(current);
-    if (args) {
+    if (args && (!dimensionCall || callFunctionName(current) === dimensionCall)) {
       const target = findNonArrayArgFromEnd(args, dimensionOffset);
       if (target) {
         return { expression: target.text };
@@ -1043,12 +1061,13 @@ export function updateDimensionExpression(
   sourceLine: number,
   expression: string,
   dimensionOffset = 0,
+  dimensionCall: string | null = null,
 ): Promise<CodeEditResult> {
   return withParsedCode(code, (tree, lines) => {
     let current: TSNode | null = findEditableCallAt(tree, lines, sourceLine);
     while (current && current.type === 'call_expression') {
       const args = getArgumentsNode(current);
-      if (args) {
+      if (args && (!dimensionCall || callFunctionName(current) === dimensionCall)) {
         const target = findNonArrayArgFromEnd(args, dimensionOffset);
         if (target) {
           return spliceCode(code, target.startIndex, target.endIndex, expression);
@@ -1144,9 +1163,10 @@ export function updateDimensionExpressionWithVariable(
   sketchSourceLine: number,
   newVariable: { name: string; initializer: string } | null,
   dimensionOffset = 0,
+  dimensionCall: string | null = null,
 ): Promise<CodeEditResult> {
   return withOptionalVariableDeclaration(code, sketchSourceLine, newVariable,
-    (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression, dimensionOffset));
+    (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression, dimensionOffset, dimensionCall));
 }
 
 export type VariableInfo = { name: string; initializer?: string };

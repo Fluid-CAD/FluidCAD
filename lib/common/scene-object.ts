@@ -158,6 +158,15 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return false;
   }
 
+  /**
+   * Containers whose children are an implementation detail (e.g. the cloned
+   * instances under a repeat) report true so the timeline shows them as a
+   * single row instead of listing every generated child.
+   */
+  hidesChildren(): boolean {
+    return false;
+  }
+
   isLazy(): boolean {
     return false;
   }

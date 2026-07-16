@@ -403,6 +403,7 @@ export class SceneRenderer {
       fromCache: scene.isCached(obj),
       visible: opts.visible,
       isContainer: obj.isContainer(),
+      hideChildren: obj.hidesChildren() || undefined,
       hasError,
       errorMessage,
       sourceLocation: obj.getSourceLocation() || undefined,

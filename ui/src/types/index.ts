@@ -141,6 +141,7 @@ export type SceneObjectRender = {
   name?: string;
   parentId?: string | null;
   isContainer?: boolean;
+  hideChildren?: boolean;
   object?: any;
   sceneShapes: SceneObjectPart[];
   ownShapes: SceneObjectPart[];

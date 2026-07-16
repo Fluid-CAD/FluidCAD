@@ -21,6 +21,10 @@ export class RepeatMatrix extends SceneObject {
     return true;
   }
 
+  override hidesChildren(): boolean {
+    return true;
+  }
+
   build(context: BuildSceneObjectContext) {
     for (const source of this.sources) {
       source.removeShapes(this);

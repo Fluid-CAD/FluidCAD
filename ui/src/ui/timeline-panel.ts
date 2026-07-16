@@ -179,12 +179,17 @@ export class TimelinePanel {
         continue;
       }
 
-      const hasChildren = obj.id != null && parentIds.has(obj.id);
+      // A hide-children container (e.g. a repeat) shows as a single leaf row.
+      // Its rollback target is its last descendant, so clicking it previews
+      // the scene after the whole feature has executed.
+      const hidesChildren = obj.hideChildren === true;
+      const hasChildren = !hidesChildren && obj.id != null && parentIds.has(obj.id);
       const isCollapsed = obj.id != null && this.collapsedIds.has(obj.id);
       const childHasError = obj.id != null && childErrorByParent.get(obj.id) === true;
       const effectiveError = obj.hasError === true || childHasError;
+      const rollbackIndex = hidesChildren ? this.lastDescendantIndex(items, i) : i;
 
-      html += this.renderTimelineItem(obj, i, rollbackStop, false, hasChildren, isCollapsed, effectiveError);
+      html += this.renderTimelineItem(obj, i, rollbackStop, false, hasChildren, isCollapsed, effectiveError, rollbackIndex);
 
       if (hasChildren && !isCollapsed) {
         for (let j = 0; j < items.length; j++) {
@@ -192,7 +197,8 @@ export class TimelinePanel {
             continue;
           }
           if (items[j].parentId === obj.id) {
-            html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false, items[j].hasError === true);
+            const childRollbackIndex = items[j].hideChildren === true ? this.lastDescendantIndex(items, j) : j;
+            html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false, items[j].hasError === true, childRollbackIndex);
           }
         }
       }
@@ -206,11 +212,12 @@ export class TimelinePanel {
           return;
         }
         const index = parseInt(el.dataset.index!, 10);
+        const rollbackIndex = parseInt(el.dataset.rollbackIndex ?? el.dataset.index!, 10);
         const obj = this.sceneObjects[index];
         if (obj && this.onFeatureIntercept?.(obj)) {
           return;
         }
-        this.rollbackTo(index);
+        this.rollbackTo(rollbackIndex);
         this.goToSource(obj);
       });
       el.addEventListener('dblclick', (e) => {
@@ -264,8 +271,34 @@ export class TimelinePanel {
     }
   }
 
-  private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, isChild: boolean, hasChildren: boolean, isCollapsed: boolean, effectiveError: boolean): string {
-    const isCurrent = index === rollbackStop;
+  /**
+   * Index of the last descendant of the container at `index` in the flat
+   * scene list — the rollback target that shows the scene with the whole
+   * feature (e.g. a repeat and all its generated clones) applied.
+   */
+  private lastDescendantIndex(items: SceneObjectRender[], index: number): number {
+    const rootId = items[index].id;
+    if (rootId == null) {
+      return index;
+    }
+    const descendantIds = new Set<string>([rootId]);
+    let last = index;
+    for (let j = index + 1; j < items.length; j++) {
+      const parentId = items[j].parentId;
+      if (parentId != null && descendantIds.has(parentId)) {
+        if (items[j].id != null) {
+          descendantIds.add(items[j].id!);
+        }
+        last = j;
+      }
+    }
+    return last;
+  }
+
+  private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, isChild: boolean, hasChildren: boolean, isCollapsed: boolean, effectiveError: boolean, rollbackIndex: number): string {
+    // A row that stands in for hidden descendants (rollbackIndex > index) is
+    // current whenever the rollback stop lands anywhere inside its range.
+    const isCurrent = rollbackStop >= index && rollbackStop <= rollbackIndex;
     const isPast = index > rollbackStop;
     const isInvisible = obj.visible === false;
     const name = obj.name || 'Unknown';
@@ -318,7 +351,7 @@ export class TimelinePanel {
       : `<span class="${statusIconClass}">${ICON_REFRESH}</span>`;
 
     return `
-      <div class="${itemClass}" data-index="${index}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}">
+      <div class="${itemClass}" data-index="${index}" data-rollback-index="${rollbackIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}">
         ${chevron}
         ${errorDot}
         <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="${imgClass}" alt="" />

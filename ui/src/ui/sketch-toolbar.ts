@@ -29,7 +29,6 @@ const TOOL_LAYOUT: ToolEntry[] = [
   ]},
   { tools: [
     { id: 'rect', label: 'Rectangle', iconPng: 'rect' },
-    { id: 'rounded-rect', label: 'Rounded Rectangle', caption: 'Rounded', iconPng: 'rounded-rect' },
   ]},
   { tools: [
     { id: 'arc3', label: '3-Point Arc', caption: '3-Pt Arc', iconPng: 'arc' },
@@ -46,7 +45,6 @@ const TOOL_LAYOUT: ToolEntry[] = [
 const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   circle: 'c',
   rect: 'r',
-  'rounded-rect': 'rr',
   line: 'l',
   polygon: 'p',
   polyline: 'll',
@@ -74,8 +72,16 @@ export class SketchToolbar {
 
   private boundKeyDown: (e: KeyboardEvent) => void;
   private boundCloseSnapMenu: (e: MouseEvent) => void;
+  private boundCloseRectMenu: (e: MouseEvent) => void;
   private snapVertexCheckedState = true;
   private snapGridCheckedState = true;
+
+  // Rectangle-button options; session-only state (deliberately not persisted).
+  private rectMenu: HTMLDivElement | null = null;
+  private rectRoundedState = false;
+  private rectCenteredState = false;
+  private rectButtonImg: HTMLImageElement | null = null;
+  private rectTooltip: HTMLDivElement | null = null;
 
   onSnapVerticesChange: ((checked: boolean) => void) | null = null;
   onSnapGridChange: ((checked: boolean) => void) | null = null;
@@ -107,6 +113,7 @@ export class SketchToolbar {
 
     this.boundKeyDown = this.handleKeyDown.bind(this);
     this.boundCloseSnapMenu = this.handleCloseSnapMenu.bind(this);
+    this.boundCloseRectMenu = this.handleCloseRectMenu.bind(this);
 
     this.shortcutManager = new ShortcutManager({ timeout: 200 });
     for (const [toolId, keys] of Object.entries(TOOL_SHORTCUTS)) {
@@ -125,6 +132,7 @@ export class SketchToolbar {
     this.visible = false;
     this.setGroupVisible(false);
     this.closeSnapMenu();
+    this.closeRectMenu();
     window.removeEventListener('keydown', this.boundKeyDown);
     this.shortcutManager.disable();
     if (this.activeToolId) {
@@ -141,6 +149,9 @@ export class SketchToolbar {
       return;
     }
     this.activeToolId = toolId;
+    if (!SketchToolbar.isRectVariant(toolId)) {
+      this.closeRectMenu();
+    }
     this.syncButtonStates();
   }
 
@@ -154,6 +165,19 @@ export class SketchToolbar {
 
   get snapGridChecked(): boolean {
     return this.snapGridCheckedState;
+  }
+
+  get rectCenteredChecked(): boolean {
+    return this.rectCenteredState;
+  }
+
+  private static isRectVariant(toolId: ToolId | null): boolean {
+    return toolId === 'rect' || toolId === 'rounded-rect';
+  }
+
+  /** The tool the merged Rectangle button activates, per the Rounded toggle. */
+  private effectiveRectToolId(): ToolId {
+    return this.rectRoundedState ? 'rounded-rect' : 'rect';
   }
 
   private buildSnapButton(): void {
@@ -179,48 +203,43 @@ export class SketchToolbar {
   private openSnapMenu(anchor: HTMLElement): void {
     this.closeSnapMenu();
 
-    const menu = document.createElement('div');
-    menu.className = 'absolute top-full right-0 mt-2 z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)] p-2 flex flex-col gap-2 whitespace-nowrap';
+    const menu = SketchToolbar.createDropdownMenu('right-0');
 
-    const vertexCheckbox = document.createElement('input');
-    vertexCheckbox.type = 'checkbox';
-    vertexCheckbox.className = 'checkbox checkbox-xs checkbox-primary';
-    vertexCheckbox.checked = this.snapVertexCheckedState;
-    vertexCheckbox.addEventListener('change', () => {
-      this.snapVertexCheckedState = vertexCheckbox.checked;
-      this.onSnapVerticesChange?.(vertexCheckbox.checked);
-    });
-    const vertexLabel = document.createElement('label');
-    vertexLabel.className = 'flex items-center gap-2 cursor-pointer';
-    vertexLabel.appendChild(vertexCheckbox);
-    const vertexText = document.createElement('span');
-    vertexText.className = 'text-xs text-base-content/70';
-    vertexText.textContent = 'Snap to vertices';
-    vertexLabel.appendChild(vertexText);
-
-    const gridCheckbox = document.createElement('input');
-    gridCheckbox.type = 'checkbox';
-    gridCheckbox.className = 'checkbox checkbox-xs checkbox-primary';
-    gridCheckbox.checked = this.snapGridCheckedState;
-    gridCheckbox.addEventListener('change', () => {
-      this.snapGridCheckedState = gridCheckbox.checked;
-      this.onSnapGridChange?.(gridCheckbox.checked);
-    });
-    const gridLabel = document.createElement('label');
-    gridLabel.className = 'flex items-center gap-2 cursor-pointer';
-    gridLabel.appendChild(gridCheckbox);
-    const gridText = document.createElement('span');
-    gridText.className = 'text-xs text-base-content/70';
-    gridText.textContent = 'Snap to grid';
-    gridLabel.appendChild(gridText);
-
-    menu.appendChild(vertexLabel);
-    menu.appendChild(gridLabel);
+    menu.appendChild(SketchToolbar.buildMenuToggle('Snap to vertices', this.snapVertexCheckedState, (checked) => {
+      this.snapVertexCheckedState = checked;
+      this.onSnapVerticesChange?.(checked);
+    }));
+    menu.appendChild(SketchToolbar.buildMenuToggle('Snap to grid', this.snapGridCheckedState, (checked) => {
+      this.snapGridCheckedState = checked;
+      this.onSnapGridChange?.(checked);
+    }));
 
     anchor.appendChild(menu);
     this.snapMenu = menu;
 
     setTimeout(() => document.addEventListener('click', this.boundCloseSnapMenu), 0);
+  }
+
+  private static createDropdownMenu(align: string): HTMLDivElement {
+    const menu = document.createElement('div');
+    menu.className = `absolute top-full ${align} mt-2 z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)] p-2 flex flex-col gap-2 whitespace-nowrap`;
+    return menu;
+  }
+
+  private static buildMenuToggle(text: string, checked: boolean, onChange: (checked: boolean) => void): HTMLLabelElement {
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'toggle toggle-xs toggle-primary';
+    checkbox.checked = checked;
+    checkbox.addEventListener('change', () => onChange(checkbox.checked));
+    const label = document.createElement('label');
+    label.className = 'flex items-center gap-2 cursor-pointer';
+    label.appendChild(checkbox);
+    const span = document.createElement('span');
+    span.className = 'text-xs text-base-content/70';
+    span.textContent = text;
+    label.appendChild(span);
+    return label;
   }
 
   private closeSnapMenu(): void {
@@ -234,6 +253,69 @@ export class SketchToolbar {
   private handleCloseSnapMenu(e: MouseEvent): void {
     if (this.snapMenu && !this.snapMenu.contains(e.target as Node) && !this.snapMenu.parentElement?.contains(e.target as Node)) {
       this.closeSnapMenu();
+    }
+  }
+
+  // Dropdown on the merged Rectangle button: two session-only toggles that
+  // pick the variant (Rounded → rounded-rect tool) and the anchor mode
+  // (Centered → `.centered()` on the emitted statement). Toggling while the
+  // tool is active reselects it so the new options take effect immediately.
+  private openRectMenu(anchor: HTMLElement): void {
+    this.closeRectMenu();
+
+    const menu = SketchToolbar.createDropdownMenu('left-1/2 -translate-x-1/2');
+
+    menu.appendChild(SketchToolbar.buildMenuToggle('Rounded', this.rectRoundedState, (checked) => {
+      this.rectRoundedState = checked;
+      this.updateRectButtonDisplay();
+      this.reselectRectToolIfActive();
+    }));
+    menu.appendChild(SketchToolbar.buildMenuToggle('Centered', this.rectCenteredState, (checked) => {
+      this.rectCenteredState = checked;
+      this.reselectRectToolIfActive();
+    }));
+
+    anchor.appendChild(menu);
+    this.rectMenu = menu;
+    // The hover tooltip occupies the same spot below the button; keep it out
+    // of the way while the menu is open.
+    if (this.rectTooltip) {
+      this.rectTooltip.style.display = 'none';
+    }
+
+    setTimeout(() => document.addEventListener('click', this.boundCloseRectMenu), 0);
+  }
+
+  private closeRectMenu(): void {
+    if (this.rectMenu) {
+      this.rectMenu.remove();
+      this.rectMenu = null;
+      document.removeEventListener('click', this.boundCloseRectMenu);
+      if (this.rectTooltip) {
+        this.rectTooltip.style.display = '';
+      }
+    }
+  }
+
+  private handleCloseRectMenu(e: MouseEvent): void {
+    if (this.rectMenu && !this.rectMenu.contains(e.target as Node) && !this.rectMenu.parentElement?.contains(e.target as Node)) {
+      this.closeRectMenu();
+    }
+  }
+
+  private reselectRectToolIfActive(): void {
+    if (SketchToolbar.isRectVariant(this.activeToolId)) {
+      this.onToolSelect(this.effectiveRectToolId());
+    }
+  }
+
+  private updateRectButtonDisplay(): void {
+    if (this.rectButtonImg) {
+      this.rectButtonImg.src = `/icons/${this.rectRoundedState ? 'rounded-rect' : 'rect'}.png`;
+    }
+    if (this.rectTooltip) {
+      const label = this.rectRoundedState ? 'Rounded Rectangle' : 'Rectangle';
+      this.rectTooltip.innerHTML = `${label} <kbd class="kbd kbd-xs">${TOOL_SHORTCUTS.rect}</kbd>`;
     }
   }
 
@@ -264,7 +346,11 @@ export class SketchToolbar {
     btn.className = tool.id === this.activeToolId ? BTN_ACTIVE : BTN_BASE;
     btn.innerHTML = `<img src="/icons/${tool.iconPng}.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain" alt="" />`
       + `<span class="${BTN_LABEL}">${tool.caption ?? tool.label}</span>`;
-    btn.addEventListener('click', () => this.handleToolClick(tool.id));
+    if (tool.id === 'rect') {
+      btn.addEventListener('click', () => this.handleRectButtonClick(wrapper));
+    } else {
+      btn.addEventListener('click', () => this.handleToolClick(tool.id));
+    }
 
     const shortcut = TOOL_SHORTCUTS[tool.id];
     const tip = document.createElement('div');
@@ -276,20 +362,45 @@ export class SketchToolbar {
     wrapper.appendChild(btn);
     wrapper.appendChild(tip);
     this.buttons.set(tool.id, btn);
+    if (tool.id === 'rect') {
+      this.rectButtonImg = btn.querySelector('img');
+      this.rectTooltip = tip;
+      this.updateRectButtonDisplay();
+    }
     return wrapper;
   }
 
   private syncButtonStates(): void {
+    const highlighted = SketchToolbar.isRectVariant(this.activeToolId) ? 'rect' : this.activeToolId;
     for (const [id, btn] of this.buttons) {
-      btn.className = id === this.activeToolId ? BTN_ACTIVE : BTN_BASE;
+      btn.className = id === highlighted ? BTN_ACTIVE : BTN_BASE;
     }
   }
 
   private handleToolClick(toolId: ToolId): void {
+    if (toolId === 'rect') {
+      // Keyboard path: same activate/deselect toggle, but no dropdown.
+      if (SketchToolbar.isRectVariant(this.activeToolId)) {
+        this.onToolSelect(null);
+      } else {
+        this.onToolSelect(this.effectiveRectToolId());
+      }
+      return;
+    }
     if (this.activeToolId === toolId) {
       this.onToolSelect(null);
     } else {
       this.onToolSelect(toolId);
+    }
+  }
+
+  private handleRectButtonClick(anchor: HTMLElement): void {
+    if (SketchToolbar.isRectVariant(this.activeToolId)) {
+      this.onToolSelect(null);
+      this.closeRectMenu();
+    } else {
+      this.onToolSelect(this.effectiveRectToolId());
+      this.openRectMenu(anchor);
     }
   }
 

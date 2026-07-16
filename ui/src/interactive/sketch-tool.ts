@@ -110,4 +110,9 @@ export abstract class SketchTool {
   protected formatPoint(p: [number, number]): string {
     return `[${p[0]}, ${p[1]}]`;
   }
+
+  protected static negateExpression(expression: string): string {
+    const isIdentifier = /^[a-zA-Z_$][\w$]*$/.test(expression);
+    return isIdentifier ? `-${expression}` : `-(${expression})`;
+  }
 }

@@ -327,13 +327,7 @@ export class RectTool extends SketchTool {
 
     const widthResult = this.resolveSignedDim(this.widthExpression, this.widthIsNumeric, this.lockedWidth, 0);
 
-    let heightResult: CommitResult;
-    if (isNumeric && this.mousePoint && !this.shiftHeld) {
-      const ySign = (this.mousePoint[1] >= this.startPoint[1]) ? 1 : -1;
-      heightResult = { expression: String(Math.round(ySign * num * 100) / 100), newVariable: result.newVariable };
-    } else {
-      heightResult = result;
-    }
+    const heightResult = this.resolveSignedDim(result, isNumeric, isNumeric ? num : null, 1);
 
     this.commitRect(this.startPoint, widthResult, heightResult);
     this.expressionInput.hide();
@@ -370,13 +364,19 @@ export class RectTool extends SketchTool {
   }
 
   private resolveSignedDim(expr: CommitResult, isNumeric: boolean, absValue: number | null, axis: 0 | 1): CommitResult {
-    if (!isNumeric || absValue === null || !this.mousePoint || !this.startPoint || this.shiftHeld) {
+    if (!this.mousePoint || !this.startPoint || this.shiftHeld) {
       return expr;
     }
     const sign = axis === 0
       ? ((this.mousePoint[0] >= this.startPoint[0]) ? 1 : -1)
       : ((this.mousePoint[1] >= this.startPoint[1]) ? 1 : -1);
-    return { expression: String(Math.round(sign * absValue * 100) / 100), newVariable: expr.newVariable };
+    if (isNumeric && absValue !== null) {
+      return { expression: String(Math.round(sign * absValue * 100) / 100), newVariable: expr.newVariable };
+    }
+    if (sign < 0) {
+      return { expression: SketchTool.negateExpression(expr.expression), newVariable: expr.newVariable };
+    }
+    return expr;
   }
 
   protected commitRect(

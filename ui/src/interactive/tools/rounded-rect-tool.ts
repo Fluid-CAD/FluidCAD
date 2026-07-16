@@ -468,14 +468,20 @@ export class RoundedRectTool extends SketchTool {
   }
 
   private resolveSignedExpression(expr: CommitResult, isNumeric: boolean, absValue: number | null, axis: 0 | 1): CommitResult {
-    if (!isNumeric || absValue === null || !this.mousePoint || !this.startPoint || this.shiftHeld) {
+    if (!this.mousePoint || !this.startPoint || this.shiftHeld) {
       return expr;
     }
     const sign = axis === 0
       ? ((this.mousePoint[0] >= this.startPoint[0]) ? 1 : -1)
       : ((this.mousePoint[1] >= this.startPoint[1]) ? 1 : -1);
-    const signed = Math.round(sign * absValue * 100) / 100;
-    return { expression: String(signed), newVariable: expr.newVariable };
+    if (isNumeric && absValue !== null) {
+      const signed = Math.round(sign * absValue * 100) / 100;
+      return { expression: String(signed), newVariable: expr.newVariable };
+    }
+    if (sign < 0) {
+      return { expression: SketchTool.negateExpression(expr.expression), newVariable: expr.newVariable };
+    }
+    return expr;
   }
 
   private commitDimensionsFromGeometry(endPoint: [number, number]): void {

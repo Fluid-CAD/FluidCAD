@@ -10,7 +10,7 @@ import { LoadingOverlay } from './ui/loading-overlay';
 import { FileImporter } from './ui/file-importer';
 import { TopBar } from './ui/top-bar';
 import { Navbar } from './ui/navbar';
-import { ICON_FILE_IMPORT } from './ui/icons';
+import { ICON_IMG_FALLBACK } from './ui/object-icons';
 import { TrimPickService } from './interactive/trim-pick-service';
 import { RegionPickService } from './interactive/region-pick-service';
 import { SketchToolbarService } from './interactive/sketch-toolbar-service';
@@ -81,11 +81,17 @@ const navbar = new Navbar(container);
 // Import group — always visible for now.
 const importGroup = navbar.addGroup('import');
 const importBtn = document.createElement('button');
-importBtn.className = 'btn btn-ghost btn-sm gap-1.5 text-base-content/70 hover:text-base-content';
-importBtn.title = 'Import file';
-importBtn.innerHTML = `<span class="[&>svg]:size-4">${ICON_FILE_IMPORT}</span><span class="text-sm font-normal">Import</span>`;
+importBtn.className = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 text-base-content/60';
+importBtn.setAttribute('aria-label', 'Import file');
+importBtn.innerHTML =
+  `<img src="/icons/load.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain" alt="" />`
+  + `<span class="text-[10px] leading-none text-base-content/50">Import</span>`;
 importBtn.addEventListener('click', () => fileImporter.openPicker());
-importGroup.appendChild(importBtn);
+const importBtnWrap = document.createElement('span');
+importBtnWrap.className = 'tooltip tooltip-bottom';
+importBtnWrap.dataset.tip = 'Import file';
+importBtnWrap.appendChild(importBtn);
+importGroup.appendChild(importBtnWrap);
 
 const paramsPanel = new ParamsPanel(viewer.settingsPanelHost);
 

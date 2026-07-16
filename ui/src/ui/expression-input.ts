@@ -2,6 +2,7 @@ const OFFSET_X = 16;
 const OFFSET_Y = -36;
 
 const IDENT_RE = /^[a-zA-Z_$][\w$]*$/;
+const TRAILING_IDENT_RE = /([a-zA-Z_$][\w$]*)$/;
 const ASSIGNMENT_RE = /^([a-zA-Z_$][\w$]*)\s*=\s*(.+?)\s*;?\s*$/;
 const RESERVED = new Set([
   'const', 'let', 'var', 'if', 'else', 'for', 'while', 'do', 'return', 'function',
@@ -17,6 +18,8 @@ function isValidNewIdentifier(s: string): boolean {
 }
 
 export type VariableInfo = { name: string; initializer?: string };
+
+type Suggestion = VariableInfo & { isNew?: boolean };
 
 export type CommitResult = {
   expression: string;
@@ -44,7 +47,7 @@ export class ExpressionInput {
   private visible = false;
   private userIsTyping = false;
   private variables: VariableInfo[] = [];
-  private filteredVars: VariableInfo[] = [];
+  private filteredVars: Suggestion[] = [];
   private selectedIndex = -1;
   private seedValue = '';
   private errorVisible = false;
@@ -93,7 +96,7 @@ export class ExpressionInput {
       if (e.key === 'Enter') {
         e.preventDefault();
         if (this.selectedIndex >= 0 && this.selectedIndex < this.filteredVars.length) {
-          this.input.value = this.filteredVars[this.selectedIndex].name;
+          this.applyVariableName(this.filteredVars[this.selectedIndex].name);
         }
         this.commit();
         return;
@@ -307,33 +310,70 @@ export class ExpressionInput {
 
   private fillSelected(): void {
     if (this.selectedIndex >= 0 && this.selectedIndex < this.filteredVars.length) {
-      this.input.value = this.filteredVars[this.selectedIndex].name;
+      this.applyVariableName(this.filteredVars[this.selectedIndex].name);
       this.userIsTyping = true;
       this.filterAndRender();
     }
   }
 
   private filterAndRender(): void {
-    if (this.numericOnly) {
+    const query = this.userIsTyping && !this.numericOnly ? this.trailingIdentifier() : null;
+    if (!query) {
       this.filteredVars = [];
       this.selectedIndex = -1;
       this.renderDropdown();
       return;
     }
-    if (!this.userIsTyping) {
-      this.filteredVars = [...this.variables];
-    } else {
-      const query = this.input.value.trim().toLowerCase();
-      if (!query) {
-        this.filteredVars = [...this.variables];
-      } else {
-        this.filteredVars = this.variables.filter(
-          (v) => v.name.toLowerCase().includes(query),
-        );
-      }
+    const lower = query.toLowerCase();
+    const matches: Suggestion[] = this.variables.filter(
+      (v) => v.name.toLowerCase().includes(lower),
+    );
+    matches.sort((a, b) => this.matchRank(a.name, lower) - this.matchRank(b.name, lower));
+    this.filteredVars = matches;
+    if (this.shouldOfferNewVariable(query)) {
+      this.filteredVars.push({ name: query, initializer: this.seedValue.trim(), isNew: true });
     }
-    this.selectedIndex = -1;
+    this.selectedIndex = this.filteredVars.length > 0 ? 0 : -1;
     this.renderDropdown();
+  }
+
+  private matchRank(name: string, lowerQuery: string): number {
+    const lowerName = name.toLowerCase();
+    if (lowerName === lowerQuery) {
+      return 0;
+    }
+    if (lowerName.startsWith(lowerQuery)) {
+      return 1;
+    }
+    return 2;
+  }
+
+  private shouldOfferNewVariable(query: string): boolean {
+    if (!query || this.input.value.trim() !== query) {
+      return false;
+    }
+    if (!isValidNewIdentifier(query)) {
+      return false;
+    }
+    if (this.variables.some((v) => v.name === query)) {
+      return false;
+    }
+    return this.seedValue.trim().length > 0;
+  }
+
+  private trailingIdentifier(): string | null {
+    const match = this.input.value.match(TRAILING_IDENT_RE);
+    return match ? match[1] : null;
+  }
+
+  private applyVariableName(name: string): void {
+    const value = this.input.value;
+    const match = value.match(TRAILING_IDENT_RE);
+    if (match && match.index !== undefined) {
+      this.input.value = value.slice(0, match.index) + name;
+    } else {
+      this.input.value = value + name;
+    }
   }
 
   private renderDropdown(): void {
@@ -346,7 +386,8 @@ export class ExpressionInput {
       .map((v, i) => {
         const active = i === this.selectedIndex ? 'bg-primary/10' : '';
         const hint = v.initializer ? `<span class="text-base-content/40 ml-2">= ${this.escapeHtml(this.truncate(v.initializer, 20))}</span>` : '';
-        return `<div class="px-2 py-1 text-sm font-mono cursor-pointer hover:bg-primary/10 ${active}" data-idx="${i}">${this.escapeHtml(v.name)}${hint}</div>`;
+        const badge = v.isNew ? '<span class="text-primary/70 ml-2 text-[10px] uppercase select-none">new</span>' : '';
+        return `<div class="px-2 py-1 text-sm font-mono cursor-pointer hover:bg-primary/10 ${active}" data-idx="${i}">${this.escapeHtml(v.name)}${hint}${badge}</div>`;
       })
       .join('');
 
@@ -355,7 +396,7 @@ export class ExpressionInput {
         e.preventDefault();
         e.stopPropagation();
         const idx = parseInt((item as HTMLElement).dataset.idx!, 10);
-        this.input.value = this.filteredVars[idx].name;
+        this.applyVariableName(this.filteredVars[idx].name);
         this.commit();
       });
     });

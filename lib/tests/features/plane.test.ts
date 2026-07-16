@@ -326,6 +326,37 @@ describe("plane", () => {
       expect(pl.normal.z).toBeCloseTo(1);
     });
 
+    it("should consume the two source planes", () => {
+      const p1 = plane("xy") as PlaneObjectBase;
+      const p2 = plane("xy", { offset: 40 }) as PlaneObjectBase;
+      const mid = plane(p1, p2) as PlaneObjectBase;
+
+      render();
+
+      // Plane faces are meta shapes, so the filter has to admit them.
+      const filter = { excludeMeta: false, excludeGuide: false };
+
+      // Only the mid plane survives — the originals were consumed.
+      expect(p1.getShapes(filter).length).toBe(0);
+      expect(p2.getShapes(filter).length).toBe(0);
+      expect(mid.getShapes(filter).length).toBe(1);
+    });
+
+    it("should mark the mid plane face as a meta shape, like any other plane", () => {
+      const ref = plane("xy") as PlaneObjectBase;
+      const p1 = plane("xy") as PlaneObjectBase;
+      const p2 = plane("xy", { offset: 40 }) as PlaneObjectBase;
+      const m = plane(p1, p2) as PlaneObjectBase;
+
+      render();
+
+      // A plane's face is reference geometry, so it stays out of the default
+      // (meta-excluding) shape view — the mid plane is no different.
+      expect(ref.getShapes().length).toBe(0);
+      expect(m.getShapes().length).toBe(0);
+      expect(m.getShapes({ excludeMeta: false, excludeGuide: false }).length).toBe(1);
+    });
+
     it("should create a plane midway using shorthand strings", () => {
       const mid = plane("xy", "xy") as PlaneObjectBase;
 

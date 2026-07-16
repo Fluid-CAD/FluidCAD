@@ -1,6 +1,6 @@
 import { ExpressionInput, VariableInfo } from '../../ui/expression-input';
 import { updateDimensionExpression, getDimensionExpression } from '../../api';
-import { FetchVariablesFn } from '../sketch-tool';
+import { FetchVariablesFn, SketchTool } from '../sketch-tool';
 import { DragHitResult, GetSketchSourceLineFn } from './types';
 
 export class DimensionInputController {
@@ -237,9 +237,9 @@ export class DimensionInputController {
         const isNumeric = !isNaN(num) && String(num) === expression;
 
         let finalExpr = expression;
-        if (isNumeric && hitResult.uniqueType !== 'circle' && hitResult.uniqueType !== 'polygon' && hitResult.uniqueType !== 'slot') {
+        if (hitResult.uniqueType !== 'circle' && hitResult.uniqueType !== 'polygon' && hitResult.uniqueType !== 'slot') {
           const sign = this.computeDistanceSign(hitResult, null);
-          finalExpr = String(Math.round(sign * num * 100) / 100);
+          finalExpr = SketchTool.applySignedDimension(expression, sign);
         } else if (isNumeric) {
           finalExpr = String(Math.round(num * 100) / 100);
         }

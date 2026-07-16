@@ -378,11 +378,7 @@ export class LineTool extends SketchTool {
     const dy = this.mousePoint[1] - this.startPoint[1];
     const isHorizontal = Math.abs(dx) >= Math.abs(dy);
     const sign = isHorizontal ? Math.sign(dx) : Math.sign(dy);
-
-    const num = parseFloat(expression);
-    const dimExpr = !isNaN(num) && String(num) === expression
-      ? String(Math.round(sign * num * 100) / 100)
-      : expression;
+    const dimExpr = SketchTool.applySignedDimension(expression, sign);
 
     const fn = isHorizontal ? 'hLine' : 'vLine';
     const statement = atCurrent
@@ -401,11 +397,7 @@ export class LineTool extends SketchTool {
     }
     const { expression, newVariable } = result;
     const sign = Math.sign(rawDistance);
-
-    const num = parseFloat(expression);
-    const dimExpr = !isNaN(num) && String(num) === expression
-      ? String(Math.round(sign * num * 100) / 100)
-      : expression;
+    const dimExpr = SketchTool.applySignedDimension(expression, sign);
 
     this.insertGeometry(`tLine(${dimExpr})`, newVariable);
     this.expressionInput.hide();

@@ -111,8 +111,22 @@ export abstract class SketchTool {
     return `[${p[0]}, ${p[1]}]`;
   }
 
-  protected static negateExpression(expression: string): string {
+  static negateExpression(expression: string): string {
     const isIdentifier = /^[a-zA-Z_$][\w$]*$/.test(expression);
     return isIdentifier ? `-${expression}` : `-(${expression})`;
+  }
+
+  // Re-applies the drag direction to a committed dimension: numeric input has
+  // the sign baked into the value, a variable/expression is negated at the
+  // use site so the variable itself stays a positive magnitude.
+  static applySignedDimension(expression: string, sign: number): string {
+    const num = parseFloat(expression);
+    if (!isNaN(num) && String(num) === expression) {
+      return String(Math.round(sign * num * 100) / 100);
+    }
+    if (sign < 0) {
+      return SketchTool.negateExpression(expression);
+    }
+    return expression;
   }
 }

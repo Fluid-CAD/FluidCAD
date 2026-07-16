@@ -12,6 +12,8 @@ import {
   insertGeometryCall,
   updateGeometryPosition,
   updateDimension,
+  updateDimensionExpression,
+  getDimensionExpression,
 } from '../src/code-editor.ts';
 
 describe('addBreakpoint', () => {
@@ -567,5 +569,51 @@ describe('updateDimension', () => {
     const code = `vLine([5, 10], height / 2)\n`;
     const result = await updateDimension(code, 1, 100);
     expect(result.newCode).toBe(`vLine([5, 10], 100)\n`);
+  });
+});
+
+describe('updateDimensionExpression with dimensionOffset', () => {
+  it('offset 0 targets rect height', async () => {
+    const code = `rect(30, 20)\n`;
+    const result = await updateDimensionExpression(code, 1, 'h', 0);
+    expect(result.newCode).toBe(`rect(30, h)\n`);
+  });
+
+  it('offset 1 targets rect width', async () => {
+    const code = `rect(30, 20)\n`;
+    const result = await updateDimensionExpression(code, 1, 'w', 1);
+    expect(result.newCode).toBe(`rect(w, 20)\n`);
+  });
+
+  it('offset 1 skips the start point array of rect', async () => {
+    const code = `rect([5, 10], 30, 20)\n`;
+    const result = await updateDimensionExpression(code, 1, 'w', 1);
+    expect(result.newCode).toBe(`rect([5, 10], w, 20)\n`);
+  });
+
+  it('walks through .centered() to the rect args', async () => {
+    const code = `rect(30, 20).centered()\n`;
+    const result = await updateDimensionExpression(code, 1, 'w', 1);
+    expect(result.newCode).toBe(`rect(w, 20).centered()\n`);
+  });
+});
+
+describe('getDimensionExpression with dimensionOffset', () => {
+  it('offset 0 returns rect height', async () => {
+    const code = `rect([5, 10], 30, height / 2)\n`;
+    const result = await getDimensionExpression(code, 1);
+    expect(result?.expression).toBe('height / 2');
+  });
+
+  it('offset 1 returns rect width', async () => {
+    const code = `rect([5, 10], -(w), 20)\n`;
+    const result = await getDimensionExpression(code, 1, 1);
+    expect(result?.expression).toBe('-(w)');
+  });
+
+  it('offset 1 walks through .centered()', async () => {
+    const code = `rect(30, 20).centered()\n`;
+    const result = await getDimensionExpression(code, 1, 1);
+    expect(result?.expression).toBe('30');
   });
 });

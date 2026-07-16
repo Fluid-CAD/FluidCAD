@@ -12,6 +12,7 @@ export function findHitGeometry(
   sketchId: string,
   plane: PlaneData,
   ctx: SceneContext,
+  includeRectEdges = false,
 ): DragHitResult | null {
   const sketchChildren = sceneObjects.filter(o => o.parentId === sketchId);
   const threshold = pixelToSketchThreshold(ctx, 12);
@@ -97,7 +98,7 @@ export function findHitGeometry(
         }
       }
       if (allVerts.length > 0) {
-        const result = hitTestRect(point2d, allVerts, sourceLocation, child, thresholdSq, bestDistSq);
+        const result = hitTestRect(point2d, allVerts, sourceLocation, child, thresholdSq, bestDistSq, includeRectEdges);
         if (result) {
           bestHit = result.hit;
           bestDistSq = result.distSq;
@@ -562,6 +563,7 @@ function hitTestRect(
   child: SceneObjectRender,
   thresholdSq: number,
   bestDistSq: number,
+  includeEdges = false,
 ): HitTestResult | null {
   if (child.object?.radius) {
     return null;
@@ -640,6 +642,72 @@ function hitTestRect(
     }
   }
 
+  if (includeEdges && !result) {
+    const edgeResult = hitTestRectEdges(point2d, uniqueVerts, sourceLocation, child, isCentered, thresholdSq, bestDistSq);
+    if (edgeResult) {
+      result = edgeResult;
+    }
+  }
+
+  return result;
+}
+
+function hitTestRectEdges(
+  point2d: [number, number],
+  uniqueVerts: [number, number][],
+  sourceLocation: { line: number; column: number },
+  child: SceneObjectRender,
+  isCentered: boolean,
+  thresholdSq: number,
+  bestDistSq: number,
+): HitTestResult | null {
+  for (const corner of uniqueVerts) {
+    const ddx = corner[0] - point2d[0];
+    const ddy = corner[1] - point2d[1];
+    if (ddx * ddx + ddy * ddy < thresholdSq) {
+      return null;
+    }
+  }
+
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const v of uniqueVerts) {
+    minX = Math.min(minX, v[0]);
+    maxX = Math.max(maxX, v[0]);
+    minY = Math.min(minY, v[1]);
+    maxY = Math.max(maxY, v[1]);
+  }
+
+  const legs: { a: [number, number]; b: [number, number]; dim: 'width' | 'height' }[] = [
+    { a: [minX, minY], b: [maxX, minY], dim: 'width' },
+    { a: [minX, maxY], b: [maxX, maxY], dim: 'width' },
+    { a: [minX, minY], b: [minX, maxY], dim: 'height' },
+    { a: [maxX, minY], b: [maxX, maxY], dim: 'height' },
+  ];
+
+  let result: HitTestResult | null = null;
+  for (const leg of legs) {
+    const dist = pointToSegmentDist(point2d[0], point2d[1], leg.a[0], leg.a[1], leg.b[0], leg.b[1]);
+    const distSq = dist * dist;
+    if (distSq < thresholdSq && distSq < bestDistSq) {
+      const objectDim = leg.dim === 'width' ? child.object?.width : child.object?.height;
+      const geomDim = leg.dim === 'width' ? maxX - minX : maxY - minY;
+      const initialValue = typeof objectDim === 'number'
+        ? Math.round(objectDim * 100) / 100
+        : Math.round(geomDim * 100) / 100;
+      result = {
+        hit: {
+          sourceLocation,
+          uniqueType: 'rect',
+          hitZone: 'body',
+          rectDim: leg.dim,
+          initialValue,
+          rectCentered: isCentered,
+        },
+        distSq,
+      };
+      bestDistSq = distSq;
+    }
+  }
   return result;
 }
 

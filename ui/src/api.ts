@@ -243,8 +243,12 @@ export function updateDimensionExpression(
 
 export async function getDimensionExpression(
   sourceLine: number,
+  dimensionOffset?: number,
 ): Promise<{ expression: string | null }> {
-  return (await postJson('/api/dimension-expression', { sourceLine })) ?? { expression: null };
+  return (await postJson('/api/dimension-expression', {
+    sourceLine,
+    dimensionOffset: dimensionOffset ?? 0,
+  })) ?? { expression: null };
 }
 
 export async function getScopeVariables(

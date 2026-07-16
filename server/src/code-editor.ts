@@ -1016,6 +1016,7 @@ function findNonArrayArgFromEnd(args: TSNode, offset = 0): TSNode | null {
 export async function getDimensionExpression(
   code: string,
   sourceLine: number,
+  dimensionOffset = 0,
 ): Promise<{ expression: string } | null> {
   const p = await getParser();
   const tree = p.parse(code);
@@ -1024,7 +1025,7 @@ export async function getDimensionExpression(
   while (current && current.type === 'call_expression') {
     const args = getArgumentsNode(current);
     if (args) {
-      const target = findNonArrayArgFromEnd(args);
+      const target = findNonArrayArgFromEnd(args, dimensionOffset);
       if (target) {
         return { expression: target.text };
       }

@@ -323,7 +323,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/dimension-expression', async (req, res) => {
-    const { sourceLine } = req.body;
+    const { sourceLine, dimensionOffset } = req.body;
     if (typeof sourceLine !== 'number') {
       res.status(400).json({ error: 'Invalid request body' });
       return;
@@ -334,7 +334,8 @@ export function createSketchEditsRouter(
       return;
     }
     try {
-      const result = await getDimensionExpression(code, sourceLine);
+      const result = await getDimensionExpression(code, sourceLine,
+        typeof dimensionOffset === 'number' ? dimensionOffset : 0);
       res.json({ expression: result?.expression ?? null });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

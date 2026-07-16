@@ -339,6 +339,13 @@ function onPlaneAtom<B>(
  * separator that distinguishes repeat instances from their twins. All cuts
  * are computed in normal-signed coordinates: `above(P, o)` keeps points whose
  * signed distance along P's normal exceeds `o`.
+ *
+ * A cut that lands exactly at 0 is not a synthetic gap number but the datum
+ * plane itself: the picks straddle a principal plane, and the rendered form
+ * (`below('xz')`) carries no constant to go stale when dimensions change. Those
+ * atoms outrank every constant-bearing predicate — `onPlane(P, o)` at weight 20
+ * most importantly — while still deferring to the exact-plane and qualitative
+ * forms. Synthetic mid-gap cuts keep the low threshold weight.
  */
 function thresholdAtoms<B>(
   targetPoints: Point[],
@@ -362,7 +369,9 @@ function thresholdAtoms<B>(
         atoms.push({
           code: c.value === 0 ? `.above('${plane.name}')` : `.above('${plane.name}', ${c.text})`,
           addTo: b => above(b, plane.name, c.value),
-          weight: 10, constants: c.value === 0 ? 0 : 1, needsScope: false,
+          weight: c.value === 0 ? 21 : 10,
+          constants: c.value === 0 ? 0 : 1,
+          needsScope: false,
         });
       }
     }
@@ -375,7 +384,9 @@ function thresholdAtoms<B>(
         atoms.push({
           code: c.value === 0 ? `.below('${plane.name}')` : `.below('${plane.name}', ${c.text})`,
           addTo: b => below(b, plane.name, c.value),
-          weight: 10, constants: c.value === 0 ? 0 : 1, needsScope: false,
+          weight: c.value === 0 ? 21 : 10,
+          constants: c.value === 0 ? 0 : 1,
+          needsScope: false,
         });
       }
     }

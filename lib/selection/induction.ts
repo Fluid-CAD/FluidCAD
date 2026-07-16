@@ -7,6 +7,13 @@ import { Atom } from "./atoms.js";
  * is 4 rather than the design's ≈3 because isolating a repeat instance needs
  * an `above` + `below` bracket (2 atoms) on top of the shape predicates.
  *
+ * Constant-free atoms get a pass of their own first: a conjunction of
+ * qualitative/datum predicates survives the dimension edits that silently
+ * break baked-in constants, so `edge().line().below('xz')` beats
+ * `edge().onPlane('xz', -34.641...)` even though the latter needs fewer
+ * atoms. Constant-bearing atoms only enter when nothing constant-free
+ * resolves — repeat-instance brackets, dimension-only distinctions.
+ *
  * `matches` holds each atom's oracle-evaluated match set over the universe
  * (keyed the same way as `targets`/`universe`). Atoms that are not true for
  * every target are unusable — a conjunction containing one could never
@@ -32,9 +39,28 @@ export function induceConjunction<B>(
     return true;
   });
 
-  // Greedy is myopic: a high-weight opener can burn the atom budget on a path
-  // with no finish. Retry with the failed attempt's opener banned — restarts
-  // are cheap (match sets are precomputed) and recover most misses.
+  const constantFree = usable.filter(atom => atom.constants === 0);
+  if (constantFree.length < usable.length) {
+    const robust = induceWithRestarts(constantFree, matches, targets, universe, maxAtoms);
+    if (robust !== null) {
+      return robust;
+    }
+  }
+  return induceWithRestarts(usable, matches, targets, universe, maxAtoms);
+}
+
+/**
+ * Greedy is myopic: a high-weight opener can burn the atom budget on a path
+ * with no finish. Retry with the failed attempt's opener banned — restarts
+ * are cheap (match sets are precomputed) and recover most misses.
+ */
+function induceWithRestarts<B>(
+  usable: Atom<B>[],
+  matches: Map<Atom<B>, Set<number>>,
+  targets: Set<number>,
+  universe: Set<number>,
+  maxAtoms: number,
+): Atom<B>[] | null {
   const banned = new Set<Atom<B>>();
   for (let attempt = 0; attempt <= 3; attempt++) {
     const candidates = usable.filter(atom => !banned.has(atom));

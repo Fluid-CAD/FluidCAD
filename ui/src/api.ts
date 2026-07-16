@@ -1042,6 +1042,10 @@ export function addBreakpoint(sourceLocation: SourceLocationParam): void {
   postFireAndForget('/api/add-breakpoint', { sourceLocation });
 }
 
+export function removeFeature(sourceLocation: SourceLocationParam): void {
+  postFireAndForget('/api/remove-feature', { sourceLocation });
+}
+
 export function clearBreakpoints(): void {
   postFireAndForget('/api/clear-breakpoints');
 }

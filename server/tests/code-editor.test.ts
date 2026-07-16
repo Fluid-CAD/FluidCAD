@@ -8,6 +8,7 @@ import {
   removePoint,
   addPick,
   removePick,
+  removeStatement,
   setPickPoints,
   insertGeometryCall,
   updateGeometryPosition,
@@ -659,5 +660,55 @@ describe('getDimensionExpression with dimensionOffset', () => {
     const code = `rect(30, 20).centered()\n`;
     const result = await getDimensionExpression(code, 1, 1);
     expect(result?.expression).toBe('30');
+  });
+});
+
+describe('removeStatement', () => {
+  it('removes a bare feature statement and its line', async () => {
+    const code = `const s = sketch('xy', () => {});\nextrude(10);\nfillet(2, e.edges());\n`;
+    const result = await removeStatement(code, 2);
+    expect(result.newCode).toBe(`const s = sketch('xy', () => {});\nfillet(2, e.edges());\n`);
+  });
+
+  it('removes a const-bound statement including the binding', async () => {
+    const code = `const s = sketch('xy', () => {});\nconst e = extrude(10);\n`;
+    const result = await removeStatement(code, 2);
+    expect(result.newCode).toBe(`const s = sketch('xy', () => {});\n`);
+  });
+
+  it('removes every line of a multi-line statement', async () => {
+    const code = `const s = sketch('xy', () => {\n  rect(30, 20);\n  circle(5);\n});\nextrude(10);\n`;
+    const result = await removeStatement(code, 1);
+    expect(result.newCode).toBe(`extrude(10);\n`);
+  });
+
+  it('removes a chained multi-line statement', async () => {
+    const code = `extrude(10)\n  .pick([1, 2])\n  .symmetric();\nfillet(2, e.edges());\n`;
+    const result = await removeStatement(code, 1);
+    expect(result.newCode).toBe(`fillet(2, e.edges());\n`);
+  });
+
+  it('collapses the doubled blank line left behind', async () => {
+    const code = `const a = 1;\n\nextrude(10);\n\nconst b = 2;\n`;
+    const result = await removeStatement(code, 3);
+    expect(result.newCode).toBe(`const a = 1;\n\nconst b = 2;\n`);
+  });
+
+  it('keeps indented statements intact inside a block', async () => {
+    const code = `function part() {\n  const s = sketch('xy', () => {});\n  extrude(10);\n  return s;\n}\n`;
+    const result = await removeStatement(code, 3);
+    expect(result.newCode).toBe(`function part() {\n  const s = sketch('xy', () => {});\n  return s;\n}\n`);
+  });
+
+  it('no-ops when no call starts on the line', async () => {
+    const code = `const a = 1;\nextrude(10);\n`;
+    const result = await removeStatement(code, 1);
+    expect(result.newCode).toBe(code);
+  });
+
+  it('excises only the statement when it shares a line', async () => {
+    const code = `const a = 1; extrude(10);\n`;
+    const result = await removeStatement(code, 1);
+    expect(result.newCode).toBe(`const a = 1; \n`);
   });
 });

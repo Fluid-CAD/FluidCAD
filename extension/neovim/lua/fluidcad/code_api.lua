@@ -65,6 +65,10 @@ function M.remove_pick(code, source_line)
   return post('remove-pick', { code = code, sourceLine = source_line })
 end
 
+function M.remove_statement(code, source_line)
+  return post('remove-statement', { code = code, sourceLine = source_line })
+end
+
 function M.set_pick_points(code, source_line, points)
   return post('set-pick-points', { code = code, sourceLine = source_line, points = points })
 end

@@ -1,6 +1,6 @@
 import type { SceneObjectRender } from '../types';
-import { savePreference, recompute, rollback, addBreakpoint, gotoSource } from '../api';
-import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT } from './icons';
+import { savePreference, recompute, rollback, addBreakpoint, gotoSource, removeFeature } from '../api';
+import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_TRASH } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 
@@ -231,6 +231,14 @@ export class TimelinePanel {
         if (obj) {
           this.onFeatureEdit?.(obj, index);
         }
+      });
+      el.addEventListener('contextmenu', (e) => {
+        if ((e.target as HTMLElement).closest('[data-toggle]')) {
+          return;
+        }
+        e.preventDefault();
+        const index = parseInt(el.dataset.index!, 10);
+        this.showRowContextMenu(e, index);
       });
     });
 
@@ -465,6 +473,73 @@ export class TimelinePanel {
     };
     setTimeout(() => document.addEventListener('click', onClickOutside), 0);
     this.dropdownCleanup = () => document.removeEventListener('click', onClickOutside);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Row context menu
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Right-click menu on a timeline row: "Breakpoint here" places the
+   * breakpoint after the row (the double-click gesture, without opening an
+   * edit dialog) and "Remove" deletes the feature's statement from the code.
+   * Rows without a source location get no menu — neither action can target
+   * them.
+   */
+  private showRowContextMenu(e: MouseEvent, index: number): void {
+    this.closeDropdown();
+    const obj = this.sceneObjects[index];
+    if (!obj || !obj.sourceLocation) {
+      return;
+    }
+
+    const dropdown = document.createElement('div');
+    dropdown.className = 'absolute z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
+
+    const panelRect = this.panel.getBoundingClientRect();
+    dropdown.style.left = `${e.clientX - panelRect.left}px`;
+    dropdown.style.top = `${e.clientY - panelRect.top}px`;
+
+    dropdown.innerHTML = `
+      <ul class="menu menu-xs p-1 min-w-[160px]">
+        <li><button data-action="rollback" class="flex items-center gap-2">
+          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PAUSE}</span>
+          <span>Breakpoint here</span>
+        </button></li>
+        <li><button data-action="remove" class="flex items-center gap-2 text-error">
+          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_TRASH}</span>
+          <span>Remove</span>
+        </button></li>
+      </ul>
+    `;
+
+    this.panel.appendChild(dropdown);
+    this.activeDropdown = dropdown;
+
+    dropdown.querySelector('[data-action="rollback"]')!.addEventListener('click', () => {
+      this.closeDropdown();
+      this.addBreakpointAfter(index);
+      this.goToSource(obj);
+    });
+
+    dropdown.querySelector('[data-action="remove"]')!.addEventListener('click', () => {
+      this.closeDropdown();
+      removeFeature(obj.sourceLocation!);
+    });
+
+    const onClickOutside = (ev: MouseEvent) => {
+      if (!dropdown.contains(ev.target as Node)) {
+        this.closeDropdown();
+      }
+    };
+    setTimeout(() => {
+      document.addEventListener('click', onClickOutside);
+      document.addEventListener('contextmenu', onClickOutside);
+    }, 0);
+    this.dropdownCleanup = () => {
+      document.removeEventListener('click', onClickOutside);
+      document.removeEventListener('contextmenu', onClickOutside);
+    };
   }
 
   private closeDropdown(): void {

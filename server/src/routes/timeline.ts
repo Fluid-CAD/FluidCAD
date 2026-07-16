@@ -34,6 +34,24 @@ export function createTimelineRouter(
     res.json({ success: true });
   });
 
+  router.post('/remove-feature', (req, res) => {
+    const { sourceLocation } = req.body;
+    if (
+      !sourceLocation ||
+      typeof sourceLocation.filePath !== 'string' ||
+      typeof sourceLocation.line !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    sendToExtension({
+      type: 'remove-feature',
+      filePath: sourceLocation.filePath,
+      line: sourceLocation.line,
+    });
+    res.json({ success: true });
+  });
+
   router.post('/add-breakpoint', (req, res) => {
     const { sourceLocation } = req.body;
     if (

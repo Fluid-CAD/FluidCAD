@@ -10,6 +10,7 @@ import {
   removePoint,
   addPick,
   removePick,
+  removeStatement,
   setPickPoints,
   insertGeometryCallWithVariable,
   updateGeometryPosition,
@@ -462,6 +463,20 @@ export function createSketchEditsRouter(
     }
     try {
       const result = await removePick(code, sourceLine);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/remove-statement', async (req, res) => {
+    const { code, sourceLine } = req.body;
+    if (typeof code !== 'string' || typeof sourceLine !== 'number') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await removeStatement(code, sourceLine);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

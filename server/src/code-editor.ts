@@ -726,6 +726,56 @@ export function setPickPoints(
 }
 
 // ---------------------------------------------------------------------------
+// Statement removal — delete a feature statement at a timeline row's source line
+// ---------------------------------------------------------------------------
+
+/** Nearest ancestor that is a direct child of a statement_block or program. */
+function enclosingStatementOf(node: TSNode): TSNode | null {
+  let current: TSNode | null = node;
+  while (current && current.parent) {
+    if (current.parent.type === 'statement_block' || current.parent.type === 'program') {
+      return current;
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
+/**
+ * Remove the whole statement containing the call at `sourceLine` (the
+ * timeline "Remove" action) — including a `const x = …` binding, chained
+ * calls, and every line a multi-line statement spans. A doubled blank line
+ * left by the deletion is collapsed. References to a removed binding are
+ * the user's to resolve; the next render surfaces them as a compile error.
+ */
+export function removeStatement(code: string, sourceLine: number): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const statement = enclosingStatementOf(call);
+    if (!statement) {
+      return null;
+    }
+    const startRow = statement.startPosition.row;
+    const endRow = statement.endPosition.row;
+    const aloneOnItsLines =
+      lines[startRow].slice(0, statement.startPosition.column).trim() === '' &&
+      lines[endRow].slice(statement.endPosition.column).trim() === '';
+    if (!aloneOnItsLines) {
+      // Sharing a line with other code: excise just the statement's range.
+      return spliceCode(code, statement.startIndex, statement.endIndex, '');
+    }
+    const remaining = lines.slice(0, startRow).concat(lines.slice(endRow + 1));
+    if (startRow > 0 && isBlankRow(remaining, startRow - 1) && isBlankRow(remaining, startRow)) {
+      remaining.splice(startRow, 1);
+    }
+    return joinLines(remaining);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Geometry insertion — insert a new call expression at the end of a sketch body
 // ---------------------------------------------------------------------------
 

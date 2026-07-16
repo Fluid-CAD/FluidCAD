@@ -259,6 +259,10 @@ function M.handle_message(msg)
           sketch_line, new_var, dim_offset, dim_call
         )
       end)
+    elseif msg.type == 'remove-feature' then
+      M.apply_code_edit(msg.filePath, function(code_api, code)
+        return code_api.remove_statement(code, msg.line)
+      end)
     elseif msg.type == 'add-breakpoint' then
       local ok, breakpoints = pcall(require, 'fluidcad.breakpoints')
       if ok and msg.filePath and msg.line then

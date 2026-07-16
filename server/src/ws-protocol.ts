@@ -156,6 +156,12 @@ export type AddBreakpointMessage = {
   line: number;
 };
 
+export type RemoveFeatureMessage = {
+  type: 'remove-feature';
+  filePath: string;
+  line: number;
+};
+
 export type ClearBreakpointsMessage = {
   type: 'clear-breakpoints';
 };
@@ -227,6 +233,7 @@ export type ServerToExtensionMessage =
   | AddPickMessage
   | RemovePickMessage
   | AddBreakpointMessage
+  | RemoveFeatureMessage
   | ClearBreakpointsMessage
   | GotoSourceMessage
   | ExportCompleteMessage

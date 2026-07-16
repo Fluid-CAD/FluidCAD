@@ -32,6 +32,7 @@ import {
   handleUpdateDimensionExpression,
   handleSetRectDimensions,
   handleApplyFeatureEdit,
+  handleRemoveFeature,
 } from './code-edits';
 import { updateDiagnostics, type CompileError } from './diagnostics';
 
@@ -196,6 +197,12 @@ export class Client {
       }
       case 'apply-feature-edit': {
         handleApplyFeatureEdit(this, msg);
+        break;
+      }
+      case 'remove-feature': {
+        handleRemoveFeature(this, msg).catch((err) => {
+          this.logger.appendLine(`[remove-feature] error: ${err?.stack || err}`);
+        });
         break;
       }
       case 'export-complete': {

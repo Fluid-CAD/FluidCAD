@@ -82,6 +82,34 @@ export async function handleRemovePoint(client: Client, msg: { point: [number, n
   }
 }
 
+export async function handleRemoveFeature(client: Client, msg: { filePath: string; line: number }) {
+  // The feature may live in a file other than the active one (imported
+  // models), so resolve the document by path like the breakpoint handler.
+  const filePath = msg.filePath || client.currentFileName;
+  let editor = vscode.window.visibleTextEditors.find(
+    e => e.document.fileName === filePath,
+  );
+  if (!editor) {
+    const uri = vscode.Uri.file(filePath);
+    const doc = await vscode.workspace.openTextDocument(uri);
+    editor = await vscode.window.showTextDocument(doc, {
+      viewColumn: vscode.ViewColumn.One,
+      preserveFocus: true,
+      preview: false,
+    });
+  }
+  const doc = editor.document;
+  const result = await codeApi.removeStatement(
+    client.serverUrl, doc.getText(), msg.line, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
 export async function handleGotoSource(
   _client: Client,
   msg: { filePath: string; line: number; column: number },

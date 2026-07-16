@@ -288,13 +288,8 @@ export class RectTool extends SketchTool {
     const isNumeric = !isNaN(num) && String(num) === result.expression;
 
     this.widthIsNumeric = isNumeric;
-    if (isNumeric) {
-      this.widthExpression = result;
-      this.lockedWidth = num;
-    } else {
-      this.widthExpression = result;
-      this.lockedWidth = null;
-    }
+    this.widthExpression = result;
+    this.lockedWidth = isNumeric ? num : this.previewMagnitude(result);
 
     this.expressionPhase = 'height';
 
@@ -361,6 +356,21 @@ export class RectTool extends SketchTool {
     this.lockedWidth = null;
     this.widthIsNumeric = false;
     this.rebuildPreview();
+  }
+
+  // Preview magnitude for a width committed as a variable/expression: the
+  // variable's own value when statically resolvable, else the mouse-derived
+  // width at commit time. The final statement still uses the expression.
+  private previewMagnitude(result: CommitResult): number | null {
+    const fromVariable = SketchTool.resolveCommittedMagnitude(result, this.cachedVariables);
+    if (fromVariable !== null) {
+      return fromVariable;
+    }
+    if (this.mousePoint && this.startPoint) {
+      const { width } = this.computeDimensions(this.mousePoint);
+      return Math.abs(width);
+    }
+    return null;
   }
 
   private resolveSignedDim(expr: CommitResult, isNumeric: boolean, absValue: number | null, axis: 0 | 1): CommitResult {

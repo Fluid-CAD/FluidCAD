@@ -116,6 +116,26 @@ export abstract class SketchTool {
     return isIdentifier ? `-${expression}` : `-(${expression})`;
   }
 
+  // Best-effort numeric magnitude of a committed variable dimension, for
+  // preview purposes only: a newly declared variable carries its initializer,
+  // an existing one may have a literal initializer. Null when the value can't
+  // be resolved statically (e.g. the initializer is itself an expression).
+  static resolveCommittedMagnitude(
+    result: { expression: string; newVariable?: { name: string; initializer: string } },
+    variables: { name: string; initializer?: string }[],
+  ): number | null {
+    const initializer = result.newVariable?.initializer
+      ?? variables.find((v) => v.name === result.expression)?.initializer;
+    if (!initializer || !initializer.trim()) {
+      return null;
+    }
+    const parsed = Number(initializer.trim());
+    if (isNaN(parsed) || !isFinite(parsed)) {
+      return null;
+    }
+    return Math.abs(parsed);
+  }
+
   // Re-applies the drag direction to a committed dimension: numeric input has
   // the sign baked into the value, a variable/expression is negated at the
   // use site so the variable itself stays a positive magnitude.

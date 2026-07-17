@@ -1,4 +1,4 @@
-const UNIQUE_TYPE_ICONS: Record<string, string> = {
+export const UNIQUE_TYPE_ICONS: Record<string, string> = {
   'aline': 'aline',
   'axis-from-edge': 'axis',
   'axis-middle': 'axis',

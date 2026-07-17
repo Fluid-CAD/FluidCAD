@@ -9,6 +9,7 @@ import {
   addPick,
   removePick,
   removeStatement,
+  setFeatureName,
   setPickPoints,
   insertGeometryCall,
   insertLoadCall,
@@ -775,5 +776,61 @@ describe('removeStatement', () => {
     const code = `const a = 1; extrude(10);\n`;
     const result = await removeStatement(code, 1);
     expect(result.newCode).toBe(`const a = 1; \n`);
+  });
+});
+
+describe('setFeatureName', () => {
+  it('appends .name() to a bare feature statement', async () => {
+    const code = `extrude(10);\nfillet(2, e.edges());\n`;
+    const result = await setFeatureName(code, 1, 'Boss');
+    expect(result.newCode).toBe(`extrude(10).name('Boss');\nfillet(2, e.edges());\n`);
+  });
+
+  it('appends .name() after existing chains on a const-bound statement', async () => {
+    const code = `const e = extrude(10).drill(false);\n`;
+    const result = await setFeatureName(code, 1, 'Boss');
+    expect(result.newCode).toBe(`const e = extrude(10).drill(false).name('Boss');\n`);
+  });
+
+  it('appends .name() after a multi-line sketch body', async () => {
+    const code = `const s = sketch('xy', () => {\n  rect(30, 20);\n});\n`;
+    const result = await setFeatureName(code, 1, 'Base profile');
+    expect(result.newCode).toBe(`const s = sketch('xy', () => {\n  rect(30, 20);\n}).name('Base profile');\n`);
+  });
+
+  it('rewrites an existing .name() argument in place', async () => {
+    const code = `extrude(10).name('Old').drill(false);\n`;
+    const result = await setFeatureName(code, 1, 'New');
+    expect(result.newCode).toBe(`extrude(10).name('New').drill(false);\n`);
+  });
+
+  it('removes the .name() chain when the name is empty', async () => {
+    const code = `extrude(10).name('Boss');\n`;
+    const result = await setFeatureName(code, 1, '');
+    expect(result.newCode).toBe(`extrude(10);\n`);
+  });
+
+  it('removes a mid-chain .name() when the name is null', async () => {
+    const code = `extrude(10).name('Boss').drill(false);\n`;
+    const result = await setFeatureName(code, 1, null);
+    expect(result.newCode).toBe(`extrude(10).drill(false);\n`);
+  });
+
+  it('escapes quotes and collapses whitespace runs in the name', async () => {
+    const code = `extrude(10);\n`;
+    const result = await setFeatureName(code, 1, "  Bob's\n boss  ");
+    expect(result.newCode).toBe(`extrude(10).name('Bob\\'s boss');\n`);
+  });
+
+  it('no-ops clearing a statement that has no .name()', async () => {
+    const code = `extrude(10);\n`;
+    const result = await setFeatureName(code, 1, null);
+    expect(result.newCode).toBe(code);
+  });
+
+  it('no-ops when no call starts on the line', async () => {
+    const code = `const a = 1;\nextrude(10);\n`;
+    const result = await setFeatureName(code, 1, 'Boss');
+    expect(result.newCode).toBe(code);
   });
 });

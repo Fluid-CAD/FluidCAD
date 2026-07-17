@@ -267,6 +267,10 @@ function M.handle_message(msg)
       M.apply_code_edit(msg.filePath, function(code_api, code)
         return code_api.remove_statement(code, msg.line)
       end)
+    elseif msg.type == 'rename-feature' then
+      M.apply_code_edit(msg.filePath, function(code_api, code)
+        return code_api.set_feature_name(code, msg.line, msg.name)
+      end)
     elseif msg.type == 'add-breakpoint' then
       local ok, breakpoints = pcall(require, 'fluidcad.breakpoints')
       if ok and msg.filePath and msg.line then

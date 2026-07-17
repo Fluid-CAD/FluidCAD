@@ -34,6 +34,7 @@ import {
   handleSetRectDimensions,
   handleApplyFeatureEdit,
   handleRemoveFeature,
+  handleRenameFeature,
 } from './code-edits';
 import { updateDiagnostics, type CompileError } from './diagnostics';
 
@@ -209,6 +210,12 @@ export class Client {
       case 'remove-feature': {
         handleRemoveFeature(this, msg).catch((err) => {
           this.logger.appendLine(`[remove-feature] error: ${err?.stack || err}`);
+        });
+        break;
+      }
+      case 'rename-feature': {
+        handleRenameFeature(this, msg).catch((err) => {
+          this.logger.appendLine(`[rename-feature] error: ${err?.stack || err}`);
         });
         break;
       }

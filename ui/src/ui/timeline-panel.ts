@@ -1,6 +1,6 @@
 import type { SceneObjectRender } from '../types';
-import { savePreference, recompute, rollback, addBreakpoint, gotoSource, removeFeature } from '../api';
-import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_TRASH } from './icons';
+import { savePreference, recompute, rollback, addBreakpoint, gotoSource, removeFeature, renameFeature } from '../api';
+import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_TRASH } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 
@@ -480,11 +480,12 @@ export class TimelinePanel {
   // ---------------------------------------------------------------------------
 
   /**
-   * Right-click menu on a timeline row: "Breakpoint here" places the
-   * breakpoint after the row (the double-click gesture, without opening an
-   * edit dialog) and "Remove" deletes the feature's statement from the code.
-   * Rows without a source location get no menu — neither action can target
-   * them.
+   * Right-click menu on a timeline row: "Rename" swaps the menu for an
+   * inline input editing the feature's chained `.name('…')`, "Breakpoint
+   * here" places the breakpoint after the row (the double-click gesture,
+   * without opening an edit dialog) and "Remove" deletes the feature's
+   * statement from the code. Rows without a source location get no menu —
+   * none of the actions can target them.
    */
   private showRowContextMenu(e: MouseEvent, index: number): void {
     this.closeDropdown();
@@ -502,6 +503,10 @@ export class TimelinePanel {
 
     dropdown.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[160px]">
+        <li><button data-action="rename" class="flex items-center gap-2">
+          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PENCIL}</span>
+          <span>Rename</span>
+        </button></li>
         <li><button data-action="rollback" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PAUSE}</span>
           <span>Breakpoint here</span>
@@ -515,6 +520,14 @@ export class TimelinePanel {
 
     this.panel.appendChild(dropdown);
     this.activeDropdown = dropdown;
+
+    dropdown.querySelector('[data-action="rename"]')!.addEventListener('click', (e) => {
+      // Swapping to the input detaches the clicked button; without this the
+      // bubbling click reaches the click-outside handler with a target no
+      // longer inside the dropdown and instantly closes the menu.
+      e.stopPropagation();
+      this.showRenameInput(dropdown, obj);
+    });
 
     dropdown.querySelector('[data-action="rollback"]')!.addEventListener('click', () => {
       this.closeDropdown();
@@ -540,6 +553,44 @@ export class TimelinePanel {
       document.removeEventListener('click', onClickOutside);
       document.removeEventListener('contextmenu', onClickOutside);
     };
+  }
+
+  /**
+   * Swap the row context menu's content for an inline rename input. The
+   * input edits the feature's chained `.name('…')`: Enter commits (an empty
+   * value clears the chain, reverting to the default name), Escape or the
+   * menu's click-outside handler dismisses without committing.
+   */
+  private showRenameInput(dropdown: HTMLDivElement, obj: SceneObjectRender): void {
+    const type = obj.type ?? '';
+    const defaultName = type ? type.charAt(0).toUpperCase() + type.slice(1) : 'Feature';
+    const currentName = obj.hasCustomName ? (obj.name ?? '') : '';
+
+    dropdown.innerHTML = `
+      <div class="p-1.5 w-[180px]">
+        <input data-ref="rename-input" type="text" spellcheck="false"
+          class="input input-xs input-bordered w-full bg-transparent"
+          placeholder="${this.escapeHtml(defaultName)}" />
+      </div>
+    `;
+
+    const input = dropdown.querySelector<HTMLInputElement>('[data-ref="rename-input"]')!;
+    input.value = currentName;
+    input.focus();
+    input.select();
+
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        const next = input.value.trim();
+        if (next !== currentName) {
+          renameFeature(obj.sourceLocation!, next || null);
+        }
+        this.closeDropdown();
+      } else if (e.key === 'Escape') {
+        this.closeDropdown();
+      }
+    });
   }
 
   private closeDropdown(): void {

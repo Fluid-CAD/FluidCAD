@@ -118,6 +118,24 @@ export async function handleRemoveFeature(client: Client, msg: { filePath: strin
   }
 }
 
+export async function handleRenameFeature(
+  client: Client,
+  msg: { filePath: string; line: number; name: string | null },
+) {
+  // Like Remove, the feature may live in a file other than the active one.
+  const editor = await resolveEditorForPath(msg.filePath || client.currentFileName);
+  const doc = editor.document;
+  const result = await codeApi.setFeatureName(
+    client.serverUrl, doc.getText(), msg.line, msg.name, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
 export async function handleInsertLoad(client: Client, msg: { filePath: string; fileName: string }) {
   const editor = await resolveEditorForPath(msg.filePath || client.currentFileName);
   const doc = editor.document;

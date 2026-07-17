@@ -395,6 +395,7 @@ export class SceneRenderer {
     const rendered: SceneObjectRender = {
       id: obj.id,
       name: displayName,
+      hasCustomName: obj.hasCustomName() || undefined,
       parentId: obj.parentId,
       object: serialized,
       sceneShapes: opts.sceneShapes,

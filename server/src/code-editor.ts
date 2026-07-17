@@ -134,17 +134,16 @@ function getArgumentsNode(call: TSNode): TSNode | null {
 }
 
 /**
- * If `call` or any call in its `function` chain invokes `.pick(...)`, return
- * the call_expression for that `.pick()` invocation. Centralises the
- * "is this chain already picked?" check for addPick and removePick.
+ * If `call` or any call in its `function` chain invokes `.<memberName>(...)`,
+ * return the call_expression for that invocation.
  */
-function findPickCallInChain(call: TSNode): TSNode | null {
+function findMemberCallInChain(call: TSNode, memberName: string): TSNode | null {
   let current: TSNode | null = call;
   while (current && current.type === 'call_expression') {
     const fn = current.childForFieldName('function');
     if (fn && fn.type === 'member_expression') {
       const prop = fn.childForFieldName('property');
-      if (prop && prop.text === 'pick') {
+      if (prop && prop.text === memberName) {
         return current;
       }
       const object = fn.childForFieldName('object');
@@ -154,6 +153,15 @@ function findPickCallInChain(call: TSNode): TSNode | null {
     break;
   }
   return null;
+}
+
+/**
+ * If `call` or any call in its `function` chain invokes `.pick(...)`, return
+ * the call_expression for that `.pick()` invocation. Centralises the
+ * "is this chain already picked?" check for addPick and removePick.
+ */
+function findPickCallInChain(call: TSNode): TSNode | null {
+  return findMemberCallInChain(call, 'pick');
 }
 
 /**
@@ -772,6 +780,55 @@ export function removeStatement(code: string, sourceLine: number): Promise<CodeE
       remaining.splice(startRow, 1);
     }
     return joinLines(remaining);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Feature renaming — set/update/clear the chained .name('…') on a statement
+// ---------------------------------------------------------------------------
+
+/**
+ * Set, update, or clear the `.name('…')` chain of the feature statement at
+ * `sourceLine` (the timeline "Rename" action). A non-empty `name` rewrites
+ * an existing `.name()` argument in place or appends `.name('…')` at the end
+ * of the chain — dialog edits leave trailing chains they don't recognize
+ * untouched, so the name survives them there. An empty or null `name`
+ * removes the chain, reverting the feature to its default display name.
+ */
+export function setFeatureName(
+  code: string,
+  sourceLine: number,
+  name: string | null,
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const nameCall = findMemberCallInChain(call, 'name');
+    // A display name is a single line: collapse any pasted whitespace runs
+    // (newlines would break the generated string literal).
+    const value = (name ?? '').replace(/\s+/g, ' ').trim();
+    if (value === '') {
+      if (!nameCall) {
+        return null;
+      }
+      const member = nameCall.childForFieldName('function');
+      const object = member ? member.childForFieldName('object') : null;
+      if (!object) {
+        return null;
+      }
+      return spliceCode(code, object.endIndex, nameCall.endIndex, '');
+    }
+    const quoted = `'${quoteForSingleQuotes(value)}'`;
+    if (nameCall) {
+      const args = getArgumentsNode(nameCall);
+      if (!args) {
+        return null;
+      }
+      return spliceCode(code, args.startIndex + 1, args.endIndex - 1, quoted);
+    }
+    return spliceCode(code, call.endIndex, call.endIndex, `.name(${quoted})`);
   });
 }
 

@@ -69,6 +69,15 @@ function M.remove_statement(code, source_line)
   return post('remove-statement', { code = code, sourceLine = source_line })
 end
 
+function M.set_feature_name(code, source_line, name)
+  -- A cleared name must reach the server as JSON null; a Lua nil would drop
+  -- the key from the encoded body and fail the route's validation.
+  if name == nil then
+    name = vim.NIL
+  end
+  return post('set-feature-name', { code = code, sourceLine = source_line, name = name })
+end
+
 function M.set_pick_points(code, source_line, points)
   return post('set-pick-points', { code = code, sourceLine = source_line, points = points })
 end

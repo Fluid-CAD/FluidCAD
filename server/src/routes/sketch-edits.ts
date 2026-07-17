@@ -11,6 +11,7 @@ import {
   addPick,
   removePick,
   removeStatement,
+  setFeatureName,
   setPickPoints,
   insertGeometryCallWithVariable,
   insertLoadCall,
@@ -483,6 +484,23 @@ export function createSketchEditsRouter(
     }
     try {
       const result = await removeStatement(code, sourceLine);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/set-feature-name', async (req, res) => {
+    const { code, sourceLine, name } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      (name !== null && typeof name !== 'string')
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await setFeatureName(code, sourceLine, name);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

@@ -1199,6 +1199,11 @@ export function removeFeature(sourceLocation: SourceLocationParam): void {
   postFireAndForget('/api/remove-feature', { sourceLocation });
 }
 
+/** Set (or, with null/empty, clear) the feature's chained `.name('…')`. */
+export function renameFeature(sourceLocation: SourceLocationParam, name: string | null): void {
+  postFireAndForget('/api/rename-feature', { sourceLocation, name });
+}
+
 export function clearBreakpoints(): void {
   postFireAndForget('/api/clear-breakpoints');
 }

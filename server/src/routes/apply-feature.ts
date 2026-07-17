@@ -685,7 +685,7 @@ async function allocateProducerVars(
 }
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch']);
 
 /** One edited loft profile as the request carries it. */
 type EditLoftProfileInput =
@@ -728,6 +728,14 @@ type StatementEditRequest = {
   loftProfiles?: EditLoftProfileInput[];
   /** Full replacement loft guide list; absent keeps the statement's. */
   loftGuides?: EditLoftGuideInput[];
+  /**
+   * The sketch retarget's new target (the sketch dialog's re-pick): a face
+   * pick, an origin plane, or an existing plane() feature by call site.
+   */
+  sketchTarget?:
+    | { kind: 'face'; pick: Pick }
+    | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
+    | { kind: 'planeRef'; loc: SketchLoc };
   /** True when a source payload carries picks — synthesis needs a boundary. */
   needsPicks: boolean;
 };
@@ -748,7 +756,7 @@ function isKeepSlot(raw: any): boolean {
 function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "sweep", "wrap", "loft", "revolve", "shell", "fillet" or "chamfer" for an edit' };
+    return { error: 'feature must be "extrude", "sweep", "wrap", "loft", "revolve", "shell", "fillet", "chamfer", "text" or "sketch" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -830,6 +838,38 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       return { error: 'an edited wrap sketch must be {kind: "sketch", filePath, line}' };
     }
     return { ...result, wrapSketch: loc };
+  }
+
+  if (feature === 'sketch') {
+    // The retarget: exactly one new target — a single face pick, an origin
+    // plane, or an existing plane() feature. The body callback stays.
+    edit.sketch = { target: { kind: 'selector' } };
+    const plane = body?.plane;
+    const planeRef = body?.planeRef;
+    const entities = body?.entities;
+    const hasPick = Array.isArray(entities) && entities.length > 0;
+    const sources = [plane !== undefined, planeRef !== undefined, hasPick].filter(Boolean).length;
+    if (sources !== 1) {
+      return { error: 'a sketch retarget takes exactly one of entities, plane or planeRef' };
+    }
+    if (plane !== undefined) {
+      if (plane !== 'xy' && plane !== 'xz' && plane !== 'yz') {
+        return { error: 'plane must be "xy", "xz" or "yz"' };
+      }
+      return { ...base, sketchTarget: { kind: 'standard', plane } };
+    }
+    if (planeRef !== undefined) {
+      const loc = validateSketchLoc(planeRef);
+      if (!loc) {
+        return { error: 'planeRef must be {filePath, line, column} of the plane feature' };
+      }
+      return { ...base, sketchTarget: { kind: 'planeRef', loc } };
+    }
+    const pick = entities.length === 1 ? validatePick(entities[0]) : null;
+    if (!pick || pick.sub.type !== 'face') {
+      return { error: 'a sketch retarget takes a single {shapeId, sub:{type:"face", index}} pick' };
+    }
+    return { ...base, sketchTarget: { kind: 'face', pick }, needsPicks: true };
   }
 
   if (feature === 'revolve') {
@@ -1186,7 +1226,10 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: 'before must be {index, type, line, column}' });
         return;
       }
-      if (request.needsPicks && !before) {
+      // The sketch retarget is the exception: its pick was made against the
+      // CURRENT full render (sketch editing merely suspended, no rollback),
+      // so synthesis runs boundary-less against that same scene.
+      if (request.needsPicks && !before && request.feature !== 'sketch') {
         res.status(400).json({ error: 'before is required when an edit re-picks geometry' });
         return;
       }
@@ -1206,6 +1249,7 @@ export function createApplyFeatureRouter(
           ...(request.revolveAxis?.kind === 'axis' ? [request.revolveAxis.loc] : []),
           ...(request.loftProfiles ?? []).filter((p): p is { kind: 'sketch' } & SketchLoc => p.kind === 'sketch'),
           ...(request.loftGuides ?? []).filter((g): g is { kind: 'sketch' } & SketchLoc => g.kind === 'sketch'),
+          ...(request.sketchTarget?.kind === 'planeRef' ? [request.sketchTarget.loc] : []),
         ];
         for (const loc of sketchLocs) {
           if (normalizePath(loc.filePath) !== normalizePath(request.target.filePath)) {
@@ -1239,7 +1283,7 @@ export function createApplyFeatureRouter(
         /** Synthesize one re-picked slot against the pre-statement scene. */
         const synthesizeSlot = (
           picks: Pick[],
-          kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap',
+          kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch',
           value: number | undefined,
           chains: { seed: Pick; members: Pick[] }[],
         ): any | null => {
@@ -1394,6 +1438,33 @@ export function createApplyFeatureRouter(
             ? { kind: 'verbatim' as const, sourceIndex: guide.sourceIndex }
             : { kind: 'sketch' as const, producer: sketchRef(guide, 'g') });
         }
+        if (request.sketchTarget) {
+          const target = request.sketchTarget;
+          if (target.kind === 'standard') {
+            edit.sketch!.target = { kind: 'standard', plane: target.plane };
+          } else if (target.kind === 'planeRef') {
+            edit.sketch!.target = {
+              kind: 'plane',
+              producer: mergeProducer({
+                line: target.loc.line, column: target.loc.column,
+                featureType: 'plane', nameHint: 'p', bind: true,
+              }),
+            };
+          } else {
+            const synthesis = synthesizeSlot([target.pick], 'sketch', undefined, []);
+            if (!synthesis) {
+              return;
+            }
+            // The target argument is ONE SceneObject — a multi-part selection
+            // has no single-expression rendering.
+            if (synthesis.spec.parts.length !== 1) {
+              res.status(422).json({ success: false, reason: 'the sketch target must be a single face selection' });
+              return;
+            }
+            foldSynthesis(synthesis);
+            edit.sketch!.target = { kind: 'selector' };
+          }
+        }
         if (request.picks) {
           const synthesis = synthesizeSlot(
             request.picks,
@@ -1423,8 +1494,10 @@ export function createApplyFeatureRouter(
           edit,
           // Applying an edit clears the breakpoint the double-click placed —
           // inside the same transform, so it can't race the rewrite — and the
-          // model rebuilds to its tip.
-          clearBreakpoints: true,
+          // model rebuilds to its tip. The sketch retarget opens without a
+          // double-click, so it has no breakpoint to clear (and must not
+          // strip ones the user placed).
+          clearBreakpoints: request.feature !== 'sketch',
         };
         // Truthful preview: parse the live buffer and render the exact
         // statement the transform will write, with the same variable names

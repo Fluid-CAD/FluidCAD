@@ -1882,7 +1882,8 @@ describe('parseFeatureStatement', () => {
   });
 
   it('refuses a non-feature call', async () => {
-    const result = await parseFeatureStatement(editBase, 3);
+    const code = `${editBase}\nconst b = box(10, 10, 10)\n`;
+    const result = await parseFeatureStatement(code, 4);
     expect(result).toMatchObject({ ok: false });
   });
 });
@@ -3198,6 +3199,142 @@ describe('applyFeatureEdit (text in-place statement edit)', () => {
       text: textEditOptions({ text: '   ' }),
     }));
     expect(result.error).toContain('empty');
+    expect(result.newCode).toBe(code);
+  });
+});
+
+describe('parseFeatureStatement — sketch', () => {
+  it('reads a plane-string sketch, body verbatim', async () => {
+    const code = `${editBase}\nextrude(30)\n`;
+    const result = await parseFeatureStatement(code, 3);
+    expect(result).toEqual({
+      ok: true,
+      parsed: { feature: 'sketch', targetText: `'xy'`, bodyText: '() => { rect(100, 50) }' },
+      statement: `sketch('xy', () => { rect(100, 50) })`,
+    });
+  });
+
+  it('reads a bare one-argument sketch', async () => {
+    const code = [`import { sketch, rect } from 'fluidcad/core'`, ``, `sketch(() => { rect(4, 4) })`, ``].join('\n');
+    const result = await parseFeatureStatement(code, 3);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'sketch', targetText: null, bodyText: '() => { rect(4, 4) }' },
+    });
+  });
+
+  it('refuses a sketch with an argument shape the dialog cannot edit', async () => {
+    const code = [`import { sketch } from 'fluidcad/core'`, ``, `sketch('xy', 3, () => {})`, ``].join('\n');
+    const result = await parseFeatureStatement(code, 3);
+    expect(result).toMatchObject({ ok: false });
+  });
+});
+
+describe('applyFeatureEdit (sketch retarget)', () => {
+  it('rewrites the target onto an origin plane, keeping the body and chains', async () => {
+    const code = [
+      `import { sketch, rect } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  rect(100, 50)`,
+      `}).name('base')`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('sketch', {
+      line: 3, column: 0,
+      sketch: { target: { kind: 'standard', plane: 'xz' } },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { sketch, rect } from 'fluidcad/core'`,
+      ``,
+      `sketch('xz', () => {`,
+      `  rect(100, 50)`,
+      `}).name('base')`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('gives a bare one-argument sketch its first target argument', async () => {
+    const code = [
+      `import { sketch, rect } from 'fluidcad/core'`,
+      ``,
+      `sketch(() => { rect(4, 4) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('sketch', {
+      line: 3, column: 0,
+      sketch: { target: { kind: 'standard', plane: 'yz' } },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`sketch('yz', () => { rect(4, 4) })`);
+  });
+
+  it('rewrites the target onto a picked face selector, binding its producer', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      `sketch('xz', () => { rect(5, 5) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('sketch', {
+      line: 5, column: 0,
+      sketch: { target: { kind: 'selector' } },
+    }, {
+      producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const e = extrude(30)`);
+    expect(result.newCode).toContain(`sketch(e.endFaces(0), () => { rect(5, 5) })`);
+  });
+
+  it('rewrites the target onto a plane feature, reusing its binding', async () => {
+    const code = [
+      `import { sketch, rect, plane } from 'fluidcad/core'`,
+      ``,
+      `const top = plane('xy', 20)`,
+      `sketch('xy', () => { rect(5, 5) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('sketch', {
+      line: 4, column: 0,
+      sketch: { target: { kind: 'plane', producer: 0 } },
+    }, {
+      producers: [{ line: 3, column: 12, featureType: 'plane', nameHint: 'p', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`sketch(top, () => { rect(5, 5) })`);
+  });
+
+  it('refuses a plane feature that follows the sketch statement', async () => {
+    const code = [
+      `import { sketch, rect, plane } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(5, 5) })`,
+      `const top = plane('xy', 20)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('sketch', {
+      line: 3, column: 0,
+      sketch: { target: { kind: 'plane', producer: 0 } },
+    }, {
+      producers: [{ line: 4, column: 12, featureType: 'plane', nameHint: 'p', bind: true }],
+    }));
+    expect(result.error).toContain('does not precede');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a stale expectedStatement', async () => {
+    const code = `${editBase}\n`;
+    const result = await applyFeatureEdit(code, editSpec('sketch', {
+      line: 3, column: 0,
+      expectedStatement: `sketch('xz', () => {})`,
+      sketch: { target: { kind: 'standard', plane: 'yz' } },
+    }));
+    expect(result.error).toContain('changed since the dialog opened');
     expect(result.newCode).toBe(code);
   });
 });

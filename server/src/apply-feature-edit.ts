@@ -203,6 +203,18 @@ export type FeatureStatementEditTarget = {
     axis?: RevolveAxisSpec;
   };
   /**
+   * Sketch retarget (the sketch dialog's re-pick): rewrite the statement's
+   * target argument — an origin-plane literal, a bound `plane(…)` producer,
+   * or the face selector rendered from the single `parts` entry — while the
+   * body callback is re-read at apply time and preserved verbatim.
+   */
+  sketch?: {
+    target:
+      | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
+      | { kind: 'plane'; producer: number }
+      | { kind: 'selector' };
+  };
+  /**
    * Text options, pick-less. The statement's path argument (when present)
    * is re-read at apply time and preserved verbatim; defaults render no
    * chain (size 10, weight 400, upright, left, spacing 1/0).
@@ -1624,7 +1636,7 @@ function resolveInsertion(
 // ---------------------------------------------------------------------------
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch';
 
 /**
  * An existing statement's dialog-editable reading. Argument expressions the
@@ -1703,6 +1715,13 @@ export type ParsedFeatureStatement =
     argsText: string;
   }
   | {
+    feature: 'sketch';
+    /** Plane/face target argument text, verbatim; null for the bare form. */
+    targetText: string | null;
+    /** The body callback argument text, verbatim — never dialog-edited. */
+    bodyText: string;
+  }
+  | {
     feature: 'text';
     text: string;
     size: number;
@@ -1728,6 +1747,7 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   revolve: 'revolve',
   text: 'text',
   wrap: 'wrap',
+  sketch: 'sketch',
 };
 
 /**
@@ -1753,6 +1773,9 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   text: new Set(['font', 'size', 'weight', 'bold', 'italic', 'align', 'lineSpacing', 'letterSpacing']),
   // Wrap has no thin mode — only the boolean-operation chains.
   wrap: new Set(['remove', 'new']),
+  // The dialog edits only the target argument; `.name()` and friends are
+  // unrecognized members and survive verbatim after the root call.
+  sketch: new Set(),
 };
 
 type ChainSegment = { name: string; args: TSNode[]; endIndex: number };
@@ -1920,6 +1943,25 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
 
   if (feature === 'text') {
     return parseTextChain(args, recognized, start, end);
+  }
+
+  if (feature === 'sketch') {
+    // sketch(() => {…}) / sketch(<target>, () => {…}): only the target
+    // argument (a plane string, plane variable, or face selector) is
+    // dialog-editable; the body callback is preserved verbatim.
+    if (args.length < 1 || args.length > 2) {
+      return { error: 'the sketch has an argument shape the dialog cannot edit' };
+    }
+    const body = args[args.length - 1];
+    if (body.type !== 'arrow_function' && body.type !== 'function_expression'
+      && body.type !== 'function' && body.type !== 'identifier') {
+      return { error: 'the sketch body is not a function — edit it in the source' };
+    }
+    return {
+      parsed: { feature, targetText: args.length === 2 ? args[0].text : null, bodyText: body.text },
+      start,
+      end,
+    };
   }
 
   const isCut = chain.root.name === 'cut';
@@ -2654,6 +2696,38 @@ export function renderEditedStatement(
         sources.guideExprs,
       ),
     };
+  }
+  if (parsed.feature === 'sketch') {
+    const target = spec.edit?.sketch?.target;
+    let targetExpr: string;
+    if (target?.kind === 'standard') {
+      if (target.plane !== 'xy' && target.plane !== 'xz' && target.plane !== 'yz') {
+        return { error: 'malformed sketch edit spec: bad standard plane' };
+      }
+      if (spec.parts.length > 0) {
+        return { error: 'malformed sketch edit spec: selector parts on a standard-plane target' };
+      }
+      targetExpr = `'${target.plane}'`;
+    } else if (target?.kind === 'plane') {
+      if (!isPlaneProducer(spec as ApplyFeatureEditSpec, target.producer)) {
+        return { error: 'malformed sketch edit spec: the target references a non-plane producer' };
+      }
+      if (spec.parts.length > 0) {
+        return { error: 'malformed sketch edit spec: selector parts on a plane-feature target' };
+      }
+      targetExpr = varFor(target.producer) ?? spec.producers[target.producer].nameHint ?? 'p';
+    } else if (target?.kind === 'selector') {
+      // The target argument is ONE SceneObject — a multi-part selection has
+      // no single-expression rendering.
+      if (spec.parts.length !== 1) {
+        return { error: 'malformed sketch edit spec: a re-picked target is exactly one part' };
+      }
+      const part = spec.parts[0];
+      targetExpr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+    } else {
+      return { error: 'malformed sketch edit spec' };
+    }
+    return { statement: `sketch(${targetExpr}, ${parsed.bodyText})` };
   }
   if (parsed.feature === 'text') {
     const opts = spec.edit?.text;

@@ -1,4 +1,5 @@
 import type { SceneObjectRender } from '../types';
+import { isTopLevel } from '../helpers/scene-utils';
 import { savePreference, recompute, rollback, addBreakpoint, gotoSource, removeFeature, renameFeature } from '../api';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_TRASH } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK } from './object-icons';
@@ -38,6 +39,13 @@ export class TimelinePanel {
   private userHidden = false;
   private sceneObjects: SceneObjectRender[] = [];
   private rollbackStop = -1;
+  /**
+   * The scene ends with an unconsumed sketch (scene-derived sketch mode).
+   * While it does, the timeline doesn't navigate: a rollback or breakpoint
+   * would tear the sketch view down mid-edit. Row clicks still jump to
+   * source and armed dialogs still consume rows; rename/remove stay.
+   */
+  private sketchActive = false;
   private collapsedIds = new Set<string>();
   private timelineExpanded = true;
   private activeDropdown: HTMLDivElement | null = null;
@@ -113,6 +121,10 @@ export class TimelinePanel {
   update(sceneObjects: SceneObjectRender[], rollbackStop: number): void {
     this.sceneObjects = sceneObjects;
     this.rollbackStop = rollbackStop;
+    // Mirrors the viewer's sketch-mode derivation: a full (non-rolled-back)
+    // render whose last top-level object is a sketch.
+    this.sketchActive = rollbackStop >= sceneObjects.length - 1
+      && this.findActiveObject(sceneObjects)?.type === 'sketch';
     this.loaded = true;
     this.syncVisibility();
     this.renderTimeline(true);
@@ -217,11 +229,21 @@ export class TimelinePanel {
         if (obj && this.onFeatureIntercept?.(obj)) {
           return;
         }
+        if (this.sketchActive) {
+          // No timeline navigation while sketching — the source jump stays.
+          this.goToSource(obj);
+          return;
+        }
         this.rollbackTo(rollbackIndex);
         this.goToSource(obj);
       });
       el.addEventListener('dblclick', (e) => {
         if ((e.target as HTMLElement).closest('[data-toggle]')) {
+          return;
+        }
+        if (this.sketchActive) {
+          // The enter-breakpoint gesture is navigation too — blocked while
+          // sketching (finish or exit the sketch first).
           return;
         }
         const index = parseInt(el.dataset.index!, 10);
@@ -501,16 +523,18 @@ export class TimelinePanel {
     dropdown.style.left = `${e.clientX - panelRect.left}px`;
     dropdown.style.top = `${e.clientY - panelRect.top}px`;
 
+    // The breakpoint action is timeline navigation — absent while sketching.
+    const breakpointItem = this.sketchActive ? '' : `
+        <li><button data-action="rollback" class="flex items-center gap-2">
+          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PAUSE}</span>
+          <span>Breakpoint here</span>
+        </button></li>`;
     dropdown.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[160px]">
         <li><button data-action="rename" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PENCIL}</span>
           <span>Rename</span>
-        </button></li>
-        <li><button data-action="rollback" class="flex items-center gap-2">
-          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PAUSE}</span>
-          <span>Breakpoint here</span>
-        </button></li>
+        </button></li>${breakpointItem}
         <li><button data-action="remove" class="flex items-center gap-2 text-error">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_TRASH}</span>
           <span>Remove</span>
@@ -529,7 +553,7 @@ export class TimelinePanel {
       this.showRenameInput(dropdown, obj);
     });
 
-    dropdown.querySelector('[data-action="rollback"]')!.addEventListener('click', () => {
+    dropdown.querySelector('[data-action="rollback"]')?.addEventListener('click', () => {
       this.closeDropdown();
       this.addBreakpointAfter(index);
       this.goToSource(obj);
@@ -702,6 +726,16 @@ export class TimelinePanel {
       return;
     }
     gotoSource(obj.sourceLocation);
+  }
+
+  /** Last root-level (or Part-child) object — mirrors Viewer.findActiveObject. */
+  private findActiveObject(objects: SceneObjectRender[]): SceneObjectRender | undefined {
+    for (let i = objects.length - 1; i >= 0; i--) {
+      if (isTopLevel(objects[i], objects)) {
+        return objects[i];
+      }
+    }
+    return undefined;
   }
 
   private escapeHtml(text: string): string {

@@ -383,6 +383,12 @@ export type ApplyFeatureOptions = {
    * Mutually exclusive with `plane`.
    */
   planeRef?: SketchSourceRef;
+  /**
+   * Sketch only: rewrite the target argument of the sketch statement at this
+   * location instead of appending a new one — the sketch dialog's re-pick
+   * ("move the sketch"). The body callback is preserved verbatim.
+   */
+  retarget?: SketchSourceRef;
   /** Shell only: writes a `.join('<type>')` chain; 'arc' writes none. */
   joinType?: ShellJoinType;
   /** Synthesize only — return the expression preview without applying. */
@@ -411,6 +417,7 @@ export async function applyFeature(
     selectorOverride: options.selectorOverride,
     plane: options.plane,
     planeRef: options.planeRef,
+    edit: options.retarget,
     joinType: options.joinType,
     preview: options.preview,
   }, options.signal);

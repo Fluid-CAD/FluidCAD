@@ -1,11 +1,12 @@
 import {
-  applyFeature, applyValueFeatureEdit, expandBucket, explainSelection, fetchFeatureSources,
+  applyFeature, applyValueFeatureEdit, expandBucket, explainSelection, fetchFeatureSources, removeFeature,
   ApplyFeatureChain, ApplyFeatureResponse, FeatureEditTarget, ParsedFeatureStatement, SelectionGroupKind,
-  ShellJoinType,
+  ShellJoinType, SketchSourceRef,
 } from '../api';
 import { entityKey, mergeUniqueEntities, sameEntity, selectionChipRows } from '../helpers/entities';
 import { isTopLevel } from '../helpers/scene-utils';
 import { collectPlaneOptions, PlaneOption, resolvePlaneByShapeId } from './create-feature/plane-bases';
+import { SketchStartPanel } from './create-feature/sketch-panel';
 import { EditSession, EditSessionInfo } from './edit-session';
 import { PickSlot } from './pick-slot';
 import { SelectionContextMenu } from './selection-menu';
@@ -27,8 +28,6 @@ type FeatureConfig = {
   pickFilter: 'all' | 'face';
   /** Positive-only value, or any nonzero (shell hollows inward with a negative). */
   valueSign: 'positive' | 'nonzero' | null;
-  /** Apply on the first pick instead of accumulating toward an Apply click. */
-  immediate: boolean;
   /** Show the join-type dropdown (shell's arc/intersection/tangent). */
   joinRow: boolean;
   /** Static text after the editable args in the expression row. */
@@ -43,21 +42,23 @@ type FeatureConfig = {
 const FEATURE_ORDER: ModifyFeatureKind[] = ['sketch', 'fillet', 'chamfer', 'shell'];
 
 const FEATURES: Record<ModifyFeatureKind, FeatureConfig> = {
+  // Sketch never enters the shared value/expression bar — only its label,
+  // buttonTitle and pickFilter are live; it runs the dialog flow instead.
   sketch: {
     label: 'Sketch', buttonTitle: 'Sketch on a face or a plane', valueLabel: null, defaultValue: null,
-    pickFilter: 'face', valueSign: null, immediate: true, joinRow: false, exprSuffix: ', () => { ... })',
+    pickFilter: 'face', valueSign: null, joinRow: false, exprSuffix: ')',
   },
   fillet: {
     label: 'Fillet', buttonTitle: 'Fillet edges', valueLabel: 'Radius', defaultValue: 1,
-    pickFilter: 'all', valueSign: 'positive', immediate: false, joinRow: false, exprSuffix: ')',
+    pickFilter: 'all', valueSign: 'positive', joinRow: false, exprSuffix: ')',
   },
   chamfer: {
     label: 'Chamfer', buttonTitle: 'Chamfer edges', valueLabel: 'Distance', defaultValue: 1,
-    pickFilter: 'all', valueSign: 'positive', immediate: false, joinRow: false, exprSuffix: ')',
+    pickFilter: 'all', valueSign: 'positive', joinRow: false, exprSuffix: ')',
   },
   shell: {
     label: 'Shell', buttonTitle: 'Shell', valueLabel: 'Thickness', defaultValue: -2,
-    pickFilter: 'face', valueSign: 'nonzero', immediate: false, joinRow: true, exprSuffix: ')',
+    pickFilter: 'face', valueSign: 'nonzero', joinRow: true, exprSuffix: ')',
   },
 };
 
@@ -91,20 +92,26 @@ const TOOLTIP_DEBOUNCE_MS = 200;
  * tooltip. Apply asks the server to write the feature call into the source
  * file — the re-render is the preview and editor undo is the rollback.
  *
- * Sketch deviates deliberately: it takes exactly one face and applies
- * immediately — on entry when a face is already highlighted, otherwise on the
- * first face click — writing `sketch(<selector>, () => {})` and exiting.
- * Arming it also shows the origin planes (xy/xz/yz) in the viewport as pick
- * targets — picking one writes `sketch('<plane>', () => {})` instead — and
- * makes `plane(…)` feature quads pickable (the viewer's opt-in `pickPlanes`
- * channel): picking one writes `sketch(<planeVar>, () => {})`. Its
- * button lives in the create group and is always offered — in an empty scene
- * the planes are the only targets, and the first sketch starts here; while an
- * extrude/sweep/loft dialog is up the button disables instead of hiding. The
- * group stays visible in sketch mode: arming sketch there *suspends* sketch
- * editing (free 3D camera, sketch UI released via the hooks) so a face or
- * plane can be picked; cancelling resumes the sketch being edited, applying
- * lets the incoming render enter the new one.
+ * Sketch deviates deliberately: it runs a DIALOG (the same PanelShell
+ * design as the create dialogs) with a single face/plane slot and no Apply —
+ * picking IS the action. The first pick (a face, one of the origin planes
+ * xy/xz/yz shown as viewport targets, or a `plane(…)` feature quad via the
+ * viewer's opt-in `pickPlanes` channel) writes the sketch statement —
+ * `sketch(<selector> | '<plane>' | <planeVar>, () => {})` — and the incoming
+ * render enters the sketch; a face already highlighted on entry (or a plane
+ * quad picked in neutral mode) is consumed as that pick. The dialog then
+ * stays docked for the whole session of the sketch it started, its chip
+ * showing the target. The chip's ✕ *suspends* sketch editing (free 3D
+ * camera, grid restored, sketch UI released via the hooks) and re-arms the
+ * pick — the next pick MOVES the statement's target argument in place (the
+ * body survives); Escape cancels the re-pick back into the sketch view. The
+ * session closes when the scene stops ending in the sketch (consumed by a
+ * feature, deleted, rolled back), when another dialog takes over, or via the
+ * Sketch button / Escape; its Cancel button goes further and deletes the
+ * sketch statement from the code outright. The button lives in the create group and is always
+ * offered — in an empty scene the planes are the only targets, and the first
+ * sketch starts here; while an extrude/sweep/loft dialog is up the button
+ * disables instead of hiding.
  */
 export class ModifyPickService {
   private feature: ModifyFeatureKind | null = null;
@@ -125,6 +132,16 @@ export class ModifyPickService {
   private pendingPlaneShapeId: string | null = null;
   /** An extrude/sweep/loft dialog is up — the Sketch button disables. */
   private createDialogActive = false;
+  /**
+   * The sketch dialog session, alive from the first successful pick until
+   * the scene stops ending in that sketch (or the dialog is closed). While
+   * `tracking` the chip shows `label` and the service is otherwise neutral;
+   * with `tracking` false the pick mode is re-armed after the chip's ✕ and
+   * the next pick retargets the active sketch statement instead of creating
+   * a new one. Null with `feature === 'sketch'` is the initial pick — a
+   * fresh arming whose first pick creates the sketch.
+   */
+  private sketchSession: { tracking: boolean; label: string } | null = null;
   /** The scene ends with an unconsumed sketch (scene-derived sketch mode). */
   private sceneSketchActive = false;
   /** Sketch editing is suspended while the sketch-on-face pick is armed. */
@@ -141,6 +158,7 @@ export class ModifyPickService {
   private editSceneStale = false;
 
   private buttons = new Map<ModifyFeatureKind, HTMLButtonElement>();
+  private sketchPanel: SketchStartPanel;
   private activeBar: HTMLDivElement;
   private titleIcon: HTMLElement;
   private titleText: HTMLElement;
@@ -217,6 +235,11 @@ export class ModifyPickService {
       }
       this.buttons.set(kind, btn);
     }
+
+    this.sketchPanel = new SketchStartPanel(container);
+    this.sketchPanel.onClear = () => this.handleSketchClear();
+    this.sketchPanel.onCancel = () => this.handleSketchCancel();
+    this.sketchPanel.onEscape = () => this.handleSketchEscape();
 
     this.activeBar = document.createElement('div');
     this.activeBar.id = 'fluidcad-modify-pick-active';
@@ -368,8 +391,13 @@ export class ModifyPickService {
           this.altMenu.classList.add('hidden');
           return;
         }
+        if (this.feature === 'sketch') {
+          this.handleSketchEscape();
+          return;
+        }
         this.exit();
       } else if (e.key === 'Enter'
+        && this.feature !== 'sketch'
         && document.activeElement !== this.valueInput
         && document.activeElement !== this.exprInput) {
         e.preventDefault();
@@ -468,6 +496,13 @@ export class ModifyPickService {
     this.planes = collectPlaneOptions(sceneObjects);
     // Shape ids die with every render — a pending plane can't survive one.
     this.pendingPlaneShapeId = null;
+    // The sketch dialog session lives and dies with the scene: it stays only
+    // while the scene still ends in the sketch it tracks. Anything else —
+    // the sketch consumed by a feature, deleted, rolled back — closes it
+    // (the render that brought us here already shows the right view).
+    if (this.sketchSession && !sketchMode) {
+      this.closeSketchSession('lazy');
+    }
     this.navbar.setGroupVisible('modify', modifyVisible);
     this.navbar.setGroupVisible('create', true, 'sketch');
     this.syncButtons();
@@ -504,6 +539,9 @@ export class ModifyPickService {
     parsed: Extract<ParsedFeatureStatement, { feature: 'shell' | 'fillet' | 'chamfer' }>,
     info: Omit<EditSessionInfo, 'target'>,
   ): void {
+    // A sketch dialog in any state steps aside; its sketch stays. Lazy —
+    // the session's rollback render is already on its way.
+    this.closeSketchSession('lazy');
     this.hooks.onEnter?.();
     this.feature = parsed.feature;
     this.editTarget = target;
@@ -528,7 +566,7 @@ export class ModifyPickService {
 
     this.titleIcon.innerHTML = featureIconImg(parsed.feature);
     this.titleText.textContent = `Edit ${config.label.toLowerCase()}`;
-    this.selectionSlot.setMultiple(!config.immediate);
+    this.selectionSlot.setMultiple(true);
     this.valueWrap.classList.remove('hidden');
     this.valueLabel.textContent = config.valueLabel!;
     if (config.valueSign === 'positive') {
@@ -608,6 +646,12 @@ export class ModifyPickService {
   }
 
   enter(feature: ModifyFeatureKind): void {
+    if (feature === 'sketch') {
+      this.enterSketch();
+      return;
+    }
+    // Arming a pick feature closes a sketch dialog in any state outright.
+    this.closeSketchSession();
     const wasActive = this.feature !== null;
     // Arming a create tool from an edit dialog abandons the session; the
     // view stays where it is — the tool picks in whatever state is shown.
@@ -616,17 +660,12 @@ export class ModifyPickService {
     this.editArgsText = null;
     this.seedSignature = null;
     this.editSceneStale = false;
-    // Only the sketch feature runs suspended; switching away restores first.
-    if (this.suspendedSketchUI && feature !== 'sketch') {
+    // Only the sketch flows run suspended; switching away restores first.
+    if (this.suspendedSketchUI) {
       this.resumeSketchUI(true);
     }
     this.feature = feature;
     const config = FEATURES[feature];
-    // Arming sketch-on-face from inside a sketch: release the sketch UI so
-    // the camera is free and clicks pick faces instead of drawing.
-    if (feature === 'sketch' && this.sceneSketchActive) {
-      this.suspendSketchUI();
-    }
     // The hook hands over whatever was highlighted before the mode armed
     // (and clears that owner's selection) — those picks become the tool's
     // initial input. Switching between features keeps the in-mode selection.
@@ -645,45 +684,25 @@ export class ModifyPickService {
         this.entities = faces;
       }
     }
-    if (config.immediate) {
-      // Single-pick mode: more than one carried-over face is ambiguous.
-      this.chains = [];
-      if (this.entities.length > 1) {
-        this.entities = [];
-      }
-    }
     this.viewer.clearHover();
     this.viewer.pickFilter = config.pickFilter;
-    // Sketch offers the origin planes alongside faces (in an empty scene they
-    // are the only targets) and keeps `plane(…)` quads pickable; the other
-    // features never show or pick them.
+    // The pick features never show or pick planes — only the sketch dialog
+    // (and neutral mode) keeps `plane(…)` quads pickable.
     this.syncPlanePicking();
-    if (feature !== 'sketch') {
-      this.pendingPlaneShapeId = null;
-    }
-    if (feature === 'sketch') {
-      this.viewer.showStandardPlanes(this.onPlanePick);
-    } else {
-      this.viewer.hideStandardPlanes();
-    }
+    this.pendingPlaneShapeId = null;
+    this.viewer.hideStandardPlanes();
 
     this.titleIcon.innerHTML = featureIconImg(feature);
     this.titleText.textContent = `${config.label} mode`;
-    // The single-pick sketch mode keeps the bare prompt box; the multi-pick
-    // features wrap their chips in the slot container.
-    this.selectionSlot.setMultiple(!config.immediate);
-    if (config.valueLabel === null) {
-      this.valueWrap.classList.add('hidden');
+    this.selectionSlot.setMultiple(true);
+    this.valueWrap.classList.remove('hidden');
+    this.valueLabel.textContent = config.valueLabel!;
+    if (config.valueSign === 'positive') {
+      this.valueInput.min = '0.05';
     } else {
-      this.valueWrap.classList.remove('hidden');
-      this.valueLabel.textContent = config.valueLabel;
-      if (config.valueSign === 'positive') {
-        this.valueInput.min = '0.05';
-      } else {
-        this.valueInput.removeAttribute('min');
-      }
-      this.valueInput.value = this.valueByFeature.get(feature) ?? String(config.defaultValue);
+      this.valueInput.removeAttribute('min');
     }
+    this.valueInput.value = this.valueByFeature.get(feature) ?? String(config.defaultValue);
     if (config.joinRow) {
       this.joinSelect.value = this.lastJoinType;
       this.joinWrap.classList.remove('hidden');
@@ -695,17 +714,225 @@ export class ModifyPickService {
     this.setMessage(null);
     this.refresh();
     this.viewer.highlightEntities(this.entities);
+  }
 
-    // Sketch applies immediately when a face was already highlighted on entry.
-    if (config.immediate && this.entities.length === 1) {
-      this.apply();
+  /**
+   * The Sketch button. A dialog already tracking a sketch toggles closed;
+   * otherwise the pick mode arms with the dialog in its prompt state, and a
+   * face highlighted beforehand (or a plane quad picked in neutral mode) is
+   * consumed as the pick — the sketch starts right away, chip filled.
+   */
+  private enterSketch(): void {
+    if (this.sketchSession?.tracking) {
+      this.closeSketchSession();
+      return;
+    }
+    if (this.feature === 'sketch') {
+      return;
+    }
+    // Arming from an edit dialog abandons the session; the view stays put.
+    this.session.end('continue');
+    this.editTarget = null;
+    this.editArgsText = null;
+    this.seedSignature = null;
+    this.editSceneStale = false;
+    if (this.feature !== null) {
+      // Tear the armed pick feature's bar down; its selection seeds nothing
+      // (a sketch takes exactly one face and picks it fresh).
+      this.feature = null;
+      this.cancelPreview();
+      this.hideExpression();
+      this.hideTooltip();
+      this.selectionMenu.hide();
+      this.activeBar.classList.add('hidden');
+      this.setMessage(null);
+    }
+    const seed = this.hooks.onEnter?.();
+    const faces = (Array.isArray(seed) ? seed : []).filter(e => e.sub.type === 'face');
+    this.entities = [];
+    this.chains = [];
+    this.viewer.clearHighlight();
+    this.enterSketchPicking();
+    // A face already highlighted on entry applies immediately — the classic
+    // one-click sketch start.
+    if (faces.length === 1) {
+      this.entities = [faces[0]];
+      this.viewer.highlightEntities(this.entities);
+      void this.applySketchTarget({ kind: 'face', entity: faces[0] });
       return;
     }
     // A plane picked in neutral mode seeds the same immediate apply.
-    if (feature === 'sketch' && this.pendingPlaneShapeId) {
+    if (this.pendingPlaneShapeId) {
       const shapeId = this.pendingPlaneShapeId;
       this.pendingPlaneShapeId = null;
       this.handlePlanePick(shapeId);
+    }
+  }
+
+  /**
+   * Arm the sketch pick mode with the dialog in its prompt state — the
+   * fresh arming and the after-✕ re-pick share this. Arming from inside a
+   * sketch (a new sketch from sketch mode, or the re-pick) suspends sketch
+   * editing: the camera and grid leave the sketch view so faces and planes
+   * can be picked in free 3D.
+   */
+  private enterSketchPicking(): void {
+    this.feature = 'sketch';
+    this.viewer.clearHover();
+    this.viewer.pickFilter = 'face';
+    this.syncPlanePicking();
+    if (this.sceneSketchActive) {
+      this.suspendSketchUI();
+    }
+    this.viewer.showStandardPlanes(this.onPlanePick);
+    this.sketchPanel.show();
+    this.refresh();
+  }
+
+  /**
+   * Leave the armed sketch pick mode without closing the dialog (a pick
+   * landed, or Escape cancelled a re-pick back into tracking). `resume`
+   * follows the exit() contract — 'lazy' when a render is on its way.
+   */
+  private exitSketchPicking(resume: 'immediate' | 'lazy'): void {
+    this.feature = null;
+    this.viewer.pickFilter = 'all';
+    this.syncPlanePicking();
+    this.viewer.hideStandardPlanes();
+    this.entities = [];
+    this.chains = [];
+    this.hideTooltip();
+    this.selectionMenu.hide();
+    this.viewer.clearHighlight();
+    this.syncButtons();
+    this.resumeSketchUI(resume === 'immediate');
+  }
+
+  /**
+   * Close the sketch dialog outright: leave an armed pick mode, drop the
+   * session, resume a suspended sketch view. Safe to call when closed.
+   */
+  private closeSketchSession(resume: 'immediate' | 'lazy' = 'immediate'): void {
+    const hadDialog = this.sketchSession !== null || this.feature === 'sketch';
+    this.sketchSession = null;
+    if (this.feature === 'sketch') {
+      this.exitSketchPicking(resume);
+    } else {
+      this.resumeSketchUI(resume === 'immediate');
+      this.syncButtons();
+    }
+    if (hadDialog) {
+      this.sketchPanel.hide();
+    }
+  }
+
+  /**
+   * The chip's ✕: leave the sketch-mode view (free camera, grid restored)
+   * and re-arm picking — the next pick MOVES the tracked sketch statement
+   * onto the new face/plane instead of creating another sketch.
+   */
+  private handleSketchClear(): void {
+    if (!this.sketchSession?.tracking) {
+      return;
+    }
+    this.sketchSession.tracking = false;
+    this.enterSketchPicking();
+  }
+
+  /**
+   * The Cancel button: delete the sketch statement the dialog created —
+   * the editor round-trip re-renders without it, and that render restores
+   * the default view — and close the dialog. Before the first pick there is
+   * no statement yet, so Cancel just closes, like Escape.
+   */
+  private handleSketchCancel(): void {
+    const loc = this.sketchSession ? this.activeSketchLoc() : null;
+    if (loc) {
+      removeFeature(loc);
+      this.closeSketchSession('lazy');
+      return;
+    }
+    this.closeSketchSession();
+  }
+
+  /** Escape during a re-pick restores the sketch view; otherwise it closes. */
+  private handleSketchEscape(): void {
+    if (this.feature === 'sketch' && this.sketchSession) {
+      this.sketchSession.tracking = true;
+      this.sketchPanel.setTarget(this.sketchSession.label);
+      this.sketchPanel.setMessage(null);
+      this.exitSketchPicking('immediate');
+      return;
+    }
+    this.closeSketchSession();
+  }
+
+  /** The active (trailing) sketch's source location, or null. */
+  private activeSketchLoc(): SketchSourceRef | null {
+    const active = this.findActiveObject(this.viewer.currentSceneObjects);
+    if (active?.type === 'sketch' && active.sourceLocation) {
+      const { filePath, line, column } = active.sourceLocation;
+      return { filePath, line, column };
+    }
+    return null;
+  }
+
+  /** Chip label for a picked face: "Face — <owning object's name>". */
+  private faceLabel(shapeId: string): string {
+    const owner = this.viewer.currentSceneObjects.find(o =>
+      o.sceneShapes?.some(s => s.shapeId === shapeId));
+    return owner?.name ? `Face — ${owner.name}` : 'Face';
+  }
+
+  /**
+   * The one-pick sketch apply: create the sketch statement and enter it —
+   * or, on the re-pick after ✕, move the tracked statement's target
+   * argument in place (the body survives). Success leaves the dialog
+   * tracking with the pick as its chip; failure keeps picking armed with
+   * the reason shown.
+   */
+  private async applySketchTarget(target:
+    | { kind: 'face'; entity: SelectedEntity }
+    | { kind: 'standard'; plane: StandardPlaneId }
+    | { kind: 'planeFeature'; option: PlaneOption },
+  ): Promise<void> {
+    if (this.feature !== 'sketch' || this.applying) {
+      return;
+    }
+    const repick = this.sketchSession !== null && !this.sketchSession.tracking;
+    const retarget = repick ? this.activeSketchLoc() : null;
+    if (repick && !retarget) {
+      // The tracked statement vanished underneath — nothing to move.
+      this.closeSketchSession();
+      return;
+    }
+    const label = target.kind === 'face' ? this.faceLabel(target.entity.shapeId)
+      : target.kind === 'standard' ? `${target.plane.toUpperCase()} plane`
+        : target.option.label;
+    this.applying = true;
+    try {
+      const result = await applyFeature('sketch', null, target.kind === 'face' ? [target.entity] : [], {
+        plane: target.kind === 'standard' ? target.plane : undefined,
+        planeRef: target.kind === 'planeFeature'
+          ? { filePath: target.option.filePath, line: target.option.line, column: target.option.column }
+          : undefined,
+        retarget: retarget ?? undefined,
+      });
+      if (this.feature !== 'sketch') {
+        return; // the mode ended while the request was in flight
+      }
+      if (result.success) {
+        this.sketchSession = { tracking: true, label };
+        this.sketchPanel.setTarget(label);
+        this.sketchPanel.setMessage(null);
+        // The editor round-trip re-renders the scene; the incoming render
+        // enters the (new or moved) sketch — the resume stays lazy.
+        this.exitSketchPicking('lazy');
+      } else {
+        this.sketchPanel.setMessage(result.reason ?? 'Could not start the sketch.');
+      }
+    } finally {
+      this.applying = false;
     }
   }
 
@@ -719,6 +946,12 @@ export class ModifyPickService {
    * Continue's full render).
    */
   exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'gone' } = {}): void {
+    if (this.feature === 'sketch' || (!this.feature && this.sketchSession)) {
+      // The sketch flow lives in its dialog — exit means closing it, in the
+      // armed-pick state and the tracking state alike.
+      this.closeSketchSession(opts.resume ?? 'immediate');
+      return;
+    }
     if (!this.feature) {
       return;
     }
@@ -748,37 +981,13 @@ export class ModifyPickService {
     this.resumeSketchUI((opts.resume ?? 'immediate') === 'immediate');
   }
 
-  /** A shown origin plane was clicked while the sketch mode was armed. */
+  /** A shown origin plane was clicked while the sketch pick was armed. */
   private readonly onPlanePick = (plane: StandardPlaneId): void => {
-    void this.applyPlaneSketch(plane);
+    void this.applySketchTarget({ kind: 'standard', plane });
   };
 
   /**
-   * The pick-less sketch apply: `sketch('<plane>', () => {})` on the picked
-   * origin plane, appended at the end of the file — no face selector, no
-   * synthesis. The incoming render enters the new sketch.
-   */
-  private async applyPlaneSketch(plane: StandardPlaneId): Promise<void> {
-    if (!this.feature || this.applying) {
-      return;
-    }
-    this.applying = true;
-    this.applyBtn.disabled = true;
-    try {
-      const result = await applyFeature('sketch', null, [], { plane });
-      if (result.success) {
-        this.exit({ resume: 'lazy' });
-      } else {
-        this.setMessage(result.reason ?? 'Could not start the sketch.');
-      }
-    } finally {
-      this.applying = false;
-      this.applyBtn.disabled = false;
-    }
-  }
-
-  /**
-   * A `plane(…)` quad was clicked (the armed sketch mode and neutral mode
+   * A `plane(…)` quad was clicked (the armed sketch pick and neutral mode
    * both enable `viewer.pickPlanes`). Armed: sketch on that plane feature
    * right away — `sketch(<planeVar>, () => {})`, referencing the statement
    * by call site. Neutral: hold the plane highlighted as the pending sketch
@@ -794,12 +1003,13 @@ export class ModifyPickService {
       : undefined;
     if (!option) {
       if (this.feature === 'sketch') {
-        this.setMessage('That plane cannot be referenced — only plane() features can be sketched on.');
+        this.sketchPanel.setMessage('That plane cannot be referenced — only plane() features can be sketched on.');
       }
       return;
     }
     if (this.feature === 'sketch') {
-      void this.applyStatementPlaneSketch(option);
+      this.viewer.highlightPlaneQuad(shapeId);
+      void this.applySketchTarget({ kind: 'planeFeature', option });
       return;
     }
     // Neutral mode: toggle the pending selection.
@@ -821,32 +1031,6 @@ export class ModifyPickService {
     this.viewer.clearHighlight();
   }
 
-  /**
-   * The plane-feature sketch apply: `sketch(<planeVar>, () => {})` on the
-   * picked `plane(…)` statement, bound to a variable server-side — no face
-   * selector, no synthesis. The incoming render enters the new sketch.
-   */
-  private async applyStatementPlaneSketch(option: PlaneOption): Promise<void> {
-    if (!this.feature || this.applying) {
-      return;
-    }
-    this.applying = true;
-    this.applyBtn.disabled = true;
-    try {
-      const result = await applyFeature('sketch', null, [], {
-        planeRef: { filePath: option.filePath, line: option.line, column: option.column },
-      });
-      if (result.success) {
-        this.exit({ resume: 'lazy' });
-      } else {
-        this.setMessage(result.reason ?? 'Could not start the sketch.');
-      }
-    } finally {
-      this.applying = false;
-      this.applyBtn.disabled = false;
-    }
-  }
-
   /** An extrude/sweep/loft dialog opened or closed — the Sketch button disables while one is up. */
   setCreateDialogActive(active: boolean): void {
     if (this.createDialogActive === active) {
@@ -855,6 +1039,9 @@ export class ModifyPickService {
     this.createDialogActive = active;
     if (active) {
       this.pendingPlaneShapeId = null;
+      // An opening create dialog takes over — the sketch dialog steps aside
+      // (its sketch stays; extruding it is the natural next step).
+      this.closeSketchSession();
     }
     this.syncPlanePicking();
     this.syncButtons();
@@ -903,17 +1090,17 @@ export class ModifyPickService {
       return;
     }
     this.selectionMenu.hide();
-    this.setMessage(null);
     const entity: SelectedEntity = { shapeId, sub };
-    if (FEATURES[this.feature].immediate) {
-      // Single-pick immediate mode: the click replaces the selection and applies.
+    if (this.feature === 'sketch') {
+      // The single pick IS the apply: the click replaces the selection and
+      // starts (or moves) the sketch.
       this.entities = [entity];
       this.chains = [];
       this.viewer.highlightEntities(this.entities);
-      this.refresh();
-      this.apply();
+      void this.applySketchTarget({ kind: 'face', entity });
       return;
     }
+    this.setMessage(null);
     this.toggleEntity(entity);
   }
 
@@ -950,8 +1137,9 @@ export class ModifyPickService {
     if (!this.feature || !shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane') {
       return;
     }
-    if (FEATURES[this.feature].immediate) {
-      // Single-pick mode has no bucket expansion — the first click already applied.
+    if (this.feature === 'sketch') {
+      // The single-pick sketch has no bucket expansion — the first click
+      // already applied.
       return;
     }
     this.selectionMenu.hide();
@@ -1034,7 +1222,7 @@ export class ModifyPickService {
 
   /** Right-click on an edge/face: the multi-select menu for that pick. */
   handleContextMenu(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): void {
-    if (!this.feature || FEATURES[this.feature].immediate) {
+    if (!this.feature || this.feature === 'sketch') {
       return;
     }
     this.selectionMenu.hide();
@@ -1090,7 +1278,7 @@ export class ModifyPickService {
   }
 
   private async apply(): Promise<void> {
-    if (!this.feature || this.applying) {
+    if (!this.feature || this.feature === 'sketch' || this.applying) {
       return;
     }
     const config = FEATURES[this.feature];
@@ -1176,11 +1364,6 @@ export class ModifyPickService {
         this.exit({ resume: 'lazy' });
       } else {
         this.setMessage(result.reason ?? 'Could not apply the feature.');
-        if (config.immediate) {
-          // The retry path for the single-pick mode: surface the editable
-          // expression so the selector can be fixed and re-applied.
-          this.schedulePreview();
-        }
       }
     } finally {
       this.applying = false;
@@ -1192,25 +1375,27 @@ export class ModifyPickService {
     if (!this.feature) {
       return;
     }
+    if (this.feature === 'sketch') {
+      // The sketch dialog's whole armed UI is the prompt; it also offers
+      // the origin planes — alone when nothing has faces.
+      this.sketchPanel.setPicking(this.sketchAvailable ? 'Pick a face or a plane' : 'Pick a plane');
+      this.syncButtons();
+      return;
+    }
     const config = FEATURES[this.feature];
     // Every pick is a removable chip: one per plain pick, a whole tangent
     // chain as a single chip — its ✕ removes the chain like a viewport click
-    // on a member would. The immediate single-pick mode (sketch) never lists
-    // chips — it applies on the first pick; the prompt is its whole UI.
-    this.chipRows = config.immediate ? [] : selectionChipRows(this.entities, this.chains);
+    // on a member would.
+    this.chipRows = selectionChipRows(this.entities, this.chains);
     this.selectionSlot.setChips(this.chipRows.map((row, index) => ({
       label: row.label,
       badge: String(index + 1),
       removable: true,
     })));
     // Empty selection: prompt for the first pick; face-only features ask for
-    // a face, the rest an edge. Sketch also offers the origin planes — alone
-    // when nothing has faces.
+    // a face, the rest an edge.
     if (this.chipRows.length === 0) {
-      const noun = this.feature === 'sketch'
-        ? (this.sketchAvailable ? 'a face or a plane' : 'a plane')
-        : config.pickFilter === 'face' ? 'a face' : 'an edge';
-      this.selectionSlot.setPrompt(`Pick ${noun}`);
+      this.selectionSlot.setPrompt(`Pick ${config.pickFilter === 'face' ? 'a face' : 'an edge'}`);
     } else {
       this.selectionSlot.setPrompt(null);
     }
@@ -1405,7 +1590,9 @@ export class ModifyPickService {
 
   private syncButtons(): void {
     for (const [kind, btn] of this.buttons) {
-      btn.className = this.feature === kind ? BTN_ACTIVE : BTN_BASE;
+      const active = this.feature === kind
+        || (kind === 'sketch' && this.sketchSession !== null);
+      btn.className = active ? BTN_ACTIVE : BTN_BASE;
     }
     // The sketch button never hides (it votes its create group visible on
     // every render); it disables while another feature dialog is up — an

@@ -1427,6 +1427,76 @@ describe('apply-feature route validation', () => {
       expect(body.reason).toContain('different file');
     });
 
+    it('relays a sketch retarget onto an origin plane, no synthesis, no breakpoint clear', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'sketch',
+        edit: { filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+        plane: 'xz',
+      });
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(body.preview).toBe(`sketch('xz', () => { rect(100, 50) })`);
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'sketch',
+        edit: { line: 3, column: 0, sketch: { target: { kind: 'standard', plane: 'xz' } } },
+        clearBreakpoints: false,
+      });
+    });
+
+    it('synthesizes a sketch retarget face pick without a boundary', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'sketch', filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endFaces', indices: [1], filterArgs: null }],
+          imports: [],
+        },
+        preview: 'sketch(e.endFaces(1), () => {})',
+        args: 'e.endFaces(1)',
+        alternatives: [],
+      };
+      const { status, body } = await post({
+        feature: 'sketch',
+        edit: { filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+        entities: [PICK],
+      });
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(body.preview).toBe(`sketch(e2.endFaces(1), () => { rect(100, 50) })`);
+      expect(synthesizeCalls).toEqual([{ feature: 'sketch', value: undefined }]);
+      expect(synthesizeBoundaries).toEqual([undefined]);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'sketch',
+        edit: { line: 3, column: 0, sketch: { target: { kind: 'selector' } } },
+        parts: [{ producer: 0, accessor: 'endFaces', indices: [1], filterArgs: null }],
+      });
+    });
+
+    it('rejects a sketch retarget with more than one target source', async () => {
+      const { status } = await post({
+        feature: 'sketch',
+        edit: { filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+        plane: 'xy',
+        entities: [PICK],
+      });
+      expect(status).toBe(400);
+    });
+
+    it('rejects a sketch retarget with no target source', async () => {
+      const { status } = await post({
+        feature: 'sketch',
+        edit: { filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+        entities: [],
+      });
+      expect(status).toBe(400);
+    });
+
     describe('edit-mode source re-picking', () => {
       const SOURCE_CODE = [
         `import { sketch, rect, circle, extrude, sweep, loft, shell, wrap } from 'fluidcad/core'`,

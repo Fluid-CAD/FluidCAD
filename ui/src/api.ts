@@ -186,6 +186,54 @@ export function insertGeometry(
 
 
 // ---------------------------------------------------------------------------
+// Text tool (fonts + outline preview)
+// ---------------------------------------------------------------------------
+
+export type TextAlignOption = 'left' | 'center' | 'right';
+
+/** The `text()` chain options the Text tool's dialog edits. */
+export type TextOptionValues = {
+  text: string;
+  size: number;
+  /** Font family display name; null renders no `.font()` (registry default). */
+  font: string | null;
+  weight: number;
+  italic: boolean;
+  align: TextAlignOption;
+  lineSpacing: number;
+  letterSpacing: number;
+};
+
+export type TextPreviewRequest = {
+  text: string;
+  /** Baseline start in sketch-plane 2D coordinates. */
+  position: [number, number];
+  plane: {
+    origin: { x: number; y: number; z: number };
+    normal: { x: number; y: number; z: number };
+    xDirection: { x: number; y: number; z: number };
+  };
+  options: Omit<TextOptionValues, 'text'>;
+};
+
+/** Sorted system font family names, or [] when the lookup fails. */
+export async function getFontFamilies(): Promise<string[]> {
+  const data = await getJson<{ families: string[] }>('/api/fonts');
+  return data?.families ?? [];
+}
+
+/**
+ * World-space outline polylines (flat xyz runs) of the text laid out with
+ * the given options — the Text tool's viewport preview. Null on failure.
+ */
+export async function getTextPreview(
+  request: TextPreviewRequest,
+  signal?: AbortSignal,
+): Promise<{ polylines: number[][] } | null> {
+  return postJson('/api/text-preview', request, signal);
+}
+
+// ---------------------------------------------------------------------------
 // Drag / position updates (fire-and-forget)
 // ---------------------------------------------------------------------------
 
@@ -700,7 +748,12 @@ export type ParsedFeatureStatement =
       /** `.join()` type; 'arc' (the kernel default) when the chain is absent. */
       joinType: ShellJoinType;
     }
-  | { feature: 'fillet' | 'chamfer'; value: number; argsText: string };
+  | { feature: 'fillet' | 'chamfer'; value: number; argsText: string }
+  | ({
+      feature: 'text';
+      /** Path argument text, verbatim; null for plain (non-path) text. */
+      pathText: string | null;
+    } & TextOptionValues);
 
 export type ParseFeatureResult =
   | { ok: true; parsed: ParsedFeatureStatement; statement: string }
@@ -872,6 +925,32 @@ export async function applyLoftEdit(
     endCondition: options.endCondition,
     profiles: options.profiles,
     guides: options.guides,
+    preview: options.preview,
+  }, options.signal);
+}
+
+export type TextEditOptions = TextOptionValues & EditSessionFields & {
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the text statement at `edit` in place (pick-less, no boundary). */
+export async function applyTextEdit(
+  edit: FeatureEditTarget,
+  options: TextEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'text',
+    edit,
+    expectedStatement: options.expectedStatement,
+    text: options.text,
+    size: options.size,
+    font: options.font,
+    weight: options.weight,
+    italic: options.italic,
+    align: options.align,
+    lineSpacing: options.lineSpacing,
+    letterSpacing: options.letterSpacing,
     preview: options.preview,
   }, options.signal);
 }

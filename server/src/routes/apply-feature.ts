@@ -652,7 +652,7 @@ async function allocateProducerVars(
 }
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text']);
 
 /** One edited loft profile as the request carries it. */
 type EditLoftProfileInput =
@@ -874,6 +874,36 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       result.loftGuides = parsed.guides;
     }
     return result;
+  }
+
+  if (feature === 'text') {
+    const { text, size, font, weight, italic, align, lineSpacing, letterSpacing } = body ?? {};
+    if (typeof text !== 'string' || text.trim() === '' || text.length > 4000) {
+      return { error: 'text must be a non-empty string' };
+    }
+    if (typeof size !== 'number' || !Number.isFinite(size) || size <= 0) {
+      return { error: 'size must be a positive number' };
+    }
+    if (font !== null && (typeof font !== 'string' || font.length > 300)) {
+      return { error: 'font must be a family name string or null' };
+    }
+    if (typeof weight !== 'number' || weight % 100 !== 0 || weight < 100 || weight > 900) {
+      return { error: 'weight must be one of 100–900 in hundreds' };
+    }
+    if (typeof italic !== 'boolean') {
+      return { error: 'italic must be a boolean' };
+    }
+    if (align !== 'left' && align !== 'center' && align !== 'right') {
+      return { error: 'align must be "left", "center" or "right"' };
+    }
+    if (typeof lineSpacing !== 'number' || !Number.isFinite(lineSpacing) || lineSpacing <= 0) {
+      return { error: 'lineSpacing must be a positive number' };
+    }
+    if (typeof letterSpacing !== 'number' || !Number.isFinite(letterSpacing)) {
+      return { error: 'letterSpacing must be a number' };
+    }
+    edit.text = { text, size, font, weight, italic, align, lineSpacing, letterSpacing };
+    return base;
   }
 
   // Shell / fillet / chamfer: the numeric value plus an optional edited

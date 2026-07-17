@@ -38,6 +38,9 @@ const TOOL_LAYOUT: ToolEntry[] = [
     { id: 'slot', label: 'Slot', iconPng: 'slot' },
   ]},
   { tools: [
+    { id: 'text', label: 'Text', iconPng: 'text' },
+  ]},
+  { tools: [
     { id: 'trim', label: 'Trim', iconPng: 'trim' },
   ]},
 ];
@@ -52,6 +55,7 @@ const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   arc2: 'ca',
   bezier: 'b',
   trim: 't',
+  text: 'x',
 };
 
 const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 text-base-content/60';

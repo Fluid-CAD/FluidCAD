@@ -87,6 +87,7 @@ function weightOf(font: Font): number {
  */
 export class FontRegistry {
   private static index: Map<string, FontVariant[]> | null = null;
+  private static displayNames = new Map<string, string>();
   private static allFiles: string[] = [];
   private static fontCache = new Map<string, Font | null>();
 
@@ -110,6 +111,9 @@ export class FontRegistry {
             continue;
           }
           const key = normName(face.familyName);
+          if (!this.displayNames.has(key)) {
+            this.displayNames.set(key, face.familyName);
+          }
           const variant: FontVariant = {
             path: file,
             psName: face.postscriptName,
@@ -184,6 +188,19 @@ export class FontRegistry {
       'No fonts available on this system. Install a font package, or specify a ' +
       'local font file, e.g. text(...).font("fonts/MyFont.ttf").',
     );
+  }
+
+  /**
+   * Display names of every indexed font family, sorted alphabetically.
+   * Hidden system faces (macOS families starting with ".") are skipped —
+   * they're substitution-only and not meant to be requested by name.
+   * Requires `init()` to have completed, like `resolve()`.
+   */
+  static families(): string[] {
+    this.ensureInit();
+    return [...this.displayNames.values()]
+      .filter((name) => !name.startsWith("."))
+      .sort((a, b) => a.localeCompare(b));
   }
 
   private static ensureInit(): Map<string, FontVariant[]> {

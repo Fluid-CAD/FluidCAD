@@ -24,6 +24,7 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { onThemeChange } from './scene/theme-colors';
 import { loadPreferences, gotoSource, parseFeatureAt } from './api';
+import { TextEditService } from './interactive/create-feature/text-edit-service';
 import type { SceneObjectRender } from './types';
 import { applyPreferences } from './scene/viewer-settings';
 import { installVSCodeKeyboardBridge } from './keyboard-bridge';
@@ -118,6 +119,7 @@ const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
     sweepService.exit();
     loftService.exit();
     planeService.exit();
+    textEditService.exit();
     measureController.clearSelection();
     viewer.clearHighlight();
     selectionInfoOverlay.hide();
@@ -135,6 +137,7 @@ const revolveService = new RevolveFeatureService(container, viewer, navbar, {
     sweepService.exit();
     loftService.exit();
     planeService.exit();
+    textEditService.exit();
     measureController.clearSelection();
     viewer.clearHighlight();
     selectionInfoOverlay.hide();
@@ -150,6 +153,7 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
     revolveService.exit();
     loftService.exit();
     planeService.exit();
+    textEditService.exit();
     measureController.clearSelection();
     viewer.clearHighlight();
     selectionInfoOverlay.hide();
@@ -165,6 +169,7 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
     revolveService.exit();
     sweepService.exit();
     planeService.exit();
+    textEditService.exit();
     measureController.clearSelection();
     viewer.clearHighlight();
     selectionInfoOverlay.hide();
@@ -186,12 +191,31 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
     sweepService.exit();
     loftService.exit();
     const seed = [...measureController.selection];
+    textEditService.exit();
     measureController.clearSelection();
     viewer.clearHighlight();
     selectionInfoOverlay.hide();
     return seed;
   },
   onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: () => sketchService.update([]),
+  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+});
+// The text edit dialog (timeline double-click on a text row). Pick-less:
+// it never takes viewer or timeline picks, so it sits outside the create
+// group and the intercept chain.
+const textEditService = new TextEditService(container, viewer, {
+  onEnter: () => {
+    modifyService.exit();
+    extrudeService.exit();
+    revolveService.exit();
+    sweepService.exit();
+    loftService.exit();
+    planeService.exit();
+    measureController.clearSelection();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
+  },
   onSuspendSketchUI: () => sketchService.update([]),
   onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
 });
@@ -208,7 +232,7 @@ timelinePanel.onFeatureEdit = (obj, index) => {
 };
 
 /** Timeline `type` → the dialog that edits it (cut is extrude's remove op). */
-const EDITABLE_ROW_TYPES = new Set(['extrude', 'cut', 'revolve', 'sweep', 'loft', 'shell', 'fillet', 'chamfer']);
+const EDITABLE_ROW_TYPES = new Set(['extrude', 'cut', 'revolve', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'text']);
 
 /**
  * Parse the double-clicked row's statement and open the matching dialog in
@@ -240,6 +264,8 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     sweepService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'loft') {
     loftService.enterEdit(target, parsed, info);
+  } else if (parsed.feature === 'text') {
+    textEditService.enterEdit(target, parsed, info);
   } else {
     modifyService.enterEdit(target, parsed, info);
   }
@@ -277,6 +303,7 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
     sweepService.exit();
     loftService.exit();
     planeService.exit();
+    textEditService.exit();
     const seed = [...measureController.selection];
     measureController.clearSelection();
     selectionInfoOverlay.hide();
@@ -599,7 +626,7 @@ function connectWebSocket() {
           const sketchSuspended = modifyService.sketchUISuspended
             || sweepService.sketchUISuspended || loftService.sketchUISuspended
             || planeService.sketchUISuspended || extrudeService.sketchUISuspended
-            || revolveService.sketchUISuspended;
+            || revolveService.sketchUISuspended || textEditService.isActive;
           sketchService.update(sketchSuspended ? [] : msg.result);
           planeService.update(msg.result);
         }
@@ -612,6 +639,7 @@ function connectWebSocket() {
         revolveService.handleSceneRendered(msg.result, renderStop, isRollback);
         sweepService.handleSceneRendered(msg.result, renderStop, isRollback);
         loftService.handleSceneRendered(msg.result, renderStop, isRollback);
+        textEditService.handleSceneRendered(msg.result, renderStop, isRollback);
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1);
         if (msg.params !== undefined) {
           paramsPanel.update(msg.params);

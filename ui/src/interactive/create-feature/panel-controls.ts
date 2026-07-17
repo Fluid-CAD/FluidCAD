@@ -231,6 +231,11 @@ export class PanelShell {
     this.setPreview(null);
   }
 
+  /** Remove the dialog from the DOM (for panels owned by short-lived tools). */
+  destroy(): void {
+    this.root.remove();
+  }
+
   setPreview(text: string | null): void {
     if (text) {
       this.preview.textContent = text;

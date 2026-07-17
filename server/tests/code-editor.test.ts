@@ -460,6 +460,26 @@ describe('insertGeometryCall', () => {
     const importMatches = importLine.match(/line/g);
     expect(importMatches!.length).toBe(1);
   });
+
+  it('inserts a multi-line statement and imports every line\'s callee', async () => {
+    const code = [
+      `import { sketch } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  rect(10, 10)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'move([5, 5]);\ntext("Hi").size(14).bold()');
+    expect(result.newCode).toBe([
+      `import { text,move, sketch } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  rect(10, 10)`,
+      `  move([5, 5]);`,
+      `  text("Hi").size(14).bold()`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
 });
 
 describe('updateGeometryPosition', () => {

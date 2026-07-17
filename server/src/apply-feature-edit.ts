@@ -18,7 +18,7 @@ import {
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: number;
   /**
@@ -188,6 +188,21 @@ export type FeatureStatementEditTarget = {
     profile?: EditSketchSource;
     /** Re-sourced axis; absent keeps the statement's axis text. */
     axis?: RevolveAxisSpec;
+  };
+  /**
+   * Text options, pick-less. The statement's path argument (when present)
+   * is re-read at apply time and preserved verbatim; defaults render no
+   * chain (size 10, weight 400, upright, left, spacing 1/0).
+   */
+  text?: {
+    text: string;
+    size: number;
+    font: string | null;
+    weight: number;
+    italic: boolean;
+    align: 'left' | 'center' | 'right';
+    lineSpacing: number;
+    letterSpacing: number;
   };
 };
 
@@ -1128,6 +1143,47 @@ export function renderSweepStatement(
 }
 
 /**
+ * Render a text statement: `text("…"[, <path>])` plus the option chains, in
+ * the Text tool's canonical order, defaults omitted. `pathExpr` is the
+ * statement's own path argument text, preserved verbatim. Shared with the
+ * route's preview so the previewed text is exactly what the transform writes.
+ */
+export function renderTextStatement(
+  opts: NonNullable<FeatureStatementEditTarget['text']>,
+  pathExpr: string | null,
+): string {
+  const args = [JSON.stringify(opts.text)];
+  if (pathExpr) {
+    args.push(pathExpr);
+  }
+  let statement = `text(${args.join(', ')})`;
+  if (opts.font) {
+    statement += `.font('${opts.font.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')`;
+  }
+  if (opts.size !== 10) {
+    statement += `.size(${formatNumber(opts.size)})`;
+  }
+  if (opts.weight === 700) {
+    statement += '.bold()';
+  } else if (opts.weight !== 400) {
+    statement += `.weight(${opts.weight})`;
+  }
+  if (opts.italic) {
+    statement += '.italic()';
+  }
+  if (opts.align !== 'left') {
+    statement += `.align('${opts.align}')`;
+  }
+  if (opts.lineSpacing !== 1) {
+    statement += `.lineSpacing(${formatNumber(opts.lineSpacing)})`;
+  }
+  if (opts.letterSpacing !== 0) {
+    statement += `.letterSpacing(${formatNumber(opts.letterSpacing)})`;
+  }
+  return statement;
+}
+
+/**
  * Render a revolve statement: `revolve(<axis>[, <angle>][, <profile>])` plus
  * `.thin(…)` and the `.remove()` / `.new()` operation chains. The 360° API
  * default renders no angle argument. Shared with the route's preview so the
@@ -1507,7 +1563,7 @@ function resolveInsertion(
 // ---------------------------------------------------------------------------
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text';
 
 /**
  * An existing statement's dialog-editable reading. Argument expressions the
@@ -1574,6 +1630,20 @@ export type ParsedFeatureStatement =
     value: number;
     /** Selector argument list after the value, verbatim (`''` when absent). */
     argsText: string;
+  }
+  | {
+    feature: 'text';
+    text: string;
+    size: number;
+    /** `.font()` family/file, or null when the chain is absent. */
+    font: string | null;
+    weight: number;
+    italic: boolean;
+    align: 'left' | 'center' | 'right';
+    lineSpacing: number;
+    letterSpacing: number;
+    /** Second argument (a path expression), verbatim; null for plain text. */
+    pathText: string | null;
   };
 
 const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
@@ -1585,6 +1655,7 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   fillet: 'fillet',
   chamfer: 'chamfer',
   revolve: 'revolve',
+  text: 'text',
 };
 
 /**
@@ -1605,6 +1676,9 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // the OC binding (SetRotation overload), so the dialog never writes it; a
   // trailing `.symmetric()` chain is preserved verbatim like any other.
   revolve: new Set(['thin', 'remove', 'new']),
+  // Path-only chains (.offset/.flip/.startAt) are deliberately absent — the
+  // dialog doesn't edit them, so they survive verbatim after the prefix.
+  text: new Set(['font', 'size', 'weight', 'bold', 'italic', 'align', 'lineSpacing', 'letterSpacing']),
 };
 
 type ChainSegment = { name: string; args: TSNode[]; endIndex: number };
@@ -1660,6 +1734,53 @@ function booleanArgValue(node: TSNode): boolean | null {
   }
   return null;
 }
+
+/**
+ * The runtime value a plain string literal denotes — quotes dropped and JS
+ * escape sequences decoded (the dialog edits the value, not the source
+ * spelling). Null for anything but a single/double-quoted literal.
+ */
+function stringArgValue(node: TSNode): string | null {
+  if (node.type !== 'string') {
+    return null;
+  }
+  const raw = node.text;
+  const quote = raw[0];
+  if ((quote !== '"' && quote !== "'") || raw[raw.length - 1] !== quote) {
+    return null;
+  }
+  const body = raw.slice(1, -1);
+  return body.replace(
+    /\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[\s\S])/g,
+    (_, esc: string) => {
+      switch (esc[0]) {
+        case 'n': return '\n';
+        case 'r': return '\r';
+        case 't': return '\t';
+        case 'b': return '\b';
+        case 'f': return '\f';
+        case 'v': return '\v';
+        case '0': return '\0';
+        case 'x': return String.fromCharCode(parseInt(esc.slice(1), 16));
+        case 'u': {
+          const hex = esc[1] === '{' ? esc.slice(2, -1) : esc.slice(1);
+          return String.fromCodePoint(parseInt(hex, 16));
+        }
+        default: return esc;
+      }
+    },
+  );
+}
+
+/** `.weight('<name>')` values, mirroring the Text feature's own table. */
+const TEXT_WEIGHT_NAMES: Record<string, number> = {
+  thin: 100, extralight: 200, ultralight: 200, light: 300, regular: 400,
+  normal: 400, medium: 500, semibold: 600, demibold: 600, bold: 700,
+  extrabold: 800, ultrabold: 800, black: 900, heavy: 900,
+};
+
+/** Alignments the text dialog offers (start/end normalize onto them). */
+const TEXT_DIALOG_ALIGNS = new Set(['left', 'center', 'right']);
 
 type ChainParse =
   | { parsed: ParsedFeatureStatement; start: number; end: number }
@@ -1721,6 +1842,10 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
       return { parsed: { feature, value, argsText, joinType: joinParse.joinType }, start, end };
     }
     return { parsed: { feature, value, argsText }, start, end };
+  }
+
+  if (feature === 'text') {
+    return parseTextChain(args, recognized, start, end);
   }
 
   const isCut = chain.root.name === 'cut';
@@ -1905,6 +2030,128 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
       guideTexts: guideSeg ? guideSeg.args.map(a => a.text) : [],
       startCondition: startParse.condition,
       endCondition: endParse.condition,
+    },
+    start,
+    end,
+  };
+}
+
+/**
+ * A `text("…"[, path])` statement's dialog-editable reading. The string must
+ * be a plain literal (the dialog edits its value); a second argument — the
+ * path the glyphs follow — is any expression, preserved verbatim. Option
+ * members must be plain literals; alignment `start`/`end` normalize onto
+ * `left`/`right`, the path-only distributed alignments refuse.
+ */
+function parseTextChain(
+  args: TSNode[],
+  recognized: Map<string, ChainSegment>,
+  start: number,
+  end: number,
+): ChainParse {
+  if (args.length < 1 || args.length > 2) {
+    return { error: 'the text has more arguments than the dialog understands' };
+  }
+  const text = stringArgValue(args[0]);
+  if (text === null) {
+    return { error: 'the text is not a plain string — edit it in the source' };
+  }
+  const pathText = args[1]?.text ?? null;
+
+  let size = 10;
+  const sizeSeg = recognized.get('size');
+  if (sizeSeg) {
+    const value = sizeSeg.args.length === 1 ? numericArgValue(sizeSeg.args[0]) : null;
+    if (value === null || value <= 0) {
+      return { error: 'the .size() value is not a plain positive number — edit it in the source' };
+    }
+    size = value;
+  }
+
+  let font: string | null = null;
+  const fontSeg = recognized.get('font');
+  if (fontSeg) {
+    font = fontSeg.args.length === 1 ? stringArgValue(fontSeg.args[0]) : null;
+    if (font === null) {
+      return { error: 'the .font() name is not a plain string — edit it in the source' };
+    }
+  }
+
+  const weightSeg = recognized.get('weight');
+  const boldSeg = recognized.get('bold');
+  if (weightSeg && boldSeg) {
+    return { error: 'the statement chains both .weight() and .bold()' };
+  }
+  let weight = 400;
+  if (boldSeg) {
+    if (boldSeg.args.length > 0) {
+      return { error: 'the .bold() chain has arguments the dialog cannot edit' };
+    }
+    weight = 700;
+  } else if (weightSeg) {
+    if (weightSeg.args.length !== 1) {
+      return { error: 'the .weight() chain has an argument shape the dialog cannot edit' };
+    }
+    const numeric = numericArgValue(weightSeg.args[0]);
+    const name = stringArgValue(weightSeg.args[0]);
+    const value = numeric ?? (name !== null ? TEXT_WEIGHT_NAMES[name.toLowerCase()] ?? null : null);
+    if (value === null || value % 100 !== 0 || value < 100 || value > 900) {
+      return { error: 'the .weight() value is not one the dialog offers — edit it in the source' };
+    }
+    weight = value;
+  }
+
+  let italic = false;
+  const italicSeg = recognized.get('italic');
+  if (italicSeg) {
+    if (italicSeg.args.length > 1) {
+      return { error: 'the .italic() chain has more arguments than the dialog understands' };
+    }
+    if (italicSeg.args.length === 1) {
+      const value = booleanArgValue(italicSeg.args[0]);
+      if (value === null) {
+        return { error: 'the .italic() argument is not a plain boolean — edit it in the source' };
+      }
+      italic = value;
+    } else {
+      italic = true;
+    }
+  }
+
+  let align: 'left' | 'center' | 'right' = 'left';
+  const alignSeg = recognized.get('align');
+  if (alignSeg) {
+    const raw = alignSeg.args.length === 1 ? stringArgValue(alignSeg.args[0]) : null;
+    const normalized = raw === 'start' ? 'left' : raw === 'end' ? 'right' : raw;
+    if (normalized === null || !TEXT_DIALOG_ALIGNS.has(normalized)) {
+      return { error: `the .align() value is not one the dialog offers — edit it in the source` };
+    }
+    align = normalized as 'left' | 'center' | 'right';
+  }
+
+  let lineSpacing = 1;
+  const lineSeg = recognized.get('lineSpacing');
+  if (lineSeg) {
+    const value = lineSeg.args.length === 1 ? numericArgValue(lineSeg.args[0]) : null;
+    if (value === null || value <= 0) {
+      return { error: 'the .lineSpacing() value is not a plain positive number — edit it in the source' };
+    }
+    lineSpacing = value;
+  }
+
+  let letterSpacing = 0;
+  const letterSeg = recognized.get('letterSpacing');
+  if (letterSeg) {
+    const value = letterSeg.args.length === 1 ? numericArgValue(letterSeg.args[0]) : null;
+    if (value === null) {
+      return { error: 'the .letterSpacing() value is not a plain number — edit it in the source' };
+    }
+    letterSpacing = value;
+  }
+
+  return {
+    parsed: {
+      feature: 'text', text, size, font, weight, italic, align, lineSpacing, letterSpacing, pathText,
     },
     start,
     end,
@@ -2288,6 +2535,23 @@ export function renderEditedStatement(
         sources.guideExprs,
       ),
     };
+  }
+  if (parsed.feature === 'text') {
+    const opts = spec.edit?.text;
+    if (!opts || typeof opts.text !== 'string'
+      || typeof opts.size !== 'number' || !Number.isFinite(opts.size) || opts.size <= 0
+      || (opts.font !== null && typeof opts.font !== 'string')
+      || typeof opts.weight !== 'number' || opts.weight % 100 !== 0 || opts.weight < 100 || opts.weight > 900
+      || typeof opts.italic !== 'boolean'
+      || !TEXT_DIALOG_ALIGNS.has(opts.align)
+      || typeof opts.lineSpacing !== 'number' || !Number.isFinite(opts.lineSpacing) || opts.lineSpacing <= 0
+      || typeof opts.letterSpacing !== 'number' || !Number.isFinite(opts.letterSpacing)) {
+      return { error: 'malformed text edit spec' };
+    }
+    if (opts.text.trim() === '') {
+      return { error: 'the text string is empty' };
+    }
+    return { statement: renderTextStatement(opts, parsed.pathText) };
   }
   if (typeof spec.value !== 'number' || !Number.isFinite(spec.value) || spec.value === 0) {
     return { error: `the ${parsed.feature} value must be a nonzero number` };

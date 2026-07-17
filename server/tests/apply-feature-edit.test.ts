@@ -2888,3 +2888,167 @@ describe('applyFeatureEdit (revolve in-place statement edit)', () => {
     expect(result.newCode).toBe(code);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Text statements (timeline double-click → text edit dialog)
+// ---------------------------------------------------------------------------
+
+const textEditBase = [
+  `import { sketch, text } from 'fluidcad/core'`,
+  ``,
+  `sketch('xy', () => {`,
+].join('\n');
+
+function textEditOptions(
+  overrides: Partial<NonNullable<FeatureStatementEditTarget['text']>> = {},
+): NonNullable<FeatureStatementEditTarget['text']> {
+  return {
+    text: 'Hello', size: 10, font: null, weight: 400, italic: false,
+    align: 'left', lineSpacing: 1, letterSpacing: 0, ...overrides,
+  };
+}
+
+describe('parseFeatureStatement — text', () => {
+  it('reads a bare text call with defaults', async () => {
+    const code = `${textEditBase}\n  text("Hello")\n})\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'text', text: 'Hello', size: 10, font: null, weight: 400,
+        italic: false, align: 'left', lineSpacing: 1, letterSpacing: 0, pathText: null,
+      },
+      statement: 'text("Hello")',
+    });
+  });
+
+  it('reads a full option chain', async () => {
+    const code = `${textEditBase}\n  text("Hi").font('Georgia').size(14).bold().italic().align('center').lineSpacing(1.2).letterSpacing(-0.5)\n})\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.parsed).toMatchObject({
+        feature: 'text', text: 'Hi', font: 'Georgia', size: 14, weight: 700,
+        italic: true, align: 'center', lineSpacing: 1.2, letterSpacing: -0.5,
+      });
+    }
+  });
+
+  it('decodes string escapes into the value', async () => {
+    const code = `${textEditBase}\n  text("Line1\\nLine2's")\n})\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result.ok).toBe(true);
+    if (result.ok && result.parsed.feature === 'text') {
+      expect(result.parsed.text).toBe("Line1\nLine2's");
+    }
+  });
+
+  it('maps weight names and normalizes start alignment', async () => {
+    const code = `${textEditBase}\n  text("Hi").weight('semibold').align('start')\n})\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result.ok).toBe(true);
+    if (result.ok && result.parsed.feature === 'text') {
+      expect(result.parsed.weight).toBe(600);
+      expect(result.parsed.align).toBe('left');
+    }
+  });
+
+  it('keeps a path argument verbatim and stops before path-only chains', async () => {
+    const code = `${textEditBase}\n  text("Hi", p.arc).size(5).offset(2)\n})\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result.ok).toBe(true);
+    if (result.ok && result.parsed.feature === 'text') {
+      expect(result.parsed.pathText).toBe('p.arc');
+      expect(result.statement).toBe('text("Hi", p.arc).size(5)');
+    }
+  });
+
+  it('refuses a non-literal text string', async () => {
+    const code = `${textEditBase}\n  text(label)\n})\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('plain string') });
+  });
+
+  it('refuses a variable size', async () => {
+    const code = `${textEditBase}\n  text("Hi").size(h)\n})\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('.size()') });
+  });
+
+  it('refuses chaining both weight and bold', async () => {
+    const code = `${textEditBase}\n  text("Hi").weight(300).bold()\n})\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('.weight() and .bold()') });
+  });
+
+  it('refuses the path-only distributed alignments', async () => {
+    const code = `${textEditBase}\n  text("Hi", p).align('space-between')\n})\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('.align()') });
+  });
+});
+
+describe('applyFeatureEdit (text in-place statement edit)', () => {
+  it('rewrites the options in place at the statement indent', async () => {
+    const code = `${textEditBase}\n  text("Hello").size(12)\n})\n`;
+    const result = await applyFeatureEdit(code, editSpec('text', {
+      line: 4, column: 2,
+      text: textEditOptions({ text: 'Hi there', font: 'Georgia', size: 14, weight: 700, align: 'center' }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(
+      `${textEditBase}\n  text("Hi there").font('Georgia').size(14).bold().align('center')\n})\n`,
+    );
+  });
+
+  it('drops chains back to defaults', async () => {
+    const code = `${textEditBase}\n  text("Hi").size(14).bold().italic()\n})\n`;
+    const result = await applyFeatureEdit(code, editSpec('text', {
+      line: 4, column: 2,
+      text: textEditOptions({ text: 'Hi' }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  text("Hi")\n`);
+  });
+
+  it('keeps the path argument and trailing path-only chains verbatim', async () => {
+    const code = `${textEditBase}\n  text("Hi", p.arc).size(5).offset(2).flip()\n})\n`;
+    const result = await applyFeatureEdit(code, editSpec('text', {
+      line: 4, column: 2,
+      text: textEditOptions({ text: 'New', size: 8 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  text("New", p.arc).size(8).offset(2).flip()\n`);
+  });
+
+  it('escapes the new string as a double-quoted literal', async () => {
+    const code = `${textEditBase}\n  text("Hi")\n})\n`;
+    const result = await applyFeatureEdit(code, editSpec('text', {
+      line: 4, column: 2,
+      text: textEditOptions({ text: 'Line1\nLine2 "q"' }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  text("Line1\\nLine2 \\"q\\"")\n`);
+  });
+
+  it('refuses a stale expectedStatement', async () => {
+    const code = `${textEditBase}\n  text("Hello")\n})\n`;
+    const result = await applyFeatureEdit(code, editSpec('text', {
+      line: 4, column: 2,
+      expectedStatement: 'text("Something else")',
+      text: textEditOptions(),
+    }));
+    expect(result.error).toContain('changed since the dialog opened');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses an empty replacement text', async () => {
+    const code = `${textEditBase}\n  text("Hello")\n})\n`;
+    const result = await applyFeatureEdit(code, editSpec('text', {
+      line: 4, column: 2,
+      text: textEditOptions({ text: '   ' }),
+    }));
+    expect(result.error).toContain('empty');
+    expect(result.newCode).toBe(code);
+  });
+});

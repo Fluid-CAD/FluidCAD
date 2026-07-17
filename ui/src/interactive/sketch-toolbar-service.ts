@@ -10,6 +10,7 @@ import { SlotTool } from './tools/slot-tool';
 import { PolylineTool } from './tools/polyline';
 import { BezierTool } from './tools/bezier-tool';
 import { PolygonTool } from './tools/polygon-tool';
+import { TextTool } from './tools/text-tool';
 import { DragMoveHandler } from './drag-move-handler';
 import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
 import { BezierHandlesOverlay } from './bezier-handles-overlay';
@@ -201,6 +202,9 @@ export class SketchToolbarService {
         return new RoundedRectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.rectCenteredChecked);
       case 'slot':
         return new SlotTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+      case 'text':
+        return new TextTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container,
+          () => this.handleToolSelect(null));
       default:
         return null;
     }

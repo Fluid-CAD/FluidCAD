@@ -887,9 +887,13 @@ export async function insertGeometryCall(
   lines.splice(insertRow, 0, newLine);
   let result = joinLines(lines);
 
-  const funcName = statement.match(/^(\w+)\s*\(/)?.[1];
-  if (funcName) {
-    result = await ensureSymbolImport(result, funcName);
+  // A multi-line statement (e.g. `move(…);\ntext(…)`) needs every line's
+  // callee imported, not just the first.
+  for (const stmtLine of statement.split('\n')) {
+    const funcName = stmtLine.trim().match(/^(\w+)\s*\(/)?.[1];
+    if (funcName) {
+      result = await ensureSymbolImport(result, funcName);
+    }
   }
 
   return { newCode: result };

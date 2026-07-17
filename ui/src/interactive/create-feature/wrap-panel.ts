@@ -94,6 +94,8 @@ export class WrapPanel {
       }
       e.stopPropagation();
     });
+    this.sketchSlot.onArm = () => this.armSlot('sketch');
+    this.faceSlot.onArm = () => this.armSlot('face');
     this.sketchSlot.onRemove = () => {
       // Create mode: back to the prompt; edit mode: back to the statement's
       // own sketch (a re-pick is undone, never the sketch itself).
@@ -123,6 +125,8 @@ export class WrapPanel {
       this.sketchState = { kind: 'sketch', option: options[0] };
       this.renderSketch();
     }
+    // The face slot opens empty and awaiting a pick — it starts armed.
+    this.armSlot('face');
     this.shell.show();
   }
 
@@ -144,6 +148,7 @@ export class WrapPanel {
     this.thicknessInput.value = String(state.thickness);
     this.setFaceChip(null);
     this.renderSketch();
+    this.armSlot('face');
     this.shell.show();
   }
 
@@ -190,6 +195,7 @@ export class WrapPanel {
     }
     this.sketchState = { kind: 'sketch', option };
     this.renderSketch();
+    this.armSlot('sketch');
     return true;
   }
 
@@ -215,7 +221,11 @@ export class WrapPanel {
       this.faceSlot.setChips([]);
       this.faceSlot.setPrompt('Pick the target face in the 3D view');
     }
-    this.faceSlot.setArmed(true);
+    // A landed 3D pick moves the active state onto the face slot; clears
+    // (✕, stale resets) leave whichever slot the user was working with.
+    if (label !== null) {
+      this.armSlot('face');
+    }
   }
 
   /** The face slot's state, `keep` included (edit mode only). */
@@ -269,7 +279,11 @@ export class WrapPanel {
           ? 'Pick a sketch in the timeline or 3D view'
           : 'No sketch — create one first');
     }
-    // The slot is the live pick target whenever there is anything to pick.
-    this.sketchSlot.setArmed(this.editMode || this.options.length > 0);
+  }
+
+  /** Move the active (armed) state onto one slot exclusively. */
+  private armSlot(slot: 'sketch' | 'face'): void {
+    this.sketchSlot.setArmed(slot === 'sketch');
+    this.faceSlot.setArmed(slot === 'face');
   }
 }

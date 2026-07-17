@@ -66,14 +66,17 @@ export class SceneModeManager {
   enterDefaultMode(): void {
     if (this.mode === 'sketch') {
       this._sectionPlane = null;
-      this.restoreCamera();
 
-      // Restore perspective if it was active before sketch mode
+      // Restore perspective BEFORE the animated camera restore: switchCamera
+      // rebuilds the CameraControls instance with an instant setLookAt, which
+      // would cut the restore transition short if it ran second.
       if (this.cameraBackupMode === 'perspective') {
         this.ctx.switchCamera('perspective');
         viewerSettings.update({ cameraMode: 'perspective' });
       }
       this.cameraBackupMode = null;
+
+      this.restoreCamera();
     }
 
     this.mode = 'default';
@@ -106,7 +109,7 @@ export class SceneModeManager {
     this.createSectionPlane(plane);
   }
 
-  /** Snap the camera back along the sketch normal, preserving target and zoom. */
+  /** Swing the camera back along the sketch normal, preserving target and zoom. */
   enforceSketchNormal(plane: PlaneData): void {
     const cc = this.ctx.cameraControls;
 
@@ -122,7 +125,7 @@ export class SceneModeManager {
     cc.updateCameraUp();
 
     cc.normalizeRotations();
-    cc.setLookAt(camPos.x, camPos.y, camPos.z, tgt.x, tgt.y, tgt.z, false);
+    cc.setLookAt(camPos.x, camPos.y, camPos.z, tgt.x, tgt.y, tgt.z, true);
 
     cc.getTarget(this.ctx.controls.target);
     this.ctx.gizmo.target = this.ctx.controls.target;
@@ -162,7 +165,7 @@ export class SceneModeManager {
     cc.updateCameraUp();
 
     cc.normalizeRotations();
-    cc.setLookAt(camPos.x, camPos.y, camPos.z, center.x, center.y, center.z, false);
+    cc.setLookAt(camPos.x, camPos.y, camPos.z, center.x, center.y, center.z, true);
 
     // Keep adapter target in sync
     cc.getTarget(this.ctx.controls.target);
@@ -180,7 +183,7 @@ export class SceneModeManager {
     cc.updateCameraUp();
 
     cc.normalizeRotations();
-    cc.setLookAt(position.x, position.y, position.z, target.x, target.y, target.z, false);
+    cc.setLookAt(position.x, position.y, position.z, target.x, target.y, target.z, true);
 
     // Keep adapter target in sync
     cc.getTarget(this.ctx.controls.target);

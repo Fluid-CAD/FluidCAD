@@ -10,6 +10,7 @@ import { Loft } from "../features/loft.js";
 import { ExtrudeBase } from "../features/extrude-base.js";
 import { ExtrudeToFace } from "../features/extrude-to-face.js";
 import { Revolve } from "../features/revolve.js";
+import { Wrap } from "../features/wrap.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
 import {
@@ -39,6 +40,7 @@ export type FeatureSources =
   | { feature: 'sweep'; profile: SourceSlot; path: SourceSlot }
   | { feature: 'loft'; profiles: SourceSlot[]; guides: SourceSlot[] }
   | { feature: 'revolve'; profile: SourceSlot; axis: SourceSlot }
+  | { feature: 'wrap'; sketch: SourceSlot; face: SourceSlot }
   | { feature: 'shell' | 'fillet' | 'chamfer'; selection: SourceSlot };
 
 export type FeatureSourcesResult =
@@ -88,6 +90,15 @@ export function resolveFeatureSources(
         feature: 'loft',
         profiles: feature.profiles.map(p => resolver.mixedSlot(p)),
         guides: feature.guideObjects.map(g => resolver.sketchSlot(g)),
+      };
+    }
+    // Wrap extends ExtrudeBase — its case must come first.
+    if (feature instanceof Wrap) {
+      return {
+        ok: true,
+        feature: 'wrap',
+        sketch: resolver.profileSlot(feature),
+        face: resolver.entitiesSlot([feature.face]),
       };
     }
     // Revolve extends ExtrudeBase — its case must come first.

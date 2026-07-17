@@ -103,7 +103,7 @@ export type ExplainResult = {
   picks: PickExplanation[];
 };
 
-export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve';
+export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap';
 
 /**
  * A tangent chain from the "Select with tangents" gesture: the pick the user

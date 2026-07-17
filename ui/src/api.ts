@@ -550,6 +550,39 @@ export async function applySweep(options: SweepApplyOptions): Promise<ApplyFeatu
   }, options.signal);
 }
 
+/** The wrap options the dialog edits, shared by create and edit applies. */
+export type WrapOptionValues = {
+  op: 'add' | 'remove' | 'new';
+  /** Pad thickness along the surface normal (always positive). */
+  thickness: number;
+};
+
+export type WrapApplyOptions = WrapOptionValues & {
+  /** The sketch to wrap — always bound to a variable (wrap takes it explicitly). */
+  sketch: SketchSourceRef;
+  /** The target face to wrap onto, synthesized into a face selector. */
+  face: ApplyFeatureEntity;
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a wrap statement
+ * developing a sketch onto a curved face. Same endpoint and response shape as
+ * {@link applyFeature}.
+ */
+export async function applyWrap(options: WrapApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'wrap',
+    op: options.op,
+    thickness: options.thickness,
+    sketch: options.sketch,
+    face: options.face,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /** One ordered loft profile: a sketch, or a face picked in the 3D view. */
 export type LoftProfileRef =
   | ({ kind: 'sketch' } & SketchSourceRef)
@@ -671,6 +704,7 @@ export type SourceSlotRef =
 export type FeatureSourcesResult =
   | { ok: true; feature: 'extrude' | 'cut'; profile: SourceSlotRef; toFace?: SourceSlotRef }
   | { ok: true; feature: 'sweep'; profile: SourceSlotRef; path: SourceSlotRef }
+  | { ok: true; feature: 'wrap'; sketch: SourceSlotRef; face: SourceSlotRef }
   | { ok: true; feature: 'loft'; profiles: SourceSlotRef[]; guides: SourceSlotRef[] }
   | { ok: true; feature: 'revolve'; profile: SourceSlotRef; axis: SourceSlotRef }
   | { ok: true; feature: 'shell' | 'fillet' | 'chamfer'; selection: SourceSlotRef }
@@ -721,6 +755,16 @@ export type ParsedFeatureStatement =
       thin: [number] | null;
       pathText: string;
       profileText: string | null;
+    }
+  | {
+      feature: 'wrap';
+      op: FeatureOpKind;
+      /** Pad thickness along the surface normal (always positive). */
+      thickness: number;
+      /** Sketch argument text, verbatim (`s`). */
+      sketchText: string;
+      /** Target face argument text, verbatim (`e.sideFaces(0)`). */
+      faceText: string;
     }
   | {
       feature: 'revolve';
@@ -853,6 +897,36 @@ export async function applySweepEdit(
     thin: options.thin,
     path: options.path,
     profile: options.profile,
+    preview: options.preview,
+  }, options.signal);
+}
+
+export type WrapEditOptions = WrapOptionValues & EditSessionFields & {
+  /** Re-sourced sketch; omitted keeps the statement's own. */
+  sketch?: { kind: 'sketch' } & SketchSourceRef;
+  /**
+   * Target face: `keep` re-emits the statement's own face text, `face`
+   * re-picks it. Omitted also keeps the statement's own.
+   */
+  face?: { kind: 'keep' } | { kind: 'face'; entity: ApplyFeatureEntity };
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the wrap statement at `edit` in place. */
+export async function applyWrapEdit(
+  edit: FeatureEditTarget,
+  options: WrapEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'wrap',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    op: options.op,
+    thickness: options.thickness,
+    sketch: options.sketch,
+    face: options.face,
     preview: options.preview,
   }, options.signal);
 }

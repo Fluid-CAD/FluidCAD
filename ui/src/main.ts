@@ -19,6 +19,7 @@ import { ExtrudeFeatureService } from './interactive/create-feature/extrude-serv
 import { RevolveFeatureService } from './interactive/create-feature/revolve-service';
 import { SweepFeatureService } from './interactive/create-feature/sweep-service';
 import { LoftFeatureService } from './interactive/create-feature/loft-service';
+import { WrapFeatureService } from './interactive/create-feature/wrap-service';
 import { PlaneFeatureService } from './interactive/create-feature/plane-service';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
@@ -107,7 +108,7 @@ const regionService = new RegionPickService(viewer, navbar);
 // up — it disables instead. Recomputed on every dialog arm/disarm.
 const syncSketchButtonBlocked = () => modifyService.setCreateDialogActive(
   extrudeService.isActive || revolveService.isActive || sweepService.isActive
-  || loftService.isActive || planeService.isActive,
+  || loftService.isActive || wrapService.isActive || planeService.isActive,
 );
 // Registered before the sketch toolbar so the create group renders ahead of
 // the sketch tools; its `immune` flag keeps it visible in sketch mode, where
@@ -118,6 +119,7 @@ const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
     revolveService.exit();
     sweepService.exit();
     loftService.exit();
+    wrapService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -136,6 +138,7 @@ const revolveService = new RevolveFeatureService(container, viewer, navbar, {
     extrudeService.exit();
     sweepService.exit();
     loftService.exit();
+    wrapService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -152,6 +155,7 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
     extrudeService.exit();
     revolveService.exit();
     loftService.exit();
+    wrapService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -168,6 +172,25 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
     extrudeService.exit();
     revolveService.exit();
     sweepService.exit();
+    wrapService.exit();
+    planeService.exit();
+    textEditService.exit();
+    measureController.clearSelection();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
+  },
+  onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: () => sketchService.update([]),
+  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+});
+// Constructed after Loft so its button lands at the end of the create group.
+const wrapService = new WrapFeatureService(container, viewer, navbar, {
+  onEnter: () => {
+    modifyService.exit();
+    extrudeService.exit();
+    revolveService.exit();
+    sweepService.exit();
+    loftService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -190,6 +213,7 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
     revolveService.exit();
     sweepService.exit();
     loftService.exit();
+    wrapService.exit();
     const seed = [...measureController.selection];
     textEditService.exit();
     measureController.clearSelection();
@@ -211,6 +235,7 @@ const textEditService = new TextEditService(container, viewer, {
     revolveService.exit();
     sweepService.exit();
     loftService.exit();
+    wrapService.exit();
     planeService.exit();
     measureController.clearSelection();
     viewer.clearHighlight();
@@ -223,7 +248,7 @@ const textEditService = new TextEditService(container, viewer, {
 // timeline as its input instead of the default rollback-preview.
 timelinePanel.onFeatureIntercept = (obj) =>
   extrudeService.handleTimelinePick(obj) || revolveService.handleTimelinePick(obj)
-  || sweepService.handleTimelinePick(obj)
+  || sweepService.handleTimelinePick(obj) || wrapService.handleTimelinePick(obj)
   || loftService.handleTimelinePick(obj) || planeService.handleTimelinePick(obj);
 // Double-clicking an editable feature row (the enter-breakpoint gesture)
 // also opens that feature's dialog prefilled from its statement.
@@ -232,7 +257,7 @@ timelinePanel.onFeatureEdit = (obj, index) => {
 };
 
 /** Timeline `type` → the dialog that edits it (cut is extrude's remove op). */
-const EDITABLE_ROW_TYPES = new Set(['extrude', 'cut', 'revolve', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'text']);
+const EDITABLE_ROW_TYPES = new Set(['extrude', 'cut', 'revolve', 'sweep', 'wrap', 'loft', 'shell', 'fillet', 'chamfer', 'text']);
 
 /**
  * Parse the double-clicked row's statement and open the matching dialog in
@@ -262,6 +287,8 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     revolveService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'sweep') {
     sweepService.enterEdit(target, parsed, info);
+  } else if (parsed.feature === 'wrap') {
+    wrapService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'loft') {
     loftService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'text') {
@@ -325,7 +352,7 @@ const breakpointIndicator = new BreakpointIndicator(container, () => {
   // Continue leaves the paused build: open edit sessions end WITHOUT their
   // cancel-restore rollback — the full render Continue triggers supersedes
   // it, and a session re-assert would fight the view the user asked for.
-  for (const service of [modifyService, extrudeService, revolveService, sweepService, loftService]) {
+  for (const service of [modifyService, extrudeService, revolveService, sweepService, wrapService, loftService]) {
     if (service.isEditing) {
       service.exit({ editEnd: 'continue' });
     }
@@ -372,6 +399,7 @@ const createDialogPicking = () =>
   || revolveService.isAxisPicking
   || (sweepService.isActive && !sweepService.isEditing)
   || sweepService.isEdgePicking
+  || wrapService.isFacePicking
   || loftService.isFacePicking
   || planeService.isPicking;
 
@@ -404,6 +432,7 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
       const consumed = extrudeService.handleSketchPick(shapeId)
         || revolveService.handleSketchPick(shapeId)
         || sweepService.handleSketchPick(shapeId)
+        || wrapService.handleSketchPick(shapeId)
         || loftService.handleSketchPick(shapeId);
       if (consumed) {
         return;
@@ -452,6 +481,11 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
   // — the pick is the extrusion's target face.
   if (extrudeService.isFacePicking) {
     extrudeService.handleClick(shapeId, sub);
+    return;
+  }
+  // The armed wrap dialog owns face clicks — the pick is the target face.
+  if (wrapService.isFacePicking) {
+    wrapService.handleClick(shapeId, sub);
     return;
   }
   // The armed loft dialog owns face clicks — each pick is one profile.
@@ -624,7 +658,8 @@ function connectWebSocket() {
           // While a pick mode has sketch editing suspended, the sketch
           // toolbar must not re-take the bar on incoming renders.
           const sketchSuspended = modifyService.sketchUISuspended
-            || sweepService.sketchUISuspended || loftService.sketchUISuspended
+            || sweepService.sketchUISuspended || wrapService.sketchUISuspended
+            || loftService.sketchUISuspended
             || planeService.sketchUISuspended || extrudeService.sketchUISuspended
             || revolveService.sketchUISuspended || textEditService.isActive;
           sketchService.update(sketchSuspended ? [] : msg.result);
@@ -638,6 +673,7 @@ function connectWebSocket() {
         extrudeService.handleSceneRendered(msg.result, renderStop, isRollback);
         revolveService.handleSceneRendered(msg.result, renderStop, isRollback);
         sweepService.handleSceneRendered(msg.result, renderStop, isRollback);
+        wrapService.handleSceneRendered(msg.result, renderStop, isRollback);
         loftService.handleSceneRendered(msg.result, renderStop, isRollback);
         textEditService.handleSceneRendered(msg.result, renderStop, isRollback);
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1);

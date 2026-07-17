@@ -593,6 +593,95 @@ describe('apply-feature route validation', () => {
     expect(body.error).toContain('different sketches');
   });
 
+  const WRAP_SKETCH = { filePath: '/ws/m.fluid.js', line: 5, column: 0 };
+  const WRAP_FACE = { shapeId: 'shape-1', sub: { type: 'face', index: 3 } };
+  const wrapSynthesis = {
+    ok: true,
+    spec: {
+      feature: 'wrap',
+      filePath: '/ws/m.fluid.js',
+      producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'sideFaces', indices: [0], filterArgs: null }],
+      imports: [],
+    },
+    preview: 'wrap(e.sideFaces(0))',
+    args: 'e.sideFaces(0)',
+    alternatives: [],
+  };
+
+  it('synthesizes the wrap target and binds the sketch ahead of it', async () => {
+    currentSynthesis = wrapSynthesis;
+    const { status, body } = await post({
+      feature: 'wrap', op: 'add', thickness: 2, sketch: WRAP_SKETCH, face: WRAP_FACE,
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('wrap(2, s, e.sideFaces(0))');
+    expect(synthesizeCalls).toEqual([{ feature: 'wrap', value: undefined }]);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'wrap',
+      wrap: { op: 'add', thickness: 2, sketch: { producer: 0 } },
+      producers: [
+        { line: 5, featureType: 'sketch', nameHint: 's', bind: true },
+        { line: 4, featureType: 'extrude', bind: true },
+      ],
+      parts: [{ producer: 1, accessor: 'sideFaces', indices: [0] }],
+    });
+  });
+
+  it('previews a deboss wrap without relaying', async () => {
+    currentSynthesis = wrapSynthesis;
+    const { body } = await post({
+      feature: 'wrap', op: 'remove', thickness: 1.5, sketch: WRAP_SKETCH, face: WRAP_FACE, preview: true,
+    });
+    expect(body.preview).toBe('wrap(1.5, s, e.sideFaces(0)).remove()');
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('rejects a non-positive wrap thickness', async () => {
+    const { status, body } = await post({
+      feature: 'wrap', op: 'add', thickness: 0, sketch: WRAP_SKETCH, face: WRAP_FACE,
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('thickness');
+  });
+
+  it('rejects an edge pick as the wrap target', async () => {
+    const { status, body } = await post({
+      feature: 'wrap', op: 'add', thickness: 2, sketch: WRAP_SKETCH,
+      face: { shapeId: 'shape-1', sub: { type: 'edge', index: 0 } },
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('face');
+  });
+
+  it('refuses a multi-part wrap synthesis', async () => {
+    currentSynthesis = {
+      ...wrapSynthesis,
+      spec: {
+        ...wrapSynthesis.spec,
+        parts: [
+          { producer: 0, accessor: 'sideFaces', indices: [0], filterArgs: null },
+          { producer: 0, accessor: 'sideFaces', indices: [1], filterArgs: null },
+        ],
+      },
+    };
+    const { status, body } = await post({
+      feature: 'wrap', op: 'add', thickness: 2, sketch: WRAP_SKETCH, face: WRAP_FACE,
+    });
+    expect(status).toBe(422);
+    expect(body.reason).toContain('single face');
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('refuses a wrap target from a different file than the sketch', async () => {
+    currentSynthesis = { ...wrapSynthesis, spec: { ...wrapSynthesis.spec, filePath: '/ws/other.fluid.js' } };
+    const { status, body } = await post({
+      feature: 'wrap', op: 'add', thickness: 2, sketch: WRAP_SKETCH, face: WRAP_FACE,
+    });
+    expect(status).toBe(422);
+    expect(body.reason).toContain('different files');
+  });
+
   const REVOLVE_PROFILE = { mode: 'active', filePath: '/ws/m.fluid.js', line: 7, column: 0 };
 
   it('relays a standard-axis revolve with an implicit profile', async () => {
@@ -1340,7 +1429,7 @@ describe('apply-feature route validation', () => {
 
     describe('edit-mode source re-picking', () => {
       const SOURCE_CODE = [
-        `import { sketch, rect, circle, extrude, sweep, loft, shell } from 'fluidcad/core'`,
+        `import { sketch, rect, circle, extrude, sweep, loft, shell, wrap } from 'fluidcad/core'`,
         ``,
         `const s = sketch('xy', () => { rect(100, 50) })`,
         `const e = extrude(30)`,
@@ -1348,6 +1437,7 @@ describe('apply-feature route validation', () => {
         `shell(-2, e.endFaces())`,
         `sweep(p, s)`,
         `loft(s, p)`,
+        `wrap(2, p, e.sideFaces(0))`,
         ``,
       ].join('\n');
       const BEFORE = { index: 5, type: 'shell', line: 6, column: 0 };
@@ -1602,6 +1692,71 @@ describe('apply-feature route validation', () => {
           producers: [{ line: 4, featureType: 'extrude' }],
           parts: [{ producer: 0, accessor: 'sideEdges', indices: [1] }],
           edit: { line: 7, sweep: { path: { kind: 'selector' } } },
+        });
+      });
+
+      it('relays a value-only wrap edit and previews the exact statement', async () => {
+        const { status, body } = await post({
+          feature: 'wrap',
+          edit: { filePath: '/ws/m.fluid.js', line: 9, column: 0 },
+          op: 'remove', thickness: 3,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe('wrap(3, p, e.sideFaces(0)).remove()');
+        expect(synthesizeCalls).toEqual([]);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'wrap',
+          producers: [],
+          parts: [],
+          edit: { line: 9, column: 0, wrap: { op: 'remove', thickness: 3 } },
+        });
+      });
+
+      it('re-picks a wrap target face: synthesis with the boundary', async () => {
+        currentSynthesis = {
+          ...shellSynthesis,
+          spec: {
+            ...shellSynthesis.spec,
+            feature: 'wrap',
+            parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+          },
+          args: 'e.endFaces()',
+          alternatives: [],
+        };
+        const { status, body } = await post({
+          feature: 'wrap',
+          edit: { filePath: '/ws/m.fluid.js', line: 9, column: 0 },
+          op: 'add', thickness: 2,
+          face: { kind: 'face', entity: FACE_PICK },
+          before: { ...BEFORE, index: 8, type: 'wrap', line: 9 },
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe('wrap(2, p, e.endFaces())');
+        expect(synthesizeCalls).toEqual([{ feature: 'wrap', value: undefined }]);
+        expect(synthesizeBoundaries).toEqual([{ ...BEFORE, index: 8, type: 'wrap', line: 9 }]);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'wrap',
+          producers: [{ line: 4, featureType: 'extrude' }],
+          parts: [{ producer: 0, accessor: 'endFaces' }],
+          edit: { line: 9, wrap: { face: { kind: 'selector' } } },
+        });
+      });
+
+      it('re-sources a wrap sketch without synthesis or a boundary', async () => {
+        const { status, body } = await post({
+          feature: 'wrap',
+          edit: { filePath: '/ws/m.fluid.js', line: 9, column: 0 },
+          op: 'add', thickness: 2,
+          sketch: { kind: 'sketch', filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe('wrap(2, s, e.sideFaces(0))');
+        expect(synthesizeCalls).toEqual([]);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'wrap',
+          producers: [{ line: 3, featureType: 'sketch', bind: true }],
+          parts: [],
+          edit: { line: 9, wrap: { sketch: { kind: 'sketch', producer: 0 } } },
         });
       });
 

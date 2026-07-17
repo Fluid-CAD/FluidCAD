@@ -18,7 +18,7 @@ import {
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: number;
   /**
@@ -36,6 +36,8 @@ export type ApplyFeatureEditSpec = {
   extrude?: ExtrudeEditOptions;
   /** Sweep-only payload; `parts` (if any) render the path selector. */
   sweep?: SweepEditOptions;
+  /** Wrap-only payload; the single `parts` entry renders the target face. */
+  wrap?: WrapEditOptions;
   /** Shell-only payload; the join type chains after the selector args. */
   shell?: ShellEditOptions;
   /** Loft-only payload; each `parts` entry renders one profile's selector. */
@@ -163,6 +165,17 @@ export type FeatureStatementEditTarget = {
     /** Re-sourced profile; absent keeps the statement's profile text. */
     profile?: EditSketchSource;
   };
+  wrap?: {
+    op: 'add' | 'remove' | 'new';
+    thickness: number;
+    /** Re-sourced sketch; absent keeps the statement's sketch text. */
+    sketch?: EditSketchSource;
+    /**
+     * Re-picked target face rendered from the single `parts` entry; absent
+     * keeps the statement's own face text.
+     */
+    face?: { kind: 'selector' };
+  };
   shell?: {
     joinType: ShellJoinKind;
   };
@@ -255,6 +268,21 @@ export type SweepEditOptions = {
   thin: [number] | [number, number] | null;
   profile: 'implicit' | { producer: number };
   path: { kind: 'sketch'; producer: number } | { kind: 'selector' };
+};
+
+/**
+ * How a wrap statement is rendered and placed: `wrap(<thickness>, <sketch>,
+ * <face>)` plus `.remove()` / `.new()` chains (wrap has no thin mode). The
+ * sketch is always an explicit argument — wrap() never consumes the active
+ * sketch — so its producer binds to a variable; the target face is the single
+ * selector part. The face selector must resolve on the final model, so the
+ * statement always inserts at end of scope.
+ */
+export type WrapEditOptions = {
+  op: 'add' | 'remove' | 'new';
+  /** Pad thickness along the surface normal (always positive). */
+  thickness: number;
+  sketch: { producer: number };
 };
 
 /**
@@ -444,6 +472,18 @@ export async function applyFeatureEdit(
       && (sw.profile === 'implicit' || sketchProducer(sw.profile.producer));
     if (!valid) {
       return { newCode: code, error: 'malformed sweep edit spec' };
+    }
+  } else if (spec.feature === 'wrap') {
+    // The sketch is always a bound producer (wrap never consumes the active
+    // sketch implicitly); the single selector part is the target face, whose
+    // own producers ride the list alongside the sketch.
+    const wr = spec.wrap;
+    const valid = wr !== undefined
+      && Number.isFinite(wr.thickness) && wr.thickness > 0
+      && spec.parts.length === 1
+      && isSketchProducer(spec, wr.sketch?.producer);
+    if (!valid) {
+      return { newCode: code, error: 'malformed wrap edit spec' };
     }
   } else if (spec.feature === 'revolve') {
     // The profile sketch (implicit consumption or a bound variable) is always
@@ -1143,6 +1183,21 @@ export function renderSweepStatement(
 }
 
 /**
+ * Render a wrap statement: `wrap(<thickness>, <sketch>, <face>)` plus the
+ * `.remove()` / `.new()` operation chains (wrap has no thin mode). Shared
+ * with the route's preview so the previewed text is exactly what the
+ * transform writes.
+ */
+export function renderWrapStatement(
+  wr: Pick<WrapEditOptions, 'op' | 'thickness'>,
+  sketchExpr: string,
+  faceExpr: string,
+): string {
+  return `wrap(${formatNumber(wr.thickness)}, ${sketchExpr}, ${faceExpr})`
+    + renderOpChains({ op: wr.op, thin: null });
+}
+
+/**
  * Render a text statement: `text("…"[, <path>])` plus the option chains, in
  * the Text tool's canonical order, defaults omitted. `pathExpr` is the
  * statement's own path argument text, preserved verbatim. Shared with the
@@ -1413,6 +1468,12 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     const profileVar = sw.profile === 'implicit' ? null : bindings[sw.profile.producer].varName!;
     return renderSweepStatement(sw, pathExpr, profileVar);
   }
+  if (spec.feature === 'wrap') {
+    const wr = spec.wrap!;
+    const part = spec.parts[0];
+    const faceExpr = renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName);
+    return renderWrapStatement(wr, bindings[wr.sketch.producer].varName ?? 's', faceExpr);
+  }
   if (spec.feature === 'revolve') {
     const rev = spec.revolve!;
     const axisExpr = renderRevolveAxisExpr(rev.axis, spec.parts, i => bindings[i].varName);
@@ -1563,7 +1624,7 @@ function resolveInsertion(
 // ---------------------------------------------------------------------------
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap';
 
 /**
  * An existing statement's dialog-editable reading. Argument expressions the
@@ -1596,6 +1657,16 @@ export type ParsedFeatureStatement =
     thin: [number] | null;
     pathText: string;
     profileText: string | null;
+  }
+  | {
+    feature: 'wrap';
+    op: 'add' | 'remove' | 'new';
+    /** Pad thickness along the surface normal (always positive). */
+    thickness: number;
+    /** Sketch argument text, verbatim (`s`). */
+    sketchText: string;
+    /** Target face argument text, verbatim (`e.sideFaces(0)`). */
+    faceText: string;
   }
   | {
     feature: 'revolve';
@@ -1656,6 +1727,7 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   chamfer: 'chamfer',
   revolve: 'revolve',
   text: 'text',
+  wrap: 'wrap',
 };
 
 /**
@@ -1679,6 +1751,8 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // Path-only chains (.offset/.flip/.startAt) are deliberately absent — the
   // dialog doesn't edit them, so they survive verbatim after the prefix.
   text: new Set(['font', 'size', 'weight', 'bold', 'italic', 'align', 'lineSpacing', 'letterSpacing']),
+  // Wrap has no thin mode — only the boolean-operation chains.
+  wrap: new Set(['remove', 'new']),
 };
 
 type ChainSegment = { name: string; args: TSNode[]; endIndex: number };
@@ -1970,6 +2044,23 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
     }
     return {
       parsed: { feature, op, thin, pathText: args[0].text, profileText: args[1]?.text ?? null },
+      start,
+      end,
+    };
+  }
+
+  if (feature === 'wrap') {
+    // wrap(<thickness>, <sketch>, <face>): the thickness must be a plain
+    // literal; the sketch and face expressions are kept verbatim.
+    if (args.length !== 3) {
+      return { error: 'the wrap has an argument shape the dialog cannot edit' };
+    }
+    const thickness = numericArgValue(args[0]);
+    if (thickness === null) {
+      return { error: 'the wrap() thickness is not a plain number — edit it in the source' };
+    }
+    return {
+      parsed: { feature, op, thickness, sketchText: args[1].text, faceText: args[2].text },
       start,
       end,
     };
@@ -2475,6 +2566,34 @@ export function renderEditedStatement(
     }
     return {
       statement: renderSweepStatement({ op: opts.op, thin: opts.thin }, pathText, profileText),
+    };
+  }
+  if (parsed.feature === 'wrap') {
+    const opts = spec.edit?.wrap;
+    if (!opts || !validEditOp(opts.op)
+      || typeof opts.thickness !== 'number' || !Number.isFinite(opts.thickness) || opts.thickness <= 0) {
+      return { error: 'malformed wrap edit spec' };
+    }
+    let faceText = parsed.faceText;
+    if (opts.face !== undefined) {
+      if (spec.parts.length !== 1) {
+        return { error: 'malformed wrap edit spec: a re-picked face is exactly one part' };
+      }
+      const part = spec.parts[0];
+      faceText = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+    } else if (spec.parts.length > 0) {
+      return { error: 'malformed wrap edit spec: selector parts without a re-picked face' };
+    }
+    let sketchText = parsed.sketchText;
+    if (opts.sketch !== undefined && opts.sketch.kind !== 'keep') {
+      const varName = editSourceVar(spec, opts.sketch.producer, varFor);
+      if (typeof varName !== 'string') {
+        return varName;
+      }
+      sketchText = varName;
+    }
+    return {
+      statement: renderWrapStatement({ op: opts.op, thickness: opts.thickness }, sketchText, faceText),
     };
   }
   if (parsed.feature === 'revolve') {

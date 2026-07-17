@@ -114,6 +114,16 @@ export function synthesizeApplyFeature(
       return { ok: false, reason: 'a loft profile is a face — pick faces only', pick: edge };
     }
   }
+  if (feature === 'wrap') {
+    // The pick is wrap's target: the single face the sketch wraps onto.
+    if (chains.length > 0 || refs.length !== 1 || refs[0].sub.type !== 'face') {
+      return {
+        ok: false,
+        reason: 'wrap targets a single face — pick exactly one face',
+        pick: refs[0],
+      };
+    }
+  }
 
   const index = new SelectionIndex(scene);
   try {
@@ -169,7 +179,7 @@ export function synthesizeApplyFeature(
     const spec: ApplyFeatureEditSpec = {
       feature,
       ...(feature === 'sketch' || feature === 'extrude' || feature === 'sweep' || feature === 'loft'
-        || feature === 'plane' || feature === 'revolve' ? {} : { value }),
+        || feature === 'plane' || feature === 'revolve' || feature === 'wrap' ? {} : { value }),
       filePath: filePaths.values().next().value!,
       producers: located.map(l => {
         const loc = l.feature.getSourceLocation()!;
@@ -323,6 +333,10 @@ function renderPreview(feature: ApplyFeatureKind, value: number | undefined, arg
   if (feature === 'revolve') {
     // The args are the axis-edge selector; the route composes the statement.
     return `revolve(axis(${args}))`;
+  }
+  if (feature === 'wrap') {
+    // The args are the target-face selector; the route composes the statement.
+    return `wrap(${args})`;
   }
   return `${feature}(${value}, ${args})`;
 }

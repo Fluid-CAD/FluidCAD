@@ -31,7 +31,7 @@ type SceneManager = {
   synthesizeApplyFeature(
     scene: any,
     refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],
-    feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve',
+    feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap',
     value: number | undefined,
     chains?: {
       seed: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
@@ -521,7 +521,7 @@ export class FluidCadServer {
 
   synthesizeApplyFeature(
     refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],
-    feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve',
+    feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap',
     value: number | undefined,
     chains: {
       seed: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };

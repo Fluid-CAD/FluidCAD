@@ -4,10 +4,11 @@ import {
   applyFeatureEdit, extractNumericParams, makeProducerNamer, parseFeatureStatement, renderEditedStatement,
   renderExtrudeStatement, renderLoftStatement, renderPlaneBaseExprs, renderPlaneStatement,
   renderRevolveStatement,
-  renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, resolveParamValues,
+  renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames,
   type ApplyFeatureEditSpec, type ExtrudeEditOptions, type FeatureStatementEditTarget, type LoftEditOptions,
   type PlaneEditOptions, type RevolveEditOptions, type ShellJoinKind, type SweepEditOptions,
+  type WrapEditOptions,
 } from '../apply-feature-edit.ts';
 import { normalizePath } from '../normalize-path.ts';
 
@@ -269,6 +270,38 @@ function validateSweep(body: any): SweepRequest | { error: string } {
     return { ...base, path: { kind: 'edges', picks, chains } };
   }
   return { error: 'path must be {kind: "sketch", filePath, line} or {kind: "edges", entities}' };
+}
+
+/**
+ * The wrap request's shape: the sketch is always an explicit input (wrap()
+ * never consumes the active sketch implicitly), the target face is a pick to
+ * synthesize a selector from, and the thickness is the pad height along the
+ * surface normal.
+ */
+type WrapRequest = {
+  op: 'add' | 'remove' | 'new';
+  thickness: number;
+  sketch: SketchLoc;
+  face: Pick;
+};
+
+function validateWrap(body: any): WrapRequest | { error: string } {
+  const { op, thickness, sketch } = body ?? {};
+  if (op !== 'add' && op !== 'remove' && op !== 'new') {
+    return { error: 'op must be "add", "remove" or "new"' };
+  }
+  if (typeof thickness !== 'number' || !Number.isFinite(thickness) || thickness <= 0) {
+    return { error: 'thickness must be a positive number' };
+  }
+  const sketchLoc = validateSketchLoc(sketch);
+  if (!sketchLoc) {
+    return { error: 'sketch must be the {filePath, line} of the sketch to wrap' };
+  }
+  const pick = validatePick(body?.face);
+  if (!pick || pick.sub.type !== 'face') {
+    return { error: 'face must be a {shapeId, sub:{type:"face", index}} pick' };
+  }
+  return { op, thickness, sketch: sketchLoc, face: pick };
 }
 
 /**
@@ -652,7 +685,7 @@ async function allocateProducerVars(
 }
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap']);
 
 /** One edited loft profile as the request carries it. */
 type EditLoftProfileInput =
@@ -683,6 +716,10 @@ type StatementEditRequest = {
     | { kind: 'edges'; picks: Pick[]; chains: { seed: Pick; members: Pick[] }[] };
   /** Re-sourced sweep profile sketch; absent keeps the statement's. */
   sweepProfile?: SketchLoc;
+  /** Re-sourced wrap sketch; absent keeps the statement's. */
+  wrapSketch?: SketchLoc;
+  /** Re-picked wrap target face; absent keeps the statement's. */
+  wrapFace?: Pick;
   /** Re-sourced revolve profile sketch; absent keeps the statement's. */
   revolveProfile?: SketchLoc;
   /** Re-sourced revolve axis; absent keeps the statement's. */
@@ -711,7 +748,7 @@ function isKeepSlot(raw: any): boolean {
 function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "sweep", "loft", "revolve", "shell", "fillet" or "chamfer" for an edit' };
+    return { error: 'feature must be "extrude", "sweep", "wrap", "loft", "revolve", "shell", "fillet" or "chamfer" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -762,6 +799,37 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       return { error: 'an edited profile must be {mode: "bound", filePath, line} of the sketch' };
     }
     return { ...result, extrudeProfile: loc };
+  }
+
+  if (feature === 'wrap') {
+    const { op, thickness } = body ?? {};
+    if (op !== 'add' && op !== 'remove' && op !== 'new') {
+      return { error: 'op must be "add", "remove" or "new"' };
+    }
+    if (typeof thickness !== 'number' || !Number.isFinite(thickness) || thickness <= 0) {
+      return { error: 'thickness must be a positive number' };
+    }
+    edit.wrap = { op, thickness };
+    const result: StatementEditRequest = base;
+    if (!isKeepSlot(body?.face)) {
+      if (body.face?.kind !== 'face') {
+        return { error: 'face must be {kind: "keep"} or {kind: "face", entity}' };
+      }
+      const pick = validatePick(body.face.entity);
+      if (!pick || pick.sub.type !== 'face') {
+        return { error: 'a re-picked target must carry a {shapeId, sub:{type:"face", index}} pick' };
+      }
+      result.wrapFace = pick;
+      result.needsPicks = true;
+    }
+    if (isKeepSlot(body?.sketch)) {
+      return result;
+    }
+    const loc = validateSketchLoc(body.sketch);
+    if (body.sketch?.kind !== 'sketch' || !loc) {
+      return { error: 'an edited wrap sketch must be {kind: "sketch", filePath, line}' };
+    }
+    return { ...result, wrapSketch: loc };
   }
 
   if (feature === 'revolve') {
@@ -1133,6 +1201,7 @@ export function createApplyFeatureRouter(
           ...(request.extrudeProfile ? [request.extrudeProfile] : []),
           ...(request.sweepPath?.kind === 'sketch' ? [request.sweepPath] : []),
           ...(request.sweepProfile ? [request.sweepProfile] : []),
+          ...(request.wrapSketch ? [request.wrapSketch] : []),
           ...(request.revolveProfile ? [request.revolveProfile] : []),
           ...(request.revolveAxis?.kind === 'axis' ? [request.revolveAxis.loc] : []),
           ...(request.loftProfiles ?? []).filter((p): p is { kind: 'sketch' } & SketchLoc => p.kind === 'sketch'),
@@ -1170,7 +1239,7 @@ export function createApplyFeatureRouter(
         /** Synthesize one re-picked slot against the pre-statement scene. */
         const synthesizeSlot = (
           picks: Pick[],
-          kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell',
+          kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap',
           value: number | undefined,
           chains: { seed: Pick; members: Pick[] }[],
         ): any | null => {
@@ -1245,6 +1314,23 @@ export function createApplyFeatureRouter(
         }
         if (request.sweepProfile) {
           edit.sweep!.profile = { kind: 'sketch', producer: sketchRef(request.sweepProfile, 's') };
+        }
+        if (request.wrapSketch) {
+          edit.wrap!.sketch = { kind: 'sketch', producer: sketchRef(request.wrapSketch, 's') };
+        }
+        if (request.wrapFace) {
+          const synthesis = synthesizeSlot([request.wrapFace], 'wrap', undefined, []);
+          if (!synthesis) {
+            return;
+          }
+          // The target argument is ONE SceneObject — a multi-part selection
+          // has no single-expression rendering.
+          if (synthesis.spec.parts.length !== 1) {
+            res.status(422).json({ success: false, reason: 'the wrap target must be a single face selection' });
+            return;
+          }
+          foldSynthesis(synthesis);
+          edit.wrap!.face = { kind: 'selector' };
         }
         if (request.revolveProfile) {
           edit.revolve!.profile = { kind: 'sketch', producer: sketchRef(request.revolveProfile, 's') };
@@ -1605,6 +1691,98 @@ export function createApplyFeatureRouter(
             feature: 'sweep',
             sweep: options,
             filePath: request.profile.filePath,
+            producers,
+            parts,
+            imports,
+          },
+        });
+        res.json({ success: true, preview: statement });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
+
+    // Wrap composes a sketch with a picked target face (synthesized into a
+    // face selector). The sketch is always bound to a variable — wrap() takes
+    // it as an explicit argument, never consuming the active sketch.
+    if (feature === 'wrap') {
+      const request = validateWrap(req.body);
+      if ('error' in request) {
+        res.status(400).json({ error: request.error });
+        return;
+      }
+      try {
+        const code = fluidCadServer.getCurrentCode();
+        // The sketch stays producers[0] — the wrap transform's contract; the
+        // face selector's producers follow it.
+        const producers: ApplyFeatureEditSpec['producers'] = [{
+          line: request.sketch.line,
+          column: request.sketch.column,
+          featureType: 'sketch',
+          nameHint: 's',
+          bind: true,
+        }];
+        const synthOptions = code
+          ? {
+            namer: await makeProducerNamer(code),
+            params: resolveParamValues(
+              await extractNumericParams(code),
+              fluidCadServer.getParamDefinitions(),
+            ),
+          }
+          : undefined;
+        const synthesis = fluidCadServer.synthesizeApplyFeature(
+          [request.face], 'wrap', undefined, [], synthOptions,
+        );
+        if (!synthesis) {
+          res.status(404).json({ success: false, reason: 'No rendered scene' });
+          return;
+        }
+        if (!synthesis.ok) {
+          res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
+          return;
+        }
+        // The target argument is ONE SceneObject — a multi-part selection
+        // has no single-expression rendering.
+        if (synthesis.spec.parts.length !== 1) {
+          res.status(422).json({ success: false, reason: 'the wrap target must be a single face selection' });
+          return;
+        }
+        if (synthesis.spec.filePath !== request.sketch.filePath) {
+          res.status(422).json({ success: false, reason: 'the target face and the sketch come from different files' });
+          return;
+        }
+        const parts = synthesis.spec.parts.map((part: ApplyFeatureEditSpec['parts'][number]) => ({
+          ...part, producer: part.producer === null ? null : part.producer + producers.length,
+        }));
+        producers.push(...synthesis.spec.producers);
+        const imports = synthesis.spec.imports;
+        const faceArgs = synthesis.args;
+
+        const options: WrapEditOptions = {
+          op: request.op,
+          thickness: request.thickness,
+          sketch: { producer: 0 },
+        };
+        // Truthful preview name for the sketch: the same resolution the
+        // transform runs (reused const, collision-suffixed hint).
+        let sketchVar: string | null = null;
+        if (code) {
+          const namer = await makeProducerNamer(code);
+          sketchVar = namer([{ line: request.sketch.line, nameHint: 's', featureType: 'sketch' }])[0];
+        }
+        const statement = renderWrapStatement(options, sketchVar ?? 's', faceArgs);
+        if (preview === true) {
+          res.json({ success: true, preview: statement, args: faceArgs ?? undefined, alternatives: synthesis.alternatives });
+          return;
+        }
+        sendToExtension({
+          type: 'apply-feature-edit',
+          spec: {
+            feature: 'wrap',
+            wrap: options,
+            filePath: request.sketch.filePath,
             producers,
             parts,
             imports,
@@ -2098,7 +2276,7 @@ export function createApplyFeatureRouter(
       return;
     }
     if (feature !== 'fillet' && feature !== 'chamfer' && feature !== 'shell' && feature !== 'sketch') {
-      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude", "sweep", "loft", "revolve" or "plane"' });
+      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude", "sweep", "wrap", "loft", "revolve" or "plane"' });
       return;
     }
     // Per-feature numeric parameter: fillet/chamfer need a positive radius or

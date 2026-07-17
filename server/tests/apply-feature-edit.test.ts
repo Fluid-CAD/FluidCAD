@@ -1246,6 +1246,80 @@ describe('sweep statement templates', () => {
   });
 });
 
+describe('wrap statement templates', () => {
+  function wrapSpec(
+    wrap: Partial<NonNullable<ApplyFeatureEditSpec['wrap']>> = {},
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec {
+    return {
+      feature: 'wrap',
+      filePath: '/ws/model.fluid.js',
+      wrap: { op: 'add', thickness: 2, sketch: { producer: 0 }, ...wrap },
+      producers: [
+        { line: 5, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+        { line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true },
+      ],
+      parts: [{ producer: 1, accessor: 'sideFaces', indices: [0], filterArgs: null }],
+      imports: [],
+      ...overrides,
+    };
+  }
+
+  const wrapCode = [
+    `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { circle(30) })`,
+    `extrude(60)`,
+    `sketch('xz', () => { rect(10, 10) })`,
+    ``,
+  ].join('\n');
+
+  it('binds the sketch and target producers and appends wrap at end of scope', async () => {
+    const result = await applyFeatureEdit(wrapCode, wrapSpec());
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    expect(result.newCode).toContain(`const e = extrude(60)`);
+    const sketchRow = lines.findIndex(l => l === `const s = sketch('xz', () => { rect(10, 10) })`);
+    expect(sketchRow).toBeGreaterThan(-1);
+    // The face selector must resolve on the final model — end of scope.
+    expect(lines[sketchRow + 1]).toBe(`wrap(2, s, e.sideFaces(0))`);
+    expect(result.newCode).toMatch(/import \{ ?wrap,/);
+  });
+
+  it('chains .remove()', async () => {
+    const result = await applyFeatureEdit(wrapCode, wrapSpec({ op: 'remove' }));
+    expect(result.newCode).toContain(`wrap(2, s, e.sideFaces(0)).remove()`);
+  });
+
+  it('chains .new()', async () => {
+    const result = await applyFeatureEdit(wrapCode, wrapSpec({ op: 'new', thickness: 0.5 }));
+    expect(result.newCode).toContain(`wrap(0.5, s, e.sideFaces(0)).new()`);
+  });
+
+  it('refuses a wrap without exactly one selector part', async () => {
+    const result = await applyFeatureEdit(wrapCode, wrapSpec({}, { parts: [] }));
+    expect(result.error).toContain('malformed');
+    expect(result.newCode).toBe(wrapCode);
+  });
+
+  it('refuses a non-positive thickness', async () => {
+    const result = await applyFeatureEdit(wrapCode, wrapSpec({ thickness: 0 }));
+    expect(result.error).toContain('malformed');
+    expect(result.newCode).toBe(wrapCode);
+  });
+
+  it('refuses when the sketch producer line is not a sketch call', async () => {
+    const result = await applyFeatureEdit(wrapCode, wrapSpec({}, {
+      producers: [
+        { line: 4, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+        { line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true },
+      ],
+    }));
+    expect(result.error).toContain('expected a sketch() call');
+    expect(result.newCode).toBe(wrapCode);
+  });
+});
+
 describe('loft statement templates', () => {
   function loftSpec(
     loft: Partial<NonNullable<ApplyFeatureEditSpec['loft']>> = {},
@@ -1659,6 +1733,31 @@ describe('parseFeatureStatement', () => {
     });
   });
 
+  it('reads a wrap with a remove chain', async () => {
+    const code = `${editBase}\nconst e = extrude(30)\nwrap(2, s, e.sideFaces(0)).remove()\n`;
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toEqual({
+      ok: true,
+      parsed: { feature: 'wrap', op: 'remove', thickness: 2, sketchText: 's', faceText: 'e.sideFaces(0)' },
+      statement: 'wrap(2, s, e.sideFaces(0)).remove()',
+    });
+  });
+
+  it('refuses a wrap whose thickness is not a plain number', async () => {
+    const code = `${editBase}\nconst e = extrude(30)\nwrap(t, s, e.sideFaces(0))\n`;
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('thickness');
+    }
+  });
+
+  it('refuses a wrap missing its face argument', async () => {
+    const code = `${editBase}\nwrap(2, s)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false });
+  });
+
   it('reads a loft with guides and conditions', async () => {
     const code = `${editBase}\nloft(s, s2, e.endFaces()).guides(g).startCondition('normal').endCondition('tangent', 2).new()\n`;
     const result = await parseFeatureStatement(code, 4);
@@ -1917,6 +2016,17 @@ describe('applyFeatureEdit (in-place statement edit)', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`sweep(p, s).thin(1.5).remove()`);
+  });
+
+  it('rewrites wrap thickness and op in place, keeping both arguments verbatim', async () => {
+    const code = `${editBase}\nconst e = extrude(30)\nwrap(2, s, e.sideFaces(0))\n`;
+    const result = await applyFeatureEdit(code, editSpec('wrap', {
+      line: 5, column: 0,
+      wrap: { op: 'remove', thickness: 3.5 },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`wrap(3.5, s, e.sideFaces(0)).remove()`);
+    expect(result.newCode).not.toContain(`wrap(2,`);
   });
 
   it('rewrites loft conditions while keeping profiles and guides verbatim', async () => {
@@ -2268,6 +2378,45 @@ describe('applyFeatureEdit (re-sourced statement edit)', () => {
     }, { producers: [sketchProducer(5), sketchProducer(3)] }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`sweep(p2, s)`);
+  });
+
+  it('re-picks a wrap target face rendered from parts', async () => {
+    const code = [
+      `import { sketch, rect, circle, extrude, wrap } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(40)`,
+      `const p = sketch('xz', () => { circle(30) })`,
+      `wrap(2, p, e.sideFaces(0))`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('wrap', {
+      line: 6, column: 0,
+      wrap: { op: 'add', thickness: 2, face: { kind: 'selector' } },
+    }, {
+      producers: [extrudeProducer(4)],
+      parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`wrap(2, p, e.endFaces())`);
+  });
+
+  it('re-sources a wrap sketch to another sketch, keeping the face verbatim', async () => {
+    const code = [
+      `import { sketch, rect, circle, extrude, wrap } from 'fluidcad/core'`,
+      ``,
+      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(40)`,
+      `const p = sketch('xz', () => { circle(30) })`,
+      `wrap(2, p, e.sideFaces(0))`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('wrap', {
+      line: 6, column: 0,
+      wrap: { op: 'add', thickness: 2, sketch: { kind: 'sketch', producer: 0 } },
+    }, { producers: [sketchProducer(3)] }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`wrap(2, s, e.sideFaces(0))`);
   });
 
   it('reorders kept loft profiles and appends a re-picked sketch', async () => {

@@ -56,6 +56,10 @@ export class RepeatMatrix extends SceneObject {
     return "repeat-matrix";
   }
 
+  getDisplayType(): string {
+    return "Repeat";
+  }
+
   serialize() {
     return {};
   }

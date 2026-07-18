@@ -658,6 +658,16 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this._name ?? this.getType();
   }
 
+  /**
+   * Human-facing label used when the object has no custom name. Defaults to
+   * the capitalized type; features whose type encodes a variant (e.g.
+   * "repeat-linear") override this to show the plain feature name.
+   */
+  getDisplayType(): string {
+    const type = this.getType();
+    return type.charAt(0).toUpperCase() + type.slice(1);
+  }
+
   hasCustomName(): boolean {
     return this._name !== null;
   }

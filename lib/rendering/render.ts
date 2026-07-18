@@ -373,7 +373,7 @@ export class SceneRenderer {
 
     const displayName = obj.hasCustomName()
       ? obj.getName()
-      : obj.getType().charAt(0).toUpperCase() + obj.getType().slice(1);
+      : obj.getDisplayType();
 
     // Serialization can dereference state that a failed build never produced —
     // e.g. a sketch whose plane could not be built reads plane.localToWorld.

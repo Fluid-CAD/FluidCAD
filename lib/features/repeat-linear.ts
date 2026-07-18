@@ -81,6 +81,10 @@ export class RepeatLinear extends RepeatBase {
     return "repeat-linear";
   }
 
+  getDisplayType(): string {
+    return "Repeat";
+  }
+
   serialize() {
     return {
     }

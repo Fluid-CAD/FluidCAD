@@ -800,6 +800,13 @@ export type ParsedFeatureStatement =
       joinType: ShellJoinType;
     }
   | { feature: 'fillet' | 'chamfer'; value: number; argsText: string }
+  | {
+      feature: 'sketch';
+      /** Plane/face target argument text, verbatim; null for the bare form. */
+      targetText: string | null;
+      /** The body callback argument text, verbatim — never dialog-edited. */
+      bodyText: string;
+    }
   | ({
       feature: 'text';
       /** Path argument text, verbatim; null for plain (non-path) text. */

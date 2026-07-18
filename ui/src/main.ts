@@ -301,7 +301,9 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     loftService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'text') {
     textEditService.enterEdit(target, parsed, info);
-  } else {
+  } else if (parsed.feature !== 'sketch') {
+    // Sketch rows aren't in EDITABLE_ROW_TYPES — the guard only narrows the
+    // parse union down to the shell/fillet/chamfer dialog's statements.
     modifyService.enterEdit(target, parsed, info);
   }
 }

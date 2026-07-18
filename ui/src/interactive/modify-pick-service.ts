@@ -1,7 +1,7 @@
 import {
-  applyFeature, applyValueFeatureEdit, expandBucket, explainSelection, fetchFeatureSources, removeFeature,
-  ApplyFeatureChain, ApplyFeatureResponse, FeatureEditTarget, ParsedFeatureStatement, SelectionGroupKind,
-  ShellJoinType, SketchSourceRef,
+  applyFeature, applyValueFeatureEdit, expandBucket, explainSelection, fetchFeatureSources, parseFeatureAt,
+  removeFeature, ApplyFeatureChain, ApplyFeatureResponse, FeatureEditTarget, ParsedFeatureStatement,
+  SelectionGroupKind, ShellJoinType, SketchSourceRef,
 } from '../api';
 import { entityKey, mergeUniqueEntities, sameEntity, selectionChipRows } from '../helpers/entities';
 import { isTopLevel } from '../helpers/scene-utils';
@@ -108,7 +108,11 @@ const TOOLTIP_DEBOUNCE_MS = 200;
  * session closes when the scene stops ending in the sketch (consumed by a
  * feature, deleted, rolled back), when another dialog takes over, or via the
  * Sketch button / Escape; its Cancel button goes further and deletes the
- * sketch statement from the code outright. The button lives in the create group and is always
+ * sketch statement from the code outright. The dialog is scene-derived like
+ * the rest of sketch mode: a render whose scene ends in a sketch with no
+ * session ADOPTS it (page reloads, sketches entered by editing code), with
+ * the chip label parsed from the statement's target argument — except a
+ * sketch whose dialog the user dismissed, which stays closed. The button lives in the create group and is always
  * offered — in an empty scene the planes are the only targets, and the first
  * sketch starts here; while an extrude/sweep/loft dialog is up the button
  * disables instead of hiding.
@@ -150,6 +154,13 @@ export class ModifyPickService {
    * scene's tail or another flow starts. User closes never set it.
    */
   private displacedSketchLabel: string | null = null;
+  /**
+   * Source key (`file:line:col`) of a trailing sketch whose dialog the user
+   * dismissed — adoption skips it, so a closed dialog stays closed across
+   * the renders every drawn entity triggers. Reset when the scene stops
+   * ending in a sketch.
+   */
+  private dismissedSketchKey: string | null = null;
   /** The scene ends with an unconsumed sketch (scene-derived sketch mode). */
   private sceneSketchActive = false;
   /** Sketch editing is suspended while the sketch-on-face pick is armed. */
@@ -513,8 +524,12 @@ export class ModifyPickService {
     }
     if (!sketchMode) {
       // A displaced session's sketch is gone too (consumed by the apply that
-      // closed the create dialog, deleted, rolled back) — nothing to restore.
+      // closed the create dialog, deleted, rolled back) — nothing to restore,
+      // and a dismissal has nothing left to suppress.
       this.displacedSketchLabel = null;
+      this.dismissedSketchKey = null;
+    } else if (active) {
+      this.adoptActiveSketch(active);
     }
     this.navbar.setGroupVisible('modify', modifyVisible);
     this.navbar.setGroupVisible('create', true, 'sketch');
@@ -743,6 +758,7 @@ export class ModifyPickService {
     // A fresh sketch flow (or a toggle-close) supersedes a pending restore.
     this.displacedSketchLabel = null;
     if (this.sketchSession?.tracking) {
+      this.markSketchDismissed();
       this.closeSketchSession();
       return;
     }
@@ -866,6 +882,7 @@ export class ModifyPickService {
    */
   private handleSketchCancel(): void {
     const loc = this.sketchSession ? this.activeSketchLoc() : null;
+    this.markSketchDismissed();
     if (loc) {
       removeFeature(loc);
       this.closeSketchSession('lazy');
@@ -883,7 +900,88 @@ export class ModifyPickService {
       this.exitSketchPicking('immediate');
       return;
     }
+    this.markSketchDismissed();
     this.closeSketchSession();
+  }
+
+  /**
+   * The scene ends in a sketch but no dialog session exists — a page reload,
+   * or a sketch entered by editing code directly. Adopt it: the dialog is
+   * scene-derived like the rest of sketch mode (dimming, camera, toolbar).
+   * The target chip starts generic and refines asynchronously from the
+   * statement's parsed target argument. A dismissed dialog stays closed for
+   * that sketch, and an armed feature or open create dialog takes precedence.
+   */
+  private adoptActiveSketch(sketch: SceneObjectRender): void {
+    if (this.sketchSession || this.feature !== null || this.createDialogActive) {
+      return;
+    }
+    const loc = sketch.sourceLocation;
+    if (!loc) {
+      return;
+    }
+    if (ModifyPickService.sketchKey(loc) === this.dismissedSketchKey) {
+      return;
+    }
+    this.dismissedSketchKey = null;
+    this.sketchSession = { tracking: true, label: 'Sketch target' };
+    this.sketchPanel.setTarget(this.sketchSession.label);
+    this.sketchPanel.setMessage(null);
+    this.sketchPanel.show();
+    void this.refreshAdoptedLabel({ filePath: loc.filePath, line: loc.line, column: loc.column });
+  }
+
+  /**
+   * Refine an adopted session's generic chip from the sketch statement's
+   * parsed target argument. Applied only while the session still tracks the
+   * same statement; a parse refusal (standalone serve has no live code
+   * buffer) keeps the generic label.
+   */
+  private async refreshAdoptedLabel(loc: SketchSourceRef): Promise<void> {
+    const result = await parseFeatureAt(loc);
+    const current = this.activeSketchLoc();
+    if (!this.sketchSession?.tracking || !current
+      || current.filePath !== loc.filePath || current.line !== loc.line) {
+      return;
+    }
+    if (!result.ok || result.parsed.feature !== 'sketch') {
+      return;
+    }
+    const label = ModifyPickService.sketchTargetLabel(result.parsed.targetText);
+    this.sketchSession.label = label;
+    this.sketchPanel.setTarget(label);
+  }
+
+  /** Chip label for a parsed sketch target argument. */
+  private static sketchTargetLabel(targetText: string | null): string {
+    if (!targetText) {
+      return 'Sketch target';
+    }
+    const text = targetText.trim();
+    const standard = /^['"`](xy|xz|yz)['"`]$/i.exec(text);
+    if (standard) {
+      return `${standard[1].toUpperCase()} plane`;
+    }
+    // A bare identifier is a plane bound to a variable — its name IS the
+    // label, matching the plane dropdown's relabeling.
+    if (/^[A-Za-z_$][\w$]*$/.test(text)) {
+      return text;
+    }
+    return 'Face';
+  }
+
+  /** Adoption identity for a sketch statement — shape ids die each render. */
+  private static sketchKey(loc: { filePath: string; line: number; column: number }): string {
+    return `${loc.filePath}:${loc.line}:${loc.column}`;
+  }
+
+  /**
+   * Record the trailing sketch as user-dismissed, so incoming renders don't
+   * re-adopt the dialog the user just closed.
+   */
+  private markSketchDismissed(): void {
+    const loc = this.activeSketchLoc();
+    this.dismissedSketchKey = loc ? ModifyPickService.sketchKey(loc) : null;
   }
 
   /** The active (trailing) sketch's source location, or null. */
@@ -967,7 +1065,9 @@ export class ModifyPickService {
   exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'gone' } = {}): void {
     if (this.feature === 'sketch' || (!this.feature && this.sketchSession)) {
       // The sketch flow lives in its dialog — exit means closing it, in the
-      // armed-pick state and the tracking state alike.
+      // armed-pick state and the tracking state alike. A user close, so the
+      // dialog stays dismissed for this sketch.
+      this.markSketchDismissed();
       this.closeSketchSession(opts.resume ?? 'immediate');
       return;
     }

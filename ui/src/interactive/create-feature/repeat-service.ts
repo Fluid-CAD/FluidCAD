@@ -115,7 +115,7 @@ export class RepeatFeatureService {
     this.button = document.createElement('button');
     this.button.className = BTN_BASE;
     this.button.setAttribute('aria-label', 'Repeat features along an axis, around an axis, or mirrored');
-    this.button.innerHTML = `<img src="/icons/copy-linear.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain" alt="" /><span class="${BTN_LABEL}">Repeat</span>`;
+    this.button.innerHTML = `<img src="/icons/repeat-linear.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain" alt="" /><span class="${BTN_LABEL}">Repeat</span>`;
     this.button.addEventListener('click', () => {
       if (this.armed) {
         this.exit();

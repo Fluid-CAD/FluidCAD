@@ -115,6 +115,9 @@ const syncSketchButtonBlocked = () => modifyService.setCreateDialogActive(
 // extruding the active sketch is the primary flow.
 const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
   onEnter: () => {
+    // Stash a live sketch session before exit() drops it — the dialog comes
+    // back when this create dialog exits with the sketch still active.
+    modifyService.displaceSketchSession();
     modifyService.exit();
     revolveService.exit();
     sweepService.exit();
@@ -134,6 +137,7 @@ const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
 // Sweep in the create group.
 const revolveService = new RevolveFeatureService(container, viewer, navbar, {
   onEnter: () => {
+    modifyService.displaceSketchSession();
     modifyService.exit();
     extrudeService.exit();
     sweepService.exit();
@@ -151,6 +155,7 @@ const revolveService = new RevolveFeatureService(container, viewer, navbar, {
 });
 const sweepService = new SweepFeatureService(container, viewer, navbar, {
   onEnter: () => {
+    modifyService.displaceSketchSession();
     modifyService.exit();
     extrudeService.exit();
     revolveService.exit();
@@ -168,6 +173,7 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
 });
 const loftService = new LoftFeatureService(container, viewer, navbar, {
   onEnter: () => {
+    modifyService.displaceSketchSession();
     modifyService.exit();
     extrudeService.exit();
     revolveService.exit();
@@ -186,6 +192,7 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
 // Constructed after Loft so its button lands at the end of the create group.
 const wrapService = new WrapFeatureService(container, viewer, navbar, {
   onEnter: () => {
+    modifyService.displaceSketchSession();
     modifyService.exit();
     extrudeService.exit();
     revolveService.exit();
@@ -208,6 +215,7 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
   // The current highlight seeds the dialog (one edge → edge type, one face →
   // offset, two faces → mid), like the modify tools.
   onEnter: () => {
+    modifyService.displaceSketchSession();
     modifyService.exit();
     extrudeService.exit();
     revolveService.exit();

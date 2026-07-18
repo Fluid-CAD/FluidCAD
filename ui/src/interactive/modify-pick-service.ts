@@ -142,6 +142,14 @@ export class ModifyPickService {
    * fresh arming whose first pick creates the sketch.
    */
   private sketchSession: { tracking: boolean; label: string } | null = null;
+  /**
+   * The label of a sketch session a create dialog displaced — the dialog
+   * stepped aside so extrude/sweep/… could take the stage. Consumed when the
+   * create dialog deactivates: the sketch dialog comes back tracking if the
+   * scene still ends in its sketch. Dropped when the sketch stops being the
+   * scene's tail or another flow starts. User closes never set it.
+   */
+  private displacedSketchLabel: string | null = null;
   /** The scene ends with an unconsumed sketch (scene-derived sketch mode). */
   private sceneSketchActive = false;
   /** Sketch editing is suspended while the sketch-on-face pick is armed. */
@@ -503,6 +511,11 @@ export class ModifyPickService {
     if (this.sketchSession && !sketchMode) {
       this.closeSketchSession('lazy');
     }
+    if (!sketchMode) {
+      // A displaced session's sketch is gone too (consumed by the apply that
+      // closed the create dialog, deleted, rolled back) — nothing to restore.
+      this.displacedSketchLabel = null;
+    }
     this.navbar.setGroupVisible('modify', modifyVisible);
     this.navbar.setGroupVisible('create', true, 'sketch');
     this.syncButtons();
@@ -540,8 +553,10 @@ export class ModifyPickService {
     info: Omit<EditSessionInfo, 'target'>,
   ): void {
     // A sketch dialog in any state steps aside; its sketch stays. Lazy —
-    // the session's rollback render is already on its way.
+    // the session's rollback render is already on its way. The edit flow
+    // supersedes any pending create-dialog restore.
     this.closeSketchSession('lazy');
+    this.displacedSketchLabel = null;
     this.hooks.onEnter?.();
     this.feature = parsed.feature;
     this.editTarget = target;
@@ -650,8 +665,10 @@ export class ModifyPickService {
       this.enterSketch();
       return;
     }
-    // Arming a pick feature closes a sketch dialog in any state outright.
+    // Arming a pick feature closes a sketch dialog in any state outright —
+    // a pending create-dialog restore included.
     this.closeSketchSession();
+    this.displacedSketchLabel = null;
     const wasActive = this.feature !== null;
     // Arming a create tool from an edit dialog abandons the session; the
     // view stays where it is — the tool picks in whatever state is shown.
@@ -723,6 +740,8 @@ export class ModifyPickService {
    * consumed as the pick — the sketch starts right away, chip filled.
    */
   private enterSketch(): void {
+    // A fresh sketch flow (or a toggle-close) supersedes a pending restore.
+    this.displacedSketchLabel = null;
     if (this.sketchSession?.tracking) {
       this.closeSketchSession();
       return;
@@ -1031,6 +1050,21 @@ export class ModifyPickService {
     this.viewer.clearHighlight();
   }
 
+  /**
+   * A create dialog (extrude/sweep/loft/…) is opening: the sketch dialog
+   * steps aside (its sketch stays; extruding it is the natural next step),
+   * remembering a live session so the dialog can come back when the create
+   * dialog exits with the sketch still active. The dialogs' onEnter wiring
+   * calls this ahead of the generic exit() sweep — by the time
+   * setCreateDialogActive(true) fires the session would already be gone.
+   */
+  displaceSketchSession(): void {
+    if (this.sketchSession) {
+      this.displacedSketchLabel = this.sketchSession.label;
+    }
+    this.closeSketchSession();
+  }
+
   /** An extrude/sweep/loft dialog opened or closed — the Sketch button disables while one is up. */
   setCreateDialogActive(active: boolean): void {
     if (this.createDialogActive === active) {
@@ -1040,11 +1074,33 @@ export class ModifyPickService {
     if (active) {
       this.pendingPlaneShapeId = null;
       // An opening create dialog takes over — the sketch dialog steps aside
-      // (its sketch stays; extruding it is the natural next step).
-      this.closeSketchSession();
+      // (usually already displaced via the dialog's onEnter wiring).
+      this.displaceSketchSession();
+    } else {
+      this.restoreDisplacedSketchSession();
     }
     this.syncPlanePicking();
     this.syncButtons();
+  }
+
+  /**
+   * The create dialog that displaced the sketch dialog is gone — bring the
+   * dialog back in its tracking state while the scene still ends in the
+   * sketch. An apply that consumed the sketch restores it too (the scene
+   * state is still the pre-apply one here), but the incoming render closes
+   * the session again via update(). No-op without a displaced session.
+   */
+  private restoreDisplacedSketchSession(): void {
+    const label = this.displacedSketchLabel;
+    this.displacedSketchLabel = null;
+    if (label === null || !this.sceneSketchActive
+      || this.feature !== null || this.sketchSession !== null) {
+      return;
+    }
+    this.sketchSession = { tracking: true, label };
+    this.sketchPanel.setTarget(label);
+    this.sketchPanel.setMessage(null);
+    this.sketchPanel.show();
   }
 
   /**

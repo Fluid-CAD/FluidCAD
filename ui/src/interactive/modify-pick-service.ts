@@ -293,10 +293,10 @@ export class ModifyPickService {
           </div>
         </div>
         <div data-role="expr-row"
-          class="hidden relative items-center gap-1 bg-base-100 border border-base-300 rounded-lg pl-2.5 pr-1 py-1.5 text-xs shadow-md">
-          <span data-role="expr-prefix" class="font-mono text-base-content/50 select-none whitespace-nowrap"></span>
+          class="hidden relative items-center bg-base-100 border border-base-300 rounded-lg pl-2.5 pr-1 py-1.5 text-xs shadow-md">
+          <span data-role="expr-prefix" class="font-mono text-base-content/50 select-none whitespace-pre"></span>
           <input data-role="expr" type="text" spellcheck="false" autocomplete="off"
-            class="font-mono w-[320px] bg-transparent text-base-content outline-none" />
+            class="font-mono max-w-[320px] bg-transparent text-base-content outline-none" />
           <span data-role="expr-suffix" class="font-mono text-base-content/50 select-none whitespace-pre">)</span>
           <button data-role="alts" title="Alternative selectors"
             class="hidden text-base-content/50 hover:text-base-content px-1 cursor-pointer transition-colors">▾</button>
@@ -375,6 +375,7 @@ export class ModifyPickService {
       }
       e.stopPropagation();
     });
+    this.exprInput.addEventListener('input', () => this.syncExprInputWidth());
     this.altBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.altMenu.classList.toggle('hidden');
@@ -618,6 +619,7 @@ export class ModifyPickService {
     this.synthesizedArgs = parsed.argsText;
     this.alternatives = [];
     this.exprInput.value = parsed.argsText;
+    this.syncExprInputWidth();
     this.syncExprPrefix();
     this.renderAlternatives();
     this.exprRow.classList.remove('hidden');
@@ -1636,6 +1638,7 @@ export class ModifyPickService {
       this.synthesizedArgs = result.args;
       this.alternatives = result.alternatives ?? [];
       this.exprInput.value = result.args;
+      this.syncExprInputWidth();
       this.syncExprPrefix();
       this.renderAlternatives();
       this.exprRow.classList.remove('hidden');
@@ -1664,10 +1667,20 @@ export class ModifyPickService {
       item.textContent = args;
       item.addEventListener('click', () => {
         this.exprInput.value = args;
+        this.syncExprInputWidth();
         this.altMenu.classList.add('hidden');
       });
       return item;
     }));
+  }
+
+  /**
+   * Fit the args input to its text so the static `)` suffix sits flush
+   * against it (the font is monospace, so `ch` measures exactly); the +2px
+   * keeps the caret visible at the end. `max-w-[320px]` still caps growth.
+   */
+  private syncExprInputWidth(): void {
+    this.exprInput.style.width = `calc(${Math.max(this.exprInput.value.length, 1)}ch + 2px)`;
   }
 
   private syncExprPrefix(): void {
@@ -1709,6 +1722,7 @@ export class ModifyPickService {
     this.synthesizedArgs = null;
     this.alternatives = [];
     this.exprInput.value = '';
+    this.syncExprInputWidth();
   }
 
   private cancelPreview(): void {

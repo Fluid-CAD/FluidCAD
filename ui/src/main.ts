@@ -693,8 +693,10 @@ function connectWebSocket() {
         }
         errorBanner.update(msg.result, msg.compileError ?? null);
         // Only update the breakpoint indicator when the server sends an
-        // authoritative value — rollback responses don't re-run the module,
-        // so they omit the flag and the last known state should persist.
+        // authoritative value. Rollback responses don't re-run the module but
+        // carry the last full render's state (so a refresh whose replayed
+        // scene is a rollback still restores the indicator); compile-error
+        // responses omit the flag and the last known state persists.
         if (msg.breakpointHit !== undefined) {
           breakpointIndicator.setActive(msg.breakpointHit);
         }

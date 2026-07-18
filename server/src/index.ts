@@ -262,7 +262,7 @@ async function handleExtensionMessage(msg: any) {
         const data = await fluidCadServer.rollback(msg.fileName, msg.index);
         if (myVersion !== renderVersion) { return; }
         if (data) {
-          emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop);
+          emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop, data.breakpointHit);
         }
         break;
       }

@@ -30,6 +30,9 @@ export function createTimelineRouter(
       result: data.result,
       absPath: data.absPath,
       rollbackStop: data.rollbackStop,
+      // The last full render's paused state — a refresh replays whatever
+      // scene message went out last, and the indicator must survive it.
+      breakpointHit: data.breakpointHit,
     });
     res.json({ success: true });
   });

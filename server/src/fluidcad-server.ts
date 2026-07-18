@@ -173,6 +173,13 @@ export class FluidCadServer {
   private currentFileName: string = '';
   private currentFilePath: string = '';
   private lastRollbackStop: number = -1;
+  /**
+   * Whether the last full render paused at a breakpoint. Rollbacks don't
+   * re-run the module, so they carry this last known state — without it the
+   * UI's breakpoint indicator can't survive a browser refresh whose replayed
+   * scene message is a rollback broadcast.
+   */
+  private lastBreakpointHit = false;
   private compileError: CompileError | null = null;
 
   constructor(host: SceneHost = new LocalSceneHost()) {
@@ -284,6 +291,7 @@ export class FluidCadServer {
             absPath: normalizedFileName,
             result: fromCache,
             rollbackStop: fromCache.length - 1,
+            breakpointHit: this.lastBreakpointHit,
           };
         }
       }
@@ -310,6 +318,7 @@ export class FluidCadServer {
             throw e;
           }
         }
+        this.lastBreakpointHit = breakpointHit;
 
         const params = getParamRegistry().getDefinitions();
 
@@ -449,6 +458,8 @@ export class FluidCadServer {
       absPath: fileName,
       result,
       rollbackStop: index,
+      // A rollback doesn't re-run the module — the paused state persists.
+      breakpointHit: this.lastBreakpointHit,
     };
   }
 

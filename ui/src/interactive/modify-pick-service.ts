@@ -262,7 +262,10 @@ export class ModifyPickService {
 
     this.activeBar = document.createElement('div');
     this.activeBar.id = 'fluidcad-modify-pick-active';
-    this.activeBar.className = 'absolute top-[116px] right-[76px] z-[999] pointer-events-auto hidden';
+    // top-[276px] matches the create-feature dialog: below the settings/
+    // fit-to-view button stack (top-[196px]); right-7 aligns its right edge
+    // with that button column.
+    this.activeBar.className = 'absolute top-[276px] right-7 z-[999] pointer-events-auto hidden';
     this.activeBar.innerHTML = `
       <div class="flex flex-col items-end gap-1.5">
         <div class="flex flex-col items-stretch gap-3.5 w-60 bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">

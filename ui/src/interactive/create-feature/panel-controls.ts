@@ -178,7 +178,10 @@ export class PanelShell {
     this.defaultTitle = title;
     this.root = document.createElement('div');
     this.root.id = id;
-    this.root.className = 'absolute top-[116px] right-[76px] z-[999] pointer-events-auto hidden';
+    // top-[276px] drops the dialog below the settings/fit-to-view button stack
+    // (which starts at top-[196px] and runs gear → fit-to-view); right-7 aligns
+    // its right edge with that button column.
+    this.root.className = 'absolute top-[276px] right-7 z-[999] pointer-events-auto hidden';
     this.root.innerHTML = `
       <div class="flex flex-col items-end gap-1.5">
         <div data-role="body" class="flex flex-col items-stretch gap-3.5 w-60 bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">

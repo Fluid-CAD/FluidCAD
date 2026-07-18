@@ -785,14 +785,20 @@ export class Viewer {
       const overlayGeo = new BufferGeometry();
       overlayGeo.setAttribute('position', new BufferAttribute(new Float32Array(newPositions), 3));
 
+      // No depth write, and slotted between solid faces (renderOrder 1) and
+      // edge lines (renderOrder 2): edges depth-test against the pushed-back
+      // base face and draw on top, so boundaries between two highlighted
+      // faces stay visible.
       const overlayMat = new MeshPhongMaterial({
         color: themeColors.highlightColor,
+        depthWrite: false,
         polygonOffset: true,
         polygonOffsetFactor: -2,
         polygonOffsetUnits: -1,
       });
 
       const overlayMesh = new Mesh(overlayGeo, overlayMat);
+      overlayMesh.renderOrder = 1.5;
       (mesh.parent ?? this.ctx.scene).add(overlayMesh);
       this.faceHighlightMeshes.push(overlayMesh);
     });
@@ -1043,14 +1049,20 @@ export class Viewer {
       const overlayGeo = new BufferGeometry();
       overlayGeo.setAttribute('position', new BufferAttribute(new Float32Array(newPositions), 3));
 
+      // No depth write, and slotted between solid faces (renderOrder 1) and
+      // edge lines (renderOrder 2): edges depth-test against the pushed-back
+      // base face and draw on top, so boundaries between two highlighted
+      // faces stay visible.
       const overlayMat = new MeshPhongMaterial({
         color: themeColors.highlightColor,
+        depthWrite: false,
         polygonOffset: true,
         polygonOffsetFactor: -2,
         polygonOffsetUnits: -1,
       });
 
       const overlayMesh = new Mesh(overlayGeo, overlayMat);
+      overlayMesh.renderOrder = 1.5;
       (mesh.parent ?? this.ctx.scene).add(overlayMesh);
       this.hoverFaceOverlayMeshes.push(overlayMesh);
     });

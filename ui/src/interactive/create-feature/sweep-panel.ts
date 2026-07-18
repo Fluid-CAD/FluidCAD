@@ -1,5 +1,5 @@
 import { FeatureOp, OpTabs, PanelShell, ThinControl } from './panel-controls';
-import { SketchProfileOption } from './sketch-profiles';
+import { SketchProfileOption, sourceChip } from './sketch-profiles';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 
 /** Validated form values, or the message to show when a field is invalid. */
@@ -98,7 +98,7 @@ export class SweepPanel {
     this.profileSlot = new PickSlot(
       this.shell.body.querySelector('[data-role="profile-slot"]')!,
       // Boxed like the path slot below so the two pickers stand equal height.
-      { label: 'Profile', multiple: false, boxed: true },
+      { label: 'Sketch', multiple: false, boxed: true },
     );
     this.pathSlot = new PickSlot(
       this.shell.body.querySelector('[data-role="path-slot"]')!,
@@ -295,19 +295,19 @@ export class SweepPanel {
     const state = this.profileState;
     if (state?.kind === 'keep') {
       this.profileSlot.setChips([{
-        label: `Current: ${this.keepProfileLabel}`,
+        label: `Last Sketch: ${this.keepProfileLabel}`,
         badge: '●',
         removable: false,
       }]);
       this.profileSlot.setPrompt(null);
     } else {
       this.profileSlot.setChips(state?.kind === 'sketch'
-        ? [{ label: state.option.label, badge: '●', removable: true }]
+        ? [sourceChip(state.option, { badge: '●', removable: true })]
         : []);
       this.profileSlot.setPrompt(state
         ? null
         : this.options.length > 0 || this.editMode
-          ? 'Pick a sketch in the timeline or 3D view'
+          ? 'Pick a sketch'
           : 'No sketch — create one first');
     }
   }
@@ -322,16 +322,16 @@ export class SweepPanel {
       }]);
       this.pathSlot.setPrompt(null);
     } else if (state?.kind === 'sketch') {
-      this.pathSlot.setChips([{ label: state.option.label, badge: '●', removable: true }]);
+      this.pathSlot.setChips([sourceChip(state.option, { badge: '●', removable: true })]);
       this.pathSlot.setPrompt(null);
     } else if (state?.kind === 'edges') {
       this.pathSlot.setChips(this.pathEdgeChips);
-      this.pathSlot.setPrompt(this.pathEdgeChips.length > 0 ? null : 'Pick edges in 3D');
+      this.pathSlot.setPrompt(this.pathEdgeChips.length > 0 ? null : 'Pick edges');
     } else {
       this.pathSlot.setChips([]);
       this.pathSlot.setPrompt(this.allowEdgePicking
-        ? 'Pick edges in 3D or a sketch'
-        : 'Pick a sketch in the timeline or 3D view');
+        ? 'Pick edges or a sketch'
+        : 'Pick a sketch');
     }
   }
 

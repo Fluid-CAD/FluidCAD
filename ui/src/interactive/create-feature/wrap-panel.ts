@@ -1,5 +1,5 @@
 import { OpTabs, PanelShell } from './panel-controls';
-import { SketchProfileOption } from './sketch-profiles';
+import { SketchProfileOption, sourceChip } from './sketch-profiles';
 import { PickSlot } from '../pick-slot';
 import { WrapOptionValues } from '../../api';
 
@@ -219,7 +219,7 @@ export class WrapPanel {
       this.faceSlot.setPrompt(null);
     } else {
       this.faceSlot.setChips([]);
-      this.faceSlot.setPrompt('Pick the target face in the 3D view');
+      this.faceSlot.setPrompt('Pick a face');
     }
     // A landed 3D pick moves the active state onto the face slot; clears
     // (✕, stale resets) leave whichever slot the user was working with.
@@ -264,19 +264,19 @@ export class WrapPanel {
     const state = this.sketchState;
     if (state?.kind === 'keep') {
       this.sketchSlot.setChips([{
-        label: `Current: ${this.keepSketchLabel}`,
+        label: `Last Sketch: ${this.keepSketchLabel}`,
         badge: '●',
         removable: false,
       }]);
       this.sketchSlot.setPrompt(null);
     } else {
       this.sketchSlot.setChips(state?.kind === 'sketch'
-        ? [{ label: state.option.label, badge: '●', removable: true }]
+        ? [sourceChip(state.option, { badge: '●', removable: true })]
         : []);
       this.sketchSlot.setPrompt(state
         ? null
         : this.options.length > 0 || this.editMode
-          ? 'Pick a sketch in the timeline or 3D view'
+          ? 'Pick a sketch'
           : 'No sketch — create one first');
     }
   }

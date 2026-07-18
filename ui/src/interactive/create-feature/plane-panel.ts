@@ -1,5 +1,5 @@
 import { PanelShell } from './panel-controls';
-import { PickSlot } from '../pick-slot';
+import { PickSlot, PickSlotChip } from '../pick-slot';
 
 export type PlaneType = 'offset' | 'mid' | 'edge';
 
@@ -14,9 +14,6 @@ export type PlaneValues =
       position: number | null;
     }
   | { error: string };
-
-/** One rendered chip in the base list. */
-export type PlaneBaseChip = { label: string };
 
 /**
  * The plane dialog: the type dropdown (Offset / Mid plane / From edge), the
@@ -165,10 +162,10 @@ export class PlanePanel {
   }
 
   /** Render the base chips (numbered for a mid plane — argument order). */
-  setBases(chips: PlaneBaseChip[]): void {
+  setBases(chips: PickSlotChip[]): void {
     const numbered = this.capacity > 1;
     this.basesSlot.setChips(chips.map((chip, index) => ({
-      label: chip.label,
+      ...chip,
       badge: numbered ? String(index + 1) : '●',
       removable: true,
     })));

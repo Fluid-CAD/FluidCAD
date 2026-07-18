@@ -36,7 +36,7 @@ export function collectPlaneOptions(sceneObjects: SceneObjectRender[]): PlaneOpt
       continue;
     }
     byLine.set(key, {
-      label: `Plane — line ${loc.line}`,
+      label: 'Plane',
       filePath: loc.filePath,
       line: loc.line,
       column: loc.column,
@@ -58,7 +58,7 @@ export async function labelWithPlaneNames(options: PlaneOption[]): Promise<Plane
   const names = await fetchSketchNames(options.map(o => o.line), 'plane');
   return options.map((option, i) => {
     const name = names[i];
-    return name ? { ...option, label: `${name} — line ${option.line}` } : option;
+    return name ? { ...option, label: name } : option;
   });
 }
 

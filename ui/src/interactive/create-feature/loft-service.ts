@@ -11,7 +11,7 @@ import { EditSession, EditSessionInfo } from '../edit-session';
 import { LoftPanel } from './loft-panel';
 import {
   collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
-  SketchProfileOption, sketchWireShapeIds,
+  sourceChip, SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 
 const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 text-base-content/60';
@@ -712,20 +712,17 @@ export class LoftFeatureService {
   // -------------------------------------------------------------------------
 
   private refreshProfilesUI(): void {
-    this.panel.setProfiles(this.items.map(item => ({
-      label: item.kind === 'sketch' ? item.option.label
-        : item.kind === 'face' ? 'Picked face'
-          : item.label,
-    })));
-    this.panel.setGuides(this.guides.map(guide => ({
-      label: guide.kind === 'sketch' ? guide.option.label : guide.label,
-    })));
+    this.panel.setProfiles(this.items.map(item =>
+      item.kind === 'sketch' ? sourceChip(item.option)
+        : { label: item.kind === 'face' ? 'Picked face' : item.label }));
+    this.panel.setGuides(this.guides.map(guide =>
+      guide.kind === 'sketch' ? sourceChip(guide.option) : { label: guide.label }));
     this.panel.setThinBlocked(this.guides.length > 0);
     const count = this.items.length;
     if (count === 0) {
-      this.panel.setHint('Pick faces in 3D or sketches in the timeline');
+      this.panel.setHint('Pick sketches or faces');
     } else if (count === 1) {
-      this.panel.setHint('1 profile — add at least one more');
+      this.panel.setHint('1 sketch — add at least one more');
     } else {
       this.panel.setHint(null);
     }

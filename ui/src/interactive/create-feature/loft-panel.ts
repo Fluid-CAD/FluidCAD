@@ -1,6 +1,6 @@
 import { LoftConditionRef } from '../../api';
 import { FeatureOp, OpTabs, PanelShell, ThinControl } from './panel-controls';
-import { PickSlot } from '../pick-slot';
+import { PickSlot, PickSlotChip } from '../pick-slot';
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type LoftValues =
@@ -11,9 +11,6 @@ export type LoftValues =
       endCondition: LoftConditionRef | null;
     }
   | { error: string };
-
-/** One rendered chip in the ordered profile list. */
-export type LoftProfileChip = { label: string };
 
 /**
  * One takeoff-condition row (start or end): the type select plus a magnitude
@@ -163,7 +160,7 @@ export class LoftPanel {
 
     this.profilesSlot = new PickSlot(
       this.shell.body.querySelector('[data-role="profiles-slot"]')!,
-      { label: 'Profiles — in loft order', multiple: true, reorderable: true },
+      { label: 'Sketches — in loft order', multiple: true, reorderable: true },
     );
     this.guidesSlot = new PickSlot(
       this.shell.body.querySelector('[data-role="guides-slot"]')!,
@@ -229,25 +226,23 @@ export class LoftPanel {
    * Render the ordered profile chips; chip N is the loft's argument N.
    * Rows reorder by dragging their grip handle.
    */
-  setProfiles(chips: LoftProfileChip[]): void {
+  setProfiles(chips: PickSlotChip[]): void {
     this.profilesSlot.setChips(chips.map((chip, index) => ({
-      label: chip.label,
+      ...chip,
       badge: String(index + 1),
       removable: true,
     })));
   }
 
   /** Render the guide chips — plain removable rows, no ordering. */
-  setGuides(chips: LoftProfileChip[]): void {
+  setGuides(chips: PickSlotChip[]): void {
     this.guidesSlot.setChips(chips.map(chip => ({
-      label: chip.label,
+      ...chip,
       badge: 'G',
       badgeMuted: true,
       removable: true,
     })));
-    this.guidesSlot.setPrompt(chips.length === 0
-      ? 'Pick a guide sketch in the timeline or 3D view'
-      : null);
+    this.guidesSlot.setPrompt(chips.length === 0 ? 'Pick guide sketches' : null);
   }
 
   /** Guides exclude thin mode — block the toggle while any guide is set. */

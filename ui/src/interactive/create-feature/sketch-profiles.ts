@@ -1,6 +1,7 @@
-import { fetchSketchNames } from '../../api';
+import { fetchSketchNames, gotoSource } from '../../api';
 import { isTopLevel } from '../../helpers/scene-utils';
 import { SceneObjectRender } from '../../types';
+import { PickSlotChip } from '../pick-slot';
 
 /** A sketch a create-feature dialog can consume (profile or path). */
 export type SketchProfileOption = {
@@ -65,9 +66,29 @@ export async function labelWithSketchNames(options: SketchProfileOption[]): Prom
     }
     return {
       ...option,
-      label: option.kind === 'active' ? `Active sketch — ${name}` : `${name} — line ${option.line}`,
+      label: option.kind === 'active' ? `Last Sketch — ${name}` : name,
     };
   });
+}
+
+/**
+ * A pick chip for a source-backed option (a sketch, axis or plane): its label
+ * plus a muted, right-aligned line badge that jumps to the option's source
+ * line. Callers pass the badge/removable flags; the line and its jump target
+ * come from the option.
+ */
+export function sourceChip(
+  option: { label: string; filePath: string; line: number; column: number },
+  opts: { badge?: string; badgeMuted?: boolean; removable?: boolean } = {},
+): PickSlotChip {
+  return {
+    label: option.label,
+    badge: opts.badge,
+    badgeMuted: opts.badgeMuted,
+    removable: opts.removable,
+    line: option.line,
+    onGoto: () => gotoSource({ filePath: option.filePath, line: option.line, column: option.column }),
+  };
 }
 
 /** A stable signature for "same options" checks across async relabeling. */
@@ -142,7 +163,7 @@ function toOption(
   const loc = obj.sourceLocation!;
   return {
     kind,
-    label: kind === 'active' ? 'Active sketch' : `Sketch — line ${loc.line}`,
+    label: kind === 'active' ? 'Last Sketch' : 'Sketch',
     filePath: loc.filePath,
     line: loc.line,
     column: loc.column,

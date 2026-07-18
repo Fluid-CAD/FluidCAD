@@ -16,7 +16,15 @@ export type PickSlotChip = {
   removable?: boolean;
   /** Hover tooltip; defaults to the label. */
   title?: string;
+  /** Source line of the chip's statement — shown muted and right-aligned with
+   * a jump arrow; clicking it fires `onGoto`. Sketch chips carry it. */
+  line?: number;
+  /** Navigate to the chip's source line (the line badge was clicked). */
+  onGoto?: () => void;
 };
+
+/** The jump-to-source arrow beside a chip's line number. */
+const GOTO_ARROW = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>';
 
 // The empty-slot prompt. Standalone (single slots) it is the classic count
 // box: primary outline while it awaits picks, neutral fill when picking is
@@ -186,6 +194,22 @@ export class PickSlot {
     label.textContent = chip.label;
     label.title = chip.title ?? chip.label;
     row.appendChild(label);
+
+    if (chip.line != null) {
+      // The source line: muted and pushed to the right by the flex label,
+      // with a jump arrow. Clicking navigates to the line without arming the
+      // slot (a re-pick would otherwise fire from the row's click handler).
+      const goto = document.createElement('button');
+      goto.type = 'button';
+      goto.className = 'flex items-center gap-0.5 shrink-0 text-[10px] tabular-nums text-base-content/40 hover:text-base-content transition-colors';
+      goto.title = `Go to line ${chip.line}`;
+      goto.innerHTML = `<span>${chip.line}</span>${GOTO_ARROW}`;
+      goto.addEventListener('click', (e) => {
+        e.stopPropagation();
+        chip.onGoto?.();
+      });
+      row.appendChild(goto);
+    }
 
     if (chip.removable) {
       const remove = document.createElement('button');

@@ -9,7 +9,7 @@ import { PlanePanel } from './plane-panel';
 import {
   collectPlaneOptions, labelWithPlaneNames, PlaneOption, planeOptionsSignature, resolvePlaneRow,
 } from './plane-bases';
-import { collectSketchProfiles } from './sketch-profiles';
+import { collectSketchProfiles, sourceChip } from './sketch-profiles';
 
 const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 text-base-content/60';
 const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2 py-1';
@@ -405,16 +405,17 @@ export class PlaneFeatureService {
     if (!this.armed) {
       return;
     }
-    this.panel.setBases(this.bases.map(base => ({ label: baseLabel(base) })));
+    this.panel.setBases(this.bases.map(base =>
+      base.kind === 'plane' ? sourceChip(base.option) : { label: baseLabel(base) }));
     const type = this.panel.planeType;
     if (this.bases.length >= this.panel.capacity) {
       this.panel.setHint(null);
     } else if (type === 'edge') {
-      this.panel.setHint('Pick an edge in 3D');
+      this.panel.setHint('Pick an edge');
     } else {
       this.panel.setHint(this.bases.length === 0 && type === 'mid'
-        ? 'Pick two faces or planes in 3D'
-        : 'Pick a face or plane in 3D');
+        ? 'Pick two faces or planes'
+        : 'Pick a face or plane');
     }
     const picked = this.bases.flatMap(b => (b.kind === 'pick' ? [b.entity] : []));
     if (picked.length > 0) {

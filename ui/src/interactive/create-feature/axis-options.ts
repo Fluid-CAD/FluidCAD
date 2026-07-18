@@ -27,7 +27,7 @@ export function collectAxisOptions(sceneObjects: SceneObjectRender[]): AxisOptio
     }
     const loc = obj.sourceLocation;
     options.push({
-      label: `Axis — line ${loc.line}`,
+      label: 'Axis',
       filePath: loc.filePath,
       line: loc.line,
       column: loc.column,
@@ -49,7 +49,7 @@ export async function labelWithAxisNames(options: AxisOption[]): Promise<AxisOpt
   const names = await fetchSketchNames(options.map(o => o.line), 'axis');
   return options.map((option, i) => {
     const name = names[i];
-    return name ? { ...option, label: `${name} — line ${option.line}` } : option;
+    return name ? { ...option, label: name } : option;
   });
 }
 

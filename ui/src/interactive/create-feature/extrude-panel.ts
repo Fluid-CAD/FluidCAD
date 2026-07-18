@@ -1,5 +1,5 @@
 import { OpTabs, PanelShell, ThinControl } from './panel-controls';
-import { SketchProfileOption } from './sketch-profiles';
+import { SketchProfileOption, sourceChip } from './sketch-profiles';
 import { PickSlot } from '../pick-slot';
 import { ExtrudeOptionValues } from '../../api';
 
@@ -118,7 +118,7 @@ export class ExtrudePanel {
 
     this.profileSlot = new PickSlot(
       this.shell.body.querySelector('[data-role="profile-slot"]')!,
-      { label: 'Profile', multiple: false },
+      { label: 'Sketch', multiple: false },
     );
     this.profileSlot.onRemove = () => {
       // Create mode: back to the prompt; edit mode: back to the statement's
@@ -305,7 +305,7 @@ export class ExtrudePanel {
       this.faceSlot.setPrompt(null);
     } else {
       this.faceSlot.setChips([]);
-      this.faceSlot.setPrompt('Pick the target face in the 3D view');
+      this.faceSlot.setPrompt('Pick a face');
     }
     this.faceSlot.setArmed(true);
   }
@@ -325,7 +325,7 @@ export class ExtrudePanel {
   private renderProfile(): void {
     if (this.selection === 'keep') {
       this.profileSlot.setChips([{
-        label: `Current: ${this.keepProfileLabel}`,
+        label: `Last Sketch: ${this.keepProfileLabel}`,
         badge: '●',
         removable: false,
       }]);
@@ -333,12 +333,12 @@ export class ExtrudePanel {
     } else {
       const option = this.selection !== null ? this.options[this.selection] : undefined;
       this.profileSlot.setChips(option
-        ? [{ label: option.label, badge: '●', removable: true }]
+        ? [sourceChip(option, { badge: '●', removable: true })]
         : []);
       this.profileSlot.setPrompt(option
         ? null
         : this.options.length > 0 || this.editMode
-          ? 'Pick a sketch in the timeline or 3D view'
+          ? 'Pick a sketch'
           : 'No sketch — create one first');
     }
     // The slot is the live pick target whenever there is anything to pick.

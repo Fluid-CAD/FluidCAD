@@ -1378,7 +1378,7 @@ export class ModifyPickService {
     if (this.feature === 'sketch') {
       // The sketch dialog's whole armed UI is the prompt; it also offers
       // the origin planes — alone when nothing has faces.
-      this.sketchPanel.setPicking(this.sketchAvailable ? 'Pick a face or a plane' : 'Pick a plane');
+      this.sketchPanel.setPicking(this.sketchAvailable ? 'Pick a face or plane' : 'Pick a plane');
       this.syncButtons();
       return;
     }
@@ -1395,7 +1395,7 @@ export class ModifyPickService {
     // Empty selection: prompt for the first pick; face-only features ask for
     // a face, the rest an edge.
     if (this.chipRows.length === 0) {
-      this.selectionSlot.setPrompt(`Pick ${config.pickFilter === 'face' ? 'a face' : 'an edge'}`);
+      this.selectionSlot.setPrompt(`Pick ${config.pickFilter === 'face' ? 'faces' : 'edges'}`);
     } else {
       this.selectionSlot.setPrompt(null);
     }

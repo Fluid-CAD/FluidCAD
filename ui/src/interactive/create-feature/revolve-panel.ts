@@ -1,5 +1,5 @@
 import { OpTabs, PanelShell, ThinControl } from './panel-controls';
-import { SketchProfileOption } from './sketch-profiles';
+import { SketchProfileOption, sourceChip } from './sketch-profiles';
 import { AxisOption } from './axis-options';
 import { PickSlot } from '../pick-slot';
 import { RevolveOptionValues } from '../../api';
@@ -95,7 +95,7 @@ export class RevolvePanel {
 
     this.profileSlot = new PickSlot(
       this.shell.body.querySelector('[data-role="profile-slot"]')!,
-      { label: 'Profile', multiple: false },
+      { label: 'Sketch', multiple: false },
     );
     this.profileSlot.onArm = () => this.armSlot('profile');
     this.profileSlot.onRemove = () => {
@@ -322,7 +322,7 @@ export class RevolvePanel {
   private renderProfile(): void {
     if (this.profileState === 'keep') {
       this.profileSlot.setChips([{
-        label: `Current: ${this.keepProfileLabel}`,
+        label: `Last Sketch: ${this.keepProfileLabel}`,
         badge: '●',
         removable: false,
       }]);
@@ -330,12 +330,12 @@ export class RevolvePanel {
     } else {
       const option = this.profileState !== null ? this.profileOptions[this.profileState] : undefined;
       this.profileSlot.setChips(option
-        ? [{ label: option.label, badge: '●', removable: true }]
+        ? [sourceChip(option, { badge: '●', removable: true })]
         : []);
       this.profileSlot.setPrompt(option
         ? null
         : this.profileOptions.length > 0 || this.editMode
-          ? 'Pick a sketch in the timeline or 3D view'
+          ? 'Pick a sketch'
           : 'No sketch — create one first');
     }
   }
@@ -358,14 +358,14 @@ export class RevolvePanel {
       }]);
       this.axisSlot.setPrompt(null);
     } else if (state?.kind === 'axis') {
-      this.axisSlot.setChips([{ label: state.option.label, badge: '●', removable: true }]);
+      this.axisSlot.setChips([sourceChip(state.option, { badge: '●', removable: true })]);
       this.axisSlot.setPrompt(null);
     } else if (state?.kind === 'edge') {
       this.axisSlot.setChips([{ label: edgeLabel ?? 'Picked edge', badge: '●', removable: true }]);
       this.axisSlot.setPrompt(null);
     } else {
       this.axisSlot.setChips([]);
-      this.axisSlot.setPrompt('Pick an axis or edge in 3D');
+      this.axisSlot.setPrompt('Pick an axis or edge');
     }
     for (const [axis, btn] of this.axisButtons) {
       btn.classList.toggle('btn-soft', state?.kind === 'standard' && state.axis === axis);

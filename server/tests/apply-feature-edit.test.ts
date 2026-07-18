@@ -3559,6 +3559,8 @@ describe('parseFeatureStatement — repeat', () => {
         feature: 'repeat', kind: 'linear', axisTexts: [`'x'`], planeText: null,
         directions: [{ count: 3, value: 40 }], spacingMode: 'offset', centered: false,
         count: null, sweep: null, angle: null, targetTexts: ['e'],
+        // The bound extrude call's own position — the timeline row's location.
+        targetRefs: [{ line: 4, column: 10 }],
       },
       statement: `repeat('linear', 'x', { count: 3, offset: 40 }, e)`,
     });
@@ -3606,6 +3608,19 @@ describe('parseFeatureStatement — repeat', () => {
       parsed: {
         feature: 'repeat', kind: 'mirror', axisTexts: [], planeText: `'yz'`,
         targetTexts: ['e', 'c'],
+        targetRefs: [{ line: 4, column: 10 }, { line: 6, column: 10 }],
+      },
+    });
+  });
+
+  it('resolves identifier targets to their statements and leaves other expressions null', async () => {
+    const code = `${repeatEditBase}\nrepeat('mirror', 'yz', e, extrude(5))\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        targetTexts: ['e', 'extrude(5)'],
+        targetRefs: [{ line: 4, column: 10 }, null],
       },
     });
   });

@@ -2047,6 +2047,14 @@ export type ParsedFeatureStatement =
     angle: number | null;
     /** Trailing target texts, verbatim; empty replays the previous feature. */
     targetTexts: string[];
+    /**
+     * Per-target source location of the feature statement a plain-identifier
+     * target references (the bound call's own position — what its timeline
+     * row reports), or null when the expression doesn't resolve to one. Same
+     * length as `targetTexts`; lets the edit dialog seed targets as their
+     * timeline rows.
+     */
+    targetRefs: ({ line: number; column: number } | null)[];
   };
 
 const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
@@ -2546,6 +2554,48 @@ function numericArrayValues(node: TSNode): number[] | null {
 }
 
 /**
+ * Resolve a repeat target expression to the statement it references: a plain
+ * identifier bound by a `const <name> = <call>` declaration preceding the
+ * repeat in a scope that encloses it. The returned location is the bound
+ * call's own start — the source location its scene object reports — so the
+ * edit dialog can seed the target as its timeline row. Null for anything
+ * else (inline calls, unresolvable names); the nearest preceding declaration
+ * wins when a name is declared more than once.
+ */
+function resolveRepeatTargetRef(node: TSNode, statementStart: number): { line: number; column: number } | null {
+  if (node.type !== 'identifier') {
+    return null;
+  }
+  let root: TSNode = node;
+  while (root.parent) {
+    root = root.parent;
+  }
+  let best: TSNode | null = null;
+  for (const candidate of walkTree(root)) {
+    if (candidate.type !== 'variable_declarator' || candidate.startIndex >= statementStart) {
+      continue;
+    }
+    const name = candidate.childForFieldName('name');
+    const value = candidate.childForFieldName('value');
+    if (!name || name.text !== node.text || !value || value.type !== 'call_expression') {
+      continue;
+    }
+    const scope = enclosingScope(candidate);
+    if (scope.startIndex > statementStart || scope.endIndex < statementStart) {
+      continue;
+    }
+    if (!best || candidate.startIndex > best.startIndex) {
+      best = candidate;
+    }
+  }
+  const value = best?.childForFieldName('value');
+  if (!value) {
+    return null;
+  }
+  return { line: value.startPosition.row + 1, column: value.startPosition.column };
+}
+
+/**
  * A `repeat('<kind>', …)` statement's dialog-editable reading. The kind must
  * be a plain string literal (the raw-matrix form has no dialog); axis, plane
  * and target expressions are preserved verbatim, numeric options must be
@@ -2576,14 +2626,19 @@ function parseRepeatChain(args: TSNode[], start: number, end: number): ChainPars
     sweep: null as { mode: 'angle' | 'offset'; value: number } | null,
     angle: null as number | null,
     targetTexts: [] as string[],
+    targetRefs: [] as ({ line: number; column: number } | null)[],
   };
+  const targetFields = (nodes: TSNode[]) => ({
+    targetTexts: nodes.map(n => n.text),
+    targetRefs: nodes.map(n => resolveRepeatTargetRef(n, start)),
+  });
 
   if (kind === 'mirror') {
     if (args.length < 2) {
       return { error: 'the repeat has fewer arguments than the dialog understands' };
     }
     return {
-      parsed: { ...base, planeText: args[1].text, targetTexts: args.slice(2).map(a => a.text) },
+      parsed: { ...base, planeText: args[1].text, ...targetFields(args.slice(2)) },
       start,
       end,
     };
@@ -2606,7 +2661,7 @@ function parseRepeatChain(args: TSNode[], start: number, end: number): ChainPars
       }
     }
     return {
-      parsed: { ...base, axisTexts: [args[1].text], angle, targetTexts: rest.map(a => a.text) },
+      parsed: { ...base, axisTexts: [args[1].text], angle, ...targetFields(rest) },
       start,
       end,
     };
@@ -2620,7 +2675,7 @@ function parseRepeatChain(args: TSNode[], start: number, end: number): ChainPars
   const axisTexts = axisNode.type === 'array'
     ? axisNode.namedChildren.filter(a => a.type !== 'comment').map(a => a.text)
     : [axisNode.text];
-  const targetTexts = args.slice(3).map(a => a.text);
+  const targets = targetFields(args.slice(3));
   const options = objectLiteralEntries(args[2]);
   if (options === null) {
     return { error: 'the repeat options are not a plain object literal — edit them in the source' };
@@ -2651,7 +2706,7 @@ function parseRepeatChain(args: TSNode[], start: number, end: number): ChainPars
       return { error: `the repeat ${mode} is not a plain number — edit it in the source` };
     }
     return {
-      parsed: { ...base, axisTexts, count, sweep: { mode, value }, targetTexts },
+      parsed: { ...base, axisTexts, count, sweep: { mode, value }, ...targets },
       start,
       end,
     };
@@ -2718,7 +2773,7 @@ function parseRepeatChain(args: TSNode[], start: number, end: number): ChainPars
       directions: dirCounts.map((count, i) => ({ count, value: dirValues[i] })),
       spacingMode,
       centered,
-      targetTexts,
+      ...targets,
     },
     start,
     end,

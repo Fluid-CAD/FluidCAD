@@ -240,7 +240,7 @@ export class RepeatPanel {
       slot.onRemove = () => {
         // Create mode: back to the prompt; edit mode: back to the
         // statement's own axis (a re-pick is undone, never the axis itself).
-        this.axisStates.set(direction, this.axisKeepState(direction));
+        this.axisStates.set(direction, this.statementAxisState(direction));
         this.renderAxis(direction);
         this.onAxisModeChange?.(direction);
         this.onChange?.();
@@ -277,7 +277,7 @@ export class RepeatPanel {
     );
     this.planeSlot.onArm = () => this.armSlot('plane');
     this.planeSlot.onRemove = () => {
-      this.planeState = this.planeKeepState();
+      this.planeState = this.statementPlaneState();
       this.renderPlane();
       this.onPlaneModeChange?.();
       this.onChange?.();
@@ -306,7 +306,7 @@ export class RepeatPanel {
       this.dir2 = true;
       // A re-added direction restores its kept statement axis (edit mode).
       if (!this.axisStates.get(2)) {
-        this.axisStates.set(2, this.axisKeepState(2));
+        this.axisStates.set(2, this.statementAxisState(2));
         this.renderAxis(2);
       }
       // The fresh direction is the one being composed — its slot takes the
@@ -457,9 +457,9 @@ export class RepeatPanel {
     this.value2Input.value = String(state.directions?.[1]?.value ?? 20);
     this.centeredInput.checked = state.centered;
     this.angleInput.value = String(state.angle ?? 90);
-    this.axisStates.set(1, this.axisKeepState(1));
-    this.axisStates.set(2, this.axisKeepState(2));
-    this.planeState = this.planeKeepState();
+    this.axisStates.set(1, this.statementAxisState(1));
+    this.axisStates.set(2, this.statementAxisState(2));
+    this.planeState = this.statementPlaneState();
     this.setTargets([]);
     this.renderAxis(1);
     this.renderAxis(2);
@@ -473,20 +473,38 @@ export class RepeatPanel {
   }
 
   /**
-   * A direction's keep entry — the statement axis at its position — or null
-   * when there is none to keep (create mode, or a kind the statement's
-   * shape doesn't cover).
+   * A direction's statement-axis entry — what the slot seeds with and
+   * reverts to in edit mode — or null when the statement has no axis at its
+   * position (create mode, or a kind the statement's shape doesn't cover).
+   * A standard world-axis literal (`'y'`) reads as the standard selection
+   * itself, chip and quick-button state matching create mode; anything else
+   * stays a verbatim "Current: …" keep.
    */
-  private axisKeepState(direction: RepeatDirection): RepeatAxisSelection | null {
+  private statementAxisState(direction: RepeatDirection): RepeatAxisSelection | null {
     const sourceIndex = direction - 1;
-    return this.editMode && sourceIndex < this.keepAxisLabels.length
-      ? { kind: 'keep', sourceIndex }
-      : null;
+    if (!this.editMode || sourceIndex >= this.keepAxisLabels.length) {
+      return null;
+    }
+    const standard = this.keepAxisLabels[sourceIndex].match(/^['"]([xyz])['"]$/);
+    if (standard) {
+      return { kind: 'standard', axis: standard[1] as 'x' | 'y' | 'z' };
+    }
+    return { kind: 'keep', sourceIndex };
   }
 
-  /** The plane slot's keep entry, or null when there is none to keep. */
-  private planeKeepState(): RepeatPlaneSelection | null {
-    return this.editMode && this.keepPlaneLabel !== null ? { kind: 'keep' } : null;
+  /**
+   * The plane slot's statement entry, or null when there is none. A standard
+   * origin-plane literal (`'yz'`) reads as the standard selection itself.
+   */
+  private statementPlaneState(): RepeatPlaneSelection | null {
+    if (!this.editMode || this.keepPlaneLabel === null) {
+      return null;
+    }
+    const standard = this.keepPlaneLabel.match(/^['"](xy|xz|yz)['"]$/);
+    if (standard) {
+      return { kind: 'standard', plane: standard[1] as 'xy' | 'xz' | 'yz' };
+    }
+    return { kind: 'keep' };
   }
 
   /**
@@ -504,14 +522,14 @@ export class RepeatPanel {
         const match = axes.find(o => o.filePath === state.option.filePath && o.line === state.option.line);
         this.axisStates.set(direction, match
           ? { kind: 'axis', option: match }
-          : this.axisKeepState(direction));
+          : this.statementAxisState(direction));
       }
       this.renderAxis(direction);
     }
     if (this.planeState?.kind === 'plane') {
       const prev = this.planeState.option;
       const match = planes.find(o => o.filePath === prev.filePath && o.line === prev.line);
-      this.planeState = match ? { kind: 'plane', option: match } : this.planeKeepState();
+      this.planeState = match ? { kind: 'plane', option: match } : this.statementPlaneState();
     }
     this.renderPlane();
   }
@@ -571,7 +589,7 @@ export class RepeatPanel {
     if (label !== null) {
       this.axisStates.set(direction, { kind: 'edge' });
     } else if (this.axisStates.get(direction)?.kind === 'edge') {
-      this.axisStates.set(direction, this.axisKeepState(direction));
+      this.axisStates.set(direction, this.statementAxisState(direction));
     }
     this.renderAxis(direction, label ?? undefined);
   }
@@ -584,7 +602,7 @@ export class RepeatPanel {
     if (label !== null) {
       this.planeState = { kind: 'face' };
     } else if (this.planeState?.kind === 'face') {
-      this.planeState = this.planeKeepState();
+      this.planeState = this.statementPlaneState();
     }
     this.renderPlane(label ?? undefined);
   }

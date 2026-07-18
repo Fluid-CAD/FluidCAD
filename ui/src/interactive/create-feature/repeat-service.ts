@@ -39,11 +39,14 @@ export type RepeatEnterSeed = {
 /**
  * One chosen target: a timeline-picked feature statement, or — edit mode
  * only — a kept statement target by its position in the parsed
- * `targetTexts`, preserved verbatim.
+ * `targetTexts`, preserved verbatim. A keep whose expression resolved to a
+ * feature statement carries that statement's location (`loc`): it converts
+ * into its timeline-row option at the rollback boundary, so the chip shows
+ * the feature's own label and the row click toggles it like create mode.
  */
 type RepeatTargetChoice =
   | { kind: 'option'; option: RepeatTargetOption }
-  | { kind: 'keep'; sourceIndex: number; label: string };
+  | { kind: 'keep'; sourceIndex: number; label: string; loc?: { filePath: string; line: number; column: number } };
 
 /**
  * The Repeat dialog on the create rails: replay one or more timeline
@@ -243,11 +246,14 @@ export class RepeatFeatureService {
         this.panel.setMessage('The code changed — the re-picked geometry was reset.');
       }
     }
-    // Timeline-picked targets re-match by source line; keeps are
-    // text-addressed and survive.
+    // Timeline-picked targets re-match by source line. A keep that resolved
+    // to a feature statement becomes that row's option — proper label,
+    // create-mode toggling; unresolved keeps stay text-addressed verbatim.
     this.targets = this.targets.flatMap((target): RepeatTargetChoice[] => {
       if (target.kind === 'keep') {
-        return [target];
+        const match = target.loc && this.targetOptions.find(o =>
+          o.filePath === target.loc!.filePath && o.line === target.loc!.line);
+        return match ? [{ kind: 'option', option: match }] : [target];
       }
       const match = this.targetOptions.find(o =>
         o.filePath === target.option.filePath && o.line === target.option.line);
@@ -335,8 +341,15 @@ export class RepeatFeatureService {
     this.axisEdgeEntities.set(1, null);
     this.axisEdgeEntities.set(2, null);
     this.planeFaceEntity = null;
-    this.targets = parsed.targetTexts.map((label, sourceIndex) =>
-      ({ kind: 'keep' as const, sourceIndex, label }));
+    this.targets = parsed.targetTexts.map((label, sourceIndex) => {
+      const ref = parsed.targetRefs[sourceIndex];
+      return {
+        kind: 'keep' as const,
+        sourceIndex,
+        label,
+        loc: ref ? { filePath: target.filePath, line: ref.line, column: ref.column } : undefined,
+      };
+    });
     this.syncButton();
     this.suspendSketchUI();
     this.session.begin({ ...info, target });
@@ -600,8 +613,11 @@ export class RepeatFeatureService {
       this.panel.setMessage('That feature is not available to repeat.');
       return true;
     }
+    // A kept target that resolved to this row counts as the same chip — the
+    // click toggles it off instead of duplicating the feature.
     const existing = this.targets.findIndex(t => t.kind === 'option'
-      && t.option.filePath === option.filePath && t.option.line === option.line);
+      ? t.option.filePath === option.filePath && t.option.line === option.line
+      : t.loc !== undefined && t.loc.filePath === option.filePath && t.loc.line === option.line);
     if (existing >= 0) {
       this.targets.splice(existing, 1);
     } else {

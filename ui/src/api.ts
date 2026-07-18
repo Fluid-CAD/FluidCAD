@@ -903,6 +903,12 @@ export type ParsedFeatureStatement =
       angle: number | null;
       /** Trailing target texts, verbatim; empty replays the previous feature. */
       targetTexts: string[];
+      /**
+       * Per-target source location of the feature statement a plain-identifier
+       * target references, or null when the expression doesn't resolve to one.
+       * Same length as `targetTexts` — seeds each target as its timeline row.
+       */
+      targetRefs: ({ line: number; column: number } | null)[];
     };
 
 export type ParseFeatureResult =

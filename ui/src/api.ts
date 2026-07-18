@@ -878,7 +878,32 @@ export type ParsedFeatureStatement =
       feature: 'text';
       /** Path argument text, verbatim; null for plain (non-path) text. */
       pathText: string | null;
-    } & TextOptionValues);
+    } & TextOptionValues)
+  | {
+      feature: 'repeat';
+      kind: 'linear' | 'circular' | 'mirror' | 'rotate';
+      /**
+       * Axis argument texts, verbatim — one per linear direction, a single
+       * entry for circular/rotate, empty for mirror.
+       */
+      axisTexts: string[];
+      /** Mirror plane argument text, verbatim; null for the axis kinds. */
+      planeText: string | null;
+      /** Linear per-direction count and value, in axis order. */
+      directions: { count: number; value: number }[] | null;
+      /** Linear spacing semantics shared by every direction. */
+      spacingMode: 'offset' | 'length' | null;
+      /** Linear only: the pattern is centered on the original instance. */
+      centered: boolean;
+      /** Circular instance count, original included. */
+      count: number | null;
+      /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
+      sweep: { mode: 'angle' | 'offset'; value: number } | null;
+      /** Rotate angle in degrees; null = omitted (the 90° API default). */
+      angle: number | null;
+      /** Trailing target texts, verbatim; empty replays the previous feature. */
+      targetTexts: string[];
+    };
 
 export type ParseFeatureResult =
   | { ok: true; parsed: ParsedFeatureStatement; statement: string }
@@ -1080,6 +1105,73 @@ export async function applyLoftEdit(
     endCondition: options.endCondition,
     profiles: options.profiles,
     guides: options.guides,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/**
+ * One axis slot of an edited repeat: keep the statement's own axis text by
+ * its position in the parsed `axisTexts`, or re-source it with any
+ * create-mode axis shape.
+ */
+export type RepeatEditAxisRef = { kind: 'keep'; sourceIndex: number } | RevolveAxisRef;
+
+/** The mirror-plane slot of an edited repeat: keep, or re-source. */
+export type RepeatEditPlaneRef = { kind: 'keep' } | RepeatPlaneRef;
+
+/**
+ * One target of an edited repeat, in argument order: an untouched target by
+ * its position in the statement's own argument list, or a re-picked feature
+ * statement by call site.
+ */
+export type RepeatEditTargetRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'feature' } & SketchSourceRef);
+
+export type RepeatEditOptions = EditSessionFields & {
+  kind: 'linear' | 'circular' | 'mirror' | 'rotate';
+  /** Linear directions in axis order — each its own axis, count and value. */
+  directions?: { axis: RepeatEditAxisRef; count: number; value: number }[];
+  /** Linear spacing semantics shared by every direction. */
+  spacingMode?: 'offset' | 'length';
+  /** Linear only: center the pattern on the original instance. */
+  centered?: boolean;
+  /** The repeat axis (circular/rotate); omitted keeps the statement's own. */
+  axis?: RepeatEditAxisRef;
+  /** The mirror plane; omitted keeps the statement's own. */
+  plane?: RepeatEditPlaneRef;
+  /** Instance count, original included (circular). */
+  count?: number;
+  /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
+  sweep?: { mode: 'angle' | 'offset'; value: number };
+  /** Rotate only: rotation angle in degrees. */
+  angle?: number;
+  /** Full replacement target list; omitted keeps the statement's own. */
+  targets?: RepeatEditTargetRef[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the repeat statement at `edit` in place. */
+export async function applyRepeatEdit(
+  edit: FeatureEditTarget,
+  options: RepeatEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'repeat',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    kind: options.kind,
+    directions: options.directions,
+    spacingMode: options.spacingMode,
+    centered: options.centered,
+    axis: options.axis,
+    plane: options.plane,
+    count: options.count,
+    sweep: options.sweep,
+    angle: options.angle,
+    targets: options.targets,
     preview: options.preview,
   }, options.signal);
 }

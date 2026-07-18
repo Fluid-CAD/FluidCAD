@@ -627,4 +627,40 @@ describe('select→apply-feature end to end', () => {
     const rerun = runFluid(edited.newCode);
     expect(distinctSolids(rerun)).toHaveLength(2);
   });
+
+  it('edits an existing repeat statement in place and re-executes', async () => {
+    const code = [
+      `import { sketch, rect, extrude, repeat } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(20, 20) })`,
+      `const f = extrude(10).new()`,
+      `repeat('linear', 'x', { count: 3, offset: 40 }, f)`,
+      ``,
+    ].join('\n');
+
+    // The double-click → dialog round trip: count and spacing change, the
+    // axis and target stay the statement's own expressions.
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'repeat',
+      filePath: '/ws/model.fluid.js',
+      producers: [],
+      parts: [],
+      imports: [],
+      edit: {
+        line: 5, column: 0,
+        expectedStatement: `repeat('linear', 'x', { count: 3, offset: 40 }, f)`,
+        repeat: {
+          kind: 'linear',
+          spacingMode: 'offset',
+          directions: [{ axis: { kind: 'keep', sourceIndex: 0 }, count: 4, value: 30 }],
+        },
+      },
+    };
+    const edited = await applyFeatureEdit(code, spec);
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(`repeat('linear', 'x', { count: 4, offset: 30 }, f)`);
+
+    const rerun = runFluid(edited.newCode);
+    expect(distinctSolids(rerun)).toHaveLength(4);
+  });
 });

@@ -14,21 +14,26 @@ export type RepeatArmedSlot = 'targets' | 'axis1' | 'axis2' | 'plane';
 
 /**
  * An axis slot's state: a standard world axis (the X/Y/Z quick buttons), an
- * existing axis statement, or a picked edge (the service owns the entity).
+ * existing axis statement, a picked edge (the service owns the entity), or —
+ * edit mode only — the kept statement axis at `sourceIndex` of its parsed
+ * `axisTexts`, preserved verbatim.
  */
 export type RepeatAxisSelection =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; option: AxisOption }
-  | { kind: 'edge' };
+  | { kind: 'edge' }
+  | { kind: 'keep'; sourceIndex: number };
 
 /**
  * The mirror-plane slot's state: a standard origin plane (its viewport quad),
- * an existing plane feature, or a picked face (the service owns the entity).
+ * an existing plane feature, a picked face (the service owns the entity), or
+ * — edit mode only — the kept statement plane, preserved verbatim.
  */
 export type RepeatPlaneSelection =
   | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
   | { kind: 'plane'; option: PlaneOption }
-  | { kind: 'face' };
+  | { kind: 'face' }
+  | { kind: 'keep' };
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type RepeatValues =
@@ -115,6 +120,12 @@ export class RepeatPanel {
   private planeState: RepeatPlaneSelection | null = null;
   /** The Direction 2 group is active (linear only). */
   private dir2 = false;
+  /** Edit mode: slots start on (and revert to) "Current: …" keep chips. */
+  private editMode = false;
+  /** The statement's own axis texts, one keep-chip label per position. */
+  private keepAxisLabels: string[] = [];
+  /** The statement's own mirror-plane text, or null when it has none. */
+  private keepPlaneLabel: string | null = null;
 
   constructor(container: HTMLElement) {
     this.shell = new PanelShell(container, 'fluidcad-repeat-panel', 'Repeat mode', '/icons/copy-linear.png');
@@ -227,7 +238,9 @@ export class RepeatPanel {
       );
       slot.onArm = () => this.armSlot(direction === 2 ? 'axis2' : 'axis1');
       slot.onRemove = () => {
-        this.axisStates.set(direction, null);
+        // Create mode: back to the prompt; edit mode: back to the
+        // statement's own axis (a re-pick is undone, never the axis itself).
+        this.axisStates.set(direction, this.axisKeepState(direction));
         this.renderAxis(direction);
         this.onAxisModeChange?.(direction);
         this.onChange?.();
@@ -264,7 +277,7 @@ export class RepeatPanel {
     );
     this.planeSlot.onArm = () => this.armSlot('plane');
     this.planeSlot.onRemove = () => {
-      this.planeState = null;
+      this.planeState = this.planeKeepState();
       this.renderPlane();
       this.onPlaneModeChange?.();
       this.onChange?.();
@@ -291,6 +304,11 @@ export class RepeatPanel {
 
     this.addDirectionBtn.addEventListener('click', () => {
       this.dir2 = true;
+      // A re-added direction restores its kept statement axis (edit mode).
+      if (!this.axisStates.get(2)) {
+        this.axisStates.set(2, this.axisKeepState(2));
+        this.renderAxis(2);
+      }
       // The fresh direction is the one being composed — its slot takes the
       // next axis pick.
       this.armSlot('axis2');
@@ -361,6 +379,10 @@ export class RepeatPanel {
   show(): void {
     // A fresh arming starts from defaults and empty slots — the previous
     // session's choices would otherwise be revived by source-line matching.
+    this.editMode = false;
+    this.keepAxisLabels = [];
+    this.keepPlaneLabel = null;
+    this.shell.setTitle(null);
     this.kindSelect.value = 'linear';
     this.axisStates.set(1, null);
     this.axisStates.set(2, null);
@@ -398,6 +420,76 @@ export class RepeatPanel {
   }
 
   /**
+   * Open prefilled from an existing statement (edit mode). The axis/plane
+   * slots start on "Current: …" chips that keep the statement's own
+   * expressions verbatim (per direction, by position); re-sourcing is live
+   * and a re-picked chip's ✕ reverts to the kept expression. Fields the
+   * statement doesn't carry (a kind switch reveals them) seed with the
+   * create defaults. The targets slot is seeded by the service.
+   */
+  showEdit(state: {
+    kind: RepeatType;
+    directions: { count: number; value: number }[] | null;
+    spacingMode: 'offset' | 'length' | null;
+    centered: boolean;
+    count: number | null;
+    sweep: { mode: 'angle' | 'offset'; value: number } | null;
+    angle: number | null;
+    /** Keep-chip labels, one per statement axis (`axisTexts`). */
+    axisLabels: string[];
+    /** Keep-chip label for the statement's mirror plane, or null. */
+    planeLabel: string | null;
+  }): void {
+    this.editMode = true;
+    this.keepAxisLabels = state.axisLabels;
+    this.keepPlaneLabel = state.planeLabel;
+    this.shell.setTitle('Edit repeat');
+    this.kindSelect.value = state.kind;
+    this.dir2 = (state.directions?.length ?? 0) === 2;
+    this.countInput.value = String(
+      state.kind === 'linear' ? state.directions?.[0]?.count ?? 3 : state.count ?? 3,
+    );
+    this.spacingModeSelect.value = state.spacingMode ?? 'offset';
+    this.spacingInput.value = String(state.directions?.[0]?.value ?? 20);
+    this.sweepModeSelect.value = state.sweep?.mode ?? 'angle';
+    this.sweepInput.value = String(state.sweep?.value ?? 360);
+    this.count2Input.value = String(state.directions?.[1]?.count ?? 2);
+    this.value2Input.value = String(state.directions?.[1]?.value ?? 20);
+    this.centeredInput.checked = state.centered;
+    this.angleInput.value = String(state.angle ?? 90);
+    this.axisStates.set(1, this.axisKeepState(1));
+    this.axisStates.set(2, this.axisKeepState(2));
+    this.planeState = this.planeKeepState();
+    this.setTargets([]);
+    this.renderAxis(1);
+    this.renderAxis(2);
+    this.renderPlane();
+    // The targets list is the seeded statement's — its slot opens armed like
+    // create mode, ready to toggle features in the timeline.
+    this.armSlot('targets');
+    this.syncSpacingLabels();
+    this.syncType();
+    this.shell.show();
+  }
+
+  /**
+   * A direction's keep entry — the statement axis at its position — or null
+   * when there is none to keep (create mode, or a kind the statement's
+   * shape doesn't cover).
+   */
+  private axisKeepState(direction: RepeatDirection): RepeatAxisSelection | null {
+    const sourceIndex = direction - 1;
+    return this.editMode && sourceIndex < this.keepAxisLabels.length
+      ? { kind: 'keep', sourceIndex }
+      : null;
+  }
+
+  /** The plane slot's keep entry, or null when there is none to keep. */
+  private planeKeepState(): RepeatPlaneSelection | null {
+    return this.editMode && this.keepPlaneLabel !== null ? { kind: 'keep' } : null;
+  }
+
+  /**
    * Refresh the offered axis/plane statements after a re-render, keeping the
    * current choices when the same statement is still offered (matched by
    * source location — scene ids change every render). A choice that vanished
@@ -410,14 +502,16 @@ export class RepeatPanel {
       const state = this.axisStates.get(direction);
       if (state?.kind === 'axis') {
         const match = axes.find(o => o.filePath === state.option.filePath && o.line === state.option.line);
-        this.axisStates.set(direction, match ? { kind: 'axis', option: match } : null);
+        this.axisStates.set(direction, match
+          ? { kind: 'axis', option: match }
+          : this.axisKeepState(direction));
       }
       this.renderAxis(direction);
     }
     if (this.planeState?.kind === 'plane') {
       const prev = this.planeState.option;
       const match = planes.find(o => o.filePath === prev.filePath && o.line === prev.line);
-      this.planeState = match ? { kind: 'plane', option: match } : null;
+      this.planeState = match ? { kind: 'plane', option: match } : this.planeKeepState();
     }
     this.renderPlane();
   }
@@ -477,7 +571,7 @@ export class RepeatPanel {
     if (label !== null) {
       this.axisStates.set(direction, { kind: 'edge' });
     } else if (this.axisStates.get(direction)?.kind === 'edge') {
-      this.axisStates.set(direction, null);
+      this.axisStates.set(direction, this.axisKeepState(direction));
     }
     this.renderAxis(direction, label ?? undefined);
   }
@@ -490,7 +584,7 @@ export class RepeatPanel {
     if (label !== null) {
       this.planeState = { kind: 'face' };
     } else if (this.planeState?.kind === 'face') {
-      this.planeState = null;
+      this.planeState = this.planeKeepState();
     }
     this.renderPlane(label ?? undefined);
   }
@@ -554,7 +648,14 @@ export class RepeatPanel {
   private renderAxis(direction: RepeatDirection, edgeLabel?: string): void {
     const slot = this.axisSlots.get(direction)!;
     const state = this.axisStates.get(direction);
-    if (state?.kind === 'standard') {
+    if (state?.kind === 'keep') {
+      slot.setChips([{
+        label: `Current: ${this.keepAxisLabels[state.sourceIndex] ?? ''}`,
+        badge: '●',
+        removable: false,
+      }]);
+      slot.setPrompt(null);
+    } else if (state?.kind === 'standard') {
       slot.setChips([{
         label: `World ${state.axis.toUpperCase()} axis`,
         badge: '●',
@@ -580,7 +681,14 @@ export class RepeatPanel {
   /** The plane slot: one chip (the chosen plane), or the pick prompt. */
   private renderPlane(faceLabel?: string): void {
     const state = this.planeState;
-    if (state?.kind === 'standard') {
+    if (state?.kind === 'keep') {
+      this.planeSlot.setChips([{
+        label: `Current: ${this.keepPlaneLabel ?? ''}`,
+        badge: '●',
+        removable: false,
+      }]);
+      this.planeSlot.setPrompt(null);
+    } else if (state?.kind === 'standard') {
       this.planeSlot.setChips([{
         label: `${state.plane.toUpperCase()} plane`,
         badge: '●',

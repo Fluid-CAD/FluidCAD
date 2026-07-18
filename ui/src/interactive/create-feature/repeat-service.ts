@@ -1,6 +1,7 @@
 import {
-  applyRepeat, ApplyFeatureResponse, RepeatApplyOptions, RepeatDirectionRef, RepeatPlaneRef,
-  RevolveAxisRef,
+  applyRepeat, applyRepeatEdit, ApplyFeatureResponse, FeatureEditTarget, ParsedFeatureStatement,
+  RepeatApplyOptions, RepeatDirectionRef, RepeatEditAxisRef, RepeatEditOptions, RepeatEditPlaneRef,
+  RepeatEditTargetRef,
 } from '../../api';
 import { sameEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
@@ -8,6 +9,7 @@ import { SelectedEntity, Viewer } from '../../viewer';
 import { StandardPlaneId } from '../../scene/standard-planes';
 import { Navbar } from '../../ui/navbar';
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
+import { EditSession, EditSessionInfo } from '../edit-session';
 import { RepeatDirection, RepeatPanel } from './repeat-panel';
 import { collectRepeatTargets, RepeatTargetOption, resolveRepeatTargetRow } from './repeat-targets';
 import {
@@ -35,6 +37,15 @@ export type RepeatEnterSeed = {
 };
 
 /**
+ * One chosen target: a timeline-picked feature statement, or — edit mode
+ * only — a kept statement target by its position in the parsed
+ * `targetTexts`, preserved verbatim.
+ */
+type RepeatTargetChoice =
+  | { kind: 'option'; option: RepeatTargetOption }
+  | { kind: 'keep'; sourceIndex: number; label: string };
+
+/**
  * The Repeat dialog on the create rails: replay one or more timeline
  * features linearly, circularly, mirrored across a plane, or rotated. The
  * features are picked ONLY in the timeline (each row click toggles a
@@ -57,7 +68,7 @@ export class RepeatFeatureService {
   private applying = false;
   private targetOptions: RepeatTargetOption[] = [];
   /** The chosen targets, in pick order — the repeat's argument order. */
-  private targets: RepeatTargetOption[] = [];
+  private targets: RepeatTargetChoice[] = [];
   private axes: AxisOption[] = [];
   private planes: PlaneOption[] = [];
   private sceneObjects: SceneObjectRender[] = [];
@@ -67,6 +78,14 @@ export class RepeatFeatureService {
   private axisEdgeEntities = new Map<RepeatDirection, SelectedEntity | null>([[1, null], [2, null]]);
   /** The picked mirror face (the plane slot's `face` mode), or null. */
   private planeFaceEntity: SelectedEntity | null = null;
+  /** Statement being edited in place (timeline double-click), or null. */
+  private editTarget: FeatureEditTarget | null = null;
+  /** The parsed statement the edit dialog opened over (keep-slot texts). */
+  private editStatement: Extract<ParsedFeatureStatement, { feature: 'repeat' }> | null = null;
+  /** View-state half of edit mode: pre-statement rollback + boundary. */
+  private session = new EditSession();
+  /** A full render arrived mid-session — re-picked shape ids died. */
+  private editSceneStale = false;
   private labelSignature = '';
   private previewTimer: number | null = null;
   private previewAbort: AbortController | null = null;
@@ -142,6 +161,11 @@ export class RepeatFeatureService {
     return this.armed;
   }
 
+  /** An edit session is open (the viewport shows the pre-statement rollback). */
+  get isEditing(): boolean {
+    return this.editTarget !== null;
+  }
+
   /**
    * The armed dialog owns viewport clicks; which picks are actually live
    * follows the kind type ({@link syncViewport}) — the viewer routes edge,
@@ -164,6 +188,76 @@ export class RepeatFeatureService {
   /** True while armed picking has suspended sketch editing. */
   get sketchUISuspended(): boolean {
     return this.suspendedSketchUI;
+  }
+
+  /**
+   * Every render lands here. An open edit session owns the view: it keeps
+   * the viewport rolled back to just before the edited statement, and at
+   * that boundary the slot options rebuild from the pre-statement scene —
+   * exactly the features, axes and planes the repeat's arguments can
+   * reference.
+   */
+  handleSceneRendered(sceneObjects: SceneObjectRender[], stop: number, isRollback: boolean): void {
+    const state = this.session.onSceneRendered(sceneObjects, stop, isRollback);
+    if (state === 'inactive') {
+      this.update(isRollback ? [] : sceneObjects);
+      return;
+    }
+    if (!this.armed) {
+      this.session.end('gone');
+      return;
+    }
+    if (state === 'gone') {
+      this.exit({ editEnd: 'gone' });
+      return;
+    }
+    if (state === 'waiting') {
+      if (!isRollback) {
+        this.editSceneStale = true;
+      }
+      return;
+    }
+    // At the boundary: rebuild options from the pre-statement scene.
+    this.sceneObjects = sceneObjects;
+    this.targetOptions = collectRepeatTargets(sceneObjects);
+    this.axes = collectAxisOptions(sceneObjects);
+    this.planes = collectPlaneOptions(sceneObjects);
+    if (this.editSceneStale) {
+      this.editSceneStale = false;
+      // A scene rebuild killed the re-picked shape ids; keep chips are
+      // text-addressed and survive.
+      let reset = false;
+      for (const direction of [1, 2] as const) {
+        if (this.axisEdgeEntities.get(direction)) {
+          this.axisEdgeEntities.set(direction, null);
+          this.panel.setAxisEdgeChip(direction, null);
+          reset = true;
+        }
+      }
+      if (this.planeFaceEntity) {
+        this.planeFaceEntity = null;
+        this.panel.setPlaneFaceChip(null);
+        reset = true;
+      }
+      if (reset) {
+        this.panel.setMessage('The code changed — the re-picked geometry was reset.');
+      }
+    }
+    // Timeline-picked targets re-match by source line; keeps are
+    // text-addressed and survive.
+    this.targets = this.targets.flatMap((target): RepeatTargetChoice[] => {
+      if (target.kind === 'keep') {
+        return [target];
+      }
+      const match = this.targetOptions.find(o =>
+        o.filePath === target.option.filePath && o.line === target.option.line);
+      return match ? [{ kind: 'option', option: match }] : [];
+    });
+    this.panel.setOptions(this.axes, this.planes);
+    this.refreshLabels();
+    this.syncViewport();
+    this.refresh();
+    this.schedulePreview();
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
@@ -190,10 +284,13 @@ export class RepeatFeatureService {
     // Chosen targets re-match against the fresh options by source line;
     // shape ids changed with the render, so picked entities are stale and
     // drop back to their pick prompts.
-    this.targets = this.targets.flatMap(target => {
+    this.targets = this.targets.flatMap((target): RepeatTargetChoice[] => {
+      if (target.kind === 'keep') {
+        return [target];
+      }
       const match = this.targetOptions.find(o =>
-        o.filePath === target.filePath && o.line === target.line);
-      return match ? [match] : [];
+        o.filePath === target.option.filePath && o.line === target.option.line);
+      return match ? [{ kind: 'option', option: match }] : [];
     });
     for (const direction of [1, 2] as const) {
       if (this.axisEdgeEntities.get(direction)) {
@@ -212,10 +309,58 @@ export class RepeatFeatureService {
     this.schedulePreview();
   }
 
+  /**
+   * Open the dialog over an existing repeat statement (timeline
+   * double-click). The session rolls the viewport back to just before the
+   * statement — the world its arguments see, where the target features,
+   * axes and planes it references are visible and pickable. The axis/plane
+   * slots start on "Current: …" chips keeping the statement's own
+   * expressions; the targets slot starts on one kept chip per statement
+   * target, toggled and re-picked in the timeline like create mode. Apply
+   * rewrites the statement in place.
+   */
+  enterEdit(
+    target: FeatureEditTarget,
+    parsed: Extract<ParsedFeatureStatement, { feature: 'repeat' }>,
+    info: Omit<EditSessionInfo, 'target'>,
+  ): void {
+    if (this.armed) {
+      this.exit();
+    }
+    this.hooks.onEnter?.();
+    this.armed = true;
+    this.editTarget = target;
+    this.editStatement = parsed;
+    this.editSceneStale = false;
+    this.axisEdgeEntities.set(1, null);
+    this.axisEdgeEntities.set(2, null);
+    this.planeFaceEntity = null;
+    this.targets = parsed.targetTexts.map((label, sourceIndex) =>
+      ({ kind: 'keep' as const, sourceIndex, label }));
+    this.syncButton();
+    this.suspendSketchUI();
+    this.session.begin({ ...info, target });
+    this.panel.showEdit({
+      kind: parsed.kind,
+      directions: parsed.directions,
+      spacingMode: parsed.spacingMode,
+      centered: parsed.centered,
+      count: parsed.count,
+      sweep: parsed.sweep,
+      angle: parsed.angle,
+      axisLabels: parsed.axisTexts,
+      planeLabel: parsed.planeText,
+    });
+    this.syncViewport();
+    this.refresh();
+    this.schedulePreview();
+  }
+
   enter(): void {
     if (this.armed) {
       return;
     }
+    this.session.end('continue');
     const seeded = this.hooks.onEnter?.();
     this.armed = true;
     this.targets = [];
@@ -278,13 +423,22 @@ export class RepeatFeatureService {
   /**
    * `resume: 'lazy'` re-enables sketch editing without forcing the mode
    * transition — for apply-success and scene-driven exits. User cancels
-   * default to `'immediate'`.
+   * default to `'immediate'`; ending an edit session always resumes lazily
+   * (a render follows every session end).
    */
-  exit(opts: { resume?: 'immediate' | 'lazy' } = {}): void {
+  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'gone' } = {}): void {
     if (!this.armed) {
       return;
     }
+    const hadSession = this.session.active;
+    this.session.end(opts.editEnd ?? 'cancel');
+    if (hadSession) {
+      opts = { ...opts, resume: 'lazy' };
+    }
     this.armed = false;
+    this.editTarget = null;
+    this.editStatement = null;
+    this.editSceneStale = false;
     this.targets = [];
     this.axisEdgeEntities.set(1, null);
     this.axisEdgeEntities.set(2, null);
@@ -446,11 +600,12 @@ export class RepeatFeatureService {
       this.panel.setMessage('That feature is not available to repeat.');
       return true;
     }
-    const existing = this.targets.findIndex(t => t.filePath === option.filePath && t.line === option.line);
+    const existing = this.targets.findIndex(t => t.kind === 'option'
+      && t.option.filePath === option.filePath && t.option.line === option.line);
     if (existing >= 0) {
       this.targets.splice(existing, 1);
     } else {
-      this.targets.push(option);
+      this.targets.push({ kind: 'option', option });
     }
     // The pick landed in the Features slot — it takes the armed border.
     this.panel.armSlot('targets');
@@ -462,6 +617,27 @@ export class RepeatFeatureService {
 
   private async apply(): Promise<void> {
     if (!this.armed || this.applying) {
+      return;
+    }
+    if (this.editTarget) {
+      const request = this.buildEditRequest();
+      if ('error' in request) {
+        this.panel.setMessage(request.error);
+        return;
+      }
+      this.applying = true;
+      this.panel.setApplyEnabled(false);
+      try {
+        const result = await applyRepeatEdit(this.editTarget, request);
+        if (result.success) {
+          this.exit({ editEnd: 'apply' });
+        } else {
+          this.panel.setMessage(result.reason ?? 'Could not apply the edit.');
+        }
+      } finally {
+        this.applying = false;
+        this.panel.setApplyEnabled(true);
+      }
       return;
     }
     const request = this.buildRequest();
@@ -486,12 +662,19 @@ export class RepeatFeatureService {
     }
   }
 
-  /** One direction's axis request field, or the message blocking it. */
-  private axisRef(direction: RepeatDirection, named: boolean): RevolveAxisRef | { error: string } {
+  /**
+   * One direction's axis request field, or the message blocking it. A keep
+   * selection (edit mode) references the statement's own axis by position —
+   * the create paths never see one.
+   */
+  private axisRef(direction: RepeatDirection, named: boolean): RepeatEditAxisRef | { error: string } {
     const which = named ? ` for direction ${direction}` : '';
     const selection = this.panel.axisSelection(direction);
     if (!selection) {
       return { error: `Choose the axis to repeat along${which}.` };
+    }
+    if (selection.kind === 'keep') {
+      return { kind: 'keep', sourceIndex: selection.sourceIndex };
     }
     if (selection.kind === 'standard') {
       return { kind: 'standard', axis: selection.axis };
@@ -508,10 +691,13 @@ export class RepeatFeatureService {
   }
 
   /** The plane slot's request field, or the message blocking it. */
-  private planeRef(): RepeatPlaneRef | { error: string } {
+  private planeRef(): RepeatEditPlaneRef | { error: string } {
     const selection = this.panel.planeSelection();
     if (!selection) {
       return { error: 'Choose the plane to mirror across.' };
+    }
+    if (selection.kind === 'keep') {
+      return { kind: 'keep' };
     }
     if (selection.kind === 'standard') {
       return { kind: 'standard', plane: selection.plane };
@@ -535,11 +721,17 @@ export class RepeatFeatureService {
     if (this.targets.length === 0) {
       return { error: 'Pick the features to repeat in the timeline first.' };
     }
-    const targets = this.targets.map(({ filePath, line, column }) => ({ filePath, line, column }));
+    // Create mode never carries keep entries — every chip is a picked row.
+    const targets = this.targets.flatMap(t => t.kind === 'option'
+      ? [{ filePath: t.option.filePath, line: t.option.line, column: t.option.column }]
+      : []);
     if (values.kind === 'mirror') {
       const plane = this.planeRef();
       if ('error' in plane) {
         return plane;
+      }
+      if (plane.kind === 'keep') {
+        return { error: 'Choose the plane to mirror across.' };
       }
       return { kind: 'mirror', targets, plane };
     }
@@ -550,6 +742,9 @@ export class RepeatFeatureService {
         const axis = this.axisRef(active[i], active.length > 1);
         if ('error' in axis) {
           return axis;
+        }
+        if (axis.kind === 'keep') {
+          return { error: `Choose the axis to repeat along${active.length > 1 ? ` for direction ${active[i]}` : ''}.` };
         }
         directions.push({ axis, ...values.directions[i] });
       }
@@ -562,10 +757,81 @@ export class RepeatFeatureService {
     if ('error' in axis) {
       return axis;
     }
+    if (axis.kind === 'keep') {
+      return { error: 'Choose the axis to repeat around.' };
+    }
     if (values.kind === 'circular') {
       return { kind: 'circular', targets, axis, count: values.count, sweep: values.sweep };
     }
     return { kind: 'rotate', targets, axis, angle: values.angle };
+  }
+
+  /**
+   * The edit-mode apply payload. Slots still on their "Current: …" entries
+   * ship as keeps — the transform preserves the statement's expressions byte
+   * for byte; the target list mixes kept statement targets with re-picked
+   * timeline rows (an untouched implicit repeat keeps consuming the previous
+   * feature). Re-picked edges/faces synthesize against the session boundary.
+   */
+  private buildEditRequest(): RepeatEditOptions | { error: string } {
+    const values = this.panel.values();
+    if ('error' in values) {
+      return values;
+    }
+    // An originally implicit repeat (no explicit target arguments) stays
+    // implicit while the targets slot is untouched; explicit targets can be
+    // re-picked but never all removed.
+    let targets: RepeatEditTargetRef[] | undefined;
+    if (this.targets.length > 0) {
+      targets = this.targets.map(t => t.kind === 'keep'
+        ? { kind: 'verbatim' as const, sourceIndex: t.sourceIndex }
+        : {
+          kind: 'feature' as const,
+          filePath: t.option.filePath,
+          line: t.option.line,
+          column: t.option.column,
+        });
+    } else if ((this.editStatement?.targetTexts.length ?? 0) > 0) {
+      return { error: 'Pick the features to repeat in the timeline first.' };
+    }
+    const sessionFields = (needsBoundary: boolean) => ({
+      expectedStatement: this.session.expectedStatement,
+      before: needsBoundary ? this.session.boundary ?? undefined : undefined,
+    });
+    if (values.kind === 'mirror') {
+      const plane = this.planeRef();
+      if ('error' in plane) {
+        return plane;
+      }
+      return { kind: 'mirror', targets, plane, ...sessionFields(plane.kind === 'face') };
+    }
+    if (values.kind === 'linear') {
+      const active = this.panel.directions;
+      const directions: NonNullable<RepeatEditOptions['directions']> = [];
+      let pickedEdge = false;
+      for (let i = 0; i < active.length; i++) {
+        const axis = this.axisRef(active[i], active.length > 1);
+        if ('error' in axis) {
+          return axis;
+        }
+        pickedEdge ||= axis.kind === 'edge';
+        directions.push({ axis, ...values.directions[i] });
+      }
+      return {
+        kind: 'linear', targets, directions, spacingMode: values.spacingMode,
+        centered: values.centered || undefined,
+        ...sessionFields(pickedEdge),
+      };
+    }
+    const axis = this.axisRef(1, false);
+    if ('error' in axis) {
+      return axis;
+    }
+    const session = sessionFields(axis.kind === 'edge');
+    if (values.kind === 'circular') {
+      return { kind: 'circular', targets, axis, count: values.count, sweep: values.sweep, ...session };
+    }
+    return { kind: 'rotate', targets, axis, angle: values.angle, ...session };
   }
 
   // -------------------------------------------------------------------------
@@ -601,7 +867,9 @@ export class RepeatFeatureService {
     if (!this.armed) {
       return;
     }
-    this.panel.setTargets(this.targets.map(target => sourceChip(target, { removable: true })));
+    this.panel.setTargets(this.targets.map(target => target.kind === 'keep'
+      ? { label: `Current: ${target.label}`, removable: true }
+      : sourceChip(target.option, { removable: true })));
     this.refreshHighlight();
   }
 
@@ -718,7 +986,9 @@ export class RepeatFeatureService {
     if (!this.armed || this.applying) {
       return;
     }
-    const request = this.buildRequest();
+    // Edit mode previews the full edit payload — keeps and re-sourced slots
+    // included — so the preview is the exact statement Apply will write.
+    const request = this.editTarget ? this.buildEditRequest() : this.buildRequest();
     if ('error' in request) {
       this.panel.setPreview(null);
       return;
@@ -730,7 +1000,13 @@ export class RepeatFeatureService {
 
     let result: ApplyFeatureResponse;
     try {
-      result = await applyRepeat({ ...request, preview: true, signal: abort.signal });
+      result = this.editTarget
+        ? await applyRepeatEdit(this.editTarget, {
+          ...(request as RepeatEditOptions),
+          preview: true,
+          signal: abort.signal,
+        })
+        : await applyRepeat({ ...(request as RepeatApplyOptions), preview: true, signal: abort.signal });
     } catch {
       return; // aborted
     }

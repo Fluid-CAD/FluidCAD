@@ -3539,3 +3539,277 @@ describe('repeat statement templates', () => {
     expect(result.newCode).toBe(`${base}\n`);
   });
 });
+
+const repeatEditBase = [
+  `import { sketch, rect, extrude, cut, repeat } from 'fluidcad/core'`,
+  ``,
+  `sketch('xy', () => { rect(100, 50) })`,
+  `const e = extrude(30)`,
+  `sketch('xy', () => { rect(10, 10) })`,
+  `const c = cut(5)`,
+].join('\n');
+
+describe('parseFeatureStatement — repeat', () => {
+  it('reads a single-direction linear repeat', async () => {
+    const code = `${repeatEditBase}\nrepeat('linear', 'x', { count: 3, offset: 40 }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'repeat', kind: 'linear', axisTexts: [`'x'`], planeText: null,
+        directions: [{ count: 3, value: 40 }], spacingMode: 'offset', centered: false,
+        count: null, sweep: null, angle: null, targetTexts: ['e'],
+      },
+      statement: `repeat('linear', 'x', { count: 3, offset: 40 }, e)`,
+    });
+  });
+
+  it('reads the two-direction array forms with length and centered', async () => {
+    const code = `${repeatEditBase}\nrepeat('linear', ['x', a], { count: [3, 2], length: [120, 60], centered: true }, e, c)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'repeat', kind: 'linear', axisTexts: [`'x'`, 'a'],
+        directions: [{ count: 3, value: 120 }, { count: 2, value: 60 }],
+        spacingMode: 'length', centered: true, targetTexts: ['e', 'c'],
+      },
+    });
+  });
+
+  it('broadcasts scalar counts and values across two directions', async () => {
+    const code = `${repeatEditBase}\nrepeat('linear', ['x', 'y'], { count: 3, offset: 40 }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { directions: [{ count: 3, value: 40 }, { count: 3, value: 40 }] },
+    });
+  });
+
+  it('reads a circular repeat keeping the axis expression verbatim', async () => {
+    const code = `${repeatEditBase}\nrepeat('circular', axis(e.endEdges(2)), { count: 6, angle: 360 }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'repeat', kind: 'circular', axisTexts: ['axis(e.endEdges(2))'],
+        count: 6, sweep: { mode: 'angle', value: 360 }, targetTexts: ['e'],
+      },
+    });
+  });
+
+  it('reads a mirror repeat with several targets', async () => {
+    const code = `${repeatEditBase}\nrepeat('mirror', 'yz', e, c)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'repeat', kind: 'mirror', axisTexts: [], planeText: `'yz'`,
+        targetTexts: ['e', 'c'],
+      },
+    });
+  });
+
+  it('reads a rotate with and without the angle argument', async () => {
+    const withAngle = await parseFeatureStatement(`${repeatEditBase}\nrepeat('rotate', 'z', 45, e)\n`, 7);
+    expect(withAngle).toMatchObject({
+      ok: true,
+      parsed: { feature: 'repeat', kind: 'rotate', axisTexts: [`'z'`], angle: 45, targetTexts: ['e'] },
+    });
+    const defaulted = await parseFeatureStatement(`${repeatEditBase}\nrepeat('rotate', a, e)\n`, 7);
+    expect(defaulted).toMatchObject({
+      ok: true,
+      parsed: { feature: 'repeat', kind: 'rotate', axisTexts: ['a'], angle: null, targetTexts: ['e'] },
+    });
+  });
+
+  it('reads an implicit-target repeat as empty target texts', async () => {
+    const code = `${repeatEditBase}\nrepeat('mirror', 'xy')\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({ ok: true, parsed: { feature: 'repeat', targetTexts: [] } });
+  });
+
+  it('keeps chained calls after the root call out of the statement span', async () => {
+    const code = `${repeatEditBase}\nrepeat('rotate', 'z', 45, e).name('ring')\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      statement: `repeat('rotate', 'z', 45, e)`,
+    });
+  });
+
+  it('refuses the raw-matrix form', async () => {
+    const code = `${repeatEditBase}\nrepeat(m, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('matrix repeat');
+    }
+  });
+
+  it('refuses an option the dialog does not offer', async () => {
+    const code = `${repeatEditBase}\nrepeat('linear', 'x', { count: 3, offset: 40, skip: [[1]] }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain(`'skip'`);
+    }
+  });
+
+  it('refuses a variable count', async () => {
+    const code = `${repeatEditBase}\nrepeat('circular', 'z', { count: n, angle: 360 }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('not a plain number');
+    }
+  });
+
+  it('refuses more than two linear directions', async () => {
+    const code = `${repeatEditBase}\nrepeat('linear', ['x', 'y', 'z'], { count: 2, offset: 10 }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('more than two directions');
+    }
+  });
+
+  it('refuses option arities that do not match the directions', async () => {
+    const code = `${repeatEditBase}\nrepeat('linear', 'x', { count: [3, 2], offset: 40 }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('do not match the directions');
+    }
+  });
+});
+
+describe('applyFeatureEdit (repeat in-place statement edit)', () => {
+  it('replaces the numeric options in place, keeping axis and targets verbatim', async () => {
+    const code = `${repeatEditBase}\nrepeat('linear', axis(e.endEdges(2)), { count: 3, offset: 40 }, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('repeat', {
+      line: 7, column: 0,
+      repeat: {
+        kind: 'linear',
+        spacingMode: 'length',
+        directions: [{ axis: { kind: 'keep', sourceIndex: 0 }, count: 5, value: 120 }],
+      },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(
+      `${repeatEditBase}\nrepeat('linear', axis(e.endEdges(2)), { count: 5, length: 120 }, e)\n`,
+    );
+  });
+
+  it('preserves the binding and a chained suffix', async () => {
+    const code = `${repeatEditBase}\nconst r = repeat('rotate', 'z', 45, e).name('ring');\n`;
+    const result = await applyFeatureEdit(code, editSpec('repeat', {
+      line: 7, column: 0,
+      repeat: { kind: 'rotate', angle: 30, axis: { kind: 'keep', sourceIndex: 0 } },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const r = repeat('rotate', 'z', 30, e).name('ring');`);
+  });
+
+  it('omits the 90-degree rotate default', async () => {
+    const code = `${repeatEditBase}\nrepeat('rotate', 'z', 45, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('repeat', {
+      line: 7, column: 0,
+      repeat: { kind: 'rotate', angle: 90, axis: { kind: 'keep', sourceIndex: 0 } },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`repeat('rotate', 'z', e)\n`);
+  });
+
+  it('switches a circular repeat to a rotate, keeping the axis expression', async () => {
+    const code = `${repeatEditBase}\nrepeat('circular', a, { count: 6, angle: 360 }, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('repeat', {
+      line: 7, column: 0,
+      repeat: { kind: 'rotate', angle: 45, axis: { kind: 'keep', sourceIndex: 0 } },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`repeat('rotate', a, 45, e)\n`);
+  });
+
+  it('replaces the target list, mixing kept and re-picked features', async () => {
+    const code = `${repeatEditBase}\nrepeat('mirror', 'yz', e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('repeat', {
+      line: 7, column: 0,
+      repeat: {
+        kind: 'mirror',
+        plane: { kind: 'keep' },
+        targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }],
+      },
+    }, {
+      producers: [{ line: 6, column: 10, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`repeat('mirror', 'yz', e, c)\n`);
+  });
+
+  it('re-sources the axis with a standard world axis', async () => {
+    const code = `${repeatEditBase}\nrepeat('rotate', axis(e.endEdges(2)), 45, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('repeat', {
+      line: 7, column: 0,
+      repeat: { kind: 'rotate', angle: 45, axis: { kind: 'standard', axis: 'z' } },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`repeat('rotate', 'z', 45, e)\n`);
+  });
+
+  it('renders a re-picked selector axis from its part', async () => {
+    const code = `${repeatEditBase}\nrepeat('rotate', 'z', 45, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('repeat', {
+      line: 7, column: 0,
+      repeat: { kind: 'rotate', angle: 45, axis: { kind: 'selector', part: 0 } },
+    }, {
+      producers: [{ line: 4, column: 10, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endEdges', indices: [3], filterArgs: null }],
+      imports: ['axis'],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`repeat('rotate', axis(e.endEdges(3)), 45, e)\n`);
+    expect(result.newCode).toMatch(/import \{[^}]*\baxis\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('refuses a stale expectedStatement', async () => {
+    const code = `${repeatEditBase}\nrepeat('rotate', 'z', 45, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('repeat', {
+      line: 7, column: 0,
+      expectedStatement: `repeat('rotate', 'z', 44, e)`,
+      repeat: { kind: 'rotate', angle: 30, axis: { kind: 'keep', sourceIndex: 0 } },
+    }));
+    expect(result.error).toContain('changed since the dialog opened');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a kept axis the statement does not have', async () => {
+    const code = `${repeatEditBase}\nrepeat('mirror', 'yz', e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('repeat', {
+      line: 7, column: 0,
+      repeat: { kind: 'rotate', angle: 45, axis: { kind: 'keep', sourceIndex: 0 } },
+    }));
+    expect(result.error).toContain('kept axis no longer matches');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses an empty replacement target list', async () => {
+    const code = `${repeatEditBase}\nrepeat('mirror', 'yz', e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('repeat', {
+      line: 7, column: 0,
+      repeat: { kind: 'mirror', plane: { kind: 'keep' }, targets: [] },
+    }));
+    expect(result.error).toContain('at least one target');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('keeps an implicit-target repeat implicit when no target list rides the spec', async () => {
+    const code = `${repeatEditBase}\nrepeat('mirror', 'xy')\n`;
+    const result = await applyFeatureEdit(code, editSpec('repeat', {
+      line: 7, column: 0,
+      repeat: { kind: 'mirror', plane: { kind: 'standard', plane: 'yz' } },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`repeat('mirror', 'yz')\n`);
+  });
+});

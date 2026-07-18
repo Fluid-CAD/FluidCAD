@@ -2144,4 +2144,126 @@ describe('apply-feature route validation', () => {
       expect(relayed).toEqual([]);
     });
   });
+
+  describe('repeat edit', () => {
+    const EDIT_CODE = [
+      "import { sketch, rect, extrude, cut, repeat } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { rect(100, 50) })",
+      'const e = extrude(30)',
+      "sketch('xy', () => { rect(10, 10) })",
+      'const c = cut(5)',
+      "repeat('rotate', 'z', 45, e)",
+      '',
+    ].join('\n');
+    const EDIT = { filePath: '/ws/m.fluid.js', line: 7, column: 0 };
+    const EDIT_BEFORE = { index: 6, type: 'repeat-matrix', line: 7, column: 0 };
+
+    it('relays a rotate edit keeping the statement axis and previews it', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'repeat', edit: EDIT, kind: 'rotate', angle: 30,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("repeat('rotate', 'z', 30, e)");
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'repeat',
+        producers: [],
+        parts: [],
+        edit: {
+          line: 7, column: 0,
+          repeat: { kind: 'rotate', angle: 30, axis: { kind: 'keep', sourceIndex: 0 } },
+        },
+        clearBreakpoints: true,
+      });
+    });
+
+    it('replaces the target list, binding a re-picked feature', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'repeat', edit: EDIT, kind: 'rotate', angle: 45,
+        targets: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'feature', filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("repeat('rotate', 'z', 45, e, c)");
+      expect(relayed[0].spec).toMatchObject({
+        producers: [{ line: 6, featureType: 'feature', bind: true }],
+        edit: {
+          repeat: {
+            targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }],
+          },
+        },
+      });
+    });
+
+    it('re-picks the axis edge: synthesis with the boundary, selector on the edit spec', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'revolve',
+          filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endEdges', indices: [2], filterArgs: null }],
+          imports: [],
+        },
+        preview: '',
+        args: 'e.endEdges(2)',
+        alternatives: [],
+      };
+      const { status, body } = await post({
+        feature: 'repeat', edit: EDIT, kind: 'rotate', angle: 45,
+        axis: { kind: 'edge', entity: { shapeId: 'shape-1', sub: { type: 'edge', index: 2 } } },
+        before: EDIT_BEFORE,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("repeat('rotate', axis(e.endEdges(2)), 45, e)");
+      expect(synthesizeCalls).toEqual([{ feature: 'revolve', value: undefined }]);
+      expect(synthesizeBoundaries).toEqual([EDIT_BEFORE]);
+      expect(relayed[0].spec).toMatchObject({
+        producers: [{ line: 4, featureType: 'extrude' }],
+        parts: [{ producer: 0, accessor: 'endEdges', indices: [2] }],
+        edit: { repeat: { axis: { kind: 'selector', part: 0 } } },
+      });
+      expect(relayed[0].spec.imports).toContain('axis');
+    });
+
+    it('rejects a re-picked axis edge without a boundary', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'repeat', edit: EDIT, kind: 'rotate', angle: 45,
+        axis: { kind: 'edge', entity: { shapeId: 'shape-1', sub: { type: 'edge', index: 2 } } },
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('before is required');
+      expect(synthesizeCalls).toEqual([]);
+    });
+
+    it('rejects an unknown kind on an edit', async () => {
+      const { status, body } = await post({ feature: 'repeat', edit: EDIT, kind: 'spiral' });
+      expect(status).toBe(400);
+      expect(body.error).toContain('kind must be');
+    });
+
+    it('422s an edit whose statement is not a repeat', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'repeat',
+        edit: { filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+        kind: 'rotate', angle: 45,
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('not a repeat');
+      expect(relayed).toHaveLength(0);
+    });
+  });
 });

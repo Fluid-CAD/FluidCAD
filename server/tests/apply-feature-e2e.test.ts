@@ -460,4 +460,171 @@ describe('select→apply-feature end to end', () => {
     // Face count grows by exactly the two bevel faces.
     expect(newSolid.getFaces().length).toBe(8);
   });
+
+  /** Distinct non-container solids of a scene (repeat clones included). */
+  function distinctSolids(scene: Scene): Shape[] {
+    const solids: Shape[] = [];
+    const seen = new Set<string>();
+    for (const obj of scene.getAllSceneObjects()) {
+      if (obj.isContainer()) {
+        continue;
+      }
+      for (const shape of obj.getShapes()) {
+        if (shape.getType() === 'solid' && !seen.has(shape.id)) {
+          seen.add(shape.id);
+          solids.push(shape);
+        }
+      }
+    }
+    return solids;
+  }
+
+  it('repeats a picked feature across two directions through the array forms', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(20, 20) })`,
+      `extrude(10).new()`,
+      ``,
+    ].join('\n');
+
+    sketch('xy', () => { rect(20, 20) });
+    const e = (extrude(10) as any).new();
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
+    render();
+
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'repeat',
+      repeat: {
+        kind: 'linear',
+        spacingMode: 'offset',
+        directions: [
+          { axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 },
+          { axis: { kind: 'standard', axis: 'y' }, count: 2, value: 30 },
+        ],
+        targets: [{ producer: 0 }],
+      },
+      filePath: '/ws/model.fluid.js',
+      producers: [{ line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+      parts: [],
+      imports: [],
+    };
+    const edited = await applyFeatureEdit(code, spec);
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(
+      `repeat('linear', ['x', 'y'], { count: [3, 2], offset: [40, 30] }, f)`,
+    );
+
+    // A 3x2 grid: the original plus five clones.
+    const rerun = runFluid(edited.newCode);
+    expect(distinctSolids(rerun)).toHaveLength(6);
+  });
+
+  it('repeats a picked feature linearly through the dialog spec', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(20, 20) })`,
+      `extrude(10).new()`,
+      ``,
+    ].join('\n');
+
+    sketch('xy', () => { rect(20, 20) });
+    const e = (extrude(10) as any).new();
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
+    render();
+
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'repeat',
+      repeat: {
+        kind: 'linear',
+        spacingMode: 'offset',
+        directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 }],
+        targets: [{ producer: 0 }],
+      },
+      filePath: '/ws/model.fluid.js',
+      producers: [{ line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+      parts: [],
+      imports: [],
+    };
+    const edited = await applyFeatureEdit(code, spec);
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain('const f = extrude(10).new()');
+    expect(edited.newCode).toContain(`repeat('linear', 'x', { count: 3, offset: 40 }, f)`);
+
+    const rerun = runFluid(edited.newCode);
+    expect(distinctSolids(rerun)).toHaveLength(3);
+  });
+
+  it('mirrors a picked feature across its own picked face through plane(<selector>)', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(20, 20) })`,
+      `extrude(10).new()`,
+      ``,
+    ].join('\n');
+
+    sketch('xy', () => { rect(20, 20) });
+    const e = (extrude(10) as any).new();
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
+    const scene = render();
+    const solid = findSolid(scene);
+
+    // Pick the side face normal to X with the largest x (every edge midpoint
+    // shares that x).
+    let pick: PickRef | null = null;
+    let bestX = -Infinity;
+    Explorer.findFacesWrapped(solid).forEach((f, index) => {
+      const xs = f.getEdges().map(eg => EdgeOps.getEdgeMidPoint(eg).x);
+      const flat = xs.every(x => Math.abs(x - xs[0]) < 1e-6);
+      if (flat && xs[0] > bestX) {
+        bestX = xs[0];
+        pick = { shapeId: solid.id, sub: { type: 'face', index } };
+      }
+    });
+    expect(pick).not.toBeNull();
+
+    // The route's shape: one synthesis call for the mirror face ('plane'
+    // kind), its producers merged with the target by call site.
+    const synthesis = synthesizeApplyFeature(scene, [pick!], 'plane', undefined);
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      return;
+    }
+    const producers: ApplyFeatureEditSpec['producers'] = [
+      { line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+    ];
+    const remap = synthesis.spec.producers.map(p => {
+      const existing = producers.findIndex(q => q.line === p.line && q.column === p.column);
+      if (existing >= 0) {
+        return existing;
+      }
+      producers.push(p);
+      return producers.length - 1;
+    });
+    const parts = synthesis.spec.parts.map(p => ({
+      ...p, producer: p.producer === null ? null : remap[p.producer],
+    }));
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'repeat',
+      repeat: {
+        kind: 'mirror',
+        plane: { kind: 'selector', part: 0 },
+        targets: [{ producer: 0 }],
+      },
+      filePath: '/ws/model.fluid.js',
+      producers,
+      parts,
+      imports: [...synthesis.spec.imports, 'plane'],
+    };
+    const edited = await applyFeatureEdit(code, spec);
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain('const f = extrude(10).new()');
+    expect(edited.newCode).toContain(`repeat('mirror', plane(f.`);
+
+    // Executing the edit replays the extrude mirrored across the face.
+    const rerun = runFluid(edited.newCode);
+    expect(distinctSolids(rerun)).toHaveLength(2);
+  });
 });

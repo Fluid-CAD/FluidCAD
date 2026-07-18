@@ -675,6 +675,73 @@ export async function applyPlane(options: PlaneApplyOptions): Promise<ApplyFeatu
   }, options.signal);
 }
 
+/**
+ * The mirror plane of a repeat request: a standard origin plane, an existing
+ * plane feature addressed by its source location, or a picked face —
+ * synthesized into `plane(<face selector>)` server-side.
+ */
+export type RepeatPlaneRef =
+  | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
+  | ({ kind: 'plane' } & SketchSourceRef)
+  | { kind: 'face'; entity: ApplyFeatureEntity };
+
+/** One linear direction: its axis plus that direction's count and value. */
+export type RepeatDirectionRef = {
+  /** The direction's axis — the revolve axis shapes. */
+  axis: RevolveAxisRef;
+  /** Instance count along this direction, the original included. */
+  count: number;
+  /** Spacing along this direction, read through the shared `spacingMode`. */
+  value: number;
+};
+
+export type RepeatApplyOptions = {
+  kind: 'linear' | 'circular' | 'mirror' | 'rotate';
+  /** The feature statements being repeated (timeline picks), in order. */
+  targets: SketchSourceRef[];
+  /** Linear directions in axis order — each its own axis, count and value. */
+  directions?: RepeatDirectionRef[];
+  /** Linear spacing semantics shared by every direction. */
+  spacingMode?: 'offset' | 'length';
+  /** The repeat axis (circular/rotate) — the revolve axis shapes. */
+  axis?: RevolveAxisRef;
+  /** The mirror plane (mirror only). */
+  plane?: RepeatPlaneRef;
+  /** Instance count, original included (circular). */
+  count?: number;
+  /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
+  sweep?: { mode: 'angle' | 'offset'; value: number };
+  /** Linear only: center the pattern on the original instance. */
+  centered?: boolean;
+  /** Rotate only: rotation angle in degrees. */
+  angle?: number;
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a repeat
+ * statement replaying the target features. Same endpoint and response shape
+ * as {@link applyFeature}.
+ */
+export async function applyRepeat(options: RepeatApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'repeat',
+    kind: options.kind,
+    targets: options.targets,
+    directions: options.directions,
+    spacingMode: options.spacingMode,
+    axis: options.axis,
+    plane: options.plane,
+    count: options.count,
+    sweep: options.sweep,
+    centered: options.centered,
+    angle: options.angle,
+    preview: options.preview,
+  }, options.signal);
+}
+
 // ---------------------------------------------------------------------------
 // Feature statement editing (timeline double-click → edit dialog)
 // ---------------------------------------------------------------------------

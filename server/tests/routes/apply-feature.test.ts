@@ -118,7 +118,7 @@ describe('apply-feature route validation', () => {
   it('rejects an unknown feature', async () => {
     const { status, body } = await post({ feature: 'draft', value: 2, entities: [PICK] });
     expect(status).toBe(400);
-    expect(body.error).toContain('"revolve" or "plane"');
+    expect(body.error).toContain('"revolve", "plane" or "repeat"');
   });
 
   it('rejects a non-positive fillet value', async () => {
@@ -1953,6 +1953,195 @@ describe('apply-feature route validation', () => {
       currentQueryResult = { ok: false, reason: 'the edited statement no longer matches the rendered scene — re-open the edit dialog' };
       const stale = await postTo('/feature/sources', { before: BEFORE });
       expect(stale.status).toBe(422);
+    });
+  });
+
+  describe('repeat', () => {
+    const T1 = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };
+    const T2 = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
+    const CODE = [
+      "import { sketch, rect, extrude, cut } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { rect(100, 50) })",
+      'extrude(30)',
+      "sketch('xy', () => { rect(10, 10) })",
+      'cut(5)',
+      '',
+    ].join('\n');
+
+    it('rejects an unknown kind', async () => {
+      const { status, body } = await post({ feature: 'repeat', kind: 'spiral', targets: [T1] });
+      expect(status).toBe(400);
+      expect(body.error).toContain('kind must be');
+    });
+
+    it('rejects an empty target list', async () => {
+      const { status, body } = await post({
+        feature: 'repeat', kind: 'linear', targets: [], spacingMode: 'offset',
+        directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 }],
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('targets must be');
+    });
+
+    it('rejects a duplicate target', async () => {
+      const { status, body } = await post({
+        feature: 'repeat', kind: 'mirror', targets: [T1, T1],
+        plane: { kind: 'standard', plane: 'yz' },
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('picked twice');
+    });
+
+    it('rejects an axis on a mirror repeat', async () => {
+      const { status, body } = await post({
+        feature: 'repeat', kind: 'mirror', targets: [T1],
+        plane: { kind: 'standard', plane: 'yz' }, axis: { kind: 'standard', axis: 'x' },
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('a mirror repeat takes no axis');
+    });
+
+    it('rejects a direction count below 2', async () => {
+      const { status, body } = await post({
+        feature: 'repeat', kind: 'linear', targets: [T1], spacingMode: 'offset',
+        directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 1, value: 40 }],
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('each direction count must be an integer of at least 2');
+    });
+
+    it('rejects directions on a circular repeat', async () => {
+      const { status, body } = await post({
+        feature: 'repeat', kind: 'circular', targets: [T1],
+        axis: { kind: 'standard', axis: 'z' }, count: 4, sweep: { mode: 'angle', value: 360 },
+        directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 }],
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('only a linear repeat takes directions');
+    });
+
+    it('rejects a zero rotate angle', async () => {
+      const { status, body } = await post({
+        feature: 'repeat', kind: 'rotate', targets: [T1],
+        axis: { kind: 'standard', axis: 'z' }, angle: 0,
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('angle must be a nonzero');
+    });
+
+    it('previews and relays a linear repeat on a standard axis', async () => {
+      currentCode = CODE;
+      const linearBody = {
+        feature: 'repeat', kind: 'linear', targets: [T1, T2], spacingMode: 'offset',
+        directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 }],
+      };
+      const preview = await post({ ...linearBody, preview: true });
+      expect(preview.status).toBe(200);
+      expect(preview.body.preview).toBe("repeat('linear', 'x', { count: 3, offset: 40 }, f, f2)");
+      expect(relayed).toEqual([]);
+      expect(synthesizeCalls).toEqual([]);
+
+      const { status, body } = await post(linearBody);
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(relayed[0].type).toBe('apply-feature-edit');
+      expect(spec.feature).toBe('repeat');
+      expect(spec.repeat.kind).toBe('linear');
+      expect(spec.repeat.spacingMode).toBe('offset');
+      expect(spec.repeat.directions).toEqual([
+        { axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 },
+      ]);
+      expect(spec.repeat.targets).toEqual([{ producer: 0 }, { producer: 1 }]);
+      expect(spec.producers).toHaveLength(2);
+      expect(spec.producers.every((p: any) => p.featureType === 'feature' && p.bind)).toBe(true);
+      expect(spec.parts).toEqual([]);
+    });
+
+    it('previews a two-direction linear repeat as the array forms', async () => {
+      currentCode = CODE;
+      const { status, body } = await post({
+        feature: 'repeat', kind: 'linear', targets: [T1], spacingMode: 'length',
+        directions: [
+          { axis: { kind: 'standard', axis: 'x' }, count: 3, value: 120 },
+          { axis: { kind: 'standard', axis: 'y' }, count: 2, value: 60 },
+        ],
+        preview: true,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("repeat('linear', ['x', 'y'], { count: [3, 2], length: [120, 60] }, f)");
+    });
+
+    it('synthesizes a picked mirror face through the plane kind', async () => {
+      currentCode = CODE;
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'plane',
+          filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+          imports: [],
+        },
+        preview: '',
+        args: 'e.endFaces(0)',
+        alternatives: [],
+      };
+      const { status, body } = await post({
+        feature: 'repeat', kind: 'mirror', targets: [T2],
+        plane: { kind: 'face', entity: PICK },
+      });
+      expect(status).toBe(200);
+      expect(synthesizeCalls).toEqual([{ feature: 'plane', value: undefined }]);
+      expect(body.preview).toContain("repeat('mirror', plane(");
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(spec.repeat.plane).toEqual({ kind: 'selector', part: 0 });
+      expect(spec.imports).toContain('plane');
+      expect(spec.parts).toHaveLength(1);
+    });
+
+    it('synthesizes a picked axis edge through the revolve kind', async () => {
+      currentCode = CODE;
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'revolve',
+          filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endEdges', indices: [2], filterArgs: null }],
+          imports: [],
+        },
+        preview: '',
+        args: 'e.endEdges(2)',
+        alternatives: [],
+      };
+      const { status, body } = await post({
+        feature: 'repeat', kind: 'circular', targets: [T2],
+        axis: { kind: 'edge', entity: { shapeId: 'shape-1', sub: { type: 'edge', index: 2 } } },
+        count: 6, sweep: { mode: 'angle', value: 360 },
+      });
+      expect(status).toBe(200);
+      expect(synthesizeCalls).toEqual([{ feature: 'revolve', value: undefined }]);
+      expect(body.preview).toContain('axis(');
+      expect(body.preview).toContain('{ count: 6, angle: 360 }');
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(spec.repeat.axis).toEqual({ kind: 'selector', part: 0 });
+      expect(spec.imports).toContain('axis');
+    });
+
+    it('surfaces a synthesis refusal for the picked input as 422', async () => {
+      currentSynthesis = { ok: false, reason: 'that face cannot be named' };
+      const { status, body } = await post({
+        feature: 'repeat', kind: 'mirror', targets: [T2],
+        plane: { kind: 'face', entity: PICK },
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('cannot be named');
+      expect(relayed).toEqual([]);
     });
   });
 });

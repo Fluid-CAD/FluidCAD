@@ -184,7 +184,7 @@ export class PanelShell {
     this.root.className = 'absolute top-[276px] right-7 z-[999] pointer-events-auto hidden';
     this.root.innerHTML = `
       <div class="flex flex-col items-end gap-1.5">
-        <div data-role="body" class="flex flex-col items-stretch gap-3.5 w-60 bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
+        <div data-role="body" class="flex flex-col items-stretch gap-3.5 w-60 max-h-[calc(100vh-340px)] overflow-y-auto bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
           <div class="flex items-center gap-2.5">
             <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
             <span data-role="title" class="font-medium text-sm">${title}</span>

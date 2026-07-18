@@ -3,12 +3,13 @@ import type { FluidCadServer, SelectionBoundary } from '../fluidcad-server.ts';
 import {
   applyFeatureEdit, extractNumericParams, makeProducerNamer, parseFeatureStatement, renderEditedStatement,
   renderExtrudeStatement, renderLoftStatement, renderPlaneBaseExprs, renderPlaneStatement,
+  renderRepeatAxisExpr, renderRepeatPlaneExpr, renderRepeatStatement,
   renderRevolveStatement,
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames,
   type ApplyFeatureEditSpec, type ExtrudeEditOptions, type FeatureStatementEditTarget, type LoftEditOptions,
-  type PlaneEditOptions, type RevolveEditOptions, type ShellJoinKind, type SweepEditOptions,
-  type WrapEditOptions,
+  type PlaneEditOptions, type RepeatAxisSpec, type RepeatEditOptions, type RevolveEditOptions,
+  type ShellJoinKind, type SweepEditOptions, type WrapEditOptions,
 } from '../apply-feature-edit.ts';
 import { normalizePath } from '../normalize-path.ts';
 
@@ -612,6 +613,194 @@ function validatePlane(body: any): PlaneRequest | { error: string } {
     rotateZ: numbers.rotateZ,
     position: numbers.position,
     bases: result,
+  };
+}
+
+/** The mirror plane of a repeat request: a standard plane, an existing plane feature, or a picked face. */
+type RepeatPlaneInput =
+  | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
+  | { kind: 'plane'; loc: SketchLoc }
+  | { kind: 'face'; pick: Pick };
+
+/** One linear direction: its axis plus that direction's count and value. */
+type RepeatDirectionInput = { axis: RevolveAxisInput; count: number; value: number };
+
+type RepeatRequest = {
+  kind: 'linear' | 'circular' | 'mirror' | 'rotate';
+  /** The feature statements being repeated, in argument order. */
+  targets: SketchLoc[];
+  /** Linear directions in axis order — each its own axis, count and value. */
+  directions?: RepeatDirectionInput[];
+  /** Linear spacing semantics shared by every direction. */
+  spacingMode?: 'offset' | 'length';
+  axis?: RevolveAxisInput;
+  plane?: RepeatPlaneInput;
+  count?: number;
+  sweep?: { mode: 'angle' | 'offset'; value: number };
+  centered?: boolean;
+  angle?: number;
+};
+
+const MAX_REPEAT_TARGETS = 16;
+const MAX_REPEAT_DIRECTIONS = 3;
+
+/**
+ * The repeat request's shape: the kind, one or more target feature
+ * statements addressed by their source locations, plus the kind's inputs —
+ * linear directions (each an axis with its own count and value, sharing one
+ * offset/length spacing mode), a single axis for circular/rotate (a standard
+ * world axis, an existing axis statement, or a picked edge), or a mirror
+ * plane (a standard origin plane, an existing plane feature, or a picked
+ * face), and the numeric options (count with a sweep for circular, the angle
+ * for rotate).
+ */
+function validateRepeat(body: any): RepeatRequest | { error: string } {
+  const { kind, targets, count, centered, angle } = body ?? {};
+  if (kind !== 'linear' && kind !== 'circular' && kind !== 'mirror' && kind !== 'rotate') {
+    return { error: 'kind must be "linear", "circular", "mirror" or "rotate"' };
+  }
+  if (!Array.isArray(targets) || targets.length < 1 || targets.length > MAX_REPEAT_TARGETS) {
+    return { error: `targets must be 1-${MAX_REPEAT_TARGETS} feature statements to repeat` };
+  }
+  const targetLocs: SketchLoc[] = [];
+  const seen = new Set<string>();
+  for (const raw of targets) {
+    const loc = validateSketchLoc(raw);
+    if (!loc) {
+      return { error: 'each target must be the {filePath, line} of a feature statement' };
+    }
+    if (loc.filePath !== targetLocs[0]?.filePath && targetLocs.length > 0) {
+      return { error: 'the repeat targets live in different files' };
+    }
+    const key = `${loc.filePath}:${loc.line}`;
+    if (seen.has(key)) {
+      return { error: 'the same feature was picked twice — each target must be different' };
+    }
+    seen.add(key);
+    targetLocs.push(loc);
+  }
+  const filePath = targetLocs[0].filePath;
+
+  if (kind === 'mirror') {
+    for (const key of ['axis', 'directions', 'count', 'sweep', 'angle'] as const) {
+      if (body?.[key] !== undefined && body?.[key] !== null) {
+        return { error: `a mirror repeat takes no ${key}` };
+      }
+    }
+    const raw = body?.plane;
+    let plane: RepeatPlaneInput;
+    if (raw?.kind === 'standard') {
+      if (raw.plane !== 'xy' && raw.plane !== 'xz' && raw.plane !== 'yz') {
+        return { error: 'a standard mirror plane must be "xy", "xz" or "yz"' };
+      }
+      plane = { kind: 'standard', plane: raw.plane };
+    } else if (raw?.kind === 'plane') {
+      const loc = validateSketchLoc(raw);
+      if (!loc) {
+        return { error: 'a plane input must carry the plane {filePath, line}' };
+      }
+      if (loc.filePath !== filePath) {
+        return { error: 'the mirror plane and the targets live in different files' };
+      }
+      plane = { kind: 'plane', loc };
+    } else if (raw?.kind === 'face') {
+      const pick = validatePick(raw.entity);
+      if (!pick || pick.sub.type !== 'face') {
+        return { error: 'a picked mirror plane must carry a {shapeId, sub:{type:"face", index}} pick' };
+      }
+      plane = { kind: 'face', pick };
+    } else {
+      return { error: 'plane must be {kind: "standard"|"plane"|"face", …}' };
+    }
+    return { kind, targets: targetLocs, plane };
+  }
+
+  if (body?.plane !== undefined && body?.plane !== null) {
+    return { error: `a ${kind} repeat takes an axis, not a plane` };
+  }
+
+  if (kind === 'linear') {
+    for (const key of ['axis', 'count', 'sweep', 'angle'] as const) {
+      if (body?.[key] !== undefined && body?.[key] !== null) {
+        return { error: `a linear repeat carries its ${key === 'axis' ? 'axes' : 'counts and values'} in the directions` };
+      }
+    }
+    if (centered !== undefined && typeof centered !== 'boolean') {
+      return { error: 'centered must be a boolean' };
+    }
+    const spacingMode = body?.spacingMode;
+    if (spacingMode !== 'offset' && spacingMode !== 'length') {
+      return { error: 'spacingMode must be "offset" or "length"' };
+    }
+    const raw = body?.directions;
+    if (!Array.isArray(raw) || raw.length < 1 || raw.length > MAX_REPEAT_DIRECTIONS) {
+      return { error: `directions must be 1-${MAX_REPEAT_DIRECTIONS} axis directions` };
+    }
+    const directions: RepeatDirectionInput[] = [];
+    for (const entry of raw) {
+      const axis = validateRevolveAxis(entry?.axis);
+      if ('error' in axis) {
+        return axis;
+      }
+      if (axis.kind === 'axis' && axis.loc.filePath !== filePath) {
+        return { error: 'an axis and the targets live in different files' };
+      }
+      if (!Number.isInteger(entry?.count) || entry.count < 2) {
+        return { error: 'each direction count must be an integer of at least 2 (the original included)' };
+      }
+      if (!isNonzeroNumber(entry?.value)) {
+        return { error: 'each direction value must be a nonzero number' };
+      }
+      directions.push({ axis, count: entry.count, value: entry.value });
+    }
+    return { kind, targets: targetLocs, directions, spacingMode, centered: centered === true };
+  }
+
+  if (body?.directions !== undefined && body?.directions !== null) {
+    return { error: `only a linear repeat takes directions` };
+  }
+  if (body?.spacingMode !== undefined && body?.spacingMode !== null) {
+    return { error: 'only a linear repeat takes a spacingMode' };
+  }
+  const axis = validateRevolveAxis(body?.axis);
+  if ('error' in axis) {
+    return axis;
+  }
+  if (axis.kind === 'axis' && axis.loc.filePath !== filePath) {
+    return { error: 'the axis and the targets live in different files' };
+  }
+
+  if (kind === 'rotate') {
+    for (const key of ['count', 'sweep', 'centered'] as const) {
+      if (body?.[key] !== undefined && body?.[key] !== null) {
+        return { error: `a rotate repeat takes no ${key}` };
+      }
+    }
+    if (!isNonzeroNumber(angle)) {
+      return { error: 'angle must be a nonzero rotation in degrees' };
+    }
+    return { kind, targets: targetLocs, axis, angle };
+  }
+
+  if (!Number.isInteger(count) || count < 2) {
+    return { error: 'count must be an integer of at least 2 (the original included)' };
+  }
+  if (angle !== undefined && angle !== null) {
+    return { error: 'a circular repeat carries its angle in the sweep field' };
+  }
+  if (centered === true) {
+    return { error: 'a circular repeat takes no centered flag' };
+  }
+  const sweep = body?.sweep;
+  if (sweep?.mode !== 'angle' && sweep?.mode !== 'offset') {
+    return { error: 'sweep mode must be "angle" or "offset"' };
+  }
+  if (!isNonzeroNumber(sweep.value)) {
+    return { error: 'sweep value must be a nonzero number' };
+  }
+  return {
+    kind, targets: targetLocs, axis, count,
+    sweep: { mode: sweep.mode, value: sweep.value },
   };
 }
 
@@ -2275,6 +2464,202 @@ export function createApplyFeatureRouter(
       return;
     }
 
+    // Repeat replays one or more timeline features linearly, circularly,
+    // mirrored, or rotated. The targets are feature statements bound to
+    // variables; every axis reuses the revolve axis inputs (a picked edge
+    // synthesizes `axis(<selector>)` — one selector part per direction),
+    // the mirror plane the plane-base inputs (a picked face synthesizes
+    // `plane(<selector>)`).
+    if (feature === 'repeat') {
+      const request = validateRepeat(req.body);
+      if ('error' in request) {
+        res.status(400).json({ error: request.error });
+        return;
+      }
+      try {
+        const code = fluidCadServer.getCurrentCode();
+        const filePath = request.targets[0].filePath;
+        const { producers, merge: mergeProducer } = makeProducerMerger();
+        const parts: ApplyFeatureEditSpec['parts'] = [];
+        const imports = new Set<string>();
+
+        const targets: RepeatEditOptions['targets'] = request.targets.map(loc => ({
+          producer: mergeProducer({
+            line: loc.line, column: loc.column,
+            featureType: 'feature', nameHint: 'f', bind: true,
+          }),
+        }));
+
+        // Built lazily on the first picked input — a pick-less request never
+        // runs synthesis.
+        let synthOptions: {
+          namer?: Awaited<ReturnType<typeof makeProducerNamer>>;
+          params?: { name: string; value: number }[];
+        } | undefined;
+        let synthOptionsReady = false;
+
+        /**
+         * Synthesize one picked input (axis edge / mirror face) into its own
+         * selector part, reusing the single-selection synthesis kinds:
+         * 'revolve' names one edge, 'plane' one face. Returns the part index,
+         * or null after refusing with a response.
+         */
+        const synthesizeInput = async (pick: Pick, kind: 'revolve' | 'plane'): Promise<number | null> => {
+          if (!synthOptionsReady) {
+            synthOptionsReady = true;
+            if (code) {
+              synthOptions = {
+                namer: await makeProducerNamer(code),
+                params: resolveParamValues(
+                  await extractNumericParams(code),
+                  fluidCadServer.getParamDefinitions(),
+                ),
+              };
+            }
+          }
+          const synthesis = fluidCadServer.synthesizeApplyFeature(
+            [pick], kind, undefined, [], synthOptions,
+          );
+          if (!synthesis) {
+            res.status(404).json({ success: false, reason: 'No rendered scene' });
+            return null;
+          }
+          if (!synthesis.ok) {
+            res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
+            return null;
+          }
+          // The axis/plane argument is ONE SceneObject — a multi-part
+          // selection has no single-expression rendering.
+          if (synthesis.spec.parts.length !== 1) {
+            res.status(422).json({
+              success: false,
+              reason: kind === 'plane'
+                ? 'the mirror plane must be a single face selection'
+                : 'a repeat axis must be a single edge selection',
+            });
+            return null;
+          }
+          if (synthesis.spec.filePath !== filePath) {
+            res.status(422).json({
+              success: false,
+              reason: kind === 'plane'
+                ? 'the mirror face and the targets come from different files'
+                : 'an axis edge and the targets come from different files',
+            });
+            return null;
+          }
+          const remap = synthesis.spec.producers.map(mergeProducer);
+          const part = synthesis.spec.parts[0];
+          parts.push({ ...part, producer: part.producer === null ? null : remap[part.producer] });
+          for (const symbol of synthesis.spec.imports) {
+            imports.add(symbol);
+          }
+          imports.add(kind === 'plane' ? 'plane' : 'axis');
+          return parts.length - 1;
+        };
+
+        /** One validated axis input as its spec form; null after refusing. */
+        const axisSpec = async (input: RevolveAxisInput): Promise<RepeatAxisSpec | null> => {
+          if (input.kind === 'standard') {
+            return { kind: 'standard', axis: input.axis };
+          }
+          if (input.kind === 'axis') {
+            return {
+              kind: 'axis',
+              producer: mergeProducer({
+                line: input.loc.line, column: input.loc.column,
+                featureType: 'axis', nameHint: 'a', bind: true,
+              }),
+            };
+          }
+          const part = await synthesizeInput(input.pick, 'revolve');
+          return part === null ? null : { kind: 'selector', part };
+        };
+
+        let axis: RepeatEditOptions['axis'];
+        let plane: RepeatEditOptions['plane'];
+        let directions: RepeatEditOptions['directions'];
+        if (request.kind === 'linear') {
+          directions = [];
+          for (const direction of request.directions!) {
+            const resolved = await axisSpec(direction.axis);
+            if (resolved === null) {
+              return;
+            }
+            directions.push({ axis: resolved, count: direction.count, value: direction.value });
+          }
+        } else if (request.kind === 'mirror') {
+          const input = request.plane!;
+          if (input.kind === 'standard') {
+            plane = { kind: 'standard', plane: input.plane };
+          } else if (input.kind === 'plane') {
+            plane = {
+              kind: 'plane',
+              producer: mergeProducer({
+                line: input.loc.line, column: input.loc.column,
+                featureType: 'plane', nameHint: 'p', bind: true,
+              }),
+            };
+          } else {
+            const part = await synthesizeInput(input.pick, 'plane');
+            if (part === null) {
+              return;
+            }
+            plane = { kind: 'selector', part };
+          }
+        } else {
+          const resolved = await axisSpec(request.axis!);
+          if (resolved === null) {
+            return;
+          }
+          axis = resolved;
+        }
+
+        const options: RepeatEditOptions = {
+          kind: request.kind,
+          directions,
+          spacingMode: request.spacingMode,
+          axis,
+          plane,
+          count: request.count,
+          sweep: request.sweep,
+          centered: request.centered === true ? true : undefined,
+          angle: request.angle,
+          targets,
+        };
+        // Truthful preview: the same allocation walk the transform runs.
+        const producerVars = await allocateProducerVars(producers, code);
+        const varFor = (i: number): string | null => producerVars[i];
+        const inputExprs = request.kind === 'mirror'
+          ? [renderRepeatPlaneExpr(plane!, parts, varFor)]
+          : request.kind === 'linear'
+            ? directions!.map(d => renderRepeatAxisExpr(d.axis, parts, varFor))
+            : [renderRepeatAxisExpr(axis!, parts, varFor)];
+        const statement = renderRepeatStatement(
+          options, inputExprs, targets.map(t => producerVars[t.producer] ?? 'f'),
+        );
+        if (preview === true) {
+          res.json({ success: true, preview: statement });
+          return;
+        }
+        sendToExtension({
+          type: 'apply-feature-edit',
+          spec: {
+            feature: 'repeat',
+            repeat: options,
+            filePath,
+            producers,
+            parts,
+            imports: [...imports],
+          },
+        });
+        res.json({ success: true, preview: statement });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
+
     // A pick-less sketch: no face selector — a sketch on an origin plane or
     // an existing plane() feature, appended after the file's last statement.
     // No synthesis is involved; `plane` picks an origin target
@@ -2349,7 +2734,7 @@ export function createApplyFeatureRouter(
       return;
     }
     if (feature !== 'fillet' && feature !== 'chamfer' && feature !== 'shell' && feature !== 'sketch') {
-      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude", "sweep", "wrap", "loft", "revolve" or "plane"' });
+      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude", "sweep", "wrap", "loft", "revolve", "plane" or "repeat"' });
       return;
     }
     // Per-feature numeric parameter: fillet/chamfer need a positive radius or

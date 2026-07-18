@@ -1146,6 +1146,11 @@ export class ModifyPickService {
     this.viewer.highlightPlaneQuad(shapeId);
   }
 
+  /** The neutral-mode pending plane quad's shape id, or null (seeds dialogs). */
+  get pendingPlane(): string | null {
+    return this.pendingPlaneShapeId;
+  }
+
   /** Drop the neutral-mode pending plane (something else was clicked). */
   clearPendingPlane(): void {
     if (this.pendingPlaneShapeId === null) {

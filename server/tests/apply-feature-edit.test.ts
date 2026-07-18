@@ -3338,3 +3338,204 @@ describe('applyFeatureEdit (sketch retarget)', () => {
     expect(result.newCode).toBe(code);
   });
 });
+
+describe('repeat statement templates', () => {
+  const base = [
+    `import { sketch, rect, extrude, cut } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { rect(100, 50) })`,
+    `extrude(30)`,
+    `sketch('xy', () => { rect(10, 10) })`,
+    `cut(5)`,
+  ].join('\n');
+
+  function repeatSpec(
+    repeat: NonNullable<ApplyFeatureEditSpec['repeat']>,
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec {
+    return {
+      feature: 'repeat',
+      repeat,
+      filePath: '/ws/model.fluid.js',
+      producers: [{ line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+      parts: [],
+      imports: [],
+      ...overrides,
+    };
+  }
+
+  it('binds two bare targets and appends a linear repeat on a standard axis', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, repeatSpec({
+      kind: 'linear',
+      spacingMode: 'offset',
+      directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 }],
+      targets: [{ producer: 0 }, { producer: 1 }],
+    }, {
+      producers: [
+        { line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 6, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import {repeat, sketch, rect, extrude, cut } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const f = extrude(30)`,
+      `sketch('xy', () => { rect(10, 10) })`,
+      `const f2 = cut(5)`,
+      `repeat('linear', 'x', { count: 3, offset: 40 }, f, f2)`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('renders the length mode with the centered flag', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, repeatSpec({
+      kind: 'linear',
+      spacingMode: 'length',
+      directions: [{ axis: { kind: 'standard', axis: 'y' }, count: 4, value: 120 }],
+      centered: true,
+      targets: [{ producer: 0 }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `repeat('linear', 'y', { count: 4, length: 120, centered: true }, f)`,
+    );
+  });
+
+  it('renders two directions as the array forms', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, repeatSpec({
+      kind: 'linear',
+      spacingMode: 'offset',
+      directions: [
+        { axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 },
+        { axis: { kind: 'standard', axis: 'y' }, count: 2, value: 30 },
+      ],
+      targets: [{ producer: 0 }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `repeat('linear', ['x', 'y'], { count: [3, 2], offset: [40, 30] }, f)`,
+    );
+  });
+
+  it('renders a picked-edge axis as axis(<selector>) on the target itself', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, repeatSpec({
+      kind: 'linear',
+      spacingMode: 'offset',
+      directions: [{ axis: { kind: 'selector', part: 0 }, count: 2, value: 25 }],
+      targets: [{ producer: 0 }],
+    }, {
+      parts: [{ producer: 0, accessor: 'endEdges', indices: [2], filterArgs: null }],
+      imports: ['axis'],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `repeat('linear', axis(f.endEdges(2)), { count: 2, offset: 25 }, f)`,
+    );
+    expect(result.newCode).toMatch(/import \{[^}]*\baxis\b[^}]*\brepeat\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('renders a circular repeat around an existing axis statement, reusing bindings', async () => {
+    const code = [
+      `import { sketch, rect, extrude, axis } from 'fluidcad/core'`,
+      ``,
+      `const a = axis('z')`,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, repeatSpec({
+      kind: 'circular',
+      axis: { kind: 'axis', producer: 1 },
+      count: 6,
+      sweep: { mode: 'angle', value: 360 },
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [
+        { line: 5, column: 10, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 3, column: 10, featureType: 'axis', nameHint: 'a', bind: true },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`repeat('circular', a, { count: 6, angle: 360 }, e)`);
+  });
+
+  it('renders a mirror across a picked face lifted into plane(<selector>)', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, repeatSpec({
+      kind: 'mirror',
+      plane: { kind: 'selector', part: 0 },
+      targets: [{ producer: 0 }],
+    }, {
+      parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+      imports: ['plane'],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`repeat('mirror', plane(f.endFaces(0)), f)`);
+    expect(result.newCode).toMatch(/import \{[^}]*\bplane\b[^}]*\brepeat\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('accepts a fillet statement as a repeat target', async () => {
+    const code = [
+      `import { sketch, rect, extrude, fillet } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      `fillet(2, e.endEdges())`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, repeatSpec({
+      kind: 'mirror',
+      plane: { kind: 'standard', plane: 'yz' },
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [{ line: 5, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const f = fillet(2, e.endEdges())`);
+    expect(result.newCode).toContain(`repeat('mirror', 'yz', f)`);
+  });
+
+  it('omits the 90-degree rotate default and renders other angles', async () => {
+    const ninety = await applyFeatureEdit(`${base}\n`, repeatSpec({
+      kind: 'rotate',
+      axis: { kind: 'standard', axis: 'z' },
+      angle: 90,
+      targets: [{ producer: 0 }],
+    }));
+    expect(ninety.error).toBeUndefined();
+    expect(ninety.newCode).toContain(`repeat('rotate', 'z', f)`);
+
+    const tilted = await applyFeatureEdit(`${base}\n`, repeatSpec({
+      kind: 'rotate',
+      axis: { kind: 'standard', axis: 'z' },
+      angle: 45,
+      targets: [{ producer: 0 }],
+    }));
+    expect(tilted.error).toBeUndefined();
+    expect(tilted.newCode).toContain(`repeat('rotate', 'z', 45, f)`);
+  });
+
+  it('refuses a target line that holds a sketch call', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, repeatSpec({
+      kind: 'rotate',
+      axis: { kind: 'standard', axis: 'z' },
+      angle: 45,
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [{ line: 3, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toContain('expected a feature()-producing call');
+    expect(result.newCode).toBe(`${base}\n`);
+  });
+
+  it('refuses a repeat spec with no targets', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, repeatSpec({
+      kind: 'mirror',
+      plane: { kind: 'standard', plane: 'xy' },
+      targets: [],
+    }, { producers: [] }));
+    expect(result.error).toBe('malformed repeat edit spec');
+    expect(result.newCode).toBe(`${base}\n`);
+  });
+});

@@ -18,7 +18,7 @@ import {
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: number;
   /**
@@ -46,6 +46,8 @@ export type ApplyFeatureEditSpec = {
   plane?: PlaneEditOptions;
   /** Revolve-only payload; `parts` (if any) render the axis-edge selector. */
   revolve?: RevolveEditOptions;
+  /** Repeat-only payload; `parts` (if any) render the axis/plane selector. */
+  repeat?: RepeatEditOptions;
   filePath: string;
   producers: {
     line: number;
@@ -330,6 +332,66 @@ export type RevolveEditOptions = {
 };
 
 /**
+ * One repeat axis: a standard world axis (renders as its string literal, no
+ * producer involved), an existing axis statement bound to a variable, or a
+ * picked edge — its selector part wrapped in `axis(…)`. Part-indexed (unlike
+ * the revolve axis) because a two-direction linear repeat can pick two edges.
+ */
+export type RepeatAxisSpec =
+  | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
+  | { kind: 'axis'; producer: number }
+  | { kind: 'selector'; part: number };
+
+/**
+ * The mirror plane of a `repeat('mirror', …)`: a standard origin plane
+ * (renders as its string literal, no producer involved), an existing plane
+ * feature bound to a variable, or a picked face — its selector part wrapped
+ * in `plane(…)`.
+ */
+export type RepeatPlaneSpec =
+  | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
+  | { kind: 'plane'; producer: number }
+  | { kind: 'selector'; part: number };
+
+/**
+ * How a repeat statement is rendered and placed:
+ * `repeat('linear', <axis>, { count, offset|length[, centered] }, …targets)`
+ * — or, with several directions, the array forms `repeat('linear', [<a1>,
+ * <a2>], { count: [c1, c2], offset: [v1, v2] }, …)` —
+ * `repeat('circular', <axis>, { count, angle|offset }, …targets)`,
+ * `repeat('mirror', <plane>, …targets)`, or
+ * `repeat('rotate', <axis>[, angle], …targets)` — the 90° API default renders
+ * no angle argument. Targets are the feature statements being repeated, each
+ * bound to a variable (featureType `feature` producers — any repeatable
+ * builder callee, not just sketches). Every axis takes the revolve axis
+ * shapes (standard / axis statement / picked edge as `axis(<selector>)`);
+ * the mirror plane mirrors the plane-base shapes. The statement always
+ * inserts at end of scope: a repeat replays its targets over the finished
+ * model, and a picked selector must resolve there.
+ */
+export type RepeatEditOptions = {
+  kind: 'linear' | 'circular' | 'mirror' | 'rotate';
+  /** Linear directions in axis order — each its own axis, count and value. */
+  directions?: { axis: RepeatAxisSpec; count: number; value: number }[];
+  /** Linear spacing semantics shared by every direction. */
+  spacingMode?: 'offset' | 'length';
+  /** The repeat axis (circular/rotate); linear carries axes per direction. */
+  axis?: RepeatAxisSpec;
+  /** The mirror plane (mirror only). */
+  plane?: RepeatPlaneSpec;
+  /** Instance count, original included (circular). */
+  count?: number;
+  /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
+  sweep?: { mode: 'angle' | 'offset'; value: number };
+  /** Linear only: center the pattern on the original instance. */
+  centered?: boolean;
+  /** Rotate only: rotation angle in degrees; 90 renders no argument. */
+  angle?: number;
+  /** The features being repeated, in argument order — bound producers. */
+  targets: { producer: number }[];
+};
+
+/**
  * Mirror of the kernel's `ShellJoinType` — how the inner-wall offset closes
  * corners. 'arc' is the kernel default and renders no chain.
  */
@@ -429,6 +491,25 @@ export type ApplyFeatureEditResult = {
 const PRODUCER_CALLEES = new Set([
   'extrude', 'cut', 'revolve', 'sweep', 'loft', 'rib', 'wrap', 'shell',
 ]);
+
+/**
+ * Chain-root callees a repeat target may reference — any builder returning a
+ * repeatable scene feature. Broader than {@link PRODUCER_CALLEES}: a repeat
+ * only binds the call to a variable and passes it along (`repeat(…, f)`), it
+ * never chains selector accessors onto it, so modifier and primitive calls
+ * qualify too.
+ */
+const REPEAT_TARGET_CALLEES = new Set([
+  ...PRODUCER_CALLEES,
+  'fillet', 'chamfer', 'draft', 'cylinder', 'sphere', 'helix',
+  'fuse', 'subtract', 'common', 'mirror', 'translate', 'rotate',
+  'repeat', 'copy', 'load', 'part',
+]);
+
+/** The chain-root callees producers of `featureType` may bind. */
+function producerCallees(featureType: string): Set<string> {
+  return featureType === 'feature' ? REPEAT_TARGET_CALLEES : PRODUCER_CALLEES;
+}
 
 type ProducerBinding = {
   call: TSNode;
@@ -578,6 +659,66 @@ export async function applyFeatureEdit(
         'plane',
       );
     }
+  } else if (spec.feature === 'repeat') {
+    // Every target is a bound feature producer; each picked axis edge or
+    // mirror face references its own selector part, and every part must
+    // belong to exactly one such input — the parts' producers ride the list
+    // alongside the targets.
+    const rp = spec.repeat;
+    const targets = rp?.targets ?? [];
+    const selectorParts: number[] = [];
+    const validPart = (part: number): boolean => {
+      if (!Number.isInteger(part) || part < 0 || part >= spec.parts.length) {
+        return false;
+      }
+      selectorParts.push(part);
+      return true;
+    };
+    const validAxis = (axis: RepeatAxisSpec | undefined): boolean =>
+      axis !== undefined && (axis.kind === 'selector'
+        ? validPart(axis.part)
+        : axis.kind === 'standard'
+          ? axis.axis === 'x' || axis.axis === 'y' || axis.axis === 'z'
+          : isAxisProducer(spec, axis.producer));
+    const validPlane = (plane: RepeatPlaneSpec | undefined): boolean =>
+      plane !== undefined && (plane.kind === 'selector'
+        ? validPart(plane.part)
+        : plane.kind === 'standard'
+          ? plane.plane === 'xy' || plane.plane === 'xz' || plane.plane === 'yz'
+          : isPlaneProducer(spec, plane.producer));
+    const validSweep = rp?.sweep !== undefined
+      && (rp.sweep.mode === 'angle' || rp.sweep.mode === 'offset')
+      && typeof rp.sweep.value === 'number' && Number.isFinite(rp.sweep.value) && rp.sweep.value !== 0;
+    const validDirections = Array.isArray(rp?.directions) && rp!.directions!.length >= 1
+      && rp!.directions!.every(d => validAxis(d?.axis)
+        && Number.isInteger(d.count) && d.count >= 2
+        && typeof d.value === 'number' && Number.isFinite(d.value) && d.value !== 0);
+    const valid = rp !== undefined
+      && targets.length >= 1
+      && targets.every(t => isFeatureProducer(spec, t.producer))
+      && new Set(targets.map(t => t.producer)).size === targets.length
+      && (rp.kind === 'linear'
+        ? validDirections && (rp.spacingMode === 'offset' || rp.spacingMode === 'length')
+          && rp.axis === undefined && rp.plane === undefined
+          && rp.count === undefined && rp.sweep === undefined && rp.angle === undefined
+        : rp.kind === 'circular'
+          ? validAxis(rp.axis) && rp.plane === undefined && rp.directions === undefined
+            && Number.isInteger(rp.count) && rp.count! >= 2 && validSweep
+            && rp.spacingMode === undefined && rp.angle === undefined
+          : rp.kind === 'mirror'
+            ? validPlane(rp.plane) && rp.axis === undefined && rp.directions === undefined
+              && rp.count === undefined && rp.spacingMode === undefined
+              && rp.sweep === undefined && rp.angle === undefined
+            : rp.kind === 'rotate'
+              && validAxis(rp.axis) && rp.plane === undefined && rp.directions === undefined
+              && typeof rp.angle === 'number' && Number.isFinite(rp.angle) && rp.angle !== 0
+              && rp.count === undefined && rp.spacingMode === undefined && rp.sweep === undefined)
+      // Every selector part belongs to exactly one axis/plane input.
+      && selectorParts.length === spec.parts.length
+      && new Set(selectorParts).size === selectorParts.length;
+    if (!valid) {
+      return { newCode: code, error: 'malformed repeat edit spec' };
+    }
   } else if (spec.feature === 'sketch' && spec.sketchOnPlane) {
     // The single producer is the plane statement the sketch targets; there is
     // no selector to render.
@@ -723,7 +864,9 @@ export async function makeProducerNamer(
       // Sketch/plane producers must name their own call — the pick features
       // never attribute to one, so the looser callee stays scoped by type.
       const requiredRoot = requiredChainRoot(producer.featureType ?? '');
-      const valid = requiredRoot ? root === requiredRoot : root !== null && PRODUCER_CALLEES.has(root);
+      const valid = requiredRoot
+        ? root === requiredRoot
+        : root !== null && producerCallees(producer.featureType ?? '').has(root);
       if (!valid) {
         return null;
       }
@@ -905,6 +1048,12 @@ function isAxisProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
     && spec.producers[i].featureType === 'axis';
 }
 
+/** Whether producer index `i` is a valid repeat-target feature producer. */
+function isFeatureProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
+  return Number.isInteger(i) && i >= 0 && i < spec.producers.length
+    && spec.producers[i].featureType === 'feature';
+}
+
 /**
  * Producer feature types whose source line must hold exactly that call —
  * sketch, plane and axis inputs are referenced by identity, so any other
@@ -1043,7 +1192,7 @@ function resolveProducerBindings(
     const root = chainRootCallee(call);
     const validCallee = requiredRoot
       ? root === requiredRoot
-      : root !== null && PRODUCER_CALLEES.has(root);
+      : root !== null && producerCallees(producer.featureType).has(root);
     if (!validCallee) {
       return {
         error: `the call at line ${producer.line} is ${root ? `${root}()` : 'not a feature call'}, `
@@ -1293,6 +1442,87 @@ export function renderRevolveAxisExpr(
 }
 
 /**
+ * Render a repeat statement from its rendered axis/plane input and target
+ * expressions: `repeat('linear', 'x', { count: 3, offset: 40 }, e)` — or the
+ * array forms with several directions, `repeat('linear', ['x', a], { count:
+ * [3, 2], offset: [40, 30] }, e)` — `repeat('circular', a, { count: 6,
+ * angle: 360 }, e)`, `repeat('mirror', 'yz', e, f)`, `repeat('rotate', 'z',
+ * 45, e)` — the 90° rotate default renders no angle argument. `inputExprs`
+ * is one axis expression per linear direction; a single-element list
+ * everywhere else. Shared with the route's preview so the previewed text is
+ * exactly what the transform writes.
+ */
+export function renderRepeatStatement(
+  rp: RepeatEditOptions,
+  inputExprs: string[],
+  targetExprs: string[],
+): string {
+  const single = inputExprs.length === 1;
+  const args = [`'${rp.kind}'`, single ? inputExprs[0] : `[${inputExprs.join(', ')}]`];
+  if (rp.kind === 'linear') {
+    const counts = rp.directions!.map(d => formatNumber(d.count));
+    const values = rp.directions!.map(d => formatNumber(d.value));
+    const entries = [
+      `count: ${single ? counts[0] : `[${counts.join(', ')}]`}`,
+      `${rp.spacingMode}: ${single ? values[0] : `[${values.join(', ')}]`}`,
+    ];
+    if (rp.centered) {
+      entries.push('centered: true');
+    }
+    args.push(`{ ${entries.join(', ')} }`);
+  } else if (rp.kind === 'circular') {
+    args.push(`{ count: ${formatNumber(rp.count)}, ${rp.sweep!.mode}: ${formatNumber(rp.sweep!.value)} }`);
+  } else if (rp.kind === 'rotate' && rp.angle !== 90) {
+    args.push(formatNumber(rp.angle));
+  }
+  return `repeat(${[...args, ...targetExprs].join(', ')})`;
+}
+
+/**
+ * Render one repeat axis argument: `'z'` for a standard world axis, the
+ * bound variable for an existing axis statement, or the picked edge's
+ * selector part wrapped in `axis(…)`. Shared with the route, which passes
+ * its namer's variables; the transform passes its bindings'.
+ */
+export function renderRepeatAxisExpr(
+  axis: RepeatAxisSpec,
+  parts: ApplyFeatureEditSpec['parts'],
+  varFor: (producer: number) => string | null,
+): string {
+  if (axis.kind === 'standard') {
+    return `'${axis.axis}'`;
+  }
+  if (axis.kind === 'axis') {
+    return varFor(axis.producer) ?? 'a';
+  }
+  const part = parts[axis.part];
+  return `axis(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer))})`;
+}
+
+/**
+ * Render a repeat's mirror-plane argument: `'xy'` for a standard origin
+ * plane, the bound variable for an existing plane feature, or the picked
+ * face's selector part wrapped in `plane(…)` — `resolvePlane` needs a
+ * plane-like, so the raw selection is lifted the way a mid plane's base is.
+ * Shared with the route, which passes its namer's variables; the transform
+ * passes its bindings'.
+ */
+export function renderRepeatPlaneExpr(
+  plane: RepeatPlaneSpec,
+  parts: ApplyFeatureEditSpec['parts'],
+  varFor: (producer: number) => string | null,
+): string {
+  if (plane.kind === 'standard') {
+    return `'${plane.plane}'`;
+  }
+  if (plane.kind === 'plane') {
+    return varFor(plane.producer) ?? 'p';
+  }
+  const part = parts[plane.part];
+  return `plane(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer))})`;
+}
+
+/**
  * Render a loft statement from its ordered profile expressions: `loft(s, s2)`
  * plus `.guides(g)`, `.startCondition('normal')` / `.endCondition('tangent',
  * 2)` (the default magnitude 1 is omitted), and the `.thin(…)` / `.remove()`
@@ -1490,6 +1720,16 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     const rev = spec.revolve!;
     const axisExpr = renderRevolveAxisExpr(rev.axis, spec.parts, i => bindings[i].varName);
     return renderRevolveStatement(rev, axisExpr, rev.profile === 'bound' ? bindings[0].varName : null);
+  }
+  if (spec.feature === 'repeat') {
+    const rp = spec.repeat!;
+    const varFor = (i: number): string | null => bindings[i].varName;
+    const inputExprs = rp.kind === 'mirror'
+      ? [renderRepeatPlaneExpr(rp.plane!, spec.parts, varFor)]
+      : rp.kind === 'linear'
+        ? rp.directions!.map(d => renderRepeatAxisExpr(d.axis, spec.parts, varFor))
+        : [renderRepeatAxisExpr(rp.axis!, spec.parts, varFor)];
+    return renderRepeatStatement(rp, inputExprs, rp.targets.map(t => bindings[t.producer].varName!));
   }
   if (spec.feature === 'loft') {
     const lo = spec.loft!;

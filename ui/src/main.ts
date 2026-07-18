@@ -20,6 +20,7 @@ import { RevolveFeatureService } from './interactive/create-feature/revolve-serv
 import { SweepFeatureService } from './interactive/create-feature/sweep-service';
 import { LoftFeatureService } from './interactive/create-feature/loft-service';
 import { WrapFeatureService } from './interactive/create-feature/wrap-service';
+import { RepeatFeatureService } from './interactive/create-feature/repeat-service';
 import { PlaneFeatureService } from './interactive/create-feature/plane-service';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
@@ -108,7 +109,8 @@ const regionService = new RegionPickService(viewer, navbar);
 // up — it disables instead. Recomputed on every dialog arm/disarm.
 const syncSketchButtonBlocked = () => modifyService.setCreateDialogActive(
   extrudeService.isActive || revolveService.isActive || sweepService.isActive
-  || loftService.isActive || wrapService.isActive || planeService.isActive,
+  || loftService.isActive || wrapService.isActive || repeatService.isActive
+  || planeService.isActive,
 );
 // Registered before the sketch toolbar so the create group renders ahead of
 // the sketch tools; its `immune` flag keeps it visible in sketch mode, where
@@ -123,6 +125,7 @@ const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
     sweepService.exit();
     loftService.exit();
     wrapService.exit();
+    repeatService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -143,6 +146,7 @@ const revolveService = new RevolveFeatureService(container, viewer, navbar, {
     sweepService.exit();
     loftService.exit();
     wrapService.exit();
+    repeatService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -161,6 +165,7 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
     revolveService.exit();
     loftService.exit();
     wrapService.exit();
+    repeatService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -179,6 +184,7 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
     revolveService.exit();
     sweepService.exit();
     wrapService.exit();
+    repeatService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -198,6 +204,7 @@ const wrapService = new WrapFeatureService(container, viewer, navbar, {
     revolveService.exit();
     sweepService.exit();
     loftService.exit();
+    repeatService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -222,6 +229,7 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
     sweepService.exit();
     loftService.exit();
     wrapService.exit();
+    repeatService.exit();
     const seed = [...measureController.selection];
     textEditService.exit();
     measureController.clearSelection();
@@ -244,6 +252,7 @@ const textEditService = new TextEditService(container, viewer, {
     sweepService.exit();
     loftService.exit();
     wrapService.exit();
+    repeatService.exit();
     planeService.exit();
     measureController.clearSelection();
     viewer.clearHighlight();
@@ -257,7 +266,8 @@ const textEditService = new TextEditService(container, viewer, {
 timelinePanel.onFeatureIntercept = (obj) =>
   extrudeService.handleTimelinePick(obj) || revolveService.handleTimelinePick(obj)
   || sweepService.handleTimelinePick(obj) || wrapService.handleTimelinePick(obj)
-  || loftService.handleTimelinePick(obj) || planeService.handleTimelinePick(obj);
+  || loftService.handleTimelinePick(obj) || repeatService.handleTimelinePick(obj)
+  || planeService.handleTimelinePick(obj);
 // Double-clicking an editable feature row (the enter-breakpoint gesture)
 // also opens that feature's dialog prefilled from its statement.
 timelinePanel.onFeatureEdit = (obj, index) => {
@@ -339,6 +349,7 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
     revolveService.exit();
     sweepService.exit();
     loftService.exit();
+    repeatService.exit();
     planeService.exit();
     textEditService.exit();
     const seed = [...measureController.selection];
@@ -348,6 +359,35 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
   },
   // Sketch-on-face armed from inside a sketch: the sketch toolbar and tools
   // release input while faces are picked, and return if the pick is cancelled.
+  onSuspendSketchUI: () => sketchService.update([]),
+  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+});
+// Constructed after the modify service so its solo navbar group registers
+// after every other tool group — the Repeat button renders last, behind the
+// separator the navbar draws between visible groups.
+const repeatService = new RepeatFeatureService(container, viewer, navbar, {
+  // The current selection state seeds the dialog: a pending plane or one
+  // face opens the Mirror type with it as the plane, one edge the Linear type
+  // with it as the axis. Captured before the exits below clear it.
+  onEnter: () => {
+    modifyService.displaceSketchSession();
+    const pendingPlaneShapeId = modifyService.pendingPlane;
+    modifyService.exit();
+    extrudeService.exit();
+    revolveService.exit();
+    sweepService.exit();
+    loftService.exit();
+    wrapService.exit();
+    planeService.exit();
+    const seed = [...measureController.selection];
+    textEditService.exit();
+    measureController.clearSelection();
+    modifyService.clearPendingPlane();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
+    return { seed, pendingPlaneShapeId };
+  },
+  onActiveChange: syncSketchButtonBlocked,
   onSuspendSketchUI: () => sketchService.update([]),
   onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
 });
@@ -411,6 +451,7 @@ const createDialogPicking = () =>
   || sweepService.isEdgePicking
   || wrapService.isFacePicking
   || loftService.isFacePicking
+  || repeatService.isPicking
   || planeService.isPicking;
 
 viewer.setContextMenuHandler((shapeId, sub, clientX, clientY) => {
@@ -450,17 +491,26 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
     }
     return;
   }
-  // An axis-line pick exists only while the revolve dialog is armed (it
-  // enables viewer.pickAxes) — it selects that axis as the revolve axis.
+  // An axis-line pick exists only while the revolve or repeat dialog is
+  // armed (they enable viewer.pickAxes) — it selects that axis statement.
   if (sub?.type === 'axis') {
-    revolveService.handleClick(shapeId, sub);
+    if (repeatService.isAxisPicking) {
+      repeatService.handleClick(shapeId, sub);
+    } else {
+      revolveService.handleClick(shapeId, sub);
+    }
     return;
   }
   // A plane-quad pick exists while the sketch mode is armed (sketch on that
-  // plane right away) or in neutral mode (hold it as the pending sketch
+  // plane right away), while the repeat dialog's Mirror type is up (the quad
+  // is the mirror plane), or in neutral mode (hold it as the pending sketch
   // plane — the Sketch button consumes it). Never part of the measure set.
   if (sub?.type === 'plane') {
     if (shapeId) {
+      if (repeatService.isPlanePicking) {
+        repeatService.handlePlanePick(shapeId);
+        return;
+      }
       if (!modifyService.isActive) {
         measureController.clearSelection();
         selectionInfoOverlay.hide();
@@ -501,6 +551,12 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
   // The armed loft dialog owns face clicks — each pick is one profile.
   if (loftService.isFacePicking) {
     loftService.handleClick(shapeId, sub);
+    return;
+  }
+  // The armed repeat dialog owns clicks — an edge is the repeat axis, a
+  // face (Mirror type) the mirror plane.
+  if (repeatService.isPicking) {
+    repeatService.handleClick(shapeId, sub);
     return;
   }
   // The armed plane dialog owns clicks while a base slot is in pick mode.
@@ -662,6 +718,7 @@ function connectWebSocket() {
           regionService.reset();
           sketchService.update([]);
           planeService.update([]);
+          repeatService.update([]);
         } else {
           trimService.update(msg.result);
           regionService.update(msg.result);
@@ -669,11 +726,12 @@ function connectWebSocket() {
           // toolbar must not re-take the bar on incoming renders.
           const sketchSuspended = modifyService.sketchUISuspended
             || sweepService.sketchUISuspended || wrapService.sketchUISuspended
-            || loftService.sketchUISuspended
+            || loftService.sketchUISuspended || repeatService.sketchUISuspended
             || planeService.sketchUISuspended || extrudeService.sketchUISuspended
             || revolveService.sketchUISuspended || textEditService.isActive;
           sketchService.update(sketchSuspended ? [] : msg.result);
           planeService.update(msg.result);
+          repeatService.update(msg.result);
         }
         // The edit-capable services see every render: an open edit session
         // keeps the view rolled back to just before its statement and

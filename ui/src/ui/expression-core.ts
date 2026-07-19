@@ -35,15 +35,37 @@ export type ClassifiedCommit =
   | { kind: 'error'; message: string };
 
 /**
+ * The name a committed input would declare — an explicit `name = value`, or a
+ * fresh identifier (no existing-variable match) over a seed value. Null when
+ * the commit is a plain expression or an error — drives the hosts' "declare
+ * as param" toggle visibility.
+ */
+export function declaredVariableName(
+  raw: string,
+  variables: VariableInfo[],
+  seedValue: string,
+): string | null {
+  const classified = classifyCommit(raw, variables, seedValue);
+  return classified.kind === 'declare' ? classified.name : null;
+}
+
+/** A declaration initializer wrapped as a `param()` call, labeled by name. */
+export function paramInitializer(name: string, initializer: string): string {
+  return `param("${name}", ${initializer})`;
+}
+
+/**
  * Read a committed input into what it writes: `name = value` declares a new
  * variable, a bare unknown identifier declares one from the seed value (the
  * field's last plain number), anything else passes through as the expression.
+ * With `asParam`, a declaration's initializer is wrapped as a `param()` call.
  */
 export function classifyCommit(
   raw: string,
   variables: VariableInfo[],
   seedValue: string,
   numericOnly = false,
+  asParam = false,
 ): ClassifiedCommit {
   if (numericOnly) {
     const num = parseFloat(raw);
@@ -66,7 +88,7 @@ export function classifyCommit(
     if (!rhs) {
       return { kind: 'error', message: 'Missing value' };
     }
-    return { kind: 'declare', name, initializer: rhs };
+    return { kind: 'declare', name, initializer: asParam ? paramInitializer(name, rhs) : rhs };
   }
 
   if (IDENT_RE.test(raw)) {
@@ -80,7 +102,11 @@ export function classifyCommit(
     if (!initializer) {
       return { kind: 'error', message: 'No value to assign' };
     }
-    return { kind: 'declare', name: raw, initializer };
+    return {
+      kind: 'declare',
+      name: raw,
+      initializer: asParam ? paramInitializer(raw, initializer) : initializer,
+    };
   }
 
   return { kind: 'expression', expression: raw };

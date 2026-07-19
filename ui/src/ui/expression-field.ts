@@ -1,6 +1,6 @@
 import {
-  applyVariableName, classifyCommit, filterSuggestions, suggestionItemHtml,
-  trailingIdentifier, Suggestion, VariableInfo,
+  applyVariableName, classifyCommit, declaredVariableName, filterSuggestions,
+  suggestionItemHtml, trailingIdentifier, Suggestion, VariableInfo,
 } from './expression-core';
 
 /** A read field value: a plain number, or an expression (with an optional
@@ -44,6 +44,8 @@ export class ExpressionField {
 
   private variables: VariableInfo[] = [];
   private dropdown: HTMLDivElement;
+  private paramBtn: HTMLButtonElement;
+  private paramMode = false;
   private filtered: Suggestion[] = [];
   private selectedIndex = -1;
   private open = false;
@@ -63,6 +65,7 @@ export class ExpressionField {
     }
     this.closeDropdown();
   };
+  private readonly onParamViewportChange = () => this.positionParamBtn();
 
   constructor(private input: HTMLInputElement) {
     input.type = 'text';
@@ -75,13 +78,37 @@ export class ExpressionField {
       'fixed z-[1200] bg-base-100 border border-base-300 rounded-md shadow-lg max-h-[150px] overflow-y-auto hidden';
     document.body.appendChild(this.dropdown);
 
+    // The "declare as param()" toggle rides the input's right edge while the
+    // value is a `name = value` declaration; fixed like the dropdown, so the
+    // dialog's own layout stays untouched.
+    this.paramBtn = document.createElement('button');
+    this.paramBtn.type = 'button';
+    this.paramBtn.tabIndex = -1;
+    this.paramBtn.textContent = 'P';
+    this.paramBtn.title = 'Declare as parameter — param()';
+    this.paramBtn.className =
+      'fixed z-[1200] w-5 h-5 rounded text-xs font-mono font-semibold border cursor-pointer select-none hidden';
+    document.body.appendChild(this.paramBtn);
+    this.renderParamBtn();
+
     input.addEventListener('keydown', (e) => this.handleKeydown(e));
     input.addEventListener('input', () => this.handleInput());
-    input.addEventListener('blur', () => this.closeDropdown());
+    input.addEventListener('focus', () => this.updateParamBtn());
+    input.addEventListener('blur', () => {
+      this.closeDropdown();
+      this.hideParamBtn();
+    });
     this.dropdown.addEventListener('mousedown', (e) => {
       // Keep the input focused; item handlers fill the name themselves.
       e.preventDefault();
       e.stopPropagation();
+    });
+    this.paramBtn.addEventListener('mousedown', (e) => {
+      // mousedown would blur the input; toggle without stealing focus.
+      e.preventDefault();
+      e.stopPropagation();
+      this.paramMode = !this.paramMode;
+      this.renderParamBtn();
     });
   }
 
@@ -98,6 +125,8 @@ export class ExpressionField {
       this.seedValue = str.trim();
     }
     this.closeDropdown();
+    this.paramMode = false;
+    this.hideParamBtn();
   }
 
   get element(): HTMLInputElement {
@@ -118,7 +147,9 @@ export class ExpressionField {
     if (this.isPlainNumber(raw)) {
       return { value: Number(raw) };
     }
-    const classified = classifyCommit(raw, this.variables, this.seedValue);
+    const asParam = this.paramMode
+      && declaredVariableName(raw, this.variables, this.seedValue) !== null;
+    const classified = classifyCommit(raw, this.variables, this.seedValue, false, asParam);
     if (classified.kind === 'error') {
       return { error: classified.message };
     }
@@ -133,7 +164,9 @@ export class ExpressionField {
 
   destroy(): void {
     this.closeDropdown();
+    this.hideParamBtn();
     this.dropdown.remove();
+    this.paramBtn.remove();
   }
 
   private isPlainNumber(raw: string): boolean {
@@ -187,11 +220,51 @@ export class ExpressionField {
     if (this.isPlainNumber(this.input.value)) {
       this.seedValue = this.input.value.trim();
     }
+    this.updateParamBtn();
     if (this.suppressFilter) {
       this.suppressFilter = false;
       return;
     }
     this.filterAndRender();
+  }
+
+  private updateParamBtn(): void {
+    const raw = this.input.value.trim();
+    if (declaredVariableName(raw, this.variables, this.seedValue) === null) {
+      this.hideParamBtn();
+      return;
+    }
+    if (this.paramBtn.classList.contains('hidden')) {
+      this.paramBtn.classList.remove('hidden');
+      window.addEventListener('scroll', this.onParamViewportChange, true);
+      window.addEventListener('resize', this.onParamViewportChange);
+    }
+    this.positionParamBtn();
+  }
+
+  private hideParamBtn(): void {
+    if (this.paramBtn.classList.contains('hidden')) {
+      return;
+    }
+    this.paramBtn.classList.add('hidden');
+    window.removeEventListener('scroll', this.onParamViewportChange, true);
+    window.removeEventListener('resize', this.onParamViewportChange);
+  }
+
+  private positionParamBtn(): void {
+    const rect = this.input.getBoundingClientRect();
+    this.paramBtn.style.left = `${rect.right - 22}px`;
+    this.paramBtn.style.top = `${rect.top + (rect.height - 20) / 2}px`;
+  }
+
+  private renderParamBtn(): void {
+    const active = this.paramMode;
+    this.paramBtn.classList.toggle('bg-primary/20', active);
+    this.paramBtn.classList.toggle('text-primary', active);
+    this.paramBtn.classList.toggle('border-primary/40', active);
+    this.paramBtn.classList.toggle('bg-base-100', !active);
+    this.paramBtn.classList.toggle('text-base-content/40', !active);
+    this.paramBtn.classList.toggle('border-base-content/20', !active);
   }
 
   private filterAndRender(): void {

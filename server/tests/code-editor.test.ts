@@ -12,6 +12,7 @@ import {
   setFeatureName,
   setPickPoints,
   insertGeometryCall,
+  insertGeometryCallWithVariable,
   insertLoadCall,
   updateGeometryPosition,
   updateDimension,
@@ -836,6 +837,40 @@ describe('setFeatureName', () => {
   });
 });
 
+describe('insertGeometryCallWithVariable', () => {
+  it('declares a param() variable at top level, after the imports', async () => {
+    const code = [
+      `import { sketch, line } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 0]);`,
+      `});`,
+    ].join('\n');
+    const result = await insertGeometryCallWithVariable(
+      code, 2, 'line([0, 0], [depth, 0])',
+      { name: 'depth', initializer: 'param("depth", 25)' },
+    );
+    expect(result.newCode).toContain(
+      `import {param, sketch, line } from 'fluidcad/core';\nconst depth = param("depth", 25);\nsketch(XY, () => {`,
+    );
+    expect(result.newCode).toContain(`line([0, 0], [depth, 0])`);
+  });
+
+  it('leaves imports alone for a plain declaration', async () => {
+    const code = [
+      `import { sketch, line } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 0]);`,
+      `});`,
+    ].join('\n');
+    const result = await insertGeometryCallWithVariable(
+      code, 2, 'line([0, 0], [depth, 0])',
+      { name: 'depth', initializer: '25' },
+    );
+    expect(result.newCode).toContain(`import { sketch, line } from 'fluidcad/core';`);
+    expect(result.newCode).toContain(`const depth = 25;`);
+  });
+});
+
 describe('extractVariablesInScope numeric classification', () => {
   it('marks constants and arithmetic expressions numeric, feature results not', async () => {
     const code = [
@@ -843,6 +878,7 @@ describe('extractVariablesInScope numeric classification', () => {
       'const width = 100;',
       'const half = width / 2;',
       'const angled = Math.sqrt(width) + 2;',
+      'const sides = param("Sides", 6);',
       'const profile = sketch(() => {});',
       'const housing = extrude(profile, 10);',
       'const alias = housing;',
@@ -855,6 +891,7 @@ describe('extractVariablesInScope numeric classification', () => {
       width: true,
       half: true,
       angled: true,
+      sides: true,
       profile: false,
       housing: false,
       alias: false,

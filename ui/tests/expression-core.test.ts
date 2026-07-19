@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  applyVariableName, classifyCommit, filterSuggestions, trailingIdentifier,
+  applyVariableName, classifyCommit, declaredVariableName, filterSuggestions, trailingIdentifier,
 } from '../src/ui/expression-core';
 
 const VARS = [
@@ -42,9 +42,37 @@ describe('classifyCommit', () => {
       .toEqual({ kind: 'expression', expression: 'height * 2' });
   });
 
+  it('wraps a declaration initializer as param() when asParam is set', () => {
+    expect(classifyCommit('depth = 12.5', VARS, '25', false, true))
+      .toEqual({ kind: 'declare', name: 'depth', initializer: 'param("depth", 12.5)' });
+    expect(classifyCommit('depth = height * 2', VARS, '25', false, true))
+      .toEqual({ kind: 'declare', name: 'depth', initializer: 'param("depth", height * 2)' });
+    expect(classifyCommit('depth', VARS, '25', false, true))
+      .toEqual({ kind: 'declare', name: 'depth', initializer: 'param("depth", 25)' });
+  });
+
   it('numericOnly refuses identifiers', () => {
     expect(classifyCommit('height', VARS, '25', true)).toMatchObject({ kind: 'error' });
     expect(classifyCommit('12', VARS, '25', true)).toEqual({ kind: 'expression', expression: '12' });
+  });
+});
+
+describe('declaredVariableName', () => {
+  it('yields the name for a name = value input', () => {
+    expect(declaredVariableName('depth = 12.5', VARS, '25')).toBe('depth');
+    expect(declaredVariableName('depth=height * 2', VARS, '25')).toBe('depth');
+  });
+
+  it('yields a fresh identifier with no variable match, given a seed', () => {
+    expect(declaredVariableName('depth', VARS, '25')).toBe('depth');
+    expect(declaredVariableName('depth', VARS, '')).toBeNull();
+    expect(declaredVariableName('height', VARS, '25')).toBeNull();
+  });
+
+  it('yields null for plain expressions and errors', () => {
+    expect(declaredVariableName('height * 2', VARS, '25')).toBeNull();
+    expect(declaredVariableName('height = 40', VARS, '25')).toBeNull();
+    expect(declaredVariableName('class = 4', VARS, '25')).toBeNull();
   });
 });
 

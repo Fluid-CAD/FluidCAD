@@ -3946,6 +3946,20 @@ describe('expression values in dialog slots', () => {
     expect(result.newCode).toContain(`const depth = 25\nextrude(depth)`);
   });
 
+  it('declares a param() newVariable after the imports, with its import', async () => {
+    const code = `${editBase}\nextrude(25)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: extrudeEditOptions({ distance: 'depth' }),
+    }, {
+      newVariables: [{ name: 'depth', initializer: 'param("depth", 25)' }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`from 'fluidcad/core'\nconst depth = param("depth", 25)\n`);
+    expect(result.newCode).toContain(`extrude(depth)`);
+    expect(result.newCode).toMatch(/import \{[^}]*\bparam\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
   it('skips declaring a newVariable the file already declares', async () => {
     const code = `${exprBase}\nextrude(25, s)\n`;
     const result = await applyFeatureEdit(code, editSpec('extrude', {
@@ -3980,6 +3994,34 @@ describe('expression values in dialog slots', () => {
     });
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`const depth = 25\nextrude(depth)`);
+  });
+
+  it('splits param() newVariables to the top on a created statement', async () => {
+    const code = [
+      `import { sketch, rect } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, {
+      feature: 'extrude',
+      filePath: '/ws/model.fluid.js',
+      extrude: {
+        op: 'add', distance: 'depth', distance2: 'taper', symmetric: false, draft: null,
+        drill: true, thin: null, profile: 'implicit',
+      },
+      producers: [{ line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: false }],
+      parts: [],
+      imports: [],
+      newVariables: [
+        { name: 'depth', initializer: 'param("depth", 25)' },
+        { name: 'taper', initializer: '5' },
+      ],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`from 'fluidcad/core'\nconst depth = param("depth", 25)\n`);
+    expect(result.newCode).toContain(`const taper = 5\nextrude(depth`);
+    expect(result.newCode).toMatch(/import \{[^}]*\bparam\b[^}]*\} from 'fluidcad\/core'/);
   });
 
   it('refuses a malformed newVariable declaration', async () => {

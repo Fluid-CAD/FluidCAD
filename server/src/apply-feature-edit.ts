@@ -925,9 +925,13 @@ export async function applyFeatureEdit(
       imports.add(symbol);
     }
   }
+  if (declsResult.paramDecls.length > 0) {
+    imports.add('param');
+  }
   for (const symbol of imports) {
     result = await ensureSymbolImport(result, symbol, MODULE_FOR_IMPORT[symbol] ?? 'fluidcad/core');
   }
+  result = await insertDeclsAfterImports(result, declsResult.paramDecls);
   return { newCode: result };
 }
 
@@ -986,7 +990,12 @@ async function appendTopLevelStatement(
       ? spliceCode(code, before.startIndex, before.startIndex, `${block(indent)}\n${indent}`)
       : spliceCode(code, last.endIndex, last.endIndex, `\n${indent}${block(indent)}`);
   }
-  return { newCode: await ensureSymbolImport(result, callee) };
+  result = await ensureSymbolImport(result, callee);
+  if (declsResult.paramDecls.length > 0) {
+    result = await ensureSymbolImport(result, 'param');
+    result = await insertDeclsAfterImports(result, declsResult.paramDecls);
+  }
+  return { newCode: result };
 }
 
 /**
@@ -1936,6 +1945,7 @@ const MODULE_FOR_IMPORT: Record<string, string> = {
   edge: 'fluidcad/filters',
   face: 'fluidcad/filters',
   axis: 'fluidcad/core',
+  param: 'fluidcad/core',
 };
 
 /**
@@ -1968,17 +1978,20 @@ function formatValue(value: ValueExpr | undefined | null): string {
 /**
  * The `const <name> = <initializer>` lines `spec.newVariables` asks for —
  * validated to safe shapes, deduplicated, and filtered against names the
- * file already declares so a re-apply stays idempotent.
+ * file already declares so a re-apply stays idempotent. Declarations whose
+ * initializer calls `param()` come back separately in `paramDecls` — those
+ * land at top level after the imports, not before the statement.
  */
 function renderNewVariableDecls(
   code: string,
   newVariables: ApplyFeatureEditSpec['newVariables'],
   semicolon: boolean,
-): { decls: string[] } | { error: string } {
+): { decls: string[]; paramDecls: string[] } | { error: string } {
   if (!newVariables || newVariables.length === 0) {
-    return { decls: [] };
+    return { decls: [], paramDecls: [] };
   }
   const decls: string[] = [];
+  const paramDecls: string[] = [];
   const seen = new Set<string>();
   for (const nv of newVariables) {
     if (!nv || typeof nv.name !== 'string' || !/^[a-zA-Z_$][\w$]*$/.test(nv.name)
@@ -1993,9 +2006,30 @@ function renderNewVariableDecls(
     if (new RegExp(`\\b(?:const|let|var)\\s+${escaped}\\b`).test(code)) {
       continue;
     }
-    decls.push(`const ${nv.name} = ${nv.initializer.trim()}${semicolon ? ';' : ''}`);
+    const target = /\bparam\s*\(/.test(nv.initializer) ? paramDecls : decls;
+    target.push(`const ${nv.name} = ${nv.initializer.trim()}${semicolon ? ';' : ''}`);
   }
-  return { decls };
+  return { decls, paramDecls };
+}
+
+/** Splice top-level declarations directly after the file's last import (or
+ * as the file's first lines) — where `param()` declarations live. */
+async function insertDeclsAfterImports(code: string, decls: string[]): Promise<string> {
+  if (decls.length === 0) {
+    return code;
+  }
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  let lastImport: TSNode | null = null;
+  for (const child of tree.rootNode.namedChildren) {
+    if (child.type === 'import_statement') {
+      lastImport = child;
+    }
+  }
+  const text = decls.join('\n');
+  return lastImport
+    ? spliceCode(code, lastImport.endIndex, lastImport.endIndex, `\n${text}`)
+    : `${text}\n${code}`;
 }
 
 /** Insertion point directly after `statement`, at its own indent. */
@@ -3924,9 +3958,13 @@ async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Pro
       imports.add(symbol);
     }
   }
+  if (declsResult.paramDecls.length > 0) {
+    imports.add('param');
+  }
   for (const symbol of imports) {
     result = await ensureSymbolImport(result, symbol, MODULE_FOR_IMPORT[symbol] ?? 'fluidcad/core');
   }
+  result = await insertDeclsAfterImports(result, declsResult.paramDecls);
   // Clearing the edit's breakpoint here — one transform, one write — keeps
   // the rewrite and the clear from racing had the UI cleared it separately.
   if (spec.clearBreakpoints) {

@@ -1301,10 +1301,32 @@ export async function declareSketchVariable(
 }
 
 /**
+ * Insert `const name = initializer;` at top level, directly after the last
+ * import (or as the file's first line). Param declarations land here — one
+ * shared spot right under the imports — rather than inside a sketch body.
+ */
+async function declareTopLevelVariable(
+  code: string,
+  name: string,
+  initializer: string,
+): Promise<string> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const statement = `const ${name} = ${initializer};`;
+  const lastImport = findLastImport(tree);
+  if (lastImport) {
+    return spliceCode(code, lastImport.endIndex, lastImport.endIndex, `\n${statement}`);
+  }
+  return `${statement}\n${code}`;
+}
+
+/**
  * Run an edit that may be preceded by inserting `const name = init;` at the
  * top of the sketch body. The edit receives the (possibly-mutated) code and
  * the number of lines added by the declaration, so it can re-anchor any
- * sourceLine references inside the body.
+ * sourceLine references inside the body. A `param()` declaration instead
+ * lands at top level after the imports — inserted (with its import) after
+ * the edit, so the edit's sourceLine anchors never shift.
  *
  * Adopt this wrapper for any new code-edit endpoint that should support
  * "declare a variable on the same commit."
@@ -1317,6 +1339,13 @@ async function withOptionalVariableDeclaration(
 ): Promise<CodeEditResult> {
   if (!newVariable) {
     return edit(code, 0);
+  }
+  if (/\bparam\s*\(/.test(newVariable.initializer)) {
+    const result = await edit(code, 0);
+    const declared = await declareTopLevelVariable(
+      result.newCode, newVariable.name, newVariable.initializer,
+    );
+    return { ...result, newCode: await ensureSymbolImport(declared, 'param') };
   }
   const declared = await declareSketchVariable(
     code, sketchSourceLine, newVariable.name, newVariable.initializer,
@@ -1353,8 +1382,9 @@ export function updateDimensionExpressionWithVariable(
 export type VariableInfo = { name: string; initializer?: string; numeric?: boolean };
 
 /**
- * Whether an initializer is a plain constant or arithmetic expression — the
- * kind of value a numeric input can reference. Feature results (`extrude(...)`),
+ * Whether an initializer is a plain constant, arithmetic expression, or
+ * `param()` declaration — the kind of value a numeric input can reference.
+ * Feature results (`extrude(...)`),
  * objects, arrays, strings, and functions are not. Local identifiers resolve
  * through `numericByName`; unknown names (globals, imports) pass permissively.
  */
@@ -1375,6 +1405,9 @@ function isNumericValueNode(node: TSNode, numericByName: Map<string, boolean>): 
     }
     case 'call_expression': {
       const fn = node.childForFieldName('function');
+      if (fn?.type === 'identifier' && fn.text === 'param') {
+        return true;
+      }
       const isMathCall = fn?.type === 'member_expression'
         && fn.childForFieldName('object')?.text === 'Math';
       if (!isMathCall) {

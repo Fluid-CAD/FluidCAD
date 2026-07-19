@@ -20,6 +20,7 @@ import { RevolveFeatureService } from './interactive/create-feature/revolve-serv
 import { SweepFeatureService } from './interactive/create-feature/sweep-service';
 import { LoftFeatureService } from './interactive/create-feature/loft-service';
 import { WrapFeatureService } from './interactive/create-feature/wrap-service';
+import { HelixFeatureService } from './interactive/create-feature/helix-service';
 import { RepeatFeatureService } from './interactive/create-feature/repeat-service';
 import { PlaneFeatureService } from './interactive/create-feature/plane-service';
 import { MeasureController } from './ui/measure/measure-controller';
@@ -109,8 +110,8 @@ const regionService = new RegionPickService(viewer, navbar);
 // up — it disables instead. Recomputed on every dialog arm/disarm.
 const syncSketchButtonBlocked = () => modifyService.setCreateDialogActive(
   extrudeService.isActive || revolveService.isActive || sweepService.isActive
-  || loftService.isActive || wrapService.isActive || repeatService.isActive
-  || planeService.isActive,
+  || loftService.isActive || wrapService.isActive || helixService.isActive
+  || repeatService.isActive || planeService.isActive,
 );
 // Registered before the sketch toolbar so the create group renders ahead of
 // the sketch tools; its `immune` flag keeps it visible in sketch mode, where
@@ -122,6 +123,7 @@ const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
     modifyService.displaceSketchSession();
     modifyService.exit();
     revolveService.exit();
+    helixService.exit();
     sweepService.exit();
     loftService.exit();
     wrapService.exit();
@@ -143,6 +145,7 @@ const revolveService = new RevolveFeatureService(container, viewer, navbar, {
     modifyService.displaceSketchSession();
     modifyService.exit();
     extrudeService.exit();
+    helixService.exit();
     sweepService.exit();
     loftService.exit();
     wrapService.exit();
@@ -163,6 +166,7 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     revolveService.exit();
+    helixService.exit();
     loftService.exit();
     wrapService.exit();
     repeatService.exit();
@@ -182,6 +186,7 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     revolveService.exit();
+    helixService.exit();
     sweepService.exit();
     wrapService.exit();
     repeatService.exit();
@@ -202,8 +207,31 @@ const wrapService = new WrapFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     revolveService.exit();
+    helixService.exit();
     sweepService.exit();
     loftService.exit();
+    repeatService.exit();
+    planeService.exit();
+    textEditService.exit();
+    measureController.clearSelection();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
+  },
+  onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: () => sketchService.update([]),
+  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+});
+// Constructed after Wrap so its Helix button lands at the end of the create
+// feature row (Extrude, Revolve, Sweep, Loft, Wrap, Helix).
+const helixService = new HelixFeatureService(container, viewer, navbar, {
+  onEnter: () => {
+    modifyService.displaceSketchSession();
+    modifyService.exit();
+    extrudeService.exit();
+    revolveService.exit();
+    sweepService.exit();
+    loftService.exit();
+    wrapService.exit();
     repeatService.exit();
     planeService.exit();
     textEditService.exit();
@@ -226,6 +254,7 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     revolveService.exit();
+    helixService.exit();
     sweepService.exit();
     loftService.exit();
     wrapService.exit();
@@ -249,6 +278,7 @@ const textEditService = new TextEditService(container, viewer, {
     modifyService.exit();
     extrudeService.exit();
     revolveService.exit();
+    helixService.exit();
     sweepService.exit();
     loftService.exit();
     wrapService.exit();
@@ -266,8 +296,8 @@ const textEditService = new TextEditService(container, viewer, {
 timelinePanel.onFeatureIntercept = (obj) =>
   extrudeService.handleTimelinePick(obj) || revolveService.handleTimelinePick(obj)
   || sweepService.handleTimelinePick(obj) || wrapService.handleTimelinePick(obj)
-  || loftService.handleTimelinePick(obj) || repeatService.handleTimelinePick(obj)
-  || planeService.handleTimelinePick(obj);
+  || loftService.handleTimelinePick(obj) || helixService.handleTimelinePick(obj)
+  || repeatService.handleTimelinePick(obj) || planeService.handleTimelinePick(obj);
 // Double-clicking an editable feature row (the enter-breakpoint gesture)
 // also opens that feature's dialog prefilled from its statement.
 timelinePanel.onFeatureEdit = (obj, index) => {
@@ -281,7 +311,7 @@ timelinePanel.onFeatureEdit = (obj, index) => {
  * surfaces its parse refusal as the toast).
  */
 const EDITABLE_ROW_TYPES = new Set([
-  'extrude', 'cut', 'revolve', 'sweep', 'wrap', 'loft', 'shell', 'fillet', 'chamfer', 'text',
+  'extrude', 'cut', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'shell', 'fillet', 'chamfer', 'text',
   'repeat-linear', 'repeat-circular', 'repeat-matrix', 'mirror',
 ]);
 
@@ -317,6 +347,8 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     wrapService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'loft') {
     loftService.enterEdit(target, parsed, info);
+  } else if (parsed.feature === 'helix') {
+    helixService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'text') {
     textEditService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'repeat') {
@@ -357,6 +389,7 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
   onEnter: () => {
     extrudeService.exit();
     revolveService.exit();
+    helixService.exit();
     sweepService.exit();
     loftService.exit();
     repeatService.exit();
@@ -385,6 +418,7 @@ const repeatService = new RepeatFeatureService(container, viewer, navbar, {
     modifyService.exit();
     extrudeService.exit();
     revolveService.exit();
+    helixService.exit();
     sweepService.exit();
     loftService.exit();
     wrapService.exit();
@@ -412,7 +446,7 @@ const breakpointIndicator = new BreakpointIndicator(container, () => {
   // Continue leaves the paused build: open edit sessions end WITHOUT their
   // cancel-restore rollback — the full render Continue triggers supersedes
   // it, and a session re-assert would fight the view the user asked for.
-  for (const service of [modifyService, extrudeService, revolveService, sweepService, wrapService, loftService, repeatService]) {
+  for (const service of [modifyService, extrudeService, revolveService, sweepService, wrapService, loftService, helixService, repeatService]) {
     if (service.isEditing) {
       service.exit({ editEnd: 'continue' });
     }
@@ -461,6 +495,7 @@ const createDialogPicking = () =>
   || sweepService.isEdgePicking
   || wrapService.isFacePicking
   || loftService.isFacePicking
+  || helixService.isPicking
   || repeatService.isPicking
   || planeService.isPicking;
 
@@ -506,6 +541,8 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
   if (sub?.type === 'axis') {
     if (repeatService.isAxisPicking) {
       repeatService.handleClick(shapeId, sub);
+    } else if (helixService.isAxisPicking) {
+      helixService.handleClick(shapeId, sub);
     } else {
       revolveService.handleClick(shapeId, sub);
     }
@@ -561,6 +598,12 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
   // The armed loft dialog owns face clicks — each pick is one profile.
   if (loftService.isFacePicking) {
     loftService.handleClick(shapeId, sub);
+    return;
+  }
+  // The armed helix dialog owns edge clicks (axis mode) and face clicks (face
+  // mode) — the pick is the helix's source.
+  if (helixService.isPicking) {
+    helixService.handleClick(shapeId, sub);
     return;
   }
   // The armed repeat dialog owns clicks — an edge is the repeat axis, a
@@ -737,7 +780,8 @@ function connectWebSocket() {
             || sweepService.sketchUISuspended || wrapService.sketchUISuspended
             || loftService.sketchUISuspended || repeatService.sketchUISuspended
             || planeService.sketchUISuspended || extrudeService.sketchUISuspended
-            || revolveService.sketchUISuspended || textEditService.isActive;
+            || revolveService.sketchUISuspended || helixService.sketchUISuspended
+            || textEditService.isActive;
           sketchService.update(sketchSuspended ? [] : msg.result);
           planeService.update(msg.result);
         }
@@ -751,6 +795,7 @@ function connectWebSocket() {
         sweepService.handleSceneRendered(msg.result, renderStop, isRollback);
         wrapService.handleSceneRendered(msg.result, renderStop, isRollback);
         loftService.handleSceneRendered(msg.result, renderStop, isRollback);
+        helixService.handleSceneRendered(msg.result, renderStop, isRollback);
         repeatService.handleSceneRendered(msg.result, renderStop, isRollback);
         textEditService.handleSceneRendered(msg.result, renderStop, isRollback);
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1);

@@ -2,12 +2,13 @@ import { Router } from 'express';
 import type { FluidCadServer, SelectionBoundary } from '../fluidcad-server.ts';
 import {
   applyFeatureEdit, extractNumericParams, makeProducerNamer, parseFeatureStatement, renderEditedStatement,
-  renderExtrudeStatement, renderLoftStatement, renderPlaneBaseExprs, renderPlaneStatement,
+  renderExtrudeStatement, renderHelixStatement, renderLoftStatement, renderPlaneBaseExprs, renderPlaneStatement,
   renderRepeatAxisExpr, renderRepeatPlaneExpr, renderRepeatStatement,
   renderRevolveStatement,
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames, validCountValue, validValueExpr,
-  type ApplyFeatureEditSpec, type ExtrudeEditOptions, type FeatureStatementEditTarget, type LoftEditOptions,
+  type ApplyFeatureEditSpec, type ExtrudeEditOptions, type FeatureStatementEditTarget, type HelixEditOptions,
+  type HelixSourceSpec, type LoftEditOptions,
   type PlaneEditOptions, type RepeatAxisSpec, type RepeatEditAxis, type RepeatEditOptions,
   type RevolveEditOptions, type ShellJoinKind, type SweepEditOptions, type ValueExpr, type WrapEditOptions,
 } from '../apply-feature-edit.ts';
@@ -402,6 +403,103 @@ function validateRevolve(body: any): RevolveRequest | { error: string } {
     return { error: 'the axis and the profile sketch live in different files' };
   }
   return { op, angle, thin: thinResult.offsets, profile: { mode, ...profileLoc }, axis };
+}
+
+/**
+ * One helix source input: the revolve axis family (a standard world axis, an
+ * existing axis statement, or a picked edge → `axis(<selector>)`) plus a picked
+ * cylindrical/conical face — the single selector on its own.
+ */
+type HelixSourceInput = RevolveAxisInput | { kind: 'face'; pick: Pick };
+
+/**
+ * The helix request: a single source (axis-family or face) and the chained
+ * geometry configurators — each optional, null when the dialog left it blank
+ * so the helix() API default applies. A helix is a wire, so there is no op,
+ * profile, or thin mode.
+ */
+type HelixRequest = {
+  source: HelixSourceInput;
+  radius: ValueExpr | null;
+  endRadius: ValueExpr | null;
+  pitch: ValueExpr | null;
+  turns: ValueExpr | null;
+  height: ValueExpr | null;
+  startOffset: ValueExpr | null;
+  endOffset: ValueExpr | null;
+};
+
+/** The helix source: the revolve axis inputs plus a picked face. */
+function validateHelixSource(raw: any): HelixSourceInput | { error: string } {
+  if (raw?.kind === 'face') {
+    const pick = validatePick(raw.entity);
+    if (!pick || pick.sub.type !== 'face') {
+      return { error: 'a helix face must carry a {shapeId, sub:{type:"face", index}} pick' };
+    }
+    return { kind: 'face', pick };
+  }
+  return validateRevolveAxis(raw);
+}
+
+/** An optional helix option: omitted (null/undefined) or a constrained value. */
+function validateHelixOption(
+  value: unknown,
+  label: string,
+  opts: { positive?: boolean; nonzero?: boolean } = {},
+): { value: ValueExpr | null } | { error: string } {
+  if (value === null || value === undefined) {
+    return { value: null };
+  }
+  if (!validValueExpr(value, opts)) {
+    const kind = opts.positive ? 'positive ' : opts.nonzero ? 'nonzero ' : '';
+    return { error: `${label} must be a ${kind}number or expression` };
+  }
+  return { value };
+}
+
+function validateHelix(body: any): HelixRequest | { error: string } {
+  const source = validateHelixSource(body?.source);
+  if ('error' in source) {
+    return source;
+  }
+  const radius = validateHelixOption(body?.radius, 'radius', { positive: true });
+  if ('error' in radius) {
+    return radius;
+  }
+  const endRadius = validateHelixOption(body?.endRadius, 'endRadius', { positive: true });
+  if ('error' in endRadius) {
+    return endRadius;
+  }
+  const pitch = validateHelixOption(body?.pitch, 'pitch', { nonzero: true });
+  if ('error' in pitch) {
+    return pitch;
+  }
+  const turns = validateHelixOption(body?.turns, 'turns', { positive: true });
+  if ('error' in turns) {
+    return turns;
+  }
+  const height = validateHelixOption(body?.height, 'height', { positive: true });
+  if ('error' in height) {
+    return height;
+  }
+  const startOffset = validateHelixOption(body?.startOffset, 'startOffset');
+  if ('error' in startOffset) {
+    return startOffset;
+  }
+  const endOffset = validateHelixOption(body?.endOffset, 'endOffset');
+  if ('error' in endOffset) {
+    return endOffset;
+  }
+  return {
+    source,
+    radius: radius.value,
+    endRadius: endRadius.value,
+    pitch: pitch.value,
+    turns: turns.value,
+    height: height.value,
+    startOffset: startOffset.value,
+    endOffset: endOffset.value,
+  };
 }
 
 /** Ordered loft profile inputs: sketches and picked faces, mixed freely. */
@@ -899,7 +997,7 @@ async function allocateProducerVars(
 }
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'helix']);
 
 /** One edited loft profile as the request carries it. */
 type EditLoftProfileInput =
@@ -938,6 +1036,8 @@ type StatementEditRequest = {
   revolveProfile?: SketchLoc;
   /** Re-sourced revolve axis; absent keeps the statement's. */
   revolveAxis?: RevolveAxisInput;
+  /** Re-sourced helix source (axis-family or face); absent keeps the statement's. */
+  helixSource?: HelixSourceInput;
   /** Full replacement loft profile list; absent keeps the statement's. */
   loftProfiles?: EditLoftProfileInput[];
   /** Full replacement loft guide list; absent keeps the statement's. */
@@ -995,7 +1095,7 @@ function isKeepSlot(raw: any): boolean {
 function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "sweep", "wrap", "loft", "revolve", "shell", "fillet", "chamfer", "text", "sketch" or "repeat" for an edit' };
+    return { error: 'feature must be "extrude", "sweep", "wrap", "loft", "revolve", "helix", "shell", "fillet", "chamfer", "text", "sketch" or "repeat" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -1141,6 +1241,57 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       return { error: 'an edited profile must be {mode: "bound", filePath, line} of the sketch' };
     }
     return { ...result, revolveProfile: loc };
+  }
+
+  if (feature === 'helix') {
+    const radius = validateHelixOption(body?.radius, 'radius', { positive: true });
+    if ('error' in radius) {
+      return radius;
+    }
+    const endRadius = validateHelixOption(body?.endRadius, 'endRadius', { positive: true });
+    if ('error' in endRadius) {
+      return endRadius;
+    }
+    const pitch = validateHelixOption(body?.pitch, 'pitch', { nonzero: true });
+    if ('error' in pitch) {
+      return pitch;
+    }
+    const turns = validateHelixOption(body?.turns, 'turns', { positive: true });
+    if ('error' in turns) {
+      return turns;
+    }
+    const height = validateHelixOption(body?.height, 'height', { positive: true });
+    if ('error' in height) {
+      return height;
+    }
+    const startOffset = validateHelixOption(body?.startOffset, 'startOffset');
+    if ('error' in startOffset) {
+      return startOffset;
+    }
+    const endOffset = validateHelixOption(body?.endOffset, 'endOffset');
+    if ('error' in endOffset) {
+      return endOffset;
+    }
+    edit.helix = {
+      radius: radius.value,
+      endRadius: endRadius.value,
+      pitch: pitch.value,
+      turns: turns.value,
+      height: height.value,
+      startOffset: startOffset.value,
+      endOffset: endOffset.value,
+    };
+    const result: StatementEditRequest = base;
+    // Absent source keeps the statement's own source text verbatim.
+    if (!isKeepSlot(body?.source)) {
+      const source = validateHelixSource(body.source);
+      if ('error' in source) {
+        return source;
+      }
+      result.helixSource = source;
+      result.needsPicks ||= source.kind === 'edge' || source.kind === 'face';
+    }
+    return result;
   }
 
   if (feature === 'sweep' || feature === 'loft') {
@@ -1681,6 +1832,7 @@ export function createApplyFeatureRouter(
           ...(request.wrapSketch ? [request.wrapSketch] : []),
           ...(request.revolveProfile ? [request.revolveProfile] : []),
           ...(request.revolveAxis?.kind === 'axis' ? [request.revolveAxis.loc] : []),
+          ...(request.helixSource?.kind === 'axis' ? [request.helixSource.loc] : []),
           ...(request.loftProfiles ?? []).filter((p): p is { kind: 'sketch' } & SketchLoc => p.kind === 'sketch'),
           ...(request.loftGuides ?? []).filter((g): g is { kind: 'sketch' } & SketchLoc => g.kind === 'sketch'),
           ...(request.sketchTarget?.kind === 'planeRef' ? [request.sketchTarget.loc] : []),
@@ -1721,7 +1873,7 @@ export function createApplyFeatureRouter(
         /** Synthesize one re-picked slot against the pre-statement scene. */
         const synthesizeSlot = (
           picks: Pick[],
-          kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane',
+          kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix',
           value: ValueExpr | undefined,
           chains: { seed: Pick; members: Pick[] }[],
         ): any | null => {
@@ -1842,6 +1994,35 @@ export function createApplyFeatureRouter(
             foldSynthesis(synthesis);
             importSet.add('axis');
             edit.revolve!.axis = { kind: 'selector' };
+          }
+        }
+        if (request.helixSource) {
+          if (request.helixSource.kind === 'standard') {
+            edit.helix!.source = { kind: 'standard', axis: request.helixSource.axis };
+          } else if (request.helixSource.kind === 'axis') {
+            edit.helix!.source = {
+              kind: 'axis',
+              producer: mergeProducer({
+                line: request.helixSource.loc.line, column: request.helixSource.loc.column,
+                featureType: 'axis', nameHint: 'a', bind: true,
+              }),
+            };
+          } else {
+            const synthesis = synthesizeSlot([request.helixSource.pick], 'helix', undefined, []);
+            if (!synthesis) {
+              return;
+            }
+            // The source argument is ONE SceneObject — a multi-part selection
+            // has no single-expression rendering.
+            if (synthesis.spec.parts.length !== 1) {
+              res.status(422).json({ success: false, reason: 'the helix source must be a single edge or face selection' });
+              return;
+            }
+            foldSynthesis(synthesis);
+            if (request.helixSource.kind === 'edge') {
+              importSet.add('axis');
+            }
+            edit.helix!.source = { kind: request.helixSource.kind };
           }
         }
         if (request.loftProfiles) {
@@ -2528,6 +2709,133 @@ export function createApplyFeatureRouter(
             feature: 'revolve',
             revolve: options,
             filePath: request.profile.filePath,
+            producers,
+            parts,
+            imports,
+            newVariables,
+          },
+        });
+        res.json({ success: true, preview: statement });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
+
+    // Helix builds a wire around an axis (a standard world axis, an existing
+    // axis statement bound to a variable, or a picked edge synthesized into
+    // `axis(<selector>)`) or on a cylindrical/conical face (its selector on
+    // its own). It consumes no sketch, so there is no profile producer.
+    if (feature === 'helix') {
+      const request = validateHelix(req.body);
+      if ('error' in request) {
+        res.status(400).json({ error: request.error });
+        return;
+      }
+      try {
+        const code = fluidCadServer.getCurrentCode();
+        const producers: ApplyFeatureEditSpec['producers'] = [];
+        let parts: ApplyFeatureEditSpec['parts'] = [];
+        let imports: string[] = [];
+        let source: HelixSourceSpec;
+        let sourceArgs: string | null = null;
+        let alternatives: string[] | undefined;
+        let filePath: string | null = null;
+
+        if (request.source.kind === 'edge' || request.source.kind === 'face') {
+          const options = code
+            ? {
+              namer: await makeProducerNamer(code),
+              params: resolveParamValues(
+                await extractNumericParams(code),
+                fluidCadServer.getParamDefinitions(),
+              ),
+            }
+            : undefined;
+          const synthesis = fluidCadServer.synthesizeApplyFeature(
+            [request.source.pick], 'helix', undefined, [], options,
+          );
+          if (!synthesis) {
+            res.status(404).json({ success: false, reason: 'No rendered scene' });
+            return;
+          }
+          if (!synthesis.ok) {
+            res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
+            return;
+          }
+          // The source argument is ONE SceneObject — a multi-part selection
+          // has no single-expression rendering. No profile precedes it, so the
+          // synthesized parts and producers ride the list from index 0.
+          if (synthesis.spec.parts.length !== 1) {
+            res.status(422).json({ success: false, reason: 'the helix source must be a single edge or face selection' });
+            return;
+          }
+          parts = synthesis.spec.parts;
+          producers.push(...synthesis.spec.producers);
+          imports = request.source.kind === 'edge'
+            ? [...synthesis.spec.imports, 'axis']
+            : synthesis.spec.imports;
+          sourceArgs = synthesis.args;
+          alternatives = synthesis.alternatives;
+          filePath = synthesis.spec.filePath;
+          source = { kind: request.source.kind };
+        } else if (request.source.kind === 'axis') {
+          producers.push({
+            line: request.source.loc.line, column: request.source.loc.column,
+            featureType: 'axis', nameHint: 'a', bind: true,
+          });
+          filePath = request.source.loc.filePath;
+          source = { kind: 'axis', producer: producers.length - 1 };
+        } else {
+          source = { kind: 'standard', axis: request.source.axis };
+        }
+
+        // A standard axis references no existing statement — the helix still
+        // needs a file to land in.
+        if (filePath === null) {
+          filePath = fluidCadServer.getCurrentFileName();
+          if (!filePath) {
+            res.status(404).json({ success: false, reason: 'No rendered scene' });
+            return;
+          }
+        }
+
+        const options: HelixEditOptions = {
+          source,
+          radius: request.radius,
+          endRadius: request.endRadius,
+          pitch: request.pitch,
+          turns: request.turns,
+          height: request.height,
+          startOffset: request.startOffset,
+          endOffset: request.endOffset,
+        };
+
+        // Truthful preview name for a bound axis statement — the same
+        // resolution the transform runs.
+        let axisVar: string | null = null;
+        if (code && request.source.kind === 'axis') {
+          const namer = await makeProducerNamer(code);
+          axisVar = namer([{ line: request.source.loc.line, nameHint: 'a', featureType: 'axis' }])[0];
+        }
+        const sourceExpr = source.kind === 'edge'
+          ? `axis(${sourceArgs})`
+          : source.kind === 'face'
+            ? sourceArgs ?? ''
+            : source.kind === 'axis'
+              ? (axisVar ?? 'a')
+              : `'${source.axis}'`;
+        const statement = renderHelixStatement(options, sourceExpr);
+        if (preview === true) {
+          res.json({ success: true, preview: statement, args: sourceArgs ?? undefined, alternatives });
+          return;
+        }
+        sendToExtension({
+          type: 'apply-feature-edit',
+          spec: {
+            feature: 'helix',
+            helix: options,
+            filePath,
             producers,
             parts,
             imports,

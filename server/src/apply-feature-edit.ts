@@ -105,7 +105,7 @@ export function validValueExpr(
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'helix';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -133,6 +133,8 @@ export type ApplyFeatureEditSpec = {
   plane?: PlaneEditOptions;
   /** Revolve-only payload; `parts` (if any) render the axis-edge selector. */
   revolve?: RevolveEditOptions;
+  /** Helix-only payload; `parts` (if any) render the source (axis-edge or face) selector. */
+  helix?: HelixEditOptions;
   /** Repeat-only payload; `parts` (if any) render the axis/plane selector. */
   repeat?: RepeatEditOptions;
   filePath: string;
@@ -299,6 +301,22 @@ export type FeatureStatementEditTarget = {
     axis?: RevolveAxisSpec;
   };
   /**
+   * Helix options. The chained geometry configurators edit in place; the
+   * source re-sources when set, else the statement's own source text is kept
+   * verbatim (an axis literal/statement or a face selector).
+   */
+  helix?: {
+    radius: ValueExpr | null;
+    endRadius: ValueExpr | null;
+    pitch: ValueExpr | null;
+    turns: ValueExpr | null;
+    height: ValueExpr | null;
+    startOffset: ValueExpr | null;
+    endOffset: ValueExpr | null;
+    /** Re-sourced source; absent keeps the statement's own source text. */
+    source?: HelixSourceSpec;
+  };
+  /**
    * Sketch retarget (the sketch dialog's re-pick): rewrite the statement's
    * target argument — an origin-plane literal, a bound `plane(…)` producer,
    * or the face selector rendered from the single `parts` entry — while the
@@ -451,6 +469,39 @@ export type RevolveEditOptions = {
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: 'implicit' | 'bound';
   axis: RevolveAxisSpec;
+};
+
+/**
+ * One helix source: a standard world axis (its string literal, no producer),
+ * an existing axis statement bound to a variable, a picked edge — the single
+ * selector part wrapped in `axis(…)` — or a picked cylindrical/conical face,
+ * the single selector part on its own.
+ */
+export type HelixSourceSpec =
+  | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
+  | { kind: 'axis'; producer: number }
+  | { kind: 'edge' }
+  | { kind: 'face' };
+
+/**
+ * How a helix statement is rendered and placed: `helix(<source>)` plus its
+ * chained geometry configurators (`.radius()`, `.endRadius()`, `.pitch()`,
+ * `.turns()`, `.height()`, `.startOffset()`, `.endOffset()`), each omitted when
+ * null. A helix is a wire, so there is no add/remove/new operation. A standard
+ * axis renders no producer; an axis-statement source binds its producer to a
+ * variable; a picked edge or face renders the single selector part (an edge
+ * wrapped in `axis(…)`). A selector source forces end-of-scope insertion where
+ * the pick resolves; a bound axis inserts right after its statement.
+ */
+export type HelixEditOptions = {
+  source: HelixSourceSpec;
+  radius: ValueExpr | null;
+  endRadius: ValueExpr | null;
+  pitch: ValueExpr | null;
+  turns: ValueExpr | null;
+  height: ValueExpr | null;
+  startOffset: ValueExpr | null;
+  endOffset: ValueExpr | null;
 };
 
 /**
@@ -736,6 +787,31 @@ export async function applyFeatureEdit(
             : isAxisProducer(spec, rev.axis.producer)));
     if (!valid) {
       return { newCode: code, error: 'malformed revolve edit spec' };
+    }
+  } else if (spec.feature === 'helix') {
+    // A helix consumes no sketch: the source is a standard axis (no producer),
+    // an axis statement (one bound producer), or a picked edge/face (exactly
+    // one selector part, whose own producers ride the list).
+    const hx = spec.helix;
+    const valid = hx !== undefined
+      && (hx.source.kind === 'edge' || hx.source.kind === 'face'
+        ? spec.parts.length === 1
+        : spec.parts.length === 0
+          && (hx.source.kind === 'standard'
+            ? spec.producers.length === 0
+            : isAxisProducer(spec, hx.source.producer)));
+    if (!valid) {
+      return { newCode: code, error: 'malformed helix edit spec' };
+    }
+    // A standard axis references no existing statement — the helix appends at
+    // top level like the pick-less sketch/plane.
+    if (spec.producers.length === 0 && spec.parts.length === 0) {
+      return appendTopLevelStatement(
+        code,
+        () => renderHelixStatement(hx, renderHelixSourceExpr(hx.source, spec.parts, () => null)),
+        'helix',
+        spec.newVariables,
+      );
     }
   } else if (spec.feature === 'loft') {
     const lo = spec.loft;
@@ -1612,6 +1688,79 @@ export function renderRevolveAxisExpr(
   return `axis(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer))})`;
 }
 
+/** A helix's chained geometry configurators — shared by its create and edit payloads. */
+type HelixChainOptions = {
+  radius: ValueExpr | null;
+  endRadius: ValueExpr | null;
+  pitch: ValueExpr | null;
+  turns: ValueExpr | null;
+  height: ValueExpr | null;
+  startOffset: ValueExpr | null;
+  endOffset: ValueExpr | null;
+};
+
+/**
+ * Render a helix's chained configurators in canonical order — `.radius()`,
+ * `.endRadius()`, `.pitch()`, `.turns()`, `.height()`, `.startOffset()`,
+ * `.endOffset()` — each omitted when null.
+ */
+function renderHelixChains(hx: HelixChainOptions): string {
+  let chains = '';
+  if (hx.radius !== null) {
+    chains += `.radius(${formatValue(hx.radius)})`;
+  }
+  if (hx.endRadius !== null) {
+    chains += `.endRadius(${formatValue(hx.endRadius)})`;
+  }
+  if (hx.pitch !== null) {
+    chains += `.pitch(${formatValue(hx.pitch)})`;
+  }
+  if (hx.turns !== null) {
+    chains += `.turns(${formatValue(hx.turns)})`;
+  }
+  if (hx.height !== null) {
+    chains += `.height(${formatValue(hx.height)})`;
+  }
+  if (hx.startOffset !== null) {
+    chains += `.startOffset(${formatValue(hx.startOffset)})`;
+  }
+  if (hx.endOffset !== null) {
+    chains += `.endOffset(${formatValue(hx.endOffset)})`;
+  }
+  return chains;
+}
+
+/**
+ * Render a helix statement: `helix(<source>)` plus its geometry chains. Shared
+ * with the route's preview so the previewed text is exactly what the transform
+ * writes.
+ */
+export function renderHelixStatement(hx: HelixChainOptions, sourceExpr: string): string {
+  return `helix(${sourceExpr})` + renderHelixChains(hx);
+}
+
+/**
+ * Render a helix's source argument: `'z'` for a standard world axis, the bound
+ * variable for an axis statement, the picked edge's selector wrapped in
+ * `axis(…)`, or the picked face's selector on its own. Shared with the route,
+ * which passes its namer's variables; the transform passes its bindings'.
+ */
+export function renderHelixSourceExpr(
+  source: HelixSourceSpec,
+  parts: ApplyFeatureEditSpec['parts'],
+  varFor: (producer: number) => string | null,
+): string {
+  if (source.kind === 'standard') {
+    return `'${source.axis}'`;
+  }
+  if (source.kind === 'axis') {
+    return varFor(source.producer) ?? 'a';
+  }
+  const part = parts[0];
+  const selector = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+  return source.kind === 'edge' ? `axis(${selector})` : selector;
+}
+
 /**
  * Render a repeat statement from its rendered axis/plane input and target
  * expressions: `repeat('linear', 'x', { count: 3, offset: 40 }, e)` — or the
@@ -1893,6 +2042,11 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     const axisExpr = renderRevolveAxisExpr(rev.axis, spec.parts, i => bindings[i].varName);
     return renderRevolveStatement(rev, axisExpr, rev.profile === 'bound' ? bindings[0].varName : null);
   }
+  if (spec.feature === 'helix') {
+    const hx = spec.helix!;
+    const sourceExpr = renderHelixSourceExpr(hx.source, spec.parts, i => bindings[i].varName);
+    return renderHelixStatement(hx, sourceExpr);
+  }
   if (spec.feature === 'repeat') {
     const rp = spec.repeat!;
     const varFor = (i: number): string | null => bindings[i].varName;
@@ -2081,6 +2235,16 @@ function resolveInsertion(
       return afterStatementInsertion(axis.endIndex >= profile.endIndex ? axis : profile, lines);
     }
   }
+  if (spec.feature === 'helix') {
+    const hx = spec.helix!;
+    // An axis-statement source binds one producer — insert right after it so a
+    // later active sketch stays active. A picked edge/face references a
+    // selector that must resolve on the final model, so it falls through to
+    // end-of-scope insertion.
+    if (hx.source.kind === 'axis') {
+      return afterStatementInsertion(bindings[hx.source.producer].statement, lines);
+    }
+  }
   if (spec.feature === 'plane') {
     // Selector-free bases are explicit plane variables (standard-only specs
     // never reach here — they append at top level with no producers at all):
@@ -2114,7 +2278,7 @@ function resolveInsertion(
 // ---------------------------------------------------------------------------
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'helix';
 
 /**
  * An existing statement's dialog-editable reading. Argument expressions the
@@ -2168,6 +2332,20 @@ export type ParsedFeatureStatement =
     axisText: string;
     /** Trailing profile argument text (`s`), or null for implicit consumption. */
     profileText: string | null;
+  }
+  | {
+    feature: 'helix';
+    /** Source argument text, verbatim (`'z'`, `a`, `axis(e.edges(3))`, `e.sideFaces(0)`). */
+    sourceText: string;
+    /** The tab the dialog opens on — a face selector reads as 'face', all else 'axis'. */
+    sourceMode: 'axis' | 'face';
+    radius: ValueExpr | null;
+    endRadius: ValueExpr | null;
+    pitch: ValueExpr | null;
+    turns: ValueExpr | null;
+    height: ValueExpr | null;
+    startOffset: ValueExpr | null;
+    endOffset: ValueExpr | null;
   }
   | {
     feature: 'loft';
@@ -2260,6 +2438,7 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   wrap: 'wrap',
   sketch: 'sketch',
   repeat: 'repeat',
+  helix: 'helix',
 };
 
 /**
@@ -2291,6 +2470,9 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // Everything the dialog edits lives in the root call's arguments; `.name()`
   // and friends are unrecognized members and survive verbatim.
   repeat: new Set(),
+  // The single source is the root argument; every geometry option is a chained
+  // configurator. A helix is a wire, so there is no boolean-operation chain.
+  helix: new Set(['radius', 'endRadius', 'pitch', 'turns', 'height', 'startOffset', 'endOffset']),
 };
 
 type ChainSegment = { name: string; args: TSNode[]; endIndex: number };
@@ -2369,6 +2551,20 @@ function anyValueArg(node: TSNode): ValueExpr | null {
     return literal;
   }
   return isExpressionText(node.text) ? node.text : null;
+}
+
+/**
+ * Which tab the helix edit dialog opens on, from the source text alone: a face
+ * selector (a `face(...)` filter or a `.sideFaces()/.endFaces()/.faces()`
+ * accessor) reads as 'face'; a standard-axis literal, an `axis(...)` call, or
+ * an axis variable reads as 'axis'. A misread is one tab click to correct.
+ */
+function classifyHelixSource(text: string): 'axis' | 'face' {
+  const t = text.trim();
+  if (/\bface\s*\(/.test(t) || /\.(sideFaces|endFaces|faces)\s*\(/.test(t)) {
+    return 'face';
+  }
+  return 'axis';
 }
 
 /**
@@ -2742,6 +2938,74 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
     }
     return {
       parsed: { feature, op, angle, thin, axisText, profileText: rest[0]?.text ?? null },
+      start,
+      end,
+    };
+  }
+
+  if (feature === 'helix') {
+    // helix(<source>): the single source argument (an axis literal/statement,
+    // an axis(edge) call, or a face selector) is kept verbatim; every geometry
+    // option is a chained configurator read as a plain number or expression.
+    if (args.length !== 1) {
+      return { error: 'the helix has an argument shape the dialog cannot edit' };
+    }
+    const sourceText = args[0].text;
+    const option = (name: string): { value: ValueExpr | null } | { error: string } => {
+      const seg = recognized.get(name);
+      if (!seg) {
+        return { value: null };
+      }
+      if (seg.args.length !== 1) {
+        return { error: `the .${name}() chain has an argument shape the dialog cannot edit` };
+      }
+      const value = anyValueArg(seg.args[0]);
+      if (value === null) {
+        return { error: `the .${name}() value is not a plain number or expression — edit it in the source` };
+      }
+      return { value };
+    };
+    const radius = option('radius');
+    if ('error' in radius) {
+      return radius;
+    }
+    const endRadius = option('endRadius');
+    if ('error' in endRadius) {
+      return endRadius;
+    }
+    const pitch = option('pitch');
+    if ('error' in pitch) {
+      return pitch;
+    }
+    const turns = option('turns');
+    if ('error' in turns) {
+      return turns;
+    }
+    const height = option('height');
+    if ('error' in height) {
+      return height;
+    }
+    const startOffset = option('startOffset');
+    if ('error' in startOffset) {
+      return startOffset;
+    }
+    const endOffset = option('endOffset');
+    if ('error' in endOffset) {
+      return endOffset;
+    }
+    return {
+      parsed: {
+        feature,
+        sourceText,
+        sourceMode: classifyHelixSource(sourceText),
+        radius: radius.value,
+        endRadius: endRadius.value,
+        pitch: pitch.value,
+        turns: turns.value,
+        height: height.value,
+        startOffset: startOffset.value,
+        endOffset: endOffset.value,
+      },
       start,
       end,
     };
@@ -3293,6 +3557,14 @@ function validNonzeroOrNull(value: unknown): value is ValueExpr | null {
   return value === null || validValueExpr(value, { nonzero: true });
 }
 
+/** A nullable ValueExpr slot: null (the option is omitted) or a valid value. */
+function validValueExprOrNull(
+  value: unknown,
+  opts: { nonzero?: boolean; positive?: boolean } = {},
+): value is ValueExpr | null {
+  return value === null || validValueExpr(value, opts);
+}
+
 /** The spec fields `renderEditedStatement` reads. */
 type EditRenderSpec = Pick<ApplyFeatureEditSpec, 'feature' | 'value' | 'rawArgs' | 'edit' | 'producers' | 'parts'>;
 
@@ -3726,6 +3998,37 @@ export function renderEditedStatement(
         { op: opts.op, angle: opts.angle, thin: opts.thin }, axisExpr, profileText,
       ),
     };
+  }
+  if (parsed.feature === 'helix') {
+    const opts = spec.edit?.helix;
+    if (!opts
+      || !validValueExprOrNull(opts.radius, { positive: true })
+      || !validValueExprOrNull(opts.endRadius, { positive: true })
+      || !validValueExprOrNull(opts.pitch, { nonzero: true })
+      || !validValueExprOrNull(opts.turns, { positive: true })
+      || !validValueExprOrNull(opts.height, { positive: true })
+      || !validValueExprOrNull(opts.startOffset)
+      || !validValueExprOrNull(opts.endOffset)) {
+      return { error: 'malformed helix edit spec' };
+    }
+    let sourceExpr = parsed.sourceText;
+    if (opts.source !== undefined) {
+      if (opts.source.kind === 'edge' || opts.source.kind === 'face') {
+        if (spec.parts.length !== 1) {
+          return { error: 'malformed helix edit spec: a re-picked source is exactly one part' };
+        }
+      } else if (opts.source.kind === 'axis'
+        && !isAxisProducer(spec as ApplyFeatureEditSpec, opts.source.producer)) {
+        return { error: 'malformed helix edit spec: the source references a non-axis producer' };
+      } else if (opts.source.kind === 'standard'
+        && opts.source.axis !== 'x' && opts.source.axis !== 'y' && opts.source.axis !== 'z') {
+        return { error: 'malformed helix edit spec: bad standard axis' };
+      }
+      sourceExpr = renderHelixSourceExpr(opts.source, spec.parts, varFor);
+    } else if (spec.parts.length > 0) {
+      return { error: 'malformed helix edit spec: selector parts without a re-sourced source' };
+    }
+    return { statement: renderHelixStatement(opts, sourceExpr) };
   }
   if (parsed.feature === 'loft') {
     const opts = spec.edit?.loft;

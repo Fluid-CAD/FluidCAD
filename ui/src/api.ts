@@ -548,6 +548,68 @@ export async function applyRevolve(options: RevolveApplyOptions): Promise<ApplyF
   }, options.signal);
 }
 
+/**
+ * The helix source: the revolve axis inputs (a standard world axis, an axis
+ * statement by call site, or a picked edge synthesized into `axis(<edge>)`)
+ * plus a picked cylindrical/conical face — its selector on its own.
+ */
+export type HelixSourceRef =
+  | RevolveAxisRef
+  | { kind: 'face'; entity: ApplyFeatureEntity };
+
+/**
+ * The helix geometry options the dialog edits, shared by create and edit
+ * applies. Every field is optional — null omits its chained method so the
+ * helix() API default applies (in face mode, radius/height default from the
+ * face).
+ */
+export type HelixOptionValues = {
+  /** Start radius; null uses the API default (20, or a face's radius). */
+  radius: ValueExpr | null;
+  /** End radius for a tapered (conical) helix; null keeps it cylindrical. */
+  endRadius: ValueExpr | null;
+  /** Axial rise per turn; null derives it from height and turns. */
+  pitch: ValueExpr | null;
+  /** Number of full turns; null uses the API default (1). */
+  turns: ValueExpr | null;
+  /** Total axial height; null uses pitch × turns, or the face's height. */
+  height: ValueExpr | null;
+  /** Shift the start along the axis; null is no shift. */
+  startOffset: ValueExpr | null;
+  /** Shift the end along the axis; null is no shift. */
+  endOffset: ValueExpr | null;
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
+};
+
+export type HelixApplyOptions = HelixOptionValues & {
+  source: HelixSourceRef;
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a helix statement
+ * — a helical wire around an axis or on a cylindrical/conical face. Same
+ * endpoint and response shape as {@link applyFeature}.
+ */
+export async function applyHelix(options: HelixApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'helix',
+    source: options.source,
+    radius: options.radius,
+    endRadius: options.endRadius,
+    pitch: options.pitch,
+    turns: options.turns,
+    height: options.height,
+    startOffset: options.startOffset,
+    endOffset: options.endOffset,
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
 export type SweepApplyOptions = {
   op: 'add' | 'remove' | 'new';
   /** `.thin()` offsets, or null for a plain sweep. */
@@ -817,6 +879,7 @@ export type FeatureSourcesResult =
   | { ok: true; feature: 'wrap'; sketch: SourceSlotRef; face: SourceSlotRef }
   | { ok: true; feature: 'loft'; profiles: SourceSlotRef[]; guides: SourceSlotRef[] }
   | { ok: true; feature: 'revolve'; profile: SourceSlotRef; axis: SourceSlotRef }
+  | { ok: true; feature: 'helix'; source: SourceSlotRef }
   | { ok: true; feature: 'shell' | 'fillet' | 'chamfer'; selection: SourceSlotRef }
   | { ok: false; reason: string };
 
@@ -885,6 +948,20 @@ export type ParsedFeatureStatement =
       /** Axis argument text, verbatim (`'z'`, `a`, `axis(e.edges(3))`). */
       axisText: string;
       profileText: string | null;
+    }
+  | {
+      feature: 'helix';
+      /** Source argument text, verbatim (`'z'`, `a`, `axis(e.edges(3))`, `e.sideFaces(0)`). */
+      sourceText: string;
+      /** The tab the dialog opens on — a face selector reads 'face', all else 'axis'. */
+      sourceMode: 'axis' | 'face';
+      radius: ValueExpr | null;
+      endRadius: ValueExpr | null;
+      pitch: ValueExpr | null;
+      turns: ValueExpr | null;
+      height: ValueExpr | null;
+      startOffset: ValueExpr | null;
+      endOffset: ValueExpr | null;
     }
   | {
       feature: 'loft';
@@ -1109,6 +1186,36 @@ export async function applyRevolveEdit(
     newVariables: options.newVariables,
     profile: options.profile,
     axis: options.axis,
+    preview: options.preview,
+  }, options.signal);
+}
+
+export type HelixEditOptions = HelixOptionValues & EditSessionFields & {
+  /** Re-sourced source (axis-family or face); omitted keeps the statement's own. */
+  source?: HelixSourceRef;
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the helix statement at `edit` in place. */
+export async function applyHelixEdit(
+  edit: FeatureEditTarget,
+  options: HelixEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'helix',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    source: options.source,
+    radius: options.radius,
+    endRadius: options.endRadius,
+    pitch: options.pitch,
+    turns: options.turns,
+    height: options.height,
+    startOffset: options.startOffset,
+    endOffset: options.endOffset,
+    newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);
 }

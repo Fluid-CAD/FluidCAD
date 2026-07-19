@@ -11,6 +11,7 @@ import { ExtrudeBase } from "../features/extrude-base.js";
 import { ExtrudeToFace } from "../features/extrude-to-face.js";
 import { Revolve } from "../features/revolve.js";
 import { Wrap } from "../features/wrap.js";
+import { Helix } from "../features/helix.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
 import {
@@ -41,6 +42,8 @@ export type FeatureSources =
   | { feature: 'loft'; profiles: SourceSlot[]; guides: SourceSlot[] }
   | { feature: 'revolve'; profile: SourceSlot; axis: SourceSlot }
   | { feature: 'wrap'; sketch: SourceSlot; face: SourceSlot }
+  /** The single source: an axis statement (axis mode) or a face (face mode). */
+  | { feature: 'helix'; source: SourceSlot }
   | { feature: 'shell' | 'fillet' | 'chamfer'; selection: SourceSlot };
 
 export type FeatureSourcesResult =
@@ -108,6 +111,17 @@ export function resolveFeatureSources(
         feature: 'revolve',
         profile: resolver.profileSlot(feature),
         axis: resolver.axisSlot(feature.axis),
+      };
+    }
+    // A helix has one source: an axis statement (axis mode) or a picked
+    // face (face mode). It extends SceneObject, so ordering is unconstrained.
+    if (feature instanceof Helix) {
+      return {
+        ok: true,
+        feature: 'helix',
+        source: feature.source instanceof AxisObjectBase
+          ? resolver.axisSlot(feature.source)
+          : resolver.entitiesSlot([feature.source]),
       };
     }
     if (feature instanceof ExtrudeBase) {

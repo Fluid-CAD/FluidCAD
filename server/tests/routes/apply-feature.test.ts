@@ -813,6 +813,121 @@ describe('apply-feature route validation', () => {
     expect(body.error).toContain('different files');
   });
 
+  it('relays a standard-axis helix with chained options', async () => {
+    currentFileName = '/ws/m.fluid.js';
+    const { status, body } = await post({
+      feature: 'helix', source: { kind: 'standard', axis: 'z' },
+      radius: 15, pitch: 10, turns: 4,
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe(`helix('z').radius(15).pitch(10).turns(4)`);
+    expect(synthesizeCalls).toEqual([]);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'helix',
+      helix: { source: { kind: 'standard', axis: 'z' }, radius: 15, pitch: 10, turns: 4, endRadius: null },
+      producers: [],
+      parts: [],
+    });
+  });
+
+  it('previews a standard-axis helix without relaying', async () => {
+    currentFileName = '/ws/m.fluid.js';
+    const { body } = await post({
+      feature: 'helix', source: { kind: 'standard', axis: 'y' }, turns: 6, preview: true,
+    });
+    expect(body.preview).toBe(`helix('y').turns(6)`);
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('binds an axis-statement helix source', async () => {
+    const { status, body } = await post({
+      feature: 'helix', source: { kind: 'axis', filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+      turns: 3,
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('helix(a).turns(3)');
+    expect(synthesizeCalls).toEqual([]);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'helix',
+      helix: { source: { kind: 'axis', producer: 0 }, turns: 3 },
+      producers: [{ line: 3, featureType: 'axis', nameHint: 'a', bind: true }],
+      parts: [],
+    });
+  });
+
+  it('synthesizes an edge helix source and wraps it in axis()', async () => {
+    currentSynthesis = {
+      ok: true,
+      spec: {
+        feature: 'helix',
+        filePath: '/ws/m.fluid.js',
+        producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'endEdges', indices: [2], filterArgs: null }],
+        imports: [],
+      },
+      preview: 'helix(axis(e.endEdges(2)))', args: 'e.endEdges(2)', alternatives: [],
+    };
+    const { status, body } = await post({
+      feature: 'helix',
+      source: { kind: 'edge', entity: { shapeId: 'shape-1', sub: { type: 'edge', index: 2 } } },
+      turns: 2,
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('helix(axis(e.endEdges(2))).turns(2)');
+    expect(synthesizeCalls).toEqual([{ feature: 'helix', value: undefined }]);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'helix',
+      helix: { source: { kind: 'edge' }, turns: 2 },
+      parts: [{ producer: 0, accessor: 'endEdges' }],
+      imports: ['axis'],
+    });
+  });
+
+  it('synthesizes a face helix source on its own', async () => {
+    currentSynthesis = {
+      ok: true,
+      spec: {
+        feature: 'helix',
+        filePath: '/ws/m.fluid.js',
+        producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'sideFaces', indices: [0], filterArgs: null }],
+        imports: [],
+      },
+      preview: 'helix(e.sideFaces(0))', args: 'e.sideFaces(0)', alternatives: [],
+    };
+    const { status, body } = await post({
+      feature: 'helix',
+      source: { kind: 'face', entity: { shapeId: 'shape-1', sub: { type: 'face', index: 0 } } },
+      turns: 6,
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('helix(e.sideFaces(0)).turns(6)');
+    expect(synthesizeCalls).toEqual([{ feature: 'helix', value: undefined }]);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'helix',
+      helix: { source: { kind: 'face' }, turns: 6 },
+      parts: [{ producer: 0, accessor: 'sideFaces' }],
+      imports: [],
+    });
+  });
+
+  it('rejects a positive-only helix option that is negative', async () => {
+    const { status, body } = await post({
+      feature: 'helix', source: { kind: 'standard', axis: 'z' }, radius: -5,
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('radius');
+  });
+
+  it('rejects a non-face pick as the helix face source', async () => {
+    const { status, body } = await post({
+      feature: 'helix',
+      source: { kind: 'face', entity: { shapeId: 'shape-1', sub: { type: 'edge', index: 0 } } },
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('face');
+  });
+
   const LOFT_S1 = { kind: 'sketch', filePath: '/ws/m.fluid.js', line: 3, column: 0 };
   const LOFT_S2 = { kind: 'sketch', filePath: '/ws/m.fluid.js', line: 4, column: 0 };
   const loftFace = (index: number, shapeId = 'shape-1') =>

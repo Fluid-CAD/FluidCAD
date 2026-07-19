@@ -124,6 +124,18 @@ export function synthesizeApplyFeature(
       };
     }
   }
+  if (feature === 'helix') {
+    // The helix source is a single edge — its axis, via axis() — or a single
+    // cylindrical/conical face, which supplies the frame directly.
+    if (chains.length > 0 || refs.length !== 1
+      || (refs[0].sub.type !== 'edge' && refs[0].sub.type !== 'face')) {
+      return {
+        ok: false,
+        reason: 'a helix source is a single edge (axis) or face — pick exactly one',
+        pick: refs[0],
+      };
+    }
+  }
 
   const index = new SelectionIndex(scene);
   try {
@@ -179,7 +191,8 @@ export function synthesizeApplyFeature(
     const spec: ApplyFeatureEditSpec = {
       feature,
       ...(feature === 'sketch' || feature === 'extrude' || feature === 'sweep' || feature === 'loft'
-        || feature === 'plane' || feature === 'revolve' || feature === 'wrap' ? {} : { value }),
+        || feature === 'plane' || feature === 'revolve' || feature === 'wrap' || feature === 'helix'
+        ? {} : { value }),
       filePath: filePaths.values().next().value!,
       producers: located.map(l => {
         const loc = l.feature.getSourceLocation()!;
@@ -337,6 +350,11 @@ function renderPreview(feature: ApplyFeatureKind, value: number | string | undef
   if (feature === 'wrap') {
     // The args are the target-face selector; the route composes the statement.
     return `wrap(${args})`;
+  }
+  if (feature === 'helix') {
+    // The args are the source (face or axis-edge) selector; the route composes
+    // the full statement, wrapping an edge selector in axis().
+    return `helix(${args})`;
   }
   return `${feature}(${value}, ${args})`;
 }

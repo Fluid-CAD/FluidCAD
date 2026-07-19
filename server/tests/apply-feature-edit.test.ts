@@ -2840,6 +2840,207 @@ describe('revolve statement templates', () => {
   });
 });
 
+describe('helix statement templates', () => {
+  function helixSpec(
+    helix: Partial<NonNullable<ApplyFeatureEditSpec['helix']>> = {},
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec {
+    return {
+      feature: 'helix',
+      filePath: '/ws/model.fluid.js',
+      helix: {
+        source: { kind: 'standard', axis: 'z' },
+        radius: null, endRadius: null, pitch: null, turns: null,
+        height: null, startOffset: null, endOffset: null,
+        ...helix,
+      },
+      producers: [],
+      parts: [],
+      imports: [],
+      ...overrides,
+    };
+  }
+
+  const seedCode = [
+    `import { sketch, circle } from 'fluidcad/core'`,
+    ``,
+    `sketch('xz', () => { circle(2) })`,
+    ``,
+  ].join('\n');
+
+  it('appends a standard-axis helix at top level and imports helix', async () => {
+    const result = await applyFeatureEdit(seedCode, helixSpec({ radius: 15, pitch: 10, turns: 4 }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`helix('z').radius(15).pitch(10).turns(4)`);
+    expect(result.newCode).toMatch(/import \{[^}]*\bhelix\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('chains only the set options, in canonical order', async () => {
+    const result = await applyFeatureEdit(seedCode, helixSpec({
+      radius: 20, endRadius: 10, pitch: 5, turns: 3, height: 30, startOffset: -5, endOffset: 5,
+    }));
+    expect(result.newCode).toContain(
+      `helix('z').radius(20).endRadius(10).pitch(5).turns(3).height(30).startOffset(-5).endOffset(5)`,
+    );
+  });
+
+  it('binds an axis statement and inserts after it', async () => {
+    const code = [
+      `import { axis } from 'fluidcad/core'`,
+      ``,
+      `axis('y', { offsetZ: 100 })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, helixSpec(
+      { source: { kind: 'axis', producer: 0 }, turns: 3 },
+      { producers: [{ line: 3, column: 0, featureType: 'axis', nameHint: 'a', bind: true }] },
+    ));
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const axisRow = lines.findIndex(l => l === `const a = axis('y', { offsetZ: 100 })`);
+    expect(axisRow).toBeGreaterThan(-1);
+    expect(lines[axisRow + 1]).toBe(`helix(a).turns(3)`);
+  });
+
+  it('wraps a picked-edge source in axis() and imports axis', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, helixSpec(
+      { source: { kind: 'edge' }, turns: 2 },
+      {
+        producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'endEdges', indices: [2], filterArgs: null }],
+        imports: ['axis'],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`helix(axis(e.endEdges(2))).turns(2)`);
+    expect(result.newCode).toMatch(/import \{[^}]*\baxis\b/);
+  });
+
+  it('renders a picked-face source on its own', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, helixSpec(
+      { source: { kind: 'face' }, turns: 6 },
+      {
+        producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'sideFaces', indices: [0], filterArgs: null }],
+        imports: [],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`helix(e.sideFaces(0)).turns(6)`);
+  });
+
+  it('refuses a selector source without its part', async () => {
+    const result = await applyFeatureEdit(seedCode, helixSpec({ source: { kind: 'face' } }));
+    expect(result.error).toContain('malformed');
+    expect(result.newCode).toBe(seedCode);
+  });
+});
+
+describe('parseFeatureStatement — helix', () => {
+  it('reads a standard-axis helix with options', async () => {
+    const code = `${editBase}\nhelix('z').radius(15).pitch(10).turns(4)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'helix', sourceText: `'z'`, sourceMode: 'axis',
+        radius: 15, endRadius: null, pitch: 10, turns: 4, height: null,
+        startOffset: null, endOffset: null,
+      },
+      statement: `helix('z').radius(15).pitch(10).turns(4)`,
+    });
+  });
+
+  it('reads a face-selector source as face mode', async () => {
+    const code = `${editBase}\nhelix(e.sideFaces(0)).turns(6)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'helix', sourceText: 'e.sideFaces(0)', sourceMode: 'face', turns: 6 },
+    });
+  });
+
+  it('reads an axis() source as axis mode, kept verbatim', async () => {
+    const code = `${editBase}\nhelix(axis(e.edges(3))).turns(3).height(50)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'helix', sourceText: 'axis(e.edges(3))', sourceMode: 'axis', turns: 3, height: 50 },
+    });
+  });
+
+  it('keeps a trailing unrecognized chain out of the statement span', async () => {
+    const code = `${editBase}\nhelix('z').turns(4).name('coil')\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'helix', turns: 4 },
+      statement: `helix('z').turns(4)`,
+    });
+  });
+});
+
+describe('applyFeatureEdit (helix in-place statement edit)', () => {
+  const helixEditBase = [
+    `import { cylinder, helix, axis } from 'fluidcad/core'`,
+    ``,
+    `cylinder(15, 60)`,
+  ].join('\n');
+
+  function helixEditOptions(
+    overrides: Partial<NonNullable<FeatureStatementEditTarget['helix']>> = {},
+  ): NonNullable<FeatureStatementEditTarget['helix']> {
+    return {
+      radius: null, endRadius: null, pitch: null, turns: null,
+      height: null, startOffset: null, endOffset: null, ...overrides,
+    };
+  }
+
+  it('replaces options in place, keeping the source verbatim', async () => {
+    const code = `${helixEditBase}\nhelix('z').radius(15).turns(4)\n`;
+    const result = await applyFeatureEdit(code, editSpec('helix', {
+      line: 4, column: 0,
+      helix: helixEditOptions({ radius: 20, pitch: 8, turns: 6 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`${helixEditBase}\nhelix('z').radius(20).pitch(8).turns(6)\n`);
+  });
+
+  it('keeps a face-selector source verbatim while editing turns', async () => {
+    const code = `${helixEditBase}\nhelix(e.sideFaces(0)).turns(6)\n`;
+    const result = await applyFeatureEdit(code, editSpec('helix', {
+      line: 4, column: 0,
+      helix: helixEditOptions({ turns: 8 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`${helixEditBase}\nhelix(e.sideFaces(0)).turns(8)\n`);
+  });
+
+  it('drops an option cleared to null', async () => {
+    const code = `${helixEditBase}\nhelix('z').radius(15).endRadius(8).turns(4)\n`;
+    const result = await applyFeatureEdit(code, editSpec('helix', {
+      line: 4, column: 0,
+      helix: helixEditOptions({ radius: 15, turns: 4 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`${helixEditBase}\nhelix('z').radius(15).turns(4)\n`);
+  });
+});
+
 describe('parseFeatureStatement — revolve', () => {
   it('reads a plain standard-axis revolve', async () => {
     const code = `${editBase}\nrevolve('z')\n`;

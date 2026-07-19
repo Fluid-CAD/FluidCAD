@@ -85,9 +85,7 @@ Easy-to-miss behaviors that have bitten previous sessions. Re-read before reachi
 FluidCAD currently does **not** support:
 
 - **3D curves** — work around this by sketching on multiple planes and combining the results.
-- **Helices** — there is no built-in helix; for thread-like geometry, discuss the workaround with the user before attempting it.
 - **Surface modeling and sheet metal** — these are out of scope. If the user's request fundamentally needs them, say so up front rather than trying to fake it with solids.
-- **3D text** — there is no built-in way to extrude text into geometry. If the user needs raised or engraved lettering, surface this limitation before attempting a workaround.
 
 ## Quick reference: the loop
 

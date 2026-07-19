@@ -3,6 +3,9 @@ import { AxisOption } from './axis-options';
 import { PlaneOption } from './plane-bases';
 import { sourceChip } from './sketch-profiles';
 import { PickSlot, PickSlotChip } from '../pick-slot';
+import { NewVariable, ValueExpr } from '../../api';
+import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
+import { VariableInfo } from '../../ui/expression-core';
 
 export type RepeatType = 'linear' | 'circular' | 'mirror' | 'rotate';
 
@@ -42,11 +45,17 @@ export type RepeatValues =
       spacingMode: 'offset' | 'length';
       centered: boolean;
       /** Count/value per active direction; the axes ride the service. */
-      directions: { count: number; value: number }[];
+      directions: { count: ValueExpr; value: ValueExpr }[];
+      newVariables?: NewVariable[];
     }
-  | { kind: 'circular'; count: number; sweep: { mode: 'angle' | 'offset'; value: number } }
+  | {
+      kind: 'circular';
+      count: ValueExpr;
+      sweep: { mode: 'angle' | 'offset'; value: ValueExpr };
+      newVariables?: NewVariable[];
+    }
   | { kind: 'mirror' }
-  | { kind: 'rotate'; angle: number }
+  | { kind: 'rotate'; angle: ValueExpr; newVariables?: NewVariable[] }
   | { error: string };
 
 const STANDARD_AXES = ['x', 'y', 'z'] as const;
@@ -114,6 +123,12 @@ export class RepeatPanel {
   private centeredInput: HTMLInputElement;
   private angleRow: HTMLElement;
   private angleInput: HTMLInputElement;
+  private countField: ExpressionField;
+  private spacingField: ExpressionField;
+  private sweepField: ExpressionField;
+  private count2Field: ExpressionField;
+  private value2Field: ExpressionField;
+  private angleField: ExpressionField;
   private applyBtn: HTMLButtonElement;
 
   private axisStates = new Map<RepeatDirection, RepeatAxisSelection | null>();
@@ -297,10 +312,13 @@ export class RepeatPanel {
     this.value2Input = this.shell.body.querySelector('[data-role="value2"]')!;
     this.addDirectionBtn = this.shell.body.querySelector('[data-role="add-direction"]')!;
     this.centeredRow = this.shell.body.querySelector('[data-role="centered-row"]')!;
+    // (Expression fields for the numeric inputs are created below, after
+    // every element reference is resolved.)
     this.centeredInput = this.shell.body.querySelector('[data-role="centered"]')!;
     this.angleRow = this.shell.body.querySelector('[data-role="angle-row"]')!;
     this.angleInput = this.shell.body.querySelector('[data-role="angle"]')!;
     this.applyBtn = this.shell.body.querySelector('[data-role="apply"]')!;
+
 
     this.addDirectionBtn.addEventListener('click', () => {
       this.dir2 = true;
@@ -333,23 +351,35 @@ export class RepeatPanel {
     });
     this.sweepModeSelect.addEventListener('change', () => this.onChange?.());
     this.centeredInput.addEventListener('change', () => this.onChange?.());
-    const numberInputs = [
-      this.countInput, this.spacingInput, this.sweepInput,
-      this.count2Input, this.value2Input, this.angleInput,
-    ];
-    for (const input of numberInputs) {
-      input.addEventListener('input', () => this.onChange?.());
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          this.onApply?.();
-        }
-        e.stopPropagation();
-      });
+    // Expression fields own the inputs' keyboard handling (variable dropdown,
+    // Enter-to-apply) and flip them to type="text" for identifiers.
+    this.countField = new ExpressionField(this.countInput);
+    this.spacingField = new ExpressionField(this.spacingInput);
+    this.sweepField = new ExpressionField(this.sweepInput);
+    this.count2Field = new ExpressionField(this.count2Input);
+    this.value2Field = new ExpressionField(this.value2Input);
+    this.angleField = new ExpressionField(this.angleInput);
+    for (const field of this.expressionFields()) {
+      field.onSubmit = () => this.onApply?.();
+      field.element.addEventListener('input', () => this.onChange?.());
     }
 
     this.applyBtn.addEventListener('click', () => this.onApply?.());
     this.shell.body.querySelector('[data-role="exit"]')!.addEventListener('click', () => this.onExit?.());
+  }
+
+  private expressionFields(): ExpressionField[] {
+    return [
+      this.countField, this.spacingField, this.sweepField,
+      this.count2Field, this.value2Field, this.angleField,
+    ];
+  }
+
+  /** The variables the fields' dropdowns offer. */
+  setScopeVariables(variables: VariableInfo[]): void {
+    for (const field of this.expressionFields()) {
+      field.setVariables(variables);
+    }
   }
 
   get isVisible(): boolean {
@@ -388,15 +418,15 @@ export class RepeatPanel {
     this.axisStates.set(2, null);
     this.planeState = null;
     this.dir2 = false;
-    this.countInput.value = '3';
+    this.countField.setValue(3);
     this.spacingModeSelect.value = 'offset';
-    this.spacingInput.value = '20';
+    this.spacingField.setValue(20);
     this.sweepModeSelect.value = 'angle';
-    this.sweepInput.value = '360';
-    this.count2Input.value = '2';
-    this.value2Input.value = '20';
+    this.sweepField.setValue(360);
+    this.count2Field.setValue(2);
+    this.value2Field.setValue(20);
     this.centeredInput.checked = false;
-    this.angleInput.value = '90';
+    this.angleField.setValue(90);
     this.setTargets([]);
     this.renderAxis(1);
     this.renderAxis(2);
@@ -429,12 +459,12 @@ export class RepeatPanel {
    */
   showEdit(state: {
     kind: RepeatType;
-    directions: { count: number; value: number }[] | null;
+    directions: { count: ValueExpr; value: ValueExpr }[] | null;
     spacingMode: 'offset' | 'length' | null;
     centered: boolean;
-    count: number | null;
-    sweep: { mode: 'angle' | 'offset'; value: number } | null;
-    angle: number | null;
+    count: ValueExpr | null;
+    sweep: { mode: 'angle' | 'offset'; value: ValueExpr } | null;
+    angle: ValueExpr | null;
     /** Keep-chip labels, one per statement axis (`axisTexts`). */
     axisLabels: string[];
     /** Keep-chip label for the statement's mirror plane, or null. */
@@ -446,17 +476,17 @@ export class RepeatPanel {
     this.shell.setTitle('Edit repeat');
     this.kindSelect.value = state.kind;
     this.dir2 = (state.directions?.length ?? 0) === 2;
-    this.countInput.value = String(
+    this.countField.setValue(
       state.kind === 'linear' ? state.directions?.[0]?.count ?? 3 : state.count ?? 3,
     );
     this.spacingModeSelect.value = state.spacingMode ?? 'offset';
-    this.spacingInput.value = String(state.directions?.[0]?.value ?? 20);
+    this.spacingField.setValue(state.directions?.[0]?.value ?? 20);
     this.sweepModeSelect.value = state.sweep?.mode ?? 'angle';
-    this.sweepInput.value = String(state.sweep?.value ?? 360);
-    this.count2Input.value = String(state.directions?.[1]?.count ?? 2);
-    this.value2Input.value = String(state.directions?.[1]?.value ?? 20);
+    this.sweepField.setValue(state.sweep?.value ?? 360);
+    this.count2Field.setValue(state.directions?.[1]?.count ?? 2);
+    this.value2Field.setValue(state.directions?.[1]?.value ?? 20);
     this.centeredInput.checked = state.centered;
-    this.angleInput.value = String(state.angle ?? 90);
+    this.angleField.setValue(state.angle ?? 90);
     this.axisStates.set(1, this.statementAxisState(1));
     this.axisStates.set(2, this.statementAxisState(2));
     this.planeState = this.statementPlaneState();
@@ -613,41 +643,51 @@ export class RepeatPanel {
       return { kind };
     }
     if (kind === 'rotate') {
-      const angle = parseFloat(this.angleInput.value);
-      if (!Number.isFinite(angle) || angle === 0) {
+      const angle = this.angleField.read();
+      if ('error' in angle || (typeof angle.value === 'number' && angle.value === 0)) {
         return { error: 'Enter a nonzero rotation angle in degrees.' };
       }
-      return { kind, angle };
+      return { kind, angle: angle.value, newVariables: collectNewVariables([angle]) };
     }
     if (kind === 'linear') {
       const spacingMode = this.spacingModeSelect.value === 'length' ? 'length' : 'offset';
-      const directions: { count: number; value: number }[] = [];
+      const directions: { count: ValueExpr; value: ValueExpr }[] = [];
+      const reads: { newVariable?: NewVariable }[] = [];
       for (const direction of this.directions) {
-        const countInput = direction === 1 ? this.countInput : this.count2Input;
-        const valueInput = direction === 1 ? this.spacingInput : this.value2Input;
+        const countField = direction === 1 ? this.countField : this.count2Field;
+        const valueField = direction === 1 ? this.spacingField : this.value2Field;
         const which = this.dir2 ? ` for direction ${direction}` : '';
-        const count = parseFloat(countInput.value);
-        if (!Number.isInteger(count) || count < 2) {
+        const count = countField.read();
+        if ('error' in count
+          || (typeof count.value === 'number' && (!Number.isInteger(count.value) || count.value < 2))) {
           return { error: `Enter a whole count of at least 2${which} (the original included).` };
         }
-        const value = parseFloat(valueInput.value);
-        if (!Number.isFinite(value) || value === 0) {
+        const value = valueField.read();
+        if ('error' in value || (typeof value.value === 'number' && value.value === 0)) {
           return { error: `Enter a nonzero spacing distance${which}.` };
         }
-        directions.push({ count, value });
+        reads.push(count, value);
+        directions.push({ count: count.value, value: value.value });
       }
-      return { kind, spacingMode, centered: this.centeredInput.checked, directions };
+      return {
+        kind, spacingMode, centered: this.centeredInput.checked, directions,
+        newVariables: collectNewVariables(reads),
+      };
     }
-    const count = parseFloat(this.countInput.value);
-    if (!Number.isInteger(count) || count < 2) {
+    const count = this.countField.read();
+    if ('error' in count
+      || (typeof count.value === 'number' && (!Number.isInteger(count.value) || count.value < 2))) {
       return { error: 'Enter a whole count of at least 2 (the original included).' };
     }
-    const value = parseFloat(this.sweepInput.value);
-    if (!Number.isFinite(value) || value === 0) {
+    const value = this.sweepField.read();
+    if ('error' in value || (typeof value.value === 'number' && value.value === 0)) {
       return { error: 'Enter a nonzero sweep angle in degrees.' };
     }
     const mode = this.sweepModeSelect.value === 'offset' ? 'offset' : 'angle';
-    return { kind, count, sweep: { mode, value } };
+    return {
+      kind, count: count.value, sweep: { mode, value: value.value },
+      newVariables: collectNewVariables([count, value]),
+    };
   }
 
   setPreview(text: string | null): void {

@@ -161,7 +161,7 @@ class SceneManager {
     scene: Scene,
     refs: PickRef[],
     feature: ApplyFeatureKind,
-    value?: number,
+    value?: number | string,
     chains: PickChain[] = [],
     options: SynthesizeOptions = {},
     before?: SelectionBoundary,

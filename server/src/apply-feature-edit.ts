@@ -13,6 +13,93 @@ import {
 } from './code-editor.ts';
 
 /**
+ * A dialog numeric slot: a plain number, or verbatim expression text
+ * (`height`, `h * 2`) committed by a dialog's expression field. Expressions
+ * render as-is into the statement; the build surfaces evaluation errors.
+ */
+export type ValueExpr = number | string;
+
+/**
+ * Whether `text` is safe to embed as a single call argument: one line, no
+ * statement separators or comments, balanced brackets, and no top-level
+ * comma or assignment that would change the argument list's shape.
+ */
+export function isExpressionText(text: unknown): text is string {
+  if (typeof text !== 'string') {
+    return false;
+  }
+  const t = text.trim();
+  if (!t || t.length > 200 || /[;\r\n`]/.test(t) || t.includes('//') || t.includes('/*')) {
+    return false;
+  }
+  const stack: string[] = [];
+  let quote: string | null = null;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (quote !== null) {
+      if (ch === '\\') {
+        i++;
+      } else if (ch === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+    } else if (ch === '(' || ch === '[' || ch === '{') {
+      stack.push(ch);
+    } else if (ch === ')' || ch === ']' || ch === '}') {
+      const open = stack.pop();
+      if ((ch === ')' && open !== '(') || (ch === ']' && open !== '[') || (ch === '}' && open !== '{')) {
+        return false;
+      }
+    } else if (stack.length === 0) {
+      if (ch === ',') {
+        return false;
+      }
+      // A top-level assignment would leak a statement into the argument;
+      // comparison (`==`, `<=`, `>=`, `!=`) and arrows are fine.
+      if (ch === '=' && t[i + 1] !== '=' && t[i + 1] !== '>' && !/[=!<>]/.test(t[i - 1] ?? '')) {
+        return false;
+      }
+    }
+  }
+  return quote === null && stack.length === 0;
+}
+
+/** A repeat count slot: an integer of at least 2, or safe expression text. */
+export function validCountValue(value: unknown): value is ValueExpr {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) && value >= 2;
+  }
+  return isExpressionText(value);
+}
+
+/**
+ * Validate one ValueExpr slot: a finite number meeting the constraints, or
+ * safe expression text (constraints can't be checked statically there — the
+ * build reports them).
+ */
+export function validValueExpr(
+  value: unknown,
+  opts: { nonzero?: boolean; positive?: boolean } = {},
+): value is ValueExpr {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      return false;
+    }
+    if (opts.nonzero && value === 0) {
+      return false;
+    }
+    if (opts.positive && value <= 0) {
+      return false;
+    }
+    return true;
+  }
+  return isExpressionText(value);
+}
+
+/**
  * Mirror of `lib/selection/types.ts` `ApplyFeatureEditSpec` — the wire
  * contract between the synthesis layer and this transform. Kept structural
  * here so the transform stays a dependency-free string function.
@@ -20,7 +107,7 @@ import {
 export type ApplyFeatureEditSpec = {
   feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
-  value?: number;
+  value?: ValueExpr;
   /**
    * Pick-less sketch (empty `producers`/`parts`): the origin plane the
    * statement targets; absent renders the bare default-plane form.
@@ -95,6 +182,13 @@ export type ApplyFeatureEditSpec = {
    * one transform so the rewrite and the clear never race on the buffer.
    */
   clearBreakpoints?: boolean;
+  /**
+   * `const <name> = <initializer>;` declarations to write directly before
+   * the statement — a dialog expression field's `myVar = 50` (or a fresh
+   * name typed over a numeric seed). Names already declared in the file are
+   * skipped, keeping a re-apply idempotent.
+   */
+  newVariables?: { name: string; initializer: string }[];
 };
 
 /**
@@ -144,12 +238,12 @@ export type FeatureStatementEditTarget = {
   expectedStatement?: string;
   extrude?: {
     op: 'add' | 'remove' | 'new';
-    distance: number | null;
-    distance2: number | null;
+    distance: ValueExpr | null;
+    distance2: ValueExpr | null;
     symmetric: boolean;
-    draft: number | null;
+    draft: ValueExpr | null;
     drill: boolean;
-    thin: [number] | [number, number] | null;
+    thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     /** Re-sourced profile; absent keeps the statement's profile text. */
     profile?: EditSketchSource;
     /**
@@ -161,7 +255,7 @@ export type FeatureStatementEditTarget = {
   };
   sweep?: {
     op: 'add' | 'remove' | 'new';
-    thin: [number] | [number, number] | null;
+    thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     /** Re-sourced path; absent keeps the statement's path text. */
     path?: EditPathSource;
     /** Re-sourced profile; absent keeps the statement's profile text. */
@@ -169,7 +263,7 @@ export type FeatureStatementEditTarget = {
   };
   wrap?: {
     op: 'add' | 'remove' | 'new';
-    thickness: number;
+    thickness: ValueExpr;
     /** Re-sourced sketch; absent keeps the statement's sketch text. */
     sketch?: EditSketchSource;
     /**
@@ -183,7 +277,7 @@ export type FeatureStatementEditTarget = {
   };
   loft?: {
     op: 'add' | 'remove' | 'new';
-    thin: [number] | [number, number] | null;
+    thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     startCondition?: LoftConditionSpec;
     endCondition?: LoftConditionSpec;
     /** Full replacement profile list; absent keeps all statement profiles. */
@@ -197,8 +291,8 @@ export type FeatureStatementEditTarget = {
   revolve?: {
     op: 'add' | 'remove' | 'new';
     /** Sweep angle in degrees; 360 renders no angle argument. */
-    angle: number;
-    thin: [number] | [number, number] | null;
+    angle: ValueExpr;
+    thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     /** Re-sourced profile; absent keeps the statement's profile text. */
     profile?: EditSketchSource;
     /** Re-sourced axis; absent keeps the statement's axis text. */
@@ -226,7 +320,7 @@ export type FeatureStatementEditTarget = {
   repeat?: {
     kind: 'linear' | 'circular' | 'mirror' | 'rotate';
     /** Linear directions in axis order — each its own axis, count and value. */
-    directions?: { axis: RepeatEditAxis; count: number; value: number }[];
+    directions?: { axis: RepeatEditAxis; count: ValueExpr; value: ValueExpr }[];
     /** Linear spacing semantics shared by every direction. */
     spacingMode?: 'offset' | 'length';
     /** Linear only: center the pattern on the original instance. */
@@ -236,11 +330,11 @@ export type FeatureStatementEditTarget = {
     /** The mirror plane (mirror only). */
     plane?: RepeatEditPlane;
     /** Instance count, original included (circular). */
-    count?: number;
+    count?: ValueExpr;
     /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
-    sweep?: { mode: 'angle' | 'offset'; value: number };
+    sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
     /** Rotate only: rotation angle in degrees; 90 renders no argument. */
-    angle?: number;
+    angle?: ValueExpr;
     /** Full replacement target list; absent keeps the statement's targets. */
     targets?: RepeatEditTargetSource[];
   };
@@ -271,20 +365,20 @@ export type FeatureStatementEditTarget = {
 export type ExtrudeEditOptions = {
   op: 'add' | 'remove' | 'new';
   /** Extrusion distance; null renders a through-all `cut()` (remove only). */
-  distance: number | null;
+  distance: ValueExpr | null;
   /**
    * Opposite-direction distance; non-null renders the two-distance form
    * `extrude(d1, d2)`. Excludes `symmetric` and a through-all `distance`.
    */
-  distance2: number | null;
+  distance2: ValueExpr | null;
   /** `.symmetric()` — the distance is split equally across the sketch plane. */
   symmetric: boolean;
   /** `.draft(angle)` taper in degrees, or null for a straight extrude. */
-  draft: number | null;
+  draft: ValueExpr | null;
   /** False renders `.drill(false)` — inner closed regions extrude as solid. */
   drill: boolean;
   /** `.thin(a)` / `.thin(a, b)` offsets, or null for a plain extrude. */
-  thin: [number] | [number, number] | null;
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: 'implicit' | 'bound';
   /**
    * Up-to-face mode: the single selector part (a picked face) renders as the
@@ -307,7 +401,7 @@ export type ExtrudeEditOptions = {
  */
 export type SweepEditOptions = {
   op: 'add' | 'remove' | 'new';
-  thin: [number] | [number, number] | null;
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: 'implicit' | { producer: number };
   path: { kind: 'sketch'; producer: number } | { kind: 'selector' };
 };
@@ -323,7 +417,7 @@ export type SweepEditOptions = {
 export type WrapEditOptions = {
   op: 'add' | 'remove' | 'new';
   /** Pad thickness along the surface normal (always positive). */
-  thickness: number;
+  thickness: ValueExpr;
   sketch: { producer: number };
 };
 
@@ -353,8 +447,8 @@ export type RevolveAxisSpec =
 export type RevolveEditOptions = {
   op: 'add' | 'remove' | 'new';
   /** Sweep angle in degrees; 360 renders no angle argument. */
-  angle: number;
-  thin: [number] | [number, number] | null;
+  angle: ValueExpr;
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: 'implicit' | 'bound';
   axis: RevolveAxisSpec;
 };
@@ -419,7 +513,7 @@ export type RepeatEditTargetSource =
 export type RepeatEditOptions = {
   kind: 'linear' | 'circular' | 'mirror' | 'rotate';
   /** Linear directions in axis order — each its own axis, count and value. */
-  directions?: { axis: RepeatAxisSpec; count: number; value: number }[];
+  directions?: { axis: RepeatAxisSpec; count: ValueExpr; value: ValueExpr }[];
   /** Linear spacing semantics shared by every direction. */
   spacingMode?: 'offset' | 'length';
   /** The repeat axis (circular/rotate); linear carries axes per direction. */
@@ -427,13 +521,13 @@ export type RepeatEditOptions = {
   /** The mirror plane (mirror only). */
   plane?: RepeatPlaneSpec;
   /** Instance count, original included (circular). */
-  count?: number;
+  count?: ValueExpr;
   /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
-  sweep?: { mode: 'angle' | 'offset'; value: number };
+  sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
   /** Linear only: center the pattern on the original instance. */
   centered?: boolean;
   /** Rotate only: rotation angle in degrees; 90 renders no argument. */
-  angle?: number;
+  angle?: ValueExpr;
   /** The features being repeated, in argument order — bound producers. */
   targets: { producer: number }[];
 };
@@ -468,7 +562,7 @@ export type ShellEditOptions = {
  */
 export type LoftEditOptions = {
   op: 'add' | 'remove' | 'new';
-  thin: [number] | [number, number] | null;
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profiles: ({ kind: 'sketch'; producer: number } | { kind: 'selector'; part: number })[];
   /** Guide-curve sketches the loft surface must follow, in argument order. */
   guides?: { kind: 'sketch'; producer: number }[];
@@ -485,7 +579,7 @@ export type LoftEditOptions = {
  */
 export type LoftConditionSpec = {
   type: 'normal' | 'tangent';
-  magnitude: number;
+  magnitude: ValueExpr;
 };
 
 /**
@@ -513,13 +607,13 @@ export type PlaneBaseSpec =
 export type PlaneEditOptions = {
   type: 'offset' | 'mid' | 'edge';
   /** Normal offset distance; null/0 renders none. Offset/mid types only. */
-  offset: number | null;
+  offset: ValueExpr | null;
   /** Rotation in degrees around the plane's local axes; null/0 renders none. */
-  rotateX: number | null;
-  rotateY: number | null;
-  rotateZ: number | null;
+  rotateX: ValueExpr | null;
+  rotateY: ValueExpr | null;
+  rotateZ: ValueExpr | null;
   /** Normalized 0–1 position along the edge (edge type only). */
-  position?: number | null;
+  position?: ValueExpr | null;
   /** One base for an offset/edge plane, two for a mid plane. */
   bases: PlaneBaseSpec[];
 };
@@ -619,7 +713,7 @@ export async function applyFeatureEdit(
     // own producers ride the list alongside the sketch.
     const wr = spec.wrap;
     const valid = wr !== undefined
-      && Number.isFinite(wr.thickness) && wr.thickness > 0
+      && validValueExpr(wr.thickness, { positive: true })
       && spec.parts.length === 1
       && isSketchProducer(spec, wr.sketch?.producer);
     if (!valid) {
@@ -633,7 +727,7 @@ export async function applyFeatureEdit(
     const rev = spec.revolve;
     const valid = rev !== undefined && spec.producers.length >= 1
       && spec.producers[0].featureType === 'sketch'
-      && Number.isFinite(rev.angle) && rev.angle !== 0
+      && validValueExpr(rev.angle, { nonzero: true })
       && (rev.axis.kind === 'selector'
         ? spec.parts.length === 1
         : spec.parts.length === 0
@@ -662,7 +756,7 @@ export async function applyFeatureEdit(
       && guides.every(g => g?.kind === 'sketch' && isSketchProducer(spec, g.producer))
       && [lo.startCondition, lo.endCondition].every(c => c === undefined
         || ((c.type === 'normal' || c.type === 'tangent')
-          && Number.isFinite(c.magnitude) && c.magnitude !== 0));
+          && validValueExpr(c.magnitude, { nonzero: true })));
     if (!valid) {
       return { newCode: code, error: 'malformed loft edit spec' };
     }
@@ -686,13 +780,14 @@ export async function applyFeatureEdit(
       && selectorParts.length === spec.parts.length
       && new Set(selectorParts).size === selectorParts.length
       && [pl.offset, pl.rotateX, pl.rotateY, pl.rotateZ]
-        .every(v => v === null || (typeof v === 'number' && Number.isFinite(v)))
+        .every(v => v === null || validValueExpr(v))
       // The edge form is a picked edge plus a normalized position — the
       // second argument slot is taken, so no offset/rotation can ride.
       && (pl.type !== 'edge' || (
         pl.bases[0]?.kind === 'selector'
-        && typeof pl.position === 'number' && Number.isFinite(pl.position)
-        && pl.position >= 0 && pl.position <= 1
+        && pl.position !== null && pl.position !== undefined
+        && validValueExpr(pl.position)
+        && (typeof pl.position !== 'number' || (pl.position >= 0 && pl.position <= 1))
         && [pl.offset, pl.rotateX, pl.rotateY, pl.rotateZ].every(v => v === null)));
     if (!valid) {
       return { newCode: code, error: 'malformed plane edit spec' };
@@ -704,6 +799,7 @@ export async function applyFeatureEdit(
         code,
         () => renderPlaneStatement(pl, renderPlaneBaseExprs(pl, spec.parts, () => null)),
         'plane',
+        spec.newVariables,
       );
     }
   } else if (spec.feature === 'repeat') {
@@ -735,11 +831,11 @@ export async function applyFeatureEdit(
           : isPlaneProducer(spec, plane.producer));
     const validSweep = rp?.sweep !== undefined
       && (rp.sweep.mode === 'angle' || rp.sweep.mode === 'offset')
-      && typeof rp.sweep.value === 'number' && Number.isFinite(rp.sweep.value) && rp.sweep.value !== 0;
+      && validValueExpr(rp.sweep.value, { nonzero: true });
     const validDirections = Array.isArray(rp?.directions) && rp!.directions!.length >= 1
       && rp!.directions!.every(d => validAxis(d?.axis)
-        && Number.isInteger(d.count) && d.count >= 2
-        && typeof d.value === 'number' && Number.isFinite(d.value) && d.value !== 0);
+        && validCountValue(d.count)
+        && validValueExpr(d.value, { nonzero: true }));
     const valid = rp !== undefined
       && targets.length >= 1
       && targets.every(t => isFeatureProducer(spec, t.producer))
@@ -750,7 +846,7 @@ export async function applyFeatureEdit(
           && rp.count === undefined && rp.sweep === undefined && rp.angle === undefined
         : rp.kind === 'circular'
           ? validAxis(rp.axis) && rp.plane === undefined && rp.directions === undefined
-            && Number.isInteger(rp.count) && rp.count! >= 2 && validSweep
+            && validCountValue(rp.count) && validSweep
             && rp.spacingMode === undefined && rp.angle === undefined
           : rp.kind === 'mirror'
             ? validPlane(rp.plane) && rp.axis === undefined && rp.directions === undefined
@@ -758,7 +854,7 @@ export async function applyFeatureEdit(
               && rp.sweep === undefined && rp.angle === undefined
             : rp.kind === 'rotate'
               && validAxis(rp.axis) && rp.plane === undefined && rp.directions === undefined
-              && typeof rp.angle === 'number' && Number.isFinite(rp.angle) && rp.angle !== 0
+              && validValueExpr(rp.angle, { nonzero: true })
               && rp.count === undefined && rp.spacingMode === undefined && rp.sweep === undefined)
       // Every selector part belongs to exactly one axis/plane input.
       && selectorParts.length === spec.parts.length
@@ -797,9 +893,18 @@ export async function applyFeatureEdit(
   const statementText = buildStatement(spec, bindings, insertion.indent);
   const useSemicolon = bindings.some(b => b.statement.text.trimEnd().endsWith(';'));
 
+  // Declarations a dialog expression field committed land directly before
+  // the statement, at its indent.
+  const declsResult = renderNewVariableDecls(code, spec.newVariables, useSemicolon);
+  if ('error' in declsResult) {
+    return { newCode: code, error: declsResult.error };
+  }
+  const block = [...declsResult.decls, statementText + (useSemicolon ? ';' : '')]
+    .join(`\n${insertion.indent}`);
+
   type Edit = { index: number; text: string };
   const edits: Edit[] = [
-    { index: insertion.index, text: insertion.wrap(statementText + (useSemicolon ? ';' : '')) },
+    { index: insertion.index, text: insertion.wrap(block) },
   ];
   for (const binding of bindings) {
     if (binding.needsBinding) {
@@ -851,25 +956,35 @@ async function appendTopLevelStatement(
   code: string,
   statementFor: (indent: string) => string,
   callee: string,
+  newVariables?: ApplyFeatureEditSpec['newVariables'],
 ): Promise<ApplyFeatureEditResult> {
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code);
   const lines = splitLines(code);
   const children = tree.rootNode.namedChildren;
   const last = children.length > 0 ? children[children.length - 1] : null;
+  const useSemicolon = children.some(c => c.text.trimEnd().endsWith(';'));
+
+  // Declarations a dialog expression field committed land directly before
+  // the statement, at its indent.
+  const declsResult = renderNewVariableDecls(code, newVariables, useSemicolon);
+  if ('error' in declsResult) {
+    return { newCode: code, error: declsResult.error };
+  }
+  const block = (indent: string) => [...declsResult.decls, `${statementFor(indent)}${useSemicolon ? ';' : ''}`]
+    .join(`\n${indent}`);
 
   let result: string;
   if (!last) {
-    result = spliceCode(code, code.length, code.length, `${statementFor('')};\n`);
+    result = spliceCode(code, code.length, code.length,
+      [...declsResult.decls, `${statementFor('')};`].join('\n') + '\n');
   } else {
-    const useSemicolon = children.some(c => c.text.trimEnd().endsWith(';'));
     const before = children.find(isBreakpointStatement)
       ?? (last.type === 'return_statement' ? last : null);
     const indent = indentOf(lines, (before ?? last).startPosition.row);
-    const statement = `${statementFor(indent)}${useSemicolon ? ';' : ''}`;
     result = before
-      ? spliceCode(code, before.startIndex, before.startIndex, `${statement}\n${indent}`)
-      : spliceCode(code, last.endIndex, last.endIndex, `\n${indent}${statement}`);
+      ? spliceCode(code, before.startIndex, before.startIndex, `${block(indent)}\n${indent}`)
+      : spliceCode(code, last.endIndex, last.endIndex, `\n${indent}${block(indent)}`);
   }
   return { newCode: await ensureSymbolImport(result, callee) };
 }
@@ -1359,11 +1474,11 @@ function statementCallee(spec: ApplyFeatureEditSpec): string {
 /** The `.thin(…)` / `.remove()` / `.new()` chains shared by sweep and loft. */
 function renderOpChains(opts: {
   op: 'add' | 'remove' | 'new';
-  thin: [number] | [number, number] | null;
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
 }): string {
   let chains = '';
   if (opts.thin) {
-    chains += `.thin(${opts.thin.map(formatNumber).join(', ')})`;
+    chains += `.thin(${opts.thin.map(formatValue).join(', ')})`;
   }
   if (opts.op === 'remove') {
     chains += '.remove()';
@@ -1401,7 +1516,7 @@ export function renderWrapStatement(
   sketchExpr: string,
   faceExpr: string,
 ): string {
-  return `wrap(${formatNumber(wr.thickness)}, ${sketchExpr}, ${faceExpr})`
+  return `wrap(${formatValue(wr.thickness)}, ${sketchExpr}, ${faceExpr})`
     + renderOpChains({ op: wr.op, thin: null });
 }
 
@@ -1459,7 +1574,7 @@ export function renderRevolveStatement(
 ): string {
   const args = [axisExpr];
   if (rev.angle !== 360) {
-    args.push(formatNumber(rev.angle));
+    args.push(formatValue(rev.angle));
   }
   if (profileExpr) {
     args.push(profileExpr);
@@ -1501,15 +1616,15 @@ export function renderRevolveAxisExpr(
  */
 export function renderRepeatStatement(
   rp: Pick<RepeatEditOptions, 'kind' | 'spacingMode' | 'centered' | 'count' | 'sweep' | 'angle'>
-    & { directions?: { count: number; value: number }[] },
+    & { directions?: { count: ValueExpr; value: ValueExpr }[] },
   inputExprs: string[],
   targetExprs: string[],
 ): string {
   const single = inputExprs.length === 1;
   const args = [`'${rp.kind}'`, single ? inputExprs[0] : `[${inputExprs.join(', ')}]`];
   if (rp.kind === 'linear') {
-    const counts = rp.directions!.map(d => formatNumber(d.count));
-    const values = rp.directions!.map(d => formatNumber(d.value));
+    const counts = rp.directions!.map(d => formatValue(d.count));
+    const values = rp.directions!.map(d => formatValue(d.value));
     const entries = [
       `count: ${single ? counts[0] : `[${counts.join(', ')}]`}`,
       `${rp.spacingMode}: ${single ? values[0] : `[${values.join(', ')}]`}`,
@@ -1519,9 +1634,9 @@ export function renderRepeatStatement(
     }
     args.push(`{ ${entries.join(', ')} }`);
   } else if (rp.kind === 'circular') {
-    args.push(`{ count: ${formatNumber(rp.count)}, ${rp.sweep!.mode}: ${formatNumber(rp.sweep!.value)} }`);
+    args.push(`{ count: ${formatValue(rp.count)}, ${rp.sweep!.mode}: ${formatValue(rp.sweep!.value)} }`);
   } else if (rp.kind === 'rotate' && rp.angle !== 90) {
-    args.push(formatNumber(rp.angle));
+    args.push(formatValue(rp.angle));
   }
   return `repeat(${[...args, ...targetExprs].join(', ')})`;
 }
@@ -1595,7 +1710,7 @@ function renderConditionChain(method: string, condition: LoftConditionSpec | und
   if (!condition) {
     return '';
   }
-  const magnitude = condition.magnitude === 1 ? '' : `, ${formatNumber(condition.magnitude)}`;
+  const magnitude = condition.magnitude === 1 ? '' : `, ${formatValue(condition.magnitude)}`;
   return `.${method}('${condition.type}'${magnitude})`;
 }
 
@@ -1645,9 +1760,9 @@ export function renderExtrudeStatement(
   if (faceExpr !== null) {
     callArgs.push(faceExpr);
   } else if (ext.distance !== null) {
-    callArgs.push(formatNumber(ext.distance));
+    callArgs.push(formatValue(ext.distance));
     if (ext.distance2 !== null) {
-      callArgs.push(formatNumber(ext.distance2));
+      callArgs.push(formatValue(ext.distance2));
     }
   }
   if (ext.profile === 'bound') {
@@ -1658,14 +1773,14 @@ export function renderExtrudeStatement(
     statement += '.symmetric()';
   }
   if (ext.draft !== null) {
-    statement += `.draft(${formatNumber(ext.draft)})`;
+    statement += `.draft(${formatValue(ext.draft)})`;
   }
   if (!ext.drill) {
     // True is the API default, so only the opt-out is written.
     statement += '.drill(false)';
   }
   if (ext.thin) {
-    statement += `.thin(${ext.thin.map(formatNumber).join(', ')})`;
+    statement += `.thin(${ext.thin.map(formatValue).join(', ')})`;
   }
   if (ext.op === 'new') {
     statement += '.new()';
@@ -1684,26 +1799,26 @@ export function renderPlaneStatement(pl: PlaneEditOptions, baseExprs: string[]):
   if (pl.type === 'edge') {
     // The second argument is the normalized position, not an offset — the
     // edge form takes no transform options.
-    return `plane(${baseExprs[0]}, ${formatNumber(pl.position ?? 0)})`;
+    return `plane(${baseExprs[0]}, ${formatValue(pl.position ?? 0)})`;
   }
   const entries: string[] = [];
   if (pl.offset !== null && pl.offset !== 0) {
-    entries.push(`offset: ${formatNumber(pl.offset)}`);
+    entries.push(`offset: ${formatValue(pl.offset)}`);
   }
-  const rotations: [string, number | null][] = [
+  const rotations: [string, ValueExpr | null][] = [
     ['rotateX', pl.rotateX], ['rotateY', pl.rotateY], ['rotateZ', pl.rotateZ],
   ];
   let hasRotation = false;
   for (const [key, value] of rotations) {
     if (value !== null && value !== 0) {
       hasRotation = true;
-      entries.push(`${key}: ${formatNumber(value)}`);
+      entries.push(`${key}: ${formatValue(value)}`);
     }
   }
   let optionsArg = '';
   if (entries.length > 0) {
     optionsArg = !hasRotation && pl.type === 'offset'
-      ? `, ${formatNumber(pl.offset!)}`
+      ? `, ${formatValue(pl.offset!)}`
       : `, { ${entries.join(', ')} }`;
   }
   return `plane(${baseExprs.join(', ')}${optionsArg})`;
@@ -1805,7 +1920,7 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     return `sketch(${args}, () => {\n\n${indent}})`;
   }
   const joinChain = spec.feature === 'shell' ? renderShellJoinChain(spec.shell?.joinType) : '';
-  return `${spec.feature}(${formatNumber(spec.value)}, ${args})${joinChain}`;
+  return `${spec.feature}(${formatValue(spec.value)}, ${args})${joinChain}`;
 }
 
 /** The selector argument list: the user-edited override, or rendered parts. */
@@ -1840,6 +1955,47 @@ function importsForRawArgs(rawArgs: string): string[] {
 
 function formatNumber(value: number | undefined): string {
   return Number.isFinite(value) ? String(value) : '1';
+}
+
+/** A ValueExpr slot's rendering: a number literal, or the expression verbatim. */
+function formatValue(value: ValueExpr | undefined | null): string {
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  return formatNumber(value ?? undefined);
+}
+
+/**
+ * The `const <name> = <initializer>` lines `spec.newVariables` asks for —
+ * validated to safe shapes, deduplicated, and filtered against names the
+ * file already declares so a re-apply stays idempotent.
+ */
+function renderNewVariableDecls(
+  code: string,
+  newVariables: ApplyFeatureEditSpec['newVariables'],
+  semicolon: boolean,
+): { decls: string[] } | { error: string } {
+  if (!newVariables || newVariables.length === 0) {
+    return { decls: [] };
+  }
+  const decls: string[] = [];
+  const seen = new Set<string>();
+  for (const nv of newVariables) {
+    if (!nv || typeof nv.name !== 'string' || !/^[a-zA-Z_$][\w$]*$/.test(nv.name)
+      || !isExpressionText(nv.initializer)) {
+      return { error: 'malformed new-variable declaration' };
+    }
+    if (seen.has(nv.name)) {
+      continue;
+    }
+    seen.add(nv.name);
+    const escaped = nv.name.replace(/\$/g, '\\$');
+    if (new RegExp(`\\b(?:const|let|var)\\s+${escaped}\\b`).test(code)) {
+      continue;
+    }
+    decls.push(`const ${nv.name} = ${nv.initializer.trim()}${semicolon ? ';' : ''}`);
+  }
+  return { decls };
 }
 
 /** Insertion point directly after `statement`, at its own indent. */
@@ -1938,14 +2094,14 @@ export type ParsedFeatureStatement =
     feature: 'extrude';
     op: 'add' | 'remove' | 'new';
     /** null = through-all remove (`cut()` with no distance). */
-    distance: number | null;
+    distance: ValueExpr | null;
     /** Second distance of a two-distance `extrude(d1, d2)`, or null. */
-    distance2: number | null;
+    distance2: ValueExpr | null;
     symmetric: boolean;
     /** `.draft(angle)` taper in degrees, or null when the chain is absent. */
-    draft: number | null;
+    draft: ValueExpr | null;
     drill: boolean;
-    thin: [number] | null;
+    thin: [ValueExpr] | null;
     /** Trailing profile argument text (`s`), or null for implicit consumption. */
     profileText: string | null;
     /** Up-to-face target argument text, or null for a distance extrude. */
@@ -1954,7 +2110,7 @@ export type ParsedFeatureStatement =
   | {
     feature: 'sweep';
     op: 'add' | 'remove' | 'new';
-    thin: [number] | null;
+    thin: [ValueExpr] | null;
     pathText: string;
     profileText: string | null;
   }
@@ -1962,7 +2118,7 @@ export type ParsedFeatureStatement =
     feature: 'wrap';
     op: 'add' | 'remove' | 'new';
     /** Pad thickness along the surface normal (always positive). */
-    thickness: number;
+    thickness: ValueExpr;
     /** Sketch argument text, verbatim (`s`). */
     sketchText: string;
     /** Target face argument text, verbatim (`e.sideFaces(0)`). */
@@ -1972,8 +2128,8 @@ export type ParsedFeatureStatement =
     feature: 'revolve';
     op: 'add' | 'remove' | 'new';
     /** Sweep angle in degrees; null = omitted (the 360° API default). */
-    angle: number | null;
-    thin: [number] | null;
+    angle: ValueExpr | null;
+    thin: [ValueExpr] | null;
     /** Axis argument text, verbatim (`'z'`, `a`, `axis(e.edges(3))`). */
     axisText: string;
     /** Trailing profile argument text (`s`), or null for implicit consumption. */
@@ -1982,7 +2138,7 @@ export type ParsedFeatureStatement =
   | {
     feature: 'loft';
     op: 'add' | 'remove' | 'new';
-    thin: [number] | null;
+    thin: [ValueExpr] | null;
     profileTexts: string[];
     guideTexts: string[];
     startCondition: LoftConditionSpec | null;
@@ -1990,7 +2146,7 @@ export type ParsedFeatureStatement =
   }
   | {
     feature: 'shell';
-    value: number;
+    value: ValueExpr;
     /** Selector argument list after the value, verbatim (`''` when absent). */
     argsText: string;
     /** `.join()` type; 'arc' (the kernel default) when the chain is absent. */
@@ -1998,7 +2154,7 @@ export type ParsedFeatureStatement =
   }
   | {
     feature: 'fillet' | 'chamfer';
-    value: number;
+    value: ValueExpr;
     /** Selector argument list after the value, verbatim (`''` when absent). */
     argsText: string;
   }
@@ -2034,17 +2190,17 @@ export type ParsedFeatureStatement =
     /** Mirror plane argument text, verbatim; null for the axis kinds. */
     planeText: string | null;
     /** Linear per-direction count and value, in axis order. */
-    directions: { count: number; value: number }[] | null;
+    directions: { count: ValueExpr; value: ValueExpr }[] | null;
     /** Linear spacing semantics shared by every direction. */
     spacingMode: 'offset' | 'length' | null;
     /** Linear only: the pattern is centered on the original instance. */
     centered: boolean;
     /** Circular instance count, original included. */
-    count: number | null;
+    count: ValueExpr | null;
     /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
-    sweep: { mode: 'angle' | 'offset'; value: number } | null;
+    sweep: { mode: 'angle' | 'offset'; value: ValueExpr } | null;
     /** Rotate angle in degrees; null = omitted (the 90° API default). */
-    angle: number | null;
+    angle: ValueExpr | null;
     /** Trailing target texts, verbatim; empty replays the previous feature. */
     targetTexts: string[];
     /**
@@ -2146,6 +2302,92 @@ function numericArgValue(node: TSNode): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
+/**
+ * Read an argument slot that competes with profile/target expressions for
+ * its position (extrude distances, the revolve angle): a numeric literal, a
+ * variable known to hold a number, or arithmetic. Bare identifiers NOT known
+ * to be numeric (profile variables) and call expressions (selector targets)
+ * stay null so the positional disambiguation keeps working.
+ */
+function numericValueArg(node: TSNode, numericVars: Set<string>): ValueExpr | null {
+  const literal = numericArgValue(node);
+  if (literal !== null) {
+    return literal;
+  }
+  if (node.type === 'identifier') {
+    return numericVars.has(node.text) ? node.text : null;
+  }
+  if (node.type === 'binary_expression' || node.type === 'unary_expression'
+    || node.type === 'parenthesized_expression') {
+    return isExpressionText(node.text) ? node.text : null;
+  }
+  return null;
+}
+
+/**
+ * Read an unambiguous numeric slot (draft, thin, wrap thickness, loft
+ * magnitudes — nothing else can occupy the position): a numeric literal, or
+ * any single-argument-safe expression text.
+ */
+function anyValueArg(node: TSNode): ValueExpr | null {
+  const literal = numericArgValue(node);
+  if (literal !== null) {
+    return literal;
+  }
+  return isExpressionText(node.text) ? node.text : null;
+}
+
+/**
+ * Top-level variable names whose initializers read as numeric values —
+ * literals, arithmetic (over earlier such variables), `param()` and `Math.*`
+ * calls. Backs {@link numericValueArg}'s identifier disambiguation.
+ */
+function numericVarNames(tree: TSTree): Set<string> {
+  const names = new Set<string>();
+  const isNumericInit = (node: TSNode): boolean => {
+    if (numericLiteralText(node) !== null) {
+      return true;
+    }
+    if (node.type === 'binary_expression' || node.type === 'unary_expression'
+      || node.type === 'parenthesized_expression') {
+      return true;
+    }
+    if (node.type === 'identifier') {
+      return names.has(node.text);
+    }
+    if (node.type === 'call_expression') {
+      const fn = node.childForFieldName('function');
+      if (!fn) {
+        return false;
+      }
+      if (fn.type === 'identifier' && fn.text === 'param') {
+        return true;
+      }
+      return fn.type === 'member_expression' && fn.childForFieldName('object')?.text === 'Math';
+    }
+    return false;
+  };
+  for (const statement of tree.rootNode.namedChildren) {
+    const decl = statement.type === 'export_statement'
+      ? statement.namedChildren.find(c => c.type === 'lexical_declaration' || c.type === 'variable_declaration')
+      : statement;
+    if (!decl || (decl.type !== 'lexical_declaration' && decl.type !== 'variable_declaration')) {
+      continue;
+    }
+    for (const declarator of decl.namedChildren) {
+      if (declarator.type !== 'variable_declarator') {
+        continue;
+      }
+      const name = declarator.childForFieldName('name');
+      const value = declarator.childForFieldName('value');
+      if (name?.type === 'identifier' && value && isNumericInit(value)) {
+        names.add(name.text);
+      }
+    }
+  }
+  return names;
+}
+
 /** Boolean literal value of an argument node, or null when it is anything else. */
 function booleanArgValue(node: TSNode): boolean | null {
   if (node.type === 'true') {
@@ -2214,7 +2456,7 @@ type ChainParse =
  * member — the range an edit replaces; a `const x = ` binding before it and
  * unrecognized chained calls after it survive untouched.
  */
-function parseFeatureChain(call: TSNode, code: string): ChainParse {
+function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> = new Set()): ChainParse {
   const chain = decomposeChain(call);
   if (!chain) {
     return { error: 'the call at that line is not a plain feature call chain' };
@@ -2249,9 +2491,12 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
     if (args.length === 0) {
       return { error: `the ${feature}() call has no arguments` };
     }
-    const value = numericArgValue(args[0]);
+    // The value slot competes with the selector args — a numeric literal,
+    // known numeric variable, or arithmetic reads as the value; a selector
+    // expression there means the value was omitted, which has no dialog.
+    const value = numericValueArg(args[0], numericVars);
     if (value === null) {
-      return { error: `the ${feature}() ${feature === 'shell' ? 'thickness' : feature === 'fillet' ? 'radius' : 'distance'} is not a plain number — edit it in the source` };
+      return { error: `the ${feature}() ${feature === 'shell' ? 'thickness' : feature === 'fillet' ? 'radius' : 'distance'} is not a plain number or expression — edit it in the source` };
     }
     const argsText = args.length > 1
       ? code.slice(args[1].startIndex, args[args.length - 1].endIndex)
@@ -2290,7 +2535,7 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
   }
 
   if (feature === 'repeat') {
-    return parseRepeatChain(args, start, end);
+    return parseRepeatChain(args, start, end, numericVars);
   }
 
   const isCut = chain.root.name === 'cut';
@@ -2301,29 +2546,30 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
   }
   const op: 'add' | 'remove' | 'new' = isCut || hasRemove ? 'remove' : hasNew ? 'new' : 'add';
 
-  let thin: [number] | null = null;
+  let thin: [ValueExpr] | null = null;
   const thinSeg = recognized.get('thin');
   if (thinSeg) {
     if (thinSeg.args.length !== 1) {
       return { error: 'only a single-offset .thin() can be edited in the dialog' };
     }
-    const offset = numericArgValue(thinSeg.args[0]);
+    const offset = anyValueArg(thinSeg.args[0]);
     if (offset === null) {
-      return { error: 'the .thin() offset is not a plain number — edit it in the source' };
+      return { error: 'the .thin() offset is not a plain number or expression — edit it in the source' };
     }
     thin = [offset];
   }
 
   if (feature === 'extrude') {
-    // Leading numeric literals are distances — one, or two for the
-    // two-distance form extrude(d1, d2); a single trailing non-numeric
-    // argument is the bound profile expression, kept verbatim. A cut()
-    // with no distance is the through-all remove. With NO distance, a call
-    // expression (`e.endFaces()`, `select(…)`) is an up-to-face target —
-    // two non-numeric arguments are the target and the profile.
-    const distances: number[] = [];
+    // Leading numeric values are distances — literals, known numeric
+    // variables, or arithmetic; one, or two for the two-distance form
+    // extrude(d1, d2); a single trailing non-numeric argument is the bound
+    // profile expression, kept verbatim. A cut() with no distance is the
+    // through-all remove. With NO distance, a call expression
+    // (`e.endFaces()`, `select(…)`) is an up-to-face target — two
+    // non-numeric arguments are the target and the profile.
+    const distances: ValueExpr[] = [];
     while (distances.length < Math.min(args.length, 2)) {
-      const value = numericArgValue(args[distances.length]);
+      const value = numericValueArg(args[distances.length], numericVars);
       if (value === null) {
         break;
       }
@@ -2331,7 +2577,7 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
     }
     const rest = args.slice(distances.length);
     const restLimit = distances.length === 0 ? 2 : 1;
-    if (rest.length > restLimit || rest.some(arg => numericArgValue(arg) !== null)) {
+    if (rest.length > restLimit || rest.some(arg => numericValueArg(arg, numericVars) !== null)) {
       return { error: 'the extrude has more arguments than the dialog understands' };
     }
     if (rest[0]?.type === 'string') {
@@ -2377,16 +2623,15 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
       return { error: `a to-face ${chain.root.name}() cannot chain .symmetric() — edit it in the source` };
     }
 
-    let draft: number | null = null;
+    let draft: ValueExpr | null = null;
     const draftSeg = recognized.get('draft');
     if (draftSeg) {
       if (draftSeg.args.length !== 1) {
         return { error: 'the .draft() chain has an argument shape the dialog cannot edit' };
       }
-      draft = numericArgValue(draftSeg.args[0]);
+      draft = anyValueArg(draftSeg.args[0]);
       if (draft === null) {
-        // Also covers the [start, end] per-side form the dialog doesn't offer.
-        return { error: 'the .draft() angle is not a plain number — edit it in the source' };
+        return { error: 'the .draft() angle is not a plain number or expression — edit it in the source' };
       }
     }
 
@@ -2426,9 +2671,9 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
     if (args.length !== 3) {
       return { error: 'the wrap has an argument shape the dialog cannot edit' };
     }
-    const thickness = numericArgValue(args[0]);
+    const thickness = anyValueArg(args[0]);
     if (thickness === null) {
-      return { error: 'the wrap() thickness is not a plain number — edit it in the source' };
+      return { error: 'the wrap() thickness is not a plain number or expression — edit it in the source' };
     }
     return {
       parsed: { feature, op, thickness, sketchText: args[1].text, faceText: args[2].text },
@@ -2439,25 +2684,26 @@ function parseFeatureChain(call: TSNode, code: string): ChainParse {
 
   if (feature === 'revolve') {
     // revolve(<axis>[, <angle>][, <profile>]): the axis is always first,
-    // kept verbatim; a numeric second argument is the angle (360 when
-    // omitted); a trailing non-numeric argument is the bound profile
-    // expression, kept verbatim — the create dialog's own shape. A variable
-    // angle is indistinguishable from a profile, so it reads as one; the
-    // numeric-literal rule mirrors extrude's distances.
+    // kept verbatim; a numeric-valued second argument is the angle (360 when
+    // omitted) — a literal, known numeric variable, or arithmetic; a
+    // trailing non-numeric argument is the bound profile expression, kept
+    // verbatim — the create dialog's own shape. An unknown identifier is
+    // indistinguishable from a profile, so it reads as one; the rule mirrors
+    // extrude's distances.
     if (args.length < 1 || args.length > 3) {
       return { error: 'the revolve has more arguments than the dialog understands' };
     }
     const axisText = args[0].text;
-    let angle: number | null = null;
+    let angle: ValueExpr | null = null;
     let rest = args.slice(1);
     if (rest.length > 0) {
-      const value = numericArgValue(rest[0]);
+      const value = numericValueArg(rest[0], numericVars);
       if (value !== null) {
         angle = value;
         rest = rest.slice(1);
       }
     }
-    if (rest.length > 1 || (rest.length === 1 && numericArgValue(rest[0]) !== null)) {
+    if (rest.length > 1 || (rest.length === 1 && numericValueArg(rest[0], numericVars) !== null)) {
       return { error: 'the revolve has more arguments than the dialog understands' };
     }
     return {
@@ -2530,18 +2776,19 @@ function objectLiteralEntries(node: TSNode): Map<string, TSNode> | null {
 }
 
 /**
- * Numeric values of an option that may be a plain number or an array of
- * them: `count: 3` reads as `[3]`, `count: [3, 2]` as `[3, 2]`. Null when
- * any element is not a plain numeric literal.
+ * Values of an option that may be a plain number/expression or an array of
+ * them: `count: 3` reads as `[3]`, `count: [3, n]` as `[3, 'n']`. The slots
+ * are unambiguous (object-literal properties), so any safe expression text
+ * qualifies. Null when any element can't be read.
  */
-function numericArrayValues(node: TSNode): number[] | null {
+function numericArrayValues(node: TSNode): ValueExpr[] | null {
   if (node.type === 'array') {
-    const values: number[] = [];
+    const values: ValueExpr[] = [];
     for (const child of node.namedChildren) {
       if (child.type === 'comment') {
         continue;
       }
-      const value = numericArgValue(child);
+      const value = anyValueArg(child);
       if (value === null) {
         return null;
       }
@@ -2549,7 +2796,7 @@ function numericArrayValues(node: TSNode): number[] | null {
     }
     return values;
   }
-  const value = numericArgValue(node);
+  const value = anyValueArg(node);
   return value === null ? null : [value];
 }
 
@@ -2605,7 +2852,12 @@ function resolveRepeatTargetRef(node: TSNode, statementStart: number): { line: n
  * dialog doesn't offer (`skip`). A rotate's non-numeric third argument reads
  * as a target, like revolve's variable angle.
  */
-function parseRepeatChain(args: TSNode[], start: number, end: number): ChainParse {
+function parseRepeatChain(
+  args: TSNode[],
+  start: number,
+  end: number,
+  numericVars: Set<string> = new Set(),
+): ChainParse {
   const rawKind = args.length > 0 ? stringArgValue(args[0]) : null;
   if (rawKind === null) {
     return { error: 'a matrix repeat is not editable in the dialog — edit it in the source' };
@@ -2619,12 +2871,12 @@ function parseRepeatChain(args: TSNode[], start: number, end: number): ChainPars
     kind,
     axisTexts: [] as string[],
     planeText: null as string | null,
-    directions: null as { count: number; value: number }[] | null,
+    directions: null as { count: ValueExpr; value: ValueExpr }[] | null,
     spacingMode: null as 'offset' | 'length' | null,
     centered: false,
-    count: null as number | null,
-    sweep: null as { mode: 'angle' | 'offset'; value: number } | null,
-    angle: null as number | null,
+    count: null as ValueExpr | null,
+    sweep: null as { mode: 'angle' | 'offset'; value: ValueExpr } | null,
+    angle: null as ValueExpr | null,
     targetTexts: [] as string[],
     targetRefs: [] as ({ line: number; column: number } | null)[],
   };
@@ -2648,13 +2900,14 @@ function parseRepeatChain(args: TSNode[], start: number, end: number): ChainPars
     if (args.length < 2) {
       return { error: 'the repeat has fewer arguments than the dialog understands' };
     }
-    // A numeric third argument is the angle (90 when omitted); a variable
-    // angle is indistinguishable from a target, so it reads as one — the
-    // revolve variable-angle rule.
+    // A numeric-valued third argument is the angle (90 when omitted) — a
+    // literal, known numeric variable, or arithmetic; an unknown identifier
+    // is indistinguishable from a target, so it reads as one — the revolve
+    // variable-angle rule.
     let rest = args.slice(2);
-    let angle: number | null = null;
+    let angle: ValueExpr | null = null;
     if (rest.length > 0) {
-      const value = numericArgValue(rest[0]);
+      const value = numericValueArg(rest[0], numericVars);
       if (value !== null) {
         angle = value;
         rest = rest.slice(1);
@@ -2691,9 +2944,9 @@ function parseRepeatChain(args: TSNode[], start: number, end: number): ChainPars
       }
     }
     const countNode = options.get('count');
-    const count = countNode ? numericArgValue(countNode) : null;
+    const count = countNode ? anyValueArg(countNode) : null;
     if (count === null) {
-      return { error: 'the repeat count is not a plain number — edit it in the source' };
+      return { error: 'the repeat count is not a plain number or expression — edit it in the source' };
     }
     const angleNode = options.get('angle');
     const offsetNode = options.get('offset');
@@ -2701,9 +2954,9 @@ function parseRepeatChain(args: TSNode[], start: number, end: number): ChainPars
       return { error: 'a circular repeat takes exactly one of angle or offset — edit it in the source' };
     }
     const mode = angleNode !== undefined ? 'angle' as const : 'offset' as const;
-    const value = numericArgValue(angleNode ?? offsetNode!);
+    const value = anyValueArg(angleNode ?? offsetNode!);
     if (value === null) {
-      return { error: `the repeat ${mode} is not a plain number — edit it in the source` };
+      return { error: `the repeat ${mode} is not a plain number or expression — edit it in the source` };
     }
     return {
       parsed: { ...base, axisTexts, count, sweep: { mode, value }, ...targets },
@@ -2740,7 +2993,7 @@ function parseRepeatChain(args: TSNode[], start: number, end: number): ChainPars
   // the kernel's `counts[i] ?? counts[0]` rule; other arities would leave
   // the dialog lying about the statement.
   const arity = axisTexts.length;
-  const broadcast = (list: number[], label: string): number[] | { error: string } => {
+  const broadcast = (list: ValueExpr[], label: string): ValueExpr[] | { error: string } => {
     if (list.length === arity) {
       return list;
     }
@@ -2950,11 +3203,11 @@ function parseConditionSegment(
   if (type !== 'normal' && type !== 'tangent') {
     return { error: `the .${seg.name}() type '${type}' is not one the dialog knows` };
   }
-  let magnitude = 1;
+  let magnitude: ValueExpr = 1;
   if (seg.args.length === 2) {
-    const parsed = numericArgValue(seg.args[1]);
+    const parsed = anyValueArg(seg.args[1]);
     if (parsed === null || parsed === 0) {
-      return { error: `the .${seg.name}() magnitude is not a plain nonzero number — edit it in the source` };
+      return { error: `the .${seg.name}() magnitude is not a plain nonzero number or expression — edit it in the source` };
     }
     magnitude = parsed;
   }
@@ -2977,7 +3230,7 @@ export async function parseFeatureStatement(
   if (!call) {
     return { ok: false, reason: `no call found at line ${line} — is the file in sync with the last render?` };
   }
-  const chain = parseFeatureChain(call, code);
+  const chain = parseFeatureChain(call, code, numericVarNames(tree));
   if ('error' in chain) {
     return { ok: false, reason: chain.error };
   }
@@ -2988,22 +3241,22 @@ function validEditOp(op: unknown): op is 'add' | 'remove' | 'new' {
   return op === 'add' || op === 'remove' || op === 'new';
 }
 
-function validEditThin(thin: unknown): thin is [number] | [number, number] | null {
+function validEditThin(thin: unknown): thin is [ValueExpr] | [ValueExpr, ValueExpr] | null {
   if (thin === null) {
     return true;
   }
   return Array.isArray(thin) && thin.length >= 1 && thin.length <= 2
-    && thin.every(t => typeof t === 'number' && Number.isFinite(t) && t > 0);
+    && thin.every(t => validValueExpr(t, { positive: true }));
 }
 
 function validEditCondition(condition: LoftConditionSpec | undefined): boolean {
   return condition === undefined
     || ((condition.type === 'normal' || condition.type === 'tangent')
-      && Number.isFinite(condition.magnitude) && condition.magnitude !== 0);
+      && validValueExpr(condition.magnitude, { nonzero: true }));
 }
 
-function validNonzeroOrNull(value: unknown): value is number | null {
-  return value === null || (typeof value === 'number' && Number.isFinite(value) && value !== 0);
+function validNonzeroOrNull(value: unknown): value is ValueExpr | null {
+  return value === null || validValueExpr(value, { nonzero: true });
 }
 
 /** The spec fields `renderEditedStatement` reads. */
@@ -3157,12 +3410,12 @@ function renderEditedRepeat(
   };
 
   let inputExprs: string[];
-  let directions: { count: number; value: number }[] | undefined;
+  let directions: { count: ValueExpr; value: ValueExpr }[] | undefined;
   if (opts.kind === 'linear') {
     if (!Array.isArray(opts.directions) || opts.directions.length < 1
       || (opts.spacingMode !== 'offset' && opts.spacingMode !== 'length')
-      || !opts.directions.every(d => Number.isInteger(d?.count) && d.count >= 2
-        && typeof d.value === 'number' && Number.isFinite(d.value) && d.value !== 0)) {
+      || !opts.directions.every(d => validCountValue(d?.count)
+        && validValueExpr(d.value, { nonzero: true }))) {
       return { error: 'malformed repeat edit spec' };
     }
     inputExprs = [];
@@ -3200,14 +3453,13 @@ function renderEditedRepeat(
     inputExprs = [planeExpr];
   } else {
     if (opts.kind === 'circular') {
-      if (!Number.isInteger(opts.count) || opts.count! < 2
+      if (!validCountValue(opts.count)
         || opts.sweep === undefined
         || (opts.sweep.mode !== 'angle' && opts.sweep.mode !== 'offset')
-        || typeof opts.sweep.value !== 'number' || !Number.isFinite(opts.sweep.value)
-        || opts.sweep.value === 0) {
+        || !validValueExpr(opts.sweep.value, { nonzero: true })) {
         return { error: 'malformed repeat edit spec' };
       }
-    } else if (typeof opts.angle !== 'number' || !Number.isFinite(opts.angle) || opts.angle === 0) {
+    } else if (!validValueExpr(opts.angle, { nonzero: true })) {
       return { error: 'malformed repeat edit spec' };
     }
     const expr = resolveAxis(opts.axis);
@@ -3319,7 +3571,7 @@ export function renderEditedStatement(
         if (opts.distance2 !== null) {
           return { error: 'a two-distance extrude cannot be through-all' };
         }
-      } else if (typeof opts.distance !== 'number' || !Number.isFinite(opts.distance) || opts.distance === 0) {
+      } else if (!validValueExpr(opts.distance, { nonzero: true })) {
         return { error: 'malformed extrude edit spec' };
       }
       if (opts.distance2 !== null && opts.symmetric) {
@@ -3380,8 +3632,7 @@ export function renderEditedStatement(
   }
   if (parsed.feature === 'wrap') {
     const opts = spec.edit?.wrap;
-    if (!opts || !validEditOp(opts.op)
-      || typeof opts.thickness !== 'number' || !Number.isFinite(opts.thickness) || opts.thickness <= 0) {
+    if (!opts || !validEditOp(opts.op) || !validValueExpr(opts.thickness, { positive: true })) {
       return { error: 'malformed wrap edit spec' };
     }
     let faceText = parsed.faceText;
@@ -3409,7 +3660,7 @@ export function renderEditedStatement(
   if (parsed.feature === 'revolve') {
     const opts = spec.edit?.revolve;
     if (!opts || !validEditOp(opts.op) || !validEditThin(opts.thin)
-      || typeof opts.angle !== 'number' || !Number.isFinite(opts.angle) || opts.angle === 0) {
+      || !validValueExpr(opts.angle, { nonzero: true })) {
       return { error: 'malformed revolve edit spec' };
     }
     let axisExpr = parsed.axisText;
@@ -3517,8 +3768,8 @@ export function renderEditedStatement(
     }
     return { statement: renderTextStatement(opts, parsed.pathText) };
   }
-  if (typeof spec.value !== 'number' || !Number.isFinite(spec.value) || spec.value === 0) {
-    return { error: `the ${parsed.feature} value must be a nonzero number` };
+  if (!validValueExpr(spec.value, { nonzero: true })) {
+    return { error: `the ${parsed.feature} value must be a nonzero number or expression` };
   }
   let joinChain = '';
   if (parsed.feature === 'shell') {
@@ -3539,8 +3790,8 @@ export function renderEditedStatement(
   const args = spec.rawArgs?.trim() || partsArgs || parsed.argsText;
   return {
     statement: args
-      ? `${parsed.feature}(${formatNumber(spec.value)}, ${args})${joinChain}`
-      : `${parsed.feature}(${formatNumber(spec.value)})${joinChain}`,
+      ? `${parsed.feature}(${formatValue(spec.value)}, ${args})${joinChain}`
+      : `${parsed.feature}(${formatValue(spec.value)})${joinChain}`,
   };
 }
 
@@ -3570,7 +3821,7 @@ async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Pro
   if (!call) {
     return { newCode: code, error: `no call found at line ${edit.line} — is the file in sync with the last render?` };
   }
-  const chain = parseFeatureChain(call, code);
+  const chain = parseFeatureChain(call, code, numericVarNames(tree));
   if ('error' in chain) {
     return { newCode: code, error: chain.error };
   }
@@ -3636,7 +3887,28 @@ async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Pro
       edits.push({ start: binding.call.startIndex, end: binding.call.startIndex, text: `const ${binding.varName} = ` });
     }
   }
-  edits.sort((a, b) => b.start - a.start);
+  // Declarations a dialog expression field committed land on the line before
+  // the edited statement (its `const x = ` binding included), at its indent.
+  const stmtNode = enclosingStatement(call);
+  const declsResult = renderNewVariableDecls(
+    code, spec.newVariables, (stmtNode ?? call).text.trimEnd().endsWith(';'),
+  );
+  if ('error' in declsResult) {
+    return { newCode: code, error: declsResult.error };
+  }
+  if (declsResult.decls.length > 0) {
+    const anchor = stmtNode ?? call;
+    const indent = indentOf(lines, anchor.startPosition.row);
+    edits.push({
+      start: anchor.startIndex,
+      end: anchor.startIndex,
+      text: declsResult.decls.map(d => `${d}\n${indent}`).join(''),
+    });
+  }
+  // Ties (a pure insertion at the statement's own start) must splice after
+  // the replacement, so the inserted text never lands inside the replaced
+  // span — hence the end tie-break.
+  edits.sort((a, b) => b.start - a.start || b.end - a.end);
   let result = code;
   for (const e of edits) {
     result = spliceCode(result, e.start, e.end, e.text);

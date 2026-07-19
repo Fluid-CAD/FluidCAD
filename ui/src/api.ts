@@ -3,6 +3,16 @@ import type { SourceLocation } from './types';
 
 export type { SourceLocation };
 
+/**
+ * A dialog numeric slot on the wire: a plain number, or verbatim expression
+ * text (`height`, `h * 2`) committed by an expression field. The server
+ * renders expressions as-is into the statement.
+ */
+export type ValueExpr = number | string;
+
+/** A `const <name> = <initializer>` declaration an expression field committed. */
+export type NewVariable = { name: string; initializer: string };
+
 type SourceLocationParam = { filePath?: string; line: number; column: number };
 
 // ---------------------------------------------------------------------------
@@ -303,8 +313,10 @@ export async function getDimensionExpression(
   })) ?? { expression: null };
 }
 
+/** Variables in scope at `sketchSourceLine`; null means whole-file scope
+ * (the feature dialogs' create mode — statements append at the end). */
 export async function getScopeVariables(
-  sketchSourceLine: number,
+  sketchSourceLine: number | null,
 ): Promise<VariableInfo[]> {
   const data = await postJson<{ variables: VariableInfo[] }>(
     '/api/scope-variables',
@@ -391,6 +403,8 @@ export type ApplyFeatureOptions = {
   retarget?: SketchSourceRef;
   /** Shell only: writes a `.join('<type>')` chain; 'arc' writes none. */
   joinType?: ShellJoinType;
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
   /** Synthesize only — return the expression preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -405,7 +419,7 @@ export type ApplyFeatureOptions = {
  */
 export async function applyFeature(
   feature: 'fillet' | 'chamfer' | 'shell' | 'sketch',
-  value: number | null,
+  value: ValueExpr | null,
   entities: ApplyFeatureEntity[],
   options: ApplyFeatureOptions = {},
 ): Promise<ApplyFeatureResponse> {
@@ -419,6 +433,7 @@ export async function applyFeature(
     planeRef: options.planeRef,
     edit: options.retarget,
     joinType: options.joinType,
+    newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);
 }
@@ -436,17 +451,19 @@ export type ExtrudeProfileRef = {
 export type ExtrudeOptionValues = {
   op: 'add' | 'remove' | 'new';
   /** Extrusion distance; null is a through-all remove. */
-  distance: number | null;
+  distance: ValueExpr | null;
   /** Second (opposite-direction) distance — `extrude(d1, d2)`; excludes symmetric. */
-  distance2: number | null;
+  distance2: ValueExpr | null;
   /** `.symmetric()` — the distance splits equally across the sketch plane. */
   symmetric: boolean;
   /** `.draft(angle)` taper in degrees, or null for a straight extrude. */
-  draft: number | null;
+  draft: ValueExpr | null;
   /** False writes `.drill(false)` — inner closed regions extrude as solid. */
   drill: boolean;
   /** `.thin()` offsets, or null for a plain extrude. */
-  thin: [number] | [number, number] | null;
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
 };
 
 export type ExtrudeApplyOptions = ExtrudeOptionValues & {
@@ -474,6 +491,7 @@ export async function applyExtrude(options: ExtrudeApplyOptions): Promise<ApplyF
     draft: options.draft,
     drill: options.drill,
     thin: options.thin,
+    newVariables: options.newVariables,
     profile: options.profile,
     toFace: options.toFace,
     preview: options.preview,
@@ -487,9 +505,11 @@ export type SketchSourceRef = { filePath: string; line: number; column: number }
 export type RevolveOptionValues = {
   op: 'add' | 'remove' | 'new';
   /** Sweep angle in degrees; 360 (the API default) writes no argument. */
-  angle: number;
+  angle: ValueExpr;
   /** `.thin()` offsets, or null for a plain revolve. */
-  thin: [number] | [number, number] | null;
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
 };
 
 /**
@@ -521,6 +541,7 @@ export async function applyRevolve(options: RevolveApplyOptions): Promise<ApplyF
     op: options.op,
     angle: options.angle,
     thin: options.thin,
+    newVariables: options.newVariables,
     profile: options.profile,
     axis: options.axis,
     preview: options.preview,
@@ -530,7 +551,9 @@ export async function applyRevolve(options: RevolveApplyOptions): Promise<ApplyF
 export type SweepApplyOptions = {
   op: 'add' | 'remove' | 'new';
   /** `.thin()` offsets, or null for a plain sweep. */
-  thin: [number] | [number, number] | null;
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
   profile: ExtrudeProfileRef;
   /** The path: another sketch, or picked edges to synthesize a selector from. */
   path:
@@ -551,6 +574,7 @@ export async function applySweep(options: SweepApplyOptions): Promise<ApplyFeatu
     feature: 'sweep',
     op: options.op,
     thin: options.thin,
+    newVariables: options.newVariables,
     profile: options.profile,
     path: options.path,
     preview: options.preview,
@@ -561,7 +585,9 @@ export async function applySweep(options: SweepApplyOptions): Promise<ApplyFeatu
 export type WrapOptionValues = {
   op: 'add' | 'remove' | 'new';
   /** Pad thickness along the surface normal (always positive). */
-  thickness: number;
+  thickness: ValueExpr;
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
 };
 
 export type WrapApplyOptions = WrapOptionValues & {
@@ -584,6 +610,7 @@ export async function applyWrap(options: WrapApplyOptions): Promise<ApplyFeature
     feature: 'wrap',
     op: options.op,
     thickness: options.thickness,
+    newVariables: options.newVariables,
     sketch: options.sketch,
     face: options.face,
     preview: options.preview,
@@ -596,12 +623,14 @@ export type LoftProfileRef =
   | { kind: 'face'; entity: ApplyFeatureEntity };
 
 /** A `.startCondition()`/`.endCondition()` takeoff constraint; null = none. */
-export type LoftConditionRef = { type: 'normal' | 'tangent'; magnitude: number };
+export type LoftConditionRef = { type: 'normal' | 'tangent'; magnitude: ValueExpr };
 
 export type LoftApplyOptions = {
   op: 'add' | 'remove' | 'new';
   /** `.thin()` offsets, or null for a plain loft. */
-  thin: [number] | [number, number] | null;
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
   /** Ordered profiles — the loft's argument order. */
   profiles: LoftProfileRef[];
   /** Up to two guide-curve sketches (`.guides(…)`); excludes thin mode. */
@@ -623,6 +652,7 @@ export async function applyLoft(options: LoftApplyOptions): Promise<ApplyFeature
     feature: 'loft',
     op: options.op,
     thin: options.thin,
+    newVariables: options.newVariables,
     profiles: options.profiles,
     guides: options.guides,
     startCondition: options.startCondition,
@@ -644,14 +674,16 @@ export type PlaneApplyOptions = {
   /** `offset`/`edge` take one base; `mid` takes two. */
   type: 'offset' | 'mid' | 'edge';
   /** Normal offset distance; null renders none. Offset type only. */
-  offset: number | null;
+  offset: ValueExpr | null;
   /** Rotation in degrees around the plane's local axes; null renders none. */
-  rotateX: number | null;
-  rotateY: number | null;
-  rotateZ: number | null;
+  rotateX: ValueExpr | null;
+  rotateY: ValueExpr | null;
+  rotateZ: ValueExpr | null;
   /** Normalized 0–1 position along the edge (edge type only). */
-  position: number | null;
+  position: ValueExpr | null;
   bases: PlaneBaseRef[];
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -671,6 +703,7 @@ export async function applyPlane(options: PlaneApplyOptions): Promise<ApplyFeatu
     rotateZ: options.rotateZ,
     position: options.position,
     bases: options.bases,
+    newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);
 }
@@ -690,9 +723,9 @@ export type RepeatDirectionRef = {
   /** The direction's axis — the revolve axis shapes. */
   axis: RevolveAxisRef;
   /** Instance count along this direction, the original included. */
-  count: number;
+  count: ValueExpr;
   /** Spacing along this direction, read through the shared `spacingMode`. */
-  value: number;
+  value: ValueExpr;
 };
 
 export type RepeatApplyOptions = {
@@ -708,13 +741,15 @@ export type RepeatApplyOptions = {
   /** The mirror plane (mirror only). */
   plane?: RepeatPlaneRef;
   /** Instance count, original included (circular). */
-  count?: number;
+  count?: ValueExpr;
   /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
-  sweep?: { mode: 'angle' | 'offset'; value: number };
+  sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
   /** Linear only: center the pattern on the original instance. */
   centered?: boolean;
   /** Rotate only: rotation angle in degrees. */
-  angle?: number;
+  angle?: ValueExpr;
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -738,6 +773,7 @@ export async function applyRepeat(options: RepeatApplyOptions): Promise<ApplyFea
     sweep: options.sweep,
     centered: options.centered,
     angle: options.angle,
+    newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);
 }
@@ -813,12 +849,12 @@ export type ParsedFeatureStatement =
   | {
       feature: 'extrude';
       op: FeatureOpKind;
-      distance: number | null;
-      distance2: number | null;
+      distance: ValueExpr | null;
+      distance2: ValueExpr | null;
       symmetric: boolean;
-      draft: number | null;
+      draft: ValueExpr | null;
       drill: boolean;
-      thin: [number] | null;
+      thin: [ValueExpr] | null;
       profileText: string | null;
       /** Up-to-face target argument text, or null for a distance extrude. */
       toFaceText: string | null;
@@ -826,7 +862,7 @@ export type ParsedFeatureStatement =
   | {
       feature: 'sweep';
       op: FeatureOpKind;
-      thin: [number] | null;
+      thin: [ValueExpr] | null;
       pathText: string;
       profileText: string | null;
     }
@@ -834,7 +870,7 @@ export type ParsedFeatureStatement =
       feature: 'wrap';
       op: FeatureOpKind;
       /** Pad thickness along the surface normal (always positive). */
-      thickness: number;
+      thickness: ValueExpr;
       /** Sketch argument text, verbatim (`s`). */
       sketchText: string;
       /** Target face argument text, verbatim (`e.sideFaces(0)`). */
@@ -844,8 +880,8 @@ export type ParsedFeatureStatement =
       feature: 'revolve';
       op: FeatureOpKind;
       /** Sweep angle in degrees; null = omitted (the 360° API default). */
-      angle: number | null;
-      thin: [number] | null;
+      angle: ValueExpr | null;
+      thin: [ValueExpr] | null;
       /** Axis argument text, verbatim (`'z'`, `a`, `axis(e.edges(3))`). */
       axisText: string;
       profileText: string | null;
@@ -853,7 +889,7 @@ export type ParsedFeatureStatement =
   | {
       feature: 'loft';
       op: FeatureOpKind;
-      thin: [number] | null;
+      thin: [ValueExpr] | null;
       profileTexts: string[];
       guideTexts: string[];
       startCondition: LoftConditionRef | null;
@@ -861,12 +897,12 @@ export type ParsedFeatureStatement =
     }
   | {
       feature: 'shell';
-      value: number;
+      value: ValueExpr;
       argsText: string;
       /** `.join()` type; 'arc' (the kernel default) when the chain is absent. */
       joinType: ShellJoinType;
     }
-  | { feature: 'fillet' | 'chamfer'; value: number; argsText: string }
+  | { feature: 'fillet' | 'chamfer'; value: ValueExpr; argsText: string }
   | {
       feature: 'sketch';
       /** Plane/face target argument text, verbatim; null for the bare form. */
@@ -890,17 +926,17 @@ export type ParsedFeatureStatement =
       /** Mirror plane argument text, verbatim; null for the axis kinds. */
       planeText: string | null;
       /** Linear per-direction count and value, in axis order. */
-      directions: { count: number; value: number }[] | null;
+      directions: { count: ValueExpr; value: ValueExpr }[] | null;
       /** Linear spacing semantics shared by every direction. */
       spacingMode: 'offset' | 'length' | null;
       /** Linear only: the pattern is centered on the original instance. */
       centered: boolean;
       /** Circular instance count, original included. */
-      count: number | null;
+      count: ValueExpr | null;
       /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
-      sweep: { mode: 'angle' | 'offset'; value: number } | null;
+      sweep: { mode: 'angle' | 'offset'; value: ValueExpr } | null;
       /** Rotate angle in degrees; null = omitted (the 90° API default). */
-      angle: number | null;
+      angle: ValueExpr | null;
       /** Trailing target texts, verbatim; empty replays the previous feature. */
       targetTexts: string[];
       /**
@@ -977,6 +1013,7 @@ export async function applyExtrudeEdit(
     draft: options.draft,
     drill: options.drill,
     thin: options.thin,
+    newVariables: options.newVariables,
     profile: options.profile,
     toFace: options.toFace,
     preview: options.preview,
@@ -985,7 +1022,9 @@ export async function applyExtrudeEdit(
 
 export type SweepEditOptions = EditSessionFields & {
   op: FeatureOpKind;
-  thin: [number] | [number, number] | null;
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
   /** Re-sourced path; omitted keeps the statement's own. */
   path?: ({ kind: 'sketch' } & SketchSourceRef)
     | { kind: 'edges'; entities: ApplyFeatureEntity[]; chains: ApplyFeatureChain[] };
@@ -1007,6 +1046,7 @@ export async function applySweepEdit(
     before: options.before,
     op: options.op,
     thin: options.thin,
+    newVariables: options.newVariables,
     path: options.path,
     profile: options.profile,
     preview: options.preview,
@@ -1037,6 +1077,7 @@ export async function applyWrapEdit(
     before: options.before,
     op: options.op,
     thickness: options.thickness,
+    newVariables: options.newVariables,
     sketch: options.sketch,
     face: options.face,
     preview: options.preview,
@@ -1065,6 +1106,7 @@ export async function applyRevolveEdit(
     op: options.op,
     angle: options.angle,
     thin: options.thin,
+    newVariables: options.newVariables,
     profile: options.profile,
     axis: options.axis,
     preview: options.preview,
@@ -1084,7 +1126,9 @@ export type LoftEditGuideRef =
 
 export type LoftEditOptions = EditSessionFields & {
   op: FeatureOpKind;
-  thin: [number] | [number, number] | null;
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
   startCondition: LoftConditionRef | null;
   endCondition: LoftConditionRef | null;
   /** Full replacement profile list; omitted keeps the statement's own. */
@@ -1107,6 +1151,7 @@ export async function applyLoftEdit(
     before: options.before,
     op: options.op,
     thin: options.thin,
+    newVariables: options.newVariables,
     startCondition: options.startCondition,
     endCondition: options.endCondition,
     profiles: options.profiles,
@@ -1137,7 +1182,7 @@ export type RepeatEditTargetRef =
 export type RepeatEditOptions = EditSessionFields & {
   kind: 'linear' | 'circular' | 'mirror' | 'rotate';
   /** Linear directions in axis order — each its own axis, count and value. */
-  directions?: { axis: RepeatEditAxisRef; count: number; value: number }[];
+  directions?: { axis: RepeatEditAxisRef; count: ValueExpr; value: ValueExpr }[];
   /** Linear spacing semantics shared by every direction. */
   spacingMode?: 'offset' | 'length';
   /** Linear only: center the pattern on the original instance. */
@@ -1147,11 +1192,13 @@ export type RepeatEditOptions = EditSessionFields & {
   /** The mirror plane; omitted keeps the statement's own. */
   plane?: RepeatEditPlaneRef;
   /** Instance count, original included (circular). */
-  count?: number;
+  count?: ValueExpr;
   /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
-  sweep?: { mode: 'angle' | 'offset'; value: number };
+  sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
   /** Rotate only: rotation angle in degrees. */
-  angle?: number;
+  angle?: ValueExpr;
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
   /** Full replacement target list; omitted keeps the statement's own. */
   targets?: RepeatEditTargetRef[];
   preview?: boolean;
@@ -1177,6 +1224,7 @@ export async function applyRepeatEdit(
     count: options.count,
     sweep: options.sweep,
     angle: options.angle,
+    newVariables: options.newVariables,
     targets: options.targets,
     preview: options.preview,
   }, options.signal);
@@ -1209,11 +1257,13 @@ export async function applyTextEdit(
 }
 
 export type ValueFeatureEditOptions = EditSessionFields & {
-  value: number;
+  value: ValueExpr;
   /** Edited selector argument list; omitted keeps the statement's verbatim. */
   selectorOverride?: string;
   /** Shell only: rewrites the `.join('<type>')` chain; 'arc' writes none. */
   joinType?: ShellJoinType;
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
   /** Re-picked selection; omitted keeps the statement's own args. */
   entities?: ApplyFeatureEntity[];
   chains?: ApplyFeatureChain[];
@@ -1235,6 +1285,7 @@ export async function applyValueFeatureEdit(
     value: options.value,
     selectorOverride: options.selectorOverride,
     joinType: options.joinType,
+    newVariables: options.newVariables,
     entities: options.entities,
     chains: options.chains,
     preview: options.preview,

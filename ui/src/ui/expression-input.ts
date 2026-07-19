@@ -1,25 +1,12 @@
+import {
+  applyVariableName, classifyCommit, filterSuggestions, suggestionItemHtml,
+  trailingIdentifier, Suggestion, VariableInfo,
+} from './expression-core';
+
+export type { VariableInfo };
+
 const OFFSET_X = 16;
 const OFFSET_Y = -36;
-
-const IDENT_RE = /^[a-zA-Z_$][\w$]*$/;
-const TRAILING_IDENT_RE = /([a-zA-Z_$][\w$]*)$/;
-const ASSIGNMENT_RE = /^([a-zA-Z_$][\w$]*)\s*=\s*(.+?)\s*;?\s*$/;
-const RESERVED = new Set([
-  'const', 'let', 'var', 'if', 'else', 'for', 'while', 'do', 'return', 'function',
-  'class', 'new', 'this', 'true', 'false', 'null', 'undefined', 'typeof', 'instanceof',
-  'switch', 'case', 'break', 'continue', 'default', 'try', 'catch', 'finally', 'throw',
-  'in', 'of', 'delete', 'void', 'yield', 'async', 'await', 'import', 'export', 'from',
-  'as', 'extends', 'super', 'static', 'enum', 'interface', 'implements', 'package',
-  'private', 'protected', 'public',
-]);
-
-function isValidNewIdentifier(s: string): boolean {
-  return IDENT_RE.test(s) && !RESERVED.has(s);
-}
-
-export type VariableInfo = { name: string; initializer?: string };
-
-type Suggestion = VariableInfo & { isNew?: boolean };
 
 export type CommitResult = {
   expression: string;
@@ -213,7 +200,7 @@ export class ExpressionInput {
     if (!this.onCommit) {
       return false;
     }
-    const classified = this.classifyCommit(raw);
+    const classified = classifyCommit(raw, this.variables, this.seedValue, this.numericOnly);
     if (classified.kind === 'error') {
       this.showInlineError(classified.message);
       return false;
@@ -228,51 +215,6 @@ export class ExpressionInput {
     }
     this.hide();
     return true;
-  }
-
-  private classifyCommit(raw: string):
-    | { kind: 'expression'; expression: string }
-    | { kind: 'declare'; name: string; initializer: string }
-    | { kind: 'error'; message: string } {
-    if (this.numericOnly) {
-      const num = parseFloat(raw);
-      if (isNaN(num)) {
-        return { kind: 'error', message: 'Enter a numeric value' };
-      }
-      return { kind: 'expression', expression: raw };
-    }
-
-    const assignMatch = raw.match(ASSIGNMENT_RE);
-    if (assignMatch) {
-      const name = assignMatch[1];
-      const rhs = assignMatch[2].trim();
-      if (!isValidNewIdentifier(name)) {
-        return { kind: 'error', message: `'${name}' is not a valid name` };
-      }
-      if (this.variables.some((v) => v.name === name)) {
-        return { kind: 'error', message: `'${name}' is already defined` };
-      }
-      if (!rhs) {
-        return { kind: 'error', message: 'Missing value' };
-      }
-      return { kind: 'declare', name, initializer: rhs };
-    }
-
-    if (IDENT_RE.test(raw)) {
-      if (this.variables.some((v) => v.name === raw)) {
-        return { kind: 'expression', expression: raw };
-      }
-      if (!isValidNewIdentifier(raw)) {
-        return { kind: 'expression', expression: raw };
-      }
-      const initializer = this.seedValue.trim();
-      if (!initializer) {
-        return { kind: 'error', message: 'No value to assign' };
-      }
-      return { kind: 'declare', name: raw, initializer };
-    }
-
-    return { kind: 'expression', expression: raw };
   }
 
   private showInlineError(msg: string): void {
@@ -317,63 +259,22 @@ export class ExpressionInput {
   }
 
   private filterAndRender(): void {
-    const query = this.userIsTyping && !this.numericOnly ? this.trailingIdentifier() : null;
+    const query = this.userIsTyping && !this.numericOnly
+      ? trailingIdentifier(this.input.value)
+      : null;
     if (!query) {
       this.filteredVars = [];
       this.selectedIndex = -1;
       this.renderDropdown();
       return;
     }
-    const lower = query.toLowerCase();
-    const matches: Suggestion[] = this.variables.filter(
-      (v) => v.name.toLowerCase().includes(lower),
-    );
-    matches.sort((a, b) => this.matchRank(a.name, lower) - this.matchRank(b.name, lower));
-    this.filteredVars = matches;
-    if (this.shouldOfferNewVariable(query)) {
-      this.filteredVars.push({ name: query, initializer: this.seedValue.trim(), isNew: true });
-    }
+    this.filteredVars = filterSuggestions(query, this.variables, this.input.value, this.seedValue);
     this.selectedIndex = this.filteredVars.length > 0 ? 0 : -1;
     this.renderDropdown();
   }
 
-  private matchRank(name: string, lowerQuery: string): number {
-    const lowerName = name.toLowerCase();
-    if (lowerName === lowerQuery) {
-      return 0;
-    }
-    if (lowerName.startsWith(lowerQuery)) {
-      return 1;
-    }
-    return 2;
-  }
-
-  private shouldOfferNewVariable(query: string): boolean {
-    if (!query || this.input.value.trim() !== query) {
-      return false;
-    }
-    if (!isValidNewIdentifier(query)) {
-      return false;
-    }
-    if (this.variables.some((v) => v.name === query)) {
-      return false;
-    }
-    return this.seedValue.trim().length > 0;
-  }
-
-  private trailingIdentifier(): string | null {
-    const match = this.input.value.match(TRAILING_IDENT_RE);
-    return match ? match[1] : null;
-  }
-
   private applyVariableName(name: string): void {
-    const value = this.input.value;
-    const match = value.match(TRAILING_IDENT_RE);
-    if (match && match.index !== undefined) {
-      this.input.value = value.slice(0, match.index) + name;
-    } else {
-      this.input.value = value + name;
-    }
+    this.input.value = applyVariableName(this.input.value, name);
   }
 
   private renderDropdown(): void {
@@ -383,12 +284,7 @@ export class ExpressionInput {
     }
     this.dropdown.classList.remove('hidden');
     this.dropdown.innerHTML = this.filteredVars
-      .map((v, i) => {
-        const active = i === this.selectedIndex ? 'bg-primary/10' : '';
-        const hint = v.initializer ? `<span class="text-base-content/40 ml-2">= ${this.escapeHtml(this.truncate(v.initializer, 20))}</span>` : '';
-        const badge = v.isNew ? '<span class="text-primary/70 ml-2 text-[10px] uppercase select-none">new</span>' : '';
-        return `<div class="px-2 py-1 text-sm font-mono cursor-pointer hover:bg-primary/10 ${active}" data-idx="${i}">${this.escapeHtml(v.name)}${hint}${badge}</div>`;
-      })
+      .map((v, i) => suggestionItemHtml(v, i, i === this.selectedIndex))
       .join('');
 
     this.dropdown.querySelectorAll('[data-idx]').forEach((item) => {
@@ -407,13 +303,5 @@ export class ExpressionInput {
         activeEl.scrollIntoView({ block: 'nearest' });
       }
     }
-  }
-
-  private escapeHtml(str: string): string {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
-  private truncate(str: string, max: number): string {
-    return str.length > max ? str.slice(0, max) + '...' : str;
   }
 }

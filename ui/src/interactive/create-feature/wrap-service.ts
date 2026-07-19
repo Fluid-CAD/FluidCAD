@@ -1,6 +1,6 @@
 import {
-  applyWrap, applyWrapEdit, fetchFeatureSources, ApplyFeatureResponse, FeatureEditTarget,
-  ParsedFeatureStatement, SourceSlotRef, WrapEditOptions,
+  applyWrap, applyWrapEdit, fetchFeatureSources, getScopeVariables, ApplyFeatureResponse,
+  FeatureEditTarget, ParsedFeatureStatement, SourceSlotRef, WrapEditOptions,
 } from '../../api';
 import { sameEntity } from '../../helpers/entities';
 import { EditSession, EditSessionInfo } from '../edit-session';
@@ -247,6 +247,7 @@ export class WrapFeatureService {
     this.viewer.pickFilter = 'face';
     this.session.begin({ ...info, target });
     void this.loadEditSources();
+    void this.refreshScopeVariables();
     this.panel.showEdit({
       op: parsed.op,
       thickness: parsed.thickness,
@@ -260,6 +261,19 @@ export class WrapFeatureService {
    * Current sources of the edited statement: the sketch (for highlighting)
    * and the target face's resolved entities on the pre-statement solids.
    */
+  /**
+   * Push the variables in scope at the statement (edit mode) or at the end
+   * of the file (create mode) to the dialog's expression fields. A response
+   * landing after the dialog closed or re-targeted is dropped.
+   */
+  private async refreshScopeVariables(): Promise<void> {
+    const line = this.editTarget?.line ?? null;
+    const variables = await getScopeVariables(line);
+    if (this.armed && (this.editTarget?.line ?? null) === line) {
+      this.panel.setScopeVariables(variables);
+    }
+  }
+
   private async loadEditSources(): Promise<void> {
     const boundary = this.session.boundary;
     if (!boundary) {
@@ -292,6 +306,7 @@ export class WrapFeatureService {
     this.viewer.pickSketchWires = true;
     this.viewer.pickFilter = 'face';
     this.syncButton();
+    void this.refreshScopeVariables();
     this.panel.show(this.options);
     this.refreshSketchLabels();
     this.refreshHighlight();

@@ -1,4 +1,4 @@
-import { applyPlane, ApplyFeatureResponse, PlaneApplyOptions, PlaneBaseRef } from '../../api';
+import { applyPlane, getScopeVariables, ApplyFeatureResponse, PlaneApplyOptions, PlaneBaseRef } from '../../api';
 import { sameEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
@@ -162,6 +162,7 @@ export class PlaneFeatureService {
       this.suspendSketchUI();
     }
     this.syncButton();
+    void this.refreshScopeVariables();
     this.panel.show();
     this.seedFromSelection(seed);
     this.refreshPlaneLabels();
@@ -345,6 +346,18 @@ export class PlaneFeatureService {
     } finally {
       this.applying = false;
       this.panel.setApplyEnabled(true);
+    }
+  }
+
+  /**
+   * Push the variables in scope at the end of the file (plane statements
+   * append there) to the dialog's expression fields. A response landing
+   * after the dialog closed is dropped.
+   */
+  private async refreshScopeVariables(): Promise<void> {
+    const variables = await getScopeVariables(null);
+    if (this.armed) {
+      this.panel.setScopeVariables(variables);
     }
   }
 

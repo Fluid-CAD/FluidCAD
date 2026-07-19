@@ -313,8 +313,11 @@ export function createSketchEditsRouter(
   // ---------------------------------------------------------------------------
 
   router.post('/scope-variables', async (req, res) => {
+    // null/absent means whole-file scope — the feature dialogs' create mode,
+    // where the statement is appended after the last line.
     const { sketchSourceLine } = req.body;
-    if (typeof sketchSourceLine !== 'number') {
+    if (sketchSourceLine !== undefined && sketchSourceLine !== null
+      && typeof sketchSourceLine !== 'number') {
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
@@ -324,7 +327,9 @@ export function createSketchEditsRouter(
       return;
     }
     try {
-      const variables = await extractVariablesInScope(code, sketchSourceLine);
+      const variables = await extractVariablesInScope(
+        code, typeof sketchSourceLine === 'number' ? sketchSourceLine : Number.MAX_SAFE_INTEGER,
+      );
       res.json({ variables });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

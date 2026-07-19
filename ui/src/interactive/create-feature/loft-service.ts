@@ -1,6 +1,7 @@
 import {
-  applyLoft, applyLoftEdit, fetchFeatureSources, ApplyFeatureResponse, FeatureEditTarget, LoftApplyOptions,
-  LoftEditGuideRef, LoftEditProfileRef, LoftProfileRef, ParsedFeatureStatement, SketchSourceRef, SourceSlotRef,
+  applyLoft, applyLoftEdit, fetchFeatureSources, getScopeVariables, ApplyFeatureResponse,
+  FeatureEditTarget, LoftApplyOptions, LoftEditGuideRef, LoftEditProfileRef, LoftProfileRef,
+  ParsedFeatureStatement, SketchSourceRef, SourceSlotRef,
 } from '../../api';
 import { sameEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
@@ -299,6 +300,7 @@ export class LoftFeatureService {
     this.viewer.pickSketchWires = true;
     this.session.begin({ ...info, target });
     void this.loadEditSources();
+    void this.refreshScopeVariables();
     this.panel.showEdit({
       op: parsed.op,
       thin: parsed.thin,
@@ -314,6 +316,19 @@ export class LoftFeatureService {
    * the statement's own inputs in the rolled-back view (verbatim chips carry
    * the truth as text; nothing here feeds the apply payload).
    */
+  /**
+   * Push the variables in scope at the statement (edit mode) or at the end
+   * of the file (create mode) to the dialog's expression fields. A response
+   * landing after the dialog closed or re-targeted is dropped.
+   */
+  private async refreshScopeVariables(): Promise<void> {
+    const line = this.editTarget?.line ?? null;
+    const variables = await getScopeVariables(line);
+    if (this.armed && (this.editTarget?.line ?? null) === line) {
+      this.panel.setScopeVariables(variables);
+    }
+  }
+
   private async loadEditSources(): Promise<void> {
     const boundary = this.session.boundary;
     if (!boundary) {
@@ -349,6 +364,7 @@ export class LoftFeatureService {
     this.viewer.pickSketchWires = true;
     this.items = [];
     this.guides = [];
+    void this.refreshScopeVariables();
     this.panel.show();
     this.refreshSketchLabels();
     this.refreshProfilesUI();

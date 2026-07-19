@@ -1699,13 +1699,10 @@ describe('parseFeatureStatement', () => {
     }
   });
 
-  it('refuses a per-side draft array', async () => {
+  it('reads a per-side draft array as verbatim expression text', async () => {
     const code = `${editBase}\nextrude(10).draft([2, 4])\n`;
     const result = await parseFeatureStatement(code, 4);
-    expect(result).toMatchObject({ ok: false });
-    if (result.ok === false) {
-      expect(result.reason).toContain('draft');
-    }
+    expect(result).toMatchObject({ ok: true, parsed: { feature: 'extrude', draft: '[2, 4]' } });
   });
 
   it('refuses a non-literal .drill() argument', async () => {
@@ -1743,13 +1740,13 @@ describe('parseFeatureStatement', () => {
     });
   });
 
-  it('refuses a wrap whose thickness is not a plain number', async () => {
+  it('reads a variable wrap thickness as expression text', async () => {
     const code = `${editBase}\nconst e = extrude(30)\nwrap(t, s, e.sideFaces(0))\n`;
     const result = await parseFeatureStatement(code, 5);
-    expect(result).toMatchObject({ ok: false });
-    if (result.ok === false) {
-      expect(result.reason).toContain('thickness');
-    }
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'wrap', thickness: 't', sketchText: 's', faceText: 'e.sideFaces(0)' },
+    });
   });
 
   it('refuses a wrap missing its face argument', async () => {
@@ -3671,13 +3668,13 @@ describe('parseFeatureStatement — repeat', () => {
     }
   });
 
-  it('refuses a variable count', async () => {
+  it('reads a variable count as expression text', async () => {
     const code = `${repeatEditBase}\nrepeat('circular', 'z', { count: n, angle: 360 }, e)\n`;
     const result = await parseFeatureStatement(code, 7);
-    expect(result).toMatchObject({ ok: false });
-    if (result.ok === false) {
-      expect(result.reason).toContain('not a plain number');
-    }
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'repeat', kind: 'circular', count: 'n', sweep: { mode: 'angle', value: 360 } },
+    });
   });
 
   it('refuses more than two linear directions', async () => {
@@ -3826,5 +3823,315 @@ describe('applyFeatureEdit (repeat in-place statement edit)', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`repeat('mirror', 'yz')\n`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Expression values — variables/arithmetic in the dialogs' numeric slots,
+// plus the `newVariables` declarations the expression fields commit.
+// ---------------------------------------------------------------------------
+
+import { isExpressionText, validValueExpr } from '../src/apply-feature-edit.ts';
+
+describe('isExpressionText', () => {
+  it('accepts identifiers, arithmetic and call expressions', () => {
+    expect(isExpressionText('height')).toBe(true);
+    expect(isExpressionText('h * 2 + 1')).toBe(true);
+    expect(isExpressionText('Math.max(a, b)')).toBe(true);
+    expect(isExpressionText('(a + b) / 2')).toBe(true);
+  });
+
+  it('rejects statement separators, comments and top-level commas', () => {
+    expect(isExpressionText('1; drop()')).toBe(false);
+    expect(isExpressionText('1, 2')).toBe(false);
+    expect(isExpressionText('a // note')).toBe(false);
+    expect(isExpressionText('a /* x */')).toBe(false);
+    expect(isExpressionText('a = 5')).toBe(false);
+    expect(isExpressionText('(a')).toBe(false);
+    expect(isExpressionText('a)')).toBe(false);
+    expect(isExpressionText('')).toBe(false);
+  });
+
+  it('accepts comparisons and quoted commas', () => {
+    expect(isExpressionText('a >= 2 ? 3 : 4')).toBe(true);
+    expect(validValueExpr('h * 2', { nonzero: true })).toBe(true);
+    expect(validValueExpr(0, { nonzero: true })).toBe(false);
+  });
+});
+
+describe('expression values in dialog slots', () => {
+  const exprBase = [
+    `import { sketch, rect, extrude } from 'fluidcad/core'`,
+    ``,
+    `const height = 30`,
+    `const s = sketch('xy', () => { rect(100, 50) })`,
+  ].join('\n');
+
+  it('parses a numeric-variable distance with a bound profile', async () => {
+    const code = `${exprBase}\nextrude(height, s)\n`;
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', distance: 'height', profileText: 's', toFaceText: null },
+    });
+  });
+
+  it('parses an arithmetic distance and a variable thin offset', async () => {
+    const code = `${exprBase}\nextrude(height * 2, s).thin(height / 10)\n`;
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', distance: 'height * 2', thin: ['height / 10'], profileText: 's' },
+    });
+  });
+
+  it('parses a chained numeric variable (const w = height * 2) as a distance', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `const height = 30`,
+      `const w = height * 2`,
+      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `extrude(w, s)`,
+      ``,
+    ].join('\n');
+    const result = await parseFeatureStatement(code, 6);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', distance: 'w', profileText: 's' },
+    });
+  });
+
+  it('still reads an unknown bare identifier as the profile, not a distance', async () => {
+    const code = `${exprBase}\nextrude(s)\n`;
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toMatchObject({ ok: false });
+  });
+
+  it('parses a variable revolve angle before a bound profile', async () => {
+    const code = [
+      `import { sketch, rect, revolve } from 'fluidcad/core'`,
+      ``,
+      `const ang = 180`,
+      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `revolve('z', ang, s)`,
+      ``,
+    ].join('\n');
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'revolve', angle: 'ang', axisText: `'z'`, profileText: 's' },
+    });
+  });
+
+  it('rewrites an extrude distance to an expression in place', async () => {
+    const code = `${exprBase}\nextrude(25, s)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 5, column: 0,
+      extrude: extrudeEditOptions({ distance: 'height' }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`extrude(height, s)`);
+  });
+
+  it('declares newVariables directly before the edited statement', async () => {
+    const code = `${editBase}\nextrude(25)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: extrudeEditOptions({ distance: 'depth' }),
+    }, {
+      newVariables: [{ name: 'depth', initializer: '25' }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const depth = 25\nextrude(depth)`);
+  });
+
+  it('skips declaring a newVariable the file already declares', async () => {
+    const code = `${exprBase}\nextrude(25, s)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 5, column: 0,
+      extrude: extrudeEditOptions({ distance: 'height' }),
+    }, {
+      newVariables: [{ name: 'height', initializer: '25' }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode.match(/const height = /g)).toHaveLength(1);
+    expect(result.newCode).toContain(`extrude(height, s)`);
+  });
+
+  it('declares newVariables before a created statement', async () => {
+    const code = [
+      `import { sketch, rect } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, {
+      feature: 'extrude',
+      filePath: '/ws/model.fluid.js',
+      extrude: {
+        op: 'add', distance: 'depth', distance2: null, symmetric: false, draft: null,
+        drill: true, thin: null, profile: 'implicit',
+      },
+      producers: [{ line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: false }],
+      parts: [],
+      imports: [],
+      newVariables: [{ name: 'depth', initializer: '25' }],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const depth = 25\nextrude(depth)`);
+  });
+
+  it('refuses a malformed newVariable declaration', async () => {
+    const code = `${editBase}\nextrude(25)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: extrudeEditOptions({}),
+    }, {
+      newVariables: [{ name: 'bad name', initializer: '25' }],
+    }));
+    expect(result.error).toContain('new-variable');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses an unsafe expression value', async () => {
+    const code = `${editBase}\nextrude(25)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 4, column: 0,
+      extrude: extrudeEditOptions({ distance: '1); drop((' }),
+    }));
+    expect(result.error).toBeDefined();
+    expect(result.newCode).toBe(code);
+  });
+});
+
+describe('expression values in repeat, plane and value-feature slots', () => {
+  it('parses expression counts, spacing and rotate angles', async () => {
+    const code = [
+      repeatEditBase,
+      `const n = 4`,
+      `const gap = 15`,
+      `repeat('linear', 'x', { count: n, offset: gap * 2 }, e)`,
+      ``,
+    ].join('\n');
+    const result = await parseFeatureStatement(code, 9);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'repeat', kind: 'linear',
+        directions: [{ count: 'n', value: 'gap * 2' }], spacingMode: 'offset',
+      },
+    });
+  });
+
+  it('parses a numeric-variable rotate angle before its targets', async () => {
+    const code = [
+      repeatEditBase,
+      `const ang = 45`,
+      `repeat('rotate', 'z', ang, e)`,
+      ``,
+    ].join('\n');
+    const result = await parseFeatureStatement(code, 8);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'repeat', kind: 'rotate', angle: 'ang', targetTexts: ['e'] },
+    });
+  });
+
+  it('still reads an unknown rotate identifier as a target, not an angle', async () => {
+    const code = `${repeatEditBase}\nrepeat('rotate', 'z', e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'repeat', kind: 'rotate', angle: null, targetTexts: ['e'] },
+    });
+  });
+
+  it('rewrites a repeat with expression count and sweep in place', async () => {
+    const code = `${repeatEditBase}\nrepeat('circular', 'z', { count: 6, angle: 360 }, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('repeat', {
+      line: 7, column: 0,
+      repeat: {
+        kind: 'circular',
+        axis: { kind: 'keep', sourceIndex: 0 },
+        count: 'n', sweep: { mode: 'angle', value: 'sweepAngle' },
+      },
+    }, {
+      newVariables: [
+        { name: 'n', initializer: '6' },
+        { name: 'sweepAngle', initializer: '360' },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const n = 6\nconst sweepAngle = 360\nrepeat('circular', 'z', { count: n, angle: sweepAngle }, e)`);
+  });
+
+  it('parses a numeric-variable fillet radius with selector args verbatim', async () => {
+    const code = [
+      `import { sketch, rect, extrude, fillet } from 'fluidcad/core'`,
+      ``,
+      `const r = 3`,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      `fillet(r, e.endEdges())`,
+      ``,
+    ].join('\n');
+    const result = await parseFeatureStatement(code, 6);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'fillet', value: 'r', argsText: 'e.endEdges()' },
+    });
+  });
+
+  it('still refuses a fillet whose first argument is a selector (no value)', async () => {
+    const code = [
+      `import { sketch, rect, extrude, fillet } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      `fillet(e.endEdges())`,
+      ``,
+    ].join('\n');
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toMatchObject({ ok: false });
+  });
+
+  it('rewrites a fillet value to an expression in place', async () => {
+    const code = [
+      `import { sketch, rect, extrude, fillet } from 'fluidcad/core'`,
+      ``,
+      `const r = 3`,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      `fillet(2, e.endEdges())`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('fillet', { line: 6, column: 0 }, { value: 'r' }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`fillet(r, e.endEdges())`);
+  });
+
+  it('renders a plane statement with expression offset and rotation', async () => {
+    const code = [
+      `import { sketch, rect } from 'fluidcad/core'`,
+      ``,
+      `const gap = 12`,
+      `sketch('xy', () => { rect(100, 50) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, {
+      feature: 'plane',
+      filePath: '/ws/model.fluid.js',
+      plane: {
+        type: 'offset', offset: 'gap', rotateX: 'tilt', rotateY: null, rotateZ: null,
+        bases: [{ kind: 'standard', plane: 'xy' }],
+      },
+      producers: [],
+      parts: [],
+      imports: [],
+      newVariables: [{ name: 'tilt', initializer: '15' }],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const tilt = 15\nplane('xy', { offset: gap, rotateX: tilt })`);
   });
 });

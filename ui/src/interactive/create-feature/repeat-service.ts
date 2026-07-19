@@ -1,5 +1,5 @@
 import {
-  applyRepeat, applyRepeatEdit, ApplyFeatureResponse, FeatureEditTarget, ParsedFeatureStatement,
+  applyRepeat, applyRepeatEdit, getScopeVariables, ApplyFeatureResponse, FeatureEditTarget, ParsedFeatureStatement,
   RepeatApplyOptions, RepeatDirectionRef, RepeatEditAxisRef, RepeatEditOptions, RepeatEditPlaneRef,
   RepeatEditTargetRef,
 } from '../../api';
@@ -353,6 +353,7 @@ export class RepeatFeatureService {
     this.syncButton();
     this.suspendSketchUI();
     this.session.begin({ ...info, target });
+    void this.refreshScopeVariables();
     this.panel.showEdit({
       kind: parsed.kind,
       directions: parsed.directions,
@@ -387,6 +388,7 @@ export class RepeatFeatureService {
       this.suspendSketchUI();
     }
     this.syncButton();
+    void this.refreshScopeVariables();
     this.panel.show();
     if (seeded) {
       this.seedFromSelection(seeded);
@@ -729,6 +731,19 @@ export class RepeatFeatureService {
   }
 
   /** The request for the current form state, or the message blocking it. */
+  /**
+   * Push the variables in scope at the statement (edit mode) or at the end
+   * of the file (create mode) to the dialog's expression fields. A response
+   * landing after the dialog closed or re-targeted is dropped.
+   */
+  private async refreshScopeVariables(): Promise<void> {
+    const line = this.editTarget?.line ?? null;
+    const variables = await getScopeVariables(line);
+    if (this.armed && (this.editTarget?.line ?? null) === line) {
+      this.panel.setScopeVariables(variables);
+    }
+  }
+
   private buildRequest(): RepeatApplyOptions | { error: string } {
     const values = this.panel.values();
     if ('error' in values) {
@@ -767,6 +782,7 @@ export class RepeatFeatureService {
       return {
         kind: 'linear', targets, directions, spacingMode: values.spacingMode,
         centered: values.centered || undefined,
+        newVariables: values.newVariables,
       };
     }
     const axis = this.axisRef(1, false);
@@ -777,9 +793,12 @@ export class RepeatFeatureService {
       return { error: 'Choose the axis to repeat around.' };
     }
     if (values.kind === 'circular') {
-      return { kind: 'circular', targets, axis, count: values.count, sweep: values.sweep };
+      return {
+        kind: 'circular', targets, axis, count: values.count, sweep: values.sweep,
+        newVariables: values.newVariables,
+      };
     }
-    return { kind: 'rotate', targets, axis, angle: values.angle };
+    return { kind: 'rotate', targets, axis, angle: values.angle, newVariables: values.newVariables };
   }
 
   /**
@@ -836,6 +855,7 @@ export class RepeatFeatureService {
       return {
         kind: 'linear', targets, directions, spacingMode: values.spacingMode,
         centered: values.centered || undefined,
+        newVariables: values.newVariables,
         ...sessionFields(pickedEdge),
       };
     }
@@ -845,9 +865,12 @@ export class RepeatFeatureService {
     }
     const session = sessionFields(axis.kind === 'edge');
     if (values.kind === 'circular') {
-      return { kind: 'circular', targets, axis, count: values.count, sweep: values.sweep, ...session };
+      return {
+        kind: 'circular', targets, axis, count: values.count, sweep: values.sweep,
+        newVariables: values.newVariables, ...session,
+      };
     }
-    return { kind: 'rotate', targets, axis, angle: values.angle, ...session };
+    return { kind: 'rotate', targets, axis, angle: values.angle, newVariables: values.newVariables, ...session };
   }
 
   // -------------------------------------------------------------------------

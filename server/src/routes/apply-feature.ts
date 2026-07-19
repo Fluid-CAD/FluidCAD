@@ -6,10 +6,10 @@ import {
   renderRepeatAxisExpr, renderRepeatPlaneExpr, renderRepeatStatement,
   renderRevolveStatement,
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
-  resolveSketchNames,
+  resolveSketchNames, validCountValue, validValueExpr,
   type ApplyFeatureEditSpec, type ExtrudeEditOptions, type FeatureStatementEditTarget, type LoftEditOptions,
   type PlaneEditOptions, type RepeatAxisSpec, type RepeatEditAxis, type RepeatEditOptions,
-  type RevolveEditOptions, type ShellJoinKind, type SweepEditOptions, type WrapEditOptions,
+  type RevolveEditOptions, type ShellJoinKind, type SweepEditOptions, type ValueExpr, type WrapEditOptions,
 } from '../apply-feature-edit.ts';
 import { normalizePath } from '../normalize-path.ts';
 
@@ -69,16 +69,43 @@ function validateBoundary(raw: any): SelectionBoundary | undefined | null {
 }
 
 /** One or two positive `.thin()` offsets; absent means a plain feature. */
-function validateThinOffsets(thin: unknown): { offsets: [number] | [number, number] | null } | { error: string } {
+function validateThinOffsets(thin: unknown): { offsets: [ValueExpr] | [ValueExpr, ValueExpr] | null } | { error: string } {
   if (thin === undefined || thin === null) {
     return { offsets: null };
   }
   const valid = Array.isArray(thin) && thin.length >= 1 && thin.length <= 2
-    && thin.every((t: unknown) => typeof t === 'number' && Number.isFinite(t) && t > 0);
+    && thin.every((t: unknown) => validValueExpr(t, { positive: true }));
   if (!valid) {
-    return { error: 'thin must be one or two positive offsets' };
+    return { error: 'thin must be one or two positive offsets or expressions' };
   }
   return { offsets: thin.length === 1 ? [thin[0]] : [thin[0], thin[1]] };
+}
+
+const NEW_VAR_NAME_RE = /^[a-zA-Z_$][\w$]*$/;
+
+/**
+ * The `newVariables` a dialog's expression fields committed (`myVar = 50`):
+ * declarations to write directly before the statement. Absent/empty is fine.
+ */
+function validateNewVariables(
+  raw: unknown,
+): { newVariables: { name: string; initializer: string }[] | undefined } | { error: string } {
+  if (raw === undefined || raw === null) {
+    return { newVariables: undefined };
+  }
+  if (!Array.isArray(raw) || raw.length > 16) {
+    return { error: 'newVariables must be up to 16 {name, initializer} declarations' };
+  }
+  const newVariables: { name: string; initializer: string }[] = [];
+  for (const entry of raw as { name?: unknown; initializer?: unknown }[]) {
+    if (typeof entry?.name !== 'string' || !NEW_VAR_NAME_RE.test(entry.name)
+      || !validValueExpr(entry?.initializer)
+      || typeof entry.initializer !== 'string' || entry.initializer.trim() === '') {
+      return { error: 'each newVariables entry must be a valid {name, initializer}' };
+    }
+    newVariables.push({ name: entry.name, initializer: entry.initializer.trim() });
+  }
+  return { newVariables: newVariables.length > 0 ? newVariables : undefined };
 }
 
 /** Shell's optional `.join()` type; absent means 'arc' — the kernel default. */
@@ -108,12 +135,12 @@ function validateSketchLoc(loc: any): SketchLoc | null {
 /** The dialog-editable extrude options, shared by the create and edit paths. */
 type ExtrudeOptionSet = {
   op: 'add' | 'remove' | 'new';
-  distance: number | null;
-  distance2: number | null;
+  distance: ValueExpr | null;
+  distance2: ValueExpr | null;
   symmetric: boolean;
-  draft: number | null;
+  draft: ValueExpr | null;
   drill: boolean;
-  thin: [number] | [number, number] | null;
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
 };
 
 /**
@@ -127,9 +154,6 @@ type ExtrudeRequest = ExtrudeOptionSet & {
   toFace?: Pick;
 };
 
-function isNonzeroNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value !== 0;
-}
 
 /**
  * Validate the option fields both extrude requests carry: the boolean op,
@@ -153,15 +177,15 @@ function validateExtrudeOptions(body: any, toFace = false): ExtrudeOptionSet | {
     if (op !== 'remove') {
       return { error: 'distance may be null (through-all) only for a remove' };
     }
-  } else if (!isNonzeroNumber(distance)) {
-    return { error: 'distance must be a nonzero number (negative extrudes the other way)' };
+  } else if (!validValueExpr(distance, { nonzero: true })) {
+    return { error: 'distance must be a nonzero number or expression (negative extrudes the other way)' };
   }
   if (distance2 !== undefined && distance2 !== null) {
     if (toFace) {
       return { error: 'a to-face extrude takes no second distance' };
     }
-    if (!isNonzeroNumber(distance2)) {
-      return { error: 'distance2 must be a nonzero number' };
+    if (!validValueExpr(distance2, { nonzero: true })) {
+      return { error: 'distance2 must be a nonzero number or expression' };
     }
     if (distance === null) {
       return { error: 'a two-distance extrude cannot be through-all' };
@@ -176,7 +200,7 @@ function validateExtrudeOptions(body: any, toFace = false): ExtrudeOptionSet | {
   if (symmetric === true && toFace) {
     return { error: 'a to-face extrude cannot be symmetric' };
   }
-  if (draft !== undefined && draft !== null && !isNonzeroNumber(draft)) {
+  if (draft !== undefined && draft !== null && !validValueExpr(draft, { nonzero: true })) {
     return { error: 'draft must be a nonzero taper angle in degrees' };
   }
   if (drill !== undefined && typeof drill !== 'boolean') {
@@ -224,7 +248,7 @@ function validateExtrude(body: any): ExtrudeRequest | { error: string } {
  */
 type SweepRequest = {
   op: 'add' | 'remove' | 'new';
-  thin: [number] | [number, number] | null;
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: { mode: 'active' | 'bound' } & SketchLoc;
   path:
     | ({ kind: 'sketch' } & SketchLoc)
@@ -281,7 +305,7 @@ function validateSweep(body: any): SweepRequest | { error: string } {
  */
 type WrapRequest = {
   op: 'add' | 'remove' | 'new';
-  thickness: number;
+  thickness: ValueExpr;
   sketch: SketchLoc;
   face: Pick;
 };
@@ -291,8 +315,8 @@ function validateWrap(body: any): WrapRequest | { error: string } {
   if (op !== 'add' && op !== 'remove' && op !== 'new') {
     return { error: 'op must be "add", "remove" or "new"' };
   }
-  if (typeof thickness !== 'number' || !Number.isFinite(thickness) || thickness <= 0) {
-    return { error: 'thickness must be a positive number' };
+  if (!validValueExpr(thickness, { positive: true })) {
+    return { error: 'thickness must be a positive number or expression' };
   }
   const sketchLoc = validateSketchLoc(sketch);
   if (!sketchLoc) {
@@ -322,8 +346,8 @@ type RevolveAxisInput =
  */
 type RevolveRequest = {
   op: 'add' | 'remove' | 'new';
-  angle: number;
-  thin: [number] | [number, number] | null;
+  angle: ValueExpr;
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: { mode: 'active' | 'bound' } & SketchLoc;
   axis: RevolveAxisInput;
 };
@@ -358,7 +382,7 @@ function validateRevolve(body: any): RevolveRequest | { error: string } {
   if (op !== 'add' && op !== 'remove' && op !== 'new') {
     return { error: 'op must be "add", "remove" or "new"' };
   }
-  if (!isNonzeroNumber(angle)) {
+  if (!validValueExpr(angle, { nonzero: true })) {
     return { error: 'angle must be a nonzero sweep angle in degrees' };
   }
   const thinResult = validateThinOffsets(thin);
@@ -383,11 +407,11 @@ function validateRevolve(body: any): RevolveRequest | { error: string } {
 /** Ordered loft profile inputs: sketches and picked faces, mixed freely. */
 type LoftProfileInput = ({ kind: 'sketch' } & SketchLoc) | { kind: 'face'; pick: Pick };
 
-type LoftCondition = { type: 'normal' | 'tangent'; magnitude: number };
+type LoftCondition = { type: 'normal' | 'tangent'; magnitude: ValueExpr };
 
 type LoftRequest = {
   op: 'add' | 'remove' | 'new';
-  thin: [number] | [number, number] | null;
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profiles: LoftProfileInput[];
   guides: SketchLoc[];
   startCondition: LoftCondition | null;
@@ -411,8 +435,8 @@ function validateLoftCondition(
   if (type !== 'normal' && type !== 'tangent') {
     return { error: `${which} type must be "normal" or "tangent"` };
   }
-  if (typeof magnitude !== 'number' || !Number.isFinite(magnitude) || magnitude === 0) {
-    return { error: `${which} magnitude must be a nonzero number` };
+  if (!validValueExpr(magnitude, { nonzero: true })) {
+    return { error: `${which} magnitude must be a nonzero number or expression` };
   }
   return { condition: { type, magnitude } };
 }
@@ -518,11 +542,11 @@ type PlaneBaseInput =
 
 type PlaneRequest = {
   type: 'offset' | 'mid' | 'edge';
-  offset: number | null;
-  rotateX: number | null;
-  rotateY: number | null;
-  rotateZ: number | null;
-  position: number | null;
+  offset: ValueExpr | null;
+  rotateX: ValueExpr | null;
+  rotateY: ValueExpr | null;
+  rotateZ: ValueExpr | null;
+  position: ValueExpr | null;
   bases: PlaneBaseInput[];
 };
 
@@ -540,21 +564,22 @@ function validatePlane(body: any): PlaneRequest | { error: string } {
   if (type !== 'offset' && type !== 'mid' && type !== 'edge') {
     return { error: 'type must be "offset", "mid" or "edge"' };
   }
-  const numbers: Record<string, number | null> = {};
+  const numbers: Record<string, ValueExpr | null> = {};
   for (const key of ['offset', 'rotateX', 'rotateY', 'rotateZ', 'position'] as const) {
     const raw = body?.[key];
     if (raw === undefined || raw === null) {
       numbers[key] = null;
       continue;
     }
-    if (typeof raw !== 'number' || !Number.isFinite(raw)) {
-      return { error: `${key} must be a finite number` };
+    if (!validValueExpr(raw)) {
+      return { error: `${key} must be a finite number or expression` };
     }
     numbers[key] = raw;
   }
   if (type === 'edge') {
-    if (numbers.position === null || numbers.position < 0 || numbers.position > 1) {
-      return { error: 'position must be a number between 0 (start) and 1 (end)' };
+    if (numbers.position === null
+      || (typeof numbers.position === 'number' && (numbers.position < 0 || numbers.position > 1))) {
+      return { error: 'position must be a number between 0 (start) and 1 (end), or an expression' };
     }
     if (numbers.offset !== null || numbers.rotateX !== null || numbers.rotateY !== null || numbers.rotateZ !== null) {
       return { error: 'an edge plane takes a position only — no offset or rotation' };
@@ -623,7 +648,7 @@ type RepeatPlaneInput =
   | { kind: 'face'; pick: Pick };
 
 /** One linear direction: its axis plus that direction's count and value. */
-type RepeatDirectionInput = { axis: RevolveAxisInput; count: number; value: number };
+type RepeatDirectionInput = { axis: RevolveAxisInput; count: ValueExpr; value: ValueExpr };
 
 type RepeatRequest = {
   kind: 'linear' | 'circular' | 'mirror' | 'rotate';
@@ -635,10 +660,10 @@ type RepeatRequest = {
   spacingMode?: 'offset' | 'length';
   axis?: RevolveAxisInput;
   plane?: RepeatPlaneInput;
-  count?: number;
-  sweep?: { mode: 'angle' | 'offset'; value: number };
+  count?: ValueExpr;
+  sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
   centered?: boolean;
-  angle?: number;
+  angle?: ValueExpr;
 };
 
 const MAX_REPEAT_TARGETS = 16;
@@ -745,11 +770,11 @@ function validateRepeat(body: any): RepeatRequest | { error: string } {
       if (axis.kind === 'axis' && axis.loc.filePath !== filePath) {
         return { error: 'an axis and the targets live in different files' };
       }
-      if (!Number.isInteger(entry?.count) || entry.count < 2) {
-        return { error: 'each direction count must be an integer of at least 2 (the original included)' };
+      if (!validCountValue(entry?.count)) {
+        return { error: 'each direction count must be an integer of at least 2 (the original included) or an expression' };
       }
-      if (!isNonzeroNumber(entry?.value)) {
-        return { error: 'each direction value must be a nonzero number' };
+      if (!validValueExpr(entry?.value, { nonzero: true })) {
+        return { error: 'each direction value must be a nonzero number or expression' };
       }
       directions.push({ axis, count: entry.count, value: entry.value });
     }
@@ -776,14 +801,14 @@ function validateRepeat(body: any): RepeatRequest | { error: string } {
         return { error: `a rotate repeat takes no ${key}` };
       }
     }
-    if (!isNonzeroNumber(angle)) {
+    if (!validValueExpr(angle, { nonzero: true })) {
       return { error: 'angle must be a nonzero rotation in degrees' };
     }
     return { kind, targets: targetLocs, axis, angle };
   }
 
-  if (!Number.isInteger(count) || count < 2) {
-    return { error: 'count must be an integer of at least 2 (the original included)' };
+  if (!validCountValue(count)) {
+    return { error: 'count must be an integer of at least 2 (the original included) or an expression' };
   }
   if (angle !== undefined && angle !== null) {
     return { error: 'a circular repeat carries its angle in the sweep field' };
@@ -795,8 +820,8 @@ function validateRepeat(body: any): RepeatRequest | { error: string } {
   if (sweep?.mode !== 'angle' && sweep?.mode !== 'offset') {
     return { error: 'sweep mode must be "angle" or "offset"' };
   }
-  if (!isNonzeroNumber(sweep.value)) {
-    return { error: 'sweep value must be a nonzero number' };
+  if (!validValueExpr(sweep.value, { nonzero: true })) {
+    return { error: 'sweep value must be a nonzero number or expression' };
   }
   return {
     kind, targets: targetLocs, axis, count,
@@ -891,7 +916,7 @@ type StatementEditRequest = {
   feature: ApplyFeatureEditSpec['feature'];
   target: SketchLoc;
   edit: FeatureStatementEditTarget;
-  value?: number;
+  value?: ValueExpr;
   rawArgs?: string;
   /** Re-picked selection for shell/fillet/chamfer; absent keeps the args. */
   picks?: Pick[];
@@ -926,7 +951,7 @@ type StatementEditRequest = {
     | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
     | { kind: 'planeRef'; loc: SketchLoc };
   /** Edited repeat's linear directions; keep axes stay by source position. */
-  repeatDirections?: { axis: RepeatEditAxisInput; count: number; value: number }[];
+  repeatDirections?: { axis: RepeatEditAxisInput; count: ValueExpr; value: ValueExpr }[];
   /** Edited repeat's axis (circular/rotate); keep stays by source position. */
   repeatAxis?: RepeatEditAxisInput;
   /** Edited repeat's mirror plane; keep stays the statement's own text. */
@@ -1028,8 +1053,8 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
     if (op !== 'add' && op !== 'remove' && op !== 'new') {
       return { error: 'op must be "add", "remove" or "new"' };
     }
-    if (typeof thickness !== 'number' || !Number.isFinite(thickness) || thickness <= 0) {
-      return { error: 'thickness must be a positive number' };
+    if (!validValueExpr(thickness, { positive: true })) {
+      return { error: 'thickness must be a positive number or expression' };
     }
     edit.wrap = { op, thickness };
     const result: StatementEditRequest = base;
@@ -1091,7 +1116,7 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
     if (op !== 'add' && op !== 'remove' && op !== 'new') {
       return { error: 'op must be "add", "remove" or "new"' };
     }
-    if (!isNonzeroNumber(angle)) {
+    if (!validValueExpr(angle, { nonzero: true })) {
       return { error: 'angle must be a nonzero sweep angle in degrees' };
     }
     const thin = validateThinOffsets(body?.thin);
@@ -1237,16 +1262,16 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
   // shell adds its join type.
   const { value } = body ?? {};
   if (feature === 'shell') {
-    if (typeof value !== 'number' || !Number.isFinite(value) || value === 0) {
-      return { error: 'value must be a nonzero number (negative hollows inward)' };
+    if (!validValueExpr(value, { nonzero: true })) {
+      return { error: 'value must be a nonzero number or expression (negative hollows inward)' };
     }
     const join = validateShellJoinType(body?.joinType);
     if ('error' in join) {
       return join;
     }
     edit.shell = { joinType: join.joinType };
-  } else if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    return { error: 'value must be a positive number' };
+  } else if (!validValueExpr(value, { positive: true })) {
+    return { error: 'value must be a positive number or expression' };
   }
   if (selectorOverride !== undefined
     && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
@@ -1390,11 +1415,11 @@ function validateRepeatEdit(
       if ('error' in axis) {
         return axis;
       }
-      if (!Number.isInteger(entry?.count) || entry.count < 2) {
-        return { error: 'each direction count must be an integer of at least 2 (the original included)' };
+      if (!validCountValue(entry?.count)) {
+        return { error: 'each direction count must be an integer of at least 2 (the original included) or an expression' };
       }
-      if (!isNonzeroNumber(entry?.value)) {
-        return { error: 'each direction value must be a nonzero number' };
+      if (!validValueExpr(entry?.value, { nonzero: true })) {
+        return { error: 'each direction value must be a nonzero number or expression' };
       }
       result.needsPicks ||= axis.kind === 'edge';
       directions.push({ axis, count: entry.count, value: entry.value });
@@ -1427,15 +1452,15 @@ function validateRepeatEdit(
         return { error: `a rotate repeat takes no ${key}` };
       }
     }
-    if (!isNonzeroNumber(angle)) {
+    if (!validValueExpr(angle, { nonzero: true })) {
       return { error: 'angle must be a nonzero rotation in degrees' };
     }
     rp.angle = angle;
     return result;
   }
 
-  if (!Number.isInteger(count) || count < 2) {
-    return { error: 'count must be an integer of at least 2 (the original included)' };
+  if (!validCountValue(count)) {
+    return { error: 'count must be an integer of at least 2 (the original included) or an expression' };
   }
   if (angle !== undefined && angle !== null) {
     return { error: 'a circular repeat carries its angle in the sweep field' };
@@ -1447,8 +1472,8 @@ function validateRepeatEdit(
   if (sweep?.mode !== 'angle' && sweep?.mode !== 'offset') {
     return { error: 'sweep mode must be "angle" or "offset"' };
   }
-  if (!isNonzeroNumber(sweep.value)) {
-    return { error: 'sweep value must be a nonzero number' };
+  if (!validValueExpr(sweep.value, { nonzero: true })) {
+    return { error: 'sweep value must be a nonzero number or expression' };
   }
   rp.count = count;
   rp.sweep = { mode: sweep.mode, value: sweep.value };
@@ -1610,6 +1635,15 @@ export function createApplyFeatureRouter(
   router.post('/apply-feature', async (req, res) => {
     const { feature, value, preview, selectorOverride } = req.body ?? {};
 
+    // Declarations a dialog expression field committed (`myVar = 50`) —
+    // written directly before the statement by the transform.
+    const nvResult = validateNewVariables(req.body?.newVariables);
+    if ('error' in nvResult) {
+      res.status(400).json({ error: nvResult.error });
+      return;
+    }
+    const newVariables = nvResult.newVariables;
+
     // In-place statement edit (timeline double-click → edit dialog): the
     // statement at the location is re-parsed from the live buffer and its
     // dialog options replaced. Re-sourced slots (re-picked selections,
@@ -1688,7 +1722,7 @@ export function createApplyFeatureRouter(
         const synthesizeSlot = (
           picks: Pick[],
           kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane',
-          value: number | undefined,
+          value: ValueExpr | undefined,
           chains: { seed: Pick; members: Pick[] }[],
         ): any | null => {
           const synthesis = fluidCadServer.synthesizeApplyFeature(
@@ -1992,6 +2026,7 @@ export function createApplyFeatureRouter(
           parts,
           imports: [...importSet],
           edit,
+          newVariables,
           // Applying an edit clears the breakpoint the double-click placed —
           // inside the same transform, so it can't race the rewrite — and the
           // model rebuilds to its tip. The sketch retarget opens without a
@@ -2139,6 +2174,7 @@ export function createApplyFeatureRouter(
             producers,
             parts,
             imports,
+            newVariables,
           },
         });
         res.json({ success: true, preview: statement });
@@ -2267,6 +2303,7 @@ export function createApplyFeatureRouter(
             producers,
             parts,
             imports,
+            newVariables,
           },
         });
         res.json({ success: true, preview: statement });
@@ -2359,6 +2396,7 @@ export function createApplyFeatureRouter(
             producers,
             parts,
             imports,
+            newVariables,
           },
         });
         res.json({ success: true, preview: statement });
@@ -2493,6 +2531,7 @@ export function createApplyFeatureRouter(
             producers,
             parts,
             imports,
+            newVariables,
           },
         });
         res.json({ success: true, preview: statement });
@@ -2637,6 +2676,7 @@ export function createApplyFeatureRouter(
             producers,
             parts,
             imports: [...imports],
+            newVariables,
           },
         });
         res.json({ success: true, preview: statement });
@@ -2766,6 +2806,7 @@ export function createApplyFeatureRouter(
             producers,
             parts,
             imports: [...imports],
+            newVariables,
           },
         });
         res.json({ success: true, preview: statement });
@@ -2962,6 +3003,7 @@ export function createApplyFeatureRouter(
             producers,
             parts,
             imports: [...imports],
+            newVariables,
           },
         });
         res.json({ success: true, preview: statement });
@@ -3054,8 +3096,8 @@ export function createApplyFeatureRouter(
     // parameter at all.
     let shellJoin: ShellJoinKind = 'arc';
     if (feature === 'shell') {
-      if (typeof value !== 'number' || !Number.isFinite(value) || value === 0) {
-        res.status(400).json({ error: 'value must be a nonzero number (negative hollows inward)' });
+      if (!validValueExpr(value, { nonzero: true })) {
+        res.status(400).json({ error: 'value must be a nonzero number or expression (negative hollows inward)' });
         return;
       }
       const join = validateShellJoinType(req.body?.joinType);
@@ -3065,8 +3107,8 @@ export function createApplyFeatureRouter(
       }
       shellJoin = join.joinType;
     } else if (feature !== 'sketch') {
-      if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-        res.status(400).json({ error: 'value must be a positive number' });
+      if (!validValueExpr(value, { positive: true })) {
+        res.status(400).json({ error: 'value must be a positive number or expression' });
         return;
       }
     }
@@ -3120,6 +3162,9 @@ export function createApplyFeatureRouter(
         : synthesis.spec;
       if (feature === 'shell') {
         spec = { ...spec, shell: { joinType: shellJoin } };
+      }
+      if (newVariables) {
+        spec = { ...spec, newVariables };
       }
       sendToExtension({ type: 'apply-feature-edit', spec });
       res.json({ success: true, preview: synthesis.preview + joinChain });

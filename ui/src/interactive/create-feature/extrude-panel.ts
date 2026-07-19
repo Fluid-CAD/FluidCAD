@@ -1,7 +1,9 @@
 import { OpTabs, PanelShell, ThinControl } from './panel-controls';
 import { SketchProfileOption, sourceChip } from './sketch-profiles';
 import { PickSlot } from '../pick-slot';
-import { ExtrudeOptionValues } from '../../api';
+import { ExtrudeOptionValues, ValueExpr } from '../../api';
+import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
+import { VariableInfo } from '../../ui/expression-core';
 
 /** How the extrusion distributes around the sketch plane. */
 export type ExtrudeDirection = 'one' | 'symmetric' | 'two' | 'to-face';
@@ -41,6 +43,9 @@ export class ExtrudePanel {
   private throughWrap: HTMLElement;
   private throughCheckbox: HTMLInputElement;
   private draftInput: HTMLInputElement;
+  private distanceField: ExpressionField;
+  private distance2Field: ExpressionField;
+  private draftField: ExpressionField;
   private drillCheckbox: HTMLInputElement;
   private applyBtn: HTMLButtonElement;
   /** Picked-face chip label (the service owns the entity), or null. */
@@ -158,16 +163,23 @@ export class ExtrudePanel {
       this.onChange?.();
     });
     this.drillCheckbox.addEventListener('change', () => this.onChange?.());
-    for (const input of [this.distanceInput, this.distance2Input, this.draftInput]) {
-      input.addEventListener('input', () => this.onChange?.());
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          this.onApply?.();
-        }
-        e.stopPropagation();
-      });
+    // Expression fields own the inputs' keyboard handling (variable dropdown,
+    // Enter-to-apply) and flip them to type="text" for identifiers.
+    this.distanceField = new ExpressionField(this.distanceInput);
+    this.distance2Field = new ExpressionField(this.distance2Input);
+    this.draftField = new ExpressionField(this.draftInput);
+    for (const field of [this.distanceField, this.distance2Field, this.draftField]) {
+      field.onSubmit = () => this.onApply?.();
+      field.element.addEventListener('input', () => this.onChange?.());
     }
+  }
+
+  /** The variables the fields' dropdowns offer (thin thickness included). */
+  setScopeVariables(variables: VariableInfo[]): void {
+    this.distanceField.setVariables(variables);
+    this.distance2Field.setVariables(variables);
+    this.draftField.setVariables(variables);
+    this.thin.setVariables(variables);
   }
 
   get isVisible(): boolean {
@@ -203,7 +215,7 @@ export class ExtrudePanel {
    * drill and thin controls edit in place.
    */
   showEdit(state: ExtrudeOptionValues & {
-    thin: [number] | null;
+    thin: [ValueExpr] | null;
     profileLabel: string;
     toFaceLabel: string | null;
   }): void {
@@ -218,14 +230,14 @@ export class ExtrudePanel {
     this.tabs.setOp(state.op);
     this.directionSelect.value = directionOf(state);
     if (state.distance !== null) {
-      this.distanceInput.value = String(state.distance);
+      this.distanceField.setValue(state.distance);
     }
     if (state.distance2 !== null) {
-      this.distance2Input.value = String(state.distance2);
+      this.distance2Field.setValue(state.distance2);
     }
     // A to-face statement has no distance, but it is not a through-all.
     this.throughCheckbox.checked = state.distance === null && state.toFaceLabel === null;
-    this.draftInput.value = String(state.draft ?? 0);
+    this.draftField.setValue(state.draft ?? 0);
     this.drillCheckbox.checked = state.drill;
     this.thin.setValues(state.thin);
     this.syncControls();
@@ -349,40 +361,49 @@ export class ExtrudePanel {
     const op = this.tabs.op;
     const direction = this.direction;
     const throughAll = this.throughAllActive();
-    let distance: number | null = null;
+    let distance: ValueExpr | null = null;
+    let distanceRead: ReturnType<ExpressionField['read']> | null = null;
     if (direction === 'to-face') {
       if (this.faceSelection() === null) {
         return { error: 'Pick the face to extrude up to.' };
       }
     } else if (!throughAll) {
-      distance = parseFloat(this.distanceInput.value);
-      if (!Number.isFinite(distance) || distance === 0) {
-        return { error: `Enter a nonzero ${op === 'remove' ? 'depth' : 'distance'}.` };
+      distanceRead = this.distanceField.read();
+      if ('error' in distanceRead || (typeof distanceRead.value === 'number' && distanceRead.value === 0)) {
+        const detail = 'error' in distanceRead && distanceRead.error !== 'empty' ? ` ${distanceRead.error}.` : '';
+        return { error: `Enter a nonzero ${op === 'remove' ? 'depth' : 'distance'}.${detail}` };
       }
+      distance = distanceRead.value;
     }
-    let distance2: number | null = null;
+    let distance2: ValueExpr | null = null;
+    let distance2Read: ReturnType<ExpressionField['read']> | null = null;
     if (direction === 'two') {
-      distance2 = parseFloat(this.distance2Input.value);
-      if (!Number.isFinite(distance2) || distance2 === 0) {
-        return { error: 'Enter a nonzero second distance.' };
+      distance2Read = this.distance2Field.read();
+      if ('error' in distance2Read || (typeof distance2Read.value === 'number' && distance2Read.value === 0)) {
+        const detail = 'error' in distance2Read && distance2Read.error !== 'empty' ? ` ${distance2Read.error}.` : '';
+        return { error: `Enter a nonzero second distance.${detail}` };
       }
+      distance2 = distance2Read.value;
     }
-    const draftAngle = parseFloat(this.draftInput.value || '0');
-    if (!Number.isFinite(draftAngle)) {
-      return { error: 'Enter a draft angle in degrees (0 for straight walls).' };
+    const draftRead = this.draftField.read();
+    if ('error' in draftRead && draftRead.error !== 'empty') {
+      return { error: `Draft angle: ${draftRead.error}.` };
     }
+    const draft = 'error' in draftRead ? 0 : draftRead.value;
     const thin = this.thin.values();
     if ('error' in thin) {
       return thin;
     }
+    const reads = [distanceRead, distance2Read, draftRead, thin];
     return {
       op,
       distance,
       distance2,
       symmetric: direction === 'symmetric',
-      draft: draftAngle === 0 ? null : draftAngle,
+      draft: draft === 0 ? null : draft,
       drill: this.drillCheckbox.checked,
       thin: thin.thin,
+      newVariables: collectNewVariables(reads.map(r => r && !('error' in r) ? r : null)),
     };
   }
 
@@ -436,7 +457,7 @@ export class ExtrudePanel {
 
 /** The direction mode a parsed statement's options imply. */
 function directionOf(state: {
-  distance2: number | null;
+  distance2: ValueExpr | null;
   symmetric: boolean;
   toFaceLabel: string | null;
 }): ExtrudeDirection {

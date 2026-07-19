@@ -1,6 +1,6 @@
 import {
-  applyExtrude, applyExtrudeEdit, fetchFeatureSources, ApplyFeatureResponse, ExtrudeEditOptions,
-  ExtrudeProfileRef, FeatureEditTarget, ParsedFeatureStatement, SourceSlotRef,
+  applyExtrude, applyExtrudeEdit, fetchFeatureSources, getScopeVariables, ApplyFeatureResponse,
+  ExtrudeEditOptions, ExtrudeProfileRef, FeatureEditTarget, ParsedFeatureStatement, SourceSlotRef,
 } from '../../api';
 import { sameEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
@@ -258,6 +258,7 @@ export class ExtrudeFeatureService {
     this.viewer.pickSketchWires = true;
     this.session.begin({ ...info, target });
     void this.loadEditSources();
+    void this.refreshScopeVariables();
     this.panel.showEdit({
       op: parsed.op,
       distance: parsed.distance,
@@ -271,6 +272,19 @@ export class ExtrudeFeatureService {
     });
     this.syncFacePickMode();
     this.schedulePreview();
+  }
+
+  /**
+   * Push the variables in scope at the statement (edit mode) or at the end
+   * of the file (create mode) to the dialog's expression fields. A response
+   * landing after the dialog closed or re-targeted is dropped.
+   */
+  private async refreshScopeVariables(): Promise<void> {
+    const line = this.editTarget?.line ?? null;
+    const variables = await getScopeVariables(line);
+    if (this.armed && (this.editTarget?.line ?? null) === line) {
+      this.panel.setScopeVariables(variables);
+    }
   }
 
   /** The statement's current profile and target, for highlighting keep slots. */
@@ -304,6 +318,7 @@ export class ExtrudeFeatureService {
     // Clicking a sketch's wires in the 3D view selects it as the profile.
     this.viewer.pickSketchWires = true;
     this.syncButton();
+    void this.refreshScopeVariables();
     this.panel.show(this.options);
     // The direction select persists across sessions — re-arm face picking
     // when the dialog reopens on "Up to face".

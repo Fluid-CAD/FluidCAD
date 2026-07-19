@@ -1,8 +1,10 @@
 import {
-  applyFeature, applyValueFeatureEdit, expandBucket, explainSelection, fetchFeatureSources, parseFeatureAt,
-  removeFeature, ApplyFeatureChain, ApplyFeatureResponse, FeatureEditTarget, ParsedFeatureStatement,
-  SelectionGroupKind, ShellJoinType, SketchSourceRef,
+  applyFeature, applyValueFeatureEdit, expandBucket, explainSelection, fetchFeatureSources,
+  getScopeVariables, parseFeatureAt, removeFeature, ApplyFeatureChain, ApplyFeatureResponse,
+  FeatureEditTarget, NewVariable, ParsedFeatureStatement, SelectionGroupKind, ShellJoinType,
+  SketchSourceRef, ValueExpr,
 } from '../api';
+import { ExpressionField } from '../ui/expression-field';
 import { entityKey, mergeUniqueEntities, sameEntity, selectionChipRows } from '../helpers/entities';
 import { isTopLevel } from '../helpers/scene-utils';
 import { collectPlaneOptions, PlaneOption, resolvePlaneByShapeId } from './create-feature/plane-bases';
@@ -184,6 +186,7 @@ export class ModifyPickService {
   private valueWrap: HTMLElement;
   private valueLabel: HTMLElement;
   private valueInput: HTMLInputElement;
+  private valueField: ExpressionField;
   private joinWrap: HTMLElement;
   private joinSelect: HTMLSelectElement;
   private selectionSlot: PickSlot;
@@ -349,13 +352,10 @@ export class ModifyPickService {
 
     this.applyBtn.addEventListener('click', () => this.apply());
     this.activeBar.querySelector('[data-role="exit"]')!.addEventListener('click', () => this.exit());
-    this.valueInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        this.apply();
-      }
-      e.stopPropagation();
-    });
+    // The field owns the value input's keyboard handling (variable dropdown,
+    // Enter-to-apply) and flips it to type="text" for identifiers.
+    this.valueField = new ExpressionField(this.valueInput);
+    this.valueField.onSubmit = () => this.apply();
     this.valueInput.addEventListener('input', () => {
       if (this.feature) {
         this.valueByFeature.set(this.feature, this.valueInput.value);
@@ -608,7 +608,8 @@ export class ModifyPickService {
     } else {
       this.valueInput.removeAttribute('min');
     }
-    this.valueInput.value = String(parsed.value);
+    this.valueField.setValue(parsed.value);
+    void this.refreshScopeVariables();
     if (parsed.feature === 'shell') {
       this.joinSelect.value = parsed.joinType;
       this.joinWrap.classList.remove('hidden');
@@ -659,6 +660,19 @@ export class ModifyPickService {
     }
     this.previewSelection(null);
     this.refresh();
+  }
+
+  /**
+   * Push the variables in scope at the statement (edit mode) or at the end
+   * of the file (create mode) to the value field. A response landing after
+   * the mode disarmed or re-targeted is dropped.
+   */
+  private async refreshScopeVariables(): Promise<void> {
+    const line = this.editTarget?.line ?? null;
+    const variables = await getScopeVariables(line);
+    if (this.feature && this.feature !== 'sketch' && (this.editTarget?.line ?? null) === line) {
+      this.valueField.setVariables(variables);
+    }
   }
 
   /** Sorted signature of the current pick set, for dirty detection. */
@@ -739,7 +753,8 @@ export class ModifyPickService {
     } else {
       this.valueInput.removeAttribute('min');
     }
-    this.valueInput.value = this.valueByFeature.get(feature) ?? String(config.defaultValue);
+    this.valueField.setValue(this.valueByFeature.get(feature) ?? String(config.defaultValue));
+    void this.refreshScopeVariables();
     if (config.joinRow) {
       this.joinSelect.value = this.lastJoinType;
       this.joinWrap.classList.remove('hidden');
@@ -1457,17 +1472,21 @@ export class ModifyPickService {
         : 'Pick at least one edge or face first.');
       return;
     }
-    let value: number | null = null;
+    let value: ValueExpr | null = null;
+    let newVariables: NewVariable[] | undefined;
     if (config.valueLabel !== null) {
-      value = parseFloat(this.valueInput.value);
-      const invalid = !Number.isFinite(value)
-        || (config.valueSign === 'positive' ? value <= 0 : value === 0);
+      const read = this.valueField.read();
+      const invalid = 'error' in read
+        || (typeof read.value === 'number'
+          && (config.valueSign === 'positive' ? read.value <= 0 : read.value === 0));
       if (invalid) {
         this.setMessage(config.valueSign === 'nonzero'
           ? `Enter a nonzero ${config.valueLabel.toLowerCase()} (negative hollows inward).`
           : `Enter a positive ${config.valueLabel.toLowerCase()}.`);
         return;
       }
+      value = read.value;
+      newVariables = read.newVariable ? [read.newVariable] : undefined;
     }
 
     if (this.editTarget) {
@@ -1492,6 +1511,7 @@ export class ModifyPickService {
             value: value!,
             selectorOverride,
             joinType: this.shellJoinType() ?? undefined,
+            newVariables,
             expectedStatement: this.session.expectedStatement,
             before: dirty ? this.session.boundary ?? undefined : undefined,
             entities: dirty ? this.entities : undefined,
@@ -1522,6 +1542,7 @@ export class ModifyPickService {
         chains: this.apiChains(),
         selectorOverride,
         joinType: this.shellJoinType() ?? undefined,
+        newVariables,
       });
       if (result.success) {
         // The editor round-trip re-renders the scene; that render is the
@@ -1606,12 +1627,13 @@ export class ModifyPickService {
     // The argument list is independent of the numeric parameter; any valid
     // value satisfies the endpoint (sketch has none at all).
     const config = FEATURES[this.feature];
-    let previewValue: number | null = null;
+    let previewValue: ValueExpr | null = null;
     if (config.valueLabel !== null) {
-      const value = parseFloat(this.valueInput.value);
-      const valid = Number.isFinite(value)
-        && (config.valueSign === 'positive' ? value > 0 : value !== 0);
-      previewValue = valid ? value : config.defaultValue!;
+      const read = this.valueField.read();
+      const valid = !('error' in read)
+        && (typeof read.value !== 'number'
+          || (config.valueSign === 'positive' ? read.value > 0 : read.value !== 0));
+      previewValue = valid && !('error' in read) ? read.value : config.defaultValue!;
     }
 
     let result: ApplyFeatureResponse;

@@ -1,10 +1,13 @@
 import { FeatureOp, OpTabs, PanelShell, ThinControl } from './panel-controls';
 import { SketchProfileOption, sourceChip } from './sketch-profiles';
 import { PickSlot, PickSlotChip } from '../pick-slot';
+import { NewVariable, ValueExpr } from '../../api';
+import { collectNewVariables } from '../../ui/expression-field';
+import { VariableInfo } from '../../ui/expression-core';
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type SweepValues =
-  | { op: FeatureOp; thin: [number] | null }
+  | { op: FeatureOp; thin: [ValueExpr] | null; newVariables?: NewVariable[] }
   | { error: string };
 
 export type SweepPathSelection =
@@ -171,7 +174,7 @@ export class SweepPanel {
    * that slot, and its ✕ reverts to the kept expression. The op tabs and
    * thin control edit in place.
    */
-  showEdit(state: { op: FeatureOp; thin: [number] | null; pathLabel: string; profileLabel: string }): void {
+  showEdit(state: { op: FeatureOp; thin: [ValueExpr] | null; pathLabel: string; profileLabel: string }): void {
     this.options = [];
     this.allowEdgePicking = true;
     this.profileState = { kind: 'keep' };
@@ -276,7 +279,12 @@ export class SweepPanel {
     if ('error' in thin) {
       return thin;
     }
-    return { op: this.tabs.op, thin: thin.thin };
+    return { op: this.tabs.op, thin: thin.thin, newVariables: collectNewVariables([thin]) };
+  }
+
+  /** The variables the thin thickness field's dropdown offers. */
+  setScopeVariables(variables: VariableInfo[]): void {
+    this.thin.setVariables(variables);
   }
 
   setPreview(text: string | null): void {

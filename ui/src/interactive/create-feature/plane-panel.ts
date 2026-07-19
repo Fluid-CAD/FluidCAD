@@ -1,5 +1,8 @@
 import { PanelShell } from './panel-controls';
 import { PickSlot, PickSlotChip } from '../pick-slot';
+import { NewVariable, ValueExpr } from '../../api';
+import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
+import { VariableInfo } from '../../ui/expression-core';
 
 export type PlaneType = 'offset' | 'mid' | 'edge';
 
@@ -7,11 +10,12 @@ export type PlaneType = 'offset' | 'mid' | 'edge';
 export type PlaneValues =
   | {
       type: PlaneType;
-      offset: number | null;
-      rotateX: number | null;
-      rotateY: number | null;
-      rotateZ: number | null;
-      position: number | null;
+      offset: ValueExpr | null;
+      rotateX: ValueExpr | null;
+      rotateY: ValueExpr | null;
+      rotateZ: ValueExpr | null;
+      position: ValueExpr | null;
+      newVariables?: NewVariable[];
     }
   | { error: string };
 
@@ -39,11 +43,11 @@ export class PlanePanel {
   private typeSelect: HTMLSelectElement;
   private basesSlot: PickSlot;
   private offsetRow: HTMLElement;
-  private offsetInput: HTMLInputElement;
+  private offsetField: ExpressionField;
   private positionRow: HTMLElement;
-  private positionInput: HTMLInputElement;
+  private positionField: ExpressionField;
   private rotationRow: HTMLElement;
-  private rotationInputs: HTMLInputElement[] = [];
+  private rotationFields: ExpressionField[] = [];
   private applyBtn: HTMLButtonElement;
 
   constructor(container: HTMLElement) {
@@ -95,9 +99,7 @@ export class PlanePanel {
     this.basesSlot.setArmed(true);
     this.basesSlot.onRemove = (index) => this.onRemoveBase?.(index);
     this.offsetRow = this.shell.body.querySelector('[data-role="offset-row"]')!;
-    this.offsetInput = this.shell.body.querySelector('[data-role="offset"]')!;
     this.positionRow = this.shell.body.querySelector('[data-role="position-row"]')!;
-    this.positionInput = this.shell.body.querySelector('[data-role="position"]')!;
     this.rotationRow = this.shell.body.querySelector('[data-role="rotation-row"]')!;
     this.applyBtn = this.shell.body.querySelector('[data-role="apply"]')!;
 
@@ -107,17 +109,17 @@ export class PlanePanel {
       this.onChange?.();
     });
 
-    this.rotationInputs = ['x', 'y', 'z'].map(axis =>
-      this.shell.body.querySelector<HTMLInputElement>(`[data-role="rotate-${axis}"]`)!);
-    for (const input of [this.offsetInput, this.positionInput, ...this.rotationInputs]) {
-      input.addEventListener('input', () => this.onChange?.());
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          this.onApply?.();
-        }
-        e.stopPropagation();
-      });
+    // Expression fields own the inputs' keyboard handling (variable dropdown,
+    // Enter-to-apply) and flip them to type="text" for identifiers.
+    this.offsetField = new ExpressionField(
+      this.shell.body.querySelector<HTMLInputElement>('[data-role="offset"]')!);
+    this.positionField = new ExpressionField(
+      this.shell.body.querySelector<HTMLInputElement>('[data-role="position"]')!);
+    this.rotationFields = ['x', 'y', 'z'].map(axis => new ExpressionField(
+      this.shell.body.querySelector<HTMLInputElement>(`[data-role="rotate-${axis}"]`)!));
+    for (const field of [this.offsetField, this.positionField, ...this.rotationFields]) {
+      field.onSubmit = () => this.onApply?.();
+      field.element.addEventListener('input', () => this.onChange?.());
     }
 
     this.applyBtn.addEventListener('click', () => this.onApply?.());
@@ -141,14 +143,21 @@ export class PlanePanel {
   show(): void {
     // A fresh arming starts from defaults and an empty base list.
     this.typeSelect.value = 'offset';
-    this.offsetInput.value = '10';
-    this.positionInput.value = '0.5';
-    for (const input of this.rotationInputs) {
-      input.value = '0';
+    this.offsetField.setValue(10);
+    this.positionField.setValue(0.5);
+    for (const field of this.rotationFields) {
+      field.setValue(0);
     }
     this.setBases([]);
     this.syncType();
     this.shell.show();
+  }
+
+  /** The variables the fields' dropdowns offer. */
+  setScopeVariables(variables: VariableInfo[]): void {
+    for (const field of [this.offsetField, this.positionField, ...this.rotationFields]) {
+      field.setVariables(variables);
+    }
   }
 
   /** Programmatic type choice (selection seeding); no change event fires. */
@@ -179,30 +188,36 @@ export class PlanePanel {
   values(): PlaneValues {
     const type = this.planeType;
     if (type === 'edge') {
-      const position = parseFloat(this.positionInput.value);
-      if (!Number.isFinite(position) || position < 0 || position > 1) {
+      const read = this.positionField.read();
+      if ('error' in read
+        || (typeof read.value === 'number' && (read.value < 0 || read.value > 1))) {
         return { error: 'Enter a position between 0 (edge start) and 1 (edge end).' };
       }
-      return { type, offset: null, rotateX: null, rotateY: null, rotateZ: null, position };
+      return {
+        type, offset: null, rotateX: null, rotateY: null, rotateZ: null,
+        position: read.value,
+        newVariables: collectNewVariables([read]),
+      };
     }
-    const numbers: (number | null)[] = [];
-    const fields: [string, HTMLInputElement][] = [
-      ['offset', this.offsetInput],
-      ['X rotation', this.rotationInputs[0]],
-      ['Y rotation', this.rotationInputs[1]],
-      ['Z rotation', this.rotationInputs[2]],
+    const numbers: (ValueExpr | null)[] = [];
+    const reads: ({ newVariable?: NewVariable } | null)[] = [];
+    const fields: [string, ExpressionField][] = [
+      ['offset', this.offsetField],
+      ['X rotation', this.rotationFields[0]],
+      ['Y rotation', this.rotationFields[1]],
+      ['Z rotation', this.rotationFields[2]],
     ];
-    for (const [label, input] of fields) {
-      const text = input.value.trim();
-      if (text === '') {
-        numbers.push(null);
-        continue;
+    for (const [label, field] of fields) {
+      const read = field.read();
+      if ('error' in read) {
+        if (read.error === 'empty') {
+          numbers.push(null);
+          continue;
+        }
+        return { error: `Enter a valid number for the ${label}. ${read.error}.` };
       }
-      const value = parseFloat(text);
-      if (!Number.isFinite(value)) {
-        return { error: `Enter a valid number for the ${label}.` };
-      }
-      numbers.push(value === 0 ? null : value);
+      reads.push(read);
+      numbers.push(read.value === 0 ? null : read.value);
     }
     return {
       type,
@@ -211,6 +226,7 @@ export class PlanePanel {
       rotateY: numbers[2],
       rotateZ: numbers[3],
       position: null,
+      newVariables: collectNewVariables(reads),
     };
   }
 

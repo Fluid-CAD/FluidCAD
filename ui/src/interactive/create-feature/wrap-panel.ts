@@ -2,6 +2,8 @@ import { OpTabs, PanelShell } from './panel-controls';
 import { SketchProfileOption, sourceChip } from './sketch-profiles';
 import { PickSlot } from '../pick-slot';
 import { WrapOptionValues } from '../../api';
+import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
+import { VariableInfo } from '../../ui/expression-core';
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type WrapValues = WrapOptionValues | { error: string };
@@ -35,6 +37,7 @@ export class WrapPanel {
   private shell: PanelShell;
   private tabs: OpTabs;
   private thicknessInput: HTMLInputElement;
+  private thicknessField: ExpressionField;
   private sketchSlot: PickSlot;
   private faceSlot: PickSlot;
   private applyBtn: HTMLButtonElement;
@@ -86,14 +89,11 @@ export class WrapPanel {
 
     this.applyBtn.addEventListener('click', () => this.onApply?.());
     this.shell.body.querySelector('[data-role="exit"]')!.addEventListener('click', () => this.onExit?.());
+    // The field owns the thickness input's keyboard handling (variable
+    // dropdown, Enter-to-apply) and flips it to type="text" for identifiers.
+    this.thicknessField = new ExpressionField(this.thicknessInput);
+    this.thicknessField.onSubmit = () => this.onApply?.();
     this.thicknessInput.addEventListener('input', () => this.onChange?.());
-    this.thicknessInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        this.onApply?.();
-      }
-      e.stopPropagation();
-    });
     this.sketchSlot.onArm = () => this.armSlot('sketch');
     this.faceSlot.onArm = () => this.armSlot('face');
     this.sketchSlot.onRemove = () => {
@@ -145,7 +145,7 @@ export class WrapPanel {
     this.keepFaceLabel = state.faceLabel;
     this.shell.setTitle('Edit wrap');
     this.tabs.setOp(state.op);
-    this.thicknessInput.value = String(state.thickness);
+    this.thicknessField.setValue(state.thickness);
     this.setFaceChip(null);
     this.renderSketch();
     this.armSlot('face');
@@ -240,11 +240,17 @@ export class WrapPanel {
   }
 
   values(): WrapValues {
-    const thickness = parseFloat(this.thicknessInput.value);
-    if (!Number.isFinite(thickness) || thickness <= 0) {
-      return { error: 'Enter a positive pad thickness.' };
+    const read = this.thicknessField.read();
+    if ('error' in read || (typeof read.value === 'number' && read.value <= 0)) {
+      const detail = 'error' in read && read.error !== 'empty' ? ` ${read.error}.` : '';
+      return { error: `Enter a positive pad thickness.${detail}` };
     }
-    return { op: this.tabs.op, thickness };
+    return { op: this.tabs.op, thickness: read.value, newVariables: collectNewVariables([read]) };
+  }
+
+  /** The variables the thickness field's dropdown offers. */
+  setScopeVariables(variables: VariableInfo[]): void {
+    this.thicknessField.setVariables(variables);
   }
 
   setPreview(text: string | null): void {

@@ -1209,9 +1209,9 @@ describe('apply-feature route validation', () => {
     expect(body.error).toContain('must be different');
   });
 
-  it('rejects a non-finite plane rotation', async () => {
+  it('rejects an unsafe plane rotation expression', async () => {
     const { status, body } = await post({
-      feature: 'plane', type: 'offset', rotateX: 'lots',
+      feature: 'plane', type: 'offset', rotateX: '1; nope()',
       bases: [{ kind: 'standard', plane: 'xy' }],
     });
     expect(status).toBe(400);

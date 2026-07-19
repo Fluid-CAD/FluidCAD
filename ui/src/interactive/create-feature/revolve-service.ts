@@ -1,6 +1,7 @@
 import {
-  applyRevolve, applyRevolveEdit, fetchFeatureSources, ApplyFeatureResponse, FeatureEditTarget,
-  ParsedFeatureStatement, RevolveApplyOptions, RevolveAxisRef, RevolveEditOptions, SourceSlotRef,
+  applyRevolve, applyRevolveEdit, fetchFeatureSources, getScopeVariables, ApplyFeatureResponse,
+  FeatureEditTarget, ParsedFeatureStatement, RevolveApplyOptions, RevolveAxisRef, RevolveEditOptions,
+  SourceSlotRef,
 } from '../../api';
 import { sameEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
@@ -251,6 +252,7 @@ export class RevolveFeatureService {
     this.suspendSketchUI();
     this.session.begin({ ...info, target });
     void this.loadEditSources();
+    void this.refreshScopeVariables();
     this.panel.showEdit({
       op: parsed.op,
       angle: parsed.angle ?? 360,
@@ -263,6 +265,19 @@ export class RevolveFeatureService {
   }
 
   /** The statement's current profile and axis, for highlighting keep slots. */
+  /**
+   * Push the variables in scope at the statement (edit mode) or at the end
+   * of the file (create mode) to the dialog's expression fields. A response
+   * landing after the dialog closed or re-targeted is dropped.
+   */
+  private async refreshScopeVariables(): Promise<void> {
+    const line = this.editTarget?.line ?? null;
+    const variables = await getScopeVariables(line);
+    if (this.armed && (this.editTarget?.line ?? null) === line) {
+      this.panel.setScopeVariables(variables);
+    }
+  }
+
   private async loadEditSources(): Promise<void> {
     const boundary = this.session.boundary;
     if (!boundary) {
@@ -293,6 +308,7 @@ export class RevolveFeatureService {
       this.suspendSketchUI();
     }
     this.syncButton();
+    void this.refreshScopeVariables();
     this.panel.show(this.profiles, this.axes);
     this.syncPickChannels();
     this.refreshLabels();

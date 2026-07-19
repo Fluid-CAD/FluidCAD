@@ -1,14 +1,17 @@
-import { LoftConditionRef } from '../../api';
+import { LoftConditionRef, NewVariable, ValueExpr } from '../../api';
 import { FeatureOp, OpTabs, PanelShell, ThinControl } from './panel-controls';
 import { PickSlot, PickSlotChip } from '../pick-slot';
+import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
+import { VariableInfo } from '../../ui/expression-core';
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type LoftValues =
   | {
       op: FeatureOp;
-      thin: [number] | null;
+      thin: [ValueExpr] | null;
       startCondition: LoftConditionRef | null;
       endCondition: LoftConditionRef | null;
+      newVariables?: NewVariable[];
     }
   | { error: string };
 
@@ -23,6 +26,7 @@ class ConditionRow {
 
   private select: HTMLSelectElement;
   private magnitude: HTMLInputElement;
+  private field: ExpressionField;
 
   constructor(host: HTMLElement, label: string, title: string, private which: string) {
     host.className = 'flex flex-col gap-1.5';
@@ -45,40 +49,42 @@ class ConditionRow {
       this.sync();
       this.onChange?.();
     });
+    // The field owns the magnitude input's keyboard handling (variable
+    // dropdown, Enter-to-apply) and flips it to type="text" for identifiers.
+    this.field = new ExpressionField(this.magnitude);
+    this.field.onSubmit = () => this.onSubmit?.();
     this.magnitude.addEventListener('input', () => this.onChange?.());
-    this.magnitude.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        this.onSubmit?.();
-      }
-      e.stopPropagation();
-    });
+  }
+
+  /** The variables the magnitude field's dropdown offers. */
+  setVariables(variables: VariableInfo[]): void {
+    this.field.setVariables(variables);
   }
 
   reset(): void {
     this.select.value = 'none';
-    this.magnitude.value = '1';
+    this.field.setValue(1);
     this.sync();
   }
 
   /** Programmatic condition (edit-mode prefill); no change event fires. */
   set(condition: LoftConditionRef | null): void {
     this.select.value = condition ? condition.type : 'none';
-    this.magnitude.value = condition ? String(condition.magnitude) : '1';
+    this.field.setValue(condition ? condition.magnitude : 1);
     this.sync();
   }
 
   /** The condition to write, null for none, or the blocking message. */
-  values(): { condition: LoftConditionRef | null } | { error: string } {
+  values(): { condition: LoftConditionRef | null; newVariable?: NewVariable } | { error: string } {
     const type = this.select.value;
     if (type !== 'normal' && type !== 'tangent') {
       return { condition: null };
     }
-    const magnitude = parseFloat(this.magnitude.value);
-    if (!Number.isFinite(magnitude) || magnitude === 0) {
+    const read = this.field.read();
+    if ('error' in read || (typeof read.value === 'number' && read.value === 0)) {
       return { error: `Enter a nonzero magnitude for the ${this.which} condition.` };
     }
-    return { condition: { type, magnitude } };
+    return { condition: { type, magnitude: read.value }, newVariable: read.newVariable };
   }
 
   private sync(): void {
@@ -203,7 +209,7 @@ export class LoftPanel {
    */
   showEdit(state: {
     op: FeatureOp;
-    thin: [number] | null;
+    thin: [ValueExpr] | null;
     startCondition: LoftConditionRef | null;
     endCondition: LoftConditionRef | null;
   }): void {
@@ -268,7 +274,15 @@ export class LoftPanel {
       thin: thin.thin,
       startCondition: start.condition,
       endCondition: end.condition,
+      newVariables: collectNewVariables([thin, start, end]),
     };
+  }
+
+  /** The variables the fields' dropdowns offer (thin + conditions). */
+  setScopeVariables(variables: VariableInfo[]): void {
+    this.thin.setVariables(variables);
+    this.startCondition.setVariables(variables);
+    this.endCondition.setVariables(variables);
   }
 
   private setArmedSection(section: 'profiles' | 'guides'): void {

@@ -1,4 +1,7 @@
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
+import { ExpressionField } from '../../ui/expression-field';
+import { VariableInfo } from '../../ui/expression-core';
+import { NewVariable, ValueExpr } from '../../api';
 
 export type FeatureOp = 'add' | 'remove' | 'new';
 
@@ -78,6 +81,7 @@ export class ThinControl {
   private toggle: HTMLElement;
   private valueWrap: HTMLElement;
   private input: HTMLInputElement;
+  private field: ExpressionField;
 
   constructor(container: HTMLElement) {
     const toggle = document.createElement('label');
@@ -105,14 +109,16 @@ export class ThinControl {
       this.sync();
       this.onChange?.();
     });
+    // The field owns the input's keyboard handling (dropdown navigation,
+    // Enter-to-submit) and flips the input to type="text" for identifiers.
+    this.field = new ExpressionField(this.input);
+    this.field.onSubmit = () => this.onSubmit?.();
     this.input.addEventListener('input', () => this.onChange?.());
-    this.input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        this.onSubmit?.();
-      }
-      e.stopPropagation();
-    });
+  }
+
+  /** The variables the thickness field's dropdown offers. */
+  setVariables(variables: VariableInfo[]): void {
+    this.field.setVariables(variables);
   }
 
   /**
@@ -133,24 +139,27 @@ export class ThinControl {
   }
 
   /** Programmatic offsets (edit-mode prefill); no change event fires. */
-  setValues(thin: [number] | null): void {
+  setValues(thin: [ValueExpr] | null): void {
     this.checkbox.checked = thin !== null;
     if (thin !== null) {
-      this.input.value = String(thin[0]);
+      this.field.setValue(thin[0]);
     }
     this.sync();
   }
 
   /** The `.thin()` offsets, null when off, or the message for a bad value. */
-  values(): { thin: [number] | null } | { error: string } {
+  values(): { thin: [ValueExpr] | null; newVariable?: NewVariable } | { error: string } {
     if (!this.checkbox.checked) {
       return { thin: null };
     }
-    const thickness = parseFloat(this.input.value);
-    if (!Number.isFinite(thickness) || thickness <= 0) {
+    const read = this.field.read();
+    if ('error' in read) {
+      return { error: read.error === 'empty' ? 'Enter a positive wall thickness.' : read.error };
+    }
+    if (typeof read.value === 'number' && read.value <= 0) {
       return { error: 'Enter a positive wall thickness.' };
     }
-    return { thin: [thickness] };
+    return { thin: [read.value], newVariable: read.newVariable };
   }
 
   private sync(): void {

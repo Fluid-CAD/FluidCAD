@@ -2,7 +2,9 @@ import { OpTabs, PanelShell, ThinControl } from './panel-controls';
 import { SketchProfileOption, sourceChip } from './sketch-profiles';
 import { AxisOption } from './axis-options';
 import { PickSlot } from '../pick-slot';
-import { RevolveOptionValues } from '../../api';
+import { RevolveOptionValues, ValueExpr } from '../../api';
+import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
+import { VariableInfo } from '../../ui/expression-core';
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type RevolveValues = RevolveOptionValues | { error: string };
@@ -51,6 +53,7 @@ export class RevolvePanel {
   private axisSlot: PickSlot;
   private axisButtons = new Map<'x' | 'y' | 'z', HTMLButtonElement>();
   private angleInput: HTMLInputElement;
+  private angleField: ExpressionField;
   private applyBtn: HTMLButtonElement;
   private profileOptions: SketchProfileOption[] = [];
   /** The profile slot's state: an option index, the keep entry, or empty. */
@@ -141,14 +144,17 @@ export class RevolvePanel {
 
     this.applyBtn.addEventListener('click', () => this.onApply?.());
     this.shell.body.querySelector('[data-role="exit"]')!.addEventListener('click', () => this.onExit?.());
+    // The field owns the angle input's keyboard handling (variable dropdown,
+    // Enter-to-apply) and flips it to type="text" for identifiers.
+    this.angleField = new ExpressionField(this.angleInput);
+    this.angleField.onSubmit = () => this.onApply?.();
     this.angleInput.addEventListener('input', () => this.onChange?.());
-    this.angleInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        this.onApply?.();
-      }
-      e.stopPropagation();
-    });
+  }
+
+  /** The variables the fields' dropdowns offer (thin thickness included). */
+  setScopeVariables(variables: VariableInfo[]): void {
+    this.angleField.setVariables(variables);
+    this.thin.setVariables(variables);
   }
 
   get isVisible(): boolean {
@@ -165,7 +171,7 @@ export class RevolvePanel {
     this.axisState = null;
     this.editMode = false;
     this.shell.setTitle(null);
-    this.angleInput.value = '360';
+    this.angleField.setValue(360);
     this.setOptions(profiles, axes);
     if (this.profileState === null && profiles.length > 0) {
       this.profileState = 0;
@@ -184,7 +190,7 @@ export class RevolvePanel {
    * tabs, angle and thin controls edit in place.
    */
   showEdit(state: RevolveOptionValues & {
-    thin: [number] | null;
+    thin: [ValueExpr] | null;
     axisLabel: string;
     profileLabel: string;
   }): void {
@@ -196,7 +202,7 @@ export class RevolvePanel {
     this.keepAxisLabel = state.axisLabel;
     this.shell.setTitle('Edit revolve');
     this.tabs.setOp(state.op);
-    this.angleInput.value = String(state.angle);
+    this.angleField.setValue(state.angle);
     this.thin.setValues(state.thin);
     this.renderProfile();
     this.renderAxis();
@@ -295,15 +301,21 @@ export class RevolvePanel {
   }
 
   values(): RevolveValues {
-    const angle = parseFloat(this.angleInput.value);
-    if (!Number.isFinite(angle) || angle === 0) {
-      return { error: 'Enter a nonzero sweep angle in degrees.' };
+    const angleRead = this.angleField.read();
+    if ('error' in angleRead || (typeof angleRead.value === 'number' && angleRead.value === 0)) {
+      const detail = 'error' in angleRead && angleRead.error !== 'empty' ? ` ${angleRead.error}.` : '';
+      return { error: `Enter a nonzero sweep angle in degrees.${detail}` };
     }
     const thin = this.thin.values();
     if ('error' in thin) {
       return thin;
     }
-    return { op: this.tabs.op, angle, thin: thin.thin };
+    return {
+      op: this.tabs.op,
+      angle: angleRead.value,
+      thin: thin.thin,
+      newVariables: collectNewVariables([angleRead, thin]),
+    };
   }
 
   setPreview(text: string | null): void {

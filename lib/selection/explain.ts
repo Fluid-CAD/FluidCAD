@@ -54,7 +54,7 @@ export function synthesizeApplyFeature(
   scene: SelectionScene,
   refs: PickRef[],
   feature: ApplyFeatureKind,
-  value?: number,
+  value?: number | string,
   chains: PickChain[] = [],
   options: SynthesizeOptions = {},
 ): ApplyFeatureSynthesis {
@@ -310,7 +310,7 @@ function findCoplanarClassifiedFace(index: SelectionIndex, plane: Plane): Bucket
  * One-line statement preview per feature. The transform writes sketch's
  * callback as a real multi-line empty body; the preview stands in for it.
  */
-function renderPreview(feature: ApplyFeatureKind, value: number | undefined, args: string): string {
+function renderPreview(feature: ApplyFeatureKind, value: number | string | undefined, args: string): string {
   if (feature === 'sketch') {
     return `sketch(${args}, () => { ... })`;
   }

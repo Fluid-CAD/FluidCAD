@@ -1,6 +1,7 @@
 import {
-  applySweep, applySweepEdit, fetchFeatureSources, ApplyFeatureChain, ApplyFeatureResponse, expandBucket,
-  FeatureEditTarget, ParsedFeatureStatement, SelectionGroupKind, SourceSlotRef, SweepApplyOptions,
+  applySweep, applySweepEdit, fetchFeatureSources, getScopeVariables, ApplyFeatureChain,
+  ApplyFeatureResponse, expandBucket, FeatureEditTarget, ParsedFeatureStatement, SelectionGroupKind,
+  SourceSlotRef, SweepApplyOptions,
 } from '../../api';
 import { entityKey, mergeUniqueEntities, sameEntity, selectionChipRows } from '../../helpers/entities';
 import { EditSession, EditSessionInfo } from '../edit-session';
@@ -277,6 +278,7 @@ export class SweepFeatureService {
     this.viewer.pickFilter = 'edge';
     this.session.begin({ ...info, target });
     void this.loadEditSources();
+    void this.refreshScopeVariables();
     this.panel.showEdit({
       op: parsed.op,
       thin: parsed.thin,
@@ -291,6 +293,19 @@ export class SweepFeatureService {
    * highlighting) and the path's resolved edges — the seed offered when edge
    * picking arms, so re-picking starts from the statement's own selection.
    */
+  /**
+   * Push the variables in scope at the statement (edit mode) or at the end
+   * of the file (create mode) to the dialog's expression fields. A response
+   * landing after the dialog closed or re-targeted is dropped.
+   */
+  private async refreshScopeVariables(): Promise<void> {
+    const line = this.editTarget?.line ?? null;
+    const variables = await getScopeVariables(line);
+    if (this.armed && (this.editTarget?.line ?? null) === line) {
+      this.panel.setScopeVariables(variables);
+    }
+  }
+
   private async loadEditSources(): Promise<void> {
     const boundary = this.session.boundary;
     if (!boundary) {
@@ -322,6 +337,7 @@ export class SweepFeatureService {
     this.viewer.pickSketchWires = true;
     this.viewer.pickFilter = 'edge';
     this.syncButton();
+    void this.refreshScopeVariables();
     this.panel.show(this.profiles, this.hasSolid);
     this.refreshSketchLabels();
     this.refreshPathChips();

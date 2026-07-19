@@ -121,7 +121,7 @@ export type PickChain = {
 export type ApplyFeatureEditSpec = {
   feature: ApplyFeatureKind;
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
-  value?: number;
+  value?: number | string;
   filePath: string;
   producers: {
     line: number;

@@ -1350,7 +1350,43 @@ export function updateDimensionExpressionWithVariable(
     (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression, dimensionOffset, dimensionCall));
 }
 
-export type VariableInfo = { name: string; initializer?: string };
+export type VariableInfo = { name: string; initializer?: string; numeric?: boolean };
+
+/**
+ * Whether an initializer is a plain constant or arithmetic expression — the
+ * kind of value a numeric input can reference. Feature results (`extrude(...)`),
+ * objects, arrays, strings, and functions are not. Local identifiers resolve
+ * through `numericByName`; unknown names (globals, imports) pass permissively.
+ */
+function isNumericValueNode(node: TSNode, numericByName: Map<string, boolean>): boolean {
+  switch (node.type) {
+    case 'number':
+      return true;
+    case 'identifier':
+      return numericByName.get(node.text) ?? true;
+    case 'unary_expression':
+    case 'binary_expression':
+    case 'parenthesized_expression':
+    case 'ternary_expression':
+      return node.namedChildren.every((c) => isNumericValueNode(c, numericByName));
+    case 'member_expression': {
+      const obj = node.childForFieldName('object');
+      return obj ? isNumericValueNode(obj, numericByName) : false;
+    }
+    case 'call_expression': {
+      const fn = node.childForFieldName('function');
+      const isMathCall = fn?.type === 'member_expression'
+        && fn.childForFieldName('object')?.text === 'Math';
+      if (!isMathCall) {
+        return false;
+      }
+      const args = node.childForFieldName('arguments');
+      return !args || args.namedChildren.every((c) => isNumericValueNode(c, numericByName));
+    }
+    default:
+      return false;
+  }
+}
 
 export async function extractVariablesInScope(
   code: string,
@@ -1366,11 +1402,14 @@ export async function extractVariablesInScope(
 
   const variables: VariableInfo[] = [];
   const seen = new Set<string>();
+  const numericByName = new Map<string, boolean>();
 
-  function addVar(name: string, initializer?: string) {
+  function addVar(name: string, initializer?: string, valueNode?: TSNode) {
     if (!seen.has(name)) {
       seen.add(name);
-      variables.push({ name, initializer });
+      const numeric = valueNode ? isNumericValueNode(valueNode, numericByName) : true;
+      numericByName.set(name, numeric);
+      variables.push({ name, initializer, numeric });
     }
   }
 
@@ -1381,7 +1420,7 @@ export async function extractVariablesInScope(
         const valueNode = child.childForFieldName('value');
         if (nameNode && nameNode.type === 'identifier') {
           const init = valueNode ? valueNode.text : undefined;
-          addVar(nameNode.text, init);
+          addVar(nameNode.text, init, valueNode ?? undefined);
         }
       }
     }

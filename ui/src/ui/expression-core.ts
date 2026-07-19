@@ -22,7 +22,10 @@ export function isValidNewIdentifier(s: string): boolean {
   return IDENT_RE.test(s) && !RESERVED.has(s);
 }
 
-export type VariableInfo = { name: string; initializer?: string };
+/** `numeric: false` marks a variable whose value is not a plain constant or
+ * arithmetic expression (e.g. a feature result like `extrude(...)`) — kept in
+ * the list for name-collision checks but hidden from the dropdown. */
+export type VariableInfo = { name: string; initializer?: string; numeric?: boolean };
 
 export type Suggestion = VariableInfo & { isNew?: boolean };
 
@@ -113,6 +116,8 @@ function matchRank(name: string, lowerQuery: string): number {
  * The dropdown entries for the identifier being typed: matching variables
  * (exact, then prefix, then substring), plus a "new variable" offer when the
  * whole value is a fresh valid name and a seed value exists to assign.
+ * Variables marked `numeric: false` (feature results and other non-value
+ * bindings) are hidden — only constants and expressions are offered.
  */
 export function filterSuggestions(
   query: string,
@@ -122,7 +127,7 @@ export function filterSuggestions(
 ): Suggestion[] {
   const lower = query.toLowerCase();
   const matches: Suggestion[] = variables.filter(
-    (v) => v.name.toLowerCase().includes(lower),
+    (v) => v.numeric !== false && v.name.toLowerCase().includes(lower),
   );
   matches.sort((a, b) => matchRank(a.name, lower) - matchRank(b.name, lower));
   if (shouldOfferNewVariable(query, variables, fullValue, seedValue)) {

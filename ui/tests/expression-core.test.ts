@@ -7,6 +7,7 @@ const VARS = [
   { name: 'height', initializer: '30' },
   { name: 'width', initializer: '100' },
   { name: 'holeDia', initializer: '6' },
+  { name: 'housing', initializer: 'extrude(profile, 10)', numeric: false },
 ];
 
 describe('classifyCommit', () => {
@@ -57,6 +58,13 @@ describe('filterSuggestions', () => {
   it('offers no new-variable entry mid-expression or without a seed', () => {
     expect(filterSuggestions('dep', VARS, '2 + dep', '25').some(s => s.isNew)).toBe(false);
     expect(filterSuggestions('dep', VARS, 'dep', '').some(s => s.isNew)).toBe(false);
+  });
+
+  it('hides non-numeric variables (feature results) from the dropdown', () => {
+    expect(filterSuggestions('hous', VARS, 'hous', '25').map(s => s.name)).toEqual(['hous']);
+    // ...but their name still blocks the new-variable offer and redeclaration.
+    expect(filterSuggestions('housing', VARS, 'housing', '25').some(s => s.isNew)).toBe(false);
+    expect(classifyCommit('housing = 4', VARS, '25')).toMatchObject({ kind: 'error' });
   });
 });
 

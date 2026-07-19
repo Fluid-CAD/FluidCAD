@@ -17,6 +17,7 @@ import {
   updateDimension,
   updateDimensionExpression,
   getDimensionExpression,
+  extractVariablesInScope,
 } from '../src/code-editor.ts';
 
 describe('addBreakpoint', () => {
@@ -832,5 +833,56 @@ describe('setFeatureName', () => {
     const code = `const a = 1;\nextrude(10);\n`;
     const result = await setFeatureName(code, 1, 'Boss');
     expect(result.newCode).toBe(code);
+  });
+});
+
+describe('extractVariablesInScope numeric classification', () => {
+  it('marks constants and arithmetic expressions numeric, feature results not', async () => {
+    const code = [
+      "import { sketch, extrude } from 'fluidcad';",
+      'const width = 100;',
+      'const half = width / 2;',
+      'const angled = Math.sqrt(width) + 2;',
+      'const profile = sketch(() => {});',
+      'const housing = extrude(profile, 10);',
+      'const alias = housing;',
+      'const depth = housing.faces;',
+      'extrude(profile, half);',
+    ].join('\n');
+    const vars = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER);
+    const numericByName = Object.fromEntries(vars.map(v => [v.name, v.numeric]));
+    expect(numericByName).toEqual({
+      width: true,
+      half: true,
+      angled: true,
+      profile: false,
+      housing: false,
+      alias: false,
+      depth: false,
+    });
+  });
+
+  it('excludes strings, arrays, objects, and arrow functions', async () => {
+    const code = [
+      "const label = 'lid';",
+      'const dims = [10, 20];',
+      'const cfg = { w: 5 };',
+      'const fn = () => 3;',
+      'const size = (2 + 3) * 4;',
+      'const pick = size > 10 ? size : 10;',
+      'const neg = -size;',
+      'extrude(size);',
+    ].join('\n');
+    const vars = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER);
+    const numericByName = Object.fromEntries(vars.map(v => [v.name, v.numeric]));
+    expect(numericByName).toEqual({
+      label: false,
+      dims: false,
+      cfg: false,
+      fn: false,
+      size: true,
+      pick: true,
+      neg: true,
+    });
   });
 });

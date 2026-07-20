@@ -3694,6 +3694,30 @@ describe('repeat statement templates', () => {
     expect(result.newCode).toContain(`repeat('mirror', 'yz', f)`);
   });
 
+  it('accepts a select statement as a repeat target', async () => {
+    const code = [
+      `import { sketch, rect, extrude, select } from 'fluidcad/core'`,
+      `import { face } from 'fluidcad/filters'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      `const s = select(face().top())`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, repeatSpec({
+      kind: 'mirror',
+      plane: { kind: 'standard', plane: 'yz' },
+      targets: [{ producer: 0 }, { producer: 1 }],
+    }, {
+      producers: [
+        { line: 5, column: 10, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 6, column: 10, featureType: 'feature', nameHint: 'f', bind: true },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`repeat('mirror', 'yz', e, s)`);
+  });
+
   it('omits the 90-degree rotate default and renders other angles', async () => {
     const ninety = await applyFeatureEdit(`${base}\n`, repeatSpec({
       kind: 'rotate',

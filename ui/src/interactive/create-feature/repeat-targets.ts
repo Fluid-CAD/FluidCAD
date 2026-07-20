@@ -9,12 +9,13 @@ export type RepeatTargetOption = {
 };
 
 /**
- * Object types a repeat can never target: construction inputs and the
- * selection overlay. Everything else with a source location is offered — the
+ * Object types a repeat can never target: construction inputs. Everything
+ * else with a source location is offered — select() rows too, so a wrap or
+ * fillet can be repeated together with the selection it consumes — and the
  * server validates the statement's callee and refuses unsupported ones with
  * a readable reason.
  */
-const NON_TARGET_TYPES = new Set(['sketch', 'plane', 'axis', 'select']);
+const NON_TARGET_TYPES = new Set(['sketch', 'plane', 'axis']);
 
 /**
  * The feature statements a repeat could replay right now, one option per

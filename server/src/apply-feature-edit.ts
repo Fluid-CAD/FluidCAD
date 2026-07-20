@@ -695,7 +695,7 @@ const REPEAT_TARGET_CALLEES = new Set([
   ...PRODUCER_CALLEES,
   'fillet', 'chamfer', 'draft', 'cylinder', 'sphere', 'helix',
   'fuse', 'subtract', 'common', 'mirror', 'translate', 'rotate',
-  'repeat', 'copy', 'load', 'part',
+  'repeat', 'copy', 'load', 'part', 'select',
 ]);
 
 /** The chain-root callees producers of `featureType` may bind. */

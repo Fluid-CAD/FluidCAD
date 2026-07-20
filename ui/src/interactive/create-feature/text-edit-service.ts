@@ -1,13 +1,16 @@
 import { Group, LineSegments } from 'three';
 import {
-  applyTextEdit, FeatureEditTarget, getTextPreview, ParsedFeatureStatement,
+  applyTextEdit, FeatureEditTarget, getTextPreview, ParsedFeatureStatement, TextEditOptions,
 } from '../../api';
+import { DebouncedTask } from '../../helpers/debounced-task';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { Viewer } from '../../viewer';
 import { worldToSketch2D } from '../sketch-plane-utils';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import { TextPanel } from '../tools/text-panel';
 import { TextPreviewMesh } from '../tools/text-preview-mesh';
+import { ApplyRunner } from './apply-runner';
+import { SketchUISuspender } from './sketch-suspender';
 
 const PREVIEW_DEBOUNCE_MS = 250;
 
@@ -31,11 +34,14 @@ export class TextEditService {
   private plane: PlaneData | null = null;
   private anchor: [number, number] | null = null;
   private previewGroup = new Group();
-  private suspendedSketchUI = false;
-  private applying = false;
-  private previewTimer: number | null = null;
-  private previewAbort: AbortController | null = null;
-  private previewSeq = 0;
+  private sketchUI: SketchUISuspender;
+  private runner: ApplyRunner<TextEditOptions>;
+  /**
+   * The dual debounced preview: the statement text the transform will write
+   * (also surfacing drift refusals before Apply), then the outline geometry
+   * — both under one cancellation scope, so a newer edit drops both.
+   */
+  private preview: DebouncedTask;
 
   constructor(
     container: HTMLElement,
@@ -49,15 +55,35 @@ export class TextEditService {
       onResumeSketchUI?: () => void;
     } = {},
   ) {
+    this.sketchUI = new SketchUISuspender(viewer, hooks);
     this.previewGroup.userData.isMetaShape = true;
     this.previewGroup.renderOrder = 3;
     this.panel = new TextPanel(container);
-    this.panel.onApply = () => void this.apply();
+    this.panel.onApply = () => void this.runner.apply();
     this.panel.onExit = () => this.exit();
     this.panel.onChange = () => {
       this.panel.setMessage(null);
       this.schedulePreview();
     };
+
+    this.runner = new ApplyRunner({
+      panel: this.panel,
+      isArmed: () => this.armed && this.editTarget !== null,
+      build: () => this.buildRequest(),
+      send: (request, extras) => applyTextEdit(this.editTarget!, { ...request, ...extras }),
+      onApplied: () => this.exit('apply'),
+      failMessage: () => 'Could not apply the edit.',
+      // The statement preview rides the dual DebouncedTask below instead —
+      // it chains the outline render under the same cancellation scope.
+      validateApply: () => {
+        const values = this.panel.values();
+        return !('error' in values) && values.text.trim() === ''
+          ? { error: 'Enter the text to render.' }
+          : null;
+      },
+    });
+    this.preview = new DebouncedTask(PREVIEW_DEBOUNCE_MS,
+      (signal, isCurrent) => this.runPreview(signal, isCurrent));
   }
 
   get isActive(): boolean {
@@ -83,7 +109,7 @@ export class TextEditService {
     this.pathText = parsed.pathText;
     this.plane = null;
     this.anchor = null;
-    this.suspendSketchUI();
+    this.sketchUI.suspend();
     this.session.begin({ ...info, target });
     this.viewer.sceneContext.scene.add(this.previewGroup);
     this.panel.setTitle('Edit text');
@@ -154,35 +180,13 @@ export class TextEditService {
     this.anchor = cursor ? worldToSketch2D(cursor, plane) : [0, 0];
   }
 
-  private async apply(): Promise<void> {
-    if (!this.armed || this.applying || !this.editTarget) {
-      return;
-    }
+  /** The edit request for the current form state, or the blocking message. */
+  private buildRequest(): TextEditOptions | { error: string } {
     const values = this.panel.values();
     if ('error' in values) {
-      this.panel.setMessage(values.error);
-      return;
+      return values;
     }
-    if (values.text.trim() === '') {
-      this.panel.setMessage('Enter the text to render.');
-      return;
-    }
-    this.applying = true;
-    this.panel.setApplyEnabled(false);
-    try {
-      const result = await applyTextEdit(this.editTarget, {
-        ...values,
-        expectedStatement: this.session.expectedStatement,
-      });
-      if (result.success) {
-        this.exit('apply');
-      } else {
-        this.panel.setMessage(result.reason ?? 'Could not apply the edit.');
-      }
-    } finally {
-      this.applying = false;
-      this.panel.setApplyEnabled(true);
-    }
+    return { ...values, expectedStatement: this.session.expectedStatement };
   }
 
   exit(editEnd: 'apply' | 'cancel' | 'gone' = 'cancel'): void {
@@ -193,53 +197,25 @@ export class TextEditService {
     this.session.end(editEnd);
     this.editTarget = null;
     this.pathText = null;
-    this.cancelPreview();
+    this.preview.cancel();
     this.panel.hide();
     this.panel.setTitle(null);
     this.clearPreviewMesh();
     this.viewer.sceneContext.scene.remove(this.previewGroup);
     // A render always follows the session end (the cancel path clears the
     // breakpoint, an apply rebuilds) — resume lazily and let it re-enter.
-    this.resumeSketchUI();
+    this.sketchUI.resume(false);
   }
-
-  private suspendSketchUI(): void {
-    if (this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = true;
-    this.viewer.suspendSketchEditing();
-    this.hooks.onSuspendSketchUI?.();
-  }
-
-  private resumeSketchUI(): void {
-    if (!this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = false;
-    this.viewer.resumeSketchEditing(false);
-  }
-
-  // -------------------------------------------------------------------------
-  // Debounced previews: the statement text the transform will write (also
-  // surfacing drift refusals before Apply), and the outline geometry.
-  // -------------------------------------------------------------------------
 
   private schedulePreview(): void {
-    if (this.previewTimer !== null) {
-      window.clearTimeout(this.previewTimer);
-    }
     if (!this.armed) {
       return;
     }
-    this.previewTimer = window.setTimeout(() => {
-      this.previewTimer = null;
-      void this.runPreview();
-    }, PREVIEW_DEBOUNCE_MS);
+    this.preview.schedule();
   }
 
-  private async runPreview(): Promise<void> {
-    if (!this.armed || this.applying || !this.editTarget) {
+  private async runPreview(signal: AbortSignal, isCurrent: () => boolean): Promise<void> {
+    if (!this.armed || this.runner.isApplying || !this.editTarget) {
       return;
     }
     const values = this.panel.values();
@@ -248,19 +224,15 @@ export class TextEditService {
       this.renderPreviewMesh([]);
       return;
     }
-    const seq = ++this.previewSeq;
-    this.previewAbort?.abort();
-    const abort = new AbortController();
-    this.previewAbort = abort;
 
     try {
       const result = await applyTextEdit(this.editTarget, {
         ...values,
         expectedStatement: this.session.expectedStatement,
         preview: true,
-        signal: abort.signal,
+        signal,
       });
-      if (seq !== this.previewSeq || !this.armed) {
+      if (!isCurrent() || !this.armed) {
         return;
       }
       this.panel.setPreview(result.success ? result.preview ?? null : null);
@@ -278,30 +250,25 @@ export class TextEditService {
       return;
     }
     const { text, ...options } = values;
-    const geometry = await getTextPreview({
-      text,
-      position: this.anchor,
-      plane: {
-        origin: this.plane.origin,
-        normal: this.plane.normal,
-        xDirection: this.plane.xDirection,
-      },
-      options,
-    }, abort.signal);
-    if (seq !== this.previewSeq || !this.armed) {
+    let geometry: Awaited<ReturnType<typeof getTextPreview>>;
+    try {
+      geometry = await getTextPreview({
+        text,
+        position: this.anchor,
+        plane: {
+          origin: this.plane.origin,
+          normal: this.plane.normal,
+          xDirection: this.plane.xDirection,
+        },
+        options,
+      }, signal);
+    } catch {
+      return; // aborted
+    }
+    if (!isCurrent() || !this.armed) {
       return;
     }
     this.renderPreviewMesh(geometry?.polylines ?? []);
-  }
-
-  private cancelPreview(): void {
-    if (this.previewTimer !== null) {
-      window.clearTimeout(this.previewTimer);
-      this.previewTimer = null;
-    }
-    this.previewAbort?.abort();
-    this.previewAbort = null;
-    this.previewSeq++;
   }
 
   private renderPreviewMesh(polylines: number[][]): void {

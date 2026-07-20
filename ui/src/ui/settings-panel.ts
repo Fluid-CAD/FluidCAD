@@ -1,4 +1,5 @@
 import { viewerSettings } from '../scene/viewer-settings';
+import { viewportChrome } from './viewport-chrome';
 import { savePreference } from '../api';
 import { ICON_FIT, ICON_VIDEO, ICON_GRID, ICON_SUN, ICON_MOON, ICON_SECTION_VIEW, ICON_SETTINGS, ICON_CLOSE, ICON_ADJUSTMENTS } from './icons';
 
@@ -72,6 +73,11 @@ export class SettingsPanel {
 
     this.bindEvents();
     viewerSettings.subscribe(() => this.sync());
+    // A feature dialog docks in this same corner and takes the space over:
+    // step out of its way (params panel included) for as long as it is open.
+    viewportChrome.subscribe((dialogOpen) => {
+      this.wrapper.style.display = dialogOpen ? 'none' : '';
+    });
   }
 
   private buildFabHTML(): string {

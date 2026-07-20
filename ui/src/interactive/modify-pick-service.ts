@@ -17,6 +17,7 @@ import { SceneObjectRender, SubSelection } from '../types';
 import { SelectedEntity, Viewer } from '../viewer';
 import { Navbar } from '../ui/navbar';
 import { ICON_IMG_FALLBACK } from '../ui/object-icons';
+import { viewportChrome } from '../ui/viewport-chrome';
 
 export type ModifyFeatureKind = 'sketch' | 'fillet' | 'chamfer' | 'shell';
 
@@ -265,10 +266,10 @@ export class ModifyPickService {
 
     this.activeBar = document.createElement('div');
     this.activeBar.id = 'fluidcad-modify-pick-active';
-    // top-[276px] matches the create-feature dialog: below the settings/
-    // fit-to-view button stack (top-[196px]); right-7 aligns its right edge
-    // with that button column.
-    this.activeBar.className = 'absolute top-[276px] right-7 z-[999] pointer-events-auto hidden';
+    // top-[196px] right-4 matches the create-feature dialog: just below the
+    // viewport gizmo, in the spot the settings/fit-to-view button stack vacates
+    // while a dialog is open (see viewportChrome).
+    this.activeBar.className = 'absolute top-[196px] right-4 z-[999] pointer-events-auto hidden';
     this.activeBar.innerHTML = `
       <div class="flex flex-col items-end gap-1.5">
         <div class="flex flex-col items-stretch gap-3.5 w-60 bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
@@ -625,7 +626,7 @@ export class ModifyPickService {
     this.renderAlternatives();
     this.exprRow.classList.remove('hidden');
     this.exprRow.classList.add('flex');
-    this.activeBar.classList.remove('hidden');
+    this.setActiveBarVisible(true);
     this.setMessage(null);
     this.refresh();
     this.syncButtons();
@@ -762,7 +763,7 @@ export class ModifyPickService {
       this.joinWrap.classList.add('hidden');
     }
     this.syncExprSuffix();
-    this.activeBar.classList.remove('hidden');
+    this.setActiveBarVisible(true);
     this.setMessage(null);
     this.refresh();
     this.viewer.highlightEntities(this.entities);
@@ -799,7 +800,7 @@ export class ModifyPickService {
       this.hideExpression();
       this.hideTooltip();
       this.selectionMenu.hide();
-      this.activeBar.classList.add('hidden');
+      this.setActiveBarVisible(false);
       this.setMessage(null);
     }
     const seed = this.hooks.onEnter?.();
@@ -1114,10 +1115,19 @@ export class ModifyPickService {
     this.hideTooltip();
     this.selectionMenu.hide();
     this.viewer.clearHighlight();
-    this.activeBar.classList.add('hidden');
+    this.setActiveBarVisible(false);
     this.setMessage(null);
     this.syncButtons();
     this.resumeSketchUI((opts.resume ?? 'immediate') === 'immediate');
+  }
+
+  /**
+   * Show/hide the dialog. While it is up the settings/fit-to-view/params
+   * button stack steps aside so the dialog can dock under the gizmo.
+   */
+  private setActiveBarVisible(visible: boolean): void {
+    this.activeBar.classList.toggle('hidden', !visible);
+    viewportChrome.setDialogOpen(this.activeBar.id, visible);
   }
 
   /** A shown origin plane was clicked while the sketch pick was armed. */

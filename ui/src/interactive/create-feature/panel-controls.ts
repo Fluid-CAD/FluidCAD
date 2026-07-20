@@ -1,4 +1,5 @@
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
+import { viewportChrome } from '../../ui/viewport-chrome';
 import { ExpressionField } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
 import { NewVariable, ValueExpr } from '../../api';
@@ -187,13 +188,14 @@ export class PanelShell {
     this.defaultTitle = title;
     this.root = document.createElement('div');
     this.root.id = id;
-    // top-[276px] drops the dialog below the settings/fit-to-view button stack
-    // (which starts at top-[196px] and runs gear → fit-to-view); right-7 aligns
-    // its right edge with that button column.
-    this.root.className = 'absolute top-[276px] right-7 z-[999] pointer-events-auto hidden';
+    // top-[196px] sits just below the viewport gizmo (~y 102–182) with a bit of
+    // breathing room; right-4 tucks it closer to the viewport edge than the
+    // settings/fit-to-view/params stack (right-7), which normally occupies this
+    // spot and hides itself while a dialog is open (see viewportChrome).
+    this.root.className = 'absolute top-[196px] right-4 z-[999] pointer-events-auto hidden';
     this.root.innerHTML = `
       <div class="flex flex-col items-end gap-1.5">
-        <div data-role="body" class="flex flex-col items-stretch gap-3.5 w-60 max-h-[calc(100vh-340px)] overflow-y-auto bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
+        <div data-role="body" class="flex flex-col items-stretch gap-3.5 w-60 max-h-[calc(100vh-260px)] overflow-y-auto bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
           <div class="flex items-center gap-2.5">
             <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
             <span data-role="title" class="font-medium text-sm">${title}</span>
@@ -235,16 +237,19 @@ export class PanelShell {
     this.setMessage(null);
     this.setPreview(null);
     this.root.classList.remove('hidden');
+    viewportChrome.setDialogOpen(this.root.id, true);
   }
 
   hide(): void {
     this.root.classList.add('hidden');
     this.setMessage(null);
     this.setPreview(null);
+    viewportChrome.setDialogOpen(this.root.id, false);
   }
 
   /** Remove the dialog from the DOM (for panels owned by short-lived tools). */
   destroy(): void {
+    viewportChrome.setDialogOpen(this.root.id, false);
     this.root.remove();
   }
 

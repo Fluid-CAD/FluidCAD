@@ -14,7 +14,7 @@ import { ICON_IMG_FALLBACK } from './ui/object-icons';
 import { TrimPickService } from './interactive/trim-pick-service';
 import { RegionPickService } from './interactive/region-pick-service';
 import { SketchToolbarService } from './interactive/sketch-toolbar-service';
-import { ModifyPickService } from './interactive/modify-pick-service';
+import { ModifyPickService } from './interactive/modify-pick/modify-pick-service';
 import { ExtrudeFeatureService } from './interactive/create-feature/extrude-service';
 import { RevolveFeatureService } from './interactive/create-feature/revolve-service';
 import { SweepFeatureService } from './interactive/create-feature/sweep-service';

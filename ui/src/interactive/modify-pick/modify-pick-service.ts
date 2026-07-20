@@ -1,26 +1,29 @@
 import {
-  applyFeature, applyValueFeatureEdit, clearBreakpoints, expandBucket, explainSelection,
-  fetchFeatureSources,
-  getScopeVariables, parseFeatureAt, removeFeature, ApplyFeatureChain, ApplyFeatureResponse,
-  FeatureEditTarget, NewVariable, ParsedFeatureStatement, SelectionGroupKind, ShellJoinType,
-  SketchSourceRef, ValueExpr,
-} from '../api';
-import { ExpressionField } from '../ui/expression-field';
-import { entityKey, mergeUniqueEntities, sameEntity, selectionChipRows } from '../helpers/entities';
-import { isTopLevel } from '../helpers/scene-utils';
-import { collectPlaneOptions, PlaneOption, resolvePlaneByShapeId } from './create-feature/plane-bases';
-import { SketchStartPanel } from './create-feature/sketch-panel';
-import { EditSession, EditSessionInfo } from './edit-session';
-import { PickSlot } from './pick-slot';
-import { SelectionContextMenu } from './selection-menu';
-import { StandardPlaneId } from '../scene/standard-planes';
-import { SceneObjectRender, SubSelection } from '../types';
-import { SelectedEntity, Viewer } from '../viewer';
-import { Navbar } from '../ui/navbar';
-import { ICON_IMG_FALLBACK } from '../ui/object-icons';
-import { viewportChrome } from '../ui/viewport-chrome';
+  applyFeature, applyValueFeatureEdit, clearBreakpoints, expandBucket, fetchFeatureSources,
+  parseFeatureAt, removeFeature, ApplyFeatureResponse, FeatureEditTarget, NewVariable,
+  ParsedFeatureStatement, SelectionGroupKind, ShellJoinType, SketchSourceRef, ValueExpr,
+} from '../../api';
+import { mergeUniqueEntities } from '../../helpers/entities';
+import { isTopLevel } from '../../helpers/scene-utils';
+import { collectPlaneOptions, planeOptionForLocation, PlaneOption, resolvePlaneByShapeId } from '../create-feature/plane-bases';
+import { SketchStartPanel } from '../create-feature/sketch-panel';
+import { FeatureButton } from '../create-feature/feature-button';
+import { SketchUISuspender } from '../create-feature/sketch-suspender';
+import { refreshScopeVariables } from '../create-feature/option-relabeler';
+import { EditSession, EditSessionInfo } from '../edit-session';
+import { PickSelection } from '../pick-selection';
+import { SelectionContextMenu } from '../selection-menu';
+import { StandardPlaneId } from '../../scene/standard-planes';
+import { SceneObjectRender, SubSelection } from '../../types';
+import { SelectedEntity, Viewer } from '../../viewer';
+import { Navbar } from '../../ui/navbar';
+import { FEATURES, FEATURE_ORDER, ModifyFeatureKind } from './feature-config';
+import { ModifyPanel } from './modify-panel';
+import { TeachTooltip } from './teach-tooltip';
 
-export type ModifyFeatureKind = 'sketch' | 'fillet' | 'chamfer' | 'shell';
+export type { ModifyFeatureKind } from './feature-config';
+
+const PREVIEW_DEBOUNCE_MS = 250;
 
 /**
  * A live sketch dialog. `tracking` shows the picked target as a chip and
@@ -48,67 +51,6 @@ type SketchSession = {
    */
   breakpoint: boolean;
 };
-
-type FeatureConfig = {
-  label: string;
-  buttonTitle: string;
-  /** Value-row label; null hides the row (the feature has no numeric parameter). */
-  valueLabel: string | null;
-  defaultValue: number | null;
-  /** What `pickAt()` may return while the mode is armed. */
-  pickFilter: 'all' | 'face';
-  /** Positive-only value, or any nonzero (shell hollows inward with a negative). */
-  valueSign: 'positive' | 'nonzero' | null;
-  /** Show the join-type dropdown (shell's arc/intersection/tangent). */
-  joinRow: boolean;
-  /** Static text after the editable args in the expression row. */
-  exprSuffix: string;
-};
-
-/**
- * Toolbar order — Sketch first, then Fillet, Chamfer, Shell. Sketch renders
- * in the create group (shared with Extrude, immune to the sketch-toolbar
- * takeover); the rest form the modify group.
- */
-const FEATURE_ORDER: ModifyFeatureKind[] = ['sketch', 'fillet', 'chamfer', 'shell'];
-
-const FEATURES: Record<ModifyFeatureKind, FeatureConfig> = {
-  // Sketch never enters the shared value/expression bar — only its label,
-  // buttonTitle and pickFilter are live; it runs the dialog flow instead.
-  sketch: {
-    label: 'Sketch', buttonTitle: 'Sketch on a face or a plane', valueLabel: null, defaultValue: null,
-    pickFilter: 'face', valueSign: null, joinRow: false, exprSuffix: ')',
-  },
-  fillet: {
-    label: 'Fillet', buttonTitle: 'Fillet edges', valueLabel: 'Radius', defaultValue: 1,
-    pickFilter: 'all', valueSign: 'positive', joinRow: false, exprSuffix: ')',
-  },
-  chamfer: {
-    label: 'Chamfer', buttonTitle: 'Chamfer edges', valueLabel: 'Distance', defaultValue: 1,
-    pickFilter: 'all', valueSign: 'positive', joinRow: false, exprSuffix: ')',
-  },
-  shell: {
-    label: 'Shell', buttonTitle: 'Shell', valueLabel: 'Thickness', defaultValue: -2,
-    pickFilter: 'face', valueSign: 'nonzero', joinRow: true, exprSuffix: ')',
-  },
-};
-
-/**
- * Same artwork the timeline shows for the feature (`/icons/<type>.png`). The
- * toolbar buttons render it at 32px (`w-8 h-8`); the dialog title keeps the
- * smaller default that sits proportionally beside its `text-sm` heading.
- */
-function featureIconImg(kind: ModifyFeatureKind, sizeClass = 'w-4 h-4'): string {
-  return `<img src="/icons/${kind}.png" ${ICON_IMG_FALLBACK} class="${sizeClass} object-contain" alt="" />`;
-}
-
-const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 text-base-content/60';
-const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2 py-1';
-/** Small muted caption under the toolbar icon. */
-const BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
-
-const PREVIEW_DEBOUNCE_MS = 250;
-const TOOLTIP_DEBOUNCE_MS = 200;
 
 /**
  * Select→apply-feature pick mode: the `modify` toolbar group (Sketch / Fillet
@@ -155,8 +97,7 @@ const TOOLTIP_DEBOUNCE_MS = 200;
  */
 export class ModifyPickService {
   private feature: ModifyFeatureKind | null = null;
-  private entities: SelectedEntity[] = [];
-  private chains: { seed: SelectedEntity; members: SelectedEntity[] }[] = [];
+  private selection = new PickSelection();
   /**
    * Faces exist to sketch on — armed sketch mode offers them alongside the
    * origin planes; without solids the planes are the only targets.
@@ -205,7 +146,7 @@ export class ModifyPickService {
   /** The scene ends with an unconsumed sketch (scene-derived sketch mode). */
   private sceneSketchActive = false;
   /** Sketch editing is suspended while the sketch-on-face pick is armed. */
-  private suspendedSketchUI = false;
+  private sketchUI: SketchUISuspender;
   /** Statement being edited in place (timeline double-click), or null. */
   private editTarget: FeatureEditTarget | null = null;
   /** The statement's own selector args — the override-detection baseline. */
@@ -217,55 +158,26 @@ export class ModifyPickService {
   /** A full render arrived mid-session — seeds re-fetch at the next boundary. */
   private editSceneStale = false;
 
-  private buttons = new Map<ModifyFeatureKind, HTMLButtonElement>();
-  /**
-   * Tooltip wrapper of the Shell button. It lives in the create group (between
-   * Loft and Wrap) instead of the modify group, so it hides with the button —
-   * no phantom toolbar gap — on the modify group's own condition.
-   */
-  private shellWrap!: HTMLElement;
+  private buttons = new Map<ModifyFeatureKind, FeatureButton>();
   private sketchPanel: SketchStartPanel;
-  private activeBar: HTMLDivElement;
-  private titleIcon: HTMLElement;
-  private titleText: HTMLElement;
-  private valueWrap: HTMLElement;
-  private valueLabel: HTMLElement;
-  private valueInput: HTMLInputElement;
-  private valueField: ExpressionField;
-  private joinWrap: HTMLElement;
-  private joinSelect: HTMLSelectElement;
-  private selectionSlot: PickSlot;
+  private panel: ModifyPanel;
   /** The rendered selection chip rows — chip index to pick members. */
   private chipRows: { label: string; members: SelectedEntity[] }[] = [];
-  private applyBtn: HTMLButtonElement;
-  private message: HTMLDivElement;
   private applying = false;
   /** Last entered value per feature — a fillet radius makes a bad shell thickness. */
   private valueByFeature = new Map<ModifyFeatureKind, string>();
   /** Last chosen shell join type — restored the next time shell arms. */
   private lastJoinType: ShellJoinType = 'arc';
 
-  private exprRow: HTMLDivElement;
-  private exprPrefix: HTMLElement;
-  private exprInput: HTMLInputElement;
-  private exprSuffix: HTMLElement;
-  private altBtn: HTMLButtonElement;
-  private altMenu: HTMLDivElement;
-  private synthesizedArgs: string | null = null;
-  private alternatives: string[] = [];
   private previewTimer: number | null = null;
   private previewAbort: AbortController | null = null;
   private previewSeq = 0;
 
-  private tooltip: HTMLDivElement;
-  private tooltipTimer: number | null = null;
-  private tooltipAbort: AbortController | null = null;
-  private tooltipCache = new Map<string, string>();
-
+  private tooltip: TeachTooltip;
   private selectionMenu: SelectionContextMenu;
 
   constructor(
-    private container: HTMLElement,
+    container: HTMLElement,
     private viewer: Viewer,
     private navbar: Navbar,
     private hooks: {
@@ -276,40 +188,38 @@ export class ModifyPickService {
       onResumeSketchUI?: () => void;
     } = {},
   ) {
+    this.sketchUI = new SketchUISuspender(viewer, hooks);
     const group = navbar.addGroup('modify', { visible: false });
     const createHost = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     for (const kind of FEATURE_ORDER) {
-      const btn = document.createElement('button');
-      btn.className = BTN_BASE;
-      btn.setAttribute('aria-label', FEATURES[kind].buttonTitle);
-      btn.innerHTML = `${featureIconImg(kind, 'w-8 h-8')}<span class="${BTN_LABEL}">${FEATURES[kind].label}</span>`;
-      btn.addEventListener('click', () => {
+      const config = FEATURES[kind];
+      const button = new FeatureButton(
+        // Sketch sits ahead of the Extrude button, so the create group reads
+        // Sketch first. Shell sits with the create tools, between Loft and
+        // Wrap: it keeps the modify group's activation condition, so it hides
+        // itself (see update()) rather than riding that group's visibility —
+        // hidden until the first render reports a solid, matching the modify
+        // group's own `visible: false` start.
+        kind === 'sketch' || kind === 'shell' ? createHost : group,
+        {
+          icon: `/icons/${kind}.png`,
+          label: config.label,
+          tip: config.buttonTitle,
+          ariaLabel: config.buttonTitle,
+          prepend: kind === 'sketch',
+          ...(kind === 'shell'
+            ? { insertBefore: createHost.querySelector('[data-tool="wrap"]'), hidden: true }
+            : {}),
+        },
+      );
+      button.onClick = () => {
         if (this.feature === kind) {
           this.exit();
         } else {
           this.enter(kind);
         }
-      });
-      const wrap = document.createElement('span');
-      wrap.className = 'tooltip tooltip-bottom';
-      wrap.dataset.tip = FEATURES[kind].buttonTitle;
-      wrap.appendChild(btn);
-      if (kind === 'sketch') {
-        // Ahead of the Extrude button, so the create group reads Sketch first.
-        createHost.prepend(wrap);
-      } else if (kind === 'shell') {
-        // Shell sits with the create tools, between Loft and Wrap. It keeps
-        // the modify group's activation condition, so it hides itself (see
-        // shellWrap in update()) rather than riding that group's visibility.
-        this.shellWrap = wrap;
-        // Hidden until the first render reports a solid, matching the modify
-        // group's own `visible: false` start.
-        wrap.classList.add('hidden');
-        createHost.insertBefore(wrap, createHost.querySelector('[data-tool="wrap"]'));
-      } else {
-        group.appendChild(wrap);
-      }
-      this.buttons.set(kind, btn);
+      };
+      this.buttons.set(kind, button);
     }
 
     this.sketchPanel = new SketchStartPanel(container);
@@ -322,69 +232,10 @@ export class ModifyPickService {
       setActive: (active) => this.sketchPanel.setSectionViewActive(active),
     });
 
-    this.activeBar = document.createElement('div');
-    this.activeBar.id = 'fluidcad-modify-pick-active';
-    // top-[196px] right-4 matches the create-feature dialog: just below the
-    // viewport gizmo, in the spot the settings/fit-to-view button stack vacates
-    // while a dialog is open (see viewportChrome).
-    this.activeBar.className = 'absolute top-[196px] right-4 z-[999] pointer-events-auto hidden';
-    this.activeBar.innerHTML = `
-      <div class="flex flex-col items-end gap-1.5">
-        <div class="flex flex-col items-stretch gap-3.5 w-60 bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
-          <div class="flex items-center gap-2.5">
-            <span class="flex items-center [&>svg]:size-4" data-role="icon"></span>
-            <span data-role="title" class="font-medium text-sm">Fillet</span>
-          </div>
-          <div data-role="selection-slot"></div>
-          <label data-role="value-wrap" class="flex flex-col gap-1.5">
-            <span class="text-base-content/70" data-role="value-label">Radius</span>
-            <input data-role="value" type="number" step="0.5"
-              class="input input-sm input-bordered w-full text-xs" />
-          </label>
-          <label data-role="join-wrap" class="flex flex-col gap-1.5 hidden">
-            <span class="text-base-content/70">Join type</span>
-            <select data-role="join" class="select select-sm select-bordered w-full text-xs">
-              <option value="arc">Arc</option>
-              <option value="intersection">Intersection</option>
-              <option value="tangent">Tangent</option>
-            </select>
-          </label>
-          <div class="flex items-center gap-2 pt-1">
-            <button data-role="apply" class="btn btn-primary btn-sm flex-1">Apply</button>
-            <button data-role="exit" class="btn btn-ghost btn-sm">Exit</button>
-          </div>
-        </div>
-        <div data-role="expr-row"
-          class="hidden relative items-center bg-base-100 border border-base-300 rounded-lg pl-2.5 pr-1 py-1.5 text-xs shadow-md">
-          <span data-role="expr-prefix" class="font-mono text-base-content/50 select-none whitespace-pre"></span>
-          <input data-role="expr" type="text" spellcheck="false" autocomplete="off"
-            class="font-mono max-w-[320px] bg-transparent text-base-content outline-none" />
-          <span data-role="expr-suffix" class="font-mono text-base-content/50 select-none whitespace-pre">)</span>
-          <button data-role="alts" title="Alternative selectors"
-            class="hidden text-base-content/50 hover:text-base-content px-1 cursor-pointer transition-colors">▾</button>
-          <div data-role="alts-menu"
-            class="hidden absolute top-full right-0 mt-1 z-[1000] min-w-full bg-base-100 border border-base-300 rounded-lg shadow-lg py-1"></div>
-        </div>
-        <div data-role="message" class="hidden max-w-[380px] bg-error text-error-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md"></div>
-      </div>
-    `;
-    container.appendChild(this.activeBar);
-
-    this.titleIcon = this.activeBar.querySelector('[data-role="icon"]')!;
-    this.titleText = this.activeBar.querySelector('[data-role="title"]')!;
-    this.valueWrap = this.activeBar.querySelector('[data-role="value-wrap"]')!;
-    this.valueLabel = this.activeBar.querySelector('[data-role="value-label"]')!;
-    this.valueInput = this.activeBar.querySelector('[data-role="value"]')!;
-    this.joinWrap = this.activeBar.querySelector('[data-role="join-wrap"]')!;
-    this.joinSelect = this.activeBar.querySelector('[data-role="join"]')!;
-    this.selectionSlot = new PickSlot(
-      this.activeBar.querySelector('[data-role="selection-slot"]')!,
-      { label: 'Selection', multiple: true },
-    );
-    // Picking is live the whole time a mode is armed — the slot always wears
-    // the pick-target styling.
-    this.selectionSlot.setArmed(true);
-    this.selectionSlot.onRemove = (index) => {
+    this.panel = new ModifyPanel(container);
+    this.panel.onApply = () => this.apply();
+    this.panel.onExit = () => this.exit();
+    this.panel.onRemoveChip = (index) => {
       const row = this.chipRows[index];
       if (row) {
         this.toggleEntity(row.members[0]);
@@ -392,7 +243,7 @@ export class ModifyPickService {
     };
     // Hovering a chip shows just that chip's entities so the row can be told
     // apart from its siblings; leaving restores the full selection.
-    this.selectionSlot.onChipHover = (index) => {
+    this.panel.onChipHover = (index) => {
       const members = index !== null ? this.chipRows[index]?.members : undefined;
       if (members) {
         this.viewer.highlightEntities(members);
@@ -400,52 +251,26 @@ export class ModifyPickService {
         this.previewSelection(null);
       }
     };
-    this.applyBtn = this.activeBar.querySelector('[data-role="apply"]')!;
-    this.message = this.activeBar.querySelector('[data-role="message"]')!;
-    this.exprRow = this.activeBar.querySelector('[data-role="expr-row"]')!;
-    this.exprPrefix = this.activeBar.querySelector('[data-role="expr-prefix"]')!;
-    this.exprInput = this.activeBar.querySelector('[data-role="expr"]')!;
-    this.exprSuffix = this.activeBar.querySelector('[data-role="expr-suffix"]')!;
-    this.altBtn = this.activeBar.querySelector('[data-role="alts"]')!;
-    this.altMenu = this.activeBar.querySelector('[data-role="alts-menu"]')!;
-
-    this.applyBtn.addEventListener('click', () => this.apply());
-    this.activeBar.querySelector('[data-role="exit"]')!.addEventListener('click', () => this.exit());
-    // The field owns the value input's keyboard handling (variable dropdown,
-    // Enter-to-apply) and flips it to type="text" for identifiers.
-    this.valueField = new ExpressionField(this.valueInput);
-    this.valueField.onSubmit = () => this.apply();
-    this.valueInput.addEventListener('input', () => {
+    this.panel.onValueInput = () => {
       if (this.feature) {
-        this.valueByFeature.set(this.feature, this.valueInput.value);
+        this.valueByFeature.set(this.feature, this.panel.valueText);
       }
       this.syncExprPrefix();
-    });
-    this.joinSelect.addEventListener('change', () => {
+    };
+    this.panel.onJoinChange = () => {
       if (this.feature === 'shell') {
-        this.lastJoinType = this.joinSelect.value as ShellJoinType;
+        this.lastJoinType = this.panel.joinValue;
       }
       this.syncExprSuffix();
-    });
-    this.exprInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        this.apply();
-      }
-      e.stopPropagation();
-    });
-    this.exprInput.addEventListener('input', () => this.syncExprInputWidth());
-    this.altBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.altMenu.classList.toggle('hidden');
-    });
+    };
+    this.panel.expression.onSubmit = () => this.apply();
 
     // Teach-mode tooltip: follows the hovered edge/face while the mode is armed.
-    this.tooltip = document.createElement('div');
-    this.tooltip.id = 'fluidcad-modify-pick-tooltip';
-    this.tooltip.className = 'hidden absolute z-[1001] pointer-events-none max-w-[420px] '
-      + 'bg-base-100/95 border border-base-300 rounded px-2 py-1 font-mono text-[11px] text-base-content shadow-md';
-    container.appendChild(this.tooltip);
+    this.tooltip = new TeachTooltip(container, {
+      isActive: () => this.feature !== null,
+      isSuppressed: () => this.selectionMenu.isOpen,
+      boundary: () => this.session.boundary ?? undefined,
+    });
 
     // Right-click menu: multi-select groups + sibling buckets ("Select other").
     this.selectionMenu = new SelectionContextMenu(container, 'fluidcad-modify-pick-menu', {
@@ -455,13 +280,6 @@ export class ModifyPickService {
       boundary: () => this.session.boundary ?? undefined,
     });
 
-    document.addEventListener('click', (e) => {
-      if (!this.altMenu.classList.contains('hidden')
-        && !this.altMenu.contains(e.target as Node) && e.target !== this.altBtn) {
-        this.altMenu.classList.add('hidden');
-      }
-    });
-
     document.addEventListener('keydown', (e) => {
       if (!this.feature) {
         return;
@@ -469,8 +287,7 @@ export class ModifyPickService {
       if (e.key === 'Escape') {
         // An open selection menu consumes Escape itself (capture phase).
         e.preventDefault();
-        if (!this.altMenu.classList.contains('hidden')) {
-          this.altMenu.classList.add('hidden');
+        if (this.panel.expression.closeMenuIfOpen()) {
           return;
         }
         if (this.feature === 'sketch') {
@@ -480,8 +297,7 @@ export class ModifyPickService {
         this.exit();
       } else if (e.key === 'Enter'
         && this.feature !== 'sketch'
-        && document.activeElement !== this.valueInput
-        && document.activeElement !== this.exprInput) {
+        && !this.panel.ownsFocus(document.activeElement)) {
         e.preventDefault();
         this.apply();
       }
@@ -502,16 +318,9 @@ export class ModifyPickService {
 
   /** True while the armed sketch-on-face pick has suspended sketch editing. */
   get sketchUISuspended(): boolean {
-    return this.suspendedSketchUI;
+    return this.sketchUI.suspended;
   }
 
-  /**
-   * Scene re-rendered: recompute toolbar visibility and drop the now-stale
-   * selection while keeping the mode armed. The modify group needs solids
-   * and no active sketch; the Sketch button (create group) is always offered
-   * — its mode picks a face (starting a new sketch from inside one is a
-   * supported flow) or one of the origin planes, which need no scene at all.
-   */
   /**
    * Every render lands here. An open edit session owns the view: the session
    * keeps the viewport rolled back to just before the edited statement and
@@ -531,7 +340,7 @@ export class ModifyPickService {
       return;
     }
     if (state === 'gone') {
-      this.setMessage(null);
+      this.panel.setMessage(null);
       this.exit({ editEnd: 'gone' });
       return;
     }
@@ -544,18 +353,17 @@ export class ModifyPickService {
       return;
     }
     // At the boundary: the meshes were just rebuilt (updateView ran first).
-    this.tooltipCache.clear();
-    this.hideTooltip();
+    this.tooltip.clearCache();
+    this.tooltip.hide();
     this.selectionMenu.hide();
     if (this.editSceneStale) {
       this.editSceneStale = false;
       if (this.picksDirty()) {
         // The re-picked selection can't survive a scene rebuild — old shape
         // ids resolve nowhere. Reset to the statement's own selection.
-        this.entities = [];
-        this.chains = [];
+        this.selection.clear();
         this.seedSignature = null;
-        this.setMessage('The code changed — the re-picked selection was reset.');
+        this.panel.setMessage('The code changed — the re-picked selection was reset.');
       }
       void this.loadEditSources();
     }
@@ -563,6 +371,13 @@ export class ModifyPickService {
     this.refresh();
   }
 
+  /**
+   * Scene re-rendered: recompute toolbar visibility and drop the now-stale
+   * selection while keeping the mode armed. The modify group needs solids
+   * and no active sketch; the Sketch button (create group) is always offered
+   * — its mode picks a face (starting a new sketch from inside one is a
+   * supported flow) or one of the origin planes, which need no scene at all.
+   */
   update(sceneObjects: SceneObjectRender[]): void {
     const hasSolid = sceneObjects.some(o =>
       o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
@@ -570,8 +385,8 @@ export class ModifyPickService {
     const sketchMode = active?.type === 'sketch';
     const modifyVisible = hasSolid && !sketchMode;
 
-    this.tooltipCache.clear();
-    this.hideTooltip();
+    this.tooltip.clearCache();
+    this.tooltip.hide();
     this.selectionMenu.hide();
     this.sceneSketchActive = sketchMode;
     this.sketchAvailable = hasSolid;
@@ -600,7 +415,7 @@ export class ModifyPickService {
     }
     this.navbar.setGroupVisible('modify', modifyVisible);
     // Shell rides the create group, so it can't inherit that visibility.
-    this.shellWrap.classList.toggle('hidden', !modifyVisible);
+    this.buttons.get('shell')!.setVisible(modifyVisible);
     this.navbar.setGroupVisible('create', true, 'sketch');
     this.syncButtons();
     if (this.feature) {
@@ -617,8 +432,7 @@ export class ModifyPickService {
         this.viewer.showStandardPlanes(this.onPlanePick);
       }
       // Shape ids may have changed; the viewer already cleared highlights.
-      this.entities = [];
-      this.chains = [];
+      this.selection.clear();
       this.refresh();
     }
   }
@@ -645,8 +459,7 @@ export class ModifyPickService {
     this.feature = parsed.feature;
     this.editTarget = target;
     this.editArgsText = parsed.argsText;
-    this.entities = [];
-    this.chains = [];
+    this.selection.clear();
     this.seedSignature = null;
     this.editSceneStale = false;
     this.cancelPreview();
@@ -659,39 +472,25 @@ export class ModifyPickService {
     this.pendingPlaneShapeId = null;
     this.syncPlanePicking();
     // The session owns the view: free 3D camera over the rolled-back scene.
-    this.suspendSketchUI();
+    this.sketchUI.suspend();
     this.session.begin({ ...info, target });
     void this.loadEditSources();
 
-    this.titleIcon.innerHTML = featureIconImg(parsed.feature);
-    this.titleText.textContent = `Edit ${config.label.toLowerCase()}`;
-    this.selectionSlot.setMultiple(true);
-    this.valueWrap.classList.remove('hidden');
-    this.valueLabel.textContent = config.valueLabel!;
-    if (config.valueSign === 'positive') {
-      this.valueInput.min = '0.05';
-    } else {
-      this.valueInput.removeAttribute('min');
-    }
-    this.valueField.setValue(parsed.value);
+    this.panel.setTitle(parsed.feature, `Edit ${config.label.toLowerCase()}`);
+    this.panel.configureValue(config.valueLabel!, config.valueSign);
+    this.panel.valueField.setValue(parsed.value);
     void this.refreshScopeVariables();
     if (parsed.feature === 'shell') {
-      this.joinSelect.value = parsed.joinType;
-      this.joinWrap.classList.remove('hidden');
+      this.panel.joinValue = parsed.joinType;
+      this.panel.setJoinVisible(true);
     } else {
-      this.joinWrap.classList.add('hidden');
+      this.panel.setJoinVisible(false);
     }
     this.syncExprSuffix();
-    this.synthesizedArgs = parsed.argsText;
-    this.alternatives = [];
-    this.exprInput.value = parsed.argsText;
-    this.syncExprInputWidth();
+    this.panel.expression.show(parsed.argsText, []);
     this.syncExprPrefix();
-    this.renderAlternatives();
-    this.exprRow.classList.remove('hidden');
-    this.exprRow.classList.add('flex');
-    this.setActiveBarVisible(true);
-    this.setMessage(null);
+    this.panel.setVisible(true);
+    this.panel.setMessage(null);
     this.refresh();
     this.syncButtons();
   }
@@ -715,34 +514,24 @@ export class ModifyPickService {
     if (result.ok
       && (result.feature === 'shell' || result.feature === 'fillet' || result.feature === 'chamfer')
       && result.selection.kind === 'entities') {
-      this.entities = result.selection.entities.map(e => ({ shapeId: e.shapeId, sub: e.sub }));
-      this.chains = [];
-      this.seedSignature = this.selectionSignature();
+      this.selection.entities = result.selection.entities.map(e => ({ shapeId: e.shapeId, sub: e.sub }));
+      this.selection.chains = [];
+      this.seedSignature = this.selection.signature();
     } else {
-      this.entities = [];
-      this.chains = [];
+      this.selection.clear();
       this.seedSignature = null;
     }
     this.previewSelection(null);
     this.refresh();
   }
 
-  /**
-   * Push the variables in scope at the statement (edit mode) or at the end
-   * of the file (create mode) to the value field. A response landing after
-   * the mode disarmed or re-targeted is dropped.
-   */
   private async refreshScopeVariables(): Promise<void> {
     const line = this.editTarget?.line ?? null;
-    const variables = await getScopeVariables(line);
-    if (this.feature && this.feature !== 'sketch' && (this.editTarget?.line ?? null) === line) {
-      this.valueField.setVariables(variables);
-    }
-  }
-
-  /** Sorted signature of the current pick set, for dirty detection. */
-  private selectionSignature(): string {
-    return this.entities.map(entityKey).sort().join('|');
+    await refreshScopeVariables(
+      line,
+      { setScopeVariables: (variables) => this.panel.valueField.setVariables(variables) },
+      () => this.feature !== null && this.feature !== 'sketch' && (this.editTarget?.line ?? null) === line,
+    );
   }
 
   /**
@@ -754,9 +543,9 @@ export class ModifyPickService {
       return false;
     }
     if (this.seedSignature === null) {
-      return this.entities.length > 0;
+      return this.selection.entities.length > 0;
     }
-    return this.selectionSignature() !== this.seedSignature || this.chains.length > 0;
+    return this.selection.signature() !== this.seedSignature || this.selection.chains.length > 0;
   }
 
   enter(feature: ModifyFeatureKind): void {
@@ -777,8 +566,8 @@ export class ModifyPickService {
     this.seedSignature = null;
     this.editSceneStale = false;
     // Only the sketch flows run suspended; switching away restores first.
-    if (this.suspendedSketchUI) {
-      this.resumeSketchUI(true);
+    if (this.sketchUI.suspended) {
+      this.sketchUI.resume(true);
     }
     this.feature = feature;
     const config = FEATURES[feature];
@@ -787,18 +576,13 @@ export class ModifyPickService {
     // initial input. Switching between features keeps the in-mode selection.
     const seed = this.hooks.onEnter?.();
     if (!wasActive) {
-      this.entities = Array.isArray(seed) ? [...seed] : [];
-      this.chains = [];
+      this.selection.entities = Array.isArray(seed) ? [...seed] : [];
+      this.selection.chains = [];
     }
     // Face-only features can't use edge picks carried over from measure or a
     // previous mode; chains losing a member go with them.
     if (config.pickFilter === 'face') {
-      const faces = this.entities.filter(e => e.sub.type === 'face');
-      if (faces.length !== this.entities.length) {
-        const faceKeys = new Set(faces.map(entityKey));
-        this.chains = this.chains.filter(c => c.members.every(m => faceKeys.has(entityKey(m))));
-        this.entities = faces;
-      }
+      this.selection.restrictToFaces();
     }
     this.viewer.clearHover();
     this.viewer.pickFilter = config.pickFilter;
@@ -808,29 +592,21 @@ export class ModifyPickService {
     this.pendingPlaneShapeId = null;
     this.viewer.hideStandardPlanes();
 
-    this.titleIcon.innerHTML = featureIconImg(feature);
-    this.titleText.textContent = config.label;
-    this.selectionSlot.setMultiple(true);
-    this.valueWrap.classList.remove('hidden');
-    this.valueLabel.textContent = config.valueLabel!;
-    if (config.valueSign === 'positive') {
-      this.valueInput.min = '0.05';
-    } else {
-      this.valueInput.removeAttribute('min');
-    }
-    this.valueField.setValue(this.valueByFeature.get(feature) ?? String(config.defaultValue));
+    this.panel.setTitle(feature, config.label);
+    this.panel.configureValue(config.valueLabel!, config.valueSign);
+    this.panel.valueField.setValue(this.valueByFeature.get(feature) ?? String(config.defaultValue));
     void this.refreshScopeVariables();
     if (config.joinRow) {
-      this.joinSelect.value = this.lastJoinType;
-      this.joinWrap.classList.remove('hidden');
+      this.panel.joinValue = this.lastJoinType;
+      this.panel.setJoinVisible(true);
     } else {
-      this.joinWrap.classList.add('hidden');
+      this.panel.setJoinVisible(false);
     }
     this.syncExprSuffix();
-    this.setActiveBarVisible(true);
-    this.setMessage(null);
+    this.panel.setVisible(true);
+    this.panel.setMessage(null);
     this.refresh();
-    this.viewer.highlightEntities(this.entities);
+    this.viewer.highlightEntities(this.selection.entities);
   }
 
   /**
@@ -860,23 +636,22 @@ export class ModifyPickService {
       // (a sketch takes exactly one face and picks it fresh).
       this.feature = null;
       this.cancelPreview();
-      this.hideExpression();
-      this.hideTooltip();
+      this.panel.expression.hide();
+      this.tooltip.hide();
       this.selectionMenu.hide();
-      this.setActiveBarVisible(false);
-      this.setMessage(null);
+      this.panel.setVisible(false);
+      this.panel.setMessage(null);
     }
     const seed = this.hooks.onEnter?.();
     const faces = (Array.isArray(seed) ? seed : []).filter(e => e.sub.type === 'face');
-    this.entities = [];
-    this.chains = [];
+    this.selection.clear();
     this.viewer.clearHighlight();
     this.enterSketchPicking();
     // A face already highlighted on entry applies immediately — the classic
     // one-click sketch start.
     if (faces.length === 1) {
-      this.entities = [faces[0]];
-      this.viewer.highlightEntities(this.entities);
+      this.selection.entities = [faces[0]];
+      this.viewer.highlightEntities(this.selection.entities);
       void this.applySketchTarget({ kind: 'face', entity: faces[0] });
       return;
     }
@@ -904,7 +679,7 @@ export class ModifyPickService {
     this.viewer.pickFilter = 'face';
     this.syncPlanePicking();
     if (this.sceneSketchActive) {
-      this.suspendSketchUI();
+      this.sketchUI.suspend();
     }
     this.viewer.showStandardPlanes(this.onPlanePick);
     this.sketchPanel.show();
@@ -921,13 +696,12 @@ export class ModifyPickService {
     this.viewer.pickFilter = 'all';
     this.syncPlanePicking();
     this.viewer.hideStandardPlanes();
-    this.entities = [];
-    this.chains = [];
-    this.hideTooltip();
+    this.selection.clear();
+    this.tooltip.hide();
     this.selectionMenu.hide();
     this.viewer.clearHighlight();
     this.syncButtons();
-    this.resumeSketchUI(resume === 'immediate');
+    this.sketchUI.resume(resume === 'immediate');
   }
 
   /**
@@ -940,7 +714,7 @@ export class ModifyPickService {
     if (this.feature === 'sketch') {
       this.exitSketchPicking(resume);
     } else {
-      this.resumeSketchUI(resume === 'immediate');
+      this.sketchUI.resume(resume === 'immediate');
       this.syncButtons();
     }
     if (hadDialog) {
@@ -1254,26 +1028,16 @@ export class ModifyPickService {
     this.viewer.pickFilter = 'all';
     this.syncPlanePicking();
     this.viewer.hideStandardPlanes();
-    this.entities = [];
-    this.chains = [];
+    this.selection.clear();
     this.cancelPreview();
-    this.hideExpression();
-    this.hideTooltip();
+    this.panel.expression.hide();
+    this.tooltip.hide();
     this.selectionMenu.hide();
     this.viewer.clearHighlight();
-    this.setActiveBarVisible(false);
-    this.setMessage(null);
+    this.panel.setVisible(false);
+    this.panel.setMessage(null);
     this.syncButtons();
-    this.resumeSketchUI((opts.resume ?? 'immediate') === 'immediate');
-  }
-
-  /**
-   * Show/hide the dialog. While it is up the settings/fit-to-view/params
-   * button stack steps aside so the dialog can dock under the gizmo.
-   */
-  private setActiveBarVisible(visible: boolean): void {
-    this.activeBar.classList.toggle('hidden', !visible);
-    viewportChrome.setDialogOpen(this.activeBar.id, visible);
+    this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
   }
 
   /** A shown origin plane was clicked while the sketch pick was armed. */
@@ -1294,7 +1058,7 @@ export class ModifyPickService {
     }
     const plane = resolvePlaneByShapeId(shapeId, this.viewer.currentSceneObjects);
     const option = plane?.sourceLocation
-      ? this.planes.find(o => o.filePath === plane.sourceLocation!.filePath && o.line === plane.sourceLocation!.line)
+      ? planeOptionForLocation(this.planes, plane.sourceLocation)
       : undefined;
     if (!option) {
       if (this.feature === 'sketch') {
@@ -1397,26 +1161,6 @@ export class ModifyPickService {
       || (this.feature === null && !this.createDialogActive);
   }
 
-  private suspendSketchUI(): void {
-    if (this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = true;
-    this.viewer.suspendSketchEditing();
-    this.hooks.onSuspendSketchUI?.();
-  }
-
-  private resumeSketchUI(immediate: boolean): void {
-    if (!this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = false;
-    this.viewer.resumeSketchEditing(immediate);
-    if (immediate) {
-      this.hooks.onResumeSketchUI?.();
-    }
-  }
-
   /**
    * Routes viewer clicks while the mode is armed. Plain clicks accumulate
    * (fillet is inherently multi-pick); clicking a selected entity deselects
@@ -1432,33 +1176,21 @@ export class ModifyPickService {
     if (this.feature === 'sketch') {
       // The single pick IS the apply: the click replaces the selection and
       // starts (or moves) the sketch.
-      this.entities = [entity];
-      this.chains = [];
-      this.viewer.highlightEntities(this.entities);
+      this.selection.entities = [entity];
+      this.selection.chains = [];
+      this.viewer.highlightEntities(this.selection.entities);
       void this.applySketchTarget({ kind: 'face', entity });
       return;
     }
-    this.setMessage(null);
+    this.panel.setMessage(null);
     this.toggleEntity(entity);
   }
 
   /** Toggle a plain pick; a chain member toggles its whole chain off. */
   private toggleEntity(entity: SelectedEntity): void {
-    const chain = this.chains.find(c => c.members.some(m => sameEntity(m, entity)));
-    if (chain) {
-      const memberKeys = new Set(chain.members.map(entityKey));
-      this.entities = this.entities.filter(e => !memberKeys.has(entityKey(e)));
-      this.chains = this.chains.filter(c => c !== chain);
-    } else {
-      const existing = this.entities.findIndex(e => sameEntity(e, entity));
-      if (existing >= 0) {
-        this.entities = this.entities.filter((_, i) => i !== existing);
-      } else {
-        this.entities = [...this.entities, entity];
-      }
-    }
-    if (this.entities.length > 0) {
-      this.viewer.highlightEntities(this.entities);
+    this.selection.toggle(entity);
+    if (this.selection.entities.length > 0) {
+      this.viewer.highlightEntities(this.selection.entities);
     } else {
       this.viewer.clearHighlight();
     }
@@ -1481,7 +1213,7 @@ export class ModifyPickService {
       return;
     }
     this.selectionMenu.hide();
-    this.hideTooltip();
+    this.tooltip.hide();
 
     const entity: SelectedEntity = { shapeId, sub };
     const result = await expandBucket(entity, this.session.boundary ?? undefined);
@@ -1489,73 +1221,25 @@ export class ModifyPickService {
       return;
     }
     if ('error' in result) {
-      this.setMessage(result.error);
+      this.panel.setMessage(result.error);
       return;
     }
-    this.setMessage(null);
+    this.panel.setMessage(null);
     this.mergeEntities(result.members.map(m => ({ shapeId: m.shapeId, sub: m.sub })));
   }
 
   /** Merge group members into the selection as plain picks. */
   private mergeEntities(members: SelectedEntity[]): void {
-    const merged = mergeUniqueEntities(this.entities, members);
-    if (merged.length === this.entities.length) {
+    if (!this.selection.merge(members)) {
       return;
     }
-    this.entities = merged;
-    this.viewer.highlightEntities(this.entities);
+    this.viewer.highlightEntities(this.selection.entities);
     this.refresh();
   }
 
   /** Teach-mode tooltip: hover → attribution expression, debounced + cached. */
   handleHover(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): void {
-    if (!this.feature) {
-      return;
-    }
-    if (this.tooltipTimer !== null) {
-      window.clearTimeout(this.tooltipTimer);
-      this.tooltipTimer = null;
-    }
-    if (!shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane') {
-      this.hideTooltip();
-      return;
-    }
-    if (this.selectionMenu.isOpen) {
-      return;
-    }
-
-    const entity: SelectedEntity = { shapeId, sub };
-    const key = entityKey(entity);
-    const cached = this.tooltipCache.get(key);
-    if (cached !== undefined) {
-      this.showTooltip(cached, clientX, clientY);
-      return;
-    }
-
-    this.tooltipTimer = window.setTimeout(async () => {
-      this.tooltipTimer = null;
-      this.tooltipAbort?.abort();
-      const abort = new AbortController();
-      this.tooltipAbort = abort;
-      try {
-        const result = await explainSelection([entity], abort.signal, this.session.boundary ?? undefined);
-        if (abort.signal.aborted || !this.feature) {
-          return;
-        }
-        const pick = result?.picks?.[0];
-        const text = pick?.expression
-          ?? pick?.error
-          ?? (pick && !pick.attributed
-            ? 'no classified origin — a geometric select() will be synthesized'
-            : null);
-        if (text) {
-          this.tooltipCache.set(key, text);
-          this.showTooltip(text, clientX, clientY);
-        }
-      } catch {
-        // Aborted or unreachable — no tooltip.
-      }
-    }, TOOLTIP_DEBOUNCE_MS);
+    this.tooltip.handleHover(shapeId, sub, clientX, clientY);
   }
 
   /** Right-click on an edge/face: the multi-select menu for that pick. */
@@ -1567,7 +1251,7 @@ export class ModifyPickService {
     if (!shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane') {
       return;
     }
-    this.hideTooltip();
+    this.tooltip.hide();
     // The hover tint would otherwise be stashed as an "original" color by the
     // preview highlight and stick around after the preview restores it.
     this.viewer.clearHover();
@@ -1581,9 +1265,12 @@ export class ModifyPickService {
     }
     if (kind === 'tangent') {
       // Tangent chains stay chains — they synthesize to `.withTangents()`.
-      this.addChain(seed, members);
+      this.panel.setMessage(null);
+      this.selection.addChain(seed, members);
+      this.viewer.highlightEntities(this.selection.entities);
+      this.refresh();
     } else {
-      this.setMessage(null);
+      this.panel.setMessage(null);
       this.mergeEntities(members);
     }
   }
@@ -1593,26 +1280,12 @@ export class ModifyPickService {
     if (!this.feature) {
       return;
     }
-    const shown = members ? mergeUniqueEntities(this.entities, members) : this.entities;
+    const shown = members ? mergeUniqueEntities(this.selection.entities, members) : this.selection.entities;
     if (shown.length > 0) {
       this.viewer.highlightEntities(shown);
     } else {
       this.viewer.clearHighlight();
     }
-  }
-
-  private addChain(seed: SelectedEntity, members: SelectedEntity[]): void {
-    this.setMessage(null);
-    // The chain owns its members: drop overlapping plain picks and chains.
-    const memberKeys = new Set(members.map(entityKey));
-    this.chains = this.chains.filter(c => !c.members.some(m => memberKeys.has(entityKey(m))));
-    this.entities = [
-      ...this.entities.filter(e => !memberKeys.has(entityKey(e))),
-      ...members,
-    ];
-    this.chains.push({ seed, members });
-    this.viewer.highlightEntities(this.entities);
-    this.refresh();
   }
 
   private async apply(): Promise<void> {
@@ -1623,8 +1296,8 @@ export class ModifyPickService {
     // Create mode needs picks; an edit whose seeded selection was emptied
     // out has nothing to synthesize either (an untouched empty seed is fine
     // — the statement's own args stay verbatim).
-    if (this.entities.length === 0 && (!this.editTarget || this.picksDirty())) {
-      this.setMessage(config.pickFilter === 'face'
+    if (this.selection.isEmpty && (!this.editTarget || this.picksDirty())) {
+      this.panel.setMessage(config.pickFilter === 'face'
         ? 'Pick a face first.'
         : 'Pick at least one edge or face first.');
       return;
@@ -1632,12 +1305,12 @@ export class ModifyPickService {
     let value: ValueExpr | null = null;
     let newVariables: NewVariable[] | undefined;
     if (config.valueLabel !== null) {
-      const read = this.valueField.read();
+      const read = this.panel.valueField.read();
       const invalid = 'error' in read
         || (typeof read.value === 'number'
           && (config.valueSign === 'positive' ? read.value <= 0 : read.value === 0));
       if (invalid) {
-        this.setMessage(config.valueSign === 'nonzero'
+        this.panel.setMessage(config.valueSign === 'nonzero'
           ? `Enter a nonzero ${config.valueLabel.toLowerCase()} (negative hollows inward).`
           : `Enter a positive ${config.valueLabel.toLowerCase()}.`);
         return;
@@ -1653,13 +1326,13 @@ export class ModifyPickService {
       // edited away from its baseline (the statement's own text, or the
       // last synthesized preview when picks are dirty).
       const dirty = this.picksDirty();
-      const baseline = dirty ? this.synthesizedArgs : this.editArgsText;
-      const editedArgs = this.exprInput.value.trim();
+      const baseline = dirty ? this.panel.expression.synthesizedArgs : this.editArgsText;
+      const editedArgs = this.panel.expression.value;
       const selectorOverride = editedArgs !== '' && editedArgs !== baseline
         ? editedArgs
         : undefined;
       this.applying = true;
-      this.applyBtn.disabled = true;
+      this.panel.setApplyEnabled(false);
       try {
         const result = await applyValueFeatureEdit(
           this.feature as 'shell' | 'fillet' | 'chamfer',
@@ -1671,32 +1344,33 @@ export class ModifyPickService {
             newVariables,
             expectedStatement: this.session.expectedStatement,
             before: dirty ? this.session.boundary ?? undefined : undefined,
-            entities: dirty ? this.entities : undefined,
-            chains: dirty ? this.apiChains() : undefined,
+            entities: dirty ? this.selection.entities : undefined,
+            chains: dirty ? this.selection.apiChains() : undefined,
           },
         );
         if (result.success) {
           this.exit({ editEnd: 'apply' });
         } else {
-          this.setMessage(result.reason ?? 'Could not apply the edit.');
+          this.panel.setMessage(result.reason ?? 'Could not apply the edit.');
         }
       } finally {
         this.applying = false;
-        this.applyBtn.disabled = false;
+        this.panel.setApplyEnabled(true);
       }
       return;
     }
 
-    const edited = this.exprInput.value.trim();
-    const selectorOverride = this.synthesizedArgs !== null && edited !== '' && edited !== this.synthesizedArgs
+    const edited = this.panel.expression.value;
+    const synthesized = this.panel.expression.synthesizedArgs;
+    const selectorOverride = synthesized !== null && edited !== '' && edited !== synthesized
       ? edited
       : undefined;
 
     this.applying = true;
-    this.applyBtn.disabled = true;
+    this.panel.setApplyEnabled(false);
     try {
-      const result = await applyFeature(this.feature, value, this.entities, {
-        chains: this.apiChains(),
+      const result = await applyFeature(this.feature, value, this.selection.entities, {
+        chains: this.selection.apiChains(),
         selectorOverride,
         joinType: this.shellJoinType() ?? undefined,
         newVariables,
@@ -1707,11 +1381,11 @@ export class ModifyPickService {
         // resumes lazily — the incoming render enters the new sketch.
         this.exit({ resume: 'lazy' });
       } else {
-        this.setMessage(result.reason ?? 'Could not apply the feature.');
+        this.panel.setMessage(result.reason ?? 'Could not apply the feature.');
       }
     } finally {
       this.applying = false;
-      this.applyBtn.disabled = false;
+      this.panel.setApplyEnabled(true);
     }
   }
 
@@ -1730,8 +1404,8 @@ export class ModifyPickService {
     // Every pick is a removable chip: one per plain pick, a whole tangent
     // chain as a single chip — its ✕ removes the chain like a viewport click
     // on a member would.
-    this.chipRows = selectionChipRows(this.entities, this.chains);
-    this.selectionSlot.setChips(this.chipRows.map((row, index) => ({
+    this.chipRows = this.selection.chipRows();
+    this.panel.setChips(this.chipRows.map((row, index) => ({
       label: row.label,
       badge: String(index + 1),
       removable: true,
@@ -1739,9 +1413,9 @@ export class ModifyPickService {
     // Empty selection: prompt for the first pick; face-only features ask for
     // a face, the rest an edge.
     if (this.chipRows.length === 0) {
-      this.selectionSlot.setPrompt(`Pick ${config.pickFilter === 'face' ? 'faces' : 'edges'}`);
+      this.panel.setPrompt(`Pick ${config.pickFilter === 'face' ? 'faces' : 'edges'}`);
     } else {
-      this.selectionSlot.setPrompt(null);
+      this.panel.setPrompt(null);
     }
     this.syncButtons();
     this.schedulePreview();
@@ -1759,11 +1433,11 @@ export class ModifyPickService {
     if (this.editTarget) {
       // The expression row holds the statement's own args (or the last
       // synthesis) — nothing to re-synthesize until the picks change.
-      if (!this.picksDirty() || this.entities.length === 0) {
+      if (!this.picksDirty() || this.selection.isEmpty) {
         return;
       }
-    } else if (this.entities.length === 0) {
-      this.hideExpression();
+    } else if (this.selection.isEmpty) {
+      this.panel.expression.hide();
       return;
     }
     this.previewTimer = window.setTimeout(() => {
@@ -1786,7 +1460,7 @@ export class ModifyPickService {
     const config = FEATURES[this.feature];
     let previewValue: ValueExpr | null = null;
     if (config.valueLabel !== null) {
-      const read = this.valueField.read();
+      const read = this.panel.valueField.read();
       const valid = !('error' in read)
         && (typeof read.value !== 'number'
           || (config.valueSign === 'positive' ? read.value > 0 : read.value !== 0));
@@ -1801,13 +1475,13 @@ export class ModifyPickService {
           joinType: this.shellJoinType() ?? undefined,
           expectedStatement: this.session.expectedStatement,
           before: this.session.boundary ?? undefined,
-          entities: this.entities,
-          chains: this.apiChains(),
+          entities: this.selection.entities,
+          chains: this.selection.apiChains(),
           preview: true,
           signal: abort.signal,
         })
-        : await applyFeature(this.feature, previewValue, this.entities, {
-          chains: this.apiChains(),
+        : await applyFeature(this.feature, previewValue, this.selection.entities, {
+          chains: this.selection.apiChains(),
           preview: true,
           signal: abort.signal,
         });
@@ -1819,52 +1493,17 @@ export class ModifyPickService {
     }
 
     if (result.success && typeof result.args === 'string') {
-      this.synthesizedArgs = result.args;
-      this.alternatives = result.alternatives ?? [];
-      this.exprInput.value = result.args;
-      this.syncExprInputWidth();
+      this.panel.expression.show(result.args, result.alternatives ?? []);
       this.syncExprPrefix();
-      this.renderAlternatives();
-      this.exprRow.classList.remove('hidden');
-      this.exprRow.classList.add('flex');
-      this.setMessage(null);
+      this.panel.setMessage(null);
     } else if (this.editTarget) {
       // Keep the expression row (it still shows a valid baseline) and
       // surface the refusal — an unsynthesizable pick, a drifted statement.
-      this.setMessage(result.reason ?? 'Could not synthesize a selector.');
+      this.panel.setMessage(result.reason ?? 'Could not synthesize a selector.');
     } else {
-      this.hideExpression();
-      this.setMessage(result.reason ?? 'Could not synthesize a selector.');
+      this.panel.expression.hide();
+      this.panel.setMessage(result.reason ?? 'Could not synthesize a selector.');
     }
-  }
-
-  private renderAlternatives(): void {
-    if (this.alternatives.length === 0) {
-      this.altBtn.classList.add('hidden');
-      this.altMenu.classList.add('hidden');
-      return;
-    }
-    this.altBtn.classList.remove('hidden');
-    this.altMenu.replaceChildren(...this.alternatives.map(args => {
-      const item = document.createElement('button');
-      item.className = 'block w-full text-left px-3 py-1.5 font-mono text-[11px] hover:bg-base-200 cursor-pointer whitespace-nowrap';
-      item.textContent = args;
-      item.addEventListener('click', () => {
-        this.exprInput.value = args;
-        this.syncExprInputWidth();
-        this.altMenu.classList.add('hidden');
-      });
-      return item;
-    }));
-  }
-
-  /**
-   * Fit the args input to its text so the static `)` suffix sits flush
-   * against it (the font is monospace, so `ch` measures exactly); the +2px
-   * keeps the caret visible at the end. `max-w-[320px]` still caps growth.
-   */
-  private syncExprInputWidth(): void {
-    this.exprInput.style.width = `calc(${Math.max(this.exprInput.value.length, 1)}ch + 2px)`;
   }
 
   private syncExprPrefix(): void {
@@ -1873,11 +1512,11 @@ export class ModifyPickService {
     }
     const config = FEATURES[this.feature];
     if (config.valueLabel === null) {
-      this.exprPrefix.textContent = `${this.feature}(`;
+      this.panel.expression.setPrefix(`${this.feature}(`);
       return;
     }
-    const value = this.valueInput.value.trim() || String(config.defaultValue);
-    this.exprPrefix.textContent = `${this.feature}(${value}, `;
+    const value = this.panel.valueText.trim() || String(config.defaultValue);
+    this.panel.expression.setPrefix(`${this.feature}(${value}, `);
   }
 
   /** The join dropdown's value while a shell dialog is up, or null. */
@@ -1885,7 +1524,7 @@ export class ModifyPickService {
     if (this.feature !== 'shell') {
       return null;
     }
-    return this.joinSelect.value as ShellJoinType;
+    return this.panel.joinValue;
   }
 
   /** A non-default shell join shows as a `.join()` chain after the args. */
@@ -1894,19 +1533,9 @@ export class ModifyPickService {
       return;
     }
     const join = this.shellJoinType();
-    this.exprSuffix.textContent = join && join !== 'arc'
+    this.panel.expression.setSuffix(join && join !== 'arc'
       ? `${FEATURES[this.feature].exprSuffix}.join('${join}')`
-      : FEATURES[this.feature].exprSuffix;
-  }
-
-  private hideExpression(): void {
-    this.exprRow.classList.add('hidden');
-    this.exprRow.classList.remove('flex');
-    this.altMenu.classList.add('hidden');
-    this.synthesizedArgs = null;
-    this.alternatives = [];
-    this.exprInput.value = '';
-    this.syncExprInputWidth();
+      : FEATURES[this.feature].exprSuffix);
   }
 
   private cancelPreview(): void {
@@ -1919,53 +1548,16 @@ export class ModifyPickService {
     this.previewSeq++;
   }
 
-  private apiChains(): ApplyFeatureChain[] {
-    return this.chains.map(c => ({ seed: c.seed, members: c.members }));
-  }
-
-  // -------------------------------------------------------------------------
-  // Tooltip / context-menu plumbing
-  // -------------------------------------------------------------------------
-
-  private showTooltip(text: string, clientX: number, clientY: number): void {
-    const rect = this.container.getBoundingClientRect();
-    this.tooltip.textContent = text;
-    this.tooltip.style.left = `${clientX - rect.left + 14}px`;
-    this.tooltip.style.top = `${clientY - rect.top + 18}px`;
-    this.tooltip.classList.remove('hidden');
-  }
-
-  private hideTooltip(): void {
-    if (this.tooltipTimer !== null) {
-      window.clearTimeout(this.tooltipTimer);
-      this.tooltipTimer = null;
-    }
-    this.tooltipAbort?.abort();
-    this.tooltipAbort = null;
-    this.tooltip.classList.add('hidden');
-  }
-
   private syncButtons(): void {
     for (const [kind, btn] of this.buttons) {
-      const active = this.feature === kind
-        || (kind === 'sketch' && this.sketchSession !== null);
-      btn.className = active ? BTN_ACTIVE : BTN_BASE;
+      btn.setActive(this.feature === kind
+        || (kind === 'sketch' && this.sketchSession !== null));
     }
     // The sketch button never hides (it votes its create group visible on
     // every render); it disables while another feature dialog is up — an
     // extrude/sweep/loft dialog, or this service's own fillet/chamfer/shell.
-    this.buttons.get('sketch')!.disabled = this.createDialogActive
-      || (this.feature !== null && this.feature !== 'sketch');
-  }
-
-  private setMessage(text: string | null): void {
-    if (text) {
-      this.message.textContent = text;
-      this.message.classList.remove('hidden');
-    } else {
-      this.message.textContent = '';
-      this.message.classList.add('hidden');
-    }
+    this.buttons.get('sketch')!.setDisabled(this.createDialogActive
+      || (this.feature !== null && this.feature !== 'sketch'));
   }
 
   /** Last root-level (or Part-child) object — mirrors Viewer.findActiveObject. */

@@ -1,9 +1,10 @@
 import {
-  applySweep, applySweepEdit, fetchFeatureSources, ApplyFeatureChain, expandBucket,
+  applySweep, applySweepEdit, fetchFeatureSources, expandBucket,
   FeatureEditTarget, ParsedFeatureStatement, SelectionGroupKind, SourceSlotRef, SweepApplyOptions,
 } from '../../api';
-import { entityKey, mergeUniqueEntities, sameEntity, selectionChipRows } from '../../helpers/entities';
+import { mergeUniqueEntities } from '../../helpers/entities';
 import { EditSession, EditSessionInfo } from '../edit-session';
+import { PickSelection } from '../pick-selection';
 import { SelectionContextMenu } from '../selection-menu';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
@@ -54,8 +55,8 @@ export class SweepFeatureService {
   /** A full render arrived mid-session — picks died, sources re-fetch. */
   private editSceneStale = false;
 
-  private entities: SelectedEntity[] = [];
-  private chains: { seed: SelectedEntity; members: SelectedEntity[] }[] = [];
+  /** The picked path edges (chain-aware — a chain writes `.withTangents()`). */
+  private picks = new PickSelection();
   /** The rendered path chip rows — chip index to pick members. */
   private pathChipRows: { label: string; members: SelectedEntity[] }[] = [];
   private selectionMenu: SelectionContextMenu;
@@ -201,9 +202,8 @@ export class SweepFeatureService {
     this.hideContextMenu();
     if (this.editSceneStale) {
       this.editSceneStale = false;
-      if (this.entities.length > 0) {
-        this.entities = [];
-        this.chains = [];
+      if (this.picks.entities.length > 0) {
+        this.picks.clear();
         this.pathSeedApplied = false;
         this.panel.setMessage('The code changed — the re-picked path was reset.');
       }
@@ -246,8 +246,7 @@ export class SweepFeatureService {
     this.viewer.pickSketchWires = true;
     this.viewer.pickFilter = 'edge';
     // Shape ids changed with the render; the viewer already cleared highlights.
-    this.entities = [];
-    this.chains = [];
+    this.picks.clear();
     this.panel.setOptions(this.profiles, this.hasSolid);
     void this.relabeler.refresh(this.profiles);
     this.refreshPathChips();
@@ -275,8 +274,7 @@ export class SweepFeatureService {
     this.hooks.onEnter?.();
     this.armed = true;
     this.editTarget = target;
-    this.entities = [];
-    this.chains = [];
+    this.picks.clear();
     this.pathChipRows = [];
     this.sourceSlots = null;
     this.pathSeedApplied = false;
@@ -374,8 +372,7 @@ export class SweepFeatureService {
     this.editSceneStale = false;
     this.syncButton();
     this.runner.cancelPreview();
-    this.entities = [];
-    this.chains = [];
+    this.picks.clear();
     this.pathChipRows = [];
     this.viewer.clearHighlight();
     this.viewer.pickFilter = 'all';
@@ -411,26 +408,14 @@ export class SweepFeatureService {
       return;
     }
     this.pathSeedApplied = true;
-    if (this.entities.length === 0 && this.sourceSlots?.path.kind === 'entities') {
-      this.entities = this.sourceSlots.path.entities.map(e => ({ shapeId: e.shapeId, sub: e.sub }));
+    if (this.picks.entities.length === 0 && this.sourceSlots?.path.kind === 'entities') {
+      this.picks.entities = this.sourceSlots.path.entities.map(e => ({ shapeId: e.shapeId, sub: e.sub }));
     }
   }
 
   /** Toggle a plain pick; a chain member toggles its whole chain off. */
   private toggleEntity(entity: SelectedEntity): void {
-    const chain = this.chains.find(c => c.members.some(m => sameEntity(m, entity)));
-    if (chain) {
-      const memberKeys = new Set(chain.members.map(entityKey));
-      this.entities = this.entities.filter(e => !memberKeys.has(entityKey(e)));
-      this.chains = this.chains.filter(c => c !== chain);
-    } else {
-      const existing = this.entities.findIndex(e => sameEntity(e, entity));
-      if (existing >= 0) {
-        this.entities = this.entities.filter((_, i) => i !== existing);
-      } else {
-        this.entities = [...this.entities, entity];
-      }
-    }
+    this.picks.toggle(entity);
     // Chips first: an emptied edit selection collapses back to the kept
     // path, and the highlight must paint that state.
     this.refreshPathChips();
@@ -468,11 +453,9 @@ export class SweepFeatureService {
 
   /** Merge group members into the path selection as plain picks. */
   private mergeEntities(members: SelectedEntity[]): void {
-    const merged = mergeUniqueEntities(this.entities, members.filter(m => m.sub.type === 'edge'));
-    if (merged.length === this.entities.length) {
+    if (!this.picks.merge(members.filter(m => m.sub.type === 'edge'))) {
       return;
     }
-    this.entities = merged;
     this.refreshPathChips();
     this.refreshHighlight();
     this.runner.schedulePreview();
@@ -509,13 +492,7 @@ export class SweepFeatureService {
 
   /** Record a tangent chain: it owns its members, replacing overlapping picks. */
   private addChain(seed: SelectedEntity, members: SelectedEntity[]): void {
-    const memberKeys = new Set(members.map(entityKey));
-    this.chains = this.chains.filter(c => !c.members.some(m => memberKeys.has(entityKey(m))));
-    this.entities = [
-      ...this.entities.filter(e => !memberKeys.has(entityKey(e))),
-      ...members,
-    ];
-    this.chains.push({ seed, members });
+    this.picks.addChain(seed, members);
     this.refreshPathChips();
     this.refreshHighlight();
     this.runner.schedulePreview();
@@ -594,13 +571,13 @@ export class SweepFeatureService {
       }
       path = { kind: 'sketch', filePath: option.filePath, line: option.line, column: option.column };
     } else {
-      if (this.entities.length === 0) {
+      if (this.picks.isEmpty) {
         return { error: 'Pick the path edges first.' };
       }
       path = {
         kind: 'edges',
-        entities: this.entities,
-        chains: this.chains.map((c): ApplyFeatureChain => ({ seed: c.seed, members: c.members })),
+        entities: this.picks.entities,
+        chains: this.picks.apiChains(),
       };
     }
     return {
@@ -642,13 +619,13 @@ export class SweepFeatureService {
         column: pathSel.option.column,
       };
     } else if (pathSel?.kind === 'edges') {
-      if (this.entities.length === 0) {
+      if (this.picks.isEmpty) {
         return { error: 'Pick the path edges first.' };
       }
       path = {
         kind: 'edges',
-        entities: this.entities,
-        chains: this.chains.map((c): ApplyFeatureChain => ({ seed: c.seed, members: c.members })),
+        entities: this.picks.entities,
+        chains: this.picks.apiChains(),
       };
     }
     let profile: Parameters<typeof applySweepEdit>[1]['profile'];
@@ -686,10 +663,7 @@ export class SweepFeatureService {
     if (this.panel.pathSelection()?.kind === 'edges') {
       return;
     }
-    if (this.entities.length > 0 || this.chains.length > 0) {
-      this.entities = [];
-      this.chains = [];
-    }
+    this.picks.clear();
     this.pathChipRows = [];
     this.pathSeedApplied = false;
     this.hideContextMenu();
@@ -734,7 +708,7 @@ export class SweepFeatureService {
       keepSlot(this.sourceSlots?.path);
     }
     const wireIds = sketches.flatMap(option => sketchWireShapeIds(option, this.sceneObjects));
-    const shown = mergeUniqueEntities(mergeUniqueEntities(this.entities, keepEntities), previewMembers);
+    const shown = mergeUniqueEntities(mergeUniqueEntities(this.picks.entities, keepEntities), previewMembers);
     if (shown.length > 0 || wireIds.length > 0) {
       this.viewer.highlightEntities(shown, wireIds);
     } else {
@@ -748,7 +722,7 @@ export class SweepFeatureService {
    * expression is what Apply would preserve, and it stays reachable.
    */
   private refreshPathChips(): void {
-    this.pathChipRows = selectionChipRows(this.entities, this.chains);
+    this.pathChipRows = this.picks.chipRows();
     if (this.pathChipRows.length === 0 && this.editTarget
       && this.panel.pathSelection()?.kind === 'edges') {
       this.pathSeedApplied = false;

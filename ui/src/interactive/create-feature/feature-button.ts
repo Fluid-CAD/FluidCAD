@@ -26,6 +26,10 @@ export class FeatureButton {
     datasetTool?: string;
     /** Prepend to the group instead of appending (the Plane button). */
     prepend?: boolean;
+    /** Insert before this element instead of appending (the Shell button). */
+    insertBefore?: Element | null;
+    /** Start hidden (buttons gated on the first render's scene). */
+    hidden?: boolean;
   }) {
     this.button = document.createElement('button');
     this.button.className = BTN_BASE;
@@ -39,11 +43,20 @@ export class FeatureButton {
       this.wrap.dataset.tool = opts.datasetTool;
     }
     this.wrap.appendChild(this.button);
+    if (opts.hidden) {
+      this.wrap.classList.add('hidden');
+    }
     if (opts.prepend) {
       group.prepend(this.wrap);
+    } else if (opts.insertBefore !== undefined) {
+      group.insertBefore(this.wrap, opts.insertBefore);
     } else {
       group.appendChild(this.wrap);
     }
+  }
+
+  setDisabled(disabled: boolean): void {
+    this.button.disabled = disabled;
   }
 
   setActive(active: boolean): void {

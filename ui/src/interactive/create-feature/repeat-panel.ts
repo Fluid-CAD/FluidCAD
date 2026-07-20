@@ -1,7 +1,8 @@
-import { PanelShell } from './panel-controls';
+import { FeaturePanel } from './feature-panel';
 import { AxisOption } from './axis-options';
 import { PlaneOption } from './plane-bases';
-import { sourceChip } from './sketch-profiles';
+import { AxisSelection, AxisSlotControl } from './axis-slot';
+import { PlaneSelection, PlaneSlotControl } from './plane-slot';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 import { NewVariable, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
@@ -16,27 +17,15 @@ export type RepeatDirection = 1 | 2;
 export type RepeatArmedSlot = 'targets' | 'axis1' | 'axis2' | 'plane';
 
 /**
- * An axis slot's state: a standard world axis (the X/Y/Z quick buttons), an
- * existing axis statement, a picked edge (the service owns the entity), or —
- * edit mode only — the kept statement axis at `sourceIndex` of its parsed
- * `axisTexts`, preserved verbatim.
+ * An axis slot's state — the shared axis-picker state machine, with the kept
+ * statement axis carrying its position in the parsed `axisTexts`.
  */
 export type RepeatAxisSelection =
-  | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
-  | { kind: 'axis'; option: AxisOption }
-  | { kind: 'edge' }
+  | Exclude<AxisSelection, { kind: 'keep' }>
   | { kind: 'keep'; sourceIndex: number };
 
-/**
- * The mirror-plane slot's state: a standard origin plane (its viewport quad),
- * an existing plane feature, a picked face (the service owns the entity), or
- * — edit mode only — the kept statement plane, preserved verbatim.
- */
-export type RepeatPlaneSelection =
-  | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
-  | { kind: 'plane'; option: PlaneOption }
-  | { kind: 'face' }
-  | { kind: 'keep' };
+/** The mirror-plane slot's state — the shared plane-picker state machine. */
+export type RepeatPlaneSelection = PlaneSelection;
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type RepeatValues =
@@ -58,8 +47,6 @@ export type RepeatValues =
   | { kind: 'rotate'; angle: ValueExpr; newVariables?: NewVariable[] }
   | { error: string };
 
-const STANDARD_AXES = ['x', 'y', 'z'] as const;
-
 /**
  * The repeat dialog: a Linear / Circular / Mirror / Rotate type dropdown
  * (the repeat kind), the features slot — filled ONLY from timeline clicks,
@@ -79,10 +66,7 @@ const STANDARD_AXES = ['x', 'y', 'z'] as const;
  * the service owns scene data, the picked entities, previews, and the apply
  * call.
  */
-export class RepeatPanel {
-  onChange?: () => void;
-  onApply?: () => void;
-  onExit?: () => void;
+export class RepeatPanel extends FeaturePanel {
   /** The type dropdown changed — the service re-aims the viewer pick channels. */
   onTypeChange?: () => void;
   /** The target chip at `index` was removed. */
@@ -97,235 +81,169 @@ export class RepeatPanel {
   /** The slot picks land in — the one last clicked. */
   armedSlot: RepeatArmedSlot = 'targets';
 
-  private shell: PanelShell;
   private kindSelect: HTMLSelectElement;
   private targetsSlot: PickSlot;
   private axisWrap: HTMLElement;
   private dir1Header: HTMLElement;
-  private axisSlots = new Map<RepeatDirection, PickSlot>();
-  private axisButtons = new Map<RepeatDirection, Map<'x' | 'y' | 'z', HTMLButtonElement>>();
+  private axisSlots = new Map<RepeatDirection, AxisSlotControl>();
   private planeWrap: HTMLElement;
-  private planeSlot: PickSlot;
+  private planeSlot: PlaneSlotControl;
   private countRow: HTMLElement;
-  private countInput: HTMLInputElement;
   private spacingRow: HTMLElement;
   private spacingModeSelect: HTMLSelectElement;
-  private spacingInput: HTMLInputElement;
   private sweepRow: HTMLElement;
   private sweepModeSelect: HTMLSelectElement;
-  private sweepInput: HTMLInputElement;
   private dir2Wrap: HTMLElement;
-  private count2Input: HTMLInputElement;
   private value2Label: HTMLElement;
-  private value2Input: HTMLInputElement;
   private addDirectionBtn: HTMLButtonElement;
   private centeredRow: HTMLElement;
   private centeredInput: HTMLInputElement;
   private angleRow: HTMLElement;
-  private angleInput: HTMLInputElement;
   private countField: ExpressionField;
   private spacingField: ExpressionField;
   private sweepField: ExpressionField;
   private count2Field: ExpressionField;
   private value2Field: ExpressionField;
   private angleField: ExpressionField;
-  private applyBtn: HTMLButtonElement;
 
-  private axisStates = new Map<RepeatDirection, RepeatAxisSelection | null>();
-  private planeState: RepeatPlaneSelection | null = null;
   /** The Direction 2 group is active (linear only). */
   private dir2 = false;
-  /** Edit mode: slots start on (and revert to) "Current: …" keep chips. */
-  private editMode = false;
-  /** The statement's own axis texts, one keep-chip label per position. */
-  private keepAxisLabels: string[] = [];
-  /** The statement's own mirror-plane text, or null when it has none. */
-  private keepPlaneLabel: string | null = null;
 
   constructor(container: HTMLElement) {
-    this.shell = new PanelShell(container, 'fluidcad-repeat-panel', 'Repeat', '/icons/repeat-linear.png');
-    this.shell.onEscape = () => this.onExit?.();
-    this.shell.body.insertAdjacentHTML('beforeend', `
-      <label class="flex flex-col gap-1.5">
-        <span class="text-base-content/70">Type</span>
-        <select data-role="kind" class="select select-sm select-bordered w-full text-xs">
-          <option value="linear" title="Repeat along one or two axes — repeat('linear', …)">Linear</option>
-          <option value="circular" title="Repeat around an axis — repeat('circular', …)">Circular</option>
-          <option value="mirror" title="Mirror across a plane — repeat('mirror', …)">Mirror</option>
-          <option value="rotate" title="Rotated clone around an axis — repeat('rotate', …)">Rotate</option>
-        </select>
-      </label>
-      <div data-role="targets-slot"></div>
-      <div data-role="axis-wrap" class="flex flex-col gap-1.5">
-        <span data-role="dir1-header" class="text-base-content/70 font-medium">Direction 1</span>
-        <div data-role="axis-slot-1"></div>
-        <div data-role="axis-buttons-1" class="join w-full"></div>
-      </div>
-      <div data-role="plane-wrap" class="hidden flex-col gap-1.5">
-        <div data-role="plane-slot"></div>
-      </div>
-      <label data-role="count-row" class="flex flex-col gap-1.5" title="Number of instances, the original included">
-        <span class="text-base-content/70">Total Count</span>
-        <input data-role="count" type="number" step="1" min="2" value="3"
-          class="input input-sm input-bordered w-full text-xs" />
-      </label>
-      <div data-role="spacing-row" class="flex flex-col gap-1.5">
-        <span class="text-base-content/70">Spacing</span>
-        <div class="flex items-center gap-1.5">
-          <select data-role="spacing-mode" class="select select-sm select-bordered w-1/2 min-w-0 text-xs"
-            title="Offset: distance between neighbors. Total: the whole span, distributed evenly — length. Shared by both directions.">
-            <option value="offset">Offset</option>
-            <option value="length">Total</option>
+    super(container, {
+      id: 'fluidcad-repeat-panel',
+      title: 'Repeat',
+      icon: '/icons/repeat-linear.png',
+      bodyHtml: `
+        <label class="flex flex-col gap-1.5">
+          <span class="text-base-content/70">Type</span>
+          <select data-role="kind" class="select select-sm select-bordered w-full text-xs">
+            <option value="linear" title="Repeat along one or two axes — repeat('linear', …)">Linear</option>
+            <option value="circular" title="Repeat around an axis — repeat('circular', …)">Circular</option>
+            <option value="mirror" title="Mirror across a plane — repeat('mirror', …)">Mirror</option>
+            <option value="rotate" title="Rotated clone around an axis — repeat('rotate', …)">Rotate</option>
           </select>
-          <input data-role="spacing" type="number" step="1" value="20"
-            class="input input-sm input-bordered w-full min-w-0 text-xs" />
+        </label>
+        <div data-role="targets-slot"></div>
+        <div data-role="axis-wrap" class="flex flex-col gap-1.5">
+          <span data-role="dir1-header" class="text-base-content/70 font-medium">Direction 1</span>
+          <div data-role="axis-slot-1"></div>
+          <div data-role="axis-buttons-1" class="join w-full"></div>
         </div>
-      </div>
-      <div data-role="sweep-row" class="hidden flex-col gap-1.5">
-        <span class="text-base-content/70">Angle (°)</span>
-        <div class="flex items-center gap-1.5">
-          <select data-role="sweep-mode" class="select select-sm select-bordered w-1/2 min-w-0 text-xs"
-            title="Total: the whole sweep, distributed evenly — angle. Offset: degrees between neighbors.">
-            <option value="angle">Total</option>
-            <option value="offset">Offset</option>
-          </select>
-          <input data-role="sweep" type="number" step="5" value="360"
-            class="input input-sm input-bordered w-full min-w-0 text-xs" />
+        <div data-role="plane-wrap" class="hidden flex-col gap-1.5">
+          <div data-role="plane-slot"></div>
         </div>
-      </div>
-      <div data-role="dir2-wrap" class="hidden flex-col gap-1.5">
-        <div class="flex items-center justify-between">
-          <span class="text-base-content/70 font-medium">Direction 2</span>
-          <button data-role="dir2-remove" class="btn btn-ghost btn-xs px-1.5"
-            title="Remove the second direction">✕</button>
-        </div>
-        <div data-role="axis-slot-2"></div>
-        <div data-role="axis-buttons-2" class="join w-full"></div>
-        <label class="flex flex-col gap-1.5" title="Number of instances along the second direction, the original included">
+        <label data-role="count-row" class="flex flex-col gap-1.5" title="Number of instances, the original included">
           <span class="text-base-content/70">Total Count</span>
-          <input data-role="count2" type="number" step="1" min="2" value="2"
+          <input data-role="count" type="number" step="1" min="2" value="3"
             class="input input-sm input-bordered w-full text-xs" />
         </label>
-        <label class="flex flex-col gap-1.5" title="Spacing along the second direction — the Offset/Total mode is shared with Direction 1">
-          <span data-role="value2-label" class="text-base-content/70">Offset</span>
-          <input data-role="value2" type="number" step="1" value="20"
+        <div data-role="spacing-row" class="flex flex-col gap-1.5">
+          <span class="text-base-content/70">Spacing</span>
+          <div class="flex items-center gap-1.5">
+            <select data-role="spacing-mode" class="select select-sm select-bordered w-1/2 min-w-0 text-xs"
+              title="Offset: distance between neighbors. Total: the whole span, distributed evenly — length. Shared by both directions.">
+              <option value="offset">Offset</option>
+              <option value="length">Total</option>
+            </select>
+            <input data-role="spacing" type="number" step="1" value="20"
+              class="input input-sm input-bordered w-full min-w-0 text-xs" />
+          </div>
+        </div>
+        <div data-role="sweep-row" class="hidden flex-col gap-1.5">
+          <span class="text-base-content/70">Angle (°)</span>
+          <div class="flex items-center gap-1.5">
+            <select data-role="sweep-mode" class="select select-sm select-bordered w-1/2 min-w-0 text-xs"
+              title="Total: the whole sweep, distributed evenly — angle. Offset: degrees between neighbors.">
+              <option value="angle">Total</option>
+              <option value="offset">Offset</option>
+            </select>
+            <input data-role="sweep" type="number" step="5" value="360"
+              class="input input-sm input-bordered w-full min-w-0 text-xs" />
+          </div>
+        </div>
+        <div data-role="dir2-wrap" class="hidden flex-col gap-1.5">
+          <div class="flex items-center justify-between">
+            <span class="text-base-content/70 font-medium">Direction 2</span>
+            <button data-role="dir2-remove" class="btn btn-ghost btn-xs px-1.5"
+              title="Remove the second direction">✕</button>
+          </div>
+          <div data-role="axis-slot-2"></div>
+          <div data-role="axis-buttons-2" class="join w-full"></div>
+          <label class="flex flex-col gap-1.5" title="Number of instances along the second direction, the original included">
+            <span class="text-base-content/70">Total Count</span>
+            <input data-role="count2" type="number" step="1" min="2" value="2"
+              class="input input-sm input-bordered w-full text-xs" />
+          </label>
+          <label class="flex flex-col gap-1.5" title="Spacing along the second direction — the Offset/Total mode is shared with Direction 1">
+            <span data-role="value2-label" class="text-base-content/70">Offset</span>
+            <input data-role="value2" type="number" step="1" value="20"
+              class="input input-sm input-bordered w-full text-xs" />
+          </label>
+        </div>
+        <button data-role="add-direction" class="btn btn-ghost btn-sm justify-start px-1 font-normal text-primary"
+          title="Repeat along a second axis too — repeat('linear', [a1, a2], …)">+ Add second direction</button>
+        <label data-role="centered-row" class="flex items-center justify-between cursor-pointer"
+          title="Center the pattern on the original instance">
+          <span class="text-base-content/70">Centered</span>
+          <input data-role="centered" type="checkbox" class="toggle toggle-sm toggle-primary" />
+        </label>
+        <label data-role="angle-row" class="hidden flex-col gap-1.5" title="Rotation angle in degrees">
+          <span class="text-base-content/70">Angle (°)</span>
+          <input data-role="angle" type="number" step="5" value="90"
             class="input input-sm input-bordered w-full text-xs" />
         </label>
-      </div>
-      <button data-role="add-direction" class="btn btn-ghost btn-sm justify-start px-1 font-normal text-primary"
-        title="Repeat along a second axis too — repeat('linear', [a1, a2], …)">+ Add second direction</button>
-      <label data-role="centered-row" class="flex items-center justify-between cursor-pointer"
-        title="Center the pattern on the original instance">
-        <span class="text-base-content/70">Centered</span>
-        <input data-role="centered" type="checkbox" class="toggle toggle-sm toggle-primary" />
-      </label>
-      <label data-role="angle-row" class="hidden flex-col gap-1.5" title="Rotation angle in degrees">
-        <span class="text-base-content/70">Angle (°)</span>
-        <input data-role="angle" type="number" step="5" value="90"
-          class="input input-sm input-bordered w-full text-xs" />
-      </label>
-      <div class="flex items-center gap-2 pt-1">
-        <button data-role="apply" class="btn btn-primary btn-sm flex-1">Apply</button>
-        <button data-role="exit" class="btn btn-ghost btn-sm">Exit</button>
-      </div>
-    `);
+      `,
+    });
 
-    this.kindSelect = this.shell.body.querySelector('[data-role="kind"]')!;
+    this.kindSelect = this.role('kind');
     this.kindSelect.addEventListener('change', () => {
       this.syncType();
       this.onTypeChange?.();
       this.onChange?.();
     });
 
-    this.targetsSlot = new PickSlot(
-      this.shell.body.querySelector('[data-role="targets-slot"]')!,
-      { label: 'Features', multiple: true },
-    );
+    this.targetsSlot = new PickSlot(this.role('targets-slot'), { label: 'Features', multiple: true });
     this.targetsSlot.onArm = () => this.armSlot('targets');
     this.targetsSlot.onRemove = (index) => this.onRemoveTarget?.(index);
 
-    this.axisWrap = this.shell.body.querySelector('[data-role="axis-wrap"]')!;
-    this.dir1Header = this.shell.body.querySelector('[data-role="dir1-header"]')!;
+    this.axisWrap = this.role('axis-wrap');
+    this.dir1Header = this.role('dir1-header');
     for (const direction of [1, 2] as const) {
-      const slot = new PickSlot(
-        this.shell.body.querySelector(`[data-role="axis-slot-${direction}"]`)!,
-        { label: 'Axis', multiple: false },
+      const control = new AxisSlotControl(
+        this.role(`axis-slot-${direction}`),
+        this.role(`axis-buttons-${direction}`),
+        { buttonTitle: (axis) => `Repeat along the world ${axis} axis` },
       );
-      slot.onArm = () => this.armSlot(direction === 2 ? 'axis2' : 'axis1');
-      slot.onRemove = () => {
-        // Create mode: back to the prompt; edit mode: back to the
-        // statement's own axis (a re-pick is undone, never the axis itself).
-        this.axisStates.set(direction, this.statementAxisState(direction));
-        this.renderAxis(direction);
-        this.onAxisModeChange?.(direction);
-        this.onChange?.();
-      };
-      this.axisSlots.set(direction, slot);
-      this.axisStates.set(direction, null);
-
-      // The world-axis quick row: one click sets its direction's slot
-      // without a 3D pick.
-      const buttonsHost = this.shell.body.querySelector(`[data-role="axis-buttons-${direction}"]`)!;
-      const buttons = new Map<'x' | 'y' | 'z', HTMLButtonElement>();
-      for (const axis of STANDARD_AXES) {
-        const btn = document.createElement('button');
-        btn.className = 'btn btn-sm join-item flex-1 font-normal';
-        btn.textContent = axis.toUpperCase();
-        btn.title = `Repeat along the world ${axis.toUpperCase()} axis`;
-        btn.addEventListener('click', () => {
-          this.axisStates.set(direction, { kind: 'standard', axis });
-          this.armSlot(direction === 2 ? 'axis2' : 'axis1');
-          this.renderAxis(direction);
-          this.onAxisModeChange?.(direction);
-          this.onChange?.();
-        });
-        buttonsHost.appendChild(btn);
-        buttons.set(axis, btn);
-      }
-      this.axisButtons.set(direction, buttons);
+      control.onArm = () => this.armSlot(direction === 2 ? 'axis2' : 'axis1');
+      control.onModeChange = () => this.onAxisModeChange?.(direction);
+      control.onChange = () => this.onChange?.();
+      this.axisSlots.set(direction, control);
     }
 
-    this.planeWrap = this.shell.body.querySelector('[data-role="plane-wrap"]')!;
-    this.planeSlot = new PickSlot(
-      this.shell.body.querySelector('[data-role="plane-slot"]')!,
-      { label: 'Plane', multiple: false },
-    );
+    this.planeWrap = this.role('plane-wrap');
+    this.planeSlot = new PlaneSlotControl(this.role('plane-slot'));
     this.planeSlot.onArm = () => this.armSlot('plane');
-    this.planeSlot.onRemove = () => {
-      this.planeState = this.statementPlaneState();
-      this.renderPlane();
-      this.onPlaneModeChange?.();
-      this.onChange?.();
-    };
+    this.planeSlot.onModeChange = () => this.onPlaneModeChange?.();
+    this.planeSlot.onChange = () => this.onChange?.();
 
-    this.countRow = this.shell.body.querySelector('[data-role="count-row"]')!;
-    this.countInput = this.shell.body.querySelector('[data-role="count"]')!;
-    this.spacingRow = this.shell.body.querySelector('[data-role="spacing-row"]')!;
-    this.spacingModeSelect = this.shell.body.querySelector('[data-role="spacing-mode"]')!;
-    this.spacingInput = this.shell.body.querySelector('[data-role="spacing"]')!;
-    this.sweepRow = this.shell.body.querySelector('[data-role="sweep-row"]')!;
-    this.sweepModeSelect = this.shell.body.querySelector('[data-role="sweep-mode"]')!;
-    this.sweepInput = this.shell.body.querySelector('[data-role="sweep"]')!;
-    this.dir2Wrap = this.shell.body.querySelector('[data-role="dir2-wrap"]')!;
-    this.count2Input = this.shell.body.querySelector('[data-role="count2"]')!;
-    this.value2Label = this.shell.body.querySelector('[data-role="value2-label"]')!;
-    this.value2Input = this.shell.body.querySelector('[data-role="value2"]')!;
-    this.addDirectionBtn = this.shell.body.querySelector('[data-role="add-direction"]')!;
-    this.centeredRow = this.shell.body.querySelector('[data-role="centered-row"]')!;
-    // (Expression fields for the numeric inputs are created below, after
-    // every element reference is resolved.)
-    this.centeredInput = this.shell.body.querySelector('[data-role="centered"]')!;
-    this.angleRow = this.shell.body.querySelector('[data-role="angle-row"]')!;
-    this.angleInput = this.shell.body.querySelector('[data-role="angle"]')!;
-    this.applyBtn = this.shell.body.querySelector('[data-role="apply"]')!;
-
+    this.countRow = this.role('count-row');
+    this.spacingRow = this.role('spacing-row');
+    this.spacingModeSelect = this.role('spacing-mode');
+    this.sweepRow = this.role('sweep-row');
+    this.sweepModeSelect = this.role('sweep-mode');
+    this.dir2Wrap = this.role('dir2-wrap');
+    this.value2Label = this.role('value2-label');
+    this.addDirectionBtn = this.role('add-direction');
+    this.centeredRow = this.role('centered-row');
+    this.centeredInput = this.role('centered');
+    this.angleRow = this.role('angle-row');
 
     this.addDirectionBtn.addEventListener('click', () => {
       this.dir2 = true;
       // A re-added direction restores its kept statement axis (edit mode).
-      if (!this.axisStates.get(2)) {
-        this.axisStates.set(2, this.statementAxisState(2));
-        this.renderAxis(2);
+      if (!this.axisSlots.get(2)!.selection) {
+        this.axisSlots.get(2)!.restoreFallback();
       }
       // The fresh direction is the one being composed — its slot takes the
       // next axis pick.
@@ -333,10 +251,9 @@ export class RepeatPanel {
       this.syncType();
       this.onChange?.();
     });
-    this.shell.body.querySelector('[data-role="dir2-remove"]')!.addEventListener('click', () => {
+    this.role('dir2-remove').addEventListener('click', () => {
       this.dir2 = false;
-      this.axisStates.set(2, null);
-      this.renderAxis(2);
+      this.axisSlots.get(2)!.clear();
       if (this.armedSlot === 'axis2') {
         this.armSlot('axis1');
       }
@@ -351,21 +268,12 @@ export class RepeatPanel {
     });
     this.sweepModeSelect.addEventListener('change', () => this.onChange?.());
     this.centeredInput.addEventListener('change', () => this.onChange?.());
-    // Expression fields own the inputs' keyboard handling (variable dropdown,
-    // Enter-to-apply) and flip them to type="text" for identifiers.
-    this.countField = new ExpressionField(this.countInput);
-    this.spacingField = new ExpressionField(this.spacingInput);
-    this.sweepField = new ExpressionField(this.sweepInput);
-    this.count2Field = new ExpressionField(this.count2Input);
-    this.value2Field = new ExpressionField(this.value2Input);
-    this.angleField = new ExpressionField(this.angleInput);
-    for (const field of this.expressionFields()) {
-      field.onSubmit = () => this.onApply?.();
-      field.element.addEventListener('input', () => this.onChange?.());
-    }
-
-    this.applyBtn.addEventListener('click', () => this.onApply?.());
-    this.shell.body.querySelector('[data-role="exit"]')!.addEventListener('click', () => this.onExit?.());
+    this.countField = this.enhance('count');
+    this.spacingField = this.enhance('spacing');
+    this.sweepField = this.enhance('sweep');
+    this.count2Field = this.enhance('count2');
+    this.value2Field = this.enhance('value2');
+    this.angleField = this.enhance('angle');
   }
 
   private expressionFields(): ExpressionField[] {
@@ -380,10 +288,6 @@ export class RepeatPanel {
     for (const field of this.expressionFields()) {
       field.setVariables(variables);
     }
-  }
-
-  get isVisible(): boolean {
-    return this.shell.isVisible;
   }
 
   get repeatType(): RepeatType {
@@ -409,14 +313,11 @@ export class RepeatPanel {
   show(): void {
     // A fresh arming starts from defaults and empty slots — the previous
     // session's choices would otherwise be revived by source-line matching.
-    this.editMode = false;
-    this.keepAxisLabels = [];
-    this.keepPlaneLabel = null;
     this.shell.setTitle(null);
     this.kindSelect.value = 'linear';
-    this.axisStates.set(1, null);
-    this.axisStates.set(2, null);
-    this.planeState = null;
+    this.axisSlots.get(1)!.reset();
+    this.axisSlots.get(2)!.reset();
+    this.planeSlot.reset();
     this.dir2 = false;
     this.countField.setValue(3);
     this.spacingModeSelect.value = 'offset';
@@ -428,19 +329,12 @@ export class RepeatPanel {
     this.centeredInput.checked = false;
     this.angleField.setValue(90);
     this.setTargets([]);
-    this.renderAxis(1);
-    this.renderAxis(2);
-    this.renderPlane();
     // The empty features list is the first thing to fill — its slot opens
     // armed, and scene picking stays off until an input slot is clicked.
     this.armSlot('targets');
     this.syncSpacingLabels();
     this.syncType();
     this.shell.show();
-  }
-
-  hide(): void {
-    this.shell.hide();
   }
 
   /** Programmatic type choice (selection seeding); no change event fires. */
@@ -470,9 +364,6 @@ export class RepeatPanel {
     /** Keep-chip label for the statement's mirror plane, or null. */
     planeLabel: string | null;
   }): void {
-    this.editMode = true;
-    this.keepAxisLabels = state.axisLabels;
-    this.keepPlaneLabel = state.planeLabel;
     this.shell.setTitle('Edit repeat');
     this.kindSelect.value = state.kind;
     this.dir2 = (state.directions?.length ?? 0) === 2;
@@ -487,54 +378,16 @@ export class RepeatPanel {
     this.value2Field.setValue(state.directions?.[1]?.value ?? 20);
     this.centeredInput.checked = state.centered;
     this.angleField.setValue(state.angle ?? 90);
-    this.axisStates.set(1, this.statementAxisState(1));
-    this.axisStates.set(2, this.statementAxisState(2));
-    this.planeState = this.statementPlaneState();
+    this.axisSlots.get(1)!.seedKeep(state.axisLabels[0] ?? null);
+    this.axisSlots.get(2)!.seedKeep(state.axisLabels[1] ?? null);
+    this.planeSlot.seedKeep(state.planeLabel);
     this.setTargets([]);
-    this.renderAxis(1);
-    this.renderAxis(2);
-    this.renderPlane();
     // The targets list is the seeded statement's — its slot opens armed like
     // create mode, ready to toggle features in the timeline.
     this.armSlot('targets');
     this.syncSpacingLabels();
     this.syncType();
     this.shell.show();
-  }
-
-  /**
-   * A direction's statement-axis entry — what the slot seeds with and
-   * reverts to in edit mode — or null when the statement has no axis at its
-   * position (create mode, or a kind the statement's shape doesn't cover).
-   * A standard world-axis literal (`'y'`) reads as the standard selection
-   * itself, chip and quick-button state matching create mode; anything else
-   * stays a verbatim "Current: …" keep.
-   */
-  private statementAxisState(direction: RepeatDirection): RepeatAxisSelection | null {
-    const sourceIndex = direction - 1;
-    if (!this.editMode || sourceIndex >= this.keepAxisLabels.length) {
-      return null;
-    }
-    const standard = this.keepAxisLabels[sourceIndex].match(/^['"]([xyz])['"]$/);
-    if (standard) {
-      return { kind: 'standard', axis: standard[1] as 'x' | 'y' | 'z' };
-    }
-    return { kind: 'keep', sourceIndex };
-  }
-
-  /**
-   * The plane slot's statement entry, or null when there is none. A standard
-   * origin-plane literal (`'yz'`) reads as the standard selection itself.
-   */
-  private statementPlaneState(): RepeatPlaneSelection | null {
-    if (!this.editMode || this.keepPlaneLabel === null) {
-      return null;
-    }
-    const standard = this.keepPlaneLabel.match(/^['"](xy|xz|yz)['"]$/);
-    if (standard) {
-      return { kind: 'standard', plane: standard[1] as 'xy' | 'xz' | 'yz' };
-    }
-    return { kind: 'keep' };
   }
 
   /**
@@ -547,21 +400,9 @@ export class RepeatPanel {
    */
   setOptions(axes: AxisOption[], planes: PlaneOption[]): void {
     for (const direction of [1, 2] as const) {
-      const state = this.axisStates.get(direction);
-      if (state?.kind === 'axis') {
-        const match = axes.find(o => o.filePath === state.option.filePath && o.line === state.option.line);
-        this.axisStates.set(direction, match
-          ? { kind: 'axis', option: match }
-          : this.statementAxisState(direction));
-      }
-      this.renderAxis(direction);
+      this.axisSlots.get(direction)!.setOptions(axes);
     }
-    if (this.planeState?.kind === 'plane') {
-      const prev = this.planeState.option;
-      const match = planes.find(o => o.filePath === prev.filePath && o.line === prev.line);
-      this.planeState = match ? { kind: 'plane', option: match } : this.statementPlaneState();
-    }
-    this.renderPlane();
+    this.planeSlot.setOptions(planes);
   }
 
   /** Render the target chips — numbered, the repeat's argument order. */
@@ -575,11 +416,17 @@ export class RepeatPanel {
   }
 
   axisSelection(direction: RepeatDirection = 1): RepeatAxisSelection | null {
-    return this.axisStates.get(direction) ?? null;
+    const selection = this.axisSlots.get(direction)!.selection;
+    if (selection?.kind === 'keep') {
+      // The kept statement axis sits at its direction's position in the
+      // parsed `axisTexts` — the service rewrites it verbatim by index.
+      return { kind: 'keep', sourceIndex: direction - 1 };
+    }
+    return selection;
   }
 
   planeSelection(): RepeatPlaneSelection | null {
-    return this.planeState;
+    return this.planeSlot.selection;
   }
 
   /**
@@ -589,9 +436,8 @@ export class RepeatPanel {
    */
   selectAxis(option: AxisOption): void {
     const direction = this.armedAxis;
-    this.axisStates.set(direction, { kind: 'axis', option });
+    this.axisSlots.get(direction)!.selectOption(option);
     this.armSlot(direction === 2 ? 'axis2' : 'axis1');
-    this.renderAxis(direction);
   }
 
   /**
@@ -599,16 +445,14 @@ export class RepeatPanel {
    * border tracks where the pick landed. No change event fires.
    */
   selectPlane(option: PlaneOption): void {
-    this.planeState = { kind: 'plane', option };
+    this.planeSlot.selectOption(option);
     this.armSlot('plane');
-    this.renderPlane();
   }
 
   /** An origin-plane quad picked in the viewport. No change event fires. */
   selectStandardPlane(plane: 'xy' | 'xz' | 'yz'): void {
-    this.planeState = { kind: 'standard', plane };
+    this.planeSlot.selectStandard(plane);
     this.armSlot('plane');
-    this.renderPlane();
   }
 
   /**
@@ -616,12 +460,7 @@ export class RepeatPanel {
    * clears it back to the prompt.
    */
   setAxisEdgeChip(direction: RepeatDirection, label: string | null): void {
-    if (label !== null) {
-      this.axisStates.set(direction, { kind: 'edge' });
-    } else if (this.axisStates.get(direction)?.kind === 'edge') {
-      this.axisStates.set(direction, this.statementAxisState(direction));
-    }
-    this.renderAxis(direction, label ?? undefined);
+    this.axisSlots.get(direction)!.setEdgeChip(label);
   }
 
   /**
@@ -629,12 +468,7 @@ export class RepeatPanel {
    * clears it back to the prompt.
    */
   setPlaneFaceChip(label: string | null): void {
-    if (label !== null) {
-      this.planeState = { kind: 'face' };
-    } else if (this.planeState?.kind === 'face') {
-      this.planeState = this.statementPlaneState();
-    }
-    this.renderPlane(label ?? undefined);
+    this.planeSlot.setFaceChip(label);
   }
 
   values(): RepeatValues {
@@ -688,81 +522,6 @@ export class RepeatPanel {
       kind, count: count.value, sweep: { mode, value: value.value },
       newVariables: collectNewVariables([count, value]),
     };
-  }
-
-  setPreview(text: string | null): void {
-    this.shell.setPreview(text);
-  }
-
-  setMessage(text: string | null): void {
-    this.shell.setMessage(text);
-  }
-
-  setApplyEnabled(enabled: boolean): void {
-    this.applyBtn.disabled = !enabled;
-  }
-
-  /** A direction's axis slot: one chip (the chosen axis), or the prompt. */
-  private renderAxis(direction: RepeatDirection, edgeLabel?: string): void {
-    const slot = this.axisSlots.get(direction)!;
-    const state = this.axisStates.get(direction);
-    if (state?.kind === 'keep') {
-      slot.setChips([{
-        label: `Current: ${this.keepAxisLabels[state.sourceIndex] ?? ''}`,
-        badge: '●',
-        removable: false,
-      }]);
-      slot.setPrompt(null);
-    } else if (state?.kind === 'standard') {
-      slot.setChips([{
-        label: `World ${state.axis.toUpperCase()} axis`,
-        badge: '●',
-        removable: true,
-      }]);
-      slot.setPrompt(null);
-    } else if (state?.kind === 'axis') {
-      slot.setChips([sourceChip(state.option, { badge: '●', removable: true })]);
-      slot.setPrompt(null);
-    } else if (state?.kind === 'edge') {
-      slot.setChips([{ label: edgeLabel ?? 'Picked edge', badge: '●', removable: true }]);
-      slot.setPrompt(null);
-    } else {
-      slot.setChips([]);
-      slot.setPrompt('Pick an axis or edge');
-    }
-    for (const [axis, btn] of this.axisButtons.get(direction)!) {
-      btn.classList.toggle('btn-soft', state?.kind === 'standard' && state.axis === axis);
-      btn.classList.toggle('btn-primary', state?.kind === 'standard' && state.axis === axis);
-    }
-  }
-
-  /** The plane slot: one chip (the chosen plane), or the pick prompt. */
-  private renderPlane(faceLabel?: string): void {
-    const state = this.planeState;
-    if (state?.kind === 'keep') {
-      this.planeSlot.setChips([{
-        label: `Current: ${this.keepPlaneLabel ?? ''}`,
-        badge: '●',
-        removable: false,
-      }]);
-      this.planeSlot.setPrompt(null);
-    } else if (state?.kind === 'standard') {
-      this.planeSlot.setChips([{
-        label: `${state.plane.toUpperCase()} plane`,
-        badge: '●',
-        removable: true,
-      }]);
-      this.planeSlot.setPrompt(null);
-    } else if (state?.kind === 'plane') {
-      this.planeSlot.setChips([sourceChip(state.option, { badge: '●', removable: true })]);
-      this.planeSlot.setPrompt(null);
-    } else if (state?.kind === 'face') {
-      this.planeSlot.setChips([{ label: faceLabel ?? 'Picked face', badge: '●', removable: true }]);
-      this.planeSlot.setPrompt(null);
-    } else {
-      this.planeSlot.setChips([]);
-      this.planeSlot.setPrompt('Pick a plane or face');
-    }
   }
 
   /**

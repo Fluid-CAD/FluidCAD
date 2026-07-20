@@ -1,6 +1,8 @@
-import { OpTabs, PanelShell, ThinControl } from './panel-controls';
-import { SketchProfileOption, keepSketchChip, sourceChip } from './sketch-profiles';
-import { PickSlot } from '../pick-slot';
+import { OpTabs, ThinControl } from './panel-controls';
+import { FeaturePanel } from './feature-panel';
+import { SketchProfileOption } from './sketch-profiles';
+import { SketchSlotControl, SketchSlotSelection } from './sketch-slot';
+import { EntitySlotControl, EntitySlotSelection } from './entity-slot';
 import { ExtrudeOptionValues, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
@@ -21,95 +23,76 @@ export type ExtrudeValues = ExtrudeOptionValues | { error: string };
  * with its thickness. Pure DOM + form state — the service owns scene data,
  * previews, and the apply call.
  */
-export class ExtrudePanel {
-  onChange?: () => void;
-  onApply?: () => void;
-  onExit?: () => void;
+export class ExtrudePanel extends FeaturePanel {
   /** The face chip's ✕ — the service owns the picked entity. */
   onRemoveFace?: () => void;
 
-  private shell: PanelShell;
   private tabs: OpTabs;
   private thin: ThinControl;
-  private profileSlot: PickSlot;
-  private faceSlot: PickSlot;
+  private profileSlot: SketchSlotControl;
+  private faceSlot: EntitySlotControl;
   private faceSlotWrap: HTMLElement;
   private directionSelect: HTMLSelectElement;
   private distanceWrap: HTMLElement;
   private distanceLabel: HTMLElement;
   private distanceInput: HTMLInputElement;
   private distance2Wrap: HTMLElement;
-  private distance2Input: HTMLInputElement;
   private throughWrap: HTMLElement;
   private throughCheckbox: HTMLInputElement;
-  private draftInput: HTMLInputElement;
   private distanceField: ExpressionField;
   private distance2Field: ExpressionField;
   private draftField: ExpressionField;
   private drillCheckbox: HTMLInputElement;
-  private applyBtn: HTMLButtonElement;
-  /** Picked-face chip label (the service owns the entity), or null. */
-  private pickedFaceLabel: string | null = null;
-  /** Edit mode: the statement's own target text — the face slot's keep chip. */
-  private keepFaceLabel = '';
-  private options: SketchProfileOption[] = [];
-  /** The profile slot's state: an option index, the keep entry, or empty. */
-  private selection: number | 'keep' | null = null;
-  /** Edit mode: the slot starts on a "Current: …" chip that keeps the statement's profile. */
-  private editMode = false;
-  /** The kept profile's expression text; null when the statement is implicit. */
-  private keepProfileLabel: string | null = null;
 
   constructor(container: HTMLElement) {
-    this.shell = new PanelShell(container, 'fluidcad-extrude-panel', 'Extrude', '/icons/extrude.png');
-    this.shell.onEscape = () => this.onExit?.();
-    this.shell.body.insertAdjacentHTML('beforeend', `
-      <div data-role="tabs" class="join w-full"></div>
-      <div data-role="profile-slot"></div>
-      <label class="flex flex-col gap-1.5" title="How the extrusion distributes around the sketch plane">
-        <span class="text-base-content/70">Direction</span>
-        <select data-role="direction" class="select select-sm select-bordered w-full text-xs">
-          <option value="one">One direction</option>
-          <option value="symmetric">Symmetric</option>
-          <option value="two">Two directions</option>
-          <option value="to-face">Up to face</option>
-        </select>
-      </label>
-      <div data-role="face-slot-wrap" class="hidden"><div data-role="face-slot"></div></div>
-      <label data-role="distance-wrap" class="flex flex-col gap-1.5">
-        <span class="text-base-content/70" data-role="distance-label">Distance</span>
-        <input data-role="distance" type="number" step="0.5" value="25"
-          class="input input-sm input-bordered w-full text-xs" />
-      </label>
-      <label data-role="distance2-wrap" class="hidden flex-col gap-1.5"
-        title="Extrusion distance on the opposite side of the sketch plane">
-        <span class="text-base-content/70" data-role="distance2-label">Distance 2</span>
-        <input data-role="distance2" type="number" step="0.5" value="25"
-          class="input input-sm input-bordered w-full text-xs" />
-      </label>
-      <label data-role="through-wrap" class="hidden items-center justify-between cursor-pointer">
-        <span class="text-base-content/70">Through all</span>
-        <input data-role="through" type="checkbox" class="toggle toggle-sm toggle-primary" />
-      </label>
-      <label class="flex flex-col gap-1.5"
-        title="Taper the side walls — positive expands outward, negative tapers inward; 0 is straight">
-        <span class="text-base-content/70">Draft angle (°)</span>
-        <input data-role="draft" type="number" step="0.5" value="0"
-          class="input input-sm input-bordered w-full text-xs" />
-      </label>
-      <label class="flex items-center justify-between cursor-pointer"
-        title="Treat inner closed regions of the profile as holes — off extrudes them solid">
-        <span class="text-base-content/70">Drill holes</span>
-        <input data-role="drill" type="checkbox" class="toggle toggle-sm toggle-primary" checked />
-      </label>
-      <div data-role="thin-host" class="contents"></div>
-      <div class="flex items-center gap-2 pt-1">
-        <button data-role="apply" class="btn btn-primary btn-sm flex-1">Apply</button>
-        <button data-role="exit" class="btn btn-ghost btn-sm">Exit</button>
-      </div>
-    `);
+    super(container, {
+      id: 'fluidcad-extrude-panel',
+      title: 'Extrude',
+      icon: '/icons/extrude.png',
+      bodyHtml: `
+        <div data-role="tabs" class="join w-full"></div>
+        <div data-role="profile-slot"></div>
+        <label class="flex flex-col gap-1.5" title="How the extrusion distributes around the sketch plane">
+          <span class="text-base-content/70">Direction</span>
+          <select data-role="direction" class="select select-sm select-bordered w-full text-xs">
+            <option value="one">One direction</option>
+            <option value="symmetric">Symmetric</option>
+            <option value="two">Two directions</option>
+            <option value="to-face">Up to face</option>
+          </select>
+        </label>
+        <div data-role="face-slot-wrap" class="hidden"><div data-role="face-slot"></div></div>
+        <label data-role="distance-wrap" class="flex flex-col gap-1.5">
+          <span class="text-base-content/70" data-role="distance-label">Distance</span>
+          <input data-role="distance" type="number" step="0.5" value="25"
+            class="input input-sm input-bordered w-full text-xs" />
+        </label>
+        <label data-role="distance2-wrap" class="hidden flex-col gap-1.5"
+          title="Extrusion distance on the opposite side of the sketch plane">
+          <span class="text-base-content/70" data-role="distance2-label">Distance 2</span>
+          <input data-role="distance2" type="number" step="0.5" value="25"
+            class="input input-sm input-bordered w-full text-xs" />
+        </label>
+        <label data-role="through-wrap" class="hidden items-center justify-between cursor-pointer">
+          <span class="text-base-content/70">Through all</span>
+          <input data-role="through" type="checkbox" class="toggle toggle-sm toggle-primary" />
+        </label>
+        <label class="flex flex-col gap-1.5"
+          title="Taper the side walls — positive expands outward, negative tapers inward; 0 is straight">
+          <span class="text-base-content/70">Draft angle (°)</span>
+          <input data-role="draft" type="number" step="0.5" value="0"
+            class="input input-sm input-bordered w-full text-xs" />
+        </label>
+        <label class="flex items-center justify-between cursor-pointer"
+          title="Treat inner closed regions of the profile as holes — off extrudes them solid">
+          <span class="text-base-content/70">Drill holes</span>
+          <input data-role="drill" type="checkbox" class="toggle toggle-sm toggle-primary" checked />
+        </label>
+        <div data-role="thin-host" class="contents"></div>
+      `,
+    });
 
-    this.tabs = new OpTabs(this.shell.body.querySelector('[data-role="tabs"]')!, [
+    this.tabs = new OpTabs(this.role('tabs'), [
       { op: 'add', label: 'Add', title: 'Fuse the extrusion with the model — extrude()' },
       { op: 'remove', label: 'Remove', title: 'Cut the extrusion out of the model — cut()' },
       { op: 'new', label: 'New', title: 'Keep the extrusion as a separate body — extrude().new()' },
@@ -118,43 +101,31 @@ export class ExtrudePanel {
       this.syncControls();
       this.onChange?.();
     };
-    this.thin = new ThinControl(this.shell.body.querySelector('[data-role="thin-host"]')!);
+    this.thin = new ThinControl(this.role('thin-host'));
     this.thin.onChange = () => this.onChange?.();
     this.thin.onSubmit = () => this.onApply?.();
 
-    this.profileSlot = new PickSlot(
-      this.shell.body.querySelector('[data-role="profile-slot"]')!,
-      { label: 'Sketch', multiple: false },
-    );
-    this.profileSlot.onRemove = () => {
-      // Create mode: back to the prompt; edit mode: back to the statement's
-      // own profile (a re-pick is undone, never the profile itself).
-      this.selection = this.editMode ? 'keep' : null;
-      this.renderProfile();
-      this.onChange?.();
-    };
+    this.profileSlot = new SketchSlotControl(this.role('profile-slot'));
+    this.profileSlot.onChange = () => this.onChange?.();
 
-    this.faceSlotWrap = this.shell.body.querySelector('[data-role="face-slot-wrap"]')!;
-    this.faceSlot = new PickSlot(
-      this.shell.body.querySelector('[data-role="face-slot"]')!,
-      { label: 'Up to face', multiple: false },
-    );
+    this.faceSlotWrap = this.role('face-slot-wrap');
+    this.faceSlot = new EntitySlotControl(this.role('face-slot'), {
+      label: 'Up to face',
+      prompt: 'Pick a face',
+    });
+    // The slot is the live pick target the whole time it is shown.
+    this.faceSlot.setArmed(true);
     this.faceSlot.onRemove = () => this.onRemoveFace?.();
 
-    this.directionSelect = this.shell.body.querySelector('[data-role="direction"]')!;
-    this.distanceWrap = this.shell.body.querySelector('[data-role="distance-wrap"]')!;
-    this.distanceLabel = this.shell.body.querySelector('[data-role="distance-label"]')!;
-    this.distanceInput = this.shell.body.querySelector('[data-role="distance"]')!;
-    this.distance2Wrap = this.shell.body.querySelector('[data-role="distance2-wrap"]')!;
-    this.distance2Input = this.shell.body.querySelector('[data-role="distance2"]')!;
-    this.throughWrap = this.shell.body.querySelector('[data-role="through-wrap"]')!;
-    this.throughCheckbox = this.shell.body.querySelector('[data-role="through"]')!;
-    this.draftInput = this.shell.body.querySelector('[data-role="draft"]')!;
-    this.drillCheckbox = this.shell.body.querySelector('[data-role="drill"]')!;
-    this.applyBtn = this.shell.body.querySelector('[data-role="apply"]')!;
+    this.directionSelect = this.role('direction');
+    this.distanceWrap = this.role('distance-wrap');
+    this.distanceLabel = this.role('distance-label');
+    this.distanceInput = this.role('distance');
+    this.distance2Wrap = this.role('distance2-wrap');
+    this.throughWrap = this.role('through-wrap');
+    this.throughCheckbox = this.role('through');
+    this.drillCheckbox = this.role('drill');
 
-    this.applyBtn.addEventListener('click', () => this.onApply?.());
-    this.shell.body.querySelector('[data-role="exit"]')!.addEventListener('click', () => this.onExit?.());
     this.directionSelect.addEventListener('change', () => {
       this.syncControls();
       this.onChange?.();
@@ -164,15 +135,9 @@ export class ExtrudePanel {
       this.onChange?.();
     });
     this.drillCheckbox.addEventListener('change', () => this.onChange?.());
-    // Expression fields own the inputs' keyboard handling (variable dropdown,
-    // Enter-to-apply) and flip them to type="text" for identifiers.
-    this.distanceField = new ExpressionField(this.distanceInput);
-    this.distance2Field = new ExpressionField(this.distance2Input);
-    this.draftField = new ExpressionField(this.draftInput);
-    for (const field of [this.distanceField, this.distance2Field, this.draftField]) {
-      field.onSubmit = () => this.onApply?.();
-      field.element.addEventListener('input', () => this.onChange?.());
-    }
+    this.distanceField = this.enhance('distance');
+    this.distance2Field = this.enhance('distance2');
+    this.draftField = this.enhance('draft');
   }
 
   /** The variables the fields' dropdowns offer (thin thickness included). */
@@ -183,25 +148,14 @@ export class ExtrudePanel {
     this.thin.setVariables(variables);
   }
 
-  get isVisible(): boolean {
-    return this.shell.isVisible;
-  }
-
   show(options: SketchProfileOption[]): void {
     // A fresh arming starts from defaults — the previous session's choice
     // would otherwise be revived by source-line matching. The slot opens on
     // the first offered sketch (the active one, in sketch mode).
-    this.options = [];
-    this.selection = null;
-    this.editMode = false;
-    this.keepFaceLabel = '';
-    this.setFaceChip(null);
+    this.faceSlot.reset();
     this.shell.setTitle(null);
-    this.setOptions(options);
-    if (this.selection === null && options.length > 0) {
-      this.selection = 0;
-      this.renderProfile();
-    }
+    this.profileSlot.reset(options);
+    this.syncProfileArmed();
     this.syncControls();
     this.shell.show();
   }
@@ -220,14 +174,10 @@ export class ExtrudePanel {
     profileLabel: string | null;
     toFaceLabel: string | null;
   }): void {
-    this.options = [];
-    this.selection = 'keep';
-    this.editMode = true;
-    this.keepFaceLabel = state.toFaceLabel ?? '';
-    this.setFaceChip(null);
-    this.keepProfileLabel = state.profileLabel;
+    this.faceSlot.seedKeep(state.toFaceLabel);
+    this.profileSlot.seedKeep(state.profileLabel);
+    this.syncProfileArmed();
     this.shell.setTitle('Edit extrude');
-    this.setOptions([]);
     this.tabs.setOp(state.op);
     this.directionSelect.value = directionOf(state);
     if (state.distance !== null) {
@@ -245,10 +195,6 @@ export class ExtrudePanel {
     this.shell.show();
   }
 
-  hide(): void {
-    this.shell.hide();
-  }
-
   /**
    * Refresh the offered sketches after a re-render, keeping the current
    * choice when the same sketch is still offered (matched by kind + source
@@ -256,41 +202,22 @@ export class ExtrudePanel {
    * back to the "Current: …" chip in edit mode, or to the pick prompt.
    */
   setOptions(options: SketchProfileOption[]): void {
-    const previous = this.profileSelection();
-    this.options = options;
-    if (previous?.kind === 'sketch') {
-      const prev = previous.option;
-      const match = options.findIndex(o => o.kind === prev.kind
-        && (o.kind === 'active' || (o.filePath === prev.filePath && o.line === prev.line)));
-      this.selection = match >= 0 ? match : this.editMode ? 'keep' : null;
-    } else if (previous?.kind === 'keep') {
-      this.selection = 'keep';
-    } else {
-      this.selection = null;
-    }
-    this.renderProfile();
+    this.profileSlot.setOptions(options);
+    this.syncProfileArmed();
   }
 
   selectedOption(): SketchProfileOption | null {
-    const selection = this.profileSelection();
-    return selection?.kind === 'sketch' ? selection.option : null;
+    return this.profileSlot.selectedOption();
   }
 
   /** The profile slot's state, `keep` included (edit mode only). */
-  profileSelection(): { kind: 'keep' } | { kind: 'sketch'; option: SketchProfileOption } | null {
-    if (this.selection === 'keep') {
-      return this.editMode ? { kind: 'keep' } : null;
-    }
-    const option = this.selection !== null ? this.options[this.selection] : undefined;
-    return option ? { kind: 'sketch', option } : null;
+  profileSelection(): SketchSlotSelection | null {
+    return this.profileSlot.selection();
   }
 
   /** Programmatic profile choice (a timeline pick); no change event fires. */
   selectProfile(index: number): void {
-    if (this.options[index]) {
-      this.selection = index;
-      this.renderProfile();
-    }
+    this.profileSlot.selectIndex(index);
   }
 
   /** The up-to-face direction mode is selected. */
@@ -303,55 +230,12 @@ export class ExtrudePanel {
    * it — back to the statement's own target (edit mode), else the prompt.
    */
   setFaceChip(label: string | null): void {
-    this.pickedFaceLabel = label;
-    if (label !== null) {
-      this.faceSlot.setChips([{ label, badge: '●', removable: true }]);
-      this.faceSlot.setPrompt(null);
-    } else if (this.editMode && this.keepFaceLabel) {
-      // Edit mode: the statement's own target — a re-pick is undone by ✕,
-      // never the target itself (the profile keep-chip contract).
-      this.faceSlot.setChips([{
-        label: `Current: ${this.keepFaceLabel}`,
-        badge: '●',
-        removable: false,
-      }]);
-      this.faceSlot.setPrompt(null);
-    } else {
-      this.faceSlot.setChips([]);
-      this.faceSlot.setPrompt('Pick a face');
-    }
-    this.faceSlot.setArmed(true);
+    this.faceSlot.setChip(label);
   }
 
   /** The face slot's state, `keep` included (edit mode only). */
-  faceSelection(): { kind: 'picked' } | { kind: 'keep' } | null {
-    if (this.pickedFaceLabel !== null) {
-      return { kind: 'picked' };
-    }
-    if (this.editMode && this.keepFaceLabel) {
-      return { kind: 'keep' };
-    }
-    return null;
-  }
-
-  /** The profile slot: one chip (the chosen sketch), or the pick prompt. */
-  private renderProfile(): void {
-    if (this.selection === 'keep') {
-      this.profileSlot.setChips([keepSketchChip(this.keepProfileLabel)]);
-      this.profileSlot.setPrompt(null);
-    } else {
-      const option = this.selection !== null ? this.options[this.selection] : undefined;
-      this.profileSlot.setChips(option
-        ? [sourceChip(option, { badge: '●', removable: true })]
-        : []);
-      this.profileSlot.setPrompt(option
-        ? null
-        : this.options.length > 0 || this.editMode
-          ? 'Pick a sketch'
-          : 'No sketch — create one first');
-    }
-    // The slot is the live pick target whenever there is anything to pick.
-    this.profileSlot.setArmed(this.editMode || this.options.length > 0);
+  faceSelection(): EntitySlotSelection | null {
+    return this.faceSlot.selection();
   }
 
   values(): ExtrudeValues {
@@ -404,20 +288,13 @@ export class ExtrudePanel {
     };
   }
 
-  setPreview(text: string | null): void {
-    this.shell.setPreview(text);
-  }
-
-  setMessage(text: string | null): void {
-    this.shell.setMessage(text);
-  }
-
-  setApplyEnabled(enabled: boolean): void {
-    this.applyBtn.disabled = !enabled;
-  }
-
   private get direction(): ExtrudeDirection {
     return this.directionSelect.value as ExtrudeDirection;
+  }
+
+  /** The slot is the live pick target whenever there is anything to pick. */
+  private syncProfileArmed(): void {
+    this.profileSlot.setArmed(this.profileSlot.editMode || this.profileSlot.options.length > 0);
   }
 
   /** Through-all is a Remove option; a two-distance form has explicit depths. */

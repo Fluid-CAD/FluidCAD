@@ -92,6 +92,15 @@ export function sourceChip(
 }
 
 /**
+ * The edit-mode keep chip for any source slot (an axis, plane, face, path):
+ * the statement's own expression, kept verbatim and not removable — a re-pick
+ * is undone by its ✕, never the statement's own source.
+ */
+export function keepChip(text: string): PickSlotChip {
+  return { label: `Current: ${text}`, badge: '●', removable: false };
+}
+
+/**
  * The edit-mode keep chip for a sketch slot: the statement's own profile
  * expression, or a bare "(implicit)" when the statement names no sketch and
  * consumes the last one (`extrude(25)`) — there is no expression to show.

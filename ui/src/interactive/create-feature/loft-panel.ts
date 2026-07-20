@@ -1,5 +1,6 @@
 import { LoftConditionRef, NewVariable, ValueExpr } from '../../api';
-import { FeatureOp, OpTabs, PanelShell, ThinControl } from './panel-controls';
+import { FeatureOp, OpTabs, ThinControl } from './panel-controls';
+import { FeaturePanel } from './feature-panel';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
@@ -103,10 +104,7 @@ class ConditionRow {
  * (`armedSection`). Pure DOM + form state — the service owns the
  * profile/guide lists, picks, previews, and the apply call.
  */
-export class LoftPanel {
-  onChange?: () => void;
-  onApply?: () => void;
-  onExit?: () => void;
+export class LoftPanel extends FeaturePanel {
   /** The chip at `index` (argument order) was removed. */
   onRemoveProfile?: (index: number) => void;
   /** The chip at `from` was dragged to position `to` (argument order). */
@@ -117,46 +115,43 @@ export class LoftPanel {
   /** The slot a timeline/viewport sketch pick fills — last clicked. */
   armedSection: 'profiles' | 'guides' = 'profiles';
 
-  private shell: PanelShell;
   private tabs: OpTabs;
   private thin: ThinControl;
   private startCondition: ConditionRow;
   private endCondition: ConditionRow;
   private profilesSlot: PickSlot;
   private guidesSlot: PickSlot;
-  private applyBtn: HTMLButtonElement;
 
   constructor(container: HTMLElement) {
-    this.shell = new PanelShell(container, 'fluidcad-loft-panel', 'Loft', '/icons/loft.png');
-    this.shell.onEscape = () => this.onExit?.();
-    this.shell.body.insertAdjacentHTML('beforeend', `
-      <div data-role="tabs" class="join w-full"></div>
-      <div data-role="profiles-slot"></div>
-      <div data-role="guides-slot"></div>
-      <div data-role="start-condition"></div>
-      <div data-role="end-condition"></div>
-      <div data-role="thin-host" class="contents"></div>
-      <div class="flex items-center gap-2 pt-1">
-        <button data-role="apply" class="btn btn-primary btn-sm flex-1">Apply</button>
-        <button data-role="exit" class="btn btn-ghost btn-sm">Exit</button>
-      </div>
-    `);
+    super(container, {
+      id: 'fluidcad-loft-panel',
+      title: 'Loft',
+      icon: '/icons/loft.png',
+      bodyHtml: `
+        <div data-role="tabs" class="join w-full"></div>
+        <div data-role="profiles-slot"></div>
+        <div data-role="guides-slot"></div>
+        <div data-role="start-condition"></div>
+        <div data-role="end-condition"></div>
+        <div data-role="thin-host" class="contents"></div>
+      `,
+    });
 
-    this.tabs = new OpTabs(this.shell.body.querySelector('[data-role="tabs"]')!, [
+    this.tabs = new OpTabs(this.role('tabs'), [
       { op: 'add', label: 'Add', title: 'Fuse the lofted solid with the model — loft()' },
       { op: 'remove', label: 'Remove', title: 'Cut the lofted solid out of the model — loft().remove()' },
       { op: 'new', label: 'New', title: 'Keep the lofted solid as a separate body — loft().new()' },
     ]);
     this.tabs.onChange = () => this.onChange?.();
-    this.thin = new ThinControl(this.shell.body.querySelector('[data-role="thin-host"]')!);
+    this.thin = new ThinControl(this.role('thin-host'));
     this.thin.onChange = () => this.onChange?.();
     this.thin.onSubmit = () => this.onApply?.();
     this.startCondition = new ConditionRow(
-      this.shell.body.querySelector('[data-role="start-condition"]')!,
+      this.role('start-condition'),
       'Start condition', 'How the surface takes off from the first profile', 'start',
     );
     this.endCondition = new ConditionRow(
-      this.shell.body.querySelector('[data-role="end-condition"]')!,
+      this.role('end-condition'),
       'End condition', 'How the surface arrives at the last profile', 'end',
     );
     for (const row of [this.startCondition, this.endCondition]) {
@@ -165,11 +160,11 @@ export class LoftPanel {
     }
 
     this.profilesSlot = new PickSlot(
-      this.shell.body.querySelector('[data-role="profiles-slot"]')!,
+      this.role('profiles-slot'),
       { label: 'Sketches — in loft order', multiple: true, reorderable: true },
     );
     this.guidesSlot = new PickSlot(
-      this.shell.body.querySelector('[data-role="guides-slot"]')!,
+      this.role('guides-slot'),
       { label: 'Guides — optional, up to 2', multiple: true },
     );
     this.profilesSlot.onArm = () => this.setArmedSection('profiles');
@@ -177,14 +172,6 @@ export class LoftPanel {
     this.profilesSlot.onRemove = (index) => this.onRemoveProfile?.(index);
     this.profilesSlot.onReorder = (from, to) => this.onReorderProfile?.(from, to);
     this.guidesSlot.onRemove = (index) => this.onRemoveGuide?.(index);
-    this.applyBtn = this.shell.body.querySelector('[data-role="apply"]')!;
-
-    this.applyBtn.addEventListener('click', () => this.onApply?.());
-    this.shell.body.querySelector('[data-role="exit"]')!.addEventListener('click', () => this.onExit?.());
-  }
-
-  get isVisible(): boolean {
-    return this.shell.isVisible;
   }
 
   show(): void {
@@ -222,10 +209,6 @@ export class LoftPanel {
     this.endCondition.set(state.endCondition);
     this.setArmedSection('profiles');
     this.shell.show();
-  }
-
-  hide(): void {
-    this.shell.hide();
   }
 
   /**
@@ -294,17 +277,5 @@ export class LoftPanel {
   /** Profile progress prompt while more profiles are needed; null hides it. */
   setHint(text: string | null): void {
     this.profilesSlot.setPrompt(text);
-  }
-
-  setPreview(text: string | null): void {
-    this.shell.setPreview(text);
-  }
-
-  setMessage(text: string | null): void {
-    this.shell.setMessage(text);
-  }
-
-  setApplyEnabled(enabled: boolean): void {
-    this.applyBtn.disabled = !enabled;
   }
 }

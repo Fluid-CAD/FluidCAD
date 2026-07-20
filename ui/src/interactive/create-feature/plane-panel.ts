@@ -1,4 +1,4 @@
-import { PanelShell } from './panel-controls';
+import { FeaturePanel } from './feature-panel';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 import { NewVariable, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
@@ -30,16 +30,12 @@ export type PlaneValues =
  * two bases, so its chips wrap in a container. Pure DOM + form state — the
  * service owns the base list, picks, previews, and the apply call.
  */
-export class PlanePanel {
-  onChange?: () => void;
-  onApply?: () => void;
-  onExit?: () => void;
+export class PlanePanel extends FeaturePanel {
   /** The type dropdown changed — the service re-validates its base list. */
   onTypeChange?: () => void;
   /** The chip at `index` was removed. */
   onRemoveBase?: (index: number) => void;
 
-  private shell: PanelShell;
   private typeSelect: HTMLSelectElement;
   private basesSlot: PickSlot;
   private offsetRow: HTMLElement;
@@ -48,60 +44,54 @@ export class PlanePanel {
   private positionField: ExpressionField;
   private rotationRow: HTMLElement;
   private rotationFields: ExpressionField[] = [];
-  private applyBtn: HTMLButtonElement;
 
   constructor(container: HTMLElement) {
-    this.shell = new PanelShell(container, 'fluidcad-plane-panel', 'Plane', '/icons/plane.png');
-    this.shell.onEscape = () => this.onExit?.();
-    this.shell.body.insertAdjacentHTML('beforeend', `
-      <label class="flex flex-col gap-1.5">
-        <span class="text-base-content/70">Type</span>
-        <select data-role="type" class="select select-sm select-bordered w-full text-xs">
-          <option value="offset" title="A plane offset from one base — plane(base, distance)">Offset</option>
-          <option value="mid" title="A plane midway between two bases — plane(base1, base2)">Mid plane</option>
-          <option value="edge" title="A plane normal to an edge at a position along it — plane(edge, 0.5)">From edge</option>
-        </select>
-      </label>
-      <div data-role="bases-slot"></div>
-      <label data-role="offset-row" class="flex flex-col gap-1.5">
-        <span class="text-base-content/70">Offset</span>
-        <input data-role="offset" type="number" step="1" value="10"
-          class="input input-sm input-bordered w-full text-xs" />
-      </label>
-      <label data-role="position-row" class="hidden flex-col gap-1.5">
-        <span class="text-base-content/70">Position along edge (0 = start, 1 = end)</span>
-        <input data-role="position" type="number" step="0.1" min="0" max="1" value="0.5"
-          class="input input-sm input-bordered w-full text-xs" />
-      </label>
-      <div data-role="rotation-row" class="flex flex-col gap-1.5">
-        <span class="text-base-content/70">Rotation (degrees)</span>
-        <div class="flex items-center gap-1.5">
-          <input data-role="rotate-x" type="number" step="5" value="0" title="Rotation around the plane's X axis"
-            class="input input-sm input-bordered w-full min-w-0 text-xs" />
-          <input data-role="rotate-y" type="number" step="5" value="0" title="Rotation around the plane's Y axis"
-            class="input input-sm input-bordered w-full min-w-0 text-xs" />
-          <input data-role="rotate-z" type="number" step="5" value="0" title="Rotation around the plane's normal"
-            class="input input-sm input-bordered w-full min-w-0 text-xs" />
+    super(container, {
+      id: 'fluidcad-plane-panel',
+      title: 'Plane',
+      icon: '/icons/plane.png',
+      bodyHtml: `
+        <label class="flex flex-col gap-1.5">
+          <span class="text-base-content/70">Type</span>
+          <select data-role="type" class="select select-sm select-bordered w-full text-xs">
+            <option value="offset" title="A plane offset from one base — plane(base, distance)">Offset</option>
+            <option value="mid" title="A plane midway between two bases — plane(base1, base2)">Mid plane</option>
+            <option value="edge" title="A plane normal to an edge at a position along it — plane(edge, 0.5)">From edge</option>
+          </select>
+        </label>
+        <div data-role="bases-slot"></div>
+        <label data-role="offset-row" class="flex flex-col gap-1.5">
+          <span class="text-base-content/70">Offset</span>
+          <input data-role="offset" type="number" step="1" value="10"
+            class="input input-sm input-bordered w-full text-xs" />
+        </label>
+        <label data-role="position-row" class="hidden flex-col gap-1.5">
+          <span class="text-base-content/70">Position along edge (0 = start, 1 = end)</span>
+          <input data-role="position" type="number" step="0.1" min="0" max="1" value="0.5"
+            class="input input-sm input-bordered w-full text-xs" />
+        </label>
+        <div data-role="rotation-row" class="flex flex-col gap-1.5">
+          <span class="text-base-content/70">Rotation (degrees)</span>
+          <div class="flex items-center gap-1.5">
+            <input data-role="rotate-x" type="number" step="5" value="0" title="Rotation around the plane's X axis"
+              class="input input-sm input-bordered w-full min-w-0 text-xs" />
+            <input data-role="rotate-y" type="number" step="5" value="0" title="Rotation around the plane's Y axis"
+              class="input input-sm input-bordered w-full min-w-0 text-xs" />
+            <input data-role="rotate-z" type="number" step="5" value="0" title="Rotation around the plane's normal"
+              class="input input-sm input-bordered w-full min-w-0 text-xs" />
+          </div>
         </div>
-      </div>
-      <div class="flex items-center gap-2 pt-1">
-        <button data-role="apply" class="btn btn-primary btn-sm flex-1">Apply</button>
-        <button data-role="exit" class="btn btn-ghost btn-sm">Exit</button>
-      </div>
-    `);
+      `,
+    });
 
-    this.typeSelect = this.shell.body.querySelector('[data-role="type"]')!;
-    this.basesSlot = new PickSlot(
-      this.shell.body.querySelector('[data-role="bases-slot"]')!,
-      { label: 'Base', multiple: false },
-    );
+    this.typeSelect = this.role('type');
+    this.basesSlot = new PickSlot(this.role('bases-slot'), { label: 'Base', multiple: false });
     // The slot is the live pick target the whole time the dialog is armed.
     this.basesSlot.setArmed(true);
     this.basesSlot.onRemove = (index) => this.onRemoveBase?.(index);
-    this.offsetRow = this.shell.body.querySelector('[data-role="offset-row"]')!;
-    this.positionRow = this.shell.body.querySelector('[data-role="position-row"]')!;
-    this.rotationRow = this.shell.body.querySelector('[data-role="rotation-row"]')!;
-    this.applyBtn = this.shell.body.querySelector('[data-role="apply"]')!;
+    this.offsetRow = this.role('offset-row');
+    this.positionRow = this.role('position-row');
+    this.rotationRow = this.role('rotation-row');
 
     this.typeSelect.addEventListener('change', () => {
       this.syncType();
@@ -109,25 +99,9 @@ export class PlanePanel {
       this.onChange?.();
     });
 
-    // Expression fields own the inputs' keyboard handling (variable dropdown,
-    // Enter-to-apply) and flip them to type="text" for identifiers.
-    this.offsetField = new ExpressionField(
-      this.shell.body.querySelector<HTMLInputElement>('[data-role="offset"]')!);
-    this.positionField = new ExpressionField(
-      this.shell.body.querySelector<HTMLInputElement>('[data-role="position"]')!);
-    this.rotationFields = ['x', 'y', 'z'].map(axis => new ExpressionField(
-      this.shell.body.querySelector<HTMLInputElement>(`[data-role="rotate-${axis}"]`)!));
-    for (const field of [this.offsetField, this.positionField, ...this.rotationFields]) {
-      field.onSubmit = () => this.onApply?.();
-      field.element.addEventListener('input', () => this.onChange?.());
-    }
-
-    this.applyBtn.addEventListener('click', () => this.onApply?.());
-    this.shell.body.querySelector('[data-role="exit"]')!.addEventListener('click', () => this.onExit?.());
-  }
-
-  get isVisible(): boolean {
-    return this.shell.isVisible;
+    this.offsetField = this.enhance('offset');
+    this.positionField = this.enhance('position');
+    this.rotationFields = ['x', 'y', 'z'].map(axis => this.enhance(`rotate-${axis}`));
   }
 
   get planeType(): PlaneType {
@@ -164,10 +138,6 @@ export class PlanePanel {
   setType(type: PlaneType): void {
     this.typeSelect.value = type;
     this.syncType();
-  }
-
-  hide(): void {
-    this.shell.hide();
   }
 
   /** Render the base chips (numbered for a mid plane — argument order). */
@@ -228,18 +198,6 @@ export class PlanePanel {
       position: null,
       newVariables: collectNewVariables(reads),
     };
-  }
-
-  setPreview(text: string | null): void {
-    this.shell.setPreview(text);
-  }
-
-  setMessage(text: string | null): void {
-    this.shell.setMessage(text);
-  }
-
-  setApplyEnabled(enabled: boolean): void {
-    this.applyBtn.disabled = !enabled;
   }
 
   private syncType(): void {

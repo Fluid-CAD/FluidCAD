@@ -1,5 +1,7 @@
-import { FeatureOp, OpTabs, PanelShell, ThinControl } from './panel-controls';
-import { SketchProfileOption, keepSketchChip, sourceChip } from './sketch-profiles';
+import { FeatureOp, OpTabs, ThinControl } from './panel-controls';
+import { FeaturePanel } from './feature-panel';
+import { SketchProfileOption, keepChip, sourceChip } from './sketch-profiles';
+import { SketchSlotControl } from './sketch-slot';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 import { NewVariable, ValueExpr } from '../../api';
 import { collectNewVariables } from '../../ui/expression-field';
@@ -28,11 +30,6 @@ type PathState =
   | { kind: 'edges' }
   | null;
 
-type ProfileState =
-  | { kind: 'keep' }
-  | { kind: 'sketch'; option: SketchProfileOption }
-  | null;
-
 /**
  * The sweep dialog: operation tabs, the profile pick slot (a single sketch
  * chip) and the path pick slot — a chip container holding either one path
@@ -43,10 +40,7 @@ type ProfileState =
  * state — the service owns scene data, edge picks, previews, and the apply
  * call.
  */
-export class SweepPanel {
-  onChange?: () => void;
-  onApply?: () => void;
-  onExit?: () => void;
+export class SweepPanel extends FeaturePanel {
   /** The path slot switched between edge picking and a sketch. */
   onPathModeChange?: () => void;
   /** The edge chip at `index` asked to be removed (the service owns picks). */
@@ -57,70 +51,48 @@ export class SweepPanel {
   /** The slot a timeline/wire sketch pick fills — the one last clicked. */
   armedSlot: 'profile' | 'path' = 'path';
 
-  private shell: PanelShell;
   private tabs: OpTabs;
   private thin: ThinControl;
-  private profileSlot: PickSlot;
+  private profileSlot: SketchSlotControl;
   private pathSlot: PickSlot;
-  private applyBtn: HTMLButtonElement;
   private options: SketchProfileOption[] = [];
   private allowEdgePicking = false;
-  private profileState: ProfileState = null;
   private pathState: PathState = null;
   /** The edge chips the service pushed while the path is picked edges. */
   private pathEdgeChips: PickSlotChip[] = [];
   /** Edit mode: both slots start on "Current: …" chips. */
   private editMode = false;
   private keepPathLabel = '';
-  /** The kept profile's expression text; null when the statement is implicit. */
-  private keepProfileLabel: string | null = null;
 
   constructor(container: HTMLElement) {
-    this.shell = new PanelShell(container, 'fluidcad-sweep-panel', 'Sweep', '/icons/sweep.png');
-    this.shell.onEscape = () => this.onExit?.();
-    this.shell.body.insertAdjacentHTML('beforeend', `
-      <div data-role="tabs" class="join w-full"></div>
-      <div data-role="profile-slot"></div>
-      <div data-role="path-slot"></div>
-      <div data-role="thin-host" class="contents"></div>
-      <div class="flex items-center gap-2 pt-1">
-        <button data-role="apply" class="btn btn-primary btn-sm flex-1">Apply</button>
-        <button data-role="exit" class="btn btn-ghost btn-sm">Exit</button>
-      </div>
-    `);
+    super(container, {
+      id: 'fluidcad-sweep-panel',
+      title: 'Sweep',
+      icon: '/icons/sweep.png',
+      bodyHtml: `
+        <div data-role="tabs" class="join w-full"></div>
+        <div data-role="profile-slot"></div>
+        <div data-role="path-slot"></div>
+        <div data-role="thin-host" class="contents"></div>
+      `,
+    });
 
-    this.tabs = new OpTabs(this.shell.body.querySelector('[data-role="tabs"]')!, [
+    this.tabs = new OpTabs(this.role('tabs'), [
       { op: 'add', label: 'Add', title: 'Fuse the swept solid with the model — sweep()' },
       { op: 'remove', label: 'Remove', title: 'Cut the swept solid out of the model — sweep().remove()' },
       { op: 'new', label: 'New', title: 'Keep the swept solid as a separate body — sweep().new()' },
     ]);
     this.tabs.onChange = () => this.onChange?.();
-    this.thin = new ThinControl(this.shell.body.querySelector('[data-role="thin-host"]')!);
+    this.thin = new ThinControl(this.role('thin-host'));
     this.thin.onChange = () => this.onChange?.();
     this.thin.onSubmit = () => this.onApply?.();
 
-    this.profileSlot = new PickSlot(
-      this.shell.body.querySelector('[data-role="profile-slot"]')!,
-      // Boxed like the path slot below so the two pickers stand equal height.
-      { label: 'Sketch', multiple: false, boxed: true },
-    );
-    this.pathSlot = new PickSlot(
-      this.shell.body.querySelector('[data-role="path-slot"]')!,
-      { label: 'Path', multiple: true },
-    );
-    this.applyBtn = this.shell.body.querySelector('[data-role="apply"]')!;
-
-    this.applyBtn.addEventListener('click', () => this.onApply?.());
-    this.shell.body.querySelector('[data-role="exit"]')!.addEventListener('click', () => this.onExit?.());
+    // Boxed like the path slot below so the two pickers stand equal height.
+    this.profileSlot = new SketchSlotControl(this.role('profile-slot'), { boxed: true });
     this.profileSlot.onArm = () => this.armSlot('profile');
+    this.profileSlot.onChange = () => this.onChange?.();
+    this.pathSlot = new PickSlot(this.role('path-slot'), { label: 'Path', multiple: true });
     this.pathSlot.onArm = () => this.armSlot('path');
-    this.profileSlot.onRemove = () => {
-      // Create mode: back to the prompt; edit mode: back to the statement's
-      // own profile (a re-pick is undone, never the profile itself).
-      this.profileState = this.editMode ? { kind: 'keep' } : null;
-      this.renderProfile();
-      this.onChange?.();
-    };
     this.pathSlot.onRemove = (index) => {
       if (this.pathState?.kind === 'edges') {
         this.onRemovePathChip?.(index);
@@ -140,29 +112,20 @@ export class SweepPanel {
     };
   }
 
-  get isVisible(): boolean {
-    return this.shell.isVisible;
-  }
-
   show(options: SketchProfileOption[], allowEdgePicking: boolean): void {
     // A fresh arming starts from defaults — the previous session's slot
     // choices would otherwise be revived by source-line matching. The
     // profile opens on the first offered sketch (the active one, in sketch
     // mode); the path on a different sketch when one exists, else on the
     // pick prompt.
-    this.profileState = null;
     this.pathState = null;
     this.pathEdgeChips = [];
     this.editMode = false;
     this.shell.setTitle(null);
-    this.setOptions(options, allowEdgePicking);
-    if (this.profileState === null && options.length > 0) {
-      this.profileState = { kind: 'sketch', option: options[0] };
-    }
-    if (this.pathState === null) {
-      this.pathState = this.defaultPath();
-    }
-    this.renderProfile();
+    this.options = options;
+    this.allowEdgePicking = allowEdgePicking;
+    this.profileSlot.reset(options);
+    this.pathState = this.defaultPath();
     this.renderPath();
     this.armSlot('path');
     this.shell.show();
@@ -178,23 +141,17 @@ export class SweepPanel {
   showEdit(state: { op: FeatureOp; thin: [ValueExpr] | null; pathLabel: string; profileLabel: string | null }): void {
     this.options = [];
     this.allowEdgePicking = true;
-    this.profileState = { kind: 'keep' };
     this.pathState = { kind: 'keep' };
     this.pathEdgeChips = [];
     this.editMode = true;
     this.keepPathLabel = state.pathLabel;
-    this.keepProfileLabel = state.profileLabel;
+    this.profileSlot.seedKeep(state.profileLabel);
     this.shell.setTitle('Edit sweep');
     this.tabs.setOp(state.op);
     this.thin.setValues(state.thin);
-    this.renderProfile();
     this.renderPath();
     this.armSlot('path');
     this.shell.show();
-  }
-
-  hide(): void {
-    this.shell.hide();
   }
 
   /**
@@ -206,28 +163,22 @@ export class SweepPanel {
   setOptions(options: SketchProfileOption[], allowEdgePicking: boolean): void {
     this.options = options;
     this.allowEdgePicking = allowEdgePicking;
-    if (this.profileState?.kind === 'sketch') {
-      const match = matchOption(options, this.profileState.option);
-      this.profileState = match ? { kind: 'sketch', option: match }
-        : this.editMode ? { kind: 'keep' } : null;
-    }
+    this.profileSlot.setOptions(options);
     if (this.pathState?.kind === 'sketch') {
       const match = matchOption(options, this.pathState.option);
       this.pathState = match ? { kind: 'sketch', option: match }
         : this.editMode ? { kind: 'keep' } : null;
     }
-    this.renderProfile();
     this.renderPath();
   }
 
   selectedProfile(): SketchProfileOption | null {
-    const selection = this.profileSelection();
-    return selection?.kind === 'sketch' ? selection.option : null;
+    return this.profileSlot.selectedOption();
   }
 
   /** The profile slot's state, `keep` included (edit mode only). */
   profileSelection(): SweepProfileSelection | null {
-    return this.profileState;
+    return this.profileSlot.selection();
   }
 
   pathSelection(): SweepPathSelection | null {
@@ -239,19 +190,17 @@ export class SweepPanel {
    * sketch isn't among the offered options.
    */
   selectSketch(slot: 'profile' | 'path', filePath: string, line: number): boolean {
+    if (slot === 'profile') {
+      return this.profileSlot.selectByLocation(filePath, line);
+    }
     const option = this.options.find(o => o.filePath === filePath && o.line === line);
     if (!option) {
       return false;
     }
-    if (slot === 'profile') {
-      this.profileState = { kind: 'sketch', option };
-      this.renderProfile();
-    } else {
-      this.pathState = { kind: 'sketch', option };
-      this.pathEdgeChips = [];
-      this.renderPath();
-      this.onPathModeChange?.();
-    }
+    this.pathState = { kind: 'sketch', option };
+    this.pathEdgeChips = [];
+    this.renderPath();
+    this.onPathModeChange?.();
     return true;
   }
 
@@ -288,43 +237,10 @@ export class SweepPanel {
     this.thin.setVariables(variables);
   }
 
-  setPreview(text: string | null): void {
-    this.shell.setPreview(text);
-  }
-
-  setMessage(text: string | null): void {
-    this.shell.setMessage(text);
-  }
-
-  setApplyEnabled(enabled: boolean): void {
-    this.applyBtn.disabled = !enabled;
-  }
-
-  private renderProfile(): void {
-    const state = this.profileState;
-    if (state?.kind === 'keep') {
-      this.profileSlot.setChips([keepSketchChip(this.keepProfileLabel)]);
-      this.profileSlot.setPrompt(null);
-    } else {
-      this.profileSlot.setChips(state?.kind === 'sketch'
-        ? [sourceChip(state.option, { badge: '●', removable: true })]
-        : []);
-      this.profileSlot.setPrompt(state
-        ? null
-        : this.options.length > 0 || this.editMode
-          ? 'Pick a sketch'
-          : 'No sketch — create one first');
-    }
-  }
-
   private renderPath(): void {
     const state = this.pathState;
     if (state?.kind === 'keep') {
-      this.pathSlot.setChips([{
-        label: `Current: ${this.keepPathLabel}`,
-        badge: '●',
-        removable: false,
-      }]);
+      this.pathSlot.setChips([keepChip(this.keepPathLabel)]);
       this.pathSlot.setPrompt(null);
     } else if (state?.kind === 'sketch') {
       this.pathSlot.setChips([sourceChip(state.option, { badge: '●', removable: true })]);

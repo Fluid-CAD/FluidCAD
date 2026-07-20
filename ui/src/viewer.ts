@@ -46,6 +46,15 @@ export type SelectedEntity = {
   sub: Exclude<NonNullable<SubSelection>, { type: 'sketch' } | { type: 'axis' } | { type: 'plane' }>;
 };
 
+/**
+ * The section-view toggle the viewer drives — implemented by the sketch dialog,
+ * the only place section view is offered (it clips at the sketch plane).
+ */
+export interface SectionViewControl {
+  setVisible(visible: boolean): void;
+  setActive(active: boolean): void;
+}
+
 // How much to blend non-sketch object colors toward the scene background while
 // sketch mode is active. Higher = more faded. Opaque tint avoids the three.js
 // transparency sort/overdraw cost on complex scenes.
@@ -117,6 +126,7 @@ export class Viewer {
   private standardPlanePickHandler: ((plane: StandardPlaneId) => void) | null = null;
   private highlightedEntities: SelectedEntity[] = [];
   private activeSketchId: string | null = null;
+  private sectionViewControl: SectionViewControl | null = null;
   private hiddenShapeIds = new Set<string>();
   private shapeOpacities = new Map<string, number>();
 
@@ -134,13 +144,6 @@ export class Viewer {
     if (viewerSettings.current.cameraMode === 'perspective') {
       this.ctx.switchCamera('perspective');
     }
-    this.settingsPanel.setSectionViewToggleHandler((enabled) => {
-      if (enabled) {
-        this.applySectionView();
-      } else {
-        this.clearSectionView();
-      }
-    });
 
     this.initClickDetection();
     this.initHoverDetection();
@@ -175,6 +178,27 @@ export class Viewer {
 
   get settingsPanelHost(): HTMLElement {
     return this.settingsPanel.panelHost;
+  }
+
+  /**
+   * The section-view toggle lives in the sketch dialog, which the modify-pick
+   * service owns; it registers the control here so the viewer can drive its
+   * visibility (sketch mode only) and checked state.
+   */
+  setSectionViewControl(control: SectionViewControl | null): void {
+    this.sectionViewControl = control;
+    control?.setVisible(this.modeManager.isSketchMode);
+    control?.setActive(viewerSettings.current.sectionView);
+  }
+
+  /** Clip the scene at the sketch plane, or stop clipping. */
+  setSectionViewEnabled(enabled: boolean): void {
+    viewerSettings.update({ sectionView: enabled });
+    if (enabled) {
+      this.applySectionView();
+    } else {
+      this.clearSectionView();
+    }
   }
 
   setParamsToggleHandler(fn: () => void): void {
@@ -505,7 +529,7 @@ export class Viewer {
     this.activeSketchId = null;
     this.settingsPanel.setProjectionLocked(false);
     this.settingsPanel.setFitButtonVisible(true);
-    this.settingsPanel.setSectionViewVisible(false);
+    this.sectionViewControl?.setVisible(false);
     this.clearHover();
     this.rebuildSceneMesh();
   }
@@ -574,9 +598,9 @@ export class Viewer {
     }
 
     // Section view: apply clipping when in sketch mode
-    this.settingsPanel.setSectionViewVisible(this.modeManager.isSketchMode);
+    this.sectionViewControl?.setVisible(this.modeManager.isSketchMode);
     if (this.modeManager.isSketchMode) {
-      this.settingsPanel.setSectionViewActive(viewerSettings.current.sectionView);
+      this.sectionViewControl?.setActive(viewerSettings.current.sectionView);
       if (viewerSettings.current.sectionView) {
         this.applySectionView();
       }

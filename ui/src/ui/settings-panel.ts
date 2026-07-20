@@ -1,7 +1,7 @@
 import { viewerSettings } from '../scene/viewer-settings';
 import { viewportChrome } from './viewport-chrome';
 import { savePreference } from '../api';
-import { ICON_FIT, ICON_VIDEO, ICON_GRID, ICON_SUN, ICON_MOON, ICON_SECTION_VIEW, ICON_SETTINGS, ICON_CLOSE, ICON_ADJUSTMENTS } from './icons';
+import { ICON_FIT, ICON_VIDEO, ICON_GRID, ICON_SUN, ICON_MOON, ICON_SETTINGS, ICON_CLOSE, ICON_ADJUSTMENTS } from './icons';
 
 const FAB_BTN = 'btn btn-ghost btn-circle btn-sm text-base-content/60';
 const FAB_BTN_ACTIVE = 'btn btn-soft btn-primary btn-circle btn-sm';
@@ -19,10 +19,8 @@ export class SettingsPanel {
   private fabEl: HTMLDivElement;
   private fitEl: HTMLButtonElement;
   private paramsEl: HTMLButtonElement;
-  private sectionViewEl: HTMLDivElement;
   private onFitView: (() => void) | null = null;
   private onParamsToggle: (() => void) | null = null;
-  private onSectionViewToggle: ((enabled: boolean) => void) | null = null;
 
   constructor(
     container: HTMLElement,
@@ -42,13 +40,6 @@ export class SettingsPanel {
     this.wrapper.className = 'absolute right-7 top-[196px] z-[100] flex flex-col items-end select-none';
     container.appendChild(this.wrapper);
     const wrapper = this.wrapper;
-
-    // Section view button — own container, hidden by default
-    this.sectionViewEl = document.createElement('div');
-    this.sectionViewEl.className = 'mb-2';
-    this.sectionViewEl.style.display = 'none';
-    this.sectionViewEl.innerHTML = `<button class="${FAB_BTN_ACTIVE}" data-action="section-view" title="Toggle section view">${ICON_SECTION_VIEW}</button>`;
-    wrapper.appendChild(this.sectionViewEl);
 
     // FAB speed dial
     this.fabEl = document.createElement('div');
@@ -125,12 +116,6 @@ export class SettingsPanel {
       savePreference('showGrid', next);
     });
 
-    this.sectionViewEl.querySelector<HTMLButtonElement>('[data-action="section-view"]')?.addEventListener('click', () => {
-      const next = !viewerSettings.current.sectionView;
-      viewerSettings.update({ sectionView: next });
-      this.onSectionViewToggle?.(next);
-    });
-
     this.fabEl.querySelector<HTMLButtonElement>('[data-action="theme"]')?.addEventListener('click', () => {
       const next = isDarkTheme() ? 'fluidcad-light' : 'fluidcad-dark';
       document.documentElement.setAttribute('data-theme', next);
@@ -165,19 +150,6 @@ export class SettingsPanel {
       : 'btn btn-circle btn-sm panel-bg border border-base-content/10 text-base-content/60 mt-2';
   }
 
-  setSectionViewToggleHandler(fn: (enabled: boolean) => void): void {
-    this.onSectionViewToggle = fn;
-  }
-
-  setSectionViewVisible(visible: boolean): void {
-    this.sectionViewEl.style.display = visible ? '' : 'none';
-  }
-
-  setSectionViewActive(active: boolean): void {
-    const btn = this.sectionViewEl.querySelector<HTMLButtonElement>('[data-action="section-view"]');
-    if (btn) { btn.className = active ? FAB_BTN_ACTIVE : FAB_BTN; }
-  }
-
   setProjectionLocked(locked: boolean): void {
     const btn = this.fabEl.querySelector<HTMLButtonElement>('[data-action="camera"]');
     if (btn) { btn.disabled = locked; }
@@ -204,12 +176,6 @@ export class SettingsPanel {
     const cameraLabel = this.fabEl.querySelector<HTMLElement>('[data-camera-label]');
     if (cameraLabel) {
       cameraLabel.textContent = s.cameraMode === 'orthographic' ? 'Orthographic' : 'Perspective';
-    }
-    if (this.sectionViewEl.style.display !== 'none') {
-      const sectionBtn = this.sectionViewEl.querySelector<HTMLButtonElement>('[data-action="section-view"]');
-      if (sectionBtn) {
-        sectionBtn.className = s.sectionView ? FAB_BTN_ACTIVE : FAB_BTN;
-      }
     }
   }
 }

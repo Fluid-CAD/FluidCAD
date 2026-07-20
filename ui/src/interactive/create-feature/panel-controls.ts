@@ -189,9 +189,9 @@ export class PanelShell {
     this.root = document.createElement('div');
     this.root.id = id;
     // top-[196px] sits just below the viewport gizmo (~y 102–182) with a bit of
-    // breathing room; right-4 tucks it closer to the viewport edge than the
-    // settings/fit-to-view/params stack (right-7), which normally occupies this
-    // spot and hides itself while a dialog is open (see viewportChrome).
+    // breathing room; right-4 tucks the dialog closer to the viewport edge than
+    // the settings/fit-to-view/params stack (right-7), which normally occupies
+    // this spot and hides itself while a dialog is open (see viewportChrome).
     this.root.className = 'absolute top-[196px] right-4 z-[999] pointer-events-auto hidden';
     this.root.innerHTML = `
       <div class="flex flex-col items-end gap-1.5">

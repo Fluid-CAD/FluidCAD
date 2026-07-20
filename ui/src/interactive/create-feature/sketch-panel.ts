@@ -23,16 +23,25 @@ export class SketchStartPanel {
   onCancel?: () => void;
   /** Escape pressed inside the dialog — cancel the re-pick / close. */
   onEscape?: () => void;
+  /** The section-view toggle — clip the scene at the sketch plane. */
+  onSectionViewToggle?: (enabled: boolean) => void;
 
   private shell: PanelShell;
   private slot: PickSlot;
   private closeBtn: HTMLButtonElement;
+  private sectionViewWrap: HTMLLabelElement;
+  private sectionViewInput: HTMLInputElement;
 
   constructor(container: HTMLElement) {
     this.shell = new PanelShell(container, 'fluidcad-sketch-panel', 'Sketch', '/icons/sketch.png');
     this.shell.onEscape = () => this.onEscape?.();
     this.shell.body.insertAdjacentHTML('beforeend', `
       <div data-role="target-slot"></div>
+      <label data-role="section-view-wrap" class="hidden items-center justify-between cursor-pointer"
+        title="Clip away everything in front of the sketch plane">
+        <span class="text-base-content/70">Section view</span>
+        <input data-role="section-view" type="checkbox" class="toggle toggle-sm toggle-primary" />
+      </label>
       <div class="flex items-center pt-1">
         <button data-role="cancel" class="btn btn-ghost btn-sm flex-1"
           title="Remove the sketch from the code and close">Cancel</button>
@@ -45,6 +54,24 @@ export class SketchStartPanel {
     this.slot.onRemove = () => this.onClear?.();
     this.closeBtn = this.shell.body.querySelector('[data-role="cancel"]')!;
     this.closeBtn.addEventListener('click', () => this.onCancel?.());
+    this.sectionViewWrap = this.shell.body.querySelector('[data-role="section-view-wrap"]')!;
+    this.sectionViewInput = this.shell.body.querySelector('[data-role="section-view"]')!;
+    this.sectionViewInput.addEventListener('change', () => {
+      this.onSectionViewToggle?.(this.sectionViewInput.checked);
+    });
+  }
+
+  /**
+   * Section view only means something once the sketch plane exists, so the
+   * viewer shows the toggle on entering sketch mode and hides it on leaving.
+   */
+  setSectionViewVisible(visible: boolean): void {
+    this.sectionViewWrap.classList.toggle('hidden', !visible);
+    this.sectionViewWrap.classList.toggle('flex', visible);
+  }
+
+  setSectionViewActive(active: boolean): void {
+    this.sectionViewInput.checked = active;
   }
 
   /**

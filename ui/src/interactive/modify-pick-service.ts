@@ -316,6 +316,11 @@ export class ModifyPickService {
     this.sketchPanel.onClear = () => this.handleSketchClear();
     this.sketchPanel.onCancel = () => this.handleSketchCancel();
     this.sketchPanel.onEscape = () => this.handleSketchEscape();
+    this.sketchPanel.onSectionViewToggle = (enabled) => this.viewer.setSectionViewEnabled(enabled);
+    this.viewer.setSectionViewControl({
+      setVisible: (visible) => this.sketchPanel.setSectionViewVisible(visible),
+      setActive: (active) => this.sketchPanel.setSectionViewActive(active),
+    });
 
     this.activeBar = document.createElement('div');
     this.activeBar.id = 'fluidcad-modify-pick-active';

@@ -180,6 +180,12 @@ export class ModifyPickService {
   private editSceneStale = false;
 
   private buttons = new Map<ModifyFeatureKind, HTMLButtonElement>();
+  /**
+   * Tooltip wrapper of the Shell button. It lives in the create group (between
+   * Loft and Wrap) instead of the modify group, so it hides with the button —
+   * no phantom toolbar gap — on the modify group's own condition.
+   */
+  private shellWrap!: HTMLElement;
   private sketchPanel: SketchStartPanel;
   private activeBar: HTMLDivElement;
   private titleIcon: HTMLElement;
@@ -253,6 +259,15 @@ export class ModifyPickService {
       if (kind === 'sketch') {
         // Ahead of the Extrude button, so the create group reads Sketch first.
         createHost.prepend(wrap);
+      } else if (kind === 'shell') {
+        // Shell sits with the create tools, between Loft and Wrap. It keeps
+        // the modify group's activation condition, so it hides itself (see
+        // shellWrap in update()) rather than riding that group's visibility.
+        this.shellWrap = wrap;
+        // Hidden until the first render reports a solid, matching the modify
+        // group's own `visible: false` start.
+        wrap.classList.add('hidden');
+        createHost.insertBefore(wrap, createHost.querySelector('[data-tool="wrap"]'));
       } else {
         group.appendChild(wrap);
       }
@@ -537,6 +552,8 @@ export class ModifyPickService {
       this.adoptActiveSketch(active);
     }
     this.navbar.setGroupVisible('modify', modifyVisible);
+    // Shell rides the create group, so it can't inherit that visibility.
+    this.shellWrap.classList.toggle('hidden', !modifyVisible);
     this.navbar.setGroupVisible('create', true, 'sketch');
     this.syncButtons();
     if (this.feature) {

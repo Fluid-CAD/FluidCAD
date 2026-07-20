@@ -88,6 +88,8 @@ export class WrapFeatureService {
     this.buttonWrap = document.createElement('span');
     this.buttonWrap.className = 'tooltip tooltip-bottom';
     this.buttonWrap.dataset.tip = 'Wrap a sketch onto a curved face';
+    // Anchors the Shell button, which slots in just ahead of Wrap.
+    this.buttonWrap.dataset.tool = 'wrap';
     this.buttonWrap.appendChild(this.button);
     group.appendChild(this.buttonWrap);
 

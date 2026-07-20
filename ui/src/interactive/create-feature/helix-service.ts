@@ -1,27 +1,22 @@
 import {
-  applyHelix, applyHelixEdit, fetchFeatureSources, getScopeVariables, ApplyFeatureResponse,
-  FeatureEditTarget, HelixApplyOptions, HelixEditOptions, HelixSourceRef, ParsedFeatureStatement,
-  SourceSlotRef,
+  applyHelix, applyHelixEdit, fetchFeatureSources, FeatureEditTarget, HelixApplyOptions,
+  HelixEditOptions, HelixSourceRef, ParsedFeatureStatement, SourceSlotRef,
 } from '../../api';
-import { sameEntity } from '../../helpers/entities';
+import { toggleEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
-import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import { HelixPanel } from './helix-panel';
+import { FeatureButton } from './feature-button';
+import { ApplyRunner } from './apply-runner';
+import { SketchUISuspender } from './sketch-suspender';
+import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import { collectSketchProfiles } from './sketch-profiles';
 import {
-  AxisOption, axisLineShapeIds, axisOptionsSignature, collectAxisOptions, labelWithAxisNames,
-  resolveAxisByShapeId,
+  AXIS_CONSUMED_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
+  axisOptionsSignature, collectAxisOptions, labelWithAxisNames, pickedAxisRef,
 } from './axis-options';
-
-const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 text-base-content/60';
-const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2 py-1';
-/** Small muted caption under the toolbar icon. */
-const BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
-
-const PREVIEW_DEBOUNCE_MS = 250;
 
 /**
  * The Helix dialog on the create rails: a helical wire built around an axis or
@@ -38,18 +33,15 @@ const PREVIEW_DEBOUNCE_MS = 250;
  */
 export class HelixFeatureService {
   private panel: HelixPanel;
-  private button: HTMLButtonElement;
-  /** daisyUI tooltip wrapper around {@link button}; hides with the button so no phantom toolbar gap. */
-  private buttonWrap: HTMLElement;
+  private button: FeatureButton;
   private armed = false;
   private available = false;
-  private applying = false;
   private axes: AxisOption[] = [];
   private sceneObjects: SceneObjectRender[] = [];
   private hasSolid = false;
   private hasSketch = false;
   private sceneSketchActive = false;
-  private suspendedSketchUI = false;
+  private sketchUI: SketchUISuspender;
   /** The picked axis edge (axis mode's edge source), or null. */
   private sourceEdgeEntity: SelectedEntity | null = null;
   /** The picked cylindrical face (face mode's source), or null. */
@@ -62,10 +54,8 @@ export class HelixFeatureService {
   private sourceSlot: SourceSlotRef | null = null;
   /** A full render arrived mid-session — a re-picked source's shape id died. */
   private editSceneStale = false;
-  private labelSignature = '';
-  private previewTimer: number | null = null;
-  private previewAbort: AbortController | null = null;
-  private previewSeq = 0;
+  private runner: ApplyRunner<HelixApplyOptions | HelixEditOptions>;
+  private relabeler: OptionRelabeler<AxisOption[]>;
 
   constructor(
     container: HTMLElement,
@@ -80,30 +70,28 @@ export class HelixFeatureService {
     } = {},
   ) {
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
-    this.button = document.createElement('button');
-    this.button.className = BTN_BASE;
-    this.button.setAttribute('aria-label', 'Build a helix around an axis or on a cylindrical face');
-    this.button.innerHTML = `<img src="/icons/helix.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain" alt="" /><span class="${BTN_LABEL}">Helix</span>`;
-    this.button.addEventListener('click', () => {
+    this.button = new FeatureButton(group, {
+      icon: '/icons/helix.png',
+      label: 'Helix',
+      tip: 'Build a helix around an axis or on a cylindrical face',
+      ariaLabel: 'Build a helix around an axis or on a cylindrical face',
+    });
+    this.button.onClick = () => {
       if (this.armed) {
         this.exit();
       } else {
         this.enter();
       }
-    });
-    this.buttonWrap = document.createElement('span');
-    this.buttonWrap.className = 'tooltip tooltip-bottom';
-    this.buttonWrap.dataset.tip = 'Build a helix around an axis or on a cylindrical face';
-    this.buttonWrap.appendChild(this.button);
-    group.appendChild(this.buttonWrap);
+    };
+    this.sketchUI = new SketchUISuspender(viewer, hooks);
 
     this.panel = new HelixPanel(container);
-    this.panel.onApply = () => this.apply();
+    this.panel.onApply = () => void this.runner.apply();
     this.panel.onExit = () => this.exit();
     this.panel.onChange = () => {
       this.panel.setMessage(null);
       this.refreshHighlight();
-      this.schedulePreview();
+      this.runner.schedulePreview();
     };
     this.panel.onModeChange = () => {
       // A fresh mode is a fresh source choice — the previous mode's picked
@@ -122,8 +110,28 @@ export class HelixFeatureService {
       this.panel.setFaceChip(null);
       this.panel.setMessage(null);
       this.refreshHighlight();
-      this.schedulePreview();
+      this.runner.schedulePreview();
     };
+
+    this.runner = new ApplyRunner({
+      panel: this.panel,
+      isArmed: () => this.armed,
+      build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
+      send: (request, extras) => this.editTarget
+        ? applyHelixEdit(this.editTarget, { ...(request as HelixEditOptions), ...extras })
+        : applyHelix({ ...(request as HelixApplyOptions), ...extras }),
+      onApplied: () => this.exit(this.editTarget ? { editEnd: 'apply' } : { resume: 'lazy' }),
+      failMessage: () => this.editTarget ? 'Could not apply the edit.' : 'Could not apply the helix.',
+    });
+    this.relabeler = new OptionRelabeler({
+      sign: axisOptionsSignature,
+      load: labelWithAxisNames,
+      isArmed: () => this.armed,
+      apply: (axes) => {
+        this.axes = axes;
+        this.panel.setAxisOptions(axes);
+      },
+    });
   }
 
   get isActive(): boolean {
@@ -152,7 +160,7 @@ export class HelixFeatureService {
 
   /** True while armed picking has suspended sketch editing. */
   get sketchUISuspended(): boolean {
-    return this.suspendedSketchUI;
+    return this.sketchUI.suspended;
   }
 
   /**
@@ -201,9 +209,9 @@ export class HelixFeatureService {
     }
     this.syncPickChannels();
     this.panel.setAxisOptions(this.axes);
-    this.refreshLabels();
+    void this.relabeler.refresh(this.axes);
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
@@ -228,7 +236,7 @@ export class HelixFeatureService {
     // A render can put a sketch back in front (live editing) — the armed
     // dialog keeps the free 3D view.
     if (this.sceneSketchActive) {
-      this.suspendSketchUI();
+      this.sketchUI.suspend();
     }
     this.syncPickChannels();
     // Shape ids changed with the render — a picked source edge/face is stale
@@ -240,9 +248,9 @@ export class HelixFeatureService {
       this.panel.setFaceChip(null);
     }
     this.panel.setAxisOptions(this.axes);
-    this.refreshLabels();
+    void this.relabeler.refresh(this.axes);
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -269,7 +277,7 @@ export class HelixFeatureService {
     this.sourceSlot = null;
     this.editSceneStale = false;
     this.syncButton();
-    this.suspendSketchUI();
+    this.sketchUI.suspend();
     this.session.begin({ ...info, target });
     void this.loadEditSources();
     void this.refreshScopeVariables();
@@ -285,20 +293,13 @@ export class HelixFeatureService {
       endOffset: parsed.endOffset,
     });
     this.syncPickChannels();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
-  /**
-   * Push the variables in scope at the statement (edit mode) or at the end of
-   * the file (create mode) to the dialog's expression fields. A response
-   * landing after the dialog closed or re-targeted is dropped.
-   */
   private async refreshScopeVariables(): Promise<void> {
     const line = this.editTarget?.line ?? null;
-    const variables = await getScopeVariables(line);
-    if (this.armed && (this.editTarget?.line ?? null) === line) {
-      this.panel.setScopeVariables(variables);
-    }
+    await refreshScopeVariables(line, this.panel,
+      () => this.armed && (this.editTarget?.line ?? null) === line);
   }
 
   private async loadEditSources(): Promise<void> {
@@ -327,15 +328,15 @@ export class HelixFeatureService {
     // sketch plane — leave sketch editing right away (resumed on cancel; an
     // apply's re-render takes over).
     if (this.sceneSketchActive) {
-      this.suspendSketchUI();
+      this.sketchUI.suspend();
     }
     this.syncButton();
     void this.refreshScopeVariables();
     this.panel.show(this.axes);
     this.syncPickChannels();
-    this.refreshLabels();
+    void this.relabeler.refresh(this.axes);
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -359,13 +360,13 @@ export class HelixFeatureService {
     this.sourceEdgeEntity = null;
     this.sourceFaceEntity = null;
     this.syncButton();
-    this.cancelPreview();
+    this.runner.cancelPreview();
     this.viewer.clearHighlight();
     this.viewer.pickFilter = 'all';
     this.viewer.pickSketchWires = false;
     this.viewer.pickAxes = false;
     this.panel.hide();
-    this.resumeSketchUI((opts.resume ?? 'immediate') === 'immediate');
+    this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
   }
 
   /**
@@ -379,40 +380,31 @@ export class HelixFeatureService {
     }
     if (this.panel.sourceMode === 'axis') {
       if (sub.type === 'axis') {
-        const axis = resolveAxisByShapeId(shapeId, this.sceneObjects);
-        const option = axis?.sourceLocation
-          ? this.axes.find(o => o.filePath === axis.sourceLocation!.filePath && o.line === axis.sourceLocation!.line)
-          : undefined;
+        const option = axisOptionForShape(shapeId, this.sceneObjects, this.axes);
         if (!option) {
-          this.panel.setMessage('That axis was already consumed — only axes still shown in the scene can be picked.');
+          this.panel.setMessage(AXIS_CONSUMED_MESSAGE);
           return;
         }
-        this.sourceEdgeEntity = null;
-        this.panel.selectAxis(option);
-        this.panel.setMessage(null);
-        this.refreshHighlight();
-        this.schedulePreview();
+        this.pickAxis(option);
         return;
       }
       if (sub.type === 'edge') {
-        const entity: SelectedEntity = { shapeId, sub };
-        this.sourceEdgeEntity = this.sourceEdgeEntity && sameEntity(this.sourceEdgeEntity, entity) ? null : entity;
+        this.sourceEdgeEntity = toggleEntity(this.sourceEdgeEntity, { shapeId, sub });
         this.panel.setAxisEdgeChip(this.sourceEdgeEntity ? 'Picked edge' : null);
         this.panel.setMessage(null);
         this.refreshHighlight();
-        this.schedulePreview();
+        this.runner.schedulePreview();
       }
       return;
     }
     if (sub.type !== 'face') {
       return;
     }
-    const entity: SelectedEntity = { shapeId, sub };
-    this.sourceFaceEntity = this.sourceFaceEntity && sameEntity(this.sourceFaceEntity, entity) ? null : entity;
+    this.sourceFaceEntity = toggleEntity(this.sourceFaceEntity, { shapeId, sub });
     this.panel.setFaceChip(this.sourceFaceEntity ? 'Picked face' : null);
     this.panel.setMessage(null);
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -425,67 +417,24 @@ export class HelixFeatureService {
       return false;
     }
     if (obj.type === 'axis' && obj.sourceLocation) {
-      const loc = obj.sourceLocation;
-      const option = this.axes.find(o => o.filePath === loc.filePath && o.line === loc.line);
+      const option = axisOptionForLocation(this.axes, obj.sourceLocation);
       if (!option) {
-        this.panel.setMessage('That axis was already consumed — only axes still shown in the scene can be picked.');
+        this.panel.setMessage(AXIS_CONSUMED_MESSAGE);
         return true;
       }
-      this.sourceEdgeEntity = null;
-      this.panel.selectAxis(option);
-      this.panel.setMessage(null);
-      this.refreshHighlight();
-      this.schedulePreview();
+      this.pickAxis(option);
       return true;
     }
     return false;
   }
 
-  private async apply(): Promise<void> {
-    if (!this.armed || this.applying) {
-      return;
-    }
-    if (this.editTarget) {
-      const request = this.buildEditRequest();
-      if ('error' in request) {
-        this.panel.setMessage(request.error);
-        return;
-      }
-      this.applying = true;
-      this.panel.setApplyEnabled(false);
-      try {
-        const result = await applyHelixEdit(this.editTarget, request);
-        if (result.success) {
-          this.exit({ editEnd: 'apply' });
-        } else {
-          this.panel.setMessage(result.reason ?? 'Could not apply the edit.');
-        }
-      } finally {
-        this.applying = false;
-        this.panel.setApplyEnabled(true);
-      }
-      return;
-    }
-    const request = this.buildRequest();
-    if ('error' in request) {
-      this.panel.setMessage(request.error);
-      return;
-    }
-    this.applying = true;
-    this.panel.setApplyEnabled(false);
-    try {
-      const result = await applyHelix(request);
-      if (result.success) {
-        // The editor round-trip re-renders the scene; that render is the
-        // preview and editor undo is the rollback.
-        this.exit({ resume: 'lazy' });
-      } else {
-        this.panel.setMessage(result.reason ?? 'Could not apply the helix.');
-      }
-    } finally {
-      this.applying = false;
-      this.panel.setApplyEnabled(true);
-    }
+  /** An offered axis landed in the axis slot (3D or timeline pick). */
+  private pickAxis(option: AxisOption): void {
+    this.sourceEdgeEntity = null;
+    this.panel.selectAxis(option);
+    this.panel.setMessage(null);
+    this.refreshHighlight();
+    this.runner.schedulePreview();
   }
 
   /** The source slot's request field, or the message blocking it, or null (kept). */
@@ -495,17 +444,7 @@ export class HelixFeatureService {
       if (!selection || selection.kind === 'keep') {
         return null;
       }
-      if (selection.kind === 'standard') {
-        return { kind: 'standard', axis: selection.axis };
-      }
-      if (selection.kind === 'axis') {
-        const option = selection.option;
-        return { kind: 'axis', filePath: option.filePath, line: option.line, column: option.column };
-      }
-      if (!this.sourceEdgeEntity) {
-        return { error: 'Pick the axis edge first.' };
-      }
-      return { kind: 'edge', entity: this.sourceEdgeEntity };
+      return pickedAxisRef(selection, this.sourceEdgeEntity, 'Pick the axis edge first.');
     }
     const selection = this.panel.faceSelection();
     if (!selection || selection.kind === 'keep') {
@@ -579,42 +518,6 @@ export class HelixFeatureService {
     this.viewer.pickFilter = axisMode ? 'edge' : 'face';
   }
 
-  private suspendSketchUI(): void {
-    if (this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = true;
-    this.viewer.suspendSketchEditing();
-    this.hooks.onSuspendSketchUI?.();
-  }
-
-  private resumeSketchUI(immediate: boolean): void {
-    if (!this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = false;
-    this.viewer.resumeSketchEditing(immediate);
-    if (immediate) {
-      this.hooks.onResumeSketchUI?.();
-    }
-  }
-
-  /**
-   * Async label pass: axes bound to variables show their names ("coilAxis —
-   * line 5"). Applied only if the dialog is still armed on the same option
-   * set when the lookups land.
-   */
-  private async refreshLabels(): Promise<void> {
-    const signature = axisOptionsSignature(this.axes);
-    this.labelSignature = signature;
-    const axes = await labelWithAxisNames(this.axes);
-    if (!this.armed || this.labelSignature !== signature) {
-      return;
-    }
-    this.axes = axes;
-    this.panel.setAxisOptions(axes);
-  }
-
   /**
    * Repaint the viewport selection: the chosen axis statement's dashed line,
    * the picked axis edge, or the picked source face. A kept source lights up
@@ -676,73 +579,11 @@ export class HelixFeatureService {
   }
 
   private syncButton(): void {
-    this.button.className = this.armed ? BTN_ACTIVE : BTN_BASE;
+    this.button.setActive(this.armed);
     // Arming/exiting flips the button's visibility too, so the group vote
     // rides along here rather than only on the render path.
     this.navbar.setGroupVisible('create', this.buttonVisible, 'helix');
-    this.buttonWrap.classList.toggle('hidden', !this.buttonVisible);
+    this.button.setVisible(this.buttonVisible);
     this.hooks.onActiveChange?.();
-  }
-
-  // -------------------------------------------------------------------------
-  // Statement preview: debounced server render with truthful variable names.
-  // -------------------------------------------------------------------------
-
-  private schedulePreview(): void {
-    this.cancelPreview();
-    if (!this.armed) {
-      return;
-    }
-    this.previewTimer = window.setTimeout(() => {
-      this.previewTimer = null;
-      this.runPreview();
-    }, PREVIEW_DEBOUNCE_MS);
-  }
-
-  private async runPreview(): Promise<void> {
-    if (!this.armed || this.applying) {
-      return;
-    }
-    const request = this.editTarget ? this.buildEditRequest() : this.buildRequest();
-    if ('error' in request) {
-      this.panel.setPreview(null);
-      return;
-    }
-    const seq = ++this.previewSeq;
-    this.previewAbort?.abort();
-    const abort = new AbortController();
-    this.previewAbort = abort;
-
-    let result: ApplyFeatureResponse;
-    try {
-      result = this.editTarget
-        ? await applyHelixEdit(this.editTarget, {
-          ...(request as HelixEditOptions),
-          preview: true,
-          signal: abort.signal,
-        })
-        : await applyHelix({ ...(request as HelixApplyOptions), preview: true, signal: abort.signal });
-    } catch {
-      return; // aborted
-    }
-    if (seq !== this.previewSeq || !this.armed) {
-      return;
-    }
-    this.panel.setPreview(result.success ? result.preview ?? null : null);
-    if (!result.success && result.reason) {
-      // Pre-Apply refusals (a non-cylindrical face, an unsynthesizable edge, a
-      // statement that changed shape under the dialog) surface immediately.
-      this.panel.setMessage(result.reason);
-    }
-  }
-
-  private cancelPreview(): void {
-    if (this.previewTimer !== null) {
-      window.clearTimeout(this.previewTimer);
-      this.previewTimer = null;
-    }
-    this.previewAbort?.abort();
-    this.previewAbort = null;
-    this.previewSeq++;
   }
 }

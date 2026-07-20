@@ -1,5 +1,10 @@
-import { fetchSketchNames } from '../../api';
+import { fetchSketchNames, RevolveAxisRef } from '../../api';
 import { SceneObjectRender } from '../../types';
+import { SelectedEntity } from '../../viewer';
+
+/** The message when a picked axis is no longer offered (already consumed). */
+export const AXIS_CONSUMED_MESSAGE =
+  'That axis was already consumed — only axes still shown in the scene can be picked.';
 
 /** An axis statement the revolve dialog can consume, by call site. */
 export type AxisOption = {
@@ -65,6 +70,54 @@ export function resolveAxisByShapeId(
 ): SceneObjectRender | undefined {
   return sceneObjects.find(o =>
     o.type === 'axis' && o.sceneShapes?.some(s => s.shapeId === shapeId));
+}
+
+/** The offered option at a source location (a timeline axis row's). */
+export function axisOptionForLocation(
+  axes: AxisOption[],
+  loc: { filePath: string; line: number },
+): AxisOption | undefined {
+  return axes.find(o => o.filePath === loc.filePath && o.line === loc.line);
+}
+
+/**
+ * Resolve a picked axis-line shape to its offered option; undefined means
+ * the axis is not pickable anymore (already consumed).
+ */
+export function axisOptionForShape(
+  shapeId: string,
+  sceneObjects: SceneObjectRender[],
+  axes: AxisOption[],
+): AxisOption | undefined {
+  const axis = resolveAxisByShapeId(shapeId, sceneObjects);
+  return axis?.sourceLocation ? axisOptionForLocation(axes, axis.sourceLocation) : undefined;
+}
+
+/**
+ * Serialize a re-picked axis selection to its apply-request ref — the shared
+ * write-side of the axis slot (revolve, helix, repeat). Keep selections are
+ * the caller's business (they are feature-specific); an edge selection
+ * without its picked entity blocks with `missingEdgeError`.
+ */
+export function pickedAxisRef(
+  selection:
+    | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
+    | { kind: 'axis'; option: AxisOption }
+    | { kind: 'edge' },
+  edgeEntity: SelectedEntity | null,
+  missingEdgeError: string,
+): RevolveAxisRef | { error: string } {
+  if (selection.kind === 'standard') {
+    return { kind: 'standard', axis: selection.axis };
+  }
+  if (selection.kind === 'axis') {
+    const { filePath, line, column } = selection.option;
+    return { kind: 'axis', filePath, line, column };
+  }
+  if (!edgeEntity) {
+    return { error: missingEdgeError };
+  }
+  return { kind: 'edge', entity: edgeEntity };
 }
 
 /**

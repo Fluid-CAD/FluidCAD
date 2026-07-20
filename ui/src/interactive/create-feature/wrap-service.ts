@@ -1,25 +1,23 @@
 import {
-  applyWrap, applyWrapEdit, fetchFeatureSources, getScopeVariables, ApplyFeatureResponse,
-  FeatureEditTarget, ParsedFeatureStatement, SourceSlotRef, WrapEditOptions,
+  applyWrap, applyWrapEdit, fetchFeatureSources, FeatureEditTarget, ParsedFeatureStatement,
+  SourceSlotRef, WrapEditOptions,
 } from '../../api';
-import { sameEntity } from '../../helpers/entities';
+import { toggleEntity } from '../../helpers/entities';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
-import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { WrapPanel } from './wrap-panel';
+import { FeatureButton } from './feature-button';
+import { ApplyRunner } from './apply-runner';
+import { SketchUISuspender } from './sketch-suspender';
+import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import {
   collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 
-const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 text-base-content/60';
-const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2 py-1';
-/** Small muted caption under the toolbar icon. */
-const BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
-
-const PREVIEW_DEBOUNCE_MS = 250;
+type WrapApplyRequest = Parameters<typeof applyWrap>[0];
 
 /**
  * The Wrap dialog on the create rails: a sketch developed onto a curved face
@@ -34,17 +32,14 @@ const PREVIEW_DEBOUNCE_MS = 250;
  */
 export class WrapFeatureService {
   private panel: WrapPanel;
-  private button: HTMLButtonElement;
-  /** daisyUI tooltip wrapper around {@link button}; hides with the button so no phantom toolbar gap. */
-  private buttonWrap: HTMLElement;
+  private button: FeatureButton;
   private armed = false;
   private available = false;
-  private applying = false;
   private options: SketchProfileOption[] = [];
   private sceneObjects: SceneObjectRender[] = [];
   private hasSolid = false;
   private sceneSketchActive = false;
-  private suspendedSketchUI = false;
+  private sketchUI: SketchUISuspender;
   /** The picked target face, or null while the slot wants a pick. */
   private faceEntity: SelectedEntity | null = null;
   /** Statement being edited in place (timeline double-click), or null. */
@@ -55,11 +50,8 @@ export class WrapFeatureService {
   private sourceSlots: { sketch: SourceSlotRef; face: SourceSlotRef } | null = null;
   /** A full render arrived mid-session — a re-picked face's shape id died. */
   private editSceneStale = false;
-  private labelSignature = '';
-
-  private previewTimer: number | null = null;
-  private previewAbort: AbortController | null = null;
-  private previewSeq = 0;
+  private runner: ApplyRunner<WrapApplyRequest | WrapEditOptions>;
+  private relabeler: OptionRelabeler<SketchProfileOption[]>;
 
   constructor(
     container: HTMLElement,
@@ -74,40 +66,58 @@ export class WrapFeatureService {
     } = {},
   ) {
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
-    this.button = document.createElement('button');
-    this.button.className = BTN_BASE;
-    this.button.setAttribute('aria-label', 'Wrap a sketch onto a curved face');
-    this.button.innerHTML = `<img src="/icons/wrap.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain" alt="" /><span class="${BTN_LABEL}">Wrap</span>`;
-    this.button.addEventListener('click', () => {
+    this.button = new FeatureButton(group, {
+      icon: '/icons/wrap.png',
+      label: 'Wrap',
+      tip: 'Wrap a sketch onto a curved face',
+      ariaLabel: 'Wrap a sketch onto a curved face',
+      // Anchors the Shell button, which slots in just ahead of Wrap.
+      datasetTool: 'wrap',
+    });
+    this.button.onClick = () => {
       if (this.armed) {
         this.exit();
       } else {
         this.enter();
       }
-    });
-    this.buttonWrap = document.createElement('span');
-    this.buttonWrap.className = 'tooltip tooltip-bottom';
-    this.buttonWrap.dataset.tip = 'Wrap a sketch onto a curved face';
-    // Anchors the Shell button, which slots in just ahead of Wrap.
-    this.buttonWrap.dataset.tool = 'wrap';
-    this.buttonWrap.appendChild(this.button);
-    group.appendChild(this.buttonWrap);
+    };
+    this.sketchUI = new SketchUISuspender(viewer, hooks);
 
     this.panel = new WrapPanel(container);
-    this.panel.onApply = () => this.apply();
+    this.panel.onApply = () => void this.runner.apply();
     this.panel.onExit = () => this.exit();
     this.panel.onChange = () => {
       this.panel.setMessage(null);
       this.refreshHighlight();
-      this.schedulePreview();
+      this.runner.schedulePreview();
     };
     this.panel.onRemoveFace = () => {
       this.faceEntity = null;
       this.panel.setFaceChip(null);
       this.panel.setMessage(null);
       this.refreshHighlight();
-      this.schedulePreview();
+      this.runner.schedulePreview();
     };
+
+    this.runner = new ApplyRunner({
+      panel: this.panel,
+      isArmed: () => this.armed,
+      build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
+      send: (request, extras) => this.editTarget
+        ? applyWrapEdit(this.editTarget, { ...(request as WrapEditOptions), ...extras })
+        : applyWrap({ ...(request as WrapApplyRequest), ...extras }),
+      onApplied: () => this.exit(this.editTarget ? { editEnd: 'apply' } : { resume: 'lazy' }),
+      failMessage: () => this.editTarget ? 'Could not apply the edit.' : 'Could not apply the wrap.',
+    });
+    this.relabeler = new OptionRelabeler({
+      sign: optionsSignature,
+      load: labelWithSketchNames,
+      isArmed: () => this.armed,
+      apply: (options) => {
+        this.options = options;
+        this.panel.setOptions(options);
+      },
+    });
   }
 
   get isActive(): boolean {
@@ -130,7 +140,7 @@ export class WrapFeatureService {
 
   /** True while the armed dialog has suspended sketch editing. */
   get sketchUISuspended(): boolean {
-    return this.suspendedSketchUI;
+    return this.sketchUI.suspended;
   }
 
   /**
@@ -179,9 +189,9 @@ export class WrapFeatureService {
     this.viewer.pickSketchWires = true;
     this.viewer.pickFilter = 'face';
     this.panel.setOptions(this.options);
-    this.refreshSketchLabels();
+    void this.relabeler.refresh(this.options);
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
@@ -205,7 +215,7 @@ export class WrapFeatureService {
     // A render can put a sketch back in front (live editing) — the armed
     // dialog keeps the free 3D view.
     if (this.sceneSketchActive) {
-      this.suspendSketchUI();
+      this.sketchUI.suspend();
     }
     this.viewer.pickSketchWires = true;
     this.viewer.pickFilter = 'face';
@@ -216,9 +226,9 @@ export class WrapFeatureService {
       this.panel.setFaceChip(null);
     }
     this.panel.setOptions(this.options);
-    this.refreshSketchLabels();
+    void this.relabeler.refresh(this.options);
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -244,7 +254,7 @@ export class WrapFeatureService {
     this.sourceSlots = null;
     this.editSceneStale = false;
     this.syncButton();
-    this.suspendSketchUI();
+    this.sketchUI.suspend();
     this.viewer.pickSketchWires = true;
     this.viewer.pickFilter = 'face';
     this.session.begin({ ...info, target });
@@ -256,26 +266,19 @@ export class WrapFeatureService {
       sketchLabel: parsed.sketchText,
       faceLabel: parsed.faceText,
     });
-    this.schedulePreview();
+    this.runner.schedulePreview();
+  }
+
+  private async refreshScopeVariables(): Promise<void> {
+    const line = this.editTarget?.line ?? null;
+    await refreshScopeVariables(line, this.panel,
+      () => this.armed && (this.editTarget?.line ?? null) === line);
   }
 
   /**
    * Current sources of the edited statement: the sketch (for highlighting)
    * and the target face's resolved entities on the pre-statement solids.
    */
-  /**
-   * Push the variables in scope at the statement (edit mode) or at the end
-   * of the file (create mode) to the dialog's expression fields. A response
-   * landing after the dialog closed or re-targeted is dropped.
-   */
-  private async refreshScopeVariables(): Promise<void> {
-    const line = this.editTarget?.line ?? null;
-    const variables = await getScopeVariables(line);
-    if (this.armed && (this.editTarget?.line ?? null) === line) {
-      this.panel.setScopeVariables(variables);
-    }
-  }
-
   private async loadEditSources(): Promise<void> {
     const boundary = this.session.boundary;
     if (!boundary) {
@@ -303,16 +306,16 @@ export class WrapFeatureService {
     // the active sketch plane — leave sketch editing right away (resumed on
     // cancel; an apply's re-render takes over).
     if (this.sceneSketchActive) {
-      this.suspendSketchUI();
+      this.sketchUI.suspend();
     }
     this.viewer.pickSketchWires = true;
     this.viewer.pickFilter = 'face';
     this.syncButton();
     void this.refreshScopeVariables();
     this.panel.show(this.options);
-    this.refreshSketchLabels();
+    void this.relabeler.refresh(this.options);
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -336,12 +339,12 @@ export class WrapFeatureService {
     this.editSceneStale = false;
     this.faceEntity = null;
     this.syncButton();
-    this.cancelPreview();
+    this.runner.cancelPreview();
     this.viewer.clearHighlight();
     this.viewer.pickFilter = 'all';
     this.viewer.pickSketchWires = false;
     this.panel.hide();
-    this.resumeSketchUI((opts.resume ?? 'immediate') === 'immediate');
+    this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
   }
 
   /**
@@ -353,12 +356,11 @@ export class WrapFeatureService {
     if (!this.isFacePicking || !shapeId || !sub || sub.type !== 'face') {
       return;
     }
-    const entity: SelectedEntity = { shapeId, sub };
-    this.faceEntity = this.faceEntity && sameEntity(this.faceEntity, entity) ? null : entity;
+    this.faceEntity = toggleEntity(this.faceEntity, { shapeId, sub });
     this.panel.setFaceChip(this.faceEntity ? 'Picked face' : null);
     this.panel.setMessage(null);
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -402,58 +404,11 @@ export class WrapFeatureService {
     }
     this.panel.setMessage(null);
     this.refreshHighlight();
-    this.schedulePreview();
-  }
-
-  private async apply(): Promise<void> {
-    if (!this.armed || this.applying) {
-      return;
-    }
-    if (this.editTarget) {
-      const request = this.buildEditRequest();
-      if ('error' in request) {
-        this.panel.setMessage(request.error);
-        return;
-      }
-      this.applying = true;
-      this.panel.setApplyEnabled(false);
-      try {
-        const result = await applyWrapEdit(this.editTarget, request);
-        if (result.success) {
-          this.exit({ editEnd: 'apply' });
-        } else {
-          this.panel.setMessage(result.reason ?? 'Could not apply the edit.');
-        }
-      } finally {
-        this.applying = false;
-        this.panel.setApplyEnabled(true);
-      }
-      return;
-    }
-    const request = this.buildRequest();
-    if ('error' in request) {
-      this.panel.setMessage(request.error);
-      return;
-    }
-    this.applying = true;
-    this.panel.setApplyEnabled(false);
-    try {
-      const result = await applyWrap(request);
-      if (result.success) {
-        // The editor round-trip re-renders the scene; that render is the
-        // preview and editor undo is the rollback.
-        this.exit({ resume: 'lazy' });
-      } else {
-        this.panel.setMessage(result.reason ?? 'Could not apply the wrap.');
-      }
-    } finally {
-      this.applying = false;
-      this.panel.setApplyEnabled(true);
-    }
+    this.runner.schedulePreview();
   }
 
   /** The request for the current form state, or the message blocking it. */
-  private buildRequest(): Parameters<typeof applyWrap>[0] | { error: string } {
+  private buildRequest(): WrapApplyRequest | { error: string } {
     const values = this.panel.values();
     if ('error' in values) {
       return values;
@@ -513,42 +468,6 @@ export class WrapFeatureService {
     };
   }
 
-  private suspendSketchUI(): void {
-    if (this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = true;
-    this.viewer.suspendSketchEditing();
-    this.hooks.onSuspendSketchUI?.();
-  }
-
-  private resumeSketchUI(immediate: boolean): void {
-    if (!this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = false;
-    this.viewer.resumeSketchEditing(immediate);
-    if (immediate) {
-      this.hooks.onResumeSketchUI?.();
-    }
-  }
-
-  /**
-   * Async label pass: sketches bound to variables show their names in the
-   * chips ("logo — line 3"). Applied only if the dialog is still armed on
-   * the same option set when the lookup lands.
-   */
-  private async refreshSketchLabels(): Promise<void> {
-    const signature = optionsSignature(this.options);
-    this.labelSignature = signature;
-    const labeled = await labelWithSketchNames(this.options);
-    if (!this.armed || this.labelSignature !== signature) {
-      return;
-    }
-    this.options = labeled;
-    this.panel.setOptions(labeled);
-  }
-
   /**
    * Repaint the viewport selection: the picked target face plus the wires of
    * the chosen sketch — the dialog's inputs stay visible in 3D. Slots kept
@@ -586,78 +505,10 @@ export class WrapFeatureService {
   }
 
   private syncButton(): void {
-    this.button.className = this.armed ? BTN_ACTIVE : BTN_BASE;
-    this.buttonWrap.classList.toggle('hidden', !this.available);
+    this.button.setActive(this.armed);
+    this.button.setVisible(this.available);
     // Every armed flip lands here — the Sketch button disables while a
     // create dialog is up.
     this.hooks.onActiveChange?.();
-  }
-
-  // -------------------------------------------------------------------------
-  // Statement preview: debounced server render with truthful variable names.
-  // -------------------------------------------------------------------------
-
-  private schedulePreview(): void {
-    this.cancelPreview();
-    if (!this.armed) {
-      return;
-    }
-    this.previewTimer = window.setTimeout(() => {
-      this.previewTimer = null;
-      this.runPreview();
-    }, PREVIEW_DEBOUNCE_MS);
-  }
-
-  private async runPreview(): Promise<void> {
-    if (!this.armed || this.applying) {
-      return;
-    }
-    // Edit mode previews the full edit payload — re-sourced slots included —
-    // so the preview is the exact statement Apply will write.
-    const request = this.editTarget ? this.buildEditRequest() : this.buildRequest();
-    if ('error' in request) {
-      this.panel.setPreview(null);
-      return;
-    }
-    const seq = ++this.previewSeq;
-    this.previewAbort?.abort();
-    const abort = new AbortController();
-    this.previewAbort = abort;
-
-    let result: ApplyFeatureResponse;
-    try {
-      result = this.editTarget
-        ? await applyWrapEdit(this.editTarget, {
-          ...(request as WrapEditOptions),
-          preview: true,
-          signal: abort.signal,
-        })
-        : await applyWrap({
-          ...(request as Parameters<typeof applyWrap>[0]),
-          preview: true,
-          signal: abort.signal,
-        });
-    } catch {
-      return; // aborted
-    }
-    if (seq !== this.previewSeq || !this.armed) {
-      return;
-    }
-    this.panel.setPreview(result.success ? result.preview ?? null : null);
-    if (!result.success && result.reason) {
-      // Pre-Apply refusals (an unsynthesizable face, a drifted statement)
-      // surface immediately, like the modify rails.
-      this.panel.setMessage(result.reason);
-    }
-  }
-
-  private cancelPreview(): void {
-    if (this.previewTimer !== null) {
-      window.clearTimeout(this.previewTimer);
-      this.previewTimer = null;
-    }
-    this.previewAbort?.abort();
-    this.previewAbort = null;
-    this.previewSeq++;
   }
 }

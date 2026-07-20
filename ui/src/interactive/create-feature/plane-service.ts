@@ -1,22 +1,18 @@
-import { applyPlane, getScopeVariables, ApplyFeatureResponse, PlaneApplyOptions, PlaneBaseRef } from '../../api';
+import { applyPlane, PlaneApplyOptions, PlaneBaseRef } from '../../api';
 import { sameEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { StandardPlaneId } from '../../scene/standard-planes';
 import { Navbar } from '../../ui/navbar';
-import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { PlanePanel } from './plane-panel';
+import { FeatureButton } from './feature-button';
+import { ApplyRunner } from './apply-runner';
+import { SketchUISuspender } from './sketch-suspender';
+import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import {
   collectPlaneOptions, labelWithPlaneNames, PlaneOption, planeOptionsSignature, resolvePlaneRow,
 } from './plane-bases';
 import { collectSketchProfiles, sourceChip } from './sketch-profiles';
-
-const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 text-base-content/60';
-const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2 py-1';
-/** Small muted caption under the toolbar icon. */
-const BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
-
-const PREVIEW_DEBOUNCE_MS = 250;
 
 /** One base in the dialog's list — the chip order is the argument order. */
 type PlaneBaseItem =
@@ -39,18 +35,14 @@ type PlaneBaseItem =
  */
 export class PlaneFeatureService {
   private panel: PlanePanel;
-  private button: HTMLButtonElement;
+  private button: FeatureButton;
   private armed = false;
-  private applying = false;
   private planes: PlaneOption[] = [];
   private bases: PlaneBaseItem[] = [];
   private sceneSketchActive = false;
-  private suspendedSketchUI = false;
-  private labelSignature = '';
-
-  private previewTimer: number | null = null;
-  private previewAbort: AbortController | null = null;
-  private previewSeq = 0;
+  private sketchUI: SketchUISuspender;
+  private runner: ApplyRunner<PlaneApplyOptions>;
+  private relabeler: OptionRelabeler<PlaneOption[]>;
 
   constructor(
     container: HTMLElement,
@@ -66,42 +58,68 @@ export class PlaneFeatureService {
     } = {},
   ) {
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
-    this.button = document.createElement('button');
-    this.button.className = BTN_BASE;
-    this.button.setAttribute('aria-label', 'Create a construction plane');
-    this.button.innerHTML = `<img src="/icons/plane.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain" alt="" /><span class="${BTN_LABEL}">Plane</span>`;
-    this.button.addEventListener('click', () => {
+    this.button = new FeatureButton(group, {
+      icon: '/icons/plane.png',
+      label: 'Plane',
+      tip: 'Create a construction plane',
+      ariaLabel: 'Create a construction plane',
+      // Ahead of the Extrude button; the Sketch button prepends later, so the
+      // group reads Sketch, Plane, Extrude, …
+      prepend: true,
+    });
+    this.button.onClick = () => {
       if (this.armed) {
         this.exit();
       } else {
         this.enter();
       }
-    });
-    const buttonWrap = document.createElement('span');
-    buttonWrap.className = 'tooltip tooltip-bottom';
-    buttonWrap.dataset.tip = 'Create a construction plane';
-    buttonWrap.appendChild(this.button);
-    // Ahead of the Extrude button; the Sketch button prepends later, so the
-    // group reads Sketch, Plane, Extrude, …
-    group.prepend(buttonWrap);
+    };
     // A plane can be made from standard planes alone, so the button is
     // always offered (the sketch slot votes the group visible in any scene).
     this.navbar.setGroupVisible('create', true, 'plane');
+    this.sketchUI = new SketchUISuspender(viewer, hooks);
 
     this.panel = new PlanePanel(container);
-    this.panel.onApply = () => this.apply();
+    this.panel.onApply = () => void this.runner.apply();
     this.panel.onExit = () => this.exit();
     this.panel.onChange = () => {
       this.panel.setMessage(null);
-      this.schedulePreview();
+      this.runner.schedulePreview();
     };
     this.panel.onTypeChange = () => this.handleTypeChange();
     this.panel.onRemoveBase = (index) => {
       this.bases.splice(index, 1);
       this.panel.setMessage(null);
       this.refresh();
-      this.schedulePreview();
+      this.runner.schedulePreview();
     };
+
+    this.runner = new ApplyRunner({
+      panel: this.panel,
+      isArmed: () => this.armed,
+      build: () => this.buildRequest(),
+      send: (request, extras) => applyPlane({ ...request, ...extras }),
+      onApplied: () => this.exit({ resume: 'lazy' }),
+      failMessage: () => 'Could not apply the plane.',
+    });
+    this.relabeler = new OptionRelabeler({
+      sign: planeOptionsSignature,
+      load: labelWithPlaneNames,
+      isArmed: () => this.armed,
+      apply: (planes) => {
+        this.planes = planes;
+        // Chips referencing a relabeled plane pick up the new name.
+        this.bases = this.bases.map(base => {
+          if (base.kind !== 'plane') {
+            return base;
+          }
+          const match = planes.find(o =>
+            o.filePath === base.option.filePath && o.line === base.option.line);
+          return match ? { kind: 'plane', option: match } : base;
+        });
+        this.refresh();
+      },
+    });
   }
 
   get isActive(): boolean {
@@ -115,7 +133,7 @@ export class PlaneFeatureService {
 
   /** True while the armed dialog has suspended sketch editing. */
   get sketchUISuspended(): boolean {
-    return this.suspendedSketchUI;
+    return this.sketchUI.suspended;
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
@@ -127,7 +145,7 @@ export class PlaneFeatureService {
     // A render can put a sketch back in front (live editing) — the armed
     // dialog keeps the free 3D view.
     if (this.sceneSketchActive) {
-      this.suspendSketchUI();
+      this.sketchUI.suspend();
     }
     // Shape ids changed with the render — picked bases are stale; plane
     // bases re-match against the fresh options by source line.
@@ -141,10 +159,10 @@ export class PlaneFeatureService {
       }
       return true;
     });
-    this.refreshPlaneLabels();
+    void this.relabeler.refresh(this.planes);
     this.syncViewport();
     this.refresh();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   enter(): void {
@@ -159,16 +177,16 @@ export class PlaneFeatureService {
     // active sketch plane — leave sketch editing right away (resumed on
     // cancel; an apply's re-render takes over).
     if (this.sceneSketchActive) {
-      this.suspendSketchUI();
+      this.sketchUI.suspend();
     }
     this.syncButton();
     void this.refreshScopeVariables();
     this.panel.show();
     this.seedFromSelection(seed);
-    this.refreshPlaneLabels();
+    void this.relabeler.refresh(this.planes);
     this.syncViewport();
     this.refresh();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -205,13 +223,13 @@ export class PlaneFeatureService {
     }
     this.armed = false;
     this.syncButton();
-    this.cancelPreview();
+    this.runner.cancelPreview();
     this.bases = [];
     this.viewer.clearHighlight();
     this.viewer.hideStandardPlanes();
     this.viewer.pickFilter = 'all';
     this.panel.hide();
-    this.resumeSketchUI((opts.resume ?? 'immediate') === 'immediate');
+    this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
   }
 
   /**
@@ -237,7 +255,7 @@ export class PlaneFeatureService {
     if (existing >= 0) {
       this.bases.splice(existing, 1);
       this.refresh();
-      this.schedulePreview();
+      this.runner.schedulePreview();
       return;
     }
     this.addBase({ kind: 'pick', entity });
@@ -301,7 +319,7 @@ export class PlaneFeatureService {
       this.bases.push(item);
     }
     this.refresh();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /** The type changed: trim the base list to what the new type can take. */
@@ -320,33 +338,7 @@ export class PlaneFeatureService {
     }
     this.syncViewport();
     this.refresh();
-    this.schedulePreview();
-  }
-
-  private async apply(): Promise<void> {
-    if (!this.armed || this.applying) {
-      return;
-    }
-    const request = this.buildRequest();
-    if ('error' in request) {
-      this.panel.setMessage(request.error);
-      return;
-    }
-    this.applying = true;
-    this.panel.setApplyEnabled(false);
-    try {
-      const result = await applyPlane(request);
-      if (result.success) {
-        // The editor round-trip re-renders the scene; that render is the
-        // preview and editor undo is the rollback.
-        this.exit({ resume: 'lazy' });
-      } else {
-        this.panel.setMessage(result.reason ?? 'Could not apply the plane.');
-      }
-    } finally {
-      this.applying = false;
-      this.panel.setApplyEnabled(true);
-    }
+    this.runner.schedulePreview();
   }
 
   /**
@@ -355,10 +347,7 @@ export class PlaneFeatureService {
    * after the dialog closed is dropped.
    */
   private async refreshScopeVariables(): Promise<void> {
-    const variables = await getScopeVariables(null);
-    if (this.armed) {
-      this.panel.setScopeVariables(variables);
-    }
+    await refreshScopeVariables(null, this.panel, () => this.armed);
   }
 
   /** The request for the current form state, or the message blocking it. */
@@ -438,112 +427,11 @@ export class PlaneFeatureService {
     }
   }
 
-  private suspendSketchUI(): void {
-    if (this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = true;
-    this.viewer.suspendSketchEditing();
-    this.hooks.onSuspendSketchUI?.();
-  }
-
-  private resumeSketchUI(immediate: boolean): void {
-    if (!this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = false;
-    this.viewer.resumeSketchEditing(immediate);
-    if (immediate) {
-      this.hooks.onResumeSketchUI?.();
-    }
-  }
-
-  /**
-   * Async label pass: planes bound to variables show their names in the
-   * chips ("top — line 3"). Applied only if the dialog is still armed on the
-   * same option set when the lookup lands.
-   */
-  private async refreshPlaneLabels(): Promise<void> {
-    const signature = planeOptionsSignature(this.planes);
-    this.labelSignature = signature;
-    const labeled = await labelWithPlaneNames(this.planes);
-    if (!this.armed || this.labelSignature !== signature) {
-      return;
-    }
-    this.planes = labeled;
-    // Chips referencing a relabeled plane pick up the new name.
-    this.bases = this.bases.map(base => {
-      if (base.kind !== 'plane') {
-        return base;
-      }
-      const match = labeled.find(o =>
-        o.filePath === base.option.filePath && o.line === base.option.line);
-      return match ? { kind: 'plane', option: match } : base;
-    });
-    this.refresh();
-  }
-
   private syncButton(): void {
-    this.button.className = this.armed ? BTN_ACTIVE : BTN_BASE;
+    this.button.setActive(this.armed);
     // Every armed flip lands here — the Sketch button disables while a
     // create dialog is up.
     this.hooks.onActiveChange?.();
-  }
-
-  // -------------------------------------------------------------------------
-  // Statement preview: debounced server render with truthful variable names.
-  // -------------------------------------------------------------------------
-
-  private schedulePreview(): void {
-    this.cancelPreview();
-    if (!this.armed) {
-      return;
-    }
-    this.previewTimer = window.setTimeout(() => {
-      this.previewTimer = null;
-      this.runPreview();
-    }, PREVIEW_DEBOUNCE_MS);
-  }
-
-  private async runPreview(): Promise<void> {
-    if (!this.armed || this.applying) {
-      return;
-    }
-    const request = this.buildRequest();
-    if ('error' in request) {
-      this.panel.setPreview(null);
-      return;
-    }
-    const seq = ++this.previewSeq;
-    this.previewAbort?.abort();
-    const abort = new AbortController();
-    this.previewAbort = abort;
-
-    let result: ApplyFeatureResponse;
-    try {
-      result = await applyPlane({ ...request, preview: true, signal: abort.signal });
-    } catch {
-      return; // aborted
-    }
-    if (seq !== this.previewSeq || !this.armed) {
-      return;
-    }
-    this.panel.setPreview(result.success ? result.preview ?? null : null);
-    if (!result.success && result.reason) {
-      // Pre-Apply refusals (unsynthesizable pick) surface immediately,
-      // like the modify rails.
-      this.panel.setMessage(result.reason);
-    }
-  }
-
-  private cancelPreview(): void {
-    if (this.previewTimer !== null) {
-      window.clearTimeout(this.previewTimer);
-      this.previewTimer = null;
-    }
-    this.previewAbort?.abort();
-    this.previewAbort = null;
-    this.previewSeq++;
   }
 }
 

@@ -1,32 +1,29 @@
 import {
-  applyRepeat, applyRepeatEdit, getScopeVariables, ApplyFeatureResponse, FeatureEditTarget, ParsedFeatureStatement,
+  applyRepeat, applyRepeatEdit, FeatureEditTarget, ParsedFeatureStatement,
   RepeatApplyOptions, RepeatDirectionRef, RepeatEditAxisRef, RepeatEditOptions, RepeatEditPlaneRef,
   RepeatEditTargetRef,
 } from '../../api';
-import { sameEntity } from '../../helpers/entities';
+import { toggleEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { StandardPlaneId } from '../../scene/standard-planes';
 import { Navbar } from '../../ui/navbar';
-import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import { RepeatDirection, RepeatPanel } from './repeat-panel';
+import { FeatureButton } from './feature-button';
+import { ApplyRunner } from './apply-runner';
+import { SketchUISuspender } from './sketch-suspender';
+import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import { collectRepeatTargets, RepeatTargetOption, resolveRepeatTargetRow } from './repeat-targets';
 import {
-  AxisOption, axisLineShapeIds, axisOptionsSignature, collectAxisOptions, labelWithAxisNames,
-  resolveAxisByShapeId,
+  AXIS_CONSUMED_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
+  axisOptionsSignature, collectAxisOptions, labelWithAxisNames, pickedAxisRef,
 } from './axis-options';
 import {
-  collectPlaneOptions, labelWithPlaneNames, PlaneOption, planeOptionsSignature, resolvePlaneByShapeId,
+  PLANE_UNAVAILABLE_MESSAGE, collectPlaneOptions, labelWithPlaneNames, PlaneOption,
+  planeOptionForLocation, planeOptionForShape, planeOptionsSignature, resolvePlaneByShapeId,
 } from './plane-bases';
 import { collectSketchProfiles, sourceChip } from './sketch-profiles';
-
-const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 text-base-content/60';
-const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2 py-1';
-/** Small muted caption under the toolbar icon. */
-const BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
-
-const PREVIEW_DEBOUNCE_MS = 250;
 
 /** What the seeding hook hands over when the dialog arms. */
 export type RepeatEnterSeed = {
@@ -63,12 +60,9 @@ type RepeatTargetChoice =
  */
 export class RepeatFeatureService {
   private panel: RepeatPanel;
-  private button: HTMLButtonElement;
-  /** daisyUI tooltip wrapper around {@link button}. */
-  private buttonWrap: HTMLElement;
+  private button: FeatureButton;
   private armed = false;
   private available = false;
-  private applying = false;
   private targetOptions: RepeatTargetOption[] = [];
   /** The chosen targets, in pick order — the repeat's argument order. */
   private targets: RepeatTargetChoice[] = [];
@@ -76,7 +70,7 @@ export class RepeatFeatureService {
   private planes: PlaneOption[] = [];
   private sceneObjects: SceneObjectRender[] = [];
   private sceneSketchActive = false;
-  private suspendedSketchUI = false;
+  private sketchUI: SketchUISuspender;
   /** Per-direction picked axis edges (the axis slots' `edge` mode). */
   private axisEdgeEntities = new Map<RepeatDirection, SelectedEntity | null>([[1, null], [2, null]]);
   /** The picked mirror face (the plane slot's `face` mode), or null. */
@@ -89,10 +83,8 @@ export class RepeatFeatureService {
   private session = new EditSession();
   /** A full render arrived mid-session — re-picked shape ids died. */
   private editSceneStale = false;
-  private labelSignature = '';
-  private previewTimer: number | null = null;
-  private previewAbort: AbortController | null = null;
-  private previewSeq = 0;
+  private runner: ApplyRunner<RepeatApplyOptions | RepeatEditOptions>;
+  private relabeler: OptionRelabeler<{ axes: AxisOption[]; planes: PlaneOption[] }>;
 
   constructor(
     container: HTMLElement,
@@ -113,30 +105,28 @@ export class RepeatFeatureService {
     // is *not* `immune`: repeating features is a solid-level operation, so the
     // button hides while the exclusive sketch toolbar owns the bar.
     const group = navbar.addGroup('repeat', { visible: false });
-    this.button = document.createElement('button');
-    this.button.className = BTN_BASE;
-    this.button.setAttribute('aria-label', 'Repeat features along an axis, around an axis, or mirrored');
-    this.button.innerHTML = `<img src="/icons/repeat-linear.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain" alt="" /><span class="${BTN_LABEL}">Repeat</span>`;
-    this.button.addEventListener('click', () => {
+    this.button = new FeatureButton(group, {
+      icon: '/icons/repeat-linear.png',
+      label: 'Repeat',
+      tip: 'Repeat features',
+      ariaLabel: 'Repeat features along an axis, around an axis, or mirrored',
+    });
+    this.button.onClick = () => {
       if (this.armed) {
         this.exit();
       } else {
         this.enter();
       }
-    });
-    this.buttonWrap = document.createElement('span');
-    this.buttonWrap.className = 'tooltip tooltip-bottom';
-    this.buttonWrap.dataset.tip = 'Repeat features';
-    this.buttonWrap.appendChild(this.button);
-    group.appendChild(this.buttonWrap);
+    };
+    this.sketchUI = new SketchUISuspender(viewer, hooks);
 
     this.panel = new RepeatPanel(container);
-    this.panel.onApply = () => this.apply();
+    this.panel.onApply = () => void this.runner.apply();
     this.panel.onExit = () => this.exit();
     this.panel.onChange = () => {
       this.panel.setMessage(null);
       this.refreshHighlight();
-      this.schedulePreview();
+      this.runner.schedulePreview();
     };
     this.panel.onTypeChange = () => {
       this.syncViewport();
@@ -146,7 +136,7 @@ export class RepeatFeatureService {
       this.targets.splice(index, 1);
       this.panel.setMessage(null);
       this.refresh();
-      this.schedulePreview();
+      this.runner.schedulePreview();
     };
     this.panel.onAxisModeChange = (direction) => {
       // The slot left edge mode (✕, a standard/axis choice) — the entity
@@ -159,6 +149,33 @@ export class RepeatFeatureService {
       this.refreshHighlight();
     };
     this.panel.onArmedSlotChange = () => this.syncViewport();
+
+    this.runner = new ApplyRunner({
+      panel: this.panel,
+      isArmed: () => this.armed,
+      build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
+      send: (request, extras) => this.editTarget
+        ? applyRepeatEdit(this.editTarget, { ...(request as RepeatEditOptions), ...extras })
+        : applyRepeat({ ...(request as RepeatApplyOptions), ...extras }),
+      onApplied: () => this.exit(this.editTarget ? { editEnd: 'apply' } : { resume: 'lazy' }),
+      failMessage: () => this.editTarget ? 'Could not apply the edit.' : 'Could not apply the repeat.',
+    });
+    this.relabeler = new OptionRelabeler({
+      sign: ({ axes, planes }) => `${axisOptionsSignature(axes)}#${planeOptionsSignature(planes)}`,
+      load: async ({ axes, planes }) => {
+        const [labeledAxes, labeledPlanes] = await Promise.all([
+          labelWithAxisNames(axes),
+          labelWithPlaneNames(planes),
+        ]);
+        return { axes: labeledAxes, planes: labeledPlanes };
+      },
+      isArmed: () => this.armed,
+      apply: ({ axes, planes }) => {
+        this.axes = axes;
+        this.planes = planes;
+        this.panel.setOptions(axes, planes);
+      },
+    });
   }
 
   get isActive(): boolean {
@@ -191,7 +208,7 @@ export class RepeatFeatureService {
 
   /** True while armed picking has suspended sketch editing. */
   get sketchUISuspended(): boolean {
-    return this.suspendedSketchUI;
+    return this.sketchUI.suspended;
   }
 
   /**
@@ -264,7 +281,7 @@ export class RepeatFeatureService {
     this.refreshLabels();
     this.syncViewport();
     this.refresh();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
@@ -286,7 +303,7 @@ export class RepeatFeatureService {
     // A render can put a sketch back in front (live editing) — the armed
     // dialog keeps the free 3D view.
     if (this.sceneSketchActive) {
-      this.suspendSketchUI();
+      this.sketchUI.suspend();
     }
     // Chosen targets re-match against the fresh options by source line;
     // shape ids changed with the render, so picked entities are stale and
@@ -313,7 +330,7 @@ export class RepeatFeatureService {
     this.refreshLabels();
     this.syncViewport();
     this.refresh();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -352,7 +369,7 @@ export class RepeatFeatureService {
       };
     });
     this.syncButton();
-    this.suspendSketchUI();
+    this.sketchUI.suspend();
     this.session.begin({ ...info, target });
     void this.refreshScopeVariables();
     this.panel.showEdit({
@@ -368,7 +385,7 @@ export class RepeatFeatureService {
     });
     this.syncViewport();
     this.refresh();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   enter(): void {
@@ -386,7 +403,7 @@ export class RepeatFeatureService {
     // active sketch plane — leave sketch editing right away (resumed on
     // cancel; an apply's re-render takes over).
     if (this.sceneSketchActive) {
-      this.suspendSketchUI();
+      this.sketchUI.suspend();
     }
     this.syncButton();
     void this.refreshScopeVariables();
@@ -398,7 +415,7 @@ export class RepeatFeatureService {
     this.refreshLabels();
     this.syncViewport();
     this.refresh();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -411,8 +428,7 @@ export class RepeatFeatureService {
     if (pendingPlaneShapeId) {
       const plane = resolvePlaneByShapeId(pendingPlaneShapeId, this.sceneObjects);
       const option = plane?.sourceLocation
-        ? this.planes.find(o =>
-          o.filePath === plane.sourceLocation!.filePath && o.line === plane.sourceLocation!.line)
+        ? planeOptionForLocation(this.planes, plane.sourceLocation)
         : undefined;
       if (option) {
         this.panel.setType('mirror');
@@ -459,7 +475,7 @@ export class RepeatFeatureService {
     this.axisEdgeEntities.set(1, null);
     this.axisEdgeEntities.set(2, null);
     this.planeFaceEntity = null;
-    this.cancelPreview();
+    this.runner.cancelPreview();
     this.viewer.clearHighlight();
     this.viewer.hideStandardPlanes();
     this.viewer.pickFilter = 'all';
@@ -468,7 +484,7 @@ export class RepeatFeatureService {
     // service's neutral-mode restore, which owns that channel.
     this.syncButton();
     this.panel.hide();
-    this.resumeSketchUI((opts.resume ?? 'immediate') === 'immediate');
+    this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
   }
 
   /**
@@ -487,42 +503,32 @@ export class RepeatFeatureService {
       if (!this.isAxisPicking) {
         return;
       }
-      const axis = resolveAxisByShapeId(shapeId, this.sceneObjects);
-      const option = axis?.sourceLocation
-        ? this.axes.find(o => o.filePath === axis.sourceLocation!.filePath && o.line === axis.sourceLocation!.line)
-        : undefined;
+      const option = axisOptionForShape(shapeId, this.sceneObjects, this.axes);
       if (!option) {
-        this.panel.setMessage('That axis was already consumed — only axes still shown in the scene can be picked.');
+        this.panel.setMessage(AXIS_CONSUMED_MESSAGE);
         return;
       }
-      this.axisEdgeEntities.set(this.panel.armedAxis, null);
-      this.panel.selectAxis(option);
-      this.panel.setMessage(null);
-      this.refreshHighlight();
-      this.schedulePreview();
+      this.pickAxis(option);
       return;
     }
     if (sub.type === 'edge' && this.isAxisPicking) {
       // The pick lands in the armed direction's slot; re-clicking that
       // direction's edge clears it back.
       const direction = this.panel.armedAxis;
-      const entity: SelectedEntity = { shapeId, sub };
-      const current = this.axisEdgeEntities.get(direction);
-      const next = current && sameEntity(current, entity) ? null : entity;
+      const next = toggleEntity(this.axisEdgeEntities.get(direction) ?? null, { shapeId, sub });
       this.axisEdgeEntities.set(direction, next);
       this.panel.setAxisEdgeChip(direction, next ? 'Picked edge' : null);
       this.panel.setMessage(null);
       this.refreshHighlight();
-      this.schedulePreview();
+      this.runner.schedulePreview();
       return;
     }
     if (sub.type === 'face' && this.isPlanePicking) {
-      const entity: SelectedEntity = { shapeId, sub };
-      this.planeFaceEntity = this.planeFaceEntity && sameEntity(this.planeFaceEntity, entity) ? null : entity;
+      this.planeFaceEntity = toggleEntity(this.planeFaceEntity, { shapeId, sub });
       this.panel.setPlaneFaceChip(this.planeFaceEntity ? 'Picked face' : null);
       this.panel.setMessage(null);
       this.refreshHighlight();
-      this.schedulePreview();
+      this.runner.schedulePreview();
     }
   }
 
@@ -531,20 +537,12 @@ export class RepeatFeatureService {
     if (!this.isPlanePicking) {
       return;
     }
-    const plane = resolvePlaneByShapeId(shapeId, this.sceneObjects);
-    const option = plane?.sourceLocation
-      ? this.planes.find(o =>
-        o.filePath === plane.sourceLocation!.filePath && o.line === plane.sourceLocation!.line)
-      : undefined;
+    const option = planeOptionForShape(shapeId, this.sceneObjects, this.planes);
     if (!option) {
-      this.panel.setMessage('That plane cannot be referenced — only plane() features can mirror.');
+      this.panel.setMessage(PLANE_UNAVAILABLE_MESSAGE);
       return;
     }
-    this.planeFaceEntity = null;
-    this.panel.selectPlane(option);
-    this.panel.setMessage(null);
-    this.refreshHighlight();
-    this.schedulePreview();
+    this.pickPlane(option);
   }
 
   /** A shown origin plane was clicked while the Mirror type is up. */
@@ -556,7 +554,7 @@ export class RepeatFeatureService {
     this.panel.selectStandardPlane(plane);
     this.panel.setMessage(null);
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   };
 
   /**
@@ -574,17 +572,12 @@ export class RepeatFeatureService {
         this.panel.setMessage('An axis fits the Linear, Circular and Rotate types — a mirror takes a plane.');
         return true;
       }
-      const loc = obj.sourceLocation;
-      const option = this.axes.find(o => o.filePath === loc.filePath && o.line === loc.line);
+      const option = axisOptionForLocation(this.axes, obj.sourceLocation);
       if (!option) {
-        this.panel.setMessage('That axis was already consumed — only axes still shown in the scene can be picked.');
+        this.panel.setMessage(AXIS_CONSUMED_MESSAGE);
         return true;
       }
-      this.axisEdgeEntities.set(this.panel.armedAxis, null);
-      this.panel.selectAxis(option);
-      this.panel.setMessage(null);
-      this.refreshHighlight();
-      this.schedulePreview();
+      this.pickAxis(option);
       return true;
     }
     if (obj.type === 'plane' && obj.sourceLocation) {
@@ -592,17 +585,12 @@ export class RepeatFeatureService {
         this.panel.setMessage('A plane fits the Mirror type — this type takes an axis.');
         return true;
       }
-      const loc = obj.sourceLocation;
-      const option = this.planes.find(o => o.filePath === loc.filePath && o.line === loc.line);
+      const option = planeOptionForLocation(this.planes, obj.sourceLocation);
       if (!option) {
-        this.panel.setMessage('That plane cannot be referenced — only plane() features can mirror.');
+        this.panel.setMessage(PLANE_UNAVAILABLE_MESSAGE);
         return true;
       }
-      this.planeFaceEntity = null;
-      this.panel.selectPlane(option);
-      this.panel.setMessage(null);
-      this.refreshHighlight();
-      this.schedulePreview();
+      this.pickPlane(option);
       return true;
     }
     const target = resolveRepeatTargetRow(obj, this.sceneObjects);
@@ -630,55 +618,26 @@ export class RepeatFeatureService {
     this.panel.armSlot('targets');
     this.panel.setMessage(null);
     this.refresh();
-    this.schedulePreview();
+    this.runner.schedulePreview();
     return true;
   }
 
-  private async apply(): Promise<void> {
-    if (!this.armed || this.applying) {
-      return;
-    }
-    if (this.editTarget) {
-      const request = this.buildEditRequest();
-      if ('error' in request) {
-        this.panel.setMessage(request.error);
-        return;
-      }
-      this.applying = true;
-      this.panel.setApplyEnabled(false);
-      try {
-        const result = await applyRepeatEdit(this.editTarget, request);
-        if (result.success) {
-          this.exit({ editEnd: 'apply' });
-        } else {
-          this.panel.setMessage(result.reason ?? 'Could not apply the edit.');
-        }
-      } finally {
-        this.applying = false;
-        this.panel.setApplyEnabled(true);
-      }
-      return;
-    }
-    const request = this.buildRequest();
-    if ('error' in request) {
-      this.panel.setMessage(request.error);
-      return;
-    }
-    this.applying = true;
-    this.panel.setApplyEnabled(false);
-    try {
-      const result = await applyRepeat(request);
-      if (result.success) {
-        // The editor round-trip re-renders the scene; that render is the
-        // preview and editor undo is the rollback.
-        this.exit({ resume: 'lazy' });
-      } else {
-        this.panel.setMessage(result.reason ?? 'Could not apply the repeat.');
-      }
-    } finally {
-      this.applying = false;
-      this.panel.setApplyEnabled(true);
-    }
+  /** An offered axis landed in the armed direction's slot (3D or timeline pick). */
+  private pickAxis(option: AxisOption): void {
+    this.axisEdgeEntities.set(this.panel.armedAxis, null);
+    this.panel.selectAxis(option);
+    this.panel.setMessage(null);
+    this.refreshHighlight();
+    this.runner.schedulePreview();
+  }
+
+  /** An offered plane landed in the plane slot (quad or timeline pick). */
+  private pickPlane(option: PlaneOption): void {
+    this.planeFaceEntity = null;
+    this.panel.selectPlane(option);
+    this.panel.setMessage(null);
+    this.refreshHighlight();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -695,18 +654,8 @@ export class RepeatFeatureService {
     if (selection.kind === 'keep') {
       return { kind: 'keep', sourceIndex: selection.sourceIndex };
     }
-    if (selection.kind === 'standard') {
-      return { kind: 'standard', axis: selection.axis };
-    }
-    if (selection.kind === 'axis') {
-      const { filePath, line, column } = selection.option;
-      return { kind: 'axis', filePath, line, column };
-    }
-    const entity = this.axisEdgeEntities.get(direction);
-    if (!entity) {
-      return { error: `Pick the axis edge${which} first.` };
-    }
-    return { kind: 'edge', entity };
+    return pickedAxisRef(selection, this.axisEdgeEntities.get(direction) ?? null,
+      `Pick the axis edge${which} first.`);
   }
 
   /** The plane slot's request field, or the message blocking it. */
@@ -731,18 +680,10 @@ export class RepeatFeatureService {
     return { kind: 'face', entity: this.planeFaceEntity };
   }
 
-  /** The request for the current form state, or the message blocking it. */
-  /**
-   * Push the variables in scope at the statement (edit mode) or at the end
-   * of the file (create mode) to the dialog's expression fields. A response
-   * landing after the dialog closed or re-targeted is dropped.
-   */
   private async refreshScopeVariables(): Promise<void> {
     const line = this.editTarget?.line ?? null;
-    const variables = await getScopeVariables(line);
-    if (this.armed && (this.editTarget?.line ?? null) === line) {
-      this.panel.setScopeVariables(variables);
-    }
+    await refreshScopeVariables(line, this.panel,
+      () => this.armed && (this.editTarget?.line ?? null) === line);
   }
 
   private buildRequest(): RepeatApplyOptions | { error: string } {
@@ -958,116 +899,21 @@ export class RepeatFeatureService {
     }
   }
 
-  private suspendSketchUI(): void {
-    if (this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = true;
-    this.viewer.suspendSketchEditing();
-    this.hooks.onSuspendSketchUI?.();
-  }
-
-  private resumeSketchUI(immediate: boolean): void {
-    if (!this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = false;
-    this.viewer.resumeSketchEditing(immediate);
-    if (immediate) {
-      this.hooks.onResumeSketchUI?.();
-    }
-  }
-
   /**
    * Async label pass: axes and planes bound to variables show their names
    * ("ringAxis — line 5"). Applied only if the dialog is still armed on the
    * same option sets when the lookups land.
    */
-  private async refreshLabels(): Promise<void> {
-    const signature = `${axisOptionsSignature(this.axes)}#${planeOptionsSignature(this.planes)}`;
-    this.labelSignature = signature;
-    const [axes, planes] = await Promise.all([
-      labelWithAxisNames(this.axes),
-      labelWithPlaneNames(this.planes),
-    ]);
-    if (!this.armed || this.labelSignature !== signature) {
-      return;
-    }
-    this.axes = axes;
-    this.planes = planes;
-    this.panel.setOptions(axes, planes);
+  private refreshLabels(): void {
+    void this.relabeler.refresh({ axes: this.axes, planes: this.planes });
   }
 
   private syncButton(): void {
-    this.button.className = this.armed ? BTN_ACTIVE : BTN_BASE;
+    this.button.setActive(this.armed);
     // The solo group's visibility already hides the button (and the
     // navbar-managed separator before it) when nothing is repeatable.
     // Every armed flip lands here — the Sketch button disables while a
     // create dialog is up.
     this.hooks.onActiveChange?.();
-  }
-
-  // -------------------------------------------------------------------------
-  // Statement preview: debounced server render with truthful variable names.
-  // -------------------------------------------------------------------------
-
-  private schedulePreview(): void {
-    this.cancelPreview();
-    if (!this.armed) {
-      return;
-    }
-    this.previewTimer = window.setTimeout(() => {
-      this.previewTimer = null;
-      this.runPreview();
-    }, PREVIEW_DEBOUNCE_MS);
-  }
-
-  private async runPreview(): Promise<void> {
-    if (!this.armed || this.applying) {
-      return;
-    }
-    // Edit mode previews the full edit payload — keeps and re-sourced slots
-    // included — so the preview is the exact statement Apply will write.
-    const request = this.editTarget ? this.buildEditRequest() : this.buildRequest();
-    if ('error' in request) {
-      this.panel.setPreview(null);
-      return;
-    }
-    const seq = ++this.previewSeq;
-    this.previewAbort?.abort();
-    const abort = new AbortController();
-    this.previewAbort = abort;
-
-    let result: ApplyFeatureResponse;
-    try {
-      result = this.editTarget
-        ? await applyRepeatEdit(this.editTarget, {
-          ...(request as RepeatEditOptions),
-          preview: true,
-          signal: abort.signal,
-        })
-        : await applyRepeat({ ...(request as RepeatApplyOptions), preview: true, signal: abort.signal });
-    } catch {
-      return; // aborted
-    }
-    if (seq !== this.previewSeq || !this.armed) {
-      return;
-    }
-    this.panel.setPreview(result.success ? result.preview ?? null : null);
-    if (!result.success && result.reason) {
-      // Pre-Apply refusals (an unsynthesizable pick, an unsupported target
-      // statement) surface immediately.
-      this.panel.setMessage(result.reason);
-    }
-  }
-
-  private cancelPreview(): void {
-    if (this.previewTimer !== null) {
-      window.clearTimeout(this.previewTimer);
-      this.previewTimer = null;
-    }
-    this.previewAbort?.abort();
-    this.previewAbort = null;
-    this.previewSeq++;
   }
 }

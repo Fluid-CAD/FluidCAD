@@ -1,25 +1,23 @@
 import {
-  applyExtrude, applyExtrudeEdit, fetchFeatureSources, getScopeVariables, ApplyFeatureResponse,
-  ExtrudeEditOptions, ExtrudeProfileRef, FeatureEditTarget, ParsedFeatureStatement, SourceSlotRef,
+  applyExtrude, applyExtrudeEdit, fetchFeatureSources, ExtrudeEditOptions, ExtrudeProfileRef,
+  FeatureEditTarget, ParsedFeatureStatement, SourceSlotRef,
 } from '../../api';
-import { sameEntity } from '../../helpers/entities';
+import { toggleEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
-import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import { ExtrudePanel } from './extrude-panel';
+import { FeatureButton } from './feature-button';
+import { ApplyRunner } from './apply-runner';
+import { SketchUISuspender } from './sketch-suspender';
+import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import {
   collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 
-const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 text-base-content/60';
-const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2 py-1';
-/** Small muted caption under the toolbar icon. */
-const BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
-
-const PREVIEW_DEBOUNCE_MS = 250;
+type ExtrudeApplyRequest = Parameters<typeof applyExtrude>[0];
 
 /**
  * The create-features toolbar group (Extrude, for now). Unlike the modify
@@ -37,9 +35,7 @@ const PREVIEW_DEBOUNCE_MS = 250;
  */
 export class ExtrudeFeatureService {
   private panel: ExtrudePanel;
-  private button: HTMLButtonElement;
-  /** daisyUI tooltip wrapper around {@link button}; hides with the button so no phantom toolbar gap. */
-  private buttonWrap: HTMLElement;
+  private button: FeatureButton;
   private armed = false;
   private available = false;
   private options: SketchProfileOption[] = [];
@@ -50,8 +46,6 @@ export class ExtrudeFeatureService {
   private toFaceEntity: SelectedEntity | null = null;
   /** A full render arrived mid-session — a re-picked face's shape id died. */
   private editSceneStale = false;
-  private labelSignature = '';
-  private applying = false;
   /** Statement being edited in place (timeline double-click), or null. */
   private editTarget: FeatureEditTarget | null = null;
   /** View-state half of edit mode: pre-statement rollback + boundary. */
@@ -60,11 +54,9 @@ export class ExtrudeFeatureService {
   private sourceProfile: SourceSlotRef | null = null;
   /** The statement's current to-face target, for highlighting its keep chip. */
   private sourceToFace: SourceSlotRef | null = null;
-  /** Sketch editing is suspended while an edit session owns the view. */
-  private suspendedSketchUI = false;
-  private previewTimer: number | null = null;
-  private previewAbort: AbortController | null = null;
-  private previewSeq = 0;
+  private sketchUI: SketchUISuspender;
+  private runner: ApplyRunner<ExtrudeApplyRequest | ExtrudeEditOptions>;
+  private relabeler: OptionRelabeler<SketchProfileOption[]>;
 
   constructor(
     container: HTMLElement,
@@ -81,39 +73,68 @@ export class ExtrudeFeatureService {
     } = {},
   ) {
     const group = navbar.addGroup('create', { visible: false, immune: true });
-    this.button = document.createElement('button');
-    this.button.className = BTN_BASE;
-    this.button.setAttribute('aria-label', 'Extrude a sketch');
-    this.button.innerHTML = `<img src="/icons/extrude.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain" alt="" /><span class="${BTN_LABEL}">Extrude</span>`;
-    this.button.addEventListener('click', () => {
+    this.button = new FeatureButton(group, {
+      icon: '/icons/extrude.png',
+      label: 'Extrude',
+      tip: 'Extrude a sketch',
+      ariaLabel: 'Extrude a sketch',
+    });
+    this.button.onClick = () => {
       if (this.armed) {
         this.exit();
       } else {
         this.enter();
       }
-    });
-    this.buttonWrap = document.createElement('span');
-    this.buttonWrap.className = 'tooltip tooltip-bottom';
-    this.buttonWrap.dataset.tip = 'Extrude a sketch';
-    this.buttonWrap.appendChild(this.button);
-    group.appendChild(this.buttonWrap);
+    };
+    this.sketchUI = new SketchUISuspender(viewer, hooks);
 
     this.panel = new ExtrudePanel(container);
-    this.panel.onApply = () => this.apply();
+    this.panel.onApply = () => void this.runner.apply();
     this.panel.onExit = () => this.exit();
     this.panel.onChange = () => {
       this.panel.setMessage(null);
       this.syncFacePickMode();
       this.refreshHighlight();
-      this.schedulePreview();
+      this.runner.schedulePreview();
     };
     this.panel.onRemoveFace = () => {
       this.toFaceEntity = null;
       this.panel.setFaceChip(null);
       this.panel.setMessage(null);
       this.refreshHighlight();
-      this.schedulePreview();
+      this.runner.schedulePreview();
     };
+
+    this.runner = new ApplyRunner({
+      panel: this.panel,
+      isArmed: () => this.armed,
+      build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
+      send: (request, extras) => this.editTarget
+        ? applyExtrudeEdit(this.editTarget, { ...(request as ExtrudeEditOptions), ...extras })
+        : applyExtrude({ ...(request as ExtrudeApplyRequest), ...extras }),
+      onApplied: () => this.exit(this.editTarget ? { editEnd: 'apply' } : { resume: 'lazy' }),
+      failMessage: () => this.editTarget ? 'Could not apply the edit.' : 'Could not apply the extrude.',
+      // An empty sketch blocks Apply but not the preview — while drawing in
+      // sketch mode the would-be statement still shows.
+      validateApply: () => {
+        const option = this.editTarget ? null : this.panel.selectedOption();
+        return option && !option.hasGeometry ? { error: 'Draw a profile in the sketch first.' } : null;
+      },
+      // Create-mode distance previews stay quiet — transient failures would
+      // flash while sketching. The statement changed shape under the dialog
+      // (an undo, a concurrent edit) or the picked target face has no safe
+      // selector — those surface before Apply.
+      surfacePreviewReasons: () => this.editTarget !== null || this.panel.isToFace(),
+    });
+    this.relabeler = new OptionRelabeler({
+      sign: optionsSignature,
+      load: labelWithSketchNames,
+      isArmed: () => this.armed,
+      apply: (options) => {
+        this.options = options;
+        this.panel.setOptions(options);
+      },
+    });
   }
 
   get isActive(): boolean {
@@ -136,7 +157,7 @@ export class ExtrudeFeatureService {
 
   /** True while an edit session has suspended sketch editing. */
   get sketchUISuspended(): boolean {
-    return this.suspendedSketchUI;
+    return this.sketchUI.suspended;
   }
 
   /**
@@ -186,9 +207,9 @@ export class ExtrudeFeatureService {
     if (!this.sourceProfile) {
       void this.loadEditSources();
     }
-    this.refreshSketchLabels();
+    void this.relabeler.refresh(this.options);
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -225,9 +246,9 @@ export class ExtrudeFeatureService {
     this.viewer.pickSketchWires = true;
     this.panel.setOptions(this.options);
     this.syncFacePickMode();
-    this.refreshSketchLabels();
+    void this.relabeler.refresh(this.options);
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -254,7 +275,7 @@ export class ExtrudeFeatureService {
     this.toFaceEntity = null;
     this.editSceneStale = false;
     this.syncButton();
-    this.suspendSketchUI();
+    this.sketchUI.suspend();
     this.viewer.pickSketchWires = true;
     this.session.begin({ ...info, target });
     void this.loadEditSources();
@@ -271,20 +292,13 @@ export class ExtrudeFeatureService {
       toFaceLabel: parsed.toFaceText,
     });
     this.syncFacePickMode();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
-  /**
-   * Push the variables in scope at the statement (edit mode) or at the end
-   * of the file (create mode) to the dialog's expression fields. A response
-   * landing after the dialog closed or re-targeted is dropped.
-   */
   private async refreshScopeVariables(): Promise<void> {
     const line = this.editTarget?.line ?? null;
-    const variables = await getScopeVariables(line);
-    if (this.armed && (this.editTarget?.line ?? null) === line) {
-      this.panel.setScopeVariables(variables);
-    }
+    await refreshScopeVariables(line, this.panel,
+      () => this.armed && (this.editTarget?.line ?? null) === line);
   }
 
   /** The statement's current profile and target, for highlighting keep slots. */
@@ -323,25 +337,9 @@ export class ExtrudeFeatureService {
     // The direction select persists across sessions — re-arm face picking
     // when the dialog reopens on "Up to face".
     this.syncFacePickMode();
-    this.refreshSketchLabels();
+    void this.relabeler.refresh(this.options);
     this.refreshHighlight();
-    this.schedulePreview();
-  }
-
-  /**
-   * Async label pass: sketches bound to variables show their names in the
-   * dropdown ("spine — line 3"). Applied only if the dialog is still armed
-   * on the same option set when the lookup lands.
-   */
-  private async refreshSketchLabels(): Promise<void> {
-    const signature = optionsSignature(this.options);
-    this.labelSignature = signature;
-    const labeled = await labelWithSketchNames(this.options);
-    if (!this.armed || this.labelSignature !== signature) {
-      return;
-    }
-    this.options = labeled;
-    this.panel.setOptions(labeled);
+    this.runner.schedulePreview();
   }
 
   /**
@@ -371,29 +369,9 @@ export class ExtrudeFeatureService {
     this.viewer.pickSketchWires = false;
     this.viewer.clearHighlight();
     this.syncButton();
-    this.cancelPreview();
+    this.runner.cancelPreview();
     this.panel.hide();
-    this.resumeSketchUI((opts.resume ?? 'immediate') === 'immediate');
-  }
-
-  private suspendSketchUI(): void {
-    if (this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = true;
-    this.viewer.suspendSketchEditing();
-    this.hooks.onSuspendSketchUI?.();
-  }
-
-  private resumeSketchUI(immediate: boolean): void {
-    if (!this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = false;
-    this.viewer.resumeSketchEditing(immediate);
-    if (immediate) {
-      this.hooks.onResumeSketchUI?.();
-    }
+    this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
   }
 
   /**
@@ -435,8 +413,8 @@ export class ExtrudeFeatureService {
   }
 
   private syncButton(): void {
-    this.button.className = this.armed ? BTN_ACTIVE : BTN_BASE;
-    this.buttonWrap.classList.toggle('hidden', !this.available);
+    this.button.setActive(this.armed);
+    this.button.setVisible(this.available);
     // Every armed flip lands here — the Sketch button disables while a
     // create dialog is up.
     this.hooks.onActiveChange?.();
@@ -484,7 +462,7 @@ export class ExtrudeFeatureService {
     this.panel.selectProfile(index);
     this.panel.setMessage(null);
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -496,12 +474,11 @@ export class ExtrudeFeatureService {
     if (!this.isFacePicking || !shapeId || !sub || sub.type !== 'face') {
       return;
     }
-    const entity: SelectedEntity = { shapeId, sub };
-    this.toFaceEntity = this.toFaceEntity && sameEntity(this.toFaceEntity, entity) ? null : entity;
+    this.toFaceEntity = toggleEntity(this.toFaceEntity, { shapeId, sub });
     this.panel.setFaceChip(this.toFaceEntity ? 'Picked face' : null);
     this.panel.setMessage(null);
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -521,151 +498,42 @@ export class ExtrudeFeatureService {
       return;
     }
     if (picking && this.sceneSketchActive) {
-      this.suspendSketchUI();
+      this.sketchUI.suspend();
     } else if (!picking) {
-      this.resumeSketchUI(true);
+      this.sketchUI.resume(true);
     }
   }
 
-  private async apply(): Promise<void> {
-    if (!this.armed || this.applying) {
-      return;
-    }
+  /** The create request for the current form state, or the blocking message. */
+  private buildRequest(): ExtrudeApplyRequest | { error: string } {
     const values = this.panel.values();
     if ('error' in values) {
-      this.panel.setMessage(values.error);
-      return;
-    }
-    if (this.editTarget) {
-      this.applying = true;
-      this.panel.setApplyEnabled(false);
-      try {
-        const result = await applyExtrudeEdit(this.editTarget, {
-          ...values,
-          ...this.editSourceFields(),
-        });
-        if (result.success) {
-          this.exit({ editEnd: 'apply' });
-        } else {
-          this.panel.setMessage(result.reason ?? 'Could not apply the edit.');
-        }
-      } finally {
-        this.applying = false;
-        this.panel.setApplyEnabled(true);
-      }
-      return;
+      return values;
     }
     const option = this.panel.selectedOption();
     if (!option) {
-      this.panel.setMessage('No sketch to extrude.');
-      return;
+      return { error: 'No sketch to extrude.' };
     }
-    if (!option.hasGeometry) {
-      this.panel.setMessage('Draw a profile in the sketch first.');
-      return;
-    }
-
-    this.applying = true;
-    this.panel.setApplyEnabled(false);
-    try {
-      const result = await applyExtrude({
-        ...values,
-        profile: profileRef(option),
-        toFace: this.panel.isToFace() ? this.toFaceEntity ?? undefined : undefined,
-      });
-      if (result.success) {
-        // The editor round-trip re-renders the scene; that render is the
-        // preview and editor undo is the rollback.
-        this.exit({ resume: 'lazy' });
-      } else {
-        this.panel.setMessage(result.reason ?? 'Could not apply the extrude.');
-      }
-    } finally {
-      this.applying = false;
-      this.panel.setApplyEnabled(true);
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Statement preview: debounced server render, so a bound profile shows the
-  // variable name the transform will actually write.
-  // -------------------------------------------------------------------------
-
-  private schedulePreview(): void {
-    this.cancelPreview();
-    if (!this.armed) {
-      return;
-    }
-    this.previewTimer = window.setTimeout(() => {
-      this.previewTimer = null;
-      this.runPreview();
-    }, PREVIEW_DEBOUNCE_MS);
-  }
-
-  private async runPreview(): Promise<void> {
-    if (!this.armed || this.applying) {
-      return;
-    }
-    const values = this.panel.values();
-    const option = this.editTarget ? null : this.panel.selectedOption();
-    if ('error' in values || (!this.editTarget && !option)) {
-      this.panel.setPreview(null);
-      return;
-    }
-    const seq = ++this.previewSeq;
-    this.previewAbort?.abort();
-    const abort = new AbortController();
-    this.previewAbort = abort;
-
-    let result: ApplyFeatureResponse;
-    try {
-      result = this.editTarget
-        ? await applyExtrudeEdit(this.editTarget, {
-          ...values,
-          ...this.editSourceFields(),
-          preview: true,
-          signal: abort.signal,
-        })
-        : await applyExtrude({
-          ...values,
-          profile: profileRef(option!),
-          toFace: this.panel.isToFace() ? this.toFaceEntity ?? undefined : undefined,
-          preview: true,
-          signal: abort.signal,
-        });
-    } catch {
-      return; // aborted
-    }
-    if (seq !== this.previewSeq || !this.armed) {
-      return;
-    }
-    this.panel.setPreview(result.success ? result.preview ?? null : null);
-    if (!result.success && result.reason && (this.editTarget || this.panel.isToFace())) {
-      // The statement changed shape under the dialog (an undo, a concurrent
-      // edit) or the picked target face has no safe selector — surface the
-      // refusal before Apply.
-      this.panel.setMessage(result.reason);
-    }
-  }
-
-  private cancelPreview(): void {
-    if (this.previewTimer !== null) {
-      window.clearTimeout(this.previewTimer);
-      this.previewTimer = null;
-    }
-    this.previewAbort?.abort();
-    this.previewAbort = null;
-    this.previewSeq++;
+    return {
+      ...values,
+      profile: profileRef(option),
+      toFace: this.panel.isToFace() ? this.toFaceEntity ?? undefined : undefined,
+    };
   }
 
   /**
-   * The edit apply/preview's session fields: the staleness guard, the
-   * re-sourced profile when the slot moved off its "Current: …" entry, and
-   * the to-face target while that direction is selected — `keep` for the
-   * statement's own target, a face pick (with the boundary it resolves
-   * against) for a re-pick. No toFace field means the distance form.
+   * The edit-mode apply payload: the form values plus the session fields —
+   * the staleness guard, the re-sourced profile when the slot moved off its
+   * "Current: …" entry, and the to-face target while that direction is
+   * selected — `keep` for the statement's own target, a face pick (with the
+   * boundary it resolves against) for a re-pick. No toFace field means the
+   * distance form.
    */
-  private editSourceFields(): Pick<ExtrudeEditOptions, 'expectedStatement' | 'before' | 'profile' | 'toFace'> {
+  private buildEditRequest(): ExtrudeEditOptions | { error: string } {
+    const values = this.panel.values();
+    if ('error' in values) {
+      return values;
+    }
     const selection = this.panel.profileSelection();
     const profile = selection?.kind === 'sketch'
       ? {
@@ -682,6 +550,7 @@ export class ExtrudeFeatureService {
         : { kind: 'keep' };
     }
     return {
+      ...values,
       expectedStatement: this.session.expectedStatement,
       before: toFace?.kind === 'face' ? this.session.boundary ?? undefined : undefined,
       profile,
@@ -698,4 +567,3 @@ function profileRef(option: SketchProfileOption): ExtrudeProfileRef {
     column: option.column,
   };
 }
-

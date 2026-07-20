@@ -1,30 +1,25 @@
 import {
-  applyRevolve, applyRevolveEdit, fetchFeatureSources, getScopeVariables, ApplyFeatureResponse,
-  FeatureEditTarget, ParsedFeatureStatement, RevolveApplyOptions, RevolveAxisRef, RevolveEditOptions,
-  SourceSlotRef,
+  applyRevolve, applyRevolveEdit, fetchFeatureSources, FeatureEditTarget, ParsedFeatureStatement,
+  RevolveApplyOptions, RevolveAxisRef, RevolveEditOptions, SourceSlotRef,
 } from '../../api';
-import { sameEntity } from '../../helpers/entities';
+import { toggleEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
-import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import { RevolvePanel } from './revolve-panel';
+import { FeatureButton } from './feature-button';
+import { ApplyRunner } from './apply-runner';
+import { SketchUISuspender } from './sketch-suspender';
+import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import {
   collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 import {
-  AxisOption, axisLineShapeIds, axisOptionsSignature, collectAxisOptions, labelWithAxisNames,
-  resolveAxisByShapeId,
+  AXIS_CONSUMED_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
+  axisOptionsSignature, collectAxisOptions, labelWithAxisNames, pickedAxisRef,
 } from './axis-options';
-
-const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 text-base-content/60';
-const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2 py-1';
-/** Small muted caption under the toolbar icon. */
-const BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
-
-const PREVIEW_DEBOUNCE_MS = 250;
 
 /**
  * The Revolve dialog on the create rails: a profile sketch swept around an
@@ -41,18 +36,15 @@ const PREVIEW_DEBOUNCE_MS = 250;
  */
 export class RevolveFeatureService {
   private panel: RevolvePanel;
-  private button: HTMLButtonElement;
-  /** daisyUI tooltip wrapper around {@link button}; hides with the button so no phantom toolbar gap. */
-  private buttonWrap: HTMLElement;
+  private button: FeatureButton;
   private armed = false;
   private available = false;
-  private applying = false;
   private profiles: SketchProfileOption[] = [];
   private axes: AxisOption[] = [];
   private sceneObjects: SceneObjectRender[] = [];
   private hasSolid = false;
   private sceneSketchActive = false;
-  private suspendedSketchUI = false;
+  private sketchUI: SketchUISuspender;
   /** The picked axis edge (the axis slot's `edge` mode), or null. */
   private axisEdgeEntity: SelectedEntity | null = null;
   /** Statement being edited in place (timeline double-click), or null. */
@@ -63,10 +55,8 @@ export class RevolveFeatureService {
   private sourceSlots: { profile: SourceSlotRef; axis: SourceSlotRef } | null = null;
   /** A full render arrived mid-session — a re-picked edge's shape id died. */
   private editSceneStale = false;
-  private labelSignature = '';
-  private previewTimer: number | null = null;
-  private previewAbort: AbortController | null = null;
-  private previewSeq = 0;
+  private runner: ApplyRunner<RevolveApplyOptions | Parameters<typeof applyRevolveEdit>[1]>;
+  private relabeler: OptionRelabeler<{ profiles: SketchProfileOption[]; axes: AxisOption[] }>;
 
   constructor(
     container: HTMLElement,
@@ -81,30 +71,28 @@ export class RevolveFeatureService {
     } = {},
   ) {
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
-    this.button = document.createElement('button');
-    this.button.className = BTN_BASE;
-    this.button.setAttribute('aria-label', 'Revolve a sketch around an axis');
-    this.button.innerHTML = `<img src="/icons/revolve.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain" alt="" /><span class="${BTN_LABEL}">Revolve</span>`;
-    this.button.addEventListener('click', () => {
+    this.button = new FeatureButton(group, {
+      icon: '/icons/revolve.png',
+      label: 'Revolve',
+      tip: 'Revolve a sketch around an axis',
+      ariaLabel: 'Revolve a sketch around an axis',
+    });
+    this.button.onClick = () => {
       if (this.armed) {
         this.exit();
       } else {
         this.enter();
       }
-    });
-    this.buttonWrap = document.createElement('span');
-    this.buttonWrap.className = 'tooltip tooltip-bottom';
-    this.buttonWrap.dataset.tip = 'Revolve a sketch around an axis';
-    this.buttonWrap.appendChild(this.button);
-    group.appendChild(this.buttonWrap);
+    };
+    this.sketchUI = new SketchUISuspender(viewer, hooks);
 
     this.panel = new RevolvePanel(container);
-    this.panel.onApply = () => this.apply();
+    this.panel.onApply = () => void this.runner.apply();
     this.panel.onExit = () => this.exit();
     this.panel.onChange = () => {
       this.panel.setMessage(null);
       this.refreshHighlight();
-      this.schedulePreview();
+      this.runner.schedulePreview();
     };
     this.panel.onAxisModeChange = () => {
       // The slot left edge mode (✕, a standard/axis choice) — the entity
@@ -113,6 +101,33 @@ export class RevolveFeatureService {
       this.refreshHighlight();
     };
     this.panel.onArmedSlotChange = () => this.syncPickChannels();
+
+    this.runner = new ApplyRunner({
+      panel: this.panel,
+      isArmed: () => this.armed,
+      build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
+      send: (request, extras) => this.editTarget
+        ? applyRevolveEdit(this.editTarget, { ...(request as Parameters<typeof applyRevolveEdit>[1]), ...extras })
+        : applyRevolve({ ...(request as RevolveApplyOptions), ...extras }),
+      onApplied: () => this.exit(this.editTarget ? { editEnd: 'apply' } : { resume: 'lazy' }),
+      failMessage: () => this.editTarget ? 'Could not apply the edit.' : 'Could not apply the revolve.',
+    });
+    this.relabeler = new OptionRelabeler({
+      sign: ({ profiles, axes }) => `${optionsSignature(profiles)}#${axisOptionsSignature(axes)}`,
+      load: async ({ profiles, axes }) => {
+        const [labeledProfiles, labeledAxes] = await Promise.all([
+          labelWithSketchNames(profiles),
+          labelWithAxisNames(axes),
+        ]);
+        return { profiles: labeledProfiles, axes: labeledAxes };
+      },
+      isArmed: () => this.armed,
+      apply: ({ profiles, axes }) => {
+        this.profiles = profiles;
+        this.axes = axes;
+        this.panel.setOptions(profiles, axes);
+      },
+    });
   }
 
   get isActive(): boolean {
@@ -135,7 +150,7 @@ export class RevolveFeatureService {
 
   /** True while armed picking has suspended sketch editing. */
   get sketchUISuspended(): boolean {
-    return this.suspendedSketchUI;
+    return this.sketchUI.suspended;
   }
 
   /**
@@ -186,7 +201,7 @@ export class RevolveFeatureService {
     this.panel.setOptions(this.profiles, this.axes);
     this.refreshLabels();
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
@@ -210,7 +225,7 @@ export class RevolveFeatureService {
     // A render can put a sketch back in front (live editing) — the armed
     // dialog keeps the free 3D view.
     if (this.sceneSketchActive) {
-      this.suspendSketchUI();
+      this.sketchUI.suspend();
     }
     this.syncPickChannels();
     // Shape ids changed with the render — a picked axis edge is stale and
@@ -222,7 +237,7 @@ export class RevolveFeatureService {
     this.panel.setOptions(this.profiles, this.axes);
     this.refreshLabels();
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -249,7 +264,7 @@ export class RevolveFeatureService {
     this.sourceSlots = null;
     this.editSceneStale = false;
     this.syncButton();
-    this.suspendSketchUI();
+    this.sketchUI.suspend();
     this.session.begin({ ...info, target });
     void this.loadEditSources();
     void this.refreshScopeVariables();
@@ -261,21 +276,13 @@ export class RevolveFeatureService {
       profileLabel: parsed.profileText,
     });
     this.syncPickChannels();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
-  /** The statement's current profile and axis, for highlighting keep slots. */
-  /**
-   * Push the variables in scope at the statement (edit mode) or at the end
-   * of the file (create mode) to the dialog's expression fields. A response
-   * landing after the dialog closed or re-targeted is dropped.
-   */
   private async refreshScopeVariables(): Promise<void> {
     const line = this.editTarget?.line ?? null;
-    const variables = await getScopeVariables(line);
-    if (this.armed && (this.editTarget?.line ?? null) === line) {
-      this.panel.setScopeVariables(variables);
-    }
+    await refreshScopeVariables(line, this.panel,
+      () => this.armed && (this.editTarget?.line ?? null) === line);
   }
 
   private async loadEditSources(): Promise<void> {
@@ -305,7 +312,7 @@ export class RevolveFeatureService {
     // active sketch plane — leave sketch editing right away (resumed on
     // cancel; an apply's re-render takes over).
     if (this.sceneSketchActive) {
-      this.suspendSketchUI();
+      this.sketchUI.suspend();
     }
     this.syncButton();
     void this.refreshScopeVariables();
@@ -313,7 +320,7 @@ export class RevolveFeatureService {
     this.syncPickChannels();
     this.refreshLabels();
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -337,13 +344,13 @@ export class RevolveFeatureService {
     this.editSceneStale = false;
     this.axisEdgeEntity = null;
     this.syncButton();
-    this.cancelPreview();
+    this.runner.cancelPreview();
     this.viewer.clearHighlight();
     this.viewer.pickFilter = 'all';
     this.viewer.pickSketchWires = false;
     this.viewer.pickAxes = false;
     this.panel.hide();
-    this.resumeSketchUI((opts.resume ?? 'immediate') === 'immediate');
+    this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
   }
 
   /**
@@ -356,30 +363,22 @@ export class RevolveFeatureService {
       return;
     }
     if (sub.type === 'axis') {
-      const axis = resolveAxisByShapeId(shapeId, this.sceneObjects);
-      const option = axis?.sourceLocation
-        ? this.axes.find(o => o.filePath === axis.sourceLocation!.filePath && o.line === axis.sourceLocation!.line)
-        : undefined;
+      const option = axisOptionForShape(shapeId, this.sceneObjects, this.axes);
       if (!option) {
-        this.panel.setMessage('That axis was already consumed — only axes still shown in the scene can be picked.');
+        this.panel.setMessage(AXIS_CONSUMED_MESSAGE);
         return;
       }
-      this.axisEdgeEntity = null;
-      this.panel.selectAxis(option);
-      this.panel.setMessage(null);
-      this.refreshHighlight();
-      this.schedulePreview();
+      this.pickAxis(option);
       return;
     }
     if (sub.type !== 'edge') {
       return;
     }
-    const entity: SelectedEntity = { shapeId, sub };
-    this.axisEdgeEntity = this.axisEdgeEntity && sameEntity(this.axisEdgeEntity, entity) ? null : entity;
+    this.axisEdgeEntity = toggleEntity(this.axisEdgeEntity, { shapeId, sub });
     this.panel.setAxisEdgeChip(this.axisEdgeEntity ? 'Picked edge' : null);
     this.panel.setMessage(null);
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -392,17 +391,12 @@ export class RevolveFeatureService {
       return false;
     }
     if (obj.type === 'axis' && obj.sourceLocation) {
-      const loc = obj.sourceLocation;
-      const option = this.axes.find(o => o.filePath === loc.filePath && o.line === loc.line);
+      const option = axisOptionForLocation(this.axes, obj.sourceLocation);
       if (!option) {
-        this.panel.setMessage('That axis was already consumed — only axes still shown in the scene can be picked.');
+        this.panel.setMessage(AXIS_CONSUMED_MESSAGE);
         return true;
       }
-      this.axisEdgeEntity = null;
-      this.panel.selectAxis(option);
-      this.panel.setMessage(null);
-      this.refreshHighlight();
-      this.schedulePreview();
+      this.pickAxis(option);
       return true;
     }
     const sketch = resolveSketchRow(obj, this.sceneObjects);
@@ -426,6 +420,15 @@ export class RevolveFeatureService {
     return true;
   }
 
+  /** An offered axis landed in the axis slot (3D or timeline pick). */
+  private pickAxis(option: AxisOption): void {
+    this.axisEdgeEntity = null;
+    this.panel.selectAxis(option);
+    this.panel.setMessage(null);
+    this.refreshHighlight();
+    this.runner.schedulePreview();
+  }
+
   private pickSketch(sketch: SceneObjectRender): void {
     const loc = sketch.sourceLocation!;
     const index = this.profiles.findIndex(o => o.filePath === loc.filePath && o.line === loc.line);
@@ -436,54 +439,7 @@ export class RevolveFeatureService {
     this.panel.selectProfile(index);
     this.panel.setMessage(null);
     this.refreshHighlight();
-    this.schedulePreview();
-  }
-
-  private async apply(): Promise<void> {
-    if (!this.armed || this.applying) {
-      return;
-    }
-    if (this.editTarget) {
-      const request = this.buildEditRequest();
-      if ('error' in request) {
-        this.panel.setMessage(request.error);
-        return;
-      }
-      this.applying = true;
-      this.panel.setApplyEnabled(false);
-      try {
-        const result = await applyRevolveEdit(this.editTarget, request);
-        if (result.success) {
-          this.exit({ editEnd: 'apply' });
-        } else {
-          this.panel.setMessage(result.reason ?? 'Could not apply the edit.');
-        }
-      } finally {
-        this.applying = false;
-        this.panel.setApplyEnabled(true);
-      }
-      return;
-    }
-    const request = this.buildRequest();
-    if ('error' in request) {
-      this.panel.setMessage(request.error);
-      return;
-    }
-    this.applying = true;
-    this.panel.setApplyEnabled(false);
-    try {
-      const result = await applyRevolve(request);
-      if (result.success) {
-        // The editor round-trip re-renders the scene; that render is the
-        // preview and editor undo is the rollback.
-        this.exit({ resume: 'lazy' });
-      } else {
-        this.panel.setMessage(result.reason ?? 'Could not apply the revolve.');
-      }
-    } finally {
-      this.applying = false;
-      this.panel.setApplyEnabled(true);
-    }
+    this.runner.schedulePreview();
   }
 
   /** The axis slot's request field, or the message blocking it. */
@@ -492,17 +448,7 @@ export class RevolveFeatureService {
     if (!selection || selection.kind === 'keep') {
       return null;
     }
-    if (selection.kind === 'standard') {
-      return { kind: 'standard', axis: selection.axis };
-    }
-    if (selection.kind === 'axis') {
-      const option = selection.option;
-      return { kind: 'axis', filePath: option.filePath, line: option.line, column: option.column };
-    }
-    if (!this.axisEdgeEntity) {
-      return { error: 'Pick the axis edge first.' };
-    }
-    return { kind: 'edge', entity: this.axisEdgeEntity };
+    return pickedAxisRef(selection, this.axisEdgeEntity, 'Pick the axis edge first.');
   }
 
   /** The request for the current form state, or the message blocking it. */
@@ -598,44 +544,13 @@ export class RevolveFeatureService {
     this.viewer.pickFilter = axisArmed ? 'edge' : 'none';
   }
 
-  private suspendSketchUI(): void {
-    if (this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = true;
-    this.viewer.suspendSketchEditing();
-    this.hooks.onSuspendSketchUI?.();
-  }
-
-  private resumeSketchUI(immediate: boolean): void {
-    if (!this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = false;
-    this.viewer.resumeSketchEditing(immediate);
-    if (immediate) {
-      this.hooks.onResumeSketchUI?.();
-    }
-  }
-
   /**
    * Async label pass: sketches and axes bound to variables show their names
    * ("profile — line 3", "ringAxis — line 5"). Applied only if the dialog is
    * still armed on the same option sets when the lookups land.
    */
-  private async refreshLabels(): Promise<void> {
-    const signature = `${optionsSignature(this.profiles)}#${axisOptionsSignature(this.axes)}`;
-    this.labelSignature = signature;
-    const [profiles, axes] = await Promise.all([
-      labelWithSketchNames(this.profiles),
-      labelWithAxisNames(this.axes),
-    ]);
-    if (!this.armed || this.labelSignature !== signature) {
-      return;
-    }
-    this.profiles = profiles;
-    this.axes = axes;
-    this.panel.setOptions(profiles, axes);
+  private refreshLabels(): void {
+    void this.relabeler.refresh({ profiles: this.profiles, axes: this.axes });
   }
 
   /**
@@ -682,74 +597,10 @@ export class RevolveFeatureService {
   }
 
   private syncButton(): void {
-    this.button.className = this.armed ? BTN_ACTIVE : BTN_BASE;
-    this.buttonWrap.classList.toggle('hidden', !this.available);
+    this.button.setActive(this.armed);
+    this.button.setVisible(this.available);
     // Every armed flip lands here — the Sketch button disables while a
     // create dialog is up.
     this.hooks.onActiveChange?.();
-  }
-
-  // -------------------------------------------------------------------------
-  // Statement preview: debounced server render with truthful variable names.
-  // -------------------------------------------------------------------------
-
-  private schedulePreview(): void {
-    this.cancelPreview();
-    if (!this.armed) {
-      return;
-    }
-    this.previewTimer = window.setTimeout(() => {
-      this.previewTimer = null;
-      this.runPreview();
-    }, PREVIEW_DEBOUNCE_MS);
-  }
-
-  private async runPreview(): Promise<void> {
-    if (!this.armed || this.applying) {
-      return;
-    }
-    // Edit mode previews the full edit payload — re-sourced slots included —
-    // so the preview is the exact statement Apply will write.
-    const request = this.editTarget ? this.buildEditRequest() : this.buildRequest();
-    if ('error' in request) {
-      this.panel.setPreview(null);
-      return;
-    }
-    const seq = ++this.previewSeq;
-    this.previewAbort?.abort();
-    const abort = new AbortController();
-    this.previewAbort = abort;
-
-    let result: ApplyFeatureResponse;
-    try {
-      result = this.editTarget
-        ? await applyRevolveEdit(this.editTarget, {
-          ...(request as Parameters<typeof applyRevolveEdit>[1]),
-          preview: true,
-          signal: abort.signal,
-        })
-        : await applyRevolve({ ...(request as RevolveApplyOptions), preview: true, signal: abort.signal });
-    } catch {
-      return; // aborted
-    }
-    if (seq !== this.previewSeq || !this.armed) {
-      return;
-    }
-    this.panel.setPreview(result.success ? result.preview ?? null : null);
-    if (!result.success && result.reason) {
-      // Pre-Apply refusals (an unsynthesizable axis edge, a statement that
-      // changed shape under the dialog) surface immediately.
-      this.panel.setMessage(result.reason);
-    }
-  }
-
-  private cancelPreview(): void {
-    if (this.previewTimer !== null) {
-      window.clearTimeout(this.previewTimer);
-      this.previewTimer = null;
-    }
-    this.previewAbort?.abort();
-    this.previewAbort = null;
-    this.previewSeq++;
   }
 }

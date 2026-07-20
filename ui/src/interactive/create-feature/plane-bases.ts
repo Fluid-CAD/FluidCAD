@@ -1,6 +1,10 @@
 import { fetchSketchNames } from '../../api';
 import { SceneObjectRender } from '../../types';
 
+/** The message when a picked plane cannot back the slot (not a plane()). */
+export const PLANE_UNAVAILABLE_MESSAGE =
+  'That plane cannot be referenced — only plane() features can mirror.';
+
 /** An existing plane feature a new plane can use as a base. */
 export type PlaneOption = {
   label: string;
@@ -79,4 +83,25 @@ export function resolvePlaneByShapeId(
 ): SceneObjectRender | undefined {
   return sceneObjects.find(o =>
     o.type === 'plane' && o.sceneShapes?.some(s => s.shapeId === shapeId));
+}
+
+/** The offered option at a source location (a timeline plane row's). */
+export function planeOptionForLocation(
+  planes: PlaneOption[],
+  loc: { filePath: string; line: number },
+): PlaneOption | undefined {
+  return planes.find(o => o.filePath === loc.filePath && o.line === loc.line);
+}
+
+/**
+ * Resolve a picked plane-quad shape to its offered option; undefined means
+ * the plane cannot back the slot (not a plane() feature).
+ */
+export function planeOptionForShape(
+  shapeId: string,
+  sceneObjects: SceneObjectRender[],
+  planes: PlaneOption[],
+): PlaneOption | undefined {
+  const plane = resolvePlaneByShapeId(shapeId, sceneObjects);
+  return plane?.sourceLocation ? planeOptionForLocation(planes, plane.sourceLocation) : undefined;
 }

@@ -8,6 +8,11 @@ export function entityKey(e: SelectedEntity): string {
   return `${e.shapeId}:${e.sub.type}:${e.sub.index}`;
 }
 
+/** Click-to-toggle: re-picking the current entity clears it back to null. */
+export function toggleEntity(current: SelectedEntity | null, next: SelectedEntity): SelectedEntity | null {
+  return current && sameEntity(current, next) ? null : next;
+}
+
 /**
  * The removable chip rows for a pick set: one row per plain pick, a whole
  * tangent chain as a single row — removing it removes the chain like a

@@ -1,7 +1,6 @@
 import {
-  applySweep, applySweepEdit, fetchFeatureSources, getScopeVariables, ApplyFeatureChain,
-  ApplyFeatureResponse, expandBucket, FeatureEditTarget, ParsedFeatureStatement, SelectionGroupKind,
-  SourceSlotRef, SweepApplyOptions,
+  applySweep, applySweepEdit, fetchFeatureSources, ApplyFeatureChain, expandBucket,
+  FeatureEditTarget, ParsedFeatureStatement, SelectionGroupKind, SourceSlotRef, SweepApplyOptions,
 } from '../../api';
 import { entityKey, mergeUniqueEntities, sameEntity, selectionChipRows } from '../../helpers/entities';
 import { EditSession, EditSessionInfo } from '../edit-session';
@@ -9,19 +8,17 @@ import { SelectionContextMenu } from '../selection-menu';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
-import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { SweepPanel } from './sweep-panel';
+import { FeatureButton } from './feature-button';
+import { ApplyRunner } from './apply-runner';
+import { SketchUISuspender } from './sketch-suspender';
+import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import {
   collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 
-const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 text-base-content/60';
-const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2 py-1';
-/** Small muted caption under the toolbar icon. */
-const BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
-
-const PREVIEW_DEBOUNCE_MS = 250;
+type SweepEditRequest = Parameters<typeof applySweepEdit>[1];
 
 /**
  * The Sweep dialog on the create rails: a profile sketch swept along a path.
@@ -38,17 +35,14 @@ const PREVIEW_DEBOUNCE_MS = 250;
  */
 export class SweepFeatureService {
   private panel: SweepPanel;
-  private button: HTMLButtonElement;
-  /** daisyUI tooltip wrapper around {@link button}; hides with the button so no phantom toolbar gap. */
-  private buttonWrap: HTMLElement;
+  private button: FeatureButton;
   private armed = false;
   private available = false;
-  private applying = false;
   private profiles: SketchProfileOption[] = [];
   private sceneObjects: SceneObjectRender[] = [];
   private hasSolid = false;
   private sceneSketchActive = false;
-  private suspendedSketchUI = false;
+  private sketchUI: SketchUISuspender;
   /** Statement being edited in place (timeline double-click), or null. */
   private editTarget: FeatureEditTarget | null = null;
   /** View-state half of edit mode: pre-statement rollback + boundary. */
@@ -65,11 +59,8 @@ export class SweepFeatureService {
   /** The rendered path chip rows — chip index to pick members. */
   private pathChipRows: { label: string; members: SelectedEntity[] }[] = [];
   private selectionMenu: SelectionContextMenu;
-  private labelSignature = '';
-
-  private previewTimer: number | null = null;
-  private previewAbort: AbortController | null = null;
-  private previewSeq = 0;
+  private runner: ApplyRunner<SweepApplyOptions | SweepEditRequest>;
+  private relabeler: OptionRelabeler<SketchProfileOption[]>;
 
   constructor(
     container: HTMLElement,
@@ -84,30 +75,28 @@ export class SweepFeatureService {
     } = {},
   ) {
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
-    this.button = document.createElement('button');
-    this.button.className = BTN_BASE;
-    this.button.setAttribute('aria-label', 'Sweep a sketch along a path');
-    this.button.innerHTML = `<img src="/icons/sweep.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain" alt="" /><span class="${BTN_LABEL}">Sweep</span>`;
-    this.button.addEventListener('click', () => {
+    this.button = new FeatureButton(group, {
+      icon: '/icons/sweep.png',
+      label: 'Sweep',
+      tip: 'Sweep a sketch along a path',
+      ariaLabel: 'Sweep a sketch along a path',
+    });
+    this.button.onClick = () => {
       if (this.armed) {
         this.exit();
       } else {
         this.enter();
       }
-    });
-    this.buttonWrap = document.createElement('span');
-    this.buttonWrap.className = 'tooltip tooltip-bottom';
-    this.buttonWrap.dataset.tip = 'Sweep a sketch along a path';
-    this.buttonWrap.appendChild(this.button);
-    group.appendChild(this.buttonWrap);
+    };
+    this.sketchUI = new SketchUISuspender(viewer, hooks);
 
     this.panel = new SweepPanel(container);
-    this.panel.onApply = () => this.apply();
+    this.panel.onApply = () => void this.runner.apply();
     this.panel.onExit = () => this.exit();
     this.panel.onChange = () => {
       this.panel.setMessage(null);
       this.refreshHighlight();
-      this.schedulePreview();
+      this.runner.schedulePreview();
     };
     this.panel.onPathModeChange = () => this.syncPathMode();
     this.panel.onRemovePathChip = (index) => this.removePathChip(index);
@@ -135,6 +124,26 @@ export class SweepFeatureService {
       },
       boundary: () => this.session.boundary ?? undefined,
     });
+
+    this.runner = new ApplyRunner({
+      panel: this.panel,
+      isArmed: () => this.armed,
+      build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
+      send: (request, extras) => this.editTarget
+        ? applySweepEdit(this.editTarget, { ...(request as SweepEditRequest), ...extras })
+        : applySweep({ ...(request as SweepApplyOptions), ...extras }),
+      onApplied: () => this.exit(this.editTarget ? { editEnd: 'apply' } : { resume: 'lazy' }),
+      failMessage: () => this.editTarget ? 'Could not apply the edit.' : 'Could not apply the sweep.',
+    });
+    this.relabeler = new OptionRelabeler({
+      sign: optionsSignature,
+      load: labelWithSketchNames,
+      isArmed: () => this.armed,
+      apply: (profiles) => {
+        this.profiles = profiles;
+        this.panel.setOptions(profiles, this.editTarget ? true : this.hasSolid);
+      },
+    });
   }
 
   get isActive(): boolean {
@@ -157,7 +166,7 @@ export class SweepFeatureService {
 
   /** True while armed edge picking has suspended sketch editing. */
   get sketchUISuspended(): boolean {
-    return this.suspendedSketchUI;
+    return this.sketchUI.suspended;
   }
 
   /**
@@ -204,10 +213,10 @@ export class SweepFeatureService {
       void this.loadEditSources();
     }
     this.panel.setOptions(this.profiles, true);
-    this.refreshSketchLabels();
+    void this.relabeler.refresh(this.profiles);
     this.refreshPathChips();
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
@@ -232,7 +241,7 @@ export class SweepFeatureService {
     // A render can put a sketch back in front (live editing) — the armed
     // dialog keeps the free 3D view.
     if (this.sceneSketchActive) {
-      this.suspendSketchUI();
+      this.sketchUI.suspend();
     }
     this.viewer.pickSketchWires = true;
     this.viewer.pickFilter = 'edge';
@@ -240,10 +249,10 @@ export class SweepFeatureService {
     this.entities = [];
     this.chains = [];
     this.panel.setOptions(this.profiles, this.hasSolid);
-    this.refreshSketchLabels();
+    void this.relabeler.refresh(this.profiles);
     this.refreshPathChips();
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -273,7 +282,7 @@ export class SweepFeatureService {
     this.pathSeedApplied = false;
     this.editSceneStale = false;
     this.syncButton();
-    this.suspendSketchUI();
+    this.sketchUI.suspend();
     this.viewer.pickSketchWires = true;
     this.viewer.pickFilter = 'edge';
     this.session.begin({ ...info, target });
@@ -285,7 +294,7 @@ export class SweepFeatureService {
       pathLabel: parsed.pathText,
       profileLabel: parsed.profileText,
     });
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -300,10 +309,8 @@ export class SweepFeatureService {
    */
   private async refreshScopeVariables(): Promise<void> {
     const line = this.editTarget?.line ?? null;
-    const variables = await getScopeVariables(line);
-    if (this.armed && (this.editTarget?.line ?? null) === line) {
-      this.panel.setScopeVariables(variables);
-    }
+    await refreshScopeVariables(line, this.panel,
+      () => this.armed && (this.editTarget?.line ?? null) === line);
   }
 
   private async loadEditSources(): Promise<void> {
@@ -332,17 +339,17 @@ export class SweepFeatureService {
     // active sketch plane — leave sketch editing right away (resumed on
     // cancel; an apply's re-render takes over).
     if (this.sceneSketchActive) {
-      this.suspendSketchUI();
+      this.sketchUI.suspend();
     }
     this.viewer.pickSketchWires = true;
     this.viewer.pickFilter = 'edge';
     this.syncButton();
     void this.refreshScopeVariables();
     this.panel.show(this.profiles, this.hasSolid);
-    this.refreshSketchLabels();
+    void this.relabeler.refresh(this.profiles);
     this.refreshPathChips();
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -366,7 +373,7 @@ export class SweepFeatureService {
     this.pathSeedApplied = false;
     this.editSceneStale = false;
     this.syncButton();
-    this.cancelPreview();
+    this.runner.cancelPreview();
     this.entities = [];
     this.chains = [];
     this.pathChipRows = [];
@@ -375,7 +382,7 @@ export class SweepFeatureService {
     this.viewer.pickSketchWires = false;
     this.hideContextMenu();
     this.panel.hide();
-    this.resumeSketchUI((opts.resume ?? 'immediate') === 'immediate');
+    this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
   }
 
   /**
@@ -428,7 +435,7 @@ export class SweepFeatureService {
     // path, and the highlight must paint that state.
     this.refreshPathChips();
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /** A path chip's ✕: remove that pick (a chain chip removes its chain). */
@@ -468,7 +475,7 @@ export class SweepFeatureService {
     this.entities = merged;
     this.refreshPathChips();
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /** Right-click on an edge: the multi-select menu for that path pick. */
@@ -511,7 +518,7 @@ export class SweepFeatureService {
     this.chains.push({ seed, members });
     this.refreshPathChips();
     this.refreshHighlight();
-    this.schedulePreview();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -556,54 +563,7 @@ export class SweepFeatureService {
     // A path pick already synced the mode via onPathModeChange.
     this.panel.setMessage(null);
     this.refreshHighlight();
-    this.schedulePreview();
-  }
-
-  private async apply(): Promise<void> {
-    if (!this.armed || this.applying) {
-      return;
-    }
-    if (this.editTarget) {
-      const request = this.buildEditRequest();
-      if ('error' in request) {
-        this.panel.setMessage(request.error);
-        return;
-      }
-      this.applying = true;
-      this.panel.setApplyEnabled(false);
-      try {
-        const result = await applySweepEdit(this.editTarget, request);
-        if (result.success) {
-          this.exit({ editEnd: 'apply' });
-        } else {
-          this.panel.setMessage(result.reason ?? 'Could not apply the edit.');
-        }
-      } finally {
-        this.applying = false;
-        this.panel.setApplyEnabled(true);
-      }
-      return;
-    }
-    const request = this.buildRequest();
-    if ('error' in request) {
-      this.panel.setMessage(request.error);
-      return;
-    }
-    this.applying = true;
-    this.panel.setApplyEnabled(false);
-    try {
-      const result = await applySweep(request);
-      if (result.success) {
-        // The editor round-trip re-renders the scene; that render is the
-        // preview and editor undo is the rollback.
-        this.exit({ resume: 'lazy' });
-      } else {
-        this.panel.setMessage(result.reason ?? 'Could not apply the sweep.');
-      }
-    } finally {
-      this.applying = false;
-      this.panel.setApplyEnabled(true);
-    }
+    this.runner.schedulePreview();
   }
 
   /** The request for the current form state, or the message blocking it. */
@@ -736,42 +696,6 @@ export class SweepFeatureService {
     this.refreshHighlight();
   }
 
-  private suspendSketchUI(): void {
-    if (this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = true;
-    this.viewer.suspendSketchEditing();
-    this.hooks.onSuspendSketchUI?.();
-  }
-
-  private resumeSketchUI(immediate: boolean): void {
-    if (!this.suspendedSketchUI) {
-      return;
-    }
-    this.suspendedSketchUI = false;
-    this.viewer.resumeSketchEditing(immediate);
-    if (immediate) {
-      this.hooks.onResumeSketchUI?.();
-    }
-  }
-
-  /**
-   * Async label pass: sketches bound to variables show their names in the
-   * chips ("spine — line 3"). Applied only if the dialog is still armed
-   * on the same option set when the lookup lands.
-   */
-  private async refreshSketchLabels(): Promise<void> {
-    const signature = optionsSignature(this.profiles);
-    this.labelSignature = signature;
-    const labeled = await labelWithSketchNames(this.profiles);
-    if (!this.armed || this.labelSignature !== signature) {
-      return;
-    }
-    this.profiles = labeled;
-    this.panel.setOptions(labeled, this.editTarget ? true : this.hasSolid);
-  }
-
   /**
    * Repaint the viewport selection: the picked path edges plus the wires of
    * the sketches chosen in the slots — the dialog's inputs stay visible in
@@ -843,74 +767,10 @@ export class SweepFeatureService {
   }
 
   private syncButton(): void {
-    this.button.className = this.armed ? BTN_ACTIVE : BTN_BASE;
-    this.buttonWrap.classList.toggle('hidden', !this.available);
+    this.button.setActive(this.armed);
+    this.button.setVisible(this.available);
     // Every armed flip lands here — the Sketch button disables while a
     // create dialog is up.
     this.hooks.onActiveChange?.();
-  }
-
-  // -------------------------------------------------------------------------
-  // Statement preview: debounced server render with truthful variable names.
-  // -------------------------------------------------------------------------
-
-  private schedulePreview(): void {
-    this.cancelPreview();
-    if (!this.armed) {
-      return;
-    }
-    this.previewTimer = window.setTimeout(() => {
-      this.previewTimer = null;
-      this.runPreview();
-    }, PREVIEW_DEBOUNCE_MS);
-  }
-
-  private async runPreview(): Promise<void> {
-    if (!this.armed || this.applying) {
-      return;
-    }
-    // Edit mode previews the full edit payload — re-sourced slots included —
-    // so the preview is the exact statement Apply will write.
-    const request = this.editTarget ? this.buildEditRequest() : this.buildRequest();
-    if ('error' in request) {
-      this.panel.setPreview(null);
-      return;
-    }
-    const seq = ++this.previewSeq;
-    this.previewAbort?.abort();
-    const abort = new AbortController();
-    this.previewAbort = abort;
-
-    let result: ApplyFeatureResponse;
-    try {
-      result = this.editTarget
-        ? await applySweepEdit(this.editTarget, {
-          ...(request as Parameters<typeof applySweepEdit>[1]),
-          preview: true,
-          signal: abort.signal,
-        })
-        : await applySweep({ ...(request as SweepApplyOptions), preview: true, signal: abort.signal });
-    } catch {
-      return; // aborted
-    }
-    if (seq !== this.previewSeq || !this.armed) {
-      return;
-    }
-    this.panel.setPreview(result.success ? result.preview ?? null : null);
-    if (!result.success && result.reason) {
-      // Pre-Apply refusals (unsynthesizable path, multi-part selection)
-      // surface immediately, like the modify rails.
-      this.panel.setMessage(result.reason);
-    }
-  }
-
-  private cancelPreview(): void {
-    if (this.previewTimer !== null) {
-      window.clearTimeout(this.previewTimer);
-      this.previewTimer = null;
-    }
-    this.previewAbort?.abort();
-    this.previewAbort = null;
-    this.previewSeq++;
   }
 }

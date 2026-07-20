@@ -30,6 +30,25 @@ select(face().cylinder())
 color("silver")                // color cylindrical faces
 ```
 
+## Color a whole object
+
+Passing a scene object instead of a face selection colors every face of that object's solids:
+
+```js
+const body = extrude(30)
+color("steelblue", body)       // color the entire body
+```
+
+This is the quickest way to give a part a base color, which you can then override face by face:
+
+```js
+const body = extrude(30)
+color("steelblue", body)       // base color for every face
+
+select(face().onPlane("xy", 30))
+color("tomato")                // repaint just the top face
+```
+
 ## Color preservation
 
 Colors are preserved across modifications. You can color a face and then keep modifying the shape — fillet, chamfer, fuse, cut, and other operations all carry colors forward to the resulting faces.

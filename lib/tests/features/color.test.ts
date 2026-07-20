@@ -7,6 +7,7 @@ import select from "../../core/select.js";
 import { rect } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Color } from "../../features/color.js";
+import { Extrude } from "../../features/extrude.js";
 import { SelectSceneObject } from "../../features/select.js";
 import { countShapes } from "../utils.js";
 import { face } from "../../filters/index.js";
@@ -89,6 +90,58 @@ describe("color", () => {
       for (const entry of solid.colorMap) {
         expect(entry.color).toBe("#008000");
       }
+    });
+  });
+
+  describe("color a whole scene object", () => {
+    it("should color every face of the passed object", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(30);
+
+      const c = color("red", e) as Color;
+
+      render();
+
+      const solid = c.getShapes()[0] as Solid;
+      expect(solid.colorMap).toHaveLength(6);
+      for (const entry of solid.colorMap) {
+        expect(entry.color).toBe("#ff0000");
+      }
+    });
+
+    it("should let a later face color override the object's base color", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(30) as Extrude;
+
+      color("steelblue", e);
+
+      select(face().onPlane("xy", 30));
+      const c = color("tomato") as Color;
+
+      render();
+
+      const solid = c.getShapes()[0] as Solid;
+      expect(solid.colorMap).toHaveLength(6);
+      expect(solid.colorMap.filter(entry => entry.color === "#ff6347")).toHaveLength(1);
+      expect(solid.colorMap.filter(entry => entry.color === "#4682b4")).toHaveLength(5);
+    });
+
+    it("should consume the object's solid rather than duplicate it", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(30) as Extrude;
+
+      color("red", e);
+
+      const scene = render();
+
+      expect(countShapes(scene)).toBe(1);
+      expect(e.getShapes()).toHaveLength(0);
     });
   });
 

@@ -103,7 +103,7 @@ export class HelixPanel {
   private keepSourceLabel = '';
 
   constructor(container: HTMLElement) {
-    this.shell = new PanelShell(container, 'fluidcad-helix-panel', 'Helix mode', '/icons/helix.png');
+    this.shell = new PanelShell(container, 'fluidcad-helix-panel', 'Helix', '/icons/helix.png');
     this.shell.onEscape = () => this.onExit?.();
     this.shell.body.insertAdjacentHTML('beforeend', `
       <div data-role="mode-tabs" class="join w-full"></div>

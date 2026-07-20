@@ -744,7 +744,7 @@ export class ModifyPickService {
     this.viewer.hideStandardPlanes();
 
     this.titleIcon.innerHTML = featureIconImg(feature);
-    this.titleText.textContent = `${config.label} mode`;
+    this.titleText.textContent = config.label;
     this.selectionSlot.setMultiple(true);
     this.valueWrap.classList.remove('hidden');
     this.valueLabel.textContent = config.valueLabel!;

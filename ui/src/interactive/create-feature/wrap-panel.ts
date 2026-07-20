@@ -51,7 +51,7 @@ export class WrapPanel {
   private keepFaceLabel = '';
 
   constructor(container: HTMLElement) {
-    this.shell = new PanelShell(container, 'fluidcad-wrap-panel', 'Wrap mode', '/icons/wrap.png');
+    this.shell = new PanelShell(container, 'fluidcad-wrap-panel', 'Wrap', '/icons/wrap.png');
     this.shell.onEscape = () => this.onExit?.();
     this.shell.body.insertAdjacentHTML('beforeend', `
       <div data-role="tabs" class="join w-full"></div>

@@ -65,7 +65,7 @@ export class RevolvePanel {
   private keepAxisLabel = '';
 
   constructor(container: HTMLElement) {
-    this.shell = new PanelShell(container, 'fluidcad-revolve-panel', 'Revolve mode', '/icons/revolve.png');
+    this.shell = new PanelShell(container, 'fluidcad-revolve-panel', 'Revolve', '/icons/revolve.png');
     this.shell.onEscape = () => this.onExit?.();
     this.shell.body.insertAdjacentHTML('beforeend', `
       <div data-role="tabs" class="join w-full"></div>

@@ -60,7 +60,7 @@ export class ExtrudePanel {
   private keepProfileLabel = '';
 
   constructor(container: HTMLElement) {
-    this.shell = new PanelShell(container, 'fluidcad-extrude-panel', 'Extrude mode', '/icons/extrude.png');
+    this.shell = new PanelShell(container, 'fluidcad-extrude-panel', 'Extrude', '/icons/extrude.png');
     this.shell.onEscape = () => this.onExit?.();
     this.shell.body.insertAdjacentHTML('beforeend', `
       <div data-role="tabs" class="join w-full"></div>

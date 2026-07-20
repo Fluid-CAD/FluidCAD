@@ -127,7 +127,7 @@ export class LoftPanel {
   private applyBtn: HTMLButtonElement;
 
   constructor(container: HTMLElement) {
-    this.shell = new PanelShell(container, 'fluidcad-loft-panel', 'Loft mode', '/icons/loft.png');
+    this.shell = new PanelShell(container, 'fluidcad-loft-panel', 'Loft', '/icons/loft.png');
     this.shell.onEscape = () => this.onExit?.();
     this.shell.body.insertAdjacentHTML('beforeend', `
       <div data-role="tabs" class="join w-full"></div>

@@ -75,7 +75,7 @@ export class SweepPanel {
   private keepProfileLabel = '';
 
   constructor(container: HTMLElement) {
-    this.shell = new PanelShell(container, 'fluidcad-sweep-panel', 'Sweep mode', '/icons/sweep.png');
+    this.shell = new PanelShell(container, 'fluidcad-sweep-panel', 'Sweep', '/icons/sweep.png');
     this.shell.onEscape = () => this.onExit?.();
     this.shell.body.insertAdjacentHTML('beforeend', `
       <div data-role="tabs" class="join w-full"></div>

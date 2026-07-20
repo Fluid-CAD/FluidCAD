@@ -51,7 +51,7 @@ export class PlanePanel {
   private applyBtn: HTMLButtonElement;
 
   constructor(container: HTMLElement) {
-    this.shell = new PanelShell(container, 'fluidcad-plane-panel', 'Plane mode', '/icons/plane.png');
+    this.shell = new PanelShell(container, 'fluidcad-plane-panel', 'Plane', '/icons/plane.png');
     this.shell.onEscape = () => this.onExit?.();
     this.shell.body.insertAdjacentHTML('beforeend', `
       <label class="flex flex-col gap-1.5">

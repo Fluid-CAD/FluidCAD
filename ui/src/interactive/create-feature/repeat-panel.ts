@@ -143,7 +143,7 @@ export class RepeatPanel {
   private keepPlaneLabel: string | null = null;
 
   constructor(container: HTMLElement) {
-    this.shell = new PanelShell(container, 'fluidcad-repeat-panel', 'Repeat mode', '/icons/repeat-linear.png');
+    this.shell = new PanelShell(container, 'fluidcad-repeat-panel', 'Repeat', '/icons/repeat-linear.png');
     this.shell.onEscape = () => this.onExit?.();
     this.shell.body.insertAdjacentHTML('beforeend', `
       <label class="flex flex-col gap-1.5">

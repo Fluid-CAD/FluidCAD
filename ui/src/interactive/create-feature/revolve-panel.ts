@@ -1,5 +1,5 @@
 import { OpTabs, PanelShell, ThinControl } from './panel-controls';
-import { SketchProfileOption, sourceChip } from './sketch-profiles';
+import { SketchProfileOption, keepSketchChip, sourceChip } from './sketch-profiles';
 import { AxisOption } from './axis-options';
 import { PickSlot } from '../pick-slot';
 import { RevolveOptionValues, ValueExpr } from '../../api';
@@ -61,7 +61,8 @@ export class RevolvePanel {
   private axisState: RevolveAxisSelection | null = null;
   /** Edit mode: the slots start on "Current: …" chips. */
   private editMode = false;
-  private keepProfileLabel = '';
+  /** The kept profile's expression text; null when the statement is implicit. */
+  private keepProfileLabel: string | null = null;
   private keepAxisLabel = '';
 
   constructor(container: HTMLElement) {
@@ -192,7 +193,7 @@ export class RevolvePanel {
   showEdit(state: RevolveOptionValues & {
     thin: [ValueExpr] | null;
     axisLabel: string;
-    profileLabel: string;
+    profileLabel: string | null;
   }): void {
     this.profileOptions = [];
     this.profileState = 'keep';
@@ -333,11 +334,7 @@ export class RevolvePanel {
   /** The profile slot: one chip (the chosen sketch), or the pick prompt. */
   private renderProfile(): void {
     if (this.profileState === 'keep') {
-      this.profileSlot.setChips([{
-        label: `Last Sketch: ${this.keepProfileLabel}`,
-        badge: '●',
-        removable: false,
-      }]);
+      this.profileSlot.setChips([keepSketchChip(this.keepProfileLabel)]);
       this.profileSlot.setPrompt(null);
     } else {
       const option = this.profileState !== null ? this.profileOptions[this.profileState] : undefined;

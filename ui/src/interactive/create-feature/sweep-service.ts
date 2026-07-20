@@ -283,7 +283,7 @@ export class SweepFeatureService {
       op: parsed.op,
       thin: parsed.thin,
       pathLabel: parsed.pathText,
-      profileLabel: parsed.profileText ?? 'Current sketch (implicit)',
+      profileLabel: parsed.profileText,
     });
     this.schedulePreview();
   }

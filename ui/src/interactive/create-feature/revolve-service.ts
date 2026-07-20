@@ -258,7 +258,7 @@ export class RevolveFeatureService {
       angle: parsed.angle ?? 360,
       thin: parsed.thin,
       axisLabel: parsed.axisText,
-      profileLabel: parsed.profileText ?? 'Current sketch (implicit)',
+      profileLabel: parsed.profileText,
     });
     this.syncPickChannels();
     this.schedulePreview();

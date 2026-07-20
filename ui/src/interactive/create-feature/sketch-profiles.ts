@@ -91,6 +91,19 @@ export function sourceChip(
   };
 }
 
+/**
+ * The edit-mode keep chip for a sketch slot: the statement's own profile
+ * expression, or a bare "(implicit)" when the statement names no sketch and
+ * consumes the last one (`extrude(25)`) — there is no expression to show.
+ */
+export function keepSketchChip(text: string | null): PickSlotChip {
+  return {
+    label: text === null ? 'Last Sketch (implicit)' : `Last Sketch: ${text}`,
+    badge: '●',
+    removable: false,
+  };
+}
+
 /** A stable signature for "same options" checks across async relabeling. */
 export function optionsSignature(options: SketchProfileOption[]): string {
   return options.map(o => `${o.kind}:${o.filePath}:${o.line}`).join('|');

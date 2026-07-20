@@ -267,7 +267,7 @@ export class ExtrudeFeatureService {
       draft: parsed.draft,
       drill: parsed.drill,
       thin: parsed.thin,
-      profileLabel: parsed.profileText ?? 'Current sketch (implicit)',
+      profileLabel: parsed.profileText,
       toFaceLabel: parsed.toFaceText,
     });
     this.syncFacePickMode();

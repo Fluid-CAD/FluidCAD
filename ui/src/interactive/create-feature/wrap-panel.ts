@@ -1,5 +1,5 @@
 import { OpTabs, PanelShell } from './panel-controls';
-import { SketchProfileOption, sourceChip } from './sketch-profiles';
+import { SketchProfileOption, keepSketchChip, sourceChip } from './sketch-profiles';
 import { PickSlot } from '../pick-slot';
 import { WrapOptionValues } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
@@ -269,11 +269,7 @@ export class WrapPanel {
   private renderSketch(): void {
     const state = this.sketchState;
     if (state?.kind === 'keep') {
-      this.sketchSlot.setChips([{
-        label: `Last Sketch: ${this.keepSketchLabel}`,
-        badge: '●',
-        removable: false,
-      }]);
+      this.sketchSlot.setChips([keepSketchChip(this.keepSketchLabel)]);
       this.sketchSlot.setPrompt(null);
     } else {
       this.sketchSlot.setChips(state?.kind === 'sketch'

@@ -1,5 +1,5 @@
 import { FeatureOp, OpTabs, PanelShell, ThinControl } from './panel-controls';
-import { SketchProfileOption, sourceChip } from './sketch-profiles';
+import { SketchProfileOption, keepSketchChip, sourceChip } from './sketch-profiles';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 import { NewVariable, ValueExpr } from '../../api';
 import { collectNewVariables } from '../../ui/expression-field';
@@ -72,7 +72,8 @@ export class SweepPanel {
   /** Edit mode: both slots start on "Current: …" chips. */
   private editMode = false;
   private keepPathLabel = '';
-  private keepProfileLabel = '';
+  /** The kept profile's expression text; null when the statement is implicit. */
+  private keepProfileLabel: string | null = null;
 
   constructor(container: HTMLElement) {
     this.shell = new PanelShell(container, 'fluidcad-sweep-panel', 'Sweep', '/icons/sweep.png');
@@ -174,7 +175,7 @@ export class SweepPanel {
    * that slot, and its ✕ reverts to the kept expression. The op tabs and
    * thin control edit in place.
    */
-  showEdit(state: { op: FeatureOp; thin: [ValueExpr] | null; pathLabel: string; profileLabel: string }): void {
+  showEdit(state: { op: FeatureOp; thin: [ValueExpr] | null; pathLabel: string; profileLabel: string | null }): void {
     this.options = [];
     this.allowEdgePicking = true;
     this.profileState = { kind: 'keep' };
@@ -302,11 +303,7 @@ export class SweepPanel {
   private renderProfile(): void {
     const state = this.profileState;
     if (state?.kind === 'keep') {
-      this.profileSlot.setChips([{
-        label: `Last Sketch: ${this.keepProfileLabel}`,
-        badge: '●',
-        removable: false,
-      }]);
+      this.profileSlot.setChips([keepSketchChip(this.keepProfileLabel)]);
       this.profileSlot.setPrompt(null);
     } else {
       this.profileSlot.setChips(state?.kind === 'sketch'

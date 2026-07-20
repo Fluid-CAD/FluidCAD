@@ -1,5 +1,5 @@
 import { OpTabs, PanelShell, ThinControl } from './panel-controls';
-import { SketchProfileOption, sourceChip } from './sketch-profiles';
+import { SketchProfileOption, keepSketchChip, sourceChip } from './sketch-profiles';
 import { PickSlot } from '../pick-slot';
 import { ExtrudeOptionValues, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
@@ -57,7 +57,8 @@ export class ExtrudePanel {
   private selection: number | 'keep' | null = null;
   /** Edit mode: the slot starts on a "Current: …" chip that keeps the statement's profile. */
   private editMode = false;
-  private keepProfileLabel = '';
+  /** The kept profile's expression text; null when the statement is implicit. */
+  private keepProfileLabel: string | null = null;
 
   constructor(container: HTMLElement) {
     this.shell = new PanelShell(container, 'fluidcad-extrude-panel', 'Extrude', '/icons/extrude.png');
@@ -216,7 +217,7 @@ export class ExtrudePanel {
    */
   showEdit(state: ExtrudeOptionValues & {
     thin: [ValueExpr] | null;
-    profileLabel: string;
+    profileLabel: string | null;
     toFaceLabel: string | null;
   }): void {
     this.options = [];
@@ -336,11 +337,7 @@ export class ExtrudePanel {
   /** The profile slot: one chip (the chosen sketch), or the pick prompt. */
   private renderProfile(): void {
     if (this.selection === 'keep') {
-      this.profileSlot.setChips([{
-        label: `Last Sketch: ${this.keepProfileLabel}`,
-        badge: '●',
-        removable: false,
-      }]);
+      this.profileSlot.setChips([keepSketchChip(this.keepProfileLabel)]);
       this.profileSlot.setPrompt(null);
     } else {
       const option = this.selection !== null ? this.options[this.selection] : undefined;

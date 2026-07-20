@@ -8,6 +8,7 @@ import { CentroidIndicator } from './scene/centroid-indicator';
 import { viewerSettings } from './scene/viewer-settings';
 import { themeColors } from './scene/theme-colors';
 import { StandardPlaneId, StandardPlanes } from './scene/standard-planes';
+import { collectPickCandidates } from './interactive/pick-candidates';
 
 /** Recursively expand `box` to include `object`, skipping meta-shape subtrees. */
 function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
@@ -315,40 +316,23 @@ export class Viewer {
     raycaster.params.Line = { threshold: this.computeEdgePickThreshold() };
     raycaster.params.Line2 = { threshold: 8 };
 
-    const faceCandidates: Mesh[] = [];
-    const edgeCandidates: LineSegments[] = [];
-    const sketchWireCandidates: LineSegments[] = [];
-    const axisCandidates: LineSegments[] = [];
-    const planeQuadCandidates: Mesh[] = [];
-
-    this.ctx.scene.traverse((obj) => {
-      if (obj.userData.isMetaShape) {
-        return;
-      }
-      if ((obj as Mesh).isMesh && obj.userData.faceMapping) {
-        faceCandidates.push(obj as Mesh);
-      } else if (((obj as LineSegments).isLine || obj.userData.isEdgeLine) && obj.userData.edgeIndex !== undefined) {
-        edgeCandidates.push(obj as LineSegments);
-      } else if (this.pickSketchWires && obj.userData.isSketchWire) {
-        sketchWireCandidates.push(obj as LineSegments);
-      } else if (this.pickAxes && obj.userData.isAxisLine) {
-        axisCandidates.push(obj as LineSegments);
-      } else if (this.pickPlanes && obj.userData.isConstructionPlaneQuad) {
-        planeQuadCandidates.push(obj as Mesh);
-      }
+    const candidates = collectPickCandidates(this.ctx.scene, {
+      sketchWires: this.pickSketchWires,
+      axes: this.pickAxes,
+      planes: this.pickPlanes,
     });
 
-    const faceHits = faceCandidates.length > 0 ? raycaster.intersectObjects(faceCandidates, false) : [];
-    const edgeHits = edgeCandidates.length > 0 ? raycaster.intersectObjects(edgeCandidates, false) : [];
-    const sketchWireHits = sketchWireCandidates.length > 0
-      ? raycaster.intersectObjects(sketchWireCandidates, false)
+    const faceHits = candidates.faces.length > 0 ? raycaster.intersectObjects(candidates.faces, false) : [];
+    const edgeHits = candidates.edges.length > 0 ? raycaster.intersectObjects(candidates.edges, false) : [];
+    const sketchWireHits = candidates.sketchWires.length > 0
+      ? raycaster.intersectObjects(candidates.sketchWires, false)
       : [];
-    const axisHits = axisCandidates.length > 0 ? raycaster.intersectObjects(axisCandidates, false) : [];
+    const axisHits = candidates.axes.length > 0 ? raycaster.intersectObjects(candidates.axes, false) : [];
     // Origin-plane quads participate only while shown (armed sketch mode).
     const planeTargets = this.standardPlanes.pickTargets;
     const planeHits = planeTargets.length > 0 ? raycaster.intersectObjects(planeTargets, false) : [];
-    const planeQuadHits = planeQuadCandidates.length > 0
-      ? raycaster.intersectObjects(planeQuadCandidates, false)
+    const planeQuadHits = candidates.planeQuads.length > 0
+      ? raycaster.intersectObjects(candidates.planeQuads, false)
       : [];
 
     return { raycaster, faceHits, edgeHits, sketchWireHits, axisHits, planeHits, planeQuadHits };

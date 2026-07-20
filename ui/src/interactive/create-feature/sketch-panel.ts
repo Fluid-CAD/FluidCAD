@@ -1,27 +1,32 @@
 import { PanelShell } from './panel-controls';
 import { PickSlot } from '../pick-slot';
 
+/** How the dialog opened — see {@link SketchStartPanel.setMode}. */
+export type SketchPanelMode = 'create' | 'adopted' | 'edit';
+
 /**
- * The sketch dialog: a single face/plane pick slot and a Cancel button —
+ * The sketch dialog: a single face/plane pick slot and a close button —
  * picking IS the action (the first pick writes the sketch statement and
  * enters the sketch), so there is nothing to Apply. The dialog stays docked
  * for the whole session of the sketch it started, showing the picked target
  * as a chip; the chip's ✕ exits the sketch-mode view (free camera, grid
  * restored) so a different face/plane can be picked, which moves the sketch
- * statement onto it in place. Cancel deletes the sketch statement from the
- * code outright. Pure DOM — the modify-pick service owns picking, the
- * session, and the applies.
+ * statement onto it in place. The close button deletes the sketch statement
+ * only when this dialog wrote it — see {@link SketchStartPanel.setMode}.
+ * Pure DOM — the modify-pick service owns picking, the session, and the
+ * applies.
  */
 export class SketchStartPanel {
   /** The chip's ✕ — leave the sketch view and re-arm picking. */
   onClear?: () => void;
-  /** The Cancel button — delete the sketch statement and close. */
+  /** The close button — Cancel (delete the sketch) or Exit, per the mode. */
   onCancel?: () => void;
   /** Escape pressed inside the dialog — cancel the re-pick / close. */
   onEscape?: () => void;
 
   private shell: PanelShell;
   private slot: PickSlot;
+  private closeBtn: HTMLButtonElement;
 
   constructor(container: HTMLElement) {
     this.shell = new PanelShell(container, 'fluidcad-sketch-panel', 'Sketch', '/icons/sketch.png');
@@ -38,8 +43,26 @@ export class SketchStartPanel {
       { label: 'Face / Plane', multiple: false },
     );
     this.slot.onRemove = () => this.onClear?.();
-    this.shell.body.querySelector('[data-role="cancel"]')!
-      .addEventListener('click', () => this.onCancel?.());
+    this.closeBtn = this.shell.body.querySelector('[data-role="cancel"]')!;
+    this.closeBtn.addEventListener('click', () => this.onCancel?.());
+  }
+
+  /**
+   * How the dialog opened, which is what its close button means:
+   * - `create` — this dialog wrote the sketch statement, so Cancel undoes it
+   *   by deleting the statement again.
+   * - `adopted` — the scene merely ended in a sketch (a page reload, a sketch
+   *   entered by editing code); there is nothing to undo, so Exit just closes.
+   * - `edit` — a timeline double-click opened the dialog over an existing
+   *   sketch; it wears the edit title and the same non-destructive Exit every
+   *   other edit dialog closes with.
+   */
+  setMode(mode: SketchPanelMode): void {
+    this.shell.setTitle(mode === 'edit' ? 'Edit sketch' : null);
+    this.closeBtn.textContent = mode === 'create' ? 'Cancel' : 'Exit';
+    this.closeBtn.title = mode === 'create'
+      ? 'Remove the sketch from the code and close'
+      : 'Close the dialog and leave the sketch in place';
   }
 
   get isVisible(): boolean {

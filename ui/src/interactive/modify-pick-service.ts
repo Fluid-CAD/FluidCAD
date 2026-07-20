@@ -1,5 +1,6 @@
 import {
-  applyFeature, applyValueFeatureEdit, expandBucket, explainSelection, fetchFeatureSources,
+  applyFeature, applyValueFeatureEdit, clearBreakpoints, expandBucket, explainSelection,
+  fetchFeatureSources,
   getScopeVariables, parseFeatureAt, removeFeature, ApplyFeatureChain, ApplyFeatureResponse,
   FeatureEditTarget, NewVariable, ParsedFeatureStatement, SelectionGroupKind, ShellJoinType,
   SketchSourceRef, ValueExpr,
@@ -20,6 +21,33 @@ import { ICON_IMG_FALLBACK } from '../ui/object-icons';
 import { viewportChrome } from '../ui/viewport-chrome';
 
 export type ModifyFeatureKind = 'sketch' | 'fillet' | 'chamfer' | 'shell';
+
+/**
+ * A live sketch dialog. `tracking` shows the picked target as a chip and
+ * leaves the service otherwise neutral; with it false the pick mode is
+ * re-armed after the chip's ✕ and the next pick retargets the tracked sketch
+ * statement instead of creating a new one. The other two fields say what the
+ * dialog's close button is allowed to undo.
+ */
+type SketchSession = {
+  tracking: boolean;
+  label: string;
+  /**
+   * This dialog WROTE the sketch statement, so Cancel undoes it by deleting
+   * the statement. False for a session that merely adopted a sketch already
+   * in the code (a timeline edit, a page reload, a sketch entered by editing
+   * code): there is nothing to undo, so its close button just closes.
+   */
+  created: boolean;
+  /**
+   * A timeline double-click opened this session, placing a `breakpoint();`
+   * after the sketch to roll the build back to it — a user close clears it,
+   * exactly as {@link EditSession.end} does for every other edit dialog. False
+   * for the openings that place none, which must never strip breakpoints the
+   * user set themselves.
+   */
+  breakpoint: boolean;
+};
 
 type FeatureConfig = {
   label: string;
@@ -110,12 +138,17 @@ const TOOLTIP_DEBOUNCE_MS = 200;
  * body survives); Escape cancels the re-pick back into the sketch view. The
  * session closes when the scene stops ending in the sketch (consumed by a
  * feature, deleted, rolled back), when another dialog takes over, or via the
- * Sketch button / Escape; its Cancel button goes further and deletes the
- * sketch statement from the code outright. The dialog is scene-derived like
+ * Sketch button / Escape; when the dialog wrote the sketch itself, its Cancel
+ * button goes further and deletes that statement from the code outright.
+ * The dialog is scene-derived like
  * the rest of sketch mode: a render whose scene ends in a sketch with no
- * session ADOPTS it (page reloads, sketches entered by editing code), with
+ * session ADOPTS it (page reloads, sketches entered by editing code, and the
+ * timeline double-click that breakpoints a sketch row — sketch has no edit
+ * dialog of its own), with
  * the chip label parsed from the statement's target argument — except a
- * sketch whose dialog the user dismissed, which stays closed. The button lives in the create group and is always
+ * sketch whose dialog the user dismissed, which stays closed. An adopted
+ * sketch is one the dialog did not write, so closing it leaves the statement
+ * alone; the double-click's breakpoint goes with the dialog. The button lives in the create group and is always
  * offered — in an empty scene the planes are the only targets, and the first
  * sketch starts here; while an extrude/sweep/loft dialog is up the button
  * disables instead of hiding.
@@ -140,23 +173,21 @@ export class ModifyPickService {
   /** An extrude/sweep/loft dialog is up — the Sketch button disables. */
   private createDialogActive = false;
   /**
-   * The sketch dialog session, alive from the first successful pick until
-   * the scene stops ending in that sketch (or the dialog is closed). While
-   * `tracking` the chip shows `label` and the service is otherwise neutral;
-   * with `tracking` false the pick mode is re-armed after the chip's ✕ and
-   * the next pick retargets the active sketch statement instead of creating
-   * a new one. Null with `feature === 'sketch'` is the initial pick — a
-   * fresh arming whose first pick creates the sketch.
+   * The sketch dialog session, alive from the first successful pick (or the
+   * adoption of a sketch already in the scene) until the scene stops ending
+   * in that sketch, or the dialog is closed. Null with `feature === 'sketch'`
+   * is the initial pick — a fresh arming whose first pick creates the sketch.
    */
-  private sketchSession: { tracking: boolean; label: string } | null = null;
+  private sketchSession: SketchSession | null = null;
   /**
-   * The label of a sketch session a create dialog displaced — the dialog
-   * stepped aside so extrude/sweep/… could take the stage. Consumed when the
-   * create dialog deactivates: the sketch dialog comes back tracking if the
-   * scene still ends in its sketch. Dropped when the sketch stops being the
-   * scene's tail or another flow starts. User closes never set it.
+   * A sketch session a create dialog displaced — the dialog stepped aside so
+   * extrude/sweep/… could take the stage. Consumed when the create dialog
+   * deactivates: the sketch dialog comes back tracking if the scene still
+   * ends in its sketch, with what its close button may undo intact. Dropped
+   * when the sketch stops being the scene's tail or another flow starts.
+   * User closes never set it.
    */
-  private displacedSketchLabel: string | null = null;
+  private displacedSketch: SketchSession | null = null;
   /**
    * Source key (`file:line:col`) of a trailing sketch whose dialog the user
    * dismissed — adoption skips it, so a closed dialog stays closed across
@@ -164,6 +195,13 @@ export class ModifyPickService {
    * ending in a sketch.
    */
   private dismissedSketchKey: string | null = null;
+  /**
+   * Source key of a sketch a timeline double-click just asked to edit — the
+   * adoption that click's breakpoint render triggers claims it and owns the
+   * breakpoint. Cleared only once claimed: the rollback renders the gesture's
+   * own clicks produce arrive as empty scenes and must not invalidate it.
+   */
+  private pendingSketchEditKey: string | null = null;
   /** The scene ends with an unconsumed sketch (scene-derived sketch mode). */
   private sceneSketchActive = false;
   /** Sketch editing is suspended while the sketch-on-face pick is armed. */
@@ -545,8 +583,12 @@ export class ModifyPickService {
     if (!sketchMode) {
       // A displaced session's sketch is gone too (consumed by the apply that
       // closed the create dialog, deleted, rolled back) — nothing to restore,
-      // and a dismissal has nothing left to suppress.
-      this.displacedSketchLabel = null;
+      // and a dismissal has nothing left to suppress. A pending edit request
+      // deliberately SURVIVES: rollback renders arrive as an empty scene
+      // (handleSceneRendered), and the double-click's own first click is a
+      // rollback — clearing here would drop the flag before the breakpoint
+      // render it was set for. It is consumed by the adoption instead.
+      this.displacedSketch = null;
       this.dismissedSketchKey = null;
     } else if (active) {
       this.adoptActiveSketch(active);
@@ -593,7 +635,7 @@ export class ModifyPickService {
     // the session's rollback render is already on its way. The edit flow
     // supersedes any pending create-dialog restore.
     this.closeSketchSession('lazy');
-    this.displacedSketchLabel = null;
+    this.displacedSketch = null;
     this.hooks.onEnter?.();
     this.feature = parsed.feature;
     this.editTarget = target;
@@ -720,7 +762,7 @@ export class ModifyPickService {
     // Arming a pick feature closes a sketch dialog in any state outright —
     // a pending create-dialog restore included.
     this.closeSketchSession();
-    this.displacedSketchLabel = null;
+    this.displacedSketch = null;
     const wasActive = this.feature !== null;
     // Arming a create tool from an edit dialog abandons the session; the
     // view stays where it is — the tool picks in whatever state is shown.
@@ -794,10 +836,9 @@ export class ModifyPickService {
    */
   private enterSketch(): void {
     // A fresh sketch flow (or a toggle-close) supersedes a pending restore.
-    this.displacedSketchLabel = null;
+    this.displacedSketch = null;
     if (this.sketchSession?.tracking) {
-      this.markSketchDismissed();
-      this.closeSketchSession();
+      this.closeSketchDialog();
       return;
     }
     if (this.feature === 'sketch') {
@@ -851,6 +892,9 @@ export class ModifyPickService {
    */
   private enterSketchPicking(): void {
     this.feature = 'sketch';
+    // A fresh arming has no session yet, so it dresses as the create flow it
+    // is; the after-✕ re-pick keeps the mode of the session it belongs to.
+    this.syncSketchPanelMode();
     this.viewer.clearHover();
     this.viewer.pickFilter = 'face';
     this.syncPlanePicking();
@@ -913,20 +957,23 @@ export class ModifyPickService {
   }
 
   /**
-   * The Cancel button: delete the sketch statement the dialog created —
-   * the editor round-trip re-renders without it, and that render restores
-   * the default view — and close the dialog. Before the first pick there is
-   * no statement yet, so Cancel just closes, like Escape.
+   * The close button. A dialog that CREATED its sketch cancels it: the
+   * statement is deleted — the editor round-trip re-renders without it, and
+   * that render restores the default view. A dialog that adopted a sketch
+   * already in the code (a timeline edit, a reload) has nothing to undo, so
+   * it only exits and the sketch stays. Before the first pick there is no
+   * statement either way, so Cancel just closes, like Escape.
    */
   private handleSketchCancel(): void {
+    const created = this.sketchSession?.created ?? false;
     const loc = this.sketchSession ? this.activeSketchLoc() : null;
-    this.markSketchDismissed();
-    if (loc) {
+    if (created && loc) {
       removeFeature(loc);
-      this.closeSketchSession('lazy');
+      // The removal's re-render is already on its way.
+      this.closeSketchDialog('lazy');
       return;
     }
-    this.closeSketchSession();
+    this.closeSketchDialog();
   }
 
   /** Escape during a re-pick restores the sketch view; otherwise it closes. */
@@ -938,17 +985,68 @@ export class ModifyPickService {
       this.exitSketchPicking('immediate');
       return;
     }
+    this.closeSketchDialog();
+  }
+
+  /**
+   * A user close of the sketch dialog (its close button, Escape, the Sketch
+   * button toggling it shut): drop the session, keep it dismissed so the next
+   * render doesn't re-adopt it, and clear the breakpoint the timeline
+   * double-click that opened it placed — the cleanup {@link EditSession.end}
+   * does for every other edit dialog, so the model rebuilds to its tip.
+   * Handoffs to another dialog and scene-driven closes use
+   * {@link closeSketchSession} instead: any breakpoint there is someone
+   * else's, or already gone.
+   */
+  private closeSketchDialog(resume: 'immediate' | 'lazy' = 'immediate'): void {
+    const ownsBreakpoint = this.sketchSession?.breakpoint ?? false;
     this.markSketchDismissed();
-    this.closeSketchSession();
+    // Clearing rebuilds to the tip, so that render carries the sketch-UI resume.
+    this.closeSketchSession(ownsBreakpoint ? 'lazy' : resume);
+    if (ownsBreakpoint) {
+      clearBreakpoints();
+    }
+  }
+
+  /**
+   * A timeline double-click landed on a sketch row. Sketch has no edit dialog
+   * of its own: the click's breakpoint truncates the build at the sketch, and
+   * the render that follows ends in it — which the dialog adopts, the same
+   * path a page reload takes. Flag that adoption as the edit it is, so the
+   * dialog wears the edit title and its close clears the breakpoint. An
+   * explicit request to edit this sketch also overrides an earlier dismissal,
+   * or the dialog the user asked for would never appear.
+   *
+   * The gesture's OWN first click already rolled the view back to this sketch,
+   * so the dialog has usually adopted it before this runs — the breakpoint
+   * render then finds a live session and adopts nothing. Upgrade that session
+   * in place; the pending key only covers the case where the rollback render
+   * hasn't landed yet.
+   */
+  noteSketchEditRequest(loc: { filePath: string; line: number; column: number }): void {
+    const key = ModifyPickService.sketchKey(loc);
+    this.pendingSketchEditKey = key;
+    if (this.dismissedSketchKey === key) {
+      this.dismissedSketchKey = null;
+    }
+    const active = this.activeSketchLoc();
+    if (this.sketchSession && active && ModifyPickService.sketchKey(active) === key) {
+      this.pendingSketchEditKey = null;
+      this.sketchSession.breakpoint = true;
+      this.syncSketchPanelMode();
+    }
   }
 
   /**
    * The scene ends in a sketch but no dialog session exists — a page reload,
-   * or a sketch entered by editing code directly. Adopt it: the dialog is
+   * a sketch entered by editing code directly, or the breakpoint render of a
+   * timeline double-click on a sketch row. Adopt it: the dialog is
    * scene-derived like the rest of sketch mode (dimming, camera, toolbar).
    * The target chip starts generic and refines asynchronously from the
-   * statement's parsed target argument. A dismissed dialog stays closed for
-   * that sketch, and an armed feature or open create dialog takes precedence.
+   * statement's parsed target argument. An adopted session never created its
+   * sketch, so its close button leaves the statement alone. A dismissed
+   * dialog stays closed for that sketch, and an armed feature or open create
+   * dialog takes precedence.
    */
   private adoptActiveSketch(sketch: SceneObjectRender): void {
     if (this.sketchSession || this.feature !== null || this.createDialogActive) {
@@ -958,15 +1056,31 @@ export class ModifyPickService {
     if (!loc) {
       return;
     }
-    if (ModifyPickService.sketchKey(loc) === this.dismissedSketchKey) {
+    const key = ModifyPickService.sketchKey(loc);
+    if (key === this.dismissedSketchKey) {
       return;
     }
+    const fromEdit = key === this.pendingSketchEditKey;
+    this.pendingSketchEditKey = null;
     this.dismissedSketchKey = null;
-    this.sketchSession = { tracking: true, label: 'Sketch target' };
+    this.sketchSession = { tracking: true, label: 'Sketch target', created: false, breakpoint: fromEdit };
+    this.syncSketchPanelMode();
     this.sketchPanel.setTarget(this.sketchSession.label);
     this.sketchPanel.setMessage(null);
     this.sketchPanel.show();
     void this.refreshAdoptedLabel({ filePath: loc.filePath, line: loc.line, column: loc.column });
+  }
+
+  /** Dress the dialog for how its session opened — the close button's meaning. */
+  private syncSketchPanelMode(): void {
+    const session = this.sketchSession;
+    if (!session || session.created) {
+      this.sketchPanel.setMode('create');
+    } else if (session.breakpoint) {
+      this.sketchPanel.setMode('edit');
+    } else {
+      this.sketchPanel.setMode('adopted');
+    }
   }
 
   /**
@@ -1054,7 +1168,8 @@ export class ModifyPickService {
     if (this.feature !== 'sketch' || this.applying) {
       return;
     }
-    const repick = this.sketchSession !== null && !this.sketchSession.tracking;
+    const prev = this.sketchSession;
+    const repick = prev !== null && !prev.tracking;
     const retarget = repick ? this.activeSketchLoc() : null;
     if (repick && !retarget) {
       // The tracked statement vanished underneath — nothing to move.
@@ -1077,7 +1192,16 @@ export class ModifyPickService {
         return; // the mode ended while the request was in flight
       }
       if (result.success) {
-        this.sketchSession = { tracking: true, label };
+        // A re-pick MOVES a statement rather than writing one, so the session
+        // keeps what it was: the create flow's Cancel still undoes its own
+        // sketch, an edit session still exits without touching the code.
+        this.sketchSession = {
+          tracking: true,
+          label,
+          created: repick ? prev!.created : true,
+          breakpoint: repick ? prev!.breakpoint : false,
+        };
+        this.syncSketchPanelMode();
         this.sketchPanel.setTarget(label);
         this.sketchPanel.setMessage(null);
         // The editor round-trip re-renders the scene; the incoming render
@@ -1212,7 +1336,7 @@ export class ModifyPickService {
    */
   displaceSketchSession(): void {
     if (this.sketchSession) {
-      this.displacedSketchLabel = this.sketchSession.label;
+      this.displacedSketch = { ...this.sketchSession };
     }
     this.closeSketchSession();
   }
@@ -1243,14 +1367,15 @@ export class ModifyPickService {
    * the session again via update(). No-op without a displaced session.
    */
   private restoreDisplacedSketchSession(): void {
-    const label = this.displacedSketchLabel;
-    this.displacedSketchLabel = null;
-    if (label === null || !this.sceneSketchActive
+    const displaced = this.displacedSketch;
+    this.displacedSketch = null;
+    if (displaced === null || !this.sceneSketchActive
       || this.feature !== null || this.sketchSession !== null) {
       return;
     }
-    this.sketchSession = { tracking: true, label };
-    this.sketchPanel.setTarget(label);
+    this.sketchSession = { ...displaced, tracking: true };
+    this.syncSketchPanelMode();
+    this.sketchPanel.setTarget(displaced.label);
     this.sketchPanel.setMessage(null);
     this.sketchPanel.show();
   }

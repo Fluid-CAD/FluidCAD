@@ -326,6 +326,14 @@ const EDITABLE_ROW_TYPES = new Set([
  * plain breakpoint behavior in place.
  */
 async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise<void> {
+  if (obj.type === 'sketch' && obj.sourceLocation) {
+    // Sketch has no edit dialog of its own: the double-click's breakpoint
+    // truncates the build at the sketch, and the sketch dialog adopts the
+    // render that ends in it. Flag that adoption as the edit it is, so the
+    // dialog owns the breakpoint and its close leaves the statement alone.
+    modifyService.noteSketchEditRequest(obj.sourceLocation);
+    return;
+  }
   if (!obj.type || !EDITABLE_ROW_TYPES.has(obj.type) || !obj.sourceLocation) {
     return;
   }

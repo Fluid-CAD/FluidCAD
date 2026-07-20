@@ -217,7 +217,6 @@ export class HelixFeatureService {
     // Offered whenever the scene has a solid (face mode + edge picks) or a
     // sketch to sweep the helix with — like Revolve's availability signal.
     this.available = this.hasSolid || this.hasSketch;
-    this.navbar.setGroupVisible('create', this.available, 'helix');
     this.syncButton();
     if (!this.armed) {
       return;
@@ -665,9 +664,23 @@ export class HelixFeatureService {
     }
   }
 
+  /**
+   * The create group is `immune`, so its buttons survive the sketch toolbar's
+   * takeover — Extrude and friends must stay reachable to finish a sketch.
+   * Helix is not one of them: it is a solid-level feature, so its button hides
+   * while a sketch is being edited. An armed session keeps the button (it
+   * suspends the sketch UI and doubles as the exit toggle).
+   */
+  private get buttonVisible(): boolean {
+    return this.available && (this.armed || !this.sceneSketchActive);
+  }
+
   private syncButton(): void {
     this.button.className = this.armed ? BTN_ACTIVE : BTN_BASE;
-    this.buttonWrap.classList.toggle('hidden', !this.available);
+    // Arming/exiting flips the button's visibility too, so the group vote
+    // rides along here rather than only on the render path.
+    this.navbar.setGroupVisible('create', this.buttonVisible, 'helix');
+    this.buttonWrap.classList.toggle('hidden', !this.buttonVisible);
     this.hooks.onActiveChange?.();
   }
 

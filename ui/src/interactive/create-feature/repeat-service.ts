@@ -109,9 +109,10 @@ export class RepeatFeatureService {
   ) {
     // Repeat rides its own group, registered after the create and modify
     // rails so its button renders last — the navbar draws the separator
-    // before it whenever a visible group precedes. `immune` keeps it
-    // reachable while the sketch toolbar owns the bar, like the create rail.
-    const group = navbar.addGroup('repeat', { visible: false, immune: true });
+    // before it whenever a visible group precedes. Unlike the create rail it
+    // is *not* `immune`: repeating features is a solid-level operation, so the
+    // button hides while the exclusive sketch toolbar owns the bar.
+    const group = navbar.addGroup('repeat', { visible: false });
     this.button = document.createElement('button');
     this.button.className = BTN_BASE;
     this.button.setAttribute('aria-label', 'Repeat features along an axis, around an axis, or mirrored');

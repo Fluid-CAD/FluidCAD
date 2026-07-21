@@ -36,6 +36,61 @@ export class Color extends SceneObject {
     }
   }
 
+  /**
+   * Every face this color applies to, grouped by the solid that owns it.
+   *
+   * A face selection hands us loose faces, whose owner has to be searched for
+   * among the scene's solids. Any other scene object hands us whole solids,
+   * which contribute all of their faces to an owner we already know.
+   *
+   * Without an explicit selection we colour every face in the current context,
+   * matching `select(face())` followed by `color(...)`: all faces of all
+   * non-meta solids present at this point in the build.
+   */
+  private collectFacesByOwner(candidates: Solid[]): Map<Solid, Face[]> {
+    const facesByOwner = new Map<Solid, Face[]>();
+
+    const add = (owner: Solid, face: Face) => {
+      let faces = facesByOwner.get(owner);
+      if (!faces) {
+        faces = [];
+        facesByOwner.set(owner, faces);
+      }
+      faces.push(face);
+    };
+
+    if (!this._selection) {
+      for (const solid of candidates) {
+        if (solid.isMetaShape()) {
+          continue;
+        }
+        facesByOwner.set(solid, solid.getFaces());
+      }
+      return facesByOwner;
+    }
+
+    for (const shape of this._selection.getShapes()) {
+      if (shape instanceof Solid) {
+        for (const face of shape.getFaces()) {
+          add(shape, face);
+        }
+        continue;
+      }
+
+      for (const face of shape.getSubShapes('face') as Face[]) {
+        const ownerShape = candidates.find(s => s.hasFace(face.getShape()));
+        if (ownerShape) {
+          add(ownerShape, face);
+        }
+        else {
+          console.log('Color: Could not find owner shape for face, skipping. Face:', face);
+        }
+      }
+    }
+
+    return facesByOwner;
+  }
+
   build(context: BuildSceneObjectContext) {
     const sceneObjects = context.getSceneObjects();
 
@@ -49,36 +104,7 @@ export class Color extends SceneObject {
 
     const allShapes = Array.from(objShapeMap.keys());
 
-    // Group faces by their owner solid. With an explicit selection we colour
-    // only the selected faces. Without one we colour every face in the current
-    // context, matching `select(face())` followed by `color(...)`: all faces of
-    // all non-meta solids present at this point in the build.
-    const facesByOwner = new Map<Solid, Face[]>();
-    if (this._selection) {
-      const targetFaces: Face[] = this._selection.getShapes() as Face[];
-      for (const face of targetFaces) {
-        const ownerShape = allShapes.find(s => s.hasFace(face.getShape()));
-        if (ownerShape) {
-          let faces = facesByOwner.get(ownerShape);
-          if (!faces) {
-            faces = [];
-            facesByOwner.set(ownerShape, faces);
-          }
-          faces.push(face);
-        }
-        else {
-          console.log('Color: Could not find owner shape for face, skipping. Face:', face);
-        }
-      }
-    }
-    else {
-      for (const solid of allShapes) {
-        if (solid.isMetaShape()) {
-          continue;
-        }
-        facesByOwner.set(solid, solid.getFaces());
-      }
-    }
+    const facesByOwner = this.collectFacesByOwner(allShapes);
 
     // Apply all face colors per solid in a single copy
     for (const [ownerShape, faces] of facesByOwner) {

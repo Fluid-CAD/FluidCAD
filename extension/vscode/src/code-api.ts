@@ -65,6 +65,20 @@ export function removePick(serverUrl: string, code: string, sourceLine: number, 
   return postCodeEdit<CodeEditResult>(serverUrl, 'remove-pick', { code, sourceLine }, logger);
 }
 
+export function removeStatement(serverUrl: string, code: string, sourceLine: number, logger: vscode.OutputChannel) {
+  return postCodeEdit<CodeEditResult>(serverUrl, 'remove-statement', { code, sourceLine }, logger);
+}
+
+export function setFeatureName(
+  serverUrl: string, code: string, sourceLine: number, name: string | null, logger: vscode.OutputChannel,
+) {
+  return postCodeEdit<CodeEditResult>(serverUrl, 'set-feature-name', { code, sourceLine, name }, logger);
+}
+
+export function insertLoad(serverUrl: string, code: string, fileName: string, logger: vscode.OutputChannel) {
+  return postCodeEdit<CodeEditResult>(serverUrl, 'insert-load', { code, fileName }, logger);
+}
+
 export function setPickPoints(
   serverUrl: string, code: string, sourceLine: number, points: [number, number][], logger: vscode.OutputChannel,
 ) {
@@ -122,12 +136,19 @@ export function updateDimensionExpression(
   sketchSourceLine: number | null = null,
   newVariable: { name: string; initializer: string } | null = null,
   dimensionOffset = 0,
+  dimensionCall: string | null = null,
 ) {
   return postCodeEdit<CodeEditResult>(
     serverUrl, 'update-dimension-expression',
-    { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset },
+    { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset, dimensionCall },
     logger,
   );
+}
+
+export function applyFeature(
+  serverUrl: string, code: string, spec: unknown, logger: vscode.OutputChannel,
+) {
+  return postCodeEdit<CodeEditResult & { error?: string }>(serverUrl, 'apply-feature', { code, spec }, logger);
 }
 
 

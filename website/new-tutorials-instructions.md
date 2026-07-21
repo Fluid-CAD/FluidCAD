@@ -177,6 +177,7 @@ node website/scripts/generate-screenshots.mjs <tutorial-name>-final
 - `// @screenshot showAxes` — show coordinate axes
 - `// @screenshot hideGrid` — hide the ground grid
 - `// @screenshot waitForInput` — pause for manual camera adjustment
+- `// @screenshot view <name>` — capture from a fixed named view (`front`, `top`, `iso-ftr`, ...) instead of the UI client's camera; reproducible without manual framing
 - `// @screenshot noAutoCrop` — disable auto-cropping
 
 Axes are automatically shown if the code contains `revolve(`, `mirror(`, or `rotate(`.

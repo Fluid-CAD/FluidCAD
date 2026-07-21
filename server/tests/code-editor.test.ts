@@ -8,10 +8,17 @@ import {
   removePoint,
   addPick,
   removePick,
+  removeStatement,
+  setFeatureName,
   setPickPoints,
   insertGeometryCall,
+  insertGeometryCallWithVariable,
+  insertLoadCall,
   updateGeometryPosition,
   updateDimension,
+  updateDimensionExpression,
+  getDimensionExpression,
+  extractVariablesInScope,
 } from '../src/code-editor.ts';
 
 describe('addBreakpoint', () => {
@@ -456,6 +463,26 @@ describe('insertGeometryCall', () => {
     const importMatches = importLine.match(/line/g);
     expect(importMatches!.length).toBe(1);
   });
+
+  it('inserts a multi-line statement and imports every line\'s callee', async () => {
+    const code = [
+      `import { sketch } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  rect(10, 10)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'move([5, 5]);\ntext("Hi").size(14).bold()');
+    expect(result.newCode).toBe([
+      `import { text,move, sketch } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  rect(10, 10)`,
+      `  move([5, 5]);`,
+      `  text("Hi").size(14).bold()`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
 });
 
 describe('updateGeometryPosition', () => {
@@ -567,5 +594,332 @@ describe('updateDimension', () => {
     const code = `vLine([5, 10], height / 2)\n`;
     const result = await updateDimension(code, 1, 100);
     expect(result.newCode).toBe(`vLine([5, 10], 100)\n`);
+  });
+});
+
+describe('updateDimensionExpression with dimensionOffset', () => {
+  it('offset 0 targets rect height', async () => {
+    const code = `rect(30, 20)\n`;
+    const result = await updateDimensionExpression(code, 1, 'h', 0);
+    expect(result.newCode).toBe(`rect(30, h)\n`);
+  });
+
+  it('offset 1 targets rect width', async () => {
+    const code = `rect(30, 20)\n`;
+    const result = await updateDimensionExpression(code, 1, 'w', 1);
+    expect(result.newCode).toBe(`rect(w, 20)\n`);
+  });
+
+  it('offset 1 skips the start point array of rect', async () => {
+    const code = `rect([5, 10], 30, 20)\n`;
+    const result = await updateDimensionExpression(code, 1, 'w', 1);
+    expect(result.newCode).toBe(`rect([5, 10], w, 20)\n`);
+  });
+
+  it('walks through .centered() to the rect args', async () => {
+    const code = `rect(30, 20).centered()\n`;
+    const result = await updateDimensionExpression(code, 1, 'w', 1);
+    expect(result.newCode).toBe(`rect(w, 20).centered()\n`);
+  });
+});
+
+describe('updateDimensionExpression with dimensionCall', () => {
+  it('targets rect height past a .radius() call', async () => {
+    const code = `rect(30, 20).radius(5)\n`;
+    const result = await updateDimensionExpression(code, 1, 'h', 0, 'rect');
+    expect(result.newCode).toBe(`rect(30, h).radius(5)\n`);
+  });
+
+  it('targets rect width past .radius() and .centered()', async () => {
+    const code = `rect([5, 10], 30, 20).centered().radius(5)\n`;
+    const result = await updateDimensionExpression(code, 1, 'w', 1, 'rect');
+    expect(result.newCode).toBe(`rect([5, 10], w, 20).centered().radius(5)\n`);
+  });
+
+  it('targets a single fillet radius', async () => {
+    const code = `rect(30, 20).radius(5)\n`;
+    const result = await updateDimensionExpression(code, 1, 'r', 0, 'radius');
+    expect(result.newCode).toBe(`rect(30, 20).radius(r)\n`);
+  });
+
+  it('targets one radius of a per-corner list by offset from the end', async () => {
+    const code = `rect(30, 20).radius(1, 2, 3, 4)\n`;
+    const result = await updateDimensionExpression(code, 1, 'r', 1, 'radius');
+    expect(result.newCode).toBe(`rect(30, 20).radius(1, 2, r, 4)\n`);
+  });
+
+  it('without dimensionCall keeps the outermost-call behavior', async () => {
+    const code = `rect(30, 20).radius(5)\n`;
+    const result = await updateDimensionExpression(code, 1, '7', 0);
+    expect(result.newCode).toBe(`rect(30, 20).radius(7)\n`);
+  });
+});
+
+describe('getDimensionExpression with dimensionOffset', () => {
+  it('dimensionCall reads rect height past a .radius() call', async () => {
+    const code = `rect(30, 20).radius(fillet)\n`;
+    const result = await getDimensionExpression(code, 1, 0, 'rect');
+    expect(result?.expression).toBe('20');
+  });
+
+  it('dimensionCall reads the fillet radius', async () => {
+    const code = `rect(30, 20).radius(fillet)\n`;
+    const result = await getDimensionExpression(code, 1, 0, 'radius');
+    expect(result?.expression).toBe('fillet');
+  });
+
+  it('offset 0 returns rect height', async () => {
+    const code = `rect([5, 10], 30, height / 2)\n`;
+    const result = await getDimensionExpression(code, 1);
+    expect(result?.expression).toBe('height / 2');
+  });
+
+  it('offset 1 returns rect width', async () => {
+    const code = `rect([5, 10], -(w), 20)\n`;
+    const result = await getDimensionExpression(code, 1, 1);
+    expect(result?.expression).toBe('-(w)');
+  });
+
+  it('offset 1 walks through .centered()', async () => {
+    const code = `rect(30, 20).centered()\n`;
+    const result = await getDimensionExpression(code, 1, 1);
+    expect(result?.expression).toBe('30');
+  });
+});
+
+describe('insertLoadCall', () => {
+  it('appends the load call after the last statement and imports load', async () => {
+    const code = `import { extrude } from 'fluidcad/core';\n\nextrude(10);\n`;
+    const result = await insertLoadCall(code, 'bracket');
+    expect(result.newCode).toBe(
+      `import {load, extrude } from 'fluidcad/core';\n\nextrude(10);\n\nload('bracket');\n`,
+    );
+  });
+
+  it('adds the import statement when the file has none', async () => {
+    const code = `extrude(10);\n`;
+    const result = await insertLoadCall(code, 'bracket');
+    expect(result.newCode).toBe(
+      `import { load } from 'fluidcad/core';\nextrude(10);\n\nload('bracket');\n`,
+    );
+  });
+
+  it('reuses an existing load import', async () => {
+    const code = `import { load } from 'fluidcad/core';\n`;
+    const result = await insertLoadCall(code, 'bracket');
+    expect(result.newCode).toBe(`import { load } from 'fluidcad/core';\n\nload('bracket');\n`);
+  });
+
+  it('no-ops when the model is already loaded', async () => {
+    const code = `import { load } from 'fluidcad/core';\n\nload('bracket');\n`;
+    const result = await insertLoadCall(code, 'bracket');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('appends a second load for a different model', async () => {
+    const code = `import { load } from 'fluidcad/core';\n\nload('bracket');\n`;
+    const result = await insertLoadCall(code, 'plate');
+    expect(result.newCode).toBe(
+      `import { load } from 'fluidcad/core';\n\nload('bracket');\n\nload('plate');\n`,
+    );
+  });
+
+  it('escapes quotes in the file name', async () => {
+    const code = `import { load } from 'fluidcad/core';\n`;
+    const result = await insertLoadCall(code, "bob's part");
+    expect(result.newCode).toBe(`import { load } from 'fluidcad/core';\n\nload('bob\\'s part');\n`);
+  });
+});
+
+describe('removeStatement', () => {
+  it('removes a bare feature statement and its line', async () => {
+    const code = `const s = sketch('xy', () => {});\nextrude(10);\nfillet(2, e.edges());\n`;
+    const result = await removeStatement(code, 2);
+    expect(result.newCode).toBe(`const s = sketch('xy', () => {});\nfillet(2, e.edges());\n`);
+  });
+
+  it('removes a const-bound statement including the binding', async () => {
+    const code = `const s = sketch('xy', () => {});\nconst e = extrude(10);\n`;
+    const result = await removeStatement(code, 2);
+    expect(result.newCode).toBe(`const s = sketch('xy', () => {});\n`);
+  });
+
+  it('removes every line of a multi-line statement', async () => {
+    const code = `const s = sketch('xy', () => {\n  rect(30, 20);\n  circle(5);\n});\nextrude(10);\n`;
+    const result = await removeStatement(code, 1);
+    expect(result.newCode).toBe(`extrude(10);\n`);
+  });
+
+  it('removes a chained multi-line statement', async () => {
+    const code = `extrude(10)\n  .pick([1, 2])\n  .symmetric();\nfillet(2, e.edges());\n`;
+    const result = await removeStatement(code, 1);
+    expect(result.newCode).toBe(`fillet(2, e.edges());\n`);
+  });
+
+  it('collapses the doubled blank line left behind', async () => {
+    const code = `const a = 1;\n\nextrude(10);\n\nconst b = 2;\n`;
+    const result = await removeStatement(code, 3);
+    expect(result.newCode).toBe(`const a = 1;\n\nconst b = 2;\n`);
+  });
+
+  it('keeps indented statements intact inside a block', async () => {
+    const code = `function part() {\n  const s = sketch('xy', () => {});\n  extrude(10);\n  return s;\n}\n`;
+    const result = await removeStatement(code, 3);
+    expect(result.newCode).toBe(`function part() {\n  const s = sketch('xy', () => {});\n  return s;\n}\n`);
+  });
+
+  it('no-ops when no call starts on the line', async () => {
+    const code = `const a = 1;\nextrude(10);\n`;
+    const result = await removeStatement(code, 1);
+    expect(result.newCode).toBe(code);
+  });
+
+  it('excises only the statement when it shares a line', async () => {
+    const code = `const a = 1; extrude(10);\n`;
+    const result = await removeStatement(code, 1);
+    expect(result.newCode).toBe(`const a = 1; \n`);
+  });
+});
+
+describe('setFeatureName', () => {
+  it('appends .name() to a bare feature statement', async () => {
+    const code = `extrude(10);\nfillet(2, e.edges());\n`;
+    const result = await setFeatureName(code, 1, 'Boss');
+    expect(result.newCode).toBe(`extrude(10).name('Boss');\nfillet(2, e.edges());\n`);
+  });
+
+  it('appends .name() after existing chains on a const-bound statement', async () => {
+    const code = `const e = extrude(10).drill(false);\n`;
+    const result = await setFeatureName(code, 1, 'Boss');
+    expect(result.newCode).toBe(`const e = extrude(10).drill(false).name('Boss');\n`);
+  });
+
+  it('appends .name() after a multi-line sketch body', async () => {
+    const code = `const s = sketch('xy', () => {\n  rect(30, 20);\n});\n`;
+    const result = await setFeatureName(code, 1, 'Base profile');
+    expect(result.newCode).toBe(`const s = sketch('xy', () => {\n  rect(30, 20);\n}).name('Base profile');\n`);
+  });
+
+  it('rewrites an existing .name() argument in place', async () => {
+    const code = `extrude(10).name('Old').drill(false);\n`;
+    const result = await setFeatureName(code, 1, 'New');
+    expect(result.newCode).toBe(`extrude(10).name('New').drill(false);\n`);
+  });
+
+  it('removes the .name() chain when the name is empty', async () => {
+    const code = `extrude(10).name('Boss');\n`;
+    const result = await setFeatureName(code, 1, '');
+    expect(result.newCode).toBe(`extrude(10);\n`);
+  });
+
+  it('removes a mid-chain .name() when the name is null', async () => {
+    const code = `extrude(10).name('Boss').drill(false);\n`;
+    const result = await setFeatureName(code, 1, null);
+    expect(result.newCode).toBe(`extrude(10).drill(false);\n`);
+  });
+
+  it('escapes quotes and collapses whitespace runs in the name', async () => {
+    const code = `extrude(10);\n`;
+    const result = await setFeatureName(code, 1, "  Bob's\n boss  ");
+    expect(result.newCode).toBe(`extrude(10).name('Bob\\'s boss');\n`);
+  });
+
+  it('no-ops clearing a statement that has no .name()', async () => {
+    const code = `extrude(10);\n`;
+    const result = await setFeatureName(code, 1, null);
+    expect(result.newCode).toBe(code);
+  });
+
+  it('no-ops when no call starts on the line', async () => {
+    const code = `const a = 1;\nextrude(10);\n`;
+    const result = await setFeatureName(code, 1, 'Boss');
+    expect(result.newCode).toBe(code);
+  });
+});
+
+describe('insertGeometryCallWithVariable', () => {
+  it('declares a param() variable at top level, after the imports', async () => {
+    const code = [
+      `import { sketch, line } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 0]);`,
+      `});`,
+    ].join('\n');
+    const result = await insertGeometryCallWithVariable(
+      code, 2, 'line([0, 0], [depth, 0])',
+      { name: 'depth', initializer: 'param("depth", 25)' },
+    );
+    expect(result.newCode).toContain(
+      `import {param, sketch, line } from 'fluidcad/core';\nconst depth = param("depth", 25);\nsketch(XY, () => {`,
+    );
+    expect(result.newCode).toContain(`line([0, 0], [depth, 0])`);
+  });
+
+  it('leaves imports alone for a plain declaration', async () => {
+    const code = [
+      `import { sketch, line } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 0]);`,
+      `});`,
+    ].join('\n');
+    const result = await insertGeometryCallWithVariable(
+      code, 2, 'line([0, 0], [depth, 0])',
+      { name: 'depth', initializer: '25' },
+    );
+    expect(result.newCode).toContain(`import { sketch, line } from 'fluidcad/core';`);
+    expect(result.newCode).toContain(`const depth = 25;`);
+  });
+});
+
+describe('extractVariablesInScope numeric classification', () => {
+  it('marks constants and arithmetic expressions numeric, feature results not', async () => {
+    const code = [
+      "import { sketch, extrude } from 'fluidcad';",
+      'const width = 100;',
+      'const half = width / 2;',
+      'const angled = Math.sqrt(width) + 2;',
+      'const sides = param("Sides", 6);',
+      'const profile = sketch(() => {});',
+      'const housing = extrude(profile, 10);',
+      'const alias = housing;',
+      'const depth = housing.faces;',
+      'extrude(profile, half);',
+    ].join('\n');
+    const vars = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER);
+    const numericByName = Object.fromEntries(vars.map(v => [v.name, v.numeric]));
+    expect(numericByName).toEqual({
+      width: true,
+      half: true,
+      angled: true,
+      sides: true,
+      profile: false,
+      housing: false,
+      alias: false,
+      depth: false,
+    });
+  });
+
+  it('excludes strings, arrays, objects, and arrow functions', async () => {
+    const code = [
+      "const label = 'lid';",
+      'const dims = [10, 20];',
+      'const cfg = { w: 5 };',
+      'const fn = () => 3;',
+      'const size = (2 + 3) * 4;',
+      'const pick = size > 10 ? size : 10;',
+      'const neg = -size;',
+      'extrude(size);',
+    ].join('\n');
+    const vars = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER);
+    const numericByName = Object.fromEntries(vars.map(v => [v.name, v.numeric]));
+    expect(numericByName).toEqual({
+      label: false,
+      dims: false,
+      cfg: false,
+      fn: false,
+      size: true,
+      pick: true,
+      neg: true,
+    });
   });
 });

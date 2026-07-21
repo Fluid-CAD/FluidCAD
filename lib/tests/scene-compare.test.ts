@@ -5,7 +5,9 @@ import { SceneCompare } from "../rendering/scene-compare.js";
 import { SceneObject } from "../common/scene-object.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
+import color from "../core/color.js";
 import { rect } from "../core/2d/index.js";
+import { face } from "../filters/index.js";
 
 function findByType(objects: SceneObject[], uniqueType: string): SceneObject {
   const found = objects.find(o => o.getUniqueType() === uniqueType);
@@ -94,5 +96,51 @@ describe("SceneCompare id preservation", () => {
     if (staleSketchId !== previousSketchId) {
       expect(newScene.getSceneObjectById(staleSketchId)).toBe(null);
     }
+  });
+
+  it("does not match a classified-face selection whose filter changed", () => {
+    sketch("xy", () => {
+      rect(200, 100);
+    });
+    const e1 = extrude(20).draft(15);
+    color("red", e1.sideFaces(face().below("yz")));
+    render();
+
+    const previousScene = getSceneManager().currentScene;
+
+    const newScene = getSceneManager().startScene();
+    sketch("xy", () => {
+      rect(200, 100);
+    });
+    const e2 = extrude(20).draft(15);
+    color("red", e2.sideFaces(face().above("yz")));
+
+    SceneCompare.compare(previousScene, newScene);
+
+    const lazySelect = findByType(newScene.getSceneObjects(), "lazy-select");
+    expect(newScene.isCached(lazySelect)).toBe(false);
+  });
+
+  it("matches a classified-face selection whose filter is unchanged", () => {
+    sketch("xy", () => {
+      rect(200, 100);
+    });
+    const e1 = extrude(20).draft(15);
+    color("red", e1.sideFaces(face().below("yz")));
+    render();
+
+    const previousScene = getSceneManager().currentScene;
+
+    const newScene = getSceneManager().startScene();
+    sketch("xy", () => {
+      rect(200, 100);
+    });
+    const e2 = extrude(20).draft(15);
+    color("red", e2.sideFaces(face().below("yz")));
+
+    SceneCompare.compare(previousScene, newScene);
+
+    const lazySelect = findByType(newScene.getSceneObjects(), "lazy-select");
+    expect(newScene.isCached(lazySelect)).toBe(true);
   });
 });

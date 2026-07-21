@@ -12,9 +12,10 @@ interface ColorFunction {
    */
   (color: StringParam): ISceneObject;
   /**
-   * Applies a color to the given selection.
+   * Applies a color to the given selection or object.
    * @param color - The color value (CSS color string)
-   * @param selection - The face or edge selection to color
+   * @param selection - A face selection, or any scene object — every face of
+   * the object's solids is colored
    */
   (color: StringParam, selection: ISceneObject): ISceneObject;
 }

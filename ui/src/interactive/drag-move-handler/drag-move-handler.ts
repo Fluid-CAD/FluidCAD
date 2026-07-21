@@ -303,7 +303,7 @@ export class DragMoveHandler {
     if (!point2d) {
       return;
     }
-    const hit = findHitGeometry(point2d, this.sceneObjects, this.sketchId, this.plane, this.ctx);
+    const hit = findHitGeometry(point2d, this.sceneObjects, this.sketchId, this.plane, this.ctx, true);
     if (!hit) {
       return;
     }

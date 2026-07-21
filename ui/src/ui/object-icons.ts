@@ -1,4 +1,4 @@
-const UNIQUE_TYPE_ICONS: Record<string, string> = {
+export const UNIQUE_TYPE_ICONS: Record<string, string> = {
   'aline': 'aline',
   'axis-from-edge': 'axis',
   'axis-middle': 'axis',
@@ -18,9 +18,9 @@ const UNIQUE_TYPE_ICONS: Record<string, string> = {
   'mirror-shape-2d': 'mirror2d',
   'one-object-tline': 'tline',
   'plane-from-face': 'plane',
-  'repeat-circular': 'copy-circular',
-  'repeat-linear': 'copy-linear',
-  'repeat-matrix': 'copy-linear',
+  'repeat-circular': 'repeat-circular',
+  'repeat-linear': 'repeat-linear',
+  'repeat-matrix': 'repeat-linear',
   'slot-from-edge': 'slot',
   'tarc-to-point': 'tarc',
   'tarc-to-point-tangent': 'tarc',

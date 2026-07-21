@@ -58,6 +58,30 @@ describe("repeat of primitives", () => {
     ]);
   });
 
+  it("marks repeat containers as hide-children with their clones following in scene order", () => {
+    const c = cylinder(10, 30);
+    repeat("linear", "x", { count: 3, offset: 60 }, c as unknown as SceneObject);
+
+    const scene = render();
+    expect(buildErrors(scene)).toEqual([]);
+
+    const rendered = scene.getRenderedObjects();
+    const repeatIndex = rendered.findIndex(r => r.type === "repeat-linear");
+    expect(repeatIndex).toBeGreaterThan(-1);
+
+    const repeatRender = rendered[repeatIndex];
+    expect(repeatRender.hideChildren).toBe(true);
+    expect(rendered.filter(r => r.type !== "repeat-linear").every(r => !r.hideChildren)).toBe(true);
+
+    // The timeline maps a click on the repeat row to a rollback at its last
+    // descendant, which relies on clones being emitted after the container.
+    const cloneIndexes = rendered
+      .map((r, i) => (r.parentId === repeatRender.id ? i : -1))
+      .filter(i => i !== -1);
+    expect(cloneIndexes.length).toBe(2);
+    expect(Math.min(...cloneIndexes)).toBeGreaterThan(repeatIndex);
+  });
+
   it("mirror-repeats a sphere", () => {
     const s = sphere(8).translate(20, 0, 0);
     repeat("mirror", "yz", s as unknown as SceneObject);

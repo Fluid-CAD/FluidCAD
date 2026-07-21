@@ -1,4 +1,4 @@
-import { Box3, BufferAttribute, BufferGeometry, Color, LineSegments, Mesh, MeshPhongMaterial, Object3D, Vector3 } from 'three';
+import { Box3, BufferAttribute, BufferGeometry, Color, Intersection, LineSegments, Mesh, MeshPhongMaterial, Object3D, Raycaster, Vector3 } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { SceneModeManager } from './scene/scene-mode';
 import { buildSceneMesh } from './meshes/mesh-factory';
@@ -7,6 +7,8 @@ import { SettingsPanel } from './ui/settings-panel';
 import { CentroidIndicator } from './scene/centroid-indicator';
 import { viewerSettings } from './scene/viewer-settings';
 import { themeColors } from './scene/theme-colors';
+import { StandardPlaneId, StandardPlanes } from './scene/standard-planes';
+import { collectPickCandidates } from './interactive/pick-candidates';
 
 /** Recursively expand `box` to include `object`, skipping meta-shape subtrees. */
 function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
@@ -25,10 +27,34 @@ function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
 
 const HIGHLIGHT_EDGE_LINE_WIDTH = 2;
 const HOVER_EDGE_LINE_WIDTH = 2;
+// Sketch wires already render at width 2 — a selected sketch needs the extra
+// width on top of the highlight color to stand out from its neighbors.
+const HIGHLIGHT_SKETCH_WIRE_LINE_WIDTH = 3;
 
 export type SelectionModifiers = { additive: boolean };
 
-export type SelectedEntity = { shapeId: string; sub: NonNullable<SubSelection> };
+/** What pickAt() resolves: a sub-shape, or a shown origin plane. */
+type PickResult = { shapeId: string; sub: SubSelection } | { standardPlane: StandardPlaneId };
+
+function isPlanePick(result: PickResult | null): result is { standardPlane: StandardPlaneId } {
+  return result !== null && 'standardPlane' in result;
+}
+
+// Sketch-wire, axis and plane picks route a dialog action and are never held
+// as a selection.
+export type SelectedEntity = {
+  shapeId: string;
+  sub: Exclude<NonNullable<SubSelection>, { type: 'sketch' } | { type: 'axis' } | { type: 'plane' }>;
+};
+
+/**
+ * The section-view toggle the viewer drives — implemented by the sketch dialog,
+ * the only place section view is offered (it clips at the sketch plane).
+ */
+export interface SectionViewControl {
+  setVisible(visible: boolean): void;
+  setActive(active: boolean): void;
+}
 
 // How much to blend non-sketch object colors toward the scene background while
 // sketch mode is active. Higher = more faded. Opaque tint avoids the three.js
@@ -47,40 +73,78 @@ export class Viewer {
   private settingsPanel: SettingsPanel;
   private sceneObjects: SceneObjectRender[] = [];
   private highlightedShapeId: string | null = null;
+  private highlightedSketchWires: string[] = [];
   private faceHighlightMeshes: Mesh[] = [];
   private hasRendered = false;
   private lastFitBox: Box3 | null = null;
   isTrimming = false;
   isRegionPicking = false;
   isDrawing = false;
+  /**
+   * Restricts what pickAt() returns while a pick mode is active (e.g. edge-only
+   * for fillet/chamfer). Faces still participate in occlusion testing so edges
+   * hidden behind the solid don't become pickable — they just can't be *hit*.
+   * `none` turns solid picking off entirely while the independent channels
+   * (`pickSketchWires`, `pickAxes`) stay live — the revolve dialog's
+   * profile-armed mode, where only sketch wires may be picked.
+   */
+  pickFilter: 'all' | 'edge' | 'face' | 'none' = 'all';
+  /**
+   * Makes sketch wires pickable, independent of `pickFilter` — the armed
+   * create dialogs (extrude/sweep/loft) enable it so clicking a sketch's
+   * geometry selects that sketch as an input. A hit returns the wire's
+   * shapeId with `sub.type === 'sketch'`; the owning sketch is resolved by
+   * the consumer.
+   */
+  pickSketchWires = false;
+  /**
+   * Makes axis lines (the dashed `axis(…)` guides) pickable, independent of
+   * `pickFilter` — the armed revolve dialog enables it so clicking an axis
+   * selects it as the revolve axis. A hit returns the line's shapeId with
+   * `sub.type === 'axis'`; the owning axis object is resolved by the
+   * consumer.
+   */
+  pickAxes = false;
+  /**
+   * Makes construction-plane quads (the translucent `plane(…)` faces)
+   * pickable, independent of `pickFilter` — the armed sketch mode enables it
+   * so clicking a plane sketches on it. A hit returns the quad's shapeId with
+   * `sub.type === 'plane'`; the owning plane object is resolved by the
+   * consumer.
+   */
+  pickPlanes = false;
 
   private selectionHandler: ((shapeId: string | null, sub: SubSelection, modifiers: SelectionModifiers) => void) | null = null;
+  private hoverHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
+  private contextMenuHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
+  private doubleClickHandler: ((shapeId: string | null, sub: SubSelection) => void) | null = null;
   private centroidIndicator = new CentroidIndicator();
   private hoverState: { shapeId: string; sub: SubSelection } | null = null;
   private hoverFaceOverlayMeshes: Mesh[] = [];
   private hoverRafId: number | null = null;
   private isMouseDown = false;
+  private standardPlanes = new StandardPlanes();
+  private standardPlanePickHandler: ((plane: StandardPlaneId) => void) | null = null;
   private highlightedEntities: SelectedEntity[] = [];
   private activeSketchId: string | null = null;
+  private sectionViewControl: SectionViewControl | null = null;
   private hiddenShapeIds = new Set<string>();
   private shapeOpacities = new Map<string, number>();
 
   constructor(containerId: string) {
     const container = document.getElementById(containerId)!;
-    this.ctx = new SceneContext(container);
+    // The renderer fills a dedicated sub-container inset below the toolbar
+    // (see #fluidcad-scene in styles.css); it sizes, resizes, and raycasts
+    // against this element, so the scene starts under the toolbar with no
+    // coordinate offsets. UI chrome stays on the full-size outer container.
+    const sceneContainer = document.getElementById('fluidcad-scene') ?? container;
+    this.ctx = new SceneContext(sceneContainer);
     this.modeManager = new SceneModeManager(this.ctx);
     this.settingsPanel = new SettingsPanel(container, (mode) => this.ctx.switchCamera(mode));
     this.settingsPanel.setFitHandler(() => this.fitViewToScene());
     if (viewerSettings.current.cameraMode === 'perspective') {
       this.ctx.switchCamera('perspective');
     }
-    this.settingsPanel.setSectionViewToggleHandler((enabled) => {
-      if (enabled) {
-        this.applySectionView();
-      } else {
-        this.clearSectionView();
-      }
-    });
 
     this.initClickDetection();
     this.initHoverDetection();
@@ -98,8 +162,44 @@ export class Viewer {
     this.selectionHandler = fn;
   }
 
+  /** Notified when the hovered sub-shape changes (null = nothing hovered). */
+  setHoverHandler(fn: (shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void): void {
+    this.hoverHandler = fn;
+  }
+
+  /** Notified on a non-drag right-click over the canvas (pick may be null). */
+  setContextMenuHandler(fn: (shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void): void {
+    this.contextMenuHandler = fn;
+  }
+
+  /** Notified on a non-drag double-click over the canvas (pick may be null). */
+  setDoubleClickHandler(fn: (shapeId: string | null, sub: SubSelection) => void): void {
+    this.doubleClickHandler = fn;
+  }
+
   get settingsPanelHost(): HTMLElement {
     return this.settingsPanel.panelHost;
+  }
+
+  /**
+   * The section-view toggle lives in the sketch dialog, which the modify-pick
+   * service owns; it registers the control here so the viewer can drive its
+   * visibility (sketch mode only) and checked state.
+   */
+  setSectionViewControl(control: SectionViewControl | null): void {
+    this.sectionViewControl = control;
+    control?.setVisible(this.modeManager.isSketchMode);
+    control?.setActive(viewerSettings.current.sectionView);
+  }
+
+  /** Clip the scene at the sketch plane, or stop clipping. */
+  setSectionViewEnabled(enabled: boolean): void {
+    viewerSettings.update({ sectionView: enabled });
+    if (enabled) {
+      this.applySectionView();
+    } else {
+      this.clearSectionView();
+    }
   }
 
   setParamsToggleHandler(fn: () => void): void {
@@ -130,6 +230,12 @@ export class Viewer {
     });
 
     canvas.addEventListener('mouseup', (e) => {
+      // Left releases only: a right-click release arrives right after the
+      // `contextmenu` event (before it on some platforms) and would both
+      // toggle a selection and dismiss the menu the right-click just opened.
+      if (e.button !== 0) {
+        return;
+      }
       if (!this.selectionHandler || this.isTrimming || this.isRegionPicking || this.modeManager.isSketchMode) {
         return;
       }
@@ -142,20 +248,66 @@ export class Viewer {
       this.clearHover();
       const modifiers: SelectionModifiers = { additive: e.ctrlKey || e.metaKey || e.shiftKey };
       const result = this.pickAt(e.clientX, e.clientY);
+      if (isPlanePick(result)) {
+        this.standardPlanePickHandler?.(result.standardPlane);
+        return;
+      }
       if (result) {
         this.selectionHandler(result.shapeId, result.sub, modifiers);
       } else {
         this.selectionHandler(null, null, modifiers);
       }
     });
+
+    // Non-drag double-click. The two single-click selections have already
+    // fired by the time this arrives (DOM event order), so the handler sees
+    // the selection as the clicks left it.
+    canvas.addEventListener('dblclick', (e) => {
+      if (!this.doubleClickHandler || this.isTrimming || this.isRegionPicking || this.modeManager.isSketchMode) {
+        return;
+      }
+      const dx = e.clientX - downX;
+      const dy = e.clientY - downY;
+      if (dx * dx + dy * dy > 64) {
+        return; // was a drag (> 8px)
+      }
+      const result = this.pickAt(e.clientX, e.clientY);
+      if (isPlanePick(result)) {
+        return;
+      }
+      this.doubleClickHandler(result?.shapeId ?? null, result?.sub ?? null);
+    });
+
+    // Non-drag right-click. OrbitControls suppresses the browser menu on the
+    // canvas; this hook adds pick-aware context actions on top.
+    canvas.addEventListener('contextmenu', (e) => {
+      if (!this.contextMenuHandler || this.isTrimming || this.isRegionPicking || this.modeManager.isSketchMode) {
+        return;
+      }
+      const dx = e.clientX - downX;
+      const dy = e.clientY - downY;
+      if (dx * dx + dy * dy > 64) {
+        return; // was a right-drag (pan)
+      }
+      e.preventDefault();
+      const result = this.pickAt(e.clientX, e.clientY);
+      if (isPlanePick(result)) {
+        return;
+      }
+      this.contextMenuHandler(result?.shapeId ?? null, result?.sub ?? null, e.clientX, e.clientY);
+    });
   }
 
-  /**
-   * Client-side raycaster picking across all shapes.  Returns the closest
-   * front-facing face or edge hit together with its shapeId.
-   */
-  private pickAt(clientX: number, clientY: number): { shapeId: string; sub: SubSelection } | null {
-    const camera = this.ctx.camera;
+  /** The raycast every pick query shares: candidates collected, hits by distance. */
+  private castPick(clientX: number, clientY: number): {
+    raycaster: Raycaster;
+    faceHits: Intersection[];
+    edgeHits: Intersection[];
+    sketchWireHits: Intersection[];
+    axisHits: Intersection[];
+    planeHits: Intersection[];
+    planeQuadHits: Intersection[];
+  } {
     const rect = this.ctx.renderer.domElement.getBoundingClientRect();
     const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
     const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
@@ -164,25 +316,69 @@ export class Viewer {
     raycaster.params.Line = { threshold: this.computeEdgePickThreshold() };
     raycaster.params.Line2 = { threshold: 8 };
 
-    const faceCandidates: Mesh[] = [];
-    const edgeCandidates: LineSegments[] = [];
-
-    this.ctx.scene.traverse((obj) => {
-      if (obj.userData.isMetaShape) {
-        return;
-      }
-      if ((obj as Mesh).isMesh && obj.userData.faceMapping) {
-        faceCandidates.push(obj as Mesh);
-      } else if (((obj as LineSegments).isLine || obj.userData.isEdgeLine) && obj.userData.edgeIndex !== undefined) {
-        edgeCandidates.push(obj as LineSegments);
-      }
+    const candidates = collectPickCandidates(this.ctx.scene, {
+      sketchWires: this.pickSketchWires,
+      axes: this.pickAxes,
+      planes: this.pickPlanes,
     });
 
-    const faceHits = faceCandidates.length > 0 ? raycaster.intersectObjects(faceCandidates, false) : [];
-    const edgeHits = edgeCandidates.length > 0 ? raycaster.intersectObjects(edgeCandidates, false) : [];
+    const faceHits = candidates.faces.length > 0 ? raycaster.intersectObjects(candidates.faces, false) : [];
+    const edgeHits = candidates.edges.length > 0 ? raycaster.intersectObjects(candidates.edges, false) : [];
+    const sketchWireHits = candidates.sketchWires.length > 0
+      ? raycaster.intersectObjects(candidates.sketchWires, false)
+      : [];
+    const axisHits = candidates.axes.length > 0 ? raycaster.intersectObjects(candidates.axes, false) : [];
+    // Origin-plane quads participate only while shown (armed sketch mode).
+    const planeTargets = this.standardPlanes.pickTargets;
+    const planeHits = planeTargets.length > 0 ? raycaster.intersectObjects(planeTargets, false) : [];
+    const planeQuadHits = candidates.planeQuads.length > 0
+      ? raycaster.intersectObjects(candidates.planeQuads, false)
+      : [];
 
-    if (faceHits.length === 0 && edgeHits.length === 0) {
+    return { raycaster, faceHits, edgeHits, sketchWireHits, axisHits, planeHits, planeQuadHits };
+  }
+
+  /** Closest point of an edge hit projected onto the pick ray — its depth. */
+  private static edgeHitDepth(hit: Intersection, raycaster: Raycaster): number {
+    // LineSegments2 hits expose `pointOnLine` (closest point on the segment
+    // in world space); the old BufferGeometry index path doesn't apply.
+    const pointOnLine = (hit as { pointOnLine?: Vector3 }).pointOnLine ?? hit.point;
+    return raycaster.ray.direction.dot(new Vector3().copy(pointOnLine).sub(raycaster.ray.origin));
+  }
+
+  /**
+   * Client-side raycaster picking across all shapes.  Returns the closest
+   * front-facing face or edge hit together with its shapeId — or, while the
+   * origin planes are shown and one is the closest visible target, that
+   * plane.
+   */
+  private pickAt(clientX: number, clientY: number): PickResult | null {
+    const camera = this.ctx.camera;
+    const { raycaster, faceHits, edgeHits, sketchWireHits, axisHits, planeHits, planeQuadHits } = this.castPick(clientX, clientY);
+
+    if (faceHits.length === 0 && edgeHits.length === 0 && sketchWireHits.length === 0
+      && axisHits.length === 0 && planeHits.length === 0 && planeQuadHits.length === 0) {
       return null;
+    }
+
+    // Sketch wires render on top of the model (no depth test), so a visible
+    // wire is pickable regardless of face occlusion, and as thin targets
+    // they outrank face hits within the line threshold.
+    for (const wireHit of sketchWireHits) {
+      const shapeId = this.findShapeIdForObject(wireHit.object);
+      if (shapeId) {
+        return { shapeId, sub: { type: 'sketch', index: 0 } };
+      }
+    }
+
+    // Axis lines are thin construction guides usually floating off the
+    // solid — like sketch wires they outrank face hits so picking one never
+    // needs pixel-perfect aim against the geometry behind it.
+    for (const axisHit of axisHits) {
+      const shapeId = this.findShapeIdForObject(axisHit.object);
+      if (shapeId) {
+        return { shapeId, sub: { type: 'axis', index: 0 } };
+      }
     }
 
     // Pick the closest face hit whose triangle normal faces the camera.
@@ -204,30 +400,41 @@ export class Viewer {
     // Edge depth test: project actual closest point on the edge segment onto
     // the pick ray and compare with the face depth.
     const faceDist = bestFace != null ? bestFace.distance : Infinity;
-    const rayOrigin = raycaster.ray.origin;
-    const rayDir = raycaster.ray.direction;
-    const segPt = new Vector3();
-    const toSeg = new Vector3();
-    for (const edgeHit of edgeHits) {
-      // LineSegments2 hits expose `pointOnLine` (closest point on the segment
-      // in world space); the old BufferGeometry index path doesn't apply.
-      const pointOnLine = (edgeHit as { pointOnLine?: Vector3 }).pointOnLine;
-      if (pointOnLine) {
-        segPt.copy(pointOnLine);
-      } else {
-        segPt.copy(edgeHit.point);
-      }
-      const edgeDist = rayDir.dot(toSeg.copy(segPt).sub(rayOrigin));
-      if (edgeDist <= faceDist + 1e-3) {
-        const edgeIndex = edgeHit.object.userData.edgeIndex as number;
-        const shapeId = this.findShapeIdForObject(edgeHit.object);
-        if (shapeId) {
-          return { shapeId, sub: { type: 'edge', index: edgeIndex } };
+    const planeDist = planeHits.length > 0 ? planeHits[0].distance : Infinity;
+    const planeQuadDist = planeQuadHits.length > 0 ? planeQuadHits[0].distance : Infinity;
+    if (this.pickFilter === 'all' || this.pickFilter === 'edge') {
+      for (const edgeHit of edgeHits) {
+        const edgeDist = Viewer.edgeHitDepth(edgeHit, raycaster);
+        if (edgeDist <= faceDist + 1e-3 && edgeDist <= planeDist + 1e-3) {
+          const edgeIndex = edgeHit.object.userData.edgeIndex as number;
+          const shapeId = this.findShapeIdForObject(edgeHit.object);
+          if (shapeId) {
+            return { shapeId, sub: { type: 'edge', index: edgeIndex } };
+          }
         }
       }
     }
 
-    if (bestFace) {
+    // A construction-plane quad behaves like an origin plane: it wins only
+    // where it is the closest visible target — ties go to coplanar geometry
+    // and to the origin planes (a plane coincident with 'xy' sketches as 'xy').
+    if (planeQuadHits.length > 0 && planeQuadDist < faceDist - 1e-3 && planeQuadDist < planeDist - 1e-3) {
+      const shapeId = this.findShapeIdForObject(planeQuadHits[0].object);
+      if (shapeId) {
+        return { shapeId, sub: { type: 'plane', index: 0 } };
+      }
+    }
+
+    // An origin plane wins where it is the closest visible target; the tie
+    // goes to coplanar geometry (sketching on the face that lies ON a plane).
+    if (planeHits.length > 0 && planeDist < faceDist - 1e-3) {
+      const planeId = this.standardPlanes.planeIdFor(planeHits[0].object);
+      if (planeId) {
+        return { standardPlane: planeId };
+      }
+    }
+
+    if (bestFace && this.pickFilter !== 'edge') {
       const mapping: number[] | undefined = bestFace.object.userData.faceMapping;
       if (!mapping || bestFace.faceIndex == null) {
         return null;
@@ -260,8 +467,68 @@ export class Viewer {
     this.modeManager.sketchEnabled = enable;
   }
 
-  setFileName(_absPath: string): void {
-    // File name is now shown in the timeline panel header
+  /**
+   * Show the origin planes (xy/xz/yz) as pick targets — the armed sketch mode
+   * offers them for a plane sketch. A click on one calls `onPick` instead of
+   * the selection handler; scene faces in front of a plane keep their picks.
+   * Re-showing while visible re-sizes the planes to the current scene.
+   */
+  showStandardPlanes(onPick: (plane: StandardPlaneId) => void): void {
+    this.standardPlanePickHandler = onPick;
+    this.standardPlanes.show(this.ctx.scene, this.sceneBoundsForPlanes());
+    this.ctx.requestRender();
+  }
+
+  hideStandardPlanes(): void {
+    if (!this.standardPlanes.visible) {
+      return;
+    }
+    this.standardPlanePickHandler = null;
+    this.standardPlanes.hide();
+    this.ctx.requestRender();
+  }
+
+  private sceneBoundsForPlanes(): Box3 | null {
+    const mesh = this.ctx.scene.getObjectByName('compiledMesh');
+    if (!mesh) {
+      return null;
+    }
+    const box = new Box3();
+    expandBoxExcludingMeta(box, mesh);
+    return box.isEmpty() ? null : box;
+  }
+
+  /**
+   * Temporarily leave sketch editing while the scene still ends with a
+   * sketch: restore the free 3D camera, unlock the projection, and rebuild
+   * the mesh un-ghosted so faces can be picked (the sketch-on-face flow from
+   * inside a sketch). {@link resumeSketchEditing} undoes it; scene updates
+   * arriving while suspended stay in the default mode.
+   */
+  suspendSketchEditing(): void {
+    this.modeManager.sketchEnabled = false;
+    if (this.modeManager.isSketchMode) {
+      this.modeManager.enterDefaultMode();
+    }
+    this.activeSketchId = null;
+    this.settingsPanel.setProjectionLocked(false);
+    this.settingsPanel.setFitButtonVisible(true);
+    this.sectionViewControl?.setVisible(false);
+    this.clearHover();
+    this.rebuildSceneMesh();
+  }
+
+  /**
+   * Re-enable sketch editing after {@link suspendSketchEditing}. With
+   * `immediate`, re-run the mode transition against the current scene now
+   * (the cancel path); without, the next scene render performs it (the
+   * applied path — a render of the new sketch is already on its way).
+   */
+  resumeSketchEditing(immediate: boolean): void {
+    this.modeManager.sketchEnabled = true;
+    if (immediate && this.sceneObjects) {
+      this.updateView(this.sceneObjects);
+    }
   }
 
   updateView(sceneObjects: SceneObjectRender[], isRollback = false, rollbackStop?: number): void {
@@ -278,7 +545,10 @@ export class Viewer {
     if (!isRollback) {
       const activeObject = this.findActiveObject(sceneObjects);
 
-      if (activeObject?.type === 'sketch' && activeObject.object?.plane) {
+      // A disabled mode manager (suspendSketchEditing / region picking) makes
+      // a trailing sketch render like any other scene — no camera lock, no
+      // ghosting — so faces stay pickable in the free 3D view.
+      if (activeObject?.type === 'sketch' && activeObject.object?.plane && this.modeManager.sketchEnabled) {
         if (!this.modeManager.isSketchMode) {
           this.modeManager.enterSketchMode(activeObject.object.plane);
         } else {
@@ -295,7 +565,12 @@ export class Viewer {
         this.lastFitBox = null;
       }
     } else {
-      this.activeSketchId = this.findRollbackActiveSketchId(sceneObjects, rollbackStop);
+      // A disabled mode manager (an edit session's pre-statement rollback)
+      // keeps the rolled-back scene un-ghosted even when the stop lands on a
+      // sketch — the session is there to pick geometry, not edit the sketch.
+      this.activeSketchId = this.modeManager.sketchEnabled
+        ? this.findRollbackActiveSketchId(sceneObjects, rollbackStop)
+        : null;
     }
 
     const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking);
@@ -307,9 +582,9 @@ export class Viewer {
     }
 
     // Section view: apply clipping when in sketch mode
-    this.settingsPanel.setSectionViewVisible(this.modeManager.isSketchMode);
+    this.sectionViewControl?.setVisible(this.modeManager.isSketchMode);
     if (this.modeManager.isSketchMode) {
-      this.settingsPanel.setSectionViewActive(viewerSettings.current.sectionView);
+      this.sectionViewControl?.setActive(viewerSettings.current.sectionView);
       if (viewerSettings.current.sectionView) {
         this.applySectionView();
       }
@@ -377,7 +652,8 @@ export class Viewer {
   }
 
   clearHighlight(): void {
-    if (!this.highlightedShapeId && this.highlightedEntities.length === 0 && this.faceHighlightMeshes.length === 0) {
+    if (!this.highlightedShapeId && this.highlightedEntities.length === 0
+      && this.highlightedSketchWires.length === 0 && this.faceHighlightMeshes.length === 0) {
       return;
     }
 
@@ -409,11 +685,16 @@ export class Viewer {
 
     this.highlightedShapeId = null;
     this.highlightedEntities = [];
+    this.highlightedSketchWires = [];
     this.ctx.render();
   }
 
-  /** Highlight a set of faces/edges at once (e.g. a measure selection). Replaces any previous highlight. */
-  highlightEntities(entities: SelectedEntity[]): void {
+  /**
+   * Highlight a set of faces/edges at once (e.g. a measure selection), plus
+   * optionally whole sketch wires by shape id (a create dialog's selected
+   * sketch inputs). Replaces any previous highlight.
+   */
+  highlightEntities(entities: SelectedEntity[], sketchWireShapeIds: string[] = []): void {
     this.clearHighlight();
     for (const entity of entities) {
       if (entity.sub.type === 'face') {
@@ -422,7 +703,33 @@ export class Viewer {
         this.applyEdgeHighlight(entity.shapeId, entity.sub.index);
       }
     }
+    for (const shapeId of sketchWireShapeIds) {
+      this.applySketchWireHighlight(shapeId);
+    }
     this.highlightedEntities = entities;
+    this.highlightedSketchWires = sketchWireShapeIds;
+    this.ctx.render();
+  }
+
+  /**
+   * Highlight a construction-plane quad (the neutral-mode "sketch on this
+   * plane" selection): highlight tint plus an opacity raise above the hover
+   * level. Replaces any previous highlight; {@link clearHighlight} restores
+   * it like every other selection tint.
+   */
+  highlightPlaneQuad(shapeId: string): void {
+    this.clearHighlight();
+    const quad = this.findMeshByShapeId(shapeId);
+    const mat = (quad as any)?.material;
+    if (!quad || !mat) {
+      return;
+    }
+    quad.userData.originalColor = mat.color.getHex();
+    quad.userData.originalOpacity = mat.opacity;
+    mat.color.set(themeColors.highlightColor);
+    mat.opacity = 0.3;
+    // Tracked as a shape-level highlight so clearHighlight's restore walk runs.
+    this.highlightedShapeId = shapeId;
     this.ctx.render();
   }
 
@@ -486,14 +793,20 @@ export class Viewer {
       const overlayGeo = new BufferGeometry();
       overlayGeo.setAttribute('position', new BufferAttribute(new Float32Array(newPositions), 3));
 
+      // No depth write, and slotted between solid faces (renderOrder 1) and
+      // edge lines (renderOrder 2): edges depth-test against the pushed-back
+      // base face and draw on top, so boundaries between two highlighted
+      // faces stay visible.
       const overlayMat = new MeshPhongMaterial({
         color: themeColors.highlightColor,
+        depthWrite: false,
         polygonOffset: true,
         polygonOffsetFactor: -2,
         polygonOffsetUnits: -1,
       });
 
       const overlayMesh = new Mesh(overlayGeo, overlayMat);
+      overlayMesh.renderOrder = 1.5;
       (mesh.parent ?? this.ctx.scene).add(overlayMesh);
       this.faceHighlightMeshes.push(overlayMesh);
     });
@@ -529,6 +842,31 @@ export class Viewer {
       (obj as any).material.color.set(themeColors.highlightColor);
       obj.userData.originalLineWidth = (obj as any).material.linewidth;
       (obj as any).material.linewidth = HIGHLIGHT_EDGE_LINE_WIDTH;
+    });
+  }
+
+  /**
+   * Tint every line of a sketch wire shape (a create dialog's selected sketch
+   * input). The whole EdgeMesh group is addressed by its shapeId — sketch
+   * wires have no per-edge sub-selection.
+   */
+  private applySketchWireHighlight(shapeId: string): void {
+    const group = this.findMeshByShapeId(shapeId);
+    if (!group) {
+      return;
+    }
+    group.traverse((obj) => {
+      if (!(obj as LineSegments).isLine && !obj.userData.isEdgeLine) {
+        return;
+      }
+      // Skip if already highlighted, so the saved original color isn't overwritten.
+      if (obj.userData.originalColor !== undefined) {
+        return;
+      }
+      obj.userData.originalColor = (obj as any).material.color.getHex();
+      (obj as any).material.color.set(themeColors.highlightColor);
+      obj.userData.originalLineWidth = (obj as any).material.linewidth;
+      (obj as any).material.linewidth = HIGHLIGHT_SKETCH_WIRE_LINE_WIDTH;
     });
   }
 
@@ -573,6 +911,22 @@ export class Viewer {
 
     const result = this.pickAt(clientX, clientY);
 
+    // Origin-plane hover: brighten the quad; anything else clears it.
+    if (isPlanePick(result)) {
+      if (this.hoverState) {
+        this.clearHover();
+      }
+      if (this.standardPlanes.setHover(result.standardPlane)) {
+        this.ctx.requestRender();
+      }
+      this.ctx.renderer.domElement.style.cursor = 'pointer';
+      return;
+    }
+    if (this.standardPlanes.setHover(null)) {
+      this.ctx.renderer.domElement.style.cursor = '';
+      this.ctx.requestRender();
+    }
+
     // Same as current hover — skip.
     if (this.hoverState && result &&
         this.hoverState.shapeId === result.shapeId &&
@@ -609,7 +963,12 @@ export class Viewer {
       this.applyHoverFace(result.shapeId, result.sub.index);
     } else if (result.sub?.type === 'edge') {
       this.applyHoverEdge(result.shapeId, result.sub.index);
+    } else if (result.sub?.type === 'axis') {
+      this.applyHoverAxis(result.shapeId);
+    } else if (result.sub?.type === 'plane') {
+      this.applyHoverPlaneQuad(result.shapeId);
     }
+    this.hoverHandler?.(result.shapeId, result.sub, clientX, clientY);
   }
 
   clearHover(): void {
@@ -631,9 +990,17 @@ export class Viewer {
         (child as any).material.linewidth = child.userData.hoverOriginalLineWidth;
         delete child.userData.hoverOriginalLineWidth;
       }
+      if (child.userData.hoverOriginalOpacity !== undefined) {
+        (child as any).material.opacity = child.userData.hoverOriginalOpacity;
+        delete child.userData.hoverOriginalOpacity;
+      }
     });
 
+    if (this.hoverState) {
+      this.hoverHandler?.(null, null, 0, 0);
+    }
     this.hoverState = null;
+    this.standardPlanes.setHover(null);
     this.ctx.renderer.domElement.style.cursor = '';
     this.ctx.requestRender();
   }
@@ -690,14 +1057,20 @@ export class Viewer {
       const overlayGeo = new BufferGeometry();
       overlayGeo.setAttribute('position', new BufferAttribute(new Float32Array(newPositions), 3));
 
+      // No depth write, and slotted between solid faces (renderOrder 1) and
+      // edge lines (renderOrder 2): edges depth-test against the pushed-back
+      // base face and draw on top, so boundaries between two highlighted
+      // faces stay visible.
       const overlayMat = new MeshPhongMaterial({
         color: themeColors.highlightColor,
+        depthWrite: false,
         polygonOffset: true,
         polygonOffsetFactor: -2,
         polygonOffsetUnits: -1,
       });
 
       const overlayMesh = new Mesh(overlayGeo, overlayMat);
+      overlayMesh.renderOrder = 1.5;
       (mesh.parent ?? this.ctx.scene).add(overlayMesh);
       this.hoverFaceOverlayMeshes.push(overlayMesh);
     });
@@ -733,6 +1106,42 @@ export class Viewer {
       (obj as any).material.linewidth = HOVER_EDGE_LINE_WIDTH;
     });
 
+    this.ctx.requestRender();
+  }
+
+  /**
+   * Brighten a hovered construction-plane quad (whole plane — planes have no
+   * sub-selection): highlight tint plus an opacity bump, since the resting
+   * quad is nearly transparent.
+   */
+  private applyHoverPlaneQuad(shapeId: string): void {
+    const quad = this.findMeshByShapeId(shapeId);
+    const mat = (quad as any)?.material;
+    // A selection-highlighted quad (originalColor saved) keeps its stronger tint.
+    if (!quad || !mat || quad.userData.hoverOriginalColor !== undefined
+      || quad.userData.originalColor !== undefined) {
+      return;
+    }
+    quad.userData.hoverOriginalColor = mat.color.getHex();
+    quad.userData.hoverOriginalOpacity = mat.opacity;
+    mat.color.set(themeColors.highlightColor);
+    mat.opacity = 0.25;
+    this.ctx.requestRender();
+  }
+
+  /** Tint a hovered axis line (whole line — axes have no sub-selection). */
+  private applyHoverAxis(shapeId: string): void {
+    const group = this.findMeshByShapeId(shapeId);
+    if (!group) {
+      return;
+    }
+    group.traverse((obj) => {
+      if (!obj.userData.isAxisLine || obj.userData.hoverOriginalColor !== undefined) {
+        return;
+      }
+      obj.userData.hoverOriginalColor = (obj as any).material.color.getHex();
+      (obj as any).material.color.set(themeColors.highlightColor);
+    });
     this.ctx.requestRender();
   }
 
@@ -884,6 +1293,12 @@ export class Viewer {
     const mesh = buildSceneMesh(this.sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking);
     this.ctx.scene.add(mesh);
     this.applyShapeOverridesAndPrune(this.sceneObjects);
+    // The rebuilt materials are un-tinted — reapply the sketch-mode ghosting
+    // (as updateView does) or a mid-sketch rebuild (a theme change, region
+    // picking) silently drops the dimming until the next full render.
+    if (this.activeSketchId) {
+      this.applySketchModeGhosting();
+    }
     if (this.modeManager.isSketchMode && viewerSettings.current.sectionView) {
       this.applySectionView();
     }

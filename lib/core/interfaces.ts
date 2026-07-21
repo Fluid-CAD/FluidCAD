@@ -713,7 +713,44 @@ export interface IRevolve extends IBooleanOperation {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
+/**
+ * How a loft leaves (or arrives at) an end profile:
+ * - `'none'` — no constraint (default).
+ * - `'normal'` — the surface takes off perpendicular to the profile plane.
+ * - `'tangent'` — the surface takes off inside the profile plane, directed
+ *   outward, so the profile plane becomes a tangency plane.
+ */
+export type LoftConditionType = 'none' | 'normal' | 'tangent';
+
 export interface ILoft extends IBooleanOperation {
+  /**
+   * Adds side guide curves (rails) the loft surface must follow. Supports one
+   * or two guides in total; a single argument may carry several separate
+   * curves (e.g. a sketch holding a curve and its mirror) — each connected
+   * chain counts as one guide. Every guide must pass through every profile.
+   * Composes with start/end conditions (the condition fades out around each
+   * guide's contact point — rails win locally, the condition shapes the
+   * rest). Cannot be combined with thin mode.
+   * @param guides - Sketches or edges forming the guide curves.
+   */
+  guides(...guides: ISceneObject[]): this;
+
+  /**
+   * Constrains how the surface leaves the first profile.
+   * @param type - `'none'`, `'normal'` or `'tangent'` — see {@link LoftConditionType}.
+   * @param magnitude - Scales the takeoff strength; defaults to 1. Negative
+   * values flip the direction (e.g. inward instead of outward for `'tangent'`).
+   */
+  startCondition(type: LoftConditionType, magnitude?: NumberParam): this;
+
+  /**
+   * Constrains how the surface arrives at the last profile.
+   * @param type - `'none'`, `'normal'` or `'tangent'` — see {@link LoftConditionType}.
+   * @param magnitude - Scales the arrival strength; defaults to 1. Negative
+   * values flip the direction (e.g. inward instead of outward for `'tangent'`).
+   */
+  endCondition(type: LoftConditionType, magnitude?: NumberParam): this;
+
   /**
    * Selects faces on the first profile plane of the loft.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
@@ -794,6 +831,9 @@ export interface ILoft extends IBooleanOperation {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
+/** Which end of a sweep path to extend. */
+export type SweepSide = "start" | "end";
+
 export interface ISweep extends IBooleanOperation {
   /**
    * Selects faces at the start (profile plane) of the sweep.
@@ -854,6 +894,15 @@ export interface ISweep extends IBooleanOperation {
    * @param value - The offset distance.
    */
   endOffset(value: NumberParam): this;
+
+  /**
+   * Extends the swept solid beyond the path at the given end by `amount`,
+   * continuing straight along the path's tangent direction there. Chain twice to
+   * extend both ends, e.g. `.extend('start', 10).extend('end', 5)`.
+   * @param side - Which end of the path to extend: `'start'` or `'end'`.
+   * @param amount - Distance to extend, in mm (positive; non-positive is a no-op).
+   */
+  extend(side: SweepSide, amount: NumberParam): this;
 
   /**
    * Enables or disables drill mode.

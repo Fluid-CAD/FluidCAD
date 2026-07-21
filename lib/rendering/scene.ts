@@ -27,8 +27,11 @@ export type RenderedShape = {
 export type SceneObjectRender = {
   id: string;
   name: string;
+  /** True when `name` comes from a user's `.name('…')` chain, not the type. */
+  hasCustomName?: boolean;
   parentId: string | null;
   isContainer: boolean;
+  hideChildren?: boolean;
   object: any;
   sceneShapes: RenderedShape[];
   visible: boolean;

@@ -65,6 +65,19 @@ function M.remove_pick(code, source_line)
   return post('remove-pick', { code = code, sourceLine = source_line })
 end
 
+function M.remove_statement(code, source_line)
+  return post('remove-statement', { code = code, sourceLine = source_line })
+end
+
+function M.set_feature_name(code, source_line, name)
+  -- A cleared name must reach the server as JSON null; a Lua nil would drop
+  -- the key from the encoded body and fail the route's validation.
+  if name == nil then
+    name = vim.NIL
+  end
+  return post('set-feature-name', { code = code, sourceLine = source_line, name = name })
+end
+
 function M.set_pick_points(code, source_line, points)
   return post('set-pick-points', { code = code, sourceLine = source_line, points = points })
 end
@@ -76,6 +89,10 @@ function M.insert_geometry(code, sketch_source_line, statement, new_variable)
     statement = statement,
     newVariable = new_variable,
   })
+end
+
+function M.insert_load(code, file_name)
+  return post('insert-load', { code = code, fileName = file_name })
 end
 
 function M.update_position(code, source_line, new_position, point_index)
@@ -98,7 +115,7 @@ function M.update_dimension(code, source_line, new_value)
   return post('update-dimension', { code = code, sourceLine = source_line, newValue = new_value })
 end
 
-function M.update_dimension_expression(code, source_line, expression, sketch_source_line, new_variable, dimension_offset)
+function M.update_dimension_expression(code, source_line, expression, sketch_source_line, new_variable, dimension_offset, dimension_call)
   return post('update-dimension-expression', {
     code = code,
     sourceLine = source_line,
@@ -106,7 +123,12 @@ function M.update_dimension_expression(code, source_line, expression, sketch_sou
     sketchSourceLine = sketch_source_line,
     newVariable = new_variable,
     dimensionOffset = dimension_offset or 0,
+    dimensionCall = dimension_call,
   })
+end
+
+function M.apply_feature(code, spec)
+  return post('apply-feature', { code = code, spec = spec })
 end
 
 

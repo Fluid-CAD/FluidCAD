@@ -25,12 +25,16 @@ import {
   handleSetPickPoints,
   handleGotoSource,
   handleInsertGeometry,
+  handleInsertLoad,
   handleUpdatePosition,
   handleSetLinePosition,
   handleSetChainPositions,
   handleUpdateDimension,
   handleUpdateDimensionExpression,
   handleSetRectDimensions,
+  handleApplyFeatureEdit,
+  handleRemoveFeature,
+  handleRenameFeature,
 } from './code-edits';
 import { updateDiagnostics, type CompileError } from './diagnostics';
 
@@ -169,6 +173,12 @@ export class Client {
         handleInsertGeometry(this, msg);
         break;
       }
+      case 'insert-load': {
+        handleInsertLoad(this, msg).catch((err) => {
+          this.logger.appendLine(`[insert-load] error: ${err?.stack || err}`);
+        });
+        break;
+      }
       case 'update-position': {
         handleUpdatePosition(this, msg);
         break;
@@ -191,6 +201,22 @@ export class Client {
       }
       case 'set-rect-dimensions': {
         handleSetRectDimensions(this, msg);
+        break;
+      }
+      case 'apply-feature-edit': {
+        handleApplyFeatureEdit(this, msg);
+        break;
+      }
+      case 'remove-feature': {
+        handleRemoveFeature(this, msg).catch((err) => {
+          this.logger.appendLine(`[remove-feature] error: ${err?.stack || err}`);
+        });
+        break;
+      }
+      case 'rename-feature': {
+        handleRenameFeature(this, msg).catch((err) => {
+          this.logger.appendLine(`[rename-feature] error: ${err?.stack || err}`);
+        });
         break;
       }
       case 'export-complete': {

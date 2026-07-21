@@ -251,6 +251,23 @@ Offsets the end face by a specified distance along the sweep direction.
 
 ---
 
+### extend()
+
+```ts
+extend(side: SweepSide, amount: NumberParam): this
+```
+
+Extends the swept solid beyond the path at the given end by `amount`,
+continuing straight along the path's tangent direction there. Chain twice to
+extend both ends, e.g. `.extend('start', 10).extend('end', 5)`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `side` | SweepSide | Which end of the path to extend: `'start'` or `'end'`. |
+| `amount` | NumberParam | Distance to extend, in mm (positive; non-positive is a no-op). |
+
+---
+
 ### drill()
 
 ```ts

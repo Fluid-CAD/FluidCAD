@@ -100,6 +100,24 @@ export type SceneObjectMesh = {
 export type SubSelection =
   | { type: 'face'; index: number }
   | { type: 'edge'; index: number }
+  /**
+   * A sketch wire hit — only produced while a create dialog has enabled
+   * `viewer.pickSketchWires`; the pick identifies the owning sketch, so the
+   * index carries no meaning (always 0).
+   */
+  | { type: 'sketch'; index: number }
+  /**
+   * An axis line hit — only produced while a dialog has enabled
+   * `viewer.pickAxes`; the pick identifies the owning axis object, so the
+   * index carries no meaning (always 0).
+   */
+  | { type: 'axis'; index: number }
+  /**
+   * A construction-plane quad hit — only produced while a dialog has enabled
+   * `viewer.pickPlanes`; the pick identifies the owning plane object, so the
+   * index carries no meaning (always 0).
+   */
+  | { type: 'plane'; index: number }
   | null;
 
 export type SceneObjectPart = {
@@ -121,8 +139,11 @@ export type CompileError = {
 export type SceneObjectRender = {
   id?: string;
   name?: string;
+  /** True when `name` comes from a user's `.name('…')` chain, not the type. */
+  hasCustomName?: boolean;
   parentId?: string | null;
   isContainer?: boolean;
+  hideChildren?: boolean;
   object?: any;
   sceneShapes: SceneObjectPart[];
   ownShapes: SceneObjectPart[];

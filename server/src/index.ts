@@ -10,6 +10,7 @@ import { createHitTestRouter } from './routes/hit-test.ts';
 import { createMeasureRouter } from './routes/measure.ts';
 import { createTimelineRouter } from './routes/timeline.ts';
 import { createSketchEditsRouter } from './routes/sketch-edits.ts';
+import { createApplyFeatureRouter } from './routes/apply-feature.ts';
 import { createExportRouter } from './routes/export.ts';
 import { createScreenshotRouter } from './routes/screenshot.ts';
 import { createPreferencesRouter } from './routes/preferences.ts';
@@ -19,6 +20,7 @@ import { createEditorRouter, DirtyBufferState } from './routes/editor.ts';
 import { createRenderRouter, type RenderOutcome } from './routes/render.ts';
 import { createLintRouter } from './routes/lint.ts';
 import { createPackRouter } from './routes/pack.ts';
+import { createTextRouter } from './routes/text.ts';
 import { normalizePath } from './normalize-path.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
 import { addInstance, removeInstance } from './global-registry.ts';
@@ -88,6 +90,7 @@ app.use('/api', createHitTestRouter(fluidCadServer));
 app.use('/api', createMeasureRouter(fluidCadServer));
 app.use('/api', createTimelineRouter(fluidCadServer, sendToExtension, broadcastToUI));
 app.use('/api', createSketchEditsRouter(fluidCadServer, sendToExtension, WORKSPACE_PATH));
+app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToExtension));
 app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));
 app.use('/api', createScreenshotRouter(requestScreenshot));
 app.use('/api', createPreferencesRouter());
@@ -95,6 +98,7 @@ app.use('/api', createSceneRouter(fluidCadServer, getLastCameraState));
 app.use('/api', createEditorRouter(dirtyBufferState));
 app.use('/api', createRenderRouter((fileName, code) => runLiveRender(fileName, code)));
 app.use('/api', createLintRouter());
+app.use('/api', createTextRouter());
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION, getLastCameraState));
 
 // Static files — serve UI build, with SPA fallback
@@ -258,7 +262,7 @@ async function handleExtensionMessage(msg: any) {
         const data = await fluidCadServer.rollback(msg.fileName, msg.index);
         if (myVersion !== renderVersion) { return; }
         if (data) {
-          emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop);
+          emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop, data.breakpointHit);
         }
         break;
       }

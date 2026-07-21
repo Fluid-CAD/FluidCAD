@@ -63,17 +63,4 @@ describe("rect", () => {
       expect(solid.getEdges().length).toBeGreaterThan(12);
     });
   });
-
-  describe("standalone with targetPlane", () => {
-    it("should create a rectangle on a specific plane", () => {
-      rect("xy", 80, 40);
-      const e = extrude(10) as ExtrudeBase;
-      render();
-
-      const solid = e.getShapes()[0] as Solid;
-      const bbox = ShapeOps.getBoundingBox(solid);
-      expect(bbox.maxX - bbox.minX).toBeCloseTo(80, 0);
-      expect(bbox.maxY - bbox.minY).toBeCloseTo(40, 0);
-    });
-  });
 });

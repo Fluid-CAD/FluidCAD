@@ -5,6 +5,7 @@ import { insertPoint, addPick, removePick } from '../api';
 import { isTopLevel } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData } from '../types';
 import { Viewer } from '../viewer';
+import { Navbar } from '../ui/navbar';
 import { Mesh, Object3D } from 'three';
 
 const HIGHLIGHT_COLOR = 0xffc578;
@@ -22,32 +23,34 @@ export class TrimPickService {
   private _pendingActivation = false;
   private highlightedVertexDots: { mesh: Mesh; originalMaterial: any }[] = [];
 
-  constructor(container: HTMLElement, viewer: Viewer) {
+  constructor(viewer: Viewer, private navbar: Navbar) {
     this.viewer = viewer;
+
+    // Trailing toolbar group: the "Interactive Trimming" prompt and the
+    // active-mode status render at the end of the navbar (Navbar anchor: 'end').
+    const host = navbar.addGroup('trim', { anchor: 'end', visible: false });
 
     this.triggerBtn = document.createElement('div');
     this.triggerBtn.id = 'fluidcad-trim-pick-trigger';
-    this.triggerBtn.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto hidden';
+    this.triggerBtn.className = 'flex items-center hidden';
     this.triggerBtn.innerHTML = `
-      <button class="flex items-center gap-3 panel-bg border border-base-content/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none cursor-pointer hover:border-base-content/20 transition-colors">
-        <span class="[&>svg]:size-5">${ICON_SCISSORS}</span>
+      <button class="btn btn-sm btn-outline btn-primary border-dashed gap-1.5 text-xs font-normal">
+        <span class="[&>svg]:size-4">${ICON_SCISSORS}</span>
         <span>Interactive Trimming</span>
       </button>
     `;
-    container.appendChild(this.triggerBtn);
+    host.appendChild(this.triggerBtn);
 
     this.activeBar = document.createElement('div');
     this.activeBar.id = 'fluidcad-trim-pick-active';
-    this.activeBar.className = 'absolute top-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto hidden';
+    this.activeBar.className = 'flex items-center gap-2 text-xs select-none hidden';
     this.activeBar.innerHTML = `
-      <div class="flex items-center gap-3 panel-bg border border-base-content/10 rounded-lg px-6 py-3 text-base-content/70 text-sm leading-none select-none">
-        <span class="[&>svg]:size-5">${ICON_SCISSORS}</span>
-        <span>Trimming Mode</span>
-        <div class="h-4 w-px bg-base-content/10"></div>
-        <button class="text-base-content/60 hover:text-base-content transition-colors cursor-pointer" id="exit-trim-pick">Exit</button>
-      </div>
+      <span class="[&>svg]:size-4 text-primary">${ICON_SCISSORS}</span>
+      <span class="text-primary font-medium">Trimming Mode</span>
+      <div class="h-4 w-px bg-base-content/15"></div>
+      <button class="btn btn-ghost btn-xs" id="exit-trim-pick">Exit</button>
     `;
-    container.appendChild(this.activeBar);
+    host.appendChild(this.activeBar);
 
     this.triggerBtn.querySelector('button')!.addEventListener('click', () => {
       this.enter();
@@ -55,6 +58,14 @@ export class TrimPickService {
     this.activeBar.querySelector('#exit-trim-pick')!.addEventListener('click', () => {
       this.exit();
     });
+  }
+
+  /** Show the trailing group only while a bar (prompt or active status) is visible. */
+  private syncGroup(): void {
+    const hasBar =
+      !this.triggerBtn.classList.contains('hidden') ||
+      !this.activeBar.classList.contains('hidden');
+    this.navbar.setGroupVisible('trim', hasBar);
   }
 
   get state(): 'idle' | 'icon-visible' | 'picking-active' {
@@ -74,6 +85,11 @@ export class TrimPickService {
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
+    this.updateImpl(sceneObjects);
+    this.syncGroup();
+  }
+
+  private updateImpl(sceneObjects: SceneObjectRender[]): void {
     const triggerInfo = this.hasTrimPickingTrigger(sceneObjects);
 
     if (!triggerInfo.hasTrigger) {
@@ -157,6 +173,7 @@ export class TrimPickService {
       this.activeBar.classList.add('hidden');
       this.triggerBtn.classList.add('hidden');
     }
+    this.syncGroup();
   }
 
   reset(): void {
@@ -167,11 +184,13 @@ export class TrimPickService {
     this._lastPickInfo = null;
     this.lastSceneObjects = null;
     this.viewer.isTrimming = false;
+    this.syncGroup();
   }
 
   hideBars(): void {
     this.activeBar.classList.add('hidden');
     this.triggerBtn.classList.add('hidden');
+    this.syncGroup();
   }
 
   private activateInteractive(info: { trimObj: any; sketchObj: any }, sceneObjects: SceneObjectRender[]): void {

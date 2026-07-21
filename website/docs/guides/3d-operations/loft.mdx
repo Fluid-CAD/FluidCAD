@@ -7,6 +7,8 @@ import CodeBlock from '@theme/CodeBlock';
 import loftTwo from '!!raw-loader!./_examples/loft-two-profiles.js';
 import loftThree from '!!raw-loader!./_examples/loft-three-profiles.js';
 import loftThin from '!!raw-loader!./_examples/loft-thin.js';
+import loftGuides from '!!raw-loader!./_examples/loft-guides.js';
+import loftConditions from '!!raw-loader!./_examples/loft-conditions.js';
 
 # Loft
 
@@ -25,6 +27,49 @@ You can loft through more than two profiles:
 ![Three-profile loft](/img/docs/3d-operations/loft-three-profiles.png)
 
 The profiles must be on different planes (typically parallel planes at different offsets).
+
+## Guide curves
+
+`.guides()` adds side rails the transition surface must follow. Pass one or two open curves; each guide has to pass through every profile. A single sketch may carry several guide curves (for example a curve and its `mirror()`) — each connected curve counts as one guide:
+
+<CodeBlock language="js">{loftGuides}</CodeBlock>
+
+![Loft riding two guide rails](/img/docs/3d-operations/loft-guides.png)
+
+Here the bezier and its mirror form two rails; the square's corners ride them all the way up to the circle. Guides can also be passed as separate arguments:
+
+```js
+loft(p1, p2).guides(rightRail, leftRail)
+```
+
+Guides compose with start/end conditions: the condition fades out around each guide's contact point, so the rails keep their sides of the surface while the condition shapes the rest. Guides cannot be combined with `.thin()`.
+
+```js
+loft(p1, p2).guides(g1).startCondition('normal')
+```
+
+## Start and end conditions
+
+`.startCondition()` and `.endCondition()` control how the surface leaves the first profile and arrives at the last one:
+
+- `'none'` — no constraint (default)
+- `'normal'` — the surface takes off perpendicular to the profile plane
+- `'tangent'` — the surface takes off inside the profile plane, bulging outward
+
+<CodeBlock language="js">{loftConditions}</CodeBlock>
+
+![Loft with normal end conditions](/img/docs/3d-operations/loft-conditions.png)
+
+An optional second argument scales the takeoff strength (default `1`). Negative values flip the direction — a `'tangent'` condition with a negative magnitude pinches inward instead of bulging:
+
+```js
+loft(p1, p2).startCondition('normal', 2)     // stronger perpendicular takeoff
+loft(p1, p2).endCondition('tangent', -0.5)   // gentle inward pinch at the top
+loft(p1, p2).startCondition('normal')        // conditions can differ per end
+          .endCondition('tangent')
+```
+
+Conditions require closed profiles and work with `.thin()` (both walls follow the condition).
 
 ## Thin loft
 

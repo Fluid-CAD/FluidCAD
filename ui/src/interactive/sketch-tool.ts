@@ -5,7 +5,7 @@ import { SnapController } from '../snapping/snap-controller';
 import { SnapManager } from '../snapping/snap-manager';
 import { worldToSketch2D, pixelToSketchThreshold, dist2D } from './sketch-plane-utils';
 
-export type ToolId = 'line' | 'polyline' | 'circle' | 'polygon' | 'arc3' | 'arc2' | 'rect' | 'rounded-rect' | 'slot' | 'trim' | 'bezier';
+export type ToolId = 'line' | 'polyline' | 'circle' | 'polygon' | 'arc3' | 'arc2' | 'rect' | 'rounded-rect' | 'slot' | 'trim' | 'bezier' | 'text';
 
 export type ToolConfig = {
   id: ToolId;
@@ -109,5 +109,52 @@ export abstract class SketchTool {
 
   protected formatPoint(p: [number, number]): string {
     return `[${p[0]}, ${p[1]}]`;
+  }
+
+  static negateExpression(expression: string): string {
+    const isIdentifier = /^[a-zA-Z_$][\w$]*$/.test(expression);
+    return isIdentifier ? `-${expression}` : `-(${expression})`;
+  }
+
+  // Best-effort numeric value of a committed variable dimension, for preview
+  // purposes only: a newly declared variable carries its initializer, an
+  // existing one may have a literal initializer. Null when the value can't
+  // be resolved statically (e.g. the initializer is itself an expression).
+  static resolveCommittedValue(
+    result: { expression: string; newVariable?: { name: string; initializer: string } },
+    variables: { name: string; initializer?: string }[],
+  ): number | null {
+    const initializer = result.newVariable?.initializer
+      ?? variables.find((v) => v.name === result.expression)?.initializer;
+    if (!initializer || !initializer.trim()) {
+      return null;
+    }
+    const parsed = Number(initializer.trim());
+    if (isNaN(parsed) || !isFinite(parsed)) {
+      return null;
+    }
+    return parsed;
+  }
+
+  static resolveCommittedMagnitude(
+    result: { expression: string; newVariable?: { name: string; initializer: string } },
+    variables: { name: string; initializer?: string }[],
+  ): number | null {
+    const value = SketchTool.resolveCommittedValue(result, variables);
+    return value === null ? null : Math.abs(value);
+  }
+
+  // Re-applies the drag direction to a committed dimension: numeric input has
+  // the sign baked into the value, a variable/expression is negated at the
+  // use site so the variable itself stays a positive magnitude.
+  static applySignedDimension(expression: string, sign: number): string {
+    const num = parseFloat(expression);
+    if (!isNaN(num) && String(num) === expression) {
+      return String(Math.round(sign * num * 100) / 100);
+    }
+    if (sign < 0) {
+      return SketchTool.negateExpression(expression);
+    }
+    return expression;
   }
 }

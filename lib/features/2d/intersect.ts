@@ -6,6 +6,7 @@ import { SectionOps } from "../../oc/section-ops.js";
 import { WireOps } from "../../oc/wire-ops.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
+import { SelectSceneObject } from "../select.js";
 
 export class Intersect extends ExtrudableGeometryBase {
 
@@ -42,7 +43,9 @@ export class Intersect extends ExtrudableGeometryBase {
     }
 
     for (const obj of this.sourceObjects) {
-      obj.removeShapes(this);
+      if (obj instanceof SelectSceneObject) {
+        obj.removeShapes(this);
+      }
     }
 
     if (this.targetPlane) {

@@ -1,8 +1,8 @@
-import { aLine, arc, circle, color, connect, copy, cut, extrude, fillet, fuse, hLine, hMove, mirror, move, plane, project, rect, remove, repeat, rotate, select, shell, sketch, slot, tArc, tLine, vMove, wire } from "fluidcad/core";
+import { aLine, arc, circle, color, connect, copy, cut, extrude, fillet, fuse, hLine, hMove, mirror, move, plane, project, rect, remove, repeat, rotate, select, shell, sketch, slot, tArc, tLine, vMove } from "fluidcad/core";
 import { enclosed, enclosing, outside } from "fluidcad/constraints";
 import { edge, face } from "fluidcad/filters";
 
-rect("top", 120, 66).centered().radius(13)
+sketch("top", () => rect(120, 66).centered().radius(13))
 let e = extrude(13)
 
 sketch(e.endFaces(), () => {
@@ -22,7 +22,7 @@ sketch("front", () => {
 });
 
 const circleExtrude = extrude(66).symmetric();
-cut(66, circle("front", 36)).symmetric();
+cut(66, sketch("front", () => circle(36))).symmetric();
 
 const p = plane("front", { offset: 20 })
 
@@ -47,7 +47,7 @@ sketch(plane("front", { offset: 35 }), () => {
 const pipeLength = -35 + 20;
 const e2 = extrude(pipeLength).drill(false);
 
-cut(-pipeLength, circle(e2.startFaces(), 10));
+cut(-pipeLength, sketch(e2.startFaces(), () => circle(10)));
 
 mirror("front")
 

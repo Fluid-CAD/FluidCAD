@@ -1,4 +1,5 @@
 import { roundPoint } from '../../sketch-plane-utils';
+import { SketchTool } from '../../sketch-tool';
 import {
   START_POINT_COLOR,
   SNAP_VERTEX_COLOR,
@@ -124,11 +125,7 @@ export class ConstrainedLineMode implements SegmentMode {
     const { expression, newVariable } = result;
     const rawDistance = this.getDistance(roundedStart, this.mousePoint);
     const sign = Math.sign(rawDistance);
-
-    const num = parseFloat(expression);
-    const dimExpr = !isNaN(num) && String(num) === expression
-      ? String(Math.round(sign * num * 100) / 100)
-      : expression;
+    const dimExpr = SketchTool.applySignedDimension(expression, sign);
 
     const atCurrent = ctx.isAtCurrentPosition(roundedStart);
     const fn = this.axis === 'h' ? 'hLine' : 'vLine';

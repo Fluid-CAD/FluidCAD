@@ -26,18 +26,3 @@ Offsets the current sketch geometry by the given distance.
 |-----------|------|-------------|
 | `distance` | NumberParam | The offset distance (defaults to 1) *(optional)* |
 | `removeOriginal` | BooleanParam | Whether to remove the original geometry *(optional)* |
-
----
-
-```ts
-offset(targetPlane: SceneObject | PlaneLike, distance: NumberParam, removeOriginal: BooleanParam, ...sourceGeometries: Extrudable[]): Offset
-```
-
-Offsets source geometries onto a target plane.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `targetPlane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The plane to offset onto |
-| `distance` | NumberParam | The offset distance |
-| `removeOriginal` | BooleanParam | Whether to remove the original geometry |
-| `...sourceGeometries` | Extrudable[] | The geometries to offset *(optional)* |

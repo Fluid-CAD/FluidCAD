@@ -26,8 +26,10 @@ function solidsOf(e: unknown): Shape[] {
 describe("text", () => {
   setupOC();
 
-  it("extrudes standalone text on a plane into a solid", () => {
-    text("xy", "A").size(20);
+  it("extrudes text on a plane into a solid", () => {
+    sketch("xy", () => {
+      text("A").size(20);
+    });
     const e = extrude(5);
     render();
 
@@ -64,21 +66,27 @@ describe("text", () => {
   it("builds a letter with a counter (hole) such as 'o'", () => {
     // Outer + inner contours must both build; FaceMaker2 drills the counter.
     // We don't assert exact topology (font-dependent) — only a valid solid.
-    text("xy", "o").size(20);
+    sketch("xy", () => {
+      text("o").size(20);
+    });
     const e = extrude(4);
     render();
     expect(solidsOf(e).length).toBeGreaterThanOrEqual(1);
   });
 
   it("falls back to a default font when the named font is missing", () => {
-    text("xy", "Z").size(20).font("NoSuchFont__XYZ");
+    sketch("xy", () => {
+      text("Z").size(20).font("NoSuchFont__XYZ");
+    });
     const e = extrude(4);
     render();
     expect(solidsOf(e).length).toBeGreaterThanOrEqual(1);
   });
 
   it("honours font weight without throwing", () => {
-    text("xy", "B").size(20).weight("bold");
+    sketch("xy", () => {
+      text("B").size(20).weight("bold");
+    });
     const e = extrude(4);
     render();
     expect(solidsOf(e).length).toBeGreaterThanOrEqual(1);
@@ -106,7 +114,9 @@ describe("text", () => {
     fs.mkdirSync(join(root, "fonts"), { recursive: true });
     fs.copyFileSync(src, join(root, "fonts", "test.ttf"));
 
-    text("xy", "A").size(20).font("fonts/test.ttf");
+    sketch("xy", () => {
+      text("A").size(20).font("fonts/test.ttf");
+    });
     const e = extrude(5);
     render();
     expect(solidsOf(e).length).toBeGreaterThanOrEqual(1);
@@ -221,9 +231,9 @@ describe("text along a path", () => {
     expect(bbox.maxX).toBeGreaterThan(85);
   });
 
-  it("follows a standalone planar primitive and wraps on a closed path", () => {
+  it("follows a closed circular path and wraps around", () => {
     // Text much longer than the circumference must wrap, not error.
-    const ring = circle("xy", 30); // radius 15, circumference ~94
+    const ring = sketch("xy", () => circle(30)); // radius 15, circumference ~94
     const t = text("WRAPPING ALL THE WAY AROUND", ring).size(8) as Text;
     render();
 
@@ -274,14 +284,17 @@ describe("text along a path", () => {
   });
 
   it("rejects path-only modifiers without a path", () => {
-    const t = text("xy", "Hi").offset(3) as Text;
+    let t: Text;
+    sketch("xy", () => {
+      t = text("Hi").offset(3) as Text;
+    });
     render();
 
-    expect(t.getError()).toMatch(/offset/i);
+    expect(t!.getError()).toMatch(/offset/i);
   });
 
   it("sits on the outside of a closed circle by default", () => {
-    const ring = circle("xy", 100); // radius 50
+    const ring = sketch("xy", () => circle(100)); // radius 50
     const t = text("OUTSIDE", ring).size(8) as Text;
     render();
 
@@ -295,7 +308,7 @@ describe("text along a path", () => {
   });
 
   it("moves closed-path text inside with flip", () => {
-    const ring = circle("xy", 100); // radius 50
+    const ring = sketch("xy", () => circle(100)); // radius 50
     const t = text("INSIDE", ring).size(8).flip() as Text;
     render();
 
@@ -351,17 +364,23 @@ describe("text along a path", () => {
   });
 
   it("rejects space-between alignment without a path", () => {
-    const t = text("xy", "Hi").align("space-between") as Text;
+    let t: Text;
+    sketch("xy", () => {
+      t = text("Hi").align("space-between") as Text;
+    });
     render();
 
-    expect(t.getError()).toMatch(/space-between/i);
+    expect(t!.getError()).toMatch(/space-between/i);
   });
 
   it("rejects space-around alignment without a path", () => {
-    const t = text("xy", "Hi").align("space-around") as Text;
+    let t: Text;
+    sketch("xy", () => {
+      t = text("Hi").align("space-around") as Text;
+    });
     render();
 
-    expect(t.getError()).toMatch(/space-around/i);
+    expect(t!.getError()).toMatch(/space-around/i);
   });
 
   it("follows an arc drawn in the same sketch", () => {
@@ -399,7 +418,7 @@ describe("text along a path", () => {
   });
 
   it("multiple texts can share one path", () => {
-    const ring = circle("xy", 100);
+    const ring = sketch("xy", () => circle(100));
     const outside = text("OUTSIDE", ring).size(8) as Text;
     const inside = text("INSIDE", ring).size(8).flip() as Text;
     render();

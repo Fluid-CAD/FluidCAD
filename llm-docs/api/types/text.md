@@ -15,7 +15,7 @@ interface Text extends ExtrudableGeometry {
   weight(value: string | number): this;
   bold(): this;
   italic(value?: boolean): this;
-  align(value: "left" | "right" | "center" | "start" | "end" | "space-between" | "space-around"): this;
+  align(value: "left" | "right" | "start" | "end" | "center" | "space-between" | "space-around"): this;
   lineSpacing(value: number): this;
   letterSpacing(value: number): this;
   offset(value: number): this;
@@ -82,7 +82,7 @@ synonyms of `"start"` and `"end"`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `"left"` \| `"right"` \| `"center"` \| `"start"` \| `"end"` \| `"space-between"` \| `"space-around"` | `"left"`/`"start"` (default), `"center"`, `"right"`/`"end"`, `"space-between"`, or `"space-around"`. |
+| `value` | `"left"` \| `"right"` \| `"start"` \| `"end"` \| `"center"` \| `"space-between"` \| `"space-around"` | `"left"`/`"start"` (default), `"center"`, `"right"`/`"end"`, `"space-between"`, or `"space-around"`. |
 
 ### `lineSpacing()`
 

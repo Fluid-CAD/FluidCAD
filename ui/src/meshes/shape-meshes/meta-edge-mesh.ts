@@ -1,56 +1,7 @@
-import {
-  BufferAttribute,
-  BufferGeometry,
-  DoubleSide,
-  Group,
-  Line,
-  ShaderMaterial,
-} from 'three';
+import { BufferAttribute, BufferGeometry, Group } from 'three';
 import { SceneObjectPart } from '../../types';
 import { themeColors } from '../../scene/theme-colors';
-
-// Dash-dot pattern parameters (in world units)
-const DASH_LENGTH = 4.0;
-const GAP_LENGTH = 1.5;
-const DOT_LENGTH = 0.6;
-const PATTERN_LENGTH = DASH_LENGTH + GAP_LENGTH + DOT_LENGTH + GAP_LENGTH;
-
-const vertexShader = /* glsl */ `
-  attribute float lineDistance;
-  varying float vLineDistance;
-
-  void main() {
-    vLineDistance = lineDistance;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-
-const fragmentShader = /* glsl */ `
-  uniform vec3 color;
-  uniform float dashLength;
-  uniform float gapLength;
-  uniform float dotLength;
-  uniform float patternLength;
-
-  varying float vLineDistance;
-
-  void main() {
-    float t = mod(vLineDistance, patternLength);
-
-    // Pattern: [dash][gap][dot][gap]
-    if (t < dashLength) {
-      // In the dash segment — draw
-    } else if (t < dashLength + gapLength) {
-      discard; // First gap
-    } else if (t < dashLength + gapLength + dotLength) {
-      // In the dot segment — draw
-    } else {
-      discard; // Second gap
-    }
-
-    gl_FragColor = vec4(color, 1.0);
-  }
-`;
+import { createDashDotLine } from '../dash-dot-line';
 
 /**
  * Renders meta-shape / guide edges as dash-dot light-gray lines.
@@ -85,25 +36,11 @@ export class MetaEdgeMesh extends Group {
       const geometry = new BufferGeometry();
       geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
 
-      const material = new ShaderMaterial({
-        uniforms: {
-          color: { value: themeColors.metaEdgeColor },
-          dashLength: { value: DASH_LENGTH },
-          gapLength: { value: GAP_LENGTH },
-          dotLength: { value: DOT_LENGTH },
-          patternLength: { value: PATTERN_LENGTH },
-        },
-        vertexShader,
-        fragmentShader,
-        side: DoubleSide,
-        transparent: true,
+      const line = createDashDotLine(geometry, themeColors.metaEdgeColor, {
         polygonOffset: true,
         polygonOffsetFactor: 2,
         polygonOffsetUnits: 1,
       });
-
-      const line = new Line(geometry, material);
-      line.computeLineDistances();
       this.add(line);
     }
   }

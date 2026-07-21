@@ -1,5 +1,6 @@
 import {
   Camera,
+  Line,
   Object3D,
   OrthographicCamera,
   PerspectiveCamera,
@@ -57,6 +58,50 @@ export function pixelScale(
   return Math.min(Math.max(raw, 1e-4), 1e6);
 }
 
+let _renderer: WebGLRenderer | null = null;
+let _getCamera: (() => Camera) | null = null;
+
+/**
+ * Wire up the live renderer and active-camera accessor so markers can size
+ * themselves the instant they're built — before the first render fires their
+ * `onBeforeRender` hook. Set once from `SceneContext`.
+ *
+ * Without this, a marker created on a path that doesn't move the camera (e.g.
+ * stepping back through the timeline, which only requests a redraw) keeps its
+ * default scale until the next camera move or selection forces a render.
+ */
+export function setScreenScaleSource(renderer: WebGLRenderer, getCamera: () => Camera): void {
+  _renderer = renderer;
+  _getCamera = getCamera;
+}
+
+const _lineCenter = new Vector3();
+
+/**
+ * Re-evaluates pixels-per-world-unit at the line's center before every draw,
+ * so dash patterns authored in pixels keep a constant on-screen size across
+ * zoom levels (for perspective cameras the center is an approximation — the
+ * pattern is not re-derived per vertex).
+ */
+export function trackPixelsPerWorld(line: Line, apply: (pixelsPerWorld: number) => void): void {
+  if (line.geometry.boundingSphere === null) {
+    line.geometry.computeBoundingSphere();
+  }
+  line.onBeforeRender = (renderer, _scene, camera) => {
+    const sphere = line.geometry.boundingSphere;
+    if (sphere) {
+      _lineCenter.copy(sphere.center);
+    } else {
+      _lineCenter.set(0, 0, 0);
+    }
+    _lineCenter.applyMatrix4(line.matrixWorld);
+    const worldPerPixel = pixelsToWorld(renderer, camera, _lineCenter, 1);
+    if (Number.isFinite(worldPerPixel) && worldPerPixel > 0) {
+      apply(1 / worldPerPixel);
+    }
+  };
+}
+
 export function applyConstantPixelSize(
   mesh: Object3D,
   group: Object3D,
@@ -64,6 +109,14 @@ export function applyConstantPixelSize(
   targetPixels: number,
   geometryUnits: number,
 ): void {
+  // Size correctly on the very first frame. The hook below only runs once the
+  // marker is actually rendered, so on a no-camera-move path it would otherwise
+  // stay at its default scale until the user interacts.
+  if (_renderer && _getCamera) {
+    group.scale.setScalar(pixelScale(_renderer, _getCamera(), position, targetPixels, geometryUnits));
+    group.updateMatrixWorld(true);
+  }
+
   mesh.onBeforeRender = (renderer, _scene, camera) => {
     group.scale.setScalar(pixelScale(renderer, camera, position, targetPixels, geometryUnits));
     group.updateMatrixWorld(true);

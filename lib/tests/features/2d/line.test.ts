@@ -41,12 +41,6 @@ describe("line functions", () => {
       expect(bbox.maxX - bbox.minX).toBeCloseTo(80, 0);
       expect(bbox.maxY - bbox.minY).toBeCloseTo(40, 0);
     });
-
-    it("should support standalone mode with targetPlane", () => {
-      hLine("xy", 50);
-      render();
-      // Just verify no error — standalone line doesn't form a closed shape
-    });
   });
 
   describe("vLine", () => {

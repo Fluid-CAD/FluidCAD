@@ -1,7 +1,7 @@
 ---
 id: api/types/loft
 title: Loft
-summary: "The Loft type. Extends BooleanOperation; adds 11 methods."
+summary: "The Loft type. Extends BooleanOperation; adds 14 methods."
 tags: [api, type, interface]
 symbols: [Loft, ILoft]
 seeAlso: [api/loft, api/types/boolean-operation]
@@ -10,6 +10,9 @@ seeAlso: [api/loft, api/types/boolean-operation]
 
 ```ts
 interface Loft extends BooleanOperation {
+  guides(...guides: SceneObject[]): this;
+  startCondition(type: LoftConditionType, magnitude?: NumberParam): this;
+  endCondition(type: LoftConditionType, magnitude?: NumberParam): this;
   startFaces(...args: (number | FaceFilter)[]): SceneObject;
   endFaces(...args: (number | FaceFilter)[]): SceneObject;
   sideFaces(...args: (number | FaceFilter)[]): SceneObject;
@@ -28,6 +31,38 @@ interface Loft extends BooleanOperation {
 Extends [[api/types/boolean-operation]].
 
 ## Methods
+
+### `guides()`
+
+Adds side guide curves (rails) the loft surface must follow. Supports one
+or two guides in total; a single argument may carry several separate
+curves (e.g. a sketch holding a curve and its mirror) — each connected
+chain counts as one guide. Every guide must pass through every profile.
+Composes with start/end conditions (the condition fades out around each
+guide's contact point — rails win locally, the condition shapes the
+rest). Cannot be combined with thin mode.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `...guides` | [[api/types/scene-object]][] | Sketches or edges forming the guide curves. *(optional)* |
+
+### `startCondition()`
+
+Constrains how the surface leaves the first profile.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `type` | `LoftConditionType` | `'none'`, `'normal'` or `'tangent'` — see LoftConditionType. |
+| `magnitude` | `NumberParam` | Scales the takeoff strength; defaults to 1. Negative values flip the direction (e.g. inward instead of outward for `'tangent'`). *(optional)* |
+
+### `endCondition()`
+
+Constrains how the surface arrives at the last profile.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `type` | `LoftConditionType` | `'none'`, `'normal'` or `'tangent'` — see LoftConditionType. |
+| `magnitude` | `NumberParam` | Scales the arrival strength; defaults to 1. Negative values flip the direction (e.g. inward instead of outward for `'tangent'`). *(optional)* |
 
 ### `startFaces()`
 

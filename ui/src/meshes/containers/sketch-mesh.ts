@@ -84,6 +84,9 @@ export class SketchMesh extends Group {
         edgeMesh.traverse(child => { child.renderOrder = 1; });
         if (shape.shapeId) {
           edgeMesh.userData.shapeId = shape.shapeId;
+          // Sketch wires are pickable only through the viewer's opt-in
+          // sketch-pick channel (create dialogs) — mark the raycastable lines.
+          edgeMesh.traverse(child => { child.userData.isSketchWire = true; });
         }
         this.add(edgeMesh);
       }
@@ -233,6 +236,8 @@ export class SketchMesh extends Group {
 
     const cursorGroup = new Group();
     cursorGroup.renderOrder = 1;
+    // Drawing chrome, not sketch content — must not participate in camera fits.
+    cursorGroup.userData.isMetaShape = true;
     cursorGroup.add(dot);
     cursorGroup.position.set(currentPosition.x, currentPosition.y, currentPosition.z);
 
@@ -285,6 +290,8 @@ export class SketchMesh extends Group {
 
     const arrowGroup = new Group();
     arrowGroup.renderOrder = 1;
+    // Drawing chrome, not sketch content — must not participate in camera fits.
+    arrowGroup.userData.isMetaShape = true;
     arrowGroup.add(shaft);
     arrowGroup.add(head);
 

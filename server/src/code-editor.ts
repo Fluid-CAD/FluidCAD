@@ -1,6 +1,6 @@
 import { createRequire } from 'module';
 
-type TSNode = {
+export type TSNode = {
   type: string;
   text: string;
   startPosition: { row: number; column: number };
@@ -14,7 +14,7 @@ type TSNode = {
   descendantForPosition(pos: { row: number; column: number }): TSNode | null;
 };
 
-type TSTree = { rootNode: TSNode };
+export type TSTree = { rootNode: TSNode };
 
 type TSParser = {
   setLanguage(lang: any): void;
@@ -64,7 +64,7 @@ async function getParser(): Promise<TSParser> {
 export type BreakpointEditResult = { newCode: string; breakpointLine: number | null };
 export type CodeEditResult = { newCode: string };
 
-function splitLines(code: string): string[] {
+export function splitLines(code: string): string[] {
   return code.split('\n');
 }
 
@@ -77,7 +77,7 @@ function isBlankRow(lines: string[], row: number): boolean {
   return line === undefined || line.trim() === '';
 }
 
-function indentOf(lines: string[], row: number): string {
+export function indentOf(lines: string[], row: number): string {
   if (row < 0 || row >= lines.length) {
     return '';
   }
@@ -85,7 +85,7 @@ function indentOf(lines: string[], row: number): string {
   return m ? m[1] : '';
 }
 
-function* walkTree(node: TSNode): Generator<TSNode> {
+export function* walkTree(node: TSNode): Generator<TSNode> {
   yield node;
   for (const child of node.namedChildren) {
     yield* walkTree(child);
@@ -109,7 +109,7 @@ function* walkTree(node: TSNode): Generator<TSNode> {
  * Returns `null` when no call starts on that row, preserving the existing
  * silent-no-op contract of the edit functions.
  */
-function findEditableCallAt(tree: TSTree, lines: string[], sourceLine: number): TSNode | null {
+export function findEditableCallAt(tree: TSTree, lines: string[], sourceLine: number): TSNode | null {
   const row = resolveSourceRow(lines, sourceLine);
   if (row < 0) {
     return null;
@@ -134,17 +134,16 @@ function getArgumentsNode(call: TSNode): TSNode | null {
 }
 
 /**
- * If `call` or any call in its `function` chain invokes `.pick(...)`, return
- * the call_expression for that `.pick()` invocation. Centralises the
- * "is this chain already picked?" check for addPick and removePick.
+ * If `call` or any call in its `function` chain invokes `.<memberName>(...)`,
+ * return the call_expression for that invocation.
  */
-function findPickCallInChain(call: TSNode): TSNode | null {
+function findMemberCallInChain(call: TSNode, memberName: string): TSNode | null {
   let current: TSNode | null = call;
   while (current && current.type === 'call_expression') {
     const fn = current.childForFieldName('function');
     if (fn && fn.type === 'member_expression') {
       const prop = fn.childForFieldName('property');
-      if (prop && prop.text === 'pick') {
+      if (prop && prop.text === memberName) {
         return current;
       }
       const object = fn.childForFieldName('object');
@@ -154,6 +153,15 @@ function findPickCallInChain(call: TSNode): TSNode | null {
     break;
   }
   return null;
+}
+
+/**
+ * If `call` or any call in its `function` chain invokes `.pick(...)`, return
+ * the call_expression for that `.pick()` invocation. Centralises the
+ * "is this chain already picked?" check for addPick and removePick.
+ */
+function findPickCallInChain(call: TSNode): TSNode | null {
+  return findMemberCallInChain(call, 'pick');
 }
 
 /**
@@ -220,7 +228,7 @@ function collectChainPointArgs(call: TSNode): TSNode[] {
   return pointArgs;
 }
 
-function spliceCode(code: string, startIndex: number, endIndex: number, replacement: string): string {
+export function spliceCode(code: string, startIndex: number, endIndex: number, replacement: string): string {
   return code.slice(0, startIndex) + replacement + code.slice(endIndex);
 }
 
@@ -261,7 +269,7 @@ async function withParsedCode(
  * Comments, conditional expressions, or shadowed identifiers all fall out
  * of this match because the AST disambiguates them for us.
  */
-function isBreakpointStatement(node: TSNode): boolean {
+export function isBreakpointStatement(node: TSNode): boolean {
   if (node.type !== 'expression_statement') {
     return false;
   }
@@ -323,6 +331,31 @@ function findFluidCadImport(tree: TSTree): TSNode | null {
     }
   }
   return null;
+}
+
+/** Find a top-level import statement whose source is exactly `module`. */
+function findImportForModule(tree: TSTree, module: string): TSNode | null {
+  for (const node of tree.rootNode.namedChildren) {
+    if (node.type !== 'import_statement') {
+      continue;
+    }
+    const source = node.childForFieldName('source');
+    if (source && source.text.slice(1, -1) === module) {
+      return node;
+    }
+  }
+  return null;
+}
+
+/** The last top-level import statement, if any. */
+function findLastImport(tree: TSTree): TSNode | null {
+  let last: TSNode | null = null;
+  for (const node of tree.rootNode.namedChildren) {
+    if (node.type === 'import_statement') {
+      last = node;
+    }
+  }
+  return last;
 }
 
 function findNamedImports(importNode: TSNode): TSNode | null {
@@ -701,6 +734,105 @@ export function setPickPoints(
 }
 
 // ---------------------------------------------------------------------------
+// Statement removal — delete a feature statement at a timeline row's source line
+// ---------------------------------------------------------------------------
+
+/** Nearest ancestor that is a direct child of a statement_block or program. */
+function enclosingStatementOf(node: TSNode): TSNode | null {
+  let current: TSNode | null = node;
+  while (current && current.parent) {
+    if (current.parent.type === 'statement_block' || current.parent.type === 'program') {
+      return current;
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
+/**
+ * Remove the whole statement containing the call at `sourceLine` (the
+ * timeline "Remove" action) — including a `const x = …` binding, chained
+ * calls, and every line a multi-line statement spans. A doubled blank line
+ * left by the deletion is collapsed. References to a removed binding are
+ * the user's to resolve; the next render surfaces them as a compile error.
+ */
+export function removeStatement(code: string, sourceLine: number): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const statement = enclosingStatementOf(call);
+    if (!statement) {
+      return null;
+    }
+    const startRow = statement.startPosition.row;
+    const endRow = statement.endPosition.row;
+    const aloneOnItsLines =
+      lines[startRow].slice(0, statement.startPosition.column).trim() === '' &&
+      lines[endRow].slice(statement.endPosition.column).trim() === '';
+    if (!aloneOnItsLines) {
+      // Sharing a line with other code: excise just the statement's range.
+      return spliceCode(code, statement.startIndex, statement.endIndex, '');
+    }
+    const remaining = lines.slice(0, startRow).concat(lines.slice(endRow + 1));
+    if (startRow > 0 && isBlankRow(remaining, startRow - 1) && isBlankRow(remaining, startRow)) {
+      remaining.splice(startRow, 1);
+    }
+    return joinLines(remaining);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Feature renaming — set/update/clear the chained .name('…') on a statement
+// ---------------------------------------------------------------------------
+
+/**
+ * Set, update, or clear the `.name('…')` chain of the feature statement at
+ * `sourceLine` (the timeline "Rename" action). A non-empty `name` rewrites
+ * an existing `.name()` argument in place or appends `.name('…')` at the end
+ * of the chain — dialog edits leave trailing chains they don't recognize
+ * untouched, so the name survives them there. An empty or null `name`
+ * removes the chain, reverting the feature to its default display name.
+ */
+export function setFeatureName(
+  code: string,
+  sourceLine: number,
+  name: string | null,
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const nameCall = findMemberCallInChain(call, 'name');
+    // A display name is a single line: collapse any pasted whitespace runs
+    // (newlines would break the generated string literal).
+    const value = (name ?? '').replace(/\s+/g, ' ').trim();
+    if (value === '') {
+      if (!nameCall) {
+        return null;
+      }
+      const member = nameCall.childForFieldName('function');
+      const object = member ? member.childForFieldName('object') : null;
+      if (!object) {
+        return null;
+      }
+      return spliceCode(code, object.endIndex, nameCall.endIndex, '');
+    }
+    const quoted = `'${quoteForSingleQuotes(value)}'`;
+    if (nameCall) {
+      const args = getArgumentsNode(nameCall);
+      if (!args) {
+        return null;
+      }
+      return spliceCode(code, args.startIndex + 1, args.endIndex - 1, quoted);
+    }
+    return spliceCode(code, call.endIndex, call.endIndex, `.name(${quoted})`);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Geometry insertion — insert a new call expression at the end of a sketch body
 // ---------------------------------------------------------------------------
 
@@ -726,15 +858,29 @@ function findSketchBody(call: TSNode): TSNode | null {
 }
 
 /**
- * Ensure a symbol is present in the `import { ... } from 'fluidcad'` or
- * `'fluidcad/core'` statement. Returns modified code if the symbol was added.
+ * Ensure a symbol is present in the named imports for `module`. The default
+ * module accepts both the `'fluidcad'` and `'fluidcad/core'` spellings; other
+ * modules (e.g. `'fluidcad/filters'`) are matched exactly, and a missing
+ * import statement is added after the last existing import.
+ * Returns modified code if the symbol was added.
  */
-async function ensureSymbolImport(code: string, symbol: string): Promise<string> {
+export async function ensureSymbolImport(
+  code: string,
+  symbol: string,
+  module = 'fluidcad/core',
+): Promise<string> {
   const p = await getParser();
   const tree = p.parse(code);
-  const importNode = findFluidCadImport(tree);
+  const importNode = module === 'fluidcad/core'
+    ? findFluidCadImport(tree)
+    : findImportForModule(tree, module);
   if (!importNode) {
-    return `import { ${symbol} } from 'fluidcad/core';\n` + code;
+    const statement = `import { ${symbol} } from '${module}';`;
+    const lastImport = findLastImport(tree);
+    if (lastImport) {
+      return spliceCode(code, lastImport.endIndex, lastImport.endIndex, `\n${statement}`);
+    }
+    return `${statement}\n` + code;
   }
   const namedImports = findNamedImports(importNode);
   if (!namedImports) {
@@ -798,12 +944,86 @@ export async function insertGeometryCall(
   lines.splice(insertRow, 0, newLine);
   let result = joinLines(lines);
 
-  const funcName = statement.match(/^(\w+)\s*\(/)?.[1];
-  if (funcName) {
-    result = await ensureSymbolImport(result, funcName);
+  // A multi-line statement (e.g. `move(…);\ntext(…)`) needs every line's
+  // callee imported, not just the first.
+  for (const stmtLine of statement.split('\n')) {
+    const funcName = stmtLine.trim().match(/^(\w+)\s*\(/)?.[1];
+    if (funcName) {
+      result = await ensureSymbolImport(result, funcName);
+    }
   }
 
   return { newCode: result };
+}
+
+// ---------------------------------------------------------------------------
+// Load insertion — append a load() call for a freshly imported model
+// ---------------------------------------------------------------------------
+
+/** Escape a file name for embedding in a single-quoted JS string literal. */
+function quoteForSingleQuotes(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+/** The text a string literal node denotes, with its surrounding quotes dropped. */
+function stringLiteralValue(node: TSNode): string | null {
+  if (node.type !== 'string') {
+    return null;
+  }
+  const fragment = node.namedChildren.find(c => c.type === 'string_fragment');
+  return fragment ? fragment.text : '';
+}
+
+/**
+ * Find an existing `load('<fileName>')` call anywhere in the file, so a
+ * re-import of the same model updates the geometry on disk without stacking
+ * a second identical statement into the scene.
+ */
+function findLoadCallFor(tree: TSTree, fileName: string): TSNode | null {
+  for (const node of walkTree(tree.rootNode)) {
+    if (node.type !== 'call_expression') {
+      continue;
+    }
+    const fn = node.childForFieldName('function');
+    if (!fn || fn.type !== 'identifier' || fn.text !== 'load') {
+      continue;
+    }
+    const arg = getArgumentsNode(node)?.namedChild(0);
+    if (arg && stringLiteralValue(arg) === fileName) {
+      return node;
+    }
+  }
+  return null;
+}
+
+/**
+ * Append `load('<fileName>')` as a new top-level statement — what the import
+ * flow calls so the model lands in the scene without the user pasting the
+ * expression themselves. The call goes after the last top-level statement so
+ * the model shows up at the end of the timeline, separated by a blank line,
+ * and the `load` import is pulled in. A no-op when the file already loads
+ * that model.
+ *
+ * @param code - Full source code
+ * @param fileName - Extension-less name of the imported model, e.g. "bracket"
+ */
+export async function insertLoadCall(code: string, fileName: string): Promise<CodeEditResult> {
+  const p = await getParser();
+  if (findLoadCallFor(p.parse(code), fileName)) {
+    return { newCode: code };
+  }
+
+  const withImport = await ensureSymbolImport(code, 'load');
+  const tree = p.parse(withImport);
+  const lines = splitLines(withImport);
+  const children = tree.rootNode.namedChildren;
+  const last = children[children.length - 1];
+  const insertRow = last ? last.endPosition.row + 1 : lines.length;
+
+  const statement = `load('${quoteForSingleQuotes(fileName)}');`;
+  const separated = insertRow > 0 && !isBlankRow(lines, insertRow - 1);
+  lines.splice(insertRow, 0, ...(separated ? ['', statement] : [statement]));
+  return { newCode: joinLines(lines) };
 }
 
 /**
@@ -974,9 +1194,28 @@ function findNonArrayArgFromEnd(args: TSNode, offset = 0): TSNode | null {
   return null;
 }
 
+// Name of the function a call expression invokes: `rect(...)` -> 'rect',
+// `foo.radius(...)` -> 'radius'.
+function callFunctionName(call: TSNode): string | null {
+  const fn = call.childForFieldName('function');
+  if (!fn) {
+    return null;
+  }
+  if (fn.type === 'identifier') {
+    return fn.text;
+  }
+  if (fn.type === 'member_expression') {
+    const prop = fn.childForFieldName('property');
+    return prop ? prop.text : null;
+  }
+  return null;
+}
+
 export async function getDimensionExpression(
   code: string,
   sourceLine: number,
+  dimensionOffset = 0,
+  dimensionCall: string | null = null,
 ): Promise<{ expression: string } | null> {
   const p = await getParser();
   const tree = p.parse(code);
@@ -984,8 +1223,8 @@ export async function getDimensionExpression(
   let current: TSNode | null = findEditableCallAt(tree, lines, sourceLine);
   while (current && current.type === 'call_expression') {
     const args = getArgumentsNode(current);
-    if (args) {
-      const target = findNonArrayArgFromEnd(args);
+    if (args && (!dimensionCall || callFunctionName(current) === dimensionCall)) {
+      const target = findNonArrayArgFromEnd(args, dimensionOffset);
       if (target) {
         return { expression: target.text };
       }
@@ -1003,12 +1242,13 @@ export function updateDimensionExpression(
   sourceLine: number,
   expression: string,
   dimensionOffset = 0,
+  dimensionCall: string | null = null,
 ): Promise<CodeEditResult> {
   return withParsedCode(code, (tree, lines) => {
     let current: TSNode | null = findEditableCallAt(tree, lines, sourceLine);
     while (current && current.type === 'call_expression') {
       const args = getArgumentsNode(current);
-      if (args) {
+      if (args && (!dimensionCall || callFunctionName(current) === dimensionCall)) {
         const target = findNonArrayArgFromEnd(args, dimensionOffset);
         if (target) {
           return spliceCode(code, target.startIndex, target.endIndex, expression);
@@ -1061,10 +1301,32 @@ export async function declareSketchVariable(
 }
 
 /**
+ * Insert `const name = initializer;` at top level, directly after the last
+ * import (or as the file's first line). Param declarations land here — one
+ * shared spot right under the imports — rather than inside a sketch body.
+ */
+async function declareTopLevelVariable(
+  code: string,
+  name: string,
+  initializer: string,
+): Promise<string> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const statement = `const ${name} = ${initializer};`;
+  const lastImport = findLastImport(tree);
+  if (lastImport) {
+    return spliceCode(code, lastImport.endIndex, lastImport.endIndex, `\n${statement}`);
+  }
+  return `${statement}\n${code}`;
+}
+
+/**
  * Run an edit that may be preceded by inserting `const name = init;` at the
  * top of the sketch body. The edit receives the (possibly-mutated) code and
  * the number of lines added by the declaration, so it can re-anchor any
- * sourceLine references inside the body.
+ * sourceLine references inside the body. A `param()` declaration instead
+ * lands at top level after the imports — inserted (with its import) after
+ * the edit, so the edit's sourceLine anchors never shift.
  *
  * Adopt this wrapper for any new code-edit endpoint that should support
  * "declare a variable on the same commit."
@@ -1077,6 +1339,13 @@ async function withOptionalVariableDeclaration(
 ): Promise<CodeEditResult> {
   if (!newVariable) {
     return edit(code, 0);
+  }
+  if (/\bparam\s*\(/.test(newVariable.initializer)) {
+    const result = await edit(code, 0);
+    const declared = await declareTopLevelVariable(
+      result.newCode, newVariable.name, newVariable.initializer,
+    );
+    return { ...result, newCode: await ensureSymbolImport(declared, 'param') };
   }
   const declared = await declareSketchVariable(
     code, sketchSourceLine, newVariable.name, newVariable.initializer,
@@ -1104,12 +1373,53 @@ export function updateDimensionExpressionWithVariable(
   sketchSourceLine: number,
   newVariable: { name: string; initializer: string } | null,
   dimensionOffset = 0,
+  dimensionCall: string | null = null,
 ): Promise<CodeEditResult> {
   return withOptionalVariableDeclaration(code, sketchSourceLine, newVariable,
-    (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression, dimensionOffset));
+    (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression, dimensionOffset, dimensionCall));
 }
 
-export type VariableInfo = { name: string; initializer?: string };
+export type VariableInfo = { name: string; initializer?: string; numeric?: boolean };
+
+/**
+ * Whether an initializer is a plain constant, arithmetic expression, or
+ * `param()` declaration — the kind of value a numeric input can reference.
+ * Feature results (`extrude(...)`),
+ * objects, arrays, strings, and functions are not. Local identifiers resolve
+ * through `numericByName`; unknown names (globals, imports) pass permissively.
+ */
+function isNumericValueNode(node: TSNode, numericByName: Map<string, boolean>): boolean {
+  switch (node.type) {
+    case 'number':
+      return true;
+    case 'identifier':
+      return numericByName.get(node.text) ?? true;
+    case 'unary_expression':
+    case 'binary_expression':
+    case 'parenthesized_expression':
+    case 'ternary_expression':
+      return node.namedChildren.every((c) => isNumericValueNode(c, numericByName));
+    case 'member_expression': {
+      const obj = node.childForFieldName('object');
+      return obj ? isNumericValueNode(obj, numericByName) : false;
+    }
+    case 'call_expression': {
+      const fn = node.childForFieldName('function');
+      if (fn?.type === 'identifier' && fn.text === 'param') {
+        return true;
+      }
+      const isMathCall = fn?.type === 'member_expression'
+        && fn.childForFieldName('object')?.text === 'Math';
+      if (!isMathCall) {
+        return false;
+      }
+      const args = node.childForFieldName('arguments');
+      return !args || args.namedChildren.every((c) => isNumericValueNode(c, numericByName));
+    }
+    default:
+      return false;
+  }
+}
 
 export async function extractVariablesInScope(
   code: string,
@@ -1125,11 +1435,14 @@ export async function extractVariablesInScope(
 
   const variables: VariableInfo[] = [];
   const seen = new Set<string>();
+  const numericByName = new Map<string, boolean>();
 
-  function addVar(name: string, initializer?: string) {
+  function addVar(name: string, initializer?: string, valueNode?: TSNode) {
     if (!seen.has(name)) {
       seen.add(name);
-      variables.push({ name, initializer });
+      const numeric = valueNode ? isNumericValueNode(valueNode, numericByName) : true;
+      numericByName.set(name, numeric);
+      variables.push({ name, initializer, numeric });
     }
   }
 
@@ -1140,7 +1453,7 @@ export async function extractVariablesInScope(
         const valueNode = child.childForFieldName('value');
         if (nameNode && nameNode.type === 'identifier') {
           const init = valueNode ? valueNode.text : undefined;
-          addVar(nameNode.text, init);
+          addVar(nameNode.text, init, valueNode ?? undefined);
         }
       }
     }

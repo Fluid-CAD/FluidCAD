@@ -14,12 +14,51 @@ type SceneManager = {
   renderScene(scene: any): any;
   rollbackScene(scene: any, rollbackIndex: number): any;
   compare(previousScene: any, currentScene: any): any;
+  // Optional: the manager comes from the workspace's fluidcad install, which
+  // may predate scene disposal.
+  disposeScene?(scene: any): void;
   setCurrentFile(filePath: string): void;
   importFile(workspacePath: string, fileName: string, data: Uint8Array): any;
   getShapeProperties(scene: any, shapeId: string): any;
   getFaceProperties(scene: any, shapeId: string, faceIndex: number): any;
   getEdgeProperties(scene: any, shapeId: string, edgeIndex: number): any;
   measure(scene: any, refs: { shapeId: string; kind: 'face' | 'edge'; index: number }[]): any;
+  explainSelection(
+    scene: any,
+    refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],
+    before?: SelectionBoundary,
+  ): any;
+  synthesizeApplyFeature(
+    scene: any,
+    refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],
+    feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix',
+    value: number | string | undefined,
+    chains?: {
+      seed: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
+      members: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[];
+    }[],
+    options?: {
+      namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
+      params?: { name: string; value: number }[];
+    },
+    before?: SelectionBoundary,
+  ): any;
+  expandTangentChain(
+    scene: any,
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    before?: SelectionBoundary,
+  ): any;
+  expandBucket(
+    scene: any,
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    before?: SelectionBoundary,
+  ): any;
+  listSelectionGroups(
+    scene: any,
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    before?: SelectionBoundary,
+  ): any;
+  resolveFeatureSources(scene: any, boundary: SelectionBoundary): any;
   hitTest(
     scene: any,
     shapeId: string,
@@ -46,6 +85,20 @@ export type SceneRenderedData = {
   rollbackStop: number;
   breakpointHit?: boolean;
   params?: ParamDefinition[];
+};
+
+/**
+ * Boundary for edit-mode selection queries: the statement being edited,
+ * addressed by scene position (timeline row) and call site. Queries carrying
+ * one resolve against the objects strictly before it — the world that
+ * statement's arguments see at build time. Validation (index still holds
+ * that call site) happens kernel-side; a stale boundary refuses.
+ */
+export type SelectionBoundary = {
+  index: number;
+  type: string;
+  line: number;
+  column: number;
 };
 
 export type SceneSummaryObject = {
@@ -120,6 +173,13 @@ export class FluidCadServer {
   private currentFileName: string = '';
   private currentFilePath: string = '';
   private lastRollbackStop: number = -1;
+  /**
+   * Whether the last full render paused at a breakpoint. Rollbacks don't
+   * re-run the module, so they carry this last known state — without it the
+   * UI's breakpoint indicator can't survive a browser refresh whose replayed
+   * scene message is a rollback broadcast.
+   */
+  private lastBreakpointHit = false;
   private compileError: CompileError | null = null;
 
   constructor(host: SceneHost = new LocalSceneHost()) {
@@ -129,6 +189,11 @@ export class FluidCadServer {
   getCurrentCode(): string | null {
     if (!this.currentFileName) return null;
     return this.host.getBuffer(this.currentFileName);
+  }
+
+  /** Param definitions from the last render — currentValue is override-aware. */
+  getParamDefinitions(): { label: string; currentValue: unknown }[] {
+    return getParamRegistry().getDefinitions();
   }
 
   async init(workspacePath: string) {
@@ -176,6 +241,10 @@ export class FluidCadServer {
   }
 
   destroySession(sessionId: string): void {
+    const scene = this.previousScenes.get(sessionId);
+    if (scene) {
+      this.sceneManager?.disposeScene?.(scene);
+    }
     this.previousScenes.delete(sessionId);
     this.renderingCache.delete(sessionId);
     this.lastRendered.delete(sessionId);
@@ -222,6 +291,7 @@ export class FluidCadServer {
             absPath: normalizedFileName,
             result: fromCache,
             rollbackStop: fromCache.length - 1,
+            breakpointHit: this.lastBreakpointHit,
           };
         }
       }
@@ -248,6 +318,7 @@ export class FluidCadServer {
             throw e;
           }
         }
+        this.lastBreakpointHit = breakpointHit;
 
         const params = getParamRegistry().getDefinitions();
 
@@ -312,6 +383,13 @@ export class FluidCadServer {
     const paramsHash = this.computeParamsHash(fileName, code);
     const cached = this.lastRendered.get(fileName);
     if (cached && cached.paramsHash === paramsHash) {
+      // Keep the live-render buffer in sync even when the render itself is
+      // deduped. The module loader serves this overlay for the raw file path
+      // too (save-triggered process-file), so skipping the update would leave
+      // a stale overlay from an earlier broken live-update — the next save
+      // would then compile the old broken code and report its error even
+      // though editor and disk both hold valid content.
+      this.host.setBuffer(`virtual:live-render:${fileName}`, code);
       this.compileError = null;
       this.currentFileName = fileName;
       this.currentFilePath = `virtual:live-render:${fileName}`;
@@ -334,13 +412,27 @@ export class FluidCadServer {
     return this.rollback(this.currentFileName, index);
   }
 
-  async recomputeCurrentFile(): Promise<SceneRenderedData | null> {
+  async recomputeCurrentFile(forceFullRebuild = false): Promise<SceneRenderedData | null> {
     if (!this.currentFilePath) {
       return null;
     }
     const sessionId = this.currentFileName;
     this.renderingCache.delete(sessionId);
     this.lastRendered.delete(sessionId);
+    if (forceFullRebuild) {
+      // Drop the incremental-compare baseline so every object is rebuilt from
+      // scratch instead of being carried over as cached. Without this, an
+      // unchanged file compares equal at every index, the whole scene is
+      // marked cached, and the render reuses all geometry — so the explicit
+      // "Recompute scene" action does no visible work and reports no build
+      // timings (buildDurationMs is only recorded for objects that rebuild).
+      // Param edits keep the baseline so slider drags stay fast.
+      const staleScene = this.previousScenes.get(sessionId);
+      if (staleScene) {
+        this.sceneManager?.disposeScene?.(staleScene);
+      }
+      this.previousScenes.delete(sessionId);
+    }
     return this.processFileInternal(sessionId, this.currentFilePath, true);
   }
 
@@ -366,6 +458,8 @@ export class FluidCadServer {
       absPath: fileName,
       result,
       rollbackStop: index,
+      // A rollback doesn't re-run the module — the paused state persists.
+      breakpointHit: this.lastBreakpointHit,
     };
   }
 
@@ -420,6 +514,98 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.measure(scene, refs);
+  }
+
+  explainSelection(
+    refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],
+    before?: SelectionBoundary,
+  ): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.explainSelection(scene, refs, before);
+  }
+
+  synthesizeApplyFeature(
+    refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],
+    feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix',
+    value: number | string | undefined,
+    chains: {
+      seed: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
+      members: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[];
+    }[] = [],
+    options?: {
+      namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
+      params?: { name: string; value: number }[];
+    },
+    before?: SelectionBoundary,
+  ): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.synthesizeApplyFeature(scene, refs, feature, value, chains, options, before);
+  }
+
+  expandTangentChain(
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    before?: SelectionBoundary,
+  ): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.expandTangentChain(scene, ref, before);
+  }
+
+  expandBucket(
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    before?: SelectionBoundary,
+  ): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.expandBucket(scene, ref, before);
+  }
+
+  listSelectionGroups(
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    before?: SelectionBoundary,
+  ): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.listSelectionGroups(scene, ref, before);
+  }
+
+  /** Current sources of the statement at `before`, for edit-dialog seeding. */
+  featureSources(before: SelectionBoundary): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.resolveFeatureSources(scene, before);
   }
 
   exportShapes(

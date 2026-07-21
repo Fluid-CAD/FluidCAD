@@ -1,4 +1,5 @@
 import { Edge } from "../../common/edge.js";
+import { SceneObject } from "../../common/scene-object.js";
 import { GeometrySceneObject } from "./geometry.js";
 import { EdgeQuery } from "../../oc/edge-query.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
@@ -105,6 +106,10 @@ export class Connect extends GeometrySceneObject {
     }
 
     this.addShape(wire);
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    return new Connect(this.mode);
   }
 
   compareTo(other: Connect): boolean {

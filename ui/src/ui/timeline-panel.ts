@@ -1,6 +1,7 @@
 import type { SceneObjectRender } from '../types';
-import { savePreference, recompute, rollback, addBreakpoint, gotoSource } from '../api';
-import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_CUBE, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT } from './icons';
+import { isTopLevel } from '../helpers/scene-utils';
+import { savePreference, recompute, rollback, addBreakpoint, gotoSource, removeFeature, renameFeature } from '../api';
+import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_TRASH } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 
@@ -14,15 +15,37 @@ function formatDuration(ms: number): string {
 }
 
 export class TimelinePanel {
+  /**
+   * Pre-empts a timeline row's default click (rollback preview + go to
+   * source). An armed pick dialog consumes clicks on rows it can use —
+   * e.g. the extrude dialog takes a sketch row as its profile — by
+   * returning true.
+   */
+  onFeatureIntercept?: (obj: SceneObjectRender) => boolean;
+
+  /**
+   * A row was double-clicked (the enter-breakpoint gesture). Fired after the
+   * breakpoint is placed so an editable feature row can also open its edit
+   * dialog against the paused scene. `index` is the row's position — the
+   * edit session's rollback boundary and selection scope derive from it.
+   */
+  onFeatureEdit?: (obj: SceneObjectRender, index: number) => void;
+
   private panel: HTMLDivElement;
-  private fileLabel: HTMLSpanElement;
   private timelineBody: HTMLDivElement;
   private contentWrapper: HTMLDivElement;
-  private positioner: HTMLDivElement;
   private shapesPanel: ShapesPanel;
   private loaded = false;
+  private userHidden = false;
   private sceneObjects: SceneObjectRender[] = [];
   private rollbackStop = -1;
+  /**
+   * The scene ends with an unconsumed sketch (scene-derived sketch mode).
+   * While it does, the timeline doesn't navigate: a rollback or breakpoint
+   * would tear the sketch view down mid-edit. Row clicks still jump to
+   * source and armed dialogs still consume rows; rename/remove stay.
+   */
+  private sketchActive = false;
   private collapsedIds = new Set<string>();
   private timelineExpanded = true;
   private activeDropdown: HTMLDivElement | null = null;
@@ -30,7 +53,6 @@ export class TimelinePanel {
   private showBuildTimings = false;
   private historyTotalLabel!: HTMLSpanElement;
   private hoverPopover: HTMLDivElement | null = null;
-  private onImportFile: () => void;
 
   constructor(
     container: HTMLElement,
@@ -41,40 +63,16 @@ export class TimelinePanel {
     onSetShapeTransparency: (shapeId: string, opacity: number) => void,
     getShapeTransparency: (shapeId: string) => number,
     onResetAllTransparency: () => void,
-    onImportFile: () => void,
   ) {
-    this.onImportFile = onImportFile;
     this.panel = document.createElement('div');
-    this.panel.className = 'absolute left-6 top-6 bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
+    // Docked below the top bars (top bar + navbar ≈ 92px) with breathing room.
+    this.panel.className = 'absolute left-6 top-[116px] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
     container.appendChild(this.panel);
     this.applyPanelWidth();
 
-    const logoRow = document.createElement('div');
-    logoRow.className = 'flex items-center gap-1.5 px-1 pb-1 shrink-0';
-    logoRow.innerHTML = `<img src="/logo.png" alt="FluidCAD" class="h-6 w-auto opacity-70" /><span class="text-[18px] font-bold text-base-content/70">FluidCAD</span>`;
-    this.panel.appendChild(logoRow);
-
-    const fileRow = document.createElement('div');
-    fileRow.className = 'flex items-center gap-2 px-1 pb-1 shrink-0';
-    fileRow.innerHTML = `
-      <span class="text-base-content/50 [&>svg]:size-4">${ICON_CUBE}</span>
-      <span data-ref="filename" class="text-base text-base-content/70 truncate"></span>
-      <button data-ref="import-btn" class="ml-auto w-5 h-5 min-h-0 btn btn-circle btn-ghost border border-base-content/30 hover:border-base-content/50 p-0 text-base-content/40 hover:text-base-content/70 shrink-0 tooltip tooltip-right" data-tip="Import File">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      </button>
-    `;
-    this.panel.appendChild(fileRow);
-    this.fileLabel = fileRow.querySelector('[data-ref="filename"]')!;
-    fileRow.querySelector('[data-ref="import-btn"]')!.addEventListener('click', () => this.onImportFile());
-
-    this.positioner = document.createElement('div');
-    this.positioner.className = 'relative flex-1 min-h-0 overflow-hidden';
-    this.panel.appendChild(this.positioner);
-
     this.contentWrapper = document.createElement('div');
-    this.contentWrapper.className = 'absolute inset-0 flex flex-col gap-1 overflow-y-auto';
-    this.contentWrapper.style.transition = 'transform 0.25s ease, opacity 0.25s ease';
-    this.positioner.appendChild(this.contentWrapper);
+    this.contentWrapper.className = 'flex-1 min-h-0 flex flex-col gap-1 overflow-y-auto';
+    this.panel.appendChild(this.contentWrapper);
 
     // Timeline accordion section
     const timelineHeader = document.createElement('div');
@@ -120,17 +118,15 @@ export class TimelinePanel {
 
   }
 
-  update(sceneObjects: SceneObjectRender[], rollbackStop: number, absPath?: string): void {
+  update(sceneObjects: SceneObjectRender[], rollbackStop: number): void {
     this.sceneObjects = sceneObjects;
     this.rollbackStop = rollbackStop;
-    if (absPath) {
-      const fileName = absPath.split('/').pop() || absPath;
-      this.fileLabel.textContent = fileName;
-    }
-    if (!this.loaded) {
-      this.loaded = true;
-      this.panel.classList.remove('hidden');
-    }
+    // Mirrors the viewer's sketch-mode derivation: a full (non-rolled-back)
+    // render whose last top-level object is a sketch.
+    this.sketchActive = rollbackStop >= sceneObjects.length - 1
+      && this.findActiveObject(sceneObjects)?.type === 'sketch';
+    this.loaded = true;
+    this.syncVisibility();
     this.renderTimeline(true);
     this.shapesPanel.update(sceneObjects);
     this.updateHistoryTotal();
@@ -148,20 +144,18 @@ export class TimelinePanel {
     }
   }
 
-  slideOut(): void {
-    this.contentWrapper.style.transform = 'translateX(-100%)';
-    this.contentWrapper.style.opacity = '0';
-    this.contentWrapper.style.pointerEvents = 'none';
+  /** Toggle panel visibility (driven by the top-bar hamburger). */
+  togglePanel(): void {
+    this.userHidden = !this.userHidden;
+    this.syncVisibility();
   }
 
-  slideIn(): void {
-    this.contentWrapper.style.transform = '';
-    this.contentWrapper.style.opacity = '';
-    this.contentWrapper.style.pointerEvents = '';
+  get isPanelVisible(): boolean {
+    return this.loaded && !this.userHidden;
   }
 
-  get toolbarHost(): HTMLElement {
-    return this.positioner;
+  private syncVisibility(): void {
+    this.panel.classList.toggle('hidden', !(this.loaded && !this.userHidden));
   }
 
   // ---------------------------------------------------------------------------
@@ -197,12 +191,17 @@ export class TimelinePanel {
         continue;
       }
 
-      const hasChildren = obj.id != null && parentIds.has(obj.id);
+      // A hide-children container (e.g. a repeat) shows as a single leaf row.
+      // Its rollback target is its last descendant, so clicking it previews
+      // the scene after the whole feature has executed.
+      const hidesChildren = obj.hideChildren === true;
+      const hasChildren = !hidesChildren && obj.id != null && parentIds.has(obj.id);
       const isCollapsed = obj.id != null && this.collapsedIds.has(obj.id);
       const childHasError = obj.id != null && childErrorByParent.get(obj.id) === true;
       const effectiveError = obj.hasError === true || childHasError;
+      const rollbackIndex = hidesChildren ? this.lastDescendantIndex(items, i) : i;
 
-      html += this.renderTimelineItem(obj, i, rollbackStop, false, hasChildren, isCollapsed, effectiveError);
+      html += this.renderTimelineItem(obj, i, rollbackStop, false, hasChildren, isCollapsed, effectiveError, rollbackIndex);
 
       if (hasChildren && !isCollapsed) {
         for (let j = 0; j < items.length; j++) {
@@ -210,7 +209,8 @@ export class TimelinePanel {
             continue;
           }
           if (items[j].parentId === obj.id) {
-            html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false, items[j].hasError === true);
+            const childRollbackIndex = items[j].hideChildren === true ? this.lastDescendantIndex(items, j) : j;
+            html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false, items[j].hasError === true, childRollbackIndex);
           }
         }
       }
@@ -224,16 +224,43 @@ export class TimelinePanel {
           return;
         }
         const index = parseInt(el.dataset.index!, 10);
-        this.rollbackTo(index);
-        this.goToSource(this.sceneObjects[index]);
+        const rollbackIndex = parseInt(el.dataset.rollbackIndex ?? el.dataset.index!, 10);
+        const obj = this.sceneObjects[index];
+        if (obj && this.onFeatureIntercept?.(obj)) {
+          return;
+        }
+        if (this.sketchActive) {
+          // No timeline navigation while sketching — the source jump stays.
+          this.goToSource(obj);
+          return;
+        }
+        this.rollbackTo(rollbackIndex);
+        this.goToSource(obj);
       });
       el.addEventListener('dblclick', (e) => {
         if ((e.target as HTMLElement).closest('[data-toggle]')) {
           return;
         }
+        if (this.sketchActive) {
+          // The enter-breakpoint gesture is navigation too — blocked while
+          // sketching (finish or exit the sketch first).
+          return;
+        }
         const index = parseInt(el.dataset.index!, 10);
         this.addBreakpointAfter(index);
         this.goToSource(this.sceneObjects[index]);
+        const obj = this.sceneObjects[index];
+        if (obj) {
+          this.onFeatureEdit?.(obj, index);
+        }
+      });
+      el.addEventListener('contextmenu', (e) => {
+        if ((e.target as HTMLElement).closest('[data-toggle]')) {
+          return;
+        }
+        e.preventDefault();
+        const index = parseInt(el.dataset.index!, 10);
+        this.showRowContextMenu(e, index);
       });
     });
 
@@ -274,8 +301,34 @@ export class TimelinePanel {
     }
   }
 
-  private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, isChild: boolean, hasChildren: boolean, isCollapsed: boolean, effectiveError: boolean): string {
-    const isCurrent = index === rollbackStop;
+  /**
+   * Index of the last descendant of the container at `index` in the flat
+   * scene list — the rollback target that shows the scene with the whole
+   * feature (e.g. a repeat and all its generated clones) applied.
+   */
+  private lastDescendantIndex(items: SceneObjectRender[], index: number): number {
+    const rootId = items[index].id;
+    if (rootId == null) {
+      return index;
+    }
+    const descendantIds = new Set<string>([rootId]);
+    let last = index;
+    for (let j = index + 1; j < items.length; j++) {
+      const parentId = items[j].parentId;
+      if (parentId != null && descendantIds.has(parentId)) {
+        if (items[j].id != null) {
+          descendantIds.add(items[j].id!);
+        }
+        last = j;
+      }
+    }
+    return last;
+  }
+
+  private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, isChild: boolean, hasChildren: boolean, isCollapsed: boolean, effectiveError: boolean, rollbackIndex: number): string {
+    // A row that stands in for hidden descendants (rollbackIndex > index) is
+    // current whenever the rollback stop lands anywhere inside its range.
+    const isCurrent = rollbackStop >= index && rollbackStop <= rollbackIndex;
     const isPast = index > rollbackStop;
     const isInvisible = obj.visible === false;
     const name = obj.name || 'Unknown';
@@ -328,7 +381,7 @@ export class TimelinePanel {
       : `<span class="${statusIconClass}">${ICON_REFRESH}</span>`;
 
     return `
-      <div class="${itemClass}" data-index="${index}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}">
+      <div class="${itemClass}" data-index="${index}" data-rollback-index="${rollbackIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}">
         ${chevron}
         ${errorDot}
         <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="${imgClass}" alt="" />
@@ -342,6 +395,12 @@ export class TimelinePanel {
   // ---------------------------------------------------------------------------
   // Build timings
   // ---------------------------------------------------------------------------
+
+  private hasBuildTimings(): boolean {
+    return this.sceneObjects.some(
+      (o) => !o.parentId && !o.fromCache && o.buildDurationMs != null,
+    );
+  }
 
   private updateHistoryTotal(): void {
     if (!this.showBuildTimings) {
@@ -416,6 +475,12 @@ export class TimelinePanel {
       savePreference('showBuildTimings', next);
       this.closeDropdown();
       this.renderTimeline();
+      // Build timings are only recorded for objects that actually rebuild, so
+      // enabling the toggle on a fully-cached scene would show nothing. Force a
+      // fresh recompute so the times populate immediately.
+      if (next && !this.hasBuildTimings()) {
+        this.recomputeScene();
+      }
     });
 
     dropdown.querySelector('[data-action="recompute"]')!.addEventListener('click', () => {
@@ -430,6 +495,126 @@ export class TimelinePanel {
     };
     setTimeout(() => document.addEventListener('click', onClickOutside), 0);
     this.dropdownCleanup = () => document.removeEventListener('click', onClickOutside);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Row context menu
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Right-click menu on a timeline row: "Rename" swaps the menu for an
+   * inline input editing the feature's chained `.name('…')`, "Breakpoint
+   * here" places the breakpoint after the row (the double-click gesture,
+   * without opening an edit dialog) and "Remove" deletes the feature's
+   * statement from the code. Rows without a source location get no menu —
+   * none of the actions can target them.
+   */
+  private showRowContextMenu(e: MouseEvent, index: number): void {
+    this.closeDropdown();
+    const obj = this.sceneObjects[index];
+    if (!obj || !obj.sourceLocation) {
+      return;
+    }
+
+    const dropdown = document.createElement('div');
+    dropdown.className = 'absolute z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
+
+    const panelRect = this.panel.getBoundingClientRect();
+    dropdown.style.left = `${e.clientX - panelRect.left}px`;
+    dropdown.style.top = `${e.clientY - panelRect.top}px`;
+
+    // The breakpoint action is timeline navigation — absent while sketching.
+    const breakpointItem = this.sketchActive ? '' : `
+        <li><button data-action="rollback" class="flex items-center gap-2">
+          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PAUSE}</span>
+          <span>Breakpoint here</span>
+        </button></li>`;
+    dropdown.innerHTML = `
+      <ul class="menu menu-xs p-1 min-w-[160px]">
+        <li><button data-action="rename" class="flex items-center gap-2">
+          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PENCIL}</span>
+          <span>Rename</span>
+        </button></li>${breakpointItem}
+        <li><button data-action="remove" class="flex items-center gap-2 text-error">
+          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_TRASH}</span>
+          <span>Remove</span>
+        </button></li>
+      </ul>
+    `;
+
+    this.panel.appendChild(dropdown);
+    this.activeDropdown = dropdown;
+
+    dropdown.querySelector('[data-action="rename"]')!.addEventListener('click', (e) => {
+      // Swapping to the input detaches the clicked button; without this the
+      // bubbling click reaches the click-outside handler with a target no
+      // longer inside the dropdown and instantly closes the menu.
+      e.stopPropagation();
+      this.showRenameInput(dropdown, obj);
+    });
+
+    dropdown.querySelector('[data-action="rollback"]')?.addEventListener('click', () => {
+      this.closeDropdown();
+      this.addBreakpointAfter(index);
+      this.goToSource(obj);
+    });
+
+    dropdown.querySelector('[data-action="remove"]')!.addEventListener('click', () => {
+      this.closeDropdown();
+      removeFeature(obj.sourceLocation!);
+    });
+
+    const onClickOutside = (ev: MouseEvent) => {
+      if (!dropdown.contains(ev.target as Node)) {
+        this.closeDropdown();
+      }
+    };
+    setTimeout(() => {
+      document.addEventListener('click', onClickOutside);
+      document.addEventListener('contextmenu', onClickOutside);
+    }, 0);
+    this.dropdownCleanup = () => {
+      document.removeEventListener('click', onClickOutside);
+      document.removeEventListener('contextmenu', onClickOutside);
+    };
+  }
+
+  /**
+   * Swap the row context menu's content for an inline rename input. The
+   * input edits the feature's chained `.name('…')`: Enter commits (an empty
+   * value clears the chain, reverting to the default name), Escape or the
+   * menu's click-outside handler dismisses without committing.
+   */
+  private showRenameInput(dropdown: HTMLDivElement, obj: SceneObjectRender): void {
+    const type = obj.type ?? '';
+    const defaultName = type ? type.charAt(0).toUpperCase() + type.slice(1) : 'Feature';
+    const currentName = obj.hasCustomName ? (obj.name ?? '') : '';
+
+    dropdown.innerHTML = `
+      <div class="p-1.5 w-[180px]">
+        <input data-ref="rename-input" type="text" spellcheck="false"
+          class="input input-xs input-bordered w-full bg-transparent"
+          placeholder="${this.escapeHtml(defaultName)}" />
+      </div>
+    `;
+
+    const input = dropdown.querySelector<HTMLInputElement>('[data-ref="rename-input"]')!;
+    input.value = currentName;
+    input.focus();
+    input.select();
+
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        const next = input.value.trim();
+        if (next !== currentName) {
+          renameFeature(obj.sourceLocation!, next || null);
+        }
+        this.closeDropdown();
+      } else if (e.key === 'Escape') {
+        this.closeDropdown();
+      }
+    });
   }
 
   private closeDropdown(): void {
@@ -541,6 +726,16 @@ export class TimelinePanel {
       return;
     }
     gotoSource(obj.sourceLocation);
+  }
+
+  /** Last root-level (or Part-child) object — mirrors Viewer.findActiveObject. */
+  private findActiveObject(objects: SceneObjectRender[]): SceneObjectRender | undefined {
+    for (let i = objects.length - 1; i >= 0; i--) {
+      if (isTopLevel(objects[i], objects)) {
+        return objects[i];
+      }
+    }
+    return undefined;
   }
 
   private escapeHtml(text: string): string {

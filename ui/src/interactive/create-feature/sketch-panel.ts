@@ -1,0 +1,124 @@
+import { PanelShell } from './panel-controls';
+import { PickSlot } from '../pick-slot';
+
+/** How the dialog opened — see {@link SketchStartPanel.setMode}. */
+export type SketchPanelMode = 'create' | 'adopted' | 'edit';
+
+/**
+ * The sketch dialog: a single face/plane pick slot and a close button —
+ * picking IS the action (the first pick writes the sketch statement and
+ * enters the sketch), so there is nothing to Apply. The dialog stays docked
+ * for the whole session of the sketch it started, showing the picked target
+ * as a chip; the chip's ✕ exits the sketch-mode view (free camera, grid
+ * restored) so a different face/plane can be picked, which moves the sketch
+ * statement onto it in place. The close button deletes the sketch statement
+ * only when this dialog wrote it — see {@link SketchStartPanel.setMode}.
+ * Pure DOM — the modify-pick service owns picking, the session, and the
+ * applies.
+ */
+export class SketchStartPanel {
+  /** The chip's ✕ — leave the sketch view and re-arm picking. */
+  onClear?: () => void;
+  /** The close button — Cancel (delete the sketch) or Exit, per the mode. */
+  onCancel?: () => void;
+  /** Escape pressed inside the dialog — cancel the re-pick / close. */
+  onEscape?: () => void;
+  /** The section-view toggle — clip the scene at the sketch plane. */
+  onSectionViewToggle?: (enabled: boolean) => void;
+
+  private shell: PanelShell;
+  private slot: PickSlot;
+  private closeBtn: HTMLButtonElement;
+  private sectionViewWrap: HTMLLabelElement;
+  private sectionViewInput: HTMLInputElement;
+
+  constructor(container: HTMLElement) {
+    this.shell = new PanelShell(container, 'fluidcad-sketch-panel', 'Sketch', '/icons/sketch.png');
+    this.shell.onEscape = () => this.onEscape?.();
+    this.shell.body.insertAdjacentHTML('beforeend', `
+      <div data-role="target-slot"></div>
+      <label data-role="section-view-wrap" class="hidden items-center justify-between cursor-pointer"
+        title="Clip away everything in front of the sketch plane">
+        <span class="text-base-content/70">Section view</span>
+        <input data-role="section-view" type="checkbox" class="toggle toggle-sm toggle-primary" />
+      </label>
+      <div class="flex items-center pt-1">
+        <button data-role="cancel" class="btn btn-ghost btn-sm flex-1"
+          title="Remove the sketch from the code and close">Cancel</button>
+      </div>
+    `);
+    this.slot = new PickSlot(
+      this.shell.body.querySelector('[data-role="target-slot"]')!,
+      { label: 'Face / Plane', multiple: false },
+    );
+    this.slot.onRemove = () => this.onClear?.();
+    this.closeBtn = this.shell.body.querySelector('[data-role="cancel"]')!;
+    this.closeBtn.addEventListener('click', () => this.onCancel?.());
+    this.sectionViewWrap = this.shell.body.querySelector('[data-role="section-view-wrap"]')!;
+    this.sectionViewInput = this.shell.body.querySelector('[data-role="section-view"]')!;
+    this.sectionViewInput.addEventListener('change', () => {
+      this.onSectionViewToggle?.(this.sectionViewInput.checked);
+    });
+  }
+
+  /**
+   * Section view only means something once the sketch plane exists, so the
+   * viewer shows the toggle on entering sketch mode and hides it on leaving.
+   */
+  setSectionViewVisible(visible: boolean): void {
+    this.sectionViewWrap.classList.toggle('hidden', !visible);
+    this.sectionViewWrap.classList.toggle('flex', visible);
+  }
+
+  setSectionViewActive(active: boolean): void {
+    this.sectionViewInput.checked = active;
+  }
+
+  /**
+   * How the dialog opened, which is what its close button means:
+   * - `create` — this dialog wrote the sketch statement, so Cancel undoes it
+   *   by deleting the statement again.
+   * - `adopted` — the scene merely ended in a sketch (a page reload, a sketch
+   *   entered by editing code); there is nothing to undo, so Exit just closes.
+   * - `edit` — a timeline double-click opened the dialog over an existing
+   *   sketch; it wears the edit title and the same non-destructive Exit every
+   *   other edit dialog closes with.
+   */
+  setMode(mode: SketchPanelMode): void {
+    this.shell.setTitle(mode === 'edit' ? 'Edit sketch' : null);
+    this.closeBtn.textContent = mode === 'create' ? 'Cancel' : 'Exit';
+    this.closeBtn.title = mode === 'create'
+      ? 'Remove the sketch from the code and close'
+      : 'Close the dialog and leave the sketch in place';
+  }
+
+  get isVisible(): boolean {
+    return this.shell.isVisible;
+  }
+
+  show(): void {
+    this.shell.show();
+  }
+
+  hide(): void {
+    this.shell.hide();
+  }
+
+  /** Armed pick state: the empty slot wears the prompt and the active tint. */
+  setPicking(prompt: string): void {
+    this.slot.setChips([]);
+    this.slot.setPrompt(prompt);
+    this.slot.setArmed(true);
+  }
+
+  /** Tracking state: the picked target as a removable chip. */
+  setTarget(label: string): void {
+    this.slot.setChips([{ label, badge: '●', removable: true }]);
+    this.slot.setPrompt(null);
+    this.slot.setArmed(false);
+  }
+
+  setMessage(text: string | null): void {
+    this.shell.setMessage(text);
+  }
+}

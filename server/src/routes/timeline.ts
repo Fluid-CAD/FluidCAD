@@ -30,6 +30,47 @@ export function createTimelineRouter(
       result: data.result,
       absPath: data.absPath,
       rollbackStop: data.rollbackStop,
+      // The last full render's paused state — a refresh replays whatever
+      // scene message went out last, and the indicator must survive it.
+      breakpointHit: data.breakpointHit,
+    });
+    res.json({ success: true });
+  });
+
+  router.post('/remove-feature', (req, res) => {
+    const { sourceLocation } = req.body;
+    if (
+      !sourceLocation ||
+      typeof sourceLocation.filePath !== 'string' ||
+      typeof sourceLocation.line !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    sendToExtension({
+      type: 'remove-feature',
+      filePath: sourceLocation.filePath,
+      line: sourceLocation.line,
+    });
+    res.json({ success: true });
+  });
+
+  router.post('/rename-feature', (req, res) => {
+    const { sourceLocation, name } = req.body;
+    if (
+      !sourceLocation ||
+      typeof sourceLocation.filePath !== 'string' ||
+      typeof sourceLocation.line !== 'number' ||
+      (name !== null && typeof name !== 'string')
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    sendToExtension({
+      type: 'rename-feature',
+      filePath: sourceLocation.filePath,
+      line: sourceLocation.line,
+      name,
     });
     res.json({ success: true });
   });

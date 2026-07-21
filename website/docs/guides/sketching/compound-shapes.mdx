@@ -78,7 +78,7 @@ The third argument (`true`) removes the source geometry after creating the slot.
 
 ## text
 
-`text()` turns a string into outline geometry — each letter becomes a closed profile you can extrude into 3D lettering. Use it inside a `sketch()` with `text("Hello")`, or standalone on a plane with `text("xy", "Hello")`. The size is the cap height in model units; thickness comes from `extrude()`.
+`text()` turns a string into outline geometry — each letter becomes a closed profile you can extrude into 3D lettering. Use it inside a `sketch()` with `text("Hello")`. The size is the cap height in model units; thickness comes from `extrude()`.
 
 <CodeBlock language="js">{compoundText}</CodeBlock>
 
@@ -106,7 +106,7 @@ For multi-line strings (`\n`), set `.align("left" | "center" | "right")`, and fi
 
 ### Text along a path
 
-`text(string, path)` lays the glyphs along a curve instead of a straight baseline. The path can be a curve in the same sketch, a whole sketch, a standalone primitive (e.g. `circle("xy", 80)`), or edges selected from existing geometry (e.g. `select(edge().circle())` for a cylinder rim). The path must be planar; the text lies in the path's plane.
+`text(string, path)` lays the glyphs along a curve instead of a straight baseline. The path can be a curve in the same sketch, a whole sketch (e.g. `sketch("xy", () => circle(80))`), or edges selected from existing geometry (e.g. `select(edge().circle())` for a cylinder rim). The path must be planar; the text lies in the path's plane.
 
 <CodeBlock language="js">{compoundTextPath}</CodeBlock>
 

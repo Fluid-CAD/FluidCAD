@@ -3,7 +3,7 @@ import { arc, circle, cut, extrude, local, mirror, move, offset, plane, polygon,
 
 sketch("front", () => {
     arc(18)
-    offset(-36 + 18).close()
+    offset(18).close();
     move([18, 0])
     const r = rect(18, -40)
     mirror(local("y"), r)

@@ -10,6 +10,7 @@ import { SlotTool } from './tools/slot-tool';
 import { PolylineTool } from './tools/polyline';
 import { BezierTool } from './tools/bezier-tool';
 import { PolygonTool } from './tools/polygon-tool';
+import { TextTool } from './tools/text-tool';
 import { DragMoveHandler } from './drag-move-handler';
 import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
 import { BezierHandlesOverlay } from './bezier-handles-overlay';
@@ -21,14 +22,13 @@ import { SceneObjectRender, PlaneData } from '../types';
 import { Viewer } from '../viewer';
 import { TrimPickService } from './trim-pick-service';
 import { VariableInfo } from '../ui/expression-input';
-import { TimelinePanel } from '../ui/timeline-panel';
 import { ShortcutManager } from '../ui/shortcut-manager';
+import { Navbar } from '../ui/navbar';
 
 export class SketchToolbarService {
   private viewer: Viewer;
   private container: HTMLElement;
   private trimService: TrimPickService;
-  private timelinePanel: TimelinePanel;
   private toolbar: SketchToolbar;
   private activeSketchInfo: {
     sketchObj: SceneObjectRender;
@@ -41,15 +41,17 @@ export class SketchToolbarService {
   private bezierHandles: BezierHandlesOverlay;
   private shortcuts: ShortcutManager;
 
-  constructor(container: HTMLElement, viewer: Viewer, trimService: TrimPickService, timelinePanel: TimelinePanel) {
+  constructor(container: HTMLElement, viewer: Viewer, trimService: TrimPickService, navbar: Navbar) {
     this.viewer = viewer;
     this.container = container;
     this.trimService = trimService;
-    this.timelinePanel = timelinePanel;
 
-    this.toolbar = new SketchToolbar(timelinePanel.toolbarHost, (toolId) => {
-      this.handleToolSelect(toolId);
-    });
+    const sketchGroup = navbar.addGroup('sketch', { visible: false, exclusive: true });
+    this.toolbar = new SketchToolbar(
+      sketchGroup,
+      (toolId) => this.handleToolSelect(toolId),
+      (visible) => navbar.setGroupVisible('sketch', visible),
+    );
 
     this.shortcuts = new ShortcutManager();
     this.shortcuts.register('n', () => this.lookAlongSketchNormal());
@@ -99,7 +101,6 @@ export class SketchToolbarService {
       if (!this.toolbar.isVisible) {
         this.toolbar.show();
         this.shortcuts.enable();
-        this.timelinePanel.slideOut();
       }
 
       this.bezierHandles.activate();
@@ -140,7 +141,6 @@ export class SketchToolbarService {
       this.activeSketchInfo = null;
       this.toolbar.hide();
       this.shortcuts.disable();
-      this.timelinePanel.slideIn();
     }
   }
 
@@ -197,11 +197,14 @@ export class SketchToolbarService {
         return tool;
       }
       case 'rect':
-        return new RectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+        return new RectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.rectCenteredChecked);
       case 'rounded-rect':
-        return new RoundedRectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+        return new RoundedRectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.rectCenteredChecked);
       case 'slot':
         return new SlotTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+      case 'text':
+        return new TextTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container,
+          () => this.handleToolSelect(null));
       default:
         return null;
     }

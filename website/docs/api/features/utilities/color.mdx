@@ -32,9 +32,9 @@ Applies a color to the last selection.
 color(color: StringParam, selection: SceneObject): SceneObject
 ```
 
-Applies a color to the given selection.
+Applies a color to the given selection or object.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `color` | StringParam | The color value (CSS color string) |
-| `selection` | [SceneObject](/docs/api/types/scene-object) | The face or edge selection to color |
+| `selection` | [SceneObject](/docs/api/types/scene-object) | A face selection, or any scene object — every face of the object's solids is colored |

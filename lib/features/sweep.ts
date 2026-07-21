@@ -1,7 +1,7 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Explorer } from "../oc/explorer.js";
 import { SweepOps } from "../oc/sweep-ops.js";
-import { WireOps } from "../oc/wire-ops.js";
+import { WireExtendOps } from "../oc/wire-extend-ops.js";
 import { Wire } from "../common/wire.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
@@ -9,14 +9,17 @@ import { Shape } from "../common/shape.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { ClassifiedFaces, ExtrudeBase } from "./extrude-base.js";
-import { ISweep } from "../core/interfaces.js";
-import { cutWithSceneObjects } from "../helpers/scene-helpers.js";
+import { ISweep, SweepSide } from "../core/interfaces.js";
+import { type NumberParam, resolveParam } from "../core/param.js";
+import { cutWithSceneObjects, wireFromSceneObjectEdges } from "../helpers/scene-helpers.js";
 import { ThinFaceMaker, ThinFaceResult } from "../oc/thin-face-maker.js";
 import { Plane } from "../math/plane.js";
 import { requireShapes } from "../common/operand-check.js";
 
 export class Sweep extends ExtrudeBase implements ISweep {
   private _path: SceneObject;
+  private _extendStart?: number;
+  private _extendEnd?: number;
 
   constructor(
     path: SceneObject,
@@ -28,6 +31,22 @@ export class Sweep extends ExtrudeBase implements ISweep {
 
   get path(): SceneObject {
     return this._path;
+  }
+
+  /**
+   * Extends the swept solid beyond the path at the given end by `amount`,
+   * continuing straight along the path's tangent there. Chain twice for both ends.
+   */
+  extend(side: SweepSide, amount: NumberParam): this {
+    const value = resolveParam(amount);
+    if (side === "start") {
+      this._extendStart = value;
+    } else if (side === "end") {
+      this._extendEnd = value;
+    } else {
+      throw new Error(`sweep.extend: side must be 'start' or 'end', got '${side}'.`);
+    }
+    return this;
   }
 
   override validate() {
@@ -202,12 +221,14 @@ export class Sweep extends ExtrudeBase implements ISweep {
   }
 
   private getSpineWire(pathObj: SceneObject): Wire {
-    const shapes = pathObj.getShapes({ excludeMeta: false });
-
-    const edges = shapes.flatMap(s => s.getSubShapes('edge')) as Edge[];
-    console.log(`Sweep: Extracted ${edges.length} edges from path object for spine wire.`);
-
-    return WireOps.makeWireFromEdges(edges);
+    let wire = wireFromSceneObjectEdges(pathObj, "sweep path");
+    if (this._extendStart !== undefined) {
+      wire = WireExtendOps.extendWire(wire, "start", this._extendStart);
+    }
+    if (this._extendEnd !== undefined) {
+      wire = WireExtendOps.extendWire(wire, "end", this._extendEnd);
+    }
+    return wire;
   }
 
   override getDependencies(): SceneObject[] {
@@ -226,7 +247,11 @@ export class Sweep extends ExtrudeBase implements ISweep {
       ? (remap.get(this.extrudable) || this.extrudable) as Extrudable
       : undefined;
     const path = remap.get(this._path) || this._path;
-    return new Sweep(path, extrudable).syncWith(this);
+    const copy = new Sweep(path, extrudable);
+    copy.syncWith(this);
+    copy._extendStart = this._extendStart;
+    copy._extendEnd = this._extendEnd;
+    return copy;
   }
 
   compareTo(other: Sweep): boolean {
@@ -246,6 +271,14 @@ export class Sweep extends ExtrudeBase implements ISweep {
       return false;
     }
 
+    if (this._extendStart !== other._extendStart) {
+      return false;
+    }
+
+    if (this._extendEnd !== other._extendEnd) {
+      return false;
+    }
+
     return true;
   }
 
@@ -259,6 +292,8 @@ export class Sweep extends ExtrudeBase implements ISweep {
       extrudable: this.extrudable.serialize(),
       operationMode: this._operationMode !== 'add' ? this._operationMode : undefined,
       thin: this._thin,
+      extendStart: this._extendStart,
+      extendEnd: this._extendEnd,
       ...this.serializePickFields(),
     };
   }

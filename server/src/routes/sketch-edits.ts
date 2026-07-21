@@ -10,8 +10,11 @@ import {
   removePoint,
   addPick,
   removePick,
+  removeStatement,
+  setFeatureName,
   setPickPoints,
   insertGeometryCallWithVariable,
+  insertLoadCall,
   updateGeometryPosition,
   setLinePosition,
   setChainPositions,
@@ -67,6 +70,11 @@ export function createSketchEditsRouter(
     }
 
     const loadName = fileName.replace(/\.(step|stp)$/i, '');
+    sendToExtension({
+      type: 'insert-load',
+      filePath: fluidCadServer.getCurrentFileName(),
+      fileName: loadName,
+    });
     res.json({ success: true, fileName: loadName });
   });
 
@@ -250,7 +258,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/update-dimension-expression', (req, res) => {
-    const { expression, sourceLocation, sketchSourceLine, newVariable, dimensionOffset } = req.body;
+    const { expression, sourceLocation, sketchSourceLine, newVariable, dimensionOffset, dimensionCall } = req.body;
     if (
       typeof expression !== 'string' ||
       !sourceLocation || typeof sourceLocation.line !== 'number'
@@ -274,6 +282,7 @@ export function createSketchEditsRouter(
       sketchSourceLine: typeof sketchSourceLine === 'number' ? sketchSourceLine : null,
       newVariable: nv,
       dimensionOffset: typeof dimensionOffset === 'number' ? dimensionOffset : 0,
+      dimensionCall: typeof dimensionCall === 'string' ? dimensionCall : null,
     });
     res.json({ success: true });
   });
@@ -304,8 +313,11 @@ export function createSketchEditsRouter(
   // ---------------------------------------------------------------------------
 
   router.post('/scope-variables', async (req, res) => {
+    // null/absent means whole-file scope — the feature dialogs' create mode,
+    // where the statement is appended after the last line.
     const { sketchSourceLine } = req.body;
-    if (typeof sketchSourceLine !== 'number') {
+    if (sketchSourceLine !== undefined && sketchSourceLine !== null
+      && typeof sketchSourceLine !== 'number') {
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
@@ -315,7 +327,9 @@ export function createSketchEditsRouter(
       return;
     }
     try {
-      const variables = await extractVariablesInScope(code, sketchSourceLine);
+      const variables = await extractVariablesInScope(
+        code, typeof sketchSourceLine === 'number' ? sketchSourceLine : Number.MAX_SAFE_INTEGER,
+      );
       res.json({ variables });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
@@ -323,7 +337,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/dimension-expression', async (req, res) => {
-    const { sourceLine } = req.body;
+    const { sourceLine, dimensionOffset, dimensionCall } = req.body;
     if (typeof sourceLine !== 'number') {
       res.status(400).json({ error: 'Invalid request body' });
       return;
@@ -334,7 +348,9 @@ export function createSketchEditsRouter(
       return;
     }
     try {
-      const result = await getDimensionExpression(code, sourceLine);
+      const result = await getDimensionExpression(code, sourceLine,
+        typeof dimensionOffset === 'number' ? dimensionOffset : 0,
+        typeof dimensionCall === 'string' ? dimensionCall : null);
       res.json({ expression: result?.expression ?? null });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
@@ -459,6 +475,51 @@ export function createSketchEditsRouter(
     }
     try {
       const result = await removePick(code, sourceLine);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/remove-statement', async (req, res) => {
+    const { code, sourceLine } = req.body;
+    if (typeof code !== 'string' || typeof sourceLine !== 'number') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await removeStatement(code, sourceLine);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/set-feature-name', async (req, res) => {
+    const { code, sourceLine, name } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      (name !== null && typeof name !== 'string')
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await setFeatureName(code, sourceLine, name);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/insert-load', async (req, res) => {
+    const { code, fileName } = req.body;
+    if (typeof code !== 'string' || typeof fileName !== 'string') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await insertLoadCall(code, fileName);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
@@ -595,7 +656,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/code/update-dimension-expression', async (req, res) => {
-    const { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset } = req.body;
+    const { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset, dimensionCall } = req.body;
     if (
       typeof code !== 'string' || typeof sourceLine !== 'number' ||
       typeof expression !== 'string'
@@ -619,6 +680,7 @@ export function createSketchEditsRouter(
         typeof sketchSourceLine === 'number' ? sketchSourceLine : sourceLine,
         nv,
         offset,
+        typeof dimensionCall === 'string' ? dimensionCall : null,
       );
       res.json(result);
     } catch (err: any) {

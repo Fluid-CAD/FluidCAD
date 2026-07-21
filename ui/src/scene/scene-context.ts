@@ -25,6 +25,7 @@ import { ViewportGizmo } from 'three-viewport-gizmo';
 import { CameraControlsAdapter } from './camera-controls-adapter';
 import { themeColors, onThemeChange } from './theme-colors';
 import { LineResolutionRegistry } from '../meshes/shape-meshes/line-resolution';
+import { setScreenScaleSource } from '../meshes/screen-scale';
 
 // Install camera-controls with only the Three.js submodules it needs
 CameraControls.install({
@@ -112,6 +113,10 @@ export class SceneContext {
     this.perspCamera.up.copy(Z_UP);
     this.perspCamera.lookAt(0, 0, 0);
 
+    // Let screen-space markers size themselves on creation against the live
+    // renderer + active camera (the getter always returns the current one).
+    setScreenScaleSource(this.renderer, () => this.camera);
+
     // Lighting
     this.dirLight = new DirectionalLight(0xffffff, 1);
     this.scene.add(this.dirLight);
@@ -128,8 +133,12 @@ export class SceneContext {
     // Adapter for gizmo compatibility
     this._adapter = new CameraControlsAdapter(this._cc);
 
-    // Viewport gizmo
+    // Viewport gizmo. Mount it in the same container the renderer fills (the
+    // toolbar-inset #fluidcad-scene) so it renders at the top-right of the
+    // visible viewport; on document.body it would anchor to the window top and
+    // fall above the inset canvas, clipping the gizmo away.
     this.gizmo = new ViewportGizmo(this.camera, this.renderer, {
+      container,
       size: 80,
       type: 'sphere',
     });

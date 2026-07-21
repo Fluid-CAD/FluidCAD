@@ -12,6 +12,35 @@ import { getOC } from "../oc/init.js";
 import { ColorTransfer } from "../oc/color-transfer.js";
 import type { TopAbs_ShapeEnum } from "ocjs-fluidcad";
 import { Profiler } from "../common/profiler.js";
+import { Wire } from "../common/wire.js";
+import { WireOps } from "../oc/wire-ops.js";
+
+/**
+ * Collects every edge of the object's shapes into one connected wire.
+ * Used by path-style inputs that need a single curve (sweep paths).
+ */
+export function wireFromSceneObjectEdges(obj: SceneObject, label: string): Wire {
+  const shapes = obj.getShapes({ excludeMeta: false });
+  const edges = shapes.flatMap(s => s.getSubShapes('edge')) as Edge[];
+  if (edges.length === 0) {
+    throw new Error(`${label} has no edges to build a curve from.`);
+  }
+  return WireOps.makeWireFromEdges(edges);
+}
+
+/**
+ * Groups the object's edges into connected chains — one wire per chain.
+ * Used by inputs that may carry several separate curves (e.g. a loft guide
+ * sketch holding a curve and its mirror).
+ */
+export function wiresFromSceneObjectEdges(obj: SceneObject, label: string): Wire[] {
+  const shapes = obj.getShapes({ excludeMeta: false });
+  const edges = shapes.flatMap(s => s.getSubShapes('edge')) as Edge[];
+  if (edges.length === 0) {
+    throw new Error(`${label} has no edges to build a curve from.`);
+  }
+  return WireOps.connectEdgesToWires(edges);
+}
 
 export function fuseWithSceneObjects(
   sceneObjects: SceneObject[],

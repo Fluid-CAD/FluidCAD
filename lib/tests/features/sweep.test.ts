@@ -5,7 +5,8 @@ import sweep from "../../core/sweep.js";
 import extrude from "../../core/extrude.js";
 import helix from "../../core/helix.js";
 import cylinder from "../../core/cylinder.js";
-import { circle, rect, vLine, hLine, arc, move, hMove } from "../../core/2d/index.js";
+import plane from "../../core/plane.js";
+import { circle, rect, vLine, hLine, arc, line, move, hMove } from "../../core/2d/index.js";
 import { Sweep } from "../../features/sweep.js";
 import { Extrude } from "../../features/extrude.js";
 import { Sketch } from "../../features/2d/sketch.js";
@@ -557,6 +558,155 @@ describe("sweep", () => {
       const vol = ShapeProps.getProperties(shapes[0].getShape()).volumeMm3;
       expect(vol).toBeGreaterThan(CYL_VOL * 0.8);
       expect(vol).toBeLessThan(CYL_VOL - 100);
+    });
+  });
+
+  describe("helix thread sweep (asymmetric profile)", () => {
+    // An asymmetric profile swept along a helix is the case that exposes
+    // section twist — a rotationally symmetric circle (used by the tests above)
+    // looks identical no matter how the section spins, so it can't catch a
+    // wobbling trihedron. This sweeps a thread-like trapezoid drawn on a plane
+    // built off the helix (plane(h)), the orientation a user reaches for.
+    //
+    // The fixed binormal must track the helix axis. With the wrong binormal the
+    // section flips ~twice per turn, producing a self-intersecting ribbon whose
+    // mass piles up on one side (centroid leaves the axis) and whose volume
+    // collapses to a fraction of the real thread. For a whole number of turns a
+    // correct thread is axisymmetric: its centroid sits on the coil axis.
+    it("produces a clean axisymmetric coil, not a wobbling ribbon", () => {
+      const h = helix("z").height(80).radius(25).pitch(10); // 8 full turns
+      const p = plane(h);
+      const profile = sketch(p, () => {
+        line([3, 0], [-3, 0]);
+        line([-2, -6]);
+        line([2, -6]);
+        line([3, 0]);
+      });
+      const s = sweep(h, profile) as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const shapes = s.getShapes();
+      expect(shapes).toHaveLength(1);
+
+      const props = ShapeProps.getProperties(shapes[0].getShape());
+
+      // Centroid on the coil (Z) axis — a wobbling ribbon piled it out at the
+      // ~25mm coil radius instead.
+      const radialOffset = Math.hypot(props.centroid.x, props.centroid.y);
+      expect(radialOffset).toBeLessThan(1);
+      expect(props.centroid.z).toBeCloseTo(40, 0);
+
+      // Real thread volume ≈ profile area (30mm²) × coil length (~1260mm).
+      // The wobble collapsed this to ~1500mm³; a section that collapses toward
+      // the axis (wrong trihedron the other way) drops it to a few thousand.
+      expect(props.volumeMm3).toBeGreaterThan(25000);
+      expect(props.volumeMm3).toBeLessThan(40000);
+
+      // The coil sits at the helix radius (~25mm), not collapsed onto the axis.
+      const bbox = ShapeOps.getBoundingBox(shapes[0]);
+      const radialExtent = Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY) / 2;
+      expect(radialExtent).toBeGreaterThan(23);
+      expect(radialExtent).toBeLessThan(30);
+    });
+  });
+
+  describe("extend", () => {
+    it("extends the run-out past the path end along the tangent", () => {
+      const profile = sketch("xy", () => {
+        circle(10);
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      const s = sweep(path, profile).extend("end", 20) as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const shapes = s.getShapes();
+      expect(shapes).toHaveLength(1);
+      expect(shapes[0].getType()).toBe("solid");
+
+      // Straight Z sweep with flat caps: Z extent = path length + extension.
+      const bbox = ShapeOps.getBoundingBox(shapes[0]);
+      expect(bbox.maxZ - bbox.minZ).toBeCloseTo(70, 0);
+    });
+
+    it("extends the lead-in before the path start along the tangent", () => {
+      const profile = sketch("xy", () => {
+        circle(10);
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      const s = sweep(path, profile).extend("start", 20) as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const bbox = ShapeOps.getBoundingBox(s.getShapes()[0]);
+      expect(bbox.maxZ - bbox.minZ).toBeCloseTo(70, 0);
+    });
+
+    it("extends both ends when chained", () => {
+      const profile = sketch("xy", () => {
+        circle(10);
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      const s = sweep(path, profile).extend("start", 10).extend("end", 20) as Sweep;
+      render();
+
+      expect(s.getError()).toBeNull();
+      const bbox = ShapeOps.getBoundingBox(s.getShapes()[0]);
+      expect(bbox.maxZ - bbox.minZ).toBeCloseTo(80, 0);
+    });
+
+    it("adds volume proportional to the extension length", () => {
+      const profile = sketch("xy", () => {
+        circle(10); // diameter 10 ⇒ radius 5 ⇒ area 25π
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      const s = sweep(path, profile).extend("end", 30) as Sweep;
+      render();
+
+      // Right cylinder: π·5²·(50 + 30).
+      const vol = ShapeProps.getProperties(s.getShapes()[0].getShape()).volumeMm3;
+      const expected = 25 * Math.PI * 80;
+      expect(vol).toBeGreaterThan(expected * 0.98);
+      expect(vol).toBeLessThan(expected * 1.02);
+    });
+
+    it("is a no-op for a non-positive amount", () => {
+      const profile = sketch("xy", () => {
+        circle(10);
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      const s = sweep(path, profile).extend("end", 0) as Sweep;
+      render();
+
+      const bbox = ShapeOps.getBoundingBox(s.getShapes()[0]);
+      expect(bbox.maxZ - bbox.minZ).toBeCloseTo(50, 0);
+    });
+
+    it("throws on an invalid side", () => {
+      const profile = sketch("xy", () => {
+        circle(10);
+      });
+      const path = sketch("xz", () => {
+        vLine(50);
+      });
+
+      expect(() => sweep(path, profile).extend("middle" as any, 10)).toThrow();
     });
   });
 });

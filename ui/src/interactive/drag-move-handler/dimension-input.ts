@@ -1,6 +1,6 @@
 import { ExpressionInput, VariableInfo } from '../../ui/expression-input';
 import { updateDimensionExpression, getDimensionExpression } from '../../api';
-import { FetchVariablesFn } from '../sketch-tool';
+import { FetchVariablesFn, SketchTool } from '../sketch-tool';
 import { DragHitResult, GetSketchSourceLineFn } from './types';
 
 export class DimensionInputController {
@@ -114,6 +114,17 @@ export class DimensionInputController {
     } else if (hitResult.uniqueType === 'tline') {
       label = 'T:';
       value = Math.abs(hitResult.initialValue ?? 0);
+    } else if (hitResult.uniqueType === 'rect') {
+      if (!hitResult.rectDim) {
+        return false;
+      }
+      if (hitResult.rectDim === 'radius') {
+        label = 'R:';
+        value = hitResult.initialValue ?? 0;
+      } else {
+        label = hitResult.rectDim === 'width' ? 'W:' : 'H:';
+        value = Math.abs(hitResult.initialValue ?? 0);
+      }
     } else if (hitResult.uniqueType === 'slot') {
       if (hitResult.hitZone === 'start' || hitResult.hitZone === 'end') {
         if (hitResult.slotHasTwoPoints) {
@@ -224,6 +235,10 @@ export class DimensionInputController {
   ): void {
     const { sourceLocation } = hitResult;
     const numericFallback = String(value);
+    const { offset: dimOffset, call: dimCall } = DimensionInputController.dimensionTargetFor(hitResult, label);
+    const isSignedType = hitResult.uniqueType !== 'circle'
+      && hitResult.uniqueType !== 'polygon'
+      && hitResult.uniqueType !== 'slot';
 
     this.expressionInput.show({
       label,
@@ -237,16 +252,15 @@ export class DimensionInputController {
         const isNumeric = !isNaN(num) && String(num) === expression;
 
         let finalExpr = expression;
-        if (isNumeric && hitResult.uniqueType !== 'circle' && hitResult.uniqueType !== 'polygon' && hitResult.uniqueType !== 'slot') {
+        if (isSignedType) {
           const sign = this.computeDistanceSign(hitResult, null);
-          finalExpr = String(Math.round(sign * num * 100) / 100);
+          finalExpr = SketchTool.applySignedDimension(expression, sign);
         } else if (isNumeric) {
           finalExpr = String(Math.round(num * 100) / 100);
         }
 
         const sketchSourceLine = this.getSketchSourceLine();
-        const dimOffset = label === 'D' ? 1 : 0;
-        updateDimensionExpression(finalExpr, sourceLocation, sketchSourceLine, newVariable, dimOffset);
+        updateDimensionExpression(finalExpr, sourceLocation, sketchSourceLine, newVariable, dimOffset, dimCall);
         if (isDrag) {
           this.onRequestEndResize?.();
         } else {
@@ -256,17 +270,69 @@ export class DimensionInputController {
     });
 
     if (label !== 'D') {
-      getDimensionExpression(sourceLocation.line).then(({ expression }) => {
+      getDimensionExpression(sourceLocation.line, dimOffset, dimCall).then(({ expression }) => {
         if (!expression) {
           return;
         }
+        const seed = isSignedType
+          ? DimensionInputController.stripNegation(expression)
+          : expression;
         if (isDrag) {
-          this.updateValueIfUnmoved(expression);
+          this.updateValueIfUnmoved(seed);
         } else if (this.standaloneInputActive) {
-          this.updateValueIfUnmoved(expression);
+          this.updateValueIfUnmoved(seed);
         }
       });
     }
+  }
+
+  // Which call in the member chain and which non-array arg (offset from the
+  // end) holds the dimension: rect width/height live in rect(...), a fillet
+  // radius in .radius(...); the slot distance ('D') sits one arg before its
+  // radius in the same call.
+  private static dimensionTargetFor(
+    hitResult: DragHitResult,
+    label: string,
+  ): { offset: number; call: string | null } {
+    if (hitResult.uniqueType === 'rect') {
+      if (hitResult.rectDim === 'radius') {
+        return { offset: hitResult.rectRadiusArgOffset ?? 0, call: 'radius' };
+      }
+      return { offset: hitResult.rectDim === 'width' ? 1 : 0, call: 'rect' };
+    }
+    return { offset: label === 'D' ? 1 : 0, call: null };
+  }
+
+  // Inverse of SketchTool.applySignedDimension, for seeding the input: the
+  // input always shows a positive magnitude and the stored sign is re-applied
+  // on commit, so a stored `-50` / `-(w)` seeds as `50` / `w`.
+  private static stripNegation(expression: string): string {
+    const trimmed = expression.trim();
+    const num = parseFloat(trimmed);
+    if (!isNaN(num) && String(num) === trimmed) {
+      return String(Math.abs(num));
+    }
+    if (/^-[a-zA-Z_$][\w$]*$/.test(trimmed)) {
+      return trimmed.slice(1);
+    }
+    if (trimmed.startsWith('-(') && trimmed.endsWith(')')) {
+      const inner = trimmed.slice(2, -1);
+      let depth = 0;
+      for (const ch of inner) {
+        if (ch === '(') {
+          depth++;
+        } else if (ch === ')') {
+          depth--;
+          if (depth < 0) {
+            return trimmed;
+          }
+        }
+      }
+      if (depth === 0) {
+        return inner;
+      }
+    }
+    return trimmed;
   }
 
   private computeDistanceSign(

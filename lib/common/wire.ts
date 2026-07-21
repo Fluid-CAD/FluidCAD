@@ -123,4 +123,24 @@ export class Wire extends Shape<TopoDS_Wire> {
     this.vertices = Explorer.findVerticesWrapped(this);
     return this.vertices;
   }
+
+  override getLinkedShapes(): Shape[] {
+    const linked = super.getLinkedShapes();
+    if (this.edges) {
+      linked.push(...this.edges);
+    }
+    if (this.vertices) {
+      linked.push(...this.vertices);
+    }
+    return linked;
+  }
+
+  override release(retainedRaw: ReadonlySet<object>, deletedRaw: Set<object>): void {
+    if (this.isReleased()) {
+      return;
+    }
+    this.edges = null;
+    this.vertices = null;
+    super.release(retainedRaw, deletedRaw);
+  }
 }

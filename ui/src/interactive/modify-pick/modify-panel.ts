@@ -49,7 +49,7 @@ export class ModifyPanel {
     this.root.className = 'absolute top-[196px] right-4 z-[999] pointer-events-auto hidden';
     this.root.innerHTML = `
       <div data-role="column" class="flex flex-col items-end gap-1.5">
-        <div class="flex flex-col items-stretch gap-3.5 w-60 bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
+        <div class="flex flex-col items-stretch gap-3.5 w-60 max-h-[calc(100vh-260px)] overflow-y-auto bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
           <div class="flex items-center gap-2.5">
             <span class="flex items-center [&>svg]:size-4" data-role="icon"></span>
             <span data-role="title" class="font-medium text-sm">Fillet</span>

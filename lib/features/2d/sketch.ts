@@ -199,6 +199,9 @@ export class Sketch extends SceneObject implements Extrudable {
         if (shape instanceof Edge) {
           result.set(shape, child);
         } else if (shape instanceof Wire) {
+          // Invariant: sketch features emit individual Edge shapes, never
+          // Wires (1 shapeId = 1 edge). Expand defensively but flag it.
+          console.warn(`Sketch: child "${child.getType()}" emitted a Wire shape; sketch features must emit individual edges.`);
           for (const edge of shape.getEdges()) {
             result.set(edge, child);
           }

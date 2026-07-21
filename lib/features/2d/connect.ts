@@ -95,17 +95,18 @@ export class Connect extends GeometrySceneObject {
     // Close the loop: bridge from last edge back to first
     wireEdges.push(makeBridge(edges[edges.length - 1], edges[0]));
 
-    console.log('Constructed wire edges:', wireEdges.length);
     let wire = WireOps.buildWire(wireEdges);
 
     // Ensure the wire is CCW relative to the sketch plane normal.
     if (wire.isCW(this.sketch.getPlane().normal)) {
-      console.log('Reversing wire to ensure CCW orientation');
       wire = WireOps.reverseWire(wire);
-      console.log('Wire reversed', !wire.isCW(this.sketch.getPlane().normal));
     }
 
-    this.addShape(wire);
+    // Emit individual edges, never the wire: sketch feature shapes are edges
+    // (1 shapeId = 1 edge). Consumers re-derive wires/regions on demand.
+    for (const edge of wire.getEdges()) {
+      this.addShape(edge);
+    }
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {

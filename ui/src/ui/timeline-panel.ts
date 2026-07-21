@@ -31,6 +31,14 @@ export class TimelinePanel {
    */
   onFeatureEdit?: (obj: SceneObjectRender, index: number) => void;
 
+  /**
+   * Whether double-clicking this row opens an edit dialog (vs. only placing
+   * a breakpoint). Edit dialogs suspend the active sketch UI themselves and
+   * restore it on exit, so their rows keep the double-click gesture even
+   * while the scene-derived sketch mode blocks timeline navigation.
+   */
+  isFeatureEditable?: (obj: SceneObjectRender) => boolean;
+
   private panel: HTMLDivElement;
   private timelineBody: HTMLDivElement;
   private contentWrapper: HTMLDivElement;
@@ -241,15 +249,16 @@ export class TimelinePanel {
         if ((e.target as HTMLElement).closest('[data-toggle]')) {
           return;
         }
-        if (this.sketchActive) {
-          // The enter-breakpoint gesture is navigation too — blocked while
-          // sketching (finish or exit the sketch first).
+        const index = parseInt(el.dataset.index!, 10);
+        const obj = this.sceneObjects[index];
+        if (this.sketchActive && !(obj && this.isFeatureEditable?.(obj))) {
+          // The enter-breakpoint gesture is navigation — blocked while
+          // sketching, except for rows that open an edit dialog: the dialog
+          // suspends the sketch UI itself and restores it on exit.
           return;
         }
-        const index = parseInt(el.dataset.index!, 10);
         this.addBreakpointAfter(index);
-        this.goToSource(this.sceneObjects[index]);
-        const obj = this.sceneObjects[index];
+        this.goToSource(obj);
         if (obj) {
           this.onFeatureEdit?.(obj, index);
         }

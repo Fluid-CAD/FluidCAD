@@ -327,6 +327,10 @@ timelinePanel.onFeatureIntercept = (obj) =>
 timelinePanel.onFeatureEdit = (obj, index) => {
   void openFeatureEditor(obj, index);
 };
+// Rows with an edit dialog keep the double-click gesture even while the
+// trailing sketch is active — the dialog suspends the sketch UI itself.
+timelinePanel.isFeatureEditable = (obj) =>
+  obj.type != null && EDITABLE_ROW_TYPES.has(obj.type) && obj.sourceLocation != null;
 
 /**
  * Timeline `type` → the dialog that edits it (cut is extrude's remove op;

@@ -61,7 +61,7 @@ export class Navbar {
     divider.className = 'w-px h-8 bg-base-content/[0.12] mx-1 shrink-0 hidden';
 
     const host = document.createElement('div');
-    host.className = 'flex items-center gap-2';
+    host.className = 'flex items-center gap-2 shrink-0';
 
     const group: ToolbarGroup = {
       key,

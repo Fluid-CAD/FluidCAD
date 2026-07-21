@@ -1,7 +1,7 @@
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 
-const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 text-base-content/60';
-const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2 py-1';
+const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 shrink-0 text-base-content/60';
+const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2 py-1 shrink-0';
 /** Small muted caption under the toolbar icon. */
 const BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
 
@@ -34,10 +34,10 @@ export class FeatureButton {
     this.button = document.createElement('button');
     this.button.className = BTN_BASE;
     this.button.setAttribute('aria-label', opts.ariaLabel);
-    this.button.innerHTML = `<img src="${opts.icon}" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain" alt="" /><span class="${BTN_LABEL}">${opts.label}</span>`;
+    this.button.innerHTML = `<img src="${opts.icon}" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain shrink-0" alt="" /><span class="${BTN_LABEL}">${opts.label}</span>`;
     this.button.addEventListener('click', () => this.onClick?.());
     this.wrap = document.createElement('span');
-    this.wrap.className = 'tooltip tooltip-bottom';
+    this.wrap.className = 'tooltip tooltip-bottom shrink-0';
     this.wrap.dataset.tip = opts.tip;
     if (opts.datasetTool) {
       this.wrap.dataset.tool = opts.datasetTool;

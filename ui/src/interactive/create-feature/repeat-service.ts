@@ -101,9 +101,12 @@ export class RepeatFeatureService {
   ) {
     // Repeat rides its own group, registered after the create and modify
     // rails so its button renders last — the navbar draws the separator
-    // before it whenever a visible group precedes. Unlike the create rail it
-    // is *not* `immune`: repeating features is a solid-level operation, so the
-    // button hides while the exclusive sketch toolbar owns the bar.
+    // before it whenever a visible group precedes. The copy service joins
+    // this group as a second contributor (no divider between the two replay
+    // buttons), so each button hides itself when its own targets are gone.
+    // Unlike the create rail it is *not* `immune`: repeating features is a
+    // solid-level operation, so the button hides while the exclusive sketch
+    // toolbar owns the bar.
     const group = navbar.addGroup('repeat', { visible: false });
     this.button = new FeatureButton(group, {
       icon: '/icons/repeat-linear.png',
@@ -292,6 +295,7 @@ export class RepeatFeatureService {
     this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';
     this.available = this.targetOptions.length > 0;
     this.navbar.setGroupVisible('repeat', this.available);
+    this.button.setVisible(this.available);
     this.syncButton();
     if (!this.armed) {
       return;

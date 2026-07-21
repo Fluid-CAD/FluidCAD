@@ -90,14 +90,14 @@ const navbar = new Navbar(container);
 // Import group — always visible for now.
 const importGroup = navbar.addGroup('import');
 const importBtn = document.createElement('button');
-importBtn.className = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 text-base-content/60';
+importBtn.className = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 shrink-0 text-base-content/60';
 importBtn.setAttribute('aria-label', 'Import file');
 importBtn.innerHTML =
-  `<img src="/icons/load.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain" alt="" />`
+  `<img src="/icons/load.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain shrink-0" alt="" />`
   + `<span class="text-[10px] leading-none text-base-content/50">Import</span>`;
 importBtn.addEventListener('click', () => fileImporter.openPicker());
 const importBtnWrap = document.createElement('span');
-importBtnWrap.className = 'tooltip tooltip-bottom';
+importBtnWrap.className = 'tooltip tooltip-bottom shrink-0';
 importBtnWrap.dataset.tip = 'Import file';
 importBtnWrap.appendChild(importBtn);
 importGroup.appendChild(importBtnWrap);

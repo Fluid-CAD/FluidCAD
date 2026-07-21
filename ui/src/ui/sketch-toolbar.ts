@@ -58,8 +58,8 @@ const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   text: 'x',
 };
 
-const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 text-base-content/60';
-const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2 py-1';
+const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 shrink-0 text-base-content/60';
+const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2 py-1 shrink-0';
 /** Small muted caption under the toolbar icon. */
 const BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
 
@@ -344,11 +344,11 @@ export class SketchToolbar {
 
   private createToolButton(tool: ToolDef): HTMLElement {
     const wrapper = document.createElement('div');
-    wrapper.className = 'relative group';
+    wrapper.className = 'relative group shrink-0';
 
     const btn = document.createElement('button');
     btn.className = tool.id === this.activeToolId ? BTN_ACTIVE : BTN_BASE;
-    btn.innerHTML = `<img src="/icons/${tool.iconPng}.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain" alt="" />`
+    btn.innerHTML = `<img src="/icons/${tool.iconPng}.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain shrink-0" alt="" />`
       + `<span class="${BTN_LABEL}">${tool.caption ?? tool.label}</span>`;
     if (tool.id === 'rect') {
       btn.addEventListener('click', () => this.handleRectButtonClick(wrapper));

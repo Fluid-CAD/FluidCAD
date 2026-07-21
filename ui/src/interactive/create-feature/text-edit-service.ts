@@ -189,7 +189,7 @@ export class TextEditService {
     return { ...values, expectedStatement: this.session.expectedStatement };
   }
 
-  exit(editEnd: 'apply' | 'cancel' | 'gone' = 'cancel'): void {
+  exit(editEnd: 'apply' | 'cancel' | 'continue' | 'gone' = 'cancel'): void {
     if (!this.armed) {
       return;
     }

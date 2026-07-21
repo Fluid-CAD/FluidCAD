@@ -557,6 +557,9 @@ const breakpointIndicator = new BreakpointIndicator(container, () => {
       service.exit({ editEnd: 'continue' });
     }
   }
+  if (textEditService.isActive) {
+    textEditService.exit('continue');
+  }
 });
 const errorBanner = new ErrorBanner(container, (loc) => {
   gotoSource(loc);

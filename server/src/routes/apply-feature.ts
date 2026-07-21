@@ -18,8 +18,6 @@ import {
 } from '../apply-feature-edit.ts';
 import { normalizePath } from '../normalize-path.ts';
 
-const MAX_ENTITIES = 32;
-
 type RawPick = { shapeId?: unknown; sub?: { type?: unknown; index?: unknown } };
 
 type Pick = { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
@@ -37,7 +35,7 @@ function validatePick(raw: RawPick | undefined): Pick | null {
 }
 
 function validatePicks(entities: unknown): Pick[] | null {
-  if (!Array.isArray(entities) || entities.length < 1 || entities.length > MAX_ENTITIES) {
+  if (!Array.isArray(entities) || entities.length < 1) {
     return null;
   }
   const picks = [];
@@ -291,7 +289,7 @@ function validateSweep(body: any): SweepRequest | { error: string } {
   if (path?.kind === 'edges') {
     const picks = validatePicks(path.entities);
     if (!picks) {
-      return { error: `path entities must be 1-${MAX_ENTITIES} picks of {shapeId, sub:{type, index}}` };
+      return { error: 'path entities must be a non-empty array of {shapeId, sub:{type, index}} picks' };
     }
     const chains = validateChains(path.chains);
     if (!chains) {
@@ -1507,7 +1505,7 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
         } else if (body.path?.kind === 'edges') {
           const picks = validatePicks(body.path.entities);
           if (!picks) {
-            return { error: `path entities must be 1-${MAX_ENTITIES} picks of {shapeId, sub:{type, index}}` };
+            return { error: 'path entities must be a non-empty array of {shapeId, sub:{type, index}} picks' };
           }
           const chains = validateChains(body.path.chains);
           if (!chains) {
@@ -1635,7 +1633,7 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
   if (body?.entities !== undefined && body?.entities !== null) {
     const picks = validatePicks(body.entities);
     if (!picks) {
-      return { error: `entities must be 1-${MAX_ENTITIES} picks of {shapeId, sub:{type, index}}` };
+      return { error: 'entities must be a non-empty array of {shapeId, sub:{type, index}} picks' };
     }
     const chains = validateChains(body?.chains);
     if (!chains) {
@@ -2119,7 +2117,7 @@ function validateChains(chains: unknown): { seed: Pick; members: Pick[] }[] | nu
   if (chains === undefined || chains === null) {
     return [];
   }
-  if (!Array.isArray(chains) || chains.length > MAX_ENTITIES) {
+  if (!Array.isArray(chains)) {
     return null;
   }
   const result = [];
@@ -2145,7 +2143,7 @@ export function createApplyFeatureRouter(
   router.post('/selection/explain', (req, res) => {
     const picks = validatePicks(req.body?.entities);
     if (!picks) {
-      res.status(400).json({ error: `entities must be 1-${MAX_ENTITIES} picks of {shapeId, sub:{type, index}}` });
+      res.status(400).json({ error: 'entities must be a non-empty array of {shapeId, sub:{type, index}} picks' });
       return;
     }
     const before = validateBoundary(req.body?.before);
@@ -4063,7 +4061,7 @@ export function createApplyFeatureRouter(
 
     const picks = validatePicks(req.body?.entities);
     if (!picks) {
-      res.status(400).json({ error: `entities must be 1-${MAX_ENTITIES} picks of {shapeId, sub:{type, index}}` });
+      res.status(400).json({ error: 'entities must be a non-empty array of {shapeId, sub:{type, index}} picks' });
       return;
     }
     const chains = validateChains(req.body?.chains);

@@ -40,6 +40,10 @@ export class SketchToolbarService {
   private activeHoverSelectHandler: SketchHoverSelectHandler | null = null;
   private bezierHandles: BezierHandlesOverlay;
   private shortcuts: ShortcutManager;
+  // Snap options, owned here; the sketch dialog's toggles write them via the
+  // setters below (session-only state, deliberately not persisted).
+  private snapToVertices = true;
+  private snapToGrid = true;
 
   constructor(container: HTMLElement, viewer: Viewer, trimService: TrimPickService, navbar: Navbar) {
     this.viewer = viewer;
@@ -57,27 +61,32 @@ export class SketchToolbarService {
     this.shortcuts.register('n', () => this.lookAlongSketchNormal());
 
     this.bezierHandles = new BezierHandlesOverlay(viewer.sceneContext);
-
-    this.toolbar.onSnapVerticesChange = (checked: boolean) => {
-      if (this.activeDrawingTool) {
-        this.activeDrawingTool['snapController'].snapToVertices = checked;
-      }
-      if (this.activeDragHandler) {
-        this.activeDragHandler['snapController'].snapToVertices = checked;
-      }
-    };
-    this.toolbar.onSnapGridChange = (checked: boolean) => {
-      if (this.activeDrawingTool) {
-        this.activeDrawingTool['snapController'].snapToGrid = checked;
-      }
-      if (this.activeDragHandler) {
-        this.activeDragHandler['snapController'].snapToGrid = checked;
-      }
-    };
   }
 
   get hasActiveDrawingTool(): boolean {
     return this.activeDrawingTool !== null;
+  }
+
+  /** The sketch dialog's snap-to-vertices toggle; live tools follow along. */
+  setSnapToVertices(checked: boolean): void {
+    this.snapToVertices = checked;
+    if (this.activeDrawingTool) {
+      this.activeDrawingTool['snapController'].snapToVertices = checked;
+    }
+    if (this.activeDragHandler) {
+      this.activeDragHandler['snapController'].snapToVertices = checked;
+    }
+  }
+
+  /** The sketch dialog's snap-to-grid toggle; live tools follow along. */
+  setSnapToGrid(checked: boolean): void {
+    this.snapToGrid = checked;
+    if (this.activeDrawingTool) {
+      this.activeDrawingTool['snapController'].snapToGrid = checked;
+    }
+    if (this.activeDragHandler) {
+      this.activeDragHandler['snapController'].snapToGrid = checked;
+    }
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
@@ -120,8 +129,8 @@ export class SketchToolbarService {
         this.activeDragHandler.updatePlane(plane);
         const snapManager = SnapManager.fromSceneObjects(sceneObjects, lastRoot.id, plane, this.viewer.sceneContext);
         const snapCtrl = new SnapController(snapManager, plane);
-        snapCtrl.snapToVertices = this.toolbar.snapVerticesChecked;
-        snapCtrl.snapToGrid = this.toolbar.snapGridChecked;
+        snapCtrl.snapToVertices = this.snapToVertices;
+        snapCtrl.snapToGrid = this.snapToGrid;
         this.activeDragHandler.updateSnapController(snapCtrl);
         this.activeDragHandler.updateSceneData(sceneObjects, lastRoot.id);
         if (this.activeHoverSelectHandler) {
@@ -154,8 +163,8 @@ export class SketchToolbarService {
   private createTool(toolId: ToolId, plane: PlaneData, sceneObjects: SceneObjectRender[], sketchId: string): SketchTool | null {
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, plane, this.viewer.sceneContext);
     const snapCtrl = new SnapController(snapManager, plane);
-    snapCtrl.snapToVertices = this.toolbar.snapVerticesChecked;
-    snapCtrl.snapToGrid = this.toolbar.snapGridChecked;
+    snapCtrl.snapToVertices = this.snapToVertices;
+    snapCtrl.snapToGrid = this.snapToGrid;
 
     const doInsertGeometry = (
       statement: string,
@@ -216,8 +225,8 @@ export class SketchToolbarService {
     }
     const snapManager = SnapManager.fromSceneObjects(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!, this.activeSketchInfo.plane, this.viewer.sceneContext);
     const snapCtrl = new SnapController(snapManager, this.activeSketchInfo.plane);
-    snapCtrl.snapToVertices = this.toolbar.snapVerticesChecked;
-    snapCtrl.snapToGrid = this.toolbar.snapGridChecked;
+    snapCtrl.snapToVertices = this.snapToVertices;
+    snapCtrl.snapToGrid = this.snapToGrid;
     this.activeDragHandler = new DragMoveHandler(
       this.viewer.sceneContext,
       this.activeSketchInfo.plane,

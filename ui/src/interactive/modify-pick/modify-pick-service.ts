@@ -193,6 +193,10 @@ export class ModifyPickService {
       onSuspendSketchUI?: () => void;
       /** The suspension ended without an apply — restore the sketch UI. */
       onResumeSketchUI?: () => void;
+      /** The sketch dialog's snap-to-vertices toggle changed. */
+      onSnapVerticesChange?: (checked: boolean) => void;
+      /** The sketch dialog's snap-to-grid toggle changed. */
+      onSnapGridChange?: (checked: boolean) => void;
     } = {},
   ) {
     this.sketchUI = new SketchUISuspender(viewer, hooks);
@@ -234,6 +238,8 @@ export class ModifyPickService {
     this.sketchPanel.onCancel = () => this.handleSketchCancel();
     this.sketchPanel.onEscape = () => this.handleSketchEscape();
     this.sketchPanel.onSectionViewToggle = (enabled) => this.viewer.setSectionViewEnabled(enabled);
+    this.sketchPanel.onSnapVerticesToggle = (checked) => hooks.onSnapVerticesChange?.(checked);
+    this.sketchPanel.onSnapGridToggle = (checked) => hooks.onSnapGridChange?.(checked);
     this.viewer.setSectionViewControl({
       setVisible: (visible) => this.sketchPanel.setSectionViewVisible(visible),
       setActive: (active) => this.sketchPanel.setSectionViewActive(active),

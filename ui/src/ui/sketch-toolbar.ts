@@ -1,4 +1,3 @@
-import { ICON_SETTINGS } from './icons';
 import { ICON_IMG_FALLBACK } from './object-icons';
 import { ToolId } from '../interactive/sketch-tool';
 import { ShortcutManager } from './shortcut-manager';
@@ -67,7 +66,6 @@ export class SketchToolbar {
   private host: HTMLElement;
   private setGroupVisible: (visible: boolean) => void;
   private inner: HTMLDivElement;
-  private snapMenu: HTMLDivElement | null = null;
   private onToolSelect: (toolId: ToolId | null) => void;
   private activeToolId: ToolId | null = null;
   private buttons = new Map<ToolId, HTMLButtonElement>();
@@ -75,10 +73,7 @@ export class SketchToolbar {
   private visible = false;
 
   private boundKeyDown: (e: KeyboardEvent) => void;
-  private boundCloseSnapMenu: (e: MouseEvent) => void;
   private boundCloseRectMenu: (e: MouseEvent) => void;
-  private snapVertexCheckedState = true;
-  private snapGridCheckedState = true;
 
   // Rectangle-button options; session-only state (deliberately not persisted).
   private rectMenu: HTMLDivElement | null = null;
@@ -86,9 +81,6 @@ export class SketchToolbar {
   private rectCenteredState = false;
   private rectButtonImg: HTMLImageElement | null = null;
   private rectTooltip: HTMLDivElement | null = null;
-
-  onSnapVerticesChange: ((checked: boolean) => void) | null = null;
-  onSnapGridChange: ((checked: boolean) => void) | null = null;
 
   constructor(
     host: HTMLElement,
@@ -102,21 +94,13 @@ export class SketchToolbar {
     // The sketch tools group, rendered directly into its navbar group host.
     // The group's DOM visibility is owned by the navbar (which also reflows the
     // inter-group dividers); this class only decides *when* via show()/hide().
-    // Layout: drawing tools first, then the snap-settings cog on the right.
     this.inner = document.createElement('div');
     this.inner.className = 'flex flex-row items-center gap-0.5';
     this.host.appendChild(this.inner);
 
     this.renderTools();
 
-    const sep = document.createElement('div');
-    sep.className = 'w-px h-8 bg-base-content/[0.12] mx-0.5 shrink-0';
-    this.host.appendChild(sep);
-
-    this.buildSnapButton();
-
     this.boundKeyDown = this.handleKeyDown.bind(this);
-    this.boundCloseSnapMenu = this.handleCloseSnapMenu.bind(this);
     this.boundCloseRectMenu = this.handleCloseRectMenu.bind(this);
 
     this.shortcutManager = new ShortcutManager({ timeout: 200 });
@@ -135,7 +119,6 @@ export class SketchToolbar {
   hide(): void {
     this.visible = false;
     this.setGroupVisible(false);
-    this.closeSnapMenu();
     this.closeRectMenu();
     window.removeEventListener('keydown', this.boundKeyDown);
     this.shortcutManager.disable();
@@ -163,14 +146,6 @@ export class SketchToolbar {
     return this.activeToolId;
   }
 
-  get snapVerticesChecked(): boolean {
-    return this.snapVertexCheckedState;
-  }
-
-  get snapGridChecked(): boolean {
-    return this.snapGridCheckedState;
-  }
-
   get rectCenteredChecked(): boolean {
     return this.rectCenteredState;
   }
@@ -182,46 +157,6 @@ export class SketchToolbar {
   /** The tool the merged Rectangle button activates, per the Rounded toggle. */
   private effectiveRectToolId(): ToolId {
     return this.rectRoundedState ? 'rounded-rect' : 'rect';
-  }
-
-  private buildSnapButton(): void {
-    const cogWrapper = document.createElement('div');
-    cogWrapper.className = 'relative';
-
-    const cogBtn = document.createElement('button');
-    cogBtn.className = BTN_BASE;
-    cogBtn.innerHTML = `<span class="[&>svg]:size-8">${ICON_SETTINGS}</span><span class="${BTN_LABEL}">Snap</span>`;
-    cogBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (this.snapMenu) {
-        this.closeSnapMenu();
-      } else {
-        this.openSnapMenu(cogWrapper);
-      }
-    });
-    cogWrapper.appendChild(cogBtn);
-
-    this.host.appendChild(cogWrapper);
-  }
-
-  private openSnapMenu(anchor: HTMLElement): void {
-    this.closeSnapMenu();
-
-    const menu = SketchToolbar.createDropdownMenu('right-0');
-
-    menu.appendChild(SketchToolbar.buildMenuToggle('Snap to vertices', this.snapVertexCheckedState, (checked) => {
-      this.snapVertexCheckedState = checked;
-      this.onSnapVerticesChange?.(checked);
-    }));
-    menu.appendChild(SketchToolbar.buildMenuToggle('Snap to grid', this.snapGridCheckedState, (checked) => {
-      this.snapGridCheckedState = checked;
-      this.onSnapGridChange?.(checked);
-    }));
-
-    anchor.appendChild(menu);
-    this.snapMenu = menu;
-
-    setTimeout(() => document.addEventListener('click', this.boundCloseSnapMenu), 0);
   }
 
   private static createDropdownMenu(align: string): HTMLDivElement {
@@ -244,20 +179,6 @@ export class SketchToolbar {
     span.textContent = text;
     label.appendChild(span);
     return label;
-  }
-
-  private closeSnapMenu(): void {
-    if (this.snapMenu) {
-      this.snapMenu.remove();
-      this.snapMenu = null;
-      document.removeEventListener('click', this.boundCloseSnapMenu);
-    }
-  }
-
-  private handleCloseSnapMenu(e: MouseEvent): void {
-    if (this.snapMenu && !this.snapMenu.contains(e.target as Node) && !this.snapMenu.parentElement?.contains(e.target as Node)) {
-      this.closeSnapMenu();
-    }
   }
 
   // Dropdown on the merged Rectangle button: two session-only toggles that

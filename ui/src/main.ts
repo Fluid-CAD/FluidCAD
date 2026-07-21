@@ -448,6 +448,10 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
   // release input while faces are picked, and return if the pick is cancelled.
   onSuspendSketchUI: () => sketchService.update([]),
   onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+  // Snap options live in the sketch dialog; the toolbar service owns the
+  // state and pushes changes into the live tools' snap controllers.
+  onSnapVerticesChange: (checked) => sketchService.setSnapToVertices(checked),
+  onSnapGridChange: (checked) => sketchService.setSnapToGrid(checked),
 });
 // Constructed after the modify service so its solo navbar group registers
 // after every other tool group — the Repeat button renders last, behind the

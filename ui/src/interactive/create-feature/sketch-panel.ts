@@ -25,11 +25,15 @@ export class SketchStartPanel {
   onEscape?: () => void;
   /** The section-view toggle — clip the scene at the sketch plane. */
   onSectionViewToggle?: (enabled: boolean) => void;
+  /** The snap-to-vertices toggle — snapping while drawing/dragging. */
+  onSnapVerticesToggle?: (enabled: boolean) => void;
+  /** The snap-to-grid toggle — snapping while drawing/dragging. */
+  onSnapGridToggle?: (enabled: boolean) => void;
 
   private shell: PanelShell;
   private slot: PickSlot;
   private closeBtn: HTMLButtonElement;
-  private sectionViewWrap: HTMLLabelElement;
+  private sketchOptionsWrap: HTMLDivElement;
   private sectionViewInput: HTMLInputElement;
 
   constructor(container: HTMLElement) {
@@ -37,11 +41,23 @@ export class SketchStartPanel {
     this.shell.onEscape = () => this.onEscape?.();
     this.shell.body.insertAdjacentHTML('beforeend', `
       <div data-role="target-slot"></div>
-      <label data-role="section-view-wrap" class="hidden items-center justify-between cursor-pointer"
-        title="Clip away everything in front of the sketch plane">
-        <span class="text-base-content/70">Section view</span>
-        <input data-role="section-view" type="checkbox" class="toggle toggle-sm toggle-primary" />
-      </label>
+      <div data-role="sketch-options" class="hidden flex-col gap-2">
+        <label class="flex items-center justify-between cursor-pointer"
+          title="Clip away everything in front of the sketch plane">
+          <span class="text-base-content/70">Section view</span>
+          <input data-role="section-view" type="checkbox" class="toggle toggle-sm toggle-primary" />
+        </label>
+        <label class="flex items-center justify-between cursor-pointer"
+          title="Snap to existing sketch vertices while drawing and dragging">
+          <span class="text-base-content/70">Snap to vertices</span>
+          <input data-role="snap-vertices" type="checkbox" class="toggle toggle-sm toggle-primary" checked />
+        </label>
+        <label class="flex items-center justify-between cursor-pointer"
+          title="Snap to the grid while drawing and dragging">
+          <span class="text-base-content/70">Snap to grid</span>
+          <input data-role="snap-grid" type="checkbox" class="toggle toggle-sm toggle-primary" checked />
+        </label>
+      </div>
       <div class="flex items-center pt-1">
         <button data-role="cancel" class="btn btn-ghost btn-sm flex-1"
           title="Remove the sketch from the code and close">Cancel</button>
@@ -54,20 +70,29 @@ export class SketchStartPanel {
     this.slot.onRemove = () => this.onClear?.();
     this.closeBtn = this.shell.body.querySelector('[data-role="cancel"]')!;
     this.closeBtn.addEventListener('click', () => this.onCancel?.());
-    this.sectionViewWrap = this.shell.body.querySelector('[data-role="section-view-wrap"]')!;
+    this.sketchOptionsWrap = this.shell.body.querySelector('[data-role="sketch-options"]')!;
     this.sectionViewInput = this.shell.body.querySelector('[data-role="section-view"]')!;
     this.sectionViewInput.addEventListener('change', () => {
       this.onSectionViewToggle?.(this.sectionViewInput.checked);
     });
+    const snapVerticesInput = this.shell.body.querySelector('[data-role="snap-vertices"]') as HTMLInputElement;
+    snapVerticesInput.addEventListener('change', () => {
+      this.onSnapVerticesToggle?.(snapVerticesInput.checked);
+    });
+    const snapGridInput = this.shell.body.querySelector('[data-role="snap-grid"]') as HTMLInputElement;
+    snapGridInput.addEventListener('change', () => {
+      this.onSnapGridToggle?.(snapGridInput.checked);
+    });
   }
 
   /**
-   * Section view only means something once the sketch plane exists, so the
-   * viewer shows the toggle on entering sketch mode and hides it on leaving.
+   * The options block (section view + snap toggles) only means something once
+   * the sketch plane exists, so the viewer shows it on entering sketch mode
+   * and hides it on leaving.
    */
   setSectionViewVisible(visible: boolean): void {
-    this.sectionViewWrap.classList.toggle('hidden', !visible);
-    this.sectionViewWrap.classList.toggle('flex', visible);
+    this.sketchOptionsWrap.classList.toggle('hidden', !visible);
+    this.sketchOptionsWrap.classList.toggle('flex', visible);
   }
 
   setSectionViewActive(active: boolean): void {

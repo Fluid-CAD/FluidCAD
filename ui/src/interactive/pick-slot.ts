@@ -37,6 +37,10 @@ const PROMPT_LISTED_BASE = 'flex items-center gap-2 rounded px-2 py-1.5 transiti
 const PROMPT_LISTED_IDLE = 'text-base-content/60';
 const PROMPT_LISTED_ARMED = 'text-primary';
 
+// Boxed containers stop growing past this many chip rows; the next row is
+// cut in half at the fold so the overflow is visible at a glance.
+const VISIBLE_ROWS = 4;
+
 // The multi-pick container; the primary border marks the slot picks land in.
 const LIST_BASE = 'flex flex-col gap-1 rounded-md border p-1 transition-colors';
 const LIST_IDLE = 'border-base-300';
@@ -150,6 +154,31 @@ export class PickSlot {
     }
     this.listEl.replaceChildren(...this.rows, ...(promptEl ? [promptEl] : []));
     this.listEl.classList.toggle('hidden', this.rows.length === 0 && !promptEl);
+    this.applyScrollCap();
+  }
+
+  /** Cap a boxed container at {@link VISIBLE_ROWS} full chip rows plus the
+   * half-visible next row; further rows scroll. Row heights vary (dot badges
+   * vs. remove buttons), so the fold is measured, not hardcoded. */
+  private applyScrollCap(retry = true): void {
+    const fold = this.rows[VISIBLE_ROWS];
+    if (!this.boxed || !fold) {
+      this.listEl.classList.remove('overflow-y-auto');
+      this.listEl.style.maxHeight = '';
+      return;
+    }
+    const foldRect = fold.getBoundingClientRect();
+    if (foldRect.height === 0) {
+      // Not laid out yet (host still detached or hidden) — measure next frame.
+      if (retry) {
+        requestAnimationFrame(() => this.applyScrollCap(false));
+      }
+      return;
+    }
+    const listTop = this.listEl.getBoundingClientRect().top;
+    const half = foldRect.top - listTop + this.listEl.scrollTop + foldRect.height / 2;
+    this.listEl.classList.add('overflow-y-auto');
+    this.listEl.style.maxHeight = `${Math.ceil(half)}px`;
   }
 
   private renderPrompt(): HTMLElement {

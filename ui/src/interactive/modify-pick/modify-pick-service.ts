@@ -17,13 +17,16 @@ import { StandardPlaneId } from '../../scene/standard-planes';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
-import { FEATURES, FEATURE_ORDER, ModifyFeatureKind } from './feature-config';
+import { ChamferKind, FEATURES, FEATURE_ORDER, ModifyFeatureKind } from './feature-config';
 import { ModifyPanel } from './modify-panel';
 import { TeachTooltip } from './teach-tooltip';
 
 export type { ModifyFeatureKind } from './feature-config';
 
 const PREVIEW_DEBOUNCE_MS = 250;
+
+/** Second-value seed when the angle chamfer arms without a remembered angle. */
+const DEFAULT_CHAMFER_ANGLE = 45;
 
 /**
  * A live sketch dialog. `tracking` shows the picked target as a chip and
@@ -168,6 +171,10 @@ export class ModifyPickService {
   private valueByFeature = new Map<ModifyFeatureKind, string>();
   /** Last chosen shell join type — restored the next time shell arms. */
   private lastJoinType: ShellJoinType = 'arc';
+  /** Last chosen chamfer type — restored the next time chamfer arms. */
+  private chamferKind: ChamferKind = 'equal';
+  /** Last entered second value per two-value kind — a distance makes a bad angle. */
+  private chamferValue2 = new Map<'distances' | 'angle', string>();
 
   private previewTimer: number | null = null;
   private previewAbort: AbortController | null = null;
@@ -255,6 +262,19 @@ export class ModifyPickService {
       if (this.feature) {
         this.valueByFeature.set(this.feature, this.panel.valueText);
       }
+      this.syncExprPrefix();
+    };
+    this.panel.onValue2Input = () => {
+      if (this.feature === 'chamfer' && this.chamferKind !== 'equal') {
+        this.chamferValue2.set(this.chamferKind, this.panel.value2Text);
+      }
+      this.syncExprPrefix();
+    };
+    this.panel.onChamferTypeChange = () => {
+      if (this.feature !== 'chamfer') {
+        return;
+      }
+      this.applyChamferControls(this.panel.chamferType);
       this.syncExprPrefix();
     };
     this.panel.onJoinChange = () => {
@@ -479,6 +499,13 @@ export class ModifyPickService {
     this.panel.setTitle(parsed.feature, `Edit ${config.label.toLowerCase()}`);
     this.panel.configureValue(config.valueLabel!, config.valueSign);
     this.panel.valueField.setValue(parsed.value);
+    if (parsed.feature === 'chamfer') {
+      const kind: ChamferKind = parsed.distance2 === null ? 'equal'
+        : parsed.isAngle ? 'angle' : 'distances';
+      this.applyChamferControls(kind, parsed.distance2);
+    } else {
+      this.panel.setChamferControls(null);
+    }
     void this.refreshScopeVariables();
     if (parsed.feature === 'shell') {
       this.panel.joinValue = parsed.joinType;
@@ -529,7 +556,12 @@ export class ModifyPickService {
     const line = this.editTarget?.line ?? null;
     await refreshScopeVariables(
       line,
-      { setScopeVariables: (variables) => this.panel.valueField.setVariables(variables) },
+      {
+        setScopeVariables: (variables) => {
+          this.panel.valueField.setVariables(variables);
+          this.panel.value2Field.setVariables(variables);
+        },
+      },
       () => this.feature !== null && this.feature !== 'sketch' && (this.editTarget?.line ?? null) === line,
     );
   }
@@ -595,6 +627,11 @@ export class ModifyPickService {
     this.panel.setTitle(feature, config.label);
     this.panel.configureValue(config.valueLabel!, config.valueSign);
     this.panel.valueField.setValue(this.valueByFeature.get(feature) ?? String(config.defaultValue));
+    if (feature === 'chamfer') {
+      this.applyChamferControls(this.chamferKind);
+    } else {
+      this.panel.setChamferControls(null);
+    }
     void this.refreshScopeVariables();
     if (config.joinRow) {
       this.panel.joinValue = this.lastJoinType;
@@ -1318,6 +1355,18 @@ export class ModifyPickService {
       value = read.value;
       newVariables = read.newVariable ? [read.newVariable] : undefined;
     }
+    let chamfer: { distance2: ValueExpr | null; isAngle: boolean } | undefined;
+    if (this.feature === 'chamfer') {
+      const read2 = this.readChamferValues();
+      if ('error' in read2) {
+        this.panel.setMessage(read2.error);
+        return;
+      }
+      chamfer = { distance2: read2.distance2, isAngle: read2.isAngle };
+      if (read2.newVariable) {
+        newVariables = [...(newVariables ?? []), read2.newVariable];
+      }
+    }
 
     if (this.editTarget) {
       // In-place statement edit. A re-picked (dirty) selection rides as
@@ -1341,6 +1390,8 @@ export class ModifyPickService {
             value: value!,
             selectorOverride,
             joinType: this.shellJoinType() ?? undefined,
+            distance2: chamfer?.distance2,
+            isAngle: chamfer?.isAngle,
             newVariables,
             expectedStatement: this.session.expectedStatement,
             before: dirty ? this.session.boundary ?? undefined : undefined,
@@ -1373,6 +1424,8 @@ export class ModifyPickService {
         chains: this.selection.apiChains(),
         selectorOverride,
         joinType: this.shellJoinType() ?? undefined,
+        distance2: chamfer?.distance2,
+        isAngle: chamfer?.isAngle,
         newVariables,
       });
       if (result.success) {
@@ -1466,6 +1519,20 @@ export class ModifyPickService {
           || (config.valueSign === 'positive' ? read.value > 0 : read.value !== 0));
       previewValue = valid && !('error' in read) ? read.value : config.defaultValue!;
     }
+    // The chamfer second value doesn't shape the selector args either, but
+    // the request must stay valid — an unparsable field falls back to the
+    // kind's default just like the main value does.
+    let chamferPreview: { distance2: ValueExpr | null; isAngle: boolean } | undefined;
+    if (this.feature === 'chamfer') {
+      const read2 = this.readChamferValues();
+      chamferPreview = 'error' in read2
+        ? {
+          distance2: this.chamferKind === 'equal' ? null
+            : this.chamferKind === 'angle' ? DEFAULT_CHAMFER_ANGLE : config.defaultValue!,
+          isAngle: this.chamferKind === 'angle',
+        }
+        : { distance2: read2.distance2, isAngle: read2.isAngle };
+    }
 
     let result: ApplyFeatureResponse;
     try {
@@ -1473,6 +1540,8 @@ export class ModifyPickService {
         ? await applyValueFeatureEdit(this.feature as 'shell' | 'fillet' | 'chamfer', this.editTarget, {
           value: previewValue!,
           joinType: this.shellJoinType() ?? undefined,
+          distance2: chamferPreview?.distance2,
+          isAngle: chamferPreview?.isAngle,
           expectedStatement: this.session.expectedStatement,
           before: this.session.boundary ?? undefined,
           entities: this.selection.entities,
@@ -1482,6 +1551,8 @@ export class ModifyPickService {
         })
         : await applyFeature(this.feature, previewValue, this.selection.entities, {
           chains: this.selection.apiChains(),
+          distance2: chamferPreview?.distance2,
+          isAngle: chamferPreview?.isAngle,
           preview: true,
           signal: abort.signal,
         });
@@ -1516,6 +1587,14 @@ export class ModifyPickService {
       return;
     }
     const value = this.panel.valueText.trim() || String(config.defaultValue);
+    if (this.feature === 'chamfer' && this.chamferKind !== 'equal') {
+      const second = this.panel.value2Text.trim()
+        || String(this.chamferKind === 'angle' ? DEFAULT_CHAMFER_ANGLE : config.defaultValue);
+      this.panel.expression.setPrefix(this.chamferKind === 'angle'
+        ? `chamfer(${value}, ${second}, true, `
+        : `chamfer(${value}, ${second}, `);
+      return;
+    }
     this.panel.expression.setPrefix(`${this.feature}(${value}, `);
   }
 
@@ -1525,6 +1604,53 @@ export class ModifyPickService {
       return null;
     }
     return this.panel.joinValue;
+  }
+
+  /**
+   * Show the chamfer rows for `kind` and seed the second-value field: the
+   * statement's own value on an edit open (`seed`), else the last one entered
+   * for that kind, else the kind's default.
+   */
+  private applyChamferControls(kind: ChamferKind, seed?: ValueExpr | null): void {
+    this.chamferKind = kind;
+    this.panel.setChamferControls(kind);
+    if (kind === 'equal') {
+      return;
+    }
+    if (seed !== undefined && seed !== null) {
+      this.panel.value2Field.setValue(seed);
+      return;
+    }
+    const remembered = this.chamferValue2.get(kind);
+    this.panel.value2Field.setValue(remembered !== undefined && remembered.trim() !== ''
+      ? remembered
+      : String(kind === 'angle' ? DEFAULT_CHAMFER_ANGLE : FEATURES.chamfer.defaultValue));
+  }
+
+  /**
+   * The chamfer dialog's second-value slot, read and range-checked (a
+   * numeric second distance must be positive; a numeric angle inside
+   * (0, 90)). Equal-distance mode reads as no second value.
+   */
+  private readChamferValues():
+    | { distance2: ValueExpr | null; isAngle: boolean; newVariable?: NewVariable }
+    | { error: string } {
+    if (this.feature !== 'chamfer' || this.chamferKind === 'equal') {
+      return { distance2: null, isAngle: false };
+    }
+    const isAngle = this.chamferKind === 'angle';
+    const read = this.panel.value2Field.read();
+    const invalid = 'error' in read
+      || (typeof read.value === 'number'
+        && (read.value <= 0 || (isAngle && read.value >= 90)));
+    if (invalid || 'error' in read) {
+      return {
+        error: isAngle
+          ? 'Enter an angle between 0 and 90 degrees.'
+          : 'Enter a positive second distance.',
+      };
+    }
+    return { distance2: read.value, isAngle, newVariable: read.newVariable };
   }
 
   /** A non-default shell join shows as a `.join()` chain after the args. */

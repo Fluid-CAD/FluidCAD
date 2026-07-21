@@ -9,7 +9,8 @@ import {
   renderRevolveStatement,
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames, validCountValue, validValueExpr,
-  type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type CopyEditOptions,
+  renderChamferValueArgs,
+  type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions, type CopyEditOptions,
   type ExtrudeEditOptions, type FeatureStatementEditTarget,
   type HelixEditOptions,
   type HelixSourceSpec, type LoftEditOptions,
@@ -120,6 +121,31 @@ function validateShellJoinType(raw: unknown): { joinType: ShellJoinKind } | { er
     return { error: 'joinType must be "arc", "intersection" or "tangent"' };
   }
   return { joinType: raw };
+}
+
+/**
+ * The chamfer second-value slot riding a create or edit request: absent (or
+ * null) reads as the equal-distance form; a value must be a positive number
+ * or expression, and an angle additionally below 90° when it is a number.
+ */
+function validateChamferOptions(body: any): { options: ChamferEditOptions } | { error: string } {
+  const { distance2, isAngle } = body ?? {};
+  if (isAngle !== undefined && typeof isAngle !== 'boolean') {
+    return { error: 'isAngle must be a boolean' };
+  }
+  if (distance2 === undefined || distance2 === null) {
+    if (isAngle === true) {
+      return { error: 'isAngle requires a distance2 angle value' };
+    }
+    return { options: { distance2: null, isAngle: false } };
+  }
+  if (!validValueExpr(distance2, { positive: true })) {
+    return { error: 'distance2 must be a positive number or expression' };
+  }
+  if (isAngle === true && typeof distance2 === 'number' && distance2 >= 90) {
+    return { error: 'the chamfer angle must be below 90 degrees' };
+  }
+  return { options: { distance2, isAngle: isAngle === true } };
 }
 
 function validateSketchLoc(loc: any): SketchLoc | null {
@@ -1607,7 +1633,7 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
 
   // Shell / fillet / chamfer: the numeric value plus an optional edited
   // selector argument list (the expression row) or a re-picked selection;
-  // shell adds its join type.
+  // shell adds its join type, chamfer its second value slot.
   const { value } = body ?? {};
   if (feature === 'shell') {
     if (!validValueExpr(value, { nonzero: true })) {
@@ -1620,6 +1646,14 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
     edit.shell = { joinType: join.joinType };
   } else if (!validValueExpr(value, { positive: true })) {
     return { error: 'value must be a positive number or expression' };
+  } else if (feature === 'chamfer') {
+    const chamfer = validateChamferOptions(body);
+    if ('error' in chamfer) {
+      return chamfer;
+    }
+    // Always explicit on edits: `distance2: null` returns the statement to
+    // the equal-distance form rather than keeping its own second value.
+    edit.chamfer = chamfer.options;
   }
   if (selectorOverride !== undefined
     && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
@@ -4074,10 +4108,11 @@ export function createApplyFeatureRouter(
       return;
     }
     // Per-feature numeric parameter: fillet/chamfer need a positive radius or
-    // distance; shell needs a nonzero thickness (negative is the idiom —
-    // shell(-2, …) hollows inward) plus its join type; sketch has no numeric
-    // parameter at all.
+    // distance (chamfer optionally a second distance or angle); shell needs a
+    // nonzero thickness (negative is the idiom — shell(-2, …) hollows inward)
+    // plus its join type; sketch has no numeric parameter at all.
     let shellJoin: ShellJoinKind = 'arc';
+    let chamferOptions: ChamferEditOptions | undefined;
     if (feature === 'shell') {
       if (!validValueExpr(value, { nonzero: true })) {
         res.status(400).json({ error: 'value must be a nonzero number or expression (negative hollows inward)' });
@@ -4093,6 +4128,14 @@ export function createApplyFeatureRouter(
       if (!validValueExpr(value, { positive: true })) {
         res.status(400).json({ error: 'value must be a positive number or expression' });
         return;
+      }
+      if (feature === 'chamfer') {
+        const chamfer = validateChamferOptions(req.body);
+        if ('error' in chamfer) {
+          res.status(400).json({ error: chamfer.error });
+          return;
+        }
+        chamferOptions = chamfer.options.distance2 !== null ? chamfer.options : undefined;
       }
     }
     if (selectorOverride !== undefined
@@ -4128,13 +4171,17 @@ export function createApplyFeatureRouter(
         res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
         return;
       }
-      // Synthesis renders the bare statement; the shell join chain rides the
-      // spec, so the preview must append it to stay truthful.
+      // Synthesis renders the bare statement; the shell join chain and the
+      // chamfer second value ride the spec, so the preview must fold them in
+      // to stay truthful.
       const joinChain = feature === 'shell' ? renderShellJoinChain(shellJoin) : '';
+      const statementPreview = chamferOptions
+        ? `chamfer(${renderChamferValueArgs(value, chamferOptions)}, ${synthesis.args})`
+        : synthesis.preview + joinChain;
       if (preview === true) {
         res.json({
           success: true,
-          preview: synthesis.preview + joinChain,
+          preview: statementPreview,
           args: synthesis.args,
           alternatives: synthesis.alternatives,
         });
@@ -4146,11 +4193,14 @@ export function createApplyFeatureRouter(
       if (feature === 'shell') {
         spec = { ...spec, shell: { joinType: shellJoin } };
       }
+      if (chamferOptions) {
+        spec = { ...spec, chamfer: chamferOptions };
+      }
       if (newVariables) {
         spec = { ...spec, newVariables };
       }
       sendToExtension({ type: 'apply-feature-edit', spec });
-      res.json({ success: true, preview: synthesis.preview + joinChain });
+      res.json({ success: true, preview: statementPreview });
     } catch (err: any) {
       res.status(500).json({ success: false, reason: err?.message ?? String(err) });
     }

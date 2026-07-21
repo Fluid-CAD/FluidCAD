@@ -127,6 +127,8 @@ export type ApplyFeatureEditSpec = {
   wrap?: WrapEditOptions;
   /** Shell-only payload; the join type chains after the selector args. */
   shell?: ShellEditOptions;
+  /** Chamfer-only payload; the second value rides after the distance. */
+  chamfer?: ChamferEditOptions;
   /** Loft-only payload; each `parts` entry renders one profile's selector. */
   loft?: LoftEditOptions;
   /** Plane-only payload; each `parts` entry renders one base's selector. */
@@ -281,6 +283,11 @@ export type FeatureStatementEditTarget = {
   shell?: {
     joinType: ShellJoinKind;
   };
+  /**
+   * Chamfer second-value slot; absent keeps the statement's own second
+   * value, `distance2: null` returns it to the equal-distance form.
+   */
+  chamfer?: ChamferEditOptions;
   loft?: {
     op: 'add' | 'remove' | 'new';
     thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
@@ -685,6 +692,17 @@ export type ShellEditOptions = {
 };
 
 /**
+ * A chamfer statement's second value slot — `chamfer(d1, d2, …)` for two
+ * distances, `chamfer(d, angle, true, …)` for distance + angle. Null renders
+ * the plain equal-distance form.
+ */
+export type ChamferEditOptions = {
+  distance2: ValueExpr | null;
+  /** `distance2` is an angle in degrees — renders the `true` third argument. */
+  isAngle: boolean;
+};
+
+/**
  * How a loft statement is rendered and placed: `loft(<profile>, <profile>, …)`
  * plus `.guides(…)` / `.startCondition(…)` / `.endCondition(…)` /
  * `.thin(…)` / `.remove()` / `.new()` chains. Profiles are ordered —
@@ -899,6 +917,10 @@ export async function applyFeatureEdit(
         'helix',
         spec.newVariables,
       );
+    }
+  } else if (spec.feature === 'chamfer') {
+    if (!validChamferOptions(spec.chamfer)) {
+      return { newCode: code, error: 'malformed chamfer edit spec' };
     }
   } else if (spec.feature === 'loft') {
     const lo = spec.loft;
@@ -2287,6 +2309,9 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   if (spec.feature === 'sketch') {
     return `sketch(${args}, () => {\n\n${indent}})`;
   }
+  if (spec.feature === 'chamfer') {
+    return `chamfer(${renderChamferValueArgs(spec.value, spec.chamfer)}, ${args})`;
+  }
   const joinChain = spec.feature === 'shell' ? renderShellJoinChain(spec.shell?.joinType) : '';
   return `${spec.feature}(${formatValue(spec.value)}, ${args})${joinChain}`;
 }
@@ -2332,6 +2357,42 @@ function formatValue(value: ValueExpr | undefined | null): string {
     return value.trim();
   }
   return formatNumber(value ?? undefined);
+}
+
+/**
+ * An optional chamfer payload's shape: no payload, an explicit equal-distance
+ * form (`distance2: null`), a positive second distance, or an angle in the
+ * open (0, 90) — the kernel's chamfer angle range. Expression text passes;
+ * the build reports its range errors.
+ */
+function validChamferOptions(chamfer: ChamferEditOptions | undefined): boolean {
+  if (chamfer === undefined) {
+    return true;
+  }
+  if (typeof chamfer.isAngle !== 'boolean') {
+    return false;
+  }
+  if (chamfer.distance2 === null) {
+    return !chamfer.isAngle;
+  }
+  if (!validValueExpr(chamfer.distance2, { positive: true })) {
+    return false;
+  }
+  return !chamfer.isAngle || typeof chamfer.distance2 !== 'number' || chamfer.distance2 < 90;
+}
+
+/**
+ * A chamfer statement's value arguments: `d`, `d1, d2`, or `d, angle, true`.
+ * Shared by the create transform, the in-place edit, and the route's preview
+ * so every rendering of the second-value overloads agrees.
+ */
+export function renderChamferValueArgs(value: ValueExpr | undefined, chamfer: ChamferEditOptions | undefined): string {
+  const distance = formatValue(value);
+  if (chamfer?.distance2 === undefined || chamfer.distance2 === null) {
+    return distance;
+  }
+  const second = formatValue(chamfer.distance2);
+  return chamfer.isAngle ? `${distance}, ${second}, true` : `${distance}, ${second}`;
 }
 
 /**
@@ -2570,10 +2631,20 @@ export type ParsedFeatureStatement =
     joinType: ShellJoinKind;
   }
   | {
-    feature: 'fillet' | 'chamfer';
+    feature: 'fillet';
     value: ValueExpr;
     /** Selector argument list after the value, verbatim (`''` when absent). */
     argsText: string;
+  }
+  | {
+    feature: 'chamfer';
+    value: ValueExpr;
+    /** Selector argument list after the value slots, verbatim (`''` when absent). */
+    argsText: string;
+    /** Second distance (or angle) argument; null for the equal-distance form. */
+    distance2: ValueExpr | null;
+    /** The literal `true` third argument — `distance2` is an angle in degrees. */
+    isAngle: boolean;
   }
   | {
     feature: 'sketch';
@@ -2987,8 +3058,25 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
     if (value === null) {
       return { error: `the ${feature}() ${feature === 'shell' ? 'thickness' : feature === 'fillet' ? 'radius' : 'distance'} is not a plain number or expression — edit it in the source` };
     }
-    const argsText = args.length > 1
-      ? code.slice(args[1].startIndex, args[args.length - 1].endIndex)
+    // Chamfer's second-value overloads: a numeric second argument reads as
+    // the second distance, and a literal `true`/`false` after it as the
+    // angle flag — everything past the value slots is the selector list.
+    let distance2: ValueExpr | null = null;
+    let isAngle = false;
+    let selectorsFrom = 1;
+    if (feature === 'chamfer' && args.length > 1) {
+      const second = numericValueArg(args[1], numericVars);
+      if (second !== null) {
+        distance2 = second;
+        selectorsFrom = 2;
+        if (args.length > 2 && (args[2].type === 'true' || args[2].type === 'false')) {
+          isAngle = args[2].type === 'true';
+          selectorsFrom = 3;
+        }
+      }
+    }
+    const argsText = args.length > selectorsFrom
+      ? code.slice(args[selectorsFrom].startIndex, args[args.length - 1].endIndex)
       : '';
     if (feature === 'shell') {
       const joinParse = parseJoinSegment(recognized.get('join'));
@@ -2996,6 +3084,9 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
         return joinParse;
       }
       return { parsed: { feature, value, argsText, joinType: joinParse.joinType }, start, end };
+    }
+    if (feature === 'chamfer') {
+      return { parsed: { feature, value, argsText, distance2, isAngle }, start, end };
     }
     return { parsed: { feature, value, argsText }, start, end };
   }
@@ -4754,6 +4845,16 @@ export function renderEditedStatement(
     }
     joinChain = renderShellJoinChain(joinType);
   }
+  let valueArgs = formatValue(spec.value);
+  if (parsed.feature === 'chamfer') {
+    // An edit spec without chamfer options keeps the statement's own second
+    // value; explicit options replace it (null returns to equal distance).
+    const chamfer = spec.edit?.chamfer ?? { distance2: parsed.distance2, isAngle: parsed.isAngle };
+    if (!validChamferOptions(chamfer)) {
+      return { error: 'malformed chamfer edit spec' };
+    }
+    valueArgs = renderChamferValueArgs(spec.value, chamfer);
+  }
   // The user's expression text wins over a re-picked selection (the create
   // path's contract); with neither, the statement's own args stay verbatim.
   const partsArgs = spec.parts.length > 0
@@ -4764,8 +4865,8 @@ export function renderEditedStatement(
   const args = spec.rawArgs?.trim() || partsArgs || parsed.argsText;
   return {
     statement: args
-      ? `${parsed.feature}(${formatValue(spec.value)}, ${args})${joinChain}`
-      : `${parsed.feature}(${formatValue(spec.value)})${joinChain}`,
+      ? `${parsed.feature}(${valueArgs}, ${args})${joinChain}`
+      : `${parsed.feature}(${valueArgs})${joinChain}`,
   };
 }
 

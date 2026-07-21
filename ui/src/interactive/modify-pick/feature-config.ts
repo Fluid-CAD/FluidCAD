@@ -2,6 +2,12 @@ import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 
 export type ModifyFeatureKind = 'sketch' | 'fillet' | 'chamfer' | 'shell';
 
+/**
+ * The chamfer dialog's type dropdown — which `chamfer()` overload the
+ * statement uses: `chamfer(d)`, `chamfer(d1, d2)`, or `chamfer(d, a, true)`.
+ */
+export type ChamferKind = 'equal' | 'distances' | 'angle';
+
 export type FeatureConfig = {
   label: string;
   buttonTitle: string;

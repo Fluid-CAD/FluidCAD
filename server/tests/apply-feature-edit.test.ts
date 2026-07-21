@@ -336,6 +336,51 @@ describe('applyFeatureEdit', () => {
   });
 });
 
+describe('chamfer second-value overloads', () => {
+  const code = [
+    `sketch('xy', () => { rect(100, 50) })`,
+    `extrude(30)`,
+    ``,
+  ].join('\n');
+  const chamferSpec = (chamfer: ApplyFeatureEditSpec['chamfer']): ApplyFeatureEditSpec => spec({
+    feature: 'chamfer',
+    value: 1.5,
+    chamfer,
+    producers: [{ line: 2, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+    parts: [{ producer: 0, accessor: 'endEdges', indices: [0, 1], filterArgs: null }],
+  });
+
+  it('renders a two-distance chamfer', async () => {
+    const result = await applyFeatureEdit(code, chamferSpec({ distance2: 3, isAngle: false }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`chamfer(1.5, 3, e.endEdges(0, 1))`);
+  });
+
+  it('renders a distance-and-angle chamfer with the literal true', async () => {
+    const result = await applyFeatureEdit(code, chamferSpec({ distance2: 45, isAngle: true }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`chamfer(1.5, 45, true, e.endEdges(0, 1))`);
+  });
+
+  it('renders the plain form for an explicit null second value', async () => {
+    const result = await applyFeatureEdit(code, chamferSpec({ distance2: null, isAngle: false }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`chamfer(1.5, e.endEdges(0, 1))`);
+  });
+
+  it('refuses a non-positive second distance', async () => {
+    const result = await applyFeatureEdit(code, chamferSpec({ distance2: 0, isAngle: false }));
+    expect(result.error).toContain('malformed chamfer');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses an angle of 90 degrees or more', async () => {
+    const result = await applyFeatureEdit(code, chamferSpec({ distance2: 90, isAngle: true }));
+    expect(result.error).toContain('malformed chamfer');
+    expect(result.newCode).toBe(code);
+  });
+});
+
 describe('shell and sketch statement templates', () => {
   it('emits shell with a negative thickness and imports it', async () => {
     const code = [
@@ -1810,6 +1855,54 @@ describe('parseFeatureStatement', () => {
     }
   });
 
+  it('reads an equal-distance chamfer with no second value', async () => {
+    const code = `${editBase}\nchamfer(2, e.endEdges())\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toEqual({
+      ok: true,
+      parsed: { feature: 'chamfer', value: 2, argsText: 'e.endEdges()', distance2: null, isAngle: false },
+      statement: 'chamfer(2, e.endEdges())',
+    });
+  });
+
+  it('reads a two-distance chamfer', async () => {
+    const code = `${editBase}\nchamfer(1, 2.5, e.endEdges())\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toEqual({
+      ok: true,
+      parsed: { feature: 'chamfer', value: 1, argsText: 'e.endEdges()', distance2: 2.5, isAngle: false },
+      statement: 'chamfer(1, 2.5, e.endEdges())',
+    });
+  });
+
+  it('reads a distance-and-angle chamfer', async () => {
+    const code = `${editBase}\nchamfer(1, 45, true, e.endEdges())\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toEqual({
+      ok: true,
+      parsed: { feature: 'chamfer', value: 1, argsText: 'e.endEdges()', distance2: 45, isAngle: true },
+      statement: 'chamfer(1, 45, true, e.endEdges())',
+    });
+  });
+
+  it('reads an explicit false angle flag as two distances', async () => {
+    const code = `${editBase}\nchamfer(1, 2, false, e.endEdges())\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'chamfer', value: 1, argsText: 'e.endEdges()', distance2: 2, isAngle: false },
+    });
+  });
+
+  it('reads a numeric-variable second value as expression text', async () => {
+    const code = `${editBase}\nconst d = 2\nchamfer(1, d, e.endEdges())\n`;
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'chamfer', value: 1, argsText: 'e.endEdges()', distance2: 'd', isAngle: false },
+    });
+  });
+
   it('keeps chained calls after the options out of the statement span', async () => {
     const code = `${editBase}\nextrude(10).fillet(2, e => e.endEdges())\n`;
     const result = await parseFeatureStatement(code, 4);
@@ -2094,6 +2187,56 @@ describe('applyFeatureEdit (in-place statement edit)', () => {
     }, { value: -2 }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`shell(-2, e.endFaces()).join('tangent')`);
+  });
+
+  it('keeps a chamfer second value when the edit spec carries none', async () => {
+    const code = `${editBase}\nchamfer(2, 3, e.endEdges())\n`;
+    const result = await applyFeatureEdit(code, editSpec('chamfer', {
+      line: 4, column: 0,
+    }, { value: 4 }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`chamfer(4, 3, e.endEdges())`);
+  });
+
+  it('adds a second distance to an equal-distance chamfer in place', async () => {
+    const code = `${editBase}\nchamfer(2, e.endEdges())\n`;
+    const result = await applyFeatureEdit(code, editSpec('chamfer', {
+      line: 4, column: 0,
+      chamfer: { distance2: 3, isAngle: false },
+    }, { value: 2 }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`chamfer(2, 3, e.endEdges())`);
+  });
+
+  it('switches a two-distance chamfer to distance and angle', async () => {
+    const code = `${editBase}\nchamfer(2, 3, e.endEdges())\n`;
+    const result = await applyFeatureEdit(code, editSpec('chamfer', {
+      line: 4, column: 0,
+      chamfer: { distance2: 60, isAngle: true },
+    }, { value: 2 }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`chamfer(2, 60, true, e.endEdges())`);
+  });
+
+  it('returns a distance-and-angle chamfer to the equal-distance form', async () => {
+    const code = `${editBase}\nchamfer(2, 45, true, e.endEdges())\n`;
+    const result = await applyFeatureEdit(code, editSpec('chamfer', {
+      line: 4, column: 0,
+      chamfer: { distance2: null, isAngle: false },
+    }, { value: 3 }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`chamfer(3, e.endEdges())`);
+    expect(result.newCode).not.toContain(`45`);
+  });
+
+  it('refuses a chamfer edit with an out-of-range angle', async () => {
+    const code = `${editBase}\nchamfer(2, e.endEdges())\n`;
+    const result = await applyFeatureEdit(code, editSpec('chamfer', {
+      line: 4, column: 0,
+      chamfer: { distance2: 120, isAngle: true },
+    }, { value: 2 }));
+    expect(result.error).toContain('malformed chamfer');
+    expect(result.newCode).toBe(code);
   });
 
   it('refuses when the statement is not the expected feature', async () => {

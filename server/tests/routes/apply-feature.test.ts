@@ -171,6 +171,60 @@ describe('apply-feature route validation', () => {
     expect(relayed[0].spec.shell).toEqual({ joinType: 'arc' });
   });
 
+  const chamferSynthesis = {
+    ...fakeSynthesis,
+    spec: { ...fakeSynthesis.spec, feature: 'chamfer' },
+    preview: 'chamfer(2, e.endEdges())',
+    args: 'e.endEdges()',
+  };
+
+  it('rejects a non-positive chamfer distance2', async () => {
+    const { status, body } = await post({ feature: 'chamfer', value: 2, distance2: 0, entities: [PICK] });
+    expect(status).toBe(400);
+    expect(body.error).toContain('distance2');
+  });
+
+  it('rejects a chamfer angle of 90 degrees or more', async () => {
+    const { status, body } = await post({
+      feature: 'chamfer', value: 2, distance2: 95, isAngle: true, entities: [PICK],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('angle');
+  });
+
+  it('rejects isAngle without a distance2 value', async () => {
+    const { status, body } = await post({ feature: 'chamfer', value: 2, isAngle: true, entities: [PICK] });
+    expect(status).toBe(400);
+    expect(body.error).toContain('distance2');
+  });
+
+  it('relays a two-distance chamfer on the spec and folds it into the preview', async () => {
+    currentSynthesis = chamferSynthesis;
+    const { status, body } = await post({ feature: 'chamfer', value: 2, distance2: 3, entities: [PICK] });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('chamfer(2, 3, e.endEdges())');
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0].spec.chamfer).toEqual({ distance2: 3, isAngle: false });
+  });
+
+  it('relays a distance-and-angle chamfer with the literal true in the preview', async () => {
+    currentSynthesis = chamferSynthesis;
+    const { status, body } = await post({
+      feature: 'chamfer', value: 2, distance2: 45, isAngle: true, entities: [PICK], preview: true,
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('chamfer(2, 45, true, e.endEdges())');
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('leaves the spec and preview bare without a second chamfer value', async () => {
+    currentSynthesis = chamferSynthesis;
+    const { status, body } = await post({ feature: 'chamfer', value: 2, entities: [PICK] });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('chamfer(2, e.endEdges())');
+    expect(relayed[0].spec.chamfer).toBeUndefined();
+  });
+
   it('accepts sketch without a value and relays the spec to the extension', async () => {
     const { status, body } = await post({ feature: 'sketch', entities: [PICK] });
     expect(status).toBe(200);
@@ -1526,6 +1580,55 @@ describe('apply-feature route validation', () => {
         edit: { filePath: '/ws/m.fluid.js', line: 5, column: 0 },
         value: -2,
         joinType: 'bevel',
+      });
+      expect(status).toBe(400);
+    });
+
+    const CHAMFER_EDIT_CODE = [
+      `import { chamfer } from 'fluidcad/core'`,
+      ``,
+      `chamfer(2, 45, true, e.endEdges())`,
+      ``,
+    ].join('\n');
+
+    it('relays a chamfer edit second value and previews the overload', async () => {
+      currentCode = CHAMFER_EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'chamfer',
+        edit: { filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+        value: 2,
+        distance2: 3,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('chamfer(2, 3, e.endEdges())');
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'chamfer',
+        value: 2,
+        edit: { line: 3, column: 0, chamfer: { distance2: 3, isAngle: false } },
+      });
+    });
+
+    it('returns a chamfer edit without a second value to the equal form', async () => {
+      currentCode = CHAMFER_EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'chamfer',
+        edit: { filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+        value: 2,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('chamfer(2, e.endEdges())');
+      expect(relayed[0].spec.edit.chamfer).toEqual({ distance2: null, isAngle: false });
+    });
+
+    it('rejects a chamfer edit with an out-of-range angle', async () => {
+      const { status } = await post({
+        feature: 'chamfer',
+        edit: { filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+        value: 2,
+        distance2: 90,
+        isAngle: true,
       });
       expect(status).toBe(400);
     });

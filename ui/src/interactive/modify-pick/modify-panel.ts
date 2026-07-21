@@ -1,4 +1,4 @@
-import { ModifyFeatureKind, featureIconImg } from './feature-config';
+import { ChamferKind, ModifyFeatureKind, featureIconImg } from './feature-config';
 import { ExpressionRow } from './expression-row';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 import { ExpressionField } from '../../ui/expression-field';
@@ -18,6 +18,10 @@ export class ModifyPanel {
   onExit?: () => void;
   /** The value input changed — the service persists it and syncs the prefix. */
   onValueInput?: () => void;
+  /** The second-value input changed — the service persists it and syncs the prefix. */
+  onValue2Input?: () => void;
+  /** The chamfer-type dropdown changed — the service reconfigures the rows. */
+  onChamferTypeChange?: () => void;
   /** The join dropdown changed — the service persists it and syncs the suffix. */
   onJoinChange?: () => void;
   /** The chip at `index` asked to be removed. */
@@ -27,6 +31,7 @@ export class ModifyPanel {
 
   readonly expression: ExpressionRow;
   readonly valueField: ExpressionField;
+  readonly value2Field: ExpressionField;
 
   private readonly root: HTMLDivElement;
   private readonly titleIcon: HTMLElement;
@@ -34,6 +39,11 @@ export class ModifyPanel {
   private readonly valueWrap: HTMLElement;
   private readonly valueLabel: HTMLElement;
   private readonly valueInput: HTMLInputElement;
+  private readonly chamferTypeWrap: HTMLElement;
+  private readonly chamferTypeSelect: HTMLSelectElement;
+  private readonly value2Wrap: HTMLElement;
+  private readonly value2Label: HTMLElement;
+  private readonly value2Input: HTMLInputElement;
   private readonly joinWrap: HTMLElement;
   private readonly joinSelect: HTMLSelectElement;
   private readonly selectionSlot: PickSlot;
@@ -55,9 +65,22 @@ export class ModifyPanel {
             <span data-role="title" class="font-medium text-sm">Fillet</span>
           </div>
           <div data-role="selection-slot"></div>
+          <label data-role="chamfer-type-wrap" class="flex flex-col gap-1.5 hidden">
+            <span class="text-base-content/70">Chamfer type</span>
+            <select data-role="chamfer-type" class="select select-sm select-bordered w-full text-xs">
+              <option value="equal">Equal distance</option>
+              <option value="distances">Two distances</option>
+              <option value="angle">Distance + angle</option>
+            </select>
+          </label>
           <label data-role="value-wrap" class="flex flex-col gap-1.5">
             <span class="text-base-content/70" data-role="value-label">Radius</span>
             <input data-role="value" type="number" step="0.5"
+              class="input input-sm input-bordered w-full text-xs" />
+          </label>
+          <label data-role="value2-wrap" class="flex flex-col gap-1.5 hidden">
+            <span class="text-base-content/70" data-role="value2-label">Distance 2</span>
+            <input data-role="value2" type="number" step="0.5"
               class="input input-sm input-bordered w-full text-xs" />
           </label>
           <label data-role="join-wrap" class="flex flex-col gap-1.5 hidden">
@@ -83,6 +106,11 @@ export class ModifyPanel {
     this.valueWrap = this.root.querySelector('[data-role="value-wrap"]')!;
     this.valueLabel = this.root.querySelector('[data-role="value-label"]')!;
     this.valueInput = this.root.querySelector('[data-role="value"]')!;
+    this.chamferTypeWrap = this.root.querySelector('[data-role="chamfer-type-wrap"]')!;
+    this.chamferTypeSelect = this.root.querySelector('[data-role="chamfer-type"]')!;
+    this.value2Wrap = this.root.querySelector('[data-role="value2-wrap"]')!;
+    this.value2Label = this.root.querySelector('[data-role="value2-label"]')!;
+    this.value2Input = this.root.querySelector('[data-role="value2"]')!;
     this.joinWrap = this.root.querySelector('[data-role="join-wrap"]')!;
     this.joinSelect = this.root.querySelector('[data-role="join"]')!;
     this.selectionSlot = new PickSlot(
@@ -109,6 +137,10 @@ export class ModifyPanel {
     this.valueField = new ExpressionField(this.valueInput);
     this.valueField.onSubmit = () => this.onApply?.();
     this.valueInput.addEventListener('input', () => this.onValueInput?.());
+    this.value2Field = new ExpressionField(this.value2Input);
+    this.value2Field.onSubmit = () => this.onApply?.();
+    this.value2Input.addEventListener('input', () => this.onValue2Input?.());
+    this.chamferTypeSelect.addEventListener('change', () => this.onChamferTypeChange?.());
     this.joinSelect.addEventListener('change', () => this.onJoinChange?.());
   }
 
@@ -142,9 +174,41 @@ export class ModifyPanel {
     return this.valueInput.value;
   }
 
+  /** The second-value input's raw text (the expression-prefix mirror). */
+  get value2Text(): string {
+    return this.value2Input.value;
+  }
+
+  /**
+   * The chamfer rows: hidden for every other feature (`null`); for chamfer
+   * the type dropdown shows `kind`, and the second value row appears for the
+   * two-value kinds with its label matching what the slot holds.
+   */
+  setChamferControls(kind: ChamferKind | null): void {
+    this.chamferTypeWrap.classList.toggle('hidden', kind === null);
+    this.value2Wrap.classList.toggle('hidden', kind === null || kind === 'equal');
+    if (kind === null) {
+      return;
+    }
+    this.chamferTypeSelect.value = kind;
+    this.value2Label.textContent = kind === 'angle' ? 'Angle (°)' : 'Distance 2';
+    this.value2Input.min = '0.05';
+    if (kind === 'angle') {
+      this.value2Input.max = '89.9';
+    } else {
+      this.value2Input.removeAttribute('max');
+    }
+  }
+
+  /** The chamfer-type dropdown's value while a chamfer dialog is up. */
+  get chamferType(): ChamferKind {
+    return this.chamferTypeSelect.value as ChamferKind;
+  }
+
   /** Whether the value or args input owns the keyboard (Enter-to-apply). */
   ownsFocus(target: Element | null): boolean {
-    return target === this.valueInput || target === this.expression.inputElement;
+    return target === this.valueInput || target === this.value2Input
+      || target === this.expression.inputElement;
   }
 
   setJoinVisible(visible: boolean): void {

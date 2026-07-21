@@ -403,6 +403,10 @@ export type ApplyFeatureOptions = {
   retarget?: SketchSourceRef;
   /** Shell only: writes a `.join('<type>')` chain; 'arc' writes none. */
   joinType?: ShellJoinType;
+  /** Chamfer only: second distance (or angle) — `chamfer(d1, d2, …)`. */
+  distance2?: ValueExpr | null;
+  /** Chamfer only: `distance2` is an angle in degrees — `chamfer(d, a, true, …)`. */
+  isAngle?: boolean;
   /** Declarations the dialog's expression fields committed (`myVar = 50`). */
   newVariables?: NewVariable[];
   /** Synthesize only — return the expression preview without applying. */
@@ -433,6 +437,8 @@ export async function applyFeature(
     planeRef: options.planeRef,
     edit: options.retarget,
     joinType: options.joinType,
+    distance2: options.distance2,
+    isAngle: options.isAngle,
     newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);
@@ -1063,7 +1069,16 @@ export type ParsedFeatureStatement =
       /** `.join()` type; 'arc' (the kernel default) when the chain is absent. */
       joinType: ShellJoinType;
     }
-  | { feature: 'fillet' | 'chamfer'; value: ValueExpr; argsText: string }
+  | { feature: 'fillet'; value: ValueExpr; argsText: string }
+  | {
+      feature: 'chamfer';
+      value: ValueExpr;
+      argsText: string;
+      /** Second distance (or angle) argument; null for the equal-distance form. */
+      distance2: ValueExpr | null;
+      /** The literal `true` third argument — `distance2` is an angle in degrees. */
+      isAngle: boolean;
+    }
   | {
       feature: 'sketch';
       /** Plane/face target argument text, verbatim; null for the bare form. */
@@ -1590,6 +1605,10 @@ export type ValueFeatureEditOptions = EditSessionFields & {
   selectorOverride?: string;
   /** Shell only: rewrites the `.join('<type>')` chain; 'arc' writes none. */
   joinType?: ShellJoinType;
+  /** Chamfer only: second value slot; null returns to the equal-distance form. */
+  distance2?: ValueExpr | null;
+  /** Chamfer only: `distance2` is an angle in degrees. */
+  isAngle?: boolean;
   /** Declarations the dialog's expression fields committed (`myVar = 50`). */
   newVariables?: NewVariable[];
   /** Re-picked selection; omitted keeps the statement's own args. */
@@ -1613,6 +1632,8 @@ export async function applyValueFeatureEdit(
     value: options.value,
     selectorOverride: options.selectorOverride,
     joinType: options.joinType,
+    distance2: options.distance2,
+    isAngle: options.isAngle,
     newVariables: options.newVariables,
     entities: options.entities,
     chains: options.chains,

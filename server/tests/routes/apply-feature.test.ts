@@ -118,7 +118,7 @@ describe('apply-feature route validation', () => {
   it('rejects an unknown feature', async () => {
     const { status, body } = await post({ feature: 'draft', value: 2, entities: [PICK] });
     expect(status).toBe(400);
-    expect(body.error).toContain('"revolve", "plane" or "repeat"');
+    expect(body.error).toContain('"revolve", "plane", "repeat" or "copy"');
   });
 
   it('rejects a non-positive fillet value', async () => {
@@ -2378,6 +2378,304 @@ describe('apply-feature route validation', () => {
       });
       expect(status).toBe(422);
       expect(body.reason).toContain('not a repeat');
+      expect(relayed).toHaveLength(0);
+    });
+  });
+
+  describe('copy', () => {
+    const T1 = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };
+    const T2 = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
+    const CODE = [
+      "import { sketch, rect, extrude, cut } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { rect(100, 50) })",
+      'extrude(30)',
+      "sketch('xy', () => { rect(10, 10) })",
+      'cut(5)',
+      '',
+    ].join('\n');
+
+    it('rejects an unknown kind', async () => {
+      const { status, body } = await post({ feature: 'copy', kind: 'mirror', targets: [T1] });
+      expect(status).toBe(400);
+      expect(body.error).toContain('kind must be');
+    });
+
+    it('rejects an empty target list', async () => {
+      const { status, body } = await post({
+        feature: 'copy', kind: 'linear', targets: [], spacingMode: 'offset',
+        directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 }],
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('targets must be');
+    });
+
+    it('rejects more targets than the ceiling', async () => {
+      const targets = Array.from({ length: 17 }, (_, i) => ({
+        filePath: '/ws/m.fluid.js', line: i + 1, column: 0,
+      }));
+      const { status, body } = await post({
+        feature: 'copy', kind: 'linear', targets, spacingMode: 'offset',
+        directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 }],
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('targets must be 1-16');
+    });
+
+    it('rejects a circular copy without an axis', async () => {
+      const { status, body } = await post({
+        feature: 'copy', kind: 'circular', targets: [T1],
+        count: 6, sweep: { mode: 'angle', value: 360 },
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('axis must be');
+    });
+
+    it('rejects directions on a circular copy', async () => {
+      const { status, body } = await post({
+        feature: 'copy', kind: 'circular', targets: [T1],
+        axis: { kind: 'standard', axis: 'z' }, count: 4, sweep: { mode: 'angle', value: 360 },
+        directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 }],
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('only a linear copy takes directions');
+    });
+
+    it('rejects a centered flag on a circular copy', async () => {
+      const { status, body } = await post({
+        feature: 'copy', kind: 'circular', targets: [T1],
+        axis: { kind: 'standard', axis: 'z' }, count: 4, sweep: { mode: 'angle', value: 360 },
+        centered: true,
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('a circular copy takes no centered flag');
+    });
+
+    it('previews and relays a linear copy on a standard axis', async () => {
+      currentCode = CODE;
+      const linearBody = {
+        feature: 'copy', kind: 'linear', targets: [T1, T2], spacingMode: 'offset',
+        directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 }],
+      };
+      const preview = await post({ ...linearBody, preview: true });
+      expect(preview.status).toBe(200);
+      expect(preview.body.preview).toBe("copy('linear', 'x', { count: 3, offset: 40 }, f, f2)");
+      expect(relayed).toEqual([]);
+      expect(synthesizeCalls).toEqual([]);
+
+      const { status, body } = await post(linearBody);
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(relayed[0].type).toBe('apply-feature-edit');
+      expect(spec.feature).toBe('copy');
+      expect(spec.copy.kind).toBe('linear');
+      expect(spec.copy.spacingMode).toBe('offset');
+      expect(spec.copy.directions).toEqual([
+        { axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 },
+      ]);
+      expect(spec.copy.targets).toEqual([{ producer: 0 }, { producer: 1 }]);
+      expect(spec.producers).toHaveLength(2);
+      expect(spec.producers.every((p: any) => p.featureType === 'feature' && p.bind)).toBe(true);
+      expect(spec.parts).toEqual([]);
+    });
+
+    it('previews and relays a circular copy on a standard axis', async () => {
+      currentCode = CODE;
+      const circularBody = {
+        feature: 'copy', kind: 'circular', targets: [T1],
+        axis: { kind: 'standard', axis: 'z' }, count: 6, sweep: { mode: 'angle', value: 360 },
+      };
+      const preview = await post({ ...circularBody, preview: true });
+      expect(preview.status).toBe(200);
+      expect(preview.body.preview).toBe("copy('circular', 'z', { count: 6, angle: 360 }, f)");
+
+      const { status } = await post(circularBody);
+      expect(status).toBe(200);
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(spec.copy.kind).toBe('circular');
+      expect(spec.copy.count).toBe(6);
+      expect(spec.copy.sweep).toEqual({ mode: 'angle', value: 360 });
+      expect(spec.copy.targets).toEqual([{ producer: 0 }]);
+    });
+
+    it('synthesizes a picked axis edge through the revolve kind', async () => {
+      currentCode = CODE;
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'revolve',
+          filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endEdges', indices: [2], filterArgs: null }],
+          imports: [],
+        },
+        preview: '',
+        args: 'e.endEdges(2)',
+        alternatives: [],
+      };
+      const { status, body } = await post({
+        feature: 'copy', kind: 'circular', targets: [T2],
+        axis: { kind: 'edge', entity: { shapeId: 'shape-1', sub: { type: 'edge', index: 2 } } },
+        count: 6, sweep: { mode: 'angle', value: 360 },
+      });
+      expect(status).toBe(200);
+      expect(synthesizeCalls).toEqual([{ feature: 'revolve', value: undefined }]);
+      expect(body.preview).toContain('axis(');
+      expect(body.preview).toContain('{ count: 6, angle: 360 }');
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(spec.copy.axis).toEqual({ kind: 'selector', part: 0 });
+      expect(spec.imports).toContain('axis');
+    });
+
+    it('surfaces a synthesis refusal for the picked axis as 422', async () => {
+      currentSynthesis = { ok: false, reason: 'that edge cannot be named' };
+      const { status, body } = await post({
+        feature: 'copy', kind: 'circular', targets: [T2],
+        axis: { kind: 'edge', entity: { shapeId: 'shape-1', sub: { type: 'edge', index: 2 } } },
+        count: 6, sweep: { mode: 'angle', value: 360 },
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('cannot be named');
+      expect(relayed).toEqual([]);
+    });
+  });
+
+  describe('copy edit', () => {
+    const EDIT_CODE = [
+      "import { sketch, rect, extrude, cut, copy } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { rect(100, 50) })",
+      'const e = extrude(30)',
+      "sketch('xy', () => { rect(10, 10) })",
+      'const c = cut(5)',
+      "copy('linear', 'x', { count: 3, offset: 40 }, e)",
+      '',
+    ].join('\n');
+    const EDIT = { filePath: '/ws/m.fluid.js', line: 7, column: 0 };
+    const EDIT_BEFORE = { index: 6, type: 'copy-linear', line: 7, column: 0 };
+
+    it('relays a linear edit keeping the statement axis and previews it', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'copy', edit: EDIT, kind: 'linear', spacingMode: 'length',
+        directions: [{ count: 5, value: 120 }],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("copy('linear', 'x', { count: 5, length: 120 }, e)");
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'copy',
+        producers: [],
+        parts: [],
+        edit: {
+          line: 7, column: 0,
+          copy: {
+            kind: 'linear',
+            spacingMode: 'length',
+            directions: [{ axis: { kind: 'keep', sourceIndex: 0 }, count: 5, value: 120 }],
+          },
+        },
+        clearBreakpoints: true,
+      });
+    });
+
+    it('rewrites the kind to circular, replacing the target list', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'copy', edit: EDIT, kind: 'circular',
+        axis: { kind: 'standard', axis: 'z' }, count: 6, sweep: { mode: 'angle', value: 360 },
+        targets: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'feature', filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("copy('circular', 'z', { count: 6, angle: 360 }, e, c)");
+      expect(relayed[0].spec).toMatchObject({
+        producers: [{ line: 6, featureType: 'feature', bind: true }],
+        edit: {
+          copy: {
+            kind: 'circular',
+            targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }],
+          },
+        },
+      });
+    });
+
+    it('re-picks the axis edge: synthesis with the boundary, selector on the edit spec', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'revolve',
+          filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endEdges', indices: [2], filterArgs: null }],
+          imports: [],
+        },
+        preview: '',
+        args: 'e.endEdges(2)',
+        alternatives: [],
+      };
+      const { status, body } = await post({
+        feature: 'copy', edit: EDIT, kind: 'linear', spacingMode: 'offset',
+        directions: [{
+          axis: { kind: 'edge', entity: { shapeId: 'shape-1', sub: { type: 'edge', index: 2 } } },
+          count: 3, value: 40,
+        }],
+        before: EDIT_BEFORE,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("copy('linear', axis(e.endEdges(2)), { count: 3, offset: 40 }, e)");
+      expect(synthesizeCalls).toEqual([{ feature: 'revolve', value: undefined }]);
+      expect(synthesizeBoundaries).toEqual([EDIT_BEFORE]);
+      expect(relayed[0].spec).toMatchObject({
+        producers: [{ line: 4, featureType: 'extrude' }],
+        parts: [{ producer: 0, accessor: 'endEdges', indices: [2] }],
+        edit: { copy: { directions: [{ axis: { kind: 'selector', part: 0 } }] } },
+      });
+      expect(relayed[0].spec.imports).toContain('axis');
+    });
+
+    it('rejects a re-picked axis edge without a boundary', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'copy', edit: EDIT, kind: 'linear', spacingMode: 'offset',
+        directions: [{
+          axis: { kind: 'edge', entity: { shapeId: 'shape-1', sub: { type: 'edge', index: 2 } } },
+          count: 3, value: 40,
+        }],
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('before is required');
+      expect(synthesizeCalls).toEqual([]);
+    });
+
+    it('rejects an unknown kind on an edit', async () => {
+      const { status, body } = await post({ feature: 'copy', edit: EDIT, kind: 'mirror' });
+      expect(status).toBe(400);
+      expect(body.error).toContain('kind must be');
+    });
+
+    it('422s an edit whose statement is not a copy', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'copy',
+        edit: { filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+        kind: 'linear', spacingMode: 'offset',
+        directions: [{ count: 3, value: 40 }],
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('not a copy');
       expect(relayed).toHaveLength(0);
     });
   });

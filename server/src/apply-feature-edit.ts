@@ -105,7 +105,7 @@ export function validValueExpr(
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'helix';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'helix';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -137,6 +137,8 @@ export type ApplyFeatureEditSpec = {
   helix?: HelixEditOptions;
   /** Repeat-only payload; `parts` (if any) render the axis/plane selector. */
   repeat?: RepeatEditOptions;
+  /** Copy-only payload; `parts` (if any) render the axis selector. */
+  copy?: CopyEditOptions;
   filePath: string;
   producers: {
     line: number;
@@ -353,6 +355,29 @@ export type FeatureStatementEditTarget = {
     sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
     /** Rotate only: rotation angle in degrees; 90 renders no argument. */
     angle?: ValueExpr;
+    /** Full replacement target list; absent keeps the statement's targets. */
+    targets?: RepeatEditTargetSource[];
+  };
+  /**
+   * Copy options. Axis slots and the target list carry keep
+   * (`keep`/`verbatim`) entries that re-read the statement's own argument
+   * texts at apply time; re-sourced entries render from producers/parts like
+   * create mode. An absent target list keeps every statement target.
+   */
+  copy?: {
+    kind: 'linear' | 'circular';
+    /** Linear directions in axis order — each its own axis, count and value. */
+    directions?: { axis: RepeatEditAxis; count: ValueExpr; value: ValueExpr }[];
+    /** Linear spacing semantics shared by every direction. */
+    spacingMode?: 'offset' | 'length';
+    /** Linear only: center the pattern on the original instance. */
+    centered?: boolean;
+    /** The copy axis (circular); linear carries axes per direction. */
+    axis?: RepeatEditAxis;
+    /** Instance count, original included (circular). */
+    count?: ValueExpr;
+    /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
+    sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
     /** Full replacement target list; absent keeps the statement's targets. */
     targets?: RepeatEditTargetSource[];
   };
@@ -580,6 +605,37 @@ export type RepeatEditOptions = {
   /** Rotate only: rotation angle in degrees; 90 renders no argument. */
   angle?: ValueExpr;
   /** The features being repeated, in argument order — bound producers. */
+  targets: { producer: number }[];
+};
+
+/**
+ * How a copy statement is rendered and placed:
+ * `copy('linear', <axis>, { count, offset|length[, centered] }, …targets)`
+ * — or, with several directions, the array forms `copy('linear', [<a1>,
+ * <a2>], { count: [c1, c2], offset: [v1, v2] }, …)` — or
+ * `copy('circular', <axis>, { count, angle|offset }, …targets)`. Targets are
+ * the feature statements being copied, each bound to a variable (featureType
+ * `feature` producers — any repeatable builder callee, not just sketches).
+ * Every axis takes the revolve axis shapes (standard / axis statement /
+ * picked edge as `axis(<selector>)`). The statement always inserts at end of
+ * scope: a copy replays its targets over the finished model, and a picked
+ * selector must resolve there.
+ */
+export type CopyEditOptions = {
+  kind: 'linear' | 'circular';
+  /** Linear directions in axis order — each its own axis, count and value. */
+  directions?: { axis: RepeatAxisSpec; count: ValueExpr; value: ValueExpr }[];
+  /** Linear spacing semantics shared by every direction. */
+  spacingMode?: 'offset' | 'length';
+  /** The copy axis (circular); linear carries axes per direction. */
+  axis?: RepeatAxisSpec;
+  /** Instance count, original included (circular). */
+  count?: ValueExpr;
+  /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
+  sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
+  /** Linear only: center the pattern on the original instance. */
+  centered?: boolean;
+  /** The features being copied, in argument order — bound producers. */
   targets: { producer: number }[];
 };
 
@@ -937,6 +993,51 @@ export async function applyFeatureEdit(
       && new Set(selectorParts).size === selectorParts.length;
     if (!valid) {
       return { newCode: code, error: 'malformed repeat edit spec' };
+    }
+  } else if (spec.feature === 'copy') {
+    // Every target is a bound feature producer; each picked axis edge
+    // references its own selector part, and every part must belong to
+    // exactly one axis — the parts' producers ride the list alongside the
+    // targets.
+    const cp = spec.copy;
+    const targets = cp?.targets ?? [];
+    const selectorParts: number[] = [];
+    const validPart = (part: number): boolean => {
+      if (!Number.isInteger(part) || part < 0 || part >= spec.parts.length) {
+        return false;
+      }
+      selectorParts.push(part);
+      return true;
+    };
+    const validAxis = (axis: RepeatAxisSpec | undefined): boolean =>
+      axis !== undefined && (axis.kind === 'selector'
+        ? validPart(axis.part)
+        : axis.kind === 'standard'
+          ? axis.axis === 'x' || axis.axis === 'y' || axis.axis === 'z'
+          : isAxisProducer(spec, axis.producer));
+    const validSweep = cp?.sweep !== undefined
+      && (cp.sweep.mode === 'angle' || cp.sweep.mode === 'offset')
+      && validValueExpr(cp.sweep.value, { nonzero: true });
+    const validDirections = Array.isArray(cp?.directions) && cp!.directions!.length >= 1
+      && cp!.directions!.every(d => validAxis(d?.axis)
+        && validCountValue(d.count)
+        && validValueExpr(d.value, { nonzero: true }));
+    const valid = cp !== undefined
+      && targets.length >= 1
+      && targets.every(t => isFeatureProducer(spec, t.producer))
+      && new Set(targets.map(t => t.producer)).size === targets.length
+      && (cp.kind === 'linear'
+        ? validDirections && (cp.spacingMode === 'offset' || cp.spacingMode === 'length')
+          && cp.axis === undefined && cp.count === undefined && cp.sweep === undefined
+        : cp.kind === 'circular'
+          && validAxis(cp.axis) && cp.directions === undefined
+          && validCountValue(cp.count) && validSweep
+          && cp.spacingMode === undefined && cp.centered === undefined)
+      // Every selector part belongs to exactly one axis input.
+      && selectorParts.length === spec.parts.length
+      && new Set(selectorParts).size === selectorParts.length;
+    if (!valid) {
+      return { newCode: code, error: 'malformed copy edit spec' };
     }
   } else if (spec.feature === 'sketch' && spec.sketchOnPlane) {
     // The single producer is the plane statement the sketch targets; there is
@@ -1844,6 +1945,40 @@ export function renderRepeatPlaneExpr(
 }
 
 /**
+ * Render a copy statement from its rendered axis input and target
+ * expressions: `copy('linear', 'x', { count: 3, offset: 40 }, e)` — or the
+ * array forms with several directions, `copy('linear', ['x', a], { count:
+ * [3, 2], offset: [40, 30] }, e)` — or `copy('circular', a, { count: 6,
+ * angle: 360 }, e)`. `inputExprs` is one axis expression per linear
+ * direction; a single-element list for circular. Shared with the route's
+ * preview so the previewed text is exactly what the transform writes.
+ */
+export function renderCopyStatement(
+  cp: Pick<CopyEditOptions, 'kind' | 'spacingMode' | 'centered' | 'count' | 'sweep'>
+    & { directions?: { count: ValueExpr; value: ValueExpr }[] },
+  inputExprs: string[],
+  targetExprs: string[],
+): string {
+  const single = inputExprs.length === 1;
+  const args = [`'${cp.kind}'`, single ? inputExprs[0] : `[${inputExprs.join(', ')}]`];
+  if (cp.kind === 'linear') {
+    const counts = cp.directions!.map(d => formatValue(d.count));
+    const values = cp.directions!.map(d => formatValue(d.value));
+    const entries = [
+      `count: ${single ? counts[0] : `[${counts.join(', ')}]`}`,
+      `${cp.spacingMode}: ${single ? values[0] : `[${values.join(', ')}]`}`,
+    ];
+    if (cp.centered) {
+      entries.push('centered: true');
+    }
+    args.push(`{ ${entries.join(', ')} }`);
+  } else {
+    args.push(`{ count: ${formatValue(cp.count)}, ${cp.sweep!.mode}: ${formatValue(cp.sweep!.value)} }`);
+  }
+  return `copy(${[...args, ...targetExprs].join(', ')})`;
+}
+
+/**
  * Render a loft statement from its ordered profile expressions: `loft(s, s2)`
  * plus `.guides(g)`, `.startCondition('normal')` / `.endCondition('tangent',
  * 2)` (the default magnitude 1 is omitted), and the `.thin(…)` / `.remove()`
@@ -2056,6 +2191,14 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
         ? rp.directions!.map(d => renderRepeatAxisExpr(d.axis, spec.parts, varFor))
         : [renderRepeatAxisExpr(rp.axis!, spec.parts, varFor)];
     return renderRepeatStatement(rp, inputExprs, rp.targets.map(t => bindings[t.producer].varName!));
+  }
+  if (spec.feature === 'copy') {
+    const cp = spec.copy!;
+    const varFor = (i: number): string | null => bindings[i].varName;
+    const inputExprs = cp.kind === 'linear'
+      ? cp.directions!.map(d => renderRepeatAxisExpr(d.axis, spec.parts, varFor))
+      : [renderRepeatAxisExpr(cp.axis!, spec.parts, varFor)];
+    return renderCopyStatement(cp, inputExprs, cp.targets.map(t => bindings[t.producer].varName!));
   }
   if (spec.feature === 'loft') {
     const lo = spec.loft!;
@@ -2278,7 +2421,7 @@ function resolveInsertion(
 // ---------------------------------------------------------------------------
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'helix';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'helix';
 
 /**
  * An existing statement's dialog-editable reading. Argument expressions the
@@ -2423,6 +2566,34 @@ export type ParsedFeatureStatement =
      * timeline rows.
      */
     targetRefs: ({ line: number; column: number } | null)[];
+  }
+  | {
+    feature: 'copy';
+    kind: 'linear' | 'circular';
+    /**
+     * Axis argument texts, verbatim — one per linear direction, a single
+     * entry for circular.
+     */
+    axisTexts: string[];
+    /** Linear per-direction count and value, in axis order. */
+    directions: { count: ValueExpr; value: ValueExpr }[] | null;
+    /** Linear spacing semantics shared by every direction. */
+    spacingMode: 'offset' | 'length' | null;
+    /** Linear only: the pattern is centered on the original instance. */
+    centered: boolean;
+    /** Circular instance count, original included. */
+    count: ValueExpr | null;
+    /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
+    sweep: { mode: 'angle' | 'offset'; value: ValueExpr } | null;
+    /** Trailing target texts, verbatim; empty replays the previous feature. */
+    targetTexts: string[];
+    /**
+     * Per-target source location of the feature statement a plain-identifier
+     * target references, or null when the expression doesn't resolve to one.
+     * Same length as `targetTexts`; lets the edit dialog seed targets as
+     * their timeline rows.
+     */
+    targetRefs: ({ line: number; column: number } | null)[];
   };
 
 const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
@@ -2438,6 +2609,7 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   wrap: 'wrap',
   sketch: 'sketch',
   repeat: 'repeat',
+  copy: 'copy',
   helix: 'helix',
 };
 
@@ -2470,6 +2642,8 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // Everything the dialog edits lives in the root call's arguments; `.name()`
   // and friends are unrecognized members and survive verbatim.
   repeat: new Set(),
+  // Like repeat: everything lives in the root call's arguments.
+  copy: new Set(),
   // The single source is the root argument; every geometry option is a chained
   // configurator. A helix is a wire, so there is no boolean-operation chain.
   helix: new Set(['radius', 'endRadius', 'pitch', 'turns', 'height', 'startOffset', 'endOffset']),
@@ -2766,6 +2940,10 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
 
   if (feature === 'repeat') {
     return parseRepeatChain(args, start, end, numericVars);
+  }
+
+  if (feature === 'copy') {
+    return parseCopyChain(args, start, end);
   }
 
   const isCut = chain.root.name === 'cut';
@@ -3099,9 +3277,9 @@ function numericArrayValues(node: TSNode): ValueExpr[] | null {
 }
 
 /**
- * Resolve a repeat target expression to the statement it references: a plain
- * identifier bound by a `const <name> = <call>` declaration preceding the
- * repeat in a scope that encloses it. The returned location is the bound
+ * Resolve a repeat/copy target expression to the statement it references: a
+ * plain identifier bound by a `const <name> = <call>` declaration preceding
+ * the statement in a scope that encloses it. The returned location is the bound
  * call's own start — the source location its scene object reports — so the
  * edit dialog can seed the target as its timeline row. Null for anything
  * else (inline calls, unresolvable names); the nearest preceding declaration
@@ -3314,6 +3492,159 @@ function parseRepeatChain(
     const value = booleanArgValue(centeredNode);
     if (value === null) {
       return { error: 'the repeat centered flag is not a plain boolean — edit it in the source' };
+    }
+    centered = value;
+  }
+  return {
+    parsed: {
+      ...base,
+      axisTexts,
+      directions: dirCounts.map((count, i) => ({ count, value: dirValues[i] })),
+      spacingMode,
+      centered,
+      ...targets,
+    },
+    start,
+    end,
+  };
+}
+
+/**
+ * A `copy('<kind>', …)` statement's dialog-editable reading. The kind must be
+ * a plain string literal, and only the 3D linear/circular forms have a dialog
+ * — the 2D circular center-point form (an array second argument) refuses.
+ * Axis and target expressions are preserved verbatim, numeric options must be
+ * plain literals. A linear copy reads its options object — count and
+ * offset/length as scalars or matched-arity arrays (a scalar broadcasts
+ * across the directions, the kernel's own rule) — and refuses options the
+ * dialog doesn't offer (`skip`, circular `centered`).
+ */
+function parseCopyChain(
+  args: TSNode[],
+  start: number,
+  end: number,
+): ChainParse {
+  const rawKind = args.length > 0 ? stringArgValue(args[0]) : null;
+  if (rawKind === null) {
+    return { error: 'the copy kind is not a plain string literal — edit it in the source' };
+  }
+  if (rawKind !== 'linear' && rawKind !== 'circular') {
+    return { error: `the copy type '${rawKind}' is not one the dialog knows` };
+  }
+  const kind = rawKind as 'linear' | 'circular';
+  const base = {
+    feature: 'copy' as const,
+    kind,
+    axisTexts: [] as string[],
+    directions: null as { count: ValueExpr; value: ValueExpr }[] | null,
+    spacingMode: null as 'offset' | 'length' | null,
+    centered: false,
+    count: null as ValueExpr | null,
+    sweep: null as { mode: 'angle' | 'offset'; value: ValueExpr } | null,
+    targetTexts: [] as string[],
+    targetRefs: [] as ({ line: number; column: number } | null)[],
+  };
+
+  // Linear / circular: copy('<kind>', <axis|[axes]>, {…}, …targets).
+  if (args.length < 3) {
+    return { error: 'the copy has fewer arguments than the dialog understands' };
+  }
+  const axisNode = args[1];
+  const axisTexts = axisNode.type === 'array'
+    ? axisNode.namedChildren.filter(a => a.type !== 'comment').map(a => a.text)
+    : [axisNode.text];
+  const nodes = args.slice(3);
+  const targets = {
+    targetTexts: nodes.map(n => n.text),
+    targetRefs: nodes.map(n => resolveRepeatTargetRef(n, start)),
+  };
+  const options = objectLiteralEntries(args[2]);
+  if (options === null) {
+    return { error: 'the copy options are not a plain object literal — edit them in the source' };
+  }
+
+  if (kind === 'circular') {
+    if (axisNode.type === 'array') {
+      return { error: 'a circular copy around a center point is not editable in the dialog — edit it in the source' };
+    }
+    for (const key of options.keys()) {
+      if (key !== 'count' && key !== 'angle' && key !== 'offset') {
+        return { error: `the copy option '${key}' is not editable in the dialog — edit it in the source` };
+      }
+    }
+    const countNode = options.get('count');
+    const count = countNode ? anyValueArg(countNode) : null;
+    if (count === null) {
+      return { error: 'the copy count is not a plain number or expression — edit it in the source' };
+    }
+    const angleNode = options.get('angle');
+    const offsetNode = options.get('offset');
+    if ((angleNode === undefined) === (offsetNode === undefined)) {
+      return { error: 'a circular copy takes exactly one of angle or offset — edit it in the source' };
+    }
+    const mode = angleNode !== undefined ? 'angle' as const : 'offset' as const;
+    const value = anyValueArg(angleNode ?? offsetNode!);
+    if (value === null) {
+      return { error: `the copy ${mode} is not a plain number or expression — edit it in the source` };
+    }
+    return {
+      parsed: { ...base, axisTexts, count, sweep: { mode, value }, ...targets },
+      start,
+      end,
+    };
+  }
+
+  // Linear: two directions is the dialog's ceiling (its own writing shape).
+  if (axisTexts.length < 1 || axisTexts.length > 2) {
+    return { error: 'a linear copy over more than two directions is not editable in the dialog — edit it in the source' };
+  }
+  for (const key of options.keys()) {
+    if (key !== 'count' && key !== 'offset' && key !== 'length' && key !== 'centered') {
+      return { error: `the copy option '${key}' is not editable in the dialog — edit it in the source` };
+    }
+  }
+  const countNode = options.get('count');
+  const counts = countNode ? numericArrayValues(countNode) : null;
+  if (counts === null) {
+    return { error: 'the copy count is not a plain number — edit it in the source' };
+  }
+  const offsetNode = options.get('offset');
+  const lengthNode = options.get('length');
+  if ((offsetNode === undefined) === (lengthNode === undefined)) {
+    return { error: 'a linear copy takes exactly one of offset or length — edit it in the source' };
+  }
+  const spacingMode = offsetNode !== undefined ? 'offset' as const : 'length' as const;
+  const values = numericArrayValues(offsetNode ?? lengthNode!);
+  if (values === null) {
+    return { error: `the copy ${spacingMode} is not a plain number — edit it in the source` };
+  }
+  // A scalar (or single-element array) broadcasts across the directions —
+  // the kernel's `counts[i] ?? counts[0]` rule; other arities would leave
+  // the dialog lying about the statement.
+  const arity = axisTexts.length;
+  const broadcast = (list: ValueExpr[], label: string): ValueExpr[] | { error: string } => {
+    if (list.length === arity) {
+      return list;
+    }
+    if (list.length === 1) {
+      return Array.from({ length: arity }, () => list[0]);
+    }
+    return { error: `the copy ${label} entries do not match the directions — edit them in the source` };
+  };
+  const dirCounts = broadcast(counts, 'count');
+  if ('error' in dirCounts) {
+    return dirCounts;
+  }
+  const dirValues = broadcast(values, spacingMode);
+  if ('error' in dirValues) {
+    return dirValues;
+  }
+  let centered = false;
+  const centeredNode = options.get('centered');
+  if (centeredNode !== undefined) {
+    const value = booleanArgValue(centeredNode);
+    if (value === null) {
+      return { error: 'the copy centered flag is not a plain boolean — edit it in the source' };
     }
     centered = value;
   }
@@ -3823,6 +4154,132 @@ function renderEditedRepeat(
 }
 
 /**
+ * Render an edited copy statement: resolve each axis input — keep entries
+ * re-read the statement's own argument texts by position, re-sourced entries
+ * render from producers/parts like create mode — and the target list
+ * (`verbatim` keeps by position, re-picked features by bound producer; an
+ * absent list keeps every statement target). Selector parts must be covered
+ * exactly once across the inputs — never dropped, never duplicated.
+ */
+function renderEditedCopy(
+  parsed: Extract<ParsedFeatureStatement, { feature: 'copy' }>,
+  spec: EditRenderSpec,
+  varFor: (producer: number) => string | null,
+): { statement: string } | { error: string } {
+  const opts = spec.edit?.copy;
+  if (!opts || (opts.kind !== 'linear' && opts.kind !== 'circular')) {
+    return { error: 'malformed copy edit spec' };
+  }
+  const usedParts = new Set<number>();
+  const claimPart = (part: number): boolean => {
+    if (!Number.isInteger(part) || part < 0 || part >= spec.parts.length || usedParts.has(part)) {
+      return false;
+    }
+    usedParts.add(part);
+    return true;
+  };
+  const resolveAxis = (axis: RepeatEditAxis | undefined): string | { error: string } => {
+    if (axis?.kind === 'keep') {
+      const text = Number.isInteger(axis.sourceIndex) ? parsed.axisTexts[axis.sourceIndex] : undefined;
+      if (text === undefined) {
+        return { error: 'malformed copy edit spec: a kept axis no longer matches the statement' };
+      }
+      return text;
+    }
+    if (axis?.kind === 'selector') {
+      if (!claimPart(axis.part)) {
+        return { error: 'malformed copy edit spec: bad selector axis' };
+      }
+    } else if (axis?.kind === 'axis') {
+      if (!isAxisProducer(spec as ApplyFeatureEditSpec, axis.producer)) {
+        return { error: 'malformed copy edit spec: the axis references a non-axis producer' };
+      }
+    } else if (axis?.kind !== 'standard'
+      || (axis.axis !== 'x' && axis.axis !== 'y' && axis.axis !== 'z')) {
+      return { error: 'malformed copy edit spec' };
+    }
+    return renderRepeatAxisExpr(axis, spec.parts, varFor);
+  };
+
+  let inputExprs: string[];
+  let directions: { count: ValueExpr; value: ValueExpr }[] | undefined;
+  if (opts.kind === 'linear') {
+    if (!Array.isArray(opts.directions) || opts.directions.length < 1
+      || (opts.spacingMode !== 'offset' && opts.spacingMode !== 'length')
+      || !opts.directions.every(d => validCountValue(d?.count)
+        && validValueExpr(d.value, { nonzero: true }))) {
+      return { error: 'malformed copy edit spec' };
+    }
+    inputExprs = [];
+    for (const direction of opts.directions) {
+      const expr = resolveAxis(direction.axis);
+      if (typeof expr !== 'string') {
+        return expr;
+      }
+      inputExprs.push(expr);
+    }
+    directions = opts.directions.map(d => ({ count: d.count, value: d.value }));
+  } else {
+    if (!validCountValue(opts.count)
+      || opts.sweep === undefined
+      || (opts.sweep.mode !== 'angle' && opts.sweep.mode !== 'offset')
+      || !validValueExpr(opts.sweep.value, { nonzero: true })) {
+      return { error: 'malformed copy edit spec' };
+    }
+    const expr = resolveAxis(opts.axis);
+    if (typeof expr !== 'string') {
+      return expr;
+    }
+    inputExprs = [expr];
+  }
+
+  let targetExprs = parsed.targetTexts;
+  if (opts.targets !== undefined) {
+    if (!Array.isArray(opts.targets) || opts.targets.length < 1) {
+      return { error: 'a copy needs at least one target feature' };
+    }
+    const usedVerbatim = new Set<number>();
+    const exprs: string[] = [];
+    for (const target of opts.targets) {
+      if (target?.kind === 'verbatim') {
+        if (!Number.isInteger(target.sourceIndex) || target.sourceIndex < 0
+          || target.sourceIndex >= parsed.targetTexts.length || usedVerbatim.has(target.sourceIndex)) {
+          return { error: 'malformed copy edit spec: a kept target no longer matches the statement' };
+        }
+        usedVerbatim.add(target.sourceIndex);
+        exprs.push(parsed.targetTexts[target.sourceIndex]);
+      } else if (target?.kind === 'feature') {
+        if (!isFeatureProducer(spec as ApplyFeatureEditSpec, target.producer)) {
+          return { error: 'malformed copy edit spec: a target references a non-feature producer' };
+        }
+        exprs.push(varFor(target.producer) ?? spec.producers[target.producer].nameHint ?? 'f');
+      } else {
+        return { error: 'malformed copy edit spec: unknown target kind' };
+      }
+    }
+    targetExprs = exprs;
+  }
+  if (usedParts.size !== spec.parts.length) {
+    return { error: 'malformed copy edit spec: a selector part belongs to no input' };
+  }
+
+  return {
+    statement: renderCopyStatement(
+      {
+        kind: opts.kind,
+        directions,
+        spacingMode: opts.spacingMode,
+        centered: opts.centered,
+        count: opts.count,
+        sweep: opts.sweep,
+      },
+      inputExprs,
+      targetExprs,
+    ),
+  };
+}
+
+/**
  * Render the statement `spec`'s dialog options produce over the parsed
  * statement, keeping the expressions the dialog doesn't edit verbatim.
  * Re-sourced slots (a re-picked profile/path/selection) render from
@@ -4087,6 +4544,9 @@ export function renderEditedStatement(
   }
   if (parsed.feature === 'repeat') {
     return renderEditedRepeat(parsed, spec, varFor);
+  }
+  if (parsed.feature === 'copy') {
+    return renderEditedCopy(parsed, spec, varFor);
   }
   if (parsed.feature === 'text') {
     const opts = spec.edit?.text;

@@ -4,6 +4,7 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import copy from "../../core/copy.js";
 import { rect } from "../../core/2d/index.js";
+import axis from "../../core/axis.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { countShapes } from "../utils.js";
@@ -111,6 +112,24 @@ describe("copy linear", () => {
 
     // Original (1) + copies (5) = 6
     expect(countShapes(scene)).toBe(6);
+  });
+
+  it("should copy along an axis object", () => {
+    sketch("xy", () => {
+      rect(20, 20);
+    });
+    const e = extrude(10).new() as ExtrudeBase;
+    const a = axis("x");
+
+    const c = copy("linear", a, { count: 3, offset: 50 }, e) as SceneObject;
+
+    render();
+
+    const shapes = c.getShapes();
+    expect(shapes).toHaveLength(3);
+
+    const bbox1 = ShapeOps.getBoundingBox(shapes[1]);
+    expect(bbox1.minX).toBeCloseTo(50, 0);
   });
 
   it("should skip specified positions", () => {

@@ -840,6 +840,60 @@ export async function applyRepeat(options: RepeatApplyOptions): Promise<ApplyFea
   }, options.signal);
 }
 
+/** One linear copy direction: its axis plus that direction's count and value. */
+export type CopyDirectionRef = {
+  /** The direction's axis — the revolve axis shapes. */
+  axis: RevolveAxisRef;
+  /** Instance count along this direction, the original included. */
+  count: ValueExpr;
+  /** Spacing along this direction, read through the shared `spacingMode`. */
+  value: ValueExpr;
+};
+
+export type CopyApplyOptions = {
+  kind: 'linear' | 'circular';
+  /** The solid-bearing statements being copied (whole-solid picks), in order. */
+  targets: SketchSourceRef[];
+  /** Linear directions in axis order — each its own axis, count and value. */
+  directions?: CopyDirectionRef[];
+  /** Linear spacing semantics shared by every direction. */
+  spacingMode?: 'offset' | 'length';
+  /** The copy axis (circular) — the revolve axis shapes. */
+  axis?: RevolveAxisRef;
+  /** Instance count, original included (circular). */
+  count?: ValueExpr;
+  /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
+  sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
+  /** Linear only: center the copies on the original instance. */
+  centered?: boolean;
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a copy statement
+ * cloning the target solids. Same endpoint and response shape as
+ * {@link applyFeature}.
+ */
+export async function applyCopy(options: CopyApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'copy',
+    kind: options.kind,
+    targets: options.targets,
+    directions: options.directions,
+    spacingMode: options.spacingMode,
+    axis: options.axis,
+    count: options.count,
+    sweep: options.sweep,
+    centered: options.centered,
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
 // ---------------------------------------------------------------------------
 // Feature statement editing (timeline double-click → edit dialog)
 // ---------------------------------------------------------------------------
@@ -1020,6 +1074,33 @@ export type ParsedFeatureStatement =
        * Per-target source location of the feature statement a plain-identifier
        * target references, or null when the expression doesn't resolve to one.
        * Same length as `targetTexts` — seeds each target as its timeline row.
+       */
+      targetRefs: ({ line: number; column: number } | null)[];
+    }
+  | {
+      feature: 'copy';
+      kind: 'linear' | 'circular';
+      /**
+       * Axis argument texts, verbatim — one per linear direction, a single
+       * entry for circular.
+       */
+      axisTexts: string[];
+      /** Linear per-direction count and value, in axis order. */
+      directions: { count: ValueExpr; value: ValueExpr }[] | null;
+      /** Linear spacing semantics shared by every direction. */
+      spacingMode: 'offset' | 'length' | null;
+      /** Linear only: the copies are centered on the original instance. */
+      centered: boolean;
+      /** Circular instance count, original included. */
+      count: ValueExpr | null;
+      /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
+      sweep: { mode: 'angle' | 'offset'; value: ValueExpr } | null;
+      /** Trailing target texts, verbatim; empty copies every active solid. */
+      targetTexts: string[];
+      /**
+       * Per-target source location of the statement a plain-identifier target
+       * references, or null when the expression doesn't resolve to one. Same
+       * length as `targetTexts` — seeds each target as its solid option.
        */
       targetRefs: ({ line: number; column: number } | null)[];
     };
@@ -1331,6 +1412,67 @@ export async function applyRepeatEdit(
     count: options.count,
     sweep: options.sweep,
     angle: options.angle,
+    newVariables: options.newVariables,
+    targets: options.targets,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/**
+ * One axis slot of an edited copy: keep the statement's own axis text by its
+ * position in the parsed `axisTexts`, or re-source it with any create-mode
+ * axis shape.
+ */
+export type CopyEditAxisRef = { kind: 'keep'; sourceIndex: number } | RevolveAxisRef;
+
+/**
+ * One target of an edited copy, in argument order: an untouched target by
+ * its position in the statement's own argument list, or a re-picked solid
+ * statement by call site.
+ */
+export type CopyEditTargetRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'feature' } & SketchSourceRef);
+
+export type CopyEditOptions = EditSessionFields & {
+  kind: 'linear' | 'circular';
+  /** Linear directions in axis order — each its own axis, count and value. */
+  directions?: { axis: CopyEditAxisRef; count: ValueExpr; value: ValueExpr }[];
+  /** Linear spacing semantics shared by every direction. */
+  spacingMode?: 'offset' | 'length';
+  /** Linear only: center the copies on the original instance. */
+  centered?: boolean;
+  /** The copy axis (circular); omitted keeps the statement's own. */
+  axis?: CopyEditAxisRef;
+  /** Instance count, original included (circular). */
+  count?: ValueExpr;
+  /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
+  sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
+  /** Full replacement target list; omitted keeps the statement's own. */
+  targets?: CopyEditTargetRef[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the copy statement at `edit` in place. */
+export async function applyCopyEdit(
+  edit: FeatureEditTarget,
+  options: CopyEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'copy',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    kind: options.kind,
+    directions: options.directions,
+    spacingMode: options.spacingMode,
+    centered: options.centered,
+    axis: options.axis,
+    count: options.count,
+    sweep: options.sweep,
     newVariables: options.newVariables,
     targets: options.targets,
     preview: options.preview,

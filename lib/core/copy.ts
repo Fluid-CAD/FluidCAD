@@ -8,9 +8,31 @@ import { CopyCircular, CircularCopyOptions } from "../features/copy-circular.js"
 import { CopyLinear2D, CopyLinear2DAxis } from "../features/copy-linear2d.js";
 import { CopyCircular2D } from "../features/copy-circular2d.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
+import { CopyAxisSource } from "../features/copy-base.js";
+import { Axis } from "../math/axis.js";
+import { resolveAxis } from "../helpers/resolve.js";
 import { ISceneObject } from "./interfaces.js";
 
 export type CopyType = 'linear' | 'circular';
+
+/**
+ * Resolve a 3D copy axis argument. Scene-resident sources (an axis object or
+ * an edge SceneObject) stay scene objects — they get built before the copy
+ * that consumes them; primitive inputs (world-axis string, raw Axis) stay
+ * concrete Axis values with no extra scene object.
+ */
+function resolveCopyAxis(arg: unknown, context: SceneParserContext): CopyAxisSource {
+  if (arg instanceof AxisObjectBase) {
+    return arg;
+  }
+  if (arg instanceof SceneObject) {
+    return resolveAxis(arg, context);
+  }
+  if (arg instanceof Axis) {
+    return arg;
+  }
+  return normalizeAxis(arg as AxisLike);
+}
 
 interface CopyFunction {
   /**
@@ -95,7 +117,7 @@ function build(context: SceneParserContext): CopyFunction {
         return copy;
       }
 
-      const axes = axisList.map(a => normalizeAxis(a));
+      const axes = axisList.map(a => resolveCopyAxis(a, context));
       const copy = new CopyLinear(axes, options as LinearCopyOptions, objects);
       context.addSceneObject(copy);
       return copy;
@@ -109,7 +131,7 @@ function build(context: SceneParserContext): CopyFunction {
         return copy;
       }
 
-      const axis = normalizeAxis(args[1] as AxisLike);
+      const axis = resolveCopyAxis(args[1], context);
       const copy = new CopyCircular(axis, options as CircularCopyOptions, objects);
       context.addSceneObject(copy);
       return copy;

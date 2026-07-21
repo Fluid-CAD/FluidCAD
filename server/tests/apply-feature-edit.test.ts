@@ -4051,6 +4051,427 @@ describe('applyFeatureEdit (repeat in-place statement edit)', () => {
   });
 });
 
+describe('copy statement templates', () => {
+  const base = [
+    `import { sketch, rect, extrude, cut } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { rect(100, 50) })`,
+    `extrude(30)`,
+    `sketch('xy', () => { rect(10, 10) })`,
+    `cut(5)`,
+  ].join('\n');
+
+  function copySpec(
+    copy: NonNullable<ApplyFeatureEditSpec['copy']>,
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec {
+    return {
+      feature: 'copy',
+      copy,
+      filePath: '/ws/model.fluid.js',
+      producers: [{ line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+      parts: [],
+      imports: [],
+      ...overrides,
+    };
+  }
+
+  it('binds two bare targets and appends a linear copy on a standard axis', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, copySpec({
+      kind: 'linear',
+      spacingMode: 'offset',
+      directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 }],
+      targets: [{ producer: 0 }, { producer: 1 }],
+    }, {
+      producers: [
+        { line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 6, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import {copy, sketch, rect, extrude, cut } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const f = extrude(30)`,
+      `sketch('xy', () => { rect(10, 10) })`,
+      `const f2 = cut(5)`,
+      `copy('linear', 'x', { count: 3, offset: 40 }, f, f2)`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('reuses an existing const target binding', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, copySpec({
+      kind: 'linear',
+      spacingMode: 'offset',
+      directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 }],
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [{ line: 4, column: 10, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`copy('linear', 'x', { count: 3, offset: 40 }, e)`);
+    expect(result.newCode).not.toContain('const f =');
+  });
+
+  it('renders two directions as the array forms with the centered flag', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, copySpec({
+      kind: 'linear',
+      spacingMode: 'offset',
+      directions: [
+        { axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 },
+        { axis: { kind: 'standard', axis: 'y' }, count: 2, value: 30 },
+      ],
+      centered: true,
+      targets: [{ producer: 0 }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `copy('linear', ['x', 'y'], { count: [3, 2], offset: [40, 30], centered: true }, f)`,
+    );
+  });
+
+  it('renders a circular copy with angle and with offset sweeps', async () => {
+    const withAngle = await applyFeatureEdit(`${base}\n`, copySpec({
+      kind: 'circular',
+      axis: { kind: 'standard', axis: 'z' },
+      count: 6,
+      sweep: { mode: 'angle', value: 360 },
+      targets: [{ producer: 0 }],
+    }));
+    expect(withAngle.error).toBeUndefined();
+    expect(withAngle.newCode).toContain(`copy('circular', 'z', { count: 6, angle: 360 }, f)`);
+
+    const withOffset = await applyFeatureEdit(`${base}\n`, copySpec({
+      kind: 'circular',
+      axis: { kind: 'standard', axis: 'z' },
+      count: 6,
+      sweep: { mode: 'offset', value: 30 },
+      targets: [{ producer: 0 }],
+    }));
+    expect(withOffset.error).toBeUndefined();
+    expect(withOffset.newCode).toContain(`copy('circular', 'z', { count: 6, offset: 30 }, f)`);
+  });
+
+  it('renders a picked-edge axis as axis(<selector>) on the target itself', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, copySpec({
+      kind: 'linear',
+      spacingMode: 'offset',
+      directions: [{ axis: { kind: 'selector', part: 0 }, count: 2, value: 25 }],
+      targets: [{ producer: 0 }],
+    }, {
+      parts: [{ producer: 0, accessor: 'endEdges', indices: [2], filterArgs: null }],
+      imports: ['axis'],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `copy('linear', axis(f.endEdges(2)), { count: 2, offset: 25 }, f)`,
+    );
+    expect(result.newCode).toMatch(/import \{[^}]*\baxis\b[^}]*\bcopy\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('renders a circular copy around an existing axis statement, reusing bindings', async () => {
+    const code = [
+      `import { sketch, rect, extrude, axis } from 'fluidcad/core'`,
+      ``,
+      `const a = axis('z')`,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, copySpec({
+      kind: 'circular',
+      axis: { kind: 'axis', producer: 1 },
+      count: 6,
+      sweep: { mode: 'angle', value: 360 },
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [
+        { line: 5, column: 10, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 3, column: 10, featureType: 'axis', nameHint: 'a', bind: true },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`copy('circular', a, { count: 6, angle: 360 }, e)`);
+  });
+
+  it('refuses a target line that holds a sketch call', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, copySpec({
+      kind: 'linear',
+      spacingMode: 'offset',
+      directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 }],
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [{ line: 3, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toContain('expected a feature()-producing call');
+    expect(result.newCode).toBe(`${base}\n`);
+  });
+
+  it('refuses a copy spec with no targets', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, copySpec({
+      kind: 'circular',
+      axis: { kind: 'standard', axis: 'z' },
+      count: 6,
+      sweep: { mode: 'angle', value: 360 },
+      targets: [],
+    }, { producers: [] }));
+    expect(result.error).toBe('malformed copy edit spec');
+    expect(result.newCode).toBe(`${base}\n`);
+  });
+});
+
+const copyEditBase = [
+  `import { sketch, rect, extrude, cut, copy } from 'fluidcad/core'`,
+  ``,
+  `sketch('xy', () => { rect(100, 50) })`,
+  `const e = extrude(30)`,
+  `sketch('xy', () => { rect(10, 10) })`,
+  `const c = cut(5)`,
+].join('\n');
+
+describe('parseFeatureStatement — copy', () => {
+  it('reads a single-direction linear copy', async () => {
+    const code = `${copyEditBase}\ncopy('linear', 'x', { count: 3, offset: 40 }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'copy', kind: 'linear', axisTexts: [`'x'`],
+        directions: [{ count: 3, value: 40 }], spacingMode: 'offset', centered: false,
+        count: null, sweep: null, targetTexts: ['e'],
+        // The bound extrude call's own position — the timeline row's location.
+        targetRefs: [{ line: 4, column: 10 }],
+      },
+      statement: `copy('linear', 'x', { count: 3, offset: 40 }, e)`,
+    });
+  });
+
+  it('reads the two-direction array forms with length and centered', async () => {
+    const code = `${copyEditBase}\ncopy('linear', ['x', a], { count: [3, 2], length: [120, 60], centered: true }, e, c)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'copy', kind: 'linear', axisTexts: [`'x'`, 'a'],
+        directions: [{ count: 3, value: 120 }, { count: 2, value: 60 }],
+        spacingMode: 'length', centered: true, targetTexts: ['e', 'c'],
+      },
+    });
+  });
+
+  it('broadcasts scalar counts and values across two directions', async () => {
+    const code = `${copyEditBase}\ncopy('linear', ['x', 'y'], { count: 3, offset: 40 }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { directions: [{ count: 3, value: 40 }, { count: 3, value: 40 }] },
+    });
+  });
+
+  it('reads a circular copy keeping the axis expression verbatim', async () => {
+    const code = `${copyEditBase}\ncopy('circular', axis(e.endEdges(2)), { count: 6, angle: 360 }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'copy', kind: 'circular', axisTexts: ['axis(e.endEdges(2))'],
+        count: 6, sweep: { mode: 'angle', value: 360 }, targetTexts: ['e'],
+      },
+    });
+  });
+
+  it('refuses the circular center-point form', async () => {
+    const code = `${copyEditBase}\ncopy('circular', [10, 20], { count: 6, angle: 360 }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('center point');
+    }
+  });
+
+  it('refuses a copy type the dialog does not know', async () => {
+    const code = `${copyEditBase}\ncopy('spiral', 'z', { count: 6, angle: 360 }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain(`'spiral'`);
+    }
+  });
+
+  it('refuses an option the dialog does not offer', async () => {
+    const linear = await parseFeatureStatement(
+      `${copyEditBase}\ncopy('linear', 'x', { count: 3, offset: 40, skip: [[1]] }, e)\n`, 7,
+    );
+    expect(linear).toMatchObject({ ok: false });
+    if (linear.ok === false) {
+      expect(linear.reason).toContain(`'skip'`);
+    }
+    const circular = await parseFeatureStatement(
+      `${copyEditBase}\ncopy('circular', 'z', { count: 6, angle: 360, centered: true }, e)\n`, 7,
+    );
+    expect(circular).toMatchObject({ ok: false });
+    if (circular.ok === false) {
+      expect(circular.reason).toContain(`'centered'`);
+    }
+  });
+
+  it('refuses more than two linear directions', async () => {
+    const code = `${copyEditBase}\ncopy('linear', ['x', 'y', 'z'], { count: 2, offset: 10 }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('more than two directions');
+    }
+  });
+
+  it('refuses option arities that do not match the directions', async () => {
+    const code = `${copyEditBase}\ncopy('linear', 'x', { count: [3, 2], offset: 40 }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('do not match the directions');
+    }
+  });
+});
+
+describe('applyFeatureEdit (copy in-place statement edit)', () => {
+  it('replaces the numeric options in place, keeping axis and targets verbatim', async () => {
+    const code = `${copyEditBase}\ncopy('linear', axis(e.endEdges(2)), { count: 3, offset: 40 }, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('copy', {
+      line: 7, column: 0,
+      copy: {
+        kind: 'linear',
+        spacingMode: 'length',
+        directions: [{ axis: { kind: 'keep', sourceIndex: 0 }, count: 5, value: 120 }],
+      },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(
+      `${copyEditBase}\ncopy('linear', axis(e.endEdges(2)), { count: 5, length: 120 }, e)\n`,
+    );
+  });
+
+  it('rewrites a linear copy into a circular one, keeping the axis and targets', async () => {
+    const code = `${copyEditBase}\ncopy('linear', 'z', { count: 3, offset: 40 }, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('copy', {
+      line: 7, column: 0,
+      copy: {
+        kind: 'circular',
+        axis: { kind: 'keep', sourceIndex: 0 },
+        count: 6,
+        sweep: { mode: 'angle', value: 360 },
+      },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`copy('circular', 'z', { count: 6, angle: 360 }, e)\n`);
+  });
+
+  it('preserves the binding and a chained suffix', async () => {
+    const code = `${copyEditBase}\nconst r = copy('linear', 'x', { count: 3, offset: 40 }, e).name('row');\n`;
+    const result = await applyFeatureEdit(code, editSpec('copy', {
+      line: 7, column: 0,
+      copy: {
+        kind: 'linear',
+        spacingMode: 'offset',
+        directions: [{ axis: { kind: 'keep', sourceIndex: 0 }, count: 4, value: 20 }],
+      },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const r = copy('linear', 'x', { count: 4, offset: 20 }, e).name('row');`);
+  });
+
+  it('replaces the target list, mixing kept and re-picked features', async () => {
+    const code = `${copyEditBase}\ncopy('linear', 'x', { count: 3, offset: 40 }, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('copy', {
+      line: 7, column: 0,
+      copy: {
+        kind: 'linear',
+        spacingMode: 'offset',
+        directions: [{ axis: { kind: 'keep', sourceIndex: 0 }, count: 3, value: 40 }],
+        targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }],
+      },
+    }, {
+      producers: [{ line: 6, column: 10, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`copy('linear', 'x', { count: 3, offset: 40 }, e, c)\n`);
+  });
+
+  it('renders a re-picked selector axis from its part', async () => {
+    const code = `${copyEditBase}\ncopy('circular', 'z', { count: 6, angle: 360 }, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('copy', {
+      line: 7, column: 0,
+      copy: {
+        kind: 'circular',
+        axis: { kind: 'selector', part: 0 },
+        count: 6,
+        sweep: { mode: 'angle', value: 360 },
+      },
+    }, {
+      producers: [{ line: 4, column: 10, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endEdges', indices: [3], filterArgs: null }],
+      imports: ['axis'],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`copy('circular', axis(e.endEdges(3)), { count: 6, angle: 360 }, e)\n`);
+    expect(result.newCode).toMatch(/import \{[^}]*\baxis\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('refuses a stale expectedStatement', async () => {
+    const code = `${copyEditBase}\ncopy('linear', 'x', { count: 3, offset: 40 }, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('copy', {
+      line: 7, column: 0,
+      expectedStatement: `copy('linear', 'x', { count: 3, offset: 41 }, e)`,
+      copy: {
+        kind: 'linear',
+        spacingMode: 'offset',
+        directions: [{ axis: { kind: 'keep', sourceIndex: 0 }, count: 4, value: 40 }],
+      },
+    }));
+    expect(result.error).toContain('changed since the dialog opened');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a kept axis the statement does not have', async () => {
+    const code = `${copyEditBase}\ncopy('linear', 'x', { count: 3, offset: 40 }, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('copy', {
+      line: 7, column: 0,
+      copy: {
+        kind: 'circular',
+        axis: { kind: 'keep', sourceIndex: 1 },
+        count: 6,
+        sweep: { mode: 'angle', value: 360 },
+      },
+    }));
+    expect(result.error).toContain('kept axis no longer matches');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses an empty replacement target list', async () => {
+    const code = `${copyEditBase}\ncopy('linear', 'x', { count: 3, offset: 40 }, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('copy', {
+      line: 7, column: 0,
+      copy: {
+        kind: 'linear',
+        spacingMode: 'offset',
+        directions: [{ axis: { kind: 'keep', sourceIndex: 0 }, count: 3, value: 40 }],
+        targets: [],
+      },
+    }));
+    expect(result.error).toContain('at least one target');
+    expect(result.newCode).toBe(code);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Expression values — variables/arithmetic in the dialogs' numeric slots,
 // plus the `newVariables` declarations the expression fields commit.

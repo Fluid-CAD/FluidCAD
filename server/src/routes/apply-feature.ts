@@ -1,13 +1,15 @@
 import { Router } from 'express';
 import type { FluidCadServer, SelectionBoundary } from '../fluidcad-server.ts';
 import {
-  applyFeatureEdit, extractNumericParams, makeProducerNamer, parseFeatureStatement, renderEditedStatement,
+  applyFeatureEdit, extractNumericParams, makeProducerNamer, parseFeatureStatement, renderCopyStatement,
+  renderEditedStatement,
   renderExtrudeStatement, renderHelixStatement, renderLoftStatement, renderPlaneBaseExprs, renderPlaneStatement,
   renderRepeatAxisExpr, renderRepeatPlaneExpr, renderRepeatStatement,
   renderRevolveStatement,
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames, validCountValue, validValueExpr,
-  type ApplyFeatureEditSpec, type ExtrudeEditOptions, type FeatureStatementEditTarget, type HelixEditOptions,
+  type ApplyFeatureEditSpec, type CopyEditOptions, type ExtrudeEditOptions, type FeatureStatementEditTarget,
+  type HelixEditOptions,
   type HelixSourceSpec, type LoftEditOptions,
   type PlaneEditOptions, type RepeatAxisSpec, type RepeatEditAxis, type RepeatEditOptions,
   type RevolveEditOptions, type ShellJoinKind, type SweepEditOptions, type ValueExpr, type WrapEditOptions,
@@ -927,6 +929,139 @@ function validateRepeat(body: any): RepeatRequest | { error: string } {
   };
 }
 
+/** One linear copy direction: its axis plus that direction's count and value. */
+type CopyDirectionInput = { axis: RevolveAxisInput; count: ValueExpr; value: ValueExpr };
+
+type CopyRequest = {
+  kind: 'linear' | 'circular';
+  /** The feature statements being copied, in argument order. */
+  targets: SketchLoc[];
+  /** Linear directions in axis order — each its own axis, count and value. */
+  directions?: CopyDirectionInput[];
+  /** Linear spacing semantics shared by every direction. */
+  spacingMode?: 'offset' | 'length';
+  axis?: RevolveAxisInput;
+  count?: ValueExpr;
+  sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
+  centered?: boolean;
+};
+
+const MAX_COPY_TARGETS = 16;
+const MAX_COPY_DIRECTIONS = 3;
+
+/**
+ * The copy request's shape, mirroring {@link validateRepeat} without the
+ * mirror/rotate kinds: the kind, one or more target feature statements
+ * addressed by their source locations, plus the kind's inputs — linear
+ * directions (each an axis with its own count and value, sharing one
+ * offset/length spacing mode) or a single axis for circular (a standard
+ * world axis, an existing axis statement, or a picked edge), and the numeric
+ * options (count with a sweep for circular).
+ */
+function validateCopy(body: any): CopyRequest | { error: string } {
+  const { kind, targets, count, centered } = body ?? {};
+  if (kind !== 'linear' && kind !== 'circular') {
+    return { error: 'kind must be "linear" or "circular"' };
+  }
+  if (!Array.isArray(targets) || targets.length < 1 || targets.length > MAX_COPY_TARGETS) {
+    return { error: `targets must be 1-${MAX_COPY_TARGETS} feature statements to copy` };
+  }
+  const targetLocs: SketchLoc[] = [];
+  const seen = new Set<string>();
+  for (const raw of targets) {
+    const loc = validateSketchLoc(raw);
+    if (!loc) {
+      return { error: 'each target must be the {filePath, line} of a feature statement' };
+    }
+    if (loc.filePath !== targetLocs[0]?.filePath && targetLocs.length > 0) {
+      return { error: 'the copy targets live in different files' };
+    }
+    const key = `${loc.filePath}:${loc.line}`;
+    if (seen.has(key)) {
+      return { error: 'the same feature was picked twice — each target must be different' };
+    }
+    seen.add(key);
+    targetLocs.push(loc);
+  }
+  const filePath = targetLocs[0].filePath;
+
+  if (body?.plane !== undefined && body?.plane !== null) {
+    return { error: `a ${kind} copy takes an axis, not a plane` };
+  }
+
+  if (kind === 'linear') {
+    for (const key of ['axis', 'count', 'sweep', 'angle'] as const) {
+      if (body?.[key] !== undefined && body?.[key] !== null) {
+        return { error: `a linear copy carries its ${key === 'axis' ? 'axes' : 'counts and values'} in the directions` };
+      }
+    }
+    if (centered !== undefined && typeof centered !== 'boolean') {
+      return { error: 'centered must be a boolean' };
+    }
+    const spacingMode = body?.spacingMode;
+    if (spacingMode !== 'offset' && spacingMode !== 'length') {
+      return { error: 'spacingMode must be "offset" or "length"' };
+    }
+    const raw = body?.directions;
+    if (!Array.isArray(raw) || raw.length < 1 || raw.length > MAX_COPY_DIRECTIONS) {
+      return { error: `directions must be 1-${MAX_COPY_DIRECTIONS} axis directions` };
+    }
+    const directions: CopyDirectionInput[] = [];
+    for (const entry of raw) {
+      const axis = validateRevolveAxis(entry?.axis);
+      if ('error' in axis) {
+        return axis;
+      }
+      if (axis.kind === 'axis' && axis.loc.filePath !== filePath) {
+        return { error: 'an axis and the targets live in different files' };
+      }
+      if (!validCountValue(entry?.count)) {
+        return { error: 'each direction count must be an integer of at least 2 (the original included) or an expression' };
+      }
+      if (!validValueExpr(entry?.value, { nonzero: true })) {
+        return { error: 'each direction value must be a nonzero number or expression' };
+      }
+      directions.push({ axis, count: entry.count, value: entry.value });
+    }
+    return { kind, targets: targetLocs, directions, spacingMode, centered: centered === true };
+  }
+
+  if (body?.directions !== undefined && body?.directions !== null) {
+    return { error: 'only a linear copy takes directions' };
+  }
+  if (body?.spacingMode !== undefined && body?.spacingMode !== null) {
+    return { error: 'only a linear copy takes a spacingMode' };
+  }
+  const axis = validateRevolveAxis(body?.axis);
+  if ('error' in axis) {
+    return axis;
+  }
+  if (axis.kind === 'axis' && axis.loc.filePath !== filePath) {
+    return { error: 'the axis and the targets live in different files' };
+  }
+
+  if (!validCountValue(count)) {
+    return { error: 'count must be an integer of at least 2 (the original included) or an expression' };
+  }
+  if (body?.angle !== undefined && body?.angle !== null) {
+    return { error: 'a circular copy carries its angle in the sweep field' };
+  }
+  if (centered === true) {
+    return { error: 'a circular copy takes no centered flag' };
+  }
+  const sweep = body?.sweep;
+  if (sweep?.mode !== 'angle' && sweep?.mode !== 'offset') {
+    return { error: 'sweep mode must be "angle" or "offset"' };
+  }
+  if (!validValueExpr(sweep.value, { nonzero: true })) {
+    return { error: 'sweep value must be a nonzero number or expression' };
+  }
+  return {
+    kind, targets: targetLocs, axis, count,
+    sweep: { mode: sweep.mode, value: sweep.value },
+  };
+}
+
 /**
  * Producers merged by call site across per-pick synthesis calls (and the
  * request's own sketch/plane inputs); a bind:true entry wins over an anchor.
@@ -997,7 +1132,7 @@ async function allocateProducerVars(
 }
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'helix']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'helix']);
 
 /** One edited loft profile as the request carries it. */
 type EditLoftProfileInput =
@@ -1058,6 +1193,12 @@ type StatementEditRequest = {
   repeatPlane?: { kind: 'keep' } | RepeatPlaneInput;
   /** Full replacement repeat target list; absent keeps the statement's. */
   repeatTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
+  /** Edited copy's linear directions; keep axes stay by source position. */
+  copyDirections?: { axis: RepeatEditAxisInput; count: ValueExpr; value: ValueExpr }[];
+  /** Edited copy's axis (circular); keep stays by source position. */
+  copyAxis?: RepeatEditAxisInput;
+  /** Full replacement copy target list; absent keeps the statement's. */
+  copyTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** True when a source payload carries picks — synthesis needs a boundary. */
   needsPicks: boolean;
 };
@@ -1095,7 +1236,7 @@ function isKeepSlot(raw: any): boolean {
 function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "sweep", "wrap", "loft", "revolve", "helix", "shell", "fillet", "chamfer", "text", "sketch" or "repeat" for an edit' };
+    return { error: 'feature must be "extrude", "sweep", "wrap", "loft", "revolve", "helix", "shell", "fillet", "chamfer", "text", "sketch", "repeat" or "copy" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -1408,6 +1549,10 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
     return validateRepeatEdit(body, base, edit);
   }
 
+  if (feature === 'copy') {
+    return validateCopyEdit(body, base, edit);
+  }
+
   // Shell / fillet / chamfer: the numeric value plus an optional edited
   // selector argument list (the expression row) or a re-picked selection;
   // shell adds its join type.
@@ -1631,6 +1776,142 @@ function validateRepeatEdit(
   return result;
 }
 
+/**
+ * The copy edit request's shape, mirroring {@link validateRepeatEdit} without
+ * the mirror/rotate kinds: axis slots may be `keep` (an absent slot reads as
+ * keep — the statement's own expression stays verbatim), and the optional
+ * target list mixes `verbatim` keeps with re-picked feature statements; an
+ * absent list keeps every statement target. Numeric options land on
+ * `edit.copy`; picked inputs ride the request for boundary synthesis.
+ */
+function validateCopyEdit(
+  body: any,
+  base: StatementEditRequest,
+  edit: FeatureStatementEditTarget,
+): StatementEditRequest | { error: string } {
+  const { kind, count, centered } = body ?? {};
+  if (kind !== 'linear' && kind !== 'circular') {
+    return { error: 'kind must be "linear" or "circular"' };
+  }
+  const result: StatementEditRequest = base;
+  const cp: NonNullable<FeatureStatementEditTarget['copy']> = { kind };
+  edit.copy = cp;
+
+  if (body?.targets !== undefined && body?.targets !== null) {
+    if (!Array.isArray(body.targets) || body.targets.length < 1 || body.targets.length > MAX_COPY_TARGETS) {
+      return { error: `targets must be 1-${MAX_COPY_TARGETS} kept or re-picked features` };
+    }
+    const targets: NonNullable<StatementEditRequest['copyTargets']> = [];
+    const seenIndices = new Set<number>();
+    const seenLocs = new Set<string>();
+    for (const raw of body.targets) {
+      if (raw?.kind === 'verbatim') {
+        if (!Number.isInteger(raw.sourceIndex) || raw.sourceIndex < 0 || seenIndices.has(raw.sourceIndex)) {
+          return { error: 'each kept target must carry a distinct {sourceIndex} into the statement' };
+        }
+        seenIndices.add(raw.sourceIndex);
+        targets.push({ kind: 'verbatim', sourceIndex: raw.sourceIndex });
+      } else if (raw?.kind === 'feature') {
+        const loc = validateSketchLoc(raw);
+        if (!loc) {
+          return { error: 'each re-picked target must be the {filePath, line} of a feature statement' };
+        }
+        const key = `${loc.filePath}:${loc.line}`;
+        if (seenLocs.has(key)) {
+          return { error: 'the same feature was picked twice — each target must be different' };
+        }
+        seenLocs.add(key);
+        targets.push({ kind: 'feature', loc });
+      } else {
+        return { error: 'each target must be {kind: "verbatim"|"feature", …}' };
+      }
+    }
+    result.copyTargets = targets;
+  }
+
+  if (body?.plane !== undefined && body?.plane !== null) {
+    return { error: `a ${kind} copy takes an axis, not a plane` };
+  }
+
+  if (kind === 'linear') {
+    for (const key of ['axis', 'count', 'sweep', 'angle'] as const) {
+      if (body?.[key] !== undefined && body?.[key] !== null) {
+        return { error: `a linear copy carries its ${key === 'axis' ? 'axes' : 'counts and values'} in the directions` };
+      }
+    }
+    if (centered !== undefined && typeof centered !== 'boolean') {
+      return { error: 'centered must be a boolean' };
+    }
+    const spacingMode = body?.spacingMode;
+    if (spacingMode !== 'offset' && spacingMode !== 'length') {
+      return { error: 'spacingMode must be "offset" or "length"' };
+    }
+    const raw = body?.directions;
+    if (!Array.isArray(raw) || raw.length < 1 || raw.length > MAX_COPY_DIRECTIONS) {
+      return { error: `directions must be 1-${MAX_COPY_DIRECTIONS} axis directions` };
+    }
+    const directions: NonNullable<StatementEditRequest['copyDirections']> = [];
+    for (let i = 0; i < raw.length; i++) {
+      const entry = raw[i];
+      // An absent axis keeps the statement's own axis at this position.
+      const axis = entry?.axis === undefined || entry?.axis === null
+        ? { kind: 'keep' as const, sourceIndex: i }
+        : validateRepeatEditAxis(entry.axis);
+      if ('error' in axis) {
+        return axis;
+      }
+      if (!validCountValue(entry?.count)) {
+        return { error: 'each direction count must be an integer of at least 2 (the original included) or an expression' };
+      }
+      if (!validValueExpr(entry?.value, { nonzero: true })) {
+        return { error: 'each direction value must be a nonzero number or expression' };
+      }
+      result.needsPicks ||= axis.kind === 'edge';
+      directions.push({ axis, count: entry.count, value: entry.value });
+    }
+    cp.spacingMode = spacingMode;
+    cp.centered = centered === true ? true : undefined;
+    result.copyDirections = directions;
+    return result;
+  }
+
+  if (body?.directions !== undefined && body?.directions !== null) {
+    return { error: 'only a linear copy takes directions' };
+  }
+  if (body?.spacingMode !== undefined && body?.spacingMode !== null) {
+    return { error: 'only a linear copy takes a spacingMode' };
+  }
+  // An absent axis keeps the statement's own (its single axis argument).
+  const axis = body?.axis === undefined || body?.axis === null
+    ? { kind: 'keep' as const, sourceIndex: 0 }
+    : validateRepeatEditAxis(body.axis);
+  if ('error' in axis) {
+    return axis;
+  }
+  result.needsPicks ||= axis.kind === 'edge';
+  result.copyAxis = axis;
+
+  if (!validCountValue(count)) {
+    return { error: 'count must be an integer of at least 2 (the original included) or an expression' };
+  }
+  if (body?.angle !== undefined && body?.angle !== null) {
+    return { error: 'a circular copy carries its angle in the sweep field' };
+  }
+  if (centered === true) {
+    return { error: 'a circular copy takes no centered flag' };
+  }
+  const sweep = body?.sweep;
+  if (sweep?.mode !== 'angle' && sweep?.mode !== 'offset') {
+    return { error: 'sweep mode must be "angle" or "offset"' };
+  }
+  if (!validValueExpr(sweep.value, { nonzero: true })) {
+    return { error: 'sweep value must be a nonzero number or expression' };
+  }
+  cp.count = count;
+  cp.sweep = { mode: sweep.mode, value: sweep.value };
+  return result;
+}
+
 /** The edited loft profile list: verbatim keeps, sketch refs, face picks. */
 function validateEditLoftProfiles(
   raw: unknown,
@@ -1840,6 +2121,9 @@ export function createApplyFeatureRouter(
           ...(request.repeatAxis?.kind === 'axis' ? [request.repeatAxis.loc] : []),
           ...(request.repeatPlane?.kind === 'plane' ? [request.repeatPlane.loc] : []),
           ...(request.repeatTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
+          ...(request.copyDirections ?? []).flatMap(d => d.axis.kind === 'axis' ? [d.axis.loc] : []),
+          ...(request.copyAxis?.kind === 'axis' ? [request.copyAxis.loc] : []),
+          ...(request.copyTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
         ];
         for (const loc of sketchLocs) {
           if (normalizePath(loc.filePath) !== normalizePath(request.target.filePath)) {
@@ -2187,6 +2471,72 @@ export function createApplyFeatureRouter(
           }
           if (request.repeatTargets) {
             rp.targets = request.repeatTargets.map(target => target.kind === 'verbatim'
+              ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
+              : {
+                kind: 'feature' as const,
+                producer: mergeProducer({
+                  line: target.loc.line, column: target.loc.column,
+                  featureType: 'feature', nameHint: 'f', bind: true,
+                }),
+              });
+          }
+        }
+        if (request.feature === 'copy') {
+          const cp = edit.copy!;
+          // One copy axis input as its edit spec form; null after refusing.
+          // Keeps and standard axes pass through; an axis statement binds a
+          // producer; a picked edge synthesizes its own selector part against
+          // the pre-statement boundary, wrapped in `axis(…)` at render time.
+          const resolveAxis = (input: RepeatEditAxisInput): RepeatEditAxis | null => {
+            if (input.kind === 'keep') {
+              return { kind: 'keep', sourceIndex: input.sourceIndex };
+            }
+            if (input.kind === 'standard') {
+              return { kind: 'standard', axis: input.axis };
+            }
+            if (input.kind === 'axis') {
+              return {
+                kind: 'axis',
+                producer: mergeProducer({
+                  line: input.loc.line, column: input.loc.column,
+                  featureType: 'axis', nameHint: 'a', bind: true,
+                }),
+              };
+            }
+            const synthesis = synthesizeSlot([input.pick], 'revolve', undefined, []);
+            if (!synthesis) {
+              return null;
+            }
+            // The axis argument is ONE SceneObject — a multi-part selection
+            // has no single-expression rendering.
+            if (synthesis.spec.parts.length !== 1) {
+              res.status(422).json({ success: false, reason: 'a copy axis must be a single edge selection' });
+              return null;
+            }
+            const part = foldSynthesis(synthesis);
+            importSet.add('axis');
+            return { kind: 'selector', part };
+          };
+          if (request.copyDirections) {
+            const directions: NonNullable<typeof cp.directions> = [];
+            for (const direction of request.copyDirections) {
+              const axis = resolveAxis(direction.axis);
+              if (axis === null) {
+                return;
+              }
+              directions.push({ axis, count: direction.count, value: direction.value });
+            }
+            cp.directions = directions;
+          }
+          if (request.copyAxis) {
+            const axis = resolveAxis(request.copyAxis);
+            if (axis === null) {
+              return;
+            }
+            cp.axis = axis;
+          }
+          if (request.copyTargets) {
+            cp.targets = request.copyTargets.map(target => target.kind === 'verbatim'
               ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
               : {
                 kind: 'feature' as const,
@@ -3321,6 +3671,162 @@ export function createApplyFeatureRouter(
       return;
     }
 
+    if (feature === 'copy') {
+      const request = validateCopy(req.body);
+      if ('error' in request) {
+        res.status(400).json({ error: request.error });
+        return;
+      }
+      try {
+        const code = fluidCadServer.getCurrentCode();
+        const filePath = request.targets[0].filePath;
+        const { producers, merge: mergeProducer } = makeProducerMerger();
+        const parts: ApplyFeatureEditSpec['parts'] = [];
+        const imports = new Set<string>();
+
+        const targets: CopyEditOptions['targets'] = request.targets.map(loc => ({
+          producer: mergeProducer({
+            line: loc.line, column: loc.column,
+            featureType: 'feature', nameHint: 'f', bind: true,
+          }),
+        }));
+
+        // Built lazily on the first picked input — a pick-less request never
+        // runs synthesis.
+        let synthOptions: {
+          namer?: Awaited<ReturnType<typeof makeProducerNamer>>;
+          params?: { name: string; value: number }[];
+        } | undefined;
+        let synthOptionsReady = false;
+
+        /**
+         * Synthesize one picked axis edge into its own selector part, reusing
+         * the single-selection 'revolve' synthesis kind (it names one edge).
+         * Returns the part index, or null after refusing with a response.
+         */
+        const synthesizeInput = async (pick: Pick): Promise<number | null> => {
+          if (!synthOptionsReady) {
+            synthOptionsReady = true;
+            if (code) {
+              synthOptions = {
+                namer: await makeProducerNamer(code),
+                params: resolveParamValues(
+                  await extractNumericParams(code),
+                  fluidCadServer.getParamDefinitions(),
+                ),
+              };
+            }
+          }
+          const synthesis = fluidCadServer.synthesizeApplyFeature(
+            [pick], 'revolve', undefined, [], synthOptions,
+          );
+          if (!synthesis) {
+            res.status(404).json({ success: false, reason: 'No rendered scene' });
+            return null;
+          }
+          if (!synthesis.ok) {
+            res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
+            return null;
+          }
+          // The axis argument is ONE SceneObject — a multi-part selection
+          // has no single-expression rendering.
+          if (synthesis.spec.parts.length !== 1) {
+            res.status(422).json({ success: false, reason: 'a copy axis must be a single edge selection' });
+            return null;
+          }
+          if (synthesis.spec.filePath !== filePath) {
+            res.status(422).json({ success: false, reason: 'an axis edge and the targets come from different files' });
+            return null;
+          }
+          const remap = synthesis.spec.producers.map(mergeProducer);
+          const part = synthesis.spec.parts[0];
+          parts.push({ ...part, producer: part.producer === null ? null : remap[part.producer] });
+          for (const symbol of synthesis.spec.imports) {
+            imports.add(symbol);
+          }
+          imports.add('axis');
+          return parts.length - 1;
+        };
+
+        /** One validated axis input as its spec form; null after refusing. */
+        const axisSpec = async (input: RevolveAxisInput): Promise<RepeatAxisSpec | null> => {
+          if (input.kind === 'standard') {
+            return { kind: 'standard', axis: input.axis };
+          }
+          if (input.kind === 'axis') {
+            return {
+              kind: 'axis',
+              producer: mergeProducer({
+                line: input.loc.line, column: input.loc.column,
+                featureType: 'axis', nameHint: 'a', bind: true,
+              }),
+            };
+          }
+          const part = await synthesizeInput(input.pick);
+          return part === null ? null : { kind: 'selector', part };
+        };
+
+        let axis: CopyEditOptions['axis'];
+        let directions: CopyEditOptions['directions'];
+        if (request.kind === 'linear') {
+          directions = [];
+          for (const direction of request.directions!) {
+            const resolved = await axisSpec(direction.axis);
+            if (resolved === null) {
+              return;
+            }
+            directions.push({ axis: resolved, count: direction.count, value: direction.value });
+          }
+        } else {
+          const resolved = await axisSpec(request.axis!);
+          if (resolved === null) {
+            return;
+          }
+          axis = resolved;
+        }
+
+        const options: CopyEditOptions = {
+          kind: request.kind,
+          directions,
+          spacingMode: request.spacingMode,
+          axis,
+          count: request.count,
+          sweep: request.sweep,
+          centered: request.centered === true ? true : undefined,
+          targets,
+        };
+        // Truthful preview: the same allocation walk the transform runs.
+        const producerVars = await allocateProducerVars(producers, code);
+        const varFor = (i: number): string | null => producerVars[i];
+        const inputExprs = request.kind === 'linear'
+          ? directions!.map(d => renderRepeatAxisExpr(d.axis, parts, varFor))
+          : [renderRepeatAxisExpr(axis!, parts, varFor)];
+        const statement = renderCopyStatement(
+          options, inputExprs, targets.map(t => producerVars[t.producer] ?? 'f'),
+        );
+        if (preview === true) {
+          res.json({ success: true, preview: statement });
+          return;
+        }
+        sendToExtension({
+          type: 'apply-feature-edit',
+          spec: {
+            feature: 'copy',
+            copy: options,
+            filePath,
+            producers,
+            parts,
+            imports: [...imports],
+            newVariables,
+          },
+        });
+        res.json({ success: true, preview: statement });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
+
     // A pick-less sketch: no face selector — a sketch on an origin plane or
     // an existing plane() feature, appended after the file's last statement.
     // No synthesis is involved; `plane` picks an origin target
@@ -3395,7 +3901,7 @@ export function createApplyFeatureRouter(
       return;
     }
     if (feature !== 'fillet' && feature !== 'chamfer' && feature !== 'shell' && feature !== 'sketch') {
-      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude", "sweep", "wrap", "loft", "revolve", "plane" or "repeat"' });
+      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude", "sweep", "wrap", "loft", "revolve", "plane", "repeat" or "copy"' });
       return;
     }
     // Per-feature numeric parameter: fillet/chamfer need a positive radius or

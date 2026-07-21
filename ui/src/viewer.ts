@@ -73,6 +73,7 @@ export class Viewer {
   private settingsPanel: SettingsPanel;
   private sceneObjects: SceneObjectRender[] = [];
   private highlightedShapeId: string | null = null;
+  private highlightedSolidShapeIds: string[] = [];
   private highlightedSketchWires: string[] = [];
   private faceHighlightMeshes: Mesh[] = [];
   private hasRendered = false;
@@ -534,6 +535,7 @@ export class Viewer {
   updateView(sceneObjects: SceneObjectRender[], isRollback = false, rollbackStop?: number): void {
     this.sceneObjects = sceneObjects;
     this.highlightedShapeId = null;
+    this.highlightedSolidShapeIds = [];
     this.highlightedEntities = [];
     this.faceHighlightMeshes = [];
     this.hoverState = null;
@@ -610,7 +612,14 @@ export class Viewer {
 
   highlightShape(shapeId: string): void {
     this.clearHighlight();
+    this.applyShapeHighlight(shapeId);
+    this.highlightedShapeId = shapeId;
+    this.highlightedEntities = [];
+    this.ctx.render();
+  }
 
+  /** Tint one whole shape (all faces of a solid, or its edges) in place. */
+  private applyShapeHighlight(shapeId: string): void {
     const part = this.findShapeById(shapeId);
     if (!part) return;
 
@@ -645,15 +654,12 @@ export class Viewer {
         }
       }
     });
-
-    this.highlightedShapeId = shapeId;
-    this.highlightedEntities = [];
-    this.ctx.render();
   }
 
   clearHighlight(): void {
     if (!this.highlightedShapeId && this.highlightedEntities.length === 0
-      && this.highlightedSketchWires.length === 0 && this.faceHighlightMeshes.length === 0) {
+      && this.highlightedSketchWires.length === 0 && this.faceHighlightMeshes.length === 0
+      && this.highlightedSolidShapeIds.length === 0) {
       return;
     }
 
@@ -684,6 +690,7 @@ export class Viewer {
     this.faceHighlightMeshes = [];
 
     this.highlightedShapeId = null;
+    this.highlightedSolidShapeIds = [];
     this.highlightedEntities = [];
     this.highlightedSketchWires = [];
     this.ctx.render();
@@ -692,9 +699,14 @@ export class Viewer {
   /**
    * Highlight a set of faces/edges at once (e.g. a measure selection), plus
    * optionally whole sketch wires by shape id (a create dialog's selected
-   * sketch inputs). Replaces any previous highlight.
+   * sketch inputs) and whole solids by shape id (a copy dialog's selected
+   * targets). Replaces any previous highlight.
    */
-  highlightEntities(entities: SelectedEntity[], sketchWireShapeIds: string[] = []): void {
+  highlightEntities(
+    entities: SelectedEntity[],
+    sketchWireShapeIds: string[] = [],
+    solidShapeIds: string[] = [],
+  ): void {
     this.clearHighlight();
     for (const entity of entities) {
       if (entity.sub.type === 'face') {
@@ -706,8 +718,12 @@ export class Viewer {
     for (const shapeId of sketchWireShapeIds) {
       this.applySketchWireHighlight(shapeId);
     }
+    for (const shapeId of solidShapeIds) {
+      this.applyShapeHighlight(shapeId);
+    }
     this.highlightedEntities = entities;
     this.highlightedSketchWires = sketchWireShapeIds;
+    this.highlightedSolidShapeIds = solidShapeIds;
     this.ctx.render();
   }
 

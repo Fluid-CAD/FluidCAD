@@ -4472,6 +4472,259 @@ describe('applyFeatureEdit (copy in-place statement edit)', () => {
   });
 });
 
+describe('boolean statement templates', () => {
+  const base = [
+    `import { sketch, rect, extrude, cut } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { rect(100, 50) })`,
+    `extrude(30)`,
+    `sketch('xy', () => { rect(10, 10) })`,
+    `cut(5)`,
+  ].join('\n');
+
+  function booleanSpec(
+    bool: NonNullable<ApplyFeatureEditSpec['boolean']>,
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec {
+    return {
+      feature: 'boolean',
+      boolean: bool,
+      filePath: '/ws/model.fluid.js',
+      producers: [
+        { line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 6, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+      ],
+      parts: [],
+      imports: [],
+      ...overrides,
+    };
+  }
+
+  it('binds two bare targets and appends a fuse at end of scope', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, booleanSpec({
+      kind: 'fuse',
+      targets: [{ producer: 0 }, { producer: 1 }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import {fuse, sketch, rect, extrude, cut } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const f = extrude(30)`,
+      `sketch('xy', () => { rect(10, 10) })`,
+      `const f2 = cut(5)`,
+      `fuse(f, f2)`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('renders a subtract as base and tool in argument order', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, booleanSpec({
+      kind: 'subtract',
+      targets: [{ producer: 1 }, { producer: 0 }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`subtract(f2, f)`);
+    expect(result.newCode).toMatch(/import \{[^}]*\bsubtract\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('renders a common reusing existing const target bindings', async () => {
+    const code = [
+      `import { sketch, rect, extrude, cut } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      `sketch('xy', () => { rect(10, 10) })`,
+      `const c = cut(5)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, booleanSpec({
+      kind: 'common',
+      targets: [{ producer: 0 }, { producer: 1 }],
+    }, {
+      producers: [
+        { line: 4, column: 10, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 6, column: 10, featureType: 'feature', nameHint: 'f', bind: true },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`common(e, c)`);
+    expect(result.newCode).not.toContain('const f =');
+  });
+
+  it('refuses a subtract that does not take exactly two targets', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, booleanSpec({
+      kind: 'subtract',
+      targets: [{ producer: 0 }],
+    }));
+    expect(result.error).toBe('malformed boolean edit spec');
+    expect(result.newCode).toBe(`${base}\n`);
+  });
+
+  it('refuses a fuse with fewer than two targets', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, booleanSpec({
+      kind: 'fuse',
+      targets: [{ producer: 0 }],
+    }));
+    expect(result.error).toBe('malformed boolean edit spec');
+    expect(result.newCode).toBe(`${base}\n`);
+  });
+
+  it('refuses a target line that holds a sketch call', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, booleanSpec({
+      kind: 'fuse',
+      targets: [{ producer: 0 }, { producer: 1 }],
+    }, {
+      producers: [
+        { line: 3, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 6, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+      ],
+    }));
+    expect(result.error).toContain('expected a feature()-producing call');
+    expect(result.newCode).toBe(`${base}\n`);
+  });
+});
+
+const booleanEditBase = [
+  `import { sketch, rect, extrude, cut, fuse } from 'fluidcad/core'`,
+  ``,
+  `sketch('xy', () => { rect(100, 50) })`,
+  `const e = extrude(30)`,
+  `sketch('xy', () => { rect(10, 10) })`,
+  `const c = cut(5)`,
+].join('\n');
+
+describe('parseFeatureStatement — boolean', () => {
+  it('reads a fuse with identifier targets', async () => {
+    const code = `${booleanEditBase}\nfuse(e, c)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'boolean', kind: 'fuse', targetTexts: ['e', 'c'],
+        // The bound calls' own positions — the timeline rows' locations.
+        targetRefs: [{ line: 4, column: 10 }, { line: 6, column: 10 }],
+      },
+      statement: `fuse(e, c)`,
+    });
+  });
+
+  it('unpacks a single-array argument to its elements', async () => {
+    const code = `${booleanEditBase}\nfuse([e, c])\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'boolean', kind: 'fuse', targetTexts: ['e', 'c'] },
+    });
+  });
+
+  it('reads a subtract as its base and tool', async () => {
+    const code = `${booleanEditBase}\nsubtract(e, c)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'boolean', kind: 'subtract', targetTexts: ['e', 'c'] },
+    });
+  });
+
+  it('reads an implicit common with no targets', async () => {
+    const code = `${booleanEditBase}\ncommon()\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'boolean', kind: 'common', targetTexts: [] },
+    });
+  });
+
+  it('refuses a subtract without exactly two arguments', async () => {
+    const code = `${booleanEditBase}\nsubtract(e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('exactly a base and a tool');
+    }
+  });
+});
+
+describe('applyFeatureEdit (boolean in-place statement edit)', () => {
+  it('rewrites a fuse into a subtract, keeping the targets verbatim', async () => {
+    const code = `${booleanEditBase}\nfuse(e, c)\n`;
+    const result = await applyFeatureEdit(code, editSpec('boolean', {
+      line: 7, column: 0,
+      boolean: { kind: 'subtract' },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`subtract(e, c)\n`);
+    expect(result.newCode).toMatch(/import \{[^}]*\bsubtract\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('replaces the target list, mixing kept and re-picked features', async () => {
+    const code = `${booleanEditBase}\nfuse(e, c)\n`;
+    const result = await applyFeatureEdit(code, editSpec('boolean', {
+      line: 7, column: 0,
+      boolean: {
+        kind: 'fuse',
+        targets: [{ kind: 'verbatim', sourceIndex: 1 }, { kind: 'feature', producer: 0 }],
+      },
+    }, {
+      producers: [{ line: 4, column: 10, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`fuse(c, e)\n`);
+  });
+
+  it('preserves the binding and a chained suffix', async () => {
+    const code = `${booleanEditBase}\nconst r = fuse(e, c).name('both');\n`;
+    const result = await applyFeatureEdit(code, editSpec('boolean', {
+      line: 7, column: 0,
+      boolean: { kind: 'common' },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const r = common(e, c).name('both');`);
+  });
+
+  it('refuses a subtract edit without exactly a base and a tool', async () => {
+    const code = `${booleanEditBase}\nfuse(e, c)\n`;
+    const result = await applyFeatureEdit(code, editSpec('boolean', {
+      line: 7, column: 0,
+      boolean: { kind: 'subtract', targets: [{ kind: 'verbatim', sourceIndex: 0 }] },
+    }));
+    expect(result.error).toContain('exactly a base and a tool');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a kept target the statement does not have', async () => {
+    const code = `${booleanEditBase}\nfuse(e, c)\n`;
+    const result = await applyFeatureEdit(code, editSpec('boolean', {
+      line: 7, column: 0,
+      boolean: { kind: 'fuse', targets: [{ kind: 'verbatim', sourceIndex: 5 }, { kind: 'verbatim', sourceIndex: 0 }] },
+    }));
+    expect(result.error).toContain('kept target no longer matches');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses an empty replacement target list', async () => {
+    const code = `${booleanEditBase}\nfuse(e, c)\n`;
+    const result = await applyFeatureEdit(code, editSpec('boolean', {
+      line: 7, column: 0,
+      boolean: { kind: 'fuse', targets: [] },
+    }));
+    expect(result.error).toContain('at least one target');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a stale expectedStatement', async () => {
+    const code = `${booleanEditBase}\nfuse(e, c)\n`;
+    const result = await applyFeatureEdit(code, editSpec('boolean', {
+      line: 7, column: 0,
+      expectedStatement: `fuse(e, x)`,
+      boolean: { kind: 'common' },
+    }));
+    expect(result.error).toContain('changed since the dialog opened');
+    expect(result.newCode).toBe(code);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Expression values — variables/arithmetic in the dialogs' numeric slots,
 // plus the `newVariables` declarations the expression fields commit.

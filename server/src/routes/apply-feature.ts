@@ -1,14 +1,16 @@
 import { Router } from 'express';
 import type { FluidCadServer, SelectionBoundary } from '../fluidcad-server.ts';
 import {
-  applyFeatureEdit, extractNumericParams, makeProducerNamer, parseFeatureStatement, renderCopyStatement,
+  applyFeatureEdit, extractNumericParams, makeProducerNamer, parseFeatureStatement, renderBooleanStatement,
+  renderCopyStatement,
   renderEditedStatement,
   renderExtrudeStatement, renderHelixStatement, renderLoftStatement, renderPlaneBaseExprs, renderPlaneStatement,
   renderRepeatAxisExpr, renderRepeatPlaneExpr, renderRepeatStatement,
   renderRevolveStatement,
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames, validCountValue, validValueExpr,
-  type ApplyFeatureEditSpec, type CopyEditOptions, type ExtrudeEditOptions, type FeatureStatementEditTarget,
+  type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type CopyEditOptions,
+  type ExtrudeEditOptions, type FeatureStatementEditTarget,
   type HelixEditOptions,
   type HelixSourceSpec, type LoftEditOptions,
   type PlaneEditOptions, type RepeatAxisSpec, type RepeatEditAxis, type RepeatEditOptions,
@@ -1062,6 +1064,52 @@ function validateCopy(body: any): CopyRequest | { error: string } {
   };
 }
 
+type BooleanRequest = {
+  kind: BooleanKind;
+  /** The feature statements being combined, in argument order. */
+  targets: SketchLoc[];
+};
+
+const MAX_BOOLEAN_TARGETS = 16;
+
+/**
+ * The boolean request's shape: the kind (fuse/subtract/common) plus the
+ * target feature statements addressed by their source locations — a base
+ * and a tool for subtract (exactly two, in that order), two or more for
+ * fuse and common. No axes, values or picks — the whole statement is its
+ * targets.
+ */
+function validateBoolean(body: any): BooleanRequest | { error: string } {
+  const { kind, targets } = body ?? {};
+  if (kind !== 'fuse' && kind !== 'subtract' && kind !== 'common') {
+    return { error: 'kind must be "fuse", "subtract" or "common"' };
+  }
+  if (!Array.isArray(targets) || targets.length < 2 || targets.length > MAX_BOOLEAN_TARGETS) {
+    return { error: `targets must be 2-${MAX_BOOLEAN_TARGETS} feature statements to combine` };
+  }
+  if (kind === 'subtract' && targets.length !== 2) {
+    return { error: 'a subtract takes exactly a base and a tool solid' };
+  }
+  const targetLocs: SketchLoc[] = [];
+  const seen = new Set<string>();
+  for (const raw of targets) {
+    const loc = validateSketchLoc(raw);
+    if (!loc) {
+      return { error: 'each target must be the {filePath, line} of a feature statement' };
+    }
+    if (loc.filePath !== targetLocs[0]?.filePath && targetLocs.length > 0) {
+      return { error: 'the boolean targets live in different files' };
+    }
+    const key = `${loc.filePath}:${loc.line}`;
+    if (seen.has(key)) {
+      return { error: 'the same feature was picked twice — each target must be different' };
+    }
+    seen.add(key);
+    targetLocs.push(loc);
+  }
+  return { kind, targets: targetLocs };
+}
+
 /**
  * Producers merged by call site across per-pick synthesis calls (and the
  * request's own sketch/plane inputs); a bind:true entry wins over an anchor.
@@ -1132,7 +1180,7 @@ async function allocateProducerVars(
 }
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'helix']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'boolean', 'helix']);
 
 /** One edited loft profile as the request carries it. */
 type EditLoftProfileInput =
@@ -1199,6 +1247,8 @@ type StatementEditRequest = {
   copyAxis?: RepeatEditAxisInput;
   /** Full replacement copy target list; absent keeps the statement's. */
   copyTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
+  /** Full replacement boolean target list; absent keeps the statement's. */
+  booleanTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** True when a source payload carries picks — synthesis needs a boundary. */
   needsPicks: boolean;
 };
@@ -1236,7 +1286,7 @@ function isKeepSlot(raw: any): boolean {
 function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "sweep", "wrap", "loft", "revolve", "helix", "shell", "fillet", "chamfer", "text", "sketch", "repeat" or "copy" for an edit' };
+    return { error: 'feature must be "extrude", "sweep", "wrap", "loft", "revolve", "helix", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy" or "boolean" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -1551,6 +1601,10 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
 
   if (feature === 'copy') {
     return validateCopyEdit(body, base, edit);
+  }
+
+  if (feature === 'boolean') {
+    return validateBooleanEdit(body, base, edit);
   }
 
   // Shell / fillet / chamfer: the numeric value plus an optional edited
@@ -1912,6 +1966,61 @@ function validateCopyEdit(
   return result;
 }
 
+/**
+ * The boolean edit request's shape: the kind (an edit may rewrite a fuse
+ * into a subtract) plus the optional target list mixing `verbatim` keeps
+ * with re-picked feature statements; an absent list keeps every statement
+ * target. No axes, values or picks — `needsPicks` never flips.
+ */
+function validateBooleanEdit(
+  body: any,
+  base: StatementEditRequest,
+  edit: FeatureStatementEditTarget,
+): StatementEditRequest | { error: string } {
+  const { kind } = body ?? {};
+  if (kind !== 'fuse' && kind !== 'subtract' && kind !== 'common') {
+    return { error: 'kind must be "fuse", "subtract" or "common"' };
+  }
+  const result: StatementEditRequest = base;
+  edit.boolean = { kind };
+
+  if (body?.targets !== undefined && body?.targets !== null) {
+    if (!Array.isArray(body.targets) || body.targets.length < 1 || body.targets.length > MAX_BOOLEAN_TARGETS) {
+      return { error: `targets must be 1-${MAX_BOOLEAN_TARGETS} kept or re-picked features` };
+    }
+    const targets: NonNullable<StatementEditRequest['booleanTargets']> = [];
+    const seenIndices = new Set<number>();
+    const seenLocs = new Set<string>();
+    for (const raw of body.targets) {
+      if (raw?.kind === 'verbatim') {
+        if (!Number.isInteger(raw.sourceIndex) || raw.sourceIndex < 0 || seenIndices.has(raw.sourceIndex)) {
+          return { error: 'each kept target must carry a distinct {sourceIndex} into the statement' };
+        }
+        seenIndices.add(raw.sourceIndex);
+        targets.push({ kind: 'verbatim', sourceIndex: raw.sourceIndex });
+      } else if (raw?.kind === 'feature') {
+        const loc = validateSketchLoc(raw);
+        if (!loc) {
+          return { error: 'each re-picked target must be the {filePath, line} of a feature statement' };
+        }
+        const key = `${loc.filePath}:${loc.line}`;
+        if (seenLocs.has(key)) {
+          return { error: 'the same feature was picked twice — each target must be different' };
+        }
+        seenLocs.add(key);
+        targets.push({ kind: 'feature', loc });
+      } else {
+        return { error: 'each target must be {kind: "verbatim"|"feature", …}' };
+      }
+    }
+    if (kind === 'subtract' && targets.length !== 2) {
+      return { error: 'a subtract takes exactly a base and a tool solid' };
+    }
+    result.booleanTargets = targets;
+  }
+  return result;
+}
+
 /** The edited loft profile list: verbatim keeps, sketch refs, face picks. */
 function validateEditLoftProfiles(
   raw: unknown,
@@ -2124,6 +2233,7 @@ export function createApplyFeatureRouter(
           ...(request.copyDirections ?? []).flatMap(d => d.axis.kind === 'axis' ? [d.axis.loc] : []),
           ...(request.copyAxis?.kind === 'axis' ? [request.copyAxis.loc] : []),
           ...(request.copyTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
+          ...(request.booleanTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
         ];
         for (const loc of sketchLocs) {
           if (normalizePath(loc.filePath) !== normalizePath(request.target.filePath)) {
@@ -2546,6 +2656,19 @@ export function createApplyFeatureRouter(
                 }),
               });
           }
+        }
+        if (request.feature === 'boolean' && request.booleanTargets) {
+          // Every re-picked target is a bound feature producer; keeps stay
+          // text-addressed by their position in the statement.
+          edit.boolean!.targets = request.booleanTargets.map(target => target.kind === 'verbatim'
+            ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
+            : {
+              kind: 'feature' as const,
+              producer: mergeProducer({
+                line: target.loc.line, column: target.loc.column,
+                featureType: 'feature', nameHint: 'f', bind: true,
+              }),
+            });
         }
 
         const spec: ApplyFeatureEditSpec = {
@@ -3827,6 +3950,54 @@ export function createApplyFeatureRouter(
       return;
     }
 
+    if (feature === 'boolean') {
+      const request = validateBoolean(req.body);
+      if ('error' in request) {
+        res.status(400).json({ error: request.error });
+        return;
+      }
+      try {
+        const code = fluidCadServer.getCurrentCode();
+        const filePath = request.targets[0].filePath;
+        const { producers, merge: mergeProducer } = makeProducerMerger();
+
+        const options: BooleanEditOptions = {
+          kind: request.kind,
+          targets: request.targets.map(loc => ({
+            producer: mergeProducer({
+              line: loc.line, column: loc.column,
+              featureType: 'feature', nameHint: 'f', bind: true,
+            }),
+          })),
+        };
+        // Truthful preview: the same allocation walk the transform runs.
+        const producerVars = await allocateProducerVars(producers, code);
+        const statement = renderBooleanStatement(
+          options.kind, options.targets.map(t => producerVars[t.producer] ?? 'f'),
+        );
+        if (preview === true) {
+          res.json({ success: true, preview: statement });
+          return;
+        }
+        sendToExtension({
+          type: 'apply-feature-edit',
+          spec: {
+            feature: 'boolean',
+            boolean: options,
+            filePath,
+            producers,
+            parts: [],
+            imports: [],
+            newVariables,
+          },
+        });
+        res.json({ success: true, preview: statement });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
+
     // A pick-less sketch: no face selector — a sketch on an origin plane or
     // an existing plane() feature, appended after the file's last statement.
     // No synthesis is involved; `plane` picks an origin target
@@ -3901,7 +4072,7 @@ export function createApplyFeatureRouter(
       return;
     }
     if (feature !== 'fillet' && feature !== 'chamfer' && feature !== 'shell' && feature !== 'sketch') {
-      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude", "sweep", "wrap", "loft", "revolve", "plane", "repeat" or "copy"' });
+      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude", "sweep", "wrap", "loft", "revolve", "plane", "repeat", "copy" or "boolean"' });
       return;
     }
     // Per-feature numeric parameter: fillet/chamfer need a positive radius or

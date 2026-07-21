@@ -894,6 +894,36 @@ export async function applyCopy(options: CopyApplyOptions): Promise<ApplyFeature
   }, options.signal);
 }
 
+/** The three boolean operations — each its own callee, one shared dialog. */
+export type BooleanKind = 'fuse' | 'subtract' | 'common';
+
+export type BooleanApplyOptions = {
+  kind: BooleanKind;
+  /**
+   * The solid-bearing statements being combined (whole-solid picks), in
+   * argument order — [base, tool] for subtract, two or more for fuse/common.
+   */
+  targets: SketchSourceRef[];
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a boolean
+ * statement — `fuse(a, b)`, `subtract(base, tool)` or `common(a, b)` —
+ * combining the target solids. Same endpoint and response shape as
+ * {@link applyFeature}.
+ */
+export async function applyBoolean(options: BooleanApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'boolean',
+    kind: options.kind,
+    targets: options.targets,
+    preview: options.preview,
+  }, options.signal);
+}
+
 // ---------------------------------------------------------------------------
 // Feature statement editing (timeline double-click → edit dialog)
 // ---------------------------------------------------------------------------
@@ -1096,6 +1126,22 @@ export type ParsedFeatureStatement =
       /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
       sweep: { mode: 'angle' | 'offset'; value: ValueExpr } | null;
       /** Trailing target texts, verbatim; empty copies every active solid. */
+      targetTexts: string[];
+      /**
+       * Per-target source location of the statement a plain-identifier target
+       * references, or null when the expression doesn't resolve to one. Same
+       * length as `targetTexts` — seeds each target as its solid option.
+       */
+      targetRefs: ({ line: number; column: number } | null)[];
+    }
+  | {
+      feature: 'boolean';
+      /** The statement's own callee — fuse, subtract or common. */
+      kind: BooleanKind;
+      /**
+       * Target texts, verbatim, in argument order; empty operates on every
+       * active shape.
+       */
       targetTexts: string[];
       /**
        * Per-target source location of the statement a plain-identifier target
@@ -1474,6 +1520,39 @@ export async function applyCopyEdit(
     count: options.count,
     sweep: options.sweep,
     newVariables: options.newVariables,
+    targets: options.targets,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/**
+ * One target of an edited boolean, in argument order: an untouched target by
+ * its position in the statement's own argument list, or a re-picked solid
+ * statement by call site.
+ */
+export type BooleanEditTargetRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'feature' } & SketchSourceRef);
+
+export type BooleanEditOptions = EditSessionFields & {
+  /** The callee to write — an edit may rewrite a fuse into a subtract. */
+  kind: BooleanKind;
+  /** Full replacement target list; omitted keeps the statement's own. */
+  targets?: BooleanEditTargetRef[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the boolean statement at `edit` in place. */
+export async function applyBooleanEdit(
+  edit: FeatureEditTarget,
+  options: BooleanEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'boolean',
+    edit,
+    expectedStatement: options.expectedStatement,
+    kind: options.kind,
     targets: options.targets,
     preview: options.preview,
   }, options.signal);

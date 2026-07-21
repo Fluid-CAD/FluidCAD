@@ -13,7 +13,7 @@ import { FeatureButton } from './feature-button';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
-import { collectCopyTargets, copyTargetForRow, copyTargetForShapeId, CopyTargetOption } from './copy-targets';
+import { collectSolidTargets, solidTargetForRow, solidTargetForShapeId, SolidTargetOption } from './solid-targets';
 import {
   AXIS_CONSUMED_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
   axisOptionsSignature, collectAxisOptions, labelWithAxisNames, pickedAxisRef,
@@ -35,7 +35,7 @@ export type CopyEnterSeed = {
  * own label and a re-pick toggles it like create mode.
  */
 type CopyTargetChoice =
-  | { kind: 'option'; option: CopyTargetOption }
+  | { kind: 'option'; option: SolidTargetOption }
   | { kind: 'keep'; sourceIndex: number; label: string; loc?: { filePath: string; line: number; column: number } };
 
 /**
@@ -55,7 +55,7 @@ export class CopyFeatureService {
   private button: FeatureButton;
   private armed = false;
   private available = false;
-  private targetOptions: CopyTargetOption[] = [];
+  private targetOptions: SolidTargetOption[] = [];
   /** The chosen targets, in pick order — the copy's argument order. */
   private targets: CopyTargetChoice[] = [];
   private axes: AxisOption[] = [];
@@ -217,7 +217,7 @@ export class CopyFeatureService {
     }
     // At the boundary: rebuild options from the pre-statement scene.
     this.sceneObjects = sceneObjects;
-    this.targetOptions = collectCopyTargets(sceneObjects);
+    this.targetOptions = collectSolidTargets(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
     if (this.editSceneStale) {
       this.editSceneStale = false;
@@ -257,7 +257,7 @@ export class CopyFeatureService {
 
   update(sceneObjects: SceneObjectRender[]): void {
     this.sceneObjects = sceneObjects;
-    this.targetOptions = collectCopyTargets(sceneObjects);
+    this.targetOptions = collectSolidTargets(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
     this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';
     this.available = this.targetOptions.length > 0;
@@ -387,7 +387,7 @@ export class CopyFeatureService {
    */
   private seedFromSelection({ seed }: CopyEnterSeed): void {
     for (const entity of seed) {
-      const option = copyTargetForShapeId(entity.shapeId, this.targetOptions);
+      const option = solidTargetForShapeId(entity.shapeId, this.targetOptions);
       if (option && !this.targets.some(t => t.kind === 'option'
         && t.option.filePath === option.filePath && t.option.line === option.line)) {
         this.targets.push({ kind: 'option', option });
@@ -465,7 +465,7 @@ export class CopyFeatureService {
       return;
     }
     if ((sub.type === 'face' || sub.type === 'edge') && this.panel.armedSlot === 'targets') {
-      const option = copyTargetForShapeId(shapeId, this.targetOptions);
+      const option = solidTargetForShapeId(shapeId, this.targetOptions);
       if (!option) {
         this.panel.setMessage('That shape cannot be copied — pick a solid.');
         return;
@@ -493,7 +493,7 @@ export class CopyFeatureService {
       this.pickAxis(option);
       return true;
     }
-    const option = copyTargetForRow(obj, this.targetOptions);
+    const option = solidTargetForRow(obj, this.targetOptions);
     if (!option) {
       this.panel.setMessage('That row has no solid to copy — pick a solid-producing feature.');
       return true;
@@ -503,7 +503,7 @@ export class CopyFeatureService {
   }
 
   /** Toggle a solid target chip (viewport or timeline pick). */
-  private toggleTarget(option: CopyTargetOption): void {
+  private toggleTarget(option: SolidTargetOption): void {
     // A kept target that resolved to this statement counts as the same chip
     // — the pick toggles it off instead of duplicating the solid.
     const existing = this.targets.findIndex(t => t.kind === 'option'

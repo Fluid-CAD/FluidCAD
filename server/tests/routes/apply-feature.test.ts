@@ -118,7 +118,7 @@ describe('apply-feature route validation', () => {
   it('rejects an unknown feature', async () => {
     const { status, body } = await post({ feature: 'draft', value: 2, entities: [PICK] });
     expect(status).toBe(400);
-    expect(body.error).toContain('"revolve", "plane", "repeat" or "copy"');
+    expect(body.error).toContain('"revolve", "plane", "repeat", "copy" or "boolean"');
   });
 
   it('rejects a non-positive fillet value', async () => {
@@ -2676,6 +2676,169 @@ describe('apply-feature route validation', () => {
       });
       expect(status).toBe(422);
       expect(body.reason).toContain('not a copy');
+      expect(relayed).toHaveLength(0);
+    });
+  });
+
+  describe('boolean', () => {
+    const T1 = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };
+    const T2 = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
+    const CODE = [
+      "import { sketch, rect, extrude, cut } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { rect(100, 50) })",
+      'extrude(30)',
+      "sketch('xy', () => { rect(10, 10) })",
+      'cut(5)',
+      '',
+    ].join('\n');
+
+    it('rejects an unknown kind', async () => {
+      const { status, body } = await post({ feature: 'boolean', kind: 'union', targets: [T1, T2] });
+      expect(status).toBe(400);
+      expect(body.error).toContain('kind must be');
+    });
+
+    it('rejects fewer than two targets', async () => {
+      const { status, body } = await post({ feature: 'boolean', kind: 'fuse', targets: [T1] });
+      expect(status).toBe(400);
+      expect(body.error).toContain('targets must be 2-16');
+    });
+
+    it('rejects a subtract that does not take exactly two targets', async () => {
+      const { status, body } = await post({
+        feature: 'boolean', kind: 'subtract',
+        targets: [T1, T2, { filePath: '/ws/m.fluid.js', line: 8, column: 0 }],
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('exactly a base and a tool');
+    });
+
+    it('rejects the same target picked twice', async () => {
+      const { status, body } = await post({ feature: 'boolean', kind: 'fuse', targets: [T1, T1] });
+      expect(status).toBe(400);
+      expect(body.error).toContain('picked twice');
+    });
+
+    it('previews and relays a fuse', async () => {
+      currentCode = CODE;
+      const fuseBody = { feature: 'boolean', kind: 'fuse', targets: [T1, T2] };
+      const preview = await post({ ...fuseBody, preview: true });
+      expect(preview.status).toBe(200);
+      expect(preview.body.preview).toBe('fuse(f, f2)');
+      expect(relayed).toEqual([]);
+      expect(synthesizeCalls).toEqual([]);
+
+      const { status, body } = await post(fuseBody);
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(relayed[0].type).toBe('apply-feature-edit');
+      expect(spec.feature).toBe('boolean');
+      expect(spec.boolean.kind).toBe('fuse');
+      expect(spec.boolean.targets).toEqual([{ producer: 0 }, { producer: 1 }]);
+      expect(spec.producers).toHaveLength(2);
+      expect(spec.producers.every((p: any) => p.featureType === 'feature' && p.bind)).toBe(true);
+      expect(spec.parts).toEqual([]);
+      expect(spec.imports).toEqual([]);
+    });
+
+    it('previews a subtract in base-then-tool argument order', async () => {
+      currentCode = CODE;
+      const { status, body } = await post({
+        feature: 'boolean', kind: 'subtract', targets: [T2, T1],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('subtract(f, f2)');
+      const spec = relayed[0].spec;
+      expect(spec.boolean.targets).toEqual([{ producer: 0 }, { producer: 1 }]);
+      expect(spec.producers[0].line).toBe(6);
+      expect(spec.producers[1].line).toBe(4);
+    });
+  });
+
+  describe('boolean edit', () => {
+    const EDIT_CODE = [
+      "import { sketch, rect, extrude, cut, fuse } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { rect(100, 50) })",
+      'const e = extrude(30)',
+      "sketch('xy', () => { rect(10, 10) })",
+      'const c = cut(5)',
+      'fuse(e, c)',
+      '',
+    ].join('\n');
+    const EDIT = { filePath: '/ws/m.fluid.js', line: 7, column: 0 };
+
+    it('relays a kind switch keeping the targets and previews it', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({ feature: 'boolean', edit: EDIT, kind: 'subtract' });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('subtract(e, c)');
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'boolean',
+        producers: [],
+        parts: [],
+        edit: {
+          line: 7, column: 0,
+          boolean: { kind: 'subtract' },
+        },
+        clearBreakpoints: true,
+      });
+      expect(relayed[0].spec.edit.boolean.targets).toBeUndefined();
+    });
+
+    it('replaces the target list, mixing kept and re-picked features', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'boolean', edit: EDIT, kind: 'fuse',
+        targets: [
+          { kind: 'verbatim', sourceIndex: 1 },
+          { kind: 'feature', filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('fuse(c, e)');
+      expect(relayed[0].spec).toMatchObject({
+        producers: [{ line: 4, featureType: 'feature', bind: true }],
+        edit: {
+          boolean: {
+            kind: 'fuse',
+            targets: [{ kind: 'verbatim', sourceIndex: 1 }, { kind: 'feature', producer: 0 }],
+          },
+        },
+      });
+    });
+
+    it('rejects an unknown kind on an edit', async () => {
+      const { status, body } = await post({ feature: 'boolean', edit: EDIT, kind: 'union' });
+      expect(status).toBe(400);
+      expect(body.error).toContain('kind must be');
+    });
+
+    it('rejects a subtract edit without exactly two targets', async () => {
+      const { status, body } = await post({
+        feature: 'boolean', edit: EDIT, kind: 'subtract',
+        targets: [{ kind: 'verbatim', sourceIndex: 0 }],
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('exactly a base and a tool');
+    });
+
+    it('422s an edit whose statement is not a boolean', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'boolean',
+        edit: { filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+        kind: 'fuse',
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('not a boolean');
       expect(relayed).toHaveLength(0);
     });
   });

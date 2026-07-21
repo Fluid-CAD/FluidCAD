@@ -105,7 +105,7 @@ export function validValueExpr(
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'helix';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'boolean' | 'helix';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -139,6 +139,8 @@ export type ApplyFeatureEditSpec = {
   repeat?: RepeatEditOptions;
   /** Copy-only payload; `parts` (if any) render the axis selector. */
   copy?: CopyEditOptions;
+  /** Boolean-only payload (fuse/subtract/common); no selector parts. */
+  boolean?: BooleanEditOptions;
   filePath: string;
   producers: {
     line: number;
@@ -378,6 +380,18 @@ export type FeatureStatementEditTarget = {
     count?: ValueExpr;
     /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
     sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
+    /** Full replacement target list; absent keeps the statement's targets. */
+    targets?: RepeatEditTargetSource[];
+  };
+  /**
+   * Boolean options (fuse/subtract/common). The kind picks the callee — an
+   * edit may rewrite a fuse into a subtract. The target list mixes
+   * `verbatim` keeps (re-read from the statement's own argument texts) with
+   * re-picked feature statements; an absent list keeps every statement
+   * target.
+   */
+  boolean?: {
+    kind: BooleanKind;
     /** Full replacement target list; absent keeps the statement's targets. */
     targets?: RepeatEditTargetSource[];
   };
@@ -636,6 +650,23 @@ export type CopyEditOptions = {
   /** Linear only: center the pattern on the original instance. */
   centered?: boolean;
   /** The features being copied, in argument order — bound producers. */
+  targets: { producer: number }[];
+};
+
+/** The three boolean operations — each its own callee, one shared dialog. */
+export type BooleanKind = 'fuse' | 'subtract' | 'common';
+
+/**
+ * How a boolean statement is rendered and placed: `fuse(a, b)`,
+ * `subtract(base, tool)` or `common(a, b)`. Targets are the solid-bearing
+ * feature statements being combined, each bound to a variable (featureType
+ * `feature` producers). A subtract takes exactly a base and a tool, in that
+ * order; fuse and common take two or more. The statement always inserts at
+ * end of scope: a boolean combines its targets over the finished model.
+ */
+export type BooleanEditOptions = {
+  kind: BooleanKind;
+  /** The features being combined, in argument order — bound producers. */
   targets: { producer: number }[];
 };
 
@@ -1038,6 +1069,21 @@ export async function applyFeatureEdit(
       && new Set(selectorParts).size === selectorParts.length;
     if (!valid) {
       return { newCode: code, error: 'malformed copy edit spec' };
+    }
+  } else if (spec.feature === 'boolean') {
+    // Every target is a bound feature producer; booleans render no selector
+    // parts at all. A subtract takes exactly a base and a tool; fuse and
+    // common take two or more.
+    const bo = spec.boolean;
+    const targets = bo?.targets ?? [];
+    const valid = bo !== undefined
+      && (bo.kind === 'fuse' || bo.kind === 'subtract' || bo.kind === 'common')
+      && (bo.kind === 'subtract' ? targets.length === 2 : targets.length >= 2)
+      && targets.every(t => isFeatureProducer(spec, t.producer))
+      && new Set(targets.map(t => t.producer)).size === targets.length
+      && spec.parts.length === 0;
+    if (!valid) {
+      return { newCode: code, error: 'malformed boolean edit spec' };
     }
   } else if (spec.feature === 'sketch' && spec.sketchOnPlane) {
     // The single producer is the plane statement the sketch targets; there is
@@ -1654,6 +1700,9 @@ function statementCallee(spec: ApplyFeatureEditSpec): string {
   if (spec.feature === 'extrude') {
     return spec.extrude!.op === 'remove' ? 'cut' : 'extrude';
   }
+  if (spec.feature === 'boolean') {
+    return spec.boolean!.kind;
+  }
   return spec.feature;
 }
 
@@ -1979,6 +2028,15 @@ export function renderCopyStatement(
 }
 
 /**
+ * Render a boolean statement from its target expressions: `fuse(a, b)`,
+ * `subtract(base, tool)` or `common(a, b)`. Shared with the route's preview
+ * so the previewed text is exactly what the transform writes.
+ */
+export function renderBooleanStatement(kind: BooleanKind, targetExprs: string[]): string {
+  return `${kind}(${targetExprs.join(', ')})`;
+}
+
+/**
  * Render a loft statement from its ordered profile expressions: `loft(s, s2)`
  * plus `.guides(g)`, `.startCondition('normal')` / `.endCondition('tangent',
  * 2)` (the default magnitude 1 is omitted), and the `.thin(…)` / `.remove()`
@@ -2199,6 +2257,10 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
       ? cp.directions!.map(d => renderRepeatAxisExpr(d.axis, spec.parts, varFor))
       : [renderRepeatAxisExpr(cp.axis!, spec.parts, varFor)];
     return renderCopyStatement(cp, inputExprs, cp.targets.map(t => bindings[t.producer].varName!));
+  }
+  if (spec.feature === 'boolean') {
+    const bo = spec.boolean!;
+    return renderBooleanStatement(bo.kind, bo.targets.map(t => bindings[t.producer].varName!));
   }
   if (spec.feature === 'loft') {
     const lo = spec.loft!;
@@ -2421,7 +2483,7 @@ function resolveInsertion(
 // ---------------------------------------------------------------------------
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'helix';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'boolean' | 'helix';
 
 /**
  * An existing statement's dialog-editable reading. Argument expressions the
@@ -2594,6 +2656,23 @@ export type ParsedFeatureStatement =
      * their timeline rows.
      */
     targetRefs: ({ line: number; column: number } | null)[];
+  }
+  | {
+    feature: 'boolean';
+    /** The statement's own callee — fuse, subtract or common. */
+    kind: BooleanKind;
+    /**
+     * Target texts, verbatim, in argument order (a single-array form is
+     * unpacked to its elements); empty operates on every active shape.
+     */
+    targetTexts: string[];
+    /**
+     * Per-target source location of the feature statement a plain-identifier
+     * target references, or null when the expression doesn't resolve to one.
+     * Same length as `targetTexts`; lets the edit dialog seed targets as
+     * their timeline rows.
+     */
+    targetRefs: ({ line: number; column: number } | null)[];
   };
 
 const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
@@ -2610,6 +2689,9 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   sketch: 'sketch',
   repeat: 'repeat',
   copy: 'copy',
+  fuse: 'boolean',
+  subtract: 'boolean',
+  common: 'boolean',
   helix: 'helix',
 };
 
@@ -2644,6 +2726,9 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   repeat: new Set(),
   // Like repeat: everything lives in the root call's arguments.
   copy: new Set(),
+  // The targets are the root call's arguments; `.name()` and friends are
+  // unrecognized members and survive verbatim.
+  boolean: new Set(),
   // The single source is the root argument; every geometry option is a chained
   // configurator. A helix is a wire, so there is no boolean-operation chain.
   helix: new Set(['radius', 'endRadius', 'pitch', 'turns', 'height', 'startOffset', 'endOffset']),
@@ -2944,6 +3029,10 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
 
   if (feature === 'copy') {
     return parseCopyChain(args, start, end);
+  }
+
+  if (feature === 'boolean') {
+    return parseBooleanChain(chain.root.name as BooleanKind, args, start, end);
   }
 
   const isCut = chain.root.name === 'cut';
@@ -3663,6 +3752,39 @@ function parseCopyChain(
 }
 
 /**
+ * A `fuse(…)`, `subtract(…)` or `common(…)` statement's dialog-editable
+ * reading — the callee is the kind. Target expressions are preserved
+ * verbatim; a single-array argument (`fuse([a, b])`) is unpacked to its
+ * elements, so the edit rewrite flattens it. A subtract must carry exactly
+ * its base and tool arguments; fuse and common accept any count (empty
+ * operates on every active shape).
+ */
+function parseBooleanChain(
+  kind: BooleanKind,
+  args: TSNode[],
+  start: number,
+  end: number,
+): ChainParse {
+  let nodes = args;
+  if (kind !== 'subtract' && args.length === 1 && args[0].type === 'array') {
+    nodes = args[0].namedChildren.filter(a => a.type !== 'comment');
+  }
+  if (kind === 'subtract' && nodes.length !== 2) {
+    return { error: 'a subtract takes exactly a base and a tool — edit it in the source' };
+  }
+  return {
+    parsed: {
+      feature: 'boolean',
+      kind,
+      targetTexts: nodes.map(n => n.text),
+      targetRefs: nodes.map(n => resolveRepeatTargetRef(n, start)),
+    },
+    start,
+    end,
+  };
+}
+
+/**
  * A `text("…"[, path])` statement's dialog-editable reading. The string must
  * be a plain literal (the dialog edits its value); a second argument — the
  * path the glyphs follow — is any expression, preserved verbatim. Option
@@ -4280,6 +4402,58 @@ function renderEditedCopy(
 }
 
 /**
+ * Render an edited boolean statement: the kind picks the callee (an edit may
+ * rewrite a fuse into a subtract), and the target list mixes `verbatim`
+ * keeps (re-read from the statement's own argument texts by position) with
+ * re-picked feature statements by bound producer; an absent list keeps
+ * every statement target. A subtract must end up with exactly its base and
+ * tool, in argument order.
+ */
+function renderEditedBoolean(
+  parsed: Extract<ParsedFeatureStatement, { feature: 'boolean' }>,
+  spec: EditRenderSpec,
+  varFor: (producer: number) => string | null,
+): { statement: string } | { error: string } {
+  const opts = spec.edit?.boolean;
+  if (!opts || (opts.kind !== 'fuse' && opts.kind !== 'subtract' && opts.kind !== 'common')) {
+    return { error: 'malformed boolean edit spec' };
+  }
+  if (spec.parts.length !== 0) {
+    return { error: 'malformed boolean edit spec: a boolean renders no selector parts' };
+  }
+  let targetExprs = parsed.targetTexts;
+  if (opts.targets !== undefined) {
+    if (!Array.isArray(opts.targets) || opts.targets.length < 1) {
+      return { error: 'a boolean needs at least one target feature' };
+    }
+    const usedVerbatim = new Set<number>();
+    const exprs: string[] = [];
+    for (const target of opts.targets) {
+      if (target?.kind === 'verbatim') {
+        if (!Number.isInteger(target.sourceIndex) || target.sourceIndex < 0
+          || target.sourceIndex >= parsed.targetTexts.length || usedVerbatim.has(target.sourceIndex)) {
+          return { error: 'malformed boolean edit spec: a kept target no longer matches the statement' };
+        }
+        usedVerbatim.add(target.sourceIndex);
+        exprs.push(parsed.targetTexts[target.sourceIndex]);
+      } else if (target?.kind === 'feature') {
+        if (!isFeatureProducer(spec as ApplyFeatureEditSpec, target.producer)) {
+          return { error: 'malformed boolean edit spec: a target references a non-feature producer' };
+        }
+        exprs.push(varFor(target.producer) ?? spec.producers[target.producer].nameHint ?? 'f');
+      } else {
+        return { error: 'malformed boolean edit spec: unknown target kind' };
+      }
+    }
+    targetExprs = exprs;
+  }
+  if (opts.kind === 'subtract' && targetExprs.length !== 2) {
+    return { error: 'a subtract takes exactly a base and a tool solid' };
+  }
+  return { statement: renderBooleanStatement(opts.kind, targetExprs) };
+}
+
+/**
  * Render the statement `spec`'s dialog options produce over the parsed
  * statement, keeping the expressions the dialog doesn't edit verbatim.
  * Re-sourced slots (a re-picked profile/path/selection) render from
@@ -4548,6 +4722,9 @@ export function renderEditedStatement(
   if (parsed.feature === 'copy') {
     return renderEditedCopy(parsed, spec, varFor);
   }
+  if (parsed.feature === 'boolean') {
+    return renderEditedBoolean(parsed, spec, varFor);
+  }
   if (parsed.feature === 'text') {
     const opts = spec.edit?.text;
     if (!opts || typeof opts.text !== 'string'
@@ -4713,7 +4890,9 @@ async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Pro
 
   const callee = spec.feature === 'extrude'
     ? (edit.extrude!.op === 'remove' ? 'cut' : 'extrude')
-    : spec.feature;
+    : spec.feature === 'boolean'
+      ? edit.boolean!.kind
+      : spec.feature;
   result = await ensureSymbolImport(result, callee);
   const imports = new Set(spec.imports ?? []);
   if (spec.rawArgs?.trim()) {

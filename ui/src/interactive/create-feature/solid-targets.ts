@@ -1,7 +1,7 @@
 import { SceneObjectRender } from '../../types';
 
-/** A solid-bearing statement the copy dialog can clone, by call site. */
-export type CopyTargetOption = {
+/** A solid-bearing statement a dialog can target, by call site. */
+export type SolidTargetOption = {
   label: string;
   filePath: string;
   line: number;
@@ -11,16 +11,16 @@ export type CopyTargetOption = {
 };
 
 /**
- * The statements whose solids a copy could clone right now, one option per
- * source line. Only objects that currently own a rendered solid are offered
- * — the dialog picks whole solids in the viewport, unlike repeat's
- * feature-statement rows. Clones stamped by an existing copy or repeat carry
- * their original's call site, so every same-line object's solids pool into
- * one option and the FIRST object at a line — the original, built before its
- * clones — names it.
+ * The statements whose solids the copy and boolean dialogs can target right
+ * now, one option per source line. Only objects that currently own a
+ * rendered solid are offered — these dialogs pick whole solids in the
+ * viewport, unlike repeat's feature-statement rows. Clones stamped by an
+ * existing copy or repeat carry their original's call site, so every
+ * same-line object's solids pool into one option and the FIRST object at a
+ * line — the original, built before its clones — names it.
  */
-export function collectCopyTargets(sceneObjects: SceneObjectRender[]): CopyTargetOption[] {
-  const byLine = new Map<string, CopyTargetOption>();
+export function collectSolidTargets(sceneObjects: SceneObjectRender[]): SolidTargetOption[] {
+  const byLine = new Map<string, SolidTargetOption>();
   for (const obj of sceneObjects) {
     if (!obj.sourceLocation || !obj.type || isInsideSketch(obj, sceneObjects)) {
       continue;
@@ -50,22 +50,22 @@ export function collectCopyTargets(sceneObjects: SceneObjectRender[]): CopyTarge
 }
 
 /** The option owning a picked solid shape, or undefined. */
-export function copyTargetForShapeId(
+export function solidTargetForShapeId(
   shapeId: string,
-  options: CopyTargetOption[],
-): CopyTargetOption | undefined {
+  options: SolidTargetOption[],
+): SolidTargetOption | undefined {
   return options.find(option => option.shapeIds.includes(shapeId));
 }
 
 /**
  * Resolve a timeline row to its solid target option, or undefined — rows
  * without a rendered solid (sketches, planes, axes, consumed inputs) are
- * not copyable.
+ * not targetable.
  */
-export function copyTargetForRow(
+export function solidTargetForRow(
   obj: SceneObjectRender,
-  options: CopyTargetOption[],
-): CopyTargetOption | undefined {
+  options: SolidTargetOption[],
+): SolidTargetOption | undefined {
   const loc = obj.sourceLocation;
   if (!loc) {
     return undefined;

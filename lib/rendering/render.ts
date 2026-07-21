@@ -5,6 +5,7 @@ import { Shape } from "../common/shape.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
+import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { transformMeshes } from "./mesh-transform.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { Mesh } from "../oc/mesh.js";
@@ -315,6 +316,9 @@ export class SceneRenderer {
       isGuide: shape.isGuideShape() || undefined,
       metaType: shape.metaType || undefined,
       metaData: shape.metaData || undefined,
+      role: shape.role,
+      roleIndex: shape.roleIndex,
+      provenance: shape.provenance,
     };
   }
 
@@ -401,6 +405,9 @@ export class SceneRenderer {
       sceneShapes: opts.sceneShapes,
       type: obj.getType(),
       uniqueType: obj.getUniqueType(),
+      interactivity: obj instanceof GeometrySceneObject && obj.getParent() instanceof Sketch
+        ? obj.getSketchInteractivity()
+        : undefined,
       fromCache: scene.isCached(obj),
       visible: opts.visible,
       isContainer: obj.isContainer(),

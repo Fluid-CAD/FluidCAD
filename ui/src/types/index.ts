@@ -128,7 +128,12 @@ export type SceneObjectPart = {
   isGuide?: boolean;
   metaType?: string;
   metaData?: Record<string, any>;
+  role?: string;
+  roleIndex?: number;
+  provenance?: string;
 };
+
+export type SketchInteractivity = 'draggable' | 'selectable' | 'construction';
 
 export type CompileError = {
   message: string;
@@ -150,6 +155,8 @@ export type SceneObjectRender = {
   visible?: boolean;
   type?: ObjectType;
   uniqueType?: string;
+  /** Server-driven viewport classification for sketch geometry children. */
+  interactivity?: SketchInteractivity;
   fromCache?: boolean;
   hasError?: boolean;
   errorMessage?: string;

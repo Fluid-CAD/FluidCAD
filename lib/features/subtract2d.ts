@@ -62,6 +62,13 @@ export class Subtract2D extends GeometrySceneObject {
       owner.removeShape(edge, this);
     }
 
+    // Surviving stretches keep their source roles; new pieces are boolean cuts.
+    const inputEdges = [...baseEdgeMap.keys(), ...toolEdgeMap.keys()];
+    const unmatched = this.recoverEdgeRoles(newEdges, inputEdges);
+    for (const edge of unmatched) {
+      edge.setProvenance('boolean-result');
+    }
+
     this.addShapes(newEdges);
   }
 

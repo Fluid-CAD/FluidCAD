@@ -77,6 +77,7 @@ export class Offset extends ExtrudableGeometryBase {
       const edges = offsetWire.getEdges();
 
       for (const edge of edges) {
+        edge.setProvenance('offset-of');
         this.addShape(edge);
       }
 
@@ -86,8 +87,12 @@ export class Offset extends ExtrudableGeometryBase {
         const offsetStart = offsetWire.getFirstVertex().toPoint();
         const offsetEnd = offsetWire.getLastVertex().toPoint();
 
-        this.addShape(EdgeOps.makeLineEdge(originalEnd, offsetEnd));
-        this.addShape(EdgeOps.makeLineEdge(offsetStart, originalStart));
+        const closeEnd = EdgeOps.makeLineEdge(originalEnd, offsetEnd);
+        const closeStart = EdgeOps.makeLineEdge(offsetStart, originalStart);
+        closeEnd.setProvenance('offset-of');
+        closeStart.setProvenance('offset-of');
+        this.addShape(closeEnd);
+        this.addShape(closeStart);
       }
 
       if (this.removeOriginal) {

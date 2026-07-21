@@ -13,7 +13,7 @@ import {
 import { SceneObjectRender } from '../../types';
 import { EdgeMesh } from '../shape-meshes/edge-mesh';
 import { createMetaEdgeMesh } from './shape-group';
-import { isInteractiveSketchType } from '../../interactive/sketch-edge-utils';
+import { isDraggableSketchObject } from '../../interactive/sketch-edge-utils';
 import { buildConstraintIcons } from './constraint-icon';
 import { applyConstantPixelSize } from '../screen-scale';
 
@@ -65,7 +65,7 @@ export class SketchMesh extends Group {
         continue;
       }
 
-      const interactive = isInteractiveSketchType(obj.uniqueType);
+      const interactive = isDraggableSketchObject(obj);
       const edgeColor = interactive ? SKETCH_EDGE_COLOR : NON_INTERACTIVE_EDGE_COLOR;
 
       for (const shape of obj.sceneShapes) {
@@ -104,7 +104,7 @@ export class SketchMesh extends Group {
         continue;
       }
 
-      const interactive = isInteractiveSketchType(obj.uniqueType);
+      const interactive = isDraggableSketchObject(obj);
 
       for (const shape of obj.sceneShapes) {
         if (shape.isGuide) {

@@ -4,6 +4,7 @@ import { GeometrySceneObject } from "./2d/geometry.js";
 import { FilletOps } from "../oc/fillet-ops.js";
 import { Edge } from "../common/edge.js";
 import { WireOps } from "../oc/wire-ops.js";
+import { EdgeQuery } from "../oc/edge-query.js";
 import { requireShapes } from "../common/operand-check.js";
 
 export class Fillet2D extends GeometrySceneObject {
@@ -28,26 +29,11 @@ export class Fillet2D extends GeometrySceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
-    let edges: Map<Edge, SceneObject> = new Map<Wire, SceneObject>();
-
-    if (this.targetObjects === null) {
-      edges = this.sketch.getEdgesWithOwner();
-    }
-    else {
-      for (const obj of this.targetObjects) {
-        const wireShapes = obj.getShapes();
-        for (const shape of wireShapes) {
-          if (shape instanceof Edge) {
-            edges.set(shape, obj);
-          }
-          else if (shape instanceof Wire) {
-            for (const edge of shape.getEdges()) {
-              edges.set(edge, obj);
-            }
-          }
-        }
-      }
-    }
+    // Resolve targets through lazy accessor objects (r.edge('top')) to the
+    // real owning feature so removal and ownership stay correct.
+    const edges: Map<Edge, SceneObject> = this.targetObjects === null
+      ? this.sketch.getEdgesWithOwner()
+      : this.resolveEdgeTargets(this.targetObjects);
 
     const allEdges = Array.from(edges.keys());
 
@@ -66,16 +52,29 @@ export class Fillet2D extends GeometrySceneObject {
     }
 
     for (const wireInfo of wires) {
+      const inputEdges = Array.from(wireInfo.edges.keys());
       const filletedWire = FilletOps.fillet2d(wireInfo.wire, this.sketch.getPlane(), this.radius);
-      const edges = filletedWire.getEdges();
+      const resultEdges = filletedWire.getEdges();
 
-      for (const edge of edges) {
+      // Surviving/trimmed edges keep their source roles; the new corner arcs
+      // get 'fillet-arc' provenance, anything else unrecoverable is a trim.
+      const unmatched = this.recoverEdgeRoles(resultEdges, inputEdges);
+      for (const edge of unmatched) {
+        if (EdgeQuery.getEdgeCurveType(edge) === 'circle') {
+          edge.setProvenance('fillet-arc');
+        } else {
+          edge.setProvenance('trim-segment');
+        }
+      }
+
+      for (const edge of resultEdges) {
         this.addShape(edge);
       }
 
-      for (const [edge, owner] of wireInfo.edges) {
-        console.log("Fillet2D: Removing edge from owner", owner.getType(), owner.id);
-        owner.removeShape(edge, this);
+      for (const edge of wireInfo.edges.keys()) {
+        // Remove through the sketch so every holder of the instance (real
+        // owner and any lazy accessor mirror) records the removal.
+        this.sketch.removeShape(edge, this);
       }
     }
   }

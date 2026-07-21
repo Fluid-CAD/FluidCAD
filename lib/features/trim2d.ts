@@ -127,6 +127,8 @@ export class Trim2D extends GeometrySceneObject {
         const origEdge = pickableEdges[sourceIndex[i]];
         const entry = edgeToOwner.get(origEdge)!;
         if (removedWires.has(entry.wire)) {
+          splitEdges[i].copyRoleFrom(origEdge);
+          splitEdges[i].setProvenance('trim-segment');
           this.addShape(splitEdges[i]);
         }
       }

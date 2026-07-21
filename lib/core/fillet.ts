@@ -37,6 +37,16 @@ interface FilletFunction {
   (radius: NumberParam, ...objects: IGeometry[]): ISceneObject;
 }
 
+// Lazy accessor targets (r.edge('top')) are not in the scene yet — add them
+// so they build before the fillet. addSceneObject skips already-added objects.
+function addTargetObjects(objects: SceneObject[], context: SceneParserContext): void {
+  for (const obj of objects) {
+    if (obj instanceof SceneObject) {
+      context.addSceneObject(obj);
+    }
+  }
+}
+
 function build(context: SceneParserContext): FilletFunction {
   return function fillet() {
     const activeSketch = context.getActiveSketch();
@@ -57,6 +67,7 @@ function build(context: SceneParserContext): FilletFunction {
 
         if (Array.isArray(arguments[0])) {
           const objects = arguments[0] as GeometrySceneObject[];
+          addTargetObjects(objects, context);
           const fillet = new Fillet2D(1, ...objects);
           context.addSceneObject(fillet);
           return fillet;
@@ -66,6 +77,7 @@ function build(context: SceneParserContext): FilletFunction {
       if (arguments.length === 2 && Array.isArray(arguments[0])) {
         const objects = arguments[0] as GeometrySceneObject[];
         const radius = resolveParam(arguments[1] as NumberParam) || 1;
+        addTargetObjects(objects, context);
         const fillet = new Fillet2D(radius, ...objects);
         context.addSceneObject(fillet);
         return fillet;
@@ -74,6 +86,7 @@ function build(context: SceneParserContext): FilletFunction {
       if (arguments.length >= 2 && isNumberParam(arguments[0])) {
         const radius = resolveParam(arguments[0] as NumberParam);
         const objects = Array.from(arguments).slice(1) as GeometrySceneObject[];
+        addTargetObjects(objects, context);
         const fillet = new Fillet2D(radius, ...objects);
         context.addSceneObject(fillet);
         return fillet;

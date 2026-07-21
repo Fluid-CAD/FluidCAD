@@ -22,7 +22,12 @@ export type RenderedShape = {
   isGuide?: boolean;
   metaType?: string;
   metaData?: Record<string, any>;
+  role?: string;
+  roleIndex?: number;
+  provenance?: string;
 }
+
+export type SketchInteractivity = 'draggable' | 'selectable' | 'construction';
 
 export type SceneObjectRender = {
   id: string;
@@ -37,6 +42,8 @@ export type SceneObjectRender = {
   visible: boolean;
   type: string;
   uniqueType: string;
+  /** Viewport classification for sketch geometry children (server-driven). */
+  interactivity?: SketchInteractivity;
   fromCache: boolean;
   hasError: boolean;
   errorMessage?: string;

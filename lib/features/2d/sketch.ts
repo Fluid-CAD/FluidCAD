@@ -194,6 +194,13 @@ export class Sketch extends SceneObject implements Extrudable {
     const result: Map<Edge, GeometrySceneObject> = new Map();
 
     for (const child of children) {
+      // Lazy accessor children (e.g. r.edge('top')) hold the same Edge
+      // instances as the primitive that built them — counting them would
+      // reassign ownership to the accessor and double-count edges.
+      if (child.isLazy()) {
+        continue;
+      }
+
       const shapes = child.getShapes();
       for (const shape of shapes) {
         if (shape instanceof Edge) {

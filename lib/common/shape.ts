@@ -14,6 +14,12 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   isGuideFlag = false;
   metaType?: string;
   metaData?: Record<string, any>;
+  /** Role within the owning feature (e.g. rect 'top', polygon 'side'). */
+  role?: string;
+  /** Disambiguates repeated roles (e.g. polygon 'side' 0..n, 'corner-arc' 0..3). */
+  roleIndex?: number;
+  /** How a derived edge was produced (e.g. 'fillet-arc', 'bridge', 'offset-of'). */
+  provenance?: string;
   id: string;
 
   colorMap: Array<{ shape: TopoDS_Shape; color: string }> = [];
@@ -164,6 +170,22 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   markAsMetaShape(type?: string) {
     this.isMetaShapeFlag = true;
     this.metaType = type;
+  }
+
+  setRole(role: string, roleIndex?: number) {
+    this.role = role;
+    this.roleIndex = roleIndex;
+  }
+
+  setProvenance(provenance: string) {
+    this.provenance = provenance;
+  }
+
+  /** Carry role + provenance across a transform/copy/rebuild of the same edge. */
+  copyRoleFrom(source: Shape) {
+    this.role = source.role;
+    this.roleIndex = source.roleIndex;
+    this.provenance = source.provenance;
   }
 
   markAsGuide() {

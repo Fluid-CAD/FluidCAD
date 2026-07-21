@@ -90,6 +90,12 @@ export class Fuse2D extends GeometrySceneObject {
       owner.removeShape(edge, this);
     }
 
+    // Surviving stretches keep their source roles; new pieces are boolean cuts.
+    const unmatched = this.recoverEdgeRoles(newEdges, Array.from(sourceEdges.keys()));
+    for (const edge of unmatched) {
+      edge.setProvenance('boolean-result');
+    }
+
     this.addShapes(newEdges);
   }
 

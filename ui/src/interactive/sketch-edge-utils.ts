@@ -22,6 +22,30 @@ export function isInteractiveSketchType(uniqueType: string | undefined): boolean
   return INTERACTIVE_SKETCH_TYPES.has(uniqueType);
 }
 
+/**
+ * Whether the geometry's statement can be edited by dragging in the viewport.
+ * Server-driven via `interactivity`; the type allow-list is a fallback for
+ * older payloads.
+ */
+export function isDraggableSketchObject(obj: SceneObjectRender): boolean {
+  if (obj.interactivity) {
+    return obj.interactivity === 'draggable';
+  }
+  return isInteractiveSketchType(obj.uniqueType);
+}
+
+/**
+ * Whether the geometry can be hovered/picked as an operation target. Derived
+ * geometry (offset results, projections, mirror copies) is selectable even
+ * though it is not draggable.
+ */
+export function isSelectableSketchObject(obj: SceneObjectRender): boolean {
+  if (obj.interactivity) {
+    return obj.interactivity === 'draggable' || obj.interactivity === 'selectable';
+  }
+  return isInteractiveSketchType(obj.uniqueType);
+}
+
 export type EdgeEntry = {
   shapeId: string;
   segments: { ax: number; ay: number; bx: number; by: number }[];
@@ -47,7 +71,7 @@ export function buildEdgeIndex(
     if (obj.parentId !== sketchId) {
       continue;
     }
-    if (!isInteractiveSketchType(obj.uniqueType)) {
+    if (!isSelectableSketchObject(obj)) {
       continue;
     }
     for (const shape of obj.sceneShapes) {
@@ -132,7 +156,7 @@ export function buildCenterIndex(
     if (obj.parentId !== sketchId) {
       continue;
     }
-    if (!isInteractiveSketchType(obj.uniqueType)) {
+    if (!isDraggableSketchObject(obj)) {
       continue;
     }
 

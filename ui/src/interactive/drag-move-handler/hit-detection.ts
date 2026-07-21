@@ -1,7 +1,7 @@
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { pixelToSketchThreshold } from '../sketch-plane-utils';
-import { pointToSegmentDist, isInteractiveSketchType } from '../sketch-edge-utils';
+import { pointToSegmentDist, isDraggableSketchObject } from '../sketch-edge-utils';
 import { circumcenter, isCCW } from '../tools/tool-preview-utils';
 import { meshToSketch2D } from '../tools/tangent-utils';
 import { DragHitResult } from './types';
@@ -22,7 +22,7 @@ export function findHitGeometry(
   let bestDistSq = Infinity;
 
   for (const child of sketchChildren) {
-    if (!child.sourceLocation || !isInteractiveSketchType(child.uniqueType)) {
+    if (!child.sourceLocation || !isDraggableSketchObject(child)) {
       continue;
     }
     const uniqueType = (child as any).uniqueType as string | undefined;

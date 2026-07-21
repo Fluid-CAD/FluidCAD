@@ -57,6 +57,7 @@ export class Polygon extends ExtrudableGeometryBase implements IPolygon {
         plane.localToWorld(to),
       );
       const edge = Geometry.makeEdge(segment);
+      edge.setRole('side', i);
       edges.push(edge);
       this.setState(`edge-${i}`, edge);
     }

@@ -15,14 +15,33 @@ Imported from `fluidcad/core`.
 fillet(radius?: number)                   // uses last selection, default radius 1
 fillet(radius, ...sceneObjects)
 
-// 2D variants:
-fillet(objects: Geometry[])
-fillet(objects: Geometry[], radius)
-fillet(radius, ...objects: Geometry[])
+// 2D variants (targets may be geometries, edge accessors, or edge filters):
+fillet(objects: (Geometry | EdgeFilter)[])
+fillet(objects: (Geometry | EdgeFilter)[], radius)
+fillet(radius, ...objects: (Geometry | EdgeFilter)[])
 ```
 
 Returns a `SceneObject`. Operates on the **last selection** when no edges
 are passed — pair with `select()` or a direct accessor like `e.endEdges()`.
+This applies inside sketches too: a preceding sketch-scoped `select(...)`
+is consumed by a bare `fillet(radius)`.
+
+## 2D corner filleting
+
+In a sketch, targets select the *edge group* whose shared corners get
+rounded: pass adjacent edges via accessors (`r.edge('top')`), edge filters
+(`edge().line()`), or feature objects. A selection with no shared corner
+is a no-op.
+
+```fluid.js
+import { extrude, fillet, rect, sketch } from "fluidcad/core";
+
+sketch("xy", () => {
+  const r = rect(80, 60);
+  fillet(4, r.edge('top'), r.edge('left'));   // round just that corner
+});
+extrude(10);
+```
 
 ## Common patterns
 

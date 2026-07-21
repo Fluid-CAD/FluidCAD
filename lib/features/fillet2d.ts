@@ -1,6 +1,6 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Wire } from "../common/wire.js";
-import { GeometrySceneObject } from "./2d/geometry.js";
+import { EdgeTargetArg, GeometrySceneObject } from "./2d/geometry.js";
 import { FilletOps } from "../oc/fillet-ops.js";
 import { Edge } from "../common/edge.js";
 import { WireOps } from "../oc/wire-ops.js";
@@ -8,14 +8,14 @@ import { EdgeQuery } from "../oc/edge-query.js";
 import { requireShapes } from "../common/operand-check.js";
 
 export class Fillet2D extends GeometrySceneObject {
-  private _targetObjects: GeometrySceneObject[] | null = null;
+  private _targetObjects: EdgeTargetArg[] | null = null;
 
-  constructor(private radius: number, ...targets: SceneObject[]) {
+  constructor(private radius: number, ...targets: EdgeTargetArg[]) {
     super();
-    this._targetObjects = targets.length > 0 ? targets as GeometrySceneObject[] : null;
+    this._targetObjects = targets.length > 0 ? targets : null;
   }
 
-  get targetObjects(): GeometrySceneObject[] | null {
+  get targetObjects(): EdgeTargetArg[] | null {
     return this._targetObjects;
   }
 
@@ -24,7 +24,10 @@ export class Fillet2D extends GeometrySceneObject {
       return;
     }
     for (let i = 0; i < this._targetObjects.length; i++) {
-      requireShapes(this._targetObjects[i], `target ${i + 1}`, "fillet2d");
+      const target = this._targetObjects[i];
+      if (target instanceof SceneObject) {
+        requireShapes(target, `target ${i + 1}`, "fillet2d");
+      }
     }
   }
 
@@ -80,14 +83,11 @@ export class Fillet2D extends GeometrySceneObject {
   }
 
   override getDependencies(): SceneObject[] {
-    return this.targetObjects ? [...this.targetObjects] : [];
+    return GeometrySceneObject.sceneObjectTargets(this.targetObjects);
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const targets = this.targetObjects
-      ? this.targetObjects.map(t => (remap.get(t) as GeometrySceneObject) || t)
-      : [];
-    return new Fillet2D(this.radius, ...targets);
+    return new Fillet2D(this.radius, ...GeometrySceneObject.remapEdgeTargets(this.targetObjects, remap));
   }
 
   compareTo(other: Fillet2D): boolean {
@@ -103,20 +103,7 @@ export class Fillet2D extends GeometrySceneObject {
       return false;
     }
 
-    const thisTargets = this.targetObjects || [];
-    const otherTargets = other.targetObjects || [];
-
-    if (thisTargets.length !== otherTargets.length) {
-      return false;
-    }
-
-    for (let i = 0; i < thisTargets.length; i++) {
-      if (!thisTargets[i].compareTo(otherTargets[i])) {
-        return false;
-      }
-    }
-
-    return true;
+    return GeometrySceneObject.compareEdgeTargets(this.targetObjects, other.targetObjects);
   }
 
   getType(): string {

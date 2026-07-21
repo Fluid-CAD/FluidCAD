@@ -6,6 +6,7 @@ import { Edge } from "../../common/edge.js";
 import { Vertex } from "../../common/vertex.js";
 import { Wire } from "../../common/wire.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
+import { EdgeTargetArg, GeometrySceneObject } from "./geometry.js";
 
 export class Offset extends ExtrudableGeometryBase {
 
@@ -14,7 +15,7 @@ export class Offset extends ExtrudableGeometryBase {
   constructor(
     private distance: number,
     private removeOriginal: boolean = false,
-    private sourceGeometries: SceneObject[] = null,
+    private sourceGeometries: EdgeTargetArg[] = null,
     targetPlane: PlaneObjectBase = null,
   ) {
     super(targetPlane);
@@ -32,11 +33,18 @@ export class Offset extends ExtrudableGeometryBase {
 
     let sourceObjects: Map<Edge, SceneObject>;
     if (this.sketch) {
-      sourceObjects = this.sketch.getEdgesWithOwner();
+      // Explicit targets (objects, accessors, selections, edge filters)
+      // narrow the offset; otherwise offset the whole sketch.
+      sourceObjects = this.sourceGeometries?.length
+        ? this.resolveEdgeTargets(this.sourceGeometries)
+        : this.sketch.getEdgesWithOwner();
     }
     else {
       sourceObjects = new Map<Edge, SceneObject>();
       for (const obj of this.sourceGeometries) {
+        if (!(obj instanceof SceneObject)) {
+          throw new Error("Offset: edge filters are only supported inside a sketch");
+        }
         const shapes = obj.getShapes();
         for (const shape of shapes) {
           if (shape instanceof Edge) {
@@ -97,7 +105,13 @@ export class Offset extends ExtrudableGeometryBase {
 
       if (this.removeOriginal) {
         for (const [edge, owner] of wireInfo.edges) {
-          owner.removeShape(edge, this);
+          if (this.sketch) {
+            // Remove through the sketch so every holder of the instance
+            // (real owner, lazy accessors, selections) records the removal.
+            this.sketch.removeShape(edge, this);
+          } else {
+            owner.removeShape(edge, this);
+          }
         }
       }
     }
@@ -117,16 +131,14 @@ export class Offset extends ExtrudableGeometryBase {
     if (this.targetPlane) {
       deps.push(this.targetPlane);
     }
-    if (this.sourceGeometries) {
-      deps.push(...this.sourceGeometries);
-    }
+    deps.push(...GeometrySceneObject.sceneObjectTargets(this.sourceGeometries));
     return deps;
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
     const geometriesClone = this.sourceGeometries
-      ? this.sourceGeometries.map(obj => remap.get(obj) || obj)
+      ? GeometrySceneObject.remapEdgeTargets(this.sourceGeometries, remap)
       : null;
     const copy = new Offset(this.distance, this.removeOriginal, geometriesClone, targetPlane);
     if (this._close) {
@@ -157,16 +169,8 @@ export class Offset extends ExtrudableGeometryBase {
     }
 
     if (this.sourceGeometries && other.sourceGeometries) {
-      if (this.sourceGeometries.length !== other.sourceGeometries.length) {
+      if (!GeometrySceneObject.compareEdgeTargets(this.sourceGeometries, other.sourceGeometries)) {
         return false;
-      }
-
-      for (let i = 0; i < this.sourceGeometries.length; i++) {
-        const obj1 = this.sourceGeometries[i];
-        const obj2 = other.sourceGeometries[i];
-        if (!obj1.compareTo(obj2)) {
-          return false;
-        }
       }
     }
 

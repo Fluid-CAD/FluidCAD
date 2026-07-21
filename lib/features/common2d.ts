@@ -1,17 +1,17 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Wire } from "../common/wire.js";
 import { Edge } from "../common/edge.js";
-import { GeometrySceneObject } from "./2d/geometry.js";
+import { EdgeTargetArg, GeometrySceneObject } from "./2d/geometry.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { Face } from "../common/face.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { requireShapes } from "../common/operand-check.js";
 
 export class Common2D extends GeometrySceneObject {
-  private _targetObjects: GeometrySceneObject[] | null = null;
+  private _targetObjects: EdgeTargetArg[] | null = null;
   private _keepOriginal: boolean = false;
 
-  constructor(...targets: GeometrySceneObject[]) {
+  constructor(...targets: EdgeTargetArg[]) {
     super();
     this._targetObjects = targets.length > 0 ? targets : null;
   }
@@ -21,7 +21,7 @@ export class Common2D extends GeometrySceneObject {
     return this;
   }
 
-  get targetObjects(): GeometrySceneObject[] | null {
+  get targetObjects(): EdgeTargetArg[] | null {
     return this._targetObjects;
   }
 
@@ -30,7 +30,10 @@ export class Common2D extends GeometrySceneObject {
       return;
     }
     for (let i = 0; i < this._targetObjects.length; i++) {
-      requireShapes(this._targetObjects[i], `operand ${i + 1}`, "common2d");
+      const target = this._targetObjects[i];
+      if (target instanceof SceneObject) {
+        requireShapes(target, `operand ${i + 1}`, "common2d");
+      }
     }
   }
 
@@ -39,21 +42,8 @@ export class Common2D extends GeometrySceneObject {
 
     if (this._targetObjects === null) {
       sourceEdges = this.sketch.getGeometriesWithOwner();
-
     } else {
-      sourceEdges = new Map<Wire | Edge, SceneObject>();
-      for (const obj of this._targetObjects) {
-        for (const shape of obj.getShapes()) {
-          if (shape instanceof Edge) {
-            sourceEdges.set(shape, obj);
-          }
-          else if (shape instanceof Wire) {
-            for (const edge of shape.getEdges()) {
-              sourceEdges.set(edge, obj);
-            }
-          }
-        }
-      }
+      sourceEdges = this.resolveEdgeTargets(this._targetObjects);
     }
 
     const plane = this.sketch.getPlane();
@@ -95,7 +85,9 @@ export class Common2D extends GeometrySceneObject {
         if (!processedOwners.has(owner)) {
           continue;
         }
-        owner.removeShape(edge, this);
+        // Remove through the sketch so every holder of the instance (real
+        // owner, lazy accessors, select statements) records the removal.
+        this.sketch.removeShape(edge, this);
       }
     }
 
@@ -109,14 +101,11 @@ export class Common2D extends GeometrySceneObject {
   }
 
   override getDependencies(): SceneObject[] {
-    return this._targetObjects ? [...this._targetObjects] : [];
+    return GeometrySceneObject.sceneObjectTargets(this._targetObjects);
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const targets = this._targetObjects
-      ? this._targetObjects.map(t => (remap.get(t) as GeometrySceneObject) || t)
-      : [];
-    return new Common2D(...targets);
+    return new Common2D(...GeometrySceneObject.remapEdgeTargets(this._targetObjects, remap));
   }
 
   compareTo(other: Common2D): boolean {
@@ -132,20 +121,7 @@ export class Common2D extends GeometrySceneObject {
       return false;
     }
 
-    const thisTargets = this._targetObjects || [];
-    const otherTargets = other._targetObjects || [];
-
-    if (thisTargets.length !== otherTargets.length) {
-      return false;
-    }
-
-    for (let i = 0; i < thisTargets.length; i++) {
-      if (!thisTargets[i].compareTo(otherTargets[i])) {
-        return false;
-      }
-    }
-
-    return true;
+    return GeometrySceneObject.compareEdgeTargets(this._targetObjects, other._targetObjects);
   }
 
   getType(): string {

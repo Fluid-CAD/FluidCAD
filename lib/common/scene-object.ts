@@ -171,6 +171,15 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return false;
   }
 
+  /**
+   * Selection objects (select statements) hold references to other features'
+   * shapes rather than owning geometry — enumeration sites skip them the same
+   * way they skip lazy accessor objects.
+   */
+  isSelection(): boolean {
+    return false;
+  }
+
   // called by containers to save the shapes state up to this object
   saveShapesSnapshot(context: BuildSceneObjectContext) {
     const upToHere = context.getSceneObjects()

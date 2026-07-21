@@ -10,10 +10,18 @@ import { Shape } from "../../common/shape.js";
 import { Plane } from "../../math/plane.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { EdgeQuery } from "../../oc/edge-query.js";
+import { FilterBuilderBase } from "../../filters/filter-builder-base.js";
+import { ShapeFilter } from "../../filters/filter.js";
 import type { SketchInteractivity } from "../../rendering/scene.js";
 import { IGeometry } from "../../core/interfaces.js";
 
 export type GeometryOrientation = "cw" | "ccw";
+
+/**
+ * What a 2D op accepts as an edge target: a feature/lazy accessor/selection
+ * object, or an edge filter applied against the active sketch's edges.
+ */
+export type EdgeTargetArg = SceneObject | FilterBuilderBase<Shape>;
 
 // Sketch geometry the viewport can drag (statement args are editable by
 // direct manipulation). Everything else is selectable as an operation target
@@ -99,15 +107,26 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
   }
 
   /**
-   * Resolves op targets (features, lazy accessor selections) to their edges,
-   * mapped to the *real* owning feature — reaching through lazy objects via
-   * the sketch's edge index so removals hit the feature that renders the edge.
+   * Resolves op targets (features, lazy accessor selections, select
+   * statements, or edge filter builders) to their edges, mapped to the *real*
+   * owning feature — reaching through indirection via the sketch's edge index
+   * so removals hit the feature that renders the edge. Filter builders are
+   * evaluated against the active sketch's edges.
    */
-  protected resolveEdgeTargets(targets: SceneObject[]): Map<Edge, SceneObject> {
+  protected resolveEdgeTargets(targets: EdgeTargetArg[]): Map<Edge, SceneObject> {
     const ownerByEdge = this.sketch.getEdgesWithOwner();
     const result = new Map<Edge, SceneObject>();
 
     for (const target of targets) {
+      if (target instanceof FilterBuilderBase) {
+        const universe = Array.from(ownerByEdge.keys());
+        const matches = new ShapeFilter(universe, target).apply() as Edge[];
+        for (const edge of matches) {
+          result.set(edge, ownerByEdge.get(edge)!);
+        }
+        continue;
+      }
+
       for (const shape of target.getShapes()) {
         if (shape instanceof Edge) {
           result.set(shape, ownerByEdge.get(shape) ?? target);
@@ -120,6 +139,49 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
     }
 
     return result;
+  }
+
+  /** The SceneObject members of a mixed target list (for dependencies). */
+  protected static sceneObjectTargets(targets: EdgeTargetArg[] | null): SceneObject[] {
+    return (targets ?? []).filter((t): t is SceneObject => t instanceof SceneObject);
+  }
+
+  /** Remaps SceneObject targets and filter builders for feature cloning. */
+  protected static remapEdgeTargets(
+    targets: EdgeTargetArg[] | null,
+    remap: Map<SceneObject, SceneObject>,
+  ): EdgeTargetArg[] {
+    return (targets ?? []).map(t => t instanceof SceneObject
+      ? (remap.get(t) ?? t)
+      : t.remap(remap));
+  }
+
+  /** Structural equality over mixed SceneObject/filter target lists. */
+  protected static compareEdgeTargets(a: EdgeTargetArg[] | null, b: EdgeTargetArg[] | null): boolean {
+    const listA = a ?? [];
+    const listB = b ?? [];
+    if (listA.length !== listB.length) {
+      return false;
+    }
+
+    for (let i = 0; i < listA.length; i++) {
+      const targetA = listA[i];
+      const targetB = listB[i];
+      if (targetA instanceof SceneObject || targetB instanceof SceneObject) {
+        if (!(targetA instanceof SceneObject) || !(targetB instanceof SceneObject)) {
+          return false;
+        }
+        if (!targetA.compareTo(targetB)) {
+          return false;
+        }
+        continue;
+      }
+      if (!targetA.equals(targetB)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   /**

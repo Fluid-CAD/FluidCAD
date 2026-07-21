@@ -13,6 +13,9 @@ import { FromSceneObjectFilter } from "../filters/from-object.js";
 import { injectBelongsToFaceScope } from "../filters/scope-injection.js";
 import { TopologyIndex } from "../oc/topology-index.js";
 import { ShapeHasher } from "../oc/shape-hash.js";
+import { Edge } from "../common/edge.js";
+import { Wire } from "../common/wire.js";
+import { Sketch } from "./2d/sketch.js";
 
 export class SelectSceneObject extends SceneObject implements ISelect {
 
@@ -30,7 +33,17 @@ export class SelectSceneObject extends SceneObject implements ISelect {
     }
   }
 
+  override isSelection(): boolean {
+    return true;
+  }
+
   build(context: BuildSceneObjectContext) {
+    const sketch = this.findParentSketch();
+    if (sketch) {
+      this.buildInSketch(sketch, context);
+      return;
+    }
+
     const parent = this.getParent();
     const transform = context.getTransform();
     let filters = this.filters;
@@ -95,6 +108,55 @@ export class SelectSceneObject extends SceneObject implements ISelect {
         set.delete();
       }
       scopeHasher?.delete();
+    }
+  }
+
+  private findParentSketch(): Sketch | null {
+    let parent = this.getParent();
+    while (parent && !(parent instanceof Sketch)) {
+      parent = parent.getParent();
+    }
+    return (parent as Sketch) ?? null;
+  }
+
+  /**
+   * Sketch-scoped selection: the universe is the active sketch's edges from
+   * prior siblings (real geometry only — lazy accessors and other selections
+   * are skipped). No belongsTo-face scope injection; edge-only inference.
+   */
+  private buildInSketch(sketch: Sketch, context: BuildSceneObjectContext) {
+    if (this.type === "face") {
+      throw new Error("select(face()...) is not supported inside a sketch — sketch selections are edge-only.");
+    }
+
+    const transform = context.getTransform();
+    let filters = this.filters;
+    if (transform) {
+      filters = filters.map(f => f.transform(transform));
+    }
+
+    const universe: Edge[] = [];
+    for (const sibling of sketch.getPreviousSiblings(this)) {
+      if (sibling.isLazy() || sibling.isSelection()) {
+        continue;
+      }
+      for (const shape of sibling.getShapes()) {
+        if (shape instanceof Edge) {
+          universe.push(shape);
+        } else if (shape instanceof Wire) {
+          universe.push(...shape.getEdges());
+        }
+      }
+    }
+
+    const fromFilters = this.injectFromMembershipSets(filters);
+    try {
+      this.addShapes(this.applyFilters(universe, filters));
+    } finally {
+      for (const { filter, set } of fromFilters) {
+        filter.setMembershipSet(null);
+        set.delete();
+      }
     }
   }
 

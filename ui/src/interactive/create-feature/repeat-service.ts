@@ -64,7 +64,7 @@ export class RepeatFeatureService {
   private armed = false;
   private available = false;
   private targetOptions: RepeatTargetOption[] = [];
-  /** The chosen targets, in pick order — the repeat's argument order. */
+  /** The chosen targets, kept in timeline order — the repeat's argument order. */
   private targets: RepeatTargetChoice[] = [];
   private axes: AxisOption[] = [];
   private planes: PlaneOption[] = [];
@@ -280,6 +280,7 @@ export class RepeatFeatureService {
         o.filePath === target.option.filePath && o.line === target.option.line);
       return match ? [{ kind: 'option', option: match }] : [];
     });
+    this.sortTargets();
     this.panel.setOptions(this.axes, this.planes);
     this.refreshLabels();
     this.syncViewport();
@@ -320,6 +321,7 @@ export class RepeatFeatureService {
         o.filePath === target.option.filePath && o.line === target.option.line);
       return match ? [{ kind: 'option', option: match }] : [];
     });
+    this.sortTargets();
     for (const direction of [1, 2] as const) {
       if (this.axisEdgeEntities.get(direction)) {
         this.axisEdgeEntities.set(direction, null);
@@ -617,6 +619,7 @@ export class RepeatFeatureService {
       this.targets.splice(existing, 1);
     } else {
       this.targets.push({ kind: 'option', option });
+      this.sortTargets();
     }
     // The pick landed in the Features slot — it takes the armed border.
     this.panel.armSlot('targets');
@@ -624,6 +627,24 @@ export class RepeatFeatureService {
     this.refresh();
     this.runner.schedulePreview();
     return true;
+  }
+
+  /**
+   * Keep the chosen targets in timeline order — `targetOptions` is built by
+   * walking the scene objects in build order, so an option's index there is
+   * its timeline position. Kept statement targets whose location did not
+   * resolve to a timeline row have no position and stay last, in their
+   * original argument order.
+   */
+  private sortTargets(): void {
+    const position = (target: RepeatTargetChoice): number => {
+      const loc = target.kind === 'option' ? target.option : target.loc;
+      const index = loc
+        ? this.targetOptions.findIndex(o => o.filePath === loc.filePath && o.line === loc.line)
+        : -1;
+      return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
+    };
+    this.targets.sort((a, b) => position(a) - position(b));
   }
 
   /** An offered axis landed in the armed direction's slot (3D or timeline pick). */

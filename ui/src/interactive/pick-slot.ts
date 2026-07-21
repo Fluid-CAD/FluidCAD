@@ -71,6 +71,7 @@ export class PickSlot {
   onChipHover?: (index: number | null) => void;
 
   private labelEl: HTMLSpanElement;
+  private countEl: HTMLSpanElement;
   private listEl: HTMLDivElement;
   private chips: PickSlotChip[] = [];
   private prompt: string | null = null;
@@ -93,8 +94,13 @@ export class PickSlot {
     this.labelEl = document.createElement('span');
     this.labelEl.className = 'text-base-content/70';
     this.labelEl.textContent = opts.label;
+    this.countEl = document.createElement('span');
+    this.countEl.className = 'text-base-content/40 tabular-nums';
+    const header = document.createElement('div');
+    header.className = 'flex items-center gap-1.5';
+    header.append(this.labelEl, this.countEl);
     this.listEl = document.createElement('div');
-    host.append(this.labelEl, this.listEl);
+    host.append(header, this.listEl);
     host.addEventListener('click', () => this.onArm?.());
     this.render();
   }
@@ -142,6 +148,9 @@ export class PickSlot {
   }
 
   private render(): void {
+    // Multi slots surface their pick count beside the label; single slots
+    // (and empty multi slots) leave the header bare.
+    this.countEl.textContent = this.multiple && this.chips.length > 0 ? String(this.chips.length) : '';
     this.rows = this.chips.map((chip, index) => this.renderChip(chip, index));
     // A single slot never shows chip and prompt together; a container keeps
     // the prompt under its chips while more picks are wanted.

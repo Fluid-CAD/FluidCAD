@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { SnapManager } from '../src/snapping/snap-manager';
 import { PlaneData } from '../src/types';
+import { SceneContext } from '../src/scene/scene-context';
+
+/** Minimal orthographic-camera context: worldHeight = (top - bottom) / zoom. */
+function fakeOrthoContext(worldHeight: number, canvasHeight: number): SceneContext {
+  return {
+    camera: { isOrthographicCamera: true, top: worldHeight / 2, bottom: -worldHeight / 2, zoom: 1 },
+    renderer: { domElement: { getBoundingClientRect: () => ({ height: canvasHeight }) } },
+  } as unknown as SceneContext;
+}
 
 const XY_PLANE_CENTERED_AT = (cx: number, cy: number, cz: number): PlaneData => ({
   origin: { x: 0, y: 0, z: 0 },
@@ -42,6 +51,22 @@ describe('SnapManager.fromSceneObjects', () => {
     expect(result.snapType).toBe('vertex');
     expect(result.point2d[0]).toBeCloseTo(3);
     expect(result.point2d[1]).toBeCloseTo(4);
+  });
+
+  // The bug this guards: the snap threshold was a fixed 15 sketch units no
+  // matter the zoom — a huge magnet zoomed in, unreachable zoomed out. With a
+  // scene context it is 15 *pixels*, converted at the current zoom.
+  it('scales the snap threshold with zoom level', () => {
+    const plane = XY_PLANE_CENTERED_AT(0, 0, 0);
+
+    // Zoomed in: 500px canvas shows 50 world units → 15px ≈ 1.5 units.
+    const zoomedIn = SnapManager.fromSceneObjects([], 'sketch-1', plane, fakeOrthoContext(50, 500));
+    expect(zoomedIn.snap([0, 1.4], plane).snapType).toBe('vertex');
+    expect(zoomedIn.snap([0, 5], plane).snapType).not.toBe('vertex');
+
+    // Zoomed out: same canvas shows 5000 world units → 15px ≈ 150 units.
+    const zoomedOut = SnapManager.fromSceneObjects([], 'sketch-1', plane, fakeOrthoContext(5000, 500));
+    expect(zoomedOut.snap([0, 140], plane).snapType).toBe('vertex');
   });
 
   it('falls back to grid snap away from the center', () => {

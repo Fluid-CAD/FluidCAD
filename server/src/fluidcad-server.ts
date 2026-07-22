@@ -48,11 +48,13 @@ type SceneManager = {
   synthesizeSketchApplyFeature?(
     scene: any,
     refs: { shapeId: string }[],
-    feature: 'fillet',
+    feature: 'fillet' | 'offset' | 'fuse' | 'subtract' | 'common',
     value: number | string | undefined,
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       params?: { name: string; value: number }[];
+      /** Subtract only: the tool-slot picks (`refs` is the base slot). */
+      toolRefs?: { shapeId: string }[];
     },
   ): any;
   expandTangentChain(
@@ -569,11 +571,13 @@ export class FluidCadServer {
   /** 2D branch: synthesize a sketch-body statement for picked sketch edges. */
   synthesizeSketchApplyFeature(
     refs: { shapeId: string }[],
-    feature: 'fillet',
+    feature: 'fillet' | 'offset' | 'fuse' | 'subtract' | 'common',
     value: number | string | undefined,
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       params?: { name: string; value: number }[];
+      /** Subtract only: the tool-slot picks (`refs` is the base slot). */
+      toolRefs?: { shapeId: string }[];
     },
   ): any {
     if (!this.sceneManager?.synthesizeSketchApplyFeature) {

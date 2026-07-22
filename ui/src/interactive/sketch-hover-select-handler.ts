@@ -291,6 +291,17 @@ export class SketchHoverSelectHandler {
     this.selectedShapeIds.clear();
   }
 
+  /**
+   * Drop the current selection on behalf of a dialog (the subtract dialog
+   * clears between its base and tool slots). Fires the change hook so the
+   * dialog preview stays in sync.
+   */
+  resetSelection(): void {
+    this.clearSelection();
+    this.ctx.requestRender();
+    this.onSelectionChange?.();
+  }
+
   private traverseShapeEdges(shapeId: string, fn: (line: LineSegments) => void): void {
     this.ctx.scene.traverse((obj: Object3D) => {
       if (obj.userData.isMetaShape) {

@@ -80,7 +80,7 @@ describe("sketch apply-feature synthesis", () => {
     const result = synthesizeSketchApplyFeature(
       scene,
       [refFor(roleEdge(pg!, 'side', 2)), refFor(roleEdge(sl!, 'cap-arc', 0))],
-      'fillet',
+      'offset',
       2,
     );
 
@@ -148,7 +148,7 @@ describe("sketch apply-feature synthesis", () => {
     setLocation(r!, 3);
 
     const result = synthesizeSketchApplyFeature(
-      scene, [refFor(roleEdge(r!, 'top'))], 'fillet', 4,
+      scene, [refFor(roleEdge(r!, 'top'))], 'offset', 4,
     );
 
     expect(result.ok).toBe(true);
@@ -173,7 +173,7 @@ describe("sketch apply-feature synthesis", () => {
     setLocation(h2!, 4);
 
     const result = synthesizeSketchApplyFeature(
-      scene, [refFor(edgesOf(h1!)[0])], 'fillet', 3,
+      scene, [refFor(edgesOf(h1!)[0])], 'offset', 3,
     );
 
     expect(result.ok).toBe(true);
@@ -204,7 +204,7 @@ describe("sketch apply-feature synthesis", () => {
     setLocation(c2!, 4);
 
     const result = synthesizeSketchApplyFeature(
-      scene, [refFor(edgesOf(c1!)[0])], 'fillet', 2,
+      scene, [refFor(edgesOf(c1!)[0])], 'offset', 2,
     );
 
     expect(result.ok).toBe(true);
@@ -212,6 +212,220 @@ describe("sketch apply-feature synthesis", () => {
       return;
     }
     expect(result.args).toBe('edge().circle(40)');
+  });
+
+  it("synthesizes an offset statement with the same selector ladder", () => {
+    let r: Rect;
+    sketch("xy", () => {
+      r = rect(80, 60) as Rect;
+    });
+    const scene = render();
+    setLocation(r!, 3);
+
+    const result = synthesizeSketchApplyFeature(
+      scene, [refFor(roleEdge(r!, 'top'))], 'offset', 3,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.args).toBe("r.edge('top')");
+    expect(result.preview).toBe("offset(3, r.edge('top'))");
+    expect(result.spec.feature).toBe('offset');
+  });
+
+  it("hints instead of no-opping when fillet picks share no corner", () => {
+    let r: Rect;
+    sketch("xy", () => {
+      r = rect(80, 60) as Rect;
+    });
+    const scene = render();
+    setLocation(r!, 3);
+
+    // Opposite sides never touch — Fillet2D would silently do nothing.
+    const opposite = synthesizeSketchApplyFeature(
+      scene,
+      [refFor(roleEdge(r!, 'top')), refFor(roleEdge(r!, 'bottom'))],
+      'fillet',
+      4,
+    );
+    expect(opposite).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/do not touch/),
+    });
+
+    // A single edge has no corner either.
+    const single = synthesizeSketchApplyFeature(
+      scene, [refFor(roleEdge(r!, 'top'))], 'fillet', 4,
+    );
+    expect(single).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/single edge has no corner/),
+    });
+
+    // The same single-edge pick offsets fine — the hint is fillet-only.
+    const offsetSingle = synthesizeSketchApplyFeature(
+      scene, [refFor(roleEdge(r!, 'top'))], 'offset', 2,
+    );
+    expect(offsetSingle.ok).toBe(true);
+  });
+
+  describe("2D booleans (owner-level operands)", () => {
+    it("fuses the picked edges' owners as bare variables", () => {
+      let r: Rect;
+      let c: SceneObject;
+      sketch("xy", () => {
+        r = rect(80, 60) as Rect;
+        move([60, 30]);
+        c = circle(40) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(r!, 3);
+      setLocation(c!, 5);
+
+      // One edge each — a pick stands for its whole producing geometry.
+      const result = synthesizeSketchApplyFeature(
+        scene,
+        [refFor(roleEdge(r!, 'top')), refFor(edgesOf(c!)[0])],
+        'fuse',
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.args).toBe('r, c');
+      expect(result.preview).toBe('fuse(r, c)');
+      expect(result.spec.feature).toBe('fuse');
+      expect(result.spec.value).toBeUndefined();
+      expect(result.spec.parts).toEqual([
+        { producer: 0, accessor: '', indices: null, filterArgs: null },
+        { producer: 1, accessor: '', indices: null, filterArgs: null },
+      ]);
+    });
+
+    it("dedupes multiple picks of the same owner", () => {
+      let r: Rect;
+      let c: SceneObject;
+      sketch("xy", () => {
+        r = rect(80, 60) as Rect;
+        move([60, 30]);
+        c = circle(40) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(r!, 3);
+      setLocation(c!, 5);
+
+      const result = synthesizeSketchApplyFeature(
+        scene,
+        [refFor(roleEdge(r!, 'top')), refFor(roleEdge(r!, 'left')), refFor(edgesOf(c!)[0])],
+        'common',
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.preview).toBe('common(r, c)');
+    });
+
+    it("slots subtract picks into base and tool", () => {
+      let r: Rect;
+      let c: SceneObject;
+      sketch("xy", () => {
+        r = rect(80, 60) as Rect;
+        move([60, 30]);
+        c = circle(40) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(r!, 3);
+      setLocation(c!, 5);
+
+      const result = synthesizeSketchApplyFeature(
+        scene,
+        [refFor(roleEdge(r!, 'top'))],
+        'subtract',
+        undefined,
+        { toolRefs: [refFor(edgesOf(c!)[0])] },
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.preview).toBe('subtract(r, c)');
+      expect(result.spec.producers.map(p => p.featureType)).toEqual(['rect', 'circle']);
+    });
+
+    it("refuses boolean shapes the ops cannot take", () => {
+      let r: Rect;
+      let c1: SceneObject;
+      let c2: SceneObject;
+      sketch("xy", () => {
+        r = rect(80, 60) as Rect;
+        move([60, 30]);
+        c1 = circle(40) as unknown as SceneObject;
+        move([160, 30]);
+        c2 = circle(30) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(r!, 3);
+      setLocation(c1!, 5);
+      setLocation(c2!, 7);
+
+      // Fuse of a single geometry.
+      expect(synthesizeSketchApplyFeature(
+        scene, [refFor(roleEdge(r!, 'top'))], 'fuse',
+      )).toMatchObject({ ok: false, reason: expect.stringMatching(/at least two/) });
+
+      // Subtract without a tool slot.
+      expect(synthesizeSketchApplyFeature(
+        scene, [refFor(roleEdge(r!, 'top'))], 'subtract',
+      )).toMatchObject({ ok: false, reason: expect.stringMatching(/tool geometry/) });
+
+      // Subtract with two base geometries.
+      expect(synthesizeSketchApplyFeature(
+        scene,
+        [refFor(roleEdge(r!, 'top')), refFor(edgesOf(c1!)[0])],
+        'subtract',
+        undefined,
+        { toolRefs: [refFor(edgesOf(c2!)[0])] },
+      )).toMatchObject({ ok: false, reason: expect.stringMatching(/one base and one tool/) });
+
+      // Base and tool picks landing on the same geometry.
+      expect(synthesizeSketchApplyFeature(
+        scene,
+        [refFor(roleEdge(r!, 'top'))],
+        'subtract',
+        undefined,
+        { toolRefs: [refFor(roleEdge(r!, 'left'))] },
+      )).toMatchObject({ ok: false, reason: expect.stringMatching(/same geometry/) });
+    });
+
+    it("refuses unbindable boolean operands honestly", () => {
+      let c1: SceneObject;
+      let c2: SceneObject;
+      sketch("xy", () => {
+        c1 = circle(40) as unknown as SceneObject;
+        move([100, 0]);
+        c2 = circle(20) as unknown as SceneObject;
+      });
+      const scene = render();
+      // Same call site: both circles come from one looped statement.
+      setLocation(c1!, 4);
+      setLocation(c2!, 4);
+
+      const result = synthesizeSketchApplyFeature(
+        scene,
+        [refFor(edgesOf(c1!)[0]), refFor(edgesOf(c2!)[0])],
+        'fuse',
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/call site produces multiple statements/),
+      });
+    });
   });
 
   it("refuses picks spanning different sketches", () => {

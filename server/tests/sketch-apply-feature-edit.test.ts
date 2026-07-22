@@ -147,6 +147,59 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
     expect(result.newCode).toContain(`fillet(4, r.edge('top'), r.edge('left'))`);
   });
 
+  it('writes an offset statement into the sketch body', async () => {
+    const code = [
+      `import { sketch, rect } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  rect(80, 60)`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, sketchSpec({
+      feature: 'offset',
+      value: 3,
+      producers: [{ line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true }],
+      parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: "'top'" }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const r = rect(80, 60)`);
+    expect(result.newCode).toContain(`  offset(3, r.edge('top'))`);
+    expect(result.newCode).toContain(`import {offset, sketch, rect } from 'fluidcad/core'`);
+  });
+
+  it('writes a valueless boolean statement into the sketch body', async () => {
+    const code = [
+      `import { sketch, rect, circle, move } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  rect(80, 60)`,
+      `  move([60, 30])`,
+      `  circle(40)`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, sketchSpec({
+      feature: 'subtract',
+      value: undefined,
+      producers: [
+        { line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true },
+        { line: 6, column: 0, featureType: 'circle', nameHint: 'c', bind: true },
+      ],
+      parts: [
+        { producer: 0, accessor: '', indices: null, filterArgs: null },
+        { producer: 1, accessor: '', indices: null, filterArgs: null },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const r = rect(80, 60)`);
+    expect(result.newCode).toContain(`const c = circle(40)`);
+    expect(result.newCode).toContain(`  subtract(r, c)`);
+    expect(result.newCode).toContain(`import {subtract, sketch, rect, circle, move } from 'fluidcad/core'`);
+  });
+
   it('refuses a stale line pointing at a different callee', async () => {
     const code = [
       `import { sketch, rect, circle } from 'fluidcad/core'`,

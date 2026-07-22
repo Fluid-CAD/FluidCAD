@@ -16,28 +16,28 @@ import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
 import { BezierHandlesOverlay } from './bezier-handles-overlay';
 import { SnapManager } from '../snapping/snap-manager';
 import { SnapController } from '../snapping/snap-controller';
-import { insertGeometry, getScopeVariables, removePick } from '../api';
+import { insertGeometry, getScopeVariables, removePick, applySketchOp } from '../api';
 import { isTopLevel } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData } from '../types';
 import { Viewer } from '../viewer';
 import { TrimPickService } from './trim-pick-service';
-import { SketchFilletService } from './sketch-fillet-service';
+import { SketchOpService } from './sketch-op-service';
 import { VariableInfo } from '../ui/expression-input';
 import { ShortcutManager } from '../ui/shortcut-manager';
 import { Navbar } from '../ui/navbar';
 
 export class SketchToolbarService {
   /**
-   * The 2D fillet dialog occupies the sketch dialog's docked spot — main.ts
-   * wires this to suspend the sketch dialog while the fillet dialog is open
+   * The 2D op dialogs (fillet, offset) occupy the sketch dialog's docked
+   * spot — main.ts wires this to suspend the sketch dialog while one is open
    * and restore it when it closes.
    */
-  onFilletDialogToggle?: (open: boolean) => void;
+  onOpDialogToggle?: (open: boolean) => void;
 
   private viewer: Viewer;
   private container: HTMLElement;
   private trimService: TrimPickService;
-  private filletService: SketchFilletService;
+  private opServices: Partial<Record<ToolId, SketchOpService>> = {};
   private toolbar: SketchToolbar;
   private activeSketchInfo: {
     sketchObj: SceneObjectRender;
@@ -49,6 +49,8 @@ export class SketchToolbarService {
   private activeHoverSelectHandler: SketchHoverSelectHandler | null = null;
   private bezierHandles: BezierHandlesOverlay;
   private shortcuts: ShortcutManager;
+  private opMessageToast: HTMLDivElement | null = null;
+  private opMessageTimer: number | null = null;
   // Snap options, owned here; the sketch dialog's toggles write them via the
   // setters below (session-only state, deliberately not persisted).
   private snapToVertices = true;
@@ -71,16 +73,38 @@ export class SketchToolbarService {
 
     this.bezierHandles = new BezierHandlesOverlay(viewer.sceneContext);
 
-    this.filletService = new SketchFilletService(
-      container,
-      () => [...(this.activeHoverSelectHandler?.selectedIds ?? [])],
-      () => this.handleToolSelect(null),
-    );
-    this.filletService.onVisibilityChange = (open) => this.onFilletDialogToggle?.(open);
+    const opSelection = () => [...(this.activeHoverSelectHandler?.selectedIds ?? [])];
+    const opClear = () => this.activeHoverSelectHandler?.resetSelection();
+    const opDone = () => this.handleToolSelect(null);
+    const opService = (config: ConstructorParameters<typeof SketchOpService>[1]) =>
+      new SketchOpService(container, config, opSelection, opClear, opDone);
+    this.opServices = {
+      fillet: opService({
+        feature: 'fillet', title: 'Fillet', pickHint: 'Pick sketch edges to fillet',
+        value: { label: 'Radius', defaultValue: '2', sign: 'positive' },
+      }),
+      offset: opService({
+        feature: 'offset', title: 'Offset', pickHint: 'Pick sketch edges to offset',
+        value: { label: 'Distance', defaultValue: '2', sign: 'nonzero' },
+      }),
+      subtract: opService({
+        feature: 'subtract', title: 'Subtract', pickHint: 'Pick the base geometry’s edges',
+        slotted: true,
+      }),
+    };
+    for (const service of Object.values(this.opServices)) {
+      service.onVisibilityChange = (open) => this.onOpDialogToggle?.(open);
+    }
   }
 
   get hasActiveDrawingTool(): boolean {
     return this.activeDrawingTool !== null;
+  }
+
+  /** The op service (fillet, offset) of the currently armed toolbar tool. */
+  private activeOpService(): SketchOpService | undefined {
+    const tool = this.toolbar.activeTool;
+    return tool ? this.opServices[tool] : undefined;
   }
 
   /** The sketch dialog's snap-to-vertices toggle; live tools follow along. */
@@ -154,7 +178,7 @@ export class SketchToolbarService {
           this.activeHoverSelectHandler.updateSceneData(sceneObjects, lastRoot.id);
         }
         // A re-render may have pruned selected edges — keep the preview honest.
-        this.filletService.refresh();
+        this.activeOpService()?.refresh();
       } else if (!this.toolbar.activeTool) {
         this.activateDragHandler();
       }
@@ -163,9 +187,11 @@ export class SketchToolbarService {
         this.activeDrawingTool.deactivate();
         this.activeDrawingTool = null;
       }
-      if (this.filletService.isActive) {
-        this.filletService.exit();
-        this.toolbar.setActiveTool(null);
+      for (const service of Object.values(this.opServices)) {
+        if (service.isActive) {
+          service.exit();
+          this.toolbar.setActiveTool(null);
+        }
       }
       this.deactivateDragHandler();
       this.bezierHandles.deactivate();
@@ -265,7 +291,7 @@ export class SketchToolbarService {
       this.activeSketchInfo.plane,
       () => this.activeDragHandler?.isResizing ?? false,
     );
-    this.activeHoverSelectHandler.onSelectionChange = () => this.filletService.refresh();
+    this.activeHoverSelectHandler.onSelectionChange = () => this.activeOpService()?.refresh();
     this.activeHoverSelectHandler.updateSceneData(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!);
     this.activeHoverSelectHandler.activate();
   }
@@ -286,6 +312,14 @@ export class SketchToolbarService {
       return;
     }
 
+    // Fuse and common are one-shot: they have nothing to configure (no value,
+    // dense pick list), so the button applies to the current selection
+    // directly instead of opening a dialog. The tool is never armed.
+    if (toolId === 'fuse' || toolId === 'common') {
+      void this.applyInstantOp(toolId);
+      return;
+    }
+
     if (this.activeDrawingTool) {
       this.activeDrawingTool.deactivate();
       this.activeDrawingTool = null;
@@ -294,8 +328,9 @@ export class SketchToolbarService {
     if (this.toolbar.activeTool === 'trim' && toolId !== 'trim') {
       this.exitTrimFromToolbar();
     }
-    if (this.toolbar.activeTool === 'fillet' && toolId !== 'fillet') {
-      this.filletService.exit();
+    const previousOp = this.toolbar.activeTool ? this.opServices[this.toolbar.activeTool] : undefined;
+    if (previousOp && this.toolbar.activeTool !== toolId) {
+      previousOp.exit();
     }
 
     this.toolbar.setActiveTool(toolId);
@@ -307,10 +342,12 @@ export class SketchToolbarService {
       return;
     }
 
-    // Fillet keeps the drag/hover handlers active — picking IS the input.
-    if (toolId === 'fillet') {
+    // The op dialogs (fillet, offset) keep the drag/hover handlers active —
+    // picking IS the input.
+    const opService = this.opServices[toolId];
+    if (opService) {
       this.activateDragHandler();
-      this.filletService.enter();
+      opService.enter();
       return;
     }
 
@@ -332,6 +369,45 @@ export class SketchToolbarService {
 
     tool.activate();
     this.activeDrawingTool = tool;
+  }
+
+  /**
+   * Apply a one-shot boolean (fuse/common) to the currently selected edges.
+   * Refusals — nothing picked, or the kernel's honest synthesis reasons
+   * ("pick edges of at least two geometries…") — surface as a transient
+   * toast, since there is no dialog to carry them.
+   */
+  private async applyInstantOp(feature: 'fuse' | 'common'): Promise<void> {
+    const ids = [...(this.activeHoverSelectHandler?.selectedIds ?? [])];
+    if (ids.length === 0) {
+      this.showOpMessage(feature === 'fuse'
+        ? 'Pick edges of the geometries to fuse first'
+        : 'Pick edges of the geometries to intersect first');
+      return;
+    }
+    const result = await applySketchOp(feature, undefined, ids.map(shapeId => ({ shapeId })));
+    if (!result.success) {
+      this.showOpMessage(result.reason ?? `Could not apply the ${feature}`);
+    }
+  }
+
+  /** Transient toast under the navbar (mirrors main.ts's edit-refusal toast). */
+  private showOpMessage(message: string): void {
+    if (!this.opMessageToast) {
+      this.opMessageToast = document.createElement('div');
+      this.opMessageToast.className = 'absolute top-[116px] left-1/2 -translate-x-1/2 z-[1003] max-w-[440px] '
+        + 'bg-base-100 border border-base-300 text-base-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md';
+      this.container.appendChild(this.opMessageToast);
+    }
+    this.opMessageToast.textContent = message;
+    this.opMessageToast.classList.remove('hidden');
+    if (this.opMessageTimer !== null) {
+      window.clearTimeout(this.opMessageTimer);
+    }
+    this.opMessageTimer = window.setTimeout(() => {
+      this.opMessageTimer = null;
+      this.opMessageToast?.classList.add('hidden');
+    }, 4000);
   }
 
   private enterTrimFromToolbar(): void {

@@ -453,9 +453,9 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
   onSnapVerticesChange: (checked) => sketchService.setSnapToVertices(checked),
   onSnapGridChange: (checked) => sketchService.setSnapToGrid(checked),
 });
-// Both dialogs dock at top-[196px] right-4: the sketch dialog steps aside
-// while the 2D fillet dialog is open and returns when it closes.
-sketchService.onFilletDialogToggle = (open) => modifyService.setSketchPanelSuspended(open);
+// The dialogs dock at top-[196px] right-4: the sketch dialog steps aside
+// while a 2D op dialog (fillet, offset) is open and returns when it closes.
+sketchService.onOpDialogToggle = (open) => modifyService.setSketchPanelSuspended(open);
 // Constructed after the modify service so its solo navbar group registers
 // after every other tool group — the Repeat button renders last, behind the
 // separator the navbar draws between visible groups.

@@ -3043,5 +3043,87 @@ describe('apply-feature route validation', () => {
       expect(body.reason).toContain('no edge filter');
       expect(relayed).toHaveLength(0);
     });
+
+    it('previews an offset through the same branch', async () => {
+      currentSynthesis = {
+        ...SKETCH_SYNTHESIS,
+        spec: { ...SKETCH_SYNTHESIS.spec, feature: 'offset', value: 3 },
+        preview: "offset(3, r.edge('top'))",
+      };
+      const { status, body } = await post({
+        feature: 'offset', value: 3, sketchEntities: [{ shapeId: 'edge-1' }], preview: true,
+      });
+      expect(status).toBe(200);
+      expect(body).toMatchObject({ success: true, preview: "offset(3, r.edge('top'))" });
+      expect(sketchSynthesizeCalls).toEqual([
+        { picks: [{ shapeId: 'edge-1' }], feature: 'offset', value: 3 },
+      ]);
+    });
+
+    it('relays a subtract with slot-addressed picks and no value', async () => {
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'subtract',
+          filePath: '/ws/m.fluid.js',
+          producers: [
+            { line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true },
+            { line: 6, column: 0, featureType: 'circle', nameHint: 'c', bind: true },
+          ],
+          parts: [
+            { producer: 0, accessor: '', indices: null, filterArgs: null },
+            { producer: 1, accessor: '', indices: null, filterArgs: null },
+          ],
+          imports: [],
+        },
+        preview: 'subtract(r, c)',
+        args: 'r, c',
+        alternatives: [],
+      };
+      const { status, body } = await post({
+        feature: 'subtract',
+        sketchEntities: [{ shapeId: 'edge-1' }],
+        sketchToolEntities: [{ shapeId: 'edge-9' }],
+      });
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(sketchSynthesizeCalls).toEqual([
+        { picks: [{ shapeId: 'edge-1' }], feature: 'subtract', value: undefined },
+      ]);
+      expect(relayed).toHaveLength(1);
+    });
+
+    it('requires the tool slot for subtract and rejects it elsewhere', async () => {
+      const missing = await post({
+        feature: 'subtract', sketchEntities: [{ shapeId: 'edge-1' }],
+      });
+      expect(missing.status).toBe(400);
+      expect(missing.body.error).toContain('sketchToolEntities');
+
+      const misplaced = await post({
+        feature: 'fuse',
+        sketchEntities: [{ shapeId: 'edge-1' }],
+        sketchToolEntities: [{ shapeId: 'edge-9' }],
+      });
+      expect(misplaced.status).toBe(400);
+      expect(misplaced.body.error).toContain('only applies to subtract');
+    });
+
+    it('accepts a negative offset distance but rejects zero', async () => {
+      currentSynthesis = {
+        ...SKETCH_SYNTHESIS,
+        spec: { ...SKETCH_SYNTHESIS.spec, feature: 'offset', value: -2 },
+        preview: "offset(-2, r.edge('top'))",
+      };
+      const negative = await post({
+        feature: 'offset', value: -2, sketchEntities: [{ shapeId: 'edge-1' }], preview: true,
+      });
+      expect(negative.status).toBe(200);
+      const zero = await post({
+        feature: 'offset', value: 0, sketchEntities: [{ shapeId: 'edge-1' }],
+      });
+      expect(zero.status).toBe(400);
+      expect(zero.body.error).toContain('nonzero');
+    });
   });
 });

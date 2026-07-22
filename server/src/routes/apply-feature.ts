@@ -4117,12 +4117,33 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: 'sketchEntities must be a non-empty array of {shapeId} picks' });
         return;
       }
-      if (feature !== 'fillet') {
-        res.status(400).json({ error: 'feature must be "fillet" for sketch-edge selections' });
+      if (feature !== 'fillet' && feature !== 'offset'
+        && feature !== 'fuse' && feature !== 'subtract' && feature !== 'common') {
+        res.status(400).json({ error: 'feature must be "fillet", "offset", "fuse", "subtract" or "common" for sketch-edge selections' });
         return;
       }
-      if (!validValueExpr(value, { positive: true })) {
+      const sketchBoolean = feature === 'fuse' || feature === 'subtract' || feature === 'common';
+      // Fillet needs a positive radius; offset allows a negative distance
+      // (the inward idiom) but not zero; the booleans carry no value at all.
+      if (feature === 'fillet' && !validValueExpr(value, { positive: true })) {
         res.status(400).json({ error: 'value must be a positive number or expression' });
+        return;
+      }
+      if (feature === 'offset' && !validValueExpr(value, { nonzero: true })) {
+        res.status(400).json({ error: 'value must be a nonzero number or expression' });
+        return;
+      }
+      // Subtract is slot-addressed: sketchEntities is the base pick set,
+      // sketchToolEntities the tool's.
+      let sketchToolPicks: { shapeId: string }[] | undefined;
+      if (feature === 'subtract') {
+        sketchToolPicks = validateSketchPicks(req.body?.sketchToolEntities) ?? undefined;
+        if (!sketchToolPicks) {
+          res.status(400).json({ error: 'sketchToolEntities must be a non-empty array of {shapeId} picks for subtract' });
+          return;
+        }
+      } else if (req.body?.sketchToolEntities !== undefined) {
+        res.status(400).json({ error: 'sketchToolEntities only applies to subtract' });
         return;
       }
       if (selectorOverride !== undefined
@@ -4139,9 +4160,12 @@ export function createApplyFeatureRouter(
               await extractNumericParams(code),
               fluidCadServer.getParamDefinitions(),
             ),
+            toolRefs: sketchToolPicks,
           }
-          : undefined;
-        const synthesis = fluidCadServer.synthesizeSketchApplyFeature(sketchPicks, feature, value, options);
+          : { toolRefs: sketchToolPicks };
+        const synthesis = fluidCadServer.synthesizeSketchApplyFeature(
+          sketchPicks, feature, sketchBoolean ? undefined : value, options,
+        );
         if (!synthesis) {
           res.status(404).json({ success: false, reason: 'No rendered scene' });
           return;

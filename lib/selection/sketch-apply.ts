@@ -5,6 +5,7 @@ import { ShapeFilter } from "../filters/filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { EdgeQuery } from "../oc/edge-query.js";
 import { EdgeProps } from "../oc/edge-props.js";
+import { WireOps } from "../oc/wire-ops.js";
 import { allocateNames, collectImports, renderPartArgs } from "./explain.js";
 import { SelectorPart } from "./synthesis.js";
 import {
@@ -18,7 +19,16 @@ import {
 /** A sketch edge pick: 1 shapeId = 1 edge (the Stage 0 emission invariant). */
 export type SketchPickRef = { shapeId: string };
 
-export type SketchApplyFeatureKind = 'fillet';
+export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'fuse' | 'subtract' | 'common';
+
+export type SketchSynthesizeOptions = SynthesizeOptions & {
+  /**
+   * Subtract only: the tool-slot picks (`refs` is the base slot). The 2D
+   * booleans are owner-level operations — any picked edge selects its whole
+   * producing geometry as the operand.
+   */
+  toolRefs?: SketchPickRef[];
+};
 
 type ResolvedSketchPick = {
   ref: SketchPickRef;
@@ -56,10 +66,14 @@ export function synthesizeSketchApplyFeature(
   refs: SketchPickRef[],
   feature: SketchApplyFeatureKind,
   value?: number | string,
-  options: SynthesizeOptions = {},
+  options: SketchSynthesizeOptions = {},
 ): ApplyFeatureSynthesis {
   if (refs.length === 0) {
     return { ok: false, reason: 'nothing selected' };
+  }
+
+  if (feature === 'fuse' || feature === 'subtract' || feature === 'common') {
+    return synthesizeSketchBoolean(scene, refs, feature, options);
   }
 
   const resolution = resolvePicks(scene, refs);
@@ -67,6 +81,22 @@ export function synthesizeSketchApplyFeature(
     return { ok: false, reason: resolution.reason };
   }
   const { sketch, picks } = resolution;
+
+  // 2D fillet rounds the corners WITHIN the picked group (Fillet2D wires up
+  // connected runs and fillets their shared vertices), so a selection with no
+  // touching edges would apply as a silent no-op — surface that here instead,
+  // for the preview and the apply alike.
+  if (feature === 'fillet') {
+    const groups = WireOps.groupConnectedEdges(picks.map(p => p.edge));
+    if (!groups.some(g => g.length >= 2)) {
+      return {
+        ok: false,
+        reason: picks.length === 1
+          ? 'a single edge has no corner to fillet — pick two or more adjacent edges'
+          : 'the picked edges do not touch — 2D fillet rounds corners between adjacent edges',
+      };
+    }
+  }
 
   // The emitted statement runs at the end of the sketch body, so its universe
   // is the sketch's final edge set — exactly this index.
@@ -180,6 +210,105 @@ export function synthesizeSketchApplyFeature(
     preview: `${feature}(${value}, ${args})`,
     args,
     alternatives,
+  };
+}
+
+/**
+ * The 2D booleans (fuse/subtract/common) are owner-level: their operands are
+ * whole geometries (Fuse2D & co. build closed REGIONS from each operand's
+ * edges — a lone edge forms none), so any picked edge stands for its producing
+ * primitive and the emitted args are bare variables (`fuse(r, c)`,
+ * `subtract(r, c)`). Subtract is slot-addressed: `refs` is the base pick set,
+ * `options.toolRefs` the tool's; Subtract2D takes exactly one geometry per
+ * slot. Owners that cannot bind to a variable (clones, loops) are refused
+ * honestly — a filter arg cannot promise a closed region.
+ */
+function synthesizeSketchBoolean(
+  scene: SelectionScene,
+  refs: SketchPickRef[],
+  feature: 'fuse' | 'subtract' | 'common',
+  options: SketchSynthesizeOptions,
+): ApplyFeatureSynthesis {
+  const toolRefs = options.toolRefs ?? [];
+  if (feature === 'subtract' && toolRefs.length === 0) {
+    return { ok: false, reason: 'pick the tool geometry to subtract' };
+  }
+
+  // One resolution over both slots keeps the same-sketch rule airtight.
+  const resolution = resolvePicks(scene, [...refs, ...toolRefs]);
+  if ('reason' in resolution) {
+    return { ok: false, reason: resolution.reason };
+  }
+
+  const baseIds = new Set(refs.map(r => r.shapeId));
+  const baseOwners: SceneObject[] = [];
+  const toolOwners: SceneObject[] = [];
+  for (const pick of resolution.picks) {
+    const slot = baseIds.has(pick.ref.shapeId) ? baseOwners : toolOwners;
+    if (!slot.includes(pick.owner)) {
+      slot.push(pick.owner);
+    }
+  }
+
+  if (feature === 'subtract') {
+    if (baseOwners.some(o => toolOwners.includes(o))) {
+      return { ok: false, reason: 'the base and the tool are the same geometry' };
+    }
+    if (baseOwners.length > 1 || toolOwners.length > 1) {
+      return {
+        ok: false,
+        reason: 'subtract takes one base and one tool geometry — fuse geometries first to combine them',
+      };
+    }
+  } else if (baseOwners.length < 2) {
+    return { ok: false, reason: `pick edges of at least two geometries to ${feature}` };
+  }
+
+  const owners = [...baseOwners, ...toolOwners];
+  for (const owner of owners) {
+    const bindFailure = checkSketchBindable(scene, owner);
+    if (bindFailure) {
+      return { ok: false, reason: bindFailure };
+    }
+  }
+
+  const filePaths = new Set(owners.map(o => o.getSourceLocation()!.filePath));
+  if (filePaths.size > 1) {
+    return { ok: false, reason: 'the picked edges come from statements in different files' };
+  }
+
+  const names = allocateNames(owners, options.namer);
+  const parts = owners.map(owner => part(owner, '', null, null, 0));
+  const args = parts.map(p => renderPartArgs(p, names)).join(', ');
+
+  const spec: ApplyFeatureEditSpec = {
+    feature,
+    filePath: filePaths.values().next().value!,
+    producers: owners.map(owner => {
+      const loc = owner.getSourceLocation()!;
+      return {
+        line: loc.line,
+        column: loc.column,
+        featureType: owner.getType(),
+        nameHint: nameHintFor(owner.getType()),
+        bind: true,
+      };
+    }),
+    parts: parts.map(p => ({
+      producer: owners.indexOf(p.producer!),
+      accessor: p.accessor,
+      indices: p.indices,
+      filterArgs: p.filterArgs,
+    })),
+    imports: [],
+  };
+
+  return {
+    ok: true,
+    spec,
+    preview: `${feature}(${args})`,
+    args,
+    alternatives: [],
   };
 }
 

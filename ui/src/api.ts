@@ -447,20 +447,33 @@ export async function applyFeature(
 /** A sketch-edge pick: 1 shapeId = 1 edge (no sub refs in 2D). */
 export type SketchApplyEntity = { shapeId: string };
 
+/** The 2D operations the sketch-branch apply supports. */
+export type SketchOpFeature = 'fillet' | 'offset' | 'fuse' | 'subtract' | 'common';
+
 /**
  * Ask the server to synthesize (and, unless `preview` is set, apply) a 2D
- * fillet for the picked sketch edges. The synthesized statement lands inside
- * the sketch body (`fillet(4, r.edge('top'), l)`).
+ * operation for the picked sketch edges. The synthesized statement lands
+ * inside the sketch body (`fillet(4, r.edge('top'), l)`,
+ * `offset(2, r.edge('top'))`, `subtract(r, c)`). The booleans carry no
+ * `value`; subtract is slot-addressed — `entities` is the base pick set and
+ * `options.toolEntities` the tool's.
  */
-export async function applySketchFillet(
-  value: ValueExpr,
+export async function applySketchOp(
+  feature: SketchOpFeature,
+  value: ValueExpr | undefined,
   entities: SketchApplyEntity[],
-  options: { selectorOverride?: string; preview?: boolean; signal?: AbortSignal } = {},
+  options: {
+    toolEntities?: SketchApplyEntity[];
+    selectorOverride?: string;
+    preview?: boolean;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<ApplyFeatureResponse> {
   return postApplyFeature({
-    feature: 'fillet',
+    feature,
     value,
     sketchEntities: entities,
+    sketchToolEntities: options.toolEntities,
     selectorOverride: options.selectorOverride,
     preview: options.preview,
   }, options.signal);

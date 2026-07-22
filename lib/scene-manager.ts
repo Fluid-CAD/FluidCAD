@@ -23,7 +23,7 @@ import type { MeasureInput } from "./oc/measure/measure-ops.js";
 import type { MeasureEntityRef, MeasureResult } from "./oc/measure/measure-types.js";
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
 import { synthesizeSketchApplyFeature } from "./selection/sketch-apply.js";
-import type { SketchApplyFeatureKind, SketchPickRef } from "./selection/sketch-apply.js";
+import type { SketchApplyFeatureKind, SketchPickRef, SketchSynthesizeOptions } from "./selection/sketch-apply.js";
 import { expandBucket, expandTangentChain, ExpandBucketResult, ExpandTangentsResult } from "./selection/expand.js";
 import { listSelectionGroups, SelectionGroupsResult } from "./selection/selection-groups.js";
 import { resolveFeatureSources, FeatureSourcesResult } from "./selection/feature-sources.js";
@@ -179,7 +179,7 @@ class SceneManager {
     refs: SketchPickRef[],
     feature: SketchApplyFeatureKind,
     value?: number | string,
-    options: SynthesizeOptions = {},
+    options: SketchSynthesizeOptions = {},
   ): ApplyFeatureSynthesis {
     return synthesizeSketchApplyFeature(scene, refs, feature, value, options);
   }

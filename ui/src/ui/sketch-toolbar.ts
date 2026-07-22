@@ -42,6 +42,12 @@ const TOOL_LAYOUT: ToolEntry[] = [
   { tools: [
     { id: 'trim', label: 'Trim', iconPng: 'trim' },
     { id: 'fillet', label: 'Fillet', iconPng: 'fillet2d' },
+    { id: 'offset', label: 'Offset', iconPng: 'offset' },
+  ]},
+  { tools: [
+    { id: 'fuse', label: 'Fuse', iconPng: 'fuse' },
+    { id: 'subtract', label: 'Subtract', caption: 'Subtr.', iconPng: 'subtract' },
+    { id: 'common', label: 'Common', iconPng: 'common' },
   ]},
 ];
 
@@ -56,6 +62,10 @@ const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   bezier: 'b',
   trim: 't',
   fillet: 'f',
+  offset: 'o',
+  fuse: 'fu',
+  subtract: 's',
+  common: 'co',
   text: 'x',
 };
 

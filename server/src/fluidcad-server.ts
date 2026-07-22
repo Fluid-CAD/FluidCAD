@@ -43,6 +43,18 @@ type SceneManager = {
     },
     before?: SelectionBoundary,
   ): any;
+  // Optional: the manager comes from the workspace's fluidcad install, which
+  // may predate sketch-scoped selection synthesis.
+  synthesizeSketchApplyFeature?(
+    scene: any,
+    refs: { shapeId: string }[],
+    feature: 'fillet',
+    value: number | string | undefined,
+    options?: {
+      namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
+      params?: { name: string; value: number }[];
+    },
+  ): any;
   expandTangentChain(
     scene: any,
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
@@ -552,6 +564,26 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.synthesizeApplyFeature(scene, refs, feature, value, chains, options, before);
+  }
+
+  /** 2D branch: synthesize a sketch-body statement for picked sketch edges. */
+  synthesizeSketchApplyFeature(
+    refs: { shapeId: string }[],
+    feature: 'fillet',
+    value: number | string | undefined,
+    options?: {
+      namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
+      params?: { name: string; value: number }[];
+    },
+  ): any {
+    if (!this.sceneManager?.synthesizeSketchApplyFeature) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.synthesizeSketchApplyFeature(scene, refs, feature, value, options);
   }
 
   expandTangentChain(

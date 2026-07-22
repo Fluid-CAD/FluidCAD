@@ -444,6 +444,28 @@ export async function applyFeature(
   }, options.signal);
 }
 
+/** A sketch-edge pick: 1 shapeId = 1 edge (no sub refs in 2D). */
+export type SketchApplyEntity = { shapeId: string };
+
+/**
+ * Ask the server to synthesize (and, unless `preview` is set, apply) a 2D
+ * fillet for the picked sketch edges. The synthesized statement lands inside
+ * the sketch body (`fillet(4, r.edge('top'), l)`).
+ */
+export async function applySketchFillet(
+  value: ValueExpr,
+  entities: SketchApplyEntity[],
+  options: { selectorOverride?: string; preview?: boolean; signal?: AbortSignal } = {},
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'fillet',
+    value,
+    sketchEntities: entities,
+    selectorOverride: options.selectorOverride,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /** The profile sketch an extrude consumes, addressed by its source location. */
 export type ExtrudeProfileRef = {
   /** `active` consumes the sketch implicitly; `bound` binds it to a variable. */

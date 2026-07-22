@@ -50,6 +50,21 @@ function validatePicks(entities: unknown): Pick[] | null {
   return picks;
 }
 
+/** Sketch-edge picks (2D branch): bare {shapeId} refs, one sketch edge each. */
+function validateSketchPicks(entities: unknown): { shapeId: string }[] | null {
+  if (!Array.isArray(entities) || entities.length < 1) {
+    return null;
+  }
+  const picks: { shapeId: string }[] = [];
+  for (const raw of entities as { shapeId?: unknown }[]) {
+    if (!raw || typeof raw.shapeId !== 'string' || raw.shapeId.length === 0) {
+      return null;
+    }
+    picks.push({ shapeId: raw.shapeId });
+  }
+  return picks;
+}
+
 /** A sketch addressed by the source location the scene render reported. */
 type SketchLoc = { filePath: string; line: number; column: number };
 
@@ -4090,6 +4105,71 @@ export function createApplyFeatureRouter(
         spec: { feature: 'sketch', sketchPlane: plane, filePath, producers: [], parts: [], imports: [] },
       });
       res.json({ success: true, preview: statement });
+      return;
+    }
+
+    // Sketch-edge picks (2D branch): 1 shapeId = 1 sketch edge, no sub refs.
+    // Synthesis resolves them through the sketch edge index and the emitted
+    // statement lands inside the sketch body via the same edit-spec transform.
+    if (req.body?.sketchEntities !== undefined) {
+      const sketchPicks = validateSketchPicks(req.body.sketchEntities);
+      if (!sketchPicks) {
+        res.status(400).json({ error: 'sketchEntities must be a non-empty array of {shapeId} picks' });
+        return;
+      }
+      if (feature !== 'fillet') {
+        res.status(400).json({ error: 'feature must be "fillet" for sketch-edge selections' });
+        return;
+      }
+      if (!validValueExpr(value, { positive: true })) {
+        res.status(400).json({ error: 'value must be a positive number or expression' });
+        return;
+      }
+      if (selectorOverride !== undefined
+        && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
+        res.status(400).json({ error: 'selectorOverride must be a non-empty string (max 500 chars)' });
+        return;
+      }
+      try {
+        const code = fluidCadServer.getCurrentCode();
+        const options = code
+          ? {
+            namer: await makeProducerNamer(code),
+            params: resolveParamValues(
+              await extractNumericParams(code),
+              fluidCadServer.getParamDefinitions(),
+            ),
+          }
+          : undefined;
+        const synthesis = fluidCadServer.synthesizeSketchApplyFeature(sketchPicks, feature, value, options);
+        if (!synthesis) {
+          res.status(404).json({ success: false, reason: 'No rendered scene' });
+          return;
+        }
+        if (!synthesis.ok) {
+          res.status(422).json({ success: false, reason: synthesis.reason });
+          return;
+        }
+        if (preview === true) {
+          res.json({
+            success: true,
+            preview: synthesis.preview,
+            args: synthesis.args,
+            alternatives: synthesis.alternatives,
+          });
+          return;
+        }
+        let spec: ApplyFeatureEditSpec = typeof selectorOverride === 'string' && selectorOverride.trim() !== synthesis.args
+          ? { ...synthesis.spec, rawArgs: selectorOverride.trim() }
+          : synthesis.spec;
+        if (newVariables) {
+          spec = { ...spec, newVariables };
+        }
+        sendToExtension({ type: 'apply-feature-edit', spec });
+        res.json({ success: true, preview: synthesis.preview });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
       return;
     }
 

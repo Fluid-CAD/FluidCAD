@@ -41,6 +41,7 @@ const TOOL_LAYOUT: ToolEntry[] = [
   ]},
   { tools: [
     { id: 'trim', label: 'Trim', iconPng: 'trim' },
+    { id: 'fillet', label: 'Fillet', iconPng: 'fillet2d' },
   ]},
 ];
 
@@ -54,6 +55,7 @@ const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   arc2: 'ca',
   bezier: 'b',
   trim: 't',
+  fillet: 'f',
   text: 'x',
 };
 

@@ -22,6 +22,8 @@ import { MeasureOps } from "./oc/measure/measure-ops.js";
 import type { MeasureInput } from "./oc/measure/measure-ops.js";
 import type { MeasureEntityRef, MeasureResult } from "./oc/measure/measure-types.js";
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
+import { synthesizeSketchApplyFeature } from "./selection/sketch-apply.js";
+import type { SketchApplyFeatureKind, SketchPickRef } from "./selection/sketch-apply.js";
 import { expandBucket, expandTangentChain, ExpandBucketResult, ExpandTangentsResult } from "./selection/expand.js";
 import { listSelectionGroups, SelectionGroupsResult } from "./selection/selection-groups.js";
 import { resolveFeatureSources, FeatureSourcesResult } from "./selection/feature-sources.js";
@@ -169,6 +171,17 @@ class SceneManager {
     return withBoundary(
       scene, before, scoped => synthesizeApplyFeature(scoped, refs, feature, value, chains, options),
     );
+  }
+
+  /** 2D branch: synthesize a sketch-body statement for picked sketch edges. */
+  synthesizeSketchApplyFeature(
+    scene: Scene,
+    refs: SketchPickRef[],
+    feature: SketchApplyFeatureKind,
+    value?: number | string,
+    options: SynthesizeOptions = {},
+  ): ApplyFeatureSynthesis {
+    return synthesizeSketchApplyFeature(scene, refs, feature, value, options);
   }
 
   expandTangentChain(scene: Scene, ref: PickRef, before?: SelectionBoundary): ExpandTangentsResult {

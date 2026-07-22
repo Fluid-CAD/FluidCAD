@@ -803,8 +803,36 @@ const REPEAT_TARGET_CALLEES = new Set([
   'repeat', 'copy', 'load', 'part', 'select',
 ]);
 
+/**
+ * Chain-root callees per 2D sketch-geometry feature type (getType values of
+ * sketch primitives). A sketch-scoped spec's producers are statements inside
+ * a sketch body; binding one to a variable and chaining `.edge(...)` on it is
+ * valid for exactly these callees.
+ */
+const SKETCH_PRODUCER_CALLEES: Record<string, string[]> = {
+  rect: ['rect'],
+  line: ['line', 'hLine', 'vLine', 'aLine', 'tLine'],
+  circle: ['circle', 'tCircle'],
+  ellipse: ['ellipse'],
+  polygon: ['polygon'],
+  slot: ['slot'],
+  arc: ['arc'],
+  'arc-from-center': ['arc'],
+  tarc: ['tArc'],
+  bezier: ['bezier'],
+  connect: ['connect'],
+  offset: ['offset'],
+  projection: ['project'],
+  intersect: ['intersect'],
+  text: ['text'],
+};
+
 /** The chain-root callees producers of `featureType` may bind. */
 function producerCallees(featureType: string): Set<string> {
+  const sketchCallees = SKETCH_PRODUCER_CALLEES[featureType];
+  if (sketchCallees) {
+    return new Set(sketchCallees);
+  }
   return featureType === 'feature' ? REPEAT_TARGET_CALLEES : PRODUCER_CALLEES;
 }
 
@@ -2110,7 +2138,16 @@ export function renderSelectorPartExpr(
 ): string {
   const selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
   if (part.producer === null) {
+    // 'filter' parts are bare edge-filter arguments (2D ops accept them
+    // directly); everything else producer-less is a global select().
+    if (part.accessor === 'filter') {
+      return selectorArgs;
+    }
     return `select(${selectorArgs})`;
+  }
+  // An empty accessor names the whole feature (`fillet(4, l)`).
+  if (part.accessor === '') {
+    return `${producerVar}`;
   }
   return `${producerVar}.${part.accessor}(${selectorArgs})`;
 }

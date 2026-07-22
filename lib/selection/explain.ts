@@ -366,7 +366,7 @@ function renderPreview(feature: ApplyFeatureKind, value: number | string | undef
  * collision-free allocation the transform will actually write. Without one,
  * fall back to the plain hint-suffix scheme.
  */
-function allocateNames(producers: SceneObject[], namer?: ProducerNamer): Map<SceneObject, string> {
+export function allocateNames(producers: SceneObject[], namer?: ProducerNamer): Map<SceneObject, string> {
   let external: (string | null)[] | null = null;
   if (namer) {
     try {
@@ -410,19 +410,30 @@ function allocateNames(producers: SceneObject[], namer?: ProducerNamer): Map<Sce
   return names;
 }
 
-function renderPartArgs(part: SelectorPart, names: Map<SceneObject, string>): string {
+export function renderPartArgs(part: SelectorPart, names: Map<SceneObject, string>): string {
   const selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
   if (part.producer === null) {
+    // 'filter' parts are bare edge-filter arguments (2D ops accept them
+    // directly); everything else producer-less is a global select().
+    if (part.accessor === 'filter') {
+      return selectorArgs;
+    }
     return `select(${selectorArgs})`;
+  }
+  // An empty accessor names the whole feature (`fillet(4, l)`).
+  if (part.accessor === '') {
+    return names.get(part.producer)!;
   }
   return `${names.get(part.producer)}.${part.accessor}(${selectorArgs})`;
 }
 
 /** Symbols the emitted statement references beyond the feature itself. */
-function collectImports(parts: { producer: unknown; filterArgs: string | null }[]): string[] {
+export function collectImports(
+  parts: { producer: unknown; accessor: string; filterArgs: string | null }[],
+): string[] {
   const imports = new Set<string>();
   for (const part of parts) {
-    if (part.producer === null) {
+    if (part.producer === null && part.accessor !== 'filter') {
       imports.add('select');
     }
     if (part.filterArgs) {

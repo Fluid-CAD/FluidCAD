@@ -21,6 +21,7 @@ import { isTopLevel } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData } from '../types';
 import { Viewer } from '../viewer';
 import { TrimPickService } from './trim-pick-service';
+import { SketchFilletService } from './sketch-fillet-service';
 import { VariableInfo } from '../ui/expression-input';
 import { ShortcutManager } from '../ui/shortcut-manager';
 import { Navbar } from '../ui/navbar';
@@ -29,6 +30,7 @@ export class SketchToolbarService {
   private viewer: Viewer;
   private container: HTMLElement;
   private trimService: TrimPickService;
+  private filletService: SketchFilletService;
   private toolbar: SketchToolbar;
   private activeSketchInfo: {
     sketchObj: SceneObjectRender;
@@ -61,6 +63,12 @@ export class SketchToolbarService {
     this.shortcuts.register('n', () => this.lookAlongSketchNormal());
 
     this.bezierHandles = new BezierHandlesOverlay(viewer.sceneContext);
+
+    this.filletService = new SketchFilletService(
+      container,
+      () => [...(this.activeHoverSelectHandler?.selectedIds ?? [])],
+      () => this.handleToolSelect(null),
+    );
   }
 
   get hasActiveDrawingTool(): boolean {
@@ -137,6 +145,8 @@ export class SketchToolbarService {
           this.activeHoverSelectHandler.updatePlane(plane);
           this.activeHoverSelectHandler.updateSceneData(sceneObjects, lastRoot.id);
         }
+        // A re-render may have pruned selected edges — keep the preview honest.
+        this.filletService.refresh();
       } else if (!this.toolbar.activeTool) {
         this.activateDragHandler();
       }
@@ -144,6 +154,10 @@ export class SketchToolbarService {
       if (this.activeDrawingTool) {
         this.activeDrawingTool.deactivate();
         this.activeDrawingTool = null;
+      }
+      if (this.filletService.isActive) {
+        this.filletService.exit();
+        this.toolbar.setActiveTool(null);
       }
       this.deactivateDragHandler();
       this.bezierHandles.deactivate();
@@ -243,6 +257,7 @@ export class SketchToolbarService {
       this.activeSketchInfo.plane,
       () => this.activeDragHandler?.isResizing ?? false,
     );
+    this.activeHoverSelectHandler.onSelectionChange = () => this.filletService.refresh();
     this.activeHoverSelectHandler.updateSceneData(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!);
     this.activeHoverSelectHandler.activate();
   }
@@ -271,6 +286,9 @@ export class SketchToolbarService {
     if (this.toolbar.activeTool === 'trim' && toolId !== 'trim') {
       this.exitTrimFromToolbar();
     }
+    if (this.toolbar.activeTool === 'fillet' && toolId !== 'fillet') {
+      this.filletService.exit();
+    }
 
     this.toolbar.setActiveTool(toolId);
 
@@ -278,6 +296,13 @@ export class SketchToolbarService {
       if (!toolId && this.activeSketchInfo) {
         this.activateDragHandler();
       }
+      return;
+    }
+
+    // Fillet keeps the drag/hover handlers active — picking IS the input.
+    if (toolId === 'fillet') {
+      this.activateDragHandler();
+      this.filletService.enter();
       return;
     }
 

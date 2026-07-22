@@ -35,10 +35,19 @@ let queryCalls: { method: string; before: unknown }[];
 /** Per-test result for the selection query methods. */
 let currentQueryResult: any;
 
+/** Sketch-branch synthesis calls (2D {shapeId} picks). */
+let sketchSynthesizeCalls: { picks: unknown; feature: string; value: number | string | undefined }[];
+
 const fakeServer = {
   getCurrentCode: () => currentCode,
   getCurrentFileName: () => currentFileName,
   getParamDefinitions: () => [],
+  synthesizeSketchApplyFeature: (
+    picks: unknown, feature: string, value: number | string | undefined, _options?: unknown,
+  ) => {
+    sketchSynthesizeCalls.push({ picks, feature, value });
+    return currentSynthesis;
+  },
   synthesizeApplyFeature: (
     _picks: unknown, feature: string, value: number | undefined,
     _chains?: unknown, _options?: unknown, before?: unknown,
@@ -107,6 +116,7 @@ describe('apply-feature route validation', () => {
   beforeEach(() => {
     synthesizeCalls = [];
     synthesizeBoundaries = [];
+    sketchSynthesizeCalls = [];
     relayed = [];
     currentSynthesis = fakeSynthesis;
     currentCode = null;
@@ -2942,6 +2952,95 @@ describe('apply-feature route validation', () => {
       });
       expect(status).toBe(422);
       expect(body.reason).toContain('not a boolean');
+      expect(relayed).toHaveLength(0);
+    });
+  });
+
+  describe('sketch-edge picks (2D branch)', () => {
+    const SKETCH_SYNTHESIS = {
+      ok: true,
+      spec: {
+        feature: 'fillet',
+        value: 4,
+        filePath: '/ws/m.fluid.js',
+        producers: [{ line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true }],
+        parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: "'top'" }],
+        imports: [],
+      },
+      preview: "fillet(4, r.edge('top'))",
+      args: "r.edge('top')",
+      alternatives: ['r.edge(2)'],
+    };
+
+    it('rejects malformed sketch entities', async () => {
+      const { status, body } = await post({ feature: 'fillet', value: 4, sketchEntities: [{}] });
+      expect(status).toBe(400);
+      expect(body.error).toContain('sketchEntities must be');
+    });
+
+    it('rejects non-fillet features for sketch selections', async () => {
+      const { status, body } = await post({
+        feature: 'chamfer', value: 4, sketchEntities: [{ shapeId: 'edge-1' }],
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('feature must be "fillet"');
+    });
+
+    it('rejects a non-positive value', async () => {
+      const { status } = await post({
+        feature: 'fillet', value: 0, sketchEntities: [{ shapeId: 'edge-1' }],
+      });
+      expect(status).toBe(400);
+    });
+
+    it('previews via the sketch synthesis branch', async () => {
+      currentSynthesis = SKETCH_SYNTHESIS;
+      const { status, body } = await post({
+        feature: 'fillet', value: 4, sketchEntities: [{ shapeId: 'edge-1' }], preview: true,
+      });
+      expect(status).toBe(200);
+      expect(body).toMatchObject({
+        success: true,
+        preview: "fillet(4, r.edge('top'))",
+        args: "r.edge('top')",
+        alternatives: ['r.edge(2)'],
+      });
+      expect(sketchSynthesizeCalls).toEqual([
+        { picks: [{ shapeId: 'edge-1' }], feature: 'fillet', value: 4 },
+      ]);
+      expect(synthesizeCalls).toHaveLength(0);
+      expect(relayed).toHaveLength(0);
+    });
+
+    it('relays the spec to the extension on apply', async () => {
+      currentSynthesis = SKETCH_SYNTHESIS;
+      const { status, body } = await post({
+        feature: 'fillet', value: 4, sketchEntities: [{ shapeId: 'edge-1' }],
+      });
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(relayed).toEqual([
+        { type: 'apply-feature-edit', spec: SKETCH_SYNTHESIS.spec },
+      ]);
+    });
+
+    it('carries a hand-edited selector override as rawArgs', async () => {
+      currentSynthesis = SKETCH_SYNTHESIS;
+      const { status } = await post({
+        feature: 'fillet', value: 4, sketchEntities: [{ shapeId: 'edge-1' }],
+        selectorOverride: "r.edge('top'), r.edge('left')",
+      });
+      expect(status).toBe(200);
+      expect(relayed[0].spec.rawArgs).toBe("r.edge('top'), r.edge('left')");
+    });
+
+    it('422s a synthesis refusal', async () => {
+      currentSynthesis = { ok: false, reason: 'no edge filter distinguishes the picked edges' };
+      const { status, body } = await post({
+        feature: 'fillet', value: 4, sketchEntities: [{ shapeId: 'edge-1' }],
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('no edge filter');
       expect(relayed).toHaveLength(0);
     });
   });

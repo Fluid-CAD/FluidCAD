@@ -11,6 +11,7 @@ import {
   removeStatement,
   setFeatureName,
   setPickPoints,
+  setTrimTargets,
   insertGeometryCall,
   insertGeometryCallWithVariable,
   insertLoadCall,
@@ -289,6 +290,29 @@ describe('setPickPoints', () => {
     const code = `line([0, 0], [1, 1])\n`;
     const result = await setPickPoints(code, 1, []);
     expect(result.newCode).toBe(`line()\n`);
+  });
+});
+
+describe('setTrimTargets', () => {
+  it('fills an empty trim() and adds the edge filter import', async () => {
+    const code = `sketch('xy', () => {\n  rect(80, 60);\n  trim().pick();\n});\n`;
+    const result = await setTrimTargets(code, 3, 'edge().line(80)');
+    expect(result.newCode).toContain(`trim(edge().line(80)).pick();`);
+    expect(result.newCode).toContain(`import { edge } from 'fluidcad/filters';`);
+  });
+
+  it('appends to existing trim targets', async () => {
+    const code = `import { edge } from 'fluidcad/filters';\ntrim(edge().circle()).pick();\n`;
+    const result = await setTrimTargets(code, 2, 'edge().line(30)');
+    expect(result.newCode).toBe(
+      `import { edge } from 'fluidcad/filters';\ntrim(edge().circle(), edge().line(30)).pick();\n`,
+    );
+  });
+
+  it('is a no-op when the call on the line is not trim', async () => {
+    const code = `extrude(sk).pick();\n`;
+    const result = await setTrimTargets(code, 1, 'edge().line(80)');
+    expect(result.newCode).toBe(code);
   });
 });
 

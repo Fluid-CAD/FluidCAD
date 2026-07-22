@@ -1,23 +1,34 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Wire } from "../common/wire.js";
 import { Edge } from "../common/edge.js";
+import { Face } from "../common/face.js";
 import { EdgeTargetArg, GeometrySceneObject } from "./2d/geometry.js";
 import { EdgeOps } from "../oc/edge-ops.js";
+import { FaceMaker2 } from "../oc/face-maker2.js";
 import { LazyVertex } from "./lazy-vertex.js";
 import { Plane } from "../math/plane.js";
+import { FilterBuilderBase } from "../filters/filter-builder-base.js";
+import { ShapeFilter } from "../filters/filter.js";
+
+/** A segment lies on a region boundary when its samples are this close. */
+const SEGMENT_MATCH_TOLERANCE = 1e-6;
 
 export class Trim2D extends GeometrySceneObject {
   private _targets: EdgeTargetArg[] = [];
   private _picking = false;
   private _pickPoints: LazyVertex[] = [];
+  private _segments: Edge[] = [];
 
   constructor() {
     super();
   }
 
   /**
-   * Whole-edge removal targets: geometries, edge accessors (`r.edge('top')`)
-   * or edge filters (`edge().line()`) — the shared 2D op target forms.
+   * Removal targets: geometries, edge accessors (`r.edge('top')`) or edge
+   * filters (`edge().line()`) — the shared 2D op target forms. Geometry and
+   * accessor targets remove whole edges; filter targets are matched against
+   * the sketch's split segments (geometry split at mutual intersections) and
+   * remove the matching segments, mirroring the interactive trim.
    */
   setTargets(...targets: EdgeTargetArg[]): this {
     this._targets = targets;
@@ -42,7 +53,17 @@ export class Trim2D extends GeometrySceneObject {
     return this._targets;
   }
 
+  /**
+   * The surviving split segments of the last build (the `trim` meta shapes),
+   * available while picking is active. The trim-region selector synthesis
+   * resolves region picks against this set.
+   */
+  getSegments(): Edge[] {
+    return this._segments;
+  }
+
   build() {
+    this._segments = [];
     const plane = this.sketch.getPlane();
     const sourceWires = this.sketch.getGeometriesWithOwner();
 
@@ -65,35 +86,51 @@ export class Trim2D extends GeometrySceneObject {
       return;
     }
 
-    let targetMatched: Set<Edge> | null = null;
-    if (this._targets.length > 0) {
-      targetMatched = this.buildWithTargets();
+    const sceneTargets = this._targets.filter(t => !(t instanceof FilterBuilderBase));
+    const filterTargets = this._targets.filter(
+      (t): t is FilterBuilderBase<Edge> => t instanceof FilterBuilderBase,
+    );
+
+    let removedWhole: Set<Edge> = new Set();
+    if (sceneTargets.length > 0) {
+      removedWhole = this.buildWithTargets(sceneTargets);
     }
 
-    if (this._picking) {
-      const pickableEdges = targetMatched
-        ? allEdges.filter(e => !targetMatched.has(e))
-        : allEdges;
-      this.buildWithPicking(pickableEdges, edgeToOwner, plane);
+    if (filterTargets.length === 0 && !this._picking) {
+      return;
     }
+
+    const pickableEdges = allEdges.filter(e => !removedWhole.has(e));
+    this.buildSegments(pickableEdges, edgeToOwner, plane, filterTargets);
   }
 
   /**
    * Whole-edge removal through the shared resolver: targets resolve to their
    * edges mapped to the REAL owning feature (accessors and select statements
    * are reached through), and removal goes through the sketch so every holder
-   * of the instance records it. Returns the removed set so the picking mode
+   * of the instance records it. Returns the removed set so the segment pass
    * excludes it.
    */
-  private buildWithTargets(): Set<Edge> {
-    const resolved = this.resolveEdgeTargets(this._targets);
+  private buildWithTargets(targets: EdgeTargetArg[]): Set<Edge> {
+    const resolved = this.resolveEdgeTargets(targets);
     for (const edge of resolved.keys()) {
       this.sketch.removeShape(edge, this);
     }
     return new Set(resolved.keys());
   }
 
-  private buildWithPicking(pickableEdges: Edge[], edgeToOwner: Map<Edge, { wire: Wire | Edge; owner: SceneObject }>, plane: Plane) {
+  /**
+   * Segment-level removal: the pickable edges split at their mutual
+   * intersections, with segments removed by filter targets and pick points.
+   * While picking is active, the surviving segments (and the regions they
+   * bound) are emitted as meta shapes for the interactive mode.
+   */
+  private buildSegments(
+    pickableEdges: Edge[],
+    edgeToOwner: Map<Edge, { wire: Wire | Edge; owner: SceneObject }>,
+    plane: Plane,
+    filterTargets: FilterBuilderBase<Edge>[],
+  ) {
 
     const TRIM_TOLERANCE = 50;
 
@@ -102,15 +139,25 @@ export class Trim2D extends GeometrySceneObject {
     const sourceIndex = splitResult.sourceIndex;
 
     const splitEdgesToRemove = new Set<number>();
-    if (this._pickPoints.length > 0) {
-      for (const lazyPoint of this._pickPoints) {
-        const point2d = lazyPoint.asPoint2D();
-        const point3d = plane.localToWorld(point2d);
-        for (const idx of EdgeOps.findNearestEdgeIndices(splitEdges, point3d, TRIM_TOLERANCE)) {
-          splitEdgesToRemove.add(idx);
+
+    for (const filter of filterTargets) {
+      const matches = new Set(new ShapeFilter(splitEdges, filter).apply() as Edge[]);
+      for (let i = 0; i < splitEdges.length; i++) {
+        if (matches.has(splitEdges[i])) {
+          splitEdgesToRemove.add(i);
         }
       }
+    }
 
+    for (const lazyPoint of this._pickPoints) {
+      const point2d = lazyPoint.asPoint2D();
+      const point3d = plane.localToWorld(point2d);
+      for (const idx of EdgeOps.findNearestEdgeIndices(splitEdges, point3d, TRIM_TOLERANCE)) {
+        splitEdgesToRemove.add(idx);
+      }
+    }
+
+    if (splitEdgesToRemove.size > 0) {
       const removedWires = new Set<Wire | Edge>();
       for (const idx of splitEdgesToRemove) {
         const origEdge = pickableEdges[sourceIndex[idx]];
@@ -135,6 +182,10 @@ export class Trim2D extends GeometrySceneObject {
       }
     }
 
+    if (!this._picking) {
+      return;
+    }
+
     // --- Meta shapes for segment-level hover ---
     const origSurvives = new Set<number>();
     const origHasTrim = new Array(pickableEdges.length).fill(false);
@@ -156,6 +207,7 @@ export class Trim2D extends GeometrySceneObject {
     }
     const metaSplit = EdgeOps.splitEdgesWithMapping(metaInputEdges);
 
+    const metaEdges: Edge[] = [];
     for (let i = 0; i < metaSplit.edges.length; i++) {
       const origIdx = metaInputToOrig[metaSplit.sourceIndex[i]];
       if (origHasTrim[origIdx]) {
@@ -164,6 +216,7 @@ export class Trim2D extends GeometrySceneObject {
       const metaEdge = Edge.fromTopoDSEdge(metaSplit.edges[i].getShape());
       metaEdge.markAsMetaShape('trim');
       this.addShape(metaEdge);
+      metaEdges.push(metaEdge);
     }
 
     for (let i = 0; i < splitEdges.length; i++) {
@@ -176,6 +229,48 @@ export class Trim2D extends GeometrySceneObject {
       const metaEdge = Edge.fromTopoDSEdge(splitEdges[i].getShape());
       metaEdge.markAsMetaShape('trim');
       this.addShape(metaEdge);
+      metaEdges.push(metaEdge);
+    }
+
+    this._segments = metaEdges;
+    this.buildRegionMeta(metaEdges, plane);
+  }
+
+  /**
+   * Region meta faces for by-region trimming: the surviving segments
+   * partition the plane into cells; each cell is emitted as a `trim-region`
+   * meta face whose metaData lists the ids of the segments bounding it, so
+   * hovering a region can highlight (and clicking can trim) its boundary.
+   */
+  private buildRegionMeta(metaEdges: Edge[], plane: Plane): void {
+    if (metaEdges.length === 0) {
+      return;
+    }
+
+    let cells: Face[];
+    try {
+      cells = FaceMaker2.getRegions(metaEdges, plane, false);
+    } catch {
+      return;
+    }
+
+    for (const cell of cells) {
+      // Attribute boundary by containment, not identity: the cell
+      // decomposition splits closed curves at their period seam, so a
+      // wrapped arc segment can span two boundary pieces.
+      const boundary = cell.getEdges();
+      const edgeIds: string[] = [];
+      for (const segment of metaEdges) {
+        if (EdgeOps.edgeLiesOnEdges(segment, boundary, SEGMENT_MATCH_TOLERANCE)) {
+          edgeIds.push(segment.id);
+        }
+      }
+      if (edgeIds.length === 0) {
+        continue;
+      }
+      cell.markAsMetaShape('trim-region');
+      cell.metaData = { edgeIds };
+      this.addShape(cell);
     }
   }
 
@@ -235,6 +330,7 @@ export class Trim2D extends GeometrySceneObject {
       pickPoints: this._picking
         ? this._pickPoints.map(p => { const pt = p.asPoint2D(); return [pt.x, pt.y]; })
         : undefined,
+      hasTargets: this._targets.length > 0 || undefined,
     };
   }
 }

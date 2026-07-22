@@ -586,7 +586,7 @@ function induceFilterBuilders(universe: Edge[], picks: Edge[]): string | null {
   return null;
 }
 
-function classifyEdge(edge: Edge): 'line' | 'arc' | 'circle' | null {
+export function classifyEdge(edge: Edge): 'line' | 'arc' | 'circle' | null {
   const curveType = EdgeQuery.getEdgeCurveType(edge);
   if (curveType === 'line') {
     return 'line';
@@ -598,7 +598,7 @@ function classifyEdge(edge: Edge): 'line' | 'arc' | 'circle' | null {
 }
 
 /** The dimension the matching filter compares: length, radius or diameter. */
-function edgeDimension(edge: Edge): number | null {
+export function edgeDimension(edge: Edge): number | null {
   try {
     const kind = classifyEdge(edge);
     if (kind === 'line') {
@@ -611,7 +611,7 @@ function edgeDimension(edge: Edge): number | null {
   }
 }
 
-function kindBuilder(kind: 'line' | 'arc' | 'circle', dim: number | undefined): EdgeFilterBuilder {
+export function kindBuilder(kind: 'line' | 'arc' | 'circle', dim: number | undefined): EdgeFilterBuilder {
   const builder = new EdgeFilterBuilder();
   if (kind === 'line') {
     return builder.line(dim);
@@ -622,11 +622,11 @@ function kindBuilder(kind: 'line' | 'arc' | 'circle', dim: number | undefined): 
   return builder.circle(dim);
 }
 
-function roundDim(value: number): number {
+export function roundDim(value: number): number {
   return Number(value.toFixed(4));
 }
 
-function formatDim(value: number): string {
+export function formatDim(value: number): string {
   return String(value);
 }
 

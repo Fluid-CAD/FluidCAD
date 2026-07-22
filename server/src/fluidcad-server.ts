@@ -57,6 +57,12 @@ type SceneManager = {
       toolRefs?: { shapeId: string }[];
     },
   ): any;
+  // Optional: predates by-region trim synthesis.
+  synthesizeTrimRegionTargets?(
+    scene: any,
+    sourceLocation: { line: number; column?: number },
+    edgeIds: string[],
+  ): any;
   expandTangentChain(
     scene: any,
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
@@ -588,6 +594,21 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.synthesizeSketchApplyFeature(scene, refs, feature, value, options);
+  }
+
+  /** By-region trim: synthesize filter args for a clicked region's boundary segments. */
+  synthesizeTrimRegionTargets(
+    sourceLocation: { line: number; column?: number },
+    edgeIds: string[],
+  ): any {
+    if (!this.sceneManager?.synthesizeTrimRegionTargets) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.synthesizeTrimRegionTargets(scene, sourceLocation, edgeIds);
   }
 
   expandTangentChain(

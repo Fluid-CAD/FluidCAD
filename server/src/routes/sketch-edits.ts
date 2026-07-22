@@ -13,6 +13,7 @@ import {
   removeStatement,
   setFeatureName,
   setPickPoints,
+  setTrimTargets,
   insertGeometryCallWithVariable,
   insertLoadCall,
   updateGeometryPosition,
@@ -144,6 +145,36 @@ export function createSketchEditsRouter(
       sourceLocation,
     });
     res.json({ success: true });
+  });
+
+  router.post('/apply-trim-region', (req, res) => {
+    const { sourceLocation, edgeIds } = req.body;
+    if (
+      !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number' ||
+      !Array.isArray(edgeIds) || edgeIds.length === 0 || edgeIds.some((id: unknown) => typeof id !== 'string')
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const synthesis = fluidCadServer.synthesizeTrimRegionTargets(sourceLocation, edgeIds as string[]);
+      if (!synthesis) {
+        res.status(404).json({ success: false, reason: 'No rendered scene' });
+        return;
+      }
+      if (!synthesis.ok) {
+        res.status(422).json({ success: false, reason: synthesis.reason });
+        return;
+      }
+      sendToExtension({
+        type: 'set-trim-targets',
+        args: synthesis.args,
+        sourceLocation,
+      });
+      res.json({ success: true, args: synthesis.args });
+    } catch (err: any) {
+      res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+    }
   });
 
   router.post('/set-pick-points', (req, res) => {
@@ -475,6 +506,23 @@ export function createSketchEditsRouter(
     }
     try {
       const result = await removePick(code, sourceLine);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/set-trim-targets', async (req, res) => {
+    const { code, sourceLine, args } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      typeof args !== 'string' || args.trim() === ''
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await setTrimTargets(code, sourceLine, args);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

@@ -194,6 +194,10 @@ function M.handle_message(msg)
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.remove_pick(code, msg.sourceLocation.line)
       end)
+    elseif msg.type == 'set-trim-targets' then
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.set_trim_targets(code, msg.sourceLocation.line, msg.args)
+      end)
     elseif msg.type == 'remove-point' then
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.remove_point(code, msg.sourceLocation.line, msg.point)

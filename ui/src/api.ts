@@ -178,6 +178,33 @@ export function addPick(sourceLocation: SourceLocationParam): void {
   postFireAndForget('/api/add-pick', { sourceLocation });
 }
 
+/**
+ * By-region trim: ask the server to synthesize edge-filter args for the
+ * clicked region's boundary segments and write them into the trim() call at
+ * the given location (`trim(edge().line(80)).pick()`). Resolves
+ * `{ success: false, reason }` when no filter separates the boundary — the
+ * caller falls back to pick points.
+ */
+export async function applyTrimRegion(
+  edgeIds: string[],
+  sourceLocation: SourceLocationParam,
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/apply-trim-region', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ edgeIds, sourceLocation }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
 export function removePick(sourceLocation: SourceLocationParam): void {
   postFireAndForget('/api/remove-pick', { sourceLocation });
 }

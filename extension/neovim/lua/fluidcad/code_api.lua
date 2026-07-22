@@ -82,6 +82,10 @@ function M.set_pick_points(code, source_line, points)
   return post('set-pick-points', { code = code, sourceLine = source_line, points = points })
 end
 
+function M.set_trim_targets(code, source_line, args)
+  return post('set-trim-targets', { code = code, sourceLine = source_line, args = args })
+end
+
 function M.insert_geometry(code, sketch_source_line, statement, new_variable)
   return post('insert-geometry', {
     code = code,

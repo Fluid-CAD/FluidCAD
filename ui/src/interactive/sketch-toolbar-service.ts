@@ -16,11 +16,12 @@ import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
 import { BezierHandlesOverlay } from './bezier-handles-overlay';
 import { SnapManager } from '../snapping/snap-manager';
 import { SnapController } from '../snapping/snap-controller';
-import { insertGeometry, getScopeVariables, removePick, applySketchOp } from '../api';
+import { insertGeometry, getScopeVariables, applySketchOp } from '../api';
 import { isTopLevel } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData } from '../types';
 import { Viewer } from '../viewer';
 import { TrimPickService } from './trim-pick-service';
+import { TrimDialog } from './trim-dialog';
 import { SketchOpService } from './sketch-op-service';
 import { VariableInfo } from '../ui/expression-input';
 import { ShortcutManager } from '../ui/shortcut-manager';
@@ -37,6 +38,7 @@ export class SketchToolbarService {
   private viewer: Viewer;
   private container: HTMLElement;
   private trimService: TrimPickService;
+  private trimDialog: TrimDialog;
   private opServices: Partial<Record<ToolId, SketchOpService>> = {};
   private toolbar: SketchToolbar;
   private activeSketchInfo: {
@@ -96,6 +98,10 @@ export class SketchToolbarService {
     for (const service of Object.values(this.opServices)) {
       service.onVisibilityChange = (open) => this.onOpDialogToggle?.(open);
     }
+
+    this.trimDialog = new TrimDialog(container, () => this.handleToolSelect(null));
+    this.trimDialog.onModeChange = (mode) => this.trimService.setMode(mode);
+    this.trimDialog.onVisibilityChange = (open) => this.onOpDialogToggle?.(open);
   }
 
   get hasActiveDrawingTool(): boolean {
@@ -193,6 +199,13 @@ export class SketchToolbarService {
           service.exit();
           this.toolbar.setActiveTool(null);
         }
+      }
+      if (this.trimDialog.isActive) {
+        // The sketch closed under the tool — no code edits, just fold the
+        // dialog; the trim service resets through its own scene update.
+        this.trimDialog.hide();
+        this.trimService.pendingActivation = false;
+        this.toolbar.setActiveTool(null);
       }
       this.deactivateDragHandler();
       this.bezierHandles.deactivate();
@@ -427,9 +440,11 @@ export class SketchToolbarService {
       return;
     }
 
+    this.trimDialog.show();
+    this.trimService.setMode(this.trimDialog.mode);
+
     if (this.trimService.lastPickInfo) {
       this.trimService.enter();
-      this.trimService.hideBars();
       return;
     }
 
@@ -438,17 +453,10 @@ export class SketchToolbarService {
   }
 
   private exitTrimFromToolbar(): void {
+    this.trimDialog.hide();
     this.trimService.pendingActivation = false;
     if (this.trimService.state === 'picking-active') {
       this.trimService.exit();
-    }
-    if (this.trimService.lastPickInfo) {
-      const trimObj = this.trimService.lastPickInfo.trimObj as any;
-      const isPicking = trimObj?.object?.picking;
-      const pickPoints = trimObj?.object?.pickPoints as [number, number][] | undefined;
-      if (isPicking && (!pickPoints || pickPoints.length === 0) && trimObj?.sourceLocation) {
-        removePick(trimObj.sourceLocation);
-      }
     }
     this.trimService.reset();
   }

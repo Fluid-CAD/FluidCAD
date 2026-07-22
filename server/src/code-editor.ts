@@ -738,6 +738,59 @@ export function setPickPoints(
   });
 }
 
+/** The innermost call of a member chain whose callee is a bare identifier. */
+function resolveBaseCallInChain(call: TSNode): TSNode | null {
+  let current: TSNode | null = call;
+  while (current && current.type === 'call_expression') {
+    const fn = current.childForFieldName('function');
+    if (fn && fn.type === 'identifier') {
+      return current;
+    }
+    if (fn && fn.type === 'member_expression') {
+      current = fn.childForFieldName('object');
+      continue;
+    }
+    break;
+  }
+  return null;
+}
+
+/**
+ * Append removal-target args to the `trim(...)` call on the resolved row —
+ * the by-region trim turning `trim().pick()` into
+ * `trim(edge().line(80)).pick()` — adding the `edge` filter import when it
+ * is missing.
+ */
+export async function setTrimTargets(
+  code: string,
+  sourceLine: number,
+  args: string,
+): Promise<CodeEditResult> {
+  const result = await withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const base = resolveBaseCallInChain(call);
+    const callee = base?.childForFieldName('function');
+    if (!base || callee?.text !== 'trim') {
+      return null;
+    }
+    const argsNode = getArgumentsNode(base);
+    if (!argsNode) {
+      return null;
+    }
+    if (argsNode.namedChildren.length === 0) {
+      return spliceCode(code, argsNode.startIndex + 1, argsNode.endIndex - 1, args);
+    }
+    return spliceCode(code, argsNode.endIndex - 1, argsNode.endIndex - 1, `, ${args}`);
+  });
+  if (result.newCode === code) {
+    return result;
+  }
+  return { newCode: await ensureSymbolImport(result.newCode, 'edge', 'fluidcad/filters') };
+}
+
 // ---------------------------------------------------------------------------
 // Statement removal — delete a feature statement at a timeline row's source line
 // ---------------------------------------------------------------------------

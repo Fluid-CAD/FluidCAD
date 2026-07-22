@@ -24,6 +24,8 @@ import type { MeasureEntityRef, MeasureResult } from "./oc/measure/measure-types
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
 import { synthesizeSketchApplyFeature } from "./selection/sketch-apply.js";
 import type { SketchApplyFeatureKind, SketchPickRef, SketchSynthesizeOptions } from "./selection/sketch-apply.js";
+import { synthesizeTrimRegionTargets } from "./selection/trim-region.js";
+import type { TrimRegionSynthesis } from "./selection/trim-region.js";
 import { expandBucket, expandTangentChain, ExpandBucketResult, ExpandTangentsResult } from "./selection/expand.js";
 import { listSelectionGroups, SelectionGroupsResult } from "./selection/selection-groups.js";
 import { resolveFeatureSources, FeatureSourcesResult } from "./selection/feature-sources.js";
@@ -182,6 +184,15 @@ class SceneManager {
     options: SketchSynthesizeOptions = {},
   ): ApplyFeatureSynthesis {
     return synthesizeSketchApplyFeature(scene, refs, feature, value, options);
+  }
+
+  /** By-region trim: synthesize filter args for a clicked region's boundary segments. */
+  synthesizeTrimRegionTargets(
+    scene: Scene,
+    sourceLocation: { line: number; column?: number },
+    edgeIds: string[],
+  ): TrimRegionSynthesis {
+    return synthesizeTrimRegionTargets(scene, sourceLocation, edgeIds);
   }
 
   expandTangentChain(scene: Scene, ref: PickRef, before?: SelectionBoundary): ExpandTangentsResult {

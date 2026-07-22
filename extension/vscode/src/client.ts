@@ -21,6 +21,7 @@ import {
   handleInsertPoint,
   handleAddPick,
   handleRemovePick,
+  handleSetTrimTargets,
   handleRemovePoint,
   handleSetPickPoints,
   handleGotoSource,
@@ -167,6 +168,10 @@ export class Client {
       }
       case 'remove-pick': {
         handleRemovePick(this, msg);
+        break;
+      }
+      case 'set-trim-targets': {
+        handleSetTrimTargets(this, msg);
         break;
       }
       case 'insert-geometry': {

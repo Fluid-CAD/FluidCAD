@@ -16,14 +16,17 @@ split()                                  // split all intersecting geometries
 split(...objects)
 
 trim()                                   // trim all segments at crossings
-trim(...targets)                         // remove the matching whole edges
+trim(...targets)                         // remove the matching edges/segments
 ```
 
 Both run inside a sketch context. `split` keeps every piece around so
 you can reference them individually; `trim` keeps only the segments you
-want, discarding the others. `trim(...)` with arguments removes whole
-edges; targets are the shared 2D op forms — geometries, edge accessors
-(`r.edge('top')`), or [[api/edge-filter]] filters (`edge().line()`).
+want, discarding the others. Targets are the shared 2D op forms:
+geometries and edge accessors (`r.edge('top')`) remove whole edges,
+while [[api/edge-filter]] filters (`edge().line()`) are matched against
+the sketch's split segments (geometry split at mutual intersections) and
+remove the matching segments — the form the viewport's by-region trim
+writes (`trim(edge().line(80))`).
 
 ## Example
 

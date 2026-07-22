@@ -19,7 +19,10 @@ interface TrimFunction {
   /** Trims all sketch geometry segments. */
   (): ITrim;
   /**
-   * Removes whole edges matching the given targets.
+   * Removes the edges matching the given targets. Geometry and accessor
+   * targets remove whole edges; edge filters are matched against the
+   * sketch's split segments (geometry split at mutual intersections) and
+   * remove the matching segments.
    * @param targets - Geometries, edge accessors (`r.edge('top')`), or edge
    *   filters (`edge().line()`) selecting the edges to remove
    */

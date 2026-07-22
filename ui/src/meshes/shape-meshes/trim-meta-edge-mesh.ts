@@ -36,7 +36,11 @@ export class TrimMetaEdgeMesh extends Group {
       });
       LineResolutionRegistry.register(material);
 
-      this.add(new LineSegments2(geometry, material));
+      const segments = new LineSegments2(geometry, material);
+      // The viewer's highlight walk tints children flagged as edge lines
+      // (LineSegments2 carries no isLine of its own).
+      segments.userData.isEdgeLine = true;
+      this.add(segments);
     }
   }
 }

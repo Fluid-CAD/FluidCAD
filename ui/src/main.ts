@@ -110,7 +110,7 @@ viewer.setParamsToggleHandler(() => {
   viewer.setParamsButtonActive(paramsPanel.isVisible);
 });
 
-const trimService = new TrimPickService(viewer, navbar);
+const trimService = new TrimPickService(viewer);
 const regionService = new RegionPickService(viewer, navbar);
 // The Sketch button (create group) stays visible while a create dialog is
 // up — it disables instead. Recomputed on every dialog arm/disarm.

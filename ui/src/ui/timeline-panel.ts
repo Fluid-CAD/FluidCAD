@@ -532,8 +532,12 @@ export class TimelinePanel {
     dropdown.style.left = `${e.clientX - panelRect.left}px`;
     dropdown.style.top = `${e.clientY - panelRect.top}px`;
 
-    // The breakpoint action is timeline navigation — absent while sketching.
-    const breakpointItem = this.sketchActive ? '' : `
+    // The breakpoint action is timeline navigation — absent while sketching,
+    // except on the active sketch's own children: a breakpoint there replays
+    // the sketch up to that shape without leaving sketch mode.
+    const activeSketchChild = this.sketchActive && obj.parentId != null
+      && this.findActiveObject(this.sceneObjects)?.id === obj.parentId;
+    const breakpointItem = this.sketchActive && !activeSketchChild ? '' : `
         <li><button data-action="rollback" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PAUSE}</span>
           <span>Breakpoint here</span>

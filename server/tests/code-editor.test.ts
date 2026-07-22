@@ -75,6 +75,34 @@ describe('addBreakpoint', () => {
     expect(result.newCode).toContain(`};\nbreakpoint();\n\nconst b = 3;`);
   });
 
+  it('places breakpoint after a 2d feature inside a sketch callback, not after the sketch', async () => {
+    const code = `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n    line([40, 20]);\n});\n`;
+    // referenceRow points at the first line(...) inside the callback.
+    const result = await addBreakpoint(code, 2);
+    expect(result.newCode).toBe(
+      `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n    breakpoint();\n\n    line([40, 20]);\n});\n`,
+    );
+    expect(result.breakpointLine).toBe(3);
+  });
+
+  it('places breakpoint after the last 2d feature inside a sketch callback', async () => {
+    const code = `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n    line([40, 20]);\n});\n`;
+    const result = await addBreakpoint(code, 3);
+    expect(result.newCode).toBe(
+      `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n    line([40, 20]);\n    breakpoint();\n\n});\n`,
+    );
+    expect(result.breakpointLine).toBe(4);
+  });
+
+  it('still places breakpoint after the whole sketch when referencing the sketch row', async () => {
+    const code = `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n});\nconst b = 2;\n`;
+    const result = await addBreakpoint(code, 1);
+    expect(result.newCode).toBe(
+      `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n});\nbreakpoint();\n\nconst b = 2;\n`,
+    );
+    expect(result.breakpointLine).toBe(4);
+  });
+
   it('is a no-op when a breakpoint already exists at the resolved insert line', async () => {
     const code = `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\nconst b = 2;\n`;
     const result = await addBreakpoint(code, 1);

@@ -388,7 +388,12 @@ function findBreakpointInsertLineFromTree(
     return referenceRow + 1;
   }
 
-  const node: TSNode | null = tree.rootNode.descendantForPosition({ row, column: 0 });
+  // Resolve at the first non-blank column: column 0 of an indented statement
+  // is leading whitespace, which tree-sitter attributes to the enclosing
+  // block — the walk below would then escalate past the statement's own
+  // block to the whole enclosing call (e.g. the sketch) instead.
+  const column = lines[row].length - lines[row].trimStart().length;
+  const node: TSNode | null = tree.rootNode.descendantForPosition({ row, column });
   if (!node || node === tree.rootNode) {
     return referenceRow + 1;
   }

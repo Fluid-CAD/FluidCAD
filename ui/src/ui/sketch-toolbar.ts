@@ -37,17 +37,17 @@ const TOOL_LAYOUT: ToolEntry[] = [
     { id: 'slot', label: 'Slot', iconPng: 'slot' },
   ]},
   { tools: [
+    { id: 'fuse', label: 'Fuse', iconPng: 'fuse2d' },
+    { id: 'subtract', label: 'Subtract', caption: 'Subtr.', iconPng: 'subtract2d' },
+    { id: 'common', label: 'Common', iconPng: 'common2d' },
+  ]},
+  { tools: [
     { id: 'text', label: 'Text', iconPng: 'text' },
   ]},
   { tools: [
     { id: 'trim', label: 'Trim', iconPng: 'trim' },
     { id: 'fillet', label: 'Fillet', iconPng: 'fillet2d' },
     { id: 'offset', label: 'Offset', iconPng: 'offset' },
-  ]},
-  { tools: [
-    { id: 'fuse', label: 'Fuse', iconPng: 'fuse2d' },
-    { id: 'subtract', label: 'Subtract', caption: 'Subtr.', iconPng: 'subtract2d' },
-    { id: 'common', label: 'Common', iconPng: 'common2d' },
   ]},
 ];
 

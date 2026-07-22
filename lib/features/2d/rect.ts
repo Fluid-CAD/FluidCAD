@@ -3,7 +3,6 @@ import { Sketch } from "./sketch.js";
 import { Geometry } from "../../oc/geometry.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
-import { LazySelectionSceneObject } from "../lazy-scene-object.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { Plane } from "../../math/plane.js";
@@ -288,38 +287,6 @@ export class Rect extends ExtrudableGeometryBase implements IRect {
     const otherRadius = Rect.normalizeRadius(other._radius);
 
     return thisRadius.every((r, i) => r === otherRadius[i]);
-  }
-
-  topEdge(): LazySelectionSceneObject {
-    return this.edge('top');
-  }
-
-  bottomEdge(): LazySelectionSceneObject {
-    return this.edge('bottom');
-  }
-
-  leftEdge(): LazySelectionSceneObject {
-    return this.edge('left');
-  }
-
-  rightEdge(): LazySelectionSceneObject {
-    return this.edge('right');
-  }
-
-  topLeftArcEdge(): LazySelectionSceneObject {
-    return this.edge('corner-arc', 3);
-  }
-
-  topRightArcEdge(): LazySelectionSceneObject {
-    return this.edge('corner-arc', 2);
-  }
-
-  bottomLeftArcEdge(): LazySelectionSceneObject {
-    return this.edge('corner-arc', 0);
-  }
-
-  bottomRightArcEdge(): LazySelectionSceneObject {
-    return this.edge('corner-arc', 1);
   }
 
   topLeft(): LazyVertex {

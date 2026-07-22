@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
+import fillet from "../../core/fillet.js";
 import { rect, polygon, slot, circle, hLine, aLine, move } from "../../core/2d/index.js";
 import { Rect } from "../../features/2d/rect.js";
 import { Edge } from "../../common/edge.js";
@@ -108,6 +109,34 @@ describe("sketch apply-feature synthesis", () => {
     }
     expect(result.args).toBe('r');
     expect(result.preview).toBe('fillet(6, r)');
+  });
+
+  it("keeps role accessors when the owner is partially consumed", () => {
+    let r: Rect;
+    sketch("xy", () => {
+      r = rect(80) as Rect;
+      fillet(2, r.edge('right'), r.edge('top'));
+    });
+    const scene = render();
+    setLocation(r!, 3);
+
+    // The picks cover everything r STILL owns (left + bottom — the earlier
+    // fillet consumed right + top), but not r as built. The bare variable
+    // would verify today yet silently widen to all four sides if the earlier
+    // fillet were removed — role accessors must win.
+    const result = synthesizeSketchApplyFeature(
+      scene,
+      [refFor(roleEdge(r!, 'left')), refFor(roleEdge(r!, 'bottom'))],
+      'fillet',
+      2,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.args).toBe("r.edge('bottom'), r.edge('left')");
+    expect(result.alternatives).toContain('r');
   });
 
   it("offers the index form as a verified alternative", () => {

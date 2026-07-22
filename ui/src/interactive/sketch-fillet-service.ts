@@ -1,5 +1,6 @@
 import { applySketchFillet, SketchApplyEntity } from '../api';
 import { ExpressionRow } from './modify-pick/expression-row';
+import { viewportChrome } from '../ui/viewport-chrome';
 
 const PREVIEW_DEBOUNCE_MS = 250;
 
@@ -11,6 +12,13 @@ const PREVIEW_DEBOUNCE_MS = 250;
  * editable (expression transparency) with verified alternatives.
  */
 export class SketchFilletService {
+  /**
+   * Fired on enter/exit. The dialog docks in the sketch dialog's spot, so
+   * main.ts wires this (via the sketch toolbar service) to suspend the sketch
+   * dialog while this one is open and restore it after.
+   */
+  onVisibilityChange?: (visible: boolean) => void;
+
   private readonly panel: HTMLDivElement;
   private readonly valueInput: HTMLInputElement;
   private readonly hint: HTMLDivElement;
@@ -30,30 +38,42 @@ export class SketchFilletService {
   ) {
     this.panel = document.createElement('div');
     this.panel.id = 'fluidcad-sketch-fillet-panel';
-    this.panel.className = 'hidden absolute bottom-6 left-1/2 -translate-x-1/2 z-[150] '
-      + 'flex flex-col gap-2 panel-bg border border-base-content/10 rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.4)] p-3 min-w-[300px]';
+    // top-[196px] right-4 matches the 3D dialogs (ModifyPanel and the
+    // create-feature dialogs): just below the viewport gizmo, in the spot the
+    // settings/fit-to-view button stack vacates while a dialog is open.
+    this.panel.className = 'hidden absolute top-[196px] right-4 z-[999] pointer-events-auto';
     this.panel.innerHTML = `
-      <div class="flex items-center gap-2">
-        <span class="text-sm font-medium text-base-content">Fillet</span>
-        <div data-role="hint" class="text-xs text-base-content/50">Pick sketch edges to fillet</div>
+      <div data-role="column" class="flex flex-col items-end gap-1.5">
+        <div class="flex flex-col items-stretch gap-3.5 w-60 max-h-[calc(100vh-260px)] overflow-y-auto bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
+          <div class="flex items-center gap-2.5">
+            <span class="font-medium text-sm">Fillet</span>
+          </div>
+          <div data-role="hint" class="text-base-content/50">Pick sketch edges to fillet</div>
+          <label class="flex flex-col gap-1.5">
+            <span class="text-base-content/70">Radius</span>
+            <input data-role="value" type="number" min="0" step="0.5" value="2"
+              class="input input-sm input-bordered w-full font-mono text-xs" />
+          </label>
+          <div class="flex items-center gap-2 pt-1">
+            <button data-role="apply" class="btn btn-primary btn-sm flex-1" disabled>Apply</button>
+            <button data-role="cancel" class="btn btn-ghost btn-sm">Cancel</button>
+          </div>
+        </div>
       </div>
-      <div class="flex items-center gap-2">
-        <label class="text-xs text-base-content/70">Radius</label>
-        <input data-role="value" type="number" min="0" step="0.5" value="2"
-          class="input input-sm input-bordered w-24 font-mono text-xs" />
-        <button data-role="apply" class="btn btn-sm btn-primary ml-auto" disabled>Apply</button>
-        <button data-role="cancel" class="btn btn-sm btn-ghost">Cancel</button>
-      </div>
-      <div data-role="expr-host"></div>
-      <div data-role="error" class="hidden text-xs text-error"></div>
     `;
     container.appendChild(this.panel);
 
     this.valueInput = this.panel.querySelector('[data-role="value"]')!;
     this.hint = this.panel.querySelector('[data-role="hint"]')!;
-    this.errorLine = this.panel.querySelector('[data-role="error"]')!;
     this.applyBtn = this.panel.querySelector('[data-role="apply"]')!;
-    this.expression = new ExpressionRow(this.panel.querySelector('[data-role="expr-host"]')!);
+
+    // The expression row and the error message dock under the dialog body,
+    // matching the 3D dialogs (see ModifyPanel).
+    const column = this.panel.querySelector<HTMLElement>('[data-role="column"]')!;
+    this.expression = new ExpressionRow(column);
+    this.errorLine = document.createElement('div');
+    this.errorLine.className = 'hidden max-w-[380px] bg-error text-error-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md';
+    column.appendChild(this.errorLine);
     this.expression.setSuffix(')');
     this.expression.onSubmit = () => this.apply();
 
@@ -74,18 +94,28 @@ export class SketchFilletService {
   }
 
   enter(): void {
+    if (this.active) {
+      return;
+    }
     this.active = true;
     this.panel.classList.remove('hidden');
+    viewportChrome.setDialogOpen(this.panel.id, true);
+    this.onVisibilityChange?.(true);
     this.schedulePreview();
   }
 
   exit(): void {
+    if (!this.active) {
+      return;
+    }
     this.active = false;
     this.panel.classList.add('hidden');
+    viewportChrome.setDialogOpen(this.panel.id, false);
     this.cancelPreview();
     this.expression.hide();
     this.setError(null);
     this.applyBtn.disabled = true;
+    this.onVisibilityChange?.(false);
   }
 
   /** The selected set or the scene changed — refresh the preview. */
@@ -134,9 +164,9 @@ export class SketchFilletService {
     if (entities.length === 0 || value <= 0) {
       this.expression.hide();
       this.applyBtn.disabled = true;
-      this.hint.textContent = entities.length === 0
+      this.setHint(entities.length === 0
         ? 'Pick sketch edges to fillet'
-        : 'Enter a positive radius';
+        : 'Enter a positive radius');
       this.setError(null);
       return;
     }
@@ -149,7 +179,7 @@ export class SketchFilletService {
         return;
       }
       if (result.success && result.args !== undefined) {
-        this.hint.textContent = '';
+        this.setHint(null);
         this.setError(null);
         this.expression.setPrefix(`fillet(${value}, `);
         this.expression.show(result.args, result.alternatives ?? []);
@@ -194,6 +224,16 @@ export class SketchFilletService {
       }
     } finally {
       this.applying = false;
+    }
+  }
+
+  private setHint(message: string | null): void {
+    if (message) {
+      this.hint.textContent = message;
+      this.hint.classList.remove('hidden');
+    } else {
+      this.hint.textContent = '';
+      this.hint.classList.add('hidden');
     }
   }
 

@@ -144,6 +144,18 @@ export interface IGeometry extends ISceneObject {
   guide(): this;
 
   /**
+   * Uniform edge accessor. `edge('top')` selects this feature's edges by role
+   * (optionally disambiguated by role index, e.g. `edge('corner-arc', 2)`);
+   * `edge(1)` selects by build-order index over the feature's real edges.
+   * Rect roles: `top`/`bottom`/`left`/`right` and `corner-arc` 0–3 (radius-arg
+   * order bl/br/tr/tl); polygon: `side` i; slot: `side` 0–1, `cap-arc`
+   * 0=left/1=right; circle/ellipse: `perimeter`.
+   * @param roleOrIndex - A role name, or a build-order edge index.
+   * @param roleIndex - Disambiguates roles that repeat (e.g. polygon sides).
+   */
+  edge(roleOrIndex: string | number, roleIndex?: number): ISceneObject;
+
+  /**
    * Returns a lazy-evaluated vertex at the start point of this geometry element.
    */
   start(): LazyVertex;
@@ -312,46 +324,6 @@ export interface IRect extends IExtrudableGeometry {
    *   on one axis, `false` (default) keeps the current point as the origin corner.
    */
   centered(value?: boolean | 'horizontal' | 'vertical'): this;
-
-  /**
-   * Returns the top straight edge of the rectangle.
-   */
-  topEdge(): ISceneObject;
-
-  /**
-   * Returns the bottom straight edge of the rectangle.
-   */
-  bottomEdge(): ISceneObject;
-
-  /**
-   * Returns the left straight edge of the rectangle.
-   */
-  leftEdge(): ISceneObject;
-
-  /**
-   * Returns the right straight edge of the rectangle.
-   */
-  rightEdge(): ISceneObject;
-
-  /**
-   * Returns the arc edge at the top-left corner. Only present when a radius is applied.
-   */
-  topLeftArcEdge(): ISceneObject;
-
-  /**
-   * Returns the arc edge at the top-right corner. Only present when a radius is applied.
-   */
-  topRightArcEdge(): ISceneObject;
-
-  /**
-   * Returns the arc edge at the bottom-left corner. Only present when a radius is applied.
-   */
-  bottomLeftArcEdge(): ISceneObject;
-
-  /**
-   * Returns the arc edge at the bottom-right corner. Only present when a radius is applied.
-   */
-  bottomRightArcEdge(): ISceneObject;
 
   /**
    * Returns a lazy-evaluated vertex at the top-left corner.

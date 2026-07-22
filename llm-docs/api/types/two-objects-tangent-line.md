@@ -41,6 +41,6 @@ Returns the end vertex of the tangent line.
 
 ## Inherited
 
-From [[api/types/geometry]]: `guide()`, `start()`, `end()`, `tangent()`
+From [[api/types/geometry]]: `guide()`, `edge()`, `start()`, `end()`, `tangent()`
 
 From [[api/types/scene-object]]: `name()`, `reusable()`

@@ -185,18 +185,6 @@ describe("edge roles", () => {
       expect(props.volumeMm3).toBeCloseTo(expected, 1);
     });
 
-    it("named rect accessors delegate to the role accessor", () => {
-      let r: Rect;
-      let f: Fillet2D;
-      sketch("xy", () => {
-        r = rect(80, 60) as Rect;
-        f = fillet(5, r.topEdge(), r.rightEdge()) as Fillet2D;
-      });
-      render();
-
-      const arcs = edgesOf(f).filter(edge => EdgeQuery.getEdgeCurveType(edge) === 'circle');
-      expect(arcs).toHaveLength(1);
-    });
   });
 
   describe("whole-sketch fillet chain (rect → fillet2d)", () => {

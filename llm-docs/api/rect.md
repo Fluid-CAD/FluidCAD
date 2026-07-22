@@ -30,9 +30,10 @@ Draws a rectangle. `height` defaults to `width` (square). Returns `Rect`.
 
 ```js
 const r = rect(100, 60);
-r.topEdge(); r.bottomEdge(); r.leftEdge(); r.rightEdge();
+r.edge('top'); r.edge('bottom'); r.edge('left'); r.edge('right');
 r.topLeft(); r.topRight(); r.bottomLeft(); r.bottomRight();
-r.topLeftArcEdge();   // only present when a corner radius is applied
+r.edge('corner-arc', 2);  // corner arcs exist only when a radius is applied;
+                          // indices follow the radius-arg order bl/br/tr/tl
 ```
 
 ## Example

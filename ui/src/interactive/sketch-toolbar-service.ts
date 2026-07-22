@@ -27,6 +27,13 @@ import { ShortcutManager } from '../ui/shortcut-manager';
 import { Navbar } from '../ui/navbar';
 
 export class SketchToolbarService {
+  /**
+   * The 2D fillet dialog occupies the sketch dialog's docked spot — main.ts
+   * wires this to suspend the sketch dialog while the fillet dialog is open
+   * and restore it when it closes.
+   */
+  onFilletDialogToggle?: (open: boolean) => void;
+
   private viewer: Viewer;
   private container: HTMLElement;
   private trimService: TrimPickService;
@@ -69,6 +76,7 @@ export class SketchToolbarService {
       () => [...(this.activeHoverSelectHandler?.selectedIds ?? [])],
       () => this.handleToolSelect(null),
     );
+    this.filletService.onVisibilityChange = (open) => this.onFilletDialogToggle?.(open);
   }
 
   get hasActiveDrawingTool(): boolean {

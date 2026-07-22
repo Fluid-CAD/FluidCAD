@@ -26,6 +26,6 @@ is already closed. Cannot be combined with `removeOriginal=true`.
 
 ## Inherited
 
-From [[api/types/geometry]]: `guide()`, `start()`, `end()`, `tangent()`
+From [[api/types/geometry]]: `guide()`, `edge()`, `start()`, `end()`, `tangent()`
 
 From [[api/types/scene-object]]: `name()`, `reusable()`

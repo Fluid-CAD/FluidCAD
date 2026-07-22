@@ -54,6 +54,28 @@ explicitly included.
 
 ---
 
+### edge()
+
+```ts
+edge(roleOrIndex: string | number, roleIndex?: number): SceneObject
+```
+
+Uniform edge accessor. `edge('top')` selects this feature's edges by role
+(optionally disambiguated by role index, e.g. `edge('corner-arc', 2)`);
+`edge(1)` selects by build-order index over the feature's real edges.
+Rect roles: `top`/`bottom`/`left`/`right` and `corner-arc` 0–3 (radius-arg
+order bl/br/tr/tl); polygon: `side` i; slot: `side` 0–1, `cap-arc`
+0=left/1=right; circle/ellipse: `perimeter`.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `roleOrIndex` | string \| number | A role name, or a build-order edge index. |
+| `roleIndex` | number | Disambiguates roles that repeat (e.g. polygon sides). *(optional)* |
+
+---
+
 ### start()
 
 ```ts

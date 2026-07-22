@@ -860,6 +860,17 @@ export class ModifyPickService {
   }
 
   /**
+   * The 2D fillet dialog docks in the sketch dialog's spot, so the sketch
+   * dialog steps aside while it is open and returns when it closes — the
+   * sketch toolbar service drives this through main.ts. The panel keeps its
+   * session state either way; if the session ended meanwhile (the sketch was
+   * left), lifting the suspension restores nothing.
+   */
+  setSketchPanelSuspended(suspended: boolean): void {
+    this.sketchPanel.setSuspended(suspended);
+  }
+
+  /**
    * The scene ends in a sketch but no dialog session exists — a page reload,
    * a sketch entered by editing code directly, or the breakpoint render of a
    * timeline double-click on a sketch row. Adopt it: the dialog is

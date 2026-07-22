@@ -1,12 +1,13 @@
 ---
 sidebar_position: 2
 title: "color"
-description: "Applies a color to the last selection."
+description: "Applies a color to the last selection, or to every face in the current context when there is no selection (equivalent to `select(face())` first)."
 ---
 
 # color()
 
-Applies a color to the last selection.
+Applies a color to the last selection, or to every face in the current
+context when there is no selection (equivalent to `select(face())` first).
 
 **Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
 
@@ -20,7 +21,8 @@ See the [guide](/docs/guides/3d-operations/color) for detailed usage examples.
 color(color: StringParam): SceneObject
 ```
 
-Applies a color to the last selection.
+Applies a color to the last selection, or to every face in the current
+context when there is no selection (equivalent to `select(face())` first).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

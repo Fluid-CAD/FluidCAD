@@ -263,11 +263,26 @@ function ownerRealEdges(owner: SceneObject): Edge[] {
 }
 
 /**
+ * The owner's real edges as originally built, including edges later consumed
+ * by downstream ops. The bare-variable form anchors to this set: `fillet(2, r)`
+ * must keep meaning "all of r as constructed", not "whatever r still owns at
+ * this point in the timeline" — otherwise removing an earlier op silently
+ * widens the selection.
+ */
+function ownerAsBuiltEdges(owner: SceneObject): Edge[] {
+  return owner.getAddedShapes().filter((s): s is Edge =>
+    s instanceof Edge && !s.isMetaShape() && !s.isGuideShape());
+}
+
+/**
  * Owner-accessor candidates for one owner's picked edges, best first:
- * bare variable (single-edge primitives), role accessors (`edge('top')`,
- * `edge('side', 2)`, whole-role `edge('side')`), then build-order indices
- * (`edge(1)`). Every form is verified against the accessor's own resolution
- * (the owner's current edges). Returns null when no form works.
+ * bare variable (only when the picks cover the owner's as-built edge set),
+ * role accessors (`edge('top')`, `edge('side', 2)`, whole-role `edge('side')`),
+ * then build-order indices (`edge(1)`). Every form is verified against the
+ * accessor's own resolution (the owner's current edges). When the picks cover
+ * everything the owner *still* owns but not its as-built set (some edges were
+ * consumed by earlier ops), the bare form still verifies today but is fragile,
+ * so it ranks last. Returns null when no form works.
  */
 function synthesizeOwnerCandidates(group: OwnerGroup): GroupCandidates | null {
   const owner = group.owner;
@@ -275,8 +290,12 @@ function synthesizeOwnerCandidates(group: OwnerGroup): GroupCandidates | null {
   const picked = new Set(group.picks.map(p => p.edge));
   const forms: SelectorPart[][] = [];
 
-  // Bare variable: the picks cover everything the feature owns.
-  if (picked.size === edges.length && edges.every(e => picked.has(e))) {
+  const coversCurrent = picked.size === edges.length && edges.every(e => picked.has(e));
+  const asBuilt = ownerAsBuiltEdges(owner);
+  const coversAsBuilt = coversCurrent
+    && asBuilt.length === edges.length && asBuilt.every(e => picked.has(e));
+
+  if (coversAsBuilt) {
     forms.push([part(owner, '', null, null, 0)]);
   }
 
@@ -297,6 +316,10 @@ function synthesizeOwnerCandidates(group: OwnerGroup): GroupCandidates | null {
     indexForm.push(part(owner, 'edge', null, `${index}`, 4));
   }
   forms.push(indexForm);
+
+  if (coversCurrent && !coversAsBuilt) {
+    forms.push([part(owner, '', null, null, 0)]);
+  }
 
   return toCandidates(forms);
 }

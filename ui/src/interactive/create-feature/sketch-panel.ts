@@ -117,16 +117,41 @@ export class SketchStartPanel {
       : 'Close the dialog and leave the sketch in place';
   }
 
+  // The dialog's logical visibility (what the session wants) is tracked
+  // separately from the DOM: while suspended — another sketch-mode dialog
+  // (the 2D fillet panel) occupies the docked spot — show() only records
+  // intent, and lifting the suspension restores whatever state the session
+  // moved to in the meantime.
+  private logicalVisible = false;
+  private suspended = false;
+
   get isVisible(): boolean {
-    return this.shell.isVisible;
+    return this.logicalVisible;
   }
 
   show(): void {
-    this.shell.show();
+    this.logicalVisible = true;
+    if (!this.suspended) {
+      this.shell.show();
+    }
   }
 
   hide(): void {
+    this.logicalVisible = false;
     this.shell.hide();
+  }
+
+  /** Step aside for (or return from) a dialog sharing the docked spot. */
+  setSuspended(suspended: boolean): void {
+    if (this.suspended === suspended) {
+      return;
+    }
+    this.suspended = suspended;
+    if (suspended) {
+      this.shell.hide();
+    } else if (this.logicalVisible) {
+      this.shell.show();
+    }
   }
 
   /** Armed pick state: the empty slot wears the prompt and the active tint. */

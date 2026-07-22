@@ -40,7 +40,8 @@ export class DimensionInput {
     });
 
     this.input.addEventListener('input', () => {
-      this.userIsTyping = true;
+      // An emptied field resumes live value updates from the mouse.
+      this.userIsTyping = this.input.value.length > 0;
     });
 
     this.input.addEventListener('mousedown', (e) => e.stopPropagation());

@@ -119,7 +119,8 @@ export class ExpressionInput {
     });
 
     this.input.addEventListener('input', () => {
-      this.userIsTyping = true;
+      // An emptied field resumes live value updates from the mouse.
+      this.userIsTyping = this.input.value.length > 0;
       if (this.errorVisible) {
         this.clearInlineError();
       }

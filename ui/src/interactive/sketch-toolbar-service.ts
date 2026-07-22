@@ -75,9 +75,10 @@ export class SketchToolbarService {
 
     const opSelection = () => [...(this.activeHoverSelectHandler?.selectedIds ?? [])];
     const opClear = () => this.activeHoverSelectHandler?.resetSelection();
+    const opVars = () => this.fetchScopeVariables();
     const opDone = () => this.handleToolSelect(null);
     const opService = (config: ConstructorParameters<typeof SketchOpService>[1]) =>
-      new SketchOpService(container, config, opSelection, opClear, opDone);
+      new SketchOpService(container, config, opSelection, opClear, opVars, opDone);
     this.opServices = {
       fillet: opService({
         feature: 'fillet', title: 'Fillet', pickHint: 'Pick sketch edges to fillet',

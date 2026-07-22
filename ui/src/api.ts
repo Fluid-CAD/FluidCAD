@@ -465,6 +465,7 @@ export async function applySketchOp(
   options: {
     toolEntities?: SketchApplyEntity[];
     selectorOverride?: string;
+    newVariables?: NewVariable[];
     preview?: boolean;
     signal?: AbortSignal;
   } = {},
@@ -475,6 +476,7 @@ export async function applySketchOp(
     sketchEntities: entities,
     sketchToolEntities: options.toolEntities,
     selectorOverride: options.selectorOverride,
+    newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);
 }

@@ -1,5 +1,7 @@
-import { applySketchOp, SketchApplyEntity, SketchOpFeature } from '../api';
+import { applySketchOp, NewVariable, SketchApplyEntity, SketchOpFeature, ValueExpr } from '../api';
 import { ExpressionRow } from './modify-pick/expression-row';
+import { ExpressionField } from '../ui/expression-field';
+import { VariableInfo } from '../ui/expression-core';
 import { viewportChrome } from '../ui/viewport-chrome';
 
 const PREVIEW_DEBOUNCE_MS = 250;
@@ -45,6 +47,7 @@ export class SketchOpService {
 
   private readonly panel: HTMLDivElement;
   private readonly valueInput: HTMLInputElement | null;
+  private readonly valueField: ExpressionField | null;
   private readonly hint: HTMLDivElement;
   private readonly errorLine: HTMLDivElement;
   private readonly applyBtn: HTMLButtonElement;
@@ -66,6 +69,7 @@ export class SketchOpService {
     private readonly config: SketchOpConfig,
     private getSelection: () => string[],
     private clearSelection: () => void,
+    private fetchVariables: () => Promise<VariableInfo[]>,
     private onDone: () => void,
   ) {
     this.panel = document.createElement('div');
@@ -133,15 +137,13 @@ export class SketchOpService {
     this.expression.setSuffix(')');
     this.expression.onSubmit = () => this.apply();
 
-    if (this.valueInput) {
-      this.valueInput.addEventListener('input', () => this.schedulePreview());
-      this.valueInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          this.apply();
-        }
-        e.stopPropagation();
-      });
+    // The field owns the input's keyboard handling (variable dropdown,
+    // Enter-to-apply) and flips it to type="text" for identifiers — the same
+    // expression behavior as the 3D dialogs' value fields.
+    this.valueField = this.valueInput ? new ExpressionField(this.valueInput) : null;
+    if (this.valueField) {
+      this.valueField.onSubmit = () => this.apply();
+      this.valueInput!.addEventListener('input', () => this.schedulePreview());
     }
     if (this.slotRows) {
       this.slotRows.base.addEventListener('click', () => this.armSlot('base'));
@@ -166,7 +168,19 @@ export class SketchOpService {
     this.panel.classList.remove('hidden');
     viewportChrome.setDialogOpen(this.panel.id, true);
     this.onVisibilityChange?.(true);
+    void this.loadVariables();
     this.schedulePreview();
+  }
+
+  /** Feed the sketch scope's variables to the value field's dropdown. */
+  private async loadVariables(): Promise<void> {
+    if (!this.valueField) {
+      return;
+    }
+    const variables = await this.fetchVariables();
+    if (this.active) {
+      this.valueField.setVariables(variables);
+    }
   }
 
   exit(): void {
@@ -228,19 +242,31 @@ export class SketchOpService {
     return ids.map(shapeId => ({ shapeId }));
   }
 
-  /** The dialog's numeric value; null for valueless ops, 0 when invalid. */
-  private value(): number | null {
-    if (!this.config.value || !this.valueInput) {
+  /**
+   * Read the value field: null for valueless ops; a plain number gets the
+   * feature's sign check; anything else commits as an expression (with the
+   * optional `name = value` declaration to write alongside the statement).
+   */
+  private readValue(): { value: ValueExpr; newVariable?: NewVariable } | { error: string } | null {
+    if (!this.config.value || !this.valueField) {
       return null;
     }
-    const parsed = Number(this.valueInput.value);
-    if (!Number.isFinite(parsed)) {
-      return 0;
+    const read = this.valueField.read();
+    if ('error' in read) {
+      return { error: read.error === 'empty' ? this.valueHint() : read.error };
     }
-    if (this.config.value.sign === 'positive' && parsed <= 0) {
-      return 0;
+    if (typeof read.value === 'number'
+      && (this.config.value.sign === 'positive' ? read.value <= 0 : read.value === 0)) {
+      return { error: this.valueHint() };
     }
-    return parsed;
+    return read;
+  }
+
+  private valueHint(): string {
+    const value = this.config.value!;
+    return value.sign === 'positive'
+      ? `Enter a positive ${value.label.toLowerCase()}`
+      : `Enter a nonzero ${value.label.toLowerCase()} (negative offsets inward)`;
   }
 
   /** What the current picks and value are missing, or null when previewable. */
@@ -255,10 +281,9 @@ export class SketchOpService {
     } else if (this.getSelection().length === 0) {
       return this.config.pickHint;
     }
-    if (this.config.value && this.value() === 0) {
-      return this.config.value.sign === 'positive'
-        ? `Enter a positive ${this.config.value.label.toLowerCase()}`
-        : `Enter a nonzero ${this.config.value.label.toLowerCase()}`;
+    const read = this.readValue();
+    if (read && 'error' in read) {
+      return read.error;
     }
     return null;
   }
@@ -297,14 +322,15 @@ export class SketchOpService {
       return;
     }
 
-    const value = this.value();
+    const read = this.readValue();
+    const value = read && !('error' in read) ? read.value : undefined;
     const entities = this.toEntities(this.config.slotted ? this.slotIds('base') : this.getSelection());
     const toolEntities = this.config.slotted ? this.toEntities(this.slotIds('tool')) : undefined;
 
     const abort = new AbortController();
     this.previewAbort = abort;
     try {
-      const result = await applySketchOp(this.config.feature, value ?? undefined, entities, {
+      const result = await applySketchOp(this.config.feature, value, entities, {
         toolEntities, preview: true, signal: abort.signal,
       });
       if (abort.signal.aborted || !this.active) {
@@ -313,7 +339,7 @@ export class SketchOpService {
       if (result.success && result.args !== undefined) {
         this.setHint(null);
         this.setError(null);
-        this.expression.setPrefix(value === null
+        this.expression.setPrefix(value === undefined
           ? `${this.config.feature}(`
           : `${this.config.feature}(${value}, `);
         this.expression.show(result.args, result.alternatives ?? []);
@@ -334,7 +360,11 @@ export class SketchOpService {
     if (this.applying || !this.active || this.incompleteReason() !== null) {
       return;
     }
-    const value = this.value();
+    const read = this.readValue();
+    const value = read && !('error' in read) ? read.value : undefined;
+    const newVariables = read && !('error' in read) && read.newVariable
+      ? [read.newVariable]
+      : undefined;
     const entities = this.toEntities(this.config.slotted ? this.slotIds('base') : this.getSelection());
     const toolEntities = this.config.slotted ? this.toEntities(this.slotIds('tool')) : undefined;
 
@@ -347,8 +377,8 @@ export class SketchOpService {
     this.applying = true;
     this.applyBtn.disabled = true;
     try {
-      const result = await applySketchOp(this.config.feature, value ?? undefined, entities, {
-        toolEntities, selectorOverride,
+      const result = await applySketchOp(this.config.feature, value, entities, {
+        toolEntities, selectorOverride, newVariables,
       });
       if (result.success) {
         this.onDone();

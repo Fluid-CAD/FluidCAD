@@ -180,12 +180,17 @@ export class ExpressionInput {
   }
 
   updateValue(value: number | string): void {
-    if (!this.visible || this.userIsTyping) {
+    if (!this.visible) {
       return;
     }
     const str = typeof value === 'string' ? value : String(Math.round(value * 100) / 100);
-    this.input.value = str;
     this.seedValue = str;
+    if (this.userIsTyping) {
+      // Keep the typed text, but the new-variable suggestion tracks the live value.
+      this.filterAndRender(true);
+      return;
+    }
+    this.input.value = str;
     this.input.select();
     this.updateParamAvailability();
   }
@@ -298,7 +303,8 @@ export class ExpressionInput {
     }
   }
 
-  private filterAndRender(): void {
+  private filterAndRender(preserveSelection = false): void {
+    const prevIndex = this.selectedIndex;
     const query = this.userIsTyping && !this.numericOnly
       ? trailingIdentifier(this.input.value)
       : null;
@@ -309,7 +315,9 @@ export class ExpressionInput {
       return;
     }
     this.filteredVars = filterSuggestions(query, this.variables, this.input.value, this.seedValue);
-    this.selectedIndex = this.filteredVars.length > 0 ? 0 : -1;
+    this.selectedIndex = preserveSelection && prevIndex >= 0 && prevIndex < this.filteredVars.length
+      ? prevIndex
+      : this.filteredVars.length > 0 ? 0 : -1;
     this.renderDropdown();
   }
 

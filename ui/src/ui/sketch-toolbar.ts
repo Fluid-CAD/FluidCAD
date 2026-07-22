@@ -45,9 +45,9 @@ const TOOL_LAYOUT: ToolEntry[] = [
     { id: 'offset', label: 'Offset', iconPng: 'offset' },
   ]},
   { tools: [
-    { id: 'fuse', label: 'Fuse', iconPng: 'fuse' },
-    { id: 'subtract', label: 'Subtract', caption: 'Subtr.', iconPng: 'subtract' },
-    { id: 'common', label: 'Common', iconPng: 'common' },
+    { id: 'fuse', label: 'Fuse', iconPng: 'fuse2d' },
+    { id: 'subtract', label: 'Subtract', caption: 'Subtr.', iconPng: 'subtract2d' },
+    { id: 'common', label: 'Common', iconPng: 'common2d' },
   ]},
 ];
 

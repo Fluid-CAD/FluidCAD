@@ -111,10 +111,14 @@ export class SketchStartPanel {
    */
   setMode(mode: SketchPanelMode): void {
     this.shell.setTitle(mode === 'edit' ? 'Edit sketch' : null);
-    this.closeBtn.textContent = mode === 'create' ? 'Cancel' : 'Exit';
-    this.closeBtn.title = mode === 'create'
-      ? 'Remove the sketch from the code and close'
-      : 'Close the dialog and leave the sketch in place';
+    // The close button is a Cancel that deletes the sketch this dialog wrote,
+    // so it only makes sense in 'create' mode. In the adopted/edit modes there
+    // is nothing to cancel, so the button is hidden entirely — Escape or the
+    // Sketch toggle still closes the dialog.
+    const isCreate = mode === 'create';
+    this.closeBtn.textContent = 'Cancel';
+    this.closeBtn.title = 'Remove the sketch from the code and close';
+    this.closeBtn.parentElement!.classList.toggle('hidden', !isCreate);
   }
 
   // The dialog's logical visibility (what the session wants) is tracked

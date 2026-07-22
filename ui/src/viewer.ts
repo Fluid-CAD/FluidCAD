@@ -8,6 +8,7 @@ import { CentroidIndicator } from './scene/centroid-indicator';
 import { viewerSettings } from './scene/viewer-settings';
 import { themeColors } from './scene/theme-colors';
 import { StandardPlaneId, StandardPlanes } from './scene/standard-planes';
+import { SectionClipper } from './scene/section-clipper';
 import { collectPickCandidates } from './interactive/pick-candidates';
 
 /** Recursively expand `box` to include `object`, skipping meta-shape subtrees. */
@@ -129,6 +130,7 @@ export class Viewer {
   private highlightedEntities: SelectedEntity[] = [];
   private activeSketchId: string | null = null;
   private sectionViewControl: SectionViewControl | null = null;
+  private readonly sectionClipper = new SectionClipper();
   private hiddenShapeIds = new Set<string>();
   private shapeOpacities = new Map<string, number>();
 
@@ -1469,7 +1471,7 @@ export class Viewer {
     const compiled = this.ctx.scene.getObjectByName('compiledMesh');
     if (!compiled) { return; }
 
-    this.forEachClippableMaterial(compiled, (m) => { m.clippingPlanes = [plane]; });
+    this.sectionClipper.apply(compiled, plane);
 
     this.ctx.requestRender();
   }
@@ -1478,25 +1480,9 @@ export class Viewer {
     const compiled = this.ctx.scene.getObjectByName('compiledMesh');
     if (!compiled) { return; }
 
-    this.forEachClippableMaterial(compiled, (m) => { m.clippingPlanes = []; });
+    this.sectionClipper.clear(compiled);
 
     this.ctx.requestRender();
-  }
-
-  // Walk the subtree, skipping sketch UI (it lives on the section plane and
-  // would be half-clipped by it). Visit each material exactly once.
-  private forEachClippableMaterial(root: Object3D, fn: (m: any) => void): void {
-    if (root.userData.isSketchRoot) { return; }
-    const mat = (root as any).material;
-    if (mat) {
-      const materials = Array.isArray(mat) ? mat : [mat];
-      for (const m of materials) {
-        fn(m);
-      }
-    }
-    for (const child of root.children) {
-      this.forEachClippableMaterial(child, fn);
-    }
   }
 
   /** Remove the previous compiled mesh tree and dispose its GPU resources. */

@@ -3109,6 +3109,22 @@ describe('apply-feature route validation', () => {
       expect(misplaced.body.error).toContain('only applies to subtract');
     });
 
+    it('previews a valueless trim through the same branch', async () => {
+      currentSynthesis = {
+        ...SKETCH_SYNTHESIS,
+        spec: { ...SKETCH_SYNTHESIS.spec, feature: 'trim', value: undefined },
+        preview: "trim(r.edge('top'))",
+      };
+      const { status, body } = await post({
+        feature: 'trim', sketchEntities: [{ shapeId: 'edge-1' }], preview: true,
+      });
+      expect(status).toBe(200);
+      expect(body).toMatchObject({ success: true, preview: "trim(r.edge('top'))" });
+      expect(sketchSynthesizeCalls).toEqual([
+        { picks: [{ shapeId: 'edge-1' }], feature: 'trim', value: undefined },
+      ]);
+    });
+
     it('accepts a negative offset distance but rejects zero', async () => {
       currentSynthesis = {
         ...SKETCH_SYNTHESIS,

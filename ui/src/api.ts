@@ -448,7 +448,7 @@ export async function applyFeature(
 export type SketchApplyEntity = { shapeId: string };
 
 /** The 2D operations the sketch-branch apply supports. */
-export type SketchOpFeature = 'fillet' | 'offset' | 'fuse' | 'subtract' | 'common';
+export type SketchOpFeature = 'fillet' | 'offset' | 'trim' | 'fuse' | 'subtract' | 'common';
 
 /**
  * Ask the server to synthesize (and, unless `preview` is set, apply) a 2D

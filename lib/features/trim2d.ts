@@ -1,15 +1,13 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Wire } from "../common/wire.js";
 import { Edge } from "../common/edge.js";
-import { GeometrySceneObject } from "./2d/geometry.js";
+import { EdgeTargetArg, GeometrySceneObject } from "./2d/geometry.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { LazyVertex } from "./lazy-vertex.js";
-import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
-import { ShapeFilter } from "../filters/filter.js";
 import { Plane } from "../math/plane.js";
 
 export class Trim2D extends GeometrySceneObject {
-  private _filters: EdgeFilterBuilder[] = [];
+  private _targets: EdgeTargetArg[] = [];
   private _picking = false;
   private _pickPoints: LazyVertex[] = [];
 
@@ -17,8 +15,12 @@ export class Trim2D extends GeometrySceneObject {
     super();
   }
 
-  setFilters(...fs: EdgeFilterBuilder[]): this {
-    this._filters = fs;
+  /**
+   * Whole-edge removal targets: geometries, edge accessors (`r.edge('top')`)
+   * or edge filters (`edge().line()`) — the shared 2D op target forms.
+   */
+  setTargets(...targets: EdgeTargetArg[]): this {
+    this._targets = targets;
     return this;
   }
 
@@ -36,8 +38,8 @@ export class Trim2D extends GeometrySceneObject {
     return this._pickPoints;
   }
 
-  get filters(): EdgeFilterBuilder[] {
-    return this._filters;
+  get targets(): EdgeTargetArg[] {
+    return this._targets;
   }
 
   build() {
@@ -63,33 +65,32 @@ export class Trim2D extends GeometrySceneObject {
       return;
     }
 
-    if (this._filters.length > 0) {
-      this.buildWithFilters(allEdges, edgeToOwner);
+    let targetMatched: Set<Edge> | null = null;
+    if (this._targets.length > 0) {
+      targetMatched = this.buildWithTargets();
     }
 
     if (this._picking) {
-      let pickableEdges: Edge[];
-      if (this._filters.length > 0) {
-        const matched = new Set(new ShapeFilter(allEdges, ...this._filters).apply());
-        pickableEdges = allEdges.filter(e => !matched.has(e));
-      } else {
-        pickableEdges = allEdges;
-      }
+      const pickableEdges = targetMatched
+        ? allEdges.filter(e => !targetMatched.has(e))
+        : allEdges;
       this.buildWithPicking(pickableEdges, edgeToOwner, plane);
     }
   }
 
-  private buildWithFilters(allEdges: Edge[], edgeToOwner: Map<Edge, { wire: Wire | Edge; owner: SceneObject }>) {
-    const matchedEdges = new ShapeFilter(allEdges, ...this._filters).apply() as Edge[];
-
-    const removedWires = new Set<Wire | Edge>();
-    for (const edge of matchedEdges) {
-      const entry = edgeToOwner.get(edge)!;
-      if (!removedWires.has(entry.wire)) {
-        removedWires.add(entry.wire);
-        entry.owner.removeShape(entry.wire, this);
-      }
+  /**
+   * Whole-edge removal through the shared resolver: targets resolve to their
+   * edges mapped to the REAL owning feature (accessors and select statements
+   * are reached through), and removal goes through the sketch so every holder
+   * of the instance records it. Returns the removed set so the picking mode
+   * excludes it.
+   */
+  private buildWithTargets(): Set<Edge> {
+    const resolved = this.resolveEdgeTargets(this._targets);
+    for (const edge of resolved.keys()) {
+      this.sketch.removeShape(edge, this);
     }
+    return new Set(resolved.keys());
   }
 
   private buildWithPicking(pickableEdges: Edge[], edgeToOwner: Map<Edge, { wire: Wire | Edge; owner: SceneObject }>, plane: Plane) {
@@ -179,13 +180,13 @@ export class Trim2D extends GeometrySceneObject {
   }
 
   override getDependencies(): SceneObject[] {
-    return [];
+    return GeometrySceneObject.sceneObjectTargets(this._targets);
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const copy = new Trim2D();
-    if (this._filters.length > 0) {
-      copy.setFilters(...this._filters);
+    if (this._targets.length > 0) {
+      copy.setTargets(...GeometrySceneObject.remapEdgeTargets(this._targets, remap));
     }
     if (this._picking) {
       copy.pick(...this._pickPoints);
@@ -202,14 +203,8 @@ export class Trim2D extends GeometrySceneObject {
       return false;
     }
 
-    if (this._filters.length !== other._filters.length) {
+    if (!GeometrySceneObject.compareEdgeTargets(this._targets, other._targets)) {
       return false;
-    }
-
-    for (let i = 0; i < this._filters.length; i++) {
-      if (!this._filters[i].equals(other._filters[i])) {
-        return false;
-      }
     }
 
     if (this._picking !== other._picking) {

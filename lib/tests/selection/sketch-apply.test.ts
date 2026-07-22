@@ -271,6 +271,28 @@ describe("sketch apply-feature synthesis", () => {
     expect(offsetSingle.ok).toBe(true);
   });
 
+  it("synthesizes a valueless trim statement from the selector ladder", () => {
+    let r: Rect;
+    sketch("xy", () => {
+      r = rect(80, 60) as Rect;
+    });
+    const scene = render();
+    setLocation(r!, 3);
+
+    const result = synthesizeSketchApplyFeature(
+      scene, [refFor(roleEdge(r!, 'top'))], 'trim',
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.args).toBe("r.edge('top')");
+    expect(result.preview).toBe("trim(r.edge('top'))");
+    expect(result.spec.feature).toBe('trim');
+    expect(result.spec.value).toBeUndefined();
+  });
+
   describe("2D booleans (owner-level operands)", () => {
     it("fuses the picked edges' owners as bare variables", () => {
       let r: Rect;

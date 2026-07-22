@@ -19,7 +19,7 @@ import {
 /** A sketch edge pick: 1 shapeId = 1 edge (the Stage 0 emission invariant). */
 export type SketchPickRef = { shapeId: string };
 
-export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'fuse' | 'subtract' | 'common';
+export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'trim' | 'fuse' | 'subtract' | 'common';
 
 export type SketchSynthesizeOptions = SynthesizeOptions & {
   /**
@@ -207,7 +207,8 @@ export function synthesizeSketchApplyFeature(
   return {
     ok: true,
     spec,
-    preview: `${feature}(${value}, ${args})`,
+    // Trim carries no numeric parameter — the args ARE the statement.
+    preview: value === undefined ? `${feature}(${args})` : `${feature}(${value}, ${args})`,
     args,
     alternatives,
   };

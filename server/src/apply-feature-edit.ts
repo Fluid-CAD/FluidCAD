@@ -105,7 +105,7 @@ export function validValueExpr(
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'offset' | 'fuse' | 'subtract' | 'common';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'offset' | 'trim' | 'fuse' | 'subtract' | 'common';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -2349,10 +2349,12 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   if (spec.feature === 'chamfer') {
     return `chamfer(${renderChamferValueArgs(spec.value, spec.chamfer)}, ${args})`;
   }
-  // The 2D sketch booleans carry no numeric parameter — the args ARE the
-  // statement (`fuse(r, c)`, `subtract(r, c)`). Distinct from the 3D
-  // 'boolean' spec, whose targets are top-level feature statements.
-  if (spec.feature === 'fuse' || spec.feature === 'subtract' || spec.feature === 'common') {
+  // The 2D sketch booleans and whole-edge trim carry no numeric parameter —
+  // the args ARE the statement (`fuse(r, c)`, `trim(r.edge('top'))`). The
+  // boolean kinds are distinct from the 3D 'boolean' spec, whose targets are
+  // top-level feature statements.
+  if (spec.feature === 'fuse' || spec.feature === 'subtract' || spec.feature === 'common'
+    || spec.feature === 'trim') {
     return `${spec.feature}(${args})`;
   }
   const joinChain = spec.feature === 'shell' ? renderShellJoinChain(spec.shell?.joinType) : '';

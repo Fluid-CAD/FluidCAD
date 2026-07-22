@@ -4117,12 +4117,14 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: 'sketchEntities must be a non-empty array of {shapeId} picks' });
         return;
       }
-      if (feature !== 'fillet' && feature !== 'offset'
+      if (feature !== 'fillet' && feature !== 'offset' && feature !== 'trim'
         && feature !== 'fuse' && feature !== 'subtract' && feature !== 'common') {
-        res.status(400).json({ error: 'feature must be "fillet", "offset", "fuse", "subtract" or "common" for sketch-edge selections' });
+        res.status(400).json({ error: 'feature must be "fillet", "offset", "trim", "fuse", "subtract" or "common" for sketch-edge selections' });
         return;
       }
-      const sketchBoolean = feature === 'fuse' || feature === 'subtract' || feature === 'common';
+      // Trim and the booleans carry no numeric parameter.
+      const sketchValueless = feature === 'trim'
+        || feature === 'fuse' || feature === 'subtract' || feature === 'common';
       // Fillet needs a positive radius; offset allows a negative distance
       // (the inward idiom) but not zero; the booleans carry no value at all.
       if (feature === 'fillet' && !validValueExpr(value, { positive: true })) {
@@ -4164,7 +4166,7 @@ export function createApplyFeatureRouter(
           }
           : { toolRefs: sketchToolPicks };
         const synthesis = fluidCadServer.synthesizeSketchApplyFeature(
-          sketchPicks, feature, sketchBoolean ? undefined : value, options,
+          sketchPicks, feature, sketchValueless ? undefined : value, options,
         );
         if (!synthesis) {
           res.status(404).json({ success: false, reason: 'No rendered scene' });

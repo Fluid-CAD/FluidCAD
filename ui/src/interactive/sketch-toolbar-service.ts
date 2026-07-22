@@ -321,6 +321,14 @@ export class SketchToolbarService {
       return;
     }
 
+    // Trim with edges already selected is the same one-shot: emit
+    // `trim(<selectors>)` for the picked edges. Without a selection it stays
+    // the classic point-based trim mode.
+    if (toolId === 'trim' && (this.activeHoverSelectHandler?.selectedIds.size ?? 0) > 0) {
+      void this.applyInstantOp('trim');
+      return;
+    }
+
     if (this.activeDrawingTool) {
       this.activeDrawingTool.deactivate();
       this.activeDrawingTool = null;
@@ -373,17 +381,20 @@ export class SketchToolbarService {
   }
 
   /**
-   * Apply a one-shot boolean (fuse/common) to the currently selected edges.
-   * Refusals — nothing picked, or the kernel's honest synthesis reasons
-   * ("pick edges of at least two geometries…") — surface as a transient
-   * toast, since there is no dialog to carry them.
+   * Apply a one-shot op (fuse/common/trim-selection) to the currently
+   * selected edges. Refusals — nothing picked, or the kernel's honest
+   * synthesis reasons ("pick edges of at least two geometries…") — surface
+   * as a transient toast, since there is no dialog to carry them.
    */
-  private async applyInstantOp(feature: 'fuse' | 'common'): Promise<void> {
+  private async applyInstantOp(feature: 'fuse' | 'common' | 'trim'): Promise<void> {
+    const pickFirst = {
+      fuse: 'Pick edges of the geometries to fuse first',
+      common: 'Pick edges of the geometries to intersect first',
+      trim: 'Pick the edges to remove first',
+    } as const;
     const ids = [...(this.activeHoverSelectHandler?.selectedIds ?? [])];
     if (ids.length === 0) {
-      this.showOpMessage(feature === 'fuse'
-        ? 'Pick edges of the geometries to fuse first'
-        : 'Pick edges of the geometries to intersect first');
+      this.showOpMessage(pickFirst[feature]);
       return;
     }
     const result = await applySketchOp(feature, undefined, ids.map(shapeId => ({ shapeId })));

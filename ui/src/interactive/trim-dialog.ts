@@ -10,10 +10,11 @@ const MODE_HINTS: Record<TrimMode, string> = {
 
 /**
  * The trim dialog: armed from the sketch toolbar's Trim tool, it offers the
- * two trimming modes — By Region (default: click enclosed regions, the code
- * gets edge-filter targets) and By Point (the classic segment picking,
- * `trim().pick(points)`). It docks in the sketch dialog's spot like the 2D
- * op dialogs (fillet, offset).
+ * two trimming modes — By Point (default: the classic segment picking,
+ * `trim().pick(points)`) and By Region (click enclosed regions, the code
+ * gets edge-filter targets; parked behind "Coming soon" until its highlight
+ * and synthesis coverage are ready). It docks in the sketch dialog's spot
+ * like the 2D op dialogs (fillet, offset).
  */
 export class TrimDialog {
   /** Fired when the user switches trimming modes. */
@@ -38,7 +39,7 @@ export class TrimDialog {
           <span class="font-medium text-sm">Trim</span>
         </div>
         <div data-role="mode-tabs" class="join w-full"></div>
-        <div data-role="hint" class="text-base-content/50">${MODE_HINTS.region}</div>
+        <div data-role="hint" class="text-base-content/50">${MODE_HINTS.point}</div>
         <div class="flex items-center gap-2 pt-1">
           <button data-role="done" class="btn btn-primary btn-sm flex-1">Done</button>
         </div>
@@ -50,10 +51,10 @@ export class TrimDialog {
     this.tabs = new ChoiceTabs<TrimMode>(
       this.panel.querySelector('[data-role="mode-tabs"]')!,
       [
-        { key: 'region', label: 'By Region', title: 'Click enclosed regions to trim their boundary' },
         { key: 'point', label: 'By Point', title: 'Click individual segments to remove them' },
+        { key: 'region', label: 'By Region', title: 'Coming soon', disabled: true },
       ],
-      'region',
+      'point',
     );
     this.tabs.onChange = () => {
       this.hint.textContent = MODE_HINTS[this.tabs.value];
@@ -76,9 +77,9 @@ export class TrimDialog {
       return;
     }
     this.active = true;
-    // By Region is the default on every activation.
-    this.tabs.setValue('region');
-    this.hint.textContent = MODE_HINTS.region;
+    // By Point is the default on every activation (By Region is parked).
+    this.tabs.setValue('point');
+    this.hint.textContent = MODE_HINTS.point;
     this.panel.classList.remove('hidden');
     viewportChrome.setDialogOpen(this.panel.id, true);
     this.onVisibilityChange?.(true);

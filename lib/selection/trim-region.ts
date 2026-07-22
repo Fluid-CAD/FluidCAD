@@ -16,8 +16,8 @@ export type TrimRegionSynthesis =
  * universe the rebuilt trim() will produce — to exactly the picked segments.
  * Every candidate is verified by running the composed builders the way the
  * build will; when no filter combination separates the boundary from the
- * surviving segments, the synthesis refuses honestly and the caller falls
- * back to pick points.
+ * surviving segments, the synthesis refuses honestly — region trimming only
+ * ever writes filters.
  */
 export function synthesizeTrimRegionTargets(
   scene: SelectionScene,

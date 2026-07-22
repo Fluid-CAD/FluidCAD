@@ -182,8 +182,8 @@ export function addPick(sourceLocation: SourceLocationParam): void {
  * By-region trim: ask the server to synthesize edge-filter args for the
  * clicked region's boundary segments and write them into the trim() call at
  * the given location (`trim(edge().line(80)).pick()`). Resolves
- * `{ success: false, reason }` when no filter separates the boundary — the
- * caller falls back to pick points.
+ * `{ success: false, reason }` when no filter separates the boundary; the
+ * region mode only ever writes filters, so a refusal surfaces to the user.
  */
 export async function applyTrimRegion(
   edgeIds: string[],

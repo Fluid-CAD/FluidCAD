@@ -1,14 +1,12 @@
-import { Mesh, MeshBasicMaterial, Object3D } from 'three';
+import { Mesh, Object3D } from 'three';
 import { SceneContext } from '../scene/scene-context';
-
-const HOVER_OPACITY = 0.18;
 
 /**
  * Interactive mode for the trim dialog's By Region tab: raycasts the
  * trim-region meta faces (the cells the surviving split segments partition
- * the plane into), brightening the hovered cell's fill and reporting the
- * ids of its boundary segments for highlighting; a click reports them for
- * trimming.
+ * the plane into) and reports the hovered cell's boundary segment ids —
+ * the edges a click would remove get highlighted, never the region fill;
+ * a click reports the same ids for trimming.
  */
 export class TrimRegionMode {
   private canvas: HTMLCanvasElement;
@@ -50,7 +48,7 @@ export class TrimRegionMode {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.canvas.removeEventListener('mousemove', this.boundMouseMove);
-    this.restoreHighlight();
+    this.highlightedMesh = null;
     this.onHighlight(null);
   }
 
@@ -82,16 +80,10 @@ export class TrimRegionMode {
     if (hitMesh === this.highlightedMesh) {
       return;
     }
+    this.highlightedMesh = hitMesh;
 
-    this.restoreHighlight();
-
-    if (hitMesh) {
-      (hitMesh.material as MeshBasicMaterial).opacity = HOVER_OPACITY;
-      this.highlightedMesh = hitMesh;
-      this.onHighlight(this.edgeIdsOf(hitMesh));
-    } else {
-      this.onHighlight(null);
-    }
+    // Highlight the edges a click would remove, not the region fill.
+    this.onHighlight(hitMesh ? this.edgeIdsOf(hitMesh) : null);
     this.ctx.requestRender();
   }
 
@@ -106,13 +98,6 @@ export class TrimRegionMode {
       obj = obj.parent;
     }
     return [];
-  }
-
-  private restoreHighlight(): void {
-    if (this.highlightedMesh) {
-      (this.highlightedMesh.material as MeshBasicMaterial).opacity = 0;
-      this.highlightedMesh = null;
-    }
   }
 
   private raycastRegions(clientX: number, clientY: number): Mesh | null {

@@ -2,15 +2,15 @@ import { PointPickMode, HighlightInfo } from './point-pick-mode';
 import { TrimRegionMode } from './trim-region-mode';
 import { TrimMode } from './trim-dialog';
 import { SnapManager } from '../snapping/snap-manager';
-import { insertPoint, addPick, removePick, removeFeature, applyTrimRegion, setPickPoints } from '../api';
+import { insertPoint, addPick, removePick, removeFeature, applyTrimRegion } from '../api';
 import { isTopLevel } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData } from '../types';
 import { Viewer } from '../viewer';
-import { EdgeEntry, buildEdgeIndex } from './sketch-edge-utils';
 import { Mesh, Object3D } from 'three';
 
 const HIGHLIGHT_COLOR = 0xffc578;
 const VERTEX_MATCH_EPSILON_SQ = 1e-4;
+const SEGMENT_HIGHLIGHT_LINE_WIDTH = 4;
 
 type TrimInfo = { trimObj: SceneObjectRender & { sourceLocation?: any }; sketchObj: SceneObjectRender };
 
@@ -19,13 +19,16 @@ type TrimInfo = { trimObj: SceneObjectRender & { sourceLocation?: any }; sketchO
  * armed through the trim dialog (By Region / By Point), it rides a
  * `trim().pick()` statement whose build emits the split segments (and the
  * regions they bound) as meta shapes. By Point inserts pick points; By
- * Region synthesizes edge-filter targets for a clicked region's boundary,
- * falling back to pick points when no filter separates it.
+ * Region ONLY ever writes edge-filter targets — a click whose boundary no
+ * filter separates refuses with a message instead of degrading to points.
  */
 export class TrimPickService {
+  /** Surfaced when a region click cannot be expressed as filters (toast). */
+  onRegionMessage?: (message: string) => void;
+
   private viewer: Viewer;
   private _state: 'idle' | 'picking-active' = 'idle';
-  private _mode: TrimMode = 'region';
+  private _mode: TrimMode = 'point';
   private _lastPickInfo: TrimInfo | null = null;
   private lastSceneObjects: SceneObjectRender[] | null = null;
   private activePointPickMode: PointPickMode | null = null;
@@ -33,6 +36,13 @@ export class TrimPickService {
   private activeSourceLine: number | null = null;
   private _pendingActivation = false;
   private highlightedVertexDots: { mesh: Mesh; originalMaterial: any }[] = [];
+  private highlightedSegmentLines: {
+    line: Object3D;
+    originalColor: number;
+    originalLineWidth: number;
+    originalRenderOrder: number;
+    originalDepthTest: boolean;
+  }[] = [];
 
   constructor(viewer: Viewer) {
     this.viewer = viewer;
@@ -160,10 +170,7 @@ export class TrimPickService {
       this.activeRegionMode = new TrimRegionMode(
         this.viewer.sceneContext,
         (edgeIds) => {
-          this.viewer.clearHighlight();
-          if (edgeIds) {
-            this.viewer.highlightEntities([], edgeIds);
-          }
+          this.highlightSegments(edgeIds ?? []);
         },
         (edgeIds) => {
           void this.applyRegion(edgeIds);
@@ -185,10 +192,9 @@ export class TrimPickService {
         insertPoint(point2d, sourceLocation);
       },
       (info: HighlightInfo) => {
-        this.viewer.clearHighlight();
+        this.highlightSegments(info ? [info.shapeId] : []);
         this.clearVertexHighlights();
         if (info) {
-          this.viewer.highlightShape(info.shapeId);
           this.highlightVerticesAt(info.endpoints);
         }
       },
@@ -197,9 +203,10 @@ export class TrimPickService {
   }
 
   /**
-   * A region click: ask the server to write edge-filter targets for the
-   * boundary segments; when no filter separates them, fall back to pick
-   * points at the segments' midpoints — the click always trims.
+   * A region click: ask the server to synthesize edge-filter targets for
+   * the boundary segments and write them into the trim() call. By Region
+   * never writes pick points — a refusal (no filter separates the
+   * boundary) surfaces as a message.
    */
   private async applyRegion(edgeIds: string[]): Promise<void> {
     const trimObj = this._lastPickInfo?.trimObj as any;
@@ -207,57 +214,9 @@ export class TrimPickService {
       return;
     }
     const result = await applyTrimRegion(edgeIds, trimObj.sourceLocation);
-    if (result.success) {
-      return;
+    if (!result.success) {
+      this.onRegionMessage?.(result.reason ?? 'Could not trim this region');
     }
-
-    const existing = (trimObj.object?.pickPoints as [number, number][] | undefined) ?? [];
-    const midpoints = this.segmentMidpoints(edgeIds);
-    if (midpoints.length > 0) {
-      setPickPoints([...existing, ...midpoints], trimObj.sourceLocation);
-    }
-  }
-
-  /** Sketch-plane midpoints (by arc length) of the given trim segments. */
-  private segmentMidpoints(edgeIds: string[]): [number, number][] {
-    if (!this._lastPickInfo || !this.lastSceneObjects) {
-      return [];
-    }
-    const plane: PlaneData = (this._lastPickInfo.sketchObj as any).object.plane;
-    const index = buildEdgeIndex(this.lastSceneObjects, this._lastPickInfo.sketchObj.id!, plane);
-    const result: [number, number][] = [];
-    for (const id of edgeIds) {
-      const entry = index.find(e => e.shapeId === id);
-      const mid = entry ? TrimPickService.polylineMidpoint(entry) : null;
-      if (mid) {
-        result.push([Math.round(mid[0] * 100) / 100, Math.round(mid[1] * 100) / 100]);
-      }
-    }
-    return result;
-  }
-
-  /** The point halfway along the entry's tessellated length. */
-  private static polylineMidpoint(entry: EdgeEntry): [number, number] | null {
-    let total = 0;
-    const lengths = entry.segments.map(s => {
-      const len = Math.hypot(s.bx - s.ax, s.by - s.ay);
-      total += len;
-      return len;
-    });
-    if (total === 0) {
-      return null;
-    }
-    let remaining = total / 2;
-    for (let i = 0; i < entry.segments.length; i++) {
-      if (remaining > lengths[i]) {
-        remaining -= lengths[i];
-        continue;
-      }
-      const s = entry.segments[i];
-      const t = lengths[i] === 0 ? 0 : remaining / lengths[i];
-      return [s.ax + (s.bx - s.ax) * t, s.ay + (s.by - s.ay) * t];
-    }
-    return null;
   }
 
   private deactivateHandler(): void {
@@ -270,8 +229,64 @@ export class TrimPickService {
       this.activeRegionMode = null;
     }
     this.activeSourceLine = null;
-    this.viewer.clearHighlight();
+    this.clearSegmentHighlights();
     this.clearVertexHighlights();
+  }
+
+  /**
+   * Tint the given trim segments (the meta edges the picking build emits)
+   * directly, mirroring SketchHoverSelectHandler's proven mechanism: find
+   * the segment groups by shapeId and recolor their line children in place.
+   * Own bookkeeping keys — nothing else restores or overwrites them.
+   */
+  private highlightSegments(shapeIds: string[]): void {
+    this.clearSegmentHighlights();
+    if (shapeIds.length === 0) {
+      this.viewer.sceneContext.requestRender();
+      return;
+    }
+    const wanted = new Set(shapeIds);
+    this.viewer.sceneContext.scene.traverse((obj: Object3D) => {
+      if (!obj.userData.isMetaShape || !obj.userData.shapeId || !wanted.has(obj.userData.shapeId)) {
+        return;
+      }
+      obj.traverse((child: Object3D) => {
+        const material = (child as any).material;
+        if (!child.userData.isEdgeLine || !material?.color) {
+          return;
+        }
+        this.highlightedSegmentLines.push({
+          line: child,
+          originalColor: material.color.getHex(),
+          originalLineWidth: material.linewidth,
+          originalRenderOrder: child.renderOrder,
+          originalDepthTest: material.depthTest,
+        });
+        material.color.setHex(HIGHLIGHT_COLOR);
+        material.linewidth = SEGMENT_HIGHLIGHT_LINE_WIDTH;
+        // The segment overlays its coincident source edge — draw the tint
+        // on top so it cannot z-fight away.
+        child.renderOrder = 10;
+        material.depthTest = false;
+      });
+    });
+    this.viewer.sceneContext.requestRender();
+  }
+
+  private clearSegmentHighlights(): void {
+    for (const { line, originalColor, originalLineWidth, originalRenderOrder, originalDepthTest } of this.highlightedSegmentLines) {
+      const material = (line as any).material;
+      if (material?.color) {
+        material.color.setHex(originalColor);
+        material.linewidth = originalLineWidth;
+        material.depthTest = originalDepthTest;
+      }
+      line.renderOrder = originalRenderOrder;
+    }
+    if (this.highlightedSegmentLines.length > 0) {
+      this.highlightedSegmentLines.length = 0;
+      this.viewer.sceneContext.requestRender();
+    }
   }
 
   private highlightVerticesAt(endpoints: [number, number, number][]): void {

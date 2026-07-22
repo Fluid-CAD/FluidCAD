@@ -102,6 +102,7 @@ export class SketchToolbarService {
     this.trimDialog = new TrimDialog(container, () => this.handleToolSelect(null));
     this.trimDialog.onModeChange = (mode) => this.trimService.setMode(mode);
     this.trimDialog.onVisibilityChange = (open) => this.onOpDialogToggle?.(open);
+    this.trimService.onRegionMessage = (message) => this.showOpMessage(message);
   }
 
   get hasActiveDrawingTool(): boolean {

@@ -19,14 +19,20 @@ export class ChoiceTabs<T extends string> {
   private tabs = new Map<T, HTMLButtonElement>();
   private current: T;
 
-  constructor(host: HTMLElement, choices: { key: T; label: string; title: string }[], initial: T) {
+  constructor(host: HTMLElement, choices: { key: T; label: string; title: string; disabled?: boolean }[], initial: T) {
     this.current = initial;
-    for (const { key, label, title } of choices) {
+    for (const { key, label, title, disabled } of choices) {
       const tab = document.createElement('button');
       tab.className = key === this.current ? TAB_ACTIVE : TAB_BASE;
       tab.textContent = label;
       tab.title = title;
-      tab.addEventListener('click', () => this.set(key));
+      if (disabled) {
+        // Visually muted but not `disabled`/pointer-events:none — the title
+        // tooltip must still show on hover.
+        tab.classList.add('opacity-40', 'cursor-not-allowed');
+      } else {
+        tab.addEventListener('click', () => this.set(key));
+      }
       host.appendChild(tab);
       this.tabs.set(key, tab);
     }

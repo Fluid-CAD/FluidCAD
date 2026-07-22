@@ -11,8 +11,8 @@ import { SceneObjectPart } from '../../types';
 /**
  * Renders a trim-region meta face: an invisible but raycastable fill for the
  * trim dialog's By Region mode. The region's metaData (the ids of the split
- * segments bounding it) rides on userData; hovering brightens the fill and
- * highlights those segments, clicking trims them.
+ * segments bounding it) rides on userData; hovering highlights those
+ * segments (the fill itself stays invisible), clicking trims them.
  */
 export class TrimRegionFaceMesh extends Group {
   constructor(shape: SceneObjectPart) {

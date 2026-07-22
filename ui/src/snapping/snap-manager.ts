@@ -94,6 +94,12 @@ export class SnapManager {
     const vertices2d: [number, number][] = [];
     const EPSILON_SQ = 1e-6;
 
+    // The plane center is the sketch's default start position (the face
+    // center when sketching on a face) — make it snappable like any vertex.
+    if (plane.center) {
+      vertices2d.push(SnapManager.worldToPlane2d(plane.center.x, plane.center.y, plane.center.z, plane));
+    }
+
     for (const obj of sceneObjects) {
       if (obj.parentId !== sketchId || !obj.sceneShapes.length) {
         continue;
@@ -121,12 +127,7 @@ export class SnapManager {
               const wy = meshData.vertices[idx * 3 + 1];
               const wz = meshData.vertices[idx * 3 + 2];
 
-              // Convert world → 2D sketch coordinates
-              const rx = wx - plane.origin.x;
-              const ry = wy - plane.origin.y;
-              const rz = wz - plane.origin.z;
-              const u = rx * plane.xDirection.x + ry * plane.xDirection.y + rz * plane.xDirection.z;
-              const v = rx * plane.yDirection.x + ry * plane.yDirection.y + rz * plane.yDirection.z;
+              const [u, v] = SnapManager.worldToPlane2d(wx, wy, wz, plane);
 
               // Deduplicate
               const isDup = vertices2d.some(
@@ -148,5 +149,14 @@ export class SnapManager {
     ];
 
     return new SnapManager(snappers, DEFAULT_SNAP_THRESHOLD, ctx ?? null);
+  }
+
+  private static worldToPlane2d(wx: number, wy: number, wz: number, plane: PlaneData): [number, number] {
+    const rx = wx - plane.origin.x;
+    const ry = wy - plane.origin.y;
+    const rz = wz - plane.origin.z;
+    const u = rx * plane.xDirection.x + ry * plane.xDirection.y + rz * plane.xDirection.z;
+    const v = rx * plane.yDirection.x + ry * plane.yDirection.y + rz * plane.yDirection.z;
+    return [u, v];
   }
 }

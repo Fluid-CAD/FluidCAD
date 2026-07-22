@@ -184,6 +184,10 @@ export type InsertGeometryMessage = {
   type: 'insert-geometry';
   statement: string;
   sketchSourceLocation: { line: number; column: number };
+  newVariable?:
+    | { name: string; initializer: string }
+    | { name: string; initializer: string }[]
+    | null;
 };
 
 export type UpdatePositionMessage = {

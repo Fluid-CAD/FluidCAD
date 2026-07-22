@@ -28,11 +28,8 @@ import {
 
 const NEW_VAR_NAME_RE = /^[a-zA-Z_$][\w$]*$/;
 
-function validateNewVariable(input: unknown): { name: string; initializer: string } | null | false {
-  if (input === undefined || input === null) {
-    return null;
-  }
-  if (typeof input !== 'object') {
+function validateOneNewVariable(input: unknown): { name: string; initializer: string } | false {
+  if (typeof input !== 'object' || input === null) {
     return false;
   }
   const obj = input as { name?: unknown; initializer?: unknown };
@@ -43,6 +40,23 @@ function validateNewVariable(input: unknown): { name: string; initializer: strin
     return false;
   }
   return { name: obj.name, initializer: obj.initializer };
+}
+
+function validateNewVariable(
+  input: unknown,
+): { name: string; initializer: string } | { name: string; initializer: string }[] | null | false {
+  if (input === undefined || input === null) {
+    return null;
+  }
+  if (Array.isArray(input)) {
+    const items = input.map(validateOneNewVariable);
+    if (items.some((v) => v === false)) {
+      return false;
+    }
+    const valid = items as { name: string; initializer: string }[];
+    return valid.length === 0 ? null : valid;
+  }
+  return validateOneNewVariable(input);
 }
 
 export function createSketchEditsRouter(

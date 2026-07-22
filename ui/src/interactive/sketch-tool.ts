@@ -13,9 +13,11 @@ export type ToolConfig = {
   icon: string;
 };
 
+export type NewVariable = { name: string; initializer: string };
+
 export type InsertGeometryFn = (
   statement: string,
-  newVariable?: { name: string; initializer: string },
+  newVariable?: NewVariable | NewVariable[],
 ) => void;
 export type FetchVariablesFn = () => Promise<{ name: string; initializer?: string }[]>;
 

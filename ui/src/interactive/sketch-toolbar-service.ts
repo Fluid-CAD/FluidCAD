@@ -231,7 +231,7 @@ export class SketchToolbarService {
 
     const doInsertGeometry = (
       statement: string,
-      newVariable?: { name: string; initializer: string },
+      newVariable?: { name: string; initializer: string } | { name: string; initializer: string }[],
     ) => {
       if (!this.activeSketchInfo) {
         return;

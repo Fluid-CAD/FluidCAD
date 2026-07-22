@@ -907,6 +907,43 @@ describe('insertGeometryCallWithVariable', () => {
     expect(result.newCode).toContain(`line([0, 0], [depth, 0])`);
   });
 
+  it('declares every variable of a multi-dimension commit, in order', async () => {
+    const code = [
+      `import { sketch, rect } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  rect(5, 5);`,
+      `});`,
+    ].join('\n');
+    const result = await insertGeometryCallWithVariable(
+      code, 2, 'rect(w, h)',
+      [
+        { name: 'w', initializer: '30' },
+        { name: 'h', initializer: 'w / 2' },
+      ],
+    );
+    expect(result.newCode).toContain(`  const w = 30;\n  const h = w / 2;`);
+    expect(result.newCode).toContain(`rect(w, h)`);
+  });
+
+  it('splits a multi-variable commit between param() and sketch-local declarations', async () => {
+    const code = [
+      `import { sketch, rect } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  rect(5, 5);`,
+      `});`,
+    ].join('\n');
+    const result = await insertGeometryCallWithVariable(
+      code, 2, 'rect(w, h)',
+      [
+        { name: 'w', initializer: 'param("w", 30)' },
+        { name: 'h', initializer: '20' },
+      ],
+    );
+    expect(result.newCode).toContain(`const w = param("w", 30);`);
+    expect(result.newCode).toContain(`  const h = 20;`);
+    expect(result.newCode).toContain(`rect(w, h)`);
+  });
+
   it('leaves imports alone for a plain declaration', async () => {
     const code = [
       `import { sketch, line } from 'fluidcad/core';`,

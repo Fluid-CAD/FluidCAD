@@ -523,8 +523,9 @@ export class RoundedRectTool extends SketchTool {
       statement += '.centered()';
     }
 
-    const newVariable = widthResult.newVariable ?? heightResult.newVariable ?? radiusResult.newVariable;
-    this.insertGeometry(statement, newVariable);
+    const newVariables = [widthResult.newVariable, heightResult.newVariable, radiusResult.newVariable]
+      .filter((v): v is NonNullable<typeof v> => v !== undefined);
+    this.insertGeometry(statement, newVariables);
   }
 
   private rebuildPreview(): void {

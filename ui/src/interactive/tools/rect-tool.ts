@@ -384,8 +384,9 @@ export class RectTool extends SketchTool {
       statement += '.centered()';
     }
 
-    const newVariable = widthResult.newVariable ?? heightResult.newVariable;
-    this.insertGeometry(statement, newVariable);
+    const newVariables = [widthResult.newVariable, heightResult.newVariable]
+      .filter((v): v is NonNullable<typeof v> => v !== undefined);
+    this.insertGeometry(statement, newVariables);
   }
 
   protected rebuildPreview(): void {

@@ -431,8 +431,9 @@ export class SlotTool extends SketchTool {
       ? `slot(${distanceResult.expression}, ${radiusResult.expression})`
       : `slot(${this.formatPoint(start)}, ${distanceResult.expression}, ${radiusResult.expression})`;
 
-    const newVariable = distanceResult.newVariable ?? radiusResult.newVariable;
-    this.insertGeometry(statement, newVariable);
+    const newVariables = [distanceResult.newVariable, radiusResult.newVariable]
+      .filter((v): v is NonNullable<typeof v> => v !== undefined);
+    this.insertGeometry(statement, newVariables);
   }
 
   private rebuildPreview(): void {

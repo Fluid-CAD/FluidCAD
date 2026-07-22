@@ -1378,47 +1378,59 @@ async function declareTopLevelVariable(
   return `${statement}\n${code}`;
 }
 
+export type NewVariableDecl = { name: string; initializer: string };
+
 /**
- * Run an edit that may be preceded by inserting `const name = init;` at the
- * top of the sketch body. The edit receives the (possibly-mutated) code and
- * the number of lines added by the declaration, so it can re-anchor any
- * sourceLine references inside the body. A `param()` declaration instead
- * lands at top level after the imports — inserted (with its import) after
- * the edit, so the edit's sourceLine anchors never shift.
+ * Run an edit that may be preceded by inserting `const name = init;` lines at
+ * the top of the sketch body — one per requested variable, in order, so a
+ * later initializer may reference an earlier variable. The edit receives the
+ * (possibly-mutated) code and the number of lines added by the declarations,
+ * so it can re-anchor any sourceLine references inside the body. A `param()`
+ * declaration instead lands at top level after the imports — inserted (with
+ * its import) after the edit, so the edit's sourceLine anchors never shift.
  *
  * Adopt this wrapper for any new code-edit endpoint that should support
- * "declare a variable on the same commit."
+ * "declare variables on the same commit."
  */
 async function withOptionalVariableDeclaration(
   code: string,
   sketchSourceLine: number,
-  newVariable: { name: string; initializer: string } | null,
+  newVariable: NewVariableDecl | NewVariableDecl[] | null,
   edit: (code: string, lineShift: number) => Promise<CodeEditResult>,
 ): Promise<CodeEditResult> {
-  if (!newVariable) {
-    return edit(code, 0);
+  const requested = newVariable === null ? [] : [newVariable].flat();
+  const params = requested.filter((v) => /\bparam\s*\(/.test(v.initializer));
+  const locals = requested.filter((v) => !/\bparam\s*\(/.test(v.initializer));
+
+  // Each declaration is inserted at the top of the body, so reversed input
+  // order leaves them in input order.
+  let declaredCode = code;
+  let lineShift = 0;
+  for (const v of [...locals].reverse()) {
+    const declared = await declareSketchVariable(declaredCode, sketchSourceLine, v.name, v.initializer);
+    if (!declared) {
+      return { newCode: code };
+    }
+    declaredCode = declared.newCode;
+    lineShift += declared.linesAdded;
   }
-  if (/\bparam\s*\(/.test(newVariable.initializer)) {
-    const result = await edit(code, 0);
-    const declared = await declareTopLevelVariable(
-      result.newCode, newVariable.name, newVariable.initializer,
-    );
-    return { ...result, newCode: await ensureSymbolImport(declared, 'param') };
+
+  const result = await edit(declaredCode, lineShift);
+  if (params.length === 0) {
+    return result;
   }
-  const declared = await declareSketchVariable(
-    code, sketchSourceLine, newVariable.name, newVariable.initializer,
-  );
-  if (!declared) {
-    return { newCode: code };
+  let withParams = result.newCode;
+  for (const v of [...params].reverse()) {
+    withParams = await declareTopLevelVariable(withParams, v.name, v.initializer);
   }
-  return edit(declared.newCode, declared.linesAdded);
+  return { ...result, newCode: await ensureSymbolImport(withParams, 'param') };
 }
 
 export function insertGeometryCallWithVariable(
   code: string,
   sketchSourceLine: number,
   statement: string,
-  newVariable: { name: string; initializer: string } | null,
+  newVariable: NewVariableDecl | NewVariableDecl[] | null,
 ): Promise<CodeEditResult> {
   return withOptionalVariableDeclaration(code, sketchSourceLine, newVariable,
     (c) => insertGeometryCall(c, sketchSourceLine, statement));
@@ -1429,7 +1441,7 @@ export function updateDimensionExpressionWithVariable(
   sourceLine: number,
   expression: string,
   sketchSourceLine: number,
-  newVariable: { name: string; initializer: string } | null,
+  newVariable: NewVariableDecl | NewVariableDecl[] | null,
   dimensionOffset = 0,
   dimensionCall: string | null = null,
 ): Promise<CodeEditResult> {

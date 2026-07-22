@@ -212,12 +212,20 @@ export function removePick(sourceLocation: SourceLocationParam): void {
 export function insertGeometry(
   statement: string,
   sketchSourceLocation: SourceLocationParam,
-  newVariable?: { name: string; initializer: string } | null,
+  newVariable?:
+    | { name: string; initializer: string }
+    | { name: string; initializer: string }[]
+    | null,
 ): void {
+  // A single declaration travels as a plain object, matching the original
+  // wire shape; arrays are reserved for multi-variable commits.
+  const normalized = Array.isArray(newVariable)
+    ? (newVariable.length === 0 ? null : newVariable.length === 1 ? newVariable[0] : newVariable)
+    : newVariable ?? null;
   postFireAndForget('/api/insert-geometry', {
     statement,
     sketchSourceLocation,
-    newVariable: newVariable ?? null,
+    newVariable: normalized,
   });
 }
 

@@ -295,8 +295,9 @@ export class PolygonTool extends SketchTool {
       ? `polygon(${sidesResult.expression}, ${diameterResult.expression})`
       : `polygon(${this.formatPoint(center)}, ${sidesResult.expression}, ${diameterResult.expression})`;
 
-    const newVariable = sidesResult.newVariable ?? diameterResult.newVariable;
-    this.insertGeometry(statement, newVariable);
+    const newVariables = [sidesResult.newVariable, diameterResult.newVariable]
+      .filter((v): v is NonNullable<typeof v> => v !== undefined);
+    this.insertGeometry(statement, newVariables);
   }
 
   private rebuildPreview(): void {

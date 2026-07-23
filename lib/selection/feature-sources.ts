@@ -92,7 +92,7 @@ export function resolveFeatureSources(
         ok: true,
         feature: 'loft',
         profiles: feature.profiles.map(p => resolver.mixedSlot(p)),
-        guides: feature.guideObjects.map(g => resolver.sketchSlot(g)),
+        guides: feature.guideObjects.map(g => resolver.wireSlot(g)),
       };
     }
     // Wrap extends ExtrudeBase — its case must come first.
@@ -166,6 +166,14 @@ class SourceResolver {
   }
 
   /**
+   * A wire input (a loft guide), by call site: a sketch or a helix — the two
+   * statements a wire slot can re-target.
+   */
+  wireSlot(obj: SceneObject | null): SourceSlot {
+    return obj instanceof Sketch || obj instanceof Helix ? this.callSiteSlot(obj) : OPAQUE;
+  }
+
+  /**
    * A revolve's axis input, by call site — an axis statement the dialog can
    * point at and highlight. An axis built inline in the revolve's own
    * arguments (`revolve('z')`, `revolve(axis(…))`) captures a line on the
@@ -197,10 +205,10 @@ class SourceResolver {
     return this.sketchSlot(feature.extrudable instanceof Sketch ? feature.extrudable : null);
   }
 
-  /** A slot holding either a sketch or a geometry selection (loft profile, sweep path). */
+  /** A slot holding either a wire statement (sketch/helix) or a geometry selection (loft profile, sweep path). */
   mixedSlot(obj: SceneObject | null): SourceSlot {
-    if (obj instanceof Sketch) {
-      return this.sketchSlot(obj);
+    if (obj instanceof Sketch || obj instanceof Helix) {
+      return this.callSiteSlot(obj);
     }
     return obj ? this.entitiesSlot([obj]) : OPAQUE;
   }

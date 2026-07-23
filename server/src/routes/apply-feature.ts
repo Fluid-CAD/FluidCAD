@@ -679,7 +679,9 @@ function validateLoft(body: any): LoftRequest | { error: string } {
 type PlaneBaseInput =
   | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
   | { kind: 'pick'; pick: Pick }
-  | { kind: 'plane'; loc: SketchLoc };
+  | { kind: 'plane'; loc: SketchLoc }
+  /** A helix statement as the edge form's base (its wire is the edge). */
+  | { kind: 'wire'; loc: SketchLoc };
 
 type PlaneRequest = {
   type: 'offset' | 'mid' | 'edge';
@@ -760,16 +762,27 @@ function validatePlane(body: any): PlaneRequest | { error: string } {
       }
       key = `plane:${loc.filePath}:${loc.line}`;
       result.push({ kind: 'plane', loc });
+    } else if (raw?.kind === 'wire') {
+      if (type !== 'edge') {
+        return { error: 'a helix base is only valid for an edge plane' };
+      }
+      const loc = validateSketchLoc(raw);
+      if (!loc) {
+        return { error: 'a helix base must carry the helix {filePath, line}' };
+      }
+      key = `wire:${loc.filePath}:${loc.line}`;
+      result.push({ kind: 'wire', loc });
     } else {
-      return { error: 'each base must be {kind: "standard"|"pick"|"plane", …}' };
+      return { error: 'each base must be {kind: "standard"|"pick"|"plane"|"wire", …}' };
     }
     if (seen.has(key)) {
       return { error: 'the two bases must be different' };
     }
     seen.add(key);
   }
-  if (type === 'edge' && (result[0].kind !== 'pick' || result[0].pick.sub.type !== 'edge')) {
-    return { error: 'an edge plane takes a single picked edge as its base' };
+  if (type === 'edge' && result[0].kind !== 'wire'
+    && (result[0].kind !== 'pick' || result[0].pick.sub.type !== 'edge')) {
+    return { error: 'an edge plane takes a single picked edge or a helix as its base' };
   }
   return {
     type,
@@ -2345,6 +2358,11 @@ export function createApplyFeatureRouter(
         const sketchRef = (loc: SketchLoc, nameHint: string): number => mergeProducer({
           line: loc.line, column: loc.column, featureType: 'sketch', nameHint, bind: true,
         });
+        // A wire slot (a sweep path, a loft guide) takes a sketch() or a
+        // helix() statement.
+        const wireRef = (loc: SketchLoc, nameHint: string): number => mergeProducer({
+          line: loc.line, column: loc.column, featureType: 'wire', nameHint, bind: true,
+        });
 
         const edit = request.edit;
         if (request.extrudeProfile) {
@@ -2366,7 +2384,7 @@ export function createApplyFeatureRouter(
         }
         if (request.sweepPath) {
           if (request.sweepPath.kind === 'sketch') {
-            edit.sweep!.path = { kind: 'sketch', producer: sketchRef(request.sweepPath, 'p') };
+            edit.sweep!.path = { kind: 'sketch', producer: wireRef(request.sweepPath, 'p') };
           } else {
             const synthesis = synthesizeSlot(
               request.sweepPath.picks, 'sweep', undefined, request.sweepPath.chains,
@@ -2496,7 +2514,7 @@ export function createApplyFeatureRouter(
         if (request.loftGuides) {
           edit.loft!.guides = request.loftGuides.map(guide => guide.kind === 'verbatim'
             ? { kind: 'verbatim' as const, sourceIndex: guide.sourceIndex }
-            : { kind: 'sketch' as const, producer: sketchRef(guide, 'g') });
+            : { kind: 'sketch' as const, producer: wireRef(guide, 'g') });
         }
         if (request.sketchTarget) {
           const target = request.sketchTarget;
@@ -2944,9 +2962,10 @@ export function createApplyFeatureRouter(
 
         let path: SweepEditOptions['path'];
         if (request.path.kind === 'sketch') {
+          // The path is a wire source — a sketch() or a helix() statement.
           producers.push({
             line: request.path.line, column: request.path.column,
-            featureType: 'sketch', nameHint: 'p', bind: true,
+            featureType: 'wire', nameHint: 'p', bind: true,
           });
           path = { kind: 'sketch', producer: producers.length - 1 };
         } else {
@@ -2971,7 +2990,7 @@ export function createApplyFeatureRouter(
           const namer = await makeProducerNamer(code);
           const queries: { line: number; nameHint: string; featureType?: string }[] = [];
           if (request.path.kind === 'sketch') {
-            queries.push({ line: request.path.line, nameHint: 'p', featureType: 'sketch' });
+            queries.push({ line: request.path.line, nameHint: 'p', featureType: 'wire' });
           }
           if (request.profile.mode === 'bound') {
             queries.push({ line: request.profile.line, nameHint: 's', featureType: 'sketch' });
@@ -3452,9 +3471,10 @@ export function createApplyFeatureRouter(
           profiles.push({ kind: 'selector', part: parts.length - 1 });
         }
 
-        // Guides are bound sketch producers like sketch profiles, merged the
-        // same way (a sketch can't double as profile and guide — validateLoft
-        // rejected that — but the merge keeps the invariant local).
+        // Guides are bound wire producers (a sketch() or a helix() statement),
+        // merged like the sketch profiles (a sketch can't double as profile
+        // and guide — validateLoft rejected that — but the merge keeps the
+        // invariant local).
         const guides: NonNullable<LoftEditOptions['guides']> = [];
         for (const guide of request.guides) {
           if (filePath !== null && guide.filePath !== filePath) {
@@ -3466,7 +3486,7 @@ export function createApplyFeatureRouter(
             kind: 'sketch',
             producer: mergeProducer({
               line: guide.line, column: guide.column,
-              featureType: 'sketch', nameHint: 'g', bind: true,
+              featureType: 'wire', nameHint: 'g', bind: true,
             }),
           });
         }
@@ -3543,19 +3563,27 @@ export function createApplyFeatureRouter(
             bases.push({ kind: 'standard', plane: base.plane });
             continue;
           }
-          if (base.kind === 'plane') {
+          if (base.kind === 'plane' || base.kind === 'wire') {
             if (filePath !== null && base.loc.filePath !== filePath) {
               res.status(422).json({ success: false, reason: 'the plane bases come from features in different files' });
               return;
             }
             filePath = base.loc.filePath;
-            bases.push({
-              kind: 'plane',
-              producer: mergeProducer({
-                line: base.loc.line, column: base.loc.column,
-                featureType: 'plane', nameHint: 'p', bind: true,
-              }),
-            });
+            bases.push(base.kind === 'plane'
+              ? {
+                kind: 'plane',
+                producer: mergeProducer({
+                  line: base.loc.line, column: base.loc.column,
+                  featureType: 'plane', nameHint: 'p', bind: true,
+                }),
+              }
+              : {
+                kind: 'wire',
+                producer: mergeProducer({
+                  line: base.loc.line, column: base.loc.column,
+                  featureType: 'wire', nameHint: 'h', bind: true,
+                }),
+              });
             continue;
           }
           if (!synthOptionsReady) {
@@ -4355,8 +4383,8 @@ export function createApplyFeatureRouter(
       res.status(400).json({ error: 'lines must be up to 64 positive integers' });
       return;
     }
-    if (callee !== undefined && callee !== 'sketch' && callee !== 'plane' && callee !== 'axis') {
-      res.status(400).json({ error: 'callee must be "sketch", "plane" or "axis"' });
+    if (callee !== undefined && callee !== 'sketch' && callee !== 'plane' && callee !== 'axis' && callee !== 'helix') {
+      res.status(400).json({ error: 'callee must be "sketch", "plane", "axis" or "helix"' });
       return;
     }
     const lineNumbers = lines as number[];

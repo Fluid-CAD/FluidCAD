@@ -15,7 +15,7 @@ import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import {
-  collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
+  collectWireSources, labelWithSketchNames, optionsSignature, resolveWireByShapeId, resolveWireRow,
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 
@@ -23,8 +23,9 @@ type SweepEditRequest = Parameters<typeof applySweepEdit>[1];
 
 /**
  * The Sweep dialog on the create rails: a profile sketch swept along a path.
- * Both slots take sketches (timeline or wire clicks into the armed slot);
- * the path alternatively takes edge picks, live in the 3D view the whole
+ * The profile slot takes sketches; the path slot takes any wire source — a
+ * sketch or a helix (timeline or wire clicks into the armed slot); the path
+ * alternatively takes edge picks, live in the 3D view the whole
  * time the dialog is armed — an edge click re-sources the path to picked
  * edges (listed as removable chips), plain clicks accumulate, right-click
  * offers the multi-select menu (tangent chain, classified bucket, occluded
@@ -198,7 +199,7 @@ export class SweepFeatureService {
     }
     // At the boundary: rebuild options from the pre-statement scene.
     this.sceneObjects = sceneObjects;
-    this.profiles = collectSketchProfiles(sceneObjects);
+    this.profiles = collectWireSources(sceneObjects);
     this.hideContextMenu();
     if (this.editSceneStale) {
       this.editSceneStale = false;
@@ -221,7 +222,7 @@ export class SweepFeatureService {
 
   update(sceneObjects: SceneObjectRender[]): void {
     this.sceneObjects = sceneObjects;
-    this.profiles = collectSketchProfiles(sceneObjects);
+    this.profiles = collectWireSources(sceneObjects);
     this.hasSolid = sceneObjects.some(o =>
       o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
     this.sceneSketchActive = this.profiles[0]?.kind === 'active';
@@ -394,6 +395,19 @@ export class SweepFeatureService {
       return;
     }
     this.hideContextMenu();
+    // A helix's wire renders as a regular edge — clicking it selects the
+    // helix as the named path source (`sweep(spring)`), not a raw edge pick.
+    // A helix not among the options (consumed) falls through to edge picking.
+    const owner = resolveWireByShapeId(shapeId, this.sceneObjects);
+    if (owner?.type === 'helix' && owner.sourceLocation) {
+      const loc = owner.sourceLocation;
+      if (this.panel.selectSketch('path', loc.filePath, loc.line)) {
+        this.panel.setMessage(null);
+        this.refreshHighlight();
+        this.runner.schedulePreview();
+        return;
+      }
+    }
     this.panel.setMessage(null);
     this.ensureEdgesSeed();
     this.toggleEntity({ shapeId, sub });
@@ -507,7 +521,7 @@ export class SweepFeatureService {
     if (!this.armed) {
       return false;
     }
-    const sketch = resolveSketchRow(obj, this.sceneObjects);
+    const sketch = resolveWireRow(obj, this.sceneObjects);
     if (!sketch?.sourceLocation) {
       return false;
     }
@@ -523,7 +537,7 @@ export class SweepFeatureService {
     if (!this.armed) {
       return false;
     }
-    const sketch = resolveSketchByShapeId(shapeId, this.sceneObjects);
+    const sketch = resolveWireByShapeId(shapeId, this.sceneObjects);
     if (!sketch?.sourceLocation) {
       return false;
     }
@@ -533,8 +547,13 @@ export class SweepFeatureService {
 
   private pickSketch(sketch: SceneObjectRender): void {
     const loc = sketch.sourceLocation!;
-    if (!this.panel.selectSketch(this.panel.armedSlot, loc.filePath, loc.line)) {
-      this.panel.setMessage('That sketch was already consumed — only sketches still rendered in the scene can be used.');
+    // A helix is a bare wire: it can only be the path, never the planar
+    // profile. Route it to the path slot regardless of which slot is armed.
+    const slot = sketch.type === 'helix' ? 'path' : this.panel.armedSlot;
+    if (!this.panel.selectSketch(slot, loc.filePath, loc.line)) {
+      this.panel.setMessage(sketch.type === 'helix'
+        ? 'That helix was already consumed — only helixes still rendered in the scene can be used.'
+        : 'That sketch was already consumed — only sketches still rendered in the scene can be used.');
       return;
     }
     // A path pick already synced the mode via onPathModeChange.

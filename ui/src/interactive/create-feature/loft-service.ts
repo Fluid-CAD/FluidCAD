@@ -14,7 +14,7 @@ import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import {
-  collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
+  collectWireSources, labelWithSketchNames, optionsSignature, resolveWireByShapeId, resolveWireRow,
   sourceChip, SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 
@@ -208,7 +208,7 @@ export class LoftFeatureService {
     }
     // At the boundary: rebuild options from the pre-statement scene.
     this.sceneObjects = sceneObjects;
-    this.profiles = collectSketchProfiles(sceneObjects);
+    this.profiles = collectWireSources(sceneObjects);
     if (this.editSceneStale) {
       this.editSceneStale = false;
       // A scene rebuild killed every picked face's shape id; sketch chips
@@ -252,12 +252,14 @@ export class LoftFeatureService {
 
   update(sceneObjects: SceneObjectRender[]): void {
     this.sceneObjects = sceneObjects;
-    this.profiles = collectSketchProfiles(sceneObjects);
+    this.profiles = collectWireSources(sceneObjects);
     this.hasSolid = sceneObjects.some(o =>
       o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
     this.sceneSketchActive = this.profiles[0]?.kind === 'active';
-    // A loft needs two profile sources: solid faces to pick, or two sketches.
-    this.available = this.hasSolid || this.profiles.length >= 2;
+    // A loft needs two profile sources: solid faces to pick, or two sketches
+    // (a helix can only ever be a guide, so it doesn't count here).
+    this.available = this.hasSolid
+      || this.profiles.filter(o => o.feature === 'sketch').length >= 2;
     this.navbar.setGroupVisible('create', this.available, 'loft');
     this.syncButton();
     if (!this.armed) {
@@ -464,7 +466,7 @@ export class LoftFeatureService {
     if (!this.armed) {
       return false;
     }
-    const sketch = resolveSketchRow(obj, this.sceneObjects);
+    const sketch = resolveWireRow(obj, this.sceneObjects);
     if (!sketch?.sourceLocation) {
       return false;
     }
@@ -477,7 +479,7 @@ export class LoftFeatureService {
     if (!this.armed) {
       return false;
     }
-    const sketch = resolveSketchByShapeId(shapeId, this.sceneObjects);
+    const sketch = resolveWireByShapeId(shapeId, this.sceneObjects);
     if (!sketch?.sourceLocation) {
       return false;
     }
@@ -485,15 +487,20 @@ export class LoftFeatureService {
     return true;
   }
 
-  /** Sketch picks land in whichever section was focused last. */
+  /**
+   * Sketch picks land in whichever section was focused last. A helix is a
+   * bare wire — it can only ever be a guide, so it always lands there.
+   */
   private pickSketch(sketch: SceneObjectRender): void {
     const loc = sketch.sourceLocation!;
     const option = this.findOption(loc.filePath, loc.line);
     if (!option) {
-      this.panel.setMessage('That sketch was already consumed — only sketches still rendered in the scene can be used.');
+      this.panel.setMessage(sketch.type === 'helix'
+        ? 'That helix was already consumed — only helixes still rendered in the scene can be used.'
+        : 'That sketch was already consumed — only sketches still rendered in the scene can be used.');
       return;
     }
-    if (this.panel.armedSection === 'guides') {
+    if (this.panel.armedSection === 'guides' || option.feature === 'helix') {
       this.addGuide(option);
     } else {
       this.addSketchProfile(option);
@@ -523,6 +530,10 @@ export class LoftFeatureService {
 
   private addSketchProfile(option: SketchProfileOption): void {
     if (!this.armed) {
+      return;
+    }
+    if (option.feature === 'helix') {
+      this.panel.setMessage('A helix is a wire — it can guide the loft, but a profile must be a sketch or a face.');
       return;
     }
     if (this.usesSketch(option.filePath, option.line)) {

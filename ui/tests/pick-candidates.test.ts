@@ -1,6 +1,9 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import { Group, LineSegments, Mesh, Object3D } from 'three';
 import { collectPickCandidates, type PickChannels } from '../src/interactive/pick-candidates';
+import { ShapeGroup } from '../src/meshes/containers/shape-group';
+import type { SceneObjectRender } from '../src/types';
 
 const ALL_CHANNELS: PickChannels = { sketchWires: true, axes: true, planes: true };
 const NO_CHANNELS: PickChannels = { sketchWires: false, axes: false, planes: false };
@@ -96,6 +99,29 @@ describe('collectPickCandidates', () => {
     expect(disarmed.sketchWires).toHaveLength(0);
     expect(disarmed.axes).toHaveLength(0);
     expect(disarmed.planeQuads).toHaveLength(0);
+  });
+
+  // A bare single-edge shape (a helix wire) serializes without a per-edge
+  // index — ShapeGroup gives its lines the pick identity {edge, 0} so the
+  // wire is clickable in the viewport (the plane/sweep dialogs' helix picks).
+  it('a helix wire built by ShapeGroup is an edge pick candidate with index 0', () => {
+    const helix: SceneObjectRender = {
+      id: 'helix-1',
+      type: 'helix',
+      sceneShapes: [{
+        shapeId: 'wire-shape',
+        shapeType: 'edge',
+        meshes: [{ vertices: [0, 0, 0, 1, 0, 0, 1, 1, 0], normals: [], indices: [0, 1, 1, 2] }],
+      }],
+      ownShapes: [],
+    };
+
+    const root = new Object3D();
+    root.add(new ShapeGroup(helix, false));
+
+    const candidates = collectPickCandidates(root, NO_CHANNELS);
+    expect(candidates.edges).toHaveLength(1);
+    expect(candidates.edges[0].userData.edgeIndex).toBe(0);
   });
 
   it('hidden sketch wires, axes and plane quads stay out even while armed', () => {

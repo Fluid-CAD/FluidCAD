@@ -3,10 +3,16 @@ import { isTopLevel } from '../../helpers/scene-utils';
 import { SceneObjectRender } from '../../types';
 import { PickSlotChip } from '../pick-slot';
 
-/** A sketch a create-feature dialog can consume (profile or path). */
+/** A sketch or helix a create-feature dialog can consume (profile or path). */
 export type SketchProfileOption = {
   /** `active` is the sketch being edited (implicit consumption). */
   kind: 'active' | 'other';
+  /**
+   * The producing statement: a sketch, or a helix. A helix is a bare wire —
+   * offered only where a wire is valid (a sweep path, a loft guide), never as
+   * a planar profile.
+   */
+  feature: 'sketch' | 'helix';
   label: string;
   filePath: string;
   line: number;
@@ -49,16 +55,57 @@ export function collectSketchProfiles(sceneObjects: SceneObjectRender[]): Sketch
 }
 
 /**
- * Relabel options with the variable names their sketches are bound to
- * ("spine — line 3"); unbound sketches keep the plain label. Resolves over
+ * The wire sources a path/guide slot can consume right now: every offered
+ * sketch (see {@link collectSketchProfiles}) plus every unconsumed helix —
+ * a helix is a bare wire, valid exactly where a sketch is consumed as one
+ * (a sweep path, a loft guide). Sketches keep their order (the active one
+ * first), helixes follow.
+ */
+export function collectWireSources(sceneObjects: SceneObjectRender[]): SketchProfileOption[] {
+  const options = collectSketchProfiles(sceneObjects);
+  for (const obj of sceneObjects) {
+    if (obj.type !== 'helix' || !obj.sourceLocation) {
+      continue;
+    }
+    if (!hasRenderedGeometry(obj, sceneObjects)) {
+      continue;
+    }
+    const loc = obj.sourceLocation;
+    options.push({
+      kind: 'other',
+      feature: 'helix',
+      label: 'Helix',
+      filePath: loc.filePath,
+      line: loc.line,
+      column: loc.column,
+      hasGeometry: true,
+    });
+  }
+  return options;
+}
+
+/**
+ * Relabel options with the variable names their statements are bound to
+ * ("spine — line 3"); unbound statements keep the plain label. Resolves over
  * the live buffer server-side, so it's async — callers apply the result if
- * the dialog is still armed on the same options.
+ * the dialog is still armed on the same options. Sketch and helix options
+ * resolve against their own callee, one fetch per kind present.
  */
 export async function labelWithSketchNames(options: SketchProfileOption[]): Promise<SketchProfileOption[]> {
   if (options.length === 0) {
     return options;
   }
-  const names = await fetchSketchNames(options.map(o => o.line));
+  const names = new Array<string | null>(options.length).fill(null);
+  await Promise.all((['sketch', 'helix'] as const).map(async (feature) => {
+    const indexes = options.flatMap((o, i) => o.feature === feature ? [i] : []);
+    if (indexes.length === 0) {
+      return;
+    }
+    const resolved = await fetchSketchNames(indexes.map(i => options[i].line), feature);
+    indexes.forEach((optionIndex, i) => {
+      names[optionIndex] = resolved[i];
+    });
+  }));
   return options.map((option, i) => {
     const name = names[i];
     if (!name) {
@@ -115,7 +162,7 @@ export function keepSketchChip(text: string | null): PickSlotChip {
 
 /** A stable signature for "same options" checks across async relabeling. */
 export function optionsSignature(options: SketchProfileOption[]): string {
-  return options.map(o => `${o.kind}:${o.filePath}:${o.line}`).join('|');
+  return options.map(o => `${o.feature}:${o.kind}:${o.filePath}:${o.line}`).join('|');
 }
 
 /** Resolve a timeline row to the sketch it belongs to (itself or its parent). */
@@ -149,6 +196,33 @@ export function resolveSketchByShapeId(
 }
 
 /**
+ * Resolve a timeline row to the wire source it belongs to: a helix row is
+ * its own source (it carries its wire on itself); anything else resolves
+ * like a sketch row. For the wire-consuming slots (sweep path, loft guides).
+ */
+export function resolveWireRow(
+  obj: SceneObjectRender,
+  sceneObjects: SceneObjectRender[],
+): SceneObjectRender | undefined {
+  if (obj.type === 'helix') {
+    return obj;
+  }
+  return resolveSketchRow(obj, sceneObjects);
+}
+
+/**
+ * Resolve a picked shape to its wire source: a helix owns its wire shape
+ * directly; sketch wires resolve through their entity object's parent.
+ */
+export function resolveWireByShapeId(
+  shapeId: string,
+  sceneObjects: SceneObjectRender[],
+): SceneObjectRender | undefined {
+  const owner = sceneObjects.find(o => o.sceneShapes?.some(s => s.shapeId === shapeId));
+  return owner ? resolveWireRow(owner, sceneObjects) : undefined;
+}
+
+/**
  * Shape ids of the wires a sketch renders — its direct children's non-meta,
  * non-guide shapes, mirroring what SketchMesh draws as wire lines. These are
  * the highlight targets for a sketch selected in a create dialog. Addressed
@@ -158,14 +232,23 @@ export function sketchWireShapeIds(
   option: { filePath: string; line: number },
   sceneObjects: SceneObjectRender[],
 ): string[] {
-  const sketch = sceneObjects.find(o => o.type === 'sketch'
+  const source = sceneObjects.find(o => (o.type === 'sketch' || o.type === 'helix')
     && o.sourceLocation?.filePath === option.filePath && o.sourceLocation?.line === option.line);
-  if (!sketch) {
+  if (!source) {
     return [];
   }
   const ids: string[] = [];
+  // A helix carries its wire on its own object — there are no children.
+  if (source.type === 'helix') {
+    for (const shape of source.sceneShapes ?? []) {
+      if (!shape.isMetaShape && !shape.isGuide && shape.shapeId) {
+        ids.push(shape.shapeId);
+      }
+    }
+    return ids;
+  }
   for (const obj of sceneObjects) {
-    if (obj.parentId !== sketch.id) {
+    if (obj.parentId !== source.id) {
       continue;
     }
     for (const shape of obj.sceneShapes ?? []) {
@@ -185,6 +268,7 @@ function toOption(
   const loc = obj.sourceLocation!;
   return {
     kind,
+    feature: 'sketch',
     label: kind === 'active' ? 'Last Sketch' : 'Sketch',
     filePath: loc.filePath,
     line: loc.line,

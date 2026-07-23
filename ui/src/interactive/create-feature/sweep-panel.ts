@@ -33,7 +33,8 @@ type PathState =
 /**
  * The sweep dialog: operation tabs, the profile pick slot (a single sketch
  * chip) and the path pick slot — a chip container holding either one path
- * sketch or the picked path edges (edge picking is live in the 3D view the
+ * wire source (a sketch or a helix) or the picked path edges (edge picking
+ * is live in the 3D view the
  * whole time the dialog is armed; picking an edge re-sources the path to
  * edges, picking a sketch re-sources it back). Timeline/wire sketch picks
  * land in whichever slot was clicked last (`armedSlot`). Pure DOM + form
@@ -124,7 +125,7 @@ export class SweepPanel extends FeaturePanel {
     this.shell.setTitle(null);
     this.options = options;
     this.allowEdgePicking = allowEdgePicking;
-    this.profileSlot.reset(options);
+    this.profileSlot.reset(profileOptions(options));
     this.pathState = this.defaultPath();
     this.renderPath();
     this.armSlot('path');
@@ -163,7 +164,7 @@ export class SweepPanel extends FeaturePanel {
   setOptions(options: SketchProfileOption[], allowEdgePicking: boolean): void {
     this.options = options;
     this.allowEdgePicking = allowEdgePicking;
-    this.profileSlot.setOptions(options);
+    this.profileSlot.setOptions(profileOptions(options));
     if (this.pathState?.kind === 'sketch') {
       const match = matchOption(options, this.pathState.option);
       this.pathState = match ? { kind: 'sketch', option: match }
@@ -257,8 +258,8 @@ export class SweepPanel extends FeaturePanel {
   }
 
   private defaultPath(): PathState {
-    // Prefer a concrete sketch (the common sweep spine idiom) that isn't the
-    // chosen profile; otherwise the prompt invites edge picks.
+    // Prefer a concrete wire source (a spine sketch or a helix) that isn't
+    // the chosen profile; otherwise the prompt invites edge picks.
     const profile = this.selectedProfile();
     const other = this.options.find(o =>
       !profile || o.filePath !== profile.filePath || o.line !== profile.line);
@@ -279,4 +280,12 @@ function matchOption(
 ): SketchProfileOption | undefined {
   return options.find(o => o.kind === previous.kind
     && (o.kind === 'active' || (o.filePath === previous.filePath && o.line === previous.line)));
+}
+
+/**
+ * The options the profile slot may hold: sketches only. A helix is a bare
+ * wire — it can be the path, never the planar profile the sweep extrudes.
+ */
+function profileOptions(options: SketchProfileOption[]): SketchProfileOption[] {
+  return options.filter(o => o.feature === 'sketch');
 }

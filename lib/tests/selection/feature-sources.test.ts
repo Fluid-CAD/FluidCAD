@@ -10,6 +10,7 @@ import sweep from "../../core/sweep.js";
 import loft from "../../core/loft.js";
 import revolve from "../../core/revolve.js";
 import axis from "../../core/axis.js";
+import helix from "../../core/helix.js";
 import { circle, move, rect, vLine } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { Scene } from "../../rendering/scene.js";
@@ -263,6 +264,26 @@ describe("feature sources (edit-dialog seeding)", () => {
         const verticalEdges = edgeRefsWhere(box, m => Math.abs(m.z - 20) < 1e-6);
         expect(verticalEdges.map(r => r.sub.index)).toContain(result.path.entities[0].sub.index);
       }
+    }
+  });
+
+  it("resolves a helix sweep path and a helix loft guide to their call sites", () => {
+    const spring = helix("z").radius(30).pitch(10).turns(3);
+    setLocation(spring, 2);
+    const s = sketch("xy", () => {
+      circle(2);
+    });
+    setLocation(s, 4);
+    const sw = sweep(spring, s).new();
+    setLocation(sw, 7);
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "sweep", 7));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "sweep") {
+      expect(result.profile).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 4, column: 0 });
+      expect(result.path).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 2, column: 0 });
     }
   });
 

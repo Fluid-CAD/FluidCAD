@@ -85,6 +85,19 @@ export class ShapeGroup extends Group {
             const edgeOpts = options?.edge
               ?? (isStandaloneWireEdge ? STANDALONE_EDGE_STYLE : undefined);
             mesh = new EdgeMesh(shape, edgeOpts);
+            // A bare single-edge shape (a helix wire) serializes without a
+            // per-edge index (renderEdge — only solid edges carry one), which
+            // keeps it out of the edge pick bucket. It IS exactly one edge,
+            // so give its lines the pick identity {edge, 0} — that is what
+            // makes a helix clickable in the viewport. Multi-edge wires stay
+            // unpickable: one merged line can't claim a single edge index.
+            if (shape.shapeType === 'edge') {
+              mesh.traverse(child => {
+                if (child.userData.isEdgeLine && child.userData.edgeIndex === undefined) {
+                  child.userData.edgeIndex = 0;
+                }
+              });
+            }
             break;
           }
           case 'face':

@@ -746,7 +746,9 @@ export type LoftConditionSpec = {
 export type PlaneBaseSpec =
   | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
   | { kind: 'selector'; part: number }
-  | { kind: 'plane'; producer: number };
+  | { kind: 'plane'; producer: number }
+  /** A helix statement as the edge form's base (its wire is the edge). */
+  | { kind: 'wire'; producer: number };
 
 /**
  * How a plane statement is rendered and placed: `plane(<base>)` for an offset
@@ -881,13 +883,14 @@ export async function applyFeatureEdit(
     }
   } else if (spec.feature === 'sweep') {
     const sw = spec.sweep;
-    const sketchProducer = (i: number) => isSketchProducer(spec, i);
     const valid = sw !== undefined
       && spec.producers.length > 0
+      // The path is any wire source (a sketch or a helix); the profile must
+      // be a planar sketch.
       && (sw.path.kind === 'selector'
         ? spec.parts.length >= 1
-        : spec.parts.length === 0 && sketchProducer(sw.path.producer))
-      && (sw.profile === 'implicit' || sketchProducer(sw.profile.producer));
+        : spec.parts.length === 0 && isWireProducer(spec, sw.path.producer))
+      && (sw.profile === 'implicit' || isSketchProducer(spec, sw.profile.producer));
     if (!valid) {
       return { newCode: code, error: 'malformed sweep edit spec' };
     }
@@ -966,7 +969,8 @@ export async function applyFeatureEdit(
       && selectorParts.length === spec.parts.length
       && new Set(selectorParts).size === selectorParts.length
       && Array.isArray(guides) && guides.length <= 2
-      && guides.every(g => g?.kind === 'sketch' && isSketchProducer(spec, g.producer))
+      // A guide is any wire source (a sketch or a helix).
+      && guides.every(g => g?.kind === 'sketch' && isWireProducer(spec, g.producer))
       && [lo.startCondition, lo.endCondition].every(c => c === undefined
         || ((c.type === 'normal' || c.type === 'tangent')
           && validValueExpr(c.magnitude, { nonzero: true })));
@@ -988,16 +992,19 @@ export async function applyFeatureEdit(
       && pl.bases.every(b =>
         b?.kind === 'standard' ? (b.plane === 'xy' || b.plane === 'xz' || b.plane === 'yz')
           : b?.kind === 'plane' ? isPlaneProducer(spec, b.producer)
-            : b?.kind === 'selector' && Number.isInteger(b.part) && b.part >= 0 && b.part < spec.parts.length)
+            // A wire base (a helix's edge) belongs to the edge form only.
+            : b?.kind === 'wire' ? (pl.type === 'edge' && isWireProducer(spec, b.producer))
+              : b?.kind === 'selector' && Number.isInteger(b.part) && b.part >= 0 && b.part < spec.parts.length)
       // Every selector part belongs to exactly one base.
       && selectorParts.length === spec.parts.length
       && new Set(selectorParts).size === selectorParts.length
       && [pl.offset, pl.rotateX, pl.rotateY, pl.rotateZ]
         .every(v => v === null || validValueExpr(v))
-      // The edge form is a picked edge plus a normalized position — the
-      // second argument slot is taken, so no offset/rotation can ride.
+      // The edge form is an edge source (a picked edge or a helix) plus a
+      // normalized position — the second argument slot is taken, so no
+      // offset/rotation can ride.
       && (pl.type !== 'edge' || (
-        pl.bases[0]?.kind === 'selector'
+        (pl.bases[0]?.kind === 'selector' || pl.bases[0]?.kind === 'wire')
         && pl.position !== null && pl.position !== undefined
         && validValueExpr(pl.position)
         && (typeof pl.position !== 'number' || (pl.position >= 0 && pl.position <= 1))
@@ -1305,11 +1312,12 @@ export async function makeProducerNamer(
         return null;
       }
       const root = chainRootCallee(call);
-      // Sketch/plane producers must name their own call — the pick features
-      // never attribute to one, so the looser callee stays scoped by type.
-      const requiredRoot = requiredChainRoot(producer.featureType ?? '');
-      const valid = requiredRoot
-        ? root === requiredRoot
+      // Sketch/plane/wire producers must name their own call — the pick
+      // features never attribute to one, so the looser callee stays scoped
+      // by type.
+      const requiredRoots = requiredChainRoots(producer.featureType ?? '');
+      const valid = requiredRoots
+        ? root !== null && requiredRoots.includes(root)
         : root !== null && producerCallees(producer.featureType ?? '').has(root);
       if (!valid) {
         return null;
@@ -1480,6 +1488,16 @@ function isSketchProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
     && spec.producers[i].featureType === 'sketch';
 }
 
+/**
+ * Whether producer index `i` is a valid wire producer of `spec` — a sketch
+ * or a helix, for the slots that consume a bare wire (a sweep path, a loft
+ * guide). Plain 'sketch' is accepted too: it is a strictly narrower claim.
+ */
+function isWireProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
+  return Number.isInteger(i) && i >= 0 && i < spec.producers.length
+    && (spec.producers[i].featureType === 'wire' || spec.producers[i].featureType === 'sketch');
+}
+
 /** Whether producer index `i` is a valid plane producer of `spec`. */
 function isPlaneProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
   return Number.isInteger(i) && i >= 0 && i < spec.producers.length
@@ -1499,20 +1517,24 @@ function isFeatureProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
 }
 
 /**
- * Producer feature types whose source line must hold exactly that call —
- * sketch, plane and axis inputs are referenced by identity, so any other
- * callee at the line means the file is out of sync. Null falls back to the
- * general `PRODUCER_CALLEES` allowlist.
+ * Producer feature types whose source line must hold exactly one of these
+ * calls — sketch, plane, axis and wire inputs are referenced by identity, so
+ * any other callee at the line means the file is out of sync. A 'wire' input
+ * (a sweep path, a loft guide) is either a sketch or a helix. Null falls
+ * back to the general `PRODUCER_CALLEES` allowlist.
  */
-function requiredChainRoot(featureType: string): 'sketch' | 'plane' | 'axis' | null {
+function requiredChainRoots(featureType: string): string[] | null {
   if (featureType === 'sketch') {
-    return 'sketch';
+    return ['sketch'];
   }
   if (featureType === 'plane') {
-    return 'plane';
+    return ['plane'];
   }
   if (featureType === 'axis') {
-    return 'axis';
+    return ['axis'];
+  }
+  if (featureType === 'wire') {
+    return ['sketch', 'helix'];
   }
   return null;
 }
@@ -1605,16 +1627,16 @@ function resolveProducerBindings(
       return { error: `no call found at line ${producer.line} — is the file in sync with the last render?` };
     }
 
-    // Sketch and plane producers (profiles, paths, plane bases) must anchor
-    // their own call in both modes — a stale line pointing at some other call
-    // would consume the wrong input.
-    const requiredRoot = requiredChainRoot(producer.featureType);
-    if (requiredRoot) {
+    // Sketch, plane and wire producers (profiles, paths, plane bases) must
+    // anchor their own call in both modes — a stale line pointing at some
+    // other call would consume the wrong input.
+    const requiredRoots = requiredChainRoots(producer.featureType);
+    if (requiredRoots) {
       const root = chainRootCallee(call);
-      if (root !== requiredRoot) {
+      if (root === null || !requiredRoots.includes(root)) {
         return {
           error: `the call at line ${producer.line} is ${root ? `${root}()` : 'not a feature call'}, `
-            + `expected a ${requiredRoot}() call — is the file in sync with the last render?`,
+            + `expected a ${requiredRoots.map(r => `${r}()`).join(' or ')} call — is the file in sync with the last render?`,
         };
       }
     }
@@ -1634,8 +1656,8 @@ function resolveProducerBindings(
     }
 
     const root = chainRootCallee(call);
-    const validCallee = requiredRoot
-      ? root === requiredRoot
+    const validCallee = requiredRoots
+      ? root !== null && requiredRoots.includes(root)
       : root !== null && producerCallees(producer.featureType).has(root);
     if (!validCallee) {
       return {
@@ -2253,6 +2275,9 @@ export function renderPlaneBaseExprs(
     if (base.kind === 'plane') {
       return varFor(base.producer) ?? 'p';
     }
+    if (base.kind === 'wire') {
+      return varFor(base.producer) ?? 'h';
+    }
     const part = parts[base.part];
     const expr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
     return pl.type === 'mid' ? `plane(${expr})` : expr;
@@ -2557,11 +2582,12 @@ function resolveInsertion(
     }
   }
   if (spec.feature === 'plane') {
-    // Selector-free bases are explicit plane variables (standard-only specs
-    // never reach here — they append at top level with no producers at all):
-    // insert right after the latest input statement.
+    // Selector-free bases are explicit plane/helix variables (standard-only
+    // specs never reach here — they append at top level with no producers at
+    // all): insert right after the latest input statement.
     const planeBases = spec.plane!.bases
-      .filter((b): b is { kind: 'plane'; producer: number } => b.kind === 'plane');
+      .filter((b): b is { kind: 'plane' | 'wire'; producer: number } =>
+        b.kind === 'plane' || b.kind === 'wire');
     if (planeBases.length > 0 && spec.plane!.bases.every(b => b.kind !== 'selector')) {
       const latest = planeBases
         .map(b => bindings[b.producer].statement)
@@ -4157,13 +4183,18 @@ function validValueExprOrNull(
 /** The spec fields `renderEditedStatement` reads. */
 type EditRenderSpec = Pick<ApplyFeatureEditSpec, 'feature' | 'value' | 'rawArgs' | 'edit' | 'producers' | 'parts'>;
 
-/** Variable text of a re-sourced sketch slot: the binding's name, else the hint. */
+/**
+ * Variable text of a re-sourced sketch/wire slot: the binding's name, else
+ * the hint. The route types each slot's producer ('sketch' for profiles,
+ * 'wire' for paths/guides), so accepting both here stays sound — the callee
+ * check happens where the producer binds.
+ */
 function editSourceVar(
   spec: EditRenderSpec,
   producer: number,
   varFor: (producer: number) => string | null,
 ): string | { error: string } {
-  if (!isSketchProducer(spec as ApplyFeatureEditSpec, producer)) {
+  if (!isWireProducer(spec as ApplyFeatureEditSpec, producer)) {
     return { error: 'malformed edit spec: a re-sourced slot references a non-sketch producer' };
   }
   return varFor(producer) ?? spec.producers[producer].nameHint ?? 's';

@@ -808,7 +808,9 @@ export async function applyLoft(options: LoftApplyOptions): Promise<ApplyFeature
 export type PlaneBaseRef =
   | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
   | { kind: 'pick'; entity: ApplyFeatureEntity }
-  | ({ kind: 'plane' } & SketchSourceRef);
+  | ({ kind: 'plane' } & SketchSourceRef)
+  /** A helix statement as the edge-plane base (its wire is the edge). */
+  | ({ kind: 'wire' } & SketchSourceRef);
 
 export type PlaneApplyOptions = {
   /** `offset`/`edge` take one base; `mid` takes two. */
@@ -1720,7 +1722,7 @@ export async function applyValueFeatureEdit(
  */
 export async function fetchSketchNames(
   lines: number[],
-  callee: 'sketch' | 'plane' | 'axis' = 'sketch',
+  callee: 'sketch' | 'plane' | 'axis' | 'helix' = 'sketch',
 ): Promise<(string | null)[]> {
   try {
     const res = await fetch('/api/sketch-names', {

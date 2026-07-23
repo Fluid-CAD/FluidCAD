@@ -12,12 +12,17 @@ import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import {
   collectPlaneOptions, labelWithPlaneNames, PlaneOption, planeOptionsSignature, resolvePlaneRow,
 } from './plane-bases';
-import { collectSketchProfiles, sourceChip } from './sketch-profiles';
+import {
+  collectWireSources, labelWithSketchNames, optionsSignature, resolveWireByShapeId, SketchProfileOption,
+  sketchWireShapeIds, sourceChip,
+} from './sketch-profiles';
 
 /** One base in the dialog's list — the chip order is the argument order. */
 type PlaneBaseItem =
   | { kind: 'standard'; plane: StandardPlaneId }
   | { kind: 'plane'; option: PlaneOption }
+  /** A helix statement as the edge-type base (its wire is the edge). */
+  | { kind: 'wire'; option: SketchProfileOption }
   | { kind: 'pick'; entity: SelectedEntity };
 
 /**
@@ -25,7 +30,8 @@ type PlaneBaseItem =
  * base, midway between two bases, or normal to an edge at a position along
  * it. Bases collect into one loft-style chip list, filled entirely from the
  * scene: faces are picked in the 3D view while the dialog is armed (edges
- * only for the edge type; clicking a picked entity removes it), the standard
+ * only for the edge type — a helix's wire counts and lands as the named
+ * helix source; clicking a picked entity removes it), the standard
  * origin planes are shown in the viewport as pick targets (the
  * sketch-on-plane mechanism), and existing plane features come from timeline
  * clicks. Arming with a selection already highlighted seeds the dialog: one
@@ -38,11 +44,15 @@ export class PlaneFeatureService {
   private button: FeatureButton;
   private armed = false;
   private planes: PlaneOption[] = [];
+  /** The helixes the edge type can reference as its base wire. */
+  private wires: SketchProfileOption[] = [];
+  private sceneObjects: SceneObjectRender[] = [];
   private bases: PlaneBaseItem[] = [];
   private sceneSketchActive = false;
   private sketchUI: SketchUISuspender;
   private runner: ApplyRunner<PlaneApplyOptions>;
   private relabeler: OptionRelabeler<PlaneOption[]>;
+  private wireRelabeler: OptionRelabeler<SketchProfileOption[]>;
 
   constructor(
     container: HTMLElement,
@@ -120,6 +130,23 @@ export class PlaneFeatureService {
         this.refresh();
       },
     });
+    this.wireRelabeler = new OptionRelabeler({
+      sign: optionsSignature,
+      load: labelWithSketchNames,
+      isArmed: () => this.armed,
+      apply: (wires) => {
+        this.wires = wires;
+        this.bases = this.bases.map(base => {
+          if (base.kind !== 'wire') {
+            return base;
+          }
+          const match = wires.find(o =>
+            o.filePath === base.option.filePath && o.line === base.option.line);
+          return match ? { kind: 'wire', option: match } : base;
+        });
+        this.refresh();
+      },
+    });
   }
 
   get isActive(): boolean {
@@ -137,8 +164,11 @@ export class PlaneFeatureService {
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
+    this.sceneObjects = sceneObjects;
     this.planes = collectPlaneOptions(sceneObjects);
-    this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';
+    const wireSources = collectWireSources(sceneObjects);
+    this.wires = wireSources.filter(o => o.feature === 'helix');
+    this.sceneSketchActive = wireSources[0]?.kind === 'active';
     if (!this.armed) {
       return;
     }
@@ -147,8 +177,8 @@ export class PlaneFeatureService {
     if (this.sceneSketchActive) {
       this.sketchUI.suspend();
     }
-    // Shape ids changed with the render — picked bases are stale; plane
-    // bases re-match against the fresh options by source line.
+    // Shape ids changed with the render — picked bases are stale; plane and
+    // wire bases re-match against the fresh options by source line.
     this.bases = this.bases.filter(base => {
       if (base.kind === 'pick') {
         return false;
@@ -157,9 +187,14 @@ export class PlaneFeatureService {
         return this.planes.some(o =>
           o.filePath === base.option.filePath && o.line === base.option.line);
       }
+      if (base.kind === 'wire') {
+        return this.wires.some(o =>
+          o.filePath === base.option.filePath && o.line === base.option.line);
+      }
       return true;
     });
     void this.relabeler.refresh(this.planes);
+    void this.wireRelabeler.refresh(this.wires);
     this.syncViewport();
     this.refresh();
     this.runner.schedulePreview();
@@ -199,7 +234,8 @@ export class PlaneFeatureService {
     const edges = seed.filter(e => e.sub.type === 'edge');
     if (seed.length === 1 && edges.length === 1) {
       this.panel.setType('edge');
-      this.bases = [{ kind: 'pick', entity: edges[0] }];
+      // A helix edge seeds as the named helix source, like a live pick.
+      this.bases = [this.wireBaseForEdge(edges[0]) ?? { kind: 'pick', entity: edges[0] }];
       return;
     }
     if (seed.length === 1 && faces.length === 1) {
@@ -258,7 +294,33 @@ export class PlaneFeatureService {
       this.runner.schedulePreview();
       return;
     }
+    // A helix's wire renders as a regular edge — clicking it selects the
+    // helix as the named base (`plane(spring, …)`), not a raw edge pick.
+    const wire = sub.type === 'edge' ? this.wireBaseForEdge(entity) : null;
+    if (wire) {
+      const picked = this.bases.findIndex(b => b.kind === 'wire'
+        && b.option.filePath === wire.option.filePath && b.option.line === wire.option.line);
+      if (picked >= 0) {
+        this.bases.splice(picked, 1);
+        this.refresh();
+        this.runner.schedulePreview();
+        return;
+      }
+      this.addBase(wire);
+      return;
+    }
     this.addBase({ kind: 'pick', entity });
+  }
+
+  /** The picked edge's owning helix as a wire base, when it is offered. */
+  private wireBaseForEdge(entity: SelectedEntity): PlaneBaseItem & { kind: 'wire' } | null {
+    const owner = resolveWireByShapeId(entity.shapeId, this.sceneObjects);
+    if (owner?.type !== 'helix' || !owner.sourceLocation) {
+      return null;
+    }
+    const loc = owner.sourceLocation;
+    const option = this.wires.find(o => o.filePath === loc.filePath && o.line === loc.line);
+    return option ? { kind: 'wire', option } : null;
   }
 
   /** A shown origin plane was clicked — it joins the base list. */
@@ -278,6 +340,22 @@ export class PlaneFeatureService {
   handleTimelinePick(obj: SceneObjectRender): boolean {
     if (!this.armed) {
       return false;
+    }
+    // A helix row is an edge source — it lands in the edge type's base slot.
+    if (obj.type === 'helix' && obj.sourceLocation) {
+      if (this.panel.planeType !== 'edge') {
+        this.panel.setMessage('A helix is an edge source — switch to "From edge" to use it.');
+        return true;
+      }
+      const loc = obj.sourceLocation;
+      const option = this.wires.find(o => o.filePath === loc.filePath && o.line === loc.line);
+      if (!option) {
+        this.panel.setMessage('That helix was already consumed — only helixes still rendered in the scene can be used.');
+        return true;
+      }
+      this.panel.setMessage(null);
+      this.addBase({ kind: 'wire', option });
+      return true;
     }
     const plane = resolvePlaneRow(obj);
     if (!plane) {
@@ -326,14 +404,15 @@ export class PlaneFeatureService {
   private handleTypeChange(): void {
     const type = this.panel.planeType;
     if (type === 'edge') {
-      // Only a picked edge survives into the edge form.
+      // Only an edge source survives into the edge form: a picked edge or a
+      // helix.
       this.bases = this.bases
-        .filter(b => b.kind === 'pick' && b.entity.sub.type === 'edge')
+        .filter(b => (b.kind === 'pick' && b.entity.sub.type === 'edge') || b.kind === 'wire')
         .slice(0, 1);
     } else {
-      // Edge picks belong to the edge form only.
+      // Edge picks and helixes belong to the edge form only.
       this.bases = this.bases
-        .filter(b => b.kind !== 'pick' || b.entity.sub.type === 'face')
+        .filter(b => b.kind !== 'wire' && (b.kind !== 'pick' || b.entity.sub.type === 'face'))
         .slice(0, this.panel.capacity);
     }
     this.syncViewport();
@@ -374,6 +453,10 @@ export class PlaneFeatureService {
         const { filePath, line, column } = base.option;
         return { kind: 'plane', filePath, line, column };
       }
+      if (base.kind === 'wire') {
+        const { filePath, line, column } = base.option;
+        return { kind: 'wire', filePath, line, column };
+      }
       return { kind: 'pick', entity: base.entity };
     });
     return { ...values, bases };
@@ -408,20 +491,24 @@ export class PlaneFeatureService {
       return;
     }
     this.panel.setBases(this.bases.map(base =>
-      base.kind === 'plane' ? sourceChip(base.option) : { label: baseLabel(base) }));
+      base.kind === 'plane' || base.kind === 'wire'
+        ? sourceChip(base.option)
+        : { label: baseLabel(base) }));
     const type = this.panel.planeType;
     if (this.bases.length >= this.panel.capacity) {
       this.panel.setHint(null);
     } else if (type === 'edge') {
-      this.panel.setHint('Pick an edge');
+      this.panel.setHint('Pick an edge or a helix');
     } else {
       this.panel.setHint(this.bases.length === 0 && type === 'mid'
         ? 'Pick two faces or planes'
         : 'Pick a face or plane');
     }
     const picked = this.bases.flatMap(b => (b.kind === 'pick' ? [b.entity] : []));
-    if (picked.length > 0) {
-      this.viewer.highlightEntities(picked);
+    const wireIds = this.bases.flatMap(b =>
+      b.kind === 'wire' ? sketchWireShapeIds(b.option, this.sceneObjects) : []);
+    if (picked.length > 0 || wireIds.length > 0) {
+      this.viewer.highlightEntities(picked, wireIds);
     } else {
       this.viewer.clearHighlight();
     }
@@ -442,6 +529,9 @@ function baseKey(base: PlaneBaseItem): string {
   if (base.kind === 'plane') {
     return `plane:${base.option.filePath}:${base.option.line}`;
   }
+  if (base.kind === 'wire') {
+    return `wire:${base.option.filePath}:${base.option.line}`;
+  }
   return `pick:${base.entity.shapeId}:${base.entity.sub.type}:${base.entity.sub.index}`;
 }
 
@@ -449,7 +539,7 @@ function baseLabel(base: PlaneBaseItem): string {
   if (base.kind === 'standard') {
     return `${base.plane.toUpperCase()} plane`;
   }
-  if (base.kind === 'plane') {
+  if (base.kind === 'plane' || base.kind === 'wire') {
     return base.option.label;
   }
   return base.entity.sub.type === 'face' ? 'Picked face' : 'Picked edge';

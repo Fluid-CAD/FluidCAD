@@ -1289,6 +1289,73 @@ describe('sweep statement templates', () => {
     const result = await applyFeatureEdit(twoSketchCode, sweepSpec({ path: { kind: 'selector' } }));
     expect(result.error).toContain('malformed');
   });
+
+  it('binds a helix path through a wire producer', async () => {
+    const code = [
+      `import { sketch, rect, helix } from 'fluidcad/core'`,
+      ``,
+      `const spring = helix('z').radius(10).pitch(4).turns(6)`,
+      `sketch('xy', () => { rect(2, 2) })`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, sweepSpec(
+      {},
+      {
+        producers: [
+          { line: 3, column: 0, featureType: 'wire', nameHint: 'p', bind: true },
+          { line: 4, column: 0, featureType: 'sketch', nameHint: 's', bind: false },
+        ],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const spring = helix('z').radius(10).pitch(4).turns(6)`);
+    expect(result.newCode).toContain(`sweep(spring)`);
+  });
+
+  it('refuses a wire producer line holding neither a sketch nor a helix call', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, sweepSpec(
+      {},
+      {
+        producers: [
+          { line: 4, column: 0, featureType: 'wire', nameHint: 'p', bind: true },
+          { line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: false },
+        ],
+      },
+    ));
+    expect(result.error).toContain('expected a sketch() or helix() call');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a helix line as the sweep profile — the profile producer stays sketch-only', async () => {
+    const code = [
+      `import { sketch, circle, helix } from 'fluidcad/core'`,
+      ``,
+      `sketch('xz', () => { circle(5) })`,
+      `helix('z').radius(10).pitch(4).turns(6)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, sweepSpec(
+      { profile: { producer: 1 }, path: { kind: 'sketch', producer: 0 } },
+      {
+        producers: [
+          { line: 3, column: 0, featureType: 'wire', nameHint: 'p', bind: true },
+          { line: 4, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+        ],
+      },
+    ));
+    expect(result.error).toContain('expected a sketch() call');
+    expect(result.newCode).toBe(code);
+  });
 });
 
 describe('wrap statement templates', () => {
@@ -1596,6 +1663,33 @@ describe('loft statement templates', () => {
       endCondition: { type: 'normal', magnitude: 1 },
     }));
     expect(result.newCode).toContain(`loft(s, s2).endCondition('normal').thin(1.5).new()`);
+  });
+
+  it('binds a helix guide through a wire producer', async () => {
+    const code = [
+      `import { sketch, rect, circle, helix } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xz', () => { circle(5) })`,
+      `helix('z').radius(10).pitch(4).turns(2)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, loftSpec(
+      { guides: [{ kind: 'sketch', producer: 2 }] },
+      {
+        producers: [
+          { line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+          { line: 4, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+          { line: 5, column: 0, featureType: 'wire', nameHint: 'g', bind: true },
+        ],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const guideRow = lines.findIndex(l => l === `const g = helix('z').radius(10).pitch(4).turns(2)`);
+    expect(guideRow).toBeGreaterThan(-1);
+    expect(lines[guideRow + 1]).toBe(`loft(s, s2).guides(g)`);
   });
 
   it('refuses guides combined with thin walls', async () => {
@@ -2401,6 +2495,38 @@ describe('plane statement templates', () => {
     ));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`plane(e.sideEdges(0), 0.5)`);
+  });
+
+  it('binds a helix edge plane through a wire base and inserts after the helix', async () => {
+    const code = [
+      `import { sketch, rect, helix } from 'fluidcad/core'`,
+      ``,
+      `const spring = helix('z').radius(10).pitch(4).turns(6)`,
+      `sketch('xz', () => { rect(10, 10) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, planeSpec(
+      planeOptions({ type: 'edge', position: 0.5, bases: [{ kind: 'wire', producer: 0 }] }),
+      { producers: [{ line: 3, column: 0, featureType: 'wire', nameHint: 'h', bind: true }] },
+    ));
+    expect(result.error).toBeUndefined();
+    // Inserted directly after the helix input, before the trailing sketch.
+    expect(result.newCode).toContain(`const spring = helix('z').radius(10).pitch(4).turns(6)\nplane(spring, 0.5)\nsketch('xz'`);
+  });
+
+  it('refuses a wire base outside the edge form', async () => {
+    const code = [
+      `import { helix } from 'fluidcad/core'`,
+      ``,
+      `helix('z').radius(10).pitch(4).turns(6)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, planeSpec(
+      planeOptions({ offset: 5, bases: [{ kind: 'wire', producer: 0 }] }),
+      { producers: [{ line: 3, column: 0, featureType: 'wire', nameHint: 'h', bind: true }] },
+    ));
+    expect(result.error).toContain('malformed plane edit spec');
+    expect(result.newCode).toBe(code);
   });
 
   it('refuses an edge plane carrying rotation', async () => {

@@ -576,7 +576,7 @@ describe('apply-feature route validation', () => {
       feature: 'sweep',
       sweep: { op: 'add', profile: 'implicit', path: { kind: 'sketch', producer: 0 } },
       producers: [
-        { line: 3, featureType: 'sketch', nameHint: 'p', bind: true },
+        { line: 3, featureType: 'wire', nameHint: 'p', bind: true },
         { line: 7, featureType: 'sketch', nameHint: 's', bind: false },
       ],
       parts: [],
@@ -1154,7 +1154,7 @@ describe('apply-feature route validation', () => {
       producers: [
         { line: 3, nameHint: 's', bind: true },
         { line: 4, nameHint: 's', bind: true },
-        { line: 6, featureType: 'sketch', nameHint: 'g', bind: true },
+        { line: 6, featureType: 'wire', nameHint: 'g', bind: true },
       ],
     });
   });
@@ -1337,6 +1337,38 @@ describe('apply-feature route validation', () => {
     expect(relayed[0].spec).toMatchObject({
       plane: { type: 'edge', position: 0.5, bases: [{ kind: 'selector', part: 0 }] },
     });
+  });
+
+  it('binds a helix as an edge plane base without synthesis', async () => {
+    currentFileName = '/ws/m.fluid.js';
+    currentCode = [
+      `import { helix } from 'fluidcad/core'`,
+      ``,
+      `const spring = helix('z').radius(10).pitch(4).turns(6)`,
+      ``,
+    ].join('\n');
+    const { status, body } = await post({
+      feature: 'plane', type: 'edge', position: 0.5,
+      bases: [{ kind: 'wire', filePath: '/ws/m.fluid.js', line: 3, column: 0 }],
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('plane(spring, 0.5)');
+    expect(synthesizeCalls).toEqual([]);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'plane',
+      plane: { type: 'edge', position: 0.5, bases: [{ kind: 'wire', producer: 0 }] },
+      producers: [{ line: 3, featureType: 'wire', nameHint: 'h', bind: true }],
+      parts: [],
+    });
+  });
+
+  it('rejects a helix base outside the edge form', async () => {
+    const { status, body } = await post({
+      feature: 'plane', type: 'offset', offset: 5,
+      bases: [{ kind: 'wire', filePath: '/ws/m.fluid.js', line: 3, column: 0 }],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('only valid for an edge plane');
   });
 
   it('rejects an edge plane without a position', async () => {

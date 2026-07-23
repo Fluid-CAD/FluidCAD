@@ -15,6 +15,9 @@ export type CommitResult = {
 
 export type ExpressionInputOptions = {
   label: string;
+  /** The field's opening value — a plain number; it seeds any new variable
+   * declared over it. An existing source expression is shown with
+   * `seedExpression` instead. */
   value: string;
   clientX: number;
   clientY: number;
@@ -39,6 +42,8 @@ export class ExpressionInput {
   private variables: VariableInfo[] = [];
   private filteredVars: Suggestion[] = [];
   private selectedIndex = -1;
+  /** The last plain-number text the field held — a new variable's initializer.
+   * Never an expression: see `seedExpression`. */
   private seedValue = '';
   private errorVisible = false;
   private numericOnly = false;
@@ -179,11 +184,13 @@ export class ExpressionInput {
     return el instanceof Node && this.el.contains(el);
   }
 
-  updateValue(value: number | string): void {
+  /** The geometry's live value while drawing or dragging — fills the field and
+   * seeds the initializer a new variable would be declared with. */
+  updateValue(value: number): void {
     if (!this.visible) {
       return;
     }
-    const str = typeof value === 'string' ? value : String(Math.round(value * 100) / 100);
+    const str = String(Math.round(value * 100) / 100);
     this.seedValue = str;
     if (this.userIsTyping) {
       // Keep the typed text, but the new-variable suggestion tracks the live value.
@@ -191,6 +198,22 @@ export class ExpressionInput {
       return;
     }
     this.input.value = str;
+    this.input.select();
+    this.updateParamAvailability();
+  }
+
+  /**
+   * The dimension's existing source expression, seeded once the code read
+   * resolves behind a double-click. Text only: the seed keeps the numeric
+   * value the field opened with, so naming this dimension declares the number
+   * rather than a copy of the expression — a `param()` lands at the top of the
+   * file, above anything the expression could reference.
+   */
+  seedExpression(expression: string): void {
+    if (!this.visible || this.userIsTyping) {
+      return;
+    }
+    this.input.value = expression;
     this.input.select();
     this.updateParamAvailability();
   }

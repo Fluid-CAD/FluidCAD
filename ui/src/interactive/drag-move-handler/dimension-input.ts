@@ -203,8 +203,8 @@ export class DimensionInputController {
     this.expressionInput.updatePosition(clientX, clientY);
   }
 
-  updateValueIfUnmoved(expression: string): void {
-    this.expressionInput.updateValue(expression);
+  seedExpressionIfUnmoved(expression: string): void {
+    this.expressionInput.seedExpression(expression);
   }
 
   commitIfVisible(hasMoved: boolean): void {
@@ -277,10 +277,8 @@ export class DimensionInputController {
         const seed = isSignedType
           ? DimensionInputController.stripNegation(expression)
           : expression;
-        if (isDrag) {
-          this.updateValueIfUnmoved(seed);
-        } else if (this.standaloneInputActive) {
-          this.updateValueIfUnmoved(seed);
+        if (isDrag || this.standaloneInputActive) {
+          this.seedExpressionIfUnmoved(seed);
         }
       });
     }

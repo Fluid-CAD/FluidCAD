@@ -12,6 +12,13 @@ export interface ShapeFilter {
 export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   isMetaShapeFlag = false;
   isGuideFlag = false;
+  /**
+   * Marks a solid as carrying delicate, intentionally un-unified geometry
+   * (e.g. thread flanks from a helix sweep). Downstream booleans skip the
+   * global UnifySameDomain face-merge for results derived from it, so the
+   * feature isn't collapsed elsewhere on the body, and re-propagate the flag.
+   */
+  noSimplifyFlag = false;
   metaType?: string;
   metaData?: Record<string, any>;
   /** Role within the owning feature (e.g. rect 'top', polygon 'side'). */
@@ -190,6 +197,14 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
 
   markAsGuide() {
     this.isGuideFlag = true;
+  }
+
+  markNoSimplify() {
+    this.noSimplifyFlag = true;
+  }
+
+  noSimplify(): boolean {
+    return this.noSimplifyFlag;
   }
 
   isMetaShape(): boolean {

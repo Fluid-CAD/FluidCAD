@@ -28,4 +28,8 @@ export abstract class CopyBase extends SceneObject {
   protected static resolveAxisSource(source: CopyAxisSource): Axis {
     return source instanceof AxisObjectBase ? source.getAxis() : source;
   }
+
+  getDisplayType(): string {
+    return "Copy";
+  }
 }

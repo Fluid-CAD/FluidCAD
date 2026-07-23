@@ -159,6 +159,10 @@ export class CopyLinear2D extends GeometrySceneObject {
     return "copy-linear-2d";
   }
 
+  getDisplayType(): string {
+    return "Copy";
+  }
+
   serialize() {
     return {
     }

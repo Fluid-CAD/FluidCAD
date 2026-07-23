@@ -43,7 +43,9 @@ export function explainSelection(scene: SelectionScene, refs: PickRef[]): Explai
  * transform must bind. `fillet`/`chamfer` take edges (a face pick fillets all
  * of the face's edges), `shell` takes the faces to remove, `sketch` takes
  * exactly one face and no numeric value, `plane` takes exactly one face or
- * edge (a plane base) and no numeric value. Tangent chains (right-click "Select
+ * edge (a plane base) and no numeric value, `project` takes any mix of edges
+ * and faces — each pick is one projected source — and no numeric value.
+ * Tangent chains (right-click "Select
  * with tangents") arrive as seed + expanded members and synthesize
  * `.withTangents()` selectors. The result carries the winning argument list
  * plus up to three verified alternative renderings for the UI's expression
@@ -192,6 +194,7 @@ export function synthesizeApplyFeature(
       feature,
       ...(feature === 'sketch' || feature === 'extrude' || feature === 'sweep' || feature === 'loft'
         || feature === 'plane' || feature === 'revolve' || feature === 'wrap' || feature === 'helix'
+        || feature === 'project'
         ? {} : { value }),
       filePath: filePaths.values().next().value!,
       producers: located.map(l => {
@@ -355,6 +358,11 @@ function renderPreview(feature: ApplyFeatureKind, value: number | string | undef
     // The args are the source (face or axis-edge) selector; the route composes
     // the full statement, wrapping an edge selector in axis().
     return `helix(${args})`;
+  }
+  if (feature === 'project') {
+    // The args ARE the statement — every picked source projects onto the
+    // sketch plane the emitted call lands in.
+    return `project(${args})`;
   }
   return `${feature}(${value}, ${args})`;
 }

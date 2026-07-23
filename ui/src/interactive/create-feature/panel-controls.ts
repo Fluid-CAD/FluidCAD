@@ -183,6 +183,11 @@ export class ThinControl {
  */
 export class PanelShell {
   readonly body: HTMLDivElement;
+  /**
+   * The right-aligned stack holding the body, the preview and the message —
+   * panels dock extra full-width rows here (the expression-transparency row).
+   */
+  readonly column: HTMLDivElement;
 
   private root: HTMLDivElement;
   private preview: HTMLDivElement;
@@ -200,7 +205,7 @@ export class PanelShell {
     // this spot and hides itself while a dialog is open (see viewportChrome).
     this.root.className = 'absolute top-[196px] right-4 z-[999] pointer-events-auto hidden';
     this.root.innerHTML = `
-      <div class="flex flex-col items-end gap-1.5">
+      <div data-role="column" class="flex flex-col items-end gap-1.5">
         <div data-role="body" class="flex flex-col items-stretch gap-3.5 w-60 max-h-[calc(100vh-260px)] overflow-y-auto bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
           <div class="flex items-center gap-2.5">
             <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
@@ -212,6 +217,7 @@ export class PanelShell {
       </div>
     `;
     container.appendChild(this.root);
+    this.column = this.root.querySelector('[data-role="column"]')!;
     this.body = this.root.querySelector('[data-role="body"]')!;
     this.preview = this.root.querySelector('[data-role="preview"]')!;
     this.message = this.root.querySelector('[data-role="message"]')!;

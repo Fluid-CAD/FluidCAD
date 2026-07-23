@@ -46,8 +46,9 @@ export class ApplyRunner<R extends object> {
      * sketching. */
     surfacePreviewReasons?: () => boolean;
     /** A successful preview landed — loft clears refusals that no longer
-     * apply (scene-driven previews rerun without a user action). */
-    onPreviewSuccess?: () => void;
+     * apply (scene-driven previews rerun without a user action), and the
+     * dialogs with an expression row read the synthesized args off `result`. */
+    onPreviewSuccess?: (result: ApplyFeatureResponse) => void;
   }) {}
 
   get isApplying(): boolean {
@@ -131,7 +132,7 @@ export class ApplyRunner<R extends object> {
     }
     panel.setPreview(result.success ? result.preview ?? null : null);
     if (result.success) {
-      this.opts.onPreviewSuccess?.();
+      this.opts.onPreviewSuccess?.(result);
     }
     if (!result.success && result.reason && (this.opts.surfacePreviewReasons?.() ?? true)) {
       // Pre-Apply refusals (an unsynthesizable pick, a statement that changed

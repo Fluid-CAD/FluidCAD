@@ -1238,3 +1238,58 @@ describe("bucket expansion (double-click gesture)", () => {
     }
   });
 });
+
+describe("project synthesis", () => {
+  setupOC();
+
+  it("names a face pick and previews the bare project statement", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30);
+    setLocation(e, 4);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const topFace = faceRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6);
+
+    const result = synthesizeApplyFeature(scene, topFace, 'project');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.preview).toBe("project(e.endFaces())");
+      expect(result.spec.feature).toBe('project');
+      // Valueless, like sketch and the other reference-taking features.
+      expect(result.spec.value).toBeUndefined();
+      expect(result.spec.producers[0].line).toBe(4);
+    }
+  });
+
+  it("takes a mix of edges and faces as separate arguments", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30);
+    setLocation(e, 4);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const refs = [
+      ...faceRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6),
+      ...edgeRefsWhere(solid, m => Math.abs(m.z) < 1e-6),
+    ];
+
+    const result = synthesizeApplyFeature(scene, refs, 'project');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spec.parts).toHaveLength(2);
+      const accessors = result.spec.parts.map(p => p.accessor).sort();
+      expect(accessors).toEqual(["endFaces", "startEdges"]);
+      expect(result.preview).toBe(`project(${result.args})`);
+    }
+  });
+
+  it("refuses an empty selection", () => {
+    const result = synthesizeApplyFeature({ getAllSceneObjects: () => [] } as any, [], 'project');
+    expect(result.ok).toBe(false);
+  });
+});

@@ -4136,6 +4136,93 @@ export function createApplyFeatureRouter(
       return;
     }
 
+    // Project is the hybrid branch: the picks are ordinary 3D edges and faces
+    // (synthesized like a fillet's), but the statement lands inside the body
+    // of the sketch named by `sketch` — `project()` reads the sketch it is
+    // called from. The transform binds the producers where they already live.
+    if (feature === 'project') {
+      const picks = validatePicks(req.body?.entities);
+      if (!picks) {
+        res.status(400).json({ error: 'entities must be a non-empty array of {shapeId, sub:{type, index}} picks' });
+        return;
+      }
+      const chains = validateChains(req.body?.chains);
+      if (!chains) {
+        res.status(400).json({ error: 'chains must be {seed, members} pick groups' });
+        return;
+      }
+      const sketchLoc = validateSketchLoc(req.body?.sketch);
+      if (!sketchLoc) {
+        res.status(400).json({ error: 'sketch must be {filePath, line, column} of the sketch receiving the projection' });
+        return;
+      }
+      if (selectorOverride !== undefined
+        && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
+        res.status(400).json({ error: 'selectorOverride must be a non-empty string (max 500 chars)' });
+        return;
+      }
+      try {
+        const code = fluidCadServer.getCurrentCode();
+        const options = code
+          ? {
+            namer: await makeProducerNamer(code),
+            params: resolveParamValues(
+              await extractNumericParams(code),
+              fluidCadServer.getParamDefinitions(),
+            ),
+          }
+          : undefined;
+        const synthesis = fluidCadServer.synthesizeApplyFeature(
+          picks, 'project', undefined, chains, options,
+        );
+        if (!synthesis) {
+          res.status(404).json({ success: false, reason: 'No rendered scene' });
+          return;
+        }
+        if (!synthesis.ok) {
+          res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
+          return;
+        }
+        // The sources and the sketch must share a file: the statement binds
+        // their variables from inside the sketch body.
+        if (normalizePath(synthesis.spec.filePath) !== normalizePath(sketchLoc.filePath)) {
+          res.status(422).json({
+            success: false,
+            reason: 'the picked geometry lives in a different file than the sketch',
+          });
+          return;
+        }
+        // Composed here rather than taken from `synthesis.preview`: the args
+        // ARE the statement, and composing keeps the preview identical to what
+        // the transform writes even against a workspace kernel that predates
+        // the project feature kind (it would render the valued form).
+        const statementPreview = `project(${synthesis.args})`;
+        if (preview === true) {
+          res.json({
+            success: true,
+            preview: statementPreview,
+            args: synthesis.args,
+            alternatives: synthesis.alternatives,
+          });
+          return;
+        }
+        let spec: ApplyFeatureEditSpec = {
+          ...synthesis.spec,
+          feature: 'project',
+          value: undefined,
+          project: { sketch: { line: sketchLoc.line, column: sketchLoc.column } },
+        };
+        if (typeof selectorOverride === 'string' && selectorOverride.trim() !== synthesis.args) {
+          spec = { ...spec, rawArgs: selectorOverride.trim() };
+        }
+        sendToExtension({ type: 'apply-feature-edit', spec });
+        res.json({ success: true, preview: statementPreview });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
+
     // Sketch-edge picks (2D branch): 1 shapeId = 1 sketch edge, no sub refs.
     // Synthesis resolves them through the sketch edge index and the emitted
     // statement lands inside the sketch body via the same edit-spec transform.
@@ -4238,7 +4325,7 @@ export function createApplyFeatureRouter(
       return;
     }
     if (feature !== 'fillet' && feature !== 'chamfer' && feature !== 'shell' && feature !== 'sketch') {
-      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude", "sweep", "wrap", "loft", "revolve", "plane", "repeat", "copy" or "boolean"' });
+      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude", "sweep", "wrap", "loft", "revolve", "plane", "project", "repeat", "copy" or "boolean"' });
       return;
     }
     // Per-feature numeric parameter: fillet/chamfer need a positive radius or

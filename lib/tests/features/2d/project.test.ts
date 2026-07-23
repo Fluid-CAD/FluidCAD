@@ -26,5 +26,23 @@ describe("project", () => {
       const shapes = s.getShapes();
       expect(shapes.length).toBeGreaterThan(0);
     });
+
+    it("should project a mix of face and edge accessors in one call", () => {
+      // The exact argument shape the Project sketch tool synthesizes: one
+      // accessor per picked bucket, faces and edges side by side.
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+
+      const e = extrude(30) as Extrude;
+
+      const s = sketch("xz", () => {
+        project(e.endFaces(), e.startEdges());
+      }) as Sketch;
+
+      render();
+
+      expect(s.getShapes().length).toBeGreaterThan(0);
+    });
   });
 });

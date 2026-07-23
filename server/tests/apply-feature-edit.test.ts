@@ -5345,3 +5345,118 @@ describe('expression values in repeat, plane and value-feature slots', () => {
     expect(result.newCode).toContain(`const tilt = 15\nplane('xy', { offset: gap, rotateX: tilt })`);
   });
 });
+
+describe('project into a sketch body', () => {
+  const base = [
+    `import { sketch, rect, extrude, circle, project } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { rect(100, 50) })`,
+    `extrude(30)`,
+    `sketch('xz', () => {`,
+    `  circle(4)`,
+    `})`,
+  ].join('\n');
+
+  function projectSpec(overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSpec {
+    return {
+      feature: 'project',
+      project: { sketch: { line: 5, column: 0 } },
+      filePath: '/ws/model.fluid.js',
+      producers: [
+        { line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true },
+      ],
+      parts: [
+        { producer: 0, accessor: 'endFaces', indices: null, filterArgs: '0' },
+      ],
+      imports: [],
+      ...overrides,
+    };
+  }
+
+  it('binds the source and appends the call at the end of the sketch body', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, projectSpec());
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { sketch, rect, extrude, circle, project } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      `sketch('xz', () => {`,
+      `  circle(4)`,
+      `  project(e.endFaces(0))`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('opens an empty sketch body at one indent level in', async () => {
+    const code = [
+      `import { sketch, rect, extrude, project } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      `sketch('xz', () => {`,
+      ``,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, projectSpec());
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`sketch('xz', () => {\n  project(e.endFaces(0))\n`);
+  });
+
+  it('imports project and select for a producer-less geometric part', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, projectSpec({
+      producers: [
+        { line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: false },
+      ],
+      parts: [{ producer: null, accessor: 'select', indices: null, filterArgs: `face().planar()` }],
+      imports: ['select', 'face'],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  project(select(face().planar()))`);
+    expect(result.newCode).not.toContain('const e = extrude(30)');
+    expect(result.newCode).toMatch(/import \{[^}]*\bselect\b[^}]*\} from 'fluidcad\/core'/);
+    expect(result.newCode).toMatch(/import \{[^}]*\bface\b[^}]*\} from 'fluidcad\/filters'/);
+  });
+
+  it('emits a user-edited argument list verbatim', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, projectSpec({
+      rawArgs: `e.endFaces(0), e.sideFaces(1)`,
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  project(e.endFaces(0), e.sideFaces(1))`);
+  });
+
+  it('refuses a source built after the sketch it would project into', async () => {
+    const code = [
+      `import { sketch, rect, extrude, circle, project } from 'fluidcad/core'`,
+      ``,
+      `sketch('xz', () => {`,
+      `  circle(4)`,
+      `})`,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, projectSpec({
+      project: { sketch: { line: 3, column: 0 } },
+      producers: [{ line: 7, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+    }));
+    expect(result.error).toContain('built after this sketch');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses when the target line is not a sketch call', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, projectSpec({
+      project: { sketch: { line: 4, column: 0 } },
+    }));
+    expect(result.error).toContain('no sketch() call found at line 4');
+    expect(result.newCode).toBe(`${base}\n`);
+  });
+
+  it('refuses a spec with no sketch target', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, projectSpec({ project: undefined }));
+    expect(result.error).toBe('malformed project edit spec');
+  });
+});

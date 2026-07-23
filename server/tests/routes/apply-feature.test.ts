@@ -128,7 +128,7 @@ describe('apply-feature route validation', () => {
   it('rejects an unknown feature', async () => {
     const { status, body } = await post({ feature: 'draft', value: 2, entities: [PICK] });
     expect(status).toBe(400);
-    expect(body.error).toContain('"revolve", "plane", "repeat", "copy" or "boolean"');
+    expect(body.error).toContain('"revolve", "plane", "project", "repeat", "copy" or "boolean"');
   });
 
   it('rejects a non-positive fillet value', async () => {
@@ -3172,6 +3172,98 @@ describe('apply-feature route validation', () => {
       });
       expect(zero.status).toBe(400);
       expect(zero.body.error).toContain('nonzero');
+    });
+  });
+  describe('project', () => {
+    const SKETCH = { filePath: '/ws/m.fluid.js', line: 9, column: 0 };
+    const projectSynthesis = {
+      ok: true,
+      spec: {
+        feature: 'project', filePath: '/ws/m.fluid.js',
+        producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: '0' }],
+        imports: [],
+      },
+      preview: 'project(e.endFaces(0))',
+      args: 'e.endFaces(0)',
+      alternatives: ['e.face(2)'],
+    };
+
+    it('synthesizes with the project kind and no value', async () => {
+      currentSynthesis = projectSynthesis;
+      const { status, body } = await post({
+        feature: 'project', entities: [PICK], sketch: SKETCH, preview: true,
+      });
+      expect(status).toBe(200);
+      expect(synthesizeCalls).toEqual([{ feature: 'project', value: undefined }]);
+      expect(body).toMatchObject({
+        success: true,
+        preview: 'project(e.endFaces(0))',
+        args: 'e.endFaces(0)',
+        alternatives: ['e.face(2)'],
+      });
+      expect(relayed).toEqual([]);
+    });
+
+    it('relays a spec carrying the target sketch call site', async () => {
+      currentSynthesis = projectSynthesis;
+      const { status, body } = await post({ feature: 'project', entities: [PICK], sketch: SKETCH });
+      expect(status).toBe(200);
+      expect(body).toMatchObject({ success: true, preview: 'project(e.endFaces(0))' });
+      expect(relayed).toHaveLength(1);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'project',
+        project: { sketch: { line: 9, column: 0 } },
+        parts: projectSynthesis.spec.parts,
+      });
+    });
+
+    it('carries an edited argument list as rawArgs', async () => {
+      currentSynthesis = projectSynthesis;
+      await post({
+        feature: 'project', entities: [PICK], sketch: SKETCH,
+        selectorOverride: 'e.endFaces(0), e.sideFaces(1)',
+      });
+      expect(relayed[0].spec.rawArgs).toBe('e.endFaces(0), e.sideFaces(1)');
+    });
+
+    it('omits rawArgs when the override matches the synthesized args', async () => {
+      currentSynthesis = projectSynthesis;
+      await post({
+        feature: 'project', entities: [PICK], sketch: SKETCH, selectorOverride: 'e.endFaces(0)',
+      });
+      expect(relayed[0].spec.rawArgs).toBeUndefined();
+    });
+
+    it('rejects a missing sketch target', async () => {
+      const { status, body } = await post({ feature: 'project', entities: [PICK] });
+      expect(status).toBe(400);
+      expect(body.error).toContain('sketch must be {filePath, line, column}');
+    });
+
+    it('rejects an empty pick set', async () => {
+      const { status, body } = await post({ feature: 'project', entities: [], sketch: SKETCH });
+      expect(status).toBe(400);
+      expect(body.error).toContain('entities must be a non-empty array');
+    });
+
+    it('surfaces a synthesis refusal as a 422', async () => {
+      currentSynthesis = { ok: false, reason: 'the pick belongs to a repeated instance' };
+      const { status, body } = await post({ feature: 'project', entities: [PICK], sketch: SKETCH });
+      expect(status).toBe(422);
+      expect(body).toMatchObject({ success: false, reason: 'the pick belongs to a repeated instance' });
+      expect(relayed).toEqual([]);
+    });
+
+    it('refuses sources living in a different file than the sketch', async () => {
+      currentSynthesis = projectSynthesis;
+      const { status, body } = await post({
+        feature: 'project', entities: [PICK],
+        sketch: { filePath: '/ws/other.fluid.js', line: 9, column: 0 },
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('different file than the sketch');
+      expect(relayed).toEqual([]);
     });
   });
 });

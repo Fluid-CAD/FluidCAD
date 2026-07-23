@@ -898,7 +898,7 @@ export function setFeatureName(
  * Find the callback body (statement_block) inside a sketch() call.
  * Looks for the last arrow_function or function argument.
  */
-function findSketchBody(call: TSNode): TSNode | null {
+export function findSketchBody(call: TSNode): TSNode | null {
   const args = getArgumentsNode(call);
   if (!args) {
     return null;

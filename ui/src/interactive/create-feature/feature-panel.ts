@@ -19,7 +19,11 @@ export abstract class FeaturePanel {
 
   constructor(
     container: HTMLElement,
-    opts: { id: string; title: string; icon: string; bodyHtml: string },
+    opts: {
+      id: string; title: string; icon: string; bodyHtml: string;
+      /** Footer's dismiss label; 'Cancel' for the one-shot sketch tools. */
+      exitLabel?: string;
+    },
   ) {
     this.shell = new PanelShell(container, opts.id, opts.title, opts.icon);
     this.shell.onEscape = () => this.onExit?.();
@@ -28,7 +32,7 @@ export abstract class FeaturePanel {
       ${opts.bodyHtml}
       <div class="flex items-center gap-2 pt-1">
         <button data-role="apply" class="btn btn-primary btn-sm flex-1">Apply</button>
-        <button data-role="exit" class="btn btn-ghost btn-sm">Exit</button>
+        <button data-role="exit" class="btn btn-ghost btn-sm">${opts.exitLabel ?? 'Exit'}</button>
       </div>
     `);
     this.applyBtn = this.role('apply');

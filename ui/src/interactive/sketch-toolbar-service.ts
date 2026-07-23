@@ -22,6 +22,7 @@ import { SceneObjectRender, PlaneData } from '../types';
 import { Viewer } from '../viewer';
 import { TrimPickService } from './trim-pick-service';
 import { TrimDialog } from './trim-dialog';
+import { ProjectionPickService } from './projection-pick-service';
 import { SketchOpService } from './sketch-op-service';
 import { VariableInfo } from '../ui/expression-input';
 import { ShortcutManager } from '../ui/shortcut-manager';
@@ -39,6 +40,12 @@ export class SketchToolbarService {
   private container: HTMLElement;
   private trimService: TrimPickService;
   private trimDialog: TrimDialog;
+  /**
+   * The Project tool's dialog. It lives outside this service (main.ts routes
+   * its 3D picks) because arming it suspends sketch editing — the picks are
+   * solid edges and faces, not sketch geometry.
+   */
+  private projectionService: ProjectionPickService;
   private opServices: Partial<Record<ToolId, SketchOpService>> = {};
   private toolbar: SketchToolbar;
   private activeSketchInfo: {
@@ -58,10 +65,27 @@ export class SketchToolbarService {
   private snapToVertices = true;
   private snapToGrid = true;
 
-  constructor(container: HTMLElement, viewer: Viewer, trimService: TrimPickService, navbar: Navbar) {
+  constructor(
+    container: HTMLElement,
+    viewer: Viewer,
+    trimService: TrimPickService,
+    projectionService: ProjectionPickService,
+    navbar: Navbar,
+  ) {
     this.viewer = viewer;
     this.container = container;
     this.trimService = trimService;
+    this.projectionService = projectionService;
+    // An applied projection resumes lazily (its re-render is on the way); the
+    // disarm below then finds the dialog already closed. A cancel arrives
+    // without options and closes through the toolbar's own immediate exit.
+    this.projectionService.onDone = (opts) => {
+      if (opts) {
+        this.projectionService.exit(opts);
+      }
+      this.handleToolSelect(null);
+    };
+    this.projectionService.onVisibilityChange = (open) => this.onOpDialogToggle?.(open);
 
     const sketchGroup = navbar.addGroup('sketch', { visible: false, exclusive: true });
     this.toolbar = new SketchToolbar(
@@ -208,6 +232,13 @@ export class SketchToolbarService {
         this.trimService.pendingActivation = false;
         this.toolbar.setActiveTool(null);
       }
+      if (this.projectionService.isPicking) {
+        // The sketch it was projecting into is gone — or another dialog took
+        // the viewport. Either way the caller owns the view now, so sketch
+        // editing comes back lazily instead of forcing a render here.
+        this.projectionService.exit({ resume: 'lazy' });
+        this.toolbar.setActiveTool(null);
+      }
       this.deactivateDragHandler();
       this.bezierHandles.deactivate();
       this.activeSketchInfo = null;
@@ -351,6 +382,9 @@ export class SketchToolbarService {
     if (this.toolbar.activeTool === 'trim' && toolId !== 'trim') {
       this.exitTrimFromToolbar();
     }
+    if (this.toolbar.activeTool === 'project' && toolId !== 'project') {
+      this.projectionService.exit();
+    }
     const previousOp = this.toolbar.activeTool ? this.opServices[this.toolbar.activeTool] : undefined;
     if (previousOp && this.toolbar.activeTool !== toolId) {
       previousOp.exit();
@@ -378,6 +412,14 @@ export class SketchToolbarService {
 
     if (toolId === 'trim') {
       this.enterTrimFromToolbar();
+      return;
+    }
+
+    // Project picks solid edges and faces, so it leaves sketch editing (the
+    // camera unlocks from the sketch normal) while keeping this sketch as the
+    // statement's destination.
+    if (toolId === 'project') {
+      this.projectionService.enter(this.activeSketchInfo.sourceLocation);
       return;
     }
 

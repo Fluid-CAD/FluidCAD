@@ -479,6 +479,33 @@ export async function applyFeature(
   }, options.signal);
 }
 
+/**
+ * Ask the server to synthesize (and, unless `preview` is set, apply) a
+ * `project(<sources>)` statement inside the body of the sketch at `sketch`.
+ * The picks are ordinary 3D edges and faces — the same synthesis the modify
+ * tools use — but the emitted call lands in the sketch, not beside the
+ * features it names.
+ */
+export async function applyProject(
+  entities: ApplyFeatureEntity[],
+  sketch: SketchSourceRef,
+  options: {
+    chains?: ApplyFeatureChain[];
+    selectorOverride?: string;
+    preview?: boolean;
+    signal?: AbortSignal;
+  } = {},
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'project',
+    entities,
+    sketch,
+    chains: options.chains,
+    selectorOverride: options.selectorOverride,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /** A sketch-edge pick: 1 shapeId = 1 edge (no sub refs in 2D). */
 export type SketchApplyEntity = { shapeId: string };
 

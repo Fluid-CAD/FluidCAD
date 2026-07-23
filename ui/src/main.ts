@@ -13,6 +13,7 @@ import { Navbar } from './ui/navbar';
 import { ICON_IMG_FALLBACK } from './ui/object-icons';
 import { TrimPickService } from './interactive/trim-pick-service';
 import { RegionPickService } from './interactive/region-pick-service';
+import { ProjectionPickService } from './interactive/projection-pick-service';
 import { SketchToolbarService } from './interactive/sketch-toolbar-service';
 import { ModifyPickService } from './interactive/modify-pick/modify-pick-service';
 import { ExtrudeFeatureService } from './interactive/create-feature/extrude-service';
@@ -112,6 +113,10 @@ viewer.setParamsToggleHandler(() => {
 
 const trimService = new TrimPickService(viewer);
 const regionService = new RegionPickService(viewer, navbar);
+// The Project sketch tool. Like trim it is armed from the sketch toolbar, but
+// its picks are solid edges and faces in the free 3D view, so the routing
+// below hands it viewport clicks while it is armed.
+const projectionService = new ProjectionPickService(container, viewer);
 // The Sketch button (create group) stays visible while a create dialog is
 // up — it disables instead. Recomputed on every dialog arm/disarm.
 const syncSketchButtonBlocked = () => modifyService.setCreateDialogActive(
@@ -125,6 +130,7 @@ const syncSketchButtonBlocked = () => modifyService.setCreateDialogActive(
 // extruding the active sketch is the primary flow.
 const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
   onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
     // Stash a live sketch session before exit() drops it — the dialog comes
     // back when this create dialog exits with the sketch still active.
     modifyService.displaceSketchSession();
@@ -151,6 +157,7 @@ const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
 // Sweep in the create group.
 const revolveService = new RevolveFeatureService(container, viewer, navbar, {
   onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
     modifyService.displaceSketchSession();
     modifyService.exit();
     extrudeService.exit();
@@ -173,6 +180,7 @@ const revolveService = new RevolveFeatureService(container, viewer, navbar, {
 });
 const sweepService = new SweepFeatureService(container, viewer, navbar, {
   onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
     modifyService.displaceSketchSession();
     modifyService.exit();
     extrudeService.exit();
@@ -195,6 +203,7 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
 });
 const loftService = new LoftFeatureService(container, viewer, navbar, {
   onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
     modifyService.displaceSketchSession();
     modifyService.exit();
     extrudeService.exit();
@@ -218,6 +227,7 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
 // Constructed after Loft so its button lands at the end of the create group.
 const wrapService = new WrapFeatureService(container, viewer, navbar, {
   onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
     modifyService.displaceSketchSession();
     modifyService.exit();
     extrudeService.exit();
@@ -242,6 +252,7 @@ const wrapService = new WrapFeatureService(container, viewer, navbar, {
 // feature row (Extrude, Revolve, Sweep, Loft, Wrap, Helix).
 const helixService = new HelixFeatureService(container, viewer, navbar, {
   onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
     modifyService.displaceSketchSession();
     modifyService.exit();
     extrudeService.exit();
@@ -269,6 +280,7 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
   // The current highlight seeds the dialog (one edge → edge type, one face →
   // offset, two faces → mid), like the modify tools.
   onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
     modifyService.displaceSketchSession();
     modifyService.exit();
     extrudeService.exit();
@@ -296,6 +308,7 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
 // group and the intercept chain.
 const textEditService = new TextEditService(container, viewer, {
   onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
     modifyService.exit();
     extrudeService.exit();
     revolveService.exit();
@@ -424,11 +437,12 @@ function showEditRefusal(reason: string): void {
     editRefusalToast?.classList.add('hidden');
   }, 5000);
 }
-const sketchService = new SketchToolbarService(container, viewer, trimService, navbar);
+const sketchService = new SketchToolbarService(container, viewer, trimService, projectionService, navbar);
 const modifyService = new ModifyPickService(container, viewer, navbar, {
   // Hand the current highlight over as the tool's initial input: whatever the
   // user already clicked (measure owns that selection) seeds the pick set.
   onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
     extrudeService.exit();
     revolveService.exit();
     helixService.exit();
@@ -464,6 +478,7 @@ const repeatService = new RepeatFeatureService(container, viewer, navbar, {
   // face opens the Mirror type with it as the plane, one edge the Linear type
   // with it as the axis. Captured before the exits below clear it.
   onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
     modifyService.displaceSketchSession();
     const pendingPlaneShapeId = modifyService.pendingPlane;
     modifyService.exit();
@@ -495,6 +510,7 @@ const copyService = new CopyFeatureService(container, viewer, navbar, {
   // resolves to its owning solid, opening as a target chip. Captured before
   // the exits below clear it.
   onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
     modifyService.displaceSketchSession();
     modifyService.exit();
     extrudeService.exit();
@@ -525,6 +541,7 @@ const booleanService = new BooleanFeatureService(container, viewer, navbar, {
   // resolves to its owning solid, opening as a target chip. Captured before
   // the exits below clear it.
   onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
     modifyService.displaceSketchSession();
     modifyService.exit();
     extrudeService.exit();
@@ -615,7 +632,8 @@ const createDialogPicking = () =>
   || repeatService.isPicking
   || copyService.isPicking
   || booleanService.isPicking
-  || planeService.isPicking;
+  || planeService.isPicking
+  || projectionService.isPicking;
 
 viewer.setContextMenuHandler((shapeId, sub, clientX, clientY) => {
   if (modifyService.isActive) {
@@ -638,6 +656,12 @@ viewer.setDoubleClickHandler((shapeId, sub) => {
 });
 
 viewer.setSelectionHandler((shapeId, sub, modifiers) => {
+  // The armed Project sketch tool owns every viewport click: each edge or
+  // face pick toggles into the set of sources its sketch projects.
+  if (projectionService.isPicking) {
+    projectionService.handleClick(shapeId, sub);
+    return;
+  }
   // A sketch-wire pick exists only while a create dialog is armed (the
   // dialogs enable viewer.pickSketchWires) — it selects that sketch as the
   // dialog's input and never reaches the measure selection.
@@ -905,6 +929,9 @@ function connectWebSocket() {
         } else {
           trimService.update(msg.result);
           regionService.update(msg.result);
+          // Shape ids changed with the render — an armed Project tool drops
+          // its now-unaddressable picks.
+          projectionService.update(msg.result);
           // While a pick mode has sketch editing suspended, the sketch
           // toolbar must not re-take the bar on incoming renders.
           const sketchSuspended = modifyService.sketchUISuspended

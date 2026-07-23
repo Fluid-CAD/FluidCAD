@@ -2,6 +2,7 @@ import {
   getJavaScriptParser,
   ensureSymbolImport,
   findEditableCallAt,
+  findSketchBody,
   indentOf,
   isBreakpointStatement,
   splitLines,
@@ -105,7 +106,7 @@ export function validValueExpr(
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'offset' | 'trim' | 'fuse' | 'subtract' | 'common';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'project' | 'offset' | 'trim' | 'fuse' | 'subtract' | 'common';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -125,6 +126,8 @@ export type ApplyFeatureEditSpec = {
   sweep?: SweepEditOptions;
   /** Wrap-only payload; the single `parts` entry renders the target face. */
   wrap?: WrapEditOptions;
+  /** Project-only payload; names the sketch body the statement lands in. */
+  project?: ProjectEditOptions;
   /** Shell-only payload; the join type chains after the selector args. */
   shell?: ShellEditOptions;
   /** Chamfer-only payload; the second value rides after the distance. */
@@ -483,6 +486,18 @@ export type WrapEditOptions = {
   /** Pad thickness along the surface normal (always positive). */
   thickness: ValueExpr;
   sketch: { producer: number };
+};
+
+/**
+ * Projection payload. Unlike every other 3D-pick feature, the statement does
+ * not land in the producers' own scope: `project()` reads the sketch it is
+ * called from, so it is written INTO the body of the sketch at `sketch`
+ * (the one the toolbar tool was armed in), while its selector parts still
+ * name producers declared outside it.
+ */
+export type ProjectEditOptions = {
+  /** Call site of the `sketch()` statement whose body receives the call. */
+  sketch: { line: number; column: number };
 };
 
 /**
@@ -1149,6 +1164,16 @@ export async function applyFeatureEdit(
     if (!valid) {
       return { newCode: code, error: 'malformed sketch-on-plane edit spec' };
     }
+  } else if (spec.feature === 'project') {
+    // The selector parts are ordinary 3D picks; what the payload adds is the
+    // sketch call site whose body receives the statement.
+    const pj = spec.project;
+    const valid = pj !== undefined
+      && Number.isInteger(pj.sketch?.line) && Number.isInteger(pj.sketch?.column)
+      && spec.producers.length > 0 && spec.parts.length > 0;
+    if (!valid) {
+      return { newCode: code, error: 'malformed project edit spec' };
+    }
   } else if (!spec.producers.length || !spec.parts.length) {
     return { newCode: code, error: 'empty edit spec' };
   }
@@ -1169,7 +1194,10 @@ export async function applyFeatureEdit(
 
   allocateNames(tree.rootNode, bindings, spec);
 
-  const insertion = resolveInsertion(spec, bindings, scope, lines);
+  const insertion = resolveInsertion(spec, bindings, scope, lines, tree);
+  if ('error' in insertion) {
+    return { newCode: code, error: insertion.error };
+  }
   const statementText = buildStatement(spec, bindings, insertion.indent);
   const useSemicolon = bindings.some(b => b.statement.text.trimEnd().endsWith(';'));
 
@@ -2374,12 +2402,12 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   if (spec.feature === 'chamfer') {
     return `chamfer(${renderChamferValueArgs(spec.value, spec.chamfer)}, ${args})`;
   }
-  // The 2D sketch booleans and whole-edge trim carry no numeric parameter —
-  // the args ARE the statement (`fuse(r, c)`, `trim(r.edge('top'))`). The
-  // boolean kinds are distinct from the 3D 'boolean' spec, whose targets are
-  // top-level feature statements.
+  // The 2D sketch booleans, whole-edge trim and project carry no numeric
+  // parameter — the args ARE the statement (`fuse(r, c)`, `trim(r.edge('top'))`,
+  // `project(e.face('top'))`). The boolean kinds are distinct from the 3D
+  // 'boolean' spec, whose targets are top-level feature statements.
   if (spec.feature === 'fuse' || spec.feature === 'subtract' || spec.feature === 'common'
-    || spec.feature === 'trim') {
+    || spec.feature === 'trim' || spec.feature === 'project') {
     return `${spec.feature}(${args})`;
   }
   const joinChain = spec.feature === 'shell' ? renderShellJoinChain(spec.shell?.joinType) : '';
@@ -2539,12 +2567,20 @@ function afterStatementInsertion(
  * scope: a selector must resolve on the final model, and an implicit profile
  * must consume the scope's last sketch.
  */
+type Insertion = { index: number; indent: string; wrap: (stmt: string) => string };
+
 function resolveInsertion(
   spec: ApplyFeatureEditSpec,
   bindings: ProducerBinding[],
   scope: TSNode,
   lines: string[],
-): { index: number; indent: string; wrap: (stmt: string) => string } {
+  tree: TSTree,
+): Insertion | { error: string } {
+  // A projection reads the sketch it is called from, so it lands inside that
+  // sketch's body rather than in the producers' scope.
+  if (spec.feature === 'project') {
+    return resolveSketchBodyInsertion(spec.project!.sketch, bindings, lines, tree);
+  }
   // A to-face extrude references a face selector, which must resolve on the
   // final model — end of scope, even with a bound profile.
   if (spec.feature === 'extrude' && spec.extrude!.profile === 'bound' && !spec.extrude!.toFace) {
@@ -2608,6 +2644,50 @@ function resolveInsertion(
     }
   }
   return findInsertionPoint(scope, lines, bindings);
+}
+
+/**
+ * Insertion at the end of a sketch's callback body — the projection tool's
+ * target. The bound producers stay where they are (outside the sketch), so
+ * the statement only type-checks if their declarations already precede the
+ * sketch call: a solid built *after* the sketch cannot be projected into it,
+ * and saying so beats emitting code that dies in the temporal dead zone.
+ */
+function resolveSketchBodyInsertion(
+  sketchLoc: { line: number; column: number },
+  bindings: ProducerBinding[],
+  lines: string[],
+  tree: TSTree,
+): Insertion | { error: string } {
+  const call = findEditableCallAt(tree, lines, sketchLoc.line);
+  if (!call || chainRootCallee(call) !== 'sketch') {
+    return {
+      error: `no sketch() call found at line ${sketchLoc.line} — is the file in sync with the last render?`,
+    };
+  }
+  const body = findSketchBody(call);
+  if (!body) {
+    return { error: 'the sketch at that line has no callback body to project into' };
+  }
+
+  const sketchStatement = enclosingStatement(call) ?? call;
+  const late = bindings.find(b => b.bind && b.statement.startIndex >= sketchStatement.startIndex);
+  if (late) {
+    return {
+      error: 'the picked geometry is built after this sketch — only features declared '
+        + 'before the sketch can be projected into it',
+    };
+  }
+
+  const children = body.namedChildren;
+  const last = children.length > 0 ? children[children.length - 1] : null;
+  if (last) {
+    const indent = indentOf(lines, last.startPosition.row);
+    return { index: last.endIndex, indent, wrap: (stmt) => `\n${indent}${stmt}` };
+  }
+  // An empty body: open the first line of it at one level in from the sketch.
+  const indent = indentOf(lines, body.startPosition.row) + '  ';
+  return { index: body.startIndex + 1, indent, wrap: (stmt) => `\n${indent}${stmt}` };
 }
 
 // ---------------------------------------------------------------------------

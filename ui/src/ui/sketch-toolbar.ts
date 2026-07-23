@@ -49,6 +49,9 @@ const TOOL_LAYOUT: ToolEntry[] = [
     { id: 'fillet', label: 'Fillet', iconPng: 'fillet2d' },
     { id: 'offset', label: 'Offset', iconPng: 'offset' },
   ]},
+  { tools: [
+    { id: 'project', label: 'Project', iconPng: 'projection' },
+  ]},
 ];
 
 const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
@@ -67,6 +70,7 @@ const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   subtract: 's',
   common: 'co',
   text: 'x',
+  project: 'pj',
 };
 
 const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 shrink-0 text-base-content/60';

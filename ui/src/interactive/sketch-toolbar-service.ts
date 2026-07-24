@@ -73,6 +73,13 @@ export class SketchToolbarService {
   private snapToGrid = true;
   /** Last-reported sketch-active state, so {@link onActiveChange} fires on edges only. */
   private lastActive = false;
+  /**
+   * Keep the sketch toolbar shown while a create-feature dialog launched from
+   * this sketch is open. The dialog suspends sketch editing so the free 3D
+   * view can be picked, which would normally hide the bar — pinning leaves the
+   * sketch tools in place until the feature is applied (see {@link update}).
+   */
+  private keepToolbar = false;
 
   constructor(
     container: HTMLElement,
@@ -170,6 +177,15 @@ export class SketchToolbarService {
     }
   }
 
+  /**
+   * Pin (or release) the sketch toolbar while a create-feature dialog launched
+   * from this sketch is open. main.ts derives this from the dialogs' own
+   * suspend state and pushes it in before feeding the suspended (empty) scene.
+   */
+  setKeepToolbar(keep: boolean): void {
+    this.keepToolbar = keep;
+  }
+
   update(sceneObjects: SceneObjectRender[]): void {
     let lastRoot: SceneObjectRender | null = null;
     for (let i = sceneObjects.length - 1; i >= 0; i--) {
@@ -251,11 +267,26 @@ export class SketchToolbarService {
       this.deactivateDragHandler();
       this.bezierHandles.deactivate();
       this.activeSketchInfo = null;
-      this.toolbar.hide();
-      this.shortcuts.disable();
+      if (this.keepToolbar) {
+        // A create-feature dialog launched from this sketch has suspended
+        // editing to pick in the free 3D view — keep (or restore, when a
+        // switch between dialogs briefly dropped it) the bar on the sketch
+        // tools until the feature is applied. keepToolbar is only set while
+        // one of those dialogs is armed-and-suspended, which only happens
+        // from an active sketch, so re-showing here can't be spurious. Drop
+        // any armed tool so none looks active while the dialog owns the view.
+        if (!this.toolbar.isVisible) {
+          this.toolbar.show();
+          this.shortcuts.enable();
+        }
+        this.toolbar.setActiveTool(null);
+      } else {
+        this.toolbar.hide();
+        this.shortcuts.disable();
+      }
     }
 
-    const active = this.activeSketchInfo !== null;
+    const active = this.activeSketchInfo !== null || this.keepToolbar;
     if (active !== this.lastActive) {
       this.lastActive = active;
       this.onActiveChange?.(active);
@@ -369,6 +400,11 @@ export class SketchToolbarService {
   }
 
   private handleToolSelect(toolId: ToolId | null): void {
+    // While a create-feature dialog has the toolbar pinned, sketch editing is
+    // suspended and there is no active sketch — the tools are shown but inert.
+    if (this.keepToolbar && !this.activeSketchInfo) {
+      return;
+    }
     if (!toolId && this.activeDrawingTool?.handleEscape?.()) {
       return;
     }

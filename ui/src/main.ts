@@ -118,14 +118,47 @@ const regionService = new RegionPickService(viewer, navbar);
 // its picks are solid edges and faces in the free 3D view, so the routing
 // below hands it viewport clicks while it is armed.
 const projectionService = new ProjectionPickService(container, viewer);
-// The Sketch button (create group) stays visible while a create dialog is
-// up — it disables instead. Recomputed on every dialog arm/disarm.
-const syncSketchButtonBlocked = () => modifyService.setCreateDialogActive(
-  extrudeService.isActive || revolveService.isActive || sweepService.isActive
-  || loftService.isActive || wrapService.isActive || helixService.isActive
-  || repeatService.isActive || copyService.isActive || booleanService.isActive
-  || planeService.isActive,
+// While a create-feature dialog launched from the Finish Sketch menu is open,
+// keep the sketch toolbar pinned in place — the bar stays on the sketch tools
+// until the feature is applied — even though the dialog suspends sketch editing
+// so the free 3D view can be picked. Derived from the dialogs' own suspend
+// state: these services suspend only when armed from an active sketch, so a
+// suspended-and-still-armed one means the finishing flow is live. On apply the
+// service disarms (isActive false) before it resumes, so this reads false at
+// that point and the bar hands off to the 3D toolbar; on cancel it resumes the
+// sketch. (The modify service's sketch-on-face / New Sketch flow keeps the
+// plain hooks — starting a new sketch does drop the bar.)
+const syncKeepToolbar = () => sketchService.setKeepToolbar(
+  (extrudeService.isActive && extrudeService.sketchUISuspended)
+  || (revolveService.isActive && revolveService.sketchUISuspended)
+  || (sweepService.isActive && sweepService.sketchUISuspended)
+  || (loftService.isActive && loftService.sketchUISuspended)
+  || (wrapService.isActive && wrapService.sketchUISuspended)
+  || (planeService.isActive && planeService.sketchUISuspended),
 );
+// The Sketch button (create group) stays visible while a create dialog is
+// up — it disables instead. Recomputed on every dialog arm/disarm, alongside
+// the toolbar pin (this fires after a dialog disarms, clearing the pin on apply).
+const syncSketchButtonBlocked = () => {
+  modifyService.setCreateDialogActive(
+    extrudeService.isActive || revolveService.isActive || sweepService.isActive
+    || loftService.isActive || wrapService.isActive || helixService.isActive
+    || repeatService.isActive || copyService.isActive || booleanService.isActive
+    || planeService.isActive,
+  );
+  syncKeepToolbar();
+};
+// The create dialogs' shared sketch-UI suspend/resume: recompute the pin first
+// (so it is set before the suspended empty scene would hide the bar), then
+// hide/restore the live sketch editing.
+const suspendSketchForFeature = () => {
+  syncKeepToolbar();
+  sketchService.update([]);
+};
+const resumeSketchForFeature = () => {
+  syncKeepToolbar();
+  sketchService.update(viewer.currentSceneObjects);
+};
 // Registered before the sketch toolbar so the create group renders ahead of
 // the sketch tools; its `immune` flag keeps it visible in sketch mode, where
 // extruding the active sketch is the primary flow.
@@ -151,8 +184,8 @@ const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
     selectionInfoOverlay.hide();
   },
   onActiveChange: syncSketchButtonBlocked,
-  onSuspendSketchUI: () => sketchService.update([]),
-  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
 });
 // Constructed right after Extrude so its button lands between Extrude and
 // Sweep in the create group.
@@ -176,8 +209,8 @@ const revolveService = new RevolveFeatureService(container, viewer, navbar, {
     selectionInfoOverlay.hide();
   },
   onActiveChange: syncSketchButtonBlocked,
-  onSuspendSketchUI: () => sketchService.update([]),
-  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
 });
 const sweepService = new SweepFeatureService(container, viewer, navbar, {
   onEnter: () => {
@@ -199,8 +232,8 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
     selectionInfoOverlay.hide();
   },
   onActiveChange: syncSketchButtonBlocked,
-  onSuspendSketchUI: () => sketchService.update([]),
-  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
 });
 const loftService = new LoftFeatureService(container, viewer, navbar, {
   onEnter: () => {
@@ -222,8 +255,8 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
     selectionInfoOverlay.hide();
   },
   onActiveChange: syncSketchButtonBlocked,
-  onSuspendSketchUI: () => sketchService.update([]),
-  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
 });
 // Constructed after Loft so its button lands at the end of the create group.
 const wrapService = new WrapFeatureService(container, viewer, navbar, {
@@ -246,8 +279,8 @@ const wrapService = new WrapFeatureService(container, viewer, navbar, {
     selectionInfoOverlay.hide();
   },
   onActiveChange: syncSketchButtonBlocked,
-  onSuspendSketchUI: () => sketchService.update([]),
-  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
 });
 // Constructed after Wrap so its Helix button lands at the end of the create
 // feature row (Extrude, Revolve, Sweep, Loft, Wrap, Helix).
@@ -271,8 +304,8 @@ const helixService = new HelixFeatureService(container, viewer, navbar, {
     selectionInfoOverlay.hide();
   },
   onActiveChange: syncSketchButtonBlocked,
-  onSuspendSketchUI: () => sketchService.update([]),
-  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
 });
 // Constructed after the other create services: its button prepends ahead of
 // Extrude, and the Sketch button (modify service) prepends ahead of it —
@@ -301,8 +334,8 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
     return seed;
   },
   onActiveChange: syncSketchButtonBlocked,
-  onSuspendSketchUI: () => sketchService.update([]),
-  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
 });
 // The text edit dialog (timeline double-click on a text row). Pick-less:
 // it never takes viewer or timeline picks, so it sits outside the create
@@ -325,8 +358,8 @@ const textEditService = new TextEditService(container, viewer, {
     viewer.clearHighlight();
     selectionInfoOverlay.hide();
   },
-  onSuspendSketchUI: () => sketchService.update([]),
-  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
 });
 // An armed create dialog takes sketch (or plane) rows clicked in the
 // timeline as its input instead of the default rollback-preview.
@@ -461,8 +494,8 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
   },
   // Sketch-on-face armed from inside a sketch: the sketch toolbar and tools
   // release input while faces are picked, and return if the pick is cancelled.
-  onSuspendSketchUI: () => sketchService.update([]),
-  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
   // Snap options live in the sketch dialog; the toolbar service owns the
   // state and pushes changes into the live tools' snap controllers.
   onSnapVerticesChange: (checked) => sketchService.setSnapToVertices(checked),
@@ -501,8 +534,8 @@ const repeatService = new RepeatFeatureService(container, viewer, navbar, {
     return { seed, pendingPlaneShapeId };
   },
   onActiveChange: syncSketchButtonBlocked,
-  onSuspendSketchUI: () => sketchService.update([]),
-  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
 });
 // Constructed after the repeat service so the two solid-level replay buttons
 // sit together at the end of the bar (…, Repeat, Copy).
@@ -532,8 +565,8 @@ const copyService = new CopyFeatureService(container, viewer, navbar, {
     return { seed };
   },
   onActiveChange: syncSketchButtonBlocked,
-  onSuspendSketchUI: () => sketchService.update([]),
-  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
 });
 // Constructed after the copy service so its own navbar group registers last
 // (…, Repeat, Copy, | separator |, Boolean).
@@ -563,8 +596,8 @@ const booleanService = new BooleanFeatureService(container, viewer, navbar, {
     return { seed };
   },
   onActiveChange: syncSketchButtonBlocked,
-  onSuspendSketchUI: () => sketchService.update([]),
-  onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
 });
 
 // While a sketch is active, the create-feature buttons collapse into a single

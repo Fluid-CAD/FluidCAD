@@ -53,6 +53,15 @@ type SketchSession = {
    * user set themselves.
    */
   breakpoint: boolean;
+  /**
+   * The sketch is consumed by a later feature (in the full model it was hidden
+   * — its shapes removed — or marked `.reusable()`). Captured when the
+   * double-click edit opens, from the full-model row before the breakpoint
+   * truncates it. Only meaningful with {@link breakpoint}: a consumed sketch
+   * being edited finishes by removing the breakpoint (the downstream feature
+   * re-applies), not by turning it into a new 3D feature.
+   */
+  consumed: boolean;
 };
 
 /**
@@ -146,6 +155,13 @@ export class ModifyPickService {
    * own clicks produce arrive as empty scenes and must not invalidate it.
    */
   private pendingSketchEditKey: string | null = null;
+  /**
+   * Whether {@link pendingSketchEditKey}'s sketch is consumed downstream —
+   * captured from the full-model row at double-click time (see
+   * {@link noteSketchEditRequest}), since the breakpoint render then truncates
+   * to the sketch and loses that signal. The adopting session copies it.
+   */
+  private pendingSketchEditConsumed = false;
   /** The scene ends with an unconsumed sketch (scene-derived sketch mode). */
   private sceneSketchActive = false;
   /** Sketch editing is suspended while the sketch-on-face pick is armed. */
@@ -864,9 +880,10 @@ export class ModifyPickService {
    * in place; the pending key only covers the case where the rollback render
    * hasn't landed yet.
    */
-  noteSketchEditRequest(loc: { filePath: string; line: number; column: number }): void {
+  noteSketchEditRequest(loc: { filePath: string; line: number; column: number }, consumed: boolean): void {
     const key = ModifyPickService.sketchKey(loc);
     this.pendingSketchEditKey = key;
+    this.pendingSketchEditConsumed = consumed;
     if (this.dismissedSketchKey === key) {
       this.dismissedSketchKey = null;
     }
@@ -874,8 +891,26 @@ export class ModifyPickService {
     if (this.sketchSession && active && ModifyPickService.sketchKey(active) === key) {
       this.pendingSketchEditKey = null;
       this.sketchSession.breakpoint = true;
+      this.sketchSession.consumed = consumed;
       this.syncSketchPanelMode();
     }
+  }
+
+  /** Editing a sketch that a later feature consumes: the Finish Sketch button
+   *  removes the breakpoint (the feature re-applies) instead of offering the
+   *  grid of new features. */
+  get isEditingConsumedSketch(): boolean {
+    return this.sketchSession?.breakpoint === true && this.sketchSession.consumed === true;
+  }
+
+  /**
+   * Finish editing a consumed sketch: close the edit dialog, which clears the
+   * breakpoint the double-click placed so the build resumes to its tip and the
+   * downstream feature re-applies with the edits. The edits themselves are
+   * already in the file — nothing is undone.
+   */
+  finishSketchEdit(): void {
+    this.closeSketchDialog();
   }
 
   /**
@@ -913,9 +948,11 @@ export class ModifyPickService {
       return;
     }
     const fromEdit = key === this.pendingSketchEditKey;
+    const consumed = fromEdit && this.pendingSketchEditConsumed;
     this.pendingSketchEditKey = null;
+    this.pendingSketchEditConsumed = false;
     this.dismissedSketchKey = null;
-    this.sketchSession = { tracking: true, label: 'Sketch target', created: false, breakpoint: fromEdit };
+    this.sketchSession = { tracking: true, label: 'Sketch target', created: false, breakpoint: fromEdit, consumed };
     this.syncSketchPanelMode();
     this.sketchPanel.setTarget(this.sketchSession.label);
     this.sketchPanel.setMessage(null);
@@ -1052,6 +1089,7 @@ export class ModifyPickService {
           label,
           created: repick ? prev!.created : true,
           breakpoint: repick ? prev!.breakpoint : false,
+          consumed: repick ? prev!.consumed : false,
         };
         this.syncSketchPanelMode();
         this.sketchPanel.setTarget(label);

@@ -64,12 +64,25 @@ function injectStyle(): void {
  * unrelated create-group tools (Shell) stay reachable alongside the button.
  */
 export class FinishSketchMenu {
+  /**
+   * Invoked when the button is clicked in resume mode (editing a consumed
+   * sketch): finish by removing the breakpoint instead of opening the grid.
+   */
+  onResume?: () => void;
+
   private readonly wrap: HTMLElement;
   private readonly button: HTMLButtonElement;
+  private readonly label: HTMLElement;
   private readonly popup: HTMLElement;
   private readonly cells: { entry: FinishSketchEntry; el: HTMLButtonElement }[] = [];
   private open = false;
   private consolidated = false;
+  /**
+   * Resume mode: the sketch being edited is consumed by a later feature, so the
+   * button removes the breakpoint (letting that feature re-apply) rather than
+   * offering the grid — there is no dropdown, so the caret is dropped.
+   */
+  private resumeMode = false;
 
   constructor(group: HTMLElement, entries: FinishSketchEntry[]) {
     injectStyle();
@@ -84,10 +97,18 @@ export class FinishSketchMenu {
     this.button.setAttribute('aria-label', 'Finish sketch');
     this.button.setAttribute('aria-haspopup', 'true');
     this.button.setAttribute('aria-expanded', 'false');
-    this.button.innerHTML = `${FINISH_ICON}<span class="${TOOLBAR_BTN_LABEL} whitespace-nowrap">Finish Sketch ▾</span>`;
+    this.label = document.createElement('span');
+    this.label.className = `${TOOLBAR_BTN_LABEL} whitespace-nowrap`;
+    this.label.textContent = 'Finish Sketch ▾';
+    this.button.innerHTML = FINISH_ICON;
+    this.button.appendChild(this.label);
     this.button.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.togglePopup();
+      if (this.resumeMode) {
+        this.onResume?.();
+      } else {
+        this.togglePopup();
+      }
     });
     this.wrap.appendChild(this.button);
 
@@ -148,6 +169,27 @@ export class FinishSketchMenu {
       this.closePopup();
     } else {
       this.refresh();
+    }
+  }
+
+  /**
+   * Switch between grid mode (turn this sketch into a 3D feature) and resume
+   * mode (the sketch is consumed by a later feature — finish just removes the
+   * breakpoint). Resume mode drops the dropdown caret and closes any open grid.
+   */
+  setResumeMode(resume: boolean): void {
+    if (this.resumeMode === resume) {
+      return;
+    }
+    this.resumeMode = resume;
+    this.label.textContent = resume ? 'Finish Sketch' : 'Finish Sketch ▾';
+    this.button.setAttribute('aria-haspopup', resume ? 'false' : 'true');
+    this.button.setAttribute(
+      'aria-label',
+      resume ? 'Finish editing — apply the sketch changes' : 'Finish sketch',
+    );
+    if (resume) {
+      this.closePopup();
     }
   }
 

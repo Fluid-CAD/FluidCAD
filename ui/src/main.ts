@@ -393,6 +393,21 @@ const EDITABLE_ROW_TYPES = new Set([
 ]);
 
 /**
+ * Each sketch's consumed state (`!visible || reusable`) from the last COMPLETE
+ * build, keyed by source location. Read when a double-click opens a sketch for
+ * editing to decide the Finish Sketch button's behavior — the timeline's own
+ * row can't be trusted at that moment, because the gesture's first click rolls
+ * the build back to the sketch, which drops its geometry out of scope and
+ * flips an unconsumed sketch to `visible: false`. The full-build snapshot is
+ * stable across that rollback.
+ */
+const sketchConsumedByKey = new Map<string, boolean>();
+
+function sketchLocKey(loc: { filePath: string; line: number; column: number }): string {
+  return `${loc.filePath}:${loc.line}:${loc.column}`;
+}
+
+/**
  * Parse the double-clicked row's statement and open the matching dialog in
  * edit mode. The row index and its exact statement text ride along: the
  * edit session rolls the viewport back to just before that row (the world
@@ -408,7 +423,13 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     // truncates the build at the sketch, and the sketch dialog adopts the
     // render that ends in it. Flag that adoption as the edit it is, so the
     // dialog owns the breakpoint and its close leaves the statement alone.
-    modifyService.noteSketchEditRequest(obj.sourceLocation);
+    // Whether a later feature consumes it (Finish Sketch just removes the
+    // breakpoint) or not (offer the grid) comes from the last complete build's
+    // snapshot, not `obj` — the gesture's own rollback has already flipped this
+    // row's `visible` by dropping its geometry out of scope.
+    const consumed = sketchConsumedByKey.get(sketchLocKey(obj.sourceLocation))
+      ?? (obj.visible === false || obj.reusable === true);
+    modifyService.noteSketchEditRequest(obj.sourceLocation, consumed);
     return;
   }
   if (!obj.type || !EDITABLE_ROW_TYPES.has(obj.type) || !obj.sourceLocation) {
@@ -620,6 +641,10 @@ const finishSketchMenu = new FinishSketchMenu(navbar.getGroup('create')!, [
   },
 ]);
 sketchService.onActiveChange = (active) => finishSketchMenu.setConsolidated(active);
+// Editing a consumed sketch (double-click → breakpoint): finishing removes the
+// breakpoint so the downstream feature re-applies with the edits, rather than
+// turning the sketch into a new feature.
+finishSketchMenu.onResume = () => modifyService.finishSketchEdit();
 
 const breakpointIndicator = new BreakpointIndicator(container, () => {
   if (regionService.state === 'picking-active') {
@@ -975,6 +1000,17 @@ function connectWebSocket() {
         viewer.isTrimming = !isRollback && trimService.state === 'picking-active';
         viewer.isDrawing = !isRollback && sketchService.hasActiveDrawingTool;
         viewer.updateView(msg.result, isRollback, msg.rollbackStop);
+        // Snapshot every sketch's consumed state from complete builds only —
+        // rollbacks (and breakpoint truncations) make a tip sketch look
+        // unconsumed. The Finish Sketch edit flow reads this snapshot.
+        if (!isRollback && msg.breakpointHit !== true) {
+          sketchConsumedByKey.clear();
+          for (const o of msg.result as SceneObjectRender[]) {
+            if (o.type === 'sketch' && o.sourceLocation) {
+              sketchConsumedByKey.set(sketchLocKey(o.sourceLocation), o.visible === false || o.reusable === true);
+            }
+          }
+        }
         measureController.onSceneRendered();
         if (msg.absPath) {
           topBar.setFileName(msg.absPath);
@@ -1008,6 +1044,10 @@ function connectWebSocket() {
         // rebuilds options/seeds at that boundary; without one this is the
         // plain update (empty list on rollbacks, as before).
         modifyService.handleSceneRendered(msg.result, renderStop, isRollback);
+        // Once the modify service has (re)adopted the active sketch for this
+        // render, the Finish Sketch button knows whether it should offer the
+        // grid or just remove the breakpoint (editing a consumed sketch).
+        finishSketchMenu.setResumeMode(modifyService.isEditingConsumedSketch);
         extrudeService.handleSceneRendered(msg.result, renderStop, isRollback);
         revolveService.handleSceneRendered(msg.result, renderStop, isRollback);
         sweepService.handleSceneRendered(msg.result, renderStop, isRollback);

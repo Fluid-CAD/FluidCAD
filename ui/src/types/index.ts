@@ -153,6 +153,8 @@ export type SceneObjectRender = {
   sceneShapes: SceneObjectPart[];
   ownShapes: SceneObjectPart[];
   visible?: boolean;
+  /** The object carries a `.reusable()` chain — kept visible when consumed. */
+  reusable?: boolean;
   type?: ObjectType;
   uniqueType?: string;
   /** Server-driven viewport classification for sketch geometry children. */

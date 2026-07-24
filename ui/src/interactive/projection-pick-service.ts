@@ -1,10 +1,12 @@
-import { applyProject, ApplyFeatureEntity, SketchSourceRef } from '../api';
+import { applyProject, ApplyFeatureEntity, SelectionGroupKind, SketchSourceRef } from '../api';
+import { mergeUniqueEntities } from '../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../types';
 import { SelectedEntity, Viewer } from '../viewer';
 import { ApplyRunner } from './create-feature/apply-runner';
 import { SketchUISuspender } from './create-feature/sketch-suspender';
 import { PickSelection } from './pick-selection';
 import { ProjectionPanel } from './projection-panel';
+import { SelectionContextMenu } from './selection-menu';
 
 /** The apply payload: the picks plus the sketch body receiving the call. */
 type ProjectRequest = { entities: ApplyFeatureEntity[]; sketch: SketchSourceRef };
@@ -13,7 +15,9 @@ type ProjectRequest = { entities: ApplyFeatureEntity[]; sketch: SketchSourceRef 
  * The Project sketch tool: flatten 3D edges and faces onto the plane of the
  * sketch being edited. Arming it leaves sketch editing (the camera unlocks
  * from the sketch normal and clicks reach the solids again), then every click
- * toggles an edge or a face into the pick set. The selection is explained by
+ * toggles an edge or a face into the pick set. Right-click opens the shared
+ * multi-select menu — tangent chain, classified bucket, same-type and equal
+ * edges — the same filtering the modify tools offer. The selection is explained by
  * the same synthesis the modify tools use — the dialog's expression row shows
  * the winning `project(…)` arguments and its verified alternatives, editable
  * in place. Apply writes the statement into the sketch's own body; Cancel
@@ -35,6 +39,7 @@ export class ProjectionPickService {
   private readonly panel: ProjectionPanel;
   private readonly sketchUI: SketchUISuspender;
   private readonly selection = new PickSelection();
+  private readonly selectionMenu: SelectionContextMenu;
   private readonly runner: ApplyRunner<ProjectRequest>;
   /** The sketch receiving the projection, or null while disarmed. */
   private sketch: SketchSourceRef | null = null;
@@ -51,6 +56,15 @@ export class ProjectionPickService {
     this.panel.onExit = () => this.onDone?.();
     this.panel.onRemoveChip = (index) => this.removeChip(index);
     this.panel.onChipHover = (index) => this.previewChip(index);
+
+    // Right-click menu for the projected sources: the same multi-select groups
+    // the modify tools offer (a projection picks edges and faces alike), so a
+    // tangent chain, a classified bucket or every equal edge lands in one gesture.
+    this.selectionMenu = new SelectionContextMenu(container, 'fluidcad-projection-pick-menu', {
+      kinds: ['tangent', 'classified', 'same-type', 'equal', 'sibling'],
+      onSelectGroup: (kind, seed, members) => this.applyGroup(kind, seed, members),
+      onPreview: (members) => this.previewSelection(members),
+    });
 
     this.runner = new ApplyRunner({
       panel: this.panel,
@@ -114,6 +128,7 @@ export class ProjectionPickService {
     }
     this.sketch = null;
     this.selection.clear();
+    this.selectionMenu.hide();
     this.runner.cancelPreview();
     this.panel.hide();
     this.viewer.clearHighlight();
@@ -131,6 +146,7 @@ export class ProjectionPickService {
       return;
     }
     this.selection.clear();
+    this.selectionMenu.hide();
     this.viewer.clearHighlight();
     this.panel.setMessage('The code changed — the picked geometry was reset.');
     this.refresh();
@@ -144,6 +160,52 @@ export class ProjectionPickService {
     this.panel.setMessage(null);
     this.selection.toggle({ shapeId, sub });
     this.refresh();
+  }
+
+  /** Right-click on an edge/face: the multi-select menu for that pick. */
+  handleContextMenu(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): void {
+    if (!this.isPicking) {
+      return;
+    }
+    this.selectionMenu.hide();
+    if (!shapeId || !sub || (sub.type !== 'edge' && sub.type !== 'face')) {
+      return;
+    }
+    // The hover tint would otherwise be stashed as an "original" color by the
+    // preview highlight and stick around after the preview restores it.
+    this.viewer.clearHover();
+    void this.selectionMenu.open({ shapeId, sub }, clientX, clientY);
+  }
+
+  /** A multi-select menu group was clicked: chain or merge into the pick set. */
+  private applyGroup(kind: SelectionGroupKind, seed: SelectedEntity, members: SelectedEntity[]): void {
+    if (!this.isPicking) {
+      return;
+    }
+    this.panel.setMessage(null);
+    if (kind === 'tangent') {
+      // Tangent chains stay chains — they synthesize to `.withTangents()`.
+      this.selection.addChain(seed, members);
+      this.refresh();
+    } else {
+      this.mergeEntities(members);
+    }
+  }
+
+  /** Merge group members into the pick set as plain picks. */
+  private mergeEntities(members: SelectedEntity[]): void {
+    if (!this.selection.merge(members)) {
+      return;
+    }
+    this.refresh();
+  }
+
+  /** Menu-hover preview: show the pick set as the hovered click would leave it. */
+  private previewSelection(members: SelectedEntity[] | null): void {
+    if (!this.isPicking) {
+      return;
+    }
+    this.highlight(members ? mergeUniqueEntities(this.selection.entities, members) : this.selection.entities);
   }
 
   /** The request for the current pick set, or the message blocking it. */

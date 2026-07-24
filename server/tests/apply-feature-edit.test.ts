@@ -5405,7 +5405,7 @@ describe('project into a sketch body', () => {
     expect(result.newCode).toContain(`sketch('xz', () => {\n  project(e.endFaces(0))\n`);
   });
 
-  it('imports project and select for a producer-less geometric part', async () => {
+  it('hoists a producer-less select() out of the sketch body', async () => {
     const result = await applyFeatureEdit(`${base}\n`, projectSpec({
       producers: [
         { line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: false },
@@ -5414,10 +5414,47 @@ describe('project into a sketch body', () => {
       imports: ['select', 'face'],
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  project(select(face().planar()))`);
+    // select() would capture the sketch's own scope from inside the callback,
+    // so it is lifted to a const before the sketch and referenced by name.
+    expect(result.newCode).toContain(`const sel = select(face().planar())\nsketch('xz', () => {`);
+    expect(result.newCode).toContain(`  project(sel)`);
+    expect(result.newCode).not.toContain('project(select(');
     expect(result.newCode).not.toContain('const e = extrude(30)');
     expect(result.newCode).toMatch(/import \{[^}]*\bselect\b[^}]*\} from 'fluidcad\/core'/);
     expect(result.newCode).toMatch(/import \{[^}]*\bface\b[^}]*\} from 'fluidcad\/filters'/);
+  });
+
+  it('keeps producer accessors inline while hoisting only the select()', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, projectSpec({
+      parts: [
+        { producer: 0, accessor: 'endFaces', indices: null, filterArgs: '0' },
+        { producer: null, accessor: 'select', indices: null, filterArgs: `face().planar()` },
+      ],
+      imports: ['select', 'face'],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const sel = select(face().planar())\nsketch('xz', () => {`);
+    expect(result.newCode).toContain(`  project(e.endFaces(0), sel)`);
+    // The bound producer still binds outside the sketch, as before.
+    expect(result.newCode).toContain('const e = extrude(30)');
+  });
+
+  it('hoists multiple selects as sel, sel2 in argument order', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, projectSpec({
+      producers: [
+        { line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: false },
+      ],
+      parts: [
+        { producer: null, accessor: 'select', indices: null, filterArgs: `face().planar()` },
+        { producer: null, accessor: 'select', indices: null, filterArgs: `edge().circular()` },
+      ],
+      imports: ['select', 'face', 'edge'],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `const sel = select(face().planar())\nconst sel2 = select(edge().circular())\nsketch('xz', () => {`,
+    );
+    expect(result.newCode).toContain(`  project(sel, sel2)`);
   });
 
   it('emits a user-edited argument list verbatim', async () => {
@@ -5426,6 +5463,45 @@ describe('project into a sketch body', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`  project(e.endFaces(0), e.sideFaces(1))`);
+  });
+
+  it('hoists a select() from a user-edited argument list too', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, projectSpec({
+      producers: [
+        { line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: false },
+      ],
+      parts: [{ producer: null, accessor: 'select', indices: null, filterArgs: `face().planar()` }],
+      rawArgs: `select(face().cylindrical())`,
+      imports: ['select', 'face'],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const sel = select(face().cylindrical())\nsketch('xz', () => {`);
+    expect(result.newCode).toContain(`  project(sel)`);
+  });
+
+  it('picks a collision-free name when sel is already taken', async () => {
+    const code = [
+      `import { sketch, rect, extrude, circle, project } from 'fluidcad/core'`,
+      ``,
+      `const sel = 5`,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      `sketch('xz', () => {`,
+      `  circle(4)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, projectSpec({
+      project: { sketch: { line: 6, column: 0 } },
+      producers: [
+        { line: 5, column: 0, featureType: 'extrude', nameHint: 'e', bind: false },
+      ],
+      parts: [{ producer: null, accessor: 'select', indices: null, filterArgs: `face().planar()` }],
+      imports: ['select', 'face'],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const sel2 = select(face().planar())\nsketch('xz', () => {`);
+    expect(result.newCode).toContain(`  project(sel2)`);
   });
 
   it('refuses a source built after the sketch it would project into', async () => {

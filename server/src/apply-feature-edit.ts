@@ -1198,8 +1198,23 @@ export async function applyFeatureEdit(
   if ('error' in insertion) {
     return { newCode: code, error: insertion.error };
   }
-  const statementText = buildStatement(spec, bindings, insertion.indent);
+  let statementText = buildStatement(spec, bindings, insertion.indent);
   const useSemicolon = bindings.some(b => b.statement.text.trimEnd().endsWith(';'));
+
+  type Edit = { index: number; text: string };
+  const hoistEdits: Edit[] = [];
+  // A projection's global `select(…)` arguments must run OUTSIDE the sketch
+  // body — select captures whatever container it executes in, so from inside
+  // the sketch callback it resolves against the sketch's own scope and the
+  // projection silently drops. Lift each to a declaration before the sketch.
+  if (spec.feature === 'project') {
+    const hoisted = await hoistProjectSelects(statementText, spec, bindings, tree, lines, useSemicolon);
+    if ('error' in hoisted) {
+      return { newCode: code, error: hoisted.error };
+    }
+    statementText = hoisted.statement;
+    hoistEdits.push(...hoisted.edits);
+  }
 
   // Declarations a dialog expression field committed land directly before
   // the statement, at its indent.
@@ -1210,9 +1225,9 @@ export async function applyFeatureEdit(
   const block = [...declsResult.decls, statementText + (useSemicolon ? ';' : '')]
     .join(`\n${insertion.indent}`);
 
-  type Edit = { index: number; text: string };
   const edits: Edit[] = [
     { index: insertion.index, text: insertion.wrap(block) },
+    ...hoistEdits,
   ];
   for (const binding of bindings) {
     if (binding.needsBinding) {
@@ -2688,6 +2703,98 @@ function resolveSketchBodyInsertion(
   // An empty body: open the first line of it at one level in from the sketch.
   const indent = indentOf(lines, body.startPosition.row) + '  ';
   return { index: body.startIndex + 1, indent, wrap: (stmt) => `\n${indent}${stmt}` };
+}
+
+/**
+ * Lift the global `select(…)` arguments of a freshly built `project(…)`
+ * statement out of the sketch body. `select()` registers a scene-wide query
+ * against the container it runs in, so called from inside the sketch callback
+ * it captures the sketch's own (empty of solids) scope and resolves to
+ * nothing — the projection silently drops. Each `select(…)` call is moved to
+ * a `const` on the line before the sketch statement (where it sees the whole
+ * model, like every other selection) and referenced by name inside project().
+ *
+ * Producer-accessor arguments (`box.sideFaces(0)`) stay inline: they only read
+ * a producer already declared above the sketch, registering nothing. Returns
+ * the (possibly rewritten) statement plus the declaration edits to apply.
+ */
+async function hoistProjectSelects(
+  statementText: string,
+  spec: ApplyFeatureEditSpec,
+  bindings: ProducerBinding[],
+  tree: TSTree,
+  lines: string[],
+  useSemicolon: boolean,
+): Promise<{ statement: string; edits: { index: number; text: string }[] } | { error: string }> {
+  const parser = await getJavaScriptParser();
+  // `project(<args>)` is itself a valid call expression — parse it directly to
+  // find the select() calls among its arguments.
+  const stmtTree = parser.parse(statementText);
+  const selects: TSNode[] = [];
+  for (const node of walkTree(stmtTree.rootNode)) {
+    if (node.type === 'call_expression') {
+      const fn = node.childForFieldName('function');
+      if (fn && fn.type === 'identifier' && fn.text === 'select') {
+        selects.push(node);
+      }
+    }
+  }
+  if (selects.length === 0) {
+    return { statement: statementText, edits: [] };
+  }
+
+  // The declarations go on the line before the sketch statement the call
+  // lands in, at its indent.
+  const sketchCall = findEditableCallAt(tree, lines, spec.project!.sketch.line);
+  if (!sketchCall) {
+    return {
+      error: `no sketch() call found at line ${spec.project!.sketch.line} — is the file in sync with the last render?`,
+    };
+  }
+  const sketchStatement = enclosingStatement(sketchCall) ?? sketchCall;
+  const sketchIndent = indentOf(lines, sketchStatement.startPosition.row);
+
+  // Names already taken: every identifier in the file plus the producer
+  // variables this same edit is about to introduce.
+  const used = new Set<string>();
+  for (const node of walkTree(tree.rootNode)) {
+    if (node.type === 'identifier' || node.type === 'property_identifier'
+      || node.type === 'shorthand_property_identifier') {
+      used.add(node.text);
+    }
+  }
+  for (const binding of bindings) {
+    if (binding.varName) {
+      used.add(binding.varName);
+    }
+  }
+
+  // Name each select() in source order (stable `sel`, `sel2`, … numbering),
+  // then splice the statement descending so earlier spans keep their offsets.
+  const inSourceOrder = [...selects].sort((a, b) => a.startIndex - b.startIndex);
+  const nameByNode = new Map<TSNode, string>();
+  for (const node of inSourceOrder) {
+    let name = 'sel';
+    let suffix = 1;
+    while (used.has(name)) {
+      suffix++;
+      name = `sel${suffix}`;
+    }
+    used.add(name);
+    nameByNode.set(node, name);
+  }
+
+  let statement = statementText;
+  for (const node of [...selects].sort((a, b) => b.startIndex - a.startIndex)) {
+    statement = spliceCode(statement, node.startIndex, node.endIndex, nameByNode.get(node)!);
+  }
+  const decls = inSourceOrder
+    .map(node => `const ${nameByNode.get(node)} = ${node.text}${useSemicolon ? ';' : ''}`)
+    .join(`\n${sketchIndent}`);
+  return {
+    statement,
+    edits: [{ index: sketchStatement.startIndex, text: `${decls}\n${sketchIndent}` }],
+  };
 }
 
 // ---------------------------------------------------------------------------

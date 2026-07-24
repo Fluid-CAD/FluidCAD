@@ -640,6 +640,10 @@ viewer.setContextMenuHandler((shapeId, sub, clientX, clientY) => {
     modifyService.handleContextMenu(shapeId, sub, clientX, clientY);
   } else if (sweepService.isEdgePicking) {
     sweepService.handleContextMenu(shapeId, sub, clientX, clientY);
+  } else if (projectionService.isPicking) {
+    // The armed Project tool filters its picks through the same menu as the
+    // modify tools — right-click an edge for its tangent chain or bucket.
+    projectionService.handleContextMenu(shapeId, sub, clientX, clientY);
   } else if (!createDialogPicking() && !shapePropertiesModal.isOpen) {
     // Neutral mode: the multi-select menu accumulates a measure selection,
     // which seeds the modify tools when one arms.

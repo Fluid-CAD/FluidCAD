@@ -571,10 +571,17 @@ export type ExtrudeOptionValues = {
   newVariables?: NewVariable[];
 };
 
+/**
+ * The face an up-to-face extrude ends on when it is not a picked one: the
+ * nearest or the farthest face the extrusion runs into, written as that
+ * literal and resolved by the kernel.
+ */
+export type ExtrudeFaceTarget = 'first-face' | 'last-face';
+
 export type ExtrudeApplyOptions = ExtrudeOptionValues & {
   profile: ExtrudeProfileRef;
-  /** Up-to-face target: a picked face replacing the distance(s). */
-  toFace?: ApplyFeatureEntity;
+  /** Up-to-face target replacing the distance(s): a picked face, or first/last. */
+  toFace?: ApplyFeatureEntity | ExtrudeFaceTarget;
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -583,8 +590,8 @@ export type ExtrudeApplyOptions = ExtrudeOptionValues & {
 /**
  * Ask the server to write (or, with `preview`, just render) an extrude/cut
  * statement consuming a sketch profile. Same endpoint and response shape as
- * {@link applyFeature}; the only pick involved is the optional up-to-face
- * target, synthesized into a face selector server-side.
+ * {@link applyFeature}; the only pick involved is a picked up-to-face target,
+ * synthesized into a face selector server-side.
  */
 export async function applyExtrude(options: ExtrudeApplyOptions): Promise<ApplyFeatureResponse> {
   return postApplyFeature({
@@ -1112,6 +1119,11 @@ export type ParsedFeatureStatement =
       profileText: string | null;
       /** Up-to-face target argument text, or null for a distance extrude. */
       toFaceText: string | null;
+      /**
+       * The target's kind — a picked face's selector, or the first/last-face
+       * literal; null for a distance extrude.
+       */
+      toFaceKind: 'selector' | ExtrudeFaceTarget | null;
     }
   | {
       feature: 'sweep';
@@ -1308,10 +1320,10 @@ export type ExtrudeEditOptions = ExtrudeOptionValues & EditSessionFields & {
   profile?: { mode: 'bound' } & SketchSourceRef;
   /**
    * Up-to-face target: `keep` re-emits the statement's own target text,
-   * `face` re-picks it. Omitted writes the distance form (dropping any
-   * target the statement had).
+   * `face` re-picks it, `first-face`/`last-face` swap it for that literal.
+   * Omitted writes the distance form (dropping any target the statement had).
    */
-  toFace?: { kind: 'keep' } | { kind: 'face'; entity: ApplyFeatureEntity };
+  toFace?: { kind: 'keep' | ExtrudeFaceTarget } | { kind: 'face'; entity: ApplyFeatureEntity };
   preview?: boolean;
   signal?: AbortSignal;
 };

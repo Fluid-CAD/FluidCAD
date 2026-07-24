@@ -3,12 +3,16 @@ import { FeaturePanel } from './feature-panel';
 import { SketchProfileOption } from './sketch-profiles';
 import { SketchSlotControl, SketchSlotSelection } from './sketch-slot';
 import { EntitySlotControl, EntitySlotSelection } from './entity-slot';
-import { ExtrudeOptionValues, ValueExpr } from '../../api';
+import { ExtrudeFaceTarget, ExtrudeOptionValues, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
 
-/** How the extrusion distributes around the sketch plane. */
-export type ExtrudeDirection = 'one' | 'symmetric' | 'two' | 'to-face';
+/**
+ * How the extrusion distributes around the sketch plane. The last three end
+ * the extrusion on a face instead of a distance: a picked one, or the nearest
+ * / farthest face it runs into.
+ */
+export type ExtrudeDirection = 'one' | 'symmetric' | 'two' | 'to-face' | ExtrudeFaceTarget;
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type ExtrudeValues = ExtrudeOptionValues | { error: string };
@@ -17,11 +21,11 @@ export type ExtrudeValues = ExtrudeOptionValues | { error: string };
  * The extrude dialog: an Add / Remove / New tab row (the boolean operation),
  * the profile pick slot (a single chip — filled by clicking a sketch in the
  * timeline or its wires in 3D), the direction mode (one direction, symmetric,
- * two distances, or up to a face), the distance fields (through-all on the
- * Remove tab disables them; the up-to-face mode replaces them with a face
- * pick slot), a draft angle, a drill-holes toggle, and a thin() toggle
- * with its thickness. Pure DOM + form state — the service owns scene data,
- * previews, and the apply call.
+ * two distances, or up to a face — picked, first or last), the distance
+ * fields (through-all on the Remove tab disables them; every up-to-face mode
+ * replaces them, the picked one with a face pick slot), a draft angle, a
+ * drill-holes toggle, and a thin() toggle with its thickness. Pure DOM + form
+ * state — the service owns scene data, previews, and the apply call.
  */
 export class ExtrudePanel extends FeaturePanel {
   /** The face chip's ✕ — the service owns the picked entity. */
@@ -52,13 +56,16 @@ export class ExtrudePanel extends FeaturePanel {
       bodyHtml: `
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="profile-slot"></div>
-        <label class="flex flex-col gap-1.5" title="How the extrusion distributes around the sketch plane">
+        <label class="flex flex-col gap-1.5"
+          title="How the extrusion distributes around the sketch plane, or the face it stops on">
           <span class="text-base-content/70">Direction</span>
           <select data-role="direction" class="select select-sm select-bordered w-full text-xs">
             <option value="one">One direction</option>
             <option value="symmetric">Symmetric</option>
             <option value="two">Two directions</option>
             <option value="to-face">Up to face</option>
+            <option value="first-face" title="Stop at the nearest face the extrusion runs into">Up to first face</option>
+            <option value="last-face" title="Stop at the farthest face the extrusion runs into">Up to last face</option>
           </select>
         </label>
         <div data-role="face-slot-wrap" class="hidden"><div data-role="face-slot"></div></div>
@@ -164,17 +171,21 @@ export class ExtrudePanel extends FeaturePanel {
    * Open prefilled from an existing statement (edit mode). The profile slot
    * starts on a "Current: …" chip that keeps the statement's own profile
    * verbatim; picking another sketch re-sources it (its ✕ reverts to the
-   * kept profile). A to-face statement opens on the "Up to face" direction
-   * with its target on the same kind of keep chip — picking a face in 3D
-   * re-sources it. The op tabs, direction, distances, through-all, draft,
-   * drill and thin controls edit in place.
+   * kept profile). A picked-face statement opens on the "Up to face"
+   * direction with its target on the same kind of keep chip — picking a face
+   * in 3D re-sources it; a first/last-face statement opens on its own
+   * direction, which carries no target to keep. The op tabs, direction,
+   * distances, through-all, draft, drill and thin controls edit in place.
    */
   showEdit(state: ExtrudeOptionValues & {
     thin: [ValueExpr] | null;
     profileLabel: string | null;
     toFaceLabel: string | null;
+    toFaceKind: 'selector' | ExtrudeFaceTarget | null;
   }): void {
-    this.faceSlot.seedKeep(state.toFaceLabel);
+    // Only a picked face is a keep-able target: switching a first/last-face
+    // statement to "Up to face" must ask for a pick, not re-emit the literal.
+    this.faceSlot.seedKeep(state.toFaceKind === 'selector' ? state.toFaceLabel : null);
     this.profileSlot.seedKeep(state.profileLabel);
     this.syncProfileArmed();
     this.shell.setTitle('Edit extrude');
@@ -186,8 +197,8 @@ export class ExtrudePanel extends FeaturePanel {
     if (state.distance2 !== null) {
       this.distance2Field.setValue(state.distance2);
     }
-    // A to-face statement has no distance, but it is not a through-all.
-    this.throughCheckbox.checked = state.distance === null && state.toFaceLabel === null;
+    // An up-to-face statement has no distance, but it is not a through-all.
+    this.throughCheckbox.checked = state.distance === null && state.toFaceKind === null;
     this.draftField.setValue(state.draft ?? 0);
     this.drillCheckbox.checked = state.drill;
     this.thin.setValues(state.thin);
@@ -220,9 +231,18 @@ export class ExtrudePanel extends FeaturePanel {
     this.profileSlot.selectIndex(index);
   }
 
-  /** The up-to-face direction mode is selected. */
+  /** The picked up-to-face direction mode is selected (the one that picks). */
   isToFace(): boolean {
     return this.direction === 'to-face';
+  }
+
+  /**
+   * The literal up-to-face target the direction selects, or null — the picked
+   * mode and the distance modes both resolve their end elsewhere.
+   */
+  faceTarget(): ExtrudeFaceTarget | null {
+    const direction = this.direction;
+    return direction === 'first-face' || direction === 'last-face' ? direction : null;
   }
 
   /**
@@ -248,7 +268,7 @@ export class ExtrudePanel extends FeaturePanel {
       if (this.faceSelection() === null) {
         return { error: 'Pick the face to extrude up to.' };
       }
-    } else if (!throughAll) {
+    } else if (!isFaceBounded(direction) && !throughAll) {
       distanceRead = this.distanceField.read();
       if ('error' in distanceRead || (typeof distanceRead.value === 'number' && distanceRead.value === 0)) {
         const detail = 'error' in distanceRead && distanceRead.error !== 'empty' ? ` ${distanceRead.error}.` : '';
@@ -299,44 +319,51 @@ export class ExtrudePanel extends FeaturePanel {
 
   /** Through-all is a Remove option; a two-distance form has explicit depths. */
   private throughAllActive(): boolean {
-    return this.tabs.op === 'remove' && this.direction !== 'two' && this.direction !== 'to-face'
+    return this.tabs.op === 'remove' && this.direction !== 'two' && !isFaceBounded(this.direction)
       && this.throughCheckbox.checked;
   }
 
   /**
    * Per-op and per-direction control states: the second distance belongs to
    * the two-directions mode, through-all to one-direction/symmetric on the
-   * Remove tab (where it parks the depth), the up-to-face mode swaps every
-   * distance control for its face pick slot, and labels follow the mode.
+   * Remove tab (where it parks the depth), the up-to-face modes drop every
+   * distance control — the picked one for its face pick slot, first/last-face
+   * for nothing at all — and labels follow the mode.
    */
   private syncControls(): void {
     const removing = this.tabs.op === 'remove';
     const direction = this.direction;
     const toFace = direction === 'to-face';
+    const faceBounded = isFaceBounded(direction);
     const noun = removing ? 'Depth' : 'Distance';
     this.distanceLabel.textContent = direction === 'two'
       ? `${noun} 1`
       : direction === 'symmetric' ? `Total ${noun.toLowerCase()}` : noun;
     this.faceSlotWrap.classList.toggle('hidden', !toFace);
-    this.distanceWrap.classList.toggle('hidden', toFace);
-    this.distanceWrap.classList.toggle('flex', !toFace);
+    this.distanceWrap.classList.toggle('hidden', faceBounded);
+    this.distanceWrap.classList.toggle('flex', !faceBounded);
     this.distance2Wrap.classList.toggle('hidden', direction !== 'two');
     this.distance2Wrap.classList.toggle('flex', direction === 'two');
-    const throughOffered = removing && direction !== 'two' && !toFace;
+    const throughOffered = removing && direction !== 'two' && !faceBounded;
     this.throughWrap.classList.toggle('hidden', !throughOffered);
     this.throughWrap.classList.toggle('flex', throughOffered);
     this.distanceInput.disabled = this.throughAllActive();
   }
 }
 
+/** The extrusion ends on a face, so it carries no distance of its own. */
+function isFaceBounded(direction: ExtrudeDirection): boolean {
+  return direction === 'to-face' || direction === 'first-face' || direction === 'last-face';
+}
+
 /** The direction mode a parsed statement's options imply. */
 function directionOf(state: {
   distance2: ValueExpr | null;
   symmetric: boolean;
-  toFaceLabel: string | null;
+  toFaceKind: 'selector' | ExtrudeFaceTarget | null;
 }): ExtrudeDirection {
-  if (state.toFaceLabel !== null) {
-    return 'to-face';
+  if (state.toFaceKind !== null) {
+    return state.toFaceKind === 'selector' ? 'to-face' : state.toFaceKind;
   }
   if (state.distance2 !== null) {
     return 'two';

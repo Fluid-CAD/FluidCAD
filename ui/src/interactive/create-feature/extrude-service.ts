@@ -29,9 +29,10 @@ type ExtrudeApplyRequest = Parameters<typeof applyExtrude>[0];
  * Loft); the dialog's dropdown offers the unconsumed sketches and
  * a chosen one is bound to a variable (`const s = sketch(…)` → `extrude(25,
  * s)`). The only 3D picking is the "Up to face" direction mode, where a face
- * click sets the extrusion's target (`extrude(<face>, s)`); otherwise the
- * re-render is the preview and editor undo is the rollback, as on the
- * modify rails.
+ * click sets the extrusion's target (`extrude(<face>, s)`) — its "Up to first
+ * face" / "Up to last face" siblings write the literal the kernel resolves
+ * (`extrude('first-face', s)`) and pick nothing; otherwise the re-render is
+ * the preview and editor undo is the rollback, as on the modify rails.
  */
 export class ExtrudeFeatureService {
   private panel: ExtrudePanel;
@@ -295,6 +296,7 @@ export class ExtrudeFeatureService {
       thin: parsed.thin,
       profileLabel: parsed.profileText,
       toFaceLabel: parsed.toFaceText,
+      toFaceKind: parsed.toFaceKind,
     });
     this.syncFacePickMode();
     this.runner.schedulePreview();
@@ -522,17 +524,18 @@ export class ExtrudeFeatureService {
     return {
       ...values,
       profile: profileRef(option),
-      toFace: this.panel.isToFace() ? this.toFaceEntity ?? undefined : undefined,
+      toFace: this.panel.faceTarget()
+        ?? (this.panel.isToFace() ? this.toFaceEntity ?? undefined : undefined),
     };
   }
 
   /**
    * The edit-mode apply payload: the form values plus the session fields —
    * the staleness guard, the re-sourced profile when the slot moved off its
-   * "Current: …" entry, and the to-face target while that direction is
-   * selected — `keep` for the statement's own target, a face pick (with the
-   * boundary it resolves against) for a re-pick. No toFace field means the
-   * distance form.
+   * "Current: …" entry, and the to-face target while one of those directions
+   * is selected — `keep` for the statement's own target, a face pick (with
+   * the boundary it resolves against) for a re-pick, the literal for
+   * first/last-face. No toFace field means the distance form.
    */
   private buildEditRequest(): ExtrudeEditOptions | { error: string } {
     const values = this.panel.values();
@@ -549,7 +552,10 @@ export class ExtrudeFeatureService {
       }
       : undefined;
     let toFace: ExtrudeEditOptions['toFace'];
-    if (this.panel.isToFace()) {
+    const faceTarget = this.panel.faceTarget();
+    if (faceTarget) {
+      toFace = { kind: faceTarget };
+    } else if (this.panel.isToFace()) {
       toFace = this.toFaceEntity
         ? { kind: 'face', entity: this.toFaceEntity }
         : { kind: 'keep' };

@@ -9,9 +9,9 @@ import {
   renderRevolveStatement,
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames, validCountValue, validValueExpr,
-  renderChamferValueArgs,
+  renderChamferValueArgs, renderFaceTargetExpr,
   type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions, type CopyEditOptions,
-  type ExtrudeEditOptions, type FeatureStatementEditTarget,
+  type ExtrudeEditOptions, type ExtrudeFaceTarget, type ExtrudeTargetKind, type FeatureStatementEditTarget,
   type HelixEditOptions,
   type HelixSourceSpec, type LoftEditOptions,
   type PlaneEditOptions, type RepeatAxisSpec, type RepeatEditAxis, type RepeatEditOptions,
@@ -190,12 +190,13 @@ type ExtrudeOptionSet = {
 /**
  * The extrude request's shape. The profile is a sketch — `active` consumes it
  * implicitly, `bound` binds it to a variable. `toFace` is the optional
- * up-to-face target: a picked face to synthesize a selector from, which
- * replaces the distance(s).
+ * up-to-face target, which replaces the distance(s): a picked face to
+ * synthesize a selector from, or the `'first-face'` / `'last-face'` literal
+ * the kernel resolves itself.
  */
 type ExtrudeRequest = ExtrudeOptionSet & {
   profile: { mode: 'active' | 'bound' } & SketchLoc;
-  toFace?: Pick;
+  toFace?: Pick | ExtrudeFaceTarget;
 };
 
 
@@ -266,7 +267,8 @@ function validateExtrudeOptions(body: any, toFace = false): ExtrudeOptionSet | {
 }
 
 function validateExtrude(body: any): ExtrudeRequest | { error: string } {
-  const hasToFace = body?.toFace !== undefined && body?.toFace !== null;
+  const target = body?.toFace;
+  const hasToFace = target !== undefined && target !== null;
   const options = validateExtrudeOptions(body, hasToFace);
   if ('error' in options) {
     return options;
@@ -276,14 +278,18 @@ function validateExtrude(body: any): ExtrudeRequest | { error: string } {
   if ((mode !== 'active' && mode !== 'bound') || !loc) {
     return { error: 'profile must be {mode: "active"|"bound", filePath, line} of the sketch' };
   }
+  const profile = { mode, ...loc };
   if (!hasToFace) {
-    return { ...options, profile: { mode, ...loc } };
+    return { ...options, profile };
   }
-  const pick = validatePick(body.toFace);
+  if (target === 'first-face' || target === 'last-face') {
+    return { ...options, profile, toFace: target };
+  }
+  const pick = validatePick(target);
   if (!pick || pick.sub.type !== 'face') {
-    return { error: 'toFace must be a {shapeId, sub:{type:"face", index}} pick' };
+    return { error: 'toFace must be "first-face", "last-face" or a {shapeId, sub:{type:"face", index}} pick' };
   }
-  return { ...options, profile: { mode, ...loc }, toFace: pick };
+  return { ...options, profile, toFace: pick };
 }
 
 /**
@@ -1358,7 +1364,8 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
   if (feature === 'extrude') {
     // The toFace field is NOT a keep-or-absent slot: absent means the
     // distance form (dropping any target the statement had), `keep` re-emits
-    // the statement's own target text, `face` re-picks it.
+    // the statement's own target text, `face` re-picks it, and
+    // `first-face`/`last-face` swap it for that literal.
     const toFaceRaw = body?.toFace;
     const hasToFace = toFaceRaw !== undefined && toFaceRaw !== null;
     const options = validateExtrudeOptions(body, hasToFace);
@@ -1368,8 +1375,8 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
     edit.extrude = options;
     const result: StatementEditRequest = base;
     if (hasToFace) {
-      if (toFaceRaw.kind === 'keep') {
-        edit.extrude.toFace = { kind: 'keep' };
+      if (toFaceRaw.kind === 'keep' || toFaceRaw.kind === 'first-face' || toFaceRaw.kind === 'last-face') {
+        edit.extrude.toFace = { kind: toFaceRaw.kind };
       } else if (toFaceRaw.kind === 'face') {
         const pick = validatePick(toFaceRaw.entity);
         if (!pick || pick.sub.type !== 'face') {
@@ -1378,7 +1385,7 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
         result.extrudeToFace = pick;
         result.needsPicks = true;
       } else {
-        return { error: 'toFace must be {kind: "keep"} or {kind: "face", entity}' };
+        return { error: 'toFace must be {kind: "keep" | "first-face" | "last-face"} or {kind: "face", entity}' };
       }
     }
     if (isKeepSlot(body?.profile)) {
@@ -2799,8 +2806,10 @@ export function createApplyFeatureRouter(
 
     // Extrude's profile is a sketch statement, never a pick selection — the
     // transform re-verifies that the line holds a sketch() call. The optional
-    // up-to-face target IS a pick: it synthesizes a face selector rendered as
-    // the call's first argument, in place of the distance(s).
+    // up-to-face target replaces the distance(s) as the call's first
+    // argument: a picked face synthesizes a face selector, while
+    // 'first-face'/'last-face' render as that literal — no pick involved,
+    // the kernel resolves the face at build time.
     if (feature === 'extrude') {
       const request = validateExtrude(req.body);
       if ('error' in request) {
@@ -2821,8 +2830,12 @@ export function createApplyFeatureRouter(
         let parts: ApplyFeatureEditSpec['parts'] = [];
         let imports: string[] = [];
         let faceArgs: string | null = null;
+        let toFace: ExtrudeTargetKind | undefined;
 
-        if (request.toFace) {
+        if (request.toFace === 'first-face' || request.toFace === 'last-face') {
+          toFace = request.toFace;
+          faceArgs = renderFaceTargetExpr(request.toFace);
+        } else if (request.toFace) {
           const synthOptions = code
             ? {
               namer: await makeProducerNamer(code),
@@ -2859,6 +2872,7 @@ export function createApplyFeatureRouter(
           producers.push(...synthesis.spec.producers);
           imports = synthesis.spec.imports;
           faceArgs = synthesis.args;
+          toFace = 'selector';
         }
 
         const options: ExtrudeEditOptions = {
@@ -2870,7 +2884,7 @@ export function createApplyFeatureRouter(
           drill: request.drill,
           thin: request.thin,
           profile: request.profile.mode === 'bound' ? 'bound' : 'implicit',
-          toFace: request.toFace !== undefined,
+          toFace,
         };
         // Truthful preview name for a bound profile: the same resolution the
         // transform runs (reused const, collision-suffixed hint).

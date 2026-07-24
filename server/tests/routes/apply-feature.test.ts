@@ -482,7 +482,7 @@ describe('apply-feature route validation', () => {
     expect(synthesizeCalls).toEqual([{ feature: 'extrude', value: undefined }]);
     expect(relayed[0].spec).toMatchObject({
       feature: 'extrude',
-      extrude: { op: 'add', distance: null, profile: 'implicit', toFace: true },
+      extrude: { op: 'add', distance: null, profile: 'implicit', toFace: 'selector' },
       producers: [
         { line: 3, featureType: 'sketch', bind: false },
         { line: 4, featureType: 'extrude', bind: true },
@@ -560,6 +560,46 @@ describe('apply-feature route validation', () => {
     });
     expect(status).toBe(422);
     expect(body.reason).toContain('stable selector');
+  });
+
+  it('writes a first-face target as the literal, synthesizing nothing', async () => {
+    const { status, body } = await post({
+      feature: 'extrude', op: 'add', distance: null, profile: PROFILE, toFace: 'first-face',
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe(`extrude('first-face')`);
+    expect(synthesizeCalls).toEqual([]);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'extrude',
+      extrude: { op: 'add', distance: null, profile: 'implicit', toFace: 'first-face' },
+      producers: [{ line: 3, featureType: 'sketch', bind: false }],
+      parts: [],
+    });
+  });
+
+  it('previews a bound-profile last-face remove as cut(\'last-face\', s)', async () => {
+    const { body } = await post({
+      feature: 'extrude', op: 'remove', profile: { ...PROFILE, mode: 'bound' },
+      toFace: 'last-face', preview: true,
+    });
+    expect(body.preview).toBe(`cut('last-face', s)`);
+    expect(relayed).toHaveLength(0);
+  });
+
+  it('rejects a first-face extrude carrying a distance', async () => {
+    const { status, body } = await post({
+      feature: 'extrude', op: 'add', distance: 25, profile: PROFILE, toFace: 'first-face',
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('to-face');
+  });
+
+  it('rejects an unknown to-face literal', async () => {
+    const { status, body } = await post({
+      feature: 'extrude', op: 'add', profile: PROFILE, toFace: 'middle-face',
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('toFace');
   });
 
   const SWEEP_PROFILE = { mode: 'active', filePath: '/ws/m.fluid.js', line: 7, column: 0 };
@@ -1512,7 +1552,7 @@ describe('apply-feature route validation', () => {
         ok: true,
         parsed: {
           feature: 'extrude', op: 'add', distance: 30, distance2: null, symmetric: false,
-          draft: null, drill: true, thin: null, profileText: null, toFaceText: null,
+          draft: null, drill: true, thin: null, profileText: null, toFaceText: null, toFaceKind: null,
         },
         statement: 'extrude(30)',
       });
@@ -1982,6 +2022,36 @@ describe('apply-feature route validation', () => {
         });
         expect(status).toBe(400);
         expect(body.error).toContain('re-picked target');
+      });
+
+      it('swaps a picked to-face target for the first-face literal, synthesizing nothing', async () => {
+        currentCode = TOFACE_CODE;
+        const { status, body } = await post({
+          feature: 'extrude',
+          edit: { filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+          op: 'add', distance: null, thin: null,
+          toFace: { kind: 'first-face' },
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe(`extrude('first-face', p)`);
+        expect(synthesizeCalls).toEqual([]);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'extrude',
+          parts: [],
+          edit: { line: 6, column: 0, extrude: { toFace: { kind: 'first-face' } } },
+        });
+      });
+
+      it('rejects an unknown edited to-face kind', async () => {
+        currentCode = TOFACE_CODE;
+        const { status, body } = await post({
+          feature: 'extrude',
+          edit: { filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+          op: 'add', distance: null, thin: null,
+          toFace: { kind: 'middle-face' },
+        });
+        expect(status).toBe(400);
+        expect(body.error).toContain('toFace');
       });
 
       it('refuses a stale expectedStatement before relaying', async () => {

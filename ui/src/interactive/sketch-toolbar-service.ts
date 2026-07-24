@@ -36,6 +36,13 @@ export class SketchToolbarService {
    */
   onOpDialogToggle?: (open: boolean) => void;
 
+  /**
+   * Fires when a sketch becomes active or inactive (the sketch toolbar shows
+   * or hides). main.ts uses it to collapse the create-feature buttons into the
+   * Finish Sketch popup while a sketch is being edited.
+   */
+  onActiveChange?: (active: boolean) => void;
+
   private viewer: Viewer;
   private container: HTMLElement;
   private trimService: TrimPickService;
@@ -64,6 +71,8 @@ export class SketchToolbarService {
   // setters below (session-only state, deliberately not persisted).
   private snapToVertices = true;
   private snapToGrid = true;
+  /** Last-reported sketch-active state, so {@link onActiveChange} fires on edges only. */
+  private lastActive = false;
 
   constructor(
     container: HTMLElement,
@@ -244,6 +253,12 @@ export class SketchToolbarService {
       this.activeSketchInfo = null;
       this.toolbar.hide();
       this.shortcuts.disable();
+    }
+
+    const active = this.activeSketchInfo !== null;
+    if (active !== this.lastActive) {
+      this.lastActive = active;
+      this.onActiveChange?.(active);
     }
   }
 

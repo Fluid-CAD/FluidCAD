@@ -165,6 +165,11 @@ export class LoftFeatureService {
     return this.armed;
   }
 
+  /** The toolbar button, mirrored into the Finish Sketch grid during sketch mode. */
+  get toolbarButton(): FeatureButton {
+    return this.button;
+  }
+
   /** An edit session is open (the viewport shows the pre-statement rollback). */
   get isEditing(): boolean {
     return this.editTarget !== null;

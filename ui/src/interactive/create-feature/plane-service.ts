@@ -153,6 +153,11 @@ export class PlaneFeatureService {
     return this.armed;
   }
 
+  /** The toolbar button, mirrored into the Finish Sketch grid during sketch mode. */
+  get toolbarButton(): FeatureButton {
+    return this.button;
+  }
+
   /** Picks are live the whole time armed — the viewer routes clicks here. */
   get isPicking(): boolean {
     return this.armed;

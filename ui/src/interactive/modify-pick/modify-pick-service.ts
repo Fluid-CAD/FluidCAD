@@ -337,6 +337,25 @@ export class ModifyPickService {
     return this.feature !== null;
   }
 
+  /** The Sketch (start-a-new-sketch) button, mirrored into the Finish Sketch grid. */
+  get sketchButton(): FeatureButton {
+    return this.buttons.get('sketch')!;
+  }
+
+  /**
+   * Start a brand-new sketch in one gesture — the Finish Sketch grid's New
+   * Sketch. The Sketch toolbar button is a toggle: while a sketch is being
+   * edited, its first press only closes that sketch's dialog, so plain
+   * delegation would take two clicks. Here we drop any tracked session first,
+   * then arm the new-sketch pick, so a single click always starts a new sketch.
+   */
+  startNewSketch(): void {
+    if (this.sketchSession?.tracking) {
+      this.closeSketchDialog();
+    }
+    this.enterSketch();
+  }
+
   /** An edit session is open (the viewport shows the pre-statement rollback). */
   get isEditing(): boolean {
     return this.editTarget !== null;

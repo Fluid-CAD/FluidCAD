@@ -26,6 +26,7 @@ import { RepeatFeatureService } from './interactive/create-feature/repeat-servic
 import { CopyFeatureService } from './interactive/create-feature/copy-service';
 import { BooleanFeatureService } from './interactive/create-feature/boolean-service';
 import { PlaneFeatureService } from './interactive/create-feature/plane-service';
+import { FinishSketchMenu } from './interactive/create-feature/finish-sketch-menu';
 import { SolidPickSelection } from './interactive/solid-pick';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
@@ -565,6 +566,27 @@ const booleanService = new BooleanFeatureService(container, viewer, navbar, {
   onSuspendSketchUI: () => sketchService.update([]),
   onResumeSketchUI: () => sketchService.update(viewer.currentSceneObjects),
 });
+
+// While a sketch is active, the create-feature buttons collapse into a single
+// "Finish Sketch" button whose popup grid mirrors them and delegates clicks
+// straight back to them. Constructed after every create service so its button
+// prepends ahead of theirs; only the mirrored buttons hide, so Shell (a modify
+// tool that also lives in the create group) stays reachable alongside it.
+const finishSketchMenu = new FinishSketchMenu(navbar.getGroup('create')!, [
+  { button: extrudeService.toolbarButton },
+  { button: revolveService.toolbarButton },
+  { button: sweepService.toolbarButton },
+  { button: loftService.toolbarButton },
+  { button: wrapService.toolbarButton },
+  { button: planeService.toolbarButton },
+  {
+    button: modifyService.sketchButton,
+    label: 'New Sketch',
+    reflectActive: false,
+    onClick: () => modifyService.startNewSketch(),
+  },
+]);
+sketchService.onActiveChange = (active) => finishSketchMenu.setConsolidated(active);
 
 const breakpointIndicator = new BreakpointIndicator(container, () => {
   if (regionService.state === 'picking-active') {

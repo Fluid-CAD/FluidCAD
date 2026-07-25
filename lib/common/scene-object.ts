@@ -63,6 +63,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _name: string | null = null;
   private _guide: boolean = false;
   private _reusable: boolean = false;
+  private _internal: boolean = false;
   private _sourceLocation: SourceLocation | null = null;
   private _error: string | null = null;
   private _destroyed: boolean = false;
@@ -108,6 +109,21 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   isAlwaysVisible(): boolean {
     return this._alwaysVisible;
+  }
+
+  /**
+   * Mark an object a builder creates to serve ANOTHER statement's build —
+   * `sketch('xy', …)` makes itself a plane, a mid plane makes its inline
+   * inputs. It is stamped with the consuming call's source location, so it
+   * has no statement of its own to name, edit or reference; the timeline
+   * leaves such rows out rather than showing a feature the code never wrote.
+   */
+  markInternal(): void {
+    this._internal = true;
+  }
+
+  isInternal(): boolean {
+    return this._internal;
   }
 
   hasShapes(): boolean {

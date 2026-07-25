@@ -411,6 +411,7 @@ export class SceneRenderer {
       fromCache: scene.isCached(obj),
       visible: opts.visible,
       reusable: obj.isReusable() || undefined,
+      internal: obj.isInternal() || undefined,
       isContainer: obj.isContainer(),
       hideChildren: obj.hidesChildren() || undefined,
       hasError,

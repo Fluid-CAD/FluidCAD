@@ -13,21 +13,41 @@ export type PlaneOption = {
   column: number;
 };
 
+/** A row's `filePath:line` — the granularity plane statements resolve at. */
+function lineKey(loc: { filePath: string; line: number }): string {
+  return `${loc.filePath}:${loc.line}`;
+}
+
+/**
+ * Whether a plane row stands for a `plane()` statement of its own — exactly
+ * the rows {@link collectPlaneOptions} offers. False for the plane a sketch
+ * builds for itself and for one written inline in another call's arguments:
+ * both carry the consuming call's source location, so that line holds no
+ * plane statement to bind, reference or edit.
+ */
+export function isPlaneStatementRow(
+  obj: SceneObjectRender,
+  sceneObjects: SceneObjectRender[],
+): boolean {
+  return obj.type === 'plane' && obj.sourceLocation !== undefined
+    && planeOptionForLocation(collectPlaneOptions(sceneObjects), obj.sourceLocation) !== undefined;
+}
+
 /**
  * The plane features rendered in the scene, one option per source line. A
  * single statement can register several plane objects (a mid plane adds its
  * two inputs, a from-face plane adds the selection), all sharing the call's
  * source location — the LAST object at a line is the statement's result.
- * A sketch's implicit plane carries the sketch call's location and is
- * excluded: its line holds no plane() call the transform could bind. (Only
- * sketch lines are filtered — a plane statement's own line legitimately
- * hosts the non-plane objects its selector arguments register.)
+ * A sketch's implicit plane is excluded (see {@link sketchOwningPlaneRow}):
+ * its line holds no plane() call the transform could bind. (Only sketch lines
+ * are filtered — a plane statement's own line legitimately hosts the
+ * non-plane objects its selector arguments register.)
  */
 export function collectPlaneOptions(sceneObjects: SceneObjectRender[]): PlaneOption[] {
-  const otherFeatureLines = new Set(
+  const sketchLines = new Set(
     sceneObjects
       .filter(o => o.type === 'sketch' && o.sourceLocation)
-      .map(o => `${o.sourceLocation!.filePath}:${o.sourceLocation!.line}`),
+      .map(o => lineKey(o.sourceLocation!)),
   );
   const byLine = new Map<string, PlaneOption>();
   for (const obj of sceneObjects) {
@@ -35,8 +55,8 @@ export function collectPlaneOptions(sceneObjects: SceneObjectRender[]): PlaneOpt
       continue;
     }
     const loc = obj.sourceLocation;
-    const key = `${loc.filePath}:${loc.line}`;
-    if (otherFeatureLines.has(key)) {
+    const key = lineKey(loc);
+    if (sketchLines.has(key)) {
       continue;
     }
     byLine.set(key, {

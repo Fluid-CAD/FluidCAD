@@ -14,6 +14,18 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+/**
+ * Objects the scene carries but the timeline never lists: a lazy select's
+ * reference holder, and the internal inputs a statement builds for itself
+ * (the plane behind `sketch('xy', …)`) — they have no statement of their own,
+ * so a row would offer navigation and edits that belong to the statement they
+ * serve. Rows keep their scene index either way, so rollback targets and the
+ * edit dialogs' row lookups are unaffected.
+ */
+function isHiddenRow(obj: SceneObjectRender): boolean {
+  return obj.uniqueType === 'lazy-select' || obj.internal === true;
+}
+
 export class TimelinePanel {
   /**
    * Pre-empts a timeline row's default click (rollback preview + go to
@@ -177,7 +189,7 @@ export class TimelinePanel {
     const parentIds = new Set<string>();
     const childErrorByParent = new Map<string, boolean>();
     for (const obj of items) {
-      if (obj.uniqueType === 'lazy-select') {
+      if (isHiddenRow(obj)) {
         continue;
       }
       if (obj.parentId) {
@@ -195,7 +207,7 @@ export class TimelinePanel {
       if (obj.parentId) {
         continue;
       }
-      if (obj.uniqueType === 'lazy-select') {
+      if (isHiddenRow(obj)) {
         continue;
       }
 
@@ -213,7 +225,7 @@ export class TimelinePanel {
 
       if (hasChildren && !isCollapsed) {
         for (let j = 0; j < items.length; j++) {
-          if (items[j].uniqueType === 'lazy-select') {
+          if (isHiddenRow(items[j])) {
             continue;
           }
           if (items[j].parentId === obj.id) {

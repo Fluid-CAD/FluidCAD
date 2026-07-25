@@ -26,6 +26,7 @@ import { RepeatFeatureService } from './interactive/create-feature/repeat-servic
 import { CopyFeatureService } from './interactive/create-feature/copy-service';
 import { BooleanFeatureService } from './interactive/create-feature/boolean-service';
 import { PlaneFeatureService } from './interactive/create-feature/plane-service';
+import { isPlaneStatementRow } from './interactive/create-feature/plane-bases';
 import { FinishSketchMenu } from './interactive/create-feature/finish-sketch-menu';
 import { SolidPickSelection } from './interactive/solid-pick';
 import { MeasureController } from './ui/measure/measure-controller';
@@ -375,9 +376,14 @@ timelinePanel.onFeatureEdit = (obj, index) => {
   void openFeatureEditor(obj, index);
 };
 // Rows with an edit dialog keep the double-click gesture even while the
-// trailing sketch is active — the dialog suspends the sketch UI itself.
+// trailing sketch is active — the dialog suspends the sketch UI itself. A
+// plane row only qualifies when it is a plane() statement's own: the plane a
+// sketch builds for itself opens that sketch, and sketch rows stay blocked
+// while another sketch is being edited. (A workspace kernel new enough to
+// flag its internal objects leaves that row out of the timeline entirely.)
 timelinePanel.isFeatureEditable = (obj) =>
-  obj.type != null && EDITABLE_ROW_TYPES.has(obj.type) && obj.sourceLocation != null;
+  obj.type != null && EDITABLE_ROW_TYPES.has(obj.type) && obj.sourceLocation != null
+  && (obj.type !== 'plane' || isPlaneStatementRow(obj, viewer.currentSceneObjects));
 
 /**
  * Timeline `type` → the dialog that edits it (cut is extrude's remove op;
@@ -420,17 +426,7 @@ function sketchLocKey(loc: { filePath: string; line: number; column: number }): 
  */
 async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise<void> {
   if (obj.type === 'sketch' && obj.sourceLocation) {
-    // Sketch has no edit dialog of its own: the double-click's breakpoint
-    // truncates the build at the sketch, and the sketch dialog adopts the
-    // render that ends in it. Flag that adoption as the edit it is, so the
-    // dialog owns the breakpoint and its close leaves the statement alone.
-    // Whether a later feature consumes it (Finish Sketch just removes the
-    // breakpoint) or not (offer the grid) comes from the last complete build's
-    // snapshot, not `obj` — the gesture's own rollback has already flipped this
-    // row's `visible` by dropping its geometry out of scope.
-    const consumed = sketchConsumedByKey.get(sketchLocKey(obj.sourceLocation))
-      ?? (obj.visible === false || obj.reusable === true);
-    modifyService.noteSketchEditRequest(obj.sourceLocation, consumed);
+    enterSketchEdit(obj.sourceLocation);
     return;
   }
   if (!obj.type || !EDITABLE_ROW_TYPES.has(obj.type) || !obj.sourceLocation) {
@@ -440,6 +436,15 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
   const result = await parseFeatureAt(target);
   if (result.ok === false) {
     showEditRefusal(result.reason);
+    return;
+  }
+  if (result.parsed.feature === 'sketch') {
+    // The row's line holds a sketch(), not the feature the row's type
+    // suggested: a statement can register objects of another type at its own
+    // call site — `sketch('xy', …)` builds itself a plane. The statement is
+    // what the dialogs edit, so it opens as the sketch it is (the breakpoint
+    // the gesture placed already landed after it).
+    enterSketchEdit(target);
     return;
   }
   const info = { index, type: obj.type, expectedStatement: result.statement };
@@ -466,11 +471,28 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     booleanService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'plane') {
     planeService.enterEdit(target, parsed, info);
-  } else if (parsed.feature !== 'sketch') {
-    // Sketch rows aren't in EDITABLE_ROW_TYPES — the guard only narrows the
-    // parse union down to the shell/fillet/chamfer dialog's statements.
+  } else {
+    // What's left of the parse union: the shell/fillet/chamfer dialog's.
     modifyService.enterEdit(target, parsed, info);
   }
+}
+
+/**
+ * Open a sketch statement for editing. Sketch has no edit dialog of its own:
+ * the double-click's breakpoint truncates the build at the sketch, and the
+ * sketch dialog adopts the render that ends in it. Flag that adoption as the
+ * edit it is, so the dialog owns the breakpoint and its close leaves the
+ * statement alone. Whether a later feature consumes the sketch (Finish Sketch
+ * just removes the breakpoint) or not (offer the grid) comes from the last
+ * complete build's snapshot, not the row — the gesture's own rollback has
+ * already flipped its `visible` by dropping its geometry out of scope.
+ */
+function enterSketchEdit(loc: { filePath: string; line: number; column: number }): void {
+  const row = viewer.currentSceneObjects.find(o =>
+    o.type === 'sketch' && o.sourceLocation && sketchLocKey(o.sourceLocation) === sketchLocKey(loc));
+  const consumed = sketchConsumedByKey.get(sketchLocKey(loc))
+    ?? (row?.visible === false || row?.reusable === true);
+  modifyService.noteSketchEditRequest(loc, consumed);
 }
 
 // Transient toast for edit-dialog refusals — there is no dialog to carry the

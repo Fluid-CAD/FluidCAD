@@ -42,6 +42,11 @@ export type SceneObjectRender = {
   visible: boolean;
   /** The object carries a `.reusable()` chain — kept visible when consumed. */
   reusable?: boolean;
+  /**
+   * The object serves another statement's build (a sketch's own plane) rather
+   * than being a feature the code wrote — the timeline leaves it out.
+   */
+  internal?: boolean;
   type: string;
   uniqueType: string;
   /** Viewport classification for sketch geometry children (server-driven). */

@@ -422,4 +422,49 @@ describe("plane", () => {
       expect(pl.origin.z).toBeCloseTo(30);
     });
   });
+
+  // A sketch builds itself a plane when it isn't handed one. That object
+  // carries the SKETCH call's source location, so it stands for no statement
+  // of its own — it is marked internal, and the timeline leaves it out
+  // instead of showing a plane feature the code never wrote.
+  describe("internal planes", () => {
+    const planesOf = (scene: ReturnType<typeof render>) =>
+      scene.getRenderedObjects().filter(r => r.type === "plane");
+
+    it("marks the plane a sketch builds for itself", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+
+      const planes = planesOf(render());
+      expect(planes).toHaveLength(1);
+      expect(planes[0].internal).toBe(true);
+    });
+
+    it("marks the plane a sketch derives from a face", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(60) as Extrude;
+      sketch(e.endFaces(), () => {
+        rect(10, 10);
+      });
+
+      const planes = planesOf(render());
+      expect(planes.every(p => p.internal === true)).toBe(true);
+    });
+
+    it("leaves a plane() statement alone, and the sketch that consumes it", () => {
+      const p = plane("xy", 20) as PlaneObjectBase;
+      sketch(p, () => {
+        rect(100, 50);
+      });
+
+      // Only the statement's own plane object exists — the sketch reuses it
+      // rather than building one — and it stays a feature row.
+      const planes = planesOf(render());
+      expect(planes).toHaveLength(1);
+      expect(planes[0].internal).toBeUndefined();
+    });
+  });
 });

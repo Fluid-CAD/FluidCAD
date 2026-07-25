@@ -57,10 +57,14 @@ Navigate through your modeling history step by step. Review how any model was bu
   <img src="https://fluidcad.io/img/history.gif" alt="FluidCAD History" />
 </p>
 
-### Interactive Prototyping
+### Model with the Mouse
 
-Some operations support interactive mouse-driven input directly in the viewport, letting you prototype faster without writing every parameter by hand.
+Prefer clicking? Pick geometry in the viewport, fill in a dialog, and FluidCAD writes the statement into your file -- sketches, extrude, revolve, sweep, loft, shell, fillet, chamfer, repeat, booleans and more. Double-click a timeline row to reopen the same dialog and edit that feature in place.
 
+It's a companion to the code, not a replacement: everything it produces is ordinary FluidCAD code you can keep editing by hand.
+<p align="center">
+<img width="1901" height="1290" alt="image" src="https://github.com/user-attachments/assets/aeb3afef-0e35-480a-a43d-48c97d2872f4" />
+</p>
 <p align="center">
   <img src="https://fluidcad.io/img/region-extrude.gif" alt="FluidCAD Region Extrude" />
 </p>

@@ -87,8 +87,10 @@ export class SketchStartPanel {
 
   /**
    * The options block (section view + snap toggles) only means something once
-   * the sketch plane exists, so the viewer shows it on entering sketch mode
-   * and hides it on leaving.
+   * the sketch plane exists, so the viewer drives it from the scene: shown
+   * while a sketch is active — including one whose face/plane is being
+   * re-picked, where the camera leaves the sketch view but the sketch (and
+   * this dialog) stay — and hidden once the scene has no sketch left.
    */
   setSectionViewVisible(visible: boolean): void {
     this.sketchOptionsWrap.classList.toggle('hidden', !visible);

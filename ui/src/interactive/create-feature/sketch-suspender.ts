@@ -34,8 +34,14 @@ export class SketchUISuspender {
       return;
     }
     this.suspendedFlag = false;
-    this.viewer.resumeSketchEditing(immediate);
-    if (immediate) {
+    // A lazy resume leaves the transition to the render it knows is coming —
+    // but an apply's render can land BEFORE the apply's own response (two
+    // channels), and a render that arrives suspended draws the sketch as a
+    // plain 3D scene. Nothing revisits that, so a missed render makes the
+    // resume immediate: the sketch view (and the sketch toolbar) come back now.
+    const now = immediate || this.viewer.missedSketchRender;
+    this.viewer.resumeSketchEditing(now);
+    if (now) {
       this.hooks.onResumeSketchUI?.();
     }
   }

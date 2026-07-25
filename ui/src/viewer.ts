@@ -130,6 +130,18 @@ export class Viewer {
   private highlightedEntities: SelectedEntity[] = [];
   private activeSketchId: string | null = null;
   private sectionViewControl: SectionViewControl | null = null;
+  /** The last render's rollback flags — replayed by a self-healing resume. */
+  private lastRenderIsRollback = false;
+  private lastRenderStop: number | undefined;
+  /**
+   * A dialog holds sketch editing suspended ({@link suspendSketchEditing}).
+   * Tracked here rather than read back off the mode manager: region picking
+   * flips `sketchEnabled` for its own reasons on every render, so the flag
+   * doesn't say who suspended what.
+   */
+  private sketchEditingSuspended = false;
+  /** A render landed while sketch editing was suspended — see {@link missedSketchRender}. */
+  private renderedWhileSuspended = false;
   private readonly sectionClipper = new SectionClipper();
   private hiddenShapeIds = new Set<string>();
   private shapeOpacities = new Map<string, number>();
@@ -187,12 +199,43 @@ export class Viewer {
   /**
    * The section-view toggle lives in the sketch dialog, which the modify-pick
    * service owns; it registers the control here so the viewer can drive its
-   * visibility (sketch mode only) and checked state.
+   * visibility (see {@link syncSectionViewVisible}) and checked state.
    */
   setSectionViewControl(control: SectionViewControl | null): void {
     this.sectionViewControl = control;
-    control?.setVisible(this.modeManager.isSketchMode);
+    this.syncSectionViewVisible();
     control?.setActive(viewerSettings.current.sectionView);
+  }
+
+  /**
+   * Show the sketch dialog's options row (section view + snapping) whenever
+   * the scene has a sketch for them to act on. That includes a suspended
+   * sketch: re-picking the sketch's face/plane frees the camera from the
+   * sketch view for the pick, but the dialog — and its sketch — are still
+   * there, so its toggles must not blink out for the duration.
+   */
+  private syncSectionViewVisible(): void {
+    this.sectionViewControl?.setVisible(this.modeManager.isSketchMode || this.hasSuspendedSketch());
+  }
+
+  /** Sketch editing is suspended, but the scene still ends in its sketch. */
+  private hasSuspendedSketch(): boolean {
+    if (!this.sketchEditingSuspended || this.lastRenderIsRollback) {
+      return false;
+    }
+    const active = this.findActiveObject(this.sceneObjects);
+    return active?.type === 'sketch' && !!active.object?.plane;
+  }
+
+  /**
+   * A render landed while sketch editing was suspended and drew that sketch
+   * as a plain 3D scene — no camera lock, no ghosting, no options row. It
+   * beat the apply response that was going to lift the suspension, so the
+   * lazy resume's "a render is on its way" no longer holds: that render has
+   * been and gone, and nothing else will make the transition it skipped.
+   */
+  get missedSketchRender(): boolean {
+    return this.renderedWhileSuspended && this.hasSuspendedSketch();
   }
 
   /** Clip the scene at the sketch plane, or stop clipping. */
@@ -510,13 +553,15 @@ export class Viewer {
    */
   suspendSketchEditing(): void {
     this.modeManager.sketchEnabled = false;
+    this.sketchEditingSuspended = true;
+    this.renderedWhileSuspended = false;
     if (this.modeManager.isSketchMode) {
       this.modeManager.enterDefaultMode();
     }
     this.activeSketchId = null;
     this.settingsPanel.setProjectionLocked(false);
     this.settingsPanel.setFitButtonVisible(true);
-    this.sectionViewControl?.setVisible(false);
+    this.syncSectionViewVisible();
     this.clearHover();
     this.rebuildSceneMesh();
   }
@@ -529,13 +574,25 @@ export class Viewer {
    */
   resumeSketchEditing(immediate: boolean): void {
     this.modeManager.sketchEnabled = true;
+    this.sketchEditingSuspended = false;
+    this.renderedWhileSuspended = false;
     if (immediate && this.sceneObjects) {
-      this.updateView(this.sceneObjects);
+      // Replay the last render as it arrived: re-running a rollback as a full
+      // render would let a rolled-back sketch grab the camera.
+      this.updateView(this.sceneObjects, this.lastRenderIsRollback, this.lastRenderStop);
     }
   }
 
   updateView(sceneObjects: SceneObjectRender[], isRollback = false, rollbackStop?: number): void {
     this.sceneObjects = sceneObjects;
+    this.lastRenderIsRollback = isRollback;
+    this.lastRenderStop = rollbackStop;
+    // Sketch editing suspended: this render draws the scene as a plain 3D one,
+    // whatever it ends in. A resume that expected to hand its mode transition
+    // to this render has to make it itself — see {@link missedSketchRender}.
+    if (!isRollback && this.sketchEditingSuspended) {
+      this.renderedWhileSuspended = true;
+    }
     this.highlightedShapeId = null;
     this.highlightedSolidShapeIds = [];
     this.highlightedEntities = [];
@@ -585,8 +642,9 @@ export class Viewer {
       this.applySketchModeGhosting();
     }
 
-    // Section view: apply clipping when in sketch mode
-    this.sectionViewControl?.setVisible(this.modeManager.isSketchMode);
+    // Section view: offer the toggles this scene's sketch owns, and apply the
+    // clipping when in sketch mode.
+    this.syncSectionViewVisible();
     if (this.modeManager.isSketchMode) {
       this.sectionViewControl?.setActive(viewerSettings.current.sectionView);
       if (viewerSettings.current.sectionView) {

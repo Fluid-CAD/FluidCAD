@@ -3058,6 +3058,116 @@ describe('apply-feature route validation', () => {
     });
   });
 
+  describe('plane edit', () => {
+    const EDIT_CODE = [
+      "import { sketch, rect, extrude, plane } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { rect(100, 50) })",
+      'const e = extrude(30)',
+      "const top = plane('xy', 20)",
+      "plane('xz', 10)",
+      '',
+    ].join('\n');
+    const EDIT = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
+    const BEFORE = { index: 3, type: 'plane', line: 6, column: 0 };
+
+    beforeEach(() => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+    });
+
+    it('relays a value-only edit keeping the base, and previews it', async () => {
+      const { status, body } = await post({
+        feature: 'plane', edit: EDIT, type: 'offset', offset: 25, rotateX: 15,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`plane('xz', { offset: 25, rotateX: 15 })`);
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'plane',
+        producers: [],
+        parts: [],
+        edit: { line: 6, column: 0, plane: { type: 'offset', offset: 25, rotateX: 15 } },
+        clearBreakpoints: true,
+      });
+      expect(relayed[0].spec.edit.plane.bases).toBeUndefined();
+    });
+
+    it('binds a re-sourced plane base and keeps the other verbatim', async () => {
+      const { status, body } = await post({
+        feature: 'plane', edit: EDIT, type: 'mid',
+        bases: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'plane', filePath: '/ws/m.fluid.js', line: 5, column: 12 },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`plane('xz', top)`);
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed[0].spec).toMatchObject({
+        producers: [{ line: 5, column: 12, featureType: 'plane', nameHint: 'p', bind: true }],
+        edit: {
+          plane: {
+            type: 'mid',
+            bases: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'plane', producer: 0 }],
+          },
+        },
+      });
+    });
+
+    it('re-picks a base: synthesis with the boundary, the part on the spec', async () => {
+      currentSynthesis = planeSynthesis('endFaces', 4);
+      const { status } = await post({
+        feature: 'plane', edit: EDIT, type: 'offset', offset: 10,
+        bases: [planePick(0)],
+        before: BEFORE,
+      });
+      expect(status).toBe(200);
+      expect(synthesizeCalls).toEqual([{ feature: 'plane', value: undefined }]);
+      expect(synthesizeBoundaries).toEqual([BEFORE]);
+      expect(relayed[0].spec).toMatchObject({
+        producers: [{ line: 4, featureType: 'extrude', bind: true }],
+        parts: [{ producer: 0, accessor: 'endFaces' }],
+        edit: { plane: { bases: [{ kind: 'selector', part: 0 }] } },
+      });
+    });
+
+    it('rejects a re-picked base without a boundary', async () => {
+      const { status, body } = await post({
+        feature: 'plane', edit: EDIT, type: 'offset', offset: 10,
+        bases: [planePick(0)],
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('before is required');
+    });
+
+    it('rejects a base count the form does not take', async () => {
+      const { status, body } = await post({
+        feature: 'plane', edit: EDIT, type: 'mid',
+        bases: [{ kind: 'standard', plane: 'xy' }],
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('exactly two bases');
+    });
+
+    it('rejects an edge plane edit without a position', async () => {
+      const { status, body } = await post({ feature: 'plane', edit: EDIT, type: 'edge' });
+      expect(status).toBe(400);
+      expect(body.error).toContain('position must be');
+    });
+
+    it('422s an edit whose statement is not a plane', async () => {
+      const { status, body } = await post({
+        feature: 'plane',
+        edit: { filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+        type: 'offset', offset: 10,
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('not a plane');
+      expect(relayed).toHaveLength(0);
+    });
+  });
+
   describe('sketch-edge picks (2D branch)', () => {
     const SKETCH_SYNTHESIS = {
       ok: true,

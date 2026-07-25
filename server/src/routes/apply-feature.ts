@@ -689,27 +689,30 @@ type PlaneBaseInput =
   /** A helix statement as the edge form's base (its wire is the edge). */
   | { kind: 'wire'; loc: SketchLoc };
 
-type PlaneRequest = {
+/** One base of an edited plane: keep the statement's own text, or re-source it. */
+type PlaneEditBaseInput = { kind: 'verbatim'; sourceIndex: number } | PlaneBaseInput;
+
+type PlaneValues = {
   type: 'offset' | 'mid' | 'edge';
   offset: ValueExpr | null;
   rotateX: ValueExpr | null;
   rotateY: ValueExpr | null;
   rotateZ: ValueExpr | null;
   position: ValueExpr | null;
+};
+
+type PlaneRequest = PlaneValues & {
   bases: PlaneBaseInput[];
 };
 
 /**
- * The plane request's shape: one base for an offset plane, two for a mid
- * plane — each a standard origin plane, a picked face/edge, or an existing
- * plane feature addressed by its source location — or a single picked EDGE
- * plus a normalized 0–1 position for an edge plane. The offset and per-axis
- * rotations are optional (offset/mid only — the edge form's second argument
- * is the position); duplicates are rejected (a mid plane between a base and
- * itself is degenerate).
+ * The value half of a plane request, shared by the create and edit paths: the
+ * form plus its numeric options. The offset and per-axis rotations are
+ * optional and belong to the offset/mid forms — the edge form's second
+ * argument slot is taken by its normalized 0–1 position.
  */
-function validatePlane(body: any): PlaneRequest | { error: string } {
-  const { type, bases } = body ?? {};
+function validatePlaneValues(body: any): PlaneValues | { error: string } {
+  const { type } = body ?? {};
   if (type !== 'offset' && type !== 'mid' && type !== 'edge') {
     return { error: 'type must be "offset", "mid" or "edge"' };
   }
@@ -736,6 +739,86 @@ function validatePlane(body: any): PlaneRequest | { error: string } {
   } else if (numbers.position !== null) {
     return { error: 'position is only valid for an edge plane' };
   }
+  return {
+    type,
+    offset: numbers.offset,
+    rotateX: numbers.rotateX,
+    rotateY: numbers.rotateY,
+    rotateZ: numbers.rotateZ,
+    position: numbers.position,
+  };
+}
+
+/**
+ * One base of a plane: a standard origin plane, a picked face/edge, an
+ * existing plane feature addressed by its source location, or — for the edge
+ * form — a helix whose wire is the edge.
+ */
+function validatePlaneBase(raw: any, type: PlaneValues['type']): PlaneBaseInput | { error: string } {
+  if (raw?.kind === 'standard') {
+    if (raw.plane !== 'xy' && raw.plane !== 'xz' && raw.plane !== 'yz') {
+      return { error: 'a standard base must be "xy", "xz" or "yz"' };
+    }
+    return { kind: 'standard', plane: raw.plane };
+  }
+  if (raw?.kind === 'pick') {
+    const pick = validatePick(raw.entity);
+    if (!pick) {
+      return { error: 'a picked base must carry a {shapeId, sub:{type, index}} pick' };
+    }
+    return { kind: 'pick', pick };
+  }
+  if (raw?.kind === 'plane') {
+    const loc = validateSketchLoc(raw);
+    if (!loc) {
+      return { error: 'a plane base must carry the plane {filePath, line}' };
+    }
+    return { kind: 'plane', loc };
+  }
+  if (raw?.kind === 'wire') {
+    if (type !== 'edge') {
+      return { error: 'a helix base is only valid for an edge plane' };
+    }
+    const loc = validateSketchLoc(raw);
+    if (!loc) {
+      return { error: 'a helix base must carry the helix {filePath, line}' };
+    }
+    return { kind: 'wire', loc };
+  }
+  return { error: 'each base must be {kind: "standard"|"pick"|"plane"|"wire", …}' };
+}
+
+/** One base of an edited plane: keep by position, or any create-mode base. */
+function validatePlaneEditBase(raw: any, type: PlaneValues['type']): PlaneEditBaseInput | { error: string } {
+  if (raw?.kind === 'verbatim') {
+    if (!Number.isInteger(raw.sourceIndex) || raw.sourceIndex < 0) {
+      return { error: 'a kept base must carry its {sourceIndex} in the statement' };
+    }
+    return { kind: 'verbatim', sourceIndex: raw.sourceIndex };
+  }
+  return validatePlaneBase(raw, type);
+}
+
+/** A base's identity, for the duplicate check. */
+function planeBaseKey(base: PlaneEditBaseInput): string {
+  switch (base.kind) {
+    case 'verbatim': return `verbatim:${base.sourceIndex}`;
+    case 'standard': return `standard:${base.plane}`;
+    case 'pick': return `pick:${base.pick.shapeId}:${base.pick.sub.type}:${base.pick.sub.index}`;
+    default: return `${base.kind}:${base.loc.filePath}:${base.loc.line}`;
+  }
+}
+
+/**
+ * A plane's base list: one base for an offset or edge plane, two for a mid
+ * plane. Duplicates are rejected — a mid plane between a base and itself is
+ * degenerate — and the edge form's base must be an edge source.
+ */
+function validatePlaneBaseList<T extends PlaneEditBaseInput>(
+  bases: any,
+  type: PlaneValues['type'],
+  validateBase: (raw: any) => T | { error: string },
+): T[] | { error: string } {
   const expected = type === 'mid' ? 2 : 1;
   if (!Array.isArray(bases) || bases.length !== expected) {
     return {
@@ -744,61 +827,44 @@ function validatePlane(body: any): PlaneRequest | { error: string } {
         : `an ${type} plane takes exactly one base`,
     };
   }
-  const result: PlaneBaseInput[] = [];
+  const result: T[] = [];
   const seen = new Set<string>();
   for (const raw of bases) {
-    let key: string;
-    if (raw?.kind === 'standard') {
-      if (raw.plane !== 'xy' && raw.plane !== 'xz' && raw.plane !== 'yz') {
-        return { error: 'a standard base must be "xy", "xz" or "yz"' };
-      }
-      key = `standard:${raw.plane}`;
-      result.push({ kind: 'standard', plane: raw.plane });
-    } else if (raw?.kind === 'pick') {
-      const pick = validatePick(raw.entity);
-      if (!pick) {
-        return { error: 'a picked base must carry a {shapeId, sub:{type, index}} pick' };
-      }
-      key = `pick:${pick.shapeId}:${pick.sub.type}:${pick.sub.index}`;
-      result.push({ kind: 'pick', pick });
-    } else if (raw?.kind === 'plane') {
-      const loc = validateSketchLoc(raw);
-      if (!loc) {
-        return { error: 'a plane base must carry the plane {filePath, line}' };
-      }
-      key = `plane:${loc.filePath}:${loc.line}`;
-      result.push({ kind: 'plane', loc });
-    } else if (raw?.kind === 'wire') {
-      if (type !== 'edge') {
-        return { error: 'a helix base is only valid for an edge plane' };
-      }
-      const loc = validateSketchLoc(raw);
-      if (!loc) {
-        return { error: 'a helix base must carry the helix {filePath, line}' };
-      }
-      key = `wire:${loc.filePath}:${loc.line}`;
-      result.push({ kind: 'wire', loc });
-    } else {
-      return { error: 'each base must be {kind: "standard"|"pick"|"plane"|"wire", …}' };
+    const base = validateBase(raw);
+    if ('error' in base) {
+      return base;
     }
+    const key = planeBaseKey(base);
     if (seen.has(key)) {
       return { error: 'the two bases must be different' };
     }
     seen.add(key);
+    result.push(base);
   }
-  if (type === 'edge' && result[0].kind !== 'wire'
-    && (result[0].kind !== 'pick' || result[0].pick.sub.type !== 'edge')) {
+  const source = result[0];
+  // The edge form's base is an edge source — a picked edge or a helix. A kept
+  // base is checked against the parsed statement by the transform, the only
+  // place its expression is known.
+  if (type === 'edge' && source.kind !== 'wire' && source.kind !== 'verbatim'
+    && (source.kind !== 'pick' || source.pick.sub.type !== 'edge')) {
     return { error: 'an edge plane takes a single picked edge or a helix as its base' };
   }
-  return {
-    type,
-    offset: numbers.offset,
-    rotateX: numbers.rotateX,
-    rotateY: numbers.rotateY,
-    rotateZ: numbers.rotateZ,
-    position: numbers.position,
-    bases: result,
-  };
+  return result;
+}
+
+/** The create request's shape: the plane's values plus its bases. */
+function validatePlane(body: any): PlaneRequest | { error: string } {
+  const values = validatePlaneValues(body);
+  if ('error' in values) {
+    return values;
+  }
+  const bases = validatePlaneBaseList<PlaneBaseInput>(
+    body?.bases, values.type, raw => validatePlaneBase(raw, values.type),
+  );
+  if ('error' in bases) {
+    return bases;
+  }
+  return { ...values, bases };
 }
 
 /** The mirror plane of a repeat request: a standard plane, an existing plane feature, or a picked face. */
@@ -1238,7 +1304,7 @@ async function allocateProducerVars(
 }
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'boolean', 'helix']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'boolean', 'helix', 'plane']);
 
 /** One edited loft profile as the request carries it. */
 type EditLoftProfileInput =
@@ -1307,6 +1373,8 @@ type StatementEditRequest = {
   copyTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** Full replacement boolean target list; absent keeps the statement's. */
   booleanTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
+  /** Full replacement plane base list; absent keeps the statement's. */
+  planeBases?: PlaneEditBaseInput[];
   /** True when a source payload carries picks — synthesis needs a boundary. */
   needsPicks: boolean;
 };
@@ -1344,7 +1412,7 @@ function isKeepSlot(raw: any): boolean {
 function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "sweep", "wrap", "loft", "revolve", "helix", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy" or "boolean" for an edit' };
+    return { error: 'feature must be "extrude", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy" or "boolean" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -1664,6 +1732,10 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
 
   if (feature === 'boolean') {
     return validateBooleanEdit(body, base, edit);
+  }
+
+  if (feature === 'plane') {
+    return validatePlaneEdit(body, base, edit);
   }
 
   // Shell / fillet / chamfer: the numeric value plus an optional edited
@@ -2088,6 +2160,38 @@ function validateBooleanEdit(
   return result;
 }
 
+/**
+ * The plane edit request's shape: the form and its numeric options (the
+ * dialog owns all of them, so they always ride), plus the optional base list
+ * mixing `verbatim` keeps with re-sourced bases; an absent list keeps every
+ * statement base. A picked base flips `needsPicks` — its selector is
+ * synthesized against the pre-statement boundary.
+ */
+function validatePlaneEdit(
+  body: any,
+  base: StatementEditRequest,
+  edit: FeatureStatementEditTarget,
+): StatementEditRequest | { error: string } {
+  const values = validatePlaneValues(body);
+  if ('error' in values) {
+    return values;
+  }
+  edit.plane = values;
+  const result: StatementEditRequest = base;
+  if (body?.bases === undefined || body?.bases === null) {
+    return result;
+  }
+  const bases = validatePlaneBaseList<PlaneEditBaseInput>(
+    body.bases, values.type, raw => validatePlaneEditBase(raw, values.type),
+  );
+  if ('error' in bases) {
+    return bases;
+  }
+  result.planeBases = bases;
+  result.needsPicks = bases.some(b => b.kind === 'pick');
+  return result;
+}
+
 /** The edited loft profile list: verbatim keeps, sketch refs, face picks. */
 function validateEditLoftProfiles(
   raw: unknown,
@@ -2301,6 +2405,7 @@ export function createApplyFeatureRouter(
           ...(request.copyAxis?.kind === 'axis' ? [request.copyAxis.loc] : []),
           ...(request.copyTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
           ...(request.booleanTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
+          ...(request.planeBases ?? []).flatMap(b => b.kind === 'plane' || b.kind === 'wire' ? [b.loc] : []),
         ];
         for (const loc of sketchLocs) {
           if (normalizePath(loc.filePath) !== normalizePath(request.target.filePath)) {
@@ -2728,6 +2833,42 @@ export function createApplyFeatureRouter(
                 }),
               });
           }
+        }
+        if (request.feature === 'plane' && request.planeBases) {
+          const bases: NonNullable<NonNullable<FeatureStatementEditTarget['plane']>['bases']> = [];
+          for (const input of request.planeBases) {
+            if (input.kind === 'verbatim') {
+              bases.push({ kind: 'verbatim', sourceIndex: input.sourceIndex });
+            } else if (input.kind === 'standard') {
+              bases.push({ kind: 'standard', plane: input.plane });
+            } else if (input.kind === 'plane' || input.kind === 'wire') {
+              bases.push({
+                kind: input.kind,
+                producer: mergeProducer({
+                  line: input.loc.line, column: input.loc.column,
+                  featureType: input.kind === 'plane' ? 'plane' : 'wire',
+                  nameHint: input.kind === 'plane' ? 'p' : 'h',
+                  bind: true,
+                }),
+              });
+            } else {
+              // Picks synthesize ONE AT A TIME — the kernel groups picks by
+              // (producer, bucket), and a batched call would merge same-bucket
+              // faces into one part, destroying the per-base arity.
+              const synthesis = synthesizeSlot([input.pick], 'plane', undefined, []);
+              if (!synthesis) {
+                return;
+              }
+              // A base is ONE SceneObject — a multi-part selection has no
+              // single-expression rendering.
+              if (synthesis.spec.parts.length !== 1) {
+                res.status(422).json({ success: false, reason: 'a plane base must be a single face or edge selection' });
+                return;
+              }
+              bases.push({ kind: 'selector', part: foldSynthesis(synthesis) });
+            }
+          }
+          edit.plane!.bases = bases;
         }
         if (request.feature === 'boolean' && request.booleanTargets) {
           // Every re-picked target is a bound feature producer; keeps stay

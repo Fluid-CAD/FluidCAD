@@ -1102,6 +1102,27 @@ export async function fetchFeatureSources(before: SelectionBoundaryRef): Promise
 export type FeatureOpKind = 'add' | 'remove' | 'new';
 
 /**
+ * One base argument of a parsed plane statement. `kind` is what the base
+ * READS AS: 'plane' for a plane-like (an origin-plane literal, a plane
+ * variable, a nested `plane(…)`), 'edge' for an edge source (an edge
+ * selector or a helix variable), 'face' for anything else — it decides which
+ * dialog types can keep the base.
+ */
+export type ParsedPlaneBase = {
+  /** Argument text, verbatim. */
+  text: string;
+  kind: 'plane' | 'face' | 'edge';
+  /** The origin plane when the text is a standard plane literal. */
+  standard: 'xy' | 'xz' | 'yz' | null;
+  /**
+   * Source location of the statement a plain-identifier base references, or
+   * null when the expression doesn't resolve to one — seeds the base as its
+   * plane/helix row.
+   */
+  ref: { line: number; column: number } | null;
+};
+
+/**
  * An existing statement's dialog-editable reading (mirror of the server's
  * `ParsedFeatureStatement`). Expressions the dialogs don't edit (profiles,
  * paths, selector args) arrive as verbatim source text.
@@ -1261,6 +1282,24 @@ export type ParsedFeatureStatement =
        * length as `targetTexts` — seeds each target as its solid option.
        */
       targetRefs: ({ line: number; column: number } | null)[];
+    }
+  | {
+      feature: 'plane';
+      /**
+       * The form the dialog opens on: two bases read as a mid plane, a lone
+       * edge base carrying a position as the edge form, everything else as
+       * an offset plane.
+       */
+      type: 'offset' | 'mid' | 'edge';
+      /** The base arguments, in argument order: one, or two for a mid plane. */
+      bases: ParsedPlaneBase[];
+      /** Offset along the base normal; null when the statement writes none. */
+      offset: ValueExpr | null;
+      rotateX: ValueExpr | null;
+      rotateY: ValueExpr | null;
+      rotateZ: ValueExpr | null;
+      /** Normalized 0–1 position along the edge; null for the other forms. */
+      position: ValueExpr | null;
     }
   | {
       feature: 'boolean';
@@ -1682,6 +1721,56 @@ export async function applyBooleanEdit(
     expectedStatement: options.expectedStatement,
     kind: options.kind,
     targets: options.targets,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/**
+ * One base of an edited plane, in argument order: an untouched base by its
+ * position in the statement's own argument list, or any re-sourced
+ * create-mode base.
+ */
+export type PlaneEditBaseRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | PlaneBaseRef;
+
+export type PlaneEditOptions = EditSessionFields & {
+  /** `offset`/`edge` take one base; `mid` takes two. */
+  type: 'offset' | 'mid' | 'edge';
+  /** Normal offset distance; null renders none. Offset type only. */
+  offset: ValueExpr | null;
+  /** Rotation in degrees around the plane's local axes; null renders none. */
+  rotateX: ValueExpr | null;
+  rotateY: ValueExpr | null;
+  rotateZ: ValueExpr | null;
+  /** Normalized 0–1 position along the edge (edge type only). */
+  position: ValueExpr | null;
+  /** Full replacement base list; omitted keeps the statement's own. */
+  bases?: PlaneEditBaseRef[];
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the plane statement at `edit` in place. */
+export async function applyPlaneEdit(
+  edit: FeatureEditTarget,
+  options: PlaneEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'plane',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    type: options.type,
+    offset: options.offset,
+    rotateX: options.rotateX,
+    rotateY: options.rotateY,
+    rotateZ: options.rotateZ,
+    position: options.position,
+    bases: options.bases,
+    newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);
 }

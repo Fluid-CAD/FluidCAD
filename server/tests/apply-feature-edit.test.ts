@@ -5092,6 +5092,295 @@ describe('applyFeatureEdit (boolean in-place statement edit)', () => {
   });
 });
 
+const planeEditBase = [
+  `import { sketch, rect, extrude, plane, helix } from 'fluidcad/core'`,
+  ``,
+  `sketch('xy', () => { rect(100, 50) })`,
+  `const e = extrude(30)`,
+  `const top = plane('xy', 20)`,
+  `const spring = helix('z').radius(10).turns(3)`,
+].join('\n');
+
+function planeEditOptions(
+  overrides: Partial<NonNullable<FeatureStatementEditTarget['plane']>> = {},
+): NonNullable<FeatureStatementEditTarget['plane']> {
+  return {
+    type: 'offset', offset: null, rotateX: null, rotateY: null, rotateZ: null,
+    position: null, ...overrides,
+  };
+}
+
+describe('parseFeatureStatement — plane', () => {
+  it('reads a standard-base offset plane with its bare offset', async () => {
+    const code = `${planeEditBase}\nplane('xz', 10)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'plane', type: 'offset',
+        bases: [{ text: `'xz'`, kind: 'plane', standard: 'xz', ref: null }],
+        offset: 10, rotateX: null, rotateY: null, rotateZ: null, position: null,
+      },
+      statement: `plane('xz', 10)`,
+    });
+  });
+
+  it('reads the transform options object', async () => {
+    const code = `${planeEditBase}\nplane('xy', { offset: 10, rotateX: 15, rotateZ: -30 })\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'plane', type: 'offset',
+        offset: 10, rotateX: 15, rotateY: null, rotateZ: -30,
+      },
+    });
+  });
+
+  it('reads a bare plane with no options', async () => {
+    const code = `${planeEditBase}\nplane(top)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'plane', type: 'offset',
+        // The bound plane call's own position — the timeline row's location.
+        bases: [{ text: 'top', kind: 'plane', standard: null, ref: { line: 5, column: 12 } }],
+        offset: null,
+      },
+    });
+  });
+
+  it('reads two bases as a mid plane', async () => {
+    const code = `${planeEditBase}\nplane(top, 'xz', { rotateY: 30 })\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'plane', type: 'mid',
+        bases: [{ text: 'top', kind: 'plane' }, { text: `'xz'`, kind: 'plane', standard: 'xz' }],
+        rotateY: 30,
+      },
+    });
+  });
+
+  it('reads an edge selector with a position as the edge form', async () => {
+    const code = `${planeEditBase}\nplane(e.sideEdges(0), 0.25)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'plane', type: 'edge',
+        bases: [{ text: 'e.sideEdges(0)', kind: 'edge', standard: null }],
+        position: 0.25, offset: null,
+      },
+    });
+  });
+
+  it('reads a helix variable as an edge base, named positions included', async () => {
+    const code = `${planeEditBase}\nplane(spring, 'middle')\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'plane', type: 'edge',
+        bases: [{ text: 'spring', kind: 'edge', ref: { line: 6, column: 15 } }],
+        position: 0.5,
+      },
+    });
+  });
+
+  it('reads a face selector base as an offset plane', async () => {
+    const code = `${planeEditBase}\nplane(e.endFaces(), 5)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'plane', type: 'offset',
+        bases: [{ text: 'e.endFaces()', kind: 'face' }],
+        offset: 5,
+      },
+    });
+  });
+
+  it('refuses options the dialog cannot edit', async () => {
+    const code = `${planeEditBase}\nplane('xy', { offset: 10, flip: true })\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('flip');
+    }
+  });
+
+  it('keeps an expression option value verbatim', async () => {
+    const code = `${planeEditBase}\nplane('xy', { offset: h * 2 })\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'plane', type: 'offset', offset: 'h * 2' },
+    });
+  });
+
+  it('refuses a mid plane carrying an offset the dialog cannot show', async () => {
+    const code = `${planeEditBase}\nplane(top, 'xz', { offset: 5 })\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain("mid plane's offset");
+    }
+  });
+
+  it('refuses an options object the dialog cannot read back', async () => {
+    const code = `${planeEditBase}\nplane('xy', { ...opts })\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('plain object literal');
+    }
+  });
+});
+
+describe('applyFeatureEdit (plane in-place statement edit)', () => {
+  it('rewrites the offset, keeping the base verbatim', async () => {
+    const code = `${planeEditBase}\nplane('xz', 10)\n`;
+    const result = await applyFeatureEdit(code, editSpec('plane', {
+      line: 7, column: 0,
+      plane: planeEditOptions({ offset: 25 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`${planeEditBase}\nplane('xz', 25)\n`);
+  });
+
+  it('adds rotation, switching the bare offset to the options object', async () => {
+    const code = `${planeEditBase}\nplane('xz', 10)\n`;
+    const result = await applyFeatureEdit(code, editSpec('plane', {
+      line: 7, column: 0,
+      plane: planeEditOptions({ offset: 10, rotateX: 15 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`plane('xz', { offset: 10, rotateX: 15 })`);
+  });
+
+  it('preserves the binding and a chained suffix', async () => {
+    const code = `${planeEditBase}\nconst mid = plane('xz', 10).name('mid');\n`;
+    const result = await applyFeatureEdit(code, editSpec('plane', {
+      line: 7, column: 0,
+      plane: planeEditOptions({ offset: 40 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const mid = plane('xz', 40).name('mid');`);
+  });
+
+  it('re-sources a base to another plane statement, binding it', async () => {
+    const code = `${planeEditBase}\nplane('xz', 10)\n`;
+    const result = await applyFeatureEdit(code, editSpec('plane', {
+      line: 7, column: 0,
+      plane: planeEditOptions({ offset: 10, bases: [{ kind: 'plane', producer: 0 }] }),
+    }, {
+      producers: [{ line: 5, column: 12, featureType: 'plane', nameHint: 'p', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`plane(top, 10)`);
+  });
+
+  it('re-picks a base as a selector rendered from parts', async () => {
+    const code = `${planeEditBase}\nplane('xz', 10)\n`;
+    const result = await applyFeatureEdit(code, editSpec('plane', {
+      line: 7, column: 0,
+      plane: planeEditOptions({ offset: 10, bases: [{ kind: 'selector', part: 0 }] }),
+    }, {
+      producers: [{ line: 4, column: 10, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endFaces', indices: [], filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`plane(e.endFaces(), 10)`);
+  });
+
+  it('lifts a kept selector base into plane() when it becomes a mid plane', async () => {
+    const code = `${planeEditBase}\nplane(e.endFaces(), 5)\n`;
+    const result = await applyFeatureEdit(code, editSpec('plane', {
+      line: 7, column: 0,
+      plane: planeEditOptions({
+        type: 'mid',
+        bases: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'standard', plane: 'xy' }],
+      }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`plane(plane(e.endFaces()), 'xy')`);
+  });
+
+  it('rewrites an edge plane position, keeping the edge base', async () => {
+    const code = `${planeEditBase}\nplane(e.sideEdges(0), 0.25)\n`;
+    const result = await applyFeatureEdit(code, editSpec('plane', {
+      line: 7, column: 0,
+      plane: planeEditOptions({ type: 'edge', position: 0.75 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`plane(e.sideEdges(0), 0.75)`);
+  });
+
+  it('rewrites a named edge position numerically', async () => {
+    const code = `${planeEditBase}\nplane(spring, 'middle')\n`;
+    const result = await applyFeatureEdit(code, editSpec('plane', {
+      line: 7, column: 0,
+      plane: planeEditOptions({ type: 'edge', position: 1 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`plane(spring, 1)`);
+  });
+
+  it('refuses an edge plane whose kept base is not an edge source', async () => {
+    const code = `${planeEditBase}\nplane('xz', 10)\n`;
+    const result = await applyFeatureEdit(code, editSpec('plane', {
+      line: 7, column: 0,
+      plane: planeEditOptions({ type: 'edge', position: 0.5 }),
+    }));
+    expect(result.error).toContain('picked edge or a helix');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses an edge plane carrying an offset', async () => {
+    const code = `${planeEditBase}\nplane(e.sideEdges(0), 0.25)\n`;
+    const result = await applyFeatureEdit(code, editSpec('plane', {
+      line: 7, column: 0,
+      plane: planeEditOptions({ type: 'edge', position: 0.5, offset: 10 }),
+    }));
+    expect(result.error).toContain('no offset or rotation');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a base count the form does not take', async () => {
+    const code = `${planeEditBase}\nplane('xz', 10)\n`;
+    const result = await applyFeatureEdit(code, editSpec('plane', {
+      line: 7, column: 0,
+      plane: planeEditOptions({ type: 'mid', bases: [{ kind: 'standard', plane: 'xy' }] }),
+    }));
+    expect(result.error).toContain('exactly two bases');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a kept base the statement does not have', async () => {
+    const code = `${planeEditBase}\nplane('xz', 10)\n`;
+    const result = await applyFeatureEdit(code, editSpec('plane', {
+      line: 7, column: 0,
+      plane: planeEditOptions({ offset: 10, bases: [{ kind: 'verbatim', sourceIndex: 3 }] }),
+    }));
+    expect(result.error).toContain('kept base no longer matches');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a stale expectedStatement', async () => {
+    const code = `${planeEditBase}\nplane('xz', 10)\n`;
+    const result = await applyFeatureEdit(code, editSpec('plane', {
+      line: 7, column: 0,
+      expectedStatement: `plane('xz', 12)`,
+      plane: planeEditOptions({ offset: 25 }),
+    }));
+    expect(result.error).toContain('changed since the dialog opened');
+    expect(result.newCode).toBe(code);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Expression values — variables/arithmetic in the dialogs' numeric slots,
 // plus the `newVariables` declarations the expression fields commit.

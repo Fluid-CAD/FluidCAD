@@ -116,12 +116,39 @@ export class PlanePanel extends FeaturePanel {
 
   show(): void {
     // A fresh arming starts from defaults and an empty base list.
+    this.shell.setTitle(null);
     this.typeSelect.value = 'offset';
     this.offsetField.setValue(10);
     this.positionField.setValue(0.5);
     for (const field of this.rotationFields) {
       field.setValue(0);
     }
+    this.setBases([]);
+    this.syncType();
+    this.shell.show();
+  }
+
+  /**
+   * Open prefilled from an existing statement (edit mode). The type is the
+   * form the statement reads as and the fields its own values — an option the
+   * statement doesn't write leaves its field empty, so an untouched apply
+   * writes it back unchanged. The base chips are seeded by the service (one
+   * kept chip per statement base), re-picked like create mode.
+   */
+  showEdit(state: {
+    type: PlaneType;
+    offset: ValueExpr | null;
+    rotateX: ValueExpr | null;
+    rotateY: ValueExpr | null;
+    rotateZ: ValueExpr | null;
+    position: ValueExpr | null;
+  }): void {
+    this.shell.setTitle('Edit plane');
+    this.typeSelect.value = state.type;
+    this.setFieldValue(this.offsetField, state.offset);
+    this.setFieldValue(this.positionField, state.position);
+    const rotations = [state.rotateX, state.rotateY, state.rotateZ];
+    this.rotationFields.forEach((field, i) => this.setFieldValue(field, rotations[i]));
     this.setBases([]);
     this.syncType();
     this.shell.show();
@@ -198,6 +225,11 @@ export class PlanePanel extends FeaturePanel {
       position: null,
       newVariables: collectNewVariables(reads),
     };
+  }
+
+  /** Seed one field; an option the statement omits shows empty, not zero. */
+  private setFieldValue(field: ExpressionField, value: ValueExpr | null): void {
+    field.setValue(value === null ? '' : value);
   }
 
   private syncType(): void {

@@ -18,6 +18,7 @@ import { SceneObject } from '../../lib/common/scene-object.js';
 import { Shape } from '../../lib/common/shape.js';
 import { Edge } from '../../lib/common/edge.js';
 import { Solid } from '../../lib/common/solid.js';
+import { PlaneObjectBase } from '../../lib/features/plane-renderable-base.js';
 import { Explorer } from '../../lib/oc/explorer.js';
 import { EdgeOps } from '../../lib/oc/edge-ops.js';
 import { FaceProps } from '../../lib/oc/face-props.js';
@@ -662,5 +663,89 @@ describe('select→apply-feature end to end', () => {
 
     const rerun = runFluid(edited.newCode);
     expect(distinctSolids(rerun)).toHaveLength(4);
+  });
+
+  /**
+   * The plane a rerun's LAST plane statement produced. Every sketch registers
+   * its own implicit plane and a mid plane registers its bases, so the
+   * statement's result is the last plane in scene order.
+   */
+  function lastPlane(scene: Scene): PlaneObjectBase {
+    const planes = scene.getAllSceneObjects()
+      .filter((o): o is PlaneObjectBase => o instanceof PlaneObjectBase);
+    expect(planes.length).toBeGreaterThanOrEqual(1);
+    return planes[planes.length - 1];
+  }
+
+  it('edits an existing plane statement in place and re-executes', async () => {
+    const code = [
+      `import { sketch, rect, extrude, plane } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(20, 20) })`,
+      `extrude(10)`,
+      `plane('xy', 30)`,
+      ``,
+    ].join('\n');
+
+    // The double-click → dialog round trip: the offset changes, the base
+    // stays the statement's own expression.
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'plane',
+      filePath: '/ws/model.fluid.js',
+      producers: [],
+      parts: [],
+      imports: [],
+      edit: {
+        line: 5, column: 0,
+        expectedStatement: `plane('xy', 30)`,
+        plane: {
+          type: 'offset', offset: 45, rotateX: null, rotateY: null, rotateZ: null, position: null,
+        },
+      },
+    };
+    const edited = await applyFeatureEdit(code, spec);
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(`plane('xy', 45)`);
+
+    const rerun = runFluid(edited.newCode);
+    expect(lastPlane(rerun).getPlane().origin.z).toBeCloseTo(45);
+  });
+
+  it('lifts a kept face selector into plane() when the edit makes it a mid plane', async () => {
+    const code = [
+      `import { sketch, rect, extrude, plane } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(20, 20) })`,
+      `const e = extrude(10)`,
+      `plane(e.endFaces(), 4)`,
+      ``,
+    ].join('\n');
+
+    // The type dropdown moves to Mid plane and an origin plane joins as the
+    // second base; the picked face rides along as the statement's own text,
+    // which a mid plane needs lifted into a plane-like.
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'plane',
+      filePath: '/ws/model.fluid.js',
+      producers: [],
+      parts: [],
+      imports: [],
+      edit: {
+        line: 5, column: 0,
+        expectedStatement: `plane(e.endFaces(), 4)`,
+        plane: {
+          type: 'mid', offset: null, rotateX: null, rotateY: null, rotateZ: null, position: null,
+          bases: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'standard', plane: 'xy' }],
+        },
+      },
+    };
+    const edited = await applyFeatureEdit(code, spec);
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(`plane(plane(e.endFaces()), 'xy')`);
+
+    // Executing it: the mid plane sits halfway between the extrude's top face
+    // (z = 10) and the XY origin plane.
+    const rerun = runFluid(edited.newCode);
+    expect(lastPlane(rerun).getPlane().origin.z).toBeCloseTo(5);
   });
 });

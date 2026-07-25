@@ -390,6 +390,7 @@ const EDITABLE_ROW_TYPES = new Set([
   'repeat-linear', 'repeat-circular', 'repeat-matrix', 'mirror',
   'copy-linear', 'copy-circular',
   'fuse', 'subtract', 'common',
+  'plane',
 ]);
 
 /**
@@ -463,6 +464,8 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     copyService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'boolean') {
     booleanService.enterEdit(target, parsed, info);
+  } else if (parsed.feature === 'plane') {
+    planeService.enterEdit(target, parsed, info);
   } else if (parsed.feature !== 'sketch') {
     // Sketch rows aren't in EDITABLE_ROW_TYPES — the guard only narrows the
     // parse union down to the shell/fillet/chamfer dialog's statements.
@@ -656,7 +659,7 @@ const breakpointIndicator = new BreakpointIndicator(container, () => {
   // Continue leaves the paused build: open edit sessions end WITHOUT their
   // cancel-restore rollback — the full render Continue triggers supersedes
   // it, and a session re-assert would fight the view the user asked for.
-  for (const service of [modifyService, extrudeService, revolveService, sweepService, wrapService, loftService, helixService, repeatService, copyService, booleanService]) {
+  for (const service of [modifyService, extrudeService, revolveService, sweepService, wrapService, loftService, helixService, repeatService, copyService, booleanService, planeService]) {
     if (service.isEditing) {
       service.exit({ editEnd: 'continue' });
     }
@@ -1020,7 +1023,6 @@ function connectWebSocket() {
           trimService.reset();
           regionService.reset();
           sketchService.update([]);
-          planeService.update([]);
         } else {
           trimService.update(msg.result);
           regionService.update(msg.result);
@@ -1037,7 +1039,6 @@ function connectWebSocket() {
             || revolveService.sketchUISuspended || helixService.sketchUISuspended
             || textEditService.isActive;
           sketchService.update(sketchSuspended ? [] : msg.result);
-          planeService.update(msg.result);
         }
         // The edit-capable services see every render: an open edit session
         // keeps the view rolled back to just before its statement and
@@ -1057,6 +1058,7 @@ function connectWebSocket() {
         repeatService.handleSceneRendered(msg.result, renderStop, isRollback);
         copyService.handleSceneRendered(msg.result, renderStop, isRollback);
         booleanService.handleSceneRendered(msg.result, renderStop, isRollback);
+        planeService.handleSceneRendered(msg.result, renderStop, isRollback);
         textEditService.handleSceneRendered(msg.result, renderStop, isRollback);
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1);
         if (msg.params !== undefined) {

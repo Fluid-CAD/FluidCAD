@@ -1,20 +1,25 @@
-import { applyPlane, PlaneApplyOptions, PlaneBaseRef } from '../../api';
+import {
+  applyPlane, applyPlaneEdit, FeatureEditTarget, ParsedFeatureStatement, ParsedPlaneBase,
+  PlaneApplyOptions, PlaneBaseRef, PlaneEditBaseRef, PlaneEditOptions, SketchSourceRef,
+} from '../../api';
 import { sameEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { StandardPlaneId } from '../../scene/standard-planes';
 import { Navbar } from '../../ui/navbar';
-import { PlanePanel } from './plane-panel';
+import { EditSession, EditSessionInfo } from '../edit-session';
+import { PlanePanel, PlaneValues } from './plane-panel';
 import { FeatureButton } from './feature-button';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import {
-  collectPlaneOptions, labelWithPlaneNames, PlaneOption, planeOptionsSignature, resolvePlaneRow,
+  collectPlaneOptions, labelWithPlaneNames, PlaneOption, planeOptionForLocation, planeOptionsSignature,
+  resolvePlaneRow,
 } from './plane-bases';
 import {
-  collectWireSources, labelWithSketchNames, optionsSignature, resolveWireByShapeId, SketchProfileOption,
-  sketchWireShapeIds, sourceChip,
+  collectWireSources, keepChip, labelWithSketchNames, optionsSignature, resolveWireByShapeId,
+  SketchProfileOption, sketchWireShapeIds, sourceChip,
 } from './sketch-profiles';
 
 /** One base in the dialog's list — the chip order is the argument order. */
@@ -23,7 +28,22 @@ type PlaneBaseItem =
   | { kind: 'plane'; option: PlaneOption }
   /** A helix statement as the edge-type base (its wire is the edge). */
   | { kind: 'wire'; option: SketchProfileOption }
-  | { kind: 'pick'; entity: SelectedEntity };
+  | { kind: 'pick'; entity: SelectedEntity }
+  /**
+   * Edit mode only: a base kept by its position in the statement, preserved
+   * verbatim. `reads` is what its expression reads as — which dialog types
+   * can keep it — and a keep that resolved to a statement carries that
+   * statement's location (`loc`): it converts into its plane/helix option at
+   * the rollback boundary, so the chip shows the statement's own label and a
+   * re-pick toggles it like create mode.
+   */
+  | {
+    kind: 'keep';
+    sourceIndex: number;
+    label: string;
+    reads: ParsedPlaneBase['kind'];
+    loc?: SketchSourceRef;
+  };
 
 /**
  * The Plane dialog on the create rails: a construction plane offset from one
@@ -38,6 +58,10 @@ type PlaneBaseItem =
  * edge opens the edge type, one face the offset type, two faces the mid
  * type — each with the selection as base(s). Apply writes `plane(…)` — the
  * re-render is the preview, editor undo the rollback.
+ *
+ * A timeline double-click opens the same dialog over an existing statement
+ * (see {@link enterEdit}), where the bases start as kept chips and Apply
+ * rewrites the statement in place.
  */
 export class PlaneFeatureService {
   private panel: PlanePanel;
@@ -50,7 +74,11 @@ export class PlaneFeatureService {
   private bases: PlaneBaseItem[] = [];
   private sceneSketchActive = false;
   private sketchUI: SketchUISuspender;
-  private runner: ApplyRunner<PlaneApplyOptions>;
+  /** Statement being edited in place (timeline double-click), or null. */
+  private editTarget: FeatureEditTarget | null = null;
+  /** View-state half of edit mode: pre-statement rollback + boundary. */
+  private session = new EditSession();
+  private runner: ApplyRunner<PlaneApplyOptions | PlaneEditOptions>;
   private relabeler: OptionRelabeler<PlaneOption[]>;
   private wireRelabeler: OptionRelabeler<SketchProfileOption[]>;
 
@@ -107,10 +135,12 @@ export class PlaneFeatureService {
     this.runner = new ApplyRunner({
       panel: this.panel,
       isArmed: () => this.armed,
-      build: () => this.buildRequest(),
-      send: (request, extras) => applyPlane({ ...request, ...extras }),
-      onApplied: () => this.exit({ resume: 'lazy' }),
-      failMessage: () => 'Could not apply the plane.',
+      build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
+      send: (request, extras) => this.editTarget
+        ? applyPlaneEdit(this.editTarget, { ...(request as PlaneEditOptions), ...extras })
+        : applyPlane({ ...(request as PlaneApplyOptions), ...extras }),
+      onApplied: () => this.exit(this.editTarget ? { editEnd: 'apply' } : { resume: 'lazy' }),
+      failMessage: () => this.editTarget ? 'Could not apply the edit.' : 'Could not apply the plane.',
     });
     this.relabeler = new OptionRelabeler({
       sign: planeOptionsSignature,
@@ -123,8 +153,7 @@ export class PlaneFeatureService {
           if (base.kind !== 'plane') {
             return base;
           }
-          const match = planes.find(o =>
-            o.filePath === base.option.filePath && o.line === base.option.line);
+          const match = planeOptionForLocation(planes, base.option);
           return match ? { kind: 'plane', option: match } : base;
         });
         this.refresh();
@@ -140,8 +169,7 @@ export class PlaneFeatureService {
           if (base.kind !== 'wire') {
             return base;
           }
-          const match = wires.find(o =>
-            o.filePath === base.option.filePath && o.line === base.option.line);
+          const match = this.wireOptionForLocation(base.option);
           return match ? { kind: 'wire', option: match } : base;
         });
         this.refresh();
@@ -151,6 +179,11 @@ export class PlaneFeatureService {
 
   get isActive(): boolean {
     return this.armed;
+  }
+
+  /** An edit session is open (the viewport shows the pre-statement rollback). */
+  get isEditing(): boolean {
+    return this.editTarget !== null;
   }
 
   /** The toolbar button, mirrored into the Finish Sketch grid during sketch mode. */
@@ -168,12 +201,40 @@ export class PlaneFeatureService {
     return this.sketchUI.suspended;
   }
 
+  /**
+   * Every render lands here. An open edit session owns the view: it keeps the
+   * viewport rolled back to just before the edited statement, and at that
+   * boundary the base options rebuild from the pre-statement scene — exactly
+   * the planes and helixes the statement's own bases can reference.
+   */
+  handleSceneRendered(sceneObjects: SceneObjectRender[], stop: number, isRollback: boolean): void {
+    const state = this.session.onSceneRendered(sceneObjects, stop, isRollback);
+    if (state === 'inactive') {
+      this.update(isRollback ? [] : sceneObjects);
+      return;
+    }
+    if (!this.armed) {
+      this.session.end('gone');
+      return;
+    }
+    if (state === 'gone') {
+      this.exit({ editEnd: 'gone' });
+      return;
+    }
+    if (state === 'waiting') {
+      return;
+    }
+    this.collectOptions(sceneObjects);
+    this.remapBases();
+    void this.relabeler.refresh(this.planes);
+    void this.wireRelabeler.refresh(this.wires);
+    this.syncViewport();
+    this.refresh();
+    this.runner.schedulePreview();
+  }
+
   update(sceneObjects: SceneObjectRender[]): void {
-    this.sceneObjects = sceneObjects;
-    this.planes = collectPlaneOptions(sceneObjects);
-    const wireSources = collectWireSources(sceneObjects);
-    this.wires = wireSources.filter(o => o.feature === 'helix');
-    this.sceneSketchActive = wireSources[0]?.kind === 'active';
+    this.collectOptions(sceneObjects);
     if (!this.armed) {
       return;
     }
@@ -182,24 +243,96 @@ export class PlaneFeatureService {
     if (this.sceneSketchActive) {
       this.sketchUI.suspend();
     }
-    // Shape ids changed with the render — picked bases are stale; plane and
-    // wire bases re-match against the fresh options by source line.
-    this.bases = this.bases.filter(base => {
-      if (base.kind === 'pick') {
-        return false;
-      }
-      if (base.kind === 'plane') {
-        return this.planes.some(o =>
-          o.filePath === base.option.filePath && o.line === base.option.line);
-      }
-      if (base.kind === 'wire') {
-        return this.wires.some(o =>
-          o.filePath === base.option.filePath && o.line === base.option.line);
-      }
-      return true;
-    });
+    this.remapBases();
     void this.relabeler.refresh(this.planes);
     void this.wireRelabeler.refresh(this.wires);
+    this.syncViewport();
+    this.refresh();
+    this.runner.schedulePreview();
+  }
+
+  /** The scene-derived option lists behind the base slot. */
+  private collectOptions(sceneObjects: SceneObjectRender[]): void {
+    this.sceneObjects = sceneObjects;
+    this.planes = collectPlaneOptions(sceneObjects);
+    const wireSources = collectWireSources(sceneObjects);
+    this.wires = wireSources.filter(o => o.feature === 'helix');
+    this.sceneSketchActive = wireSources[0]?.kind === 'active';
+  }
+
+  /**
+   * Re-address the base list against the freshly collected options: shape ids
+   * changed with the render, so picked bases are stale and drop; plane and
+   * wire bases re-match by source line; and a kept base (edit mode) that
+   * resolved to a statement becomes that statement's option — proper label,
+   * create-mode toggling. Unresolved keeps stay text-addressed verbatim.
+   */
+  private remapBases(): void {
+    this.bases = this.bases.flatMap((base): PlaneBaseItem[] => {
+      if (base.kind === 'pick') {
+        return [];
+      }
+      if (base.kind === 'plane') {
+        const match = planeOptionForLocation(this.planes, base.option);
+        return match ? [{ kind: 'plane', option: match }] : [];
+      }
+      if (base.kind === 'wire') {
+        const match = this.wireOptionForLocation(base.option);
+        return match ? [{ kind: 'wire', option: match }] : [];
+      }
+      if (base.kind === 'keep' && base.loc) {
+        const plane = planeOptionForLocation(this.planes, base.loc);
+        if (plane) {
+          return [{ kind: 'plane', option: plane }];
+        }
+        const wire = this.wireOptionForLocation(base.loc);
+        if (wire) {
+          return [{ kind: 'wire', option: wire }];
+        }
+      }
+      return [base];
+    });
+  }
+
+  /** The offered helix wire at a source location, if it is still offered. */
+  private wireOptionForLocation(loc: { filePath: string; line: number }): SketchProfileOption | undefined {
+    return this.wires.find(o => o.filePath === loc.filePath && o.line === loc.line);
+  }
+
+  /**
+   * Open the dialog over an existing plane statement (timeline double-click).
+   * The session rolls the viewport back to just before the statement — the
+   * world its bases see, where the geometry they name is visible and
+   * pickable. The type is the form the statement reads as; its bases seed as
+   * kept chips (a standard origin plane seeds as that plane, so it toggles
+   * like a fresh pick), re-picked and re-typed like create mode. Apply
+   * rewrites the statement in place.
+   */
+  enterEdit(
+    target: FeatureEditTarget,
+    parsed: Extract<ParsedFeatureStatement, { feature: 'plane' }>,
+    info: Omit<EditSessionInfo, 'target'>,
+  ): void {
+    if (this.armed) {
+      this.exit();
+    }
+    this.hooks.onEnter?.();
+    this.armed = true;
+    this.editTarget = target;
+    this.bases = parsed.bases.map((base, sourceIndex): PlaneBaseItem => base.standard !== null
+      ? { kind: 'standard', plane: base.standard }
+      : {
+        kind: 'keep',
+        sourceIndex,
+        label: base.text,
+        reads: base.kind,
+        loc: base.ref ? { filePath: target.filePath, ...base.ref } : undefined,
+      });
+    this.syncButton();
+    this.sketchUI.suspend();
+    this.session.begin({ ...info, target });
+    void this.refreshScopeVariables();
+    this.panel.showEdit(parsed);
     this.syncViewport();
     this.refresh();
     this.runner.schedulePreview();
@@ -209,6 +342,7 @@ export class PlaneFeatureService {
     if (this.armed) {
       return;
     }
+    this.session.end('continue');
     const seeded = this.hooks.onEnter?.();
     const seed = Array.isArray(seeded) ? seeded : [];
     this.armed = true;
@@ -256,13 +390,20 @@ export class PlaneFeatureService {
   /**
    * `resume: 'lazy'` re-enables sketch editing without forcing the mode
    * transition — for apply-success and scene-driven exits. User cancels
-   * default to `'immediate'`.
+   * default to `'immediate'`; ending an edit session always resumes lazily
+   * (a render follows every session end).
    */
-  exit(opts: { resume?: 'immediate' | 'lazy' } = {}): void {
+  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'gone' } = {}): void {
     if (!this.armed) {
       return;
     }
+    const hadSession = this.session.active;
+    this.session.end(opts.editEnd ?? 'cancel');
+    if (hadSession) {
+      opts = { ...opts, resume: 'lazy' };
+    }
     this.armed = false;
+    this.editTarget = null;
     this.syncButton();
     this.runner.cancelPreview();
     this.bases = [];
@@ -303,8 +444,7 @@ export class PlaneFeatureService {
     // helix as the named base (`plane(spring, …)`), not a raw edge pick.
     const wire = sub.type === 'edge' ? this.wireBaseForEdge(entity) : null;
     if (wire) {
-      const picked = this.bases.findIndex(b => b.kind === 'wire'
-        && b.option.filePath === wire.option.filePath && b.option.line === wire.option.line);
+      const picked = this.bases.findIndex(b => baseKey(b) === baseKey(wire));
       if (picked >= 0) {
         this.bases.splice(picked, 1);
         this.refresh();
@@ -323,8 +463,7 @@ export class PlaneFeatureService {
     if (owner?.type !== 'helix' || !owner.sourceLocation) {
       return null;
     }
-    const loc = owner.sourceLocation;
-    const option = this.wires.find(o => o.filePath === loc.filePath && o.line === loc.line);
+    const option = this.wireOptionForLocation(owner.sourceLocation);
     return option ? { kind: 'wire', option } : null;
   }
 
@@ -352,8 +491,7 @@ export class PlaneFeatureService {
         this.panel.setMessage('A helix is an edge source — switch to "From edge" to use it.');
         return true;
       }
-      const loc = obj.sourceLocation;
-      const option = this.wires.find(o => o.filePath === loc.filePath && o.line === loc.line);
+      const option = this.wireOptionForLocation(obj.sourceLocation);
       if (!option) {
         this.panel.setMessage('That helix was already consumed — only helixes still rendered in the scene can be used.');
         return true;
@@ -370,8 +508,7 @@ export class PlaneFeatureService {
       this.panel.setMessage('A from-edge plane takes a picked edge, not a plane.');
       return true;
     }
-    const loc = plane.sourceLocation!;
-    const option = this.planes.find(o => o.filePath === loc.filePath && o.line === loc.line);
+    const option = planeOptionForLocation(this.planes, plane.sourceLocation!);
     if (!option) {
       this.panel.setMessage('That plane is not available as a base.');
       return true;
@@ -409,15 +546,18 @@ export class PlaneFeatureService {
   private handleTypeChange(): void {
     const type = this.panel.planeType;
     if (type === 'edge') {
-      // Only an edge source survives into the edge form: a picked edge or a
-      // helix.
+      // Only an edge source survives into the edge form: a picked edge, a
+      // helix, or a kept base whose expression names an edge.
       this.bases = this.bases
-        .filter(b => (b.kind === 'pick' && b.entity.sub.type === 'edge') || b.kind === 'wire')
+        .filter(b => (b.kind === 'pick' && b.entity.sub.type === 'edge') || b.kind === 'wire'
+          || (b.kind === 'keep' && b.reads === 'edge'))
         .slice(0, 1);
     } else {
-      // Edge picks and helixes belong to the edge form only.
+      // Edge picks, helixes and kept edge expressions belong to the edge form
+      // only.
       this.bases = this.bases
-        .filter(b => b.kind !== 'wire' && (b.kind !== 'pick' || b.entity.sub.type === 'face'))
+        .filter(b => b.kind !== 'wire' && (b.kind !== 'pick' || b.entity.sub.type === 'face')
+          && (b.kind !== 'keep' || b.reads !== 'edge'))
         .slice(0, this.panel.capacity);
     }
     this.syncViewport();
@@ -426,16 +566,19 @@ export class PlaneFeatureService {
   }
 
   /**
-   * Push the variables in scope at the end of the file (plane statements
-   * append there) to the dialog's expression fields. A response landing
-   * after the dialog closed is dropped.
+   * Push the variables in scope at the edited statement (edit mode) or at the
+   * end of the file (create mode — plane statements append there) to the
+   * dialog's expression fields. A response landing after the dialog closed or
+   * re-targeted is dropped.
    */
   private async refreshScopeVariables(): Promise<void> {
-    await refreshScopeVariables(null, this.panel, () => this.armed);
+    const line = this.editTarget?.line ?? null;
+    await refreshScopeVariables(line, this.panel,
+      () => this.armed && (this.editTarget?.line ?? null) === line);
   }
 
-  /** The request for the current form state, or the message blocking it. */
-  private buildRequest(): PlaneApplyOptions | { error: string } {
+  /** The form's values, or the message blocking either apply path. */
+  private formValues(): PlaneValues {
     const values = this.panel.values();
     if ('error' in values) {
       return values;
@@ -450,21 +593,59 @@ export class PlaneFeatureService {
           : 'Choose a base for the plane first.',
       };
     }
-    const bases: PlaneBaseRef[] = this.bases.map(base => {
-      if (base.kind === 'standard') {
-        return { kind: 'standard', plane: base.plane };
-      }
-      if (base.kind === 'plane') {
-        const { filePath, line, column } = base.option;
-        return { kind: 'plane', filePath, line, column };
-      }
-      if (base.kind === 'wire') {
-        const { filePath, line, column } = base.option;
-        return { kind: 'wire', filePath, line, column };
-      }
-      return { kind: 'pick', entity: base.entity };
-    });
-    return { ...values, bases };
+    return values;
+  }
+
+  /** One chosen base as its request ref (never a keep — see the edit path). */
+  private baseRef(base: Exclude<PlaneBaseItem, { kind: 'keep' }>): PlaneBaseRef {
+    if (base.kind === 'standard') {
+      return { kind: 'standard', plane: base.plane };
+    }
+    if (base.kind === 'plane') {
+      const { filePath, line, column } = base.option;
+      return { kind: 'plane', filePath, line, column };
+    }
+    if (base.kind === 'wire') {
+      const { filePath, line, column } = base.option;
+      return { kind: 'wire', filePath, line, column };
+    }
+    return { kind: 'pick', entity: base.entity };
+  }
+
+  /** The request for the current form state, or the message blocking it. */
+  private buildRequest(): PlaneApplyOptions | { error: string } {
+    const values = this.formValues();
+    if ('error' in values) {
+      return values;
+    }
+    // Create mode never carries keep entries — every chip is a chosen base.
+    return {
+      ...values,
+      bases: this.bases.flatMap(base => base.kind === 'keep' ? [] : [this.baseRef(base)]),
+    };
+  }
+
+  /**
+   * The edit-mode apply payload. Untouched chips ship as verbatim keeps — the
+   * transform preserves the statement's own base expressions byte for byte —
+   * while re-picked bases ride as their refs; the values always rewrite (the
+   * dialog owns every one of them). A boundary rides only when a base was
+   * re-picked, the one input synthesized against the rolled-back scene.
+   */
+  private buildEditRequest(): PlaneEditOptions | { error: string } {
+    const values = this.formValues();
+    if ('error' in values) {
+      return values;
+    }
+    const bases: PlaneEditBaseRef[] = this.bases.map(base => base.kind === 'keep'
+      ? { kind: 'verbatim', sourceIndex: base.sourceIndex }
+      : this.baseRef(base));
+    return {
+      ...values,
+      bases,
+      expectedStatement: this.session.expectedStatement,
+      before: this.bases.some(b => b.kind === 'pick') ? this.session.boundary ?? undefined : undefined,
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -498,7 +679,9 @@ export class PlaneFeatureService {
     this.panel.setBases(this.bases.map(base =>
       base.kind === 'plane' || base.kind === 'wire'
         ? sourceChip(base.option)
-        : { label: baseLabel(base) }));
+        : base.kind === 'keep'
+          ? keepChip(base.label)
+          : { label: baseLabel(base) }));
     const type = this.panel.planeType;
     if (this.bases.length >= this.panel.capacity) {
       this.panel.setHint(null);
@@ -537,6 +720,9 @@ function baseKey(base: PlaneBaseItem): string {
   if (base.kind === 'wire') {
     return `wire:${base.option.filePath}:${base.option.line}`;
   }
+  if (base.kind === 'keep') {
+    return `keep:${base.sourceIndex}`;
+  }
   return `pick:${base.entity.shapeId}:${base.entity.sub.type}:${base.entity.sub.index}`;
 }
 
@@ -546,6 +732,9 @@ function baseLabel(base: PlaneBaseItem): string {
   }
   if (base.kind === 'plane' || base.kind === 'wire') {
     return base.option.label;
+  }
+  if (base.kind === 'keep') {
+    return base.label;
   }
   return base.entity.sub.type === 'face' ? 'Picked face' : 'Picked edge';
 }

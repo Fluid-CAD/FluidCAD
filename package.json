@@ -28,6 +28,8 @@
   },
   "files": [
     "lib/dist/",
+    "!lib/dist/tests/",
+    "!lib/dist/**/*.tsbuildinfo",
     "server/dist/",
     "ui/dist/",
     "mcp/dist/",

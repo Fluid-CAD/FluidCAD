@@ -14,7 +14,7 @@ export abstract class PlaneObjectBase extends SceneObject implements IPlane {
   }
 
   getPlaneCenter() {
-    return (this.getState('plane-center') || this.getPlane().origin) as Point;
+    return (this.getState('plane-center') || this.getPlane()?.origin) as Point;
   }
 
   getType(): string {

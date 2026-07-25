@@ -24,6 +24,28 @@ For accessor-driven selections off a specific feature (e.g., the top
 faces of one extrude), use the direct accessor instead —
 `e.endFaces(...filters)` — to avoid scanning the rest of the scene.
 
+## Inside a sketch
+
+Inside a `sketch(...)` body, `select(edge()...)` evaluates against the
+**active sketch's edges** (statements before the select) instead of the
+3D scene. Sketch selections are edge-only — `select(face()...)` throws.
+The result participates in the same last-selection contract: the next 2D
+op (`fillet`, `offset`, `fuse`, `common`) consumes it, and it can also be
+passed as an explicit target. For single-op selections the filter-argument
+form (`fillet(4, edge().line())`) usually reads better.
+
+```fluid.js
+import { extrude, fillet, rect, select, sketch } from "fluidcad/core";
+import { edge } from "fluidcad/filters";
+
+sketch("xy", () => {
+  rect(80, 60);
+  select(edge().line());   // the four rect sides
+  fillet(4);               // consumes the sketch selection
+});
+extrude(10);
+```
+
 ## Example
 
 ```fluid.js

@@ -20,6 +20,9 @@ const CENTER_OVERLAY_RADIUS = 2.0;
 const CENTER_OVERLAY_PX_RADIUS = 6;
 
 export class SketchHoverSelectHandler {
+  /** Fired after any click mutates the selected set (operations read it). */
+  onSelectionChange?: () => void;
+
   private ctx: SceneContext;
   private plane: PlaneData;
   private canvas: HTMLCanvasElement;
@@ -166,6 +169,7 @@ export class SketchHoverSelectHandler {
       if (!isMulti) {
         this.clearSelection();
         this.ctx.requestRender();
+        this.onSelectionChange?.();
       }
       return;
     }
@@ -186,6 +190,7 @@ export class SketchHoverSelectHandler {
     }
 
     this.ctx.requestRender();
+    this.onSelectionChange?.();
   }
 
   private findNearestEdge(point: [number, number], threshold: number): { shapeId: string; isCenter: boolean; centerPoint?: [number, number] } | null {
@@ -284,6 +289,17 @@ export class SketchHoverSelectHandler {
       this.removeSelectionHighlight(id);
     }
     this.selectedShapeIds.clear();
+  }
+
+  /**
+   * Drop the current selection on behalf of a dialog (the subtract dialog
+   * clears between its base and tool slots). Fires the change hook so the
+   * dialog preview stays in sync.
+   */
+  resetSelection(): void {
+    this.clearSelection();
+    this.ctx.requestRender();
+    this.onSelectionChange?.();
   }
 
   private traverseShapeEdges(shapeId: string, fn: (line: LineSegments) => void): void {

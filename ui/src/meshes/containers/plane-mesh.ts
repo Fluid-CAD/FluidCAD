@@ -31,7 +31,8 @@ export class PlaneMesh extends Group {
   constructor(sceneObject: SceneObjectRender, _camera: Camera) {
     super();
 
-    const meshData = sceneObject.sceneShapes[0]?.meshes[0];
+    const shape = sceneObject.sceneShapes[0];
+    const meshData = shape?.meshes[0];
     if (!meshData)  {
       return;
     }
@@ -61,6 +62,16 @@ export class PlaneMesh extends Group {
         polygonOffsetUnits: 1,
       }),
     );
+
+    // Plane quads are pickable only through the viewer's opt-in plane-pick
+    // channel (the armed sketch mode) — mark the raycastable quad and address
+    // it by its shape id for pick resolution and hover highlighting. The id
+    // rides on the quad itself: the group is a meta shape, which the pick
+    // resolution walk skips.
+    if (shape.shapeId) {
+      face.userData.shapeId = shape.shapeId;
+      face.userData.isConstructionPlaneQuad = true;
+    }
 
     this.add(face);
 

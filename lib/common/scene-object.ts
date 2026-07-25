@@ -63,8 +63,10 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _name: string | null = null;
   private _guide: boolean = false;
   private _reusable: boolean = false;
+  private _internal: boolean = false;
   private _sourceLocation: SourceLocation | null = null;
   private _error: string | null = null;
+  private _destroyed: boolean = false;
   protected _fusionScope?: FusionScope = 'all';
   protected _operationMode: OperationMode = 'add';
   protected _symmetric: boolean = false;
@@ -107,6 +109,21 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   isAlwaysVisible(): boolean {
     return this._alwaysVisible;
+  }
+
+  /**
+   * Mark an object a builder creates to serve ANOTHER statement's build —
+   * `sketch('xy', …)` makes itself a plane, a mid plane makes its inline
+   * inputs. It is stamped with the consuming call's source location, so it
+   * has no statement of its own to name, edit or reference; the timeline
+   * leaves such rows out rather than showing a feature the code never wrote.
+   */
+  markInternal(): void {
+    this._internal = true;
+  }
+
+  isInternal(): boolean {
+    return this._internal;
   }
 
   hasShapes(): boolean {
@@ -157,7 +174,25 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return false;
   }
 
+  /**
+   * Containers whose children are an implementation detail (e.g. the cloned
+   * instances under a repeat) report true so the timeline shows them as a
+   * single row instead of listing every generated child.
+   */
+  hidesChildren(): boolean {
+    return false;
+  }
+
   isLazy(): boolean {
+    return false;
+  }
+
+  /**
+   * Selection objects (select statements) hold references to other features'
+   * shapes rather than owning geometry — enumeration sites skip them the same
+   * way they skip lazy accessor objects.
+   */
+  isSelection(): boolean {
     return false;
   }
 
@@ -578,7 +613,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return filteredShapes;
   }
 
-  getChildShapes(filter?: ShapeFilter, type?: ShapeType): Shape[] {
+  getChildShapes(filter?: ShapeFilter, type?: ShapeType, scope?: Set<SceneObject>): Shape[] {
     let shapes: Shape[] = [];
 
     filter = {
@@ -587,23 +622,23 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     }
 
     for (const child of this.children) {
-      shapes = shapes.concat(child.getShapes(filter, type));
+      shapes = shapes.concat(child.getShapes(filter, type, scope));
     }
 
     return shapes;
   }
 
-  getShapes(filter?: ShapeFilter, type?: ShapeType): Shape[] {
+  getShapes(filter?: ShapeFilter, type?: ShapeType, scope?: Set<SceneObject>): Shape[] {
     filter = {
       excludeMeta: filter?.excludeMeta ?? true,
       excludeGuide: filter?.excludeGuide ?? true,
     }
 
     if (this.isContainer()) {
-      return this.getChildShapes(filter, type);
+      return this.getChildShapes(filter, type, scope);
     }
 
-    const ownShapes = this.getOwnShapes(filter);
+    const ownShapes = this.getOwnShapes(filter, scope);
 
     if (type) {
       return ownShapes.filter(s => s.getType() === type);
@@ -646,6 +681,16 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   getName(): string {
     return this._name ?? this.getType();
+  }
+
+  /**
+   * Human-facing label used when the object has no custom name. Defaults to
+   * the capitalized type; features whose type encodes a variant (e.g.
+   * "repeat-linear") override this to show the plain feature name.
+   */
+  getDisplayType(): string {
+    const type = this.getType();
+    return type.charAt(0).toUpperCase() + type.slice(1);
   }
 
   hasCustomName(): boolean {
@@ -751,6 +796,32 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
    * cleanup that depends on knowing the final scene state.
    */
   clean(allObjects: SceneObject[]): void {}
+
+  /**
+   * Called by the rendering pipeline when this object is discarded — its
+   * cache entry was invalidated and a rebuilt instance replaced it, or the
+   * whole scene was torn down. Fires once. Shape memory is reclaimed by the
+   * scene-disposal pass; override `onDestroy` for feature-specific cleanup
+   * (native resources held outside Shape wrappers, watchers, caches).
+   */
+  destroy(): void {
+    if (this._destroyed) {
+      return;
+    }
+    this._destroyed = true;
+    try {
+      this.onDestroy();
+    } catch (error) {
+      console.error(`onDestroy failed for ${this.getUniqueType()}:`, error);
+    }
+  }
+
+  isDestroyed(): boolean {
+    return this._destroyed;
+  }
+
+  /** Feature-specific cleanup hook; the base implementation is a no-op. */
+  protected onDestroy(): void {}
 
   protected generateUniqueName(suffix: string) {
     return `${this.getOrder()}-${this.getUniqueType()}-${suffix}`;

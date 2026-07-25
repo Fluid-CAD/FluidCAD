@@ -4,6 +4,7 @@ import { registerBuilder, SceneParserContext } from "../index.js";
 import { Common } from "../features/common.js";
 import { Common2D } from "../features/common2d.js";
 import { ICommon, ISceneObject } from "./interfaces.js";
+import { addTargetObjects, sketchLastSelection } from "./target-utils.js";
 
 interface CommonFunction {
   /** Computes the common (intersection) of all shapes or 2D geometries in the current context. */
@@ -28,8 +29,9 @@ function build(context: SceneParserContext): CommonFunction {
           objects = args as GeometrySceneObject[];
         }
       } else {
-        objects = [];
+        objects = sketchLastSelection(context, activeSketch) as unknown as GeometrySceneObject[];
       }
+      addTargetObjects(objects, context);
       const common2d = new Common2D(...objects);
       context.addSceneObject(common2d);
       return common2d;

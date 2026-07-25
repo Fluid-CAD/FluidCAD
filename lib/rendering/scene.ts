@@ -22,18 +22,35 @@ export type RenderedShape = {
   isGuide?: boolean;
   metaType?: string;
   metaData?: Record<string, any>;
+  role?: string;
+  roleIndex?: number;
+  provenance?: string;
 }
+
+export type SketchInteractivity = 'draggable' | 'selectable' | 'construction';
 
 export type SceneObjectRender = {
   id: string;
   name: string;
+  /** True when `name` comes from a user's `.name('…')` chain, not the type. */
+  hasCustomName?: boolean;
   parentId: string | null;
   isContainer: boolean;
+  hideChildren?: boolean;
   object: any;
   sceneShapes: RenderedShape[];
   visible: boolean;
+  /** The object carries a `.reusable()` chain — kept visible when consumed. */
+  reusable?: boolean;
+  /**
+   * The object serves another statement's build (a sketch's own plane) rather
+   * than being a feature the code wrote — the timeline leaves it out.
+   */
+  internal?: boolean;
   type: string;
   uniqueType: string;
+  /** Viewport classification for sketch geometry children (server-driven). */
+  interactivity?: SketchInteractivity;
   fromCache: boolean;
   hasError: boolean;
   errorMessage?: string;

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
@@ -8,8 +8,10 @@ import cylinder from "../../core/cylinder.js";
 import { circle, rect } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extrude } from "../../features/extrude.js";
+import { Fillet } from "../../features/fillet.js";
 import { countShapes } from "../utils.js";
 import { getEdgesByType, getFacesByType } from "../utils.js";
+import { FilletOps } from "../../oc/fillet-ops.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ShapeProps } from "../../oc/props.js";
 import { edge } from "../../filters/index.js";
@@ -210,6 +212,62 @@ describe("fillet", () => {
       // just verify volume is less than original
       expect(smallVol).toBeLessThan(100 * 50 * 30);
       expect(smallVol).toBeGreaterThan(0);
+    });
+  });
+
+  describe("failure surfacing", () => {
+    function findSolid() {
+      return render().getAllSceneObjects()
+        .flatMap(o => o.getShapes())
+        .find(s => s.getType() === "solid") as Solid;
+    }
+
+    it("flags an error when a lazy selection resolves to no edges", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(30) as Extrude;
+
+      // Accessor selections are lazy, so validate() can't see their
+      // emptiness — the build itself must surface it.
+      const f = fillet(5, e.endEdges(edge().circle(999))) as Fillet;
+
+      const solid = findSolid();
+
+      expect(f.getError()).toBeTruthy();
+      expect(f.getError()).toContain("fillet");
+      expect(f.getError()).toContain("no edges");
+
+      // The solid is untouched, just no longer silently.
+      expect(ShapeProps.getProperties(solid.getShape()).volumeMm3).toBeCloseTo(100 * 50 * 30, 1);
+    });
+
+    it("flags an error instead of silently skipping when OCCT refuses the fillet", () => {
+      const spy = vi.spyOn(FilletOps, "makeFillet").mockImplementation(() => {
+        throw new Error("fillet failed");
+      });
+
+      try {
+        sketch("xy", () => {
+          rect(100, 50);
+        });
+        extrude(30);
+
+        select(edge().verticalTo("xy"));
+        const f = fillet(5) as Fillet;
+
+        const solid = findSolid();
+
+        expect(f.getError()).toBeTruthy();
+        expect(f.getError()).toContain("radius");
+
+        // The original solid is preserved so downstream features still
+        // have geometry to work with.
+        expect(solid).toBeDefined();
+        expect(ShapeProps.getProperties(solid.getShape()).volumeMm3).toBeCloseTo(100 * 50 * 30, 1);
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 });

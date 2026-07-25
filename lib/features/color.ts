@@ -26,7 +26,7 @@ export class Color extends SceneObject {
     this._selection = selection ?? null;
   }
 
-  get selection(): SceneObject {
+  get selection(): SceneObject | null {
     return this._selection;
   }
 
@@ -34,6 +34,61 @@ export class Color extends SceneObject {
     if (this._selection) {
       requireShapes(this._selection, "selection", "color");
     }
+  }
+
+  /**
+   * Every face this color applies to, grouped by the solid that owns it.
+   *
+   * A face selection hands us loose faces, whose owner has to be searched for
+   * among the scene's solids. Any other scene object hands us whole solids,
+   * which contribute all of their faces to an owner we already know.
+   *
+   * Without an explicit selection we colour every face in the current context,
+   * matching `select(face())` followed by `color(...)`: all faces of all
+   * non-meta solids present at this point in the build.
+   */
+  private collectFacesByOwner(candidates: Solid[]): Map<Solid, Face[]> {
+    const facesByOwner = new Map<Solid, Face[]>();
+
+    const add = (owner: Solid, face: Face) => {
+      let faces = facesByOwner.get(owner);
+      if (!faces) {
+        faces = [];
+        facesByOwner.set(owner, faces);
+      }
+      faces.push(face);
+    };
+
+    if (!this._selection) {
+      for (const solid of candidates) {
+        if (solid.isMetaShape()) {
+          continue;
+        }
+        facesByOwner.set(solid, solid.getFaces());
+      }
+      return facesByOwner;
+    }
+
+    for (const shape of this._selection.getShapes()) {
+      if (shape instanceof Solid) {
+        for (const face of shape.getFaces()) {
+          add(shape, face);
+        }
+        continue;
+      }
+
+      for (const face of shape.getSubShapes('face') as Face[]) {
+        const ownerShape = candidates.find(s => s.hasFace(face.getShape()));
+        if (ownerShape) {
+          add(ownerShape, face);
+        }
+        else {
+          console.log('Color: Could not find owner shape for face, skipping. Face:', face);
+        }
+      }
+    }
+
+    return facesByOwner;
   }
 
   build(context: BuildSceneObjectContext) {
@@ -49,25 +104,7 @@ export class Color extends SceneObject {
 
     const allShapes = Array.from(objShapeMap.keys());
 
-    const targetFaces: Face[] = this.selection.getShapes() as Face[];
-    console.log('Color: Target faces from selection:', targetFaces.length);
-
-    // Group faces by their owner solid
-    const facesByOwner = new Map<Solid, Face[]>();
-    for (const face of targetFaces) {
-      const ownerShape = allShapes.find(s => s.hasFace(face.getShape()));
-      if (ownerShape) {
-        let faces = facesByOwner.get(ownerShape);
-        if (!faces) {
-          faces = [];
-          facesByOwner.set(ownerShape, faces);
-        }
-        faces.push(face);
-      }
-      else {
-        console.log('Color: Could not find owner shape for face, skipping. Face:', face);
-      }
-    }
+    const facesByOwner = this.collectFacesByOwner(allShapes);
 
     // Apply all face colors per solid in a single copy
     for (const [ownerShape, faces] of facesByOwner) {
@@ -76,9 +113,9 @@ export class Color extends SceneObject {
         newSolid.setColor(face.getShape(), this.color);
       }
 
-      if (this.selection instanceof SelectSceneObject) {
+      if (this._selection instanceof SelectSceneObject) {
         for (const face of faces) {
-          this.selection.removeShape(face, this);
+          this._selection.removeShape(face, this);
         }
       }
 
@@ -109,7 +146,11 @@ export class Color extends SceneObject {
       return false;
     }
 
-    if (!this.selection.compareTo(other.selection)) {
+    if (!this._selection !== !other._selection) {
+      return false;
+    }
+
+    if (this._selection && other._selection && !this._selection.compareTo(other._selection)) {
       return false;
     }
 

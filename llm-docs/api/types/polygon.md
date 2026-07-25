@@ -41,6 +41,6 @@ Returns a lazy-evaluated vertex at a specific corner of the polygon.
 
 ## Inherited
 
-From [[api/types/geometry]]: `guide()`, `start()`, `end()`, `tangent()`
+From [[api/types/geometry]]: `guide()`, `edge()`, `start()`, `end()`, `tangent()`
 
 From [[api/types/scene-object]]: `name()`, `reusable()`

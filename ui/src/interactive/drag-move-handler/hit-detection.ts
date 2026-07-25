@@ -1,7 +1,7 @@
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { pixelToSketchThreshold } from '../sketch-plane-utils';
-import { pointToSegmentDist, isInteractiveSketchType } from '../sketch-edge-utils';
+import { pointToSegmentDist, isDraggableSketchObject } from '../sketch-edge-utils';
 import { circumcenter, isCCW } from '../tools/tool-preview-utils';
 import { meshToSketch2D } from '../tools/tangent-utils';
 import { DragHitResult } from './types';
@@ -12,6 +12,7 @@ export function findHitGeometry(
   sketchId: string,
   plane: PlaneData,
   ctx: SceneContext,
+  includeRectEdges = false,
 ): DragHitResult | null {
   const sketchChildren = sceneObjects.filter(o => o.parentId === sketchId);
   const threshold = pixelToSketchThreshold(ctx, 12);
@@ -21,7 +22,7 @@ export function findHitGeometry(
   let bestDistSq = Infinity;
 
   for (const child of sketchChildren) {
-    if (!child.sourceLocation || !isInteractiveSketchType(child.uniqueType)) {
+    if (!child.sourceLocation || !isDraggableSketchObject(child)) {
       continue;
     }
     const uniqueType = (child as any).uniqueType as string | undefined;
@@ -97,7 +98,7 @@ export function findHitGeometry(
         }
       }
       if (allVerts.length > 0) {
-        const result = hitTestRect(point2d, allVerts, sourceLocation, child, thresholdSq, bestDistSq);
+        const result = hitTestRect(point2d, allVerts, sourceLocation, child, thresholdSq, bestDistSq, includeRectEdges);
         if (result) {
           bestHit = result.hit;
           bestDistSq = result.distSq;
@@ -562,8 +563,10 @@ function hitTestRect(
   child: SceneObjectRender,
   thresholdSq: number,
   bestDistSq: number,
+  includeEdges = false,
 ): HitTestResult | null {
-  if (child.object?.radius) {
+  const rawRadius = child.object?.radius;
+  if (rawRadius && !includeEdges) {
     return null;
   }
 
@@ -602,7 +605,7 @@ function hitTestRect(
 
   let result: HitTestResult | null = null;
 
-  for (const corner of uniqueVerts) {
+  for (const corner of rawRadius ? [] : uniqueVerts) {
     const ddx = corner[0] - point2d[0];
     const ddy = corner[1] - point2d[1];
     const d = ddx * ddx + ddy * ddy;
@@ -640,6 +643,171 @@ function hitTestRect(
     }
   }
 
+  if (includeEdges && !result) {
+    const edgeResult = hitTestRectEdges(point2d, uniqueVerts, sourceLocation, child, isCentered, thresholdSq, bestDistSq);
+    if (edgeResult) {
+      result = edgeResult;
+    }
+  }
+
+  return result;
+}
+
+type RectCornerInfo = {
+  corner: [number, number];
+  outward: [number, number];
+  radius: number;
+  radiusArgOffset: number;
+};
+
+// The four visual corners in [bottom-left, bottom-right, top-right, top-left]
+// order, each with its fillet radius and the radius's non-array arg offset
+// (from the end) within the source `.radius(...)` call. The radius args are
+// [bottomLeft, bottomRight, topRight, topLeft] in the rect's own frame, whose
+// "left"/"bottom" land on the visually opposite side when the width/height
+// is negative.
+function rectCornerInfos(
+  child: SceneObjectRender,
+  minX: number, maxX: number, minY: number, maxY: number,
+): RectCornerInfo[] {
+  const rawRadius = child.object?.radius;
+  const signW = typeof child.object?.width === 'number' && child.object.width < 0 ? -1 : 1;
+  const signH = typeof child.object?.height === 'number' && child.object.height < 0 ? -1 : 1;
+
+  const semanticIndex = (visLeft: boolean, visBottom: boolean): number => {
+    const left = signW > 0 ? visLeft : !visLeft;
+    const bottom = signH > 0 ? visBottom : !visBottom;
+    if (bottom) {
+      return left ? 0 : 1;
+    }
+    return left ? 3 : 2;
+  };
+
+  const make = (
+    corner: [number, number],
+    outward: [number, number],
+    visLeft: boolean,
+    visBottom: boolean,
+  ): RectCornerInfo => {
+    const index = semanticIndex(visLeft, visBottom);
+    let radius = 0;
+    let radiusArgOffset = 0;
+    if (Array.isArray(rawRadius)) {
+      const r = rawRadius[index];
+      radius = typeof r === 'number' && r > 0 ? r : 0;
+      radiusArgOffset = rawRadius.length - 1 - index;
+    } else if (typeof rawRadius === 'number' && rawRadius > 0) {
+      radius = rawRadius;
+    }
+    return { corner, outward, radius, radiusArgOffset };
+  };
+
+  return [
+    make([minX, minY], [-1, -1], true, true),
+    make([maxX, minY], [1, -1], false, true),
+    make([maxX, maxY], [1, 1], false, false),
+    make([minX, maxY], [-1, 1], true, false),
+  ];
+}
+
+function hitTestRectEdges(
+  point2d: [number, number],
+  uniqueVerts: [number, number][],
+  sourceLocation: { line: number; column: number },
+  child: SceneObjectRender,
+  isCentered: boolean,
+  thresholdSq: number,
+  bestDistSq: number,
+): HitTestResult | null {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const v of uniqueVerts) {
+    minX = Math.min(minX, v[0]);
+    maxX = Math.max(maxX, v[0]);
+    minY = Math.min(minY, v[1]);
+    maxY = Math.max(maxY, v[1]);
+  }
+
+  const corners = rectCornerInfos(child, minX, maxX, minY, maxY);
+  const [bl, br, tr, tl] = corners;
+
+  // Sharp corners stay corner-drag handles; a leg hit that close would fight
+  // the resize interaction.
+  for (const c of corners) {
+    if (c.radius > 0) {
+      continue;
+    }
+    const ddx = c.corner[0] - point2d[0];
+    const ddy = c.corner[1] - point2d[1];
+    if (ddx * ddx + ddy * ddy < thresholdSq) {
+      return null;
+    }
+  }
+
+  let result: HitTestResult | null = null;
+
+  for (const c of corners) {
+    if (c.radius <= 0) {
+      continue;
+    }
+    const cx = c.corner[0] - c.outward[0] * c.radius;
+    const cy = c.corner[1] - c.outward[1] * c.radius;
+    const dx = point2d[0] - cx;
+    const dy = point2d[1] - cy;
+    if (dx * c.outward[0] < 0 || dy * c.outward[1] < 0) {
+      continue;
+    }
+    const deviation = Math.abs(Math.sqrt(dx * dx + dy * dy) - c.radius);
+    const devSq = deviation * deviation;
+    if (devSq < thresholdSq && devSq < bestDistSq) {
+      result = {
+        hit: {
+          sourceLocation,
+          uniqueType: 'rect',
+          hitZone: 'body',
+          rectDim: 'radius',
+          rectRadiusArgOffset: c.radiusArgOffset,
+          initialValue: Math.round(c.radius * 100) / 100,
+          rectCentered: isCentered,
+        },
+        distSq: devSq,
+      };
+      bestDistSq = devSq;
+    }
+  }
+
+  const legs: { a: [number, number]; b: [number, number]; dim: 'width' | 'height' }[] = [
+    { a: [minX + bl.radius, minY], b: [maxX - br.radius, minY], dim: 'width' },
+    { a: [minX + tl.radius, maxY], b: [maxX - tr.radius, maxY], dim: 'width' },
+    { a: [minX, minY + bl.radius], b: [minX, maxY - tl.radius], dim: 'height' },
+    { a: [maxX, minY + br.radius], b: [maxX, maxY - tr.radius], dim: 'height' },
+  ];
+
+  for (const leg of legs) {
+    if (leg.a[0] > leg.b[0] || leg.a[1] > leg.b[1]) {
+      continue;
+    }
+    const dist = pointToSegmentDist(point2d[0], point2d[1], leg.a[0], leg.a[1], leg.b[0], leg.b[1]);
+    const distSq = dist * dist;
+    if (distSq < thresholdSq && distSq < bestDistSq) {
+      const objectDim = leg.dim === 'width' ? child.object?.width : child.object?.height;
+      const geomDim = leg.dim === 'width' ? maxX - minX : maxY - minY;
+      const initialValue = typeof objectDim === 'number'
+        ? Math.round(objectDim * 100) / 100
+        : Math.round(geomDim * 100) / 100;
+      result = {
+        hit: {
+          sourceLocation,
+          uniqueType: 'rect',
+          hitZone: 'body',
+          rectDim: leg.dim,
+          initialValue,
+          rectCentered: isCentered,
+        },
+        distSq,
+      };
+      bestDistSq = distSq;
+    }
+  }
   return result;
 }
 

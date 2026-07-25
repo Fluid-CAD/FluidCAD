@@ -95,6 +95,13 @@ export class MirrorShape2D extends GeometrySceneObject {
       this.setCurrentPosition(mirroredLocalPos);
     }
 
+    // Copies keep the source role (via ShapeOps.transform) but are derived.
+    for (const shape of transformedShapes) {
+      if (!shape.isMetaShape() && !shape.isGuideShape()) {
+        shape.setProvenance('mirror-copy');
+      }
+    }
+
     this.addShapes(transformedShapes);
   }
 

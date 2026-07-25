@@ -1,4 +1,5 @@
 import { roundPoint } from '../../sketch-plane-utils';
+import { SketchTool } from '../../sketch-tool';
 import {
   START_POINT_COLOR,
   addDot,
@@ -111,11 +112,7 @@ export class TLineMode implements SegmentMode {
     const { expression, newVariable } = result;
     const { distance } = this.projectOnTangent(ctx.startPoint, this.mousePoint, ctx.tangent.direction);
     const sign = Math.sign(distance);
-
-    const num = parseFloat(expression);
-    const dimExpr = !isNaN(num) && String(num) === expression
-      ? String(Math.round(sign * num * 100) / 100)
-      : expression;
+    const dimExpr = SketchTool.applySignedDimension(expression, sign);
 
     ctx.insertGeometry(`tLine(${dimExpr})`, newVariable);
     ctx.hideExpressionInput();

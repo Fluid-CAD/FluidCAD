@@ -1,10 +1,12 @@
 import { GeometrySceneObject } from "../features/2d/geometry.js";
+import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { Fillet } from "../features/fillet.js";
 import { Fillet2D } from "../features/fillet2d.js";
 import { SceneObject } from "../common/scene-object.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { IGeometry, ISceneObject } from "./interfaces.js";
 import { type NumberParam, isNumberParam, resolveParam } from "./param.js";
+import { addTargetObjects, sketchLastSelection } from "./target-utils.js";
 
 interface FilletFunction {
   /**
@@ -20,21 +22,22 @@ interface FilletFunction {
   (radius: NumberParam, ...sceneObjects: ISceneObject[]): ISceneObject;
   /**
    * [2D] Fillets corners between the given geometries.
-   * @param objects - The geometries whose corners to fillet
+   * @param objects - The geometries (or edge filters) whose corners to fillet
    */
-  (objects: IGeometry[]): ISceneObject;
+  (objects: (IGeometry | EdgeFilterBuilder)[]): ISceneObject;
   /**
    * [2D] Fillets corners between the given geometries with a radius.
-   * @param objects - The geometries whose corners to fillet
+   * @param objects - The geometries (or edge filters) whose corners to fillet
    * @param radius - The fillet radius
    */
-  (objects: IGeometry[], radius: NumberParam): ISceneObject;
+  (objects: (IGeometry | EdgeFilterBuilder)[], radius: NumberParam): ISceneObject;
   /**
    * [2D] Fillets corners at the given radius and geometries.
    * @param radius - The fillet radius
-   * @param objects - The geometries whose corners to fillet
+   * @param objects - The geometries, edge accessors (`r.edge('top')`), or
+   *   edge filters (`edge().line()`) whose corners to fillet
    */
-  (radius: NumberParam, ...objects: IGeometry[]): ISceneObject;
+  (radius: NumberParam, ...objects: (IGeometry | ISceneObject | EdgeFilterBuilder)[]): ISceneObject;
 }
 
 function build(context: SceneParserContext): FilletFunction {
@@ -42,7 +45,7 @@ function build(context: SceneParserContext): FilletFunction {
     const activeSketch = context.getActiveSketch();
     if (activeSketch) {
       if (arguments.length === 0) {
-        const fillet = new Fillet2D(1);
+        const fillet = new Fillet2D(1, ...sketchLastSelection(context, activeSketch));
         context.addSceneObject(fillet);
         return fillet;
       }
@@ -50,13 +53,14 @@ function build(context: SceneParserContext): FilletFunction {
       if (arguments.length === 1) {
         if (isNumberParam(arguments[0])) {
           const radius = resolveParam(arguments[0] as NumberParam);
-          const fillet = new Fillet2D(radius);
+          const fillet = new Fillet2D(radius, ...sketchLastSelection(context, activeSketch));
           context.addSceneObject(fillet);
           return fillet;
         }
 
         if (Array.isArray(arguments[0])) {
           const objects = arguments[0] as GeometrySceneObject[];
+          addTargetObjects(objects, context);
           const fillet = new Fillet2D(1, ...objects);
           context.addSceneObject(fillet);
           return fillet;
@@ -66,6 +70,7 @@ function build(context: SceneParserContext): FilletFunction {
       if (arguments.length === 2 && Array.isArray(arguments[0])) {
         const objects = arguments[0] as GeometrySceneObject[];
         const radius = resolveParam(arguments[1] as NumberParam) || 1;
+        addTargetObjects(objects, context);
         const fillet = new Fillet2D(radius, ...objects);
         context.addSceneObject(fillet);
         return fillet;
@@ -74,6 +79,7 @@ function build(context: SceneParserContext): FilletFunction {
       if (arguments.length >= 2 && isNumberParam(arguments[0])) {
         const radius = resolveParam(arguments[0] as NumberParam);
         const objects = Array.from(arguments).slice(1) as GeometrySceneObject[];
+        addTargetObjects(objects, context);
         const fillet = new Fillet2D(radius, ...objects);
         context.addSceneObject(fillet);
         return fillet;

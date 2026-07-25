@@ -5,14 +5,19 @@ import { GridSnapper, computeAdaptiveGridSpacing } from './grid-snapper';
 import { PlaneData, SceneObjectRender } from '../types';
 import { SceneContext } from '../scene/scene-context';
 
-const DEFAULT_SNAP_THRESHOLD = 15;
+const DEFAULT_SNAP_THRESHOLD_PX = 15;
 
 export class SnapManager {
   private snappers: Snapper[] = [];
   private threshold: number;
   private ctx: SceneContext | null;
 
-  constructor(snappers: Snapper[], threshold: number = DEFAULT_SNAP_THRESHOLD, ctx: SceneContext | null = null) {
+  /**
+   * `threshold` is a screen-pixel radius when a SceneContext is provided —
+   * converted to sketch units at the current zoom on every snap. Without a
+   * context it is used as-is in sketch units.
+   */
+  constructor(snappers: Snapper[], threshold: number = DEFAULT_SNAP_THRESHOLD_PX, ctx: SceneContext | null = null) {
     this.snappers = snappers;
     this.threshold = threshold;
     this.ctx = ctx;
@@ -27,14 +32,16 @@ export class SnapManager {
   }
 
   snap(point2d: [number, number], plane: PlaneData): SnapResult {
+    let threshold = this.threshold;
     if (this.ctx) {
-      this.updateGridSpacing();
+      const worldUnitsPerPixel = this.worldUnitsPerPixel();
+      threshold = this.threshold * worldUnitsPerPixel;
+      this.updateGridSpacing(worldUnitsPerPixel);
     }
-
 
     // Try each snapper in priority order; first match wins
     for (const snapper of this.snappers) {
-      const result = snapper.snap(point2d, this.threshold);
+      const result = snapper.snap(point2d, threshold);
       if (result) {
         return result;
       }
@@ -56,7 +63,7 @@ export class SnapManager {
     };
   }
 
-  private updateGridSpacing(): void {
+  private worldUnitsPerPixel(): number {
     const camera = this.ctx!.camera;
     const rect = this.ctx!.renderer.domElement.getBoundingClientRect();
     const canvasHeight = rect.height || 1;
@@ -73,7 +80,10 @@ export class SnapManager {
       worldHeight = 2 * d * Math.tan(fovRad / 2);
     }
 
-    const worldUnitsPerPixel = worldHeight / canvasHeight;
+    return worldHeight / canvasHeight;
+  }
+
+  private updateGridSpacing(worldUnitsPerPixel: number): void {
     const adaptiveSpacing = computeAdaptiveGridSpacing(worldUnitsPerPixel);
 
     for (const s of this.snappers) {
@@ -93,6 +103,12 @@ export class SnapManager {
     // Extract vertex positions from sketch child mesh data
     const vertices2d: [number, number][] = [];
     const EPSILON_SQ = 1e-6;
+
+    // The plane center is the sketch's default start position (the face
+    // center when sketching on a face) — make it snappable like any vertex.
+    if (plane.center) {
+      vertices2d.push(SnapManager.worldToPlane2d(plane.center.x, plane.center.y, plane.center.z, plane));
+    }
 
     for (const obj of sceneObjects) {
       if (obj.parentId !== sketchId || !obj.sceneShapes.length) {
@@ -121,12 +137,7 @@ export class SnapManager {
               const wy = meshData.vertices[idx * 3 + 1];
               const wz = meshData.vertices[idx * 3 + 2];
 
-              // Convert world → 2D sketch coordinates
-              const rx = wx - plane.origin.x;
-              const ry = wy - plane.origin.y;
-              const rz = wz - plane.origin.z;
-              const u = rx * plane.xDirection.x + ry * plane.xDirection.y + rz * plane.xDirection.z;
-              const v = rx * plane.yDirection.x + ry * plane.yDirection.y + rz * plane.yDirection.z;
+              const [u, v] = SnapManager.worldToPlane2d(wx, wy, wz, plane);
 
               // Deduplicate
               const isDup = vertices2d.some(
@@ -147,6 +158,15 @@ export class SnapManager {
       new GridSnapper(plane),
     ];
 
-    return new SnapManager(snappers, DEFAULT_SNAP_THRESHOLD, ctx ?? null);
+    return new SnapManager(snappers, DEFAULT_SNAP_THRESHOLD_PX, ctx ?? null);
+  }
+
+  private static worldToPlane2d(wx: number, wy: number, wz: number, plane: PlaneData): [number, number] {
+    const rx = wx - plane.origin.x;
+    const ry = wy - plane.origin.y;
+    const rz = wz - plane.origin.z;
+    const u = rx * plane.xDirection.x + ry * plane.xDirection.y + rz * plane.xDirection.z;
+    const v = rx * plane.yDirection.x + ry * plane.yDirection.y + rz * plane.yDirection.z;
+    return [u, v];
   }
 }

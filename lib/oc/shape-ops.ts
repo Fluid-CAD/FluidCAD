@@ -60,6 +60,8 @@ export class ShapeOps {
       transformed.markAsGuide();
     }
 
+    transformed.copyRoleFrom(shape);
+
     transformer.delete();
     disposeTrsf();
 

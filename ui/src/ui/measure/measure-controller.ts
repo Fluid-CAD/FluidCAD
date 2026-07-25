@@ -2,19 +2,18 @@ import type { SelectedEntity, Viewer } from '../../viewer';
 import type { SubSelection } from '../../types';
 import type { MeasureEntityRef, MeasureResult, UserPreferences } from '../../api';
 import { measureEntities, savePreference } from '../../api';
+import { mergeUniqueEntities, sameEntity } from '../../helpers/entities';
+import { SelectionContextMenu } from '../../interactive/selection-menu';
 import { MeasureOverlay } from './measure-overlay';
 import { MeasurePanel } from './measure-panel';
 import { MeasureStatusBar } from './measure-status-bar';
 import { formatAngle, formatArea, formatLength } from './format';
 import type { AngleUnit, LengthUnit } from './format';
 
-const MAX_ENTITIES = 8;
+/** Measurements are computed up to this count; larger selections just select. */
+const MAX_MEASURE_ENTITIES = 8;
 
 const DISTANCE_KEYS = ['parallelDist', 'centerDist', 'axisDist', 'minDist', 'maxDist'] as const;
-
-function sameEntity(a: SelectedEntity, b: SelectedEntity): boolean {
-  return a.shapeId === b.shapeId && a.sub.type === b.sub.type && a.sub.index === b.sub.index;
-}
 
 function toRef(entity: SelectedEntity): MeasureEntityRef {
   return { shapeId: entity.shapeId, kind: entity.sub.type, index: entity.sub.index };
@@ -35,8 +34,28 @@ export class MeasureController {
   private statusBar: MeasureStatusBar;
   private panel: MeasurePanel;
   private overlay: MeasureOverlay;
+  private menu: SelectionContextMenu;
+  /** Notified whenever the selection set changes through this controller. */
+  onSelectionChanged: ((selection: SelectedEntity[]) => void) | null = null;
 
   constructor(container: HTMLElement, private viewer: Viewer) {
+    // Right-click menu: multi-select groups + sibling buckets ("Select
+    // other"). Groups merge into the measure selection, which seeds the
+    // modify tools.
+    this.menu = new SelectionContextMenu(container, 'fluidcad-measure-select-menu', {
+      kinds: ['tangent', 'classified', 'same-type', 'equal', 'sibling'],
+      onSelectGroup: (_kind, _seed, members) => {
+        this.setSelection(mergeUniqueEntities(this.entities, members));
+      },
+      onPreview: (members) => {
+        const shown = members ? mergeUniqueEntities(this.entities, members) : this.entities;
+        if (shown.length > 0) {
+          this.viewer.highlightEntities(shown);
+        } else {
+          this.viewer.clearHighlight();
+        }
+      },
+    });
     this.statusBar = new MeasureStatusBar(container, () => this.togglePanel());
     this.panel = new MeasurePanel(container, {
       onClose: () => this.togglePanel(false),
@@ -82,7 +101,8 @@ export class MeasureController {
    * the entity in the set. Returns the resulting selection.
    */
   handleClick(shapeId: string | null, sub: SubSelection, additive: boolean): SelectedEntity[] {
-    if (!shapeId || !sub) {
+    // Sketch-wire picks belong to the create dialogs, never to measurement.
+    if (!shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane') {
       if (additive && this.entities.length > 0) {
         return this.entities; // missed ctrl-click shouldn't wipe a selection in progress
       }
@@ -96,9 +116,6 @@ export class MeasureController {
     let next: SelectedEntity[];
     if (additive || this.panelOpen) {
       next = existingIndex >= 0 ? this.entities.filter((_, i) => i !== existingIndex) : [...this.entities, entity];
-      if (next.length > MAX_ENTITIES) {
-        next = next.slice(next.length - MAX_ENTITIES);
-      }
     } else {
       next = [entity];
     }
@@ -107,12 +124,26 @@ export class MeasureController {
     return this.entities;
   }
 
+  /** Right-click in neutral mode: the multi-select menu over that pick. */
+  handleContextMenu(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): void {
+    this.menu.hide();
+    if (!shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane') {
+      return;
+    }
+    // The hover tint would otherwise be stashed as an "original" color by the
+    // preview highlight and stick around after the preview restores it.
+    this.viewer.clearHover();
+    void this.menu.open({ shapeId, sub }, clientX, clientY);
+  }
+
   clearSelection(): void {
+    this.menu.hide();
     this.setSelection([]);
   }
 
   /** Scene re-rendered: shape ids may have changed and the viewer already cleared its highlights. */
   onSceneRendered(): void {
+    this.menu.hide();
     this.abortController?.abort();
     this.abortController = null;
     this.entities = [];
@@ -128,13 +159,17 @@ export class MeasureController {
       this.viewer.clearHighlight();
     }
     this.fetchMeasurement();
+    this.onSelectionChanged?.(this.entities);
   }
 
   private fetchMeasurement(): void {
     this.abortController?.abort();
     this.abortController = null;
 
-    if (this.entities.length === 0) {
+    // Group selections can exceed what a measurement usefully combines —
+    // beyond the cap the set is a selection (for the modify tools), not a
+    // measurement input.
+    if (this.entities.length === 0 || this.entities.length > MAX_MEASURE_ENTITIES) {
       this.result = null;
       this.updateUI();
       return;
@@ -170,7 +205,10 @@ export class MeasureController {
   }
 
   private updateUI(): void {
-    if (this.entities.length >= 2 && this.result) {
+    if (this.entities.length > MAX_MEASURE_ENTITIES) {
+      this.statusBar.show('Selection', `${this.entities.length} entities`);
+      this.statusBar.setExpanded(this.panelOpen);
+    } else if (this.entities.length >= 2 && this.result) {
       this.statusBar.show(this.result.primaryLabel, this.primaryValueText(this.result));
       this.statusBar.setExpanded(this.panelOpen);
     } else if (this.entities.length >= 2) {

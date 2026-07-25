@@ -60,6 +60,26 @@ export class Face extends Shape<TopoDS_Face> {
     return this.wires;
   }
 
+  override getLinkedShapes(): Shape[] {
+    const linked = super.getLinkedShapes();
+    if (this.edges) {
+      linked.push(...this.edges);
+    }
+    if (this.wires) {
+      linked.push(...this.wires);
+    }
+    return linked;
+  }
+
+  override release(retainedRaw: ReadonlySet<object>, deletedRaw: Set<object>): void {
+    if (this.isReleased()) {
+      return;
+    }
+    this.edges = null;
+    this.wires = null;
+    super.release(retainedRaw, deletedRaw);
+  }
+
   hasEdge(edge: TopoDS_Edge): Edge {
     const edges = this.getEdges();
     return edges.find(e => e.getShape().IsPartner(edge)) || null;

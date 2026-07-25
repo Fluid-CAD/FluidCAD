@@ -24,6 +24,28 @@ explicitly included.
 
 ---
 
+### edge()
+
+```ts
+edge(roleOrIndex: string | number, roleIndex?: number): SceneObject
+```
+
+Uniform edge accessor. `edge('top')` selects this feature's edges by role
+(optionally disambiguated by role index, e.g. `edge('corner-arc', 2)`);
+`edge(1)` selects by build-order index over the feature's real edges.
+Rect roles: `top`/`bottom`/`left`/`right` and `corner-arc` 0–3 (radius-arg
+order bl/br/tr/tl); polygon: `side` i; slot: `side` 0–1, `cap-arc`
+0=left/1=right; circle/ellipse: `perimeter`.
+
+**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `roleOrIndex` | string \| number | A role name, or a build-order edge index. |
+| `roleIndex` | number | Disambiguates roles that repeat (e.g. polygon sides). *(optional)* |
+
+---
+
 ### start()
 
 ```ts
@@ -123,102 +145,6 @@ Controls how the rectangle is positioned relative to the current point.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `value` | boolean \| "horizontal" \| "vertical" | `true` centers on both axes, `'horizontal'` or `'vertical'` centers on one axis, `false` (default) keeps the current point as the origin corner. *(optional)* |
-
----
-
-### topEdge()
-
-```ts
-topEdge(): SceneObject
-```
-
-Returns the top straight edge of the rectangle.
-
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
-
----
-
-### bottomEdge()
-
-```ts
-bottomEdge(): SceneObject
-```
-
-Returns the bottom straight edge of the rectangle.
-
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
-
----
-
-### leftEdge()
-
-```ts
-leftEdge(): SceneObject
-```
-
-Returns the left straight edge of the rectangle.
-
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
-
----
-
-### rightEdge()
-
-```ts
-rightEdge(): SceneObject
-```
-
-Returns the right straight edge of the rectangle.
-
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
-
----
-
-### topLeftArcEdge()
-
-```ts
-topLeftArcEdge(): SceneObject
-```
-
-Returns the arc edge at the top-left corner. Only present when a radius is applied.
-
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
-
----
-
-### topRightArcEdge()
-
-```ts
-topRightArcEdge(): SceneObject
-```
-
-Returns the arc edge at the top-right corner. Only present when a radius is applied.
-
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
-
----
-
-### bottomLeftArcEdge()
-
-```ts
-bottomLeftArcEdge(): SceneObject
-```
-
-Returns the arc edge at the bottom-left corner. Only present when a radius is applied.
-
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
-
----
-
-### bottomRightArcEdge()
-
-```ts
-bottomRightArcEdge(): SceneObject
-```
-
-Returns the arc edge at the bottom-right corner. Only present when a radius is applied.
-
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
 
 ---
 

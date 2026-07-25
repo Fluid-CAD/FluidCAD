@@ -25,11 +25,11 @@ Trims all sketch geometry segments.
 ---
 
 ```ts
-trim(...filters: EdgeFilter[]): Trim
+trim(...targets: (ISceneObject | EdgeFilterBuilder)[]): Trim
 ```
 
-Trims sketch geometry segments matching the given edge filters.
+Removes whole edges matching the given targets.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...filters` | EdgeFilter[] | Edge filters that select which edges to remove *(optional)* |
+| `...targets` | (ISceneObject \| EdgeFilterBuilder)[] | Geometries, edge accessors (`r.edge('top')`), or edge filters (`edge().line()`) selecting the edges to remove *(optional)* |

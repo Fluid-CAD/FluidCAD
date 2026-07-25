@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
+import { getSceneManager } from "../../scene-manager.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import color from "../../core/color.js";
@@ -7,6 +8,7 @@ import select from "../../core/select.js";
 import { rect } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Color } from "../../features/color.js";
+import { Extrude } from "../../features/extrude.js";
 import { SelectSceneObject } from "../../features/select.js";
 import { countShapes } from "../utils.js";
 import { face } from "../../filters/index.js";
@@ -89,6 +91,110 @@ describe("color", () => {
       for (const entry of solid.colorMap) {
         expect(entry.color).toBe("#008000");
       }
+    });
+  });
+
+  describe("color without a selection", () => {
+    it("should color every face in the current context", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      extrude(30);
+
+      const c = color("red") as Color;
+
+      render();
+
+      const solid = c.getShapes()[0] as Solid;
+      // A box has six faces; all of them should be colored red.
+      expect(solid.colorMap).toHaveLength(6);
+      for (const entry of solid.colorMap) {
+        expect(entry.color).toBe("#ff0000");
+      }
+    });
+
+    it("should match select(face()) followed by color()", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      extrude(30);
+
+      select(face());
+      const explicit = color("red") as Color;
+
+      render();
+
+      const explicitSolid = explicit.getShapes()[0] as Solid;
+
+      // Rebuild the same model from scratch, coloring with an implicit
+      // (no-selection) call, and assert the colored output is identical.
+      getSceneManager().startScene();
+
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      extrude(30);
+
+      const implicit = color("red") as Color;
+
+      render();
+
+      const implicitSolid = implicit.getShapes()[0] as Solid;
+
+      expect(implicitSolid.colorMap).toHaveLength(explicitSolid.colorMap.length);
+      expect(implicitSolid.colorMap.every(e => e.color === "#ff0000")).toBe(true);
+    });
+  });
+
+  describe("color a whole scene object", () => {
+    it("should color every face of the passed object", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(30);
+
+      const c = color("red", e) as Color;
+
+      render();
+
+      const solid = c.getShapes()[0] as Solid;
+      expect(solid.colorMap).toHaveLength(6);
+      for (const entry of solid.colorMap) {
+        expect(entry.color).toBe("#ff0000");
+      }
+    });
+
+    it("should let a later face color override the object's base color", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(30) as Extrude;
+
+      color("steelblue", e);
+
+      select(face().onPlane("xy", 30));
+      const c = color("tomato") as Color;
+
+      render();
+
+      const solid = c.getShapes()[0] as Solid;
+      expect(solid.colorMap).toHaveLength(6);
+      expect(solid.colorMap.filter(entry => entry.color === "#ff6347")).toHaveLength(1);
+      expect(solid.colorMap.filter(entry => entry.color === "#4682b4")).toHaveLength(5);
+    });
+
+    it("should consume the object's solid rather than duplicate it", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(30) as Extrude;
+
+      color("red", e);
+
+      const scene = render();
+
+      expect(countShapes(scene)).toBe(1);
+      expect(e.getShapes()).toHaveLength(0);
     });
   });
 

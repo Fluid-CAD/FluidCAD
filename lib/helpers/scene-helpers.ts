@@ -93,11 +93,18 @@ export function fuseWithSceneObjects(
   // split by the boolean fuse merge back into single faces (the visible
   // "artifact seams" on the target solid). Lineage is captured per cleanup
   // so downstream history can be remapped onto post-clean faces.
+  // If a consumed body carried delicate same-domain geometry (e.g. thread
+  // flanks from a helix sweep), skip the global face-merge so the fuse doesn't
+  // collapse it, and re-flag the result so later ops keep skipping too.
+  const skipSimplify = opts?.skipSimplify || modifiedShapes.some(s => s.noSimplify());
   const cleanedShapesToAdd: Shape<any>[] = [];
   const cleanups: CleanShapeLineage[] = [];
   const runCleanups = () => {
     for (const shape of shapesToAdd) {
-      const cleanup = ShapeOps.cleanShapeWithLineage(shape);
+      const cleanup = ShapeOps.cleanShapeWithLineage(shape, { skipSimplify });
+      if (skipSimplify) {
+        cleanup.shape.markNoSimplify();
+      }
       cleanedShapesToAdd.push(cleanup.shape);
       cleanups.push(cleanup);
     }
@@ -381,8 +388,15 @@ export function cutWithSceneObjects(
   for (const shape of stock) {
     const list = cutResult.modified(shape);
     if (list.length) {
+      // Global face unification would collapse delicate same-domain geometry
+      // (e.g. thread flanks) the stock already carries, so skip it when the
+      // caller asked to or when the stock is flagged, and re-flag the result.
+      const skipSimplify = options?.skipSimplify || shape.noSimplify();
       for (const newShape of list) {
-        const cleanup = ShapeOps.cleanShapeWithLineage(newShape, { skipSimplify: options?.skipSimplify });
+        const cleanup = ShapeOps.cleanShapeWithLineage(newShape, { skipSimplify });
+        if (skipSimplify) {
+          cleanup.shape.markNoSimplify();
+        }
         caller.addShape(cleanup.shape as Solid);
         cleanedShapes.push(cleanup.shape);
         cleanups.push(cleanup);

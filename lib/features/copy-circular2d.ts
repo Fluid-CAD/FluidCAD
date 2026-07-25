@@ -108,6 +108,10 @@ export class CopyCircular2D extends GeometrySceneObject {
     return "copy-circular-2d";
   }
 
+  getDisplayType(): string {
+    return "Copy";
+  }
+
   serialize() {
     return {
     }

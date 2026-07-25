@@ -49,6 +49,9 @@ export class Projection extends ExtrudableGeometryBase {
     }
 
     const uniqueEdges = EdgeOps.unifyCoincident(allEdges);
+    for (const edge of uniqueEdges) {
+      edge.setProvenance('projected');
+    }
     this.addShapes(uniqueEdges);
 
     if (endpoints) {

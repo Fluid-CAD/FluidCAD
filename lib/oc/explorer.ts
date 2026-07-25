@@ -84,6 +84,9 @@ export class Explorer {
     }
 
     explorer.delete();
+    // The map's internal entries hold their own TShape references — leaving
+    // it undeleted pins every explored sub-shape's geometry forever.
+    map.delete();
     return result;
   }
 

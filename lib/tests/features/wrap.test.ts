@@ -151,6 +151,21 @@ describe("wrap", () => {
       expect(countShapes(scene)).toBe(1);
       expect(volumeOf(w)).toBeCloseTo(CYLINDER_VOLUME - DEBOSS_PAD_VOLUME, 0);
     });
+
+    it("reports the wrap type, not the cut it performs", () => {
+      // A deboss subtracts material, but the feature is still a wrap: the
+      // statement calls wrap().remove(), and the timeline row labels and
+      // icons it as one. Only getUniqueType() distinguishes the op.
+      const { faceSelection } = setupCylinderScene();
+      const decal = sketch(plane("front", 50), () => {
+        rect(20, 10);
+      });
+
+      const w = wrap(2, decal, faceSelection).remove() as Wrap;
+
+      expect(w.getType()).toBe('wrap');
+      expect(w.getUniqueType()).toBe('wrap-remove');
+    });
   });
 
   describe("new (standalone)", () => {

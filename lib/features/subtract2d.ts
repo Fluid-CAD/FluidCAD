@@ -2,7 +2,7 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Wire } from "../common/wire.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
-import { GeometrySceneObject } from "./2d/geometry.js";
+import { EdgeTargetArg, GeometrySceneObject } from "./2d/geometry.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { Explorer } from "../oc/explorer.js";
@@ -10,33 +10,23 @@ import { FaceMaker2 } from "../oc/face-maker2.js";
 import { requireShapes } from "../common/operand-check.js";
 
 export class Subtract2D extends GeometrySceneObject {
-  constructor(public target1: GeometrySceneObject, public target2: GeometrySceneObject) {
+  constructor(public target1: EdgeTargetArg, public target2: EdgeTargetArg) {
     super();
   }
 
   override validate() {
-    requireShapes(this.target1, "first operand", "subtract2d");
-    requireShapes(this.target2, "second operand", "subtract2d");
-  }
-
-  private collectEdges(target: GeometrySceneObject): Map<Edge, SceneObject> {
-    const edges = new Map<Edge, SceneObject>();
-    for (const shape of target.getShapes()) {
-      if (shape instanceof Edge) {
-        edges.set(shape, target);
-      } else if (shape instanceof Wire) {
-        for (const edge of shape.getEdges()) {
-          edges.set(edge, target);
-        }
-      }
+    if (this.target1 instanceof SceneObject) {
+      requireShapes(this.target1, "first operand", "subtract2d");
     }
-    return edges;
+    if (this.target2 instanceof SceneObject) {
+      requireShapes(this.target2, "second operand", "subtract2d");
+    }
   }
 
   build(context: BuildSceneObjectContext) {
     const plane = this.sketch.getPlane();
-    const baseEdgeMap = this.collectEdges(this.target1);
-    const toolEdgeMap = this.collectEdges(this.target2);
+    const baseEdgeMap = this.resolveEdgeTargets([this.target1]);
+    const toolEdgeMap = this.resolveEdgeTargets([this.target2]);
 
     const baseFaces = FaceMaker2.getRegions(Array.from(baseEdgeMap.keys()), plane);
     const toolFaces = FaceMaker2.getRegions(Array.from(toolEdgeMap.keys()), plane);
@@ -54,24 +44,32 @@ export class Subtract2D extends GeometrySceneObject {
 
     const newEdges = resultFaces.flatMap(face => face.getEdges());
 
-    for (const [edge, owner] of baseEdgeMap) {
-      owner.removeShape(edge, this);
+    // Remove through the sketch so every holder of the instance (real
+    // owner, lazy accessors, select statements) records the removal.
+    for (const edge of baseEdgeMap.keys()) {
+      this.sketch.removeShape(edge, this);
     }
 
-    for (const [edge, owner] of toolEdgeMap) {
-      owner.removeShape(edge, this);
+    for (const edge of toolEdgeMap.keys()) {
+      this.sketch.removeShape(edge, this);
+    }
+
+    // Surviving stretches keep their source roles; new pieces are boolean cuts.
+    const inputEdges = [...baseEdgeMap.keys(), ...toolEdgeMap.keys()];
+    const unmatched = this.recoverEdgeRoles(newEdges, inputEdges);
+    for (const edge of unmatched) {
+      edge.setProvenance('boolean-result');
     }
 
     this.addShapes(newEdges);
   }
 
   override getDependencies(): SceneObject[] {
-    return [this.target1, this.target2];
+    return GeometrySceneObject.sceneObjectTargets([this.target1, this.target2]);
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const t1 = (remap.get(this.target1) as GeometrySceneObject) || this.target1;
-    const t2 = (remap.get(this.target2) as GeometrySceneObject) || this.target2;
+    const [t1, t2] = GeometrySceneObject.remapEdgeTargets([this.target1, this.target2], remap);
     return new Subtract2D(t1, t2);
   }
 
@@ -84,11 +82,10 @@ export class Subtract2D extends GeometrySceneObject {
       return false;
     }
 
-    if (!this.target1.compareTo(other.target1) || !this.target2.compareTo(other.target2)) {
-      return false;
-    }
-
-    return true;
+    return GeometrySceneObject.compareEdgeTargets(
+      [this.target1, this.target2],
+      [other.target1, other.target2],
+    );
   }
 
   getType(): string {

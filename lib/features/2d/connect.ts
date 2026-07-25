@@ -55,7 +55,9 @@ export class Connect extends GeometrySceneObject {
     const useArc = this.mode === 'arc';
 
     const makeBridgeEdge = (curve: any, v1: any, v2: any): Edge => {
-      return EdgeOps.makeEdgeFromCurveAndVertices(curve, v1, v2);
+      const edge = EdgeOps.makeEdgeFromCurveAndVertices(curve, v1, v2);
+      edge.setProvenance('bridge');
+      return edge;
     };
 
     const makeBridge = (edge1: Edge, edge2: Edge): Edge => {
@@ -95,17 +97,24 @@ export class Connect extends GeometrySceneObject {
     // Close the loop: bridge from last edge back to first
     wireEdges.push(makeBridge(edges[edges.length - 1], edges[0]));
 
-    console.log('Constructed wire edges:', wireEdges.length);
     let wire = WireOps.buildWire(wireEdges);
 
     // Ensure the wire is CCW relative to the sketch plane normal.
     if (wire.isCW(this.sketch.getPlane().normal)) {
-      console.log('Reversing wire to ensure CCW orientation');
       wire = WireOps.reverseWire(wire);
-      console.log('Wire reversed', !wire.isCW(this.sketch.getPlane().normal));
     }
 
-    this.addShape(wire);
+    // Emit individual edges, never the wire: sketch feature shapes are edges
+    // (1 shapeId = 1 edge). Consumers re-derive wires/regions on demand.
+    // Wire edges are fresh wrappers — recover role/provenance (source edge
+    // roles, 'bridge' stamps) from the input edge sharing the same TShape.
+    for (const edge of wire.getEdges()) {
+      const source = wireEdges.find(input => edge.isSame(input) || edge.isPartner(input));
+      if (source) {
+        edge.copyRoleFrom(source);
+      }
+      this.addShape(edge);
+    }
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {

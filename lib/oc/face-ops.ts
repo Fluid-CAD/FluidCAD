@@ -15,6 +15,20 @@ export class FaceOps {
 
   static getPlaneRaw(face: TopoDS_Face): Plane {
     console.log("Extracting plane from face...");
+    const plane = FaceOps.tryGetPlaneRaw(face);
+    if (!plane) {
+      throw new Error("Face is not planar");
+    }
+    return plane;
+  }
+
+  /** The face's plane, or null when the face is not planar. Never throws. */
+  static tryGetPlane(face: Face | TopoDS_Face): Plane | null {
+    const rawFace = face instanceof Face ? face.getShape() as TopoDS_Face : face;
+    return FaceOps.tryGetPlaneRaw(rawFace);
+  }
+
+  static tryGetPlaneRaw(face: TopoDS_Face): Plane | null {
     const oc = getOC();
     const topoFace = oc.TopoDS.Face(face);
     const adaptor = new oc.BRepAdaptor_Surface(topoFace, true);
@@ -23,7 +37,11 @@ export class FaceOps {
 
     if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
       adaptor.delete();
-      throw new Error("Face is not planar");
+      // OCC stores geometrically-flat walls produced by loft/sweep (and some
+      // imported STEP faces) as B-spline surfaces, so the adaptor type is not
+      // GeomAbs_Plane even though the face lies on a plane. Fall back to
+      // fitting a plane and verifying the surface really is flat.
+      return FaceOps.tryFitPlaneRaw(face);
     }
 
     let pln = adaptor.Plane();
@@ -50,6 +68,96 @@ export class FaceOps {
 
     const plane = new Plane(new Point(origin.x, origin.y, origin.z), xDirection, normal);
     return plane;
+  }
+
+  /**
+   * Recovers the plane of a face whose parametric surface is not
+   * `GeomAbs_Plane` but is geometrically flat (e.g. a loft or sweep side wall,
+   * which OCC stores as a B-spline). Returns null when no plane fits the
+   * boundary edges, or when the surface interior deviates from that plane — so
+   * a domed face with a planar rim is correctly rejected.
+   */
+  private static tryFitPlaneRaw(face: TopoDS_Face): Plane | null {
+    const oc = getOC();
+    // Use the face's own modelling tolerance (never tighter than the kernel's
+    // confusion tolerance) both to fit the plane and to judge flatness, so a
+    // face built at a looser tolerance is not falsely rejected.
+    const tolerance = Math.max(oc.BRep_Tool.Tolerance(oc.TopoDS.Face(face)), oc.Precision.Confusion());
+
+    const finder = new oc.BRepBuilderAPI_FindPlane(face, tolerance);
+    if (!finder.Found()) {
+      finder.delete();
+      return null;
+    }
+
+    const geomPlane = finder.Plane();
+    const pln = geomPlane.Pln();
+    const location = pln.Location();
+    const xAxis = pln.XAxis();
+    const xDir = xAxis.Direction();
+
+    const loc = new Vector3d(location.X(), location.Y(), location.Z());
+    const xDirection = new Vector3d(xDir.X(), xDir.Y(), xDir.Z());
+
+    xDir.delete();
+    xAxis.delete();
+    location.delete();
+    pln.delete();
+    geomPlane.delete();
+    finder.delete();
+
+    // FindPlane only fits the boundary edges; confirm the surface interior lies
+    // on that plane before trusting it as flat.
+    const normal = FaceOps.calculateNormalRaw(face);
+    if (!FaceOps.surfaceLiesOnPlane(face, loc, normal, tolerance)) {
+      return null;
+    }
+
+    // Canonical origin: foot of the perpendicular from the world origin onto
+    // the plane, matching the GeomAbs_Plane path so identical planes compare equal.
+    const origin = normal.multiply(loc.dot(normal));
+    return new Plane(new Point(origin.x, origin.y, origin.z), xDirection, normal);
+  }
+
+  /**
+   * True when every sampled point of the face's surface lies within `tolerance`
+   * of the plane through `pointOnPlane` with the given `normal`. Samples a UV
+   * grid over the face's trimmed parameter range.
+   */
+  private static surfaceLiesOnPlane(
+    face: TopoDS_Face,
+    pointOnPlane: Vector3d,
+    normal: Vector3d,
+    tolerance: number,
+  ): boolean {
+    const oc = getOC();
+    const adaptor = new oc.BRepAdaptor_Surface(oc.TopoDS.Face(face), true);
+    const u0 = adaptor.FirstUParameter();
+    const u1 = adaptor.LastUParameter();
+    const v0 = adaptor.FirstVParameter();
+    const v1 = adaptor.LastVParameter();
+
+    const steps = 3;
+    let flat = true;
+    for (let i = 0; i <= steps && flat; i++) {
+      for (let j = 0; j <= steps && flat; j++) {
+        const u = u0 + ((u1 - u0) * i) / steps;
+        const v = v0 + ((v1 - v0) * j) / steps;
+        const p = adaptor.Value(u, v);
+        const dist = Math.abs(
+          normal.x * (p.X() - pointOnPlane.x) +
+          normal.y * (p.Y() - pointOnPlane.y) +
+          normal.z * (p.Z() - pointOnPlane.z),
+        );
+        p.delete();
+        if (dist > tolerance) {
+          flat = false;
+        }
+      }
+    }
+
+    adaptor.delete();
+    return flat;
   }
 
   static calculateNormal(face: Face | TopoDS_Face): Vector3d {

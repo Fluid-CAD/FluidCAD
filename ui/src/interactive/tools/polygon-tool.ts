@@ -240,7 +240,7 @@ export class PolygonTool extends SketchTool {
     const isNumeric = !isNaN(num) && String(num) === result.expression;
 
     this.diameterExpression = result;
-    this.lockedDiameter = isNumeric ? num : null;
+    this.lockedDiameter = isNumeric ? num : this.previewDiameter(result);
     this.expressionPhase = 'sides';
 
     queueMicrotask(() => {
@@ -259,6 +259,20 @@ export class PolygonTool extends SketchTool {
       });
       this.rebuildPreview();
     });
+  }
+
+  // Preview diameter for a dimension committed as a variable/expression: the
+  // variable's own value when statically resolvable, else the mouse-derived
+  // diameter at commit time. The final statement still uses the expression.
+  private previewDiameter(result: CommitResult): number | null {
+    const fromVariable = SketchTool.resolveCommittedMagnitude(result, this.cachedVariables);
+    if (fromVariable !== null) {
+      return fromVariable;
+    }
+    if (this.centerPoint && this.mousePoint) {
+      return Math.round(dist2D(this.centerPoint, this.mousePoint) * 2 * 100) / 100;
+    }
+    return null;
   }
 
   private onSidesCommit(result: CommitResult): void {
@@ -281,8 +295,9 @@ export class PolygonTool extends SketchTool {
       ? `polygon(${sidesResult.expression}, ${diameterResult.expression})`
       : `polygon(${this.formatPoint(center)}, ${sidesResult.expression}, ${diameterResult.expression})`;
 
-    const newVariable = sidesResult.newVariable ?? diameterResult.newVariable;
-    this.insertGeometry(statement, newVariable);
+    const newVariables = [sidesResult.newVariable, diameterResult.newVariable]
+      .filter((v): v is NonNullable<typeof v> => v !== undefined);
+    this.insertGeometry(statement, newVariables);
   }
 
   private rebuildPreview(): void {

@@ -258,6 +258,44 @@ describe("plane", () => {
       expectSamePoint(nStart, nEnd.negate());
     });
 
+    it("should apply transform options to a plane from an edge", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(30) as Extrude;
+
+      const pStart = plane(e.startEdges(0)) as PlaneObjectBase;
+      const pOffset = plane(e.startEdges(0), { offset: 10 }) as PlaneObjectBase;
+
+      render();
+
+      const base = pStart.getPlane();
+      const moved = pOffset.getPlane();
+      // The offset moves the origin along the plane normal (the edge tangent).
+      const expected = base.origin.add(base.normal.multiply(10));
+      expectSamePoint(moved.origin, expected);
+      expectSamePoint(moved.normal, base.normal);
+    });
+
+    it("should apply rotation options to a plane from an edge", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(30) as Extrude;
+
+      const pStart = plane(e.startEdges(0)) as PlaneObjectBase;
+      const pRot = plane(e.startEdges(0), { rotateX: 90 }) as PlaneObjectBase;
+
+      render();
+
+      const base = pStart.getPlane();
+      const rot = pRot.getPlane();
+      // A 90° rotation around the plane's own X axis turns the normal
+      // perpendicular to itself; the origin stays put.
+      expectSamePoint(rot.origin, base.origin);
+      expect(rot.normal.dot(base.normal)).toBeCloseTo(0);
+    });
+
     it("should still treat a numeric argument on a face as a normal offset", () => {
       sketch("xy", () => {
         rect(100, 50);
@@ -288,6 +326,37 @@ describe("plane", () => {
       expect(pl.normal.z).toBeCloseTo(1);
     });
 
+    it("should consume the two source planes", () => {
+      const p1 = plane("xy") as PlaneObjectBase;
+      const p2 = plane("xy", { offset: 40 }) as PlaneObjectBase;
+      const mid = plane(p1, p2) as PlaneObjectBase;
+
+      render();
+
+      // Plane faces are meta shapes, so the filter has to admit them.
+      const filter = { excludeMeta: false, excludeGuide: false };
+
+      // Only the mid plane survives — the originals were consumed.
+      expect(p1.getShapes(filter).length).toBe(0);
+      expect(p2.getShapes(filter).length).toBe(0);
+      expect(mid.getShapes(filter).length).toBe(1);
+    });
+
+    it("should mark the mid plane face as a meta shape, like any other plane", () => {
+      const ref = plane("xy") as PlaneObjectBase;
+      const p1 = plane("xy") as PlaneObjectBase;
+      const p2 = plane("xy", { offset: 40 }) as PlaneObjectBase;
+      const m = plane(p1, p2) as PlaneObjectBase;
+
+      render();
+
+      // A plane's face is reference geometry, so it stays out of the default
+      // (meta-excluding) shape view — the mid plane is no different.
+      expect(ref.getShapes().length).toBe(0);
+      expect(m.getShapes().length).toBe(0);
+      expect(m.getShapes({ excludeMeta: false, excludeGuide: false }).length).toBe(1);
+    });
+
     it("should create a plane midway using shorthand strings", () => {
       const mid = plane("xy", "xy") as PlaneObjectBase;
 
@@ -311,6 +380,32 @@ describe("plane", () => {
       expect(pl.normal.z).toBeCloseTo(0);
     });
 
+    it("should offset a mid plane along its normal", () => {
+      const p1 = plane("xy") as PlaneObjectBase;
+      const p2 = plane("xy", { offset: 40 }) as PlaneObjectBase;
+      const mid = plane(p1, p2, { offset: 5 }) as PlaneObjectBase;
+
+      render();
+
+      const pl = mid.getPlane();
+      expect(pl.origin.z).toBeCloseTo(25);
+      expect(pl.normal.z).toBeCloseTo(1);
+    });
+
+    it("should rotate a mid plane", () => {
+      const p1 = plane("xy") as PlaneObjectBase;
+      const p2 = plane("xy", { offset: 40 }) as PlaneObjectBase;
+      const mid = plane(p1, p2, { rotateX: 90 }) as PlaneObjectBase;
+
+      render();
+
+      const pl = mid.getPlane();
+      expect(pl.origin.z).toBeCloseTo(20);
+      // XY normal (Z) rotated 90° around the plane's X axis lands on ±Y.
+      expect(Math.abs(pl.normal.y)).toBeCloseTo(1);
+      expect(pl.normal.z).toBeCloseTo(0);
+    });
+
     it("should create a plane midway between two face planes", () => {
       sketch("xy", () => {
         rect(100, 50);
@@ -325,6 +420,51 @@ describe("plane", () => {
 
       const pl = mid.getPlane();
       expect(pl.origin.z).toBeCloseTo(30);
+    });
+  });
+
+  // A sketch builds itself a plane when it isn't handed one. That object
+  // carries the SKETCH call's source location, so it stands for no statement
+  // of its own — it is marked internal, and the timeline leaves it out
+  // instead of showing a plane feature the code never wrote.
+  describe("internal planes", () => {
+    const planesOf = (scene: ReturnType<typeof render>) =>
+      scene.getRenderedObjects().filter(r => r.type === "plane");
+
+    it("marks the plane a sketch builds for itself", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+
+      const planes = planesOf(render());
+      expect(planes).toHaveLength(1);
+      expect(planes[0].internal).toBe(true);
+    });
+
+    it("marks the plane a sketch derives from a face", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(60) as Extrude;
+      sketch(e.endFaces(), () => {
+        rect(10, 10);
+      });
+
+      const planes = planesOf(render());
+      expect(planes.every(p => p.internal === true)).toBe(true);
+    });
+
+    it("leaves a plane() statement alone, and the sketch that consumes it", () => {
+      const p = plane("xy", 20) as PlaneObjectBase;
+      sketch(p, () => {
+        rect(100, 50);
+      });
+
+      // Only the statement's own plane object exists — the sketch reuses it
+      // rather than building one — and it stays a feature row.
+      const planes = planesOf(render());
+      expect(planes).toHaveLength(1);
+      expect(planes[0].internal).toBeUndefined();
     });
   });
 });

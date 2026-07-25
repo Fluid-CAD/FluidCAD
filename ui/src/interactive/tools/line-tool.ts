@@ -24,6 +24,17 @@ import {
   tangentFromVertices,
 } from './tangent-utils';
 
+/**
+ * A drawn line whose angle falls within this many degrees of an axis is
+ * auto-committed as an hLine (near-horizontal) or vLine (near-vertical).
+ * Hold Ctrl while drawing to disable this and emit a free line at the exact
+ * cursor angle.
+ */
+const AUTO_ORTHO_ANGLE_DEG = 5;
+const AUTO_ORTHO_ANGLE_RAD = (AUTO_ORTHO_ANGLE_DEG * Math.PI) / 180;
+
+type LineDirection = 'horizontal' | 'vertical' | 'free';
+
 export class LineTool extends SketchTool {
   readonly id = 'line' as const;
   readonly label = 'Line';
@@ -132,7 +143,7 @@ export class LineTool extends SketchTool {
       this.expressionInput.commitCurrentValue();
     } else if (this.isTLineMode()) {
       this.commitTLineDirect();
-    } else if (this.shiftHeld && this.expressionInput.isVisible) {
+    } else if (this.expressionInput.isVisible) {
       this.expressionInput.commitCurrentValue();
     } else {
       this.commitLine(this.startPoint, point);
@@ -189,9 +200,6 @@ export class LineTool extends SketchTool {
   private handleKeyUp(e: KeyboardEvent): void {
     this.syncModifiers(e);
     if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Meta') {
-      if (!this.shiftHeld) {
-        this.expressionInput.hide();
-      }
       this.rebuildPreview();
       this.updateDimensionInput();
     }
@@ -199,6 +207,37 @@ export class LineTool extends SketchTool {
 
   private isTLineMode(): boolean {
     return this.shiftHeld && this.ctrlHeld;
+  }
+
+  /**
+   * Classify a start->end delta as near-horizontal, near-vertical, or free.
+   * Holding Ctrl forces 'free' so the user can draw at the exact cursor angle.
+   */
+  private classifyDelta(dx: number, dy: number): LineDirection {
+    if (this.ctrlHeld) {
+      return 'free';
+    }
+    if (dx === 0 && dy === 0) {
+      return 'free';
+    }
+    const angle = Math.atan2(Math.abs(dy), Math.abs(dx));
+    if (angle <= AUTO_ORTHO_ANGLE_RAD) {
+      return 'horizontal';
+    }
+    if (angle >= Math.PI / 2 - AUTO_ORTHO_ANGLE_RAD) {
+      return 'vertical';
+    }
+    return 'free';
+  }
+
+  private lineDirection(): LineDirection {
+    if (!this.startPoint || !this.mousePoint) {
+      return 'free';
+    }
+    return this.classifyDelta(
+      this.mousePoint[0] - this.startPoint[0],
+      this.mousePoint[1] - this.startPoint[1],
+    );
   }
 
   private findTangentAtStart(): [number, number] | null {
@@ -254,21 +293,19 @@ export class LineTool extends SketchTool {
       return this.mousePoint;
     }
 
-    if (this.shiftHeld) {
-      const dx = this.mousePoint[0] - this.startPoint[0];
-      const dy = this.mousePoint[1] - this.startPoint[1];
-      if (Math.abs(dx) >= Math.abs(dy)) {
-        return [this.mousePoint[0], this.startPoint[1]];
-      } else {
-        return [this.startPoint[0], this.mousePoint[1]];
-      }
+    const dir = this.lineDirection();
+    if (dir === 'horizontal') {
+      return [this.mousePoint[0], this.startPoint[1]];
+    }
+    if (dir === 'vertical') {
+      return [this.startPoint[0], this.mousePoint[1]];
     }
 
     return this.mousePoint;
   }
 
   private updateDimensionInput(): void {
-    if (!this.startPoint || !this.mousePoint || !this.shiftHeld) {
+    if (!this.startPoint || !this.mousePoint) {
       this.expressionInput.hide();
       return;
     }
@@ -278,9 +315,15 @@ export class LineTool extends SketchTool {
       return;
     }
 
+    const dir = this.lineDirection();
+    if (dir === 'free') {
+      this.expressionInput.hide();
+      return;
+    }
+
+    const isHorizontal = dir === 'horizontal';
     const dx = this.mousePoint[0] - this.startPoint[0];
     const dy = this.mousePoint[1] - this.startPoint[1];
-    const isHorizontal = Math.abs(dx) >= Math.abs(dy);
     const distance = Math.abs(isHorizontal ? dx : dy);
 
     if (!this.expressionInput.isVisible) {
@@ -335,11 +378,7 @@ export class LineTool extends SketchTool {
     const dy = this.mousePoint[1] - this.startPoint[1];
     const isHorizontal = Math.abs(dx) >= Math.abs(dy);
     const sign = isHorizontal ? Math.sign(dx) : Math.sign(dy);
-
-    const num = parseFloat(expression);
-    const dimExpr = !isNaN(num) && String(num) === expression
-      ? String(Math.round(sign * num * 100) / 100)
-      : expression;
+    const dimExpr = SketchTool.applySignedDimension(expression, sign);
 
     const fn = isHorizontal ? 'hLine' : 'vLine';
     const statement = atCurrent
@@ -358,11 +397,7 @@ export class LineTool extends SketchTool {
     }
     const { expression, newVariable } = result;
     const sign = Math.sign(rawDistance);
-
-    const num = parseFloat(expression);
-    const dimExpr = !isNaN(num) && String(num) === expression
-      ? String(Math.round(sign * num * 100) / 100)
-      : expression;
+    const dimExpr = SketchTool.applySignedDimension(expression, sign);
 
     this.insertGeometry(`tLine(${dimExpr})`, newVariable);
     this.expressionInput.hide();
@@ -392,24 +427,26 @@ export class LineTool extends SketchTool {
     const roundedEnd = roundPoint(end);
     const atCurrent = this.isAtCurrentPosition(roundedStart);
 
-    if (this.shiftHeld) {
-      const dx = roundedEnd[0] - roundedStart[0];
-      const dy = roundedEnd[1] - roundedStart[1];
-      const isHorizontal = Math.abs(dx) >= Math.abs(dy);
-      const distance = isHorizontal ? roundPoint([dx, 0])[0] : roundPoint([0, dy])[1];
+    const dx = roundedEnd[0] - roundedStart[0];
+    const dy = roundedEnd[1] - roundedStart[1];
+    const dir = this.classifyDelta(dx, dy);
 
-      if (isHorizontal) {
-        if (atCurrent) {
-          this.insertGeometry(`hLine(${distance})`);
-        } else {
-          this.insertGeometry(`hLine(${this.formatPoint(roundedStart)}, ${distance})`);
-        }
+    if (dir === 'horizontal') {
+      const distance = roundPoint([dx, 0])[0];
+      if (atCurrent) {
+        this.insertGeometry(`hLine(${distance})`);
       } else {
-        if (atCurrent) {
-          this.insertGeometry(`vLine(${distance})`);
-        } else {
-          this.insertGeometry(`vLine(${this.formatPoint(roundedStart)}, ${distance})`);
-        }
+        this.insertGeometry(`hLine(${this.formatPoint(roundedStart)}, ${distance})`);
+      }
+      return;
+    }
+
+    if (dir === 'vertical') {
+      const distance = roundPoint([0, dy])[1];
+      if (atCurrent) {
+        this.insertGeometry(`vLine(${distance})`);
+      } else {
+        this.insertGeometry(`vLine(${this.formatPoint(roundedStart)}, ${distance})`);
       }
       return;
     }

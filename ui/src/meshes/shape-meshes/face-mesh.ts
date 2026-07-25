@@ -36,8 +36,11 @@ export class FaceMesh extends Group {
         opacity: opts.opacity,
         depthWrite: !isOverlay,
         polygonOffset: true,
-        polygonOffsetFactor: isOverlay ? -1 : 1,
-        polygonOffsetUnits: 1,
+        // Overlays slot between edge lines (offset 0) and base faces (+1/+1):
+        // in front of the face they tint, but behind the edges' depth, so
+        // edge lines stay visible when adjacent faces are both overlaid.
+        polygonOffsetFactor: isOverlay ? 0.5 : 1,
+        polygonOffsetUnits: isOverlay ? 0.5 : 1,
         side: DoubleSide
       });
 

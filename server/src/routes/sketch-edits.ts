@@ -10,8 +10,12 @@ import {
   removePoint,
   addPick,
   removePick,
+  removeStatement,
+  setFeatureName,
   setPickPoints,
+  setTrimTargets,
   insertGeometryCallWithVariable,
+  insertLoadCall,
   updateGeometryPosition,
   setLinePosition,
   setChainPositions,
@@ -24,11 +28,8 @@ import {
 
 const NEW_VAR_NAME_RE = /^[a-zA-Z_$][\w$]*$/;
 
-function validateNewVariable(input: unknown): { name: string; initializer: string } | null | false {
-  if (input === undefined || input === null) {
-    return null;
-  }
-  if (typeof input !== 'object') {
+function validateOneNewVariable(input: unknown): { name: string; initializer: string } | false {
+  if (typeof input !== 'object' || input === null) {
     return false;
   }
   const obj = input as { name?: unknown; initializer?: unknown };
@@ -39,6 +40,23 @@ function validateNewVariable(input: unknown): { name: string; initializer: strin
     return false;
   }
   return { name: obj.name, initializer: obj.initializer };
+}
+
+function validateNewVariable(
+  input: unknown,
+): { name: string; initializer: string } | { name: string; initializer: string }[] | null | false {
+  if (input === undefined || input === null) {
+    return null;
+  }
+  if (Array.isArray(input)) {
+    const items = input.map(validateOneNewVariable);
+    if (items.some((v) => v === false)) {
+      return false;
+    }
+    const valid = items as { name: string; initializer: string }[];
+    return valid.length === 0 ? null : valid;
+  }
+  return validateOneNewVariable(input);
 }
 
 export function createSketchEditsRouter(
@@ -67,6 +85,11 @@ export function createSketchEditsRouter(
     }
 
     const loadName = fileName.replace(/\.(step|stp)$/i, '');
+    sendToExtension({
+      type: 'insert-load',
+      filePath: fluidCadServer.getCurrentFileName(),
+      fileName: loadName,
+    });
     res.json({ success: true, fileName: loadName });
   });
 
@@ -136,6 +159,36 @@ export function createSketchEditsRouter(
       sourceLocation,
     });
     res.json({ success: true });
+  });
+
+  router.post('/apply-trim-region', (req, res) => {
+    const { sourceLocation, edgeIds } = req.body;
+    if (
+      !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number' ||
+      !Array.isArray(edgeIds) || edgeIds.length === 0 || edgeIds.some((id: unknown) => typeof id !== 'string')
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const synthesis = fluidCadServer.synthesizeTrimRegionTargets(sourceLocation, edgeIds as string[]);
+      if (!synthesis) {
+        res.status(404).json({ success: false, reason: 'No rendered scene' });
+        return;
+      }
+      if (!synthesis.ok) {
+        res.status(422).json({ success: false, reason: synthesis.reason });
+        return;
+      }
+      sendToExtension({
+        type: 'set-trim-targets',
+        args: synthesis.args,
+        sourceLocation,
+      });
+      res.json({ success: true, args: synthesis.args });
+    } catch (err: any) {
+      res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+    }
   });
 
   router.post('/set-pick-points', (req, res) => {
@@ -250,7 +303,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/update-dimension-expression', (req, res) => {
-    const { expression, sourceLocation, sketchSourceLine, newVariable, dimensionOffset } = req.body;
+    const { expression, sourceLocation, sketchSourceLine, newVariable, dimensionOffset, dimensionCall } = req.body;
     if (
       typeof expression !== 'string' ||
       !sourceLocation || typeof sourceLocation.line !== 'number'
@@ -274,6 +327,7 @@ export function createSketchEditsRouter(
       sketchSourceLine: typeof sketchSourceLine === 'number' ? sketchSourceLine : null,
       newVariable: nv,
       dimensionOffset: typeof dimensionOffset === 'number' ? dimensionOffset : 0,
+      dimensionCall: typeof dimensionCall === 'string' ? dimensionCall : null,
     });
     res.json({ success: true });
   });
@@ -304,8 +358,11 @@ export function createSketchEditsRouter(
   // ---------------------------------------------------------------------------
 
   router.post('/scope-variables', async (req, res) => {
+    // null/absent means whole-file scope — the feature dialogs' create mode,
+    // where the statement is appended after the last line.
     const { sketchSourceLine } = req.body;
-    if (typeof sketchSourceLine !== 'number') {
+    if (sketchSourceLine !== undefined && sketchSourceLine !== null
+      && typeof sketchSourceLine !== 'number') {
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
@@ -315,7 +372,9 @@ export function createSketchEditsRouter(
       return;
     }
     try {
-      const variables = await extractVariablesInScope(code, sketchSourceLine);
+      const variables = await extractVariablesInScope(
+        code, typeof sketchSourceLine === 'number' ? sketchSourceLine : Number.MAX_SAFE_INTEGER,
+      );
       res.json({ variables });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
@@ -323,7 +382,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/dimension-expression', async (req, res) => {
-    const { sourceLine } = req.body;
+    const { sourceLine, dimensionOffset, dimensionCall } = req.body;
     if (typeof sourceLine !== 'number') {
       res.status(400).json({ error: 'Invalid request body' });
       return;
@@ -334,7 +393,9 @@ export function createSketchEditsRouter(
       return;
     }
     try {
-      const result = await getDimensionExpression(code, sourceLine);
+      const result = await getDimensionExpression(code, sourceLine,
+        typeof dimensionOffset === 'number' ? dimensionOffset : 0,
+        typeof dimensionCall === 'string' ? dimensionCall : null);
       res.json({ expression: result?.expression ?? null });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
@@ -459,6 +520,68 @@ export function createSketchEditsRouter(
     }
     try {
       const result = await removePick(code, sourceLine);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/set-trim-targets', async (req, res) => {
+    const { code, sourceLine, args } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      typeof args !== 'string' || args.trim() === ''
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await setTrimTargets(code, sourceLine, args);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/remove-statement', async (req, res) => {
+    const { code, sourceLine } = req.body;
+    if (typeof code !== 'string' || typeof sourceLine !== 'number') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await removeStatement(code, sourceLine);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/set-feature-name', async (req, res) => {
+    const { code, sourceLine, name } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      (name !== null && typeof name !== 'string')
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await setFeatureName(code, sourceLine, name);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/insert-load', async (req, res) => {
+    const { code, fileName } = req.body;
+    if (typeof code !== 'string' || typeof fileName !== 'string') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await insertLoadCall(code, fileName);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
@@ -595,7 +718,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/code/update-dimension-expression', async (req, res) => {
-    const { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset } = req.body;
+    const { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset, dimensionCall } = req.body;
     if (
       typeof code !== 'string' || typeof sourceLine !== 'number' ||
       typeof expression !== 'string'
@@ -619,6 +742,7 @@ export function createSketchEditsRouter(
         typeof sketchSourceLine === 'number' ? sketchSourceLine : sourceLine,
         nv,
         offset,
+        typeof dimensionCall === 'string' ? dimensionCall : null,
       );
       res.json(result);
     } catch (err: any) {

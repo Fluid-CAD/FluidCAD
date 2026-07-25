@@ -32,7 +32,7 @@ export class RoundedRectTool extends SketchTool {
   private startPoint: [number, number] | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
-  private shiftHeld = false;
+  private readonly centered: boolean;
   private expressionInput: ExpressionInput;
   private fetchVariables: FetchVariablesFn;
   private cachedVariables: VariableInfo[] = [];
@@ -51,7 +51,6 @@ export class RoundedRectTool extends SketchTool {
   private boundMouseUp: (e: MouseEvent) => void;
   private boundMouseMove: (e: MouseEvent) => void;
   private boundKeyDown: (e: KeyboardEvent) => void;
-  private boundKeyUp: (e: KeyboardEvent) => void;
   private downX = 0;
   private downY = 0;
 
@@ -62,15 +61,16 @@ export class RoundedRectTool extends SketchTool {
     insertGeometry: InsertGeometryFn,
     container: HTMLElement,
     fetchVariables: FetchVariablesFn,
+    centered: boolean,
   ) {
     super(ctx, plane, snapController, insertGeometry);
     this.expressionInput = new ExpressionInput(container);
     this.fetchVariables = fetchVariables;
+    this.centered = centered;
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
     this.boundKeyDown = this.handleKeyDown.bind(this);
-    this.boundKeyUp = this.handleKeyUp.bind(this);
   }
 
   activate(): void {
@@ -79,7 +79,6 @@ export class RoundedRectTool extends SketchTool {
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
     window.addEventListener('keydown', this.boundKeyDown);
-    window.addEventListener('keyup', this.boundKeyUp);
     this.fetchVariables().then(vars => { this.cachedVariables = vars; });
   }
 
@@ -88,7 +87,6 @@ export class RoundedRectTool extends SketchTool {
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.canvas.removeEventListener('mousemove', this.boundMouseMove);
     window.removeEventListener('keydown', this.boundKeyDown);
-    window.removeEventListener('keyup', this.boundKeyUp);
     this.resetState();
     this.removePreviewFromScene();
   }
@@ -109,7 +107,6 @@ export class RoundedRectTool extends SketchTool {
     this.lockedHeight = null;
     this.widthIsNumeric = false;
     this.heightIsNumeric = false;
-    this.shiftHeld = false;
     this.expressionInput.hide();
   }
 
@@ -135,7 +132,6 @@ export class RoundedRectTool extends SketchTool {
 
     if (!this.startPoint) {
       this.startPoint = point;
-      this.syncModifiers(e);
       this.rebuildPreview();
       return;
     }
@@ -160,7 +156,6 @@ export class RoundedRectTool extends SketchTool {
   private handleMouseMove(e: MouseEvent): void {
     this.lastClientX = e.clientX;
     this.lastClientY = e.clientY;
-    this.syncModifiers(e);
 
     const raw = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
     if (!raw) {
@@ -183,28 +178,12 @@ export class RoundedRectTool extends SketchTool {
         this.resetState();
         this.rebuildPreview();
       }
-      return;
     }
-    if (e.key === 'Shift') {
-      this.shiftHeld = true;
-      this.rebuildPreview();
-    }
-  }
-
-  private handleKeyUp(e: KeyboardEvent): void {
-    if (e.key === 'Shift') {
-      this.shiftHeld = false;
-      this.rebuildPreview();
-    }
-  }
-
-  private syncModifiers(e: MouseEvent): void {
-    this.shiftHeld = e.shiftKey;
   }
 
   private computeDimensions(endPoint: [number, number]): { width: number; height: number } {
     const start = this.startPoint!;
-    if (this.shiftHeld) {
+    if (this.centered) {
       const dx = endPoint[0] - start[0];
       const dy = endPoint[1] - start[1];
       return { width: Math.round(dx * 2 * 100) / 100, height: Math.round(dy * 2 * 100) / 100 };
@@ -226,7 +205,7 @@ export class RoundedRectTool extends SketchTool {
     }
 
     if (wLocked) {
-      if (this.shiftHeld) {
+      if (this.centered) {
         const hw = this.lockedWidth! / 2;
         const dy = endPoint[1] - start[1];
         return {
@@ -238,7 +217,7 @@ export class RoundedRectTool extends SketchTool {
       return { c1: start, c2: [start[0] + xSign * this.lockedWidth!, endPoint[1]] };
     }
 
-    if (this.shiftHeld) {
+    if (this.centered) {
       const dx = endPoint[0] - start[0];
       const dy = endPoint[1] - start[1];
       return {
@@ -253,7 +232,7 @@ export class RoundedRectTool extends SketchTool {
     if (!this.startPoint || this.lockedWidth === null || this.lockedHeight === null) {
       return null;
     }
-    if (this.shiftHeld) {
+    if (this.centered) {
       const hw = this.lockedWidth / 2;
       const hh = this.lockedHeight / 2;
       return {
@@ -389,13 +368,8 @@ export class RoundedRectTool extends SketchTool {
     const isNumeric = !isNaN(num) && String(num) === result.expression;
 
     this.widthIsNumeric = isNumeric;
-    if (isNumeric) {
-      this.widthExpression = result;
-      this.lockedWidth = num;
-    } else {
-      this.widthExpression = result;
-      this.lockedWidth = null;
-    }
+    this.widthExpression = result;
+    this.lockedWidth = isNumeric ? num : this.previewMagnitude(result, 'width');
 
     this.expressionPhase = 'height';
 
@@ -428,13 +402,8 @@ export class RoundedRectTool extends SketchTool {
     const isNumeric = !isNaN(num) && String(num) === result.expression;
 
     this.heightIsNumeric = isNumeric;
-    if (isNumeric) {
-      this.heightExpression = result;
-      this.lockedHeight = num;
-    } else {
-      this.heightExpression = result;
-      this.lockedHeight = null;
-    }
+    this.heightExpression = result;
+    this.lockedHeight = isNumeric ? num : this.previewMagnitude(result, 'height');
 
     this.expressionPhase = 'radius';
 
@@ -467,15 +436,36 @@ export class RoundedRectTool extends SketchTool {
     this.rebuildPreview();
   }
 
+  // Preview magnitude for a dimension committed as a variable/expression: the
+  // variable's own value when statically resolvable, else the mouse-derived
+  // dimension at commit time. The final statement still uses the expression.
+  private previewMagnitude(result: CommitResult, axis: 'width' | 'height'): number | null {
+    const fromVariable = SketchTool.resolveCommittedMagnitude(result, this.cachedVariables);
+    if (fromVariable !== null) {
+      return fromVariable;
+    }
+    if (this.mousePoint && this.startPoint) {
+      const dims = this.computeDimensions(this.mousePoint);
+      return Math.abs(axis === 'width' ? dims.width : dims.height);
+    }
+    return null;
+  }
+
   private resolveSignedExpression(expr: CommitResult, isNumeric: boolean, absValue: number | null, axis: 0 | 1): CommitResult {
-    if (!isNumeric || absValue === null || !this.mousePoint || !this.startPoint || this.shiftHeld) {
+    if (!this.mousePoint || !this.startPoint || this.centered) {
       return expr;
     }
     const sign = axis === 0
       ? ((this.mousePoint[0] >= this.startPoint[0]) ? 1 : -1)
       : ((this.mousePoint[1] >= this.startPoint[1]) ? 1 : -1);
-    const signed = Math.round(sign * absValue * 100) / 100;
-    return { expression: String(signed), newVariable: expr.newVariable };
+    if (isNumeric && absValue !== null) {
+      const signed = Math.round(sign * absValue * 100) / 100;
+      return { expression: String(signed), newVariable: expr.newVariable };
+    }
+    if (sign < 0) {
+      return { expression: SketchTool.negateExpression(expr.expression), newVariable: expr.newVariable };
+    }
+    return expr;
   }
 
   private commitDimensionsFromGeometry(endPoint: [number, number]): void {
@@ -529,12 +519,13 @@ export class RoundedRectTool extends SketchTool {
 
     statement += `.radius(${radiusResult.expression})`;
 
-    if (this.shiftHeld) {
+    if (this.centered) {
       statement += '.centered()';
     }
 
-    const newVariable = widthResult.newVariable ?? heightResult.newVariable ?? radiusResult.newVariable;
-    this.insertGeometry(statement, newVariable);
+    const newVariables = [widthResult.newVariable, heightResult.newVariable, radiusResult.newVariable]
+      .filter((v): v is NonNullable<typeof v> => v !== undefined);
+    this.insertGeometry(statement, newVariables);
   }
 
   private rebuildPreview(): void {

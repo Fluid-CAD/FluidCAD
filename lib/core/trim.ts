@@ -2,7 +2,10 @@ import { Point2DLike } from "../math/point.js";
 import { normalizePoint2D } from "../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { Trim2D } from "../features/trim2d.js";
+import { EdgeTargetArg } from "../features/2d/geometry.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
+import { ISceneObject } from "./interfaces.js";
+import { addTargetObjects } from "./target-utils.js";
 
 interface ITrim {
   /**
@@ -16,14 +19,18 @@ interface TrimFunction {
   /** Trims all sketch geometry segments. */
   (): ITrim;
   /**
-   * Trims sketch geometry segments matching the given edge filters.
-   * @param filters - Edge filters that select which edges to remove
+   * Removes the edges matching the given targets. Geometry and accessor
+   * targets remove whole edges; edge filters are matched against the
+   * sketch's split segments (geometry split at mutual intersections) and
+   * remove the matching segments.
+   * @param targets - Geometries, edge accessors (`r.edge('top')`), or edge
+   *   filters (`edge().line()`) selecting the edges to remove
    */
-  (...filters: EdgeFilterBuilder[]): ITrim;
+  (...targets: (ISceneObject | EdgeFilterBuilder)[]): ITrim;
 }
 
 function build(context: SceneParserContext): TrimFunction {
-  return function trim(...args: EdgeFilterBuilder[]): ITrim {
+  return function trim(...args: EdgeTargetArg[]): ITrim {
     const activeSketch = context.getActiveSketch();
 
     if (!activeSketch) {
@@ -32,7 +39,8 @@ function build(context: SceneParserContext): TrimFunction {
 
     const trim2d = new Trim2D();
     if (args.length > 0) {
-      trim2d.setFilters(...args);
+      addTargetObjects(args, context);
+      trim2d.setTargets(...args);
     }
 
     context.addSceneObject(trim2d);

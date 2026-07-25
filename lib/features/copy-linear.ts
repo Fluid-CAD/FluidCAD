@@ -1,8 +1,8 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
-import { Axis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { type NumberParam, resolveParam } from "../core/param.js";
+import { CopyAxisSource, CopyBase } from "./copy-base.js";
 
 export type LinearCopyOptions = {
   count: NumberParam | number[];
@@ -13,9 +13,9 @@ export type LinearCopyOptions = {
     | { length: NumberParam | number[]; offset?: never }
 );
 
-export class CopyLinear extends SceneObject {
+export class CopyLinear extends CopyBase {
   constructor(
-    public axes: Axis[],
+    public axes: CopyAxisSource[],
     public options: LinearCopyOptions,
     public targetObjects: SceneObject[] | null = null
     ) {
@@ -37,6 +37,7 @@ export class CopyLinear extends SceneObject {
       this.addShape(shape);
     }
 
+    const axes = this.axes.map(a => CopyLinear.resolveAxisSource(a));
     const { centered, skip } = this.options;
 
     const counts = Array.isArray(this.options.count)
@@ -83,9 +84,9 @@ export class CopyLinear extends SceneObject {
       }
 
       let matrix = Matrix4.identity();
-      for (let a = 0; a < this.axes.length; a++) {
+      for (let a = 0; a < axes.length; a++) {
         const distance = (pos[a] - centerIndices[a]) * axisOffsets[a];
-        const translation = this.axes[a].direction.multiply(distance);
+        const translation = axes[a].direction.multiply(distance);
         matrix = matrix.multiply(Matrix4.fromTranslationVector(translation));
       }
 
@@ -111,7 +112,7 @@ export class CopyLinear extends SceneObject {
     }
 
     for (let i = 0; i < this.axes.length; i++) {
-      if (!this.axes[i].equals(other.axes[i])) {
+      if (!CopyLinear.axisSourceEquals(this.axes[i], other.axes[i])) {
         return false;
       }
     }

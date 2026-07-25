@@ -100,6 +100,24 @@ export type SceneObjectMesh = {
 export type SubSelection =
   | { type: 'face'; index: number }
   | { type: 'edge'; index: number }
+  /**
+   * A sketch wire hit — only produced while a create dialog has enabled
+   * `viewer.pickSketchWires`; the pick identifies the owning sketch, so the
+   * index carries no meaning (always 0).
+   */
+  | { type: 'sketch'; index: number }
+  /**
+   * An axis line hit — only produced while a dialog has enabled
+   * `viewer.pickAxes`; the pick identifies the owning axis object, so the
+   * index carries no meaning (always 0).
+   */
+  | { type: 'axis'; index: number }
+  /**
+   * A construction-plane quad hit — only produced while a dialog has enabled
+   * `viewer.pickPlanes`; the pick identifies the owning plane object, so the
+   * index carries no meaning (always 0).
+   */
+  | { type: 'plane'; index: number }
   | null;
 
 export type SceneObjectPart = {
@@ -110,7 +128,12 @@ export type SceneObjectPart = {
   isGuide?: boolean;
   metaType?: string;
   metaData?: Record<string, any>;
+  role?: string;
+  roleIndex?: number;
+  provenance?: string;
 };
+
+export type SketchInteractivity = 'draggable' | 'selectable' | 'construction';
 
 export type CompileError = {
   message: string;
@@ -121,14 +144,27 @@ export type CompileError = {
 export type SceneObjectRender = {
   id?: string;
   name?: string;
+  /** True when `name` comes from a user's `.name('…')` chain, not the type. */
+  hasCustomName?: boolean;
   parentId?: string | null;
   isContainer?: boolean;
+  hideChildren?: boolean;
   object?: any;
   sceneShapes: SceneObjectPart[];
   ownShapes: SceneObjectPart[];
   visible?: boolean;
+  /** The object carries a `.reusable()` chain — kept visible when consumed. */
+  reusable?: boolean;
+  /**
+   * The object serves another statement's build (a sketch's own plane) rather
+   * than being a feature the code wrote — the timeline leaves it out. Absent
+   * on renders from a workspace kernel that predates the flag.
+   */
+  internal?: boolean;
   type?: ObjectType;
   uniqueType?: string;
+  /** Server-driven viewport classification for sketch geometry children. */
+  interactivity?: SketchInteractivity;
   fromCache?: boolean;
   hasError?: boolean;
   errorMessage?: string;

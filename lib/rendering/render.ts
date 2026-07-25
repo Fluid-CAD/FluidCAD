@@ -5,6 +5,7 @@ import { Shape } from "../common/shape.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
+import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { transformMeshes } from "./mesh-transform.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { Mesh } from "../oc/mesh.js";
@@ -315,6 +316,9 @@ export class SceneRenderer {
       isGuide: shape.isGuideShape() || undefined,
       metaType: shape.metaType || undefined,
       metaData: shape.metaData || undefined,
+      role: shape.role,
+      roleIndex: shape.roleIndex,
+      provenance: shape.provenance,
     };
   }
 
@@ -373,21 +377,45 @@ export class SceneRenderer {
 
     const displayName = obj.hasCustomName()
       ? obj.getName()
-      : obj.getType().charAt(0).toUpperCase() + obj.getType().slice(1);
+      : obj.getDisplayType();
+
+    // Serialization can dereference state that a failed build never produced —
+    // e.g. a sketch whose plane could not be built reads plane.localToWorld.
+    // Contain that to this object (mark it errored) instead of letting one bad
+    // object abort the whole scene render.
+    let serialized: any;
+    let hasError = opts.hasError;
+    let errorMessage = opts.errorMessage;
+    try {
+      serialized = obj.serialize(opts.scope);
+    } catch (error) {
+      const message = describeError(error);
+      obj.setError(message);
+      hasError = true;
+      errorMessage = errorMessage || message;
+      serialized = {};
+    }
 
     const rendered: SceneObjectRender = {
       id: obj.id,
       name: displayName,
+      hasCustomName: obj.hasCustomName() || undefined,
       parentId: obj.parentId,
-      object: obj.serialize(opts.scope),
+      object: serialized,
       sceneShapes: opts.sceneShapes,
       type: obj.getType(),
       uniqueType: obj.getUniqueType(),
+      interactivity: obj instanceof GeometrySceneObject && obj.getParent() instanceof Sketch
+        ? obj.getSketchInteractivity()
+        : undefined,
       fromCache: scene.isCached(obj),
       visible: opts.visible,
+      reusable: obj.isReusable() || undefined,
+      internal: obj.isInternal() || undefined,
       isContainer: obj.isContainer(),
-      hasError: opts.hasError,
-      errorMessage: opts.errorMessage,
+      hideChildren: obj.hidesChildren() || undefined,
+      hasError,
+      errorMessage,
       sourceLocation: obj.getSourceLocation() || undefined,
       buildDurationMs: opts.buildDurationMs,
       profileCategories,

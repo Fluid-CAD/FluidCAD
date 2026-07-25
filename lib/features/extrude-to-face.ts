@@ -60,7 +60,7 @@ export class ExtrudeToFace extends ExtrudeBase {
       inwardEdges = thinResult.inwardEdges;
       outwardEdges = thinResult.outwardEdges;
     } else {
-      faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane);
+      faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill());
     }
 
     const allCapFaces: Face[] = [];

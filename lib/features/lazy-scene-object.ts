@@ -1,5 +1,8 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
+import { FilterBuilderBase } from "../filters/filter-builder-base.js";
+
+export type LazySelectionArg = number | FilterBuilderBase<Shape>;
 
 export class LazySelectionSceneObject extends SceneObject {
 
@@ -8,7 +11,8 @@ export class LazySelectionSceneObject extends SceneObject {
   constructor(
     private uniqueName: string,
     private getShapesFn: (parent: SceneObject) => Shape[],
-    private sourceParent: SceneObject
+    private sourceParent: SceneObject,
+    private selectionArgs: LazySelectionArg[] = []
   ) {
     super();
   }
@@ -28,7 +32,7 @@ export class LazySelectionSceneObject extends SceneObject {
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const remappedParent = remap.get(this.sourceParent) || this.sourceParent;
-    const copy = new LazySelectionSceneObject(this.uniqueName, this.getShapesFn, remappedParent);
+    const copy = new LazySelectionSceneObject(this.uniqueName, this.getShapesFn, remappedParent, this.selectionArgs);
     if (remappedParent !== this.sourceParent) {
       copy._originalParent = this._originalParent || this.sourceParent;
     }
@@ -44,12 +48,42 @@ export class LazySelectionSceneObject extends SceneObject {
       return false;
     }
 
+    if (!this.compareSelectionArgs(other)) {
+      return false;
+    }
+
     if (!super.compareTo(other)) {
       return false;
     }
 
     if (!this.sourceParent.compareTo(other.sourceParent)) {
       return false;
+    }
+
+    return true;
+  }
+
+  // The unique name only encodes numeric args (filter builders all collapse to
+  // 'f'), so filter-based selections must be compared structurally too.
+  private compareSelectionArgs(other: LazySelectionSceneObject): boolean {
+    if (this.selectionArgs.length !== other.selectionArgs.length) {
+      return false;
+    }
+
+    for (let i = 0; i < this.selectionArgs.length; i++) {
+      const a = this.selectionArgs[i];
+      const b = other.selectionArgs[i];
+
+      if (typeof a === 'number' || typeof b === 'number') {
+        if (a !== b) {
+          return false;
+        }
+        continue;
+      }
+
+      if (!a.equals(b)) {
+        return false;
+      }
     }
 
     return true;

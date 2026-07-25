@@ -1,9 +1,26 @@
-import { Shape } from "../common/shape.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Scene } from "./scene.js";
+import { SceneDisposal } from "./scene-disposal.js";
+
+// State entries whose records reference the scene object that performed the
+// action. On transfer they are pruned to actors that survived the compare —
+// a discarded actor's records are stale, the rebuilt actor re-records them —
+// and remapped to the new instances so scoped queries keep working.
+const ACTOR_RECORD_KEYS: { key: string; actorField: string }[] = [
+  { key: 'removedShapes', actorField: 'removedBy' },
+  { key: 'addedFaces', actorField: 'addedBy' },
+  { key: 'addedEdges', actorField: 'addedBy' },
+  { key: 'modifiedFaces', actorField: 'modifiedBy' },
+  { key: 'modifiedEdges', actorField: 'modifiedBy' },
+  { key: 'removedFaces', actorField: 'removedBy' },
+  { key: 'removedEdges', actorField: 'removedBy' },
+];
 
 export class SceneCompare {
   public static compare(oldScene: Scene, newScene: Scene): Scene {
+    if (oldScene === newScene) {
+      return newScene;
+    }
 
     const map = new Map<SceneObject, SceneObject>();
 
@@ -27,26 +44,20 @@ export class SceneCompare {
       map.set(oldMatch, newObj);
     }
 
+    // Snapshot before the state rewrite below prunes cross-references out of
+    // the transferred maps — the pruned records are exactly the resources
+    // the disposal pass has to see as replaced.
+    const oldSceneShapes = SceneDisposal.collectShapes(oldScene.getAllSceneObjects());
+
     // copy state from old to new
     for (const [oldObj, newObj] of map.entries()) {
-      const oldSttate = oldObj.getFullState();
-      const oldRemovedShapes = oldSttate.get('removedShapes') as { shape: Shape, removedBy: SceneObject }[];
+      const oldState = oldObj.getFullState();
 
-      const newRemovedShapes = [];
-
-      for (const r of oldRemovedShapes) {
-        const removedByNewObj = map.get(r.removedBy);
-        if (removedByNewObj) {
-          newRemovedShapes.push({
-            shape: r.shape,
-            removedBy: removedByNewObj,
-          });
-        }
+      for (const { key, actorField } of ACTOR_RECORD_KEYS) {
+        SceneCompare.rewriteActorRecords(oldState, key, actorField, map);
       }
 
-      oldSttate.set('removedShapes', newRemovedShapes);
-
-      newObj.restoreState(oldSttate);
+      newObj.restoreState(oldState);
 
       const staleId = newObj.id;
       newObj.inheritIdentityFrom(oldObj);
@@ -58,6 +69,38 @@ export class SceneCompare {
       }
     }
 
+    try {
+      SceneDisposal.disposeReplaced(oldScene, newScene, map, oldSceneShapes);
+    } catch (error) {
+      console.error('Scene disposal after compare failed:', error);
+    }
+
     return newScene;
+  }
+
+  /**
+   * Drop records whose actor did not survive the compare and point the
+   * surviving records at the actors' new instances.
+   */
+  private static rewriteActorRecords(
+    state: Map<string, any>,
+    key: string,
+    actorField: string,
+    map: Map<SceneObject, SceneObject>,
+  ): void {
+    const records = state.get(key) as Record<string, any>[] | undefined;
+    if (!records || records.length === 0) {
+      return;
+    }
+
+    const rewritten: Record<string, any>[] = [];
+    for (const record of records) {
+      const matchedActor = map.get(record[actorField]);
+      if (matchedActor) {
+        rewritten.push({ ...record, [actorField]: matchedActor });
+      }
+    }
+
+    state.set(key, rewritten);
   }
 }

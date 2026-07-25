@@ -232,8 +232,14 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     .int()
     .nonnegative()
     .describe('Zero-based edge index inside the shape.');
+  // A fixed-length array rather than z.tuple(): the MCP SDK converts Zod v4
+  // schemas with a draft-07 target, and draft-07 encodes tuples as
+  // `items: [...]`. JSON Schema 2020-12 — the dialect LLM providers validate
+  // tool schemas against — requires `items` to be a single schema, so the
+  // tuple form makes the whole tool unusable for those clients.
   const vec3 = z
-    .tuple([z.number(), z.number(), z.number()])
+    .array(z.number())
+    .length(3)
     .describe('World-space [x, y, z] vector.');
 
   server.registerTool(

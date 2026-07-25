@@ -65,11 +65,13 @@ to the edge and facing outward (away from the edge body), like a start cap.
 plane(selection: SceneObject, options: PlaneTransformOptions): Plane
 ```
 
-Creates a plane from a face selection with transform options.
+Creates a plane from a selection with transform options. A face yields
+that face's plane; an edge yields the plane at the edge start (normal to
+the edge). The options then offset/rotate the derived plane.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `selection` | [SceneObject](/docs/api/types/scene-object) | The selected face to create a plane from |
+| `selection` | [SceneObject](/docs/api/types/scene-object) | The selected face or edge to create a plane from |
 | `options` | [PlaneTransformOptions](/docs/api/types/plane-transform-options) | Transform options (offset, rotate, etc.) |
 
 ---

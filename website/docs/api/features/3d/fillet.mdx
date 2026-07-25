@@ -42,32 +42,32 @@ Fillets the given edge selections with the given radius.
 ---
 
 ```ts
-fillet(objects: Geometry[]): SceneObject
+fillet(objects: (IGeometry | EdgeFilterBuilder)[]): SceneObject
 ```
 
 [2D] Fillets corners between the given geometries.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `objects` | [Geometry](/docs/api/types/geometry)[] | The geometries whose corners to fillet |
+| `objects` | (IGeometry \| EdgeFilterBuilder)[] | The geometries (or edge filters) whose corners to fillet |
 
 ---
 
 ```ts
-fillet(objects: Geometry[], radius: NumberParam): SceneObject
+fillet(objects: (IGeometry | EdgeFilterBuilder)[], radius: NumberParam): SceneObject
 ```
 
 [2D] Fillets corners between the given geometries with a radius.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `objects` | [Geometry](/docs/api/types/geometry)[] | The geometries whose corners to fillet |
+| `objects` | (IGeometry \| EdgeFilterBuilder)[] | The geometries (or edge filters) whose corners to fillet |
 | `radius` | NumberParam | The fillet radius |
 
 ---
 
 ```ts
-fillet(radius: NumberParam, ...objects: Geometry[]): SceneObject
+fillet(radius: NumberParam, ...objects: (IGeometry | SceneObject | EdgeFilterBuilder)[]): SceneObject
 ```
 
 [2D] Fillets corners at the given radius and geometries.
@@ -75,4 +75,4 @@ fillet(radius: NumberParam, ...objects: Geometry[]): SceneObject
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `radius` | NumberParam | The fillet radius |
-| `...objects` | [Geometry](/docs/api/types/geometry)[] | The geometries whose corners to fillet *(optional)* |
+| `...objects` | (IGeometry \| [SceneObject](/docs/api/types/scene-object) \| EdgeFilterBuilder)[] | The geometries, edge accessors (`r.edge('top')`), or edge filters (`edge().line()`) whose corners to fillet *(optional)* |

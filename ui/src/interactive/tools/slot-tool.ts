@@ -363,7 +363,7 @@ export class SlotTool extends SketchTool {
     const isNumeric = !isNaN(num) && String(num) === result.expression;
 
     this.distanceExpression = result;
-    this.lockedDistance = isNumeric ? num : null;
+    this.lockedDistance = isNumeric ? num : this.previewDistance(result);
     this.expressionPhase = 'radius';
 
     queueMicrotask(() => {
@@ -380,6 +380,21 @@ export class SlotTool extends SketchTool {
       }
       this.rebuildPreview();
     });
+  }
+
+  // Preview distance for a dimension committed as a variable/expression: the
+  // variable's own value when statically resolvable, else the mouse-derived
+  // distance at commit time. Signed — the slot input shows the signed value,
+  // so the variable itself carries the direction.
+  private previewDistance(result: CommitResult): number | null {
+    const fromVariable = SketchTool.resolveCommittedValue(result, this.cachedVariables);
+    if (fromVariable !== null) {
+      return fromVariable;
+    }
+    if (this.startPoint && this.mousePoint) {
+      return Math.round((this.mousePoint[0] - this.startPoint[0]) * 100) / 100;
+    }
+    return null;
   }
 
   private onRadiusCommit(result: CommitResult): void {
@@ -416,8 +431,9 @@ export class SlotTool extends SketchTool {
       ? `slot(${distanceResult.expression}, ${radiusResult.expression})`
       : `slot(${this.formatPoint(start)}, ${distanceResult.expression}, ${radiusResult.expression})`;
 
-    const newVariable = distanceResult.newVariable ?? radiusResult.newVariable;
-    this.insertGeometry(statement, newVariable);
+    const newVariables = [distanceResult.newVariable, radiusResult.newVariable]
+      .filter((v): v is NonNullable<typeof v> => v !== undefined);
+    this.insertGeometry(statement, newVariables);
   }
 
   private rebuildPreview(): void {

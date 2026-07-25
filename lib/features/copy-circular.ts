@@ -1,9 +1,9 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
-import { Axis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { rad } from "../helpers/math-helpers.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { type NumberParam, resolveParam } from "../core/param.js";
+import { CopyAxisSource, CopyBase } from "./copy-base.js";
 
 export type CircularCopyOptions = {
   count: NumberParam;
@@ -14,9 +14,9 @@ export type CircularCopyOptions = {
     | { angle: NumberParam; offset?: never }
 );
 
-export class CopyCircular extends SceneObject {
+export class CopyCircular extends CopyBase {
   constructor(
-    public axis: Axis,
+    public axis: CopyAxisSource,
     public options: CircularCopyOptions,
     public targetObjects: SceneObject[] | null = null
     ) {
@@ -48,13 +48,14 @@ export class CopyCircular extends SceneObject {
       offset = resolveParam((this.options as { angle: NumberParam }).angle) / count;
     }
 
+    const axis = CopyCircular.resolveAxisSource(this.axis);
     const startOffset = centered ? -(count * offset) / 2 : 0;
 
     for (let i = 1; i < count; i++) {
       if (skip?.includes(i)) continue;
 
       const angle = startOffset + offset * i;
-      const matrix = Matrix4.fromRotationAroundAxis(this.axis.origin, this.axis.direction, rad(angle));
+      const matrix = Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, rad(angle));
 
       for (const shape of originalShapes) {
         const transformed = ShapeOps.transform(shape, matrix);
@@ -73,7 +74,7 @@ export class CopyCircular extends SceneObject {
       return false;
     }
 
-    if (!this.axis.equals(other.axis)) {
+    if (!CopyCircular.axisSourceEquals(this.axis, other.axis)) {
       return false;
     }
 

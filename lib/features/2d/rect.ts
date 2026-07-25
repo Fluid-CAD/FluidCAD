@@ -3,7 +3,6 @@ import { Sketch } from "./sketch.js";
 import { Geometry } from "../../oc/geometry.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
-import { LazySelectionSceneObject } from "../lazy-scene-object.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { Plane } from "../../math/plane.js";
@@ -96,6 +95,11 @@ export class Rect extends ExtrudableGeometryBase implements IRect {
     this.setState('rightEdge', result[1]);
     this.setState('topEdge', result[2]);
     this.setState('leftEdge', result[3]);
+
+    result[0].setRole('bottom');
+    result[1].setRole('right');
+    result[2].setRole('top');
+    result[3].setRole('left');
 
     return result;
   }
@@ -218,6 +222,17 @@ export class Rect extends ExtrudableGeometryBase implements IRect {
     this.setState('topLeftArcEdge', topLeftArcEdge);
     this.setState('bottomLeftArcEdge', bottomLeftArcEdge);
 
+    bottomEdge.setRole('bottom');
+    rightEdge.setRole('right');
+    topEdge.setRole('top');
+    leftEdge.setRole('left');
+
+    // corner-arc indices follow the radius() argument order: bl, br, tr, tl.
+    bottomLeftArcEdge?.setRole('corner-arc', 0);
+    bottomRightArcEdge?.setRole('corner-arc', 1);
+    topRightArcEdge?.setRole('corner-arc', 2);
+    topLeftArcEdge?.setRole('corner-arc', 3);
+
     return [
       bottomEdge,
       bottomRightArcEdge,
@@ -272,38 +287,6 @@ export class Rect extends ExtrudableGeometryBase implements IRect {
     const otherRadius = Rect.normalizeRadius(other._radius);
 
     return thisRadius.every((r, i) => r === otherRadius[i]);
-  }
-
-  topEdge(): LazySelectionSceneObject {
-    return new LazySelectionSceneObject(this.generateUniqueName('top-edge'), (parent) => [parent.getState('topEdge')], this);
-  }
-
-  bottomEdge(): LazySelectionSceneObject {
-    return new LazySelectionSceneObject(this.generateUniqueName('bottom-edge'), (parent) => [parent.getState('bottomEdge')], this);
-  }
-
-  leftEdge(): LazySelectionSceneObject {
-    return new LazySelectionSceneObject(this.generateUniqueName('left-edge'), (parent) => [parent.getState('leftEdge')], this);
-  }
-
-  rightEdge(): LazySelectionSceneObject {
-    return new LazySelectionSceneObject(this.generateUniqueName('right-edge'), (parent) => [parent.getState('rightEdge')], this);
-  }
-
-  topLeftArcEdge(): LazySelectionSceneObject {
-    return new LazySelectionSceneObject(this.generateUniqueName('top-left-arc'), (parent) => [parent.getState('topLeftArcEdge')], this);
-  }
-
-  topRightArcEdge(): LazySelectionSceneObject {
-    return new LazySelectionSceneObject(this.generateUniqueName('top-right-arc'), (parent) => [parent.getState('topRightArcEdge')], this);
-  }
-
-  bottomLeftArcEdge(): LazySelectionSceneObject {
-    return new LazySelectionSceneObject(this.generateUniqueName('bottom-left-arc'), (parent) => [parent.getState('bottomLeftArcEdge')], this);
-  }
-
-  bottomRightArcEdge(): LazySelectionSceneObject {
-    return new LazySelectionSceneObject(this.generateUniqueName('bottom-right-arc'), (parent) => [parent.getState('bottomRightArcEdge')], this);
   }
 
   topLeft(): LazyVertex {

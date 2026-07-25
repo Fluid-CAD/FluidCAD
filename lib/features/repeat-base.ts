@@ -11,6 +11,10 @@ export type RepeatAxisSource = Axis | AxisObjectBase;
  * state. Comparing via `getAxis()` at that point would NPE.
  */
 export abstract class RepeatBase extends SceneObject {
+  override hidesChildren(): boolean {
+    return true;
+  }
+
   protected static axisSourceEquals(a: RepeatAxisSource, b: RepeatAxisSource): boolean {
     const aObj = a instanceof AxisObjectBase;
     const bObj = b instanceof AxisObjectBase;

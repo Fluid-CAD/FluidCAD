@@ -1,12 +1,13 @@
 ---
 sidebar_position: 23
 title: "offset"
-description: "Offsets the current sketch geometry by the given distance."
+description: "Offsets sketch geometry by the given distance. With no targets, offsets the whole sketch (or the last `select(...)` result if one precedes it)."
 ---
 
 # offset()
 
-Offsets the current sketch geometry by the given distance.
+Offsets sketch geometry by the given distance. With no targets, offsets
+the whole sketch (or the last `select(...)` result if one precedes it).
 
 **Returns**: [**`Offset`**](/docs/api/types/offset)
 
@@ -17,12 +18,27 @@ See the [guide](/docs/guides/sketching/offset) for detailed usage examples.
 ## Signatures
 
 ```ts
-offset(distance?: NumberParam, removeOriginal?: BooleanParam): Offset
+offset(distance?: NumberParam, removeOriginal?: BooleanParam, ...targets: (ISceneObject | EdgeFilterBuilder)[]): Offset
 ```
 
-Offsets the current sketch geometry by the given distance.
+Offsets sketch geometry by the given distance. With no targets, offsets
+the whole sketch (or the last `select(...)` result if one precedes it).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `distance` | NumberParam | The offset distance (defaults to 1) *(optional)* |
 | `removeOriginal` | BooleanParam | Whether to remove the original geometry *(optional)* |
+| `...targets` | (ISceneObject \| EdgeFilterBuilder)[] | Optional geometries, edge accessors (`r.edge('top')`), or edge filters (`edge().arc()`) to offset instead of the whole sketch *(optional)* |
+
+---
+
+```ts
+offset(distance: NumberParam, ...targets: (ISceneObject | EdgeFilterBuilder)[]): Offset
+```
+
+Offsets the given targets by the given distance.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance` | NumberParam | The offset distance |
+| `...targets` | (ISceneObject \| EdgeFilterBuilder)[] | Geometries, edge accessors, or edge filters to offset *(optional)* |

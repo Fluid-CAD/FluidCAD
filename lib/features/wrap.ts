@@ -127,7 +127,7 @@ export class Wrap extends ExtrudeBase implements IWrap {
   }
 
   getType(): string {
-    return this._operationMode === 'remove' ? 'cut' : 'wrap';
+    return 'wrap';
   }
 
   getUniqueType(): string {

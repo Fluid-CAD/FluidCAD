@@ -55,6 +55,13 @@ type SceneManager = {
       params?: { name: string; value: number }[];
       /** Subtract only: the tool-slot picks (`refs` is the base slot). */
       toolRefs?: { shapeId: string }[];
+      /**
+       * Offset only: the dialog's `removeOriginal` argument and `.close()`
+       * chain. A workspace kernel predating them ignores the field — the
+       * route re-attaches the payload to the returned spec, so the statement
+       * the transform writes carries the toggles either way.
+       */
+      offset?: { removeOriginal: boolean; close: boolean };
     },
   ): any;
   // Optional: predates by-region trim synthesis.
@@ -584,6 +591,8 @@ export class FluidCadServer {
       params?: { name: string; value: number }[];
       /** Subtract only: the tool-slot picks (`refs` is the base slot). */
       toolRefs?: { shapeId: string }[];
+      /** Offset only: the dialog's `removeOriginal` argument and `.close()` chain. */
+      offset?: { removeOriginal: boolean; close: boolean };
     },
   ): any {
     if (!this.sceneManager?.synthesizeSketchApplyFeature) {

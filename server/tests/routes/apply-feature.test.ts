@@ -36,16 +36,19 @@ let queryCalls: { method: string; before: unknown }[];
 let currentQueryResult: any;
 
 /** Sketch-branch synthesis calls (2D {shapeId} picks). */
-let sketchSynthesizeCalls: { picks: unknown; feature: string; value: number | string | undefined }[];
+let sketchSynthesizeCalls: {
+  picks: unknown; feature: string; value: number | string | undefined; offset?: unknown;
+}[];
 
 const fakeServer = {
   getCurrentCode: () => currentCode,
   getCurrentFileName: () => currentFileName,
   getParamDefinitions: () => [],
   synthesizeSketchApplyFeature: (
-    picks: unknown, feature: string, value: number | string | undefined, _options?: unknown,
+    picks: unknown, feature: string, value: number | string | undefined,
+    options?: { offset?: unknown },
   ) => {
-    sketchSynthesizeCalls.push({ picks, feature, value });
+    sketchSynthesizeCalls.push({ picks, feature, value, offset: options?.offset });
     return currentSynthesis;
   },
   synthesizeApplyFeature: (
@@ -1715,6 +1718,96 @@ describe('apply-feature route validation', () => {
       expect(status).toBe(400);
     });
 
+    describe('offset (2D) edits', () => {
+      const OFFSET_CODE = [
+        `import { sketch, rect, offset } from 'fluidcad/core'`,
+        ``,
+        `sketch('xy', () => {`,
+        `  const r = rect(100, 50)`,
+        `  offset(2, r.edge('top'))`,
+        `})`,
+        ``,
+      ].join('\n');
+      const OFFSET_EDIT = { filePath: '/ws/m.fluid.js', line: 5, column: 2 };
+
+      beforeEach(() => {
+        currentCode = OFFSET_CODE;
+        currentFileName = '/ws/m.fluid.js';
+      });
+
+      it('rewrites the distance and the toggles, keeping the targets', async () => {
+        const { status, body } = await post({
+          feature: 'offset', edit: OFFSET_EDIT, value: 5, close: true,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe(`offset(5, r.edge('top')).close()`);
+        expect(sketchSynthesizeCalls).toHaveLength(0);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'offset',
+          value: 5,
+          offset: { removeOriginal: false, close: true },
+          edit: { line: 5, column: 2 },
+          parts: [],
+          clearBreakpoints: true,
+        });
+      });
+
+      it('synthesizes re-picked sketch edges without a boundary', async () => {
+        currentSynthesis = {
+          ok: true,
+          spec: {
+            feature: 'offset', value: 5, filePath: '/ws/m.fluid.js',
+            producers: [{ line: 4, column: 2, featureType: 'rect', nameHint: 'r', bind: true }],
+            parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: `'left'` }],
+            imports: [],
+          },
+          preview: `offset(5, r.edge('left'))`,
+          args: `r.edge('left')`,
+          alternatives: [`r.edge(3)`],
+        };
+        const { status, body } = await post({
+          feature: 'offset', edit: OFFSET_EDIT, value: 5, removeOriginal: true,
+          sketchEntities: [{ shapeId: 'edge-7' }], preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe(`offset(5, true, r.edge('left'))`);
+        expect(body.args).toBe(`r.edge('left')`);
+        expect(sketchSynthesizeCalls).toEqual([
+          {
+            picks: [{ shapeId: 'edge-7' }],
+            feature: 'offset',
+            value: 5,
+            offset: { removeOriginal: true, close: false },
+          },
+        ]);
+        expect(relayed).toHaveLength(0);
+      });
+
+      it('rejects a closed offset that also removes the original', async () => {
+        const { status, body } = await post({
+          feature: 'offset', edit: OFFSET_EDIT, value: 5, removeOriginal: true, close: true,
+        });
+        expect(status).toBe(400);
+        expect(body.error).toContain('closed offset');
+      });
+
+      it('rejects a zero distance', async () => {
+        const { status } = await post({ feature: 'offset', edit: OFFSET_EDIT, value: 0 });
+        expect(status).toBe(400);
+      });
+
+      it('422s an edit whose statement is not an offset', async () => {
+        const { status, body } = await post({
+          feature: 'offset',
+          edit: { filePath: '/ws/m.fluid.js', line: 4, column: 2 },
+          value: 5,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('rect');
+        expect(relayed).toHaveLength(0);
+      });
+    });
+
     it('refuses an edit in a different file than the live buffer', async () => {
       currentCode = EDIT_CODE;
       currentFileName = '/ws/m.fluid.js';
@@ -3268,7 +3361,13 @@ describe('apply-feature route validation', () => {
       expect(status).toBe(200);
       expect(body).toMatchObject({ success: true, preview: "offset(3, r.edge('top'))" });
       expect(sketchSynthesizeCalls).toEqual([
-        { picks: [{ shapeId: 'edge-1' }], feature: 'offset', value: 3 },
+        {
+          picks: [{ shapeId: 'edge-1' }],
+          feature: 'offset',
+          value: 3,
+          // Both toggles off — the plain form the dialog opens on.
+          offset: { removeOriginal: false, close: false },
+        },
       ]);
     });
 
@@ -3352,6 +3451,68 @@ describe('apply-feature route validation', () => {
       });
       expect(zero.status).toBe(400);
       expect(zero.body.error).toContain('nonzero');
+    });
+
+    describe('offset toggles', () => {
+      const OFFSET_SYNTHESIS = {
+        ...SKETCH_SYNTHESIS,
+        spec: { ...SKETCH_SYNTHESIS.spec, feature: 'offset', value: 3 },
+        preview: "offset(3, r.edge('top'))",
+      };
+
+      it('writes removeOriginal as the second argument', async () => {
+        currentSynthesis = OFFSET_SYNTHESIS;
+        const { status, body } = await post({
+          feature: 'offset', value: 3, removeOriginal: true,
+          sketchEntities: [{ shapeId: 'edge-1' }],
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe("offset(3, true, r.edge('top'))");
+        expect(sketchSynthesizeCalls[0].offset).toEqual({ removeOriginal: true, close: false });
+        expect(relayed[0].spec.offset).toEqual({ removeOriginal: true, close: false });
+      });
+
+      it('chains .close() and previews it', async () => {
+        currentSynthesis = OFFSET_SYNTHESIS;
+        const { status, body } = await post({
+          feature: 'offset', value: 3, close: true,
+          sketchEntities: [{ shapeId: 'edge-1' }], preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe("offset(3, r.edge('top')).close()");
+        expect(relayed).toHaveLength(0);
+      });
+
+      it('re-attaches the toggles over a kernel that ignores them', async () => {
+        // A workspace kernel predating the option returns a spec without it;
+        // the route still writes the form the dialog asked for.
+        currentSynthesis = OFFSET_SYNTHESIS;
+        const { status } = await post({
+          feature: 'offset', value: 3, close: true, sketchEntities: [{ shapeId: 'edge-1' }],
+        });
+        expect(status).toBe(200);
+        expect(relayed[0].spec.offset).toEqual({ removeOriginal: false, close: true });
+      });
+
+      it('rejects a closed offset that also removes the original', async () => {
+        currentSynthesis = OFFSET_SYNTHESIS;
+        const { status, body } = await post({
+          feature: 'offset', value: 3, removeOriginal: true, close: true,
+          sketchEntities: [{ shapeId: 'edge-1' }],
+        });
+        expect(status).toBe(400);
+        expect(body.error).toContain('closed offset');
+        expect(relayed).toHaveLength(0);
+      });
+
+      it('rejects the toggles on another 2D op', async () => {
+        currentSynthesis = SKETCH_SYNTHESIS;
+        const { status, body } = await post({
+          feature: 'fillet', value: 4, close: true, sketchEntities: [{ shapeId: 'edge-1' }],
+        });
+        expect(status).toBe(400);
+        expect(body.error).toContain('only apply to offset');
+      });
     });
   });
   describe('project', () => {

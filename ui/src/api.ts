@@ -513,12 +513,23 @@ export type SketchApplyEntity = { shapeId: string };
 export type SketchOpFeature = 'fillet' | 'offset' | 'trim' | 'fuse' | 'subtract' | 'common';
 
 /**
+ * The offset dialog's two toggles: `removeOriginal` rides as the call's
+ * second argument (`offset(2, true, …)`), `close` chains `.close()` to cap an
+ * open offset onto its source profile. The kernel refuses the pair, so the
+ * dialog keeps them mutually exclusive.
+ */
+export type OffsetOptionValues = {
+  removeOriginal: boolean;
+  close: boolean;
+};
+
+/**
  * Ask the server to synthesize (and, unless `preview` is set, apply) a 2D
  * operation for the picked sketch edges. The synthesized statement lands
  * inside the sketch body (`fillet(4, r.edge('top'), l)`,
  * `offset(2, r.edge('top'))`, `subtract(r, c)`). The booleans carry no
  * `value`; subtract is slot-addressed — `entities` is the base pick set and
- * `options.toolEntities` the tool's.
+ * `options.toolEntities` the tool's; offset carries its own toggles.
  */
 export async function applySketchOp(
   feature: SketchOpFeature,
@@ -526,6 +537,7 @@ export async function applySketchOp(
   entities: SketchApplyEntity[],
   options: {
     toolEntities?: SketchApplyEntity[];
+    offset?: OffsetOptionValues;
     selectorOverride?: string;
     newVariables?: NewVariable[];
     preview?: boolean;
@@ -537,7 +549,41 @@ export async function applySketchOp(
     value,
     sketchEntities: entities,
     sketchToolEntities: options.toolEntities,
+    removeOriginal: options.offset?.removeOriginal,
+    close: options.offset?.close,
     selectorOverride: options.selectorOverride,
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
+export type OffsetEditOptions = OffsetOptionValues & EditSessionFields & {
+  value: ValueExpr;
+  /** Edited target argument list; omitted keeps the statement's verbatim. */
+  selectorOverride?: string;
+  /** Re-picked sketch edges; omitted keeps the statement's own targets. */
+  entities?: SketchApplyEntity[];
+  /** Declarations the dialog's expression field committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the 2D `offset()` statement at `edit` in place. */
+export async function applyOffsetEdit(
+  edit: FeatureEditTarget,
+  options: OffsetEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'offset',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    value: options.value,
+    removeOriginal: options.removeOriginal,
+    close: options.close,
+    selectorOverride: options.selectorOverride,
+    sketchEntities: options.entities,
     newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);
@@ -1204,6 +1250,17 @@ export type ParsedFeatureStatement =
       joinType: ShellJoinType;
     }
   | { feature: 'fillet'; value: ValueExpr; argsText: string }
+  | {
+      feature: 'offset';
+      /** The offset distance; negative offsets inward. */
+      value: ValueExpr;
+      /** The literal `true` second argument — the sources are removed. */
+      removeOriginal: boolean;
+      /** Target argument list after the value slots, verbatim (`''` when absent). */
+      argsText: string;
+      /** `.close()` chains the offset back onto its source profile. */
+      close: boolean;
+    }
   | {
       feature: 'chamfer';
       value: ValueExpr;

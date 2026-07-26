@@ -1,10 +1,16 @@
-import { applySketchOp, NewVariable, SketchApplyEntity, SketchOpFeature, ValueExpr } from '../api';
+import {
+  applyOffsetEdit, applySketchOp, clearBreakpoints, FeatureEditTarget, NewVariable,
+  OffsetOptionValues, ParsedFeatureStatement, SketchApplyEntity, SketchOpFeature, ValueExpr,
+} from '../api';
 import { ExpressionRow } from './modify-pick/expression-row';
 import { ExpressionField } from '../ui/expression-field';
 import { VariableInfo } from '../ui/expression-core';
 import { viewportChrome } from '../ui/viewport-chrome';
 
 const PREVIEW_DEBOUNCE_MS = 250;
+
+/** The statement options a 2D op carries beyond its picks. */
+export type SketchOpToggleKey = 'removeOriginal' | 'close';
 
 /** The per-operation dressing of the shared 2D op dialog. */
 export type SketchOpConfig = {
@@ -22,7 +28,17 @@ export type SketchOpConfig = {
    * into the row being left.
    */
   slotted?: boolean;
+  /**
+   * Boolean statement options — offset's `removeOriginal` argument and its
+   * `.close()` chain. They are mutually exclusive: checking one clears the
+   * others, since a removed original leaves a closed offset nothing to cap
+   * to (the kernel throws on the pair).
+   */
+  toggles?: { key: SketchOpToggleKey; label: string; title: string }[];
 };
+
+/** An `offset()` statement as the parse route reads it. */
+type ParsedOffset = Extract<ParsedFeatureStatement, { feature: 'offset' }>;
 
 const SLOT_ROW_BASE = 'flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 cursor-pointer transition-colors';
 const SLOT_ROW_ARMED = `${SLOT_ROW_BASE} border-primary/60 bg-primary/10`;
@@ -33,9 +49,15 @@ const SLOT_ROW_IDLE = `${SLOT_ROW_BASE} border-base-300 hover:border-base-conten
  * armed from the sketch toolbar, it reads the hover handler's selected edges,
  * previews the synthesized statement through `/api/apply-feature` (sketch
  * branch), and applies it — writing `fillet(4, r.edge('top'), l)` /
- * `offset(2, r.edge('top'))` / `subtract(r, c)` into the sketch body. The
- * expression row is editable (expression transparency) with verified
- * alternatives.
+ * `offset(2, true, r.edge('top')).close()` / `subtract(r, c)` into the sketch
+ * body. The expression row is editable (expression transparency) with
+ * verified alternatives.
+ *
+ * The same dialog edits an existing statement in place ({@link enterEdit},
+ * offset only today): the timeline double-click's breakpoint pauses the build
+ * right after that statement, so the sketch on screen is the one it lives in
+ * — its options seed the fields, its targets seed the expression row, and
+ * picking edges re-targets it.
  */
 export class SketchOpService {
   /**
@@ -48,16 +70,31 @@ export class SketchOpService {
   private readonly panel: HTMLDivElement;
   private readonly valueInput: HTMLInputElement | null;
   private readonly valueField: ExpressionField | null;
+  private readonly title: HTMLSpanElement;
   private readonly hint: HTMLDivElement;
   private readonly errorLine: HTMLDivElement;
   private readonly applyBtn: HTMLButtonElement;
   private readonly expression: ExpressionRow;
   private readonly slotRows: { base: HTMLDivElement; tool: HTMLDivElement } | null;
+  private readonly toggles = new Map<SketchOpToggleKey, HTMLInputElement>();
 
   private active = false;
   private previewTimer: number | null = null;
   private previewAbort: AbortController | null = null;
   private applying = false;
+
+  /** Statement being edited in place (timeline double-click), or null. */
+  private editTarget: FeatureEditTarget | null = null;
+  /** The statement's own target args — the override-detection baseline. */
+  private editArgsText = '';
+  /** Chain text at dialog-open; the transform refuses when it drifted. */
+  private expectedStatement: string | undefined;
+  /**
+   * An edit dialog that has not yet seen its sketch. The double-click's
+   * breakpoint render is still in flight, so the sketch-less scene it opened
+   * over must not fold the dialog away.
+   */
+  private awaitingEditSketch = false;
 
   // Slotted picking state: the armed slot's entities ARE the live selection;
   // the other slot holds what was frozen when the user switched away.
@@ -87,6 +124,11 @@ export class SketchOpService {
               class="input input-sm input-bordered w-full font-mono text-xs" />
           </label>`
       : '';
+    const toggleRows = (config.toggles ?? []).map(toggle => `
+          <label class="flex items-center justify-between cursor-pointer" title="${toggle.title}">
+            <span class="text-base-content/70">${toggle.label}</span>
+            <input data-role="toggle-${toggle.key}" type="checkbox" class="toggle toggle-sm toggle-primary" />
+          </label>`).join('');
     const slotRows = config.slotted
       ? `
           <div class="flex flex-col gap-1.5">
@@ -104,9 +146,9 @@ export class SketchOpService {
       <div data-role="column" class="flex flex-col items-end gap-1.5">
         <div class="flex flex-col items-stretch gap-3.5 w-60 max-h-[calc(100vh-260px)] overflow-y-auto bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
           <div class="flex items-center gap-2.5">
-            <span class="font-medium text-sm">${config.title}</span>
+            <span data-role="title" class="font-medium text-sm">${config.title}</span>
           </div>
-          <div data-role="hint" class="text-base-content/50">${config.pickHint}</div>${slotRows}${valueRow}
+          <div data-role="hint" class="text-base-content/50">${config.pickHint}</div>${slotRows}${valueRow}${toggleRows}
           <div class="flex items-center gap-2 pt-1">
             <button data-role="apply" class="btn btn-primary btn-sm flex-1" disabled>Apply</button>
             <button data-role="cancel" class="btn btn-ghost btn-sm">Cancel</button>
@@ -117,8 +159,12 @@ export class SketchOpService {
     container.appendChild(this.panel);
 
     this.valueInput = this.panel.querySelector('[data-role="value"]');
+    this.title = this.panel.querySelector('[data-role="title"]')!;
     this.hint = this.panel.querySelector('[data-role="hint"]')!;
     this.applyBtn = this.panel.querySelector('[data-role="apply"]')!;
+    for (const toggle of config.toggles ?? []) {
+      this.toggles.set(toggle.key, this.panel.querySelector(`[data-role="toggle-${toggle.key}"]`)!);
+    }
     this.slotRows = config.slotted
       ? {
         base: this.panel.querySelector('[data-role="slot-base"]')!,
@@ -149,27 +195,127 @@ export class SketchOpService {
       this.slotRows.base.addEventListener('click', () => this.armSlot('base'));
       this.slotRows.tool.addEventListener('click', () => this.armSlot('tool'));
     }
+    for (const [key, input] of this.toggles) {
+      input.addEventListener('change', () => {
+        // Mutually exclusive: checking one clears the rest.
+        if (input.checked) {
+          for (const [other, box] of this.toggles) {
+            box.checked = other === key;
+          }
+        }
+        this.schedulePreview();
+      });
+    }
     this.applyBtn.addEventListener('click', () => this.apply());
-    this.panel.querySelector('[data-role="cancel"]')!.addEventListener('click', () => this.onDone());
+    this.panel.querySelector('[data-role="cancel"]')!.addEventListener('click', () => {
+      // An edit dialog may outlive its toolbar arming (the bar hides while
+      // the breakpoint render is in flight), so close it here rather than
+      // relying on the toolbar's own disarm to find it.
+      this.exit();
+      this.onDone();
+    });
   }
 
   get isActive(): boolean {
     return this.active;
   }
 
+  /** True while the dialog rewrites an existing statement instead of writing one. */
+  get isEditing(): boolean {
+    return this.editTarget !== null;
+  }
+
+  /**
+   * True until the edit dialog's own sketch has rendered. The toolbar service
+   * keeps the dialog (and the picking handlers) alive through that window.
+   */
+  get isAwaitingSketch(): boolean {
+    return this.awaitingEditSketch;
+  }
+
+  /** The edit dialog's sketch has rendered — normal teardown rules resume. */
+  noteSketchActive(): void {
+    this.awaitingEditSketch = false;
+  }
+
   enter(): void {
-    if (this.active) {
+    if (this.active && !this.editTarget) {
       return;
     }
+    // Re-arming the tool over an open edit dialog abandons that edit — it
+    // becomes a fresh statement, so the breakpoint it opened with goes too.
+    this.exit();
     this.active = true;
     this.armedSlot = 'base';
     this.frozen = { base: [], tool: [] };
     this.syncSlotRows();
+    this.title.textContent = this.config.title;
+    this.setToggles({ removeOriginal: false, close: false });
     this.panel.classList.remove('hidden');
     viewportChrome.setDialogOpen(this.panel.id, true);
     this.onVisibilityChange?.(true);
     void this.loadVariables();
     this.schedulePreview();
+  }
+
+  /**
+   * Open the dialog over the `offset()` statement at `target`, prefilled from
+   * its parsed options. The double-click that got here left a breakpoint just
+   * after the statement, so the build is paused inside its sketch: the fields
+   * seed from the statement, the expression row seeds with its own target
+   * args (kept verbatim unless edited), and picking edges re-targets it.
+   */
+  enterEdit(target: FeatureEditTarget, parsed: ParsedOffset, expectedStatement: string): void {
+    this.exit('reopen');
+    this.active = true;
+    this.editTarget = target;
+    this.editArgsText = parsed.argsText;
+    this.expectedStatement = expectedStatement;
+    this.awaitingEditSketch = true;
+    this.armedSlot = 'base';
+    this.frozen = { base: [], tool: [] };
+    this.clearSelection();
+    this.title.textContent = `Edit ${this.config.title.toLowerCase()}`;
+    this.valueField?.setValue(parsed.value);
+    this.setToggles({ removeOriginal: parsed.removeOriginal, close: parsed.close });
+    this.panel.classList.remove('hidden');
+    viewportChrome.setDialogOpen(this.panel.id, true);
+    this.onVisibilityChange?.(true);
+    void this.loadVariables();
+    this.expression.show(parsed.argsText, []);
+    this.syncExpressionPrefix(parsed.value);
+    this.applyBtn.disabled = false;
+    this.schedulePreview();
+  }
+
+  /** Seed (or reset) the toggle boxes; a no-op for ops without any. */
+  private setToggles(values: OffsetOptionValues): void {
+    for (const [key, input] of this.toggles) {
+      input.checked = values[key];
+    }
+  }
+
+  /** The toggle state as the statement carries it, or undefined without any. */
+  private offsetOptions(): OffsetOptionValues | undefined {
+    if (this.toggles.size === 0) {
+      return undefined;
+    }
+    return {
+      removeOriginal: this.toggles.get('removeOriginal')?.checked === true,
+      close: this.toggles.get('close')?.checked === true,
+    };
+  }
+
+  /**
+   * The static text around the editable args — `offset(2, true, ` … `).close()`
+   * for the toggled forms, `fillet(4, ` … `)` for the rest.
+   */
+  private syncExpressionPrefix(value: ValueExpr | undefined): void {
+    const offset = this.offsetOptions();
+    this.expression.setPrefix(value === undefined
+      ? `${this.config.feature}(`
+      : `${this.config.feature}(${offset?.removeOriginal ? `${value}, true` : value}, `);
+    this.expression.setSuffix(offset?.close ? ').close()' : ')');
   }
 
   /** Feed the sketch scope's variables to the value field's dropdown. */
@@ -183,18 +329,35 @@ export class SketchOpService {
     }
   }
 
-  exit(): void {
+  /**
+   * Close the dialog. A cancelled edit clears the breakpoint its double-click
+   * placed, so the model rebuilds to its tip. The other two reasons leave the
+   * breakpoints alone: `apply`'s own transform strips them atomically with
+   * the rewrite (clearing again here could clobber that write), and `reopen`
+   * hands over to a fresh edit whose breakpoint is already in the file.
+   */
+  exit(reason: 'cancel' | 'apply' | 'reopen' = 'cancel'): void {
     if (!this.active) {
       return;
     }
+    const wasEditing = this.editTarget !== null;
     this.active = false;
+    this.editTarget = null;
+    this.editArgsText = '';
+    this.expectedStatement = undefined;
+    this.awaitingEditSketch = false;
     this.panel.classList.add('hidden');
     viewportChrome.setDialogOpen(this.panel.id, false);
     this.cancelPreview();
     this.expression.hide();
+    this.expression.setSuffix(')');
     this.setError(null);
+    this.setHint(this.config.pickHint);
     this.applyBtn.disabled = true;
     this.onVisibilityChange?.(false);
+    if (wasEditing && reason === 'cancel') {
+      clearBreakpoints();
+    }
   }
 
   /** The selected set or the scene changed — refresh the preview. */
@@ -278,7 +441,9 @@ export class SketchOpService {
       if (this.slotIds('tool').length === 0) {
         return 'Arm the Tool row and pick the geometry to subtract';
       }
-    } else if (this.getSelection().length === 0) {
+      // An edit keeps the statement's own targets until edges are picked, so
+      // an empty selection is complete — it just changes nothing about them.
+    } else if (!this.editTarget && this.getSelection().length === 0) {
       return this.config.pickHint;
     }
     const read = this.readValue();
@@ -324,25 +489,22 @@ export class SketchOpService {
 
     const read = this.readValue();
     const value = read && !('error' in read) ? read.value : undefined;
-    const entities = this.toEntities(this.config.slotted ? this.slotIds('base') : this.getSelection());
-    const toolEntities = this.config.slotted ? this.toEntities(this.slotIds('tool')) : undefined;
 
     const abort = new AbortController();
     this.previewAbort = abort;
     try {
-      const result = await applySketchOp(this.config.feature, value, entities, {
-        toolEntities, preview: true, signal: abort.signal,
-      });
+      const result = await this.send({ value, preview: true, signal: abort.signal });
       if (abort.signal.aborted || !this.active) {
         return;
       }
-      if (result.success && result.args !== undefined) {
+      // An edit that re-picked nothing synthesizes no args — the statement's
+      // own target list stands, and the row keeps showing it.
+      const args = result.args ?? (this.editTarget ? this.editArgsText : undefined);
+      if (result.success && args !== undefined) {
         this.setHint(null);
         this.setError(null);
-        this.expression.setPrefix(value === undefined
-          ? `${this.config.feature}(`
-          : `${this.config.feature}(${value}, `);
-        this.expression.show(result.args, result.alternatives ?? []);
+        this.syncExpressionPrefix(value);
+        this.expression.show(args, result.alternatives ?? []);
         this.applyBtn.disabled = false;
       } else {
         this.expression.hide();
@@ -356,6 +518,42 @@ export class SketchOpService {
     }
   }
 
+  /**
+   * One request for both modes: an armed dialog synthesizes a new statement
+   * for the picked edges; an edit rewrites the statement at `editTarget`,
+   * sending its picks only once they differ from what it opened with.
+   */
+  private send(options: {
+    value: ValueExpr | undefined;
+    selectorOverride?: string;
+    newVariables?: NewVariable[];
+    preview?: boolean;
+    signal?: AbortSignal;
+  }): ReturnType<typeof applySketchOp> {
+    const selection = this.config.slotted ? this.slotIds('base') : this.getSelection();
+    const entities = this.toEntities(selection);
+    if (this.editTarget) {
+      return applyOffsetEdit(this.editTarget, {
+        ...this.offsetOptions()!,
+        value: options.value!,
+        expectedStatement: this.expectedStatement,
+        entities: entities.length > 0 ? entities : undefined,
+        selectorOverride: options.selectorOverride,
+        newVariables: options.newVariables,
+        preview: options.preview,
+        signal: options.signal,
+      });
+    }
+    return applySketchOp(this.config.feature, options.value, entities, {
+      toolEntities: this.config.slotted ? this.toEntities(this.slotIds('tool')) : undefined,
+      offset: this.offsetOptions(),
+      selectorOverride: options.selectorOverride,
+      newVariables: options.newVariables,
+      preview: options.preview,
+      signal: options.signal,
+    });
+  }
+
   private async apply(): Promise<void> {
     if (this.applying || !this.active || this.incompleteReason() !== null) {
       return;
@@ -365,8 +563,6 @@ export class SketchOpService {
     const newVariables = read && !('error' in read) && read.newVariable
       ? [read.newVariable]
       : undefined;
-    const entities = this.toEntities(this.config.slotted ? this.slotIds('base') : this.getSelection());
-    const toolEntities = this.config.slotted ? this.toEntities(this.slotIds('tool')) : undefined;
 
     const edited = this.expression.value;
     const synthesized = this.expression.synthesizedArgs;
@@ -377,10 +573,13 @@ export class SketchOpService {
     this.applying = true;
     this.applyBtn.disabled = true;
     try {
-      const result = await applySketchOp(this.config.feature, value, entities, {
-        toolEntities, selectorOverride, newVariables,
-      });
+      const result = await this.send({ value, selectorOverride, newVariables });
       if (result.success) {
+        if (this.editTarget) {
+          // The rewrite strips the double-click's breakpoint atomically with
+          // the edit — clearing it again here could clobber that write.
+          this.exit('apply');
+        }
         this.onDone();
       } else {
         this.setError(result.reason ?? `Could not apply the ${this.config.feature}`);

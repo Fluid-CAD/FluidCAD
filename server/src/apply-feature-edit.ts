@@ -132,6 +132,8 @@ export type ApplyFeatureEditSpec = {
   shell?: ShellEditOptions;
   /** Chamfer-only payload; the second value rides after the distance. */
   chamfer?: ChamferEditOptions;
+  /** Offset-only payload; the boolean argument and the `.close()` chain. */
+  offset?: OffsetEditOptions;
   /** Loft-only payload; each `parts` entry renders one profile's selector. */
   loft?: LoftEditOptions;
   /** Plane-only payload; each `parts` entry renders one base's selector. */
@@ -747,6 +749,17 @@ export type ChamferEditOptions = {
   distance2: ValueExpr | null;
   /** `distance2` is an angle in degrees — renders the `true` third argument. */
   isAngle: boolean;
+};
+
+/**
+ * A 2D offset statement's own options: `removeOriginal` rides as the second
+ * argument (`offset(2, true, …)`) and `close` chains `.close()`, capping an
+ * open offset back onto its source profile. The kernel throws on the pair —
+ * a removed original has nothing to cap to — so the two never render together.
+ */
+export type OffsetEditOptions = {
+  removeOriginal: boolean;
+  close: boolean;
 };
 
 /**
@@ -2490,8 +2503,27 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     || spec.feature === 'trim' || spec.feature === 'project') {
     return `${spec.feature}(${args})`;
   }
+  if (spec.feature === 'offset') {
+    return renderOffsetStatement(spec.value, args, spec.offset);
+  }
   const joinChain = spec.feature === 'shell' ? renderShellJoinChain(spec.shell?.joinType) : '';
   return `${spec.feature}(${formatValue(spec.value)}, ${args})${joinChain}`;
+}
+
+/**
+ * A 2D offset statement: `offset(2, r.edge('top'))`, with the
+ * `removeOriginal` boolean between the distance and the targets and a
+ * trailing `.close()`. An empty `args` is the whole-sketch form — `offset(2)`
+ * — which only the in-place edit of a target-less statement produces.
+ */
+export function renderOffsetStatement(
+  value: ValueExpr | undefined,
+  args: string,
+  offset: OffsetEditOptions | undefined,
+): string {
+  const valueArgs = offset?.removeOriginal ? `${formatValue(value)}, true` : formatValue(value);
+  const chain = offset?.close ? '.close()' : '';
+  return args ? `offset(${valueArgs}, ${args})${chain}` : `offset(${valueArgs})${chain}`;
 }
 
 /** The selector argument list: the user-edited override, or rendered parts. */
@@ -2868,7 +2900,7 @@ async function hoistProjectSelects(
 // ---------------------------------------------------------------------------
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'plane';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'plane' | 'offset';
 
 /**
  * One base argument of a parsed plane statement. `kind` is what the base
@@ -2988,6 +3020,17 @@ export type ParsedFeatureStatement =
     value: ValueExpr;
     /** Selector argument list after the value, verbatim (`''` when absent). */
     argsText: string;
+  }
+  | {
+    feature: 'offset';
+    /** The offset distance; negative offsets inward. */
+    value: ValueExpr;
+    /** The literal `true` second argument — the sources are removed. */
+    removeOriginal: boolean;
+    /** Target argument list after the value slots, verbatim (`''` when absent). */
+    argsText: string;
+    /** `.close()` chains the offset back onto its source profile. */
+    close: boolean;
   }
   | {
     feature: 'chamfer';
@@ -3136,6 +3179,7 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   common: 'boolean',
   helix: 'helix',
   plane: 'plane',
+  offset: 'offset',
 };
 
 /**
@@ -3178,6 +3222,9 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // The bases and the transform options are all root-call arguments; `.name()`
   // and friends are unrecognized members and survive verbatim.
   plane: new Set(),
+  // The distance, the removeOriginal flag and the targets are root-call
+  // arguments; `.close()` is the one chained option the dialog edits.
+  offset: new Set(['close']),
 };
 
 type ChainSegment = { name: string; args: TSNode[]; endIndex: number };
@@ -3464,6 +3511,44 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
       return { parsed: { feature, value, argsText, distance2, isAngle }, start, end };
     }
     return { parsed: { feature, value, argsText }, start, end };
+  }
+
+  if (feature === 'offset') {
+    // Every slot is optional: `offset()` offsets the whole sketch by the
+    // kernel's default 1, and the distance competes with the target list for
+    // the first position — a non-numeric first argument IS a target, so the
+    // dialog opens on that default rather than refusing.
+    let value: ValueExpr = 1;
+    let selectorsFrom = 0;
+    if (args.length > 0) {
+      const distance = numericValueArg(args[0], numericVars);
+      if (distance !== null) {
+        value = distance;
+        selectorsFrom = 1;
+      }
+    }
+    // The removeOriginal flag only exists in the distance-first overload, and
+    // only as a literal — a computed flag has no checkbox to seed.
+    let removeOriginal = false;
+    if (selectorsFrom === 1 && args.length > 1) {
+      const flag = booleanArgValue(args[1]);
+      if (flag !== null) {
+        removeOriginal = flag;
+        selectorsFrom = 2;
+      }
+    }
+    const argsText = args.length > selectorsFrom
+      ? code.slice(args[selectorsFrom].startIndex, args[args.length - 1].endIndex)
+      : '';
+    const closeSegment = recognized.get('close');
+    if (closeSegment && closeSegment.args.length > 0) {
+      return { error: 'the .close() chain takes no arguments — edit the statement in the source' };
+    }
+    return {
+      parsed: { feature, value, removeOriginal, argsText, close: closeSegment !== undefined },
+      start,
+      end,
+    };
   }
 
   if (feature === 'text') {
@@ -4667,7 +4752,25 @@ function validValueExprOrNull(
 }
 
 /** The spec fields `renderEditedStatement` reads. */
-type EditRenderSpec = Pick<ApplyFeatureEditSpec, 'feature' | 'value' | 'rawArgs' | 'edit' | 'producers' | 'parts'>;
+type EditRenderSpec = Pick<ApplyFeatureEditSpec, 'feature' | 'value' | 'offset' | 'rawArgs' | 'edit' | 'producers' | 'parts'>;
+
+/**
+ * The selector argument list an edited statement renders: the user's
+ * expression text wins over a re-picked selection (the create path's
+ * contract), and with neither the statement's own args stay verbatim.
+ */
+function editedSelectorArgs(
+  spec: EditRenderSpec,
+  argsText: string,
+  varFor: (producer: number) => string | null,
+): string {
+  const partsArgs = spec.parts.length > 0
+    ? spec.parts
+      .map(part => renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer)))
+      .join(', ')
+    : null;
+  return spec.rawArgs?.trim() || partsArgs || argsText;
+}
 
 /**
  * Variable text of a re-sourced sketch/wire slot: the binding's name, else
@@ -5508,6 +5611,19 @@ export function renderEditedStatement(
   if (!validValueExpr(spec.value, { nonzero: true })) {
     return { error: `the ${parsed.feature} value must be a nonzero number or expression` };
   }
+  if (parsed.feature === 'offset') {
+    // An edit spec without offset options keeps the statement's own toggles.
+    const offset = spec.offset ?? { removeOriginal: parsed.removeOriginal, close: parsed.close };
+    if (typeof offset.removeOriginal !== 'boolean' || typeof offset.close !== 'boolean') {
+      return { error: 'malformed offset edit spec' };
+    }
+    if (offset.removeOriginal && offset.close) {
+      return { error: 'a closed offset keeps its original profile — the cap edges join the two' };
+    }
+    return {
+      statement: renderOffsetStatement(spec.value, editedSelectorArgs(spec, parsed.argsText, varFor), offset),
+    };
+  }
   let joinChain = '';
   if (parsed.feature === 'shell') {
     // An edit spec without shell options keeps the statement's own join type.
@@ -5527,14 +5643,7 @@ export function renderEditedStatement(
     }
     valueArgs = renderChamferValueArgs(spec.value, chamfer);
   }
-  // The user's expression text wins over a re-picked selection (the create
-  // path's contract); with neither, the statement's own args stay verbatim.
-  const partsArgs = spec.parts.length > 0
-    ? spec.parts
-      .map(part => renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer)))
-      .join(', ')
-    : null;
-  const args = spec.rawArgs?.trim() || partsArgs || parsed.argsText;
+  const args = editedSelectorArgs(spec, parsed.argsText, varFor);
   return {
     statement: args
       ? `${parsed.feature}(${valueArgs}, ${args})${joinChain}`

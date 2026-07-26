@@ -9,8 +9,9 @@ import {
   renderRevolveStatement,
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames, validCountValue, validValueExpr,
-  renderChamferValueArgs, renderFaceTargetExpr,
+  renderChamferValueArgs, renderFaceTargetExpr, renderOffsetStatement,
   type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions, type CopyEditOptions,
+  type OffsetEditOptions,
   type ExtrudeEditOptions, type ExtrudeFaceTarget, type ExtrudeTargetKind, type FeatureStatementEditTarget,
   type HelixEditOptions,
   type HelixSourceSpec, type LoftEditOptions,
@@ -136,6 +137,25 @@ function validateShellJoinType(raw: unknown): { joinType: ShellJoinKind } | { er
     return { error: 'joinType must be "arc", "intersection" or "tangent"' };
   }
   return { joinType: raw };
+}
+
+/**
+ * The 2D offset's two toggles, riding a create or edit request: absent fields
+ * read as off, so a caller that knows nothing about them keeps the plain
+ * `offset(d, …)` form. The pair is refused here rather than written into the
+ * file — the kernel throws on it, since a removed original leaves the offset
+ * nothing to cap to.
+ */
+function validateOffsetOptions(body: any): { options: OffsetEditOptions } | { error: string } {
+  const removeOriginal = body?.removeOriginal ?? false;
+  const close = body?.close ?? false;
+  if (typeof removeOriginal !== 'boolean' || typeof close !== 'boolean') {
+    return { error: 'removeOriginal and close must be booleans' };
+  }
+  if (removeOriginal && close) {
+    return { error: 'a closed offset keeps its original profile — turn off "Remove original"' };
+  }
+  return { options: { removeOriginal, close } };
 }
 
 /**
@@ -1304,7 +1324,7 @@ async function allocateProducerVars(
 }
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'boolean', 'helix', 'plane']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'boolean', 'helix', 'plane', 'offset']);
 
 /** One edited loft profile as the request carries it. */
 type EditLoftProfileInput =
@@ -1323,9 +1343,13 @@ type StatementEditRequest = {
   edit: FeatureStatementEditTarget;
   value?: ValueExpr;
   rawArgs?: string;
+  /** Offset's toggles; always explicit on an edit (a cleared box clears the option). */
+  offset?: OffsetEditOptions;
   /** Re-picked selection for shell/fillet/chamfer; absent keeps the args. */
   picks?: Pick[];
   chains?: { seed: Pick; members: Pick[] }[];
+  /** Re-picked sketch edges for a 2D offset; absent keeps the args. */
+  sketchPicks?: { shapeId: string }[];
   /** Re-sourced extrude profile sketch; absent keeps the statement's. */
   extrudeProfile?: SketchLoc;
   /** Re-picked extrude up-to-face target; the keep case rides the edit target. */
@@ -1412,7 +1436,7 @@ function isKeepSlot(raw: any): boolean {
 function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy" or "boolean" for an edit' };
+    return { error: 'feature must be "extrude", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "boolean" or "offset" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -1736,6 +1760,39 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
 
   if (feature === 'plane') {
     return validatePlaneEdit(body, base, edit);
+  }
+
+  // Offset (2D): the distance, both toggles, and either an edited target list
+  // (the expression row) or a re-picked set of sketch edges. The 2D picks
+  // carry no boundary — the double-click paused the build at the edited
+  // statement, so the rendered sketch already IS the world it sees.
+  if (feature === 'offset') {
+    const { value } = body ?? {};
+    if (!validValueExpr(value, { nonzero: true })) {
+      return { error: 'value must be a nonzero number or expression' };
+    }
+    const offset = validateOffsetOptions(body);
+    if ('error' in offset) {
+      return offset;
+    }
+    if (selectorOverride !== undefined
+      && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
+      return { error: 'selectorOverride must be a non-empty string (max 500 chars)' };
+    }
+    const result: StatementEditRequest = {
+      ...base,
+      value,
+      offset: offset.options,
+      rawArgs: typeof selectorOverride === 'string' ? selectorOverride.trim() : undefined,
+    };
+    if (body?.sketchEntities !== undefined && body?.sketchEntities !== null) {
+      const picks = validateSketchPicks(body.sketchEntities);
+      if (!picks) {
+        return { error: 'sketchEntities must be a non-empty array of {shapeId} picks' };
+      }
+      result.sketchPicks = picks;
+    }
+    return result;
   }
 
   // Shell / fillet / chamfer: the numeric value plus an optional edited
@@ -2426,7 +2483,7 @@ export function createApplyFeatureRouter(
           namer?: Awaited<ReturnType<typeof makeProducerNamer>>;
           params?: { name: string; value: number }[];
         } | undefined;
-        if (request.needsPicks && code) {
+        if ((request.needsPicks || request.sketchPicks) && code) {
           synthOptions = {
             namer: await makeProducerNamer(code),
             params: resolveParamValues(
@@ -2870,6 +2927,28 @@ export function createApplyFeatureRouter(
           }
           edit.plane!.bases = bases;
         }
+        if (request.sketchPicks) {
+          // The 2D branch of synthesis: sketch-edge picks resolve through the
+          // sketch's own edge index, so the re-picked targets render exactly
+          // like the create dialog's — accessors, or an induced edge filter.
+          const synthesis = fluidCadServer.synthesizeSketchApplyFeature(
+            request.sketchPicks, 'offset', request.value, { ...synthOptions, offset: request.offset },
+          );
+          if (!synthesis) {
+            res.status(404).json({ success: false, reason: 'No rendered scene' });
+            return;
+          }
+          if (!synthesis.ok) {
+            res.status(422).json({ success: false, reason: synthesis.reason });
+            return;
+          }
+          foldSynthesis(synthesis);
+          synthesizedArgs = synthesis.args;
+          alternatives = synthesis.alternatives;
+          // The user's expression text wins only when it differs from what
+          // the picks synthesize — the create path's contract.
+          rawArgs = rawArgs !== undefined && rawArgs !== synthesis.args ? rawArgs : undefined;
+        }
         if (request.feature === 'boolean' && request.booleanTargets) {
           // Every re-picked target is a bound feature producer; keeps stay
           // text-addressed by their position in the statement.
@@ -2887,6 +2966,7 @@ export function createApplyFeatureRouter(
         const spec: ApplyFeatureEditSpec = {
           feature: request.feature,
           value: request.value,
+          offset: request.offset,
           rawArgs,
           filePath: request.target.filePath,
           producers,
@@ -4405,6 +4485,19 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: 'value must be a nonzero number or expression' });
         return;
       }
+      // Offset's dialog toggles: the `removeOriginal` argument and `.close()`.
+      let offsetOptions: OffsetEditOptions | undefined;
+      if (feature === 'offset') {
+        const parsed = validateOffsetOptions(req.body);
+        if ('error' in parsed) {
+          res.status(400).json({ error: parsed.error });
+          return;
+        }
+        offsetOptions = parsed.options;
+      } else if (req.body?.removeOriginal !== undefined || req.body?.close !== undefined) {
+        res.status(400).json({ error: 'removeOriginal and close only apply to offset' });
+        return;
+      }
       // Subtract is slot-addressed: sketchEntities is the base pick set,
       // sketchToolEntities the tool's.
       let sketchToolPicks: { shapeId: string }[] | undefined;
@@ -4433,8 +4526,9 @@ export function createApplyFeatureRouter(
               fluidCadServer.getParamDefinitions(),
             ),
             toolRefs: sketchToolPicks,
+            offset: offsetOptions,
           }
-          : { toolRefs: sketchToolPicks };
+          : { toolRefs: sketchToolPicks, offset: offsetOptions };
         const synthesis = fluidCadServer.synthesizeSketchApplyFeature(
           sketchPicks, feature, sketchValueless ? undefined : value, options,
         );
@@ -4446,10 +4540,16 @@ export function createApplyFeatureRouter(
           res.status(422).json({ success: false, reason: synthesis.reason });
           return;
         }
+        // The toggles are statement shape, not selection knowledge: re-attach
+        // them here so a workspace kernel predating them still writes (and
+        // previews) the form the dialog asked for.
+        const statement = offsetOptions
+          ? renderOffsetStatement(value, synthesis.args, offsetOptions)
+          : synthesis.preview;
         if (preview === true) {
           res.json({
             success: true,
-            preview: synthesis.preview,
+            preview: statement,
             args: synthesis.args,
             alternatives: synthesis.alternatives,
           });
@@ -4458,11 +4558,14 @@ export function createApplyFeatureRouter(
         let spec: ApplyFeatureEditSpec = typeof selectorOverride === 'string' && selectorOverride.trim() !== synthesis.args
           ? { ...synthesis.spec, rawArgs: selectorOverride.trim() }
           : synthesis.spec;
+        if (offsetOptions) {
+          spec = { ...spec, offset: offsetOptions };
+        }
         if (newVariables) {
           spec = { ...spec, newVariables };
         }
         sendToExtension({ type: 'apply-feature-edit', spec });
-        res.json({ success: true, preview: synthesis.preview });
+        res.json({ success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
       }

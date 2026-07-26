@@ -11,6 +11,7 @@ import { SelectorPart } from "./synthesis.js";
 import {
   ApplyFeatureEditSpec,
   ApplyFeatureSynthesis,
+  OffsetEditOptions,
   SelectionScene,
   SynthesizeOptions,
   nameHintFor,
@@ -28,6 +29,11 @@ export type SketchSynthesizeOptions = SynthesizeOptions & {
    * producing geometry as the operand.
    */
   toolRefs?: SketchPickRef[];
+  /**
+   * Offset only: the dialog's two toggles — `removeOriginal` (the call's
+   * second argument) and `.close()`.
+   */
+  offset?: OffsetEditOptions;
 };
 
 type ResolvedSketchPick = {
@@ -171,6 +177,7 @@ export function synthesizeSketchApplyFeature(
   const spec: ApplyFeatureEditSpec = {
     feature,
     value,
+    offset: feature === 'offset' ? offsetOptions(options) : undefined,
     filePath: filePaths.values().next().value!,
     producers: located.map(l => {
       const loc = l.feature.getSourceLocation()!;
@@ -207,11 +214,36 @@ export function synthesizeSketchApplyFeature(
   return {
     ok: true,
     spec,
-    // Trim carries no numeric parameter — the args ARE the statement.
-    preview: value === undefined ? `${feature}(${args})` : `${feature}(${value}, ${args})`,
+    preview: sketchStatementPreview(feature, value, args, spec.offset),
     args,
     alternatives,
   };
+}
+
+/** The offset toggles, defaulted — an absent payload is the plain offset. */
+function offsetOptions(options: SketchSynthesizeOptions): OffsetEditOptions {
+  return {
+    removeOriginal: options.offset?.removeOriginal === true,
+    close: options.offset?.close === true,
+  };
+}
+
+/**
+ * The statement the transform will write, for the dialog's preview line.
+ * Trim carries no numeric parameter — the args ARE the statement; offset
+ * rides its `removeOriginal` boolean before the args and caps with `.close()`.
+ */
+function sketchStatementPreview(
+  feature: SketchApplyFeatureKind,
+  value: number | string | undefined,
+  args: string,
+  offset: OffsetEditOptions | undefined,
+): string {
+  if (value === undefined) {
+    return `${feature}(${args})`;
+  }
+  const valueArgs = offset?.removeOriginal ? `${value}, true` : `${value}`;
+  return `${feature}(${valueArgs}, ${args})${offset?.close ? '.close()' : ''}`;
 }
 
 /**

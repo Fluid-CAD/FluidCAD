@@ -24,6 +24,7 @@ import { EdgeOps } from '../../lib/oc/edge-ops.js';
 import { FaceProps } from '../../lib/oc/face-props.js';
 import { ShapeProps } from '../../lib/oc/props.js';
 import { synthesizeApplyFeature } from '../../lib/selection/explain.js';
+import { synthesizeSketchApplyFeature } from '../../lib/selection/sketch-apply.js';
 import { scopedSceneBefore } from '../../lib/selection/types.js';
 import type { PickRef } from '../../lib/selection/types.js';
 import { applyFeatureEdit, type ApplyFeatureEditSpec } from '../src/apply-feature-edit.ts';
@@ -747,5 +748,80 @@ describe('select→apply-feature end to end', () => {
     // (z = 10) and the XY origin plane.
     const rerun = runFluid(edited.newCode);
     expect(lastPlane(rerun).getPlane().origin.z).toBeCloseTo(5);
+  });
+  /** Every distinct non-meta edge in the scene — a sketch's rendered geometry. */
+  function sketchEdgeIds(scene: Scene): Set<string> {
+    const ids = new Set<string>();
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getShapes()) {
+        if (shape instanceof Edge && !shape.isMetaShape() && !shape.isGuideShape()) {
+          ids.add(shape.id);
+        }
+      }
+    }
+    return ids;
+  }
+
+  it('offsets picked sketch edges, capping the open ends through .close()', async () => {
+    const code = [
+      `import { sketch, hLine, vLine, offset } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  hLine(40)`,
+      `  vLine(20)`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    // The same open profile in-process, its statements stamped with the lines
+    // they occupy in `code` — what the live-render stack capture records.
+    let h: SceneObject;
+    let v: SceneObject;
+    sketch('xy', () => {
+      h = core.hLine(40) as unknown as SceneObject;
+      v = core.vLine(20) as unknown as SceneObject;
+    });
+    h!.setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 2 });
+    v!.setSourceLocation({ filePath: '/ws/model.fluid.js', line: 5, column: 2 });
+    const scene = render();
+
+    const picks = [h!, v!]
+      .flatMap(o => o.getShapes().filter((s): s is Edge => s instanceof Edge))
+      .map(edge => ({ shapeId: edge.id }));
+
+    // The dialog with "Close ends" checked.
+    const synthesis = synthesizeSketchApplyFeature(
+      scene, picks, 'offset', 3, { offset: { removeOriginal: false, close: true } },
+    );
+    expect(synthesis.ok).toBe(true);
+    if (!synthesis.ok) {
+      return;
+    }
+    expect(synthesis.preview).toBe(`offset(3, ${synthesis.args}).close()`);
+
+    const edited = await applyFeatureEdit(code, synthesis.spec);
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(`.close()`);
+
+    // Two source edges, two offset edges, and the two caps joining them.
+    const closed = runFluid(edited.newCode);
+    expect(sketchEdgeIds(closed).size).toBe(6);
+
+    // The same statement edited to remove its original instead: the sources
+    // are gone and only the offset remains.
+    const removed = await applyFeatureEdit(edited.newCode, {
+      feature: 'offset',
+      value: 3,
+      offset: { removeOriginal: true, close: false },
+      filePath: '/ws/model.fluid.js',
+      producers: [],
+      parts: [],
+      imports: [],
+      edit: { line: 6, column: 2 },
+    });
+    expect(removed.error).toBeUndefined();
+    expect(removed.newCode).toContain(`offset(3, true,`);
+    expect(removed.newCode).not.toContain(`.close()`);
+    expect(sketchEdgeIds(runFluid(removed.newCode)).size).toBe(2);
   });
 });

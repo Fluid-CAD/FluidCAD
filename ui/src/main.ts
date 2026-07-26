@@ -397,6 +397,8 @@ const EDITABLE_ROW_TYPES = new Set([
   'copy-linear', 'copy-circular',
   'fuse', 'subtract', 'common',
   'plane',
+  // 2D: an offset row sits under its sketch, and its dialog re-opens over it.
+  'offset',
 ]);
 
 /**
@@ -471,10 +473,41 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     booleanService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'plane') {
     planeService.enterEdit(target, parsed, info);
+  } else if (parsed.feature === 'offset') {
+    // A 2D op lives inside a sketch body: the breakpoint the double-click
+    // placed paused the build right after it, so the sketch it belongs to is
+    // the one on screen and the offset dialog re-arms over it.
+    closeFeatureDialogs();
+    sketchService.enterOffsetEdit(target, parsed, result.statement);
   } else {
     // What's left of the parse union: the shell/fillet/chamfer dialog's.
     modifyService.enterEdit(target, parsed, info);
   }
+}
+
+/**
+ * Close the create-feature dialogs. A 2D op dialog docks in the same spot and
+ * owns the viewport the same way, so opening one has to clear them — but not
+ * the sketch dialog, which it only suspends (`onOpDialogToggle`) and hands
+ * back when it closes. A modify pick armed over the old scene retires itself
+ * once the render that brings the sketch in arrives.
+ */
+function closeFeatureDialogs(): void {
+  projectionService.exit({ resume: 'lazy' });
+  extrudeService.exit();
+  revolveService.exit();
+  helixService.exit();
+  sweepService.exit();
+  loftService.exit();
+  wrapService.exit();
+  repeatService.exit();
+  copyService.exit();
+  booleanService.exit();
+  planeService.exit();
+  textEditService.exit();
+  measureController.clearSelection();
+  viewer.clearHighlight();
+  selectionInfoOverlay.hide();
 }
 
 /**

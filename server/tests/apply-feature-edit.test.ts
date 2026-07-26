@@ -5923,3 +5923,176 @@ describe('project into a sketch body', () => {
     expect(result.error).toBe('malformed project edit spec');
   });
 });
+
+describe('parseFeatureStatement — offset', () => {
+  const base = [
+    `import { sketch, rect, offset } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => {`,
+    `  const r = rect(100, 50)`,
+  ].join('\n');
+  /** `statement` lands on line 5, inside the sketch body. */
+  const codeWith = (statement: string) => `${base}\n  ${statement}\n})\n`;
+
+  it('reads the distance and the target list', async () => {
+    const result = await parseFeatureStatement(codeWith(`offset(4, r.edge('top'))`), 5);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'offset',
+        value: 4,
+        removeOriginal: false,
+        argsText: `r.edge('top')`,
+        close: false,
+      },
+      statement: `offset(4, r.edge('top'))`,
+    });
+  });
+
+  it('reads the removeOriginal argument', async () => {
+    const result = await parseFeatureStatement(codeWith(`offset(-2, true, r.edge('top'))`), 5);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'offset', value: -2, removeOriginal: true, argsText: `r.edge('top')`, close: false },
+    });
+  });
+
+  it('reads the .close() chain', async () => {
+    const result = await parseFeatureStatement(codeWith(`offset(3, r).close()`), 5);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'offset', value: 3, removeOriginal: false, argsText: 'r', close: true },
+      statement: 'offset(3, r).close()',
+    });
+  });
+
+  it('reads a variable distance', async () => {
+    const code = [
+      `import { sketch, rect, offset } from 'fluidcad/core'`,
+      `const gap = 3`,
+      `sketch('xy', () => {`,
+      `  const r = rect(100, 50)`,
+      `  offset(gap, r)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toMatchObject({ ok: true, parsed: { feature: 'offset', value: 'gap', argsText: 'r' } });
+  });
+
+  it('reads an omitted distance as the kernel default, targets and all', async () => {
+    const whole = await parseFeatureStatement(codeWith('offset()'), 5);
+    expect(whole).toMatchObject({
+      ok: true,
+      parsed: { feature: 'offset', value: 1, removeOriginal: false, argsText: '', close: false },
+    });
+
+    // A non-numeric first argument is a target, not the distance.
+    const targeted = await parseFeatureStatement(codeWith(`offset(r.edge('top'))`), 5);
+    expect(targeted).toMatchObject({
+      ok: true,
+      parsed: { feature: 'offset', value: 1, argsText: `r.edge('top')` },
+    });
+  });
+
+  it('refuses a .close() chain with arguments', async () => {
+    const result = await parseFeatureStatement(codeWith('offset(3, r).close(true)'), 5);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('.close()');
+    }
+  });
+});
+
+describe('applyFeatureEdit (offset in-place statement edit)', () => {
+  const base = [
+    `import { sketch, rect, offset } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => {`,
+    `  const r = rect(100, 50)`,
+  ].join('\n');
+  const codeWith = (statement: string) => `${base}\n  ${statement}\n})\n`;
+  const offsetSpec = (
+    offset: { removeOriginal: boolean; close: boolean },
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ) => editSpec('offset', { line: 5, column: 2 }, { value: 4, offset, ...overrides });
+
+  it('replaces the distance and keeps the targets verbatim', async () => {
+    const result = await applyFeatureEdit(
+      codeWith(`offset(2, r.edge('top'))`),
+      offsetSpec({ removeOriginal: false, close: false }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  offset(4, r.edge('top'))\n`);
+  });
+
+  it('adds the removeOriginal argument and the .close() chain', async () => {
+    const removed = await applyFeatureEdit(
+      codeWith(`offset(2, r.edge('top'))`),
+      offsetSpec({ removeOriginal: true, close: false }),
+    );
+    expect(removed.error).toBeUndefined();
+    expect(removed.newCode).toContain(`  offset(4, true, r.edge('top'))\n`);
+
+    const closed = await applyFeatureEdit(
+      codeWith(`offset(2, r.edge('top'))`),
+      offsetSpec({ removeOriginal: false, close: true }),
+    );
+    expect(closed.error).toBeUndefined();
+    expect(closed.newCode).toContain(`  offset(4, r.edge('top')).close()\n`);
+  });
+
+  it('clears both options when the dialog turns them off', async () => {
+    const result = await applyFeatureEdit(
+      codeWith(`offset(2, true, r.edge('top'))`),
+      offsetSpec({ removeOriginal: false, close: false }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  offset(4, r.edge('top'))\n`);
+
+    const unclosed = await applyFeatureEdit(
+      codeWith(`offset(2, r).close()`),
+      offsetSpec({ removeOriginal: false, close: false }),
+    );
+    expect(unclosed.error).toBeUndefined();
+    expect(unclosed.newCode).toContain(`  offset(4, r)\n`);
+    expect(unclosed.newCode).not.toContain('.close()');
+  });
+
+  it('keeps the statement options when the spec carries none', async () => {
+    const result = await applyFeatureEdit(
+      codeWith(`offset(2, true, r.edge('top'))`),
+      editSpec('offset', { line: 5, column: 2 }, { value: 6 }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  offset(6, true, r.edge('top'))\n`);
+  });
+
+  it('refuses a closed offset that also removes the original', async () => {
+    const code = codeWith(`offset(2, r.edge('top'))`);
+    const result = await applyFeatureEdit(code, offsetSpec({ removeOriginal: true, close: true }));
+    expect(result.error).toContain('closed offset');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('renders re-picked targets over the statement’s own', async () => {
+    const result = await applyFeatureEdit(
+      codeWith(`offset(2, r.edge('top'))`),
+      offsetSpec({ removeOriginal: false, close: true }, {
+        producers: [{ line: 4, column: 2, featureType: 'rect', nameHint: 'r', bind: true }],
+        parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: `'left'` }],
+      }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  offset(4, r.edge('left')).close()\n`);
+  });
+
+  it('writes the whole-sketch form when the statement has no targets', async () => {
+    const result = await applyFeatureEdit(
+      codeWith('offset(2)'),
+      offsetSpec({ removeOriginal: true, close: false }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  offset(4, true)\n`);
+  });
+});

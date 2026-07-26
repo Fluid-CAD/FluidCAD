@@ -233,6 +233,46 @@ describe("sketch apply-feature synthesis", () => {
     expect(result.args).toBe("r.edge('top')");
     expect(result.preview).toBe("offset(3, r.edge('top'))");
     expect(result.spec.feature).toBe('offset');
+    expect(result.spec.offset).toEqual({ removeOriginal: false, close: false });
+  });
+
+  it("carries the offset toggles into the statement it previews", () => {
+    let r: Rect;
+    sketch("xy", () => {
+      r = rect(80, 60) as Rect;
+    });
+    const scene = render();
+    setLocation(r!, 3);
+
+    const removed = synthesizeSketchApplyFeature(
+      scene, [refFor(roleEdge(r!, 'top'))], 'offset', 3,
+      { offset: { removeOriginal: true, close: false } },
+    );
+    expect(removed).toMatchObject({
+      ok: true,
+      preview: "offset(3, true, r.edge('top'))",
+      spec: { offset: { removeOriginal: true, close: false } },
+    });
+
+    const closed = synthesizeSketchApplyFeature(
+      scene, [refFor(roleEdge(r!, 'top'))], 'offset', 3,
+      { offset: { removeOriginal: false, close: true } },
+    );
+    expect(closed).toMatchObject({
+      ok: true,
+      preview: "offset(3, r.edge('top')).close()",
+      spec: { offset: { removeOriginal: false, close: true } },
+    });
+
+    // The toggles are offset's own — a fillet never grows the extra argument.
+    const filleted = synthesizeSketchApplyFeature(
+      scene, [refFor(roleEdge(r!, 'top')), refFor(roleEdge(r!, 'left'))], 'fillet', 3,
+      { offset: { removeOriginal: true, close: false } },
+    );
+    expect(filleted).toMatchObject({ ok: true, spec: { offset: undefined } });
+    if (filleted.ok) {
+      expect(filleted.preview).toBe(`fillet(3, ${filleted.args})`);
+    }
   });
 
   it("hints instead of no-opping when fillet picks share no corner", () => {

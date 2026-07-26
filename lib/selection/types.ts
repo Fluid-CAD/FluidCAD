@@ -118,10 +118,23 @@ export type PickChain = {
  * Everything the tree-sitter code transform needs, and nothing kernel-side —
  * the transform stays a testable string function.
  */
+/**
+ * The 2D offset's own options: the `removeOriginal` boolean that rides as the
+ * call's second argument, and the `.close()` chain that caps an open offset
+ * back onto its source profile. The kernel refuses the pair (there is no
+ * original left to cap to), so the two are mutually exclusive here too.
+ */
+export type OffsetEditOptions = {
+  removeOriginal: boolean;
+  close: boolean;
+};
+
 export type ApplyFeatureEditSpec = {
   feature: ApplyFeatureKind;
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: number | string;
+  /** Offset-only payload; renders the boolean argument and the `.close()` chain. */
+  offset?: OffsetEditOptions;
   filePath: string;
   producers: {
     line: number;

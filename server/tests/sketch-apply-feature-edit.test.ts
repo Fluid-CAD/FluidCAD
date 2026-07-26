@@ -169,6 +169,32 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
     expect(result.newCode).toContain(`import {offset, sketch, rect } from 'fluidcad/core'`);
   });
 
+  it("writes the offset toggles as the boolean argument and the .close() chain", async () => {
+    const code = [
+      `import { sketch, rect } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  rect(80, 60)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const spec = (offset: { removeOriginal: boolean; close: boolean }) => sketchSpec({
+      feature: 'offset',
+      value: 3,
+      offset,
+      producers: [{ line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true }],
+      parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: "'top'" }],
+    });
+
+    const removed = await applyFeatureEdit(code, spec({ removeOriginal: true, close: false }));
+    expect(removed.error).toBeUndefined();
+    expect(removed.newCode).toContain(`  offset(3, true, r.edge('top'))`);
+
+    const closed = await applyFeatureEdit(code, spec({ removeOriginal: false, close: true }));
+    expect(closed.error).toBeUndefined();
+    expect(closed.newCode).toContain(`  offset(3, r.edge('top')).close()`);
+  });
+
   it('writes a valueless boolean statement into the sketch body', async () => {
     const code = [
       `import { sketch, rect, circle, move } from 'fluidcad/core'`,

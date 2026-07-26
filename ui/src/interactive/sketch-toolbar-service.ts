@@ -16,7 +16,9 @@ import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
 import { BezierHandlesOverlay } from './bezier-handles-overlay';
 import { SnapManager } from '../snapping/snap-manager';
 import { SnapController } from '../snapping/snap-controller';
-import { insertGeometry, getScopeVariables, applySketchOp } from '../api';
+import {
+  insertGeometry, getScopeVariables, applySketchOp, FeatureEditTarget, ParsedFeatureStatement,
+} from '../api';
 import { isTopLevel } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData } from '../types';
 import { Viewer } from '../viewer';
@@ -129,6 +131,19 @@ export class SketchToolbarService {
       offset: opService({
         feature: 'offset', title: 'Offset', pickHint: 'Pick sketch edges to offset',
         value: { label: 'Distance', defaultValue: '2', sign: 'nonzero' },
+        toggles: [
+          {
+            key: 'removeOriginal',
+            label: 'Remove original',
+            title: 'Keep only the offset — the geometry it was made from is removed',
+          },
+          {
+            key: 'close',
+            label: 'Close ends',
+            title: 'Cap an open offset back onto its original profile with two straight edges, '
+              + 'making a closed loop (no-op on already-closed profiles)',
+          },
+        ],
       }),
       subtract: opService({
         feature: 'subtract', title: 'Subtract', pickHint: 'Pick the base geometry’s edges',
@@ -153,6 +168,46 @@ export class SketchToolbarService {
   private activeOpService(): SketchOpService | undefined {
     const tool = this.toolbar.activeTool;
     return tool ? this.opServices[tool] : undefined;
+  }
+
+  /** The toolbar tool of an op dialog rewriting a statement in place, if any. */
+  private editingOpTool(): ToolId | null {
+    for (const [tool, service] of Object.entries(this.opServices)) {
+      if (service.isEditing) {
+        return tool as ToolId;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Open the offset dialog over the `offset()` statement at `target`
+   * (timeline double-click). The gesture's breakpoint pauses the build just
+   * after that statement, so its sketch is on its way in: the dialog opens
+   * now and the render that brings the sketch back re-arms the toolbar and
+   * the picking handlers (see {@link update}).
+   */
+  enterOffsetEdit(
+    target: FeatureEditTarget,
+    parsed: Extract<ParsedFeatureStatement, { feature: 'offset' }>,
+    expectedStatement: string,
+  ): void {
+    const service = this.opServices.offset;
+    if (!service) {
+      return;
+    }
+    // Disarming leaves an armed tool cleanly — except when the dialog is
+    // already editing: that path would cancel it, clearing the breakpoint the
+    // new double-click just placed. Its own re-entry closes it instead.
+    if (!service.isEditing) {
+      this.handleToolSelect(null);
+    }
+    this.toolbar.setActiveTool('offset');
+    service.enterEdit(target, parsed, expectedStatement);
+    if (this.activeSketchInfo) {
+      service.noteSketchActive();
+      this.activateDragHandler();
+    }
   }
 
   /** The sketch dialog's snap-to-vertices toggle; live tools follow along. */
@@ -212,6 +267,15 @@ export class SketchToolbarService {
       this.bezierHandles.activate();
       this.bezierHandles.update(sceneObjects, lastRoot.id, plane);
 
+      // The sketch an edit dialog was opened over has arrived: re-arm its
+      // toolbar button (the bar's own hide() dropped it while the breakpoint
+      // render was in flight) so the picking handlers below come back with it.
+      const editingTool = this.editingOpTool();
+      if (editingTool) {
+        this.opServices[editingTool]!.noteSketchActive();
+        this.toolbar.setActiveTool(editingTool);
+      }
+
       if (this.activeDrawingTool) {
         if (prevSketchId !== lastRoot.id) {
           this.handleToolSelect(this.toolbar.activeTool);
@@ -236,7 +300,9 @@ export class SketchToolbarService {
         }
         // A re-render may have pruned selected edges — keep the preview honest.
         this.activeOpService()?.refresh();
-      } else if (!this.toolbar.activeTool) {
+      } else if (!this.toolbar.activeTool || this.activeOpService()) {
+        // The op dialogs pick with the drag/hover handlers — an armed one
+        // (or one that just regained its sketch) gets them back.
         this.activateDragHandler();
       }
     } else {
@@ -245,7 +311,11 @@ export class SketchToolbarService {
         this.activeDrawingTool = null;
       }
       for (const service of Object.values(this.opServices)) {
-        if (service.isActive) {
+        // An edit dialog opens before its sketch renders — the double-click's
+        // breakpoint edit is still in flight — so the sketch-less scene it
+        // opened over must not fold it away. Once that sketch has arrived,
+        // losing it again closes the dialog like any other.
+        if (service.isActive && !service.isAwaitingSketch) {
           service.exit();
           this.toolbar.setActiveTool(null);
         }

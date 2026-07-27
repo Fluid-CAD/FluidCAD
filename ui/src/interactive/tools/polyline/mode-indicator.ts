@@ -4,6 +4,7 @@ const MODE_LABELS: Record<ModeId, string> = {
   line: 'Line',
   hLine: 'H-Line',
   vLine: 'V-Line',
+  aLine: 'A-Line',
   arc: 'Arc',
   tArc: 'T-Arc',
   tLine: 'T-Line',

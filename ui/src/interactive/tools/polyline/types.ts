@@ -2,6 +2,7 @@ import { Camera, Group, Vector3 } from 'three';
 import { PlaneData, SceneObjectRender } from '../../../types';
 import { CommitResult } from '../../../ui/expression-input';
 import { SnapResult } from '../../../snapping/types';
+import { NewVariable } from '../../sketch-tool';
 
 export type Point2D = [number, number];
 
@@ -15,9 +16,9 @@ export const enum PolylinePhase {
   DRAWING,
 }
 
-export type ModeId = 'line' | 'hLine' | 'vLine' | 'arc' | 'tArc' | 'tLine';
+export type ModeId = 'line' | 'hLine' | 'vLine' | 'aLine' | 'arc' | 'tArc' | 'tLine';
 
-export const MODE_ORDER: ModeId[] = ['line', 'hLine', 'vLine', 'arc', 'tArc', 'tLine'];
+export const MODE_ORDER: ModeId[] = ['line', 'hLine', 'vLine', 'aLine', 'arc', 'tArc', 'tLine'];
 
 export type SegmentCommitResult = {
   endpoint: Point2D;
@@ -40,8 +41,9 @@ export type ModeContext = {
   readonly startPoint: Point2D;
   isAtCurrentPosition(point: Point2D): boolean;
   formatPoint(p: Point2D): string;
-  insertGeometry(statement: string, newVariable?: { name: string; initializer: string }): void;
+  insertGeometry(statement: string, newVariable?: NewVariable | NewVariable[]): void;
   requestRender(): void;
+  isOrthoOverride(): boolean;
   showExpressionInput(opts: {
     label: string;
     value: string;
@@ -61,6 +63,11 @@ export interface SegmentMode {
   readonly id: ModeId;
   readonly label: string;
   readonly requiresTangent: boolean;
+
+  /** Extra availability gate beyond `requiresTangent`; a mode without one is
+   * always available. Only consulted while a chain is being drawn (non-null
+   * mode context). */
+  isAvailable?(ctx: ModeContext): boolean;
 
   enter(ctx: ModeContext): void;
   exit(ctx: ModeContext): void;

@@ -70,6 +70,8 @@ type SceneManager = {
     sourceLocation: { line: number; column?: number },
     edgeIds: string[],
   ): any;
+  // Optional: predates segment conversions (sketcher Phase 2a).
+  listSegmentConversions?(scene: any, ref: { shapeId: string }): any;
   expandTangentChain(
     scene: any,
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
@@ -660,6 +662,18 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.listSelectionGroups(scene, ref, before);
+  }
+
+  /** Legal constrained/free conversions for a picked chained sketch segment. */
+  listSegmentConversions(ref: { shapeId: string }): any {
+    if (!this.sceneManager?.listSegmentConversions) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.listSegmentConversions(scene, ref);
   }
 
   /** Current sources of the statement at `before`, for edit-dialog seeding. */

@@ -19,6 +19,8 @@ import {
   type RevolveEditOptions, type ShellJoinKind, type SweepEditOptions, type ValueExpr, type WrapEditOptions,
 } from '../apply-feature-edit.ts';
 import { normalizePath } from '../normalize-path.ts';
+import { CHAIN_CALLEES } from '../segment-swap.ts';
+import { findEditableCallAt, getJavaScriptParser, splitLines } from '../code-editor.ts';
 
 type RawPick = { shapeId?: unknown; sub?: { type?: unknown; index?: unknown } };
 
@@ -4823,6 +4825,122 @@ export function createApplyFeatureRouter(
   selectionQueryRoute('/selection/groups',
     (pick, before) => fluidCadServer.listSelectionGroups(pick, before),
     result => ({ groups: result.groups }));
+
+  // The current chain text at a segment's source line, read from the live
+  // buffer — the drift guard the convert apply verifies against. Refuses when
+  // code and scene are out of sync instead of guessing.
+  const readSegmentStatement = async (
+    loc: { filePath: string; line: number },
+  ): Promise<{ ok: true; text: string } | { ok: false; reason: string }> => {
+    const code = fluidCadServer.getCurrentCode();
+    if (!code) {
+      return { ok: false, reason: 'No live code buffer' };
+    }
+    const currentFile = fluidCadServer.getCurrentFileName();
+    if (currentFile && normalizePath(loc.filePath) !== normalizePath(currentFile)) {
+      return { ok: false, reason: 'that segment lives in a different file than the one being edited' };
+    }
+    const parser = await getJavaScriptParser();
+    const tree = parser.parse(code);
+    const call = findEditableCallAt(tree, splitLines(code), loc.line);
+    const rootCallee = call ? code.slice(call.startIndex, call.endIndex).match(/^(\w+)\s*\(/)?.[1] : undefined;
+    if (!call || !rootCallee || !CHAIN_CALLEES.has(rootCallee)) {
+      return { ok: false, reason: 'the code buffer is out of sync with the last render — re-render first' };
+    }
+    return { ok: true, text: code.slice(call.startIndex, call.endIndex) };
+  };
+
+  // Legal constrained/free conversions for a picked chained sketch segment,
+  // plus the current statement text the apply will drift-guard against.
+  router.post('/sketch/segment-conversions', async (req, res) => {
+    const shapeId = req.body?.shapeId;
+    if (typeof shapeId !== 'string' || shapeId.length === 0) {
+      res.status(400).json({ error: 'shapeId must be a non-empty string' });
+      return;
+    }
+    try {
+      const result = fluidCadServer.listSegmentConversions({ shapeId });
+      if (!result) {
+        res.status(404).json({ error: 'No rendered scene' });
+        return;
+      }
+      if (result.ok === false) {
+        res.status(422).json({ error: result.reason });
+        return;
+      }
+      const statement = await readSegmentStatement(result.sourceLocation);
+      if (statement.ok === false) {
+        res.status(422).json({ error: statement.reason });
+        return;
+      }
+      res.json({
+        ok: true,
+        currentKind: result.currentKind,
+        sourceLocation: result.sourceLocation,
+        options: result.options,
+        expectedStatement: statement.text,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? String(err) });
+    }
+  });
+
+  // Apply one conversion: re-run the analysis fresh (never trust a stale
+  // option), verify the target is enabled and the buffer unchanged, then ride
+  // the generic apply-feature-edit round trip through the extension.
+  router.post('/sketch/convert-segment', async (req, res) => {
+    const { shapeId, target, expectedStatement } = req.body ?? {};
+    if (typeof shapeId !== 'string' || shapeId.length === 0
+      || typeof target !== 'string' || typeof expectedStatement !== 'string') {
+      res.status(400).json({ error: 'shapeId, target and expectedStatement are required' });
+      return;
+    }
+    try {
+      const result = fluidCadServer.listSegmentConversions({ shapeId });
+      if (!result) {
+        res.status(404).json({ error: 'No rendered scene' });
+        return;
+      }
+      if (result.ok === false) {
+        res.status(422).json({ error: result.reason });
+        return;
+      }
+      const option = (result.options ?? []).find((o: any) => o.target === target);
+      if (!option) {
+        res.status(422).json({ error: `this segment has no ${target} conversion` });
+        return;
+      }
+      if (!option.enabled || !option.newStatement) {
+        res.status(422).json({ error: option.reason ?? 'that conversion is not available for this segment' });
+        return;
+      }
+      const statement = await readSegmentStatement(result.sourceLocation);
+      if (statement.ok === false) {
+        res.status(422).json({ error: statement.reason });
+        return;
+      }
+      if (statement.text !== expectedStatement) {
+        res.status(422).json({ error: 'the statement changed since the menu opened — re-open it to convert the current code' });
+        return;
+      }
+      const spec: ApplyFeatureEditSpec = {
+        feature: 'sketch',
+        filePath: result.sourceLocation.filePath,
+        producers: [],
+        parts: [],
+        imports: [],
+        segmentSwap: {
+          edit: { filePath: result.sourceLocation.filePath, line: result.sourceLocation.line },
+          expectedStatement,
+          newStatement: option.newStatement,
+        },
+      };
+      sendToExtension({ type: 'apply-feature-edit', spec });
+      res.json({ success: true, newStatement: option.newStatement });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? String(err) });
+    }
+  });
 
   // Pure source transform: the extension sends the live buffer plus the edit
   // spec and gets the fully edited text back (same shape as /api/code/*).

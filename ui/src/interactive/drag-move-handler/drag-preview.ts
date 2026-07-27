@@ -55,6 +55,11 @@ export function rebuildDragPreview(
     addDot(previewGroup, start, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
     addDashedLine(previewGroup, start, constrainedEnd, plane, RO);
     addDot(previewGroup, constrainedEnd, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
+  } else if (uniqueType === 'aline' && anchorPoint) {
+    // Free end drag: the angle re-solves, so the end simply follows the mouse.
+    addDot(previewGroup, anchorPoint, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
+    addDashedLine(previewGroup, anchorPoint, currentPoint, plane, RO);
+    addDot(previewGroup, currentPoint, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
   } else if (uniqueType === 'hline' || uniqueType === 'vline') {
     if (hitZone === 'end') {
       const start = anchorPoint!;

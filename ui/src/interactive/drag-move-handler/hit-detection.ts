@@ -123,7 +123,11 @@ export function findHitGeometry(
             bestHit = result.hit;
             bestDistSq = result.distSq;
           }
-        } else if (uniqueType === 'line-two-points' || uniqueType === 'hline' || uniqueType === 'vline' || uniqueType === 'tline') {
+        } else if (uniqueType === 'line-two-points' || uniqueType === 'hline' || uniqueType === 'vline' || uniqueType === 'tline'
+            // aline endpoint drag rewrites the (angle, length) args, so only
+            // the plain numeric-length chained form is draggable — a target
+            // geometry or .centered() has different arg semantics.
+            || (uniqueType === 'aline' && typeof child.object?.length === 'number' && child.object?.centered !== true)) {
           const result = hitTestLine(point2d, verts2d, sourceLocation, uniqueType, child, thresholdSq, bestDistSq);
           if (result) {
             bestHit = result.hit;
@@ -265,6 +269,22 @@ function hitTestLine(
     }
   } else if (uniqueType === 'hline' || uniqueType === 'vline') {
     signedDist = uniqueType === 'hline' ? endV[0] - startV[0] : endV[1] - startV[1];
+  } else if (uniqueType === 'aline') {
+    // The statement's angle is measured against the previous segment's exit
+    // tangent; recover that tangent by un-rotating the built direction by the
+    // serialized angle (negating first for a negative serialized length).
+    const dx = endV[0] - startV[0];
+    const dy = endV[1] - startV[1];
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len > 1e-10) {
+      const negLen = typeof child.object?.length === 'number' && child.object.length < 0;
+      const dirX = (negLen ? -dx : dx) / len;
+      const dirY = (negLen ? -dy : dy) / len;
+      const aRad = -(((child.object?.angle as number | undefined) ?? 0) * Math.PI) / 180;
+      const cos = Math.cos(aRad);
+      const sin = Math.sin(aRad);
+      tangent = [dirX * cos - dirY * sin, dirX * sin + dirY * cos];
+    }
   }
 
   const initialValue = isConstrained

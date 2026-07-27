@@ -314,6 +314,15 @@ export function setRectDimensions(
   postFireAndForget('/api/set-rect-dimensions', { width, height, sourceLocation, startPoint: startPoint ?? null });
 }
 
+/** aline endpoint drag: rewrite the angle AND length args in one atomic edit. */
+export function updateALineDimensions(
+  angle: number,
+  length: number,
+  sourceLocation: SourceLocationParam,
+): void {
+  postFireAndForget('/api/update-aline-dimensions', { angle, length, sourceLocation });
+}
+
 export function updateDimensionExpression(
   expression: string,
   sourceLocation: SourceLocationParam,

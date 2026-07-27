@@ -12,6 +12,7 @@ import {
   type TSNode,
   type TSTree,
 } from './code-editor.ts';
+import { applySegmentSwap, type SegmentSwapSpec } from './segment-swap.ts';
 
 /**
  * A dialog numeric slot: a plain number, or verbatim expression text
@@ -188,6 +189,12 @@ export type ApplyFeatureEditSpec = {
    * text verbatim.
    */
   edit?: FeatureStatementEditTarget;
+  /**
+   * Segment conversion (sketcher Phase 2a): swap exactly one chained sketch
+   * segment's call chain for its constrained/free form. Rides the generic
+   * apply-feature-edit round trip; every other spec field is ignored.
+   */
+  segmentSwap?: SegmentSwapSpec;
   /**
    * Strip every `breakpoint();` after the rewrite. Set when an edit dialog
    * applies: the double-click that opened it placed a breakpoint, and
@@ -939,6 +946,9 @@ export async function applyFeatureEdit(
   code: string,
   spec: ApplyFeatureEditSpec,
 ): Promise<ApplyFeatureEditResult> {
+  if (spec.segmentSwap) {
+    return applySegmentSwap(code, spec.segmentSwap);
+  }
   if (spec.edit) {
     return applyStatementEdit(code, spec);
   }

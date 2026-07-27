@@ -45,7 +45,18 @@ export function rebuildDragPreview(
     const radius = Math.sqrt(ddx * ddx + ddy * ddy);
     addDot(previewGroup, center, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
     addDashedCircle(previewGroup, center, radius, plane, RO);
-  } else if (uniqueType === 'tline' && anchorPoint && hitResult.tangentDir) {
+  } else if (uniqueType === 'aline' && hitZone === 'start' && anchorPoint && fixedVertex) {
+    // Explicit-start aline: dragging the start translates the whole segment
+    // (angle and length are both constraints).
+    const dx = fixedVertex[0] - anchorPoint[0];
+    const dy = fixedVertex[1] - anchorPoint[1];
+    const newEnd: [number, number] = [currentPoint[0] + dx, currentPoint[1] + dy];
+    addDot(previewGroup, currentPoint, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
+    addDashedLine(previewGroup, currentPoint, newEnd, plane, RO);
+    addDot(previewGroup, newEnd, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
+  } else if ((uniqueType === 'tline' || uniqueType === 'aline') && anchorPoint && hitResult.tangentDir) {
+    // Direction-constrained end drag: tline along the incoming tangent,
+    // aline along its own fixed-angle direction — only the length changes.
     const start = anchorPoint;
     const t = hitResult.tangentDir;
     const dx = currentPoint[0] - start[0];
@@ -55,11 +66,6 @@ export function rebuildDragPreview(
     addDot(previewGroup, start, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
     addDashedLine(previewGroup, start, constrainedEnd, plane, RO);
     addDot(previewGroup, constrainedEnd, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
-  } else if (uniqueType === 'aline' && anchorPoint) {
-    // Free end drag: the angle re-solves, so the end simply follows the mouse.
-    addDot(previewGroup, anchorPoint, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
-    addDashedLine(previewGroup, anchorPoint, currentPoint, plane, RO);
-    addDot(previewGroup, currentPoint, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
   } else if (uniqueType === 'hline' || uniqueType === 'vline') {
     if (hitZone === 'end') {
       const start = anchorPoint!;

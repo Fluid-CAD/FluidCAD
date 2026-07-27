@@ -242,7 +242,8 @@ function hitTestLine(
   const edy = endV[1] - point2d[1];
   const endDist = edx * edx + edy * edy;
 
-  const isConstrained = uniqueType === 'hline' || uniqueType === 'vline' || uniqueType === 'tline';
+  const isConstrained = uniqueType === 'hline' || uniqueType === 'vline'
+    || uniqueType === 'tline' || uniqueType === 'aline';
 
   let signedDist: number | undefined;
   let tangent: [number, number] | undefined;
@@ -270,20 +271,16 @@ function hitTestLine(
   } else if (uniqueType === 'hline' || uniqueType === 'vline') {
     signedDist = uniqueType === 'hline' ? endV[0] - startV[0] : endV[1] - startV[1];
   } else if (uniqueType === 'aline') {
-    // The statement's angle is measured against the previous segment's exit
-    // tangent; recover that tangent by un-rotating the built direction by the
-    // serialized angle (negating first for a negative serialized length).
+    // The angle is a fixed constraint — dragging only changes the length.
+    // The drag direction is the built direction, negated for a negative
+    // serialized length so the projection yields the signed length.
     const dx = endV[0] - startV[0];
     const dy = endV[1] - startV[1];
     const len = Math.sqrt(dx * dx + dy * dy);
     if (len > 1e-10) {
       const negLen = typeof child.object?.length === 'number' && child.object.length < 0;
-      const dirX = (negLen ? -dx : dx) / len;
-      const dirY = (negLen ? -dy : dy) / len;
-      const aRad = -(((child.object?.angle as number | undefined) ?? 0) * Math.PI) / 180;
-      const cos = Math.cos(aRad);
-      const sin = Math.sin(aRad);
-      tangent = [dirX * cos - dirY * sin, dirX * sin + dirY * cos];
+      tangent = [(negLen ? -dx : dx) / len, (negLen ? -dy : dy) / len];
+      signedDist = negLen ? -len : len;
     }
   }
 

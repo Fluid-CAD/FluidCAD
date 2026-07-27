@@ -5,6 +5,7 @@ import { Point2D } from "../math/point.js";
 import { EdgeQuery } from "../oc/edge-query.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
+import { Move } from "../features/2d/move.js";
 import { checkSketchBindable } from "./sketch-apply.js";
 import { SelectionScene } from "./types.js";
 
@@ -106,6 +107,13 @@ function sharesSourceLine(sketch: Sketch, owner: SceneObject, loc: SourceLocatio
     if (child === owner || child.isLazy() || child.isSelection()) {
       continue;
     }
+    // An explicit-start statement (`line([a], [b])`, `aLine([a], …)`) is one
+    // statement but TWO children — a cursor Move plus the segment. The Move
+    // shares the statement's line by construction and is never itself a
+    // conversion target, so it must not read as a conflicting statement.
+    if (child instanceof Move) {
+      continue;
+    }
     const childLoc = child.getSourceLocation();
     if (childLoc && childLoc.filePath === loc.filePath && childLoc.line === loc.line) {
       return true;
@@ -166,8 +174,16 @@ export function listSegmentConversions(
   const incomingTangent = sketch.getTangentAt(owner).normalize();
   const incomingPos = sketch.getPositionAt(owner);
 
-  const chained = !hasExplicitStart(owner) && start.equals(incomingPos, CHAIN_EPSILON);
-  if (!chained) {
+  // An explicit-start segment converts with its start preserved (the [start]
+  // overloads); a chained one must actually continue the chain.
+  const explicitStart = hasExplicitStart(owner);
+  if (!explicitStart && !start.equals(incomingPos, CHAIN_EPSILON)) {
+    return { ok: false, reason: 'only segments that continue the chain can be converted' };
+  }
+  // Line forms have [start] overloads to preserve a detached start; the arc
+  // targets (tArc) do not, so explicit-start arcs stay unconvertible.
+  if (explicitStart && currentKind !== 'line-two-points'
+    && currentKind !== 'hline' && currentKind !== 'vline' && currentKind !== 'aline') {
     return { ok: false, reason: 'only segments that continue the chain can be converted' };
   }
 
@@ -177,18 +193,27 @@ export function listSegmentConversions(
         ok: true,
         sourceLocation,
         currentKind,
-        options: lineConversions(start, end, incomingTangent),
+        options: lineConversions(start, end, incomingTangent, explicitStart),
       };
     case 'hline':
     case 'vline':
     case 'tline':
-    case 'aline':
-      return {
-        ok: true,
-        sourceLocation,
-        currentKind,
-        options: [{ target: 'free', enabled: true, newStatement: `line(${fmtPoint(end)})` }],
+    case 'aline': {
+      // A constrained line converts to every other line form — same
+      // geometry, different parameterization — plus the free door back.
+      const self: Record<string, ConversionTarget> = {
+        hline: 'hLine', vline: 'vLine', tline: 'tLine', aline: 'aLine',
       };
+      const startArg = explicitStart ? `${fmtPoint(start)}, ` : '';
+      const options = lineConversions(start, end, incomingTangent, explicitStart)
+        .filter(option => option.target !== self[currentKind]);
+      options.push({
+        target: 'free',
+        enabled: true,
+        newStatement: `line(${startArg}${fmtPoint(end)})`,
+      });
+      return { ok: true, sourceLocation, currentKind, options };
+    }
     case 'arc':
       return {
         ok: true,
@@ -208,8 +233,18 @@ export function listSegmentConversions(
   }
 }
 
-/** The constrained-line targets for a chained free line. */
-function lineConversions(start: Point2D, end: Point2D, incomingTangent: Point2D): ConversionOption[] {
+/**
+ * The constrained-line targets for a line segment. With `explicitStart`, the
+ * emissions carry the start point via the `[start]` overloads and the aLine
+ * angle is absolute (+X reference — a detached segment has no incoming
+ * direction); tLine has no start form, so it stays chain-only.
+ */
+function lineConversions(
+  start: Point2D,
+  end: Point2D,
+  incomingTangent: Point2D,
+  explicitStart: boolean,
+): ConversionOption[] {
   const d = end.subtract(start);
   const length = d.length();
   if (length < 1e-9) {
@@ -218,19 +253,31 @@ function lineConversions(start: Point2D, end: Point2D, incomingTangent: Point2D)
       .map(target => ({ target, enabled: false, reason }));
   }
 
+  const startArg = explicitStart ? `${fmtPoint(start)}, ` : '';
+  const angleReference = explicitStart ? new Point2D(1, 0) : incomingTangent;
+
   const options: ConversionOption[] = [];
 
   // aLine: lossless reparameterization (up to 2dp rounding) — always legal.
   options.push({
     target: 'aLine',
     enabled: true,
-    newStatement: `aLine(${fmt(signedAngleDeg(incomingTangent, d))}, ${fmt(length)})`,
+    newStatement: `aLine(${startArg}${fmt(signedAngleDeg(angleReference, d))}, ${fmt(length)})`,
   });
 
-  options.push(axisConversion('hLine', d, new Point2D(1, 0), start, end,
-    delta => new Point2D(round2(delta.x), 0), () => fmt(d.x), 'horizontal'));
-  options.push(axisConversion('vLine', d, new Point2D(0, 1), start, end,
-    delta => new Point2D(0, round2(delta.y)), () => fmt(d.y), 'vertical'));
+  options.push(axisConversion('hLine', d, start, end,
+    delta => new Point2D(round2(delta.x), 0), () => `${startArg}${fmt(d.x)}`, 'horizontal'));
+  options.push(axisConversion('vLine', d, start, end,
+    delta => new Point2D(0, round2(delta.y)), () => `${startArg}${fmt(d.y)}`, 'vertical'));
+
+  if (explicitStart) {
+    options.push({
+      target: 'tLine',
+      enabled: false,
+      reason: 'tLine always continues the chain — this segment has its own start point',
+    });
+    return options;
+  }
 
   // tLine: sign-aware — the anti-parallel case converts with negative length.
   const tangentAngle = angleBetweenDeg(d, incomingTangent);
@@ -259,23 +306,24 @@ function lineConversions(start: Point2D, end: Point2D, incomingTangent: Point2D)
 function axisConversion(
   target: 'hLine' | 'vLine',
   d: Point2D,
-  axis: Point2D,
   start: Point2D,
   end: Point2D,
   snappedDelta: (d: Point2D) => Point2D,
   renderArg: () => string,
   axisName: string,
 ): ConversionOption {
-  const angle = angleBetweenDeg(d, axis);
-  const offAngle = Math.min(angle, 180 - angle);
-  if (offAngle > CONVERSION_TOLERANCE_DEG) {
+  // Any angle converts — the endpoint snaps onto the axis (endpointDelta
+  // carries the move size for the UI to warn about). Only a line with no
+  // extent along the axis refuses: it would collapse to a zero-length line.
+  const snapped = snappedDelta(d);
+  if (snapped.length() < 1e-9) {
     return {
       target,
       enabled: false,
-      reason: `line is ${fmtAngle(offAngle)} off ${axisName} — more than the ${CONVERSION_TOLERANCE_DEG}° snap tolerance`,
+      reason: `the line has no ${axisName} extent`,
     };
   }
-  const newEnd = start.add(snappedDelta(d));
+  const newEnd = start.add(snapped);
   return {
     target,
     enabled: true,

@@ -24,11 +24,7 @@ import {
   getDimensionExpression,
   extractVariablesInScope,
   setRectDimensions,
-  getJavaScriptParser,
-  findEditableCallAt,
-  splitLines,
 } from '../code-editor.ts';
-import { rootCallOf } from '../segment-swap.ts';
 
 const NEW_VAR_NAME_RE = /^[a-zA-Z_$][\w$]*$/;
 
@@ -334,60 +330,6 @@ export function createSketchEditsRouter(
       dimensionCall: typeof dimensionCall === 'string' ? dimensionCall : null,
     });
     res.json({ success: true });
-  });
-
-  // aline endpoint drag: rewrite BOTH root-call args (angle, length) in one
-  // atomic edit. Rides the generic apply-feature-edit round trip via
-  // spec.segmentSwap — a dedicated extension message would need both the
-  // VSCode and Neovim extensions updated; this rail needs neither. Chained
-  // calls after the root (`.name(…)`) and a `const x = ` prefix survive.
-  router.post('/update-aline-dimensions', async (req, res) => {
-    const { angle, length, sourceLocation } = req.body;
-    if (
-      typeof angle !== 'number' || typeof length !== 'number' ||
-      !sourceLocation || typeof sourceLocation.line !== 'number'
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    try {
-      const code = fluidCadServer.getCurrentCode();
-      if (!code) {
-        res.status(404).json({ error: 'No live code buffer' });
-        return;
-      }
-      const parser = await getJavaScriptParser();
-      const tree = parser.parse(code);
-      const call = findEditableCallAt(tree, splitLines(code), sourceLocation.line);
-      const root = call ? rootCallOf(call) : null;
-      const argsNode = root?.childForFieldName('arguments');
-      if (!call || !root || !argsNode || root.childForFieldName('function')?.text !== 'aLine') {
-        res.status(422).json({ error: `no aLine call found at line ${sourceLocation.line}` });
-        return;
-      }
-      const expectedStatement = code.slice(call.startIndex, call.endIndex);
-      const newStatement = expectedStatement.slice(0, argsNode.startIndex - call.startIndex)
-        + `(${angle}, ${length})`
-        + expectedStatement.slice(argsNode.endIndex - call.startIndex);
-      sendToExtension({
-        type: 'apply-feature-edit',
-        spec: {
-          feature: 'sketch',
-          filePath: fluidCadServer.getCurrentFileName() ?? '',
-          producers: [],
-          parts: [],
-          imports: [],
-          segmentSwap: {
-            edit: { filePath: fluidCadServer.getCurrentFileName() ?? '', line: sourceLocation.line },
-            expectedStatement,
-            newStatement,
-          },
-        },
-      });
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || String(err) });
-    }
   });
 
   router.post('/set-rect-dimensions', (req, res) => {

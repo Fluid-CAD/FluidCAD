@@ -5,6 +5,7 @@ import { line, hLine, aLine, arc, tArc } from "../../core/2d/index.js";
 import { Edge } from "../../common/edge.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { listSegmentConversions, ConversionOption } from "../../selection/segment-conversion.js";
+import { Move } from "../../features/2d/move.js";
 import { setLocation } from "./pick-helpers.js";
 
 // Sketcher Phase 2a: the segment-conversion engine's analysis half — which
@@ -25,7 +26,7 @@ describe("listSegmentConversions", () => {
     return option!;
   };
 
-  it("first free segment: aLine always converts, off-axis snaps disabled", () => {
+  it("first free segment: aLine, hLine and vLine all convert at any angle", () => {
     let l: unknown;
     sketch("xy", () => {
       l = line([100, 100]);
@@ -42,37 +43,45 @@ describe("listSegmentConversions", () => {
     expect(a.enabled).toBe(true);
     expect(a.newStatement).toBe('aLine(45, 141.42)');
 
-    for (const target of ['hLine', 'vLine', 'tLine']) {
-      const option = optionFor(result.options, target);
-      expect(option.enabled).toBe(false);
-      expect(option.reason).toContain('5°');
-    }
+    // Axis snaps convert at any angle — the endpoint moves onto the axis
+    // and endpointDelta carries the move size for the UI to warn about.
+    const h = optionFor(result.options, 'hLine');
+    expect(h.enabled).toBe(true);
+    expect(h.newStatement).toBe('hLine(100)');
+    expect(h.endpointDelta).toBeCloseTo(100, 5);
+
+    const v = optionFor(result.options, 'vLine');
+    expect(v.enabled).toBe(true);
+    expect(v.newStatement).toBe('vLine(100)');
+    expect(v.endpointDelta).toBeCloseTo(100, 5);
+
+    // tLine keeps the tangency tolerance: 45° off the incoming tangent.
+    const t = optionFor(result.options, 'tLine');
+    expect(t.enabled).toBe(false);
+    expect(t.reason).toContain('5°');
+
     expect(result.options!.some(o => o.target === 'free')).toBe(false);
   });
 
-  it("snap tolerance boundary: 4.9° converts, 5.1° refuses", () => {
-    let near: unknown;
-    let far: unknown;
+  it("axis snaps refuse only degenerate extents (pure vertical → hLine)", () => {
+    let l: unknown;
     sketch("xy", () => {
-      near = line([100, 8.57]);
-      far = line([200, 17.51]);
+      l = line([0, 80]);
     });
     const scene = render();
-    setLocation(near, 3);
-    setLocation(far, 4);
+    setLocation(l, 3);
 
-    const nearResult = listSegmentConversions(scene, refFor(near));
-    expect(nearResult.ok).toBe(true);
-    const nearH = optionFor(nearResult.options, 'hLine');
-    expect(nearH.enabled).toBe(true);
-    expect(nearH.newStatement).toBe('hLine(100)');
-    expect(nearH.endpointDelta).toBeCloseTo(8.57, 5);
+    const result = listSegmentConversions(scene, refFor(l));
+    expect(result.ok).toBe(true);
 
-    const farResult = listSegmentConversions(scene, refFor(far));
-    expect(farResult.ok).toBe(true);
-    const farH = optionFor(farResult.options, 'hLine');
-    expect(farH.enabled).toBe(false);
-    expect(farH.reason).toContain('5.1°');
+    const h = optionFor(result.options, 'hLine');
+    expect(h.enabled).toBe(false);
+    expect(h.reason).toContain('no horizontal extent');
+
+    const v = optionFor(result.options, 'vLine');
+    expect(v.enabled).toBe(true);
+    expect(v.newStatement).toBe('vLine(80)');
+    expect(v.endpointDelta).toBeCloseTo(0, 5);
   });
 
   it("anti-parallel tLine converts with negative length", () => {
@@ -93,17 +102,60 @@ describe("listSegmentConversions", () => {
     expect(optionFor(result.options, 'aLine').newStatement).toBe('aLine(180, 50)');
   });
 
-  it("refuses explicit-start segments", () => {
+  it("explicit-start line converts with the start preserved and an absolute angle", () => {
     let l: unknown;
     sketch("xy", () => {
       l = line([10, 10], [60, 60]);
     });
     const scene = render();
     setLocation(l, 3);
+    // In production the statement's internal Move sibling carries the same
+    // source line — it must not read as a conflicting statement.
+    for (const obj of scene.getAllSceneObjects()) {
+      if (obj instanceof Move) {
+        setLocation(obj, 3);
+      }
+    }
 
     const result = listSegmentConversions(scene, refFor(l));
-    expect(result.ok).toBe(false);
-    expect(result.reason).toContain('continue the chain');
+    expect(result.ok).toBe(true);
+    expect(result.currentKind).toBe('line-two-points');
+
+    expect(optionFor(result.options, 'aLine')).toMatchObject({
+      enabled: true,
+      newStatement: 'aLine([10, 10], 45, 70.71)',
+    });
+    expect(optionFor(result.options, 'hLine')).toMatchObject({
+      enabled: true,
+      newStatement: 'hLine([10, 10], 50)',
+    });
+    expect(optionFor(result.options, 'vLine')).toMatchObject({
+      enabled: true,
+      newStatement: 'vLine([10, 10], 50)',
+    });
+
+    // tLine has no explicit-start form — it always continues the chain.
+    const t = optionFor(result.options, 'tLine');
+    expect(t.enabled).toBe(false);
+    expect(t.reason).toContain('own start point');
+  });
+
+  it("explicit-start aLine builds from its start with an absolute angle and reverses", () => {
+    let a: unknown;
+    sketch("xy", () => {
+      a = aLine([10, 10], 30, 50);
+    });
+    const scene = render();
+    setLocation(a, 3);
+
+    const result = listSegmentConversions(scene, refFor(a));
+    expect(result.ok).toBe(true);
+    expect(result.currentKind).toBe('aline');
+    expect(optionFor(result.options, 'free')).toMatchObject({
+      enabled: true,
+      newStatement: 'line([10, 10], [53.3, 35])',
+    });
+    expect(optionFor(result.options, 'hLine').newStatement).toBe('hLine([10, 10], 43.3)');
   });
 
   it("refuses when another statement shares the source line", () => {
@@ -122,7 +174,7 @@ describe("listSegmentConversions", () => {
     expect(result.reason).toContain('own line');
   });
 
-  it("hLine offers the free reverse door", () => {
+  it("hLine offers the other line forms plus the free door, never itself", () => {
     let h: unknown;
     sketch("xy", () => {
       h = hLine(50);
@@ -133,15 +185,24 @@ describe("listSegmentConversions", () => {
     const result = listSegmentConversions(scene, refFor(h));
     expect(result.ok).toBe(true);
     expect(result.currentKind).toBe('hline');
-    expect(result.options).toHaveLength(1);
-    expect(result.options![0]).toMatchObject({
-      target: 'free',
+    expect(result.options!.some(o => o.target === 'hLine')).toBe(false);
+
+    expect(optionFor(result.options, 'aLine')).toMatchObject({
+      enabled: true,
+      newStatement: 'aLine(0, 50)',
+    });
+    expect(optionFor(result.options, 'tLine')).toMatchObject({
+      enabled: true,
+      newStatement: 'tLine(50)',
+    });
+    expect(optionFor(result.options, 'vLine').enabled).toBe(false);
+    expect(optionFor(result.options, 'free')).toMatchObject({
       enabled: true,
       newStatement: 'line([50, 0])',
     });
   });
 
-  it("aLine offers the free reverse door", () => {
+  it("aLine converts to vLine and back through the free door", () => {
     let a: unknown;
     sketch("xy", () => {
       a = aLine(90, 50);
@@ -152,7 +213,13 @@ describe("listSegmentConversions", () => {
     const result = listSegmentConversions(scene, refFor(a));
     expect(result.ok).toBe(true);
     expect(result.currentKind).toBe('aline');
-    expect(result.options![0].newStatement).toBe('line([0, 50])');
+    expect(result.options!.some(o => o.target === 'aLine')).toBe(false);
+    expect(optionFor(result.options, 'vLine')).toMatchObject({
+      enabled: true,
+      newStatement: 'vLine(50)',
+    });
+    expect(optionFor(result.options, 'hLine').enabled).toBe(false);
+    expect(optionFor(result.options, 'free').newStatement).toBe('line([0, 50])');
   });
 
   it("chained tangent-continuous arc converts to tArc", () => {

@@ -4,7 +4,6 @@ import {
   updatePosition,
   setChainPositions,
   updateDimensionExpression,
-  updateALineDimensions,
   setRectDimensions,
 } from '../../api';
 import { computeArcCenter } from './constraint-math';
@@ -73,17 +72,20 @@ export function commitPositionMove(
     const sketchSourceLine = getSketchSourceLine();
     updateDimensionExpression(String(distance), sourceLocation, sketchSourceLine);
   } else if (uniqueType === 'aline') {
-    // End drag re-derives BOTH args from the incoming tangent: the signed
-    // angle from that tangent to the new segment, and the new length. Any
-    // other hit falls through to nothing — the generic point rewrite below
-    // would corrupt aLine's scalar argument list.
+    // The angle is a constraint — an end drag only rewrites the length (the
+    // call's last arg), which also preserves an expression angle argument
+    // verbatim. A start drag (explicit-start form) translates the segment by
+    // rewriting the start point. Any other hit falls through to nothing —
+    // the generic point rewrite below would corrupt the scalar argument list.
     if (hitZone === 'end' && anchorPoint && hitResult.tangentDir) {
       const t = hitResult.tangentDir;
       const dx = newPos[0] - anchorPoint[0];
       const dy = newPos[1] - anchorPoint[1];
-      const length = Math.round(Math.sqrt(dx * dx + dy * dy) * 100) / 100;
-      const angle = Math.round(Math.atan2(t[0] * dy - t[1] * dx, t[0] * dx + t[1] * dy) * (180 / Math.PI) * 100) / 100;
-      updateALineDimensions(angle, length, sourceLocation);
+      const length = Math.round((dx * t[0] + dy * t[1]) * 100) / 100;
+      const sketchSourceLine = getSketchSourceLine();
+      updateDimensionExpression(String(length), sourceLocation, sketchSourceLine);
+    } else if (hitZone === 'start') {
+      updatePosition(newPos, sourceLocation, 0);
     }
   } else if (uniqueType === 'polygon' && anchorPoint && hitResult.originalDistance && hitResult.initialValue) {
     const ddx = newPos[0] - anchorPoint[0];

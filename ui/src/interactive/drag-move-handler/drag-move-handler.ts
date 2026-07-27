@@ -251,7 +251,8 @@ export class DragMoveHandler {
       }
     }
 
-    if (this.hitResult?.uniqueType === 'tline' && this.hitResult.hitZone === 'end'
+    if ((this.hitResult?.uniqueType === 'tline' || this.hitResult?.uniqueType === 'aline')
+        && this.hitResult.hitZone === 'end'
         && this.hitResult.anchorPoint && this.hitResult.tangentDir) {
       const start = this.hitResult.anchorPoint;
       const t = this.hitResult.tangentDir;

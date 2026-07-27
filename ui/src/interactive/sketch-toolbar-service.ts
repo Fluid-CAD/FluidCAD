@@ -26,6 +26,7 @@ import { TrimPickService } from './trim-pick-service';
 import { TrimDialog } from './trim-dialog';
 import { ProjectionPickService } from './projection-pick-service';
 import { SketchOpService } from './sketch-op-service';
+import { ConstraintToolbarService } from './constraint-toolbar';
 import { VariableInfo } from '../ui/expression-input';
 import { ShortcutManager } from '../ui/shortcut-manager';
 import { Navbar } from '../ui/navbar';
@@ -57,6 +58,8 @@ export class SketchToolbarService {
   private projectionService: ProjectionPickService;
   private opServices: Partial<Record<ToolId, SketchOpService>> = {};
   private toolbar: SketchToolbar;
+  /** The floating segment-conversion mini bar below the main toolbar. */
+  private constraintToolbar: ConstraintToolbarService;
   private activeSketchInfo: {
     sketchObj: SceneObjectRender;
     plane: PlaneData;
@@ -153,6 +156,8 @@ export class SketchToolbarService {
     for (const service of Object.values(this.opServices)) {
       service.onVisibilityChange = (open) => this.onOpDialogToggle?.(open);
     }
+
+    this.constraintToolbar = new ConstraintToolbarService(container, (message) => this.showOpMessage(message));
 
     this.trimDialog = new TrimDialog(container, () => this.handleToolSelect(null));
     this.trimDialog.onModeChange = (mode) => this.trimService.setMode(mode);
@@ -263,6 +268,7 @@ export class SketchToolbarService {
         this.toolbar.show();
         this.shortcuts.enable();
       }
+      this.constraintToolbar.show();
 
       this.bezierHandles.activate();
       this.bezierHandles.update(sceneObjects, lastRoot.id, plane);
@@ -305,6 +311,15 @@ export class SketchToolbarService {
         // (or one that just regained its sketch) gets them back.
         this.activateDragHandler();
       }
+
+      // After the handlers have digested the new scene (ids change every
+      // render): replay a pending post-convert re-selection and refresh the
+      // mini bar's options. No selection exists while a drawing tool is armed.
+      this.constraintToolbar.sketchUpdated(
+        sceneObjects,
+        lastRoot.id,
+        this.activeDrawingTool ? null : this.activeHoverSelectHandler,
+      );
     } else {
       if (this.activeDrawingTool) {
         this.activeDrawingTool.deactivate();
@@ -336,6 +351,7 @@ export class SketchToolbarService {
       }
       this.deactivateDragHandler();
       this.bezierHandles.deactivate();
+      this.constraintToolbar.hide();
       this.activeSketchInfo = null;
       if (this.keepToolbar) {
         // A create-feature dialog launched from this sketch has suspended
@@ -453,7 +469,10 @@ export class SketchToolbarService {
       this.activeSketchInfo.plane,
       () => this.activeDragHandler?.isResizing ?? false,
     );
-    this.activeHoverSelectHandler.onSelectionChange = () => this.activeOpService()?.refresh();
+    this.activeHoverSelectHandler.onSelectionChange = () => {
+      this.activeOpService()?.refresh();
+      this.constraintToolbar.selectionChanged(this.activeHoverSelectHandler);
+    };
     this.activeHoverSelectHandler.updateSceneData(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!);
     this.activeHoverSelectHandler.activate();
   }
@@ -584,7 +603,8 @@ export class SketchToolbarService {
   private showOpMessage(message: string): void {
     if (!this.opMessageToast) {
       this.opMessageToast = document.createElement('div');
-      this.opMessageToast.className = 'absolute top-[116px] left-1/2 -translate-x-1/2 z-[1003] max-w-[440px] '
+      // Below the constraint mini bar (top-[106px]) so refusals don't cover it.
+      this.opMessageToast.className = 'absolute top-[152px] left-1/2 -translate-x-1/2 z-[1003] max-w-[440px] '
         + 'bg-base-100 border border-base-300 text-base-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md';
       this.container.appendChild(this.opMessageToast);
     }

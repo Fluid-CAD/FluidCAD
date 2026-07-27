@@ -314,15 +314,6 @@ export function setRectDimensions(
   postFireAndForget('/api/set-rect-dimensions', { width, height, sourceLocation, startPoint: startPoint ?? null });
 }
 
-/** aline endpoint drag: rewrite the angle AND length args in one atomic edit. */
-export function updateALineDimensions(
-  angle: number,
-  length: number,
-  sourceLocation: SourceLocationParam,
-): void {
-  postFireAndForget('/api/update-aline-dimensions', { angle, length, sourceLocation });
-}
-
 export function updateDimensionExpression(
   expression: string,
   sourceLocation: SourceLocationParam,
@@ -596,6 +587,87 @@ export async function applyOffsetEdit(
     newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);
+}
+
+/** The constrained/free forms a chained sketch segment can be rewritten to. */
+export type ConversionTarget = 'hLine' | 'vLine' | 'tLine' | 'aLine' | 'tArc' | 'free';
+
+/** One conversion the mini-toolbar offers for the selected segment. */
+export type ConversionOption = {
+  target: ConversionTarget;
+  enabled: boolean;
+  /** Human-readable, for disabled-button tooltips. */
+  reason?: string;
+  /** Fully rendered call chain, e.g. `aLine(45, 141.42)`. */
+  newStatement?: string;
+  /** |new end − old end| in mm, for the UI to warn on snap size. */
+  endpointDelta?: number;
+};
+
+export type SegmentConversionsResponse = {
+  ok: boolean;
+  /** Why nothing is convertible (not chained, buffer out of sync, …). */
+  reason?: string;
+  /** uniqueType of the owning feature, e.g. `line-two-points`. */
+  currentKind?: string;
+  sourceLocation?: SourceLocation;
+  options?: ConversionOption[];
+  /** Statement text the apply drift-guards against. */
+  expectedStatement?: string;
+};
+
+/**
+ * Legal conversions for the picked chained sketch segment. Refusal bodies
+ * (422s) surface their reason so the mini-toolbar can tooltip it.
+ */
+export async function fetchSegmentConversions(
+  shapeId: string,
+  signal?: AbortSignal,
+): Promise<SegmentConversionsResponse> {
+  try {
+    const res = await fetch('/api/sketch/segment-conversions', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      signal,
+      body: JSON.stringify({ shapeId }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { ok: false, reason: body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { ok: false, reason: 'Empty server response' };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err;
+    }
+    return { ok: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/**
+ * Rewrite the segment's statement to `target`'s constrained (or free) form.
+ * `expectedStatement` guards against the buffer having drifted since the
+ * options were fetched.
+ */
+export async function convertSegment(
+  shapeId: string,
+  target: ConversionTarget,
+  expectedStatement: string,
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/sketch/convert-segment', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ shapeId, target, expectedStatement }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
 }
 
 /** The profile sketch an extrude consumes, addressed by its source location. */

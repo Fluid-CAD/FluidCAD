@@ -536,7 +536,8 @@ let editRefusalTimer: number | null = null;
 function showEditRefusal(reason: string): void {
   if (!editRefusalToast) {
     editRefusalToast = document.createElement('div');
-    editRefusalToast.className = 'absolute top-[116px] left-1/2 -translate-x-1/2 z-[1003] max-w-[440px] '
+    // Below the constraint mini bar (top-[106px]) so refusals don't cover it.
+    editRefusalToast.className = 'absolute top-[152px] left-1/2 -translate-x-1/2 z-[1003] max-w-[440px] '
       + 'bg-base-100 border border-base-300 text-base-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md';
     container.appendChild(editRefusalToast);
   }

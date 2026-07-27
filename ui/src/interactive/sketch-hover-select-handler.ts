@@ -292,6 +292,19 @@ export class SketchHoverSelectHandler {
   }
 
   /**
+   * Select a single shape programmatically (the constraint mini-toolbar
+   * re-selects the converted segment after its re-render, whose ids are all
+   * new). Fires the change hook like a click would.
+   */
+  selectShape(shapeId: string): void {
+    this.clearSelection();
+    this.selectedShapeIds.add(shapeId);
+    this.applySelectionHighlight(shapeId);
+    this.ctx.requestRender();
+    this.onSelectionChange?.();
+  }
+
+  /**
    * Drop the current selection on behalf of a dialog (the subtract dialog
    * clears between its base and tool slots). Fires the change hook so the
    * dialog preview stays in sync.

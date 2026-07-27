@@ -68,8 +68,8 @@ export class DimensionInputController {
       value = uniqueType === 'hline'
         ? Math.round(Math.abs(startPoint[0] - start[0]) * 100) / 100
         : Math.round(Math.abs(startPoint[1] - start[1]) * 100) / 100;
-    } else if (uniqueType === 'tline' && hitZone === 'end' && hitResult.tangentDir) {
-      label = 'T:';
+    } else if ((uniqueType === 'tline' || uniqueType === 'aline') && hitZone === 'end' && hitResult.tangentDir) {
+      label = uniqueType === 'tline' ? 'T:' : 'L:';
       const start = hitResult.anchorPoint!;
       const t = hitResult.tangentDir;
       const dx = startPoint[0] - start[0];
@@ -111,8 +111,8 @@ export class DimensionInputController {
     } else if (hitResult.uniqueType === 'hline' || hitResult.uniqueType === 'vline') {
       label = hitResult.uniqueType === 'hline' ? 'H:' : 'V:';
       value = Math.abs(hitResult.initialValue ?? 0);
-    } else if (hitResult.uniqueType === 'tline') {
-      label = 'T:';
+    } else if (hitResult.uniqueType === 'tline' || hitResult.uniqueType === 'aline') {
+      label = hitResult.uniqueType === 'tline' ? 'T:' : 'L:';
       value = Math.abs(hitResult.initialValue ?? 0);
     } else if (hitResult.uniqueType === 'rect') {
       if (!hitResult.rectDim) {
@@ -170,7 +170,7 @@ export class DimensionInputController {
       const ddx = currentPoint[0] - center[0];
       const ddy = currentPoint[1] - center[1];
       value = Math.round(2 * Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
-    } else if (uniqueType === 'tline' && hitResult.tangentDir) {
+    } else if ((uniqueType === 'tline' || uniqueType === 'aline') && hitResult.tangentDir) {
       const start = anchorPoint!;
       const t = hitResult.tangentDir;
       const dx = currentPoint[0] - start[0];
@@ -339,7 +339,7 @@ export class DimensionInputController {
   ): number {
     if (currentPoint) {
       const start = hitResult.anchorPoint!;
-      if (hitResult.uniqueType === 'tline' && hitResult.tangentDir) {
+      if ((hitResult.uniqueType === 'tline' || hitResult.uniqueType === 'aline') && hitResult.tangentDir) {
         const t = hitResult.tangentDir;
         const dx = currentPoint[0] - start[0];
         const dy = currentPoint[1] - start[1];

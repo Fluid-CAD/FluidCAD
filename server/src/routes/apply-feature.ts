@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { FluidCadServer, SelectionBoundary } from '../fluidcad-server.ts';
 import {
   applyFeatureEdit, extractNumericParams, makeProducerNamer, parseFeatureStatement, renderBooleanStatement,
+  parseOffsetTargetDescriptors,
   resolveEditedStatementLine,
   renderCopyStatement,
   renderEditedStatement,
@@ -4822,6 +4823,54 @@ export function createApplyFeatureRouter(
       }
     });
   };
+
+  // Current target edges of the 2D offset statement being edited, resolved
+  // for edit-dialog seeding. The edit's pause-before means the offset object
+  // itself is absent from the paused scene, so the targets re-resolve from
+  // the statement's own argument forms against the active sketch — after
+  // healing the line the pause's breakpoint shifted.
+  router.post('/sketch/feature-sources', async (req, res) => {
+    const edit = validateSketchLoc(req.body?.edit);
+    if (!edit) {
+      res.status(400).json({ error: 'edit must be the {filePath, line, column} of the offset statement' });
+      return;
+    }
+    const expected = req.body?.expectedStatement;
+    if (expected !== undefined && (typeof expected !== 'string' || expected.length === 0 || expected.length > 4000)) {
+      res.status(400).json({ error: 'expectedStatement must be the statement text from /api/feature/parse' });
+      return;
+    }
+    try {
+      const code = fluidCadServer.getCurrentCode();
+      if (!code) {
+        res.status(404).json({ error: 'No rendered scene' });
+        return;
+      }
+      const line = await resolveEditedStatementLine(code, edit.line, expected);
+      const parsed = await parseOffsetTargetDescriptors(code, line);
+      if (parsed.ok === false) {
+        res.status(422).json({ error: parsed.reason });
+        return;
+      }
+      if (parsed.descriptors.length === 0) {
+        // A whole-sketch offset targets nothing nameable — nothing to seed.
+        res.json({ ok: true, shapeIds: [] });
+        return;
+      }
+      const result = fluidCadServer.resolveSketchStatementTargets(parsed.descriptors);
+      if (!result) {
+        res.status(404).json({ error: 'No rendered scene' });
+        return;
+      }
+      if (result.ok === false) {
+        res.status(422).json({ error: result.reason });
+        return;
+      }
+      res.json({ ok: true, shapeIds: result.shapeIds });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? String(err) });
+    }
+  });
 
   // Current sources of the statement being edited, resolved for edit-dialog
   // seeding: sketch inputs by call site, selection inputs as entities on the

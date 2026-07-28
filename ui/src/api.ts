@@ -596,6 +596,32 @@ export type OffsetEditOptions = OffsetOptionValues & EditSessionFields & {
   signal?: AbortSignal;
 };
 
+/**
+ * Resolve the offset statement's target arguments onto the active (paused)
+ * sketch's edges — the edit dialog seeds them as highlighted picks. A
+ * refusal (`ok: false`) means the args use forms the resolver doesn't
+ * cover; the dialog then keeps its keep chip unseeded.
+ */
+export async function fetchSketchFeatureSources(
+  edit: FeatureEditTarget,
+  expectedStatement?: string,
+): Promise<{ ok: true; shapeIds: string[] } | { ok: false; reason: string }> {
+  try {
+    const res = await fetch('/api/sketch/feature-sources', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ edit, expectedStatement }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || body?.ok !== true) {
+      return { ok: false, reason: body?.error ?? `Request failed (${res.status})` };
+    }
+    return { ok: true, shapeIds: body.shapeIds ?? [] };
+  } catch {
+    return { ok: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
 /** Rewrite the 2D `offset()` statement at `edit` in place. */
 export async function applyOffsetEdit(
   edit: FeatureEditTarget,

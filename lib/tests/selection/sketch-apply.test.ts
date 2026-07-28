@@ -6,7 +6,7 @@ import { rect, polygon, slot, circle, hLine, aLine, move } from "../../core/2d/i
 import { Rect } from "../../features/2d/rect.js";
 import { Edge } from "../../common/edge.js";
 import { SceneObject } from "../../common/scene-object.js";
-import { synthesizeSketchApplyFeature } from "../../selection/sketch-apply.js";
+import { synthesizeSketchApplyFeature, resolveSketchStatementTargets } from "../../selection/sketch-apply.js";
 import { setLocation } from "./pick-helpers.js";
 
 // Stage 3 (plans/sketch-edge-selection): the 2D branch of the selection
@@ -530,5 +530,59 @@ describe("sketch apply-feature synthesis", () => {
       ok: false,
       reason: expect.stringMatching(/does not resolve/),
     });
+  });
+});
+
+// The inverse direction (offset edit seeding): the statement's parsed target
+// arguments re-resolve onto the active sketch's edges — the paused scene has
+// no offset object to read, so the argument forms are the source of truth.
+describe("sketch statement target resolution", () => {
+  setupOC();
+
+  const edgesOf = (obj: SceneObject): Edge[] =>
+    obj.getShapes().filter((s): s is Edge => s instanceof Edge);
+
+  function scene() {
+    let r: Rect;
+    let c: SceneObject;
+    sketch("xy", () => {
+      r = rect(80, 60) as Rect;
+      move([100, 0]);
+      c = circle(10) as unknown as SceneObject;
+    });
+    const rendered = render();
+    setLocation(r!, 3);
+    setLocation(c!, 5);
+    return { rendered, r: r!, c: c! };
+  }
+
+  it("resolves a role accessor to its edge", () => {
+    const { rendered, r } = scene();
+    const result = resolveSketchStatementTargets(rendered, [
+      { kind: 'accessor', line: 3, args: ['top'] },
+    ]);
+    expect(result).toEqual({
+      ok: true,
+      shapeIds: [edgesOf(r).find(e => e.role === 'top')!.id],
+    });
+  });
+
+  it("resolves a bare owner to all its edges and a filter to its kind", () => {
+    const { rendered, r, c } = scene();
+    const owner = resolveSketchStatementTargets(rendered, [{ kind: 'owner', line: 3 }]);
+    expect(owner.ok).toBe(true);
+    if (owner.ok) {
+      expect(owner.shapeIds.sort()).toEqual(edgesOf(r).map(e => e.id).sort());
+    }
+    const filtered = resolveSketchStatementTargets(rendered, [
+      { kind: 'filter', calls: [{ name: 'circle', dim: null }] },
+    ]);
+    expect(filtered).toEqual({ ok: true, shapeIds: [edgesOf(c)[0].id] });
+  });
+
+  it("refuses a line with no producing statement", () => {
+    const { rendered } = scene();
+    const result = resolveSketchStatementTargets(rendered, [{ kind: 'owner', line: 99 }]);
+    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('line 99') });
   });
 });

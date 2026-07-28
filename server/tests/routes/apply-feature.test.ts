@@ -40,6 +40,11 @@ let sketchSynthesizeCalls: {
   picks: unknown; feature: string; value: number | string | undefined; offset?: unknown;
 }[];
 
+/** Descriptor lists forwarded to the 2D target resolver (offset edit seeding). */
+let sketchTargetCalls: unknown[];
+/** Per-test result for the 2D target resolver. */
+let currentSketchTargets: any;
+
 const fakeServer = {
   getCurrentCode: () => currentCode,
   getCurrentFileName: () => currentFileName,
@@ -50,6 +55,10 @@ const fakeServer = {
   ) => {
     sketchSynthesizeCalls.push({ picks, feature, value, offset: options?.offset });
     return currentSynthesis;
+  },
+  resolveSketchStatementTargets: (descriptors: unknown[]) => {
+    sketchTargetCalls.push(descriptors);
+    return currentSketchTargets;
   },
   synthesizeApplyFeature: (
     _picks: unknown, feature: string, value: number | undefined,
@@ -120,6 +129,8 @@ describe('apply-feature route validation', () => {
     synthesizeCalls = [];
     synthesizeBoundaries = [];
     sketchSynthesizeCalls = [];
+    sketchTargetCalls = [];
+    currentSketchTargets = { ok: true, shapeIds: ['edge-1'] };
     relayed = [];
     currentSynthesis = fakeSynthesis;
     currentCode = null;
@@ -1857,6 +1868,75 @@ describe('apply-feature route validation', () => {
         });
         expect(status).toBe(422);
         expect(relayed).toHaveLength(0);
+      });
+    });
+
+    describe('offset edit target seeding (/sketch/feature-sources)', () => {
+      const SEED_CODE = [
+        `import {breakpoint, sketch, rect, offset } from 'fluidcad/core'`,
+        ``,
+        `sketch('xy', () => {`,
+        `  const r = rect(100, 50)`,
+        `  breakpoint();`,
+        ``,
+        `  offset(2, r.edge('top'))`,
+        `})`,
+        ``,
+      ].join('\n');
+
+      async function postSources(body: unknown): Promise<{ status: number; body: any }> {
+        const res = await fetch(`${baseUrl}/api/sketch/feature-sources`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        return { status: res.status, body: await res.json() };
+      }
+
+      beforeEach(() => {
+        currentCode = SEED_CODE;
+        currentFileName = '/ws/m.fluid.js';
+      });
+
+      it('heals the shifted line, parses the targets and resolves them', async () => {
+        // The dialog captured line 5; the pause-before breakpoint shifted the
+        // statement to line 7 — the same healing the apply route uses.
+        const { status, body } = await postSources({
+          edit: { filePath: '/ws/m.fluid.js', line: 5, column: 2 },
+          expectedStatement: `offset(2, r.edge('top'))`,
+        });
+        expect(status).toBe(200);
+        expect(body).toEqual({ ok: true, shapeIds: ['edge-1'] });
+        expect(sketchTargetCalls).toEqual([[{ kind: 'accessor', line: 4, args: ['top'] }]]);
+      });
+
+      it('resolves a whole-sketch offset to no seeds without touching the kernel', async () => {
+        currentCode = SEED_CODE.replace(`offset(2, r.edge('top'))`, 'offset(2)');
+        const { status, body } = await postSources({
+          edit: { filePath: '/ws/m.fluid.js', line: 7, column: 2 },
+        });
+        expect(status).toBe(200);
+        expect(body).toEqual({ ok: true, shapeIds: [] });
+        expect(sketchTargetCalls).toHaveLength(0);
+      });
+
+      it('422s targets the parser cannot resolve', async () => {
+        currentCode = SEED_CODE.replace(`r.edge('top')`, 'someHelper()');
+        const { status, body } = await postSources({
+          edit: { filePath: '/ws/m.fluid.js', line: 7, column: 2 },
+        });
+        expect(status).toBe(422);
+        expect(body.error).toContain('someHelper');
+        expect(sketchTargetCalls).toHaveLength(0);
+      });
+
+      it('422s a kernel refusal', async () => {
+        currentSketchTargets = { ok: false, reason: 'no sketch is active' };
+        const { status, body } = await postSources({
+          edit: { filePath: '/ws/m.fluid.js', line: 7, column: 2 },
+        });
+        expect(status).toBe(422);
+        expect(body.error).toContain('no sketch is active');
       });
     });
 

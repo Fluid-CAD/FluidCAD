@@ -396,6 +396,89 @@ function resolvePicks(
   return { sketch: pickedSketch, picks };
 }
 
+/**
+ * One parsed target argument of a 2D statement, ready for resolution — the
+ * server parses the statement's argument text into these (it owns the code;
+ * this kernel owns the geometry). `line` addresses the producing statement
+ * the argument's variable is bound to.
+ */
+export type SketchTargetDescriptor =
+  | { kind: 'owner'; line: number }
+  | { kind: 'accessor'; line: number; args: (string | number)[] }
+  | { kind: 'filter'; calls: { name: string; dim: number | null }[] };
+
+/**
+ * Resolve a 2D statement's target arguments onto the ACTIVE (last) sketch's
+ * edges, for edit-dialog seeding: the offset edit pauses the build just
+ * before its statement, so the statement's own feature object does not exist
+ * in the scene — the targets re-resolve from the argument forms instead,
+ * evaluated exactly as the emitted code would (the synthesis evaluators).
+ * All-or-nothing: one unresolvable argument yields a refusal, never a
+ * silently smaller highlight.
+ */
+export function resolveSketchStatementTargets(
+  scene: SelectionScene,
+  descriptors: SketchTargetDescriptor[],
+): { ok: true; shapeIds: string[] } | { ok: false; reason: string } {
+  const sketches = scene.getAllSceneObjects().filter((o): o is Sketch => o instanceof Sketch);
+  const sketch = sketches[sketches.length - 1];
+  if (!sketch) {
+    return { ok: false, reason: 'no sketch is active' };
+  }
+  const index = sketch.getEdgesWithOwner();
+  const universe = [...index.keys()];
+  const knownIds = new Set(universe.map(e => e.id));
+
+  const ownerAt = (line: number): SceneObject | { reason: string } => {
+    const owners = [...new Set(index.values())]
+      .filter(o => o.getSourceLocation()?.line === line);
+    if (owners.length !== 1) {
+      return { reason: `the statement at line ${line} does not resolve to one sketch primitive` };
+    }
+    return owners[0];
+  };
+
+  const shapeIds: string[] = [];
+  for (const descriptor of descriptors) {
+    let edges: Edge[];
+    if (descriptor.kind === 'filter') {
+      let builder = new EdgeFilterBuilder();
+      for (const call of descriptor.calls) {
+        if (call.name !== 'line' && call.name !== 'arc' && call.name !== 'circle') {
+          return { ok: false, reason: `edge().${call.name}() is not a resolvable edge filter` };
+        }
+        builder = builder[call.name](call.dim ?? undefined);
+      }
+      edges = new ShapeFilter(universe, builder).apply() as Edge[];
+    } else {
+      const owner = ownerAt(descriptor.line);
+      if ('reason' in owner) {
+        return { ok: false, reason: owner.reason };
+      }
+      const ownerEdges = ownerRealEdges(owner);
+      if (descriptor.kind === 'owner') {
+        edges = ownerEdges;
+      } else if (typeof descriptor.args[0] === 'string') {
+        const roleIndex = typeof descriptor.args[1] === 'number' ? descriptor.args[1] : undefined;
+        edges = evaluateRoleAccessor(ownerEdges, descriptor.args[0], roleIndex);
+      } else if (typeof descriptor.args[0] === 'number') {
+        edges = evaluateEdgeAccessor(ownerEdges, descriptor.args[0]);
+      } else {
+        return { ok: false, reason: 'an edge accessor has an argument shape the dialog cannot resolve' };
+      }
+    }
+    if (edges.length === 0 || !edges.every(e => knownIds.has(e.id))) {
+      return { ok: false, reason: 'a target argument resolves to no pickable sketch edge' };
+    }
+    for (const edge of edges) {
+      if (!shapeIds.includes(edge.id)) {
+        shapeIds.push(edge.id);
+      }
+    }
+  }
+  return { ok: true, shapeIds };
+}
+
 /** Failure reason when the owner cannot be bound to a variable, null when it can. */
 export function checkSketchBindable(scene: SelectionScene, owner: SceneObject): string | null {
   if (owner.getCloneSource()) {

@@ -22,7 +22,7 @@ import { MeasureOps } from "./oc/measure/measure-ops.js";
 import type { MeasureInput } from "./oc/measure/measure-ops.js";
 import type { MeasureEntityRef, MeasureResult } from "./oc/measure/measure-types.js";
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
-import { synthesizeSketchApplyFeature } from "./selection/sketch-apply.js";
+import { synthesizeSketchApplyFeature, resolveSketchStatementTargets, SketchTargetDescriptor } from "./selection/sketch-apply.js";
 import type { SketchApplyFeatureKind, SketchPickRef, SketchSynthesizeOptions } from "./selection/sketch-apply.js";
 import { synthesizeTrimRegionTargets } from "./selection/trim-region.js";
 import type { TrimRegionSynthesis } from "./selection/trim-region.js";
@@ -215,6 +215,14 @@ class SceneManager {
 
   resolveFeatureSources(scene: Scene, boundary: SelectionBoundary): FeatureSourcesResult {
     return resolveFeatureSources(scene, boundary);
+  }
+
+  /** Resolve a 2D statement's target arguments onto the active sketch's edges. */
+  resolveSketchStatementTargets(
+    scene: Scene,
+    descriptors: SketchTargetDescriptor[],
+  ): { ok: true; shapeIds: string[] } | { ok: false; reason: string } {
+    return resolveSketchStatementTargets(scene, descriptors);
   }
 
   hitTest(

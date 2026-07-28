@@ -44,6 +44,9 @@ type SceneManager = {
     before?: SelectionBoundary,
   ): any;
   // Optional: the manager comes from the workspace's fluidcad install, which
+  // may predate the 2D target resolver (offset edit seeding).
+  resolveSketchStatementTargets?(scene: any, descriptors: unknown[]): any;
+  // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate sketch-scoped selection synthesis.
   synthesizeSketchApplyFeature?(
     scene: any,
@@ -605,6 +608,21 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.synthesizeSketchApplyFeature(scene, refs, feature, value, options);
+  }
+
+  /**
+   * Resolve a 2D statement's parsed target arguments onto the active
+   * sketch's edges — the offset edit dialog's seed/highlight.
+   */
+  resolveSketchStatementTargets(descriptors: unknown[]): any {
+    if (!this.sceneManager?.resolveSketchStatementTargets) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.resolveSketchStatementTargets(scene, descriptors);
   }
 
   /** By-region trim: synthesize filter args for a clicked region's boundary segments. */

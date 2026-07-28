@@ -1,6 +1,6 @@
 import {
-  applyOffsetEdit, applySketchOp, clearBreakpoints, FeatureEditTarget, NewVariable,
-  OffsetOptionValues, ParsedFeatureStatement, SketchApplyEntity, SketchOpFeature, ValueExpr,
+  applyOffsetEdit, applySketchOp, clearBreakpoints, fetchSketchFeatureSources, FeatureEditTarget,
+  NewVariable, OffsetOptionValues, ParsedFeatureStatement, SketchApplyEntity, SketchOpFeature, ValueExpr,
 } from '../api';
 import { ExpressionRow } from './modify-pick/expression-row';
 import { PickSlot, PickSlotChip } from './pick-slot';
@@ -33,6 +33,8 @@ export type SketchOpSelection = {
   clear: () => void;
   /** Drop one pick (a chip's ✕). */
   deselect: (shapeId: string) => void;
+  /** Replace the picks (the edit dialog seeding the statement's targets). */
+  select: (shapeIds: string[]) => void;
 };
 
 /** The per-operation dressing of the shared 2D op dialog. */
@@ -122,6 +124,10 @@ export class SketchOpService {
    * over must not fold the dialog away.
    */
   private awaitingEditSketch = false;
+  /** Signature of the seeded (statement-own) picks; dirty picks re-synthesize. */
+  private seedSignature: string | null = null;
+  /** A seed round-trip is in flight — don't start another. */
+  private seedLoading = false;
 
   // Slotted picking state: the armed slot's entities ARE the live selection;
   // the other slot holds what was frozen when the user switched away.
@@ -284,6 +290,68 @@ export class SketchOpService {
   /** The edit dialog's sketch has rendered — normal teardown rules resume. */
   noteSketchActive(): void {
     this.awaitingEditSketch = false;
+    if (this.editTarget) {
+      // Seed the statement's own targets as highlighted picks — deferred
+      // past the toolbar's update() so the pick handlers are armed over the
+      // just-arrived sketch before the seed selects into them.
+      window.setTimeout(() => void this.seedEditSelection(), 0);
+    }
+  }
+
+  /**
+   * Seed the pick set with the statement's own target edges, resolved by the
+   * server against the paused sketch — the highlighted, removable chips the
+   * edit opens with. Unresolvable args (exotic expressions) leave the set
+   * empty and the keep chip standing. A re-picked (dirty) selection is never
+   * clobbered; seeded ids that died with a re-render re-seed against the new
+   * scene.
+   */
+  private async seedEditSelection(): Promise<void> {
+    const target = this.editTarget;
+    if (!target || this.seedLoading) {
+      return;
+    }
+    if (this.selection.ids().length === 0) {
+      // Empty means unseeded, pruned by a re-render, or user-cleared — in
+      // all of them the statement's own targets are what an apply keeps, so
+      // (re-)seeding shows the truth.
+      this.seedSignature = null;
+    }
+    if (this.picksDirty()) {
+      return;
+    }
+    this.seedLoading = true;
+    try {
+      const result = await fetchSketchFeatureSources(target, this.expectedStatement);
+      if (this.editTarget !== target || this.picksDirty()) {
+        return;
+      }
+      if (result.ok && result.shapeIds.length > 0) {
+        this.selection.select(result.shapeIds);
+        this.seedSignature = this.selectionSignature();
+      }
+    } finally {
+      this.seedLoading = false;
+    }
+  }
+
+  /** Sorted signature of the current picks, for seed-dirty detection. */
+  private selectionSignature(): string {
+    return [...this.selection.ids()].sort().join('|');
+  }
+
+  /**
+   * True when the selection no longer matches the seeded one — the apply
+   * then sends the picks for synthesis instead of keeping the args verbatim.
+   */
+  private picksDirty(): boolean {
+    if (!this.editTarget) {
+      return false;
+    }
+    if (this.seedSignature === null) {
+      return this.selection.ids().length > 0;
+    }
+    return this.selectionSignature() !== this.seedSignature;
   }
 
   enter(): void {
@@ -397,6 +465,7 @@ export class SketchOpService {
     this.editArgsText = '';
     this.expectedStatement = undefined;
     this.awaitingEditSketch = false;
+    this.seedSignature = null;
     this.panel.classList.add('hidden');
     viewportChrome.setDialogOpen(this.panel.id, false);
     this.cancelPreview();
@@ -615,11 +684,14 @@ export class SketchOpService {
     const selection = this.config.slotted ? this.slotIds('base') : this.selection.ids();
     const entities = this.toEntities(selection);
     if (this.editTarget) {
+      // A seeded selection the user hasn't touched keeps the statement's own
+      // argument text verbatim — only a re-picked (dirty) set re-synthesizes.
+      const repicked = this.picksDirty() && entities.length > 0;
       return applyOffsetEdit(this.editTarget, {
         ...this.offsetOptions()!,
         value: options.value!,
         expectedStatement: this.expectedStatement,
-        entities: entities.length > 0 ? entities : undefined,
+        entities: repicked ? entities : undefined,
         selectorOverride: options.selectorOverride,
         newVariables: options.newVariables,
         preview: options.preview,

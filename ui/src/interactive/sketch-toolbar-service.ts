@@ -125,6 +125,7 @@ export class SketchToolbarService {
       describe: (shapeId) => this.describeOpPick(shapeId),
       clear: () => this.activeHoverSelectHandler?.resetSelection(),
       deselect: (shapeId) => this.activeHoverSelectHandler?.deselectShape(shapeId),
+      select: (shapeIds) => this.activeHoverSelectHandler?.selectShapes(shapeIds),
     };
     const opVars = () => this.fetchScopeVariables();
     const opDone = () => this.handleToolSelect(null);

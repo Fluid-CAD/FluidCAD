@@ -305,6 +305,24 @@ export class SketchHoverSelectHandler {
   }
 
   /**
+   * Replace the selection with `shapeIds` on behalf of a dialog (the offset
+   * edit seeding the statement's own targets). Ids the current scene doesn't
+   * know are skipped. Fires the change hook once, like a click would.
+   */
+  selectShapes(shapeIds: string[]): void {
+    this.clearSelection();
+    const known = new Set(this.edges.map(e => e.shapeId));
+    for (const shapeId of shapeIds) {
+      if (known.has(shapeId) && !this.selectedShapeIds.has(shapeId)) {
+        this.selectedShapeIds.add(shapeId);
+        this.applySelectionHighlight(shapeId);
+      }
+    }
+    this.ctx.requestRender();
+    this.onSelectionChange?.();
+  }
+
+  /**
    * Drop a single pick on behalf of a dialog (an op dialog's chip ✕). Fires
    * the change hook like a viewport ctrl-click on the shape would.
    */

@@ -3,6 +3,7 @@ import {
   applyFeatureEdit,
   extractNumericParams,
   makeProducerNamer,
+  parseOffsetTargetDescriptors,
   resolveParamValues,
   type ApplyFeatureEditSpec,
 } from '../src/apply-feature-edit.ts';
@@ -6203,5 +6204,57 @@ describe('applyFeatureEdit (project in-place statement edit)', () => {
     }));
     expect(result.error).toContain('extrude');
     expect(result.newCode).toBe(code);
+  });
+});
+
+describe('parseOffsetTargetDescriptors (offset edit seeding)', () => {
+  const codeWith = (statement: string) => [
+    `import { sketch, rect, circle, offset, edge } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => {`,
+    `  const r = rect(100, 50)`,
+    `  const c = circle(10)`,
+    `  ${statement}`,
+    `})`,
+    ``,
+  ].join('\n');
+
+  it('parses accessor, owner and filter targets', async () => {
+    const result = await parseOffsetTargetDescriptors(
+      codeWith(`offset(2, r.edge('top'), c, edge().arc(4))`), 6,
+    );
+    expect(result).toEqual({
+      ok: true,
+      descriptors: [
+        { kind: 'accessor', line: 4, args: ['top'] },
+        { kind: 'owner', line: 5 },
+        { kind: 'filter', calls: [{ name: 'arc', dim: 4 }] },
+      ],
+    });
+  });
+
+  it('skips the removeOriginal flag slot and parses index accessors', async () => {
+    const result = await parseOffsetTargetDescriptors(
+      codeWith(`offset(2, true, r.edge('side', 1), r.edge(3))`), 6,
+    );
+    expect(result).toEqual({
+      ok: true,
+      descriptors: [
+        { kind: 'accessor', line: 4, args: ['side', 1] },
+        { kind: 'accessor', line: 4, args: [3] },
+      ],
+    });
+  });
+
+  it('resolves a whole-sketch offset to no descriptors', async () => {
+    const result = await parseOffsetTargetDescriptors(codeWith(`offset(2)`), 6);
+    expect(result).toEqual({ ok: true, descriptors: [] });
+  });
+
+  it('refuses target forms it cannot resolve', async () => {
+    const result = await parseOffsetTargetDescriptors(
+      codeWith(`offset(2, pickTargets())`), 6,
+    );
+    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('pickTargets') });
   });
 });

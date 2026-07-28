@@ -305,6 +305,20 @@ export class SketchHoverSelectHandler {
   }
 
   /**
+   * Drop a single pick on behalf of a dialog (an op dialog's chip ✕). Fires
+   * the change hook like a viewport ctrl-click on the shape would.
+   */
+  deselectShape(shapeId: string): void {
+    if (!this.selectedShapeIds.has(shapeId)) {
+      return;
+    }
+    this.removeSelectionHighlight(shapeId);
+    this.selectedShapeIds.delete(shapeId);
+    this.ctx.requestRender();
+    this.onSelectionChange?.();
+  }
+
+  /**
    * Drop the current selection on behalf of a dialog (the subtract dialog
    * clears between its base and tool slots). Fires the change hook so the
    * dialog preview stays in sync.

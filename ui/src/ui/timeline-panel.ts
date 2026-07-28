@@ -51,6 +51,14 @@ export class TimelinePanel {
    */
   isFeatureEditable?: (obj: SceneObjectRender) => boolean;
 
+  /**
+   * Whether this row's edit dialog places its own pause (the 2D offset). The
+   * double-click then skips the generic after-the-statement breakpoint: the
+   * dialog pauses the build BEFORE the statement instead — once its parse has
+   * captured the statement's text and line from the unshifted buffer.
+   */
+  managesOwnBreakpoint?: (obj: SceneObjectRender) => boolean;
+
   private panel: HTMLDivElement;
   private timelineBody: HTMLDivElement;
   private contentWrapper: HTMLDivElement;
@@ -269,7 +277,9 @@ export class TimelinePanel {
           // suspends the sketch UI itself and restores it on exit.
           return;
         }
-        this.addBreakpointAfter(index);
+        if (!(obj && this.managesOwnBreakpoint?.(obj))) {
+          this.addBreakpointAfter(index);
+        }
         this.goToSource(obj);
         if (obj) {
           this.onFeatureEdit?.(obj, index);

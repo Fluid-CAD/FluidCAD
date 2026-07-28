@@ -17,7 +17,7 @@ import { BezierHandlesOverlay } from './bezier-handles-overlay';
 import { SnapManager } from '../snapping/snap-manager';
 import { SnapController } from '../snapping/snap-controller';
 import {
-  insertGeometry, getScopeVariables, applySketchOp, FeatureEditTarget, ParsedFeatureStatement,
+  insertGeometry, getScopeVariables, applySketchOp, gotoSource, FeatureEditTarget, ParsedFeatureStatement,
 } from '../api';
 import { isTopLevel } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData } from '../types';
@@ -25,7 +25,7 @@ import { Viewer } from '../viewer';
 import { TrimPickService } from './trim-pick-service';
 import { TrimDialog } from './trim-dialog';
 import { ProjectionPickService } from './projection-pick-service';
-import { SketchOpService } from './sketch-op-service';
+import { SketchOpService, SketchOpSelection, SketchPickDescription } from './sketch-op-service';
 import { ConstraintToolbarService } from './constraint-toolbar';
 import { VariableInfo } from '../ui/expression-input';
 import { ShortcutManager } from '../ui/shortcut-manager';
@@ -120,12 +120,16 @@ export class SketchToolbarService {
 
     this.bezierHandles = new BezierHandlesOverlay(viewer.sceneContext);
 
-    const opSelection = () => [...(this.activeHoverSelectHandler?.selectedIds ?? [])];
-    const opClear = () => this.activeHoverSelectHandler?.resetSelection();
+    const opSelection: SketchOpSelection = {
+      ids: () => [...(this.activeHoverSelectHandler?.selectedIds ?? [])],
+      describe: (shapeId) => this.describeOpPick(shapeId),
+      clear: () => this.activeHoverSelectHandler?.resetSelection(),
+      deselect: (shapeId) => this.activeHoverSelectHandler?.deselectShape(shapeId),
+    };
     const opVars = () => this.fetchScopeVariables();
     const opDone = () => this.handleToolSelect(null);
     const opService = (config: ConstructorParameters<typeof SketchOpService>[1]) =>
-      new SketchOpService(container, config, opSelection, opClear, opVars, opDone);
+      new SketchOpService(container, config, opSelection, opVars, opDone);
     this.opServices = {
       fillet: opService({
         feature: 'fillet', title: 'Fillet', pickHint: 'Pick sketch edges to fillet',
@@ -188,9 +192,9 @@ export class SketchToolbarService {
   /**
    * Open the offset dialog over the `offset()` statement at `target`
    * (timeline double-click). The gesture's breakpoint pauses the build just
-   * after that statement, so its sketch is on its way in: the dialog opens
-   * now and the render that brings the sketch back re-arms the toolbar and
-   * the picking handlers (see {@link update}).
+   * BEFORE that statement — the sketch on its way in is the one the offset's
+   * arguments see, without its result — and the render that brings it back
+   * re-arms the toolbar and the picking handlers (see {@link update}).
    */
   enterOffsetEdit(
     target: FeatureEditTarget,
@@ -377,6 +381,21 @@ export class SketchToolbarService {
       this.lastActive = active;
       this.onActiveChange?.(active);
     }
+  }
+
+  /**
+   * Chip content for a picked sketch shape: its owning entity's timeline name
+   * and the source line of the statement that drew it (the chip's jump badge).
+   */
+  private describeOpPick(shapeId: string): SketchPickDescription {
+    const owner = this.viewer.currentSceneObjects.find(obj =>
+      obj.sceneShapes?.some(shape => shape.shapeId === shapeId));
+    const location = owner?.sourceLocation;
+    return {
+      label: owner?.name || 'Edge',
+      line: location?.line,
+      goTo: location ? () => gotoSource(location) : undefined,
+    };
   }
 
   private async fetchScopeVariables(): Promise<VariableInfo[]> {

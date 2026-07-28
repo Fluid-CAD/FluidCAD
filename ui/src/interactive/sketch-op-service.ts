@@ -3,6 +3,8 @@ import {
   OffsetOptionValues, ParsedFeatureStatement, SketchApplyEntity, SketchOpFeature, ValueExpr,
 } from '../api';
 import { ExpressionRow } from './modify-pick/expression-row';
+import { PickSlot, PickSlotChip } from './pick-slot';
+import { keepChip } from './create-feature/sketch-profiles';
 import { ExpressionField } from '../ui/expression-field';
 import { VariableInfo } from '../ui/expression-core';
 import { viewportChrome } from '../ui/viewport-chrome';
@@ -11,6 +13,27 @@ const PREVIEW_DEBOUNCE_MS = 250;
 
 /** The statement options a 2D op carries beyond its picks. */
 export type SketchOpToggleKey = 'removeOriginal' | 'close';
+
+/** What a picked sketch shape shows as a chip: its entity's name and line. */
+export type SketchPickDescription = {
+  label: string;
+  /** Source line of the pick's statement — the chip's jump badge. */
+  line?: number;
+  /** Navigate to the pick's statement (the line badge was clicked). */
+  goTo?: () => void;
+};
+
+/** The dialog's window onto the sketch selection the hover handler owns. */
+export type SketchOpSelection = {
+  /** The picked shape ids, in pick order. */
+  ids: () => string[];
+  /** Chip content for one picked shape. */
+  describe: (shapeId: string) => SketchPickDescription;
+  /** Drop every pick. */
+  clear: () => void;
+  /** Drop one pick (a chip's ✕). */
+  deselect: (shapeId: string) => void;
+};
 
 /** The per-operation dressing of the shared 2D op dialog. */
 export type SketchOpConfig = {
@@ -46,18 +69,20 @@ const SLOT_ROW_IDLE = `${SLOT_ROW_BASE} border-base-300 hover:border-base-conten
 
 /**
  * The shared 2D operation dialog (fillet, offset, fuse, subtract, common):
- * armed from the sketch toolbar, it reads the hover handler's selected edges,
- * previews the synthesized statement through `/api/apply-feature` (sketch
- * branch), and applies it — writing `fillet(4, r.edge('top'), l)` /
+ * armed from the sketch toolbar, it reads the hover handler's selected edges
+ * — mirrored into the unified {@link PickSlot} chips every pick-driven dialog
+ * carries — previews the synthesized statement through `/api/apply-feature`
+ * (sketch branch), and applies it — writing `fillet(4, r.edge('top'), l)` /
  * `offset(2, true, r.edge('top')).close()` / `subtract(r, c)` into the sketch
  * body. The expression row is editable (expression transparency) with
  * verified alternatives.
  *
  * The same dialog edits an existing statement in place ({@link enterEdit},
  * offset only today): the timeline double-click's breakpoint pauses the build
- * right after that statement, so the sketch on screen is the one it lives in
- * — its options seed the fields, its targets seed the expression row, and
- * picking edges re-targets it.
+ * just BEFORE that statement, so the sketch on screen is the one its
+ * arguments see — the statement's own result absent, a removed original
+ * visible again — its options seed the fields, its targets seed the
+ * expression row, and picking edges re-targets it.
  */
 export class SketchOpService {
   /**
@@ -75,6 +100,8 @@ export class SketchOpService {
   private readonly errorLine: HTMLDivElement;
   private readonly applyBtn: HTMLButtonElement;
   private readonly expression: ExpressionRow;
+  /** The picked-edge chips (non-slotted ops); subtract keeps its slot rows. */
+  private readonly pickSlot: PickSlot | null;
   private readonly slotRows: { base: HTMLDivElement; tool: HTMLDivElement } | null;
   private readonly toggles = new Map<SketchOpToggleKey, HTMLInputElement>();
 
@@ -104,8 +131,7 @@ export class SketchOpService {
   constructor(
     container: HTMLElement,
     private readonly config: SketchOpConfig,
-    private getSelection: () => string[],
-    private clearSelection: () => void,
+    private readonly selection: SketchOpSelection,
     private fetchVariables: () => Promise<VariableInfo[]>,
     private onDone: () => void,
   ) {
@@ -142,13 +168,21 @@ export class SketchOpService {
             </div>
           </div>`
       : '';
+    // Non-slotted ops carry the unified pick slot; its prompt asks for the
+    // picks, so their hint line starts empty and only surfaces value errors.
+    const pickSlotHost = config.slotted ? '' : `
+          <div data-role="pick-slot"></div>`;
+    const hintRow = config.slotted
+      ? `
+          <div data-role="hint" class="text-base-content/50">${config.pickHint}</div>`
+      : `
+          <div data-role="hint" class="hidden text-base-content/50"></div>`;
     this.panel.innerHTML = `
       <div data-role="column" class="flex flex-col items-end gap-1.5">
         <div class="flex flex-col items-stretch gap-3.5 w-60 max-h-[calc(100vh-260px)] overflow-y-auto bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
           <div class="flex items-center gap-2.5">
             <span data-role="title" class="font-medium text-sm">${config.title}</span>
-          </div>
-          <div data-role="hint" class="text-base-content/50">${config.pickHint}</div>${slotRows}${valueRow}${toggleRows}
+          </div>${pickSlotHost}${hintRow}${slotRows}${valueRow}${toggleRows}
           <div class="flex items-center gap-2 pt-1">
             <button data-role="apply" class="btn btn-primary btn-sm flex-1" disabled>Apply</button>
             <button data-role="cancel" class="btn btn-ghost btn-sm">Cancel</button>
@@ -171,6 +205,20 @@ export class SketchOpService {
         tool: this.panel.querySelector('[data-role="slot-tool"]')!,
       }
       : null;
+    this.pickSlot = config.slotted
+      ? null
+      : new PickSlot(this.panel.querySelector('[data-role="pick-slot"]')!, { label: 'Selection', multiple: true });
+    if (this.pickSlot) {
+      // Picking is live the whole time the dialog is up — the slot always
+      // wears the pick-target styling (matches ModifyPanel).
+      this.pickSlot.setArmed(true);
+      this.pickSlot.onRemove = (index) => {
+        const shapeId = this.selection.ids()[index];
+        if (shapeId !== undefined) {
+          this.selection.deselect(shapeId);
+        }
+      };
+    }
 
     // The expression row and the error message dock under the dialog body,
     // matching the 3D dialogs (see ModifyPanel).
@@ -249,6 +297,7 @@ export class SketchOpService {
     this.armedSlot = 'base';
     this.frozen = { base: [], tool: [] };
     this.syncSlotRows();
+    this.syncPickSlot();
     this.title.textContent = this.config.title;
     this.setToggles({ removeOriginal: false, close: false });
     this.panel.classList.remove('hidden');
@@ -261,9 +310,10 @@ export class SketchOpService {
   /**
    * Open the dialog over the `offset()` statement at `target`, prefilled from
    * its parsed options. The double-click that got here left a breakpoint just
-   * after the statement, so the build is paused inside its sketch: the fields
-   * seed from the statement, the expression row seeds with its own target
-   * args (kept verbatim unless edited), and picking edges re-targets it.
+   * before the statement, so the build is paused inside its sketch at the
+   * state the statement's arguments see: the fields seed from the statement,
+   * the expression row seeds with its own target args (kept verbatim unless
+   * edited), and picking edges re-targets it.
    */
   enterEdit(target: FeatureEditTarget, parsed: ParsedOffset, expectedStatement: string): void {
     this.exit('reopen');
@@ -274,7 +324,8 @@ export class SketchOpService {
     this.awaitingEditSketch = true;
     this.armedSlot = 'base';
     this.frozen = { base: [], tool: [] };
-    this.clearSelection();
+    this.selection.clear();
+    this.syncPickSlot();
     this.title.textContent = `Edit ${this.config.title.toLowerCase()}`;
     this.valueField?.setValue(parsed.value);
     this.setToggles({ removeOriginal: parsed.removeOriginal, close: parsed.close });
@@ -352,7 +403,7 @@ export class SketchOpService {
     this.expression.hide();
     this.expression.setSuffix(')');
     this.setError(null);
-    this.setHint(this.config.pickHint);
+    this.setHint(this.pickSlot ? null : this.config.pickHint);
     this.applyBtn.disabled = true;
     this.onVisibilityChange?.(false);
     if (wasEditing && reason === 'cancel') {
@@ -360,10 +411,11 @@ export class SketchOpService {
     }
   }
 
-  /** The selected set or the scene changed — refresh the preview. */
+  /** The selected set or the scene changed — refresh the chips and preview. */
   refresh(): void {
     if (this.active) {
       this.syncSlotRows();
+      this.syncPickSlot();
       this.schedulePreview();
     }
   }
@@ -373,19 +425,47 @@ export class SketchOpService {
     if (!this.slotRows || this.armedSlot === slot) {
       return;
     }
-    this.frozen[this.armedSlot] = this.getSelection();
+    this.frozen[this.armedSlot] = this.selection.ids();
     this.armedSlot = slot;
     // The freeze keeps the leaving slot's picks; the arriving slot re-picks
     // from scratch (its previous content is discarded with the selection).
     this.frozen[slot] = [];
-    this.clearSelection();
+    this.selection.clear();
     this.syncSlotRows();
     this.schedulePreview();
   }
 
   /** The entities of one slot: live selection when armed, else the frozen set. */
   private slotIds(slot: 'base' | 'tool'): string[] {
-    return this.armedSlot === slot ? this.getSelection() : this.frozen[slot];
+    return this.armedSlot === slot ? this.selection.ids() : this.frozen[slot];
+  }
+
+  /**
+   * Mirror the picked edges into the slot as numbered chips; an edit with no
+   * re-picks shows its statement's own targets as the keep chip instead (they
+   * stand until edges are picked, and again when every pick is removed).
+   */
+  private syncPickSlot(): void {
+    if (!this.pickSlot) {
+      return;
+    }
+    const chips: PickSlotChip[] = this.selection.ids().map((shapeId, index) => {
+      const pick = this.selection.describe(shapeId);
+      return {
+        label: pick.label,
+        badge: String(index + 1),
+        removable: true,
+        line: pick.line,
+        onGoto: pick.goTo,
+      };
+    });
+    if (chips.length === 0 && this.editTarget) {
+      this.pickSlot.setChips([keepChip(this.editArgsText)]);
+      this.pickSlot.setPrompt('Pick edges to re-target');
+    } else {
+      this.pickSlot.setChips(chips);
+      this.pickSlot.setPrompt(chips.length === 0 ? this.config.pickHint : null);
+    }
   }
 
   private syncSlotRows(): void {
@@ -433,22 +513,22 @@ export class SketchOpService {
   }
 
   /** What the current picks and value are missing, or null when previewable. */
-  private incompleteReason(): string | null {
+  private incompleteReason(): { kind: 'picks' | 'value'; message: string } | null {
     if (this.config.slotted) {
       if (this.slotIds('base').length === 0) {
-        return 'Pick the base geometry’s edges';
+        return { kind: 'picks', message: 'Pick the base geometry’s edges' };
       }
       if (this.slotIds('tool').length === 0) {
-        return 'Arm the Tool row and pick the geometry to subtract';
+        return { kind: 'picks', message: 'Arm the Tool row and pick the geometry to subtract' };
       }
       // An edit keeps the statement's own targets until edges are picked, so
       // an empty selection is complete — it just changes nothing about them.
-    } else if (!this.editTarget && this.getSelection().length === 0) {
-      return this.config.pickHint;
+    } else if (!this.editTarget && this.selection.ids().length === 0) {
+      return { kind: 'picks', message: this.config.pickHint };
     }
     const read = this.readValue();
     if (read && 'error' in read) {
-      return read.error;
+      return { kind: 'value', message: read.error };
     }
     return null;
   }
@@ -482,7 +562,9 @@ export class SketchOpService {
     if (incomplete) {
       this.expression.hide();
       this.applyBtn.disabled = true;
-      this.setHint(incomplete);
+      // The pick slot's own prompt already asks for the picks — the hint line
+      // only carries what the slot can't say (value errors).
+      this.setHint(this.pickSlot && incomplete.kind === 'picks' ? null : incomplete.message);
       this.setError(null);
       return;
     }
@@ -530,7 +612,7 @@ export class SketchOpService {
     preview?: boolean;
     signal?: AbortSignal;
   }): ReturnType<typeof applySketchOp> {
-    const selection = this.config.slotted ? this.slotIds('base') : this.getSelection();
+    const selection = this.config.slotted ? this.slotIds('base') : this.selection.ids();
     const entities = this.toEntities(selection);
     if (this.editTarget) {
       return applyOffsetEdit(this.editTarget, {

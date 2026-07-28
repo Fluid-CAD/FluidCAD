@@ -32,7 +32,7 @@ import { SolidPickSelection } from './interactive/solid-pick';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, gotoSource, parseFeatureAt } from './api';
+import { loadPreferences, gotoSource, parseFeatureAt, addBreakpoint } from './api';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import type { SceneObjectRender } from './types';
 import { applyPreferences } from './scene/viewer-settings';
@@ -384,6 +384,12 @@ timelinePanel.onFeatureEdit = (obj, index) => {
 timelinePanel.isFeatureEditable = (obj) =>
   obj.type != null && EDITABLE_ROW_TYPES.has(obj.type) && obj.sourceLocation != null
   && (obj.type !== 'plane' || isPlaneStatementRow(obj, viewer.currentSceneObjects));
+// A 2D offset row's edit pauses the build BEFORE its statement (see
+// openFeatureEditor), so its double-click defers the generic breakpoint.
+timelinePanel.managesOwnBreakpoint = (obj) => obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type);
+
+/** Rows whose edit dialog pauses the build before its own statement. */
+const PAUSE_BEFORE_ROW_TYPES = new Set(['offset']);
 
 /**
  * Timeline `type` → the dialog that edits it (cut is extrude's remove op;
@@ -435,10 +441,20 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     return;
   }
   const target = obj.sourceLocation;
+  // A pause-before row (offset) deferred the double-click's breakpoint so the
+  // parse above reads the unshifted buffer; every outcome except the offset
+  // dialog itself owes the gesture its classic after-the-statement pause.
+  const deferredBreakpoint = obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type);
   const result = await parseFeatureAt(target);
   if (result.ok === false) {
+    if (deferredBreakpoint) {
+      addBreakpoint(target);
+    }
     showEditRefusal(result.reason);
     return;
+  }
+  if (deferredBreakpoint && result.parsed.feature !== 'offset') {
+    addBreakpoint(target);
   }
   if (result.parsed.feature === 'sketch') {
     // The row's line holds a sketch(), not the feature the row's type
@@ -474,15 +490,37 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
   } else if (parsed.feature === 'plane') {
     planeService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'offset') {
-    // A 2D op lives inside a sketch body: the breakpoint the double-click
-    // placed paused the build right after it, so the sketch it belongs to is
-    // the one on screen and the offset dialog re-arms over it.
+    // A 2D op lives inside a sketch body: pausing the build just BEFORE its
+    // statement puts the sketch its arguments see on screen — the offset's
+    // result absent, a removed original visible and re-pickable — the 2D
+    // counterpart of EditSession's pre-statement rollback.
     closeFeatureDialogs();
+    pauseBeforeSketchStatement(obj, index);
     sketchService.enterOffsetEdit(target, parsed, result.statement);
   } else {
     // What's left of the parse union: the shell/fillet/chamfer dialog's.
     modifyService.enterEdit(target, parsed, info);
   }
+}
+
+/**
+ * Pause the build just before a sketch-body statement: the breakpoint goes
+ * after the previous statement in the same sketch, so the paused sketch shows
+ * what that statement's arguments see. The statement itself shifts down with
+ * the inserted `breakpoint();` line — the apply route re-locates it by its
+ * captured text (see resolveEditedStatementLine, server side). With no
+ * previous sibling the pause degrades to the classic after-the-statement spot.
+ */
+function pauseBeforeSketchStatement(obj: SceneObjectRender, index: number): void {
+  const objects = viewer.currentSceneObjects;
+  for (let i = index - 1; i >= 0; i--) {
+    const prev = objects[i];
+    if (prev?.parentId != null && prev.parentId === obj.parentId && prev.sourceLocation) {
+      addBreakpoint(prev.sourceLocation);
+      return;
+    }
+  }
+  addBreakpoint(obj.sourceLocation!);
 }
 
 /**

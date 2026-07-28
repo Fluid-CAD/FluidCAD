@@ -1806,6 +1806,58 @@ describe('apply-feature route validation', () => {
         expect(body.reason).toContain('rect');
         expect(relayed).toHaveLength(0);
       });
+
+      it('heals the edit line when the pause-before breakpoint shifted the statement', async () => {
+        // The edit dialog's double-click pauses the build BEFORE the offset:
+        // the inserted `breakpoint();` shifts the statement below the line
+        // the dialog captured (OFFSET_EDIT still says 5). The statement's
+        // exact text re-locates it.
+        currentCode = [
+          `import { sketch, rect, offset, breakpoint } from 'fluidcad/core'`,
+          ``,
+          `sketch('xy', () => {`,
+          `  const r = rect(100, 50)`,
+          `  breakpoint();`,
+          ``,
+          `  offset(2, r.edge('top'))`,
+          `})`,
+          ``,
+        ].join('\n');
+        const { status, body } = await post({
+          feature: 'offset', edit: OFFSET_EDIT, value: 5, close: true,
+          expectedStatement: `offset(2, r.edge('top'))`,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe(`offset(5, r.edge('top')).close()`);
+        expect(relayed[0].spec.edit).toMatchObject({ line: 7, column: 2 });
+      });
+
+      it('keeps the stale line when the statement text is ambiguous', async () => {
+        // Two identical offset statements: content can no longer identify
+        // the edited one, so the heal declines and the stale line surfaces
+        // as the ordinary drift refusal instead of guessing.
+        currentCode = [
+          `import { sketch, rect, offset, breakpoint } from 'fluidcad/core'`,
+          ``,
+          `sketch('xy', () => {`,
+          `  const r = rect(100, 50)`,
+          `  breakpoint();`,
+          ``,
+          `  offset(2, r.edge('top'))`,
+          `})`,
+          `sketch('xz', () => {`,
+          `  const r = rect(100, 50)`,
+          `  offset(2, r.edge('top'))`,
+          `})`,
+          ``,
+        ].join('\n');
+        const { status } = await post({
+          feature: 'offset', edit: OFFSET_EDIT, value: 5,
+          expectedStatement: `offset(2, r.edge('top'))`,
+        });
+        expect(status).toBe(422);
+        expect(relayed).toHaveLength(0);
+      });
     });
 
     it('refuses an edit in a different file than the live buffer', async () => {

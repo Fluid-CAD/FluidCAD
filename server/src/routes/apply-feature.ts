@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { FluidCadServer, SelectionBoundary } from '../fluidcad-server.ts';
 import {
   applyFeatureEdit, extractNumericParams, makeProducerNamer, parseFeatureStatement, renderBooleanStatement,
+  resolveEditedStatementLine,
   renderCopyStatement,
   renderEditedStatement,
   renderExtrudeStatement, renderHelixStatement, renderLoftStatement, renderPlaneBaseExprs, renderPlaneStatement,
@@ -2474,6 +2475,15 @@ export function createApplyFeatureRouter(
         }
 
         const code = fluidCadServer.getCurrentCode();
+        if (code) {
+          // The 2D offset's edit pause sits ABOVE its own statement, which
+          // shifts the statement down after the dialog captured its line —
+          // re-locate it before the preview parse and the transform spec read
+          // a stale line. Inert for the 3D edits, whose pause sits below.
+          request.edit.line = await resolveEditedStatementLine(
+            code, request.edit.line, request.edit.expectedStatement,
+          );
+        }
         const { producers, merge: mergeProducer } = makeProducerMerger();
         const parts: ApplyFeatureEditSpec['parts'] = [];
         const importSet = new Set<string>();

@@ -1279,7 +1279,15 @@ export async function applyFeatureEdit(
   // the sketch callback it resolves against the sketch's own scope and the
   // projection silently drops. Lift each to a declaration before the sketch.
   if (spec.feature === 'project') {
-    const hoisted = await hoistProjectSelects(statementText, spec, bindings, tree, lines, useSemicolon);
+    const sketchCall = findEditableCallAt(tree, lines, spec.project!.sketch.line);
+    if (!sketchCall) {
+      return {
+        newCode: code,
+        error: `no sketch() call found at line ${spec.project!.sketch.line} — is the file in sync with the last render?`,
+      };
+    }
+    const sketchStatement = enclosingStatement(sketchCall) ?? sketchCall;
+    const hoisted = await hoistProjectSelects(statementText, bindings, tree, lines, sketchStatement, useSemicolon);
     if ('error' in hoisted) {
       return { newCode: code, error: hoisted.error };
     }
@@ -2825,13 +2833,16 @@ function resolveSketchBodyInsertion(
  * Producer-accessor arguments (`box.sideFaces(0)`) stay inline: they only read
  * a producer already declared above the sketch, registering nothing. Returns
  * the (possibly rewritten) statement plus the declaration edits to apply.
+ * `sketchStatement` is the statement of the sketch() call the projection
+ * lands in (create mode) or already lives in (edit mode) — the declarations
+ * go on the line before it.
  */
 async function hoistProjectSelects(
   statementText: string,
-  spec: ApplyFeatureEditSpec,
   bindings: ProducerBinding[],
   tree: TSTree,
   lines: string[],
+  sketchStatement: TSNode,
   useSemicolon: boolean,
 ): Promise<{ statement: string; edits: { index: number; text: string }[] } | { error: string }> {
   const parser = await getJavaScriptParser();
@@ -2851,15 +2862,8 @@ async function hoistProjectSelects(
     return { statement: statementText, edits: [] };
   }
 
-  // The declarations go on the line before the sketch statement the call
-  // lands in, at its indent.
-  const sketchCall = findEditableCallAt(tree, lines, spec.project!.sketch.line);
-  if (!sketchCall) {
-    return {
-      error: `no sketch() call found at line ${spec.project!.sketch.line} — is the file in sync with the last render?`,
-    };
-  }
-  const sketchStatement = enclosingStatement(sketchCall) ?? sketchCall;
+  // The declarations go on the line before the sketch statement, at its
+  // indent.
   const sketchIndent = indentOf(lines, sketchStatement.startPosition.row);
 
   // Names already taken: every identifier in the file plus the producer
@@ -2905,12 +2909,29 @@ async function hoistProjectSelects(
   };
 }
 
+/**
+ * The statement of the `sketch(…)` call whose body callback contains `node`,
+ * or null when the node lives outside every sketch body. The edited
+ * projection's hoisted declarations go before this statement.
+ */
+function enclosingSketchStatement(node: TSNode): TSNode | null {
+  for (let cur = node.parent; cur; cur = cur.parent) {
+    if (cur.type === 'call_expression') {
+      const fn = cur.childForFieldName('function');
+      if (fn?.type === 'identifier' && fn.text === 'sketch') {
+        return enclosingStatement(cur) ?? cur;
+      }
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // In-place statement editing (timeline double-click → edit dialog)
 // ---------------------------------------------------------------------------
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'plane' | 'offset';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project';
 
 /**
  * One base argument of a parsed plane statement. `kind` is what the base
@@ -3041,6 +3062,11 @@ export type ParsedFeatureStatement =
     argsText: string;
     /** `.close()` chains the offset back onto its source profile. */
     close: boolean;
+  }
+  | {
+    feature: 'project';
+    /** The projected source argument list, verbatim (`''` when absent). */
+    argsText: string;
   }
   | {
     feature: 'chamfer';
@@ -3190,6 +3216,7 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   helix: 'helix',
   plane: 'plane',
   offset: 'offset',
+  project: 'project',
 };
 
 /**
@@ -3235,6 +3262,9 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // The distance, the removeOriginal flag and the targets are root-call
   // arguments; `.close()` is the one chained option the dialog edits.
   offset: new Set(['close']),
+  // The sources are the root call's arguments; `.name()` and friends are
+  // unrecognized members and survive verbatim.
+  project: new Set(),
 };
 
 type ChainSegment = { name: string; args: TSNode[]; endIndex: number };
@@ -3559,6 +3589,15 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
       start,
       end,
     };
+  }
+
+  if (feature === 'project') {
+    // The whole argument list is the dialog-editable surface — the projected
+    // sources, kept verbatim unless re-picked. No value slot, no chains.
+    const argsText = args.length > 0
+      ? code.slice(args[0].startIndex, args[args.length - 1].endIndex)
+      : '';
+    return { parsed: { feature, argsText }, start, end };
   }
 
   if (feature === 'text') {
@@ -5671,6 +5710,11 @@ export function renderEditedStatement(
     }
     return { statement: renderTextStatement(opts, parsed.pathText) };
   }
+  if (parsed.feature === 'project') {
+    // No value slot: the args are the whole statement — the edited expression
+    // row, the re-picked selector parts, or the statement's own list.
+    return { statement: `project(${editedSelectorArgs(spec, parsed.argsText, varFor)})` };
+  }
   if (!validValueExpr(spec.value, { nonzero: true })) {
     return { error: `the ${parsed.feature} value must be a nonzero number or expression` };
   }
@@ -5780,7 +5824,15 @@ async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Pro
             + 'a statement cannot consume itself or later results',
         };
       }
-      if (!sameNode(binding.scope, enclosingScope(editedStatement))) {
+      // A projection's sources live OUTSIDE the sketch body its statement
+      // sits in, so any scope enclosing the edited statement is in reach
+      // (the ordering check above already guarantees visibility). Everything
+      // else keeps the strict same-scope rule.
+      const scopeOk = spec.feature === 'project'
+        ? binding.scope.startIndex <= editedStatement.startIndex
+          && binding.scope.endIndex >= editedStatement.endIndex
+        : sameNode(binding.scope, enclosingScope(editedStatement));
+      if (!scopeOk) {
         return {
           newCode: code,
           error: `the input at line ${spec.producers[i].line} lives in a different scope than the edited statement`,
@@ -5800,7 +5852,27 @@ async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Pro
   // Splice highest-offset first: producer bindings precede the statement, so
   // the statement replacement never shifts under a `const <name> = ` prepend.
   type Edit = { start: number; end: number; text: string };
-  const edits: Edit[] = [{ start: chain.start, end: chain.end, text: rendered.statement }];
+  let statementText = rendered.statement;
+  const edits: Edit[] = [];
+  // A rewritten projection's global `select(…)` arguments must run OUTSIDE
+  // the sketch body — select captures whatever container it executes in, so
+  // from inside the sketch callback it resolves against the sketch's own
+  // scope and the projection silently drops. Lift each to a declaration
+  // before the sketch, exactly like the create path.
+  if (spec.feature === 'project') {
+    const sketchStatement = enclosingSketchStatement(call);
+    if (!sketchStatement) {
+      return { newCode: code, error: `the project() at line ${edit.line} is not inside a sketch body` };
+    }
+    const useSemicolon = (enclosingStatement(call) ?? call).text.trimEnd().endsWith(';');
+    const hoisted = await hoistProjectSelects(statementText, bindings, tree, lines, sketchStatement, useSemicolon);
+    if ('error' in hoisted) {
+      return { newCode: code, error: hoisted.error };
+    }
+    statementText = hoisted.statement;
+    edits.push(...hoisted.edits.map(e => ({ start: e.index, end: e.index, text: e.text })));
+  }
+  edits.push({ start: chain.start, end: chain.end, text: statementText });
   for (const binding of bindings) {
     if (binding.needsBinding) {
       edits.push({ start: binding.call.startIndex, end: binding.call.startIndex, text: `const ${binding.varName} = ` });

@@ -60,8 +60,20 @@ export class ProjectionPanel extends FeaturePanel {
 
   show(): void {
     this.setChips([]);
+    this.setPrompt(null);
+    this.setTitle(null);
     this.expression.hide();
     this.shell.show();
+  }
+
+  /** Retitle the dialog ("Edit projection"); null restores "Project". */
+  setTitle(title: string | null): void {
+    this.shell.setTitle(title);
+  }
+
+  /** Override the slot prompt (the edit mode's re-pick invitation); null restores the default. */
+  setPrompt(text: string | null): void {
+    this.slot.setPrompt(text ?? PICK_PROMPT);
   }
 
   override hide(): void {

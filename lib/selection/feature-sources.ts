@@ -14,6 +14,7 @@ import { Wrap } from "../features/wrap.js";
 import { Helix } from "../features/helix.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
+import { Projection } from "../features/2d/projection.js";
 import {
   PickRef, SelectionBoundary, SelectionScene, resolveScopedScene,
 } from "./types.js";
@@ -44,7 +45,9 @@ export type FeatureSources =
   | { feature: 'wrap'; sketch: SourceSlot; face: SourceSlot }
   /** The single source: an axis statement (axis mode) or a face (face mode). */
   | { feature: 'helix'; source: SourceSlot }
-  | { feature: 'shell' | 'fillet' | 'chamfer'; selection: SourceSlot };
+  | { feature: 'shell' | 'fillet' | 'chamfer'; selection: SourceSlot }
+  /** The projected 3D sources, as entities on the pre-statement solids. */
+  | { feature: 'projection'; selection: SourceSlot };
 
 export type FeatureSourcesResult =
   | ({ ok: true } & FeatureSources)
@@ -78,6 +81,9 @@ export function resolveFeatureSources(
     }
     if (feature instanceof Chamfer) {
       return { ok: true, feature: 'chamfer', selection: resolver.entitiesSlot(feature.selections) };
+    }
+    if (feature instanceof Projection) {
+      return { ok: true, feature: 'projection', selection: resolver.entitiesSlot(feature.sources) };
     }
     if (feature instanceof Sweep) {
       return {

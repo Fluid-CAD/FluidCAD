@@ -75,6 +75,11 @@ export class Projection extends ExtrudableGeometryBase {
     }
   }
 
+  /** The projected source selections, for edit-dialog seeding. */
+  get sources(): SceneObject[] {
+    return this.sourceObjects;
+  }
+
   override getDependencies(): SceneObject[] {
     const deps: SceneObject[] = [...this.sourceObjects];
     if (this.targetPlane) {

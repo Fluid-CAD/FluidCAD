@@ -11,7 +11,7 @@ import loft from "../../core/loft.js";
 import revolve from "../../core/revolve.js";
 import axis from "../../core/axis.js";
 import helix from "../../core/helix.js";
-import { circle, move, rect, vLine } from "../../core/2d/index.js";
+import { circle, move, project, rect, vLine } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { Scene } from "../../rendering/scene.js";
 import { Shape } from "../../common/shape.js";
@@ -263,6 +263,37 @@ describe("feature sources (edit-dialog seeding)", () => {
         expect(result.path.entities[0].sub.type).toBe("edge");
         const verticalEdges = edgeRefsWhere(box, m => Math.abs(m.z - 20) < 1e-6);
         expect(verticalEdges.map(r => r.sub.index)).toContain(result.path.entities[0].sub.index);
+      }
+    }
+  });
+
+  it("resolves a projection's sources onto the pre-statement solid", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30) as Extrude;
+    setLocation(e, 4);
+    sketch("xz", () => {
+      rect(20, 10);
+      const p = project(e.endFaces());
+      setLocation(p as any, 8);
+    });
+
+    const scene = render();
+    const box = solidOf(scene, "extrude");
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "projection", 8));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "projection") {
+      expect(result.selection.kind).toBe("entities");
+      if (result.selection.kind === "entities") {
+        const endFaces = faceRefsWhere(box, m => Math.abs(m.z) < 1e-6 || Math.abs(m.z - 30) < 1e-6);
+        expect(result.selection.entities.length).toBeGreaterThan(0);
+        for (const ref of result.selection.entities) {
+          expect(ref.shapeId).toBe(box.id);
+          expect(ref.sub.type).toBe("face");
+          expect(endFaces.map(r => r.sub.index)).toContain(ref.sub.index);
+        }
       }
     }
   });

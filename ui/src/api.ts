@@ -506,6 +506,33 @@ export async function applyProject(
   }, options.signal);
 }
 
+export type ProjectEditOptions = EditSessionFields & {
+  /** Edited source argument list; omitted keeps the statement's verbatim. */
+  selectorOverride?: string;
+  /** Re-picked 3D sources; omitted keeps the statement's own arguments. */
+  entities?: ApplyFeatureEntity[];
+  chains?: ApplyFeatureChain[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the `project()` statement at `edit` in place. */
+export async function applyProjectEdit(
+  edit: FeatureEditTarget,
+  options: ProjectEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'project',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    entities: options.entities,
+    chains: options.chains,
+    selectorOverride: options.selectorOverride,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /** A sketch-edge pick: 1 shapeId = 1 edge (no sub refs in 2D). */
 export type SketchApplyEntity = { shapeId: string };
 
@@ -1206,6 +1233,7 @@ export type FeatureSourcesResult =
   | { ok: true; feature: 'revolve'; profile: SourceSlotRef; axis: SourceSlotRef }
   | { ok: true; feature: 'helix'; source: SourceSlotRef }
   | { ok: true; feature: 'shell' | 'fillet' | 'chamfer'; selection: SourceSlotRef }
+  | { ok: true; feature: 'projection'; selection: SourceSlotRef }
   | { ok: false; reason: string };
 
 /** Current sources of the statement at `before`, for edit-dialog seeding. */
@@ -1341,6 +1369,11 @@ export type ParsedFeatureStatement =
       argsText: string;
       /** `.close()` chains the offset back onto its source profile. */
       close: boolean;
+    }
+  | {
+      feature: 'project';
+      /** The projected source argument list, verbatim (`''` when absent). */
+      argsText: string;
     }
   | {
       feature: 'chamfer';

@@ -1860,6 +1860,116 @@ describe('apply-feature route validation', () => {
       });
     });
 
+    describe('project (2D) edits', () => {
+      const PROJECT_CODE = [
+        `import { sketch, extrude, project } from 'fluidcad/core'`,
+        ``,
+        `const b = extrude(30)`,
+        `sketch('xy', () => {`,
+        `  project(b.sideFaces(0))`,
+        `})`,
+        ``,
+      ].join('\n');
+      const PROJECT_EDIT = { filePath: '/ws/m.fluid.js', line: 5, column: 2 };
+
+      beforeEach(() => {
+        currentCode = PROJECT_CODE;
+        currentFileName = '/ws/m.fluid.js';
+      });
+
+      it('keeps the statement arguments when nothing is re-picked', async () => {
+        const { status, body } = await post({
+          feature: 'project', edit: PROJECT_EDIT, preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe(`project(b.sideFaces(0))`);
+        expect(synthesizeCalls).toHaveLength(0);
+        expect(relayed).toHaveLength(0);
+      });
+
+      it('rewrites the source list from an edited expression row', async () => {
+        const { status, body } = await post({
+          feature: 'project', edit: PROJECT_EDIT, selectorOverride: 'b.sideFaces(1)',
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe(`project(b.sideFaces(1))`);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'project',
+          rawArgs: 'b.sideFaces(1)',
+          edit: { line: 5, column: 2 },
+          clearBreakpoints: true,
+        });
+      });
+
+      it('synthesizes re-picked 3D sources against the pre-statement boundary', async () => {
+        currentSynthesis = {
+          ok: true,
+          spec: {
+            feature: 'project', filePath: '/ws/m.fluid.js',
+            producers: [{ line: 3, column: 10, featureType: 'extrude', nameHint: 'e', bind: true }],
+            parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+            imports: [],
+          },
+          preview: `project(b.endFaces())`,
+          args: `b.endFaces()`,
+          alternatives: [],
+        };
+        const before = { index: 8, type: 'projection', line: 5, column: 2 };
+        const { status, body } = await post({
+          feature: 'project', edit: PROJECT_EDIT, entities: [PICK], before, preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe(`project(b.endFaces())`);
+        expect(body.args).toBe(`b.endFaces()`);
+        expect(synthesizeCalls).toEqual([{ feature: 'project', value: undefined }]);
+        expect(synthesizeBoundaries).toEqual([before]);
+        expect(relayed).toHaveLength(0);
+      });
+
+      it('400s re-picked sources without a boundary', async () => {
+        // The picks were made against the edit session's pre-statement
+        // rollback — boundary-less synthesis would resolve them against the
+        // full scene.
+        const { status, body } = await post({
+          feature: 'project', edit: PROJECT_EDIT, entities: [PICK], preview: true,
+        });
+        expect(status).toBe(400);
+        expect(body.error).toContain('before');
+        expect(synthesizeCalls).toHaveLength(0);
+      });
+
+      it('heals the edit line when the pause-before breakpoint shifted the statement', async () => {
+        currentCode = [
+          `import { sketch, extrude, project, breakpoint } from 'fluidcad/core'`,
+          ``,
+          `const b = extrude(30)`,
+          `sketch('xy', () => {`,
+          `  breakpoint();`,
+          ``,
+          `  project(b.sideFaces(0))`,
+          `})`,
+          ``,
+        ].join('\n');
+        const { status, body } = await post({
+          feature: 'project', edit: PROJECT_EDIT, selectorOverride: 'b.sideFaces(1)',
+          expectedStatement: `project(b.sideFaces(0))`,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe(`project(b.sideFaces(1))`);
+        expect(relayed[0].spec.edit).toMatchObject({ line: 7, column: 2 });
+      });
+
+      it('422s an edit whose statement is not a project', async () => {
+        const { status, body } = await post({
+          feature: 'project',
+          edit: { filePath: '/ws/m.fluid.js', line: 3, column: 10 },
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('extrude');
+        expect(relayed).toHaveLength(0);
+      });
+    });
+
     it('refuses an edit in a different file than the live buffer', async () => {
       currentCode = EDIT_CODE;
       currentFileName = '/ws/m.fluid.js';

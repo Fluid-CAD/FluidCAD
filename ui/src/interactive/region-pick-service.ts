@@ -155,8 +155,13 @@ export class RegionPickService {
     this.triggerBtn.classList.add('hidden');
     this.activeBar.classList.add('hidden');
     this.lastInfo = null;
-    this.viewer.isRegionPicking = false;
-    this.viewer.toggleSketchMode(true);
+    // Re-enable sketch mode only when this service disabled it. reset() runs
+    // on every rollback render — unconditionally re-enabling would stomp a
+    // dialog's own sketch suspension (an edit session's rolled-back view).
+    if (this.viewer.isRegionPicking) {
+      this.viewer.isRegionPicking = false;
+      this.viewer.toggleSketchMode(true);
+    }
     this.syncGroup();
   }
 

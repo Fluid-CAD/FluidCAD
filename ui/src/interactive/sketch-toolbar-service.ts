@@ -97,13 +97,13 @@ export class SketchToolbarService {
     this.container = container;
     this.trimService = trimService;
     this.projectionService = projectionService;
-    // An applied projection resumes lazily (its re-render is on the way); the
-    // disarm below then finds the dialog already closed. A cancel arrives
-    // without options and closes through the toolbar's own immediate exit.
+    // An applied projection resumes lazily (its re-render is on the way); a
+    // cancel arrives without options and resumes immediately. The exit is
+    // explicit rather than left to the disarm below: while an edit session
+    // runs, the hidden toolbar has dropped its active tool, so the disarm
+    // would not find the tool armed.
     this.projectionService.onDone = (opts) => {
-      if (opts) {
-        this.projectionService.exit(opts);
-      }
+      this.projectionService.exit(opts);
       this.handleToolSelect(null);
     };
     this.projectionService.onVisibilityChange = (open) => this.onOpDialogToggle?.(open);
@@ -217,6 +217,32 @@ export class SketchToolbarService {
       service.noteSketchActive();
       this.activateDragHandler();
     }
+  }
+
+  /**
+   * Open the projection dialog over the `project()` statement at `target`
+   * (timeline double-click). The projection service's edit session rolls the
+   * viewport back to just before that row (the fillet/chamfer edit pattern);
+   * while it runs, sketch editing stays suspended and this service receives
+   * empty scene lists, so the toolbar steps aside.
+   */
+  enterProjectionEdit(
+    target: FeatureEditTarget,
+    parsed: Extract<ParsedFeatureStatement, { feature: 'project' }>,
+    info: { index: number; type: string; expectedStatement: string },
+  ): void {
+    // Same contract as the offset edit: never disarm an already-editing
+    // dialog here — that path would cancel it and clear the breakpoint the
+    // new double-click just placed. Its own re-entry closes it instead.
+    if (!this.projectionService.isEditing) {
+      this.handleToolSelect(null);
+    }
+    // 3D picking owns the viewport while the tool is armed — the sketch
+    // drag/hover handlers a sketch-mode entry left active would fight it
+    // (create mode tears them down in handleToolSelect the same way).
+    this.deactivateDragHandler();
+    this.toolbar.setActiveTool('project');
+    this.projectionService.enterEdit(target, parsed, info);
   }
 
   /** The sketch dialog's snap-to-vertices toggle; live tools follow along. */
@@ -346,10 +372,12 @@ export class SketchToolbarService {
         this.trimService.pendingActivation = false;
         this.toolbar.setActiveTool(null);
       }
-      if (this.projectionService.isPicking) {
+      if (this.projectionService.isPicking && !this.projectionService.isEditing) {
         // The sketch it was projecting into is gone — or another dialog took
         // the viewport. Either way the caller owns the view now, so sketch
-        // editing comes back lazily instead of forcing a render here.
+        // editing comes back lazily instead of forcing a render here. An
+        // edit dialog is exempt: its session owns the (rolled-back) view and
+        // handles its statement's disappearance itself.
         this.projectionService.exit({ resume: 'lazy' });
         this.toolbar.setActiveTool(null);
       }

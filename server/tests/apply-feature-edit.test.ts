@@ -6096,3 +6096,112 @@ describe('applyFeatureEdit (offset in-place statement edit)', () => {
     expect(result.newCode).toContain(`  offset(4, true)\n`);
   });
 });
+
+describe('parseFeatureStatement — project', () => {
+  it('reads the source arguments verbatim', async () => {
+    const code = [
+      `import { sketch, extrude, project } from 'fluidcad/core'`,
+      ``,
+      `const e = extrude(30)`,
+      `sketch('xz', () => {`,
+      `  project(e.sideFaces(0), select(face().planar()))`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toEqual({
+      ok: true,
+      parsed: { feature: 'project', argsText: `e.sideFaces(0), select(face().planar())` },
+      statement: `project(e.sideFaces(0), select(face().planar()))`,
+    });
+  });
+});
+
+describe('applyFeatureEdit (project in-place statement edit)', () => {
+  const codeWith = (statement: string) => [
+    `import { sketch, rect, extrude, project } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { rect(100, 50) })`,
+    `const e = extrude(30)`,
+    `sketch('xz', () => {`,
+    `  ${statement}`,
+    `})`,
+    ``,
+  ].join('\n');
+
+  it('replaces the source list from an edited argument list', async () => {
+    const result = await applyFeatureEdit(
+      codeWith(`project(e.sideFaces(0))`),
+      editSpec('project', { line: 6, column: 2 }, { rawArgs: 'e.sideFaces(1)' }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  project(e.sideFaces(1))\n`);
+  });
+
+  it('renders re-picked sources from a producer in the enclosing scope', async () => {
+    // The producer (the extruded solid) lives OUTSIDE the sketch body the
+    // edited statement sits in — the relaxed enclosing-scope rule for project.
+    const result = await applyFeatureEdit(
+      codeWith(`project(e.sideFaces(0))`),
+      editSpec('project', { line: 6, column: 2 }, {
+        producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: '0' }],
+      }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  project(e.endFaces(0))\n`);
+  });
+
+  it('binds an unbound source statement in the enclosing scope', async () => {
+    const code = [
+      `import { sketch, rect, extrude, project } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      `sketch('xz', () => {`,
+      `  project('placeholder')`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('project', { line: 6, column: 2 }, {
+      producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const e = extrude(30)`);
+    expect(result.newCode).toContain(`  project(e.endFaces())\n`);
+  });
+
+  it('hoists a select() in an edited argument list out of the sketch body', async () => {
+    const result = await applyFeatureEdit(
+      codeWith(`project(e.sideFaces(0))`),
+      editSpec('project', { line: 6, column: 2 }, { rawArgs: 'select(face().cylindrical())' }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const sel = select(face().cylindrical())\nsketch('xz', () => {`);
+    expect(result.newCode).toContain(`  project(sel)\n`);
+  });
+
+  it('hoists a producer-less select() part out of the sketch body', async () => {
+    const result = await applyFeatureEdit(
+      codeWith(`project(e.sideFaces(0))`),
+      editSpec('project', { line: 6, column: 2 }, {
+        producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: false }],
+        parts: [{ producer: null, accessor: 'select', indices: null, filterArgs: `face().planar()` }],
+        imports: ['select', 'face'],
+      }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const sel = select(face().planar())\nsketch('xz', () => {`);
+    expect(result.newCode).toContain(`  project(sel)\n`);
+  });
+
+  it('refuses when the statement at the line is not a project', async () => {
+    const code = codeWith(`project(e.sideFaces(0))`);
+    const result = await applyFeatureEdit(code, editSpec('project', { line: 4, column: 0 }, {
+      rawArgs: 'e.sideFaces(1)',
+    }));
+    expect(result.error).toContain('extrude');
+    expect(result.newCode).toBe(code);
+  });
+});

@@ -403,8 +403,10 @@ const EDITABLE_ROW_TYPES = new Set([
   'copy-linear', 'copy-circular',
   'fuse', 'subtract', 'common',
   'plane',
-  // 2D: an offset row sits under its sketch, and its dialog re-opens over it.
+  // 2D: an offset/projection row sits under its sketch, and its dialog
+  // re-opens over it.
   'offset',
+  'projection',
 ]);
 
 /**
@@ -497,6 +499,16 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     closeFeatureDialogs();
     pauseBeforeSketchStatement(obj, index);
     sketchService.enterOffsetEdit(target, parsed, result.statement);
+  } else if (parsed.feature === 'project') {
+    // A projection lives inside a sketch body but reads the 3D scene before
+    // it: its edit session rolls the viewport back to just before its row
+    // (the fillet/chamfer edit pattern) — the projected edges absent, the
+    // statement's sources highlighted and re-pickable in the free 3D view.
+    // keepProjection: an already-editing projection dialog must not be
+    // cancelled here (that would clear the breakpoint the double-click just
+    // placed) — its own re-entry closes it.
+    closeFeatureDialogs({ keepProjection: true });
+    sketchService.enterProjectionEdit(target, parsed, info);
   } else {
     // What's left of the parse union: the shell/fillet/chamfer dialog's.
     modifyService.enterEdit(target, parsed, info);
@@ -513,9 +525,14 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
  */
 function pauseBeforeSketchStatement(obj: SceneObjectRender, index: number): void {
   const objects = viewer.currentSceneObjects;
+  const line = obj.sourceLocation!.line;
   for (let i = index - 1; i >= 0; i--) {
     const prev = objects[i];
-    if (prev?.parentId != null && prev.parentId === obj.parentId && prev.sourceLocation) {
+    // A same-line sibling is the statement's own argument registering under
+    // its call site — the select a `project(b.endFaces())` spawns — and a
+    // breakpoint after it would land after the statement itself.
+    if (prev?.parentId != null && prev.parentId === obj.parentId && prev.sourceLocation
+      && prev.sourceLocation.line < line) {
       addBreakpoint(prev.sourceLocation);
       return;
     }
@@ -530,8 +547,10 @@ function pauseBeforeSketchStatement(obj: SceneObjectRender, index: number): void
  * back when it closes. A modify pick armed over the old scene retires itself
  * once the render that brings the sketch in arrives.
  */
-function closeFeatureDialogs(): void {
-  projectionService.exit({ resume: 'lazy' });
+function closeFeatureDialogs(opts: { keepProjection?: boolean } = {}): void {
+  if (!opts.keepProjection) {
+    projectionService.exit({ resume: 'lazy' });
+  }
   extrudeService.exit();
   revolveService.exit();
   helixService.exit();
@@ -1120,17 +1139,18 @@ function connectWebSocket() {
         } else {
           trimService.update(msg.result);
           regionService.update(msg.result);
-          // Shape ids changed with the render — an armed Project tool drops
-          // its now-unaddressable picks.
-          projectionService.update(msg.result);
           // While a pick mode has sketch editing suspended, the sketch
-          // toolbar must not re-take the bar on incoming renders.
+          // toolbar must not re-take the bar on incoming renders. An open
+          // projection EDIT counts too (its session owns the rolled-back
+          // view); the create-armed Project tool does not — its sketch
+          // staying in the scene is what keeps it armed.
           const sketchSuspended = modifyService.sketchUISuspended
             || sweepService.sketchUISuspended || wrapService.sketchUISuspended
             || loftService.sketchUISuspended || repeatService.sketchUISuspended
             || copyService.sketchUISuspended || booleanService.sketchUISuspended
             || planeService.sketchUISuspended || extrudeService.sketchUISuspended
             || revolveService.sketchUISuspended || helixService.sketchUISuspended
+            || projectionService.isEditing
             || textEditService.isActive;
           sketchService.update(sketchSuspended ? [] : msg.result);
         }
@@ -1139,6 +1159,11 @@ function connectWebSocket() {
         // rebuilds options/seeds at that boundary; without one this is the
         // plain update (empty list on rollbacks, as before).
         modifyService.handleSceneRendered(msg.result, renderStop, isRollback);
+        // The projection service sees every render: an open edit session
+        // keeps the view rolled back to just before its statement and
+        // re-seeds its sources there; without one, a (non-rollback) render
+        // drops an armed tool's now-unaddressable picks.
+        projectionService.handleSceneRendered(msg.result, renderStop, isRollback);
         // Once the modify service has (re)adopted the active sketch for this
         // render, the Finish Sketch button knows whether it should offer the
         // grid or just remove the breakpoint (editing a consumed sketch).

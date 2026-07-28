@@ -510,7 +510,12 @@ export class Viewer {
   }
 
   toggleSketchMode(enable: boolean): void {
-    this.modeManager.sketchEnabled = enable;
+    // While a dialog holds sketch editing suspended, nothing else may
+    // re-enable the mode manager — only resumeSketchEditing (which clears
+    // the suspension first) hands sketch mode back. Without this, a region
+    // reset on an edit session's rollback render re-enables the manager and
+    // the next full render locks the camera back onto the sketch normal.
+    this.modeManager.sketchEnabled = enable && !this.sketchEditingSuspended;
   }
 
   /**

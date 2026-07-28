@@ -1327,7 +1327,7 @@ async function allocateProducerVars(
 }
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'boolean', 'helix', 'plane', 'offset']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'boolean', 'helix', 'plane', 'offset', 'project']);
 
 /** One edited loft profile as the request carries it. */
 type EditLoftProfileInput =
@@ -1439,7 +1439,7 @@ function isKeepSlot(raw: any): boolean {
 function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "boolean" or "offset" for an edit' };
+    return { error: 'feature must be "extrude", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "boolean", "offset" or "project" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -1763,6 +1763,36 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
 
   if (feature === 'plane') {
     return validatePlaneEdit(body, base, edit);
+  }
+
+  // Project (2D): no value slot — either an edited source argument list (the
+  // expression row) or a re-picked set of 3D edges and faces; absent both,
+  // the statement's own arguments stand. The picks are made against the edit
+  // session's pre-statement rollback, so they synthesize boundary-scoped
+  // (`before` required) like the 3D edit dialogs'.
+  if (feature === 'project') {
+    if (selectorOverride !== undefined
+      && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
+      return { error: 'selectorOverride must be a non-empty string (max 500 chars)' };
+    }
+    const result: StatementEditRequest = {
+      ...base,
+      rawArgs: typeof selectorOverride === 'string' ? selectorOverride.trim() : undefined,
+    };
+    if (body?.entities !== undefined && body?.entities !== null) {
+      const picks = validatePicks(body.entities);
+      if (!picks) {
+        return { error: 'entities must be a non-empty array of {shapeId, sub:{type, index}} picks' };
+      }
+      const chains = validateChains(body?.chains);
+      if (!chains) {
+        return { error: 'chains must be {seed, members} pick groups' };
+      }
+      result.picks = picks;
+      result.chains = chains;
+      result.needsPicks = true;
+    }
+    return result;
   }
 
   // Offset (2D): the distance, both toggles, and either an edited target list
@@ -2508,7 +2538,7 @@ export function createApplyFeatureRouter(
         /** Synthesize one re-picked slot against the pre-statement scene. */
         const synthesizeSlot = (
           picks: Pick[],
-          kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix',
+          kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project',
           value: ValueExpr | undefined,
           chains: { seed: Pick; members: Pick[] }[],
         ): any | null => {
@@ -2727,7 +2757,7 @@ export function createApplyFeatureRouter(
         if (request.picks) {
           const synthesis = synthesizeSlot(
             request.picks,
-            request.feature as 'fillet' | 'chamfer' | 'shell',
+            request.feature as 'fillet' | 'chamfer' | 'shell' | 'project',
             request.value,
             request.chains ?? [],
           );

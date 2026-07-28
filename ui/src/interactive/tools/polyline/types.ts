@@ -16,9 +16,9 @@ export const enum PolylinePhase {
   DRAWING,
 }
 
-export type ModeId = 'line' | 'hLine' | 'vLine' | 'aLine' | 'arc' | 'tArc' | 'tLine';
+export type ModeId = 'line' | 'aLine' | 'arc' | 'tArc' | 'tLine';
 
-export const MODE_ORDER: ModeId[] = ['line', 'hLine', 'vLine', 'aLine', 'arc', 'tArc', 'tLine'];
+export const MODE_ORDER: ModeId[] = ['line', 'aLine', 'arc', 'tArc', 'tLine'];
 
 export type SegmentCommitResult = {
   endpoint: Point2D;

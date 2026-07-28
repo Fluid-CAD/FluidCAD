@@ -11,7 +11,6 @@ import { CONNECTABLE_TYPES, meshToSketch2D, tangentFromVertices } from '../tange
 import { SNAP_VERTEX_COLOR, SNAP_GRID_COLOR, addDot } from '../tool-preview-utils';
 import { ModeIndicator } from './mode-indicator';
 import { LineMode } from './mode-line';
-import { ConstrainedLineMode } from './mode-constrained-line';
 import { ALineMode } from './mode-aline';
 import { ArcMode } from './mode-arc';
 import { TArcMode } from './mode-tarc';
@@ -76,8 +75,6 @@ export class PolylineTool extends SketchTool {
 
     this.modes = [
       new LineMode(),
-      new ConstrainedLineMode('h'),
-      new ConstrainedLineMode('v'),
       new ALineMode(),
       new ArcMode(),
       new TArcMode(),

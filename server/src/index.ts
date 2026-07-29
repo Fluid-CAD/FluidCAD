@@ -53,10 +53,13 @@ const STARTED_AT = new Date().toISOString();
 // IPC helpers — communication with extension host process
 // ---------------------------------------------------------------------------
 
-function sendToExtension(msg: any) {
+/** Returns true when a host process received the message (IPC connected). */
+function sendToExtension(msg: any): boolean {
   if (process.send) {
     process.send(msg);
+    return true;
   }
+  return false;
 }
 
 // ---------------------------------------------------------------------------

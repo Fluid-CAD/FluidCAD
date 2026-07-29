@@ -1,5 +1,6 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import type { FluidCadServer, SelectionBoundary } from '../fluidcad-server.ts';
+import { EditAckRegistry } from '../edit-acks.ts';
 import {
   applyFeatureEdit, extractNumericParams, makeProducerNamer, parseFeatureStatement, renderBooleanStatement,
   parseOffsetTargetDescriptors,
@@ -2396,11 +2397,77 @@ function validateChains(chains: unknown): { seed: Pick; members: Pick[] }[] | nu
   return result;
 }
 
+export type ApplyFeatureRouterOptions = {
+  /**
+   * Dry-run every outgoing edit spec against the server's copy of the file
+   * before dispatching it to the editor (default true). Tests that relay
+   * synthetic specs turn this off.
+   */
+  preflight?: boolean;
+  /** How long to wait for the editor's transform round-trip (default 5000ms). */
+  ackTimeoutMs?: number;
+};
+
 export function createApplyFeatureRouter(
   fluidCadServer: FluidCadServer,
-  sendToExtension: (msg: any) => void,
+  sendToExtension: (msg: any) => boolean | void,
+  options: ApplyFeatureRouterOptions = {},
 ): Router {
   const router = Router();
+  const preflightEnabled = options.preflight !== false;
+  const ackTimeoutMs = options.ackTimeoutMs ?? 5000;
+  const editAcks = new EditAckRegistry(ackTimeoutMs);
+
+  /**
+   * Dispatch an edit spec to the editor host and answer the request with the
+   * true outcome, closing the old fire-and-forget gap where a transform
+   * refusal died in the editor's log while the dialog reported success. Two
+   * layers: a preflight dry-runs the transform against the server's copy of
+   * the file (fast, synchronous refusals — stale lines, unbindable
+   * producers), then the editor's round-trip through /code/apply-feature
+   * acks the real transform against the live buffer (catches drift the
+   * preflight can't see). A host that never round-trips within the timeout
+   * reports failure instead of silent success; a send with no host process
+   * at all (standalone server, tests) keeps the legacy immediate success.
+   */
+  async function dispatchEditSpec(
+    res: Response,
+    spec: ApplyFeatureEditSpec,
+    successBody: Record<string, unknown>,
+  ): Promise<void> {
+    if (preflightEnabled && spec.filePath === fluidCadServer.getCurrentFileName()) {
+      const code = fluidCadServer.getCurrentCode();
+      if (code !== null) {
+        try {
+          const dryRun = await applyFeatureEdit(code, spec);
+          if (dryRun.error) {
+            res.status(422).json({ success: false, reason: dryRun.error });
+            return;
+          }
+        } catch {
+          // A preflight crash is not a verdict — the editor round-trip decides.
+        }
+      }
+    }
+    const { editId, result } = editAcks.register();
+    const delivered = sendToExtension({ type: 'apply-feature-edit', spec: { ...spec, editId } }) === true;
+    if (!delivered) {
+      editAcks.cancel(editId);
+      res.json(successBody);
+      return;
+    }
+    const ack = await result;
+    if (ack === null) {
+      res.status(504).json({
+        success: false,
+        reason: `the editor did not apply the edit within ${ackTimeoutMs}ms — check the editor for errors`,
+      });
+    } else if (ack.error) {
+      res.status(422).json({ success: false, reason: ack.error });
+    } else {
+      res.json(successBody);
+    }
+  }
 
   // Read-only attribution report against the last rendered scene. Backs the
   // pick tooltips/debugging; never touches code.
@@ -3060,8 +3127,7 @@ export function createApplyFeatureRouter(
           });
           return;
         }
-        sendToExtension({ type: 'apply-feature-edit', spec });
-        res.json({ success: true, preview: statement });
+        await dispatchEditSpec(res, spec, { success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
       }
@@ -3162,19 +3228,15 @@ export function createApplyFeatureRouter(
           res.json({ success: true, preview: statement });
           return;
         }
-        sendToExtension({
-          type: 'apply-feature-edit',
-          spec: {
-            feature: 'extrude',
-            extrude: options,
-            filePath: request.profile.filePath,
-            producers,
-            parts,
-            imports,
-            newVariables,
-          },
-        });
-        res.json({ success: true, preview: statement });
+        await dispatchEditSpec(res, {
+          feature: 'extrude',
+          extrude: options,
+          filePath: request.profile.filePath,
+          producers,
+          parts,
+          imports,
+          newVariables,
+        }, { success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
       }
@@ -3292,19 +3354,15 @@ export function createApplyFeatureRouter(
           res.json({ success: true, preview: statement, args: pathArgs ?? undefined, alternatives });
           return;
         }
-        sendToExtension({
-          type: 'apply-feature-edit',
-          spec: {
-            feature: 'sweep',
-            sweep: options,
-            filePath: request.profile.filePath,
-            producers,
-            parts,
-            imports,
-            newVariables,
-          },
-        });
-        res.json({ success: true, preview: statement });
+        await dispatchEditSpec(res, {
+          feature: 'sweep',
+          sweep: options,
+          filePath: request.profile.filePath,
+          producers,
+          parts,
+          imports,
+          newVariables,
+        }, { success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
       }
@@ -3385,19 +3443,15 @@ export function createApplyFeatureRouter(
           res.json({ success: true, preview: statement, args: faceArgs ?? undefined, alternatives: synthesis.alternatives });
           return;
         }
-        sendToExtension({
-          type: 'apply-feature-edit',
-          spec: {
-            feature: 'wrap',
-            wrap: options,
-            filePath: request.sketch.filePath,
-            producers,
-            parts,
-            imports,
-            newVariables,
-          },
-        });
-        res.json({ success: true, preview: statement });
+        await dispatchEditSpec(res, {
+          feature: 'wrap',
+          wrap: options,
+          filePath: request.sketch.filePath,
+          producers,
+          parts,
+          imports,
+          newVariables,
+        }, { success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
       }
@@ -3520,19 +3574,15 @@ export function createApplyFeatureRouter(
           res.json({ success: true, preview: statement, args: axisArgs ?? undefined, alternatives });
           return;
         }
-        sendToExtension({
-          type: 'apply-feature-edit',
-          spec: {
-            feature: 'revolve',
-            revolve: options,
-            filePath: request.profile.filePath,
-            producers,
-            parts,
-            imports,
-            newVariables,
-          },
-        });
-        res.json({ success: true, preview: statement });
+        await dispatchEditSpec(res, {
+          feature: 'revolve',
+          revolve: options,
+          filePath: request.profile.filePath,
+          producers,
+          parts,
+          imports,
+          newVariables,
+        }, { success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
       }
@@ -3647,19 +3697,15 @@ export function createApplyFeatureRouter(
           res.json({ success: true, preview: statement, args: sourceArgs ?? undefined, alternatives });
           return;
         }
-        sendToExtension({
-          type: 'apply-feature-edit',
-          spec: {
-            feature: 'helix',
-            helix: options,
-            filePath,
-            producers,
-            parts,
-            imports,
-            newVariables,
-          },
-        });
-        res.json({ success: true, preview: statement });
+        await dispatchEditSpec(res, {
+          feature: 'helix',
+          helix: options,
+          filePath,
+          producers,
+          parts,
+          imports,
+          newVariables,
+        }, { success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
       }
@@ -3793,19 +3839,15 @@ export function createApplyFeatureRouter(
           res.json({ success: true, preview: statement });
           return;
         }
-        sendToExtension({
-          type: 'apply-feature-edit',
-          spec: {
-            feature: 'loft',
-            loft: options,
-            filePath: filePath!,
-            producers,
-            parts,
-            imports: [...imports],
-            newVariables,
-          },
-        });
-        res.json({ success: true, preview: statement });
+        await dispatchEditSpec(res, {
+          feature: 'loft',
+          loft: options,
+          filePath: filePath!,
+          producers,
+          parts,
+          imports: [...imports],
+          newVariables,
+        }, { success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
       }
@@ -3931,19 +3973,15 @@ export function createApplyFeatureRouter(
           res.json({ success: true, preview: statement });
           return;
         }
-        sendToExtension({
-          type: 'apply-feature-edit',
-          spec: {
-            feature: 'plane',
-            plane: options,
-            filePath,
-            producers,
-            parts,
-            imports: [...imports],
-            newVariables,
-          },
-        });
-        res.json({ success: true, preview: statement });
+        await dispatchEditSpec(res, {
+          feature: 'plane',
+          plane: options,
+          filePath,
+          producers,
+          parts,
+          imports: [...imports],
+          newVariables,
+        }, { success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
       }
@@ -4128,19 +4166,15 @@ export function createApplyFeatureRouter(
           res.json({ success: true, preview: statement });
           return;
         }
-        sendToExtension({
-          type: 'apply-feature-edit',
-          spec: {
-            feature: 'repeat',
-            repeat: options,
-            filePath,
-            producers,
-            parts,
-            imports: [...imports],
-            newVariables,
-          },
-        });
-        res.json({ success: true, preview: statement });
+        await dispatchEditSpec(res, {
+          feature: 'repeat',
+          repeat: options,
+          filePath,
+          producers,
+          parts,
+          imports: [...imports],
+          newVariables,
+        }, { success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
       }
@@ -4284,19 +4318,15 @@ export function createApplyFeatureRouter(
           res.json({ success: true, preview: statement });
           return;
         }
-        sendToExtension({
-          type: 'apply-feature-edit',
-          spec: {
-            feature: 'copy',
-            copy: options,
-            filePath,
-            producers,
-            parts,
-            imports: [...imports],
-            newVariables,
-          },
-        });
-        res.json({ success: true, preview: statement });
+        await dispatchEditSpec(res, {
+          feature: 'copy',
+          copy: options,
+          filePath,
+          producers,
+          parts,
+          imports: [...imports],
+          newVariables,
+        }, { success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
       }
@@ -4332,19 +4362,15 @@ export function createApplyFeatureRouter(
           res.json({ success: true, preview: statement });
           return;
         }
-        sendToExtension({
-          type: 'apply-feature-edit',
-          spec: {
-            feature: 'boolean',
-            boolean: options,
-            filePath,
-            producers,
-            parts: [],
-            imports: [],
-            newVariables,
-          },
-        });
-        res.json({ success: true, preview: statement });
+        await dispatchEditSpec(res, {
+          feature: 'boolean',
+          boolean: options,
+          filePath,
+          producers,
+          parts: [],
+          imports: [],
+          newVariables,
+        }, { success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
       }
@@ -4383,14 +4409,10 @@ export function createApplyFeatureRouter(
             res.json({ success: true, preview: statement, args: '' });
             return;
           }
-          sendToExtension({
-            type: 'apply-feature-edit',
-            spec: {
-              feature: 'sketch', sketchOnPlane: true, filePath: planeRef.filePath,
-              producers, parts: [], imports: [],
-            },
-          });
-          res.json({ success: true, preview: statement });
+          await dispatchEditSpec(res, {
+            feature: 'sketch', sketchOnPlane: true, filePath: planeRef.filePath,
+            producers, parts: [], imports: [],
+          }, { success: true, preview: statement });
         } catch (err: any) {
           res.status(500).json({ success: false, reason: err?.message ?? String(err) });
         }
@@ -4406,11 +4428,11 @@ export function createApplyFeatureRouter(
         res.json({ success: true, preview: statement, args: '' });
         return;
       }
-      sendToExtension({
-        type: 'apply-feature-edit',
-        spec: { feature: 'sketch', sketchPlane: plane, filePath, producers: [], parts: [], imports: [] },
-      });
-      res.json({ success: true, preview: statement });
+      await dispatchEditSpec(
+        res,
+        { feature: 'sketch', sketchPlane: plane, filePath, producers: [], parts: [], imports: [] },
+        { success: true, preview: statement },
+      );
       return;
     }
 
@@ -4493,8 +4515,7 @@ export function createApplyFeatureRouter(
         if (typeof selectorOverride === 'string' && selectorOverride.trim() !== synthesis.args) {
           spec = { ...spec, rawArgs: selectorOverride.trim() };
         }
-        sendToExtension({ type: 'apply-feature-edit', spec });
-        res.json({ success: true, preview: statementPreview });
+        await dispatchEditSpec(res, spec, { success: true, preview: statementPreview });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
       }
@@ -4607,8 +4628,7 @@ export function createApplyFeatureRouter(
         if (newVariables) {
           spec = { ...spec, newVariables };
         }
-        sendToExtension({ type: 'apply-feature-edit', spec });
-        res.json({ success: true, preview: statement });
+        await dispatchEditSpec(res, spec, { success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
       }
@@ -4721,8 +4741,7 @@ export function createApplyFeatureRouter(
       if (newVariables) {
         spec = { ...spec, newVariables };
       }
-      sendToExtension({ type: 'apply-feature-edit', spec });
-      res.json({ success: true, preview: statementPreview });
+      await dispatchEditSpec(res, spec, { success: true, preview: statementPreview });
     } catch (err: any) {
       res.status(500).json({ success: false, reason: err?.message ?? String(err) });
     }
@@ -5024,8 +5043,7 @@ export function createApplyFeatureRouter(
           newStatement: option.newStatement,
         },
       };
-      sendToExtension({ type: 'apply-feature-edit', spec });
-      res.json({ success: true, newStatement: option.newStatement });
+      await dispatchEditSpec(res, spec, { success: true, newStatement: option.newStatement });
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? String(err) });
     }
@@ -5033,17 +5051,28 @@ export function createApplyFeatureRouter(
 
   // Pure source transform: the extension sends the live buffer plus the edit
   // spec and gets the fully edited text back (same shape as /api/code/*).
+  // A spec carrying an `editId` is the round-trip of a dispatchEditSpec send —
+  // its outcome settles the original /apply-feature request still waiting on
+  // the ack.
   router.post('/code/apply-feature', async (req, res) => {
     const { code, spec } = req.body ?? {};
     if (typeof code !== 'string' || !spec || !Array.isArray(spec.producers) || !Array.isArray(spec.parts)) {
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
+    const { editId, ...editSpec } = spec;
     try {
-      const result = await applyFeatureEdit(code, spec);
+      const result = await applyFeatureEdit(code, editSpec);
+      if (typeof editId === 'string') {
+        editAcks.resolve(editId, result.error);
+      }
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ error: err?.message || String(err) });
+      const message = err?.message || String(err);
+      if (typeof editId === 'string') {
+        editAcks.resolve(editId, message);
+      }
+      res.status(500).json({ error: message });
     }
   });
 

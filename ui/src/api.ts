@@ -715,7 +715,7 @@ export async function convertSegment(
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {
-      return { success: false, reason: body?.error ?? `Request failed (${res.status})` };
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
     }
     return body ?? { success: false, reason: 'Empty server response' };
   } catch {

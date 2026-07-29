@@ -108,7 +108,9 @@ describe('apply-feature route validation', () => {
   beforeAll(async () => {
     const app = express();
     app.use(express.json());
-    app.use('/api', createApplyFeatureRouter(fakeServer as any, (msg) => relayed.push(msg)));
+    // This suite relays synthetic specs that would never survive the real
+    // transform — the preflight/ack layer has its own suite next door.
+    app.use('/api', createApplyFeatureRouter(fakeServer as any, (msg) => { relayed.push(msg); }, { preflight: false }));
 
     server = http.createServer(app);
     await new Promise<void>((resolve) => {
@@ -273,6 +275,7 @@ describe('apply-feature route validation', () => {
     expect(relayed).toHaveLength(1);
     expect(relayed[0].spec).toEqual({
       feature: 'sketch', sketchPlane: 'xz', filePath: '/ws/m.fluid.js', producers: [], parts: [], imports: [],
+      editId: expect.any(String),
     });
   });
 
@@ -320,6 +323,7 @@ describe('apply-feature route validation', () => {
       feature: 'sketch', sketchOnPlane: true, filePath: '/ws/m.fluid.js',
       producers: [{ line: 3, column: 0, featureType: 'plane', nameHint: 'p', bind: true }],
       parts: [], imports: [],
+      editId: expect.any(String),
     });
   });
 
@@ -3567,7 +3571,7 @@ describe('apply-feature route validation', () => {
       expect(status).toBe(200);
       expect(body.success).toBe(true);
       expect(relayed).toEqual([
-        { type: 'apply-feature-edit', spec: SKETCH_SYNTHESIS.spec },
+        { type: 'apply-feature-edit', spec: { ...SKETCH_SYNTHESIS.spec, editId: expect.any(String) } },
       ]);
     });
 

@@ -64,6 +64,7 @@ export class SceneModeManager {
   // -------------------------------------------------------------------------
 
   enterDefaultMode(): void {
+    this.ctx.setRotationLocked(false);
     if (this.mode === 'sketch') {
       this._sectionPlane = null;
 
@@ -92,6 +93,8 @@ export class SceneModeManager {
     if (!this.enabled) return;
 
     this.mode = 'sketch';
+
+    this.ctx.setRotationLocked(viewerSettings.current.sketchLockCamera);
 
     // Force orthographic for sketch mode
     if (viewerSettings.current.cameraMode === 'perspective') {

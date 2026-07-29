@@ -254,6 +254,7 @@ export class ModifyPickService {
     this.sketchPanel.onCancel = () => this.handleSketchCancel();
     this.sketchPanel.onEscape = () => this.handleSketchEscape();
     this.sketchPanel.onSectionViewToggle = (enabled) => this.viewer.setSectionViewEnabled(enabled);
+    this.sketchPanel.onLockCameraToggle = (enabled) => this.viewer.setSketchCameraLockEnabled(enabled);
     this.sketchPanel.onSnapVerticesToggle = (checked) => hooks.onSnapVerticesChange?.(checked);
     this.sketchPanel.onSnapGridToggle = (checked) => hooks.onSnapGridChange?.(checked);
     this.viewer.setSectionViewControl({

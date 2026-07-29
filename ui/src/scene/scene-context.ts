@@ -68,6 +68,7 @@ export class SceneContext {
   private _adapter!: CameraControlsAdapter;
 
   private dirLight: DirectionalLight;
+  private rotationLocked = false;
   private renderRequested = false;
   private resizeObserver: ResizeObserver;
   private clock = new Clock();
@@ -204,6 +205,27 @@ export class SceneContext {
     return this._cc;
   }
 
+  /**
+   * Lock the camera orientation: left-drag and one-finger touch pan instead
+   * of rotating, and the gizmo goes inert (a gizmo click/drag is a rotation
+   * too). Pan and zoom stay available. Survives camera switches — the
+   * rebuild in {@link switchCamera} re-applies the lock.
+   */
+  setRotationLocked(locked: boolean): void {
+    this.rotationLocked = locked;
+    this.applyRotationLock();
+  }
+
+  private applyRotationLock(): void {
+    this._cc.mouseButtons.left = this.rotationLocked
+      ? CameraControls.ACTION.TRUCK
+      : CameraControls.ACTION.ROTATE;
+    this._cc.touches.one = this.rotationLocked
+      ? CameraControls.ACTION.TOUCH_TRUCK
+      : CameraControls.ACTION.TOUCH_ROTATE;
+    this.gizmo.enabled = !this.rotationLocked;
+  }
+
   /** The adapter for ViewportGizmo compatibility. */
   get controls(): CameraControlsAdapter {
     return this._adapter;
@@ -265,6 +287,7 @@ export class SceneContext {
     this._cc.setLookAt(pos.x, pos.y, pos.z, tgt.x, tgt.y, tgt.z, false);
     this._cc.updateCameraUp();
     this.configureTouchForMode(mode);
+    this.applyRotationLock();
 
     // Create new adapter
     this._adapter = new CameraControlsAdapter(this._cc);

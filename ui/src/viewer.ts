@@ -248,6 +248,28 @@ export class Viewer {
     }
   }
 
+  /**
+   * The sketch dialog's Lock-camera toggle: while in sketch mode, rotation
+   * is blocked (pan/zoom only) so a drag can't tilt the view off the sketch
+   * plane. The setting sticks for later sketches; leaving sketch mode always
+   * frees the camera.
+   */
+  setSketchCameraLockEnabled(enabled: boolean): void {
+    viewerSettings.update({ sketchLockCamera: enabled });
+    if (!this.modeManager.isSketchMode) {
+      return;
+    }
+    this.ctx.setRotationLocked(enabled);
+    // Re-engaging the lock re-squares the view: free rotation while unlocked
+    // may have tilted the camera, and a locked camera must face the plane.
+    if (enabled) {
+      const active = this.findActiveObject(this.sceneObjects);
+      if (active?.type === 'sketch' && active.object?.plane) {
+        this.modeManager.enforceSketchNormal(active.object.plane);
+      }
+    }
+  }
+
   setParamsToggleHandler(fn: () => void): void {
     this.settingsPanel.setParamsToggleHandler(fn);
   }

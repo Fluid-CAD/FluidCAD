@@ -25,6 +25,8 @@ export class SketchStartPanel {
   onEscape?: () => void;
   /** The section-view toggle — clip the scene at the sketch plane. */
   onSectionViewToggle?: (enabled: boolean) => void;
+  /** The lock-camera toggle — block rotation while sketching (pan/zoom only). */
+  onLockCameraToggle?: (enabled: boolean) => void;
   /** The snap-to-vertices toggle — snapping while drawing/dragging. */
   onSnapVerticesToggle?: (enabled: boolean) => void;
   /** The snap-to-grid toggle — snapping while drawing/dragging. */
@@ -46,6 +48,11 @@ export class SketchStartPanel {
           title="Clip away everything in front of the sketch plane">
           <span class="text-base-content/70">Section view</span>
           <input data-role="section-view" type="checkbox" class="toggle toggle-sm toggle-primary" />
+        </label>
+        <label class="flex items-center justify-between cursor-pointer"
+          title="Keep the view flat on the sketch plane — pan and zoom only, no rotating">
+          <span class="text-base-content/70">Lock camera</span>
+          <input data-role="lock-camera" type="checkbox" class="toggle toggle-sm toggle-primary" checked />
         </label>
         <label class="flex items-center justify-between cursor-pointer"
           title="Snap to existing sketch vertices while drawing and dragging">
@@ -75,6 +82,10 @@ export class SketchStartPanel {
     this.sectionViewInput.addEventListener('change', () => {
       this.onSectionViewToggle?.(this.sectionViewInput.checked);
     });
+    const lockCameraInput = this.shell.body.querySelector('[data-role="lock-camera"]') as HTMLInputElement;
+    lockCameraInput.addEventListener('change', () => {
+      this.onLockCameraToggle?.(lockCameraInput.checked);
+    });
     const snapVerticesInput = this.shell.body.querySelector('[data-role="snap-vertices"]') as HTMLInputElement;
     snapVerticesInput.addEventListener('change', () => {
       this.onSnapVerticesToggle?.(snapVerticesInput.checked);
@@ -86,7 +97,7 @@ export class SketchStartPanel {
   }
 
   /**
-   * The options block (section view + snap toggles) only means something once
+   * The options block (section view + lock camera + snap toggles) only means something once
    * the sketch plane exists, so the viewer drives it from the scene: shown
    * while a sketch is active — including one whose face/plane is being
    * re-picked, where the camera leaves the sketch view but the sketch (and

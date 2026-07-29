@@ -277,13 +277,7 @@ export class TimelinePanel {
           // suspends the sketch UI itself and restores it on exit.
           return;
         }
-        if (!(obj && this.managesOwnBreakpoint?.(obj))) {
-          this.addBreakpointAfter(index);
-        }
-        this.goToSource(obj);
-        if (obj) {
-          this.onFeatureEdit?.(obj, index);
-        }
+        this.enterBreakpointAt(index);
       });
       el.addEventListener('contextmenu', (e) => {
         if ((e.target as HTMLElement).closest('[data-toggle]')) {
@@ -329,6 +323,23 @@ export class TimelinePanel {
       if (currentEl) {
         currentEl.scrollIntoView({ block: 'nearest' });
       }
+    }
+  }
+
+  /**
+   * The enter-breakpoint gesture, shared by row double-click and the context
+   * menu's "Breakpoint here": place the breakpoint after the row (unless the
+   * feature's edit manages its own pause), jump to the source line, and open
+   * the feature's edit dialog when it has one.
+   */
+  private enterBreakpointAt(index: number): void {
+    const obj = this.sceneObjects[index];
+    if (!(obj && this.managesOwnBreakpoint?.(obj))) {
+      this.addBreakpointAfter(index);
+    }
+    this.goToSource(obj);
+    if (obj) {
+      this.onFeatureEdit?.(obj, index);
     }
   }
 
@@ -535,10 +546,10 @@ export class TimelinePanel {
   /**
    * Right-click menu on a timeline row: "Rename" swaps the menu for an
    * inline input editing the feature's chained `.name('…')`, "Breakpoint
-   * here" places the breakpoint after the row (the double-click gesture,
-   * without opening an edit dialog) and "Remove" deletes the feature's
-   * statement from the code. Rows without a source location get no menu —
-   * none of the actions can target them.
+   * here" runs the double-click gesture (breakpoint after the row plus the
+   * feature's edit dialog when it has one) and "Remove" deletes the
+   * feature's statement from the code. Rows without a source location get
+   * no menu — none of the actions can target them.
    */
   private showRowContextMenu(e: MouseEvent, index: number): void {
     this.closeDropdown();
@@ -555,11 +566,13 @@ export class TimelinePanel {
     dropdown.style.top = `${e.clientY - panelRect.top}px`;
 
     // The breakpoint action is timeline navigation — absent while sketching,
-    // except on the active sketch's own children: a breakpoint there replays
-    // the sketch up to that shape without leaving sketch mode.
+    // except on rows the double-click gesture still serves: the active
+    // sketch's own children (a breakpoint there replays the sketch up to
+    // that shape without leaving sketch mode) and rows with an edit dialog
+    // (the dialog suspends the sketch UI itself and restores it on exit).
     const activeSketchChild = this.sketchActive && obj.parentId != null
       && this.findActiveObject(this.sceneObjects)?.id === obj.parentId;
-    const breakpointItem = this.sketchActive && !activeSketchChild ? '' : `
+    const breakpointItem = this.sketchActive && !activeSketchChild && this.isFeatureEditable?.(obj) !== true ? '' : `
         <li><button data-action="rollback" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PAUSE}</span>
           <span>Breakpoint here</span>
@@ -590,8 +603,7 @@ export class TimelinePanel {
 
     dropdown.querySelector('[data-action="rollback"]')?.addEventListener('click', () => {
       this.closeDropdown();
-      this.addBreakpointAfter(index);
-      this.goToSource(obj);
+      this.enterBreakpointAt(index);
     });
 
     dropdown.querySelector('[data-action="remove"]')!.addEventListener('click', () => {

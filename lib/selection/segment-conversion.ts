@@ -20,6 +20,12 @@ export type ConversionOption = {
   newStatement?: string;
   /** |new end − old end|, for the UI to warn on snap size. */
   endpointDelta?: number;
+  /**
+   * Start-tangent deviation (degrees) an arc→tArc conversion re-bulges away.
+   * Only present beyond the snap tolerance — the endpoints stay put, but the
+   * arc visibly reshapes, so the UI warns.
+   */
+  reshapeAngle?: number;
 };
 
 export type SegmentConversionsResult = {
@@ -332,38 +338,19 @@ function axisConversion(
   };
 }
 
-/** `arc(...).center(...)` → `tArc([ex, ey])`, legal when start tangent ≈ incoming. */
+/**
+ * `arc(...).center(...)` → `tArc([ex, ey])` — converts at any start angle:
+ * both endpoints are preserved and the arc re-bulges to start tangent to the
+ * chain. Beyond the snap tolerance the reshape is visible, so the option
+ * carries `reshapeAngle` for the UI to warn (the axis-snap philosophy —
+ * convert anyway, warn about the move).
+ */
 function arcToTangentArc(
   resolved: ResolvedSegment,
   start: Point2D,
   end: Point2D,
   incomingTangent: Point2D,
 ): ConversionOption {
-  const plane = resolved.sketch.getPlane();
-  let center: Point2D;
-  try {
-    center = plane.worldToLocal(EdgeQuery.getCircleDataFromEdge(resolved.edge).center);
-  } catch {
-    return { target: 'tArc', enabled: false, reason: 'the arc\'s circle geometry could not be read' };
-  }
-
-  const endTangent = resolved.owner.getTangent();
-  if (!endTangent) {
-    return { target: 'tArc', enabled: false, reason: 'the arc did not record its end tangent — re-render and try again' };
-  }
-
-  const orientation = arcOrientation(endTangent, end, center);
-  const startTangent = perp(start.subtract(center)).normalize().multiplyScalar(orientation);
-
-  const offAngle = angleBetweenDeg(startTangent, incomingTangent);
-  if (offAngle > CONVERSION_TOLERANCE_DEG) {
-    return {
-      target: 'tArc',
-      enabled: false,
-      reason: `the arc's start is ${fmtAngle(offAngle)} off the incoming tangent — more than the ${CONVERSION_TOLERANCE_DEG}° snap tolerance`,
-    };
-  }
-
   // tArc solves the center from tangency; a chord along the tangent has no
   // solution (TangentArcToPoint refuses collinear endpoints).
   const chord = end.subtract(start);
@@ -372,7 +359,29 @@ function arcToTangentArc(
     return { target: 'tArc', enabled: false, reason: 'the arc\'s endpoint lies along the incoming tangent — a tangent arc cannot reach it' };
   }
 
-  return { target: 'tArc', enabled: true, newStatement: `tArc(${fmtPoint(end)})` };
+  const option: ConversionOption = { target: 'tArc', enabled: true, newStatement: `tArc(${fmtPoint(end)})` };
+
+  // The start-tangent deviation is only a warning now — if the arc's built
+  // geometry can't be read the conversion still stands, just unannotated.
+  const plane = resolved.sketch.getPlane();
+  let center: Point2D;
+  try {
+    center = plane.worldToLocal(EdgeQuery.getCircleDataFromEdge(resolved.edge).center);
+  } catch {
+    return option;
+  }
+  const endTangent = resolved.owner.getTangent();
+  if (!endTangent) {
+    return option;
+  }
+
+  const orientation = arcOrientation(endTangent, end, center);
+  const startTangent = perp(start.subtract(center)).normalize().multiplyScalar(orientation);
+  const offAngle = angleBetweenDeg(startTangent, incomingTangent);
+  if (offAngle > CONVERSION_TOLERANCE_DEG) {
+    option.reshapeAngle = offAngle;
+  }
+  return option;
 }
 
 /** `tArc([ex, ey])` → `arc([ex, ey]).center([cx, cy])` (+ `.cw()`) — always legal. */

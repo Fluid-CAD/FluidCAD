@@ -720,6 +720,11 @@ export type ConversionOption = {
   newStatement?: string;
   /** |new end − old end| in mm, for the UI to warn on snap size. */
   endpointDelta?: number;
+  /**
+   * Start-tangent deviation (degrees) an arc→tArc conversion re-bulges away;
+   * endpoints stay put but the arc visibly reshapes.
+   */
+  reshapeAngle?: number;
 };
 
 export type SegmentConversionsResponse = {

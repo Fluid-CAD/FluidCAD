@@ -122,6 +122,9 @@ export class ConstraintToolbar {
         if (option.endpointDelta !== undefined && option.endpointDelta > ENDPOINT_DELTA_EPSILON) {
           tooltip += ` — moves endpoint by ~${option.endpointDelta.toFixed(2)} mm`;
         }
+        if (option.reshapeAngle !== undefined) {
+          tooltip += ` — reshapes the arc by ~${option.reshapeAngle.toFixed(1)}°`;
+        }
       }
 
       btn.disabled = !enabled;

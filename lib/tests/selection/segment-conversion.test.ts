@@ -242,9 +242,10 @@ describe("listSegmentConversions", () => {
       enabled: true,
       newStatement: 'tArc([200, 100])',
     });
+    expect(result.options![0].reshapeAngle).toBeUndefined();
   });
 
-  it("non-tangent arc refuses the tArc conversion with a reason", () => {
+  it("non-tangent arc converts to tArc with a reshape warning", () => {
     let l: unknown;
     let a: unknown;
     sketch("xy", () => {
@@ -255,12 +256,63 @@ describe("listSegmentConversions", () => {
     setLocation(l, 3);
     setLocation(a, 4);
 
+    // Endpoints are preserved — the arc re-bulges to tangency — so the
+    // conversion is legal at any start angle; reshapeAngle carries the
+    // deviation for the UI to warn about.
+    const result = listSegmentConversions(scene, refFor(a));
+    expect(result.ok).toBe(true);
+    const option = result.options![0];
+    expect(option).toMatchObject({
+      target: 'tArc',
+      enabled: true,
+      newStatement: 'tArc([200, 100])',
+    });
+    expect(option.reshapeAngle).toBeCloseTo(45, 1);
+  });
+
+  it("arc chained after tArc segments converts at any start angle", () => {
+    let a: unknown;
+    sketch('xy', () => {
+      hLine(15.67);
+      aLine(90, 20.76);
+      tArc(8.9);
+      tArc(-2);
+      a = arc([-15.57, 29.96]).center([-4.87, 24.52]);
+    });
+    const scene = render();
+    let lineNo = 3;
+    for (const obj of scene.getAllSceneObjects()) {
+      setLocation(obj, lineNo++);
+    }
+
+    const result = listSegmentConversions(scene, refFor(a));
+    expect(result.ok).toBe(true);
+    const option = result.options![0];
+    expect(option).toMatchObject({
+      target: 'tArc',
+      enabled: true,
+      newStatement: 'tArc([-15.57, 29.96])',
+    });
+    expect(option.reshapeAngle).toBeCloseTo(36.5, 0);
+  });
+
+  it("arc whose endpoint lies along the incoming tangent refuses tArc", () => {
+    let l: unknown;
+    let a: unknown;
+    sketch("xy", () => {
+      l = line([100, 0]);
+      a = arc([200, 0]).center([150, 0]);
+    });
+    const scene = render();
+    setLocation(l, 3);
+    setLocation(a, 4);
+
     const result = listSegmentConversions(scene, refFor(a));
     expect(result.ok).toBe(true);
     const option = result.options![0];
     expect(option.target).toBe('tArc');
     expect(option.enabled).toBe(false);
-    expect(option.reason).toContain('5°');
+    expect(option.reason).toContain('tangent arc cannot reach it');
   });
 
   it("refuses the angles-form arc (its chain anchor is the center)", () => {

@@ -469,7 +469,9 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   removeShape(shape: Shape, removedBy: SceneObject) {
     if (this.isContainer()) {
       for (const child of this.children) {
-        const childShapes = child.getShapes();
+        // Meta/guide shapes must be findable too — the default getShapes()
+        // filter hides them, which would make their removal a silent no-op.
+        const childShapes = child.getShapes({ excludeMeta: false, excludeGuide: false });
         if (childShapes.some(s => s === shape)) {
           child.removeShape(shape, removedBy);
         }

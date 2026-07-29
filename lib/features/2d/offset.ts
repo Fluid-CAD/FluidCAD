@@ -78,6 +78,7 @@ export class Offset extends ExtrudableGeometryBase {
 
     let lastOffsetWire: Wire = null;
     const plane = this.getPlane();
+    const strippedOwners = new Set<SceneObject>();
 
     for (const wireInfo of wires) {
       const offsetWire = WireOps.offsetWireOnPlane(wireInfo.wire, this.distance, wireInfo.wire.isClosed(), plane);
@@ -112,9 +113,12 @@ export class Offset extends ExtrudableGeometryBase {
           } else {
             owner.removeShape(edge, this);
           }
+          strippedOwners.add(owner);
         }
       }
     }
+
+    this.removeOrphanedMetaShapes(strippedOwners);
 
     if (lastOffsetWire) {
       const plane = this.getPlane();

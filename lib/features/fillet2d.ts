@@ -54,6 +54,8 @@ export class Fillet2D extends GeometrySceneObject {
       });
     }
 
+    const strippedOwners = new Set<SceneObject>();
+
     for (const wireInfo of wires) {
       const inputEdges = Array.from(wireInfo.edges.keys());
       const filletedWire = FilletOps.fillet2d(wireInfo.wire, this.sketch.getPlane(), this.radius);
@@ -74,12 +76,15 @@ export class Fillet2D extends GeometrySceneObject {
         this.addShape(edge);
       }
 
-      for (const edge of wireInfo.edges.keys()) {
+      for (const [edge, owner] of wireInfo.edges) {
         // Remove through the sketch so every holder of the instance (real
         // owner and any lazy accessor mirror) records the removal.
         this.sketch.removeShape(edge, this);
+        strippedOwners.add(owner);
       }
     }
+
+    this.removeOrphanedMetaShapes(strippedOwners);
   }
 
   override getDependencies(): SceneObject[] {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../../setup.js";
 import sketch from "../../../core/sketch.js";
-import { circle, rect, hLine, vLine, aLine, line, offset } from "../../../core/2d/index.js";
+import { circle, rect, hLine, vLine, aLine, line, offset, polygon } from "../../../core/2d/index.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { ShapeOps } from "../../../oc/shape-ops.js";
 import { Edge } from "../../../common/edge.js";
@@ -195,6 +195,53 @@ describe("offset", () => {
       // Only offset edges remain — original circle removed
       const shapes = s.getShapes();
       expect(shapes).toHaveLength(1);
+    });
+
+    it("removes a polygon's meta base circle along with its sides", () => {
+      const s = sketch("xy", () => {
+        const pg = polygon(6, 40);
+        offset(10, true, pg);
+      }) as Sketch;
+
+      render();
+
+      // Only offset geometry remains (6 lines + 6 corner arcs) — every
+      // original side is gone
+      const shapes = s.getShapes();
+      expect(shapes.length).toBeGreaterThan(0);
+      expect(shapes.every(shape => (shape as Edge).provenance === 'offset-of')).toBe(true);
+
+      // The meta base circle must not survive its polygon
+      const metaShapes = s.getShapes({ excludeMeta: false, excludeGuide: false })
+        .filter(shape => shape.isMetaShape());
+      expect(metaShapes).toHaveLength(0);
+    });
+
+    it("keeps the meta base circle when only some polygon sides are removed", () => {
+      const s = sketch("xy", () => {
+        const pg = polygon(6, 40);
+        offset(10, true, pg.edge(0));
+      }) as Sketch;
+
+      render();
+
+      // Polygon still renders 5 of its sides
+      const metaShapes = s.getShapes({ excludeMeta: false, excludeGuide: false })
+        .filter(shape => shape.isMetaShape());
+      expect(metaShapes).toHaveLength(1);
+    });
+
+    it("removes a circle's meta center vertex along with the circle", () => {
+      const s = sketch("xy", () => {
+        circle(40);
+        offset(5, true);
+      }) as Sketch;
+
+      render();
+
+      const metaShapes = s.getShapes({ excludeMeta: false, excludeGuide: false })
+        .filter(shape => shape.isMetaShape());
+      expect(metaShapes).toHaveLength(0);
     });
   });
 

@@ -4,7 +4,7 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import fillet from "../../core/fillet.js";
 import fuse from "../../core/fuse.js";
-import { arc, hMove, rect, vLine, hLine, vMove, back } from "../../core/2d/index.js";
+import { arc, hMove, rect, vLine, hLine, vMove, back, polygon } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { Sketch } from "../../features/2d/sketch.js";
@@ -109,6 +109,35 @@ describe("fillet2d", () => {
       // original arc and inserts the fillet arc -> 2 arcs. The array form
       // fillet([l2, l1], 8) produces the identical result.
       expect(getEdgesByType(s.getEdges(), "arc")).toHaveLength(2);
+    });
+  });
+
+  describe("orphaned meta shapes", () => {
+    it("removes a polygon's meta base circle when all its sides are filleted", () => {
+      const s = sketch("xy", () => {
+        polygon(6, 40);
+        fillet(3);
+      }) as Sketch;
+
+      render();
+
+      const metaShapes = s.getShapes({ excludeMeta: false, excludeGuide: false })
+        .filter(shape => shape.isMetaShape());
+      expect(metaShapes).toHaveLength(0);
+    });
+
+    it("keeps the meta base circle when only one polygon corner is filleted", () => {
+      const s = sketch("xy", () => {
+        const pg = polygon(6, 40);
+        fillet(3, pg.edge(0), pg.edge(1));
+      }) as Sketch;
+
+      render();
+
+      // Four sides still belong to the polygon
+      const metaShapes = s.getShapes({ excludeMeta: false, excludeGuide: false })
+        .filter(shape => shape.isMetaShape());
+      expect(metaShapes).toHaveLength(1);
     });
   });
 

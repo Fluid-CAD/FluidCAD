@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../../setup.js";
 import sketch from "../../../core/sketch.js";
 import trim from "../../../core/trim.js";
-import { rect, circle, hLine, move } from "../../../core/2d/index.js";
+import { rect, circle, hLine, move, polygon } from "../../../core/2d/index.js";
 import { edge } from "../../../filters/index.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { Trim2D } from "../../../features/trim2d.js";
@@ -138,5 +138,41 @@ describe("trim segments and regions", () => {
     // The circle region's boundary is removed; the rect's edges survive.
     const remaining = [...s!.getEdgesWithOwner().keys()];
     expect(remaining).toHaveLength(4);
+  });
+
+  describe("orphaned meta shapes", () => {
+    const metaShapesOf = (s: Sketch) =>
+      s.getShapes({ excludeMeta: false, excludeGuide: false })
+        .filter(shape => shape.isMetaShape());
+
+    it("removes a polygon's meta base circle when the whole polygon is trimmed", () => {
+      const s = sketch("xy", () => {
+        const pg = polygon(6, 40);
+        trim(pg);
+      }) as Sketch;
+      render();
+
+      expect(metaShapesOf(s)).toHaveLength(0);
+    });
+
+    it("keeps the meta base circle when only one side is trimmed", () => {
+      const s = sketch("xy", () => {
+        const pg = polygon(6, 40);
+        trim(pg.edge(0));
+      }) as Sketch;
+      render();
+
+      expect(metaShapesOf(s)).toHaveLength(1);
+    });
+
+    it("removes the meta base circle when filter targets trim away every side", () => {
+      const s = sketch("xy", () => {
+        polygon(6, 40);
+        trim(edge().line());
+      }) as Sketch;
+      render();
+
+      expect(metaShapesOf(s)).toHaveLength(0);
+    });
   });
 });

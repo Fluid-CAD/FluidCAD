@@ -141,6 +141,31 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
     return result;
   }
 
+  /**
+   * An owner whose real edges were all consumed (offset with removeOriginal,
+   * fillet) leaves its meta shapes (a polygon's base circle, a circle's
+   * center vertex) orphaned — remove them along with the originals. Owners
+   * that keep any real edge keep their meta shapes.
+   */
+  protected removeOrphanedMetaShapes(owners: Set<SceneObject>) {
+    for (const owner of owners) {
+      const remaining = owner.getShapes({ excludeMeta: true, excludeGuide: false });
+      if (remaining.length > 0) {
+        continue;
+      }
+
+      const metaShapes = owner.getShapes({ excludeMeta: false, excludeGuide: false })
+        .filter(shape => shape.isMetaShape());
+      for (const shape of metaShapes) {
+        if (this.sketch) {
+          this.sketch.removeShape(shape, this);
+        } else {
+          owner.removeShape(shape, this);
+        }
+      }
+    }
+  }
+
   /** The SceneObject members of a mixed target list (for dependencies). */
   protected static sceneObjectTargets(targets: EdgeTargetArg[] | null): SceneObject[] {
     return (targets ?? []).filter((t): t is SceneObject => t instanceof SceneObject);

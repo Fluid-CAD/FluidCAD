@@ -91,17 +91,19 @@ export class Trim2D extends GeometrySceneObject {
       (t): t is FilterBuilderBase<Edge> => t instanceof FilterBuilderBase,
     );
 
+    const strippedOwners = new Set<SceneObject>();
+
     let removedWhole: Set<Edge> = new Set();
     if (sceneTargets.length > 0) {
-      removedWhole = this.buildWithTargets(sceneTargets);
+      removedWhole = this.buildWithTargets(sceneTargets, strippedOwners);
     }
 
-    if (filterTargets.length === 0 && !this._picking) {
-      return;
+    if (filterTargets.length > 0 || this._picking) {
+      const pickableEdges = allEdges.filter(e => !removedWhole.has(e));
+      this.buildSegments(pickableEdges, edgeToOwner, plane, filterTargets, strippedOwners);
     }
 
-    const pickableEdges = allEdges.filter(e => !removedWhole.has(e));
-    this.buildSegments(pickableEdges, edgeToOwner, plane, filterTargets);
+    this.removeOrphanedMetaShapes(strippedOwners);
   }
 
   /**
@@ -111,10 +113,11 @@ export class Trim2D extends GeometrySceneObject {
    * of the instance records it. Returns the removed set so the segment pass
    * excludes it.
    */
-  private buildWithTargets(targets: EdgeTargetArg[]): Set<Edge> {
+  private buildWithTargets(targets: EdgeTargetArg[], strippedOwners: Set<SceneObject>): Set<Edge> {
     const resolved = this.resolveEdgeTargets(targets);
-    for (const edge of resolved.keys()) {
+    for (const [edge, owner] of resolved) {
       this.sketch.removeShape(edge, this);
+      strippedOwners.add(owner);
     }
     return new Set(resolved.keys());
   }
@@ -130,6 +133,7 @@ export class Trim2D extends GeometrySceneObject {
     edgeToOwner: Map<Edge, { wire: Wire | Edge; owner: SceneObject }>,
     plane: Plane,
     filterTargets: FilterBuilderBase<Edge>[],
+    strippedOwners: Set<SceneObject>,
   ) {
 
     const TRIM_TOLERANCE = 50;
@@ -165,6 +169,7 @@ export class Trim2D extends GeometrySceneObject {
         if (!removedWires.has(entry.wire)) {
           removedWires.add(entry.wire);
           entry.owner.removeShape(entry.wire, this);
+          strippedOwners.add(entry.owner);
         }
       }
 

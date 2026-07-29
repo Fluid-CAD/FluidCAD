@@ -890,9 +890,11 @@ const REPEAT_TARGET_CALLEES = new Set([
 
 /**
  * Chain-root callees per 2D sketch-geometry feature type (getType values of
- * sketch primitives). A sketch-scoped spec's producers are statements inside
- * a sketch body; binding one to a variable and chaining `.edge(...)` on it is
- * valid for exactly these callees.
+ * sketch primitives and derived ops). A sketch-scoped spec's producers are
+ * statements inside a sketch body; binding one to a variable and chaining
+ * `.edge(...)` on it is valid for exactly these callees. The derived ops
+ * (fillet2d & co.) take ownership of the edges they emit, so a pick on one of
+ * their edges attributes to their statement.
  */
 const SKETCH_PRODUCER_CALLEES: Record<string, string[]> = {
   rect: ['rect'],
@@ -910,6 +912,11 @@ const SKETCH_PRODUCER_CALLEES: Record<string, string[]> = {
   projection: ['project'],
   intersect: ['intersect'],
   text: ['text'],
+  fillet2d: ['fillet'],
+  trim2d: ['trim'],
+  fuse2d: ['fuse'],
+  subtract2d: ['subtract'],
+  common2d: ['common'],
 };
 
 /** The chain-root callees producers of `featureType` may bind. */

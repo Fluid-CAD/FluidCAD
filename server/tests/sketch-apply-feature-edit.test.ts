@@ -53,6 +53,63 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
     ].join('\n'));
   });
 
+  it('binds a fillet2d producer for a second fillet over its edges', async () => {
+    const code = [
+      `import { sketch, rect, fillet, aLine, move } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const r = rect(80, 60)`,
+      `  fillet(4, r.edge('top'), r.edge('right'))`,
+      `  move([0, 60])`,
+      `  aLine(135, 30)`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, sketchSpec({
+      value: 3,
+      producers: [
+        { line: 5, column: 0, featureType: 'fillet2d', nameHint: 'f', bind: true },
+        { line: 7, column: 0, featureType: 'line', nameHint: 'l', bind: true },
+      ],
+      parts: [
+        { producer: 0, accessor: 'edge', indices: null, filterArgs: "'top'" },
+        { producer: 1, accessor: '', indices: null, filterArgs: null },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const f = fillet(4, r.edge('top'), r.edge('right'))`);
+    expect(result.newCode).toContain(`fillet(3, f.edge('top'), l)`);
+  });
+
+  it('binds a trim2d producer for an op over its split segments', async () => {
+    const code = [
+      `import { sketch, rect, circle, trim, edge, fillet } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const r = rect(80, 60)`,
+      `  circle(20)`,
+      `  trim(edge().circle(40))`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, sketchSpec({
+      value: 2,
+      producers: [
+        { line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true },
+        { line: 6, column: 0, featureType: 'trim2d', nameHint: 'f', bind: true },
+      ],
+      parts: [
+        { producer: 0, accessor: 'edge', indices: null, filterArgs: "'top'" },
+        { producer: 1, accessor: 'edge', indices: null, filterArgs: '0' },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const f = trim(edge().circle(40))`);
+    expect(result.newCode).toContain(`fillet(2, r.edge('top'), f.edge(0))`);
+  });
+
   it('reuses an existing const binding in the sketch body', async () => {
     const code = [
       `import { sketch, rect, fillet } from 'fluidcad/core'`,

@@ -35,9 +35,35 @@ const ICON_RENDER_ORDER = 3;
 // The aline angle indicator: a dimension arc at the segment's start vertex,
 // swept from the incoming-tangent reference ray to the line itself.
 const ANGLE_ARC_RADIUS = 5;
-const ANGLE_ARC_PX_RADIUS = 26;
-const ANGLE_TEXT_PX_SIZE = 20;
+export const ANGLE_ARC_PX_RADIUS = 26;
+export const ANGLE_TEXT_PX_SIZE = 20;
 const ANGLE_ARC_SEGMENTS = 32;
+
+/**
+ * Polar frame of the aline angle indicator around its start vertex: the arc
+ * sweeps from `startAngle` (the incoming-tangent reference ray the statement's
+ * angle is measured against) by `sweepRad`. Shared with the double-click hit
+ * test so picking matches what is drawn.
+ */
+export function angleIndicatorFrame(
+  angleDeg: number,
+  negLen: boolean,
+  startTangent2d: [number, number],
+): { startAngle: number; sweepRad: number } {
+  // Direction of positive serialized length; un-rotating it by the angle
+  // recovers the incoming tangent the statement measures against.
+  const dir: [number, number] = negLen
+    ? [-startTangent2d[0], -startTangent2d[1]]
+    : startTangent2d;
+  const sweepRad = (angleDeg * Math.PI) / 180;
+  const cos = Math.cos(-sweepRad);
+  const sin = Math.sin(-sweepRad);
+  const incoming: [number, number] = [
+    dir[0] * cos - dir[1] * sin,
+    dir[0] * sin + dir[1] * cos,
+  ];
+  return { startAngle: Math.atan2(incoming[1], incoming[0]), sweepRad };
+}
 
 type IconTexture = { texture: CanvasTexture; aspect: number };
 
@@ -241,19 +267,8 @@ function createAngleIndicator(
   const color = themeColors.constraintColor;
   const colorHex = `#${color.getHexString()}`;
 
-  // Direction of positive serialized length; un-rotating it by the angle
-  // recovers the incoming tangent the statement measures against.
-  const dir: [number, number] = negLen
-    ? [-startTangent2d[0], -startTangent2d[1]]
-    : startTangent2d;
-  const angleRad = (angleDeg * Math.PI) / 180;
-  const cos = Math.cos(-angleRad);
-  const sin = Math.sin(-angleRad);
-  const incoming: [number, number] = [
-    dir[0] * cos - dir[1] * sin,
-    dir[0] * sin + dir[1] * cos,
-  ];
-  const startAngle = Math.atan2(incoming[1], incoming[0]);
+  const { startAngle, sweepRad: angleRad } = angleIndicatorFrame(angleDeg, negLen, startTangent2d);
+  const incoming: [number, number] = [Math.cos(startAngle), Math.sin(startAngle)];
 
   const group = new Group();
   group.renderOrder = ICON_RENDER_ORDER;

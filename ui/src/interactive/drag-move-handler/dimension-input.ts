@@ -111,6 +111,11 @@ export class DimensionInputController {
     } else if (hitResult.uniqueType === 'hline' || hitResult.uniqueType === 'vline') {
       label = hitResult.uniqueType === 'hline' ? 'H:' : 'V:';
       value = Math.abs(hitResult.initialValue ?? 0);
+    } else if (hitResult.uniqueType === 'aline' && hitResult.hitZone === 'angle') {
+      // The angle is signed (CCW positive, matching the indicator readout),
+      // so it is shown and committed as-is rather than as a magnitude.
+      label = 'A:';
+      value = hitResult.initialValue ?? 0;
     } else if (hitResult.uniqueType === 'tline' || hitResult.uniqueType === 'aline') {
       label = hitResult.uniqueType === 'tline' ? 'T:' : 'L:';
       value = Math.abs(hitResult.initialValue ?? 0);
@@ -238,7 +243,8 @@ export class DimensionInputController {
     const { offset: dimOffset, call: dimCall } = DimensionInputController.dimensionTargetFor(hitResult, label);
     const isSignedType = hitResult.uniqueType !== 'circle'
       && hitResult.uniqueType !== 'polygon'
-      && hitResult.uniqueType !== 'slot';
+      && hitResult.uniqueType !== 'slot'
+      && hitResult.hitZone !== 'angle';
 
     this.expressionInput.show({
       label,
@@ -297,6 +303,12 @@ export class DimensionInputController {
         return { offset: hitResult.rectRadiusArgOffset ?? 0, call: 'radius' };
       }
       return { offset: hitResult.rectDim === 'width' ? 1 : 0, call: 'rect' };
+    }
+    if (hitResult.uniqueType === 'aline' && hitResult.hitZone === 'angle') {
+      // aLine(angle, length): the angle sits one arg before the length, and
+      // only in the aLine call itself — a chained .centered(true) would
+      // otherwise satisfy a call-agnostic offset.
+      return { offset: 1, call: 'aLine' };
     }
     return { offset: label === 'D' ? 1 : 0, call: null };
   }

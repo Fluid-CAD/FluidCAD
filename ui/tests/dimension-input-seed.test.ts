@@ -60,6 +60,63 @@ const CIRCLE_HIT = {
   initialValue: 50,
 };
 
+// The angle indicator of an aline currently at -30°.
+const ALINE_ANGLE_HIT = {
+  sourceLocation: { line: 7, column: 2 },
+  uniqueType: 'aline',
+  hitZone: 'angle' as const,
+  anchorPoint: [0, 0] as [number, number],
+  initialValue: -30,
+};
+
+describe('double-click angle edit on the aline angle indicator', () => {
+  beforeEach(() => {
+    updateDimensionExpression.mockClear();
+    getDimensionExpression.mockClear();
+    getDimensionExpression.mockResolvedValue({ expression: '-30' });
+  });
+
+  it('targets the aLine angle argument and shows the signed value', async () => {
+    const { controller, container } = makeController();
+    await controller.refreshVariables();
+
+    expect(controller.showForDoubleClick(ALINE_ANGLE_HIT, 100, 100)).toBe(true);
+
+    expect(getDimensionExpression).toHaveBeenCalledWith(7, 1, 'aLine');
+    await flushMicrotasks();
+
+    // The stored angle seeds verbatim — no magnitude/sign split for angles.
+    const input = inputOf(container);
+    expect(input.value).toBe('-30');
+
+    type(input, '45.678');
+    pressEnter(input);
+
+    expect(updateDimensionExpression).toHaveBeenCalledTimes(1);
+    const [expression, sourceLocation, , , dimensionOffset, dimensionCall] =
+      updateDimensionExpression.mock.calls[0];
+    expect(expression).toBe('45.68');
+    expect(sourceLocation).toEqual({ line: 7, column: 2 });
+    expect(dimensionOffset).toBe(1);
+    expect(dimensionCall).toBe('aLine');
+  });
+
+  it('commits a typed negative angle as-is', async () => {
+    const { controller, container } = makeController();
+    await controller.refreshVariables();
+
+    controller.showForDoubleClick(ALINE_ANGLE_HIT, 100, 100);
+    await flushMicrotasks();
+
+    const input = inputOf(container);
+    type(input, '-15');
+    pressEnter(input);
+
+    const [expression] = updateDimensionExpression.mock.calls[0];
+    expect(expression).toBe('-15');
+  });
+});
+
 describe('double-click dimension edit over an existing expression', () => {
   beforeEach(() => {
     updateDimensionExpression.mockClear();

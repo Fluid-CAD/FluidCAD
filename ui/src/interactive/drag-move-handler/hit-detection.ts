@@ -4,15 +4,26 @@ import { pixelToSketchThreshold } from '../sketch-plane-utils';
 import { pointToSegmentDist, isDraggableSketchObject } from '../sketch-edge-utils';
 import { circumcenter, isCCW } from '../tools/tool-preview-utils';
 import { meshToSketch2D } from '../tools/tangent-utils';
+import {
+  ANGLE_ARC_PX_RADIUS,
+  ANGLE_TEXT_PX_SIZE,
+  angleIndicatorFrame,
+} from '../../meshes/containers/constraint-icon';
 import { DragHitResult } from './types';
 
+/**
+ * Finds the sketch geometry under `point2d` for drag-resize and dimension
+ * editing. `includeDimensionZones` (the double-click path) additionally hit
+ * tests zones that only open a dimension input — rect edges/fillets and the
+ * aline angle indicator — which must not capture pointer-down drags.
+ */
 export function findHitGeometry(
   point2d: [number, number],
   sceneObjects: SceneObjectRender[],
   sketchId: string,
   plane: PlaneData,
   ctx: SceneContext,
-  includeRectEdges = false,
+  includeDimensionZones = false,
 ): DragHitResult | null {
   const sketchChildren = sceneObjects.filter(o => o.parentId === sketchId);
   const threshold = pixelToSketchThreshold(ctx, 12);
@@ -98,7 +109,7 @@ export function findHitGeometry(
         }
       }
       if (allVerts.length > 0) {
-        const result = hitTestRect(point2d, allVerts, sourceLocation, child, thresholdSq, bestDistSq, includeRectEdges);
+        const result = hitTestRect(point2d, allVerts, sourceLocation, child, thresholdSq, bestDistSq, includeDimensionZones);
         if (result) {
           bestHit = result.hit;
           bestDistSq = result.distSq;
@@ -115,6 +126,14 @@ export function findHitGeometry(
         const verts2d = meshToSketch2D(mesh.vertices, plane);
         if (verts2d.length === 0) {
           continue;
+        }
+
+        if (uniqueType === 'aline' && includeDimensionZones) {
+          const angleResult = hitTestALineAngle(point2d, verts2d, sourceLocation, child, ctx, bestDistSq);
+          if (angleResult) {
+            bestHit = angleResult.hit;
+            bestDistSq = angleResult.distSq;
+          }
         }
 
         if (uniqueType === 'circle') {
@@ -344,6 +363,88 @@ function hitTestLine(
         distSq: bodyDistSq,
       };
     }
+  }
+
+  return result;
+}
+
+// Pixel tolerances for double-clicking the aline angle indicator: the
+// dimension arc ring, its angular padding, and the angle readout label.
+const ANGLE_ARC_HIT_TOL_PX = 10;
+const ANGLE_ARC_HIT_PAD_RAD = 0.35;
+const ANGLE_LABEL_HIT_RADIUS_PX = 20;
+
+function hitTestALineAngle(
+  point2d: [number, number],
+  verts2d: [number, number][],
+  sourceLocation: { line: number; column: number },
+  child: SceneObjectRender,
+  ctx: SceneContext,
+  bestDistSq: number,
+): HitTestResult | null {
+  const angleDeg = child.object?.angle;
+  if (typeof angleDeg !== 'number' || verts2d.length < 2) {
+    return null;
+  }
+
+  const startV = verts2d[0];
+  const endV = verts2d[verts2d.length - 1];
+  const dx = endV[0] - startV[0];
+  const dy = endV[1] - startV[1];
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 1e-10) {
+    return null;
+  }
+
+  const negLen = typeof child.object?.length === 'number' && child.object.length < 0;
+  const { startAngle, sweepRad } = angleIndicatorFrame(angleDeg, negLen, [dx / len, dy / len]);
+
+  // The indicator renders at a screen-constant size, so hit test in pixels.
+  const unitsPerPx = pixelToSketchThreshold(ctx, 1);
+  const px = point2d[0] - startV[0];
+  const py = point2d[1] - startV[1];
+  const rPx = Math.sqrt(px * px + py * py) / unitsPerPx;
+
+  const hit: DragHitResult = {
+    sourceLocation,
+    uniqueType: 'aline',
+    hitZone: 'angle',
+    anchorPoint: startV,
+    initialValue: Math.round(angleDeg * 100) / 100,
+  };
+
+  let result: HitTestResult | null = null;
+
+  const ringDevPx = Math.abs(rPx - ANGLE_ARC_PX_RADIUS);
+  if (ringDevPx <= ANGLE_ARC_HIT_TOL_PX) {
+    const TWO_PI = Math.PI * 2;
+    let rel = ((Math.atan2(py, px) - startAngle) % TWO_PI + TWO_PI) % TWO_PI;
+    let inSpan: boolean;
+    if (sweepRad >= 0) {
+      inSpan = rel <= sweepRad + ANGLE_ARC_HIT_PAD_RAD || rel >= TWO_PI - ANGLE_ARC_HIT_PAD_RAD;
+    } else {
+      rel -= TWO_PI;
+      inSpan = rel >= sweepRad - ANGLE_ARC_HIT_PAD_RAD || rel <= -TWO_PI + ANGLE_ARC_HIT_PAD_RAD;
+    }
+    if (inSpan) {
+      const dev = ringDevPx * unitsPerPx;
+      const devSq = dev * dev;
+      if (devSq < bestDistSq) {
+        result = { hit, distSq: devSq };
+        bestDistSq = devSq;
+      }
+    }
+  }
+
+  // The angle readout sits at mid-sweep, one text-size beyond the arc.
+  const midAngle = startAngle + sweepRad / 2;
+  const labelRadius = (ANGLE_ARC_PX_RADIUS + ANGLE_TEXT_PX_SIZE) * unitsPerPx;
+  const ldx = point2d[0] - (startV[0] + Math.cos(midAngle) * labelRadius);
+  const ldy = point2d[1] - (startV[1] + Math.sin(midAngle) * labelRadius);
+  const labelDistSq = ldx * ldx + ldy * ldy;
+  const labelTol = ANGLE_LABEL_HIT_RADIUS_PX * unitsPerPx;
+  if (labelDistSq <= labelTol * labelTol && labelDistSq < bestDistSq) {
+    result = { hit, distSq: labelDistSq };
   }
 
   return result;

@@ -1,7 +1,8 @@
 export type DragHitResult = {
   sourceLocation: { line: number; column: number };
   uniqueType: string;
-  hitZone: 'start' | 'end' | 'body' | 'center';
+  // 'angle' is the aline angle indicator (double-click dimension edit only).
+  hitZone: 'start' | 'end' | 'body' | 'center' | 'angle';
   anchorPoint?: [number, number];
   fixedVertex?: [number, number];
   fixedVertex2?: [number, number];

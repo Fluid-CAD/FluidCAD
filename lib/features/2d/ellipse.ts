@@ -46,7 +46,7 @@ export class Ellipse extends ExtrudableGeometryBase {
     edge.setRole('perimeter');
 
     this.addShape(edge);
-    const centerVertex = Vertex.fromPoint2D(center);
+    const centerVertex = Vertex.fromPoint(plane.localToWorld(center));
     centerVertex.markAsMetaShape();
     this.addShape(centerVertex);
     if (this.sketch) {

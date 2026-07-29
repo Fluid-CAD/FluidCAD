@@ -154,10 +154,10 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
 
     this.addShapes(edges);
 
-    const leftCenterVertex = Vertex.fromPoint2D(leftCenter);
+    const leftCenterVertex = Vertex.fromPoint(localToWorld(leftCenter));
     leftCenterVertex.markAsMetaShape();
     this.addShape(leftCenterVertex);
-    const rightCenterVertex = Vertex.fromPoint2D(rightCenter);
+    const rightCenterVertex = Vertex.fromPoint(localToWorld(rightCenter));
     rightCenterVertex.markAsMetaShape();
     this.addShape(rightCenterVertex);
 

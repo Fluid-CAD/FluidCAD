@@ -69,7 +69,7 @@ export class TangentArcToPoint extends GeometrySceneObject {
     this.setState('start', Vertex.fromPoint2D(startPoint));
     this.setState('end', Vertex.fromPoint2D(targetPoint));
     this.addShape(edge);
-    const centerVertex = Vertex.fromPoint2D(centerPoint);
+    const centerVertex = Vertex.fromPoint(center);
     centerVertex.markAsMetaShape();
     this.addShape(centerVertex);
     this.setCurrentPosition(targetPoint);

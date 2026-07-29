@@ -37,7 +37,7 @@ let currentQueryResult: any;
 
 /** Sketch-branch synthesis calls (2D {shapeId} picks). */
 let sketchSynthesizeCalls: {
-  picks: unknown; feature: string; value: number | string | undefined; offset?: unknown;
+  picks: unknown; feature: string; value: number | string | undefined; offset?: unknown; slot?: unknown;
 }[];
 
 /** Descriptor lists forwarded to the 2D target resolver (offset edit seeding). */
@@ -51,9 +51,9 @@ const fakeServer = {
   getParamDefinitions: () => [],
   synthesizeSketchApplyFeature: (
     picks: unknown, feature: string, value: number | string | undefined,
-    options?: { offset?: unknown },
+    options?: { offset?: unknown; slot?: unknown },
   ) => {
-    sketchSynthesizeCalls.push({ picks, feature, value, offset: options?.offset });
+    sketchSynthesizeCalls.push({ picks, feature, value, offset: options?.offset, slot: options?.slot });
     return currentSynthesis;
   },
   resolveSketchStatementTargets: (descriptors: unknown[]) => {
@@ -1871,6 +1871,118 @@ describe('apply-feature route validation', () => {
           expectedStatement: `offset(2, r.edge('top'))`,
         });
         expect(status).toBe(422);
+        expect(relayed).toHaveLength(0);
+      });
+    });
+
+    describe('slot (2D) edits', () => {
+      const SLOT_CODE = [
+        `import { sketch, hLine, slot } from 'fluidcad/core'`,
+        ``,
+        `sketch('xy', () => {`,
+        `  const l = hLine(60)`,
+        `  slot(l, 10)`,
+        `})`,
+        ``,
+      ].join('\n');
+      const SLOT_EDIT = { filePath: '/ws/m.fluid.js', line: 5, column: 2 };
+
+      beforeEach(() => {
+        currentCode = SLOT_CODE;
+        currentFileName = '/ws/m.fluid.js';
+      });
+
+      it('rewrites the radius and the flag, keeping the source', async () => {
+        const { status, body } = await post({
+          feature: 'slot', edit: SLOT_EDIT, value: 12, removeOriginal: false,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe('slot(l, 12, false)');
+        expect(sketchSynthesizeCalls).toHaveLength(0);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'slot',
+          value: 12,
+          slot: { removeOriginal: false },
+          edit: { line: 5, column: 2 },
+          parts: [],
+          clearBreakpoints: true,
+        });
+      });
+
+      it('synthesizes a re-picked source without a boundary', async () => {
+        currentSynthesis = {
+          ok: true,
+          spec: {
+            feature: 'slot', value: 12, slot: { removeOriginal: true }, filePath: '/ws/m.fluid.js',
+            producers: [{ line: 4, column: 2, featureType: 'line', nameHint: 'l', bind: true }],
+            parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
+            imports: [],
+          },
+          preview: 'slot(l, 12)',
+          args: 'l',
+          alternatives: [],
+        };
+        const { status, body } = await post({
+          feature: 'slot', edit: SLOT_EDIT, value: 12,
+          sketchEntities: [{ shapeId: 'edge-7' }], preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe('slot(l, 12)');
+        expect(body.args).toBe('l');
+        expect(sketchSynthesizeCalls).toEqual([
+          {
+            picks: [{ shapeId: 'edge-7' }],
+            feature: 'slot',
+            value: 12,
+            slot: { removeOriginal: true },
+          },
+        ]);
+        expect(relayed).toHaveLength(0);
+      });
+
+      it('rejects a non-positive radius', async () => {
+        const { status, body } = await post({ feature: 'slot', edit: SLOT_EDIT, value: 0 });
+        expect(status).toBe(400);
+        expect(body.error).toContain('positive');
+      });
+
+      it('replaces the statement via drawStatement (the Draw tab)', async () => {
+        const { status, body } = await post({
+          feature: 'slot', edit: SLOT_EDIT, drawStatement: 'slot([0, 0], [40, 20], 8)',
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe('slot([0, 0], [40, 20], 8)');
+        expect(sketchSynthesizeCalls).toHaveLength(0);
+        expect(relayed[0].spec.edit).toMatchObject({
+          line: 5, column: 2,
+          slot: { drawStatement: 'slot([0, 0], [40, 20], 8)' },
+        });
+      });
+
+      it('rejects drawStatement combined with other slot fields', async () => {
+        const { status, body } = await post({
+          feature: 'slot', edit: SLOT_EDIT, drawStatement: 'slot(40, 8)', value: 12,
+        });
+        expect(status).toBe(400);
+        expect(body.error).toContain('no other slot fields');
+      });
+
+      it('422s an edit whose statement is a from-dimensions slot', async () => {
+        currentCode = [
+          `import { sketch, slot } from 'fluidcad/core'`,
+          ``,
+          `sketch('xy', () => {`,
+          `  slot(40, 8)`,
+          `})`,
+          ``,
+        ].join('\n');
+        const { status, body } = await post({
+          feature: 'slot',
+          edit: { filePath: '/ws/m.fluid.js', line: 4, column: 2 },
+          value: 12,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('dimensions');
         expect(relayed).toHaveLength(0);
       });
     });
@@ -3758,6 +3870,86 @@ describe('apply-feature route validation', () => {
         });
         expect(status).toBe(400);
         expect(body.error).toContain('only apply to offset');
+      });
+    });
+
+    describe('slot from edge', () => {
+      const SLOT_SYNTHESIS = {
+        ok: true,
+        spec: {
+          feature: 'slot',
+          value: 10,
+          slot: { removeOriginal: true },
+          filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 2, featureType: 'line', nameHint: 'l', bind: true }],
+          parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
+          imports: [],
+        },
+        preview: 'slot(l, 10)',
+        args: 'l',
+        alternatives: [],
+      };
+
+      it('previews through the sketch branch with the slot options', async () => {
+        currentSynthesis = SLOT_SYNTHESIS;
+        const { status, body } = await post({
+          feature: 'slot', value: 10, sketchEntities: [{ shapeId: 'edge-1' }], preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body).toMatchObject({ success: true, preview: 'slot(l, 10)', args: 'l' });
+        expect(sketchSynthesizeCalls).toEqual([
+          {
+            picks: [{ shapeId: 'edge-1' }],
+            feature: 'slot',
+            value: 10,
+            // Absent toggle reads as the kernel default: remove the source.
+            slot: { removeOriginal: true },
+          },
+        ]);
+        expect(relayed).toHaveLength(0);
+      });
+
+      it('writes the keep-original form as the trailing false', async () => {
+        currentSynthesis = SLOT_SYNTHESIS;
+        const { status, body } = await post({
+          feature: 'slot', value: 10, removeOriginal: false,
+          sketchEntities: [{ shapeId: 'edge-1' }],
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe('slot(l, 10, false)');
+        expect(sketchSynthesizeCalls[0].slot).toEqual({ removeOriginal: false });
+        expect(relayed[0].spec.slot).toEqual({ removeOriginal: false });
+      });
+
+      it('rejects a non-positive radius and the offset-only close toggle', async () => {
+        const zero = await post({
+          feature: 'slot', value: 0, sketchEntities: [{ shapeId: 'edge-1' }],
+        });
+        expect(zero.status).toBe(400);
+        expect(zero.body.error).toContain('positive');
+
+        const closed = await post({
+          feature: 'slot', value: 10, close: true, sketchEntities: [{ shapeId: 'edge-1' }],
+        });
+        expect(closed.status).toBe(400);
+        expect(closed.body.error).toContain('close only applies to offset');
+      });
+
+      it('422s a kernel whose synthesis cannot render a bare source variable', async () => {
+        // An old workspace kernel without the 'slot' kind falls through its
+        // accessor ladder — the route refuses instead of writing a statement
+        // SlotFromEdge cannot consume.
+        currentSynthesis = {
+          ...SLOT_SYNTHESIS,
+          preview: "slot(l.edge('top'), 10)",
+          args: "l.edge('top')",
+        };
+        const { status, body } = await post({
+          feature: 'slot', value: 10, sketchEntities: [{ shapeId: 'edge-1' }],
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('does not support slot from edge');
+        expect(relayed).toHaveLength(0);
       });
     });
   });

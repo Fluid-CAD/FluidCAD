@@ -1,5 +1,5 @@
 import { SketchToolbar } from '../ui/sketch-toolbar';
-import { SketchTool, ToolId } from './sketch-tool';
+import { NewVariable, SketchTool, ToolId } from './sketch-tool';
 import { LineTool } from './tools/line-tool';
 import { CircleTool } from './tools/circle-tool';
 import { CenterArcTool } from './tools/center-arc-tool';
@@ -25,7 +25,7 @@ import { Viewer } from '../viewer';
 import { TrimPickService } from './trim-pick-service';
 import { TrimDialog } from './trim-dialog';
 import { ProjectionPickService } from './projection-pick-service';
-import { SketchOpService, SketchOpSelection, SketchPickDescription } from './sketch-op-service';
+import { SketchOpMode, SketchOpService, SketchOpSelection, SketchPickDescription } from './sketch-op-service';
 import { ConstraintToolbarService } from './constraint-toolbar';
 import { VariableInfo } from '../ui/expression-input';
 import { ShortcutManager } from '../ui/shortcut-manager';
@@ -157,10 +157,34 @@ export class SketchToolbarService {
         feature: 'subtract', title: 'Subtract', pickHint: 'Pick the base geometry’s edges',
         slotted: true,
       }),
+      slot: opService({
+        feature: 'slot', title: 'Slot', pickHint: 'Pick an edge of the source geometry',
+        value: { label: 'Radius', defaultValue: '2', sign: 'positive' },
+        toggles: [
+          {
+            key: 'removeOriginal',
+            label: 'Remove original',
+            title: 'Keep only the slot — the edge it was built around is removed (the kernel default)',
+            defaultChecked: true,
+          },
+        ],
+        tabs: {
+          draw: {
+            label: 'Draw',
+            title: 'Draw the slot in the sketch',
+            hint: 'Draw the slot in the sketch: click the two cap centers, then set the radius. '
+              + 'Hold Shift for a horizontal slot.',
+          },
+          pick: { label: 'From edge', title: 'Build the slot around an existing sketch edge' },
+        },
+      }),
     };
     for (const service of Object.values(this.opServices)) {
       service.onVisibilityChange = (open) => this.onOpDialogToggle?.(open);
     }
+    // The slot dialog's tabs swap the viewport owner: From dimensions arms
+    // the classic drawing tool, From edge the edge-pick handlers.
+    this.opServices.slot!.onModeChange = (mode) => this.applySlotMode(mode);
 
     this.constraintToolbar = new ConstraintToolbarService(container, (message) => this.showOpMessage(message));
 
@@ -213,6 +237,34 @@ export class SketchToolbarService {
       this.handleToolSelect(null);
     }
     this.toolbar.setActiveTool('offset');
+    service.enterEdit(target, parsed, expectedStatement);
+    if (this.activeSketchInfo) {
+      service.noteSketchActive();
+      this.activateDragHandler();
+    }
+  }
+
+  /**
+   * Open the slot dialog over the `slot(<source>, <radius>)` statement at
+   * `target` (timeline double-click) — the same pause-before contract as the
+   * offset edit: the sketch on screen is the one the slot's arguments see,
+   * a consumed source edge visible and re-pickable again.
+   */
+  enterSlotEdit(
+    target: FeatureEditTarget,
+    parsed: Extract<ParsedFeatureStatement, { feature: 'slot' }>,
+    expectedStatement: string,
+  ): void {
+    const service = this.opServices.slot;
+    if (!service) {
+      return;
+    }
+    // Same contract as the offset edit: never disarm an already-editing
+    // dialog here — that would cancel it and clear the fresh breakpoint.
+    if (!service.isEditing) {
+      this.handleToolSelect(null);
+    }
+    this.toolbar.setActiveTool('slot');
     service.enterEdit(target, parsed, expectedStatement);
     if (this.activeSketchInfo) {
       service.noteSketchActive();
@@ -337,6 +389,10 @@ export class SketchToolbarService {
         }
         // A re-render may have pruned selected edges — keep the preview honest.
         this.activeOpService()?.refresh();
+      } else if (this.activeOpService()?.mode === 'draw') {
+        // The slot dialog's From-dimensions tab owns the viewport through
+        // the classic drawing tool — restore it, not the pick handlers.
+        this.applySlotMode('draw');
       } else if (!this.toolbar.activeTool || this.activeOpService()) {
         // The op dialogs pick with the drag/hover handlers — an armed one
         // (or one that just regained its sketch) gets them back.
@@ -434,13 +490,19 @@ export class SketchToolbarService {
     return getScopeVariables(this.activeSketchInfo.sourceLocation.line);
   }
 
-  private createTool(toolId: ToolId, plane: PlaneData, sceneObjects: SceneObjectRender[], sketchId: string): SketchTool | null {
+  private createTool(
+    toolId: ToolId,
+    plane: PlaneData,
+    sceneObjects: SceneObjectRender[],
+    sketchId: string,
+    insertOverride?: (statement: string, newVariable?: NewVariable | NewVariable[]) => void,
+  ): SketchTool | null {
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, plane, this.viewer.sceneContext);
     const snapCtrl = new SnapController(snapManager, plane);
     snapCtrl.snapToVertices = this.snapToVertices;
     snapCtrl.snapToGrid = this.snapToGrid;
 
-    const doInsertGeometry = (
+    const doInsertGeometry = insertOverride ?? ((
       statement: string,
       newVariable?: { name: string; initializer: string } | { name: string; initializer: string }[],
     ) => {
@@ -448,7 +510,7 @@ export class SketchToolbarService {
         return;
       }
       insertGeometry(statement, this.activeSketchInfo.sourceLocation, newVariable);
-    };
+    });
 
     const fetchVars = () => this.fetchScopeVariables();
 
@@ -587,12 +649,21 @@ export class SketchToolbarService {
       return;
     }
 
-    // The op dialogs (fillet, offset) keep the drag/hover handlers active —
-    // picking IS the input.
+    // The op dialogs (fillet, offset, slot) keep the drag/hover handlers
+    // active — picking IS the input. The tabbed slot dialog opens on its
+    // draw tab instead, which arms the classic drawing tool.
     const opService = this.opServices[toolId];
     if (opService) {
-      this.activateDragHandler();
-      opService.enter();
+      if (toolId === 'slot') {
+        // A live edge selection means the user wants THAT edge as the
+        // source — open straight on the From edge tab with it picked.
+        const hasSelection = (this.activeHoverSelectHandler?.selectedIds.size ?? 0) > 0;
+        opService.enter(hasSelection ? 'pick' : 'draw');
+        this.applySlotMode(opService.mode);
+      } else {
+        this.activateDragHandler();
+        opService.enter();
+      }
       return;
     }
 
@@ -622,6 +693,49 @@ export class SketchToolbarService {
 
     tool.activate();
     this.activeDrawingTool = tool;
+  }
+
+  /**
+   * Hand the viewport to the slot dialog's current tab: From dimensions arms
+   * the classic slot drawing tool (the dialog keeps showing its hint), From
+   * edge tears it down and brings back the drag/hover pick handlers.
+   */
+  private applySlotMode(mode: SketchOpMode): void {
+    if (!this.activeSketchInfo) {
+      return;
+    }
+    if (mode === 'draw') {
+      this.deactivateDragHandler();
+      if (this.activeDrawingTool) {
+        return;
+      }
+      // While the dialog edits an existing statement, the drawn slot
+      // REPLACES it instead of inserting a new one.
+      const service = this.opServices.slot!;
+      const insertOverride = service.isEditing
+        ? (statement: string, newVariable?: NewVariable | NewVariable[]) => {
+          void service.applyDrawnStatement(statement, newVariable);
+        }
+        : undefined;
+      const tool = this.createTool(
+        'slot', this.activeSketchInfo.plane, this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!,
+        insertOverride,
+      );
+      if (!tool) {
+        return;
+      }
+      if (this.activeSketchInfo.sketchObj.object?.currentPosition) {
+        tool.updateCurrentPosition(this.activeSketchInfo.sketchObj.object.currentPosition);
+      }
+      tool.activate();
+      this.activeDrawingTool = tool;
+      return;
+    }
+    if (this.activeDrawingTool) {
+      this.activeDrawingTool.deactivate();
+      this.activeDrawingTool = null;
+    }
+    this.activateDragHandler();
   }
 
   /**

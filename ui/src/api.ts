@@ -537,7 +537,7 @@ export async function applyProjectEdit(
 export type SketchApplyEntity = { shapeId: string };
 
 /** The 2D operations the sketch-branch apply supports. */
-export type SketchOpFeature = 'fillet' | 'offset' | 'trim' | 'fuse' | 'subtract' | 'common';
+export type SketchOpFeature = 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common';
 
 /**
  * The offset dialog's two toggles: `removeOriginal` rides as the call's
@@ -548,6 +548,15 @@ export type SketchOpFeature = 'fillet' | 'offset' | 'trim' | 'fuse' | 'subtract'
 export type OffsetOptionValues = {
   removeOriginal: boolean;
   close: boolean;
+};
+
+/**
+ * The slot dialog's single toggle: `removeOriginal` mirrors the statement's
+ * `deleteSource` argument (kernel default true) — `slot(l, 4)` consumes the
+ * source line, `slot(l, 4, false)` keeps it.
+ */
+export type SlotOptionValues = {
+  removeOriginal: boolean;
 };
 
 /**
@@ -565,6 +574,7 @@ export async function applySketchOp(
   options: {
     toolEntities?: SketchApplyEntity[];
     offset?: OffsetOptionValues;
+    slot?: SlotOptionValues;
     selectorOverride?: string;
     newVariables?: NewVariable[];
     preview?: boolean;
@@ -576,7 +586,7 @@ export async function applySketchOp(
     value,
     sketchEntities: entities,
     sketchToolEntities: options.toolEntities,
-    removeOriginal: options.offset?.removeOriginal,
+    removeOriginal: options.offset?.removeOriginal ?? options.slot?.removeOriginal,
     close: options.offset?.close,
     selectorOverride: options.selectorOverride,
     newVariables: options.newVariables,
@@ -635,6 +645,61 @@ export async function applyOffsetEdit(
     value: options.value,
     removeOriginal: options.removeOriginal,
     close: options.close,
+    selectorOverride: options.selectorOverride,
+    sketchEntities: options.entities,
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
+export type SlotEditOptions = SlotOptionValues & EditSessionFields & {
+  value: ValueExpr;
+  /** Edited source argument; omitted keeps the statement's verbatim. */
+  selectorOverride?: string;
+  /** Re-picked source edge(s); omitted keeps the statement's own source. */
+  entities?: SketchApplyEntity[];
+  /** Declarations the dialog's expression field committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Replace the whole `slot()` statement at `edit` with a freshly drawn
+ * from-dimensions form (the edit dialog's Draw tab): the drawing tool's
+ * statement text swaps in verbatim, converting a from-edge slot back to a
+ * drawn one.
+ */
+export async function applySlotDrawEdit(
+  edit: FeatureEditTarget,
+  options: EditSessionFields & {
+    statement: string;
+    newVariables?: NewVariable[];
+    signal?: AbortSignal;
+  },
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'slot',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    drawStatement: options.statement,
+    newVariables: options.newVariables,
+  }, options.signal);
+}
+
+/** Rewrite the 2D `slot(<source>, <radius>[, false])` statement at `edit` in place. */
+export async function applySlotEdit(
+  edit: FeatureEditTarget,
+  options: SlotEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'slot',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    value: options.value,
+    removeOriginal: options.removeOriginal,
     selectorOverride: options.selectorOverride,
     sketchEntities: options.entities,
     newVariables: options.newVariables,
@@ -1395,6 +1460,15 @@ export type ParsedFeatureStatement =
       argsText: string;
       /** `.close()` chains the offset back onto its source profile. */
       close: boolean;
+    }
+  | {
+      feature: 'slot';
+      /** The end-cap radius. */
+      value: ValueExpr;
+      /** The `deleteSource` argument (kernel default true) — the source is removed. */
+      removeOriginal: boolean;
+      /** The source-geometry argument, verbatim (a bound variable). */
+      argsText: string;
     }
   | {
       feature: 'project';

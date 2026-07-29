@@ -12,9 +12,9 @@ import {
   renderRevolveStatement,
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames, validCountValue, validValueExpr,
-  renderChamferValueArgs, renderFaceTargetExpr, renderOffsetStatement,
+  renderChamferValueArgs, renderFaceTargetExpr, renderOffsetStatement, renderSlotStatement,
   type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions, type CopyEditOptions,
-  type OffsetEditOptions,
+  type OffsetEditOptions, type SlotEditOptions,
   type ExtrudeEditOptions, type ExtrudeFaceTarget, type ExtrudeTargetKind, type FeatureStatementEditTarget,
   type HelixEditOptions,
   type HelixSourceSpec, type LoftEditOptions,
@@ -161,6 +161,22 @@ function validateOffsetOptions(body: any): { options: OffsetEditOptions } | { er
     return { error: 'a closed offset keeps its original profile — turn off "Remove original"' };
   }
   return { options: { removeOriginal, close } };
+}
+
+/**
+ * The slot-from-edge toggle, riding a create or edit request: absent reads as
+ * on (the kernel's `deleteSource` default), so a caller that knows nothing
+ * about it keeps the plain `slot(g, r)` form. `close` belongs to offset only.
+ */
+function validateSlotOptions(body: any): { options: SlotEditOptions } | { error: string } {
+  const removeOriginal = body?.removeOriginal ?? true;
+  if (typeof removeOriginal !== 'boolean') {
+    return { error: 'removeOriginal must be a boolean' };
+  }
+  if (body?.close !== undefined) {
+    return { error: 'close only applies to offset' };
+  }
+  return { options: { removeOriginal } };
 }
 
 /**
@@ -1329,7 +1345,7 @@ async function allocateProducerVars(
 }
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'boolean', 'helix', 'plane', 'offset', 'project']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'boolean', 'helix', 'plane', 'offset', 'slot', 'project']);
 
 /** One edited loft profile as the request carries it. */
 type EditLoftProfileInput =
@@ -1350,6 +1366,8 @@ type StatementEditRequest = {
   rawArgs?: string;
   /** Offset's toggles; always explicit on an edit (a cleared box clears the option). */
   offset?: OffsetEditOptions;
+  /** Slot's toggle; always explicit on an edit (a cleared box writes `false`). */
+  slot?: SlotEditOptions;
   /** Re-picked selection for shell/fillet/chamfer; absent keeps the args. */
   picks?: Pick[];
   chains?: { seed: Pick; members: Pick[] }[];
@@ -1818,6 +1836,52 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       ...base,
       value,
       offset: offset.options,
+      rawArgs: typeof selectorOverride === 'string' ? selectorOverride.trim() : undefined,
+    };
+    if (body?.sketchEntities !== undefined && body?.sketchEntities !== null) {
+      const picks = validateSketchPicks(body.sketchEntities);
+      if (!picks) {
+        return { error: 'sketchEntities must be a non-empty array of {shapeId} picks' };
+      }
+      result.sketchPicks = picks;
+    }
+    return result;
+  }
+
+  // Slot from edge (2D): the radius, the Remove-original toggle, and either
+  // an edited source argument (the expression row) or a re-picked edge of the
+  // source geometry. Like offset, the picks carry no boundary — the
+  // double-click paused the build at the edited statement. The Draw tab
+  // instead replaces the whole statement with a freshly drawn
+  // from-dimensions form, carried verbatim as `drawStatement`.
+  if (feature === 'slot') {
+    const { value, drawStatement } = body ?? {};
+    if (drawStatement !== undefined) {
+      if (typeof drawStatement !== 'string' || drawStatement.trim().length === 0 || drawStatement.length > 500) {
+        return { error: 'drawStatement must be a non-empty string (max 500 chars)' };
+      }
+      if (value !== undefined || body?.removeOriginal !== undefined
+        || selectorOverride !== undefined || body?.sketchEntities !== undefined) {
+        return { error: 'drawStatement replaces the whole statement — it takes no other slot fields' };
+      }
+      edit.slot = { drawStatement: drawStatement.trim() };
+      return base;
+    }
+    if (!validValueExpr(value, { positive: true })) {
+      return { error: 'value must be a positive number or expression' };
+    }
+    const slot = validateSlotOptions(body);
+    if ('error' in slot) {
+      return slot;
+    }
+    if (selectorOverride !== undefined
+      && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
+      return { error: 'selectorOverride must be a non-empty string (max 500 chars)' };
+    }
+    const result: StatementEditRequest = {
+      ...base,
+      value,
+      slot: slot.options,
       rawArgs: typeof selectorOverride === 'string' ? selectorOverride.trim() : undefined,
     };
     if (body?.sketchEntities !== undefined && body?.sketchEntities !== null) {
@@ -3040,9 +3104,13 @@ export function createApplyFeatureRouter(
         if (request.sketchPicks) {
           // The 2D branch of synthesis: sketch-edge picks resolve through the
           // sketch's own edge index, so the re-picked targets render exactly
-          // like the create dialog's — accessors, or an induced edge filter.
+          // like the create dialog's — accessors, or an induced edge filter
+          // (a slot's single source renders as its bare variable).
           const synthesis = fluidCadServer.synthesizeSketchApplyFeature(
-            request.sketchPicks, 'offset', request.value, { ...synthOptions, offset: request.offset },
+            request.sketchPicks,
+            request.feature === 'slot' ? 'slot' : 'offset',
+            request.value,
+            { ...synthOptions, offset: request.offset, slot: request.slot },
           );
           if (!synthesis) {
             res.status(404).json({ success: false, reason: 'No rendered scene' });
@@ -3077,6 +3145,7 @@ export function createApplyFeatureRouter(
           feature: request.feature,
           value: request.value,
           offset: request.offset,
+          slot: request.slot,
           rawArgs,
           filePath: request.target.filePath,
           producers,
@@ -4531,17 +4600,18 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: 'sketchEntities must be a non-empty array of {shapeId} picks' });
         return;
       }
-      if (feature !== 'fillet' && feature !== 'offset' && feature !== 'trim'
+      if (feature !== 'fillet' && feature !== 'offset' && feature !== 'slot' && feature !== 'trim'
         && feature !== 'fuse' && feature !== 'subtract' && feature !== 'common') {
-        res.status(400).json({ error: 'feature must be "fillet", "offset", "trim", "fuse", "subtract" or "common" for sketch-edge selections' });
+        res.status(400).json({ error: 'feature must be "fillet", "offset", "slot", "trim", "fuse", "subtract" or "common" for sketch-edge selections' });
         return;
       }
       // Trim and the booleans carry no numeric parameter.
       const sketchValueless = feature === 'trim'
         || feature === 'fuse' || feature === 'subtract' || feature === 'common';
-      // Fillet needs a positive radius; offset allows a negative distance
-      // (the inward idiom) but not zero; the booleans carry no value at all.
-      if (feature === 'fillet' && !validValueExpr(value, { positive: true })) {
+      // Fillet and slot need a positive radius; offset allows a negative
+      // distance (the inward idiom) but not zero; the booleans carry no value
+      // at all.
+      if ((feature === 'fillet' || feature === 'slot') && !validValueExpr(value, { positive: true })) {
         res.status(400).json({ error: 'value must be a positive number or expression' });
         return;
       }
@@ -4550,7 +4620,9 @@ export function createApplyFeatureRouter(
         return;
       }
       // Offset's dialog toggles: the `removeOriginal` argument and `.close()`.
+      // Slot's single toggle: the trailing `deleteSource` argument.
       let offsetOptions: OffsetEditOptions | undefined;
+      let slotOptions: SlotEditOptions | undefined;
       if (feature === 'offset') {
         const parsed = validateOffsetOptions(req.body);
         if ('error' in parsed) {
@@ -4558,8 +4630,15 @@ export function createApplyFeatureRouter(
           return;
         }
         offsetOptions = parsed.options;
+      } else if (feature === 'slot') {
+        const parsed = validateSlotOptions(req.body);
+        if ('error' in parsed) {
+          res.status(400).json({ error: parsed.error });
+          return;
+        }
+        slotOptions = parsed.options;
       } else if (req.body?.removeOriginal !== undefined || req.body?.close !== undefined) {
-        res.status(400).json({ error: 'removeOriginal and close only apply to offset' });
+        res.status(400).json({ error: 'removeOriginal and close only apply to offset and slot' });
         return;
       }
       // Subtract is slot-addressed: sketchEntities is the base pick set,
@@ -4591,8 +4670,9 @@ export function createApplyFeatureRouter(
             ),
             toolRefs: sketchToolPicks,
             offset: offsetOptions,
+            slot: slotOptions,
           }
-          : { toolRefs: sketchToolPicks, offset: offsetOptions };
+          : { toolRefs: sketchToolPicks, offset: offsetOptions, slot: slotOptions };
         const synthesis = fluidCadServer.synthesizeSketchApplyFeature(
           sketchPicks, feature, sketchValueless ? undefined : value, options,
         );
@@ -4604,12 +4684,24 @@ export function createApplyFeatureRouter(
           res.status(422).json({ success: false, reason: synthesis.reason });
           return;
         }
+        // Slot's source must be a bare geometry variable — a workspace kernel
+        // predating the 'slot' kind falls through its accessor synthesis and
+        // returns forms SlotFromEdge cannot consume; refuse those honestly.
+        if (feature === 'slot' && !/^[A-Za-z_$][\w$]*$/.test(synthesis.args)) {
+          res.status(422).json({
+            success: false,
+            reason: "the workspace's FluidCAD version does not support slot from edge — update its fluidcad dependency",
+          });
+          return;
+        }
         // The toggles are statement shape, not selection knowledge: re-attach
         // them here so a workspace kernel predating them still writes (and
         // previews) the form the dialog asked for.
         const statement = offsetOptions
           ? renderOffsetStatement(value, synthesis.args, offsetOptions)
-          : synthesis.preview;
+          : feature === 'slot'
+            ? renderSlotStatement(value, synthesis.args, slotOptions)
+            : synthesis.preview;
         if (preview === true) {
           res.json({
             success: true,
@@ -4624,6 +4716,9 @@ export function createApplyFeatureRouter(
           : synthesis.spec;
         if (offsetOptions) {
           spec = { ...spec, offset: offsetOptions };
+        }
+        if (slotOptions) {
+          spec = { ...spec, slot: slotOptions };
         }
         if (newVariables) {
           spec = { ...spec, newVariables };

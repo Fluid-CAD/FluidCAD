@@ -13,6 +13,7 @@ import {
   ApplyFeatureSynthesis,
   OffsetEditOptions,
   SelectionScene,
+  SlotEditOptions,
   SynthesizeOptions,
   nameHintFor,
 } from "./types.js";
@@ -20,7 +21,7 @@ import {
 /** A sketch edge pick: 1 shapeId = 1 edge (the Stage 0 emission invariant). */
 export type SketchPickRef = { shapeId: string };
 
-export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'trim' | 'fuse' | 'subtract' | 'common';
+export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common';
 
 export type SketchSynthesizeOptions = SynthesizeOptions & {
   /**
@@ -34,6 +35,11 @@ export type SketchSynthesizeOptions = SynthesizeOptions & {
    * second argument) and `.close()`.
    */
   offset?: OffsetEditOptions;
+  /**
+   * Slot-from-edge only: the dialog's Remove-original toggle — the call's
+   * `deleteSource` argument, whose kernel default is true.
+   */
+  slot?: SlotEditOptions;
 };
 
 type ResolvedSketchPick = {
@@ -80,6 +86,10 @@ export function synthesizeSketchApplyFeature(
 
   if (feature === 'fuse' || feature === 'subtract' || feature === 'common') {
     return synthesizeSketchBoolean(scene, refs, feature, options);
+  }
+
+  if (feature === 'slot') {
+    return synthesizeSketchSlot(scene, refs, value, options);
   }
 
   const resolution = resolvePicks(scene, refs);
@@ -244,6 +254,86 @@ function sketchStatementPreview(
   }
   const valueArgs = offset?.removeOriginal ? `${value}, true` : `${value}`;
   return `${feature}(${valueArgs}, ${args})${offset?.close ? '.close()' : ''}`;
+}
+
+/** The slot-from-edge statement text for previews and the create transform. */
+function renderSlotFromEdgePreview(
+  args: string,
+  value: number | string | undefined,
+  slot: SlotEditOptions | undefined,
+): string {
+  const keepSource = slot?.removeOriginal === false ? ', false' : '';
+  return `slot(${args}, ${value}${keepSource})`;
+}
+
+/**
+ * Slot from edge is owner-level like the 2D booleans: `slot(g, r)` takes ONE
+ * whole source geometry (SlotFromEdge offsets each of its edges into a slot
+ * outline), so any picked edge stands for its producing primitive and the
+ * emitted source argument is a bare variable. Accessor and filter forms are
+ * deliberately not offered — `slot(l.edge(0), r)` hands the kernel a lazy
+ * selection it neither builds nor deletes the source through.
+ */
+function synthesizeSketchSlot(
+  scene: SelectionScene,
+  refs: SketchPickRef[],
+  value: number | string | undefined,
+  options: SketchSynthesizeOptions,
+): ApplyFeatureSynthesis {
+  const resolution = resolvePicks(scene, refs);
+  if ('reason' in resolution) {
+    return { ok: false, reason: resolution.reason };
+  }
+
+  const owners: SceneObject[] = [];
+  for (const pick of resolution.picks) {
+    if (!owners.includes(pick.owner)) {
+      owners.push(pick.owner);
+    }
+  }
+  if (owners.length > 1) {
+    return { ok: false, reason: 'slot takes one source geometry — pick edges of a single geometry' };
+  }
+  const owner = owners[0];
+  const bindFailure = checkSketchBindable(scene, owner);
+  if (bindFailure) {
+    return { ok: false, reason: bindFailure };
+  }
+
+  const names = allocateNames([owner], options.namer);
+  const parts = [part(owner, '', null, null, 0)];
+  const args = renderPartArgs(parts[0], names);
+  const slot: SlotEditOptions = { removeOriginal: options.slot?.removeOriginal !== false };
+
+  const loc = owner.getSourceLocation()!;
+  const spec: ApplyFeatureEditSpec = {
+    feature: 'slot',
+    value,
+    slot,
+    filePath: loc.filePath,
+    producers: [{
+      line: loc.line,
+      column: loc.column,
+      featureType: owner.getType(),
+      nameHint: nameHintFor(owner.getType()),
+      bind: true,
+    }],
+    parts: parts.map(p => ({
+      producer: 0,
+      accessor: p.accessor,
+      indices: p.indices,
+      filterArgs: p.filterArgs,
+    })),
+    imports: [],
+  };
+
+  return {
+    ok: true,
+    spec,
+    preview: renderSlotFromEdgePreview(args, value, slot),
+    args,
+    alternatives: [],
+  };
 }
 
 /**

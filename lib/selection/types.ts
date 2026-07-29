@@ -103,7 +103,7 @@ export type ExplainResult = {
   picks: PickExplanation[];
 };
 
-export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'trim' | 'fuse' | 'subtract' | 'common';
+export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common';
 
 /**
  * A tangent chain from the "Select with tangents" gesture: the pick the user
@@ -129,12 +129,24 @@ export type OffsetEditOptions = {
   close: boolean;
 };
 
+/**
+ * A slot-from-edge statement's own option: the `deleteSource` boolean that
+ * rides as the call's third argument. The kernel default is true (the source
+ * geometry is consumed), so the rendered statement only carries an explicit
+ * `false` when the original is kept.
+ */
+export type SlotEditOptions = {
+  removeOriginal: boolean;
+};
+
 export type ApplyFeatureEditSpec = {
   feature: ApplyFeatureKind;
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: number | string;
   /** Offset-only payload; renders the boolean argument and the `.close()` chain. */
   offset?: OffsetEditOptions;
+  /** Slot-from-edge payload; renders the trailing `deleteSource` argument. */
+  slot?: SlotEditOptions;
   filePath: string;
   producers: {
     line: number;

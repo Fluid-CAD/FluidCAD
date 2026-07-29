@@ -389,7 +389,7 @@ timelinePanel.isFeatureEditable = (obj) =>
 timelinePanel.managesOwnBreakpoint = (obj) => obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type);
 
 /** Rows whose edit dialog pauses the build before its own statement. */
-const PAUSE_BEFORE_ROW_TYPES = new Set(['offset']);
+const PAUSE_BEFORE_ROW_TYPES = new Set(['offset', 'slot']);
 
 /**
  * Timeline `type` → the dialog that edits it (cut is extrude's remove op;
@@ -403,9 +403,11 @@ const EDITABLE_ROW_TYPES = new Set([
   'copy-linear', 'copy-circular',
   'fuse', 'subtract', 'common',
   'plane',
-  // 2D: an offset/projection row sits under its sketch, and its dialog
-  // re-opens over it.
+  // 2D: an offset/slot/projection row sits under its sketch, and its dialog
+  // re-opens over it. (A from-dimensions slot statement parse-refuses with a
+  // drag-to-edit hint — only the from-edge form has a dialog.)
   'offset',
+  'slot',
   'projection',
 ]);
 
@@ -443,9 +445,9 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     return;
   }
   const target = obj.sourceLocation;
-  // A pause-before row (offset) deferred the double-click's breakpoint so the
-  // parse above reads the unshifted buffer; every outcome except the offset
-  // dialog itself owes the gesture its classic after-the-statement pause.
+  // A pause-before row (offset, slot) deferred the double-click's breakpoint
+  // so the parse above reads the unshifted buffer; every outcome except that
+  // row's own dialog owes the gesture its classic after-the-statement pause.
   const deferredBreakpoint = obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type);
   const result = await parseFeatureAt(target);
   if (result.ok === false) {
@@ -455,7 +457,7 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     showEditRefusal(result.reason);
     return;
   }
-  if (deferredBreakpoint && result.parsed.feature !== 'offset') {
+  if (deferredBreakpoint && result.parsed.feature !== 'offset' && result.parsed.feature !== 'slot') {
     addBreakpoint(target);
   }
   if (result.parsed.feature === 'sketch') {
@@ -499,6 +501,12 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     closeFeatureDialogs();
     pauseBeforeSketchStatement(obj, index);
     sketchService.enterOffsetEdit(target, parsed, result.statement);
+  } else if (parsed.feature === 'slot') {
+    // Same pause-before contract as the offset edit: the slot's consumed
+    // source edge is visible and re-pickable in the paused sketch.
+    closeFeatureDialogs();
+    pauseBeforeSketchStatement(obj, index);
+    sketchService.enterSlotEdit(target, parsed, result.statement);
   } else if (parsed.feature === 'project') {
     // A projection lives inside a sketch body but reads the 3D scene before
     // it: its edit session rolls the viewport back to just before its row

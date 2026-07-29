@@ -490,6 +490,99 @@ describe("sketch apply-feature synthesis", () => {
     });
   });
 
+  describe("slot from edge (owner-level source)", () => {
+    it("renders the picked edge's owner as the bare source variable", () => {
+      let l: SceneObject;
+      sketch("xy", () => {
+        l = hLine(60) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(l!, 3);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(edgesOf(l!)[0])], 'slot', 10,
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.args).toBe('l');
+      expect(result.preview).toBe('slot(l, 10)');
+      expect(result.spec.feature).toBe('slot');
+      expect(result.spec.value).toBe(10);
+      expect(result.spec.slot).toEqual({ removeOriginal: true });
+      expect(result.spec.producers).toEqual([
+        { line: 3, column: 0, featureType: 'line', nameHint: 'l', bind: true },
+      ]);
+      expect(result.spec.parts).toEqual([
+        { producer: 0, accessor: '', indices: null, filterArgs: null },
+      ]);
+    });
+
+    it("carries the keep-original toggle as the trailing false", () => {
+      let l: SceneObject;
+      sketch("xy", () => {
+        l = aLine(45, 60) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(l!, 3);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(edgesOf(l!)[0])], 'slot', 10,
+        { slot: { removeOriginal: false } },
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.preview).toBe('slot(l, 10, false)');
+      expect(result.spec.slot).toEqual({ removeOriginal: false });
+    });
+
+    it("refuses picks spanning two geometries", () => {
+      let l: SceneObject;
+      let c: SceneObject;
+      sketch("xy", () => {
+        l = hLine(60) as unknown as SceneObject;
+        move([100, 0]);
+        c = circle(20) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(l!, 3);
+      setLocation(c!, 5);
+
+      expect(synthesizeSketchApplyFeature(
+        scene,
+        [refFor(edgesOf(l!)[0]), refFor(edgesOf(c!)[0])],
+        'slot',
+        10,
+      )).toMatchObject({ ok: false, reason: expect.stringMatching(/one source geometry/) });
+    });
+
+    it("refuses an unbindable source honestly", () => {
+      let c1: SceneObject;
+      let c2: SceneObject;
+      sketch("xy", () => {
+        c1 = circle(40) as unknown as SceneObject;
+        move([100, 0]);
+        c2 = circle(20) as unknown as SceneObject;
+      });
+      const scene = render();
+      // Same call site: both circles come from one looped statement.
+      setLocation(c1!, 4);
+      setLocation(c2!, 4);
+
+      expect(synthesizeSketchApplyFeature(
+        scene, [refFor(edgesOf(c1!)[0])], 'slot', 10,
+      )).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/call site produces multiple statements/),
+      });
+    });
+  });
+
   it("refuses picks spanning different sketches", () => {
     let r1: Rect;
     let r2: Rect;

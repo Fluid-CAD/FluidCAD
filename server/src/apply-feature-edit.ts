@@ -107,7 +107,7 @@ export function validValueExpr(
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'project' | 'offset' | 'trim' | 'fuse' | 'subtract' | 'common';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -135,6 +135,8 @@ export type ApplyFeatureEditSpec = {
   chamfer?: ChamferEditOptions;
   /** Offset-only payload; the boolean argument and the `.close()` chain. */
   offset?: OffsetEditOptions;
+  /** Slot-from-edge payload; the trailing `deleteSource` argument. */
+  slot?: SlotEditOptions;
   /** Loft-only payload; each `parts` entry renders one profile's selector. */
   loft?: LoftEditOptions;
   /** Plane-only payload; each `parts` entry renders one base's selector. */
@@ -301,6 +303,13 @@ export type FeatureStatementEditTarget = {
    * value, `distance2: null` returns it to the equal-distance form.
    */
   chamfer?: ChamferEditOptions;
+  /**
+   * Slot draw-replace (the edit dialog's Draw tab): swap the whole from-edge
+   * statement for the freshly drawn from-dimensions form, verbatim. The text
+   * is what the slot drawing tool would insert (`slot(40, 8)`,
+   * `slot([x1,y1], [x2,y2], r)`, …) — validated to be a single slot() chain.
+   */
+  slot?: { drawStatement: string };
   loft?: {
     op: 'add' | 'remove' | 'new';
     thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
@@ -767,6 +776,16 @@ export type ChamferEditOptions = {
 export type OffsetEditOptions = {
   removeOriginal: boolean;
   close: boolean;
+};
+
+/**
+ * A slot-from-edge statement's own option: `removeOriginal` mirrors the
+ * call's `deleteSource` argument — `slot(l, 4)` consumes the source line (the
+ * kernel default), `slot(l, 4, false)` keeps it. The rendered statement only
+ * carries the explicit `false`.
+ */
+export type SlotEditOptions = {
+  removeOriginal: boolean;
 };
 
 /**
@@ -1251,6 +1270,14 @@ export async function applyFeatureEdit(
       && spec.producers.length > 0 && spec.parts.length > 0;
     if (!valid) {
       return { newCode: code, error: 'malformed project edit spec' };
+    }
+  } else if (spec.feature === 'slot') {
+    // Slot from edge takes ONE whole source geometry: exactly one bound
+    // producer rendered as a bare variable, plus a positive radius.
+    const valid = spec.producers.length === 1 && spec.parts.length === 1
+      && validValueExpr(spec.value, { positive: true });
+    if (!valid) {
+      return { newCode: code, error: 'malformed slot edit spec' };
     }
   } else if (!spec.producers.length || !spec.parts.length) {
     return { newCode: code, error: 'empty edit spec' };
@@ -2531,6 +2558,9 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   if (spec.feature === 'offset') {
     return renderOffsetStatement(spec.value, args, spec.offset);
   }
+  if (spec.feature === 'slot') {
+    return renderSlotStatement(spec.value, args, spec.slot);
+  }
   const joinChain = spec.feature === 'shell' ? renderShellJoinChain(spec.shell?.joinType) : '';
   return `${spec.feature}(${formatValue(spec.value)}, ${args})${joinChain}`;
 }
@@ -2549,6 +2579,20 @@ export function renderOffsetStatement(
   const valueArgs = offset?.removeOriginal ? `${formatValue(value)}, true` : formatValue(value);
   const chain = offset?.close ? '.close()' : '';
   return args ? `offset(${valueArgs}, ${args})${chain}` : `offset(${valueArgs})${chain}`;
+}
+
+/**
+ * A slot-from-edge statement: `slot(l, 4)` — the source geometry first, then
+ * the cap radius. The kernel deletes the source by default, so only the
+ * keep-original form carries the trailing boolean: `slot(l, 4, false)`.
+ */
+export function renderSlotStatement(
+  value: ValueExpr | undefined,
+  args: string,
+  slot: SlotEditOptions | undefined,
+): string {
+  const keepSource = slot?.removeOriginal === false ? ', false' : '';
+  return `slot(${args}, ${formatValue(value)}${keepSource})`;
 }
 
 /** The selector argument list: the user-edited override, or rendered parts. */
@@ -2938,7 +2982,7 @@ function enclosingSketchStatement(node: TSNode): TSNode | null {
 // ---------------------------------------------------------------------------
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'plane' | 'offset' | 'slot' | 'project';
 
 /**
  * One base argument of a parsed plane statement. `kind` is what the base
@@ -3069,6 +3113,15 @@ export type ParsedFeatureStatement =
     argsText: string;
     /** `.close()` chains the offset back onto its source profile. */
     close: boolean;
+  }
+  | {
+    feature: 'slot';
+    /** The end-cap radius. */
+    value: ValueExpr;
+    /** The `deleteSource` argument (kernel default true) — the source is removed. */
+    removeOriginal: boolean;
+    /** The source-geometry argument, verbatim (a bound variable). */
+    argsText: string;
   }
   | {
     feature: 'project';
@@ -3223,6 +3276,7 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   helix: 'helix',
   plane: 'plane',
   offset: 'offset',
+  slot: 'slot',
   project: 'project',
 };
 
@@ -3269,6 +3323,10 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // The distance, the removeOriginal flag and the targets are root-call
   // arguments; `.close()` is the one chained option the dialog edits.
   offset: new Set(['close']),
+  // The source, the radius and the deleteSource flag are root-call arguments;
+  // the dimension forms chain .centered()/.rotate(), but those forms refuse
+  // to parse anyway (they are drawn, not dialog-edited).
+  slot: new Set(),
   // The sources are the root call's arguments; `.name()` and friends are
   // unrecognized members and survive verbatim.
   project: new Set(),
@@ -3596,6 +3654,33 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
       start,
       end,
     };
+  }
+
+  if (feature === 'slot') {
+    // Only the from-edge overload has a dialog: `slot(<source>, <radius>[,
+    // <deleteSource>])`, the source being a bound geometry variable. The
+    // dimension overloads (a numeric or point first argument) are drawn and
+    // drag-edited in the sketch, so they refuse honestly.
+    if (args.length < 2) {
+      return { error: 'the slot() call is missing its radius — edit it in the source' };
+    }
+    if (numericValueArg(args[0], numericVars) !== null || args[0].type === 'array') {
+      return { error: 'this slot is drawn from dimensions — drag it in the sketch to edit it' };
+    }
+    const value = numericValueArg(args[1], numericVars);
+    if (value === null) {
+      return { error: 'the slot() radius is not a plain number or expression — edit it in the source' };
+    }
+    let removeOriginal = true;
+    if (args.length > 2) {
+      const flag = booleanArgValue(args[2]);
+      if (flag === null || args.length > 3) {
+        return { error: 'the slot() call has arguments the dialog cannot edit — edit it in the source' };
+      }
+      removeOriginal = flag;
+    }
+    const argsText = code.slice(args[0].startIndex, args[0].endIndex);
+    return { parsed: { feature, value, removeOriginal, argsText }, start, end };
   }
 
   if (feature === 'project') {
@@ -4840,12 +4925,12 @@ export type SketchTargetDescriptor =
   | { kind: 'filter'; calls: { name: string; dim: number | null }[] };
 
 /**
- * Parse the offset statement at `line` into target descriptors for the
- * edit dialog's edge seeding: bare producer variables, `r.edge(…)` accessor
- * calls with literal arguments, and `edge().<kind>(…)` filter chains — the
- * forms selector synthesis emits. Anything else refuses (the dialog then
- * keeps its keep chip, exactly the unseeded behavior). An empty target list
- * (the whole-sketch offset) resolves to no descriptors.
+ * Parse the 2D statement (offset or slot-from-edge) at `line` into target
+ * descriptors for the edit dialog's edge seeding: bare producer variables,
+ * `r.edge(…)` accessor calls with literal arguments, and `edge().<kind>(…)`
+ * filter chains — the forms selector synthesis emits. Anything else refuses
+ * (the dialog then keeps its keep chip, exactly the unseeded behavior). An
+ * empty target list (the whole-sketch offset) resolves to no descriptors.
  */
 export async function parseOffsetTargetDescriptors(
   code: string,
@@ -4859,14 +4944,23 @@ export async function parseOffsetTargetDescriptors(
     return { ok: false, reason: `no call found at line ${line} — is the file in sync with the last render?` };
   }
   const chain = decomposeChain(call);
-  if (!chain || chain.root.name !== 'offset') {
-    return { ok: false, reason: 'the statement at that line is not an offset' };
+  if (!chain || (chain.root.name !== 'offset' && chain.root.name !== 'slot')) {
+    return { ok: false, reason: 'the statement at that line is not an offset or slot' };
   }
-  // The value and removeOriginal slots, exactly as parseFeatureChain reads them.
   const args = chain.root.args;
   const numericVars = numericVarNames(tree);
   let selectorsFrom = 0;
-  if (args.length > 0 && numericValueArg(args[0], numericVars) !== null) {
+  let selectorsTo = args.length;
+  if (chain.root.name === 'slot') {
+    // `slot(<source>, <radius>[, <deleteSource>])` — the source alone is the
+    // target; the trailing value/flag slots never seed.
+    if (args.length === 0 || numericValueArg(args[0], numericVars) !== null || args[0].type === 'array') {
+      return { ok: false, reason: 'this slot is drawn from dimensions — it has no source geometry to seed' };
+    }
+    selectorsTo = 1;
+  } else if (args.length > 0 && numericValueArg(args[0], numericVars) !== null) {
+    // The offset's value and removeOriginal slots, exactly as
+    // parseFeatureChain reads them.
     selectorsFrom = 1;
     if (args.length > 1 && booleanArgValue(args[1]) !== null) {
       selectorsFrom = 2;
@@ -4886,7 +4980,7 @@ export async function parseOffsetTargetDescriptors(
   };
 
   const descriptors: SketchTargetDescriptor[] = [];
-  for (const arg of args.slice(selectorsFrom)) {
+  for (const arg of args.slice(selectorsFrom, selectorsTo)) {
     if (arg.type === 'identifier') {
       const declLine = declarationLine(arg.text);
       if (declLine === null) {
@@ -4946,6 +5040,28 @@ export async function parseOffsetTargetDescriptors(
   return { ok: true, descriptors };
 }
 
+/**
+ * Validate the Draw tab's replacement text: exactly one `slot(...)` call
+ * chain — the slot drawing tool's own emission, nothing else reaches this
+ * path. Returns a refusal message, or null when the text is sound.
+ */
+export async function validateSlotDrawStatement(text: string): Promise<string | null> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(text);
+  const statements = tree.rootNode.namedChildren.filter(n => n.type !== 'comment');
+  const expr = statements.length === 1 && statements[0].type === 'expression_statement'
+    ? statements[0].namedChildren.find(n => n.type !== 'comment')
+    : undefined;
+  if (!expr || expr.type !== 'call_expression') {
+    return 'the drawn slot must be a single slot() statement';
+  }
+  const chain = decomposeChain(expr);
+  if (!chain || chain.root.name !== 'slot') {
+    return 'the drawn slot must be a single slot() statement';
+  }
+  return null;
+}
+
 /** A plain numeric literal's value, or null for any other expression. */
 function literalNumber(node: TSNode): number | null {
   const value = Number(node.text);
@@ -4983,7 +5099,7 @@ function validValueExprOrNull(
 }
 
 /** The spec fields `renderEditedStatement` reads. */
-type EditRenderSpec = Pick<ApplyFeatureEditSpec, 'feature' | 'value' | 'offset' | 'rawArgs' | 'edit' | 'producers' | 'parts'>;
+type EditRenderSpec = Pick<ApplyFeatureEditSpec, 'feature' | 'value' | 'offset' | 'slot' | 'rawArgs' | 'edit' | 'producers' | 'parts'>;
 
 /**
  * The selector argument list an edited statement renders: the user's
@@ -5844,6 +5960,27 @@ export function renderEditedStatement(
     // row, the re-picked selector parts, or the statement's own list.
     return { statement: `project(${editedSelectorArgs(spec, parsed.argsText, varFor)})` };
   }
+  if (parsed.feature === 'slot') {
+    // The Draw tab's replacement: the freshly drawn from-dimensions statement
+    // swaps in verbatim (validated as a slot() chain by the caller).
+    const draw = spec.edit?.slot?.drawStatement;
+    if (draw !== undefined) {
+      return { statement: draw };
+    }
+    if (!validValueExpr(spec.value, { positive: true })) {
+      return { error: 'the slot radius must be a positive number or expression' };
+    }
+    // An edit spec without slot options keeps the statement's own flag.
+    const slot = spec.slot ?? { removeOriginal: parsed.removeOriginal };
+    if (typeof slot.removeOriginal !== 'boolean') {
+      return { error: 'malformed slot edit spec' };
+    }
+    const args = editedSelectorArgs(spec, parsed.argsText, varFor);
+    if (!args) {
+      return { error: 'the slot needs its source geometry — pick an edge' };
+    }
+    return { statement: renderSlotStatement(spec.value, args, slot) };
+  }
   if (!validValueExpr(spec.value, { nonzero: true })) {
     return { error: `the ${parsed.feature} value must be a nonzero number or expression` };
   }
@@ -5930,6 +6067,12 @@ async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Pro
       newCode: code,
       error: 'the statement changed since the dialog opened — re-open it to edit the current code',
     };
+  }
+  if (edit.slot?.drawStatement !== undefined) {
+    const drawError = await validateSlotDrawStatement(edit.slot.drawStatement);
+    if (drawError) {
+      return { newCode: code, error: drawError };
+    }
   }
 
   let bindings: ProducerBinding[] = [];

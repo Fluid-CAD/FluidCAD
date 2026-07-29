@@ -88,6 +88,16 @@
   --scene-constraint-color: #555555;
 }
 
+/* App-shell UI: overlay offsets (top-[106px] constraint bar, top-[116px]
+   timeline, top-[196px] dialogs, the 104px scene inset below) are absolute
+   pixels, while the bars they stack under are rem-sized (h-12 + h-14). Pin
+   the root font size so a browser-level default font size other than 16
+   (e.g. Chrome Appearance → Font size) can't scale the bars out from under
+   the overlays. */
+html {
+  font-size: 16px;
+}
+
 @utility panel-bg {
   background: light-dark(oklch(0.95 0 0 / 0.85), oklch(0.2 0 0 / 0.85));
   backdrop-filter: blur(12px);

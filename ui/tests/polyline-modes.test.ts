@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { applyTarcToEdge } from '../src/api';
 import { LineMode } from '../src/interactive/tools/polyline/mode-line';
 import { ALineMode } from '../src/interactive/tools/polyline/mode-aline';
 import { ArcMode } from '../src/interactive/tools/polyline/mode-arc';
@@ -11,6 +12,11 @@ import { ExpressionInput } from '../src/ui/expression-input';
 import type { SnapResult } from '../src/snapping/types';
 
 Element.prototype.scrollIntoView = () => {};
+
+vi.mock('../src/api', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  applyTarcToEdge: vi.fn(async () => ({ success: true })),
+}));
 
 type Inserted = { statement: string; newVariable?: unknown };
 
@@ -30,6 +36,15 @@ type CtxOptions = {
   tangent?: { direction: Point2D; point: Point2D } | null;
   atCurrent?: boolean;
   orthoOverride?: boolean;
+  sceneObjects?: unknown[];
+};
+
+// The XY plane in scene-payload shape, enough for the 2D edge index.
+const PLANE = {
+  origin: { x: 0, y: 0, z: 0 },
+  xDirection: { x: 1, y: 0, z: 0 },
+  yDirection: { x: 0, y: 1, z: 0 },
+  normal: { x: 0, y: 0, z: 1 },
 };
 
 // Drives a segment mode against a plain-object ModeContext backed by a real
@@ -40,6 +55,7 @@ function makeCtx(opts: CtxOptions = {}) {
   const expr = new ExpressionInput(container);
   const inserted: Inserted[] = [];
   const committed: SegmentCommitResult[] = [];
+  const hints: (string | null)[] = [];
 
   const state = {
     atCurrent: opts.atCurrent ?? true,
@@ -47,15 +63,17 @@ function makeCtx(opts: CtxOptions = {}) {
   };
 
   const ctx = {
-    plane: {},
+    plane: PLANE,
     previewGroup: {},
     camera: {},
     planeNormal: {},
     tangent: opts.tangent ?? null,
-    sceneObjects: [],
+    sceneObjects: opts.sceneObjects ?? [],
     sketchId: 'sketch',
     startPoint: opts.startPoint ?? [0, 0],
     isAtCurrentPosition: () => state.atCurrent,
+    pixelThreshold: (px: number) => px,
+    setSnapHint: (hint: string | null) => hints.push(hint),
     formatPoint: (p: Point2D) => `[${p[0]}, ${p[1]}]`,
     insertGeometry: (statement: string, newVariable?: unknown) => {
       inserted.push({ statement, newVariable });
@@ -76,7 +94,7 @@ function makeCtx(opts: CtxOptions = {}) {
   } as unknown as ModeContext;
 
   const input = container.querySelector('.expression-input') as HTMLInputElement;
-  return { ctx, expr, input, inserted, committed, state };
+  return { ctx, expr, input, inserted, committed, hints, state };
 }
 
 describe('LineMode H/V auto-snap', () => {
@@ -365,6 +383,138 @@ describe('TArcMode', () => {
 
     expect(inserted).toEqual([]);
     expect(result.kind).toBe('ignored');
+  });
+});
+
+describe('TArcMode edge snap', () => {
+  beforeEach(() => {
+    vi.mocked(applyTarcToEdge).mockClear();
+  });
+
+  /** A single-edge sketch object (one real edge shape) for the edge index. */
+  function edgeObj(shapeId: string, a: Point2D, b: Point2D, uniqueType = 'line-two-points') {
+    return {
+      parentId: 'sketch',
+      uniqueType,
+      sourceLocation: { filePath: 'f.fluid.js', line: 3, column: 0 },
+      sceneShapes: [{
+        shapeId,
+        meshes: [{ vertices: [a[0], a[1], 0, b[0], b[1], 0], indices: [0, 1] }],
+      }],
+    };
+  }
+
+  function makeSnapCtx(sceneObjects: unknown[]) {
+    return makeCtx({
+      startPoint: [50, 0],
+      tangent: { direction: [1, 0], point: [50, 0] },
+      sceneObjects,
+    });
+  }
+
+  it('snaps to a hovered edge and commits the radius + target overload', async () => {
+    // Chain at (50, 0) heading +X; a vertical line at x=80. Hovering near
+    // (80, 30) projects onto the line and solves radius 30, CCW.
+    const { ctx, committed, hints } = makeSnapCtx([edgeObj('t1', [80, -50], [80, 50])]);
+    const mode = new TArcMode();
+    mode.enter(ctx);
+
+    mode.handleMouseMove([79.5, 30], SNAP, 0, 0, ctx);
+    expect(hints[hints.length - 1]).toBe('Tangent arc up to intersection');
+
+    const result = mode.handleClick([79.5, 30], SNAP, ctx);
+    expect(result.kind).toBe('consumed');
+    expect(applyTarcToEdge).toHaveBeenCalledWith(30, 't1');
+
+    await vi.waitFor(() => expect(committed).toHaveLength(1));
+    expect(committed[0].endpoint[0]).toBeCloseTo(80);
+    expect(committed[0].endpoint[1]).toBeCloseTo(30);
+    // Exit tangent at (80, 30) around center (50, 30), CCW: straight up.
+    expect(committed[0].exitTangent?.direction[0]).toBeCloseTo(0);
+    expect(committed[0].exitTangent?.direction[1]).toBeCloseTo(1);
+  });
+
+  it('writes a negative radius for a clockwise sweep', () => {
+    const { ctx } = makeSnapCtx([edgeObj('t1', [80, -50], [80, 50])]);
+    const mode = new TArcMode();
+    mode.enter(ctx);
+
+    mode.handleMouseMove([79.5, -30], SNAP, 0, 0, ctx);
+    mode.handleClick([79.5, -30], SNAP, ctx);
+
+    expect(applyTarcToEdge).toHaveBeenCalledWith(-30, 't1');
+  });
+
+  it('snaps to guide edges too', () => {
+    const guide = {
+      parentId: 'sketch',
+      uniqueType: 'line-two-points',
+      sourceLocation: { filePath: 'f.fluid.js', line: 3, column: 0 },
+      sceneShapes: [{
+        shapeId: 'g1',
+        isGuide: true,
+        meshes: [{ vertices: [80, -50, 0, 80, 50, 0], indices: [0, 1] }],
+      }],
+    };
+    const { ctx, hints } = makeSnapCtx([guide]);
+    const mode = new TArcMode();
+    mode.enter(ctx);
+
+    mode.handleMouseMove([79.5, 30], SNAP, 0, 0, ctx);
+    expect(hints[hints.length - 1]).toBe('Tangent arc up to intersection');
+    mode.handleClick([79.5, 30], SNAP, ctx);
+
+    expect(applyTarcToEdge).toHaveBeenCalledWith(30, 'g1');
+  });
+
+  it('never snaps to the edge the chain leaves from', () => {
+    // The previous segment ends at the chain start — hovering over it must
+    // not offer the intersection snap.
+    const { ctx, hints } = makeSnapCtx([edgeObj('prev', [0, 0], [50, 0])]);
+    const mode = new TArcMode();
+    mode.enter(ctx);
+
+    mode.handleMouseMove([40, 0.4], SNAP, 0, 0, ctx);
+    mode.handleClick([40, 0.4], SNAP, ctx);
+
+    expect(hints.filter((h) => h !== null)).toHaveLength(0);
+    expect(applyTarcToEdge).not.toHaveBeenCalled();
+  });
+
+  it('ignores multi-edge owners (the kernel targets the first shape only)', () => {
+    const rectish = {
+      parentId: 'sketch',
+      uniqueType: 'rect',
+      sourceLocation: { filePath: 'f.fluid.js', line: 3, column: 0 },
+      sceneShapes: [
+        { shapeId: 'r1', meshes: [{ vertices: [80, -50, 0, 80, 50, 0], indices: [0, 1] }] },
+        { shapeId: 'r2', meshes: [{ vertices: [80, 50, 0, 120, 50, 0], indices: [0, 1] }] },
+      ],
+    };
+    const { ctx, hints } = makeSnapCtx([rectish]);
+    const mode = new TArcMode();
+    mode.enter(ctx);
+
+    mode.handleMouseMove([79.5, 30], SNAP, 0, 0, ctx);
+    mode.handleClick([79.5, 30], SNAP, ctx);
+
+    expect(hints.filter((h) => h !== null)).toHaveLength(0);
+    expect(applyTarcToEdge).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the endpoint overload when the server refuses', async () => {
+    vi.mocked(applyTarcToEdge).mockResolvedValueOnce({ success: false, reason: 'clone' });
+    const { ctx, inserted, committed } = makeSnapCtx([edgeObj('t1', [80, -50], [80, 50])]);
+    const mode = new TArcMode();
+    mode.enter(ctx);
+
+    mode.handleMouseMove([79.5, 30], SNAP, 0, 0, ctx);
+    mode.handleClick([79.5, 30], SNAP, ctx);
+
+    await vi.waitFor(() => expect(committed).toHaveLength(1));
+    expect(inserted).toEqual([{ statement: 'tArc(30, [80, 30])', newVariable: undefined }]);
+    expect(committed[0].endpoint[0]).toBeCloseTo(80);
+    expect(committed[0].endpoint[1]).toBeCloseTo(30);
   });
 });
 

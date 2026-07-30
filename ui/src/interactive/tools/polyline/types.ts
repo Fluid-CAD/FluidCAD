@@ -40,6 +40,10 @@ export type ModeContext = {
   readonly sketchId: string;
   readonly startPoint: Point2D;
   isAtCurrentPosition(point: Point2D): boolean;
+  /** Convert a pixel distance to sketch units at the current zoom. */
+  pixelThreshold(px: number): number;
+  /** Show (or clear, with null) a hint line under the cursor's mode badge. */
+  setSnapHint(hint: string | null): void;
   formatPoint(p: Point2D): string;
   insertGeometry(statement: string, newVariable?: NewVariable | NewVariable[]): void;
   requestRender(): void;

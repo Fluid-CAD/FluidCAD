@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import fillet from "../../core/fillet.js";
-import { rect, polygon, slot, circle, hLine, aLine, move } from "../../core/2d/index.js";
+import { rect, polygon, slot, circle, hLine, aLine, line, move } from "../../core/2d/index.js";
 import { Rect } from "../../features/2d/rect.js";
 import { Edge } from "../../common/edge.js";
 import { SceneObject } from "../../common/scene-object.js";
@@ -576,6 +576,143 @@ describe("sketch apply-feature synthesis", () => {
 
       expect(synthesizeSketchApplyFeature(
         scene, [refFor(edgesOf(c1!)[0])], 'slot', 10,
+      )).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/call site produces multiple statements/),
+      });
+    });
+  });
+
+  describe("tArc to intersection (owner-level target)", () => {
+    it("renders the picked edge's owner as the bare target variable", () => {
+      let l: SceneObject;
+      sketch("xy", () => {
+        l = hLine(60) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(l!, 3);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(edgesOf(l!)[0])], 'tarc', 12,
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.args).toBe('l');
+      expect(result.preview).toBe('tArc(12, l)');
+      expect(result.spec.feature).toBe('tarc');
+      expect(result.spec.value).toBe(12);
+      expect(result.spec.producers).toEqual([
+        { line: 3, column: 0, featureType: 'line', nameHint: 'l', bind: true },
+      ]);
+      expect(result.spec.parts).toEqual([
+        { producer: 0, accessor: '', indices: null, filterArgs: null },
+      ]);
+    });
+
+    it("keeps the signed radius (negative flips the sweep)", () => {
+      let c: SceneObject;
+      sketch("xy", () => {
+        move([100, 0]);
+        c = circle(20) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(c!, 4);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(edgesOf(c!)[0])], 'tarc', -12,
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.preview).toBe('tArc(-12, c)');
+      expect(result.spec.value).toBe(-12);
+    });
+
+    it("accepts a guide edge as the target", () => {
+      let g: SceneObject;
+      sketch("xy", () => {
+        hLine(60);
+        move([0, 40]);
+        g = line([120, 40]).guide() as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(g!, 5);
+
+      const guideEdge = g!.getShapes({ excludeGuide: false })
+        .find((s): s is Edge => s instanceof Edge);
+      expect(guideEdge).toBeDefined();
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [{ shapeId: guideEdge!.id }], 'tarc', 15,
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.args).toBe('l');
+      expect(result.preview).toBe('tArc(15, l)');
+      expect(result.spec.producers).toEqual([
+        { line: 5, column: 0, featureType: 'line', nameHint: 'l', bind: true },
+      ]);
+    });
+
+    it("refuses a multi-edge target honestly", () => {
+      let r: Rect;
+      sketch("xy", () => {
+        r = rect(80, 60) as Rect;
+      });
+      const scene = render();
+      setLocation(r!, 3);
+
+      expect(synthesizeSketchApplyFeature(
+        scene, [refFor(roleEdge(r!, 'top'))], 'tarc', 12,
+      )).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/single-edge geometry/),
+      });
+    });
+
+    it("refuses picks spanning two geometries", () => {
+      let l: SceneObject;
+      let c: SceneObject;
+      sketch("xy", () => {
+        l = hLine(60) as unknown as SceneObject;
+        move([100, 0]);
+        c = circle(20) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(l!, 3);
+      setLocation(c!, 5);
+
+      expect(synthesizeSketchApplyFeature(
+        scene,
+        [refFor(edgesOf(l!)[0]), refFor(edgesOf(c!)[0])],
+        'tarc',
+        12,
+      )).toMatchObject({ ok: false, reason: expect.stringMatching(/one target geometry/) });
+    });
+
+    it("refuses an unbindable target honestly", () => {
+      let c1: SceneObject;
+      let c2: SceneObject;
+      sketch("xy", () => {
+        c1 = circle(40) as unknown as SceneObject;
+        move([100, 0]);
+        c2 = circle(20) as unknown as SceneObject;
+      });
+      const scene = render();
+      // Same call site: both circles come from one looped statement.
+      setLocation(c1!, 4);
+      setLocation(c2!, 4);
+
+      expect(synthesizeSketchApplyFeature(
+        scene, [refFor(edgesOf(c1!)[0])], 'tarc', 12,
       )).toMatchObject({
         ok: false,
         reason: expect.stringMatching(/call site produces multiple statements/),

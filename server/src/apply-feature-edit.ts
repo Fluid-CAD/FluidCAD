@@ -107,7 +107,7 @@ export function validValueExpr(
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -1279,6 +1279,15 @@ export async function applyFeatureEdit(
     if (!valid) {
       return { newCode: code, error: 'malformed slot edit spec' };
     }
+  } else if (spec.feature === 'tarc') {
+    // tArc-to-intersection takes ONE whole target geometry: exactly one bound
+    // producer rendered as a bare variable, plus a nonzero signed radius (a
+    // negative radius flips the sweep direction).
+    const valid = spec.producers.length === 1 && spec.parts.length === 1
+      && validValueExpr(spec.value, { nonzero: true });
+    if (!valid) {
+      return { newCode: code, error: 'malformed tArc edit spec' };
+    }
   } else if (!spec.producers.length || !spec.parts.length) {
     return { newCode: code, error: 'empty edit spec' };
   }
@@ -1931,6 +1940,9 @@ function statementCallee(spec: ApplyFeatureEditSpec): string {
   if (spec.feature === 'boolean') {
     return spec.boolean!.kind;
   }
+  if (spec.feature === 'tarc') {
+    return 'tArc';
+  }
   return spec.feature;
 }
 
@@ -2561,6 +2573,9 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   if (spec.feature === 'slot') {
     return renderSlotStatement(spec.value, args, spec.slot);
   }
+  if (spec.feature === 'tarc') {
+    return renderTarcStatement(spec.value, args);
+  }
   const joinChain = spec.feature === 'shell' ? renderShellJoinChain(spec.shell?.joinType) : '';
   return `${spec.feature}(${formatValue(spec.value)}, ${args})${joinChain}`;
 }
@@ -2593,6 +2608,15 @@ export function renderSlotStatement(
 ): string {
   const keepSource = slot?.removeOriginal === false ? ', false' : '';
   return `slot(${args}, ${formatValue(value)}${keepSource})`;
+}
+
+/**
+ * A tangent-arc-to-intersection statement: `tArc(12, l)` — the signed radius
+ * first, then the target geometry the arc runs to. Shared with the route's
+ * preview so the previewed text is exactly what the transform writes.
+ */
+export function renderTarcStatement(value: ValueExpr | undefined, args: string): string {
+  return `tArc(${formatValue(value)}, ${args})`;
 }
 
 /** The selector argument list: the user-edited override, or rendered parts. */

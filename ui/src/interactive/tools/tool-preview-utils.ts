@@ -6,7 +6,9 @@ import {
   DoubleSide,
   Group,
   Line,
+  LineBasicMaterial,
   LineDashedMaterial,
+  LineSegments,
   Mesh,
   MeshBasicMaterial,
   Vector3,
@@ -57,6 +59,33 @@ function addDashedPolyline(previewGroup: Group, verts: Float32Array, renderOrder
     mat.scale = pixelsPerWorld;
   });
   previewGroup.add(line);
+}
+
+/**
+ * Overlay an existing edge's tessellation segments in a solid highlight —
+ * the polyline tArc mode's snap-target emphasis. Segments are 2D sketch
+ * coordinates as {@link EdgeEntry} carries them.
+ */
+export function addSegmentHighlight(
+  previewGroup: Group,
+  segments: { ax: number; ay: number; bx: number; by: number }[],
+  plane: PlaneData,
+  color: number,
+  renderOrder = 4,
+): void {
+  const verts = new Float32Array(segments.length * 6);
+  for (let i = 0; i < segments.length; i++) {
+    const a = localToWorld([segments[i].ax, segments[i].ay], plane);
+    const b = localToWorld([segments[i].bx, segments[i].by], plane);
+    verts[i * 6] = a.x; verts[i * 6 + 1] = a.y; verts[i * 6 + 2] = a.z;
+    verts[i * 6 + 3] = b.x; verts[i * 6 + 4] = b.y; verts[i * 6 + 5] = b.z;
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new BufferAttribute(verts, 3));
+  const mat = new LineBasicMaterial({ color, depthTest: false });
+  const lines = new LineSegments(geo, mat);
+  lines.renderOrder = renderOrder;
+  previewGroup.add(lines);
 }
 
 export function addDot(

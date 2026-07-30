@@ -57,6 +57,7 @@ export function buildEdgeIndex(
   sceneObjects: SceneObjectRender[],
   sketchId: string,
   plane: PlaneData,
+  options: { includeGuides?: boolean } = {},
 ): EdgeEntry[] {
   const result: EdgeEntry[] = [];
   const ox = plane.origin.x, oy = plane.origin.y, oz = plane.origin.z;
@@ -80,11 +81,15 @@ export function buildEdgeIndex(
         continue;
       }
       if (hasTrimMeta) {
-        if (shape.metaType !== 'trim') {
+        // A trim replaces the profile's display shapes with its 'trim' meta
+        // segments; guides are never consumed by trim, so they stay
+        // indexable alongside when requested.
+        const guidePass = options.includeGuides === true && shape.isGuide && !shape.isMetaShape;
+        if (shape.metaType !== 'trim' && !guidePass) {
           continue;
         }
       } else {
-        if (shape.isMetaShape || shape.isGuide) {
+        if (shape.isMetaShape || (shape.isGuide && options.includeGuides !== true)) {
           continue;
         }
       }

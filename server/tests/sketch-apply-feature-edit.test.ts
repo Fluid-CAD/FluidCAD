@@ -323,3 +323,65 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
     expect(result.newCode).toBe(code);
   });
 });
+
+describe('applyFeatureEdit — sketch-body tArc to target (2D)', () => {
+  const tarcSpec = (overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSpec => sketchSpec({
+    feature: 'tarc',
+    value: 12,
+    producers: [{ line: 5, column: 0, featureType: 'line', nameHint: 'l', bind: true }],
+    parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
+    ...overrides,
+  });
+
+  it('binds the target statement and appends the tArc at the chain end', async () => {
+    const code = [
+      `import { sketch, hLine, move, line } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  move([0, 40])`,
+      `  hLine(60)`,
+      `  move([50, 0])`,
+      `  line([120, 0])`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, tarcSpec());
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import {tArc, sketch, hLine, move, line } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  move([0, 40])`,
+      `  const l = hLine(60)`,
+      `  move([50, 0])`,
+      `  line([120, 0])`,
+      `  tArc(12, l)`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('keeps a negative signed radius', async () => {
+    const code = [
+      `import { sketch, hLine, line } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      ``,
+      `  hLine(60)`,
+      `  line([120, 0])`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, tarcSpec({ value: -12 }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const l = hLine(60)`);
+    expect(result.newCode).toContain(`  tArc(-12, l)`);
+  });
+
+  it('refuses a zero radius as malformed', async () => {
+    const result = await applyFeatureEdit(`sketch('xy', () => {})\n`, tarcSpec({ value: 0 }));
+    expect(result.error).toBe('malformed tArc edit spec');
+  });
+});

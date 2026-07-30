@@ -5,6 +5,7 @@ import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { BuildSceneObjectContext, SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
 import { Wire } from "../../common/wire.js";
+import { ShapeFilter } from "../../common/shape.js";
 import { Extrudable } from "../../helpers/types.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 
@@ -189,7 +190,9 @@ export class Sketch extends SceneObject implements Extrudable {
     return [...this.getEdgesWithOwner().keys()];
   }
 
-  getEdgesWithOwner(): Map<Edge, GeometrySceneObject> {
+  /** The default filter excludes guides; pass `{ excludeGuide: false }` to
+   * index construction geometry too (the tArc-to-edge target resolution). */
+  getEdgesWithOwner(filter?: ShapeFilter): Map<Edge, GeometrySceneObject> {
     const children = this.getChildren() as GeometrySceneObject[];
     const result: Map<Edge, GeometrySceneObject> = new Map();
 
@@ -201,7 +204,7 @@ export class Sketch extends SceneObject implements Extrudable {
         continue;
       }
 
-      const shapes = child.getShapes();
+      const shapes = child.getShapes(filter);
       for (const shape of shapes) {
         if (shape instanceof Edge) {
           result.set(shape, child);

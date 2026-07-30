@@ -598,6 +598,25 @@ export async function applySketchOp(
   }, options.signal);
 }
 
+/**
+ * Commit the polyline tool's tangent-arc-to-edge snap: `tArc(<radius>,
+ * <target>)`, where the picked edge's producing statement is bound to a
+ * variable by the server and referenced as the target. The signed radius
+ * follows the kernel's convention — positive curves left of the chain
+ * tangent, negative right; the arc ends at its first intersection with the
+ * target along the sweep.
+ */
+export async function applyTarcToEdge(
+  radius: number,
+  shapeId: string,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'tarc',
+    value: radius,
+    sketchEntities: [{ shapeId }],
+  });
+}
+
 export type OffsetEditOptions = OffsetOptionValues & EditSessionFields & {
   value: ValueExpr;
   /** Edited target argument list; omitted keeps the statement's verbatim. */

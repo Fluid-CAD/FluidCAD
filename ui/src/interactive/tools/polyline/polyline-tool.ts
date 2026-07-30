@@ -4,7 +4,7 @@ import { SceneContext } from '../../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../../types';
 import { SnapController } from '../../../snapping/snap-controller';
 import { SnapManager } from '../../../snapping/snap-manager';
-import { projectToSketch, roundPoint } from '../../sketch-plane-utils';
+import { pixelToSketchThreshold, projectToSketch, roundPoint } from '../../sketch-plane-utils';
 import { ICON_POLYLINE } from '../../../ui/icons';
 import { ExpressionInput, VariableInfo } from '../../../ui/expression-input';
 import { CONNECTABLE_TYPES, meshToSketch2D, tangentFromVertices } from '../tangent-utils';
@@ -172,6 +172,8 @@ export class PolylineTool extends SketchTool {
       sketchId: this.sketchId,
       startPoint: this.startPoint,
       isAtCurrentPosition: (p) => this.isAtCurrentPosition(p),
+      pixelThreshold: (px) => pixelToSketchThreshold(this.ctx, px),
+      setSnapHint: (hint) => this.modeIndicator.setHint(hint),
       formatPoint: (p) => this.formatPoint(p),
       insertGeometry: (stmt, nv) => this.insertGeometry(stmt, nv),
       requestRender: () => this.requestRender(),

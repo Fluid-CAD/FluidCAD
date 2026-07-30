@@ -21,7 +21,7 @@ import {
 /** A sketch edge pick: 1 shapeId = 1 edge (the Stage 0 emission invariant). */
 export type SketchPickRef = { shapeId: string };
 
-export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common';
+export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc';
 
 export type SketchSynthesizeOptions = SynthesizeOptions & {
   /**
@@ -90,6 +90,10 @@ export function synthesizeSketchApplyFeature(
 
   if (feature === 'slot') {
     return synthesizeSketchSlot(scene, refs, value, options);
+  }
+
+  if (feature === 'tarc') {
+    return synthesizeSketchTarc(scene, refs, value, options);
   }
 
   const resolution = resolvePicks(scene, refs);
@@ -336,6 +340,94 @@ function synthesizeSketchSlot(
   };
 }
 
+/** The tArc-to-intersection statement text for previews and the create transform. */
+function renderTarcToTargetPreview(value: number | string | undefined, args: string): string {
+  return `tArc(${value}, ${args})`;
+}
+
+/**
+ * `tArc(radius, target)` from the polyline tool's edge snap is owner-level
+ * like slot: the target argument is ONE whole geometry (the kernel's
+ * `QualifiedSceneObject.toQualifiedShape()` reads the object's first shape),
+ * so the picked edge stands for its producing primitive and the emitted
+ * target is a bare variable — `tArc(12, l1)`. Only single-edge geometries
+ * (line, circle, arc) are accepted: on a multi-edge owner the first-shape
+ * rule would silently aim the arc at an arbitrary edge. Guide edges are
+ * valid targets — construction geometry is the classic thing to arc up to,
+ * and `toQualifiedShape` includes guides in its first-shape resolution.
+ */
+function synthesizeSketchTarc(
+  scene: SelectionScene,
+  refs: SketchPickRef[],
+  value: number | string | undefined,
+  options: SketchSynthesizeOptions,
+): ApplyFeatureSynthesis {
+  const resolution = resolvePicks(scene, refs, { includeGuides: true });
+  if ('reason' in resolution) {
+    return { ok: false, reason: resolution.reason };
+  }
+
+  const owners: SceneObject[] = [];
+  for (const pick of resolution.picks) {
+    if (!owners.includes(pick.owner)) {
+      owners.push(pick.owner);
+    }
+  }
+  if (owners.length > 1) {
+    return { ok: false, reason: 'tArc takes one target geometry — pick a single edge' };
+  }
+  const owner = owners[0];
+  const bindFailure = checkSketchBindable(scene, owner);
+  if (bindFailure) {
+    return { ok: false, reason: bindFailure };
+  }
+
+  // The kernel resolves the target through the owner's FIRST shape (guides
+  // included, meta excluded — matching this exact query), so the owner must
+  // consist of exactly one edge, real or guide.
+  const shapes = owner.getShapes({ excludeGuide: false });
+  const edges = shapes.filter((s): s is Edge => s instanceof Edge);
+  if (edges.length !== 1 || shapes[0] !== edges[0]) {
+    return {
+      ok: false,
+      reason: `tArc targets a single-edge geometry (a line, circle, or arc) — not a ${owner.getType()}()`,
+    };
+  }
+
+  const names = allocateNames([owner], options.namer);
+  const parts = [part(owner, '', null, null, 0)];
+  const args = renderPartArgs(parts[0], names);
+
+  const loc = owner.getSourceLocation()!;
+  const spec: ApplyFeatureEditSpec = {
+    feature: 'tarc',
+    value,
+    filePath: loc.filePath,
+    producers: [{
+      line: loc.line,
+      column: loc.column,
+      featureType: owner.getType(),
+      nameHint: nameHintFor(owner.getType()),
+      bind: true,
+    }],
+    parts: parts.map(p => ({
+      producer: 0,
+      accessor: p.accessor,
+      indices: p.indices,
+      filterArgs: p.filterArgs,
+    })),
+    imports: [],
+  };
+
+  return {
+    ok: true,
+    spec,
+    preview: renderTarcToTargetPreview(value, args),
+    args,
+    alternatives: [],
+  };
+}
+
 /**
  * The 2D booleans (fuse/subtract/common) are owner-level: their operands are
  * whole geometries (Fuse2D & co. build closed REGIONS from each operand's
@@ -439,14 +531,16 @@ function synthesizeSketchBoolean(
 function resolvePicks(
   scene: SelectionScene,
   refs: SketchPickRef[],
+  options: { includeGuides?: boolean } = {},
 ): { sketch: Sketch; picks: ResolvedSketchPick[] } | { reason: string } {
   const sketches = scene.getAllSceneObjects()
     .filter((o): o is Sketch => o instanceof Sketch);
 
+  const filter = options.includeGuides ? { excludeGuide: false } : undefined;
   const indexBySketch = new Map<Sketch, Map<string, { edge: Edge; owner: SceneObject }>>();
   for (const sketch of sketches) {
     const byId = new Map<string, { edge: Edge; owner: SceneObject }>();
-    for (const [edge, owner] of sketch.getEdgesWithOwner()) {
+    for (const [edge, owner] of sketch.getEdgesWithOwner(filter)) {
       byId.set(edge.id, { edge, owner });
     }
     indexBySketch.set(sketch, byId);

@@ -12,7 +12,7 @@ import {
   renderRevolveStatement,
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames, validCountValue, validValueExpr,
-  renderChamferValueArgs, renderFaceTargetExpr, renderOffsetStatement, renderSlotStatement,
+  renderChamferValueArgs, renderFaceTargetExpr, renderOffsetStatement, renderSlotStatement, renderTarcStatement,
   type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions, type CopyEditOptions,
   type OffsetEditOptions, type SlotEditOptions,
   type ExtrudeEditOptions, type ExtrudeFaceTarget, type ExtrudeTargetKind, type FeatureStatementEditTarget,
@@ -4601,8 +4601,8 @@ export function createApplyFeatureRouter(
         return;
       }
       if (feature !== 'fillet' && feature !== 'offset' && feature !== 'slot' && feature !== 'trim'
-        && feature !== 'fuse' && feature !== 'subtract' && feature !== 'common') {
-        res.status(400).json({ error: 'feature must be "fillet", "offset", "slot", "trim", "fuse", "subtract" or "common" for sketch-edge selections' });
+        && feature !== 'fuse' && feature !== 'subtract' && feature !== 'common' && feature !== 'tarc') {
+        res.status(400).json({ error: 'feature must be "fillet", "offset", "slot", "trim", "fuse", "subtract", "common" or "tarc" for sketch-edge selections' });
         return;
       }
       // Trim and the booleans carry no numeric parameter.
@@ -4615,7 +4615,9 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: 'value must be a positive number or expression' });
         return;
       }
-      if (feature === 'offset' && !validValueExpr(value, { nonzero: true })) {
+      // tArc's signed radius allows negative (flips the sweep direction) but
+      // not zero, like offset's distance.
+      if ((feature === 'offset' || feature === 'tarc') && !validValueExpr(value, { nonzero: true })) {
         res.status(400).json({ error: 'value must be a nonzero number or expression' });
         return;
       }
@@ -4694,6 +4696,16 @@ export function createApplyFeatureRouter(
           });
           return;
         }
+        // Same rule for tArc's target: the kernel reads the object's first
+        // shape, so only a bare variable works; older workspace kernels fall
+        // through to accessor/filter forms tArc cannot consume.
+        if (feature === 'tarc' && !/^[A-Za-z_$][\w$]*$/.test(synthesis.args)) {
+          res.status(422).json({
+            success: false,
+            reason: "the workspace's FluidCAD version does not support tArc to an edge — update its fluidcad dependency",
+          });
+          return;
+        }
         // The toggles are statement shape, not selection knowledge: re-attach
         // them here so a workspace kernel predating them still writes (and
         // previews) the form the dialog asked for.
@@ -4701,7 +4713,9 @@ export function createApplyFeatureRouter(
           ? renderOffsetStatement(value, synthesis.args, offsetOptions)
           : feature === 'slot'
             ? renderSlotStatement(value, synthesis.args, slotOptions)
-            : synthesis.preview;
+            : feature === 'tarc'
+              ? renderTarcStatement(value, synthesis.args)
+              : synthesis.preview;
         if (preview === true) {
           res.json({
             success: true,

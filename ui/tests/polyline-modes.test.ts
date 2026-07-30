@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { LineMode } from '../src/interactive/tools/polyline/mode-line';
 import { ALineMode } from '../src/interactive/tools/polyline/mode-aline';
 import { ArcMode } from '../src/interactive/tools/polyline/mode-arc';
+import { TArcMode } from '../src/interactive/tools/polyline/mode-tarc';
 import { PolylineTool } from '../src/interactive/tools/polyline/polyline-tool';
 import { PolylinePhase } from '../src/interactive/tools/polyline/types';
 import type { ModeContext, Point2D, SegmentCommitResult } from '../src/interactive/tools/polyline/types';
@@ -298,6 +299,72 @@ describe('ALineMode', () => {
     expect(mode.handleClick([10, 0], SNAP, ctx).kind).toBe('consumed');
     expect(mode.handleEscape(ctx)).toBe(true);   // length -> angle
     expect(mode.handleEscape(ctx)).toBe(false);  // angle stage, no input showing
+  });
+});
+
+describe('TArcMode', () => {
+  it('emits the radius + endpoint overload with the solved radius', () => {
+    // Chain at (50, 0) heading +X; endpoint (80, 30) solves to radius 30.
+    const { ctx, inserted } = makeCtx({
+      startPoint: [50, 0],
+      tangent: { direction: [1, 0], point: [50, 0] },
+    });
+    const mode = new TArcMode();
+    mode.enter(ctx);
+
+    const result = mode.handleClick([80, 30], SNAP, ctx);
+
+    expect(inserted).toEqual([{ statement: 'tArc(30, [80, 30])', newVariable: undefined }]);
+    expect(result.kind).toBe('committed');
+    if (result.kind === 'committed') {
+      expect(result.result.endpoint[0]).toBeCloseTo(80, 9);
+      expect(result.result.endpoint[1]).toBeCloseTo(30, 9);
+      // End tangent at (80, 30) around center (50, 30), CCW: straight up.
+      expect(result.result.exitTangent?.direction[0]).toBeCloseTo(0);
+      expect(result.result.exitTangent?.direction[1]).toBeCloseTo(1);
+    }
+  });
+
+  it('continues the chain from the exact end the kernel will build', () => {
+    // An awkward click whose solved radius rounds: the committed endpoint
+    // must land on the written-radius circle, and the returned chain
+    // position must be that endpoint's exact re-projection — not the click.
+    const { ctx, inserted } = makeCtx({
+      startPoint: [50, 0],
+      tangent: { direction: [1, 0], point: [50, 0] },
+    });
+    const mode = new TArcMode();
+    mode.enter(ctx);
+
+    const result = mode.handleClick([81.234, 27.891], SNAP, ctx);
+
+    expect(result.kind).toBe('committed');
+    const match = inserted[0].statement.match(/^tArc\(([\d.]+), \[([\d.-]+), ([\d.-]+)\]\)$/);
+    expect(match).not.toBeNull();
+    const radius = parseFloat(match![1]);
+    if (result.kind === 'committed') {
+      // The chain continues on the circle of the written radius, tangent to
+      // the incoming direction (center on the perpendicular at the start).
+      const [ex, ey] = result.result.endpoint;
+      const centerDist = Math.hypot(ex - 50, ey - radius);
+      expect(centerDist).toBeCloseTo(radius, 9);
+      // And within statement-rounding distance of the written endpoint.
+      expect(Math.hypot(ex - parseFloat(match![2]), ey - parseFloat(match![3]))).toBeLessThan(0.02);
+    }
+  });
+
+  it('ignores a click collinear with the tangent', () => {
+    const { ctx, inserted } = makeCtx({
+      startPoint: [50, 0],
+      tangent: { direction: [1, 0], point: [50, 0] },
+    });
+    const mode = new TArcMode();
+    mode.enter(ctx);
+
+    const result = mode.handleClick([90, 0], SNAP, ctx);
+
+    expect(inserted).toEqual([]);
+    expect(result.kind).toBe('ignored');
   });
 });
 

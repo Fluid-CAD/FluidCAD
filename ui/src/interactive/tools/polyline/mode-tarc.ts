@@ -1,4 +1,5 @@
 import { roundPoint } from '../../sketch-plane-utils';
+import { computeFixedRadiusArc } from '../../drag-move-handler/constraint-math';
 import {
   START_POINT_COLOR,
   SNAP_VERTEX_COLOR,
@@ -32,23 +33,46 @@ export class TArcMode implements SegmentMode {
       return { kind: 'ignored' };
     }
 
-    const roundedEnd = roundPoint(point);
-    ctx.insertGeometry(`tArc(${ctx.formatPoint(roundedEnd)})`);
-
-    const arc = this.computeArcPreview(ctx.startPoint, point, ctx.tangent.direction);
-    let exitTangent = null;
-    if (arc) {
-      const dx = roundedEnd[0] - arc.center[0];
-      const dy = roundedEnd[1] - arc.center[1];
-      const len = Math.sqrt(dx * dx + dy * dy);
-      if (len > 1e-10) {
-        const tx = arc.ccw ? -dy / len : dy / len;
-        const ty = arc.ccw ? dx / len : -dx / len;
-        exitTangent = { direction: [tx, ty] as Point2D, point: roundedEnd };
-      }
+    const tangent = ctx.tangent.direction;
+    // The solved radius is written out explicitly — the radius + endpoint
+    // overload keeps the drawn shape while making the radius editable as a
+    // plain dimension. A collinear endpoint has no tangent arc: ignore.
+    const solved = this.computeArcPreview(ctx.startPoint, point, tangent);
+    if (!solved) {
+      return { kind: 'ignored' };
+    }
+    const radius = Math.round(solved.radius * 100) / 100;
+    if (radius === 0) {
+      return { kind: 'ignored' };
     }
 
-    return { kind: 'committed', result: { endpoint: roundedEnd, exitTangent } };
+    // The written endpoint must lie on the rounded-radius circle, and the
+    // chain must continue from the exact end the kernel will build (the
+    // written endpoint re-projected onto that circle) — otherwise the
+    // tool's position drifts off the rendered geometry a little per arc.
+    const aimed = computeFixedRadiusArc(ctx.startPoint, point, radius, tangent);
+    if (!aimed) {
+      return { kind: 'ignored' };
+    }
+    const written = roundPoint(aimed.end);
+    const built = computeFixedRadiusArc(ctx.startPoint, written, radius, tangent);
+    if (!built) {
+      return { kind: 'ignored' };
+    }
+    ctx.insertGeometry(`tArc(${radius}, ${ctx.formatPoint(written)})`);
+
+    const endpoint = built.end;
+    let exitTangent = null;
+    const dx = endpoint[0] - built.center[0];
+    const dy = endpoint[1] - built.center[1];
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len > 1e-10) {
+      const tx = built.ccw ? -dy / len : dy / len;
+      const ty = built.ccw ? dx / len : -dx / len;
+      exitTangent = { direction: [tx, ty] as Point2D, point: endpoint };
+    }
+
+    return { kind: 'committed', result: { endpoint, exitTangent } };
   }
 
   handleMouseMove(point: Point2D, snapResult: SnapResult, _clientX: number, _clientY: number, _ctx: ModeContext): void {

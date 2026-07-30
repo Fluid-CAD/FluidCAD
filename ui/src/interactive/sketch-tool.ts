@@ -33,6 +33,7 @@ export abstract class SketchTool {
   protected insertGeometry: InsertGeometryFn;
   protected canvas: HTMLCanvasElement;
   protected currentPosition: [number, number] | null = null;
+  protected currentTangent: [number, number] | null = null;
 
   constructor(
     ctx: SceneContext,
@@ -70,6 +71,22 @@ export abstract class SketchTool {
       this.currentPosition = worldToSketch2D(worldPos, this.plane);
     } else {
       this.currentPosition = null;
+    }
+  }
+
+  /**
+   * The kernel's exact chain tangent at the current position. The payload
+   * encodes it as `localToWorld(tangentDir)`, so projecting it back through
+   * the plane recovers the 2D direction exactly — unlike deriving it from
+   * mesh tessellation, which is chord-approximate.
+   */
+  updateCurrentTangent(worldTangent: Vec3Data | null): void {
+    if (worldTangent) {
+      const t = worldToSketch2D(worldTangent, this.plane);
+      const len = Math.hypot(t[0], t[1]);
+      this.currentTangent = len > 1e-9 ? [t[0] / len, t[1] / len] : null;
+    } else {
+      this.currentTangent = null;
     }
   }
 

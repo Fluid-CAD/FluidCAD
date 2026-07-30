@@ -370,10 +370,13 @@ export class SketchToolbarService {
           this.handleToolSelect(this.toolbar.activeTool);
         } else {
           this.activeDrawingTool.updatePlane(plane);
-          this.activeDrawingTool.onSceneUpdate(sceneObjects, lastRoot.id);
+          // Cursor state first: onSceneUpdate re-anchors the drawing chain
+          // to the kernel's current position/tangent, so they must be fresh.
           if (lastRoot.object?.currentPosition) {
             this.activeDrawingTool.updateCurrentPosition(lastRoot.object.currentPosition);
+            this.activeDrawingTool.updateCurrentTangent(lastRoot.object.currentTangent ?? null);
           }
+          this.activeDrawingTool.onSceneUpdate(sceneObjects, lastRoot.id);
         }
       } else if (this.activeDragHandler) {
         this.activeDragHandler.updatePlane(plane);
@@ -689,6 +692,7 @@ export class SketchToolbarService {
 
     if (this.activeSketchInfo.sketchObj.object?.currentPosition) {
       tool.updateCurrentPosition(this.activeSketchInfo.sketchObj.object.currentPosition);
+      tool.updateCurrentTangent(this.activeSketchInfo.sketchObj.object.currentTangent ?? null);
     }
 
     tool.activate();
@@ -726,6 +730,7 @@ export class SketchToolbarService {
       }
       if (this.activeSketchInfo.sketchObj.object?.currentPosition) {
         tool.updateCurrentPosition(this.activeSketchInfo.sketchObj.object.currentPosition);
+        tool.updateCurrentTangent(this.activeSketchInfo.sketchObj.object.currentTangent ?? null);
       }
       tool.activate();
       this.activeDrawingTool = tool;

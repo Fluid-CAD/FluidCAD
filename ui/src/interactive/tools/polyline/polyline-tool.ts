@@ -131,7 +131,7 @@ export class PolylineTool extends SketchTool {
     this.fetchVariables().then(vars => { this.cachedVariables = vars; });
 
     if (this.phase === PolylinePhase.DRAWING && this.startPoint) {
-      this.updateTangentFromScene();
+      this.resyncChainStateFromScene();
     }
   }
 
@@ -231,9 +231,14 @@ export class PolylineTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (this.phase === PolylinePhase.IDLE) {
-      this.startPoint = point;
+      // Continuing the existing chain anchors to the kernel's exact cursor,
+      // not the rounded click — a tArc emitted from an offset start would
+      // rebuild slightly away from the rendered chain end.
+      this.startPoint = this.currentPosition && this.isAtCurrentPosition(point)
+        ? [this.currentPosition[0], this.currentPosition[1]]
+        : point;
       this.phase = PolylinePhase.DRAWING;
-      this.tangent = this.findTangentAtPoint(point);
+      this.tangent = this.findTangentAtPoint(this.startPoint);
 
       if (!this.isModeUsable(this.currentMode, this.buildModeContext())) {
         this.advanceToNextValidMode();
@@ -392,6 +397,13 @@ export class PolylineTool extends SketchTool {
       return null;
     }
 
+    // The kernel's exact chain tangent (from the scene payload) beats the
+    // mesh-derived fallback below: tessellation chords are a degree or two
+    // off the true tangent, which visibly rotates a tangency-exact tArc.
+    if (this.currentTangent) {
+      return { direction: [this.currentTangent[0], this.currentTangent[1]], point };
+    }
+
     let lastGeom: SceneObjectRender | null = null;
     for (const child of this.sceneObjects) {
       if (child.parentId !== this.sketchId || !child.sourceLocation) {
@@ -424,17 +436,24 @@ export class PolylineTool extends SketchTool {
     return null;
   }
 
-  private updateTangentFromScene(): void {
-    if (!this.startPoint) {
+  /**
+   * Re-anchor the drawing chain to the kernel's rendered cursor after each
+   * render. The tool's analytic bookkeeping (rounded endpoints, projected
+   * tArc ends) approximates the kernel; adopting the kernel's exact
+   * position and tangent every render keeps the divergence from ever
+   * compounding across segments.
+   */
+  private resyncChainStateFromScene(): void {
+    if (!this.startPoint || !this.currentPosition
+      || !this.isAtCurrentPosition(roundPoint(this.startPoint))) {
       return;
     }
-    if (this.tangent) {
-      return;
-    }
+    this.startPoint = [this.currentPosition[0], this.currentPosition[1]];
     const tangent = this.findTangentAtPoint(this.startPoint);
     if (tangent) {
       this.tangent = tangent;
     }
+    this.rebuildPreview();
   }
 
   private rebuildPreview(): void {

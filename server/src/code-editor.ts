@@ -1252,6 +1252,15 @@ function findNonArrayArgFromEnd(args: TSNode, offset = 0): TSNode | null {
   return null;
 }
 
+function findFirstArrayArg(args: TSNode): TSNode | null {
+  for (const child of args.namedChildren) {
+    if (child.type === 'array') {
+      return child;
+    }
+  }
+  return null;
+}
+
 // Name of the function a call expression invokes: `rect(...)` -> 'rect',
 // `foo.radius(...)` -> 'radius'.
 function callFunctionName(call: TSNode): string | null {
@@ -1302,6 +1311,7 @@ export function updateDimensionExpression(
   dimensionOffset = 0,
   dimensionCall: string | null = null,
   dimensionInsert = false,
+  dimensionPoint: [number, number] | null = null,
 ): Promise<CodeEditResult> {
   return withParsedCode(code, (tree, lines) => {
     let current: TSNode | null = findEditableCallAt(tree, lines, sourceLine);
@@ -1309,17 +1319,40 @@ export function updateDimensionExpression(
       const args = getArgumentsNode(current);
       if (args && (!dimensionCall || callFunctionName(current) === dimensionCall)) {
         const target = findNonArrayArgFromEnd(args, dimensionOffset);
-        if (target) {
-          return spliceCode(code, target.startIndex, target.endIndex, expression);
-        }
-        // The statement's form has no scalar for this dimension yet (e.g.
-        // `tArc([e])` gaining an explicit radius): insert the expression as
-        // the call's first argument, converting it to the scalar overload.
-        if (dimensionInsert) {
-          const firstArg = args.namedChildren[0];
-          return firstArg
-            ? spliceCode(code, firstArg.startIndex, firstArg.startIndex, `${expression}, `)
-            : spliceCode(code, args.startIndex + 1, args.startIndex + 1, expression);
+        if (target || dimensionInsert) {
+          // The scalar edit, plus (optionally) a rewrite of the call's first
+          // array argument — a tArc radius commit re-aims the endpoint at
+          // the position the new radius can actually reach, atomically.
+          const splices: { start: number; end: number; text: string }[] = [];
+          if (target) {
+            splices.push({ start: target.startIndex, end: target.endIndex, text: expression });
+          } else {
+            // The statement's form has no scalar for this dimension yet
+            // (e.g. `tArc([e])` gaining an explicit radius): insert it as
+            // the call's first argument, selecting the scalar overload.
+            const firstArg = args.namedChildren[0];
+            const at = firstArg ? firstArg.startIndex : args.startIndex + 1;
+            splices.push({ start: at, end: at, text: firstArg ? `${expression}, ` : expression });
+          }
+          if (dimensionPoint) {
+            const arrayArg = findFirstArrayArg(args);
+            if (arrayArg) {
+              splices.push({
+                start: arrayArg.startIndex,
+                end: arrayArg.endIndex,
+                text: `[${dimensionPoint[0]}, ${dimensionPoint[1]}]`,
+              });
+            }
+          }
+          // Apply back-to-front so earlier splices keep their indices; on a
+          // tied start (insertion before the array being replaced) the wider
+          // replacement goes first so the insertion lands ahead of it.
+          splices.sort((a, b) => (b.start - a.start) || (b.end - a.end));
+          let next = code;
+          for (const s of splices) {
+            next = spliceCode(next, s.start, s.end, s.text);
+          }
+          return next;
         }
       }
       const fn = current.childForFieldName('function');
@@ -1455,9 +1488,10 @@ export function updateDimensionExpressionWithVariable(
   dimensionOffset = 0,
   dimensionCall: string | null = null,
   dimensionInsert = false,
+  dimensionPoint: [number, number] | null = null,
 ): Promise<CodeEditResult> {
   return withOptionalVariableDeclaration(code, sketchSourceLine, newVariable,
-    (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression, dimensionOffset, dimensionCall, dimensionInsert));
+    (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression, dimensionOffset, dimensionCall, dimensionInsert, dimensionPoint));
 }
 
 export type VariableInfo = { name: string; initializer?: string; numeric?: boolean };

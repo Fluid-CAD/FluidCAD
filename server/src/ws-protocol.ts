@@ -226,6 +226,9 @@ export type UpdateDimensionExpressionMessage = {
   /** Insert the expression as the call's first argument when the targeted
    * scalar does not exist yet (radius-less `tArc([e])` gaining a radius). */
   dimensionInsert?: boolean;
+  /** Also rewrite the call's first array argument to this point — a tArc
+   * radius commit re-aims the endpoint at the reachable position. */
+  dimensionPoint?: [number, number] | null;
 };
 
 export type SetRectDimensionsMessage = {

@@ -6,7 +6,7 @@ import {
   updateDimensionExpression,
   setRectDimensions,
 } from '../../api';
-import { computeArcCenter } from './constraint-math';
+import { computeArcCenter, computeFixedRadiusArc } from './constraint-math';
 import { DragHitResult, GetSketchSourceLineFn } from './types';
 
 export function commitPositionMove(
@@ -109,11 +109,20 @@ export function commitPositionMove(
     }
   } else if (uniqueType === 'tarc-radius-to-point') {
     if (hitZone === 'center' && fixedVertex) {
-      // The center drag resizes the radius arg; the arc stays tangent and
-      // its end re-projects onto the resized circle.
-      const newRadius = Math.round(Math.hypot(newPos[0] - fixedVertex[0], newPos[1] - fixedVertex[1]) * 100) / 100;
+      // The center drag resizes the radius arg (keeping the statement's
+      // sign, i.e. the leave side) and re-aims the endpoint argument at the
+      // position the resized tangent circle can reach.
+      const magnitude = Math.round(Math.hypot(newPos[0] - fixedVertex[0], newPos[1] - fixedVertex[1]) * 100) / 100;
+      const sign = (hitResult.initialValue ?? 0) < 0 ? -1 : 1;
+      let point: [number, number] | null = null;
+      if (hitResult.fixedVertex2 && hitResult.tangentDir && magnitude > 0) {
+        const arc = computeFixedRadiusArc(fixedVertex, hitResult.fixedVertex2, magnitude, hitResult.tangentDir);
+        if (arc) {
+          point = roundPoint(arc.end);
+        }
+      }
       const sketchSourceLine = getSketchSourceLine();
-      updateDimensionExpression(String(newRadius), sourceLocation, sketchSourceLine, undefined, 0, 'tArc', true);
+      updateDimensionExpression(String(sign * magnitude), sourceLocation, sketchSourceLine, undefined, 0, 'tArc', true, point);
     } else if (hitZone === 'end') {
       updatePosition(newPos, sourceLocation, 0);
     }

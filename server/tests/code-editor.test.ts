@@ -733,6 +733,26 @@ describe('updateDimensionExpression with dimensionInsert', () => {
   });
 });
 
+describe('updateDimensionExpression with dimensionPoint', () => {
+  it('replaces the radius and re-aims the endpoint atomically', async () => {
+    const code = `tArc(30, [80, 30])\n`;
+    const result = await updateDimensionExpression(code, 1, '45', 0, 'tArc', true, [92.43, 17.57]);
+    expect(result.newCode).toBe(`tArc(45, [92.43, 17.57])\n`);
+  });
+
+  it('inserts the radius and re-aims the endpoint of a radius-less tArc', async () => {
+    const code = `tArc([80, 30])\n`;
+    const result = await updateDimensionExpression(code, 1, '45', 0, 'tArc', true, [92.43, 17.57]);
+    expect(result.newCode).toBe(`tArc(45, [92.43, 17.57])\n`);
+  });
+
+  it('re-aims past a chained call and keeps the chain intact', async () => {
+    const code = `tArc(30, [80, 30]).guide()\n`;
+    const result = await updateDimensionExpression(code, 1, 'r', 0, 'tArc', true, [92.43, 17.57]);
+    expect(result.newCode).toBe(`tArc(r, [92.43, 17.57]).guide()\n`);
+  });
+});
+
 describe('getDimensionExpression with dimensionOffset', () => {
   it('dimensionCall reads rect height past a .radius() call', async () => {
     const code = `rect(30, 20).radius(fillet)\n`;

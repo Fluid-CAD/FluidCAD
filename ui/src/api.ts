@@ -322,6 +322,7 @@ export function updateDimensionExpression(
   dimensionOffset?: number,
   dimensionCall?: string | null,
   dimensionInsert?: boolean,
+  dimensionPoint?: [number, number] | null,
 ): void {
   postFireAndForget('/api/update-dimension-expression', {
     expression,
@@ -331,6 +332,7 @@ export function updateDimensionExpression(
     dimensionOffset: dimensionOffset ?? 0,
     dimensionCall: dimensionCall ?? null,
     dimensionInsert: dimensionInsert ?? false,
+    dimensionPoint: dimensionPoint ?? null,
   });
 }
 

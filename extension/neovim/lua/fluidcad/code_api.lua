@@ -119,7 +119,7 @@ function M.update_dimension(code, source_line, new_value)
   return post('update-dimension', { code = code, sourceLine = source_line, newValue = new_value })
 end
 
-function M.update_dimension_expression(code, source_line, expression, sketch_source_line, new_variable, dimension_offset, dimension_call, dimension_insert)
+function M.update_dimension_expression(code, source_line, expression, sketch_source_line, new_variable, dimension_offset, dimension_call, dimension_insert, dimension_point)
   return post('update-dimension-expression', {
     code = code,
     sourceLine = source_line,
@@ -129,6 +129,7 @@ function M.update_dimension_expression(code, source_line, expression, sketch_sou
     dimensionOffset = dimension_offset or 0,
     dimensionCall = dimension_call,
     dimensionInsert = dimension_insert == true,
+    dimensionPoint = dimension_point,
   })
 end
 

@@ -589,7 +589,12 @@ function hitTestTangentArc(
   const rawRadius = centerV
     ? Math.hypot(centerV[0] - startV[0], centerV[1] - startV[1])
     : Math.abs((child.object?.radius as number | undefined) ?? 0);
-  const radius = Math.round(rawRadius * 100) / 100;
+  // The dimension zones carry the SIGNED source radius (sign from the
+  // statement's argument) so a commit can preserve the arc's leave side;
+  // the input displays its magnitude.
+  const radiusSign = uniqueType === 'tarc-radius-to-point'
+    && typeof child.object?.radius === 'number' && child.object.radius < 0 ? -1 : 1;
+  const radius = radiusSign * Math.round(rawRadius * 100) / 100;
 
   const edx = endV[0] - point2d[0];
   const edy = endV[1] - point2d[1];
@@ -646,7 +651,7 @@ function hitTestTangentArc(
   // it opens the radius input but must not capture pointer-down drags. Only
   // the endpoint forms can carry an explicit radius argument — a tangent-arc
   // with an end tangent (`tArc([e], [t])`) would lose its tangent constraint.
-  if (includeDimensionZones && !result && radius > 0
+  if (includeDimensionZones && !result && rawRadius > 0
       && (uniqueType === 'tarc-to-point' || uniqueType === 'tarc-radius-to-point')) {
     let bodyDist = Infinity;
     for (let i = 1; i < verts2d.length; i++) {

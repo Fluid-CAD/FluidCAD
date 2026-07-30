@@ -1,6 +1,7 @@
 import { ExpressionInput, VariableInfo } from '../../ui/expression-input';
 import { updateDimensionExpression, getDimensionExpression } from '../../api';
 import { FetchVariablesFn, SketchTool } from '../sketch-tool';
+import { computeFixedRadiusArc } from './constraint-math';
 import { DragHitResult, GetSketchSourceLineFn } from './types';
 
 export class DimensionInputController {
@@ -140,9 +141,11 @@ export class DimensionInputController {
                && (hitResult.hitZone === 'body' || hitResult.hitZone === 'center')) {
       // Double-clicking a tangent arc's curve (or center) sets its radius.
       // On a radius-less `tArc([e])` the commit inserts the radius argument,
-      // converting the statement to the `tArc(radius, [e])` overload.
+      // converting the statement to the `tArc(radius, [e])` overload. The
+      // input shows the magnitude; the stored sign (leave side) is
+      // re-applied on commit via the signed-dimension machinery.
       label = 'R:';
-      value = hitResult.initialValue ?? 0;
+      value = Math.abs(hitResult.initialValue ?? 0);
       if (!(value > 0)) {
         return false;
       }
@@ -265,8 +268,6 @@ export class DimensionInputController {
     const isSignedType = hitResult.uniqueType !== 'circle'
       && hitResult.uniqueType !== 'polygon'
       && hitResult.uniqueType !== 'slot'
-      && hitResult.uniqueType !== 'tarc-to-point'
-      && hitResult.uniqueType !== 'tarc-radius-to-point'
       && hitResult.hitZone !== 'angle';
 
     this.expressionInput.show({
@@ -288,8 +289,17 @@ export class DimensionInputController {
           finalExpr = String(Math.round(num * 100) / 100);
         }
 
+        // A tArc radius commit also re-aims the endpoint argument at the
+        // position the new tangent circle can actually reach.
+        const dimPoint = dimInsert
+          ? DimensionInputController.projectedTArcEndpoint(
+              hitResult,
+              isNumeric ? num : (newVariable ? parseFloat(newVariable.initializer) : NaN),
+            )
+          : null;
+
         const sketchSourceLine = this.getSketchSourceLine();
-        updateDimensionExpression(finalExpr, sourceLocation, sketchSourceLine, newVariable, dimOffset, dimCall, dimInsert);
+        updateDimensionExpression(finalExpr, sourceLocation, sketchSourceLine, newVariable, dimOffset, dimCall, dimInsert, dimPoint);
         if (isDrag) {
           this.onRequestEndResize?.();
         } else {
@@ -340,6 +350,32 @@ export class DimensionInputController {
       return { offset: 0, call: 'tArc', insert: true };
     }
     return { offset: label === 'D' ? 1 : 0, call: null };
+  }
+
+  // Where the arc will actually end for the committed radius: the current
+  // endpoint (the aim) projected onto the new tangent circle. The typed
+  // value's sign composes with the measured leave direction, so passing it
+  // with the built arc's tangent handles negative radii. Null when the
+  // radius isn't statically known (a pre-existing variable expression) —
+  // the endpoint argument then stays as the aim and the kernel projects.
+  private static projectedTArcEndpoint(
+    hitResult: DragHitResult,
+    typedValue: number,
+  ): [number, number] | null {
+    if (!Number.isFinite(typedValue) || typedValue === 0) {
+      return null;
+    }
+    const start = hitResult.anchorPoint;
+    const aim = hitResult.fixedVertex2;
+    const tangent = hitResult.tangentDir;
+    if (!start || !aim || !tangent) {
+      return null;
+    }
+    const arc = computeFixedRadiusArc(start, aim, typedValue, tangent);
+    if (!arc) {
+      return null;
+    }
+    return [Math.round(arc.end[0] * 100) / 100, Math.round(arc.end[1] * 100) / 100];
   }
 
   // Inverse of SketchTool.applySignedDimension, for seeding the input: the

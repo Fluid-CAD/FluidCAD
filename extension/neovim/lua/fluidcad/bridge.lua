@@ -262,10 +262,14 @@ function M.handle_message(msg)
         dim_call = nil
       end
       local dim_insert = msg.dimensionInsert == true
+      local dim_point = msg.dimensionPoint
+      if dim_point == vim.NIL then
+        dim_point = nil
+      end
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.update_dimension_expression(
           code, msg.sourceLocation.line, msg.expression,
-          sketch_line, new_var, dim_offset, dim_call, dim_insert
+          sketch_line, new_var, dim_offset, dim_call, dim_insert, dim_point
         )
       end)
     elseif msg.type == 'remove-feature' then

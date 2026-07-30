@@ -59,6 +59,16 @@ function validateNewVariable(
   return validateOneNewVariable(input);
 }
 
+/** A [x, y] pair of finite numbers, or null for anything else. */
+function validPoint(input: unknown): [number, number] | null {
+  if (Array.isArray(input) && input.length === 2
+    && typeof input[0] === 'number' && Number.isFinite(input[0])
+    && typeof input[1] === 'number' && Number.isFinite(input[1])) {
+    return [input[0], input[1]];
+  }
+  return null;
+}
+
 export function createSketchEditsRouter(
   fluidCadServer: FluidCadServer,
   sendToExtension: (msg: any) => void,
@@ -303,7 +313,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/update-dimension-expression', (req, res) => {
-    const { expression, sourceLocation, sketchSourceLine, newVariable, dimensionOffset, dimensionCall, dimensionInsert } = req.body;
+    const { expression, sourceLocation, sketchSourceLine, newVariable, dimensionOffset, dimensionCall, dimensionInsert, dimensionPoint } = req.body;
     if (
       typeof expression !== 'string' ||
       !sourceLocation || typeof sourceLocation.line !== 'number'
@@ -329,6 +339,7 @@ export function createSketchEditsRouter(
       dimensionOffset: typeof dimensionOffset === 'number' ? dimensionOffset : 0,
       dimensionCall: typeof dimensionCall === 'string' ? dimensionCall : null,
       dimensionInsert: dimensionInsert === true,
+      dimensionPoint: validPoint(dimensionPoint),
     });
     res.json({ success: true });
   });
@@ -719,7 +730,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/code/update-dimension-expression', async (req, res) => {
-    const { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset, dimensionCall, dimensionInsert } = req.body;
+    const { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset, dimensionCall, dimensionInsert, dimensionPoint } = req.body;
     if (
       typeof code !== 'string' || typeof sourceLine !== 'number' ||
       typeof expression !== 'string'
@@ -745,6 +756,7 @@ export function createSketchEditsRouter(
         offset,
         typeof dimensionCall === 'string' ? dimensionCall : null,
         dimensionInsert === true,
+        validPoint(dimensionPoint),
       );
       res.json(result);
     } catch (err: any) {

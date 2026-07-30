@@ -364,7 +364,7 @@ describe("listSegmentConversions", () => {
     expect(result.options![0].newStatement).toBe('arc([200, -100]).center([100, -100]).cw()');
   });
 
-  it("tarc-radius-to-point converts back to tArc and to a free arc", () => {
+  it("tarc-radius-to-point offers only the free-arc conversion", () => {
     let l: unknown;
     let t: unknown;
     sketch("xy", () => {
@@ -381,13 +381,9 @@ describe("listSegmentConversions", () => {
     expect(result.ok).toBe(true);
     expect(result.currentKind).toBe('tarc-radius-to-point');
 
-    // Dropping the radius re-solves a tangent arc to the same (built) end —
-    // the start tangent is unchanged, so no reshape warning.
-    const back = optionFor(result.options, 'tArc');
-    expect(back.enabled).toBe(true);
-    expect(back.newStatement).toBe('tArc([234.16, 82.92])');
-    expect(back.reshapeAngle).toBeUndefined();
-
+    // Already a tangent arc — no tArc button; only the free-arc door out.
+    expect(result.options!.some(o => o.target === 'tArc')).toBe(false);
+    expect(result.options).toHaveLength(1);
     const free = optionFor(result.options, 'free');
     expect(free.enabled).toBe(true);
     expect(free.newStatement).toBe('arc([234.16, 82.92]).center([100, 150])');

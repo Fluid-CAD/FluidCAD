@@ -228,23 +228,14 @@ export function listSegmentConversions(
         options: [arcToTangentArc(resolved, start, end, incomingTangent)],
       };
     case 'tarc-to-point':
+    case 'tarc-radius-to-point':
+      // Already a tangent arc — the only way out is dropping the tangency
+      // constraint entirely (the free arc form).
       return {
         ok: true,
         sourceLocation,
         currentKind,
         options: [tangentArcToFree(resolved, end)],
-      };
-    case 'tarc-radius-to-point':
-      // Dropping the explicit radius re-solves the tangent-continuous arc —
-      // the same reshape semantics (and warning) as converting a free arc.
-      return {
-        ok: true,
-        sourceLocation,
-        currentKind,
-        options: [
-          arcToTangentArc(resolved, start, end, incomingTangent),
-          tangentArcToFree(resolved, end),
-        ],
       };
     default:
       return { ok: false, reason: `no conversions are available for ${currentKind} segments` };

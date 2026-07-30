@@ -240,7 +240,7 @@ describe("listSegmentConversions", () => {
     expect(result.options![0]).toMatchObject({
       target: 'tArc',
       enabled: true,
-      newStatement: 'tArc([200, 100])',
+      newStatement: 'tArc(100, [200, 100])',
     });
     expect(result.options![0].reshapeAngle).toBeUndefined();
   });
@@ -265,7 +265,9 @@ describe("listSegmentConversions", () => {
     expect(option).toMatchObject({
       target: 'tArc',
       enabled: true,
-      newStatement: 'tArc([200, 100])',
+      // The written radius is the tangent-solved one for the preserved
+      // endpoint — not the original arc's radius.
+      newStatement: 'tArc(100, [200, 100])',
     });
     expect(option.reshapeAngle).toBeCloseTo(45, 1);
   });
@@ -291,7 +293,7 @@ describe("listSegmentConversions", () => {
     expect(option).toMatchObject({
       target: 'tArc',
       enabled: true,
-      newStatement: 'tArc([-15.57, 29.96])',
+      newStatement: 'tArc(10.24, [-15.57, 29.96])',
     });
     expect(option.reshapeAngle).toBeCloseTo(36.5, 0);
   });

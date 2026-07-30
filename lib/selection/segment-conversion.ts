@@ -342,11 +342,12 @@ function axisConversion(
 }
 
 /**
- * `arc(...).center(...)` → `tArc([ex, ey])` — converts at any start angle:
- * both endpoints are preserved and the arc re-bulges to start tangent to the
- * chain. Beyond the snap tolerance the reshape is visible, so the option
- * carries `reshapeAngle` for the UI to warn (the axis-snap philosophy —
- * convert anyway, warn about the move).
+ * `arc(...).center(...)` → `tArc(radius, [ex, ey])` — converts at any start
+ * angle: both endpoints are preserved (the tangent-solved radius through the
+ * endpoint is written out, so the radius lands as an editable dimension) and
+ * the arc re-bulges to start tangent to the chain. Beyond the snap tolerance
+ * the reshape is visible, so the option carries `reshapeAngle` for the UI to
+ * warn (the axis-snap philosophy — convert anyway, warn about the move).
  */
 function arcToTangentArc(
   resolved: ResolvedSegment,
@@ -355,14 +356,15 @@ function arcToTangentArc(
   incomingTangent: Point2D,
 ): ConversionOption {
   // tArc solves the center from tangency; a chord along the tangent has no
-  // solution (TangentArcToPoint refuses collinear endpoints).
+  // solution (the radius diverges).
   const chord = end.subtract(start);
   const offChord = Math.abs(chord.x * incomingTangent.y - chord.y * incomingTangent.x);
   if (offChord < 1e-9) {
     return { target: 'tArc', enabled: false, reason: 'the arc\'s endpoint lies along the incoming tangent — a tangent arc cannot reach it' };
   }
 
-  const option: ConversionOption = { target: 'tArc', enabled: true, newStatement: `tArc(${fmtPoint(end)})` };
+  const radius = (chord.x * chord.x + chord.y * chord.y) / (2 * offChord);
+  const option: ConversionOption = { target: 'tArc', enabled: true, newStatement: `tArc(${fmt(radius)}, ${fmtPoint(end)})` };
 
   // The start-tangent deviation is only a warning now — if the arc's built
   // geometry can't be read the conversion still stands, just unannotated.

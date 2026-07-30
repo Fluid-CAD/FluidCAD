@@ -22,6 +22,7 @@ const CONSTRAINT_LABELS: Record<string, string> = {
   'tarc-to-point': 'T',
   'tarc-to-point-tangent': 'T',
   'tarc-with-tangent': 'T',
+  'tarc-radius-to-point': 'T',
 };
 
 const TARC_TYPES = new Set(['tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent', 'tarc-radius-to-point']);

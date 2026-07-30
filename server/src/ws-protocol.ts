@@ -221,6 +221,11 @@ export type UpdateDimensionExpressionMessage = {
   expression: string;
   sourceLocation: { line: number; column: number };
   dimensionOffset?: number;
+  /** Named chain call the dimension lives in (e.g. 'tArc'); null = any. */
+  dimensionCall?: string | null;
+  /** Insert the expression as the call's first argument when the targeted
+   * scalar does not exist yet (radius-less `tArc([e])` gaining a radius). */
+  dimensionInsert?: boolean;
 };
 
 export type SetRectDimensionsMessage = {

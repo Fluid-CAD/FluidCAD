@@ -5,6 +5,7 @@ import { TangentArcToPointTangent } from "../../features/2d/tarc-to-point-tangen
 import { TangentArcWithTangent } from "../../features/2d/tarc-with-tangent.js";
 import { TangentArcToObject } from "../../features/2d/tarc-to-object.js";
 import { TangentArcRadiusToObject } from "../../features/2d/tarc-radius-to-object.js";
+import { TangentArcRadiusToPoint } from "../../features/2d/tarc-radius-to-point.js";
 import { Move } from "../../features/2d/move.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
@@ -32,6 +33,18 @@ interface TArcFunction {
    * @param target - The target geometry to intersect with
    */
   (radius: number, target: ISceneObject | QualifiedSceneObject): IGeometry;
+  /**
+   * Draws a tangent arc with the given radius, aimed at a given end point.
+   * Tangency to the chain is always preserved: the radius fixes the arc's
+   * circle (the end point picks which side of the tangent), and the arc ends
+   * at the point on that circle closest to the end point — a point lying on
+   * the circle is hit exactly, so passing the auto-solved radius reproduces
+   * `tArc(endPoint)`. A negative radius leaves the start against the current
+   * tangent, flipping the arc to the other side.
+   * @param radius - The arc radius. A negative value reverses the start direction.
+   * @param endPoint - The point the arc ends towards
+   */
+  (radius: number, endPoint: Point2DLike): IGeometry;
   /**
    * Draws a tangent arc with a given radius and end angle.
    * @param radius - The arc radius (defaults to 100). A negative value flips the sweep direction.
@@ -109,6 +122,21 @@ function build(context: SceneParserContext): TArcFunction {
     ) {
       const target = QualifiedSceneObject.from(arguments[0]);
       const arc = new TangentArcToObject(target);
+      context.addSceneObject(arc);
+      return arc;
+    }
+
+    // tArc(radius, endPoint): explicit radius ending at a point. Checked
+    // before the (radius, target) branch — a LazyVertex is a SceneObject but
+    // means an endpoint here, same as in the single-argument dispatch above.
+    if (
+      arguments.length === 2 &&
+      typeof arguments[0] === 'number' &&
+      isPoint2DLike(arguments[1])
+    ) {
+      const radius = arguments[0] as number;
+      const endPoint = normalizePoint2D(arguments[1] as Point2DLike);
+      const arc = new TangentArcRadiusToPoint(radius, endPoint);
       context.addSceneObject(arc);
       return arc;
     }

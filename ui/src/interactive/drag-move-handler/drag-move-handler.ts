@@ -11,6 +11,7 @@ import { DimensionInputController } from './dimension-input';
 import {
   constrainToPerpBisector,
   constrainToTangentPerp,
+  projectToTangentArcEnd,
 } from './constraint-math';
 import {
   DragHitResult,
@@ -269,7 +270,22 @@ export class DragMoveHandler {
       }
     }
 
+    if (this.hitResult?.uniqueType === 'tarc-radius-to-point' && this.hitResult.hitZone === 'end'
+        && this.hitResult.anchorPoint && this.hitResult.tangentDir && this.hitResult.initialValue) {
+      // The radius and tangency are constraints — the endpoint slides along
+      // the tangent circle, landing on the point nearest the cursor.
+      const projected = projectToTangentArcEnd(
+        this.hitResult.anchorPoint, this.hitResult.tangentDir,
+        this.hitResult.initialValue, this.currentPoint,
+      );
+      if (projected) {
+        this.currentPoint = projected;
+      }
+    }
+
     if (this.hitResult?.hitZone === 'center' && this.hitResult.tangentDir && this.hitResult.fixedVertex) {
+      // For tarc-radius-to-point this doubles as the radius-resize locus:
+      // every tangent circle's center lies on this perpendicular.
       this.currentPoint = constrainToTangentPerp(this.currentPoint, this.hitResult.fixedVertex, this.hitResult.tangentDir);
     }
 

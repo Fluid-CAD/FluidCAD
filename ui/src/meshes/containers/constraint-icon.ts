@@ -24,7 +24,7 @@ const CONSTRAINT_LABELS: Record<string, string> = {
   'tarc-with-tangent': 'T',
 };
 
-const TARC_TYPES = new Set(['tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent']);
+const TARC_TYPES = new Set(['tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent', 'tarc-radius-to-point']);
 
 const ICON_OFFSET_PX = 22;
 const ICON_PLANE_SIZE = 5;

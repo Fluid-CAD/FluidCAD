@@ -7,6 +7,7 @@ import { outside } from "../../../features/2d/constraints/geometry-qualifier.js"
 import { ExtrudeBase } from "../../../features/extrude-base.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { getEdgesByType } from "../../utils.js";
+import { EdgeQuery } from "../../../oc/edge-query.js";
 import { Solid } from "../../../common/solid.js";
 
 describe("tArc", () => {
@@ -202,6 +203,130 @@ describe("tArc", () => {
 
       const shapes = s.getShapes();
       expect(shapes.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe("tangent arc with radius to endpoint (radius, endPoint)", () => {
+    // After hLine(50) the chain sits at (50, 0) with tangent (1, 0); the
+    // auto-solved tangent arc to (80, 30) has center (50, 30) and radius 30.
+
+    it("reproduces the auto-solved tangent arc when given its radius", () => {
+      const s = sketch("xy", () => {
+        hLine(50);
+        tArc(30, [80, 30]);
+      }) as Sketch;
+      render();
+
+      const arcs = getEdgesByType(s.getShapes(), "arc");
+      expect(arcs.length).toBe(1);
+      const { center, radius } = EdgeQuery.getCircleDataFromEdge(arcs[0]);
+      expect(radius).toBeCloseTo(30, 6);
+      expect(center.x).toBeCloseTo(50, 6);
+      expect(center.y).toBeCloseTo(30, 6);
+      const end = arcs[0].getLastVertex().toPoint();
+      expect(end.x).toBeCloseTo(80, 6);
+      expect(end.y).toBeCloseTo(30, 6);
+    });
+
+    it("a different radius stays tangent and projects the endpoint onto its circle", () => {
+      const s = sketch("xy", () => {
+        hLine(50);
+        tArc(60, [80, 30]);
+      }) as Sketch;
+      render();
+
+      const arcs = getEdgesByType(s.getShapes(), "arc");
+      expect(arcs.length).toBe(1);
+      const { center, radius } = EdgeQuery.getCircleDataFromEdge(arcs[0]);
+      expect(radius).toBeCloseTo(60, 6);
+      // Tangency: the center sits on the perpendicular at the start, so the
+      // arc leaves (50, 0) exactly along the chain tangent (1, 0).
+      expect(center.x).toBeCloseTo(50, 6);
+      expect(center.y).toBeCloseTo(60, 6);
+      // The aim point (80, 30) is off this circle — the end lands on the
+      // circle point closest to it.
+      const start = arcs[0].getFirstVertex().toPoint();
+      const end = arcs[0].getLastVertex().toPoint();
+      const [s2, e2] = start.x < end.x ? [start, end] : [end, start];
+      expect(s2.x).toBeCloseTo(50, 6);
+      expect(s2.y).toBeCloseTo(0, 6);
+      expect(e2.x).toBeCloseTo(92.4264, 3);
+      expect(e2.y).toBeCloseTo(17.5736, 3);
+    });
+
+    it("negative radius flips the bulge to the other side", () => {
+      const positive = sketch("xy", () => {
+        hLine(50);
+        tArc(30, [80, 30]);
+      }) as Sketch;
+      render();
+      const negative = sketch("xy", () => {
+        hLine(50);
+        tArc(-30, [80, 30]);
+      }) as Sketch;
+      render();
+
+      const midpointOf = (s: Sketch) => {
+        const edge = getEdgesByType(s.getShapes(), "arc")[0];
+        const { first, last } = EdgeQuery.getEdgeCurveParams(edge);
+        return EdgeQuery.sampleEdgeCurvePoint(edge, (first + last) / 2);
+      };
+      // The positive arc bulges right of the chord, the negative one sweeps
+      // around the far side.
+      expect(midpointOf(positive).x).toBeGreaterThan(50);
+      expect(midpointOf(negative).x).toBeLessThan(50);
+    });
+
+    it("a radius smaller than half the chord still builds a tangent arc", () => {
+      const s = sketch("xy", () => {
+        hLine(50);
+        tArc(10, [80, 30]);
+      }) as Sketch;
+      render();
+
+      const arcs = getEdgesByType(s.getShapes(), "arc");
+      expect(arcs.length).toBe(1);
+      const { center, radius } = EdgeQuery.getCircleDataFromEdge(arcs[0]);
+      expect(radius).toBeCloseTo(10, 6);
+      // Still tangent: center on the perpendicular at the start.
+      expect(center.x).toBeCloseTo(50, 6);
+      expect(center.y).toBeCloseTo(10, 6);
+    });
+
+    it("records an error for a zero radius", () => {
+      const s = sketch("xy", () => {
+        hLine(50);
+        tArc(0, [80, 30]);
+      }) as Sketch;
+      render();
+
+      const children = s.getChildren();
+      const arc = children[children.length - 1];
+      expect(arc.getError()).toMatch(/non-zero/);
+    });
+
+    it("records an error when the endpoint projects onto the start", () => {
+      const s = sketch("xy", () => {
+        hLine(50);
+        tArc(10, [50, 0]);
+      }) as Sketch;
+      render();
+
+      const children = s.getChildren();
+      const arc = children[children.length - 1];
+      expect(arc.getError()).toMatch(/no sweep/);
+    });
+
+    it("chains geometry after the arc", () => {
+      const s = sketch("xy", () => {
+        hLine(50);
+        tArc(30, [80, 30]);
+        hLine(-30);
+      }) as Sketch;
+      render();
+
+      const shapes = s.getShapes();
+      expect(shapes.length).toBeGreaterThanOrEqual(3);
     });
   });
 

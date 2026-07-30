@@ -707,6 +707,32 @@ describe('updateDimensionExpression with dimensionCall', () => {
   });
 });
 
+describe('updateDimensionExpression with dimensionInsert', () => {
+  it('replaces an existing tArc radius in place', async () => {
+    const code = `tArc(30, [80, 30])\n`;
+    const result = await updateDimensionExpression(code, 1, 'r', 0, 'tArc', true);
+    expect(result.newCode).toBe(`tArc(r, [80, 30])\n`);
+  });
+
+  it('inserts the radius as first argument of a radius-less tArc', async () => {
+    const code = `tArc([80, 30])\n`;
+    const result = await updateDimensionExpression(code, 1, '45', 0, 'tArc', true);
+    expect(result.newCode).toBe(`tArc(45, [80, 30])\n`);
+  });
+
+  it('inserts past a chained call into the named tArc call', async () => {
+    const code = `tArc([80, 30]).guide()\n`;
+    const result = await updateDimensionExpression(code, 1, '45', 0, 'tArc', true);
+    expect(result.newCode).toBe(`tArc(45, [80, 30]).guide()\n`);
+  });
+
+  it('without dimensionInsert a radius-less tArc stays untouched', async () => {
+    const code = `tArc([80, 30])\n`;
+    const result = await updateDimensionExpression(code, 1, '45', 0, 'tArc');
+    expect(result.newCode).toBe(code);
+  });
+});
+
 describe('getDimensionExpression with dimensionOffset', () => {
   it('dimensionCall reads rect height past a .radius() call', async () => {
     const code = `rect(30, 20).radius(fillet)\n`;

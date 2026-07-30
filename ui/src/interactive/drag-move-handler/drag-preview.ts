@@ -11,10 +11,11 @@ import {
   addDashedSlot,
   angleFromCenter,
   GUIDE_COLOR,
+  INVALID_COLOR,
   START_POINT_COLOR,
   SNAP_VERTEX_COLOR,
 } from '../tools/tool-preview-utils';
-import { computeTangentArc, computeArcCenter } from './constraint-math';
+import { computeTangentArc, computeArcCenter, computeFixedRadiusArc } from './constraint-math';
 import { DragHitResult, DRAG_RENDER_ORDER } from './types';
 
 const RO = DRAG_RENDER_ORDER;
@@ -149,6 +150,8 @@ export function rebuildDragPreview(
     }
   } else if ((uniqueType === 'tarc-to-point' || uniqueType === 'tarc-to-point-tangent') && fixedVertex && hitResult.tangentDir) {
     rebuildTangentArcPreview(previewGroup, currentPoint, hitResult, camera, planeNormal, plane);
+  } else if (uniqueType === 'tarc-radius-to-point' && fixedVertex && hitResult.tangentDir) {
+    rebuildFixedRadiusArcPreview(previewGroup, currentPoint, hitResult, camera, planeNormal, plane);
   } else if (uniqueType.startsWith('bezier-') && hitResult.bezierPoles && hitResult.bezierPoleIndex !== undefined) {
     const allPoles = hitResult.bezierPoles.slice();
     allPoles[hitResult.bezierPoleIndex] = currentPoint;
@@ -256,11 +259,50 @@ function rebuildTangentArcPreview(
       addDashedArc(previewGroup, arc.center, arc.radius, arc.startAngle, arc.endAngle, arc.ccw, plane, RO);
       addDot(previewGroup, currentPoint, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
     } else {
+      // No tangent arc reaches this endpoint (it lies along the tangent) —
+      // committing here would error the statement, so the preview warns.
       addDot(previewGroup, startV, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
-      addDashedLine(previewGroup, startV, currentPoint, plane, RO);
-      addDot(previewGroup, currentPoint, SNAP_VERTEX_COLOR, camera, planeNormal, plane, 1, RO);
+      addDashedLine(previewGroup, startV, currentPoint, plane, RO, INVALID_COLOR);
+      addDot(previewGroup, currentPoint, INVALID_COLOR, camera, planeNormal, plane, 1, RO);
     }
   }
+}
+
+/**
+ * Preview for a fixed-radius tangent arc (`tArc(radius, endPoint)`): the arc
+ * always stays tangent to the chain. An end drag slides the endpoint along
+ * the tangent circle; a center drag resizes the radius, re-projecting the
+ * endpoint onto the resized circle. Degenerate positions (cursor on the
+ * start or the arc center) fall back to an invalid-colored chord.
+ */
+function rebuildFixedRadiusArcPreview(
+  previewGroup: Group,
+  currentPoint: [number, number],
+  hitResult: DragHitResult,
+  camera: Camera,
+  planeNormal: Vector3,
+  plane: PlaneData,
+): void {
+  const { hitZone, fixedVertex, tangentDir } = hitResult;
+  const startV = fixedVertex!;
+  const tangent = tangentDir!;
+
+  const aimV = hitZone === 'center' ? hitResult.fixedVertex2! : currentPoint;
+  const radius = hitZone === 'center'
+    ? Math.hypot(currentPoint[0] - startV[0], currentPoint[1] - startV[1])
+    : hitResult.initialValue ?? 0;
+
+  const arc = computeFixedRadiusArc(startV, aimV, radius, tangent);
+  addDot(previewGroup, startV, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
+  if (arc) {
+    addDashedArc(previewGroup, arc.center, arc.radius, arc.startAngle, arc.endAngle, arc.ccw, plane, RO);
+    if (hitZone === 'center') {
+      addDot(previewGroup, arc.end, START_POINT_COLOR, camera, planeNormal, plane, 1, RO);
+    }
+  } else {
+    addDashedLine(previewGroup, startV, aimV, plane, RO, INVALID_COLOR);
+  }
+  addDot(previewGroup, currentPoint, arc ? SNAP_VERTEX_COLOR : INVALID_COLOR, camera, planeNormal, plane, 1, RO);
 }
 
 export function disposePreviewGroup(previewGroup: Group): void {

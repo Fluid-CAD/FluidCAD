@@ -303,7 +303,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/update-dimension-expression', (req, res) => {
-    const { expression, sourceLocation, sketchSourceLine, newVariable, dimensionOffset, dimensionCall } = req.body;
+    const { expression, sourceLocation, sketchSourceLine, newVariable, dimensionOffset, dimensionCall, dimensionInsert } = req.body;
     if (
       typeof expression !== 'string' ||
       !sourceLocation || typeof sourceLocation.line !== 'number'
@@ -328,6 +328,7 @@ export function createSketchEditsRouter(
       newVariable: nv,
       dimensionOffset: typeof dimensionOffset === 'number' ? dimensionOffset : 0,
       dimensionCall: typeof dimensionCall === 'string' ? dimensionCall : null,
+      dimensionInsert: dimensionInsert === true,
     });
     res.json({ success: true });
   });
@@ -718,7 +719,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/code/update-dimension-expression', async (req, res) => {
-    const { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset, dimensionCall } = req.body;
+    const { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset, dimensionCall, dimensionInsert } = req.body;
     if (
       typeof code !== 'string' || typeof sourceLine !== 'number' ||
       typeof expression !== 'string'
@@ -743,6 +744,7 @@ export function createSketchEditsRouter(
         nv,
         offset,
         typeof dimensionCall === 'string' ? dimensionCall : null,
+        dimensionInsert === true,
       );
       res.json(result);
     } catch (err: any) {

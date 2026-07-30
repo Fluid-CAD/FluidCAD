@@ -12,6 +12,7 @@ export const CONNECTABLE_TYPES = new Set([
   'line-two-points', 'hline', 'vline', 'aline',
   'arc',
   'tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent',
+  'tarc-radius-to-point',
   'tline',
 ]);
 

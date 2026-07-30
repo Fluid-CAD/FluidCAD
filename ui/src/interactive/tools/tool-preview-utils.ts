@@ -18,6 +18,8 @@ import { applyConstantPixelSize, trackPixelsPerWorld } from '../../meshes/screen
 
 export const START_POINT_COLOR = 0x22cc66;
 export const GUIDE_COLOR = 0xb0b0b0;
+/** Preview state that cannot commit to valid geometry (e.g. an unreachable tArc endpoint). */
+export const INVALID_COLOR = 0xff5252;
 export const SNAP_VERTEX_COLOR = 0xffc578;
 export const SNAP_GRID_COLOR = 0x888888;
 export const DOT_RADIUS = 2.5;
@@ -35,12 +37,12 @@ export function snapDotColor(snapType: SnapType): number {
 export const PREVIEW_DASH_PX = 8;
 export const PREVIEW_GAP_PX = 5;
 
-function addDashedPolyline(previewGroup: Group, verts: Float32Array, renderOrder: number): void {
+function addDashedPolyline(previewGroup: Group, verts: Float32Array, renderOrder: number, color: number = GUIDE_COLOR): void {
   const geo = new BufferGeometry();
   geo.setAttribute('position', new BufferAttribute(verts, 3));
 
   const mat = new LineDashedMaterial({
-    color: GUIDE_COLOR,
+    color,
     dashSize: PREVIEW_DASH_PX,
     gapSize: PREVIEW_GAP_PX,
     depthTest: false,
@@ -98,6 +100,7 @@ export function addDashedLine(
   to: [number, number],
   plane: PlaneData,
   renderOrder = 3,
+  color: number = GUIDE_COLOR,
 ): void {
   const worldFrom = localToWorld(from, plane);
   const worldTo = localToWorld(to, plane);
@@ -106,7 +109,7 @@ export function addDashedLine(
   verts[0] = worldFrom.x; verts[1] = worldFrom.y; verts[2] = worldFrom.z;
   verts[3] = worldTo.x; verts[4] = worldTo.y; verts[5] = worldTo.z;
 
-  addDashedPolyline(previewGroup, verts, renderOrder);
+  addDashedPolyline(previewGroup, verts, renderOrder, color);
 }
 
 export function addDashedCircle(

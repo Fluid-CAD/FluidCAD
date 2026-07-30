@@ -1301,6 +1301,7 @@ export function updateDimensionExpression(
   expression: string,
   dimensionOffset = 0,
   dimensionCall: string | null = null,
+  dimensionInsert = false,
 ): Promise<CodeEditResult> {
   return withParsedCode(code, (tree, lines) => {
     let current: TSNode | null = findEditableCallAt(tree, lines, sourceLine);
@@ -1310,6 +1311,15 @@ export function updateDimensionExpression(
         const target = findNonArrayArgFromEnd(args, dimensionOffset);
         if (target) {
           return spliceCode(code, target.startIndex, target.endIndex, expression);
+        }
+        // The statement's form has no scalar for this dimension yet (e.g.
+        // `tArc([e])` gaining an explicit radius): insert the expression as
+        // the call's first argument, converting it to the scalar overload.
+        if (dimensionInsert) {
+          const firstArg = args.namedChildren[0];
+          return firstArg
+            ? spliceCode(code, firstArg.startIndex, firstArg.startIndex, `${expression}, `)
+            : spliceCode(code, args.startIndex + 1, args.startIndex + 1, expression);
         }
       }
       const fn = current.childForFieldName('function');
@@ -1444,9 +1454,10 @@ export function updateDimensionExpressionWithVariable(
   newVariable: NewVariableDecl | NewVariableDecl[] | null,
   dimensionOffset = 0,
   dimensionCall: string | null = null,
+  dimensionInsert = false,
 ): Promise<CodeEditResult> {
   return withOptionalVariableDeclaration(code, sketchSourceLine, newVariable,
-    (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression, dimensionOffset, dimensionCall));
+    (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression, dimensionOffset, dimensionCall, dimensionInsert));
 }
 
 export type VariableInfo = { name: string; initializer?: string; numeric?: boolean };

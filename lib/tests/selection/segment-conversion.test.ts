@@ -364,6 +364,35 @@ describe("listSegmentConversions", () => {
     expect(result.options![0].newStatement).toBe('arc([200, -100]).center([100, -100]).cw()');
   });
 
+  it("tarc-radius-to-point converts back to tArc and to a free arc", () => {
+    let l: unknown;
+    let t: unknown;
+    sketch("xy", () => {
+      l = line([100, 0]);
+      // The aim point is off the radius-150 tangent circle — the built end
+      // is its projection onto the circle at (234.16, 82.92).
+      t = tArc(150, [200, 100]);
+    });
+    const scene = render();
+    setLocation(l, 3);
+    setLocation(t, 4);
+
+    const result = listSegmentConversions(scene, refFor(t));
+    expect(result.ok).toBe(true);
+    expect(result.currentKind).toBe('tarc-radius-to-point');
+
+    // Dropping the radius re-solves a tangent arc to the same (built) end —
+    // the start tangent is unchanged, so no reshape warning.
+    const back = optionFor(result.options, 'tArc');
+    expect(back.enabled).toBe(true);
+    expect(back.newStatement).toBe('tArc([234.16, 82.92])');
+    expect(back.reshapeAngle).toBeUndefined();
+
+    const free = optionFor(result.options, 'free');
+    expect(free.enabled).toBe(true);
+    expect(free.newStatement).toBe('arc([234.16, 82.92]).center([100, 150])');
+  });
+
   it("refuses picks that are not sketch segments", () => {
     sketch("xy", () => {
       line([100, 0]);

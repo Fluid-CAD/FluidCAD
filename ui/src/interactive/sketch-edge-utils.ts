@@ -5,6 +5,7 @@ const INTERACTIVE_SKETCH_TYPES = new Set([
   'circle',
   'arc', 'arc-from-center',
   'tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent',
+  'tarc-radius-to-point',
   'tline',
   'trim2d',
   'rect',
@@ -139,6 +140,7 @@ export type CenterEntry = {
 
 const ARC_UNIQUE_TYPES = new Set([
   'arc', 'tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent',
+  'tarc-radius-to-point',
   'slot',
 ]);
 

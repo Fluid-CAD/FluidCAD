@@ -143,10 +143,11 @@ export function updateDimensionExpression(
   newVariable: { name: string; initializer: string } | null = null,
   dimensionOffset = 0,
   dimensionCall: string | null = null,
+  dimensionInsert = false,
 ) {
   return postCodeEdit<CodeEditResult>(
     serverUrl, 'update-dimension-expression',
-    { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset, dimensionCall },
+    { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset, dimensionCall, dimensionInsert },
     logger,
   );
 }

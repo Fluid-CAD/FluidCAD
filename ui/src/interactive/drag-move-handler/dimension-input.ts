@@ -89,6 +89,12 @@ export class DimensionInputController {
       const ddx = startPoint[0] - lc[0];
       const ddy = startPoint[1] - lc[1];
       value = Math.round(Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
+    } else if (uniqueType === 'tarc-radius-to-point' && hitZone === 'center') {
+      label = 'R:';
+      const start = hitResult.anchorPoint!;
+      const ddx = startPoint[0] - start[0];
+      const ddy = startPoint[1] - start[1];
+      value = Math.round(Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
     }
 
     if (label === null) {
@@ -129,6 +135,16 @@ export class DimensionInputController {
       } else {
         label = hitResult.rectDim === 'width' ? 'W:' : 'H:';
         value = Math.abs(hitResult.initialValue ?? 0);
+      }
+    } else if ((hitResult.uniqueType === 'tarc-to-point' || hitResult.uniqueType === 'tarc-radius-to-point')
+               && (hitResult.hitZone === 'body' || hitResult.hitZone === 'center')) {
+      // Double-clicking a tangent arc's curve (or center) sets its radius.
+      // On a radius-less `tArc([e])` the commit inserts the radius argument,
+      // converting the statement to the `tArc(radius, [e])` overload.
+      label = 'R:';
+      value = hitResult.initialValue ?? 0;
+      if (!(value > 0)) {
+        return false;
       }
     } else if (hitResult.uniqueType === 'slot') {
       if (hitResult.hitZone === 'start' || hitResult.hitZone === 'end') {
@@ -188,6 +204,11 @@ export class DimensionInputController {
       const ddx = currentPoint[0] - lc[0];
       const ddy = currentPoint[1] - lc[1];
       value = Math.round(Math.abs(-ay * ddx + ax * ddy) * 100) / 100;
+    } else if (uniqueType === 'tarc-radius-to-point' && hitResult.hitZone === 'center') {
+      const start = anchorPoint!;
+      const ddx = currentPoint[0] - start[0];
+      const ddy = currentPoint[1] - start[1];
+      value = Math.round(Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
     } else if (uniqueType === 'slot' && hitResult.slotOtherCenter && hitResult.slotAxisDir) {
       const other = hitResult.slotOtherCenter;
       const ax = hitResult.slotAxisDir;
@@ -240,10 +261,12 @@ export class DimensionInputController {
   ): void {
     const { sourceLocation } = hitResult;
     const numericFallback = String(value);
-    const { offset: dimOffset, call: dimCall } = DimensionInputController.dimensionTargetFor(hitResult, label);
+    const { offset: dimOffset, call: dimCall, insert: dimInsert } = DimensionInputController.dimensionTargetFor(hitResult, label);
     const isSignedType = hitResult.uniqueType !== 'circle'
       && hitResult.uniqueType !== 'polygon'
       && hitResult.uniqueType !== 'slot'
+      && hitResult.uniqueType !== 'tarc-to-point'
+      && hitResult.uniqueType !== 'tarc-radius-to-point'
       && hitResult.hitZone !== 'angle';
 
     this.expressionInput.show({
@@ -266,7 +289,7 @@ export class DimensionInputController {
         }
 
         const sketchSourceLine = this.getSketchSourceLine();
-        updateDimensionExpression(finalExpr, sourceLocation, sketchSourceLine, newVariable, dimOffset, dimCall);
+        updateDimensionExpression(finalExpr, sourceLocation, sketchSourceLine, newVariable, dimOffset, dimCall, dimInsert);
         if (isDrag) {
           this.onRequestEndResize?.();
         } else {
@@ -293,11 +316,12 @@ export class DimensionInputController {
   // Which call in the member chain and which non-array arg (offset from the
   // end) holds the dimension: rect width/height live in rect(...), a fillet
   // radius in .radius(...); the slot distance ('D') sits one arg before its
-  // radius in the same call.
+  // radius in the same call. `insert` marks a dimension the statement may
+  // not carry yet — the edit adds it as the call's first argument.
   private static dimensionTargetFor(
     hitResult: DragHitResult,
     label: string,
-  ): { offset: number; call: string | null } {
+  ): { offset: number; call: string | null; insert?: boolean } {
     if (hitResult.uniqueType === 'rect') {
       if (hitResult.rectDim === 'radius') {
         return { offset: hitResult.rectRadiusArgOffset ?? 0, call: 'radius' };
@@ -309,6 +333,11 @@ export class DimensionInputController {
       // only in the aLine call itself — a chained .centered(true) would
       // otherwise satisfy a call-agnostic offset.
       return { offset: 1, call: 'aLine' };
+    }
+    if (hitResult.uniqueType === 'tarc-to-point' || hitResult.uniqueType === 'tarc-radius-to-point') {
+      // The radius is tArc's only scalar; a radius-less `tArc([e])` gains it
+      // as the first argument, becoming the `tArc(radius, [e])` overload.
+      return { offset: 0, call: 'tArc', insert: true };
     }
     return { offset: label === 'D' ? 1 : 0, call: null };
   }

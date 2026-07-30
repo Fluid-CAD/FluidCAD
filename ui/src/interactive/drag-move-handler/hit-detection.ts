@@ -158,8 +158,9 @@ export function findHitGeometry(
             bestHit = result.hit;
             bestDistSq = result.distSq;
           }
-        } else if ((uniqueType === 'tarc-to-point' || uniqueType === 'tarc-to-point-tangent') && verts2d.length >= 2) {
-          const result = hitTestTangentArc(point2d, verts2d, sourceLocation, uniqueType, child, plane, thresholdSq, bestDistSq);
+        } else if ((uniqueType === 'tarc-to-point' || uniqueType === 'tarc-to-point-tangent'
+            || uniqueType === 'tarc-radius-to-point') && verts2d.length >= 2) {
+          const result = hitTestTangentArc(point2d, verts2d, sourceLocation, uniqueType, child, plane, thresholdSq, bestDistSq, includeDimensionZones);
           if (result) {
             bestHit = result.hit;
             bestDistSq = result.distSq;
@@ -563,6 +564,7 @@ function hitTestTangentArc(
   plane: PlaneData,
   thresholdSq: number,
   bestDistSq: number,
+  includeDimensionZones: boolean,
 ): HitTestResult | null {
   const startV = verts2d[0];
   const endV = verts2d[verts2d.length - 1];
@@ -584,6 +586,11 @@ function hitTestTangentArc(
   const midV = verts2d[Math.floor(verts2d.length / 2)];
   const arcCCW = centerV ? isCCW(centerV, startV, midV) : true;
 
+  const rawRadius = centerV
+    ? Math.hypot(centerV[0] - startV[0], centerV[1] - startV[1])
+    : Math.abs((child.object?.radius as number | undefined) ?? 0);
+  const radius = Math.round(rawRadius * 100) / 100;
+
   const edx = endV[0] - point2d[0];
   const edy = endV[1] - point2d[1];
   const endDist = edx * edx + edy * edy;
@@ -601,6 +608,9 @@ function hitTestTangentArc(
         draggedVertices: [endV],
         tangentDir: tangent,
         arcCCW,
+        // Unrounded: the end drag projects onto the tangent circle of this
+        // exact radius, so display rounding must not skew it.
+        initialValue: rawRadius,
       },
       distSq: endDist,
     };
@@ -624,8 +634,43 @@ function hitTestTangentArc(
           draggedVertices: [centerV],
           tangentDir: tangent,
           arcCCW,
+          initialValue: radius,
         },
         distSq: centerDist,
+      };
+      bestDistSq = centerDist;
+    }
+  }
+
+  // The arc curve itself is a dimension-only zone (the double-click path):
+  // it opens the radius input but must not capture pointer-down drags. Only
+  // the endpoint forms can carry an explicit radius argument — a tangent-arc
+  // with an end tangent (`tArc([e], [t])`) would lose its tangent constraint.
+  if (includeDimensionZones && !result && radius > 0
+      && (uniqueType === 'tarc-to-point' || uniqueType === 'tarc-radius-to-point')) {
+    let bodyDist = Infinity;
+    for (let i = 1; i < verts2d.length; i++) {
+      const d = pointToSegmentDist(
+        point2d[0], point2d[1],
+        verts2d[i - 1][0], verts2d[i - 1][1],
+        verts2d[i][0], verts2d[i][1],
+      );
+      bodyDist = Math.min(bodyDist, d * d);
+    }
+    if (bodyDist < thresholdSq && bodyDist < bestDistSq) {
+      result = {
+        hit: {
+          sourceLocation,
+          uniqueType: uniqueType || '',
+          hitZone: 'body',
+          anchorPoint: startV,
+          fixedVertex: startV,
+          fixedVertex2: endV,
+          tangentDir: tangent,
+          arcCCW,
+          initialValue: radius,
+        },
+        distSq: bodyDist,
       };
     }
   }

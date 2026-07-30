@@ -283,6 +283,7 @@ export async function handleUpdateDimensionExpression(
     newVariable?: { name: string; initializer: string } | null;
     dimensionOffset?: number;
     dimensionCall?: string | null;
+    dimensionInsert?: boolean;
   },
 ) {
   const editor = findEditorForCurrentFile(client);
@@ -296,6 +297,7 @@ export async function handleUpdateDimensionExpression(
     msg.newVariable ?? null,
     msg.dimensionOffset ?? 0,
     msg.dimensionCall ?? null,
+    msg.dimensionInsert === true,
   );
   if (!result) {
     return;

@@ -22,6 +22,7 @@ export const UNIQUE_TYPE_ICONS: Record<string, string> = {
   'repeat-linear': 'repeat-linear',
   'repeat-matrix': 'repeat-linear',
   'slot-from-edge': 'slot',
+  'tarc-radius-to-point': 'tarc',
   'tarc-to-point': 'tarc',
   'tarc-to-point-tangent': 'tarc',
   'tarc-with-tangent': 'tarc',

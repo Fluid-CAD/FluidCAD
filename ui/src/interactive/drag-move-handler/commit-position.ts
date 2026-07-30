@@ -107,6 +107,16 @@ export function commitPositionMove(
       const newStart = roundPoint([minX, minY]);
       setRectDimensions(newWidth, newHeight, sourceLocation, newStart);
     }
+  } else if (uniqueType === 'tarc-radius-to-point') {
+    if (hitZone === 'center' && fixedVertex) {
+      // The center drag resizes the radius arg; the arc stays tangent and
+      // its end re-projects onto the resized circle.
+      const newRadius = Math.round(Math.hypot(newPos[0] - fixedVertex[0], newPos[1] - fixedVertex[1]) * 100) / 100;
+      const sketchSourceLine = getSketchSourceLine();
+      updateDimensionExpression(String(newRadius), sourceLocation, sketchSourceLine, undefined, 0, 'tArc', true);
+    } else if (hitZone === 'end') {
+      updatePosition(newPos, sourceLocation, 0);
+    }
   } else if (uniqueType === 'tarc-to-point' || uniqueType === 'tarc-to-point-tangent') {
     const endIdx = uniqueType === 'tarc-to-point' ? 0 : 1;
     if (hitZone === 'center' && fixedVertex && hitResult.fixedVertex2) {

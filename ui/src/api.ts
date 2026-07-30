@@ -617,6 +617,25 @@ export async function applyTarcToEdge(
   });
 }
 
+/**
+ * Rewrite the `tArc(radius, endPoint)` statement at `sourceLocation` to the
+ * to-target overload — `tArc(radius, <target>)` — referencing the picked
+ * edge's statement (an end-drag snapped onto it). The radius argument text
+ * is preserved server-side; `sign` is the solved sweep in the to-target
+ * convention (+1 CCW), applied by negating the radius for a clockwise arc.
+ */
+export async function retargetTarcToEdge(
+  sourceLocation: SourceLocationParam,
+  shapeId: string,
+  sign: 1 | -1,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'tarc',
+    sketchEntities: [{ shapeId }],
+    tarcRetarget: { line: sourceLocation.line, sign },
+  });
+}
+
 export type OffsetEditOptions = OffsetOptionValues & EditSessionFields & {
   value: ValueExpr;
   /** Edited target argument list; omitted keeps the statement's verbatim. */

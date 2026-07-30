@@ -616,6 +616,7 @@ function hitTestTangentArc(
         // Unrounded: the end drag projects onto the tangent circle of this
         // exact radius, so display rounding must not skew it.
         initialValue: rawRadius,
+        tarcRadiusNegative: radiusSign < 0 || undefined,
       },
       distSq: endDist,
     };

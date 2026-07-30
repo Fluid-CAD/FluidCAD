@@ -9,7 +9,7 @@ import {
   addSegmentHighlight,
   angleFromCenter,
 } from '../tool-preview-utils';
-import { buildEdgeIndex, closestPointOnSegment, EdgeEntry } from '../../sketch-edge-utils';
+import { buildTarcTargetIndex, closestPointOnSegment, EdgeEntry, TarcTargetEntry } from '../../sketch-edge-utils';
 import { applyTarcToEdge } from '../../../api';
 import { themeColors } from '../../../scene/theme-colors';
 import type { SceneObjectRender } from '../../../types';
@@ -42,7 +42,7 @@ export class TArcMode implements SegmentMode {
   private lastSnapType: SnapResult['snapType'] = 'none';
 
   /** Snap candidates, cached per scene payload (see {@link targets}). */
-  private targetEntries: EdgeEntry[] | null = null;
+  private targetEntries: TarcTargetEntry[] | null = null;
   private targetSource: SceneObjectRender[] | null = null;
   private hoverTarget: HoverTarget | null = null;
   /** A tArc-to-edge apply is in flight — ignore further clicks until it lands. */
@@ -182,45 +182,12 @@ export class TArcMode implements SegmentMode {
     return false;
   }
 
-  /**
-   * Snap candidates: edges of single-edge geometries in this sketch, guide
-   * edges included — construction geometry is the classic thing to arc up
-   * to. The kernel's `tArc(radius, target)` resolves the target through the
-   * owner's FIRST shape, so multi-edge owners (rect, polygon) are excluded —
-   * on those the arc would silently aim at an arbitrary edge. Owners without
-   * a source location can't be bound to a variable and are excluded too.
-   * Cached per scene payload.
-   */
-  private targets(ctx: ModeContext): EdgeEntry[] {
+  /** Snap candidates ({@link buildTarcTargetIndex}), cached per scene payload. */
+  private targets(ctx: ModeContext): TarcTargetEntry[] {
     if (this.targetSource === ctx.sceneObjects && this.targetEntries) {
       return this.targetEntries;
     }
-
-    const ownerByShapeId = new Map<string, SceneObjectRender>();
-    for (const obj of ctx.sceneObjects) {
-      if (obj.parentId !== ctx.sketchId) {
-        continue;
-      }
-      for (const shape of obj.sceneShapes) {
-        if (shape.shapeId) {
-          ownerByShapeId.set(shape.shapeId, obj);
-        }
-      }
-    }
-
-    const entries = buildEdgeIndex(ctx.sceneObjects, ctx.sketchId, ctx.plane, { includeGuides: true });
-    const entriesPerOwner = new Map<SceneObjectRender, number>();
-    for (const entry of entries) {
-      const owner = ownerByShapeId.get(entry.shapeId);
-      if (owner) {
-        entriesPerOwner.set(owner, (entriesPerOwner.get(owner) ?? 0) + 1);
-      }
-    }
-
-    this.targetEntries = entries.filter((entry) => {
-      const owner = ownerByShapeId.get(entry.shapeId);
-      return owner !== undefined && !!owner.sourceLocation && entriesPerOwner.get(owner) === 1;
-    });
+    this.targetEntries = buildTarcTargetIndex(ctx.sceneObjects, ctx.sketchId, ctx.plane);
     this.targetSource = ctx.sceneObjects;
     return this.targetEntries;
   }
@@ -234,7 +201,7 @@ export class TArcMode implements SegmentMode {
     }
 
     const threshold = ctx.pixelThreshold(EDGE_SNAP_PX);
-    let best: { entry: EdgeEntry; point: Point2D; dist: number } | null = null;
+    let best: { entry: TarcTargetEntry; point: Point2D; dist: number } | null = null;
 
     for (const entry of this.targets(ctx)) {
       let nearest: { x: number; y: number; dist: number } | null = null;

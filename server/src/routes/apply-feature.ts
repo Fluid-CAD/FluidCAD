@@ -4615,9 +4615,26 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: 'value must be a positive number or expression' });
         return;
       }
+      // tArc retarget (an end-drag snapped onto an edge): rewrite the tArc
+      // statement at `line` in place instead of inserting a new one. The
+      // radius argument is preserved from the statement, so no value rides.
+      let tarcRetarget: { line: number; sign: 1 | -1 } | undefined;
+      if (req.body?.tarcRetarget !== undefined) {
+        if (feature !== 'tarc') {
+          res.status(400).json({ error: 'tarcRetarget only applies to tarc' });
+          return;
+        }
+        const rt = req.body.tarcRetarget;
+        if (!rt || !Number.isInteger(rt.line) || (rt.sign !== 1 && rt.sign !== -1)) {
+          res.status(400).json({ error: 'tarcRetarget must be {line, sign: 1 | -1}' });
+          return;
+        }
+        tarcRetarget = { line: rt.line, sign: rt.sign };
+      }
       // tArc's signed radius allows negative (flips the sweep direction) but
       // not zero, like offset's distance.
-      if ((feature === 'offset' || feature === 'tarc') && !validValueExpr(value, { nonzero: true })) {
+      if ((feature === 'offset' || (feature === 'tarc' && !tarcRetarget))
+        && !validValueExpr(value, { nonzero: true })) {
         res.status(400).json({ error: 'value must be a nonzero number or expression' });
         return;
       }
@@ -4676,7 +4693,7 @@ export function createApplyFeatureRouter(
           }
           : { toolRefs: sketchToolPicks, offset: offsetOptions, slot: slotOptions };
         const synthesis = fluidCadServer.synthesizeSketchApplyFeature(
-          sketchPicks, feature, sketchValueless ? undefined : value, options,
+          sketchPicks, feature, sketchValueless || tarcRetarget ? undefined : value, options,
         );
         if (!synthesis) {
           res.status(404).json({ success: false, reason: 'No rendered scene' });
@@ -4714,7 +4731,9 @@ export function createApplyFeatureRouter(
           : feature === 'slot'
             ? renderSlotStatement(value, synthesis.args, slotOptions)
             : feature === 'tarc'
-              ? renderTarcStatement(value, synthesis.args)
+              // The retarget keeps the statement's own radius argument, so
+              // its preview can only name the target.
+              ? (tarcRetarget ? `tArc(<radius>, ${synthesis.args})` : renderTarcStatement(value, synthesis.args))
               : synthesis.preview;
         if (preview === true) {
           res.json({
@@ -4733,6 +4752,9 @@ export function createApplyFeatureRouter(
         }
         if (slotOptions) {
           spec = { ...spec, slot: slotOptions };
+        }
+        if (tarcRetarget) {
+          spec = { ...spec, tarc: { retarget: tarcRetarget } };
         }
         if (newVariables) {
           spec = { ...spec, newVariables };

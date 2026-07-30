@@ -385,3 +385,104 @@ describe('applyFeatureEdit — sketch-body tArc to target (2D)', () => {
     expect(result.error).toBe('malformed tArc edit spec');
   });
 });
+
+describe('applyFeatureEdit — tArc retarget (end-drag edge snap)', () => {
+  const retargetSpec = (
+    line: number,
+    sign: 1 | -1,
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec => sketchSpec({
+    feature: 'tarc',
+    value: undefined,
+    producers: [{ line: 4, column: 0, featureType: 'line', nameHint: 'l', bind: true }],
+    parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
+    tarc: { retarget: { line, sign } },
+    ...overrides,
+  });
+
+  it('rewrites the endpoint arg to the bound target variable in place', async () => {
+    const code = [
+      `import { sketch, hLine, move, line, tArc } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  hLine(60)`,
+      `  move([50, 0])`,
+      `  line([120, 0])`,
+      `  tArc(12, [80, 30])`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, retargetSpec(7, 1));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { sketch, hLine, move, line, tArc } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const l = hLine(60)`,
+      `  move([50, 0])`,
+      `  line([120, 0])`,
+      `  tArc(12, l)`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('negates an expression radius for a clockwise solve, reusing an existing binding', async () => {
+    const code = [
+      `import { sketch, line, move, tArc } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const g = line([100, 50]).guide()`,
+      `  move([50, 0])`,
+      `  line([120, 0])`,
+      `  tArc(r, [80, -30])`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, retargetSpec(7, -1));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const g = line([100, 50]).guide()`);
+    expect(result.newCode).toContain(`  tArc(-r, g)`);
+  });
+
+  it('refuses a target declared after the arc (temporal dead zone)', async () => {
+    const code = [
+      `import { sketch, hLine, move, line, tArc } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  move([50, 0])`,
+      `  line([120, 0])`,
+      `  tArc(12, [80, 30])`,
+      `  hLine(60)`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, retargetSpec(6, 1, {
+      producers: [{ line: 7, column: 0, featureType: 'line', nameHint: 'l', bind: true }],
+    }));
+    expect(result.error).toContain('declared after this arc');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a target from a different sketch', async () => {
+    const code = [
+      `import { sketch, hLine, move, tArc } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  hLine(60)`,
+      `})`,
+      `sketch('xz', () => {`,
+      `  move([50, 0])`,
+      `  tArc(12, [80, 30])`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, retargetSpec(8, 1));
+    expect(result.error).toContain('different sketch');
+    expect(result.newCode).toBe(code);
+  });
+});

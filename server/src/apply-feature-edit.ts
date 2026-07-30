@@ -137,6 +137,8 @@ export type ApplyFeatureEditSpec = {
   offset?: OffsetEditOptions;
   /** Slot-from-edge payload; the trailing `deleteSource` argument. */
   slot?: SlotEditOptions;
+  /** tArc-only payload; present for an in-place retarget instead of a create. */
+  tarc?: TarcEditOptions;
   /** Loft-only payload; each `parts` entry renders one profile's selector. */
   loft?: LoftEditOptions;
   /** Plane-only payload; each `parts` entry renders one base's selector. */
@@ -789,6 +791,19 @@ export type SlotEditOptions = {
 };
 
 /**
+ * The tArc retarget payload (an end-drag snapped onto an edge): rewrite the
+ * `tArc(radius, [x, y])` statement at `retarget.line` to the to-target
+ * overload — `tArc(radius, <target var>)` — instead of inserting a new
+ * statement. The two overloads encode the radius sign differently (endpoint
+ * form: leave side; target form: sweep direction), so `sign` carries the
+ * solved sweep (+1 CCW) and a clockwise arc negates the preserved radius
+ * argument text.
+ */
+export type TarcEditOptions = {
+  retarget: { line: number; sign: 1 | -1 };
+};
+
+/**
  * How a loft statement is rendered and placed: `loft(<profile>, <profile>, …)`
  * plus `.guides(…)` / `.startCondition(…)` / `.endCondition(…)` /
  * `.thin(…)` / `.remove()` / `.new()` chains. Profiles are ordered —
@@ -1281,10 +1296,14 @@ export async function applyFeatureEdit(
     }
   } else if (spec.feature === 'tarc') {
     // tArc-to-intersection takes ONE whole target geometry: exactly one bound
-    // producer rendered as a bare variable, plus a nonzero signed radius (a
-    // negative radius flips the sweep direction).
+    // producer rendered as a bare variable. Create mode carries a nonzero
+    // signed radius (a negative radius flips the sweep direction); retarget
+    // mode instead names the statement to rewrite and the sweep sign.
+    const rt = spec.tarc?.retarget;
     const valid = spec.producers.length === 1 && spec.parts.length === 1
-      && validValueExpr(spec.value, { nonzero: true });
+      && (rt !== undefined
+        ? Number.isInteger(rt.line) && (rt.sign === 1 || rt.sign === -1)
+        : validValueExpr(spec.value, { nonzero: true }));
     if (!valid) {
       return { newCode: code, error: 'malformed tArc edit spec' };
     }
@@ -1307,6 +1326,12 @@ export async function applyFeatureEdit(
   const scope = bindings[0].scope;
 
   allocateNames(tree.rootNode, bindings, spec);
+
+  // A tArc retarget rewrites an existing statement in place — no insertion
+  // point, no new statement text, no import changes.
+  if (spec.feature === 'tarc' && spec.tarc?.retarget) {
+    return applyTarcRetarget(code, tree, lines, bindings, spec.tarc.retarget);
+  }
 
   const insertion = resolveInsertion(spec, bindings, scope, lines, tree);
   if ('error' in insertion) {
@@ -2617,6 +2642,98 @@ export function renderSlotStatement(
  */
 export function renderTarcStatement(value: ValueExpr | undefined, args: string): string {
   return `tArc(${formatValue(value)}, ${args})`;
+}
+
+/** Negate an argument's source text: `12` → `-12`, `r` → `-r`, else `-(…)`. */
+function negateExpressionText(expr: string): string {
+  const trimmed = expr.trim();
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+    return String(-Number(trimmed));
+  }
+  if (/^[a-zA-Z_$][\w$]*$/.test(trimmed)) {
+    return `-${trimmed}`;
+  }
+  return `-(${trimmed})`;
+}
+
+/** Innermost identifier-callee call of a chain: `tArc(…).name('x')` → the `tArc(…)` node. */
+function chainBaseCall(call: TSNode): TSNode | null {
+  let current: TSNode | null = call;
+  while (current && current.type === 'call_expression') {
+    const fn = current.childForFieldName('function');
+    if (!fn) {
+      return null;
+    }
+    if (fn.type === 'identifier') {
+      return current;
+    }
+    if (fn.type === 'member_expression') {
+      const obj = fn.childForFieldName('object');
+      current = obj && obj.type === 'call_expression' ? obj : null;
+      continue;
+    }
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Rewrite the `tArc(radius, [x, y])` statement at `retarget.line` to the
+ * to-target overload — `tArc(radius, <target var>)` — binding the target's
+ * statement to a variable when needed (the end-drag's edge snap). The radius
+ * argument text is preserved verbatim (expression transparency), negated for
+ * a clockwise solve per the to-target sign convention. The target must be
+ * declared before the arc's own statement — a later statement's variable
+ * would be read in its temporal dead zone — and live in the same sketch.
+ */
+function applyTarcRetarget(
+  code: string,
+  tree: TSTree,
+  lines: string[],
+  bindings: ProducerBinding[],
+  retarget: { line: number; sign: 1 | -1 },
+): ApplyFeatureEditResult {
+  const call = findEditableCallAt(tree, lines, retarget.line);
+  const base = call ? chainBaseCall(call) : null;
+  if (!base || base.childForFieldName('function')?.text !== 'tArc') {
+    return {
+      newCode: code,
+      error: `no tArc() call found at line ${retarget.line} — is the file in sync with the last render?`,
+    };
+  }
+  const args = base.childForFieldName('arguments');
+  const named = args?.namedChildren ?? [];
+  if (!args || named.length !== 2 || named[0].type === 'array' || named[1].type !== 'array') {
+    return { newCode: code, error: 'the tArc statement is not the radius + endpoint form — re-render and retry' };
+  }
+
+  const binding = bindings[0];
+  const arcStatement = enclosingStatement(base) ?? base;
+  if (binding.statement.startIndex >= arcStatement.startIndex) {
+    return {
+      newCode: code,
+      error: 'the target is declared after this arc — only earlier geometry can be referenced',
+    };
+  }
+  const arcSketch = enclosingSketchStatement(base);
+  const targetSketch = enclosingSketchStatement(binding.call);
+  if (!arcSketch || !targetSketch || arcSketch.startIndex !== targetSketch.startIndex) {
+    return { newCode: code, error: 'the target lives in a different sketch than this arc' };
+  }
+
+  const radiusText = named[0].text;
+  const radiusOut = retarget.sign < 0 ? negateExpressionText(radiusText) : radiusText.trim();
+
+  const edits = [{ index: args.startIndex, end: args.endIndex, text: `(${radiusOut}, ${binding.varName})` }];
+  if (binding.needsBinding) {
+    edits.push({ index: binding.call.startIndex, end: binding.call.startIndex, text: `const ${binding.varName} = ` });
+  }
+  edits.sort((a, b) => b.index - a.index);
+  let result = code;
+  for (const edit of edits) {
+    result = spliceCode(result, edit.index, edit.end, edit.text);
+  }
+  return { newCode: result };
 }
 
 /** The selector argument list: the user-edited override, or rendered parts. */

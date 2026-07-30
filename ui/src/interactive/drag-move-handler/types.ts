@@ -11,6 +11,12 @@ export type DragHitResult = {
   draggedVertices?: [number, number][];
   arcCCW?: boolean;
   arcArgCount?: number;
+  /**
+   * The tArc statement's radius argument is negative (start-reversed leave).
+   * The to-target overload cannot express that form, so the end-drag edge
+   * snap is not offered.
+   */
+  tarcRadiusNegative?: boolean;
   tangentDir?: [number, number];
   rectCentered?: boolean;
   rectDim?: 'width' | 'height' | 'radius';

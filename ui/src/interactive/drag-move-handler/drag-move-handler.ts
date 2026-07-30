@@ -1,13 +1,19 @@
-import { Group } from 'three';
+import { Group, Vector3 } from 'three';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
-import { projectToSketch } from '../sketch-plane-utils';
+import { retargetTarcToEdge } from '../../api';
+import { themeColors } from '../../scene/theme-colors';
+import { pixelToSketchThreshold, projectToSketch } from '../sketch-plane-utils';
 import { FetchVariablesFn } from '../sketch-tool';
+import { buildTarcTargetIndex, TarcTargetEntry } from '../sketch-edge-utils';
+import { addDot, addSegmentHighlight } from '../tools/tool-preview-utils';
 import { findHitGeometry } from './hit-detection';
 import { rebuildDragPreview, disposePreviewGroup } from './drag-preview';
 import { commitPositionMove } from './commit-position';
 import { DimensionInputController } from './dimension-input';
+import { solveTarcEdgeSnap, TarcEdgeSnap } from './tarc-edge-snap';
+import { SnapHintLabel } from './snap-hint-label';
 import {
   constrainToPerpBisector,
   constrainToTangentPerp,
@@ -17,8 +23,13 @@ import {
   DragHitResult,
   PendingHit,
   GetSketchSourceLineFn,
+  DRAG_RENDER_ORDER,
   DRAG_THRESHOLD_PX,
 } from './types';
+
+/** Pixel distance at which a tArc end drag snaps onto an edge intersection. */
+const TARC_EDGE_SNAP_PX = 12;
+const TARC_SNAP_HINT = 'Tangent arc up to intersection';
 
 export class DragMoveHandler {
   private ctx: SceneContext;
@@ -39,6 +50,10 @@ export class DragMoveHandler {
 
   private dimensionInput: DimensionInputController;
   private getSketchSourceLine: GetSketchSourceLineFn;
+  /** tArc end drags only: snap candidates (built at drag start) + live snap. */
+  private tarcTargets: TarcTargetEntry[] | null = null;
+  private tarcSnap: TarcEdgeSnap | null = null;
+  private snapHint: SnapHintLabel;
 
   private boundCanvasPointerDown: (e: PointerEvent) => void;
   private boundPointerMove: (e: PointerEvent) => void;
@@ -64,6 +79,7 @@ export class DragMoveHandler {
     this.previewGroup.userData.isMetaShape = true;
     this.previewGroup.renderOrder = 5;
 
+    this.snapHint = new SnapHintLabel(container);
     this.dimensionInput = new DimensionInputController(container, fetchVariables, getSketchSourceLine);
     this.dimensionInput.onRequestEndResize = () => this.endResize();
     this.dimensionInput.onRequestCloseStandalone = () => {
@@ -184,6 +200,14 @@ export class DragMoveHandler {
     this.ctx.cameraControls.enabled = false;
     this.canvas.style.cursor = 'crosshair';
     this.snapController.setExcludedVertices(hit.draggedVertices ?? []);
+    // A tArc end drag can snap onto other edges and re-target the statement;
+    // a start-reversed (negative-radius) arc can't be expressed by the
+    // to-target overload, so no candidates are offered for it.
+    this.tarcTargets = hit.uniqueType === 'tarc-radius-to-point' && hit.hitZone === 'end'
+      && !hit.tarcRadiusNegative
+      ? buildTarcTargetIndex(this.sceneObjects, this.sketchId, this.plane)
+      : null;
+    this.tarcSnap = null;
     this.dimensionInput.showForDrag(hit, pending.point2d, pending.clientX, pending.clientY);
   }
 
@@ -191,7 +215,23 @@ export class DragMoveHandler {
     if (this.dimensionInput.isVisible && this.hasMoved) {
       this.dimensionInput.commitIfVisible(this.hasMoved);
     } else if (this.currentPoint && this.hitResult) {
-      commitPositionMove(this.currentPoint, this.hitResult, this.getSketchSourceLine);
+      if (this.tarcSnap) {
+        // The drop references the snapped edge: the statement's endpoint arg
+        // becomes the target's variable. A refusal (a clone target, a stale
+        // buffer) degrades to the plain endpoint-position commit, so the
+        // dragged shape survives either way.
+        const point = this.currentPoint;
+        const hit = this.hitResult;
+        const snap = this.tarcSnap;
+        const getLine = this.getSketchSourceLine;
+        void retargetTarcToEdge(hit.sourceLocation, snap.shapeId, snap.sign).then((result) => {
+          if (!result.success) {
+            commitPositionMove(point, hit, getLine);
+          }
+        });
+      } else {
+        commitPositionMove(this.currentPoint, this.hitResult, this.getSketchSourceLine);
+      }
     }
     this.endResize();
   }
@@ -274,12 +314,25 @@ export class DragMoveHandler {
         && this.hitResult.anchorPoint && this.hitResult.tangentDir && this.hitResult.initialValue) {
       // The radius and tangency are constraints — the endpoint slides along
       // the tangent circle, landing on the point nearest the cursor.
+      const aim = this.currentPoint;
       const projected = projectToTangentArcEnd(
         this.hitResult.anchorPoint, this.hitResult.tangentDir,
-        this.hitResult.initialValue, this.currentPoint,
+        this.hitResult.initialValue, aim,
       );
       if (projected) {
         this.currentPoint = projected;
+      }
+      // Near a reachable intersection with another edge, the endpoint glues
+      // to it — the drop then references that edge (tArc(radius, target)).
+      this.tarcSnap = this.tarcTargets
+        ? solveTarcEdgeSnap(
+          this.hitResult.anchorPoint, this.hitResult.tangentDir, this.hitResult.initialValue,
+          aim, this.tarcTargets, pixelToSketchThreshold(this.ctx, TARC_EDGE_SNAP_PX),
+          this.hitResult.sourceLocation.line,
+        )
+        : null;
+      if (this.tarcSnap) {
+        this.currentPoint = this.tarcSnap.point;
       }
     }
 
@@ -303,6 +356,12 @@ export class DragMoveHandler {
     disposePreviewGroup(this.previewGroup);
     if (this.currentPoint && this.hitResult) {
       rebuildDragPreview(this.previewGroup, this.currentPoint, this.startPoint, this.hitResult, this.ctx.camera, this.plane);
+      if (this.tarcSnap) {
+        const highlight = themeColors.highlightColor.getHex();
+        const planeNormal = new Vector3(this.plane.normal.x, this.plane.normal.y, this.plane.normal.z);
+        addSegmentHighlight(this.previewGroup, this.tarcSnap.segments, this.plane, highlight, DRAG_RENDER_ORDER);
+        addDot(this.previewGroup, this.tarcSnap.point, highlight, this.ctx.camera, planeNormal, this.plane, 0.9, DRAG_RENDER_ORDER);
+      }
     }
     this.ctx.requestRender();
 
@@ -310,6 +369,11 @@ export class DragMoveHandler {
       this.dimensionInput.updateValue(this.hitResult, this.currentPoint);
     }
     this.dimensionInput.updatePosition(e.clientX, e.clientY);
+    if (this.tarcSnap) {
+      this.snapHint.show(TARC_SNAP_HINT, e.clientX, e.clientY);
+    } else {
+      this.snapHint.hide();
+    }
   }
 
   private handleCanvasDoubleClick(e: MouseEvent): void {
@@ -344,6 +408,9 @@ export class DragMoveHandler {
     this.currentPoint = null;
     this.grabOffset = null;
     this.pendingHit = null;
+    this.tarcTargets = null;
+    this.tarcSnap = null;
+    this.snapHint.hide();
     this.ctx.cameraControls.enabled = true;
     this.canvas.style.cursor = '';
     this.snapController.setExcludedVertices([]);

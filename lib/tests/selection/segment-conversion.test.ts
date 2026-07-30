@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
-import { line, hLine, aLine, arc, tArc } from "../../core/2d/index.js";
+import { line, hLine, aLine, arc, tArc, move } from "../../core/2d/index.js";
 import { Edge } from "../../common/edge.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { listSegmentConversions, ConversionOption } from "../../selection/segment-conversion.js";
@@ -389,6 +389,36 @@ describe("listSegmentConversions", () => {
     const free = optionFor(result.options, 'free');
     expect(free.enabled).toBe(true);
     expect(free.newStatement).toBe('arc([234.16, 82.92]).center([100, 150])');
+  });
+
+  it("tarc-radius-to-object offers only the free-arc conversion", () => {
+    let g: unknown;
+    let t: unknown;
+    sketch("xy", () => {
+      move([0, 30]);
+      const target = hLine(200);
+      g = target;
+      move([100, 0]);
+      line([220, 0]);
+      // Radius-50 circle from (220, 0) heading +X, centered (220, 50): the
+      // first CCW intersection with the y=30 target line is (265.83, 30).
+      t = tArc(50, target);
+    });
+    const scene = render();
+    setLocation(g, 4);
+    setLocation(t, 8);
+
+    const result = listSegmentConversions(scene, refFor(t));
+    expect(result.ok).toBe(true);
+    expect(result.currentKind).toBe('tarc-radius-to-object');
+
+    // Already a tangent arc — no tArc button; only the free-arc door out,
+    // which also drops the target reference (the geometry stays verbatim).
+    expect(result.options!.some(o => o.target === 'tArc')).toBe(false);
+    expect(result.options).toHaveLength(1);
+    const free = optionFor(result.options, 'free');
+    expect(free.enabled).toBe(true);
+    expect(free.newStatement).toBe('arc([265.83, 30]).center([220, 50])');
   });
 
   it("refuses picks that are not sketch segments", () => {

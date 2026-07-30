@@ -229,8 +229,11 @@ export function listSegmentConversions(
       };
     case 'tarc-to-point':
     case 'tarc-radius-to-point':
+    case 'tarc-radius-to-object':
       // Already a tangent arc — the only way out is dropping the tangency
-      // constraint entirely (the free arc form).
+      // constraint entirely (the free arc form). The to-object form also
+      // drops its target reference: the emitted arc carries the built
+      // geometry verbatim, no longer following the referenced edge.
       return {
         ok: true,
         sourceLocation,
@@ -389,7 +392,8 @@ function arcToTangentArc(
   return option;
 }
 
-/** `tArc([ex, ey])` → `arc([ex, ey]).center([cx, cy])` (+ `.cw()`) — always legal. */
+/** A tangent arc (`tArc([e])`, `tArc(r, [e])`, `tArc(r, target)`) →
+ * `arc([ex, ey]).center([cx, cy])` (+ `.cw()`) — always legal. */
 function tangentArcToFree(resolved: ResolvedSegment, end: Point2D): ConversionOption {
   const plane = resolved.sketch.getPlane();
   let center: Point2D;

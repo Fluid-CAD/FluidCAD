@@ -1,13 +1,18 @@
 import { ConversionOption, ConversionTarget } from '../../api';
+import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 
-/** Button order; `free` renders after a divider (it undoes the others). */
-const TARGETS: { target: ConversionTarget; label: string }[] = [
-  { target: 'hLine', label: 'H-Line' },
-  { target: 'vLine', label: 'V-Line' },
-  { target: 'tLine', label: 'T-Line' },
-  { target: 'aLine', label: 'A-Line' },
-  { target: 'tArc', label: 'T-Arc' },
-  { target: 'free', label: 'Free' },
+/**
+ * Button order; `free` renders after a divider (it undoes the others).
+ * `iconPng` is the basename of the artwork under `/icons`; `label` no longer
+ * shows on the button itself and survives only in the tooltip.
+ */
+const TARGETS: { target: ConversionTarget; label: string; iconPng: string }[] = [
+  { target: 'hLine', label: 'H-Line', iconPng: 'constraint-horizontal' },
+  { target: 'vLine', label: 'V-Line', iconPng: 'constraint-vertical' },
+  { target: 'tLine', label: 'T-Line', iconPng: 'constraint-tangent-line' },
+  { target: 'aLine', label: 'A-Line', iconPng: 'constraint-angle' },
+  { target: 'tArc', label: 'T-Arc', iconPng: 'constraint-tangent-arc' },
+  { target: 'free', label: 'Free', iconPng: 'constraint-remove' },
 ];
 
 const NO_SELECTION_TIP = 'Select a chained segment to convert it';
@@ -16,8 +21,11 @@ const NOT_AVAILABLE_TIP = 'Not available for this segment';
 /** Endpoint moves smaller than this round to invisible at drawing precision. */
 const ENDPOINT_DELTA_EPSILON = 0.005;
 
-const BTN_ENABLED = 'btn btn-ghost btn-xs px-2 shrink-0 text-base-content/80';
-const BTN_DISABLED = 'btn btn-ghost btn-xs px-2 shrink-0 text-base-content/30 btn-disabled';
+const BTN_ENABLED = 'btn btn-ghost btn-sm px-1.5 shrink-0';
+const BTN_DISABLED = 'btn btn-ghost btn-sm px-1.5 shrink-0 btn-disabled';
+/** The artwork carries its own colour, so disabling desaturates instead. */
+const ICON_ENABLED = 'w-5 h-5 object-contain shrink-0';
+const ICON_DISABLED = 'w-5 h-5 object-contain shrink-0 opacity-30 grayscale';
 
 /**
  * The constraint mini-toolbar: a floating row of conversion buttons below the
@@ -30,6 +38,7 @@ export class ConstraintToolbar {
 
   private root: HTMLDivElement;
   private buttons = new Map<ConversionTarget, HTMLButtonElement>();
+  private icons = new Map<ConversionTarget, HTMLImageElement>();
   private tooltips = new Map<ConversionTarget, HTMLDivElement>();
   private options: ConversionOption[] | null = null;
   private emptyTooltip = NO_SELECTION_TIP;
@@ -41,7 +50,7 @@ export class ConstraintToolbar {
       + 'panel-bg border border-base-content/10 rounded-md shadow-sm '
       + 'px-1.5 py-1 flex items-center gap-1 hidden';
 
-    for (const { target, label } of TARGETS) {
+    for (const { target, label, iconPng } of TARGETS) {
       if (target === 'free') {
         const divider = document.createElement('div');
         divider.className = 'w-px h-5 bg-base-content/[0.12] mx-0.5 shrink-0';
@@ -52,7 +61,8 @@ export class ConstraintToolbar {
       wrapper.className = 'relative group shrink-0';
 
       const btn = document.createElement('button');
-      btn.textContent = label;
+      btn.setAttribute('aria-label', label);
+      btn.innerHTML = `<img src="/icons/${iconPng}.png" ${ICON_IMG_FALLBACK} class="${ICON_ENABLED}" alt="" />`;
       btn.addEventListener('click', () => {
         if (!btn.disabled) {
           this.onConvert?.(target);
@@ -68,6 +78,7 @@ export class ConstraintToolbar {
       wrapper.appendChild(tip);
       this.root.appendChild(wrapper);
       this.buttons.set(target, btn);
+      this.icons.set(target, btn.querySelector('img')!);
       this.tooltips.set(target, tip);
     }
 
@@ -102,6 +113,7 @@ export class ConstraintToolbar {
   private render(): void {
     for (const { target, label } of TARGETS) {
       const btn = this.buttons.get(target)!;
+      const icon = this.icons.get(target)!;
       const tip = this.tooltips.get(target)!;
       const option = this.options?.find((o) => o.target === target);
 
@@ -129,6 +141,7 @@ export class ConstraintToolbar {
 
       btn.disabled = !enabled;
       btn.className = enabled ? BTN_ENABLED : BTN_DISABLED;
+      icon.className = enabled ? ICON_ENABLED : ICON_DISABLED;
       tip.textContent = tooltip;
     }
   }

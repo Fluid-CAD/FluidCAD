@@ -1,15 +1,23 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { SegmentConversionsResponse } from '../src/api';
+
+// Resolved through node:path, not `new URL(...)`: under jsdom the global URL is
+// jsdom's own, which fileURLToPath cannot convert.
+const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 import { ConstraintToolbar } from '../src/interactive/constraint-toolbar/constraint-toolbar';
 import { ConstraintToolbarService } from '../src/interactive/constraint-toolbar/constraint-toolbar-service';
 
 const LABELS = ['H-Line', 'V-Line', 'T-Line', 'A-Line', 'T-Arc', 'Free'];
 
+/** The buttons are icon-only; `aria-label` carries the target's name. */
 function buttonsOf(container: HTMLElement): Map<string, HTMLButtonElement> {
   const result = new Map<string, HTMLButtonElement>();
   for (const btn of container.querySelectorAll('button')) {
-    result.set(btn.textContent!, btn);
+    result.set(btn.getAttribute('aria-label')!, btn);
   }
   return result;
 }
@@ -68,6 +76,19 @@ describe('ConstraintToolbar view', () => {
     const buttons = buttonsOf(container);
     expect(tooltipOf(buttons.get('H-Line')!)).toBe('Convert to H-Line — moves endpoint by ~3.50 mm');
     expect(tooltipOf(buttons.get('V-Line')!)).toBe('Convert to V-Line');
+  });
+
+  it('points every button at artwork that exists on disk', () => {
+    // Icon-only buttons: a typo'd or missing PNG silently degrades to the
+    // generic fallback cube, which says nothing about the constraint.
+    const container = document.createElement('div');
+    new ConstraintToolbar(container);
+
+    const srcs = [...container.querySelectorAll('img')].map((img) => img.getAttribute('src')!);
+    expect(srcs).toHaveLength(LABELS.length);
+    for (const src of srcs) {
+      expect(existsSync(join(PUBLIC_DIR, src))).toBe(true);
+    }
   });
 
   it('fires onConvert with the clicked target, never from disabled buttons', () => {

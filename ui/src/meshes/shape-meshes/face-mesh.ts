@@ -12,6 +12,7 @@ import { themeColors } from '../../scene/theme-colors';
 const DEFAULTS: Required<FaceMeshOptions> = {
   color: '',
   opacity: 1,
+  depthTest: true,
 };
 
 export class FaceMesh extends Group {
@@ -35,6 +36,7 @@ export class FaceMesh extends Group {
         transparent: isOverlay || opts.opacity < 1,
         opacity: opts.opacity,
         depthWrite: !isOverlay,
+        depthTest: opts.depthTest,
         polygonOffset: true,
         // Overlays slot between edge lines (offset 0) and base faces (+1/+1):
         // in front of the face they tint, but behind the edges' depth, so

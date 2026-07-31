@@ -2,6 +2,8 @@ import { Scene } from "./rendering/scene.js";
 import { SceneRenderer } from "./rendering/render.js";
 import { SceneCompare } from "./rendering/scene-compare.js";
 import { SceneDisposal } from "./rendering/scene-disposal.js";
+import { buildFeatureGhost } from "./rendering/feature-ghost.js";
+import type { FeatureGhostRequest, FeatureGhostResult } from "./rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "./oc/mesh.js";
 import type { MeshConfig } from "./oc/mesh.js";
 import type { FluidCADOptions } from "./index.js";
@@ -43,7 +45,7 @@ class SceneManager {
   currentFile: string = '';
   renderer: SceneRenderer;
 
-  constructor(public rootPath: string, meshConfig: MeshConfig) {
+  constructor(public rootPath: string, public readonly meshConfig: MeshConfig) {
     this.renderer = new SceneRenderer(meshConfig);
   }
 
@@ -215,6 +217,15 @@ class SceneManager {
 
   resolveFeatureSources(scene: Scene, boundary: SelectionBoundary): FeatureSourcesResult {
     return resolveFeatureSources(scene, boundary);
+  }
+
+  /**
+   * Mesh the geometry an open feature dialog would produce ("ghost"). Reads
+   * the scene, writes nothing to it: the shapes are built from the named
+   * profile alone and freed before returning.
+   */
+  buildFeatureGhost(scene: Scene, request: FeatureGhostRequest): FeatureGhostResult {
+    return buildFeatureGhost(scene, request, this.meshConfig);
   }
 
   /** Resolve a 2D statement's target arguments onto the active sketch's edges. */

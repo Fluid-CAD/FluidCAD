@@ -1,4 +1,4 @@
-import { ApplyFeatureResponse } from '../../api';
+import { ApplyFeatureResponse, GhostSolid } from '../../api';
 
 const PREVIEW_DEBOUNCE_MS = 250;
 
@@ -49,6 +49,17 @@ export class ApplyRunner<R extends object> {
      * apply (scene-driven previews rerun without a user action), and the
      * dialogs with an expression row read the synthesized args off `result`. */
     onPreviewSuccess?: (result: ApplyFeatureResponse) => void;
+    /**
+     * Live viewport geometry for the request just previewed (the "ghost"),
+     * chained onto the statement preview under the same debounce, abort and
+     * sequence guards. Dialogs without one are untouched.
+     */
+    ghost?: {
+      /** The bodies the request would build; null when there is none to draw. */
+      fetch: (request: R, signal: AbortSignal) => Promise<GhostSolid[] | null>;
+      /** Deliver the result; null clears the overlay. */
+      apply: (solids: GhostSolid[] | null) => void;
+    };
   }) {}
 
   get isApplying(): boolean {
@@ -114,6 +125,7 @@ export class ApplyRunner<R extends object> {
     const request = this.opts.build();
     if ('error' in request) {
       panel.setPreview(null);
+      this.opts.ghost?.apply(null);
       return;
     }
     const seq = ++this.seq;
@@ -139,5 +151,26 @@ export class ApplyRunner<R extends object> {
       // shape under the dialog) surface immediately.
       panel.setMessage(result.reason);
     }
+
+    const ghost = this.opts.ghost;
+    if (!ghost) {
+      return;
+    }
+    if (!result.success) {
+      ghost.apply(null);
+      return;
+    }
+    let solids: GhostSolid[] | null;
+    try {
+      solids = await ghost.fetch(request, abort.signal);
+    } catch {
+      return; // aborted
+    }
+    // The ghost fetch awaited too — re-check that this is still the newest
+    // preview before drawing what it returned.
+    if (seq !== this.seq || !this.opts.isArmed()) {
+      return;
+    }
+    ghost.apply(solids);
   }
 }

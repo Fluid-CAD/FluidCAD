@@ -1,5 +1,5 @@
 import type { VariableInfo } from './ui/expression-input';
-import type { SourceLocation } from './types';
+import type { SceneObjectMesh, SourceLocation } from './types';
 
 export type { SourceLocation };
 
@@ -276,6 +276,65 @@ export async function getTextPreview(
   signal?: AbortSignal,
 ): Promise<{ polylines: number[][] } | null> {
   return postJson('/api/text-preview', request, signal);
+}
+
+// ---------------------------------------------------------------------------
+// Live dialog geometry ("ghost")
+// ---------------------------------------------------------------------------
+
+/**
+ * A live geometry request for the open feature dialog. "Ghost" throughout, to
+ * keep it apart from the dialogs' statement-text *preview* — this is the
+ * translucent body drawn in the viewport, not the source line in the panel.
+ *
+ * The profile is always an explicit source ref, so one request shape serves
+ * the create dialog and the edit dialog alike: the client resolves "keep the
+ * current profile" to the statement's own sketch before asking.
+ */
+export type FeatureGhostRequest = {
+  feature: 'extrude';
+  op: 'add' | 'remove' | 'new';
+  /** Extrusion distance; null is a through-all cut (`remove` only). */
+  distance: ValueExpr | null;
+  distance2: ValueExpr | null;
+  symmetric: boolean;
+  draft: ValueExpr | null;
+  drill: boolean;
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+  profile: { filePath: string; line: number };
+};
+
+/** One ghost body, in the mesh wire format the scene's solids already use. */
+export type GhostSolid = { meshes: SceneObjectMesh[] };
+
+/**
+ * The bodies the dialog's current values would produce, meshed server-side.
+ * Null whenever there is nothing to draw — an unresolvable expression, an
+ * empty profile, a scene that moved on — so callers just clear the overlay.
+ * An abort propagates, matching the statement-preview fetch.
+ */
+export async function fetchFeatureGhost(
+  request: FeatureGhostRequest,
+  signal: AbortSignal,
+): Promise<GhostSolid[] | null> {
+  try {
+    const res = await fetch('/api/feature-ghost', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      signal,
+      body: JSON.stringify(request),
+    });
+    if (!res.ok) {
+      return null;
+    }
+    const body = await res.json().catch(() => null);
+    return body?.success === true ? body.solids ?? [] : null;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err;
+    }
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------

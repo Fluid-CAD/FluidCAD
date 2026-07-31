@@ -1,6 +1,6 @@
 import {
-  applyExtrude, applyExtrudeEdit, fetchFeatureSources, ExtrudeEditOptions, ExtrudeProfileRef,
-  FeatureEditTarget, ParsedFeatureStatement, SourceSlotRef,
+  applyExtrude, applyExtrudeEdit, fetchFeatureGhost, fetchFeatureSources, ExtrudeEditOptions,
+  ExtrudeProfileRef, FeatureEditTarget, GhostSolid, ParsedFeatureStatement, SourceSlotRef,
 } from '../../api';
 import { toggleEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
@@ -10,6 +10,7 @@ import { EditSession, EditSessionInfo } from '../edit-session';
 import { ExtrudePanel } from './extrude-panel';
 import { FeatureButton } from './feature-button';
 import { ApplyRunner } from './apply-runner';
+import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import {
@@ -56,6 +57,8 @@ export class ExtrudeFeatureService {
   /** The statement's current to-face target, for highlighting its keep chip. */
   private sourceToFace: SourceSlotRef | null = null;
   private sketchUI: SketchUISuspender;
+  /** The translucent body the current values would build, drawn in the view. */
+  private ghost: FeatureGhostOverlay;
   private runner: ApplyRunner<ExtrudeApplyRequest | ExtrudeEditOptions>;
   private relabeler: OptionRelabeler<SketchProfileOption[]>;
 
@@ -88,6 +91,7 @@ export class ExtrudeFeatureService {
       }
     };
     this.sketchUI = new SketchUISuspender(viewer, hooks);
+    this.ghost = new FeatureGhostOverlay(viewer);
 
     this.panel = new ExtrudePanel(container);
     this.panel.onApply = () => void this.runner.apply();
@@ -126,6 +130,18 @@ export class ExtrudeFeatureService {
       // (an undo, a concurrent edit) or the picked target face has no safe
       // selector — those surface before Apply.
       surfacePreviewReasons: () => this.editTarget !== null || this.panel.isToFace(),
+      // The statement preview's geometric twin: the prism the values describe,
+      // drawn translucent in the viewport. Same debounce, same abort scope.
+      ghost: {
+        fetch: (_request, signal) => this.fetchGhost(signal),
+        apply: (solids) => {
+          if (solids) {
+            this.ghost.set(solids, this.ghostKind());
+          } else {
+            this.ghost.clear();
+          }
+        },
+      },
     });
     this.relabeler = new OptionRelabeler({
       sign: optionsSignature,
@@ -188,6 +204,9 @@ export class ExtrudeFeatureService {
       return;
     }
     if (state === 'waiting') {
+      // Mid-flight to the boundary — whatever the ghost was drawn against is
+      // already gone from the view.
+      this.ghost.clear();
       if (!isRollback) {
         this.sourceProfile = null;
         this.editSceneStale = true;
@@ -195,6 +214,7 @@ export class ExtrudeFeatureService {
       return;
     }
     // At the boundary: rebuild options from the pre-statement scene.
+    this.ghost.clear();
     this.sceneObjects = sceneObjects;
     this.options = collectSketchProfiles(sceneObjects);
     if (this.editSceneStale) {
@@ -239,6 +259,9 @@ export class ExtrudeFeatureService {
     if (!this.armed) {
       return;
     }
+    // The geometry under the ghost just changed — drop it now and let the
+    // debounce redraw it. Correctness over the flicker.
+    this.ghost.clear();
     if (!this.available) {
       this.exit({ resume: 'lazy' });
       return;
@@ -326,6 +349,10 @@ export class ExtrudeFeatureService {
       this.sourceToFace = null;
     }
     this.refreshHighlight();
+    // The ghost's keep-profile path reads `sourceProfile`, which resolves
+    // after `enterEdit` already scheduled its preview — re-kick so the ghost
+    // appears now that the statement's own sketch is known.
+    this.runner.schedulePreview();
   }
 
   enter(): void {
@@ -377,6 +404,9 @@ export class ExtrudeFeatureService {
     this.viewer.clearHighlight();
     this.syncButton();
     this.runner.cancelPreview();
+    // The overlay is a compiledMesh sibling, so no render tears it down —
+    // every way out of the dialog (apply, cancel, scene-driven) lands here.
+    this.ghost.clear();
     this.panel.hide();
     this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
   }
@@ -509,6 +539,70 @@ export class ExtrudeFeatureService {
     } else if (!picking) {
       this.sketchUI.resume(true);
     }
+  }
+
+  /** Green while the extrusion adds material, red while it cuts. */
+  private ghostKind(): GhostKind {
+    const values = this.panel.values();
+    return !('error' in values) && values.op === 'remove' ? 'remove' : 'add';
+  }
+
+  /**
+   * The live geometry for the current form state. Runs off the values the
+   * statement preview just validated, so the only thing left to resolve is
+   * the profile — and that is where the create and edit dialogs converge:
+   * both hand the server an explicit `{filePath, line}`, so the endpoint
+   * never has to know which mode asked.
+   */
+  private async fetchGhost(signal: AbortSignal): Promise<GhostSolid[] | null> {
+    // The up-to-face modes end on scene geometry, which the ghost doesn't
+    // resolve yet — they simply show none.
+    if (this.panel.isToFace() || this.panel.faceTarget()) {
+      return null;
+    }
+    const values = this.panel.values();
+    if ('error' in values) {
+      return null;
+    }
+    const profile = this.ghostProfile();
+    if (!profile) {
+      return null;
+    }
+    return fetchFeatureGhost({
+      feature: 'extrude',
+      op: values.op,
+      distance: values.distance,
+      distance2: values.distance2,
+      symmetric: values.symmetric,
+      draft: values.draft,
+      drill: values.drill,
+      thin: values.thin,
+      profile,
+    }, signal);
+  }
+
+  /** The sketch the ghost extrudes, or null while there is nothing to sweep. */
+  private ghostProfile(): { filePath: string; line: number } | null {
+    if (this.editTarget) {
+      const selection = this.panel.profileSelection();
+      if (selection?.kind === 'sketch') {
+        return { filePath: selection.option.filePath, line: selection.option.line };
+      }
+      // The keep chip: the statement's own profile, once `loadEditSources`
+      // has resolved it. Null while that is still in flight (the load
+      // re-kicks the preview) or when the argument is an expression the
+      // sources query couldn't address.
+      return this.sourceProfile?.kind === 'sketch'
+        ? { filePath: this.sourceProfile.filePath, line: this.sourceProfile.line }
+        : null;
+    }
+    const option = this.panel.selectedOption();
+    // An empty sketch blocks Apply but not the statement preview — and it has
+    // no region to sweep, so it has no ghost either.
+    if (!option || !option.hasGeometry) {
+      return null;
+    }
+    return { filePath: option.filePath, line: option.line };
   }
 
   /** The create request for the current form state, or the blocking message. */

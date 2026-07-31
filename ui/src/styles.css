@@ -45,6 +45,10 @@
   --scene-select-edge-color: #11a4ed;
   --scene-select-face-color: #5c9fcc;
   --scene-constraint-color: #cccccc;
+  --scene-ghost-add-face: #3fb950;
+  --scene-ghost-add-edge: #2ea043;
+  --scene-ghost-remove-face: #e5534b;
+  --scene-ghost-remove-edge: #c93c37;
 }
 
 @plugin "daisyui/theme" {
@@ -86,6 +90,10 @@
   --scene-select-edge-color: #11a4ed;
   --scene-select-face-color: #5c9fcc;
   --scene-constraint-color: #555555;
+  --scene-ghost-add-face: #2da44e;
+  --scene-ghost-add-edge: #1a7f37;
+  --scene-ghost-remove-face: #cf222e;
+  --scene-ghost-remove-edge: #a40e26;
 }
 
 /* App-shell UI: overlay offsets (top-[106px] constraint bar, top-[116px]

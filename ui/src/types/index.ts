@@ -68,6 +68,12 @@ export type ShapeType = 'solid' | 'face' | 'wire' | 'edge';
 export type FaceMeshOptions = {
   color?: string;
   opacity?: number;
+  /**
+   * False draws the faces through whatever is in front of them — for the
+   * translucent overlays that have to stay visible inside solid material
+   * (a cut tool's ghost, an extrusion sweeping back into the model).
+   */
+  depthTest?: boolean;
 };
 
 export type EdgeMeshOptions = {

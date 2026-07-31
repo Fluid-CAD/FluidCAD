@@ -93,6 +93,8 @@ type SceneManager = {
     before?: SelectionBoundary,
   ): any;
   resolveFeatureSources(scene: any, boundary: SelectionBoundary): any;
+  // Optional: predates the live dialog geometry preview ("ghost").
+  buildFeatureGhost?(scene: any, request: FeatureGhostRequest): any;
   hitTest(
     scene: any,
     shapeId: string,
@@ -119,6 +121,41 @@ export type SceneRenderedData = {
   rollbackStop: number;
   breakpointHit?: boolean;
   params?: ParamDefinition[];
+};
+
+/**
+ * A live dialog geometry request ("ghost"), every dialog value already
+ * resolved to a number — expression resolution happens in the route, where
+ * the file's source is. The kernel builds the bodies the statement would
+ * produce and meshes them; nothing is written back to the model.
+ */
+export type FeatureGhostRequest = {
+  feature: 'extrude';
+  op: 'add' | 'remove' | 'new';
+  /** Extrusion distance; null is a through-all cut (`remove` only). */
+  distance: number | null;
+  distance2: number | null;
+  symmetric: boolean;
+  draft: number | null;
+  drill: boolean;
+  thin: [number] | [number, number] | null;
+  /** The producing statement of the profile to extrude. */
+  profile: { filePath: string; line: number };
+};
+
+/** One ghost body's meshes, in the same wire format a rendered solid uses. */
+export type GhostSolid = { meshes: any[] };
+
+/**
+ * A ghost outcome plus the status the route should answer with. `solids`
+ * present is the success case; otherwise `reason` says why, and a refusal the
+ * dialog hits while simply typing (a superseded request, a profile not in the
+ * scene yet) stays a 200 the client silently clears on rather than an error.
+ */
+export type FeatureGhostOutcome = {
+  status: number;
+  solids?: GhostSolid[];
+  reason?: string;
 };
 
 /**
@@ -203,6 +240,11 @@ export class FluidCadServer {
   // multiple hub clients have to queue. Promise-chain pattern: each render
   // awaits the previous one's settlement before starting.
   private renderMutex: Promise<unknown> = Promise.resolve();
+
+  // Monotonic ghost-request counter. Dialog previews arrive per keystroke and
+  // queue behind the mutex; one whose successor already landed skips its OC
+  // work rather than meshing geometry nobody will draw.
+  private ghostGeneration = 0;
 
   private currentFileName: string = '';
   private currentFilePath: string = '';
@@ -562,6 +604,45 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.explainSelection(scene, refs, before);
+  }
+
+  /**
+   * Mesh the geometry an open feature dialog would produce, for the client
+   * that asked. A side channel by design: it reads the live scene and writes
+   * nothing back — no code, no scene state, no `scene-rendered` broadcast, no
+   * mesh cached onto a scene shape — and the shapes it builds are freed
+   * before it answers.
+   *
+   * All of that runs under `serialized`, so a render can't interleave with
+   * the OCC calls. Requests arrive per keystroke: one that finds a newer
+   * request already accepted drops out before doing any geometry work, and
+   * the client discards its answer anyway.
+   */
+  async featureGhost(request: FeatureGhostRequest): Promise<FeatureGhostOutcome> {
+    const generation = ++this.ghostGeneration;
+    return this.serialized(async () => {
+      if (generation !== this.ghostGeneration) {
+        return { status: 200, reason: 'Superseded by a newer preview.' };
+      }
+      if (!this.sceneManager?.buildFeatureGhost) {
+        return { status: 422, reason: 'This workspace kernel has no live geometry preview.' };
+      }
+      const scene = this.previousScenes.get(this.currentFileName);
+      if (!scene) {
+        return { status: 422, reason: 'No rendered scene' };
+      }
+      try {
+        const result = this.sceneManager.buildFeatureGhost(scene, request);
+        if (result?.ok) {
+          return { status: 200, solids: (result.solids ?? []) as GhostSolid[] };
+        }
+        return { status: 422, reason: result?.reason ?? 'Could not build the preview geometry.' };
+      } catch (err: any) {
+        // A profile OCC can't sweep at the current values is an ordinary
+        // mid-typing state — the dialog just shows no ghost.
+        return { status: 200, reason: err?.message ?? 'Could not build the preview geometry.' };
+      }
+    });
   }
 
   synthesizeApplyFeature(

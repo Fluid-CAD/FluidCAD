@@ -119,8 +119,8 @@ export class ExtrudeFeatureService {
         : applyExtrude({ ...(request as ExtrudeApplyRequest), ...extras }),
       onApplied: () => this.exit(this.editTarget ? { editEnd: 'apply' } : { resume: 'lazy' }),
       failMessage: () => this.editTarget ? 'Could not apply the edit.' : 'Could not apply the extrude.',
-      // An empty sketch blocks Apply but not the preview — while drawing in
-      // sketch mode the would-be statement still shows.
+      // An empty sketch blocks Apply but not the preview — the would-be
+      // statement still shows with nothing in the profile yet.
       validateApply: () => {
         const option = this.editTarget ? null : this.panel.selectedOption();
         return option && !option.hasGeometry ? { error: 'Draw a profile in the sketch first.' } : null;
@@ -240,8 +240,7 @@ export class ExtrudeFeatureService {
 
   /**
    * Scene re-rendered: recompute the offered profiles and button visibility.
-   * The dialog stays open across re-renders — in sketch mode every drawn
-   * entity re-renders the scene, and closing would fight the user.
+   * The dialog stays open across re-renders.
    */
   update(sceneObjects: SceneObjectRender[]): void {
     this.sceneObjects = sceneObjects;
@@ -265,6 +264,11 @@ export class ExtrudeFeatureService {
     if (!this.available) {
       this.exit({ resume: 'lazy' });
       return;
+    }
+    // A render can put a sketch back in front (live editing) — the armed
+    // dialog keeps the free 3D view.
+    if (this.sceneSketchActive) {
+      this.sketchUI.suspend();
     }
     // Shape ids changed with the render — a picked target face is stale and
     // drops back to the pick prompt (the loft behavior).
@@ -363,6 +367,12 @@ export class ExtrudeFeatureService {
     this.hooks.onEnter?.();
     this.armed = true;
     this.toFaceEntity = null;
+    // Composing the extrude — and looking over its ghost preview — means the
+    // whole scene, not the view down the active sketch plane: leave sketch
+    // editing right away (resumed on cancel; an apply's re-render takes over).
+    if (this.sceneSketchActive) {
+      this.sketchUI.suspend();
+    }
     // Clicking a sketch's wires in the 3D view selects it as the profile.
     this.viewer.pickSketchWires = true;
     this.syncButton();
@@ -379,8 +389,8 @@ export class ExtrudeFeatureService {
   /**
    * `resume: 'lazy'` re-enables sketch editing without forcing the mode
    * transition — for apply-success and scene-driven exits, where a render
-   * follows. User cancels default to `'immediate'` (a create-mode "Up to
-   * face" suspension has no follow-up render to resume it); ending an edit
+   * follows. User cancels default to `'immediate'` (a create-mode
+   * suspension has no follow-up render to resume it); ending an edit
    * session always resumes lazily (a render follows every session end —
    * the cancel-restore rollback, an apply's rebuild).
    */
@@ -413,10 +423,11 @@ export class ExtrudeFeatureService {
 
   /**
    * Highlight the selected profile's wires — and the picked up-to-face
-   * target — in the 3D view. The active sketch is skipped in create mode:
-   * extrude doesn't suspend sketch editing there, and painting the sketch
-   * being edited would fight the sketch tools. An edit session's keep entry
-   * lights up the statement's own profile via the resolved current source.
+   * target — in the 3D view. The active sketch is skipped in create mode
+   * (the shared create-dialog behavior): it is the default selection, drawn
+   * front and center in the suspended view already. An edit session's keep
+   * entry lights up the statement's own profile via the resolved current
+   * source.
    */
   private refreshHighlight(): void {
     if (!this.armed) {
@@ -520,25 +531,14 @@ export class ExtrudeFeatureService {
 
   /**
    * The viewer's pick mode follows the direction select: "Up to face" picks
-   * faces only, and — in create mode — an active sketch releases the view
-   * (the loft/sweep behavior) so the camera is free and clicks reach the
-   * solid. Flipping the direction back restores both. Edit mode owns the
-   * suspension wholesale, so only the pick filter tracks the direction there.
+   * faces only. (The sketch suspension is owned by enter/exit — the dialog
+   * holds the free 3D view for its whole lifetime.)
    */
   private syncFacePickMode(): void {
     if (!this.armed) {
       return;
     }
-    const picking = this.panel.isToFace();
-    this.viewer.pickFilter = picking ? 'face' : 'all';
-    if (this.editTarget) {
-      return;
-    }
-    if (picking && this.sceneSketchActive) {
-      this.sketchUI.suspend();
-    } else if (!picking) {
-      this.sketchUI.resume(true);
-    }
+    this.viewer.pickFilter = this.panel.isToFace() ? 'face' : 'all';
   }
 
   /** Green while the extrusion adds material, red while it cuts. */

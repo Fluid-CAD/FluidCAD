@@ -1,14 +1,23 @@
 import { Group, Object3D } from 'three';
 import { GhostSolid } from '../../api';
+import { EdgeMesh } from '../../meshes/shape-meshes/edge-mesh';
 import { SolidMesh } from '../../meshes/shape-meshes/solid-mesh';
 import { themeColors } from '../../scene/theme-colors';
 import { Viewer } from '../../viewer';
 
-/** Green for the body an apply would add, red for the tool a cut would sweep. */
-export type GhostKind = 'add' | 'remove';
+/**
+ * What the ghost is showing. Green for the body an apply would add, red for
+ * the tool a cut would sweep — and `wire` for a feature that is a curve rather
+ * than a body (a helix), which puts no material anywhere and so wears the blue
+ * a standalone wire renders in once applied.
+ */
+export type GhostKind = 'add' | 'remove' | 'wire';
 
 const FACE_OPACITY = 0.45;
 const EDGE_OPACITY = 0.9;
+
+/** A ghost curve is the whole feature, so it draws at the applied wire's weight. */
+const WIRE_LINE_WIDTH = 2;
 
 /**
  * The live geometry a feature dialog would produce, drawn translucent over
@@ -38,18 +47,23 @@ export class FeatureGhostOverlay {
   }
 
   /**
-   * Replace the drawn bodies; an empty list just clears. `kind` colors the
-   * whole ghost, except where a body names its own — a fillet reports that per
-   * band, because one selection can shave a convex corner and fill a concave
-   * one in the same breath.
+   * Replace the drawn bodies; an empty list just clears. `kind` says what the
+   * whole ghost is, except where a body names its own — a fillet reports that
+   * per band, because one selection can shave a convex corner and fill a
+   * concave one in the same breath.
    */
   set(solids: GhostSolid[], kind: GhostKind): void {
     this.clear();
     solids.forEach((solid, index) => {
-      this.group.add(new SolidMesh(
-        { shapeId: `ghost-${index}`, shapeType: 'solid', meshes: solid.meshes },
-        meshOptions(solid.kind ?? kind),
-      ));
+      const bodyKind = solid.kind ?? kind;
+      this.group.add(bodyKind === 'wire'
+        // A curve has no faces to split off: its meshes go straight to the
+        // line renderer, which draws whatever it is handed.
+        ? new EdgeMesh({ shapeType: 'edge', meshes: solid.meshes }, wireOptions())
+        : new SolidMesh(
+          { shapeId: `ghost-${index}`, shapeType: 'solid', meshes: solid.meshes },
+          bodyOptions(bodyKind),
+        ));
     });
     this.viewer.sceneContext.requestRender();
   }
@@ -77,12 +91,27 @@ export class FeatureGhostOverlay {
  * would vanish behind the very solid they act on, leaving only their outline.
  * The ghost is an overlay, so it always draws over the scene.
  */
-function meshOptions(kind: GhostKind) {
+function bodyOptions(kind: GhostKind) {
   const face = kind === 'remove' ? themeColors.ghostRemoveFaceColor : themeColors.ghostAddFaceColor;
   const edge = kind === 'remove' ? themeColors.ghostRemoveEdgeColor : themeColors.ghostAddEdgeColor;
   return {
     face: { color: `#${face.getHexString()}`, opacity: FACE_OPACITY, depthTest: false },
     edge: { color: `#${edge.getHexString()}`, opacity: EDGE_OPACITY, depthWrite: false },
+  };
+}
+
+/**
+ * A ghost curve: the applied wire's blue, drawn over the model like every
+ * other ghost (EdgeMesh ties depth testing to `depthWrite`, so a helix coiled
+ * on a shaft still reads in front of it). Barely translucent — a hairline
+ * needs its color, and unlike a body there is nothing behind it to see.
+ */
+function wireOptions() {
+  return {
+    color: `#${themeColors.ghostWireColor.getHexString()}`,
+    lineWidth: WIRE_LINE_WIDTH,
+    opacity: EDGE_OPACITY,
+    depthWrite: false,
   };
 }
 

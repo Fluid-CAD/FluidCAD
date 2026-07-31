@@ -1,6 +1,7 @@
 import {
-  applyHelix, applyHelixEdit, fetchFeatureSources, FeatureEditTarget, HelixApplyOptions,
-  HelixEditOptions, HelixSourceRef, ParsedFeatureStatement, SourceSlotRef,
+  applyHelix, applyHelixEdit, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
+  GhostHelixSourceRef, GhostSolid, HelixApplyOptions, HelixEditOptions, HelixSourceRef,
+  ParsedFeatureStatement, SourceSlotRef,
 } from '../../api';
 import { toggleEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
@@ -10,6 +11,7 @@ import { EditSession, EditSessionInfo } from '../edit-session';
 import { HelixPanel } from './helix-panel';
 import { FeatureButton } from './feature-button';
 import { ApplyRunner } from './apply-runner';
+import { FeatureGhostOverlay } from './feature-ghost';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import { collectSketchProfiles } from './sketch-profiles';
@@ -56,6 +58,8 @@ export class HelixFeatureService {
   private editSceneStale = false;
   private runner: ApplyRunner<HelixApplyOptions | HelixEditOptions>;
   private relabeler: OptionRelabeler<AxisOption[]>;
+  /** The live coil drawn in the viewport while the dialog is open. */
+  private ghost: FeatureGhostOverlay;
 
   constructor(
     container: HTMLElement,
@@ -84,6 +88,7 @@ export class HelixFeatureService {
       }
     };
     this.sketchUI = new SketchUISuspender(viewer, hooks);
+    this.ghost = new FeatureGhostOverlay(viewer);
 
     this.panel = new HelixPanel(container);
     this.panel.onApply = () => void this.runner.apply();
@@ -122,6 +127,20 @@ export class HelixFeatureService {
         : applyHelix({ ...(request as HelixApplyOptions), ...extras }),
       onApplied: () => this.exit(this.editTarget ? { editEnd: 'apply' } : { resume: 'lazy' }),
       failMessage: () => this.editTarget ? 'Could not apply the edit.' : 'Could not apply the helix.',
+      // The statement preview's geometric twin: the coil the values describe,
+      // drawn in the viewport. Same debounce, same abort scope. A helix puts
+      // no material anywhere, so it is always the wire color — there is no
+      // add/remove to tell apart.
+      ghost: {
+        fetch: (_request, signal) => this.fetchGhost(signal),
+        apply: (solids) => {
+          if (solids) {
+            this.ghost.set(solids, 'wire');
+          } else {
+            this.ghost.clear();
+          }
+        },
+      },
     });
     this.relabeler = new OptionRelabeler({
       sign: axisOptionsSignature,
@@ -183,12 +202,16 @@ export class HelixFeatureService {
       return;
     }
     if (state === 'waiting') {
+      // Mid-flight to the boundary — whatever the ghost was drawn against is
+      // already gone from the view.
+      this.ghost.clear();
       if (!isRollback) {
         this.editSceneStale = true;
       }
       return;
     }
     // At the boundary: rebuild options from the pre-statement scene.
+    this.ghost.clear();
     this.sceneObjects = sceneObjects;
     this.axes = collectAxisOptions(sceneObjects);
     if (this.editSceneStale) {
@@ -233,6 +256,9 @@ export class HelixFeatureService {
       this.exit({ resume: 'lazy' });
       return;
     }
+    // The geometry under the ghost just changed — drop it now and let the
+    // debounce redraw it. Correctness over the flicker.
+    this.ghost.clear();
     // A render can put a sketch back in front (live editing) — the armed
     // dialog keeps the free 3D view.
     if (this.sceneSketchActive) {
@@ -313,6 +339,10 @@ export class HelixFeatureService {
     }
     this.sourceSlot = result.ok && result.feature === 'helix' ? result.source : { kind: 'opaque' };
     this.refreshHighlight();
+    // The ghost's keep slot reads `sourceSlot`, which resolves after
+    // `enterEdit` already scheduled its preview — re-kick so the kept-source
+    // coil appears once the statement's own source is known.
+    this.runner.schedulePreview();
   }
 
   enter(): void {
@@ -361,6 +391,7 @@ export class HelixFeatureService {
     this.sourceFaceEntity = null;
     this.syncButton();
     this.runner.cancelPreview();
+    this.ghost.clear();
     this.viewer.clearHighlight();
     this.viewer.pickFilter = 'all';
     this.viewer.pickSketchWires = false;
@@ -435,6 +466,89 @@ export class HelixFeatureService {
     this.panel.setMessage(null);
     this.refreshHighlight();
     this.runner.schedulePreview();
+  }
+
+  /**
+   * The live geometry for the current form state. Runs off the values the
+   * statement preview just validated, so all that is left is to resolve the
+   * source slot — and that is where the create and edit dialogs converge: both
+   * hand the server an explicit ref, so the endpoint never has to know which
+   * mode asked. A slot the ghost can't address (a keep chip over an
+   * expression, an armed slot with nothing picked yet) means no ghost.
+   */
+  private async fetchGhost(signal: AbortSignal): Promise<GhostSolid[] | null> {
+    const values = this.panel.values();
+    if ('error' in values) {
+      return null;
+    }
+    const source = this.ghostSource();
+    if (!source) {
+      return null;
+    }
+    const { mode, newVariables, ...dimensions } = values;
+    return fetchFeatureGhost({ feature: 'helix', source, ...dimensions }, signal);
+  }
+
+  /** The source the ghost coils around, in the form the kernel resolves. */
+  private ghostSource(): GhostHelixSourceRef | null {
+    if (this.panel.sourceMode === 'axis') {
+      const selection = this.panel.axisSelection();
+      if (!selection) {
+        return null;
+      }
+      if (selection.kind === 'standard') {
+        return { kind: 'standard', axis: selection.axis };
+      }
+      if (selection.kind === 'axis') {
+        return { kind: 'axis', filePath: selection.option.filePath, line: selection.option.line };
+      }
+      if (selection.kind === 'edge') {
+        // What the apply writes for a picked edge is `axis(<edge>)` — so that
+        // is what the ghost coils around, not the edge's own frame.
+        const entity = this.sourceEdgeEntity;
+        return entity?.sub.type === 'edge'
+          ? { kind: 'axis-edge', shapeId: entity.shapeId, index: entity.sub.index }
+          : null;
+      }
+      return this.keptGhostSource();
+    }
+    const selection = this.panel.faceSelection();
+    if (!selection) {
+      return null;
+    }
+    if (selection.kind === 'picked') {
+      const entity = this.sourceFaceEntity;
+      return entity?.sub.type === 'face'
+        ? { kind: 'face', shapeId: entity.shapeId, index: entity.sub.index }
+        : null;
+    }
+    return this.keptGhostSource();
+  }
+
+  /**
+   * The edited statement's own source, once `loadEditSources` has resolved it.
+   * An axis statement travels by call site; a selection travels as the single
+   * face or edge it names — and an edge stays an edge here, unlike a fresh
+   * pick: `helix(select(edge().circle()))` coils in that circle's frame rather
+   * than around it as an axis. Null while the load is still in flight (it
+   * re-kicks the preview) or when the argument is an expression the sources
+   * query couldn't address.
+   */
+  private keptGhostSource(): GhostHelixSourceRef | null {
+    const slot = this.sourceSlot;
+    if (!slot) {
+      return null;
+    }
+    if (slot.kind === 'sketch') {
+      return { kind: 'axis', filePath: slot.filePath, line: slot.line };
+    }
+    // One shape only — the helix source is a single face or edge, and a
+    // multi-part selection is a statement the ghost can't stand in for.
+    if (slot.kind !== 'entities' || slot.entities.length !== 1) {
+      return null;
+    }
+    const { shapeId, sub } = slot.entities[0];
+    return { kind: sub.type, shapeId, index: sub.index };
   }
 
   /** The source slot's request field, or the message blocking it, or null (kept). */

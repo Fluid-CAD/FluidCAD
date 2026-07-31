@@ -133,7 +133,8 @@ export type FeatureGhostRequest =
   | ExtrudeGhostRequest
   | RevolveGhostRequest
   | LoftGhostRequest
-  | FilletGhostRequest;
+  | FilletGhostRequest
+  | HelixGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -218,6 +219,37 @@ export type FilletGhostRequest = {
  * face" — the edge features explode faces at build time.
  */
 export type GhostEntityRef = { shapeId: string; index: number; kind: 'edge' | 'face' };
+
+/**
+ * The helix. It sweeps nothing and modifies nothing — the feature IS a curve,
+ * so its ghost is that curve: no `op`, no profile, just the source it coils
+ * around and the dialog's dimensions, each null when the field is empty.
+ */
+export type HelixGhostRequest = {
+  feature: 'helix';
+  source: GhostHelixSourceRef;
+  radius: number | null;
+  endRadius: number | null;
+  pitch: number | null;
+  turns: number | null;
+  height: number | null;
+  startOffset: number | null;
+  endOffset: number | null;
+};
+
+/**
+ * The helix dialog's source slot on the wire: the revolve axis family (a world
+ * axis, an `axis()` statement, and a picked edge the dialog writes as
+ * `axis(<edge>)`), plus the helix's own two — a cylindrical/conical face, and
+ * a bare edge source, which only an edit dialog over `helix(select(edge()))`
+ * produces.
+ */
+export type GhostHelixSourceRef =
+  | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
+  | { kind: 'axis'; filePath: string; line: number }
+  | { kind: 'axis-edge'; shapeId: string; index: number }
+  | { kind: 'edge'; shapeId: string; index: number }
+  | { kind: 'face'; shapeId: string; index: number };
 
 /**
  * One ghost body's meshes, in the same wire format a rendered solid uses.

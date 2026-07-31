@@ -295,7 +295,8 @@ export type FeatureGhostRequest =
   | ExtrudeGhostRequest
   | RevolveGhostRequest
   | LoftGhostRequest
-  | FilletGhostRequest;
+  | FilletGhostRequest
+  | HelixGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -377,6 +378,42 @@ export type FilletGhostRequest = {
    */
   edges: { shapeId: string; index: number; kind: 'edge' | 'face' }[];
 };
+
+/**
+ * The helix dialog on the ghost wire. A helix is a wire, not a body: it sweeps
+ * nothing and modifies nothing, so it carries no op — what comes back is the
+ * coil itself, drawn in the blue standalone curves already render in. Every
+ * dimension is optional, null meaning the field is empty and the API default
+ * (or the source face's own geometry) applies.
+ */
+export type HelixGhostRequest = {
+  feature: 'helix';
+  source: GhostHelixSourceRef;
+  radius: ValueExpr | null;
+  endRadius: ValueExpr | null;
+  pitch: ValueExpr | null;
+  turns: ValueExpr | null;
+  height: ValueExpr | null;
+  startOffset: ValueExpr | null;
+  endOffset: ValueExpr | null;
+};
+
+/**
+ * The helix source slot, flattened to what the kernel can resolve without
+ * reading code. The first three are the axis family {@link GhostAxisRef} uses
+ * — a picked edge is `axis-edge` because the dialog writes it as
+ * `axis(<edge>)`. The last two are the helix's own: the From-face tab's
+ * cylindrical/conical face, and a bare edge source, which only an edit dialog
+ * over a hand-written `helix(select(edge()))` produces — that coils in the
+ * edge's own frame, not around it as an axis. As everywhere else, a keep chip
+ * resolves to one of these client-side, so "keep" never travels.
+ */
+export type GhostHelixSourceRef =
+  | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
+  | { kind: 'axis'; filePath: string; line: number }
+  | { kind: 'axis-edge'; shapeId: string; index: number }
+  | { kind: 'edge'; shapeId: string; index: number }
+  | { kind: 'face'; shapeId: string; index: number };
 
 /**
  * One ghost body, in the mesh wire format the scene's solids already use.

@@ -49,6 +49,7 @@
   --scene-ghost-add-edge: #2ea043;
   --scene-ghost-remove-face: #e5534b;
   --scene-ghost-remove-edge: #c93c37;
+  --scene-ghost-wire: #2297ff;
 }
 
 @plugin "daisyui/theme" {
@@ -94,6 +95,10 @@
   --scene-ghost-add-edge: #1a7f37;
   --scene-ghost-remove-face: #cf222e;
   --scene-ghost-remove-edge: #a40e26;
+  /* Not darkened for the light theme like the add/remove pair: an applied
+     standalone wire is this exact blue in both themes, and the ghost's job is
+     to look like the curve that is coming. */
+  --scene-ghost-wire: #2297ff;
 }
 
 /* App-shell UI: overlay offsets (top-[106px] constraint bar, top-[116px]

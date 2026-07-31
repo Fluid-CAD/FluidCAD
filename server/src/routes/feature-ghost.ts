@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { extractNumericParams, resolveParamValues } from '../apply-feature-edit.ts';
 import type {
-  FeatureGhostRequest, FluidCadServer, GhostAxisRef, GhostEntityRef, GhostSectionRef,
+  FeatureGhostRequest, FluidCadServer, GhostAxisRef, GhostEntityRef, GhostHelixSourceRef,
+  GhostSectionRef,
 } from '../fluidcad-server.ts';
 
 /** A dialog numeric slot on the wire: a number, or verbatim expression text. */
@@ -29,12 +30,23 @@ type GhostBody = {
   guides?: unknown;
   startCondition?: unknown;
   endCondition?: unknown;
+  source?: unknown;
+  radius?: unknown;
+  endRadius?: unknown;
+  pitch?: unknown;
+  turns?: unknown;
+  height?: unknown;
+  startOffset?: unknown;
+  endOffset?: unknown;
 };
 
-const FEATURES = ['extrude', 'revolve', 'loft', 'fillet', 'chamfer'];
+const FEATURES = ['extrude', 'revolve', 'loft', 'fillet', 'chamfer', 'helix'];
 
 /** The features that modify edges of an existing solid rather than sweep a profile. */
 const BAND_FEATURES = ['fillet', 'chamfer'];
+
+/** The features that sweep one profile — the only ones carrying a profile ref. */
+const PROFILE_FEATURES = ['extrude', 'revolve'];
 
 const OPS = ['add', 'remove', 'new'];
 
@@ -83,6 +95,36 @@ function parseAxis(value: GhostBody['axis']): GhostAxisRef | null {
   if (value.kind === 'edge') {
     return typeof value.shapeId === 'string' && typeof value.index === 'number'
       ? { kind: 'edge', shapeId: value.shapeId, index: value.index }
+      : null;
+  }
+  return null;
+}
+
+/**
+ * The helix's single source slot. The three axis forms mirror {@link parseAxis}
+ * — a picked edge arrives as `axis-edge`, since the helix dialog writes an edge
+ * pick as `axis(<edge>)` — and the two the helix adds are a cylindrical/conical
+ * face and a bare edge source. As with the axis slot, a keep chip the client
+ * couldn't address never travels: it is a bad request, not a silent default.
+ */
+function parseHelixSource(value: unknown): GhostHelixSourceRef | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const source = value as { kind?: unknown; axis?: unknown; filePath?: unknown; line?: unknown; shapeId?: unknown; index?: unknown };
+  if (source.kind === 'standard') {
+    return typeof source.axis === 'string' && STANDARD_AXES.includes(source.axis)
+      ? { kind: 'standard', axis: source.axis as 'x' | 'y' | 'z' }
+      : null;
+  }
+  if (source.kind === 'axis') {
+    return typeof source.filePath === 'string' && typeof source.line === 'number'
+      ? { kind: 'axis', filePath: source.filePath, line: source.line }
+      : null;
+  }
+  if (source.kind === 'axis-edge' || source.kind === 'edge' || source.kind === 'face') {
+    return typeof source.shapeId === 'string' && typeof source.index === 'number'
+      ? { kind: source.kind, shapeId: source.shapeId, index: source.index }
       : null;
   }
   return null;
@@ -214,16 +256,22 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       res.status(400).json({ success: false, reason: 'Unsupported ghost feature' });
       return;
     }
-    // The edge-modifying features carry no op — a band's direction is read off
-    // the geometry per edge, not declared by the dialog.
+    // Only the features that put material somewhere carry an op. A band's
+    // direction is read off the geometry per edge rather than declared by the
+    // dialog, and a helix is a wire — it adds and removes nothing at all.
     const isBand = BAND_FEATURES.includes(body.feature);
-    if (!isBand && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
+    const isHelix = body.feature === 'helix';
+    if (!isBand && !isHelix && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
     }
     if (!isValueExprOrNull(body.distance) || !isValueExprOrNull(body.distance2)
       || !isValueExprOrNull(body.draft) || !isValueExprOrNull(body.angle)
-      || !isValueExprOrNull(body.value) || !isThin(body.thin)) {
+      || !isValueExprOrNull(body.value) || !isThin(body.thin)
+      || !isValueExprOrNull(body.radius) || !isValueExprOrNull(body.endRadius)
+      || !isValueExprOrNull(body.pitch) || !isValueExprOrNull(body.turns)
+      || !isValueExprOrNull(body.height) || !isValueExprOrNull(body.startOffset)
+      || !isValueExprOrNull(body.endOffset)) {
       res.status(400).json({ success: false, reason: 'Invalid dimension' });
       return;
     }
@@ -237,13 +285,18 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     }
     const isLoft = body.feature === 'loft';
     let profileRef: { filePath: string; line: number } | null = null;
-    if (!isLoft && !isBand) {
+    if (PROFILE_FEATURES.includes(body.feature)) {
       const profile = body.profile;
       if (typeof profile?.filePath !== 'string' || typeof profile?.line !== 'number') {
         res.status(400).json({ success: false, reason: 'Invalid profile reference' });
         return;
       }
       profileRef = { filePath: profile.filePath, line: profile.line };
+    }
+    const helixSource = isHelix ? parseHelixSource(body.source) : null;
+    if (isHelix && !helixSource) {
+      res.status(400).json({ success: false, reason: 'Invalid helix source' });
+      return;
     }
     const axis = body.feature === 'revolve' ? parseAxis(body.axis) : null;
     if (body.feature === 'revolve' && !axis) {
@@ -291,6 +344,13 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       : null;
     const startMagnitude = startRaw ? resolve(startRaw.magnitude) : null;
     const endMagnitude = endRaw ? resolve(endRaw.magnitude) : null;
+    const radius = resolve(body.radius);
+    const endRadius = resolve(body.endRadius);
+    const pitch = resolve(body.pitch);
+    const turns = resolve(body.turns);
+    const height = resolve(body.height);
+    const startOffset = resolve(body.startOffset);
+    const endOffset = resolve(body.endOffset);
 
     if (values.some(v => v === null)) {
       // An expression this server can't evaluate — the client clears the ghost.
@@ -311,6 +371,18 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         distance2: body.feature === 'chamfer' ? distance2 : null,
         isAngle: body.feature === 'chamfer' && body.isAngle === true,
         edges: edgeRefs!,
+      };
+    } else if (isHelix) {
+      request = {
+        feature: 'helix',
+        source: helixSource!,
+        radius,
+        endRadius,
+        pitch,
+        turns,
+        height,
+        startOffset,
+        endOffset,
       };
     } else if (isLoft) {
       const op = body.op as 'add' | 'remove' | 'new';

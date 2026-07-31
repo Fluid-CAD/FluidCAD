@@ -30,6 +30,7 @@ function readAll() {
   themeColors.ghostAddEdgeColor.set(readCssVar('--scene-ghost-add-edge', '#2ea043'));
   themeColors.ghostRemoveFaceColor.set(readCssVar('--scene-ghost-remove-face', '#e5534b'));
   themeColors.ghostRemoveEdgeColor.set(readCssVar('--scene-ghost-remove-edge', '#c93c37'));
+  themeColors.ghostWireColor.set(readCssVar('--scene-ghost-wire', '#2297ff'));
   themeColors.backgroundColor.set(readCssVar('--color-base-100', '#1e1e1e'));
 }
 
@@ -49,6 +50,10 @@ export const themeColors = {
   ghostAddEdgeColor: new Color('#2ea043'),
   ghostRemoveFaceColor: new Color('#e5534b'),
   ghostRemoveEdgeColor: new Color('#c93c37'),
+  // A ghost that is a curve rather than a body (a helix): nothing is added or
+  // taken away, so it wears the blue a standalone wire renders in once applied
+  // (STANDALONE_EDGE_STYLE, shape-group.ts) instead of a direction color.
+  ghostWireColor: new Color('#2297ff'),
   backgroundColor: new Color('#1e1e1e'),
 };
 

@@ -7,6 +7,10 @@ import { Solid } from "../common/solid.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { buildExtrudeGhostSolids } from "../features/extrude-ghost.js";
 import { buildFilletGhostBands } from "../features/fillet-ghost.js";
+import { buildHelixGhostWires } from "../features/helix-ghost.js";
+import {
+  HelixSourceKind, resolveHelixEdgeSource, resolveHelixFaceSource,
+} from "../features/helix-geometry.js";
 import { buildLoftGhostSolids, LoftGhostProfile } from "../features/loft-ghost.js";
 import { buildRevolveGhostSolids } from "../features/revolve-ghost.js";
 import { Extrudable, BoundingBox } from "../helpers/types.js";
@@ -31,7 +35,8 @@ export type FeatureGhostRequest =
   | ExtrudeGhostRequest
   | RevolveGhostRequest
   | LoftGhostRequest
-  | FilletGhostRequest;
+  | FilletGhostRequest
+  | HelixGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -118,6 +123,40 @@ export type FilletGhostRequest = {
 export type GhostEntityRef = { shapeId: string; index: number; kind: 'edge' | 'face' };
 
 /**
+ * The helix. It sweeps nothing and modifies nothing: the feature IS a curve,
+ * so its ghost is that curve, and it carries neither an `op` nor a profile —
+ * just the source it coils around and the dialog's dimensions, each null when
+ * the field is empty and the API default applies.
+ */
+export type HelixGhostRequest = {
+  feature: 'helix';
+  source: GhostHelixSourceRef;
+  radius: number | null;
+  endRadius: number | null;
+  pitch: number | null;
+  turns: number | null;
+  height: number | null;
+  startOffset: number | null;
+  endOffset: number | null;
+};
+
+/**
+ * What the helix dialog's source slot holds, on the wire. The first three are
+ * the revolve axis family ({@link GhostAxisRef}) — a world axis, an `axis()`
+ * statement, and an edge the dialog turns into `axis(<edge>)`. The last two
+ * are the helix's own: a cylindrical or conical face (the From-face tab), and
+ * a bare edge used as the source directly, which only an edit dialog produces
+ * — `helix(select(edge().circle()))` coils in that circle's frame, and reading
+ * it as an axis instead would ghost a different curve, or none at all.
+ */
+export type GhostHelixSourceRef =
+  | { kind: 'standard'; axis: StandardAxis }
+  | { kind: 'axis'; filePath: string; line: number }
+  | { kind: 'axis-edge'; shapeId: string; index: number }
+  | { kind: 'edge'; shapeId: string; index: number }
+  | { kind: 'face'; shapeId: string; index: number };
+
+/**
  * One ghost body, in the same mesh wire format a rendered solid uses. `kind`
  * overrides the overlay's per-dialog color for this body alone — a fillet's
  * picks can take material away at one edge and put it back at the next, so the
@@ -159,10 +198,16 @@ export function buildFeatureGhost(
   if (request.feature === 'loft') {
     return meshGhostBodies(buildLoftGhost(scene, request), meshConfig);
   }
+  if (request.feature === 'helix') {
+    return meshGhostBodies(buildHelixGhost(scene, request), meshConfig);
+  }
   return buildBandGhost(scene, request, meshConfig);
 }
 
-/** Mesh the swept features' bodies, then free every shape they were built from. */
+/**
+ * Mesh the features that build their own geometry — the swept bodies and the
+ * helix's curve — then free every shape they were built from.
+ */
 function meshGhostBodies(built: GhostBuild, meshConfig: MeshConfig): FeatureGhostResult {
   if ('reason' in built) {
     return { ok: false, reason: built.reason };
@@ -200,7 +245,7 @@ function buildBandGhost(
   request: FilletGhostRequest,
   meshConfig: MeshConfig,
 ): FeatureGhostResult {
-  const groups = resolvePickedEdges(scene, request.edges);
+  const groups = resolvePickedEdgeGroups(scene, request.edges);
   if (!groups) {
     return { ok: false, reason: 'Those edges are not in the rendered scene.' };
   }
@@ -250,7 +295,7 @@ function buildBandGhost(
  * clicked. A pick the scene no longer has is a refusal: a band ghost missing
  * one of its edges shows a feature the apply won't produce.
  */
-function resolvePickedEdges(
+function resolvePickedEdgeGroups(
   scene: Scene,
   refs: GhostEntityRef[],
 ): { solid: Solid; edges: Edge[] }[] | null {
@@ -481,6 +526,117 @@ function resolveGuideWires(
 /** The dialog's condition wording, in the kernel's. */
 function toEndCondition(condition: GhostLoftCondition | null): LoftEndCondition | null {
   return condition ? { kind: condition.type, magnitude: condition.magnitude } : null;
+}
+
+/**
+ * The helix branch: read the source slot down to the frame the coil is built
+ * in, then build the curve. Resolution wraps subshapes of the picked solid, so
+ * — as with the loft — the scratch is opened here and handed on, or freed on
+ * the spot when the answer is a refusal.
+ */
+function buildHelixGhost(scene: Scene, request: HelixGhostRequest): GhostBuild {
+  const scratch: Shape[] = [];
+  let wires: Shape[] | null = null;
+  try {
+    const source = resolveHelixGhostSource(scene, request.source, scratch);
+    if (!source) {
+      return { reason: 'That helix source is not in the rendered scene.' };
+    }
+    const built = buildHelixGhostWires(source, {
+      radius: orUndefined(request.radius),
+      endRadius: orUndefined(request.endRadius),
+      pitch: orUndefined(request.pitch),
+      turns: orUndefined(request.turns),
+      height: orUndefined(request.height),
+      startOffset: orUndefined(request.startOffset),
+      endOffset: orUndefined(request.endOffset),
+    });
+    scratch.push(...built.scratch);
+    wires = built.wires;
+    return { solids: wires, scratch };
+  } finally {
+    // Set only on the path that hands the scratch on; a refusal or a throw
+    // leaves it null and frees everything resolved so far.
+    if (!wires) {
+      for (const shape of scratch) {
+        shape.dispose();
+      }
+    }
+  }
+}
+
+/**
+ * The frame a ghost helix coils in. The axis forms resolve exactly as the
+ * revolve's do — including a picked edge, which the helix dialog writes as
+ * `axis(<edge>)`. A picked face and a bare edge source are read the way
+ * `Helix.build` reads them, through the shared resolvers, so a cylinder's own
+ * radius and V-extent still stand in for the fields the dialog leaves empty.
+ * Null means the scene no longer holds what the slot names.
+ */
+function resolveHelixGhostSource(
+  scene: Scene,
+  ref: GhostHelixSourceRef,
+  scratch: Shape[],
+): HelixSourceKind | null {
+  if (ref.kind === 'standard') {
+    return { kind: 'axis', axis: toAxis(ref.axis) };
+  }
+  if (ref.kind === 'axis') {
+    const obj = findByLocation(scene, ref, o => o instanceof AxisObjectBase);
+    const axis = (obj as AxisObjectBase | null)?.getAxis();
+    return axis ? { kind: 'axis', axis } : null;
+  }
+  if (ref.kind === 'face') {
+    const face = resolvePickedFace(scene, ref, scratch);
+    if (!face) {
+      return null;
+    }
+    // A face that is neither cylindrical nor conical refuses — the apply would
+    // refuse too, so the dialog shows nothing rather than a curve it can't get.
+    try {
+      return resolveHelixFaceSource(face);
+    } catch {
+      return null;
+    }
+  }
+  const edge = resolvePickedEdge(scene, ref, scratch);
+  if (!edge) {
+    return null;
+  }
+  try {
+    return ref.kind === 'axis-edge'
+      ? { kind: 'axis', axis: EdgeOps.edgeToAxis(edge) }
+      : resolveHelixEdgeSource(edge);
+  } catch {
+    // Not a straight edge (the axis form), or neither line nor circle.
+    return null;
+  }
+}
+
+/**
+ * The edge a viewport pick names, as a fresh wrapper over the scene solid's
+ * geometry — the edge sibling of {@link resolvePickedFace}. Every edge of that
+ * solid is wrapped to reach the indexed one, so all of them join the scratch;
+ * the solid itself is untouched.
+ */
+function resolvePickedEdge(
+  scene: Scene,
+  ref: { shapeId: string; index: number },
+  scratch: Shape[],
+): Edge | null {
+  const shape = findShapeById(scene, ref.shapeId);
+  if (!shape) {
+    return null;
+  }
+  const edges = Explorer.findEdgesWrapped(shape);
+  scratch.push(...edges);
+  const edge = edges[ref.index];
+  return edge instanceof Edge ? edge : null;
+}
+
+/** An omitted dialog field, in the kernel's wording — null in, default out. */
+function orUndefined(value: number | null): number | undefined {
+  return value ?? undefined;
 }
 
 /**

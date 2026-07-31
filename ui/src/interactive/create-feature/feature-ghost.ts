@@ -37,24 +37,18 @@ export class FeatureGhostOverlay {
     this.viewer.sceneContext.scene.add(this.group);
   }
 
-  /** Replace the drawn bodies; an empty list just clears. */
+  /**
+   * Replace the drawn bodies; an empty list just clears. `kind` colors the
+   * whole ghost, except where a body names its own — a fillet reports that per
+   * band, because one selection can shave a convex corner and fill a concave
+   * one in the same breath.
+   */
   set(solids: GhostSolid[], kind: GhostKind): void {
     this.clear();
-    const face = kind === 'remove' ? themeColors.ghostRemoveFaceColor : themeColors.ghostAddFaceColor;
-    const edge = kind === 'remove' ? themeColors.ghostRemoveEdgeColor : themeColors.ghostAddEdgeColor;
-    // Depth testing off, on the faces as well as the edges: a cut tool sits
-    // buried inside the material it removes, and an extrusion can sweep back
-    // into the model — depth-tested, those ghosts would vanish behind the very
-    // solid they act on, leaving only their outline. The ghost is an overlay,
-    // so it always draws over the scene.
-    const options = {
-      face: { color: `#${face.getHexString()}`, opacity: FACE_OPACITY, depthTest: false },
-      edge: { color: `#${edge.getHexString()}`, opacity: EDGE_OPACITY, depthWrite: false },
-    };
     solids.forEach((solid, index) => {
       this.group.add(new SolidMesh(
         { shapeId: `ghost-${index}`, shapeType: 'solid', meshes: solid.meshes },
-        options,
+        meshOptions(solid.kind ?? kind),
       ));
     });
     this.viewer.sceneContext.requestRender();
@@ -72,6 +66,24 @@ export class FeatureGhostOverlay {
     }
     this.viewer.sceneContext.requestRender();
   }
+}
+
+/**
+ * Green for material an apply would add, red for material it takes away.
+ *
+ * Depth testing off, on the faces as well as the edges: a cut tool sits buried
+ * inside the material it removes, an extrusion can sweep back into the model,
+ * and a fillet band lies in the corner it rounds — depth-tested, all three
+ * would vanish behind the very solid they act on, leaving only their outline.
+ * The ghost is an overlay, so it always draws over the scene.
+ */
+function meshOptions(kind: GhostKind) {
+  const face = kind === 'remove' ? themeColors.ghostRemoveFaceColor : themeColors.ghostAddFaceColor;
+  const edge = kind === 'remove' ? themeColors.ghostRemoveEdgeColor : themeColors.ghostAddEdgeColor;
+  return {
+    face: { color: `#${face.getHexString()}`, opacity: FACE_OPACITY, depthTest: false },
+    edge: { color: `#${edge.getHexString()}`, opacity: EDGE_OPACITY, depthWrite: false },
+  };
 }
 
 function disposeTree(root: Object3D): void {

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { extractNumericParams, resolveParamValues } from '../apply-feature-edit.ts';
 import type {
-  FeatureGhostRequest, FluidCadServer, GhostAxisRef, GhostSectionRef,
+  FeatureGhostRequest, FluidCadServer, GhostAxisRef, GhostEntityRef, GhostSectionRef,
 } from '../fluidcad-server.ts';
 
 /** A dialog numeric slot on the wire: a number, or verbatim expression text. */
@@ -20,6 +20,9 @@ type GhostBody = {
   drill?: unknown;
   thin?: unknown;
   angle?: unknown;
+  value?: unknown;
+  isAngle?: unknown;
+  edges?: unknown;
   axis?: { kind?: unknown; axis?: unknown; filePath?: unknown; line?: unknown; shapeId?: unknown; index?: unknown };
   profile?: { filePath?: unknown; line?: unknown };
   profiles?: unknown;
@@ -28,7 +31,10 @@ type GhostBody = {
   endCondition?: unknown;
 };
 
-const FEATURES = ['extrude', 'revolve', 'loft'];
+const FEATURES = ['extrude', 'revolve', 'loft', 'fillet', 'chamfer'];
+
+/** The features that modify edges of an existing solid rather than sweep a profile. */
+const BAND_FEATURES = ['fillet', 'chamfer'];
 
 const OPS = ['add', 'remove', 'new'];
 
@@ -120,6 +126,27 @@ function parseSections(value: unknown): GhostSectionRef[] | null {
   return sections;
 }
 
+/**
+ * The fillet/chamfer dialog's picked edges. Every pick names the solid it was
+ * made on, so a selection spanning two bodies stays addressable; an entry the
+ * client couldn't resolve is a malformed request, not a partial ghost.
+ */
+function parseEntityRefs(value: unknown): GhostEntityRef[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const refs: GhostEntityRef[] = [];
+  for (const raw of value) {
+    const entity = raw as { shapeId?: unknown; index?: unknown; kind?: unknown };
+    if (!entity || typeof entity.shapeId !== 'string' || typeof entity.index !== 'number'
+      || (entity.kind !== 'edge' && entity.kind !== 'face')) {
+      return null;
+    }
+    refs.push({ shapeId: entity.shapeId, index: entity.index, kind: entity.kind });
+  }
+  return refs;
+}
+
 /** Statement refs — the loft's guide rails, each a sketch or a helix. */
 function parseSourceRefs(value: unknown): { filePath: string; line: number }[] | null {
   if (!Array.isArray(value)) {
@@ -187,18 +214,30 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       res.status(400).json({ success: false, reason: 'Unsupported ghost feature' });
       return;
     }
-    if (typeof body.op !== 'string' || !OPS.includes(body.op)) {
+    // The edge-modifying features carry no op — a band's direction is read off
+    // the geometry per edge, not declared by the dialog.
+    const isBand = BAND_FEATURES.includes(body.feature);
+    if (!isBand && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
     }
     if (!isValueExprOrNull(body.distance) || !isValueExprOrNull(body.distance2)
-      || !isValueExprOrNull(body.draft) || !isValueExprOrNull(body.angle) || !isThin(body.thin)) {
+      || !isValueExprOrNull(body.draft) || !isValueExprOrNull(body.angle)
+      || !isValueExprOrNull(body.value) || !isThin(body.thin)) {
       res.status(400).json({ success: false, reason: 'Invalid dimension' });
       return;
     }
+    let edgeRefs: GhostEntityRef[] | null = null;
+    if (isBand) {
+      edgeRefs = parseEntityRefs(body.edges);
+      if (!edgeRefs || edgeRefs.length === 0) {
+        res.status(400).json({ success: false, reason: 'Invalid edge selection' });
+        return;
+      }
+    }
     const isLoft = body.feature === 'loft';
     let profileRef: { filePath: string; line: number } | null = null;
-    if (!isLoft) {
+    if (!isLoft && !isBand) {
       const profile = body.profile;
       if (typeof profile?.filePath !== 'string' || typeof profile?.line !== 'number') {
         res.status(400).json({ success: false, reason: 'Invalid profile reference' });
@@ -246,6 +285,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const distance2 = resolve(body.distance2);
     const draft = resolve(body.draft);
     const angle = resolve(body.angle);
+    const value = resolve(body.value);
     const thin = Array.isArray(body.thin)
       ? body.thin.map(v => resolve(v)) as [number] | [number, number]
       : null;
@@ -258,9 +298,22 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       return;
     }
 
-    const op = body.op as FeatureGhostRequest['op'];
     let request: FeatureGhostRequest;
-    if (isLoft) {
+    if (isBand) {
+      if (value === null) {
+        res.status(400).json({ success: false, reason: 'Invalid dimension' });
+        return;
+      }
+      request = {
+        feature: body.feature as 'fillet' | 'chamfer',
+        value,
+        // The equal-distance chamfer, and every fillet, has no second value.
+        distance2: body.feature === 'chamfer' ? distance2 : null,
+        isAngle: body.feature === 'chamfer' && body.isAngle === true,
+        edges: edgeRefs!,
+      };
+    } else if (isLoft) {
+      const op = body.op as 'add' | 'remove' | 'new';
       request = {
         feature: 'loft',
         op,
@@ -275,11 +328,18 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         res.status(400).json({ success: false, reason: 'Invalid sweep angle' });
         return;
       }
-      request = { feature: 'revolve', op, angle, thin, profile: profileRef!, axis: axis! };
+      request = {
+        feature: 'revolve',
+        op: body.op as 'add' | 'remove' | 'new',
+        angle,
+        thin,
+        profile: profileRef!,
+        axis: axis!,
+      };
     } else {
       request = {
         feature: 'extrude',
-        op,
+        op: body.op as 'add' | 'remove' | 'new',
         distance,
         distance2,
         symmetric: body.symmetric === true,

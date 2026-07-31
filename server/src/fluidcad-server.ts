@@ -129,7 +129,11 @@ export type SceneRenderedData = {
  * the file's source is. The kernel builds the bodies the statement would
  * produce and meshes them; nothing is written back to the model.
  */
-export type FeatureGhostRequest = ExtrudeGhostRequest | RevolveGhostRequest | LoftGhostRequest;
+export type FeatureGhostRequest =
+  | ExtrudeGhostRequest
+  | RevolveGhostRequest
+  | LoftGhostRequest
+  | FilletGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -191,8 +195,36 @@ export type GhostSectionRef =
 /** A takeoff condition as the dialog states it (`.startCondition(type, mag)`). */
 export type GhostLoftCondition = { type: 'normal' | 'tangent'; magnitude: number };
 
-/** One ghost body's meshes, in the same wire format a rendered solid uses. */
-export type GhostSolid = { meshes: any[] };
+/**
+ * The edge-modifying features. They carry no `op` and no profile: a fillet
+ * modifies a solid that is already in the scene, and what the ghost draws is
+ * the surfaces it would lay along the picked edges.
+ */
+export type FilletGhostRequest = {
+  feature: 'fillet' | 'chamfer';
+  /** Fillet radius, or the chamfer's first distance. */
+  value: number;
+  /** The chamfer's second value; null is the equal-distance overload. */
+  distance2: number | null;
+  /** The chamfer's second value is an angle in degrees, not a distance. */
+  isAngle: boolean;
+  /** The picks, each by the solid it was made on and its index there. */
+  edges: GhostEntityRef[];
+};
+
+/**
+ * A viewport pick: a scene shape, which kind of subshape was clicked, and its
+ * index in that shape's mesh order. A face pick means "every edge of that
+ * face" — the edge features explode faces at build time.
+ */
+export type GhostEntityRef = { shapeId: string; index: number; kind: 'edge' | 'face' };
+
+/**
+ * One ghost body's meshes, in the same wire format a rendered solid uses.
+ * `kind` overrides the overlay's per-dialog color for this body alone — a
+ * fillet takes material away at one edge and puts it back at the next.
+ */
+export type GhostSolid = { meshes: any[]; kind?: 'add' | 'remove' };
 
 /**
  * A ghost outcome plus the status the route should answer with. `solids`

@@ -1,12 +1,14 @@
 import {
-  applyFeature, applyValueFeatureEdit, clearBreakpoints, expandBucket, fetchFeatureSources,
-  parseFeatureAt, removeFeature, ApplyFeatureResponse, FeatureEditTarget, NewVariable,
-  ParsedFeatureStatement, SelectionGroupKind, ShellJoinType, SketchSourceRef, ValueExpr,
+  applyFeature, applyValueFeatureEdit, clearBreakpoints, expandBucket, fetchFeatureGhost,
+  fetchFeatureSources, parseFeatureAt, removeFeature, ApplyFeatureResponse, FeatureEditTarget,
+  NewVariable, ParsedFeatureStatement, SelectionGroupKind, ShellJoinType, SketchSourceRef,
+  ValueExpr,
 } from '../../api';
 import { mergeUniqueEntities } from '../../helpers/entities';
 import { isTopLevel } from '../../helpers/scene-utils';
 import { collectPlaneOptions, planeOptionForLocation, PlaneOption, resolvePlaneByShapeId } from '../create-feature/plane-bases';
 import { SketchStartPanel } from '../create-feature/sketch-panel';
+import { FeatureGhostOverlay } from '../create-feature/feature-ghost';
 import { FeatureButton } from '../create-feature/feature-button';
 import { SketchUISuspender } from '../create-feature/sketch-suspender';
 import { refreshScopeVariables } from '../create-feature/option-relabeler';
@@ -196,6 +198,17 @@ export class ModifyPickService {
   private previewAbort: AbortController | null = null;
   private previewSeq = 0;
 
+  /**
+   * The live geometry preview, on its own debounce channel. It can't ride the
+   * statement-text one above: that preview only re-runs when the PICKS change
+   * (the selector args don't depend on the radius), while the ghost has to
+   * follow every keystroke in the value fields as well.
+   */
+  private ghost: FeatureGhostOverlay;
+  private ghostTimer: number | null = null;
+  private ghostAbort: AbortController | null = null;
+  private ghostSeq = 0;
+
   private tooltip: TeachTooltip;
   private selectionMenu: SelectionContextMenu;
 
@@ -216,6 +229,7 @@ export class ModifyPickService {
     } = {},
   ) {
     this.sketchUI = new SketchUISuspender(viewer, hooks);
+    this.ghost = new FeatureGhostOverlay(viewer);
     const group = navbar.addGroup('modify', { visible: false });
     const createHost = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     for (const kind of FEATURE_ORDER) {
@@ -281,17 +295,22 @@ export class ModifyPickService {
         this.previewSelection(null);
       }
     };
+    // The value controls leave the selector args alone, so none of them
+    // re-synthesize the statement — but every one of them changes the geometry
+    // the ghost draws.
     this.panel.onValueInput = () => {
       if (this.feature) {
         this.valueByFeature.set(this.feature, this.panel.valueText);
       }
       this.syncExprPrefix();
+      this.scheduleGhost();
     };
     this.panel.onValue2Input = () => {
       if (this.feature === 'chamfer' && this.chamferKind !== 'equal') {
         this.chamferValue2.set(this.chamferKind, this.panel.value2Text);
       }
       this.syncExprPrefix();
+      this.scheduleGhost();
     };
     this.panel.onChamferTypeChange = () => {
       if (this.feature !== 'chamfer') {
@@ -299,6 +318,7 @@ export class ModifyPickService {
       }
       this.applyChamferControls(this.panel.chamferType);
       this.syncExprPrefix();
+      this.scheduleGhost();
     };
     this.panel.onJoinChange = () => {
       if (this.feature === 'shell') {
@@ -407,6 +427,10 @@ export class ModifyPickService {
       return;
     }
     if (state === 'waiting') {
+      // The view has moved off the boundary — whatever the ghost is drawing
+      // sits over geometry that is no longer there.
+      this.cancelGhost();
+      this.ghost.clear();
       if (!isRollback) {
         // A full render rebuilt the scene: every seeded shape id died. The
         // re-asserting rollback is in flight; re-seed when it lands.
@@ -414,7 +438,11 @@ export class ModifyPickService {
       }
       return;
     }
-    // At the boundary: the meshes were just rebuilt (updateView ran first).
+    // At the boundary: the meshes were just rebuilt (updateView ran first), so
+    // the drawn bands are stale. Correctness over the debounce-long gap before
+    // `refresh()` repopulates them.
+    this.cancelGhost();
+    this.ghost.clear();
     this.tooltip.clearCache();
     this.tooltip.hide();
     this.selectionMenu.hide();
@@ -450,6 +478,10 @@ export class ModifyPickService {
     this.tooltip.clearCache();
     this.tooltip.hide();
     this.selectionMenu.hide();
+    // Shape ids die with every render, so the bands the ghost drew name
+    // nothing now; an armed dialog's `refresh()` below re-asks for them.
+    this.cancelGhost();
+    this.ghost.clear();
     this.sceneSketchActive = sketchMode;
     this.sketchAvailable = hasSolid;
     this.planes = collectPlaneOptions(sceneObjects);
@@ -715,6 +747,8 @@ export class ModifyPickService {
       // (a sketch takes exactly one face and picks it fresh).
       this.feature = null;
       this.cancelPreview();
+      this.cancelGhost();
+      this.ghost.clear();
       this.panel.expression.hide();
       this.tooltip.hide();
       this.selectionMenu.hide();
@@ -1142,6 +1176,11 @@ export class ModifyPickService {
     this.viewer.hideStandardPlanes();
     this.selection.clear();
     this.cancelPreview();
+    // The overlay is a `compiledMesh` sibling, so no render tears it down —
+    // every way out of the dialog has to drop it explicitly. This one covers
+    // apply, cancel, Escape, and the scene-driven exits alike.
+    this.cancelGhost();
+    this.ghost.clear();
     this.panel.expression.hide();
     this.tooltip.hide();
     this.selectionMenu.hide();
@@ -1547,6 +1586,7 @@ export class ModifyPickService {
     }
     this.syncButtons();
     this.schedulePreview();
+    this.scheduleGhost();
   }
 
   // -------------------------------------------------------------------------
@@ -1747,6 +1787,101 @@ export class ModifyPickService {
     this.previewAbort?.abort();
     this.previewAbort = null;
     this.previewSeq++;
+  }
+
+  // -------------------------------------------------------------------------
+  // Live geometry preview ("ghost"): the bands a fillet/chamfer would lay
+  // -------------------------------------------------------------------------
+
+  /**
+   * Fillet and chamfer ghost; shell and sketch don't (yet). A shell's ghost
+   * would be the whole hollowed body — the same full-model cost the band
+   * approach exists to avoid — and sketch has no geometry of its own.
+   */
+  private ghostFeature(): 'fillet' | 'chamfer' | null {
+    return this.feature === 'fillet' || this.feature === 'chamfer' ? this.feature : null;
+  }
+
+  private scheduleGhost(): void {
+    this.cancelGhost();
+    if (!this.ghostFeature() || this.selection.isEmpty) {
+      // Nothing picked yet, or a feature with no ghost — drop what's drawn
+      // rather than leave a stale band hanging over the model.
+      this.ghost.clear();
+      return;
+    }
+    this.ghostTimer = window.setTimeout(() => {
+      this.ghostTimer = null;
+      void this.runGhost();
+    }, PREVIEW_DEBOUNCE_MS);
+  }
+
+  private async runGhost(): Promise<void> {
+    const feature = this.ghostFeature();
+    if (!feature || this.applying) {
+      return;
+    }
+    const seq = ++this.ghostSeq;
+    this.ghostAbort?.abort();
+    const abort = new AbortController();
+    this.ghostAbort = abort;
+
+    // A half-typed value has no ghost, and neither does a bad one — unlike the
+    // statement preview, which falls back to the default so the args still
+    // synthesize. Here the number IS the geometry: standing in for it would
+    // draw a band the user never asked for.
+    const read = this.panel.valueField.read();
+    if ('error' in read || (typeof read.value === 'number' && read.value <= 0)) {
+      this.ghost.clear();
+      return;
+    }
+    const chamfer = this.readChamferValues();
+    if ('error' in chamfer) {
+      this.ghost.clear();
+      return;
+    }
+
+    const solids = await fetchFeatureGhost({
+      feature,
+      value: read.value,
+      distance2: feature === 'chamfer' ? chamfer.distance2 : null,
+      isAngle: feature === 'chamfer' && chamfer.isAngle,
+      edges: this.ghostEdges(),
+    }, abort.signal).catch(() => null);
+
+    if (seq !== this.ghostSeq || this.ghostFeature() !== feature) {
+      return;
+    }
+    if (solids) {
+      this.ghost.set(solids, 'remove');
+    } else {
+      this.ghost.clear();
+    }
+  }
+
+  /**
+   * The picks on the ghost wire. A picked FACE travels as a face, not as
+   * nothing: fillet and chamfer explode faces into their edges at build time
+   * (fillet.ts:63), so the kernel does the same for the ghost. Tangent chains
+   * need no special handling — their members are merged into the entity list
+   * when the chain is picked.
+   */
+  private ghostEdges(): { shapeId: string; index: number; kind: 'edge' | 'face' }[] {
+    return this.selection.entities.map(entity => ({
+      shapeId: entity.shapeId,
+      index: entity.sub.index,
+      kind: entity.sub.type,
+    }));
+  }
+
+  private cancelGhost(): void {
+    if (this.ghostTimer !== null) {
+      window.clearTimeout(this.ghostTimer);
+      this.ghostTimer = null;
+    }
+    this.ghostAbort?.abort();
+    this.ghostAbort = null;
+    this.ghostSeq++;
   }
 
   private syncButtons(): void {

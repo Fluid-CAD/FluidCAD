@@ -3,8 +3,10 @@ import { Face } from "../common/face.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
 import { Wire } from "../common/wire.js";
+import { Solid } from "../common/solid.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { buildExtrudeGhostSolids } from "../features/extrude-ghost.js";
+import { buildFilletGhostBands } from "../features/fillet-ghost.js";
 import { buildLoftGhostSolids, LoftGhostProfile } from "../features/loft-ghost.js";
 import { buildRevolveGhostSolids } from "../features/revolve-ghost.js";
 import { Extrudable, BoundingBox } from "../helpers/types.js";
@@ -17,6 +19,7 @@ import type { MeshConfig } from "../oc/mesh.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { WireOps } from "../oc/wire-ops.js";
 import { MeshBuilder } from "./mesh-builder.js";
+import { renderFacePatch } from "./render-face.js";
 import { Scene, SceneObjectMesh } from "./scene.js";
 
 /**
@@ -24,7 +27,11 @@ import { Scene, SceneObjectMesh } from "./scene.js";
  * (expression resolution is the server's job — the kernel never parses code).
  * Discriminated on `feature` so later features add a branch, not an endpoint.
  */
-export type FeatureGhostRequest = ExtrudeGhostRequest | RevolveGhostRequest | LoftGhostRequest;
+export type FeatureGhostRequest =
+  | ExtrudeGhostRequest
+  | RevolveGhostRequest
+  | LoftGhostRequest
+  | FilletGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -86,8 +93,38 @@ export type GhostSectionRef =
 /** A takeoff condition as the dialog states it (`.startCondition(type, mag)`). */
 export type GhostLoftCondition = { type: 'normal' | 'tangent'; magnitude: number };
 
-/** One ghost body, in the same mesh wire format a rendered solid uses. */
-export type GhostSolid = { meshes: SceneObjectMesh[] };
+/**
+ * The edge-modifying features. They ghost differently from the swept ones:
+ * there is no standalone body to build, only the surfaces the feature lays
+ * along edges of a solid that already exists — see `buildFilletGhostBands`.
+ */
+export type FilletGhostRequest = {
+  feature: 'fillet' | 'chamfer';
+  /** Fillet radius, or the chamfer's first distance. */
+  value: number;
+  /** The chamfer's second value; null is the equal-distance overload. */
+  distance2: number | null;
+  /** The chamfer's second value is an angle in degrees, not a distance. */
+  isAngle: boolean;
+  /** The picks, each by the solid it was made on and its index there. */
+  edges: GhostEntityRef[];
+};
+
+/**
+ * A viewport pick: a scene shape, which kind of subshape was clicked, and its
+ * index in that shape's mesh order. A face pick means "every edge of that
+ * face" — the edge features explode faces at build time.
+ */
+export type GhostEntityRef = { shapeId: string; index: number; kind: 'edge' | 'face' };
+
+/**
+ * One ghost body, in the same mesh wire format a rendered solid uses. `kind`
+ * overrides the overlay's per-dialog color for this body alone — a fillet's
+ * picks can take material away at one edge and put it back at the next, so the
+ * two have to be told apart within a single answer. The swept features leave it
+ * unset and the whole ghost takes the dialog's own add/remove color.
+ */
+export type GhostSolid = { meshes: SceneObjectMesh[]; kind?: 'add' | 'remove' };
 
 export type FeatureGhostResult =
   | { ok: true; solids: GhostSolid[] }
@@ -114,9 +151,19 @@ export function buildFeatureGhost(
   request: FeatureGhostRequest,
   meshConfig: MeshConfig,
 ): FeatureGhostResult {
-  const built = request.feature === 'loft'
-    ? buildLoftGhost(scene, request)
-    : buildProfileGhost(scene, request);
+  // Each arm tests its own feature so the union narrows — `FilletGhostRequest`
+  // is keyed on TWO literals, which a negative test can't rule out.
+  if (request.feature === 'extrude' || request.feature === 'revolve') {
+    return meshGhostBodies(buildProfileGhost(scene, request), meshConfig);
+  }
+  if (request.feature === 'loft') {
+    return meshGhostBodies(buildLoftGhost(scene, request), meshConfig);
+  }
+  return buildBandGhost(scene, request, meshConfig);
+}
+
+/** Mesh the swept features' bodies, then free every shape they were built from. */
+function meshGhostBodies(built: GhostBuild, meshConfig: MeshConfig): FeatureGhostResult {
   if ('reason' in built) {
     return { ok: false, reason: built.reason };
   }
@@ -139,6 +186,130 @@ export function buildFeatureGhost(
       shape.dispose();
     }
   }
+}
+
+/**
+ * The edge-modifying branch: fillet and chamfer. The picks are grouped by the
+ * solid they were made on and each group runs its own maker, the way
+ * `Fillet.doBuild` walks the scene's solids and takes the edges that belong to
+ * each — a selection can straddle two bodies, and a maker only ever modifies
+ * one. A group whose maker refuses contributes nothing and the rest still draw.
+ */
+function buildBandGhost(
+  scene: Scene,
+  request: FilletGhostRequest,
+  meshConfig: MeshConfig,
+): FeatureGhostResult {
+  const groups = resolvePickedEdges(scene, request.edges);
+  if (!groups) {
+    return { ok: false, reason: 'Those edges are not in the rendered scene.' };
+  }
+
+  const solids: GhostSolid[] = [];
+  try {
+    for (const group of groups) {
+      const built = buildFilletGhostBands(group.solid, group.edges, {
+        feature: request.feature,
+        value: request.value,
+        distance2: request.distance2,
+        isAngle: request.isAngle,
+      });
+      try {
+        for (const band of built.bands) {
+          const meshes = renderFacePatch(band.face, meshConfig);
+          if (meshes.length > 0) {
+            solids.push({ meshes, kind: band.kind });
+          }
+        }
+      } finally {
+        for (const band of built.bands) {
+          band.face.dispose();
+        }
+        for (const shape of built.scratch) {
+          shape.dispose();
+        }
+      }
+    }
+    return { ok: true, solids };
+  } finally {
+    for (const group of groups) {
+      for (const edge of group.edges) {
+        edge.dispose();
+      }
+    }
+  }
+}
+
+/**
+ * The picked edges, grouped by the solid each was picked on. Picks address
+ * subshapes by index into the mesh order, so every subshape of a named solid
+ * is wrapped to reach the indexed one; the spares go back here and the picks
+ * themselves are the caller's to free. A face pick contributes all of that
+ * face's edges, the way `Fillet.doBuild` explodes a face selection
+ * (fillet.ts:63) — the ghost has to show what the apply will do, not what was
+ * clicked. A pick the scene no longer has is a refusal: a band ghost missing
+ * one of its edges shows a feature the apply won't produce.
+ */
+function resolvePickedEdges(
+  scene: Scene,
+  refs: GhostEntityRef[],
+): { solid: Solid; edges: Edge[] }[] | null {
+  const groups = new Map<string, { solid: Solid; edges: Edge[] }>();
+  const owned: Shape[] = [];
+  let complete = true;
+
+  for (const ref of refs) {
+    const shape = findShapeById(scene, ref.shapeId);
+    if (!(shape instanceof Solid)) {
+      complete = false;
+      break;
+    }
+    let group = groups.get(ref.shapeId);
+    if (!group) {
+      group = { solid: shape, edges: [] };
+      groups.set(ref.shapeId, group);
+    }
+
+    if (ref.kind === 'face') {
+      const faces = Explorer.findFacesWrapped(shape);
+      owned.push(...faces);
+      const face = faces[ref.index];
+      if (!face) {
+        complete = false;
+        break;
+      }
+      const faceEdges = Explorer.findEdgesWrapped(face);
+      owned.push(...faceEdges);
+      group.edges.push(...faceEdges);
+      continue;
+    }
+
+    const edges = Explorer.findEdgesWrapped(shape);
+    owned.push(...edges);
+    const edge = edges[ref.index];
+    if (!edge) {
+      complete = false;
+      break;
+    }
+    group.edges.push(edge);
+  }
+
+  if (!complete) {
+    for (const shape of owned) {
+      shape.dispose();
+    }
+    return null;
+  }
+  // The picks travel on in the groups; everything explored to reach them —
+  // sibling edges, the face wrappers themselves — goes back now.
+  const resolved = [...groups.values()];
+  const picked = new Set<Shape>(resolved.flatMap(g => g.edges));
+  for (const shape of owned) {
+    if (!picked.has(shape)) {
+      shape.dispose();
+    }
+  }
+  return resolved;
 }
 
 /** The bodies to mesh, or why the request names something the scene lost. */

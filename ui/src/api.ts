@@ -291,7 +291,11 @@ export async function getTextPreview(
  * the create dialog and the edit dialog alike: the client resolves "keep the
  * current profile" to the statement's own sketch before asking.
  */
-export type FeatureGhostRequest = ExtrudeGhostRequest | RevolveGhostRequest | LoftGhostRequest;
+export type FeatureGhostRequest =
+  | ExtrudeGhostRequest
+  | RevolveGhostRequest
+  | LoftGhostRequest
+  | FilletGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -351,8 +355,36 @@ export type GhostSectionRef =
   | { kind: 'sketch'; filePath: string; line: number }
   | { kind: 'faces'; entities: { shapeId: string; index: number }[] };
 
-/** One ghost body, in the mesh wire format the scene's solids already use. */
-export type GhostSolid = { meshes: SceneObjectMesh[] };
+/**
+ * The fillet/chamfer dialog on the ghost wire. These features modify a solid
+ * the scene already holds rather than sweep a profile, so they carry no op and
+ * no profile — just the picked edges and the dialog's numbers. What comes back
+ * is the surfaces the feature would lay along those edges, each already told
+ * apart as material leaving or arriving.
+ */
+export type FilletGhostRequest = {
+  feature: 'fillet' | 'chamfer';
+  /** Fillet radius, or the chamfer's first distance. */
+  value: ValueExpr;
+  /** The chamfer's second value; null is the equal-distance overload. */
+  distance2: ValueExpr | null;
+  /** The chamfer's second value is an angle in degrees, not a distance. */
+  isAngle: boolean;
+  /**
+   * The picks, each by the solid it was made on and its index there. A face
+   * pick travels as a face: the edge features explode faces at build time, so
+   * the ghost does too rather than drop the pick.
+   */
+  edges: { shapeId: string; index: number; kind: 'edge' | 'face' }[];
+};
+
+/**
+ * One ghost body, in the mesh wire format the scene's solids already use.
+ * `kind` overrides the overlay's per-dialog color for this body alone: a
+ * fillet's picks can take material away at one edge and put it back at the
+ * next, so one answer carries both. The swept features leave it unset.
+ */
+export type GhostSolid = { meshes: SceneObjectMesh[]; kind?: 'add' | 'remove' };
 
 /**
  * The bodies the dialog's current values would produce, meshed server-side.

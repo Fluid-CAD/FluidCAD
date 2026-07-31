@@ -137,8 +137,21 @@ export class ExtrudeOps {
     return ShapeFactory.fromShape(result);
   }
 
-  static makeRevol(shape: Shape, axis: Axis, angle: number): MakeRevolResult {
+  /**
+   * Sweep a profile around an axis. `history` (on by default) captures the
+   * start/end faces and the side face each input edge generated, which the
+   * revolve feature classifies its result by. Callers that only want the
+   * body — the dialog's live preview — pass `false` and skip both the
+   * per-edge `Generated()` walk and the wrappers it hands back.
+   */
+  static makeRevol(
+    shape: Shape,
+    axis: Axis,
+    angle: number,
+    options: { history?: boolean } = {},
+  ): MakeRevolResult {
     const oc = getOC();
+    const history = options.history !== false;
     const [ax1, disposeAx1] = Convert.toGpAx1(axis);
     let revol: BRepPrimAPI_MakeRevol;
     try {
@@ -158,16 +171,18 @@ export class ExtrudeOps {
     // source face is absorbed (IsDeleted), so first/last are meaningless.
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
     const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
-    const sourceDeleted = revol.IsDeleted(shape.getShape());
+    const sourceDeleted = history ? revol.IsDeleted(shape.getShape()) : true;
     const firstShapeRaw = sourceDeleted ? null : revol.FirstShape();
     const lastShapeRaw = sourceDeleted ? null : revol.LastShape();
 
-    const inputEdgesRaw = Explorer.findShapes(shape.getShape(), EDGE);
     const edgeFacesRaw: { edge: TopoDS_Shape; face: TopoDS_Shape | null }[] = [];
-    for (const edge of inputEdgesRaw) {
-      const generated = ShapeOps.shapeListToArray(revol.Generated(edge))
-        .filter(s => s.ShapeType() === FACE);
-      edgeFacesRaw.push({ edge, face: generated[0] ?? null });
+    if (history) {
+      const inputEdgesRaw = Explorer.findShapes(shape.getShape(), EDGE);
+      for (const edge of inputEdgesRaw) {
+        const generated = ShapeOps.shapeListToArray(revol.Generated(edge))
+          .filter(s => s.ShapeType() === FACE);
+        edgeFacesRaw.push({ edge, face: generated[0] ?? null });
+      }
     }
 
     revol.delete();
@@ -185,7 +200,9 @@ export class ExtrudeOps {
     }
 
     const clean = ShapeOps.cleanShapeRaw(oriented);
-    const cleanedFaceRaws = Explorer.findShapes(clean, FACE);
+    // Only the history consumers need every result face wrapped; without it
+    // `findFace` has nothing to look up anyway.
+    const cleanedFaceRaws = history ? Explorer.findShapes(clean, FACE) : [];
     const wrappedFaces = cleanedFaceRaws.map(f => Face.fromTopoDSFace(Explorer.toFace(f)));
 
     const findFace = (raw: TopoDS_Shape | null): Face | null => {

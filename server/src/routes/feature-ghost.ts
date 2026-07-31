@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { extractNumericParams, resolveParamValues } from '../apply-feature-edit.ts';
-import type { FeatureGhostRequest, FluidCadServer } from '../fluidcad-server.ts';
+import type { FeatureGhostRequest, FluidCadServer, GhostAxisRef } from '../fluidcad-server.ts';
 
 /** A dialog numeric slot on the wire: a number, or verbatim expression text. */
 type ValueExpr = number | string;
@@ -14,10 +14,16 @@ type GhostBody = {
   draft?: unknown;
   drill?: unknown;
   thin?: unknown;
+  angle?: unknown;
+  axis?: { kind?: unknown; axis?: unknown; filePath?: unknown; line?: unknown; shapeId?: unknown; index?: unknown };
   profile?: { filePath?: unknown; line?: unknown };
 };
 
+const FEATURES = ['extrude', 'revolve'];
+
 const OPS = ['add', 'remove', 'new'];
+
+const STANDARD_AXES = ['x', 'y', 'z'];
 
 /** A bare JS identifier — the only expression form resolvable server-side. */
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -36,6 +42,33 @@ function isThin(value: unknown): value is [ValueExpr] | [ValueExpr, ValueExpr] |
     return true;
   }
   return Array.isArray(value) && value.length >= 1 && value.length <= 2 && value.every(isValueExpr);
+}
+
+/**
+ * The revolve axis slot, narrowed to the three forms the kernel resolves.
+ * Anything else — a keep chip the client failed to resolve, a malformed pick
+ * — is a bad request, not a silent fall back to a world axis.
+ */
+function parseAxis(value: GhostBody['axis']): GhostAxisRef | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  if (value.kind === 'standard') {
+    return typeof value.axis === 'string' && STANDARD_AXES.includes(value.axis)
+      ? { kind: 'standard', axis: value.axis as 'x' | 'y' | 'z' }
+      : null;
+  }
+  if (value.kind === 'axis') {
+    return typeof value.filePath === 'string' && typeof value.line === 'number'
+      ? { kind: 'axis', filePath: value.filePath, line: value.line }
+      : null;
+  }
+  if (value.kind === 'edge') {
+    return typeof value.shapeId === 'string' && typeof value.index === 'number'
+      ? { kind: 'edge', shapeId: value.shapeId, index: value.index }
+      : null;
+  }
+  return null;
 }
 
 /**
@@ -59,8 +92,8 @@ function resolveExpr(value: ValueExpr, params: Map<string, number>): number | nu
 
 /**
  * Live geometry preview for the open feature dialog ("ghost"): the bodies an
- * extrude/cut would sweep, meshed and returned to the requesting client only.
- * Nothing here writes code, scene state, or a broadcast — see
+ * extrude/revolve/cut would sweep, meshed and returned to the requesting
+ * client only. Nothing here writes code, scene state, or a broadcast — see
  * `FluidCadServer.featureGhost`.
  *
  * Its own small validator on purpose: the ghost body is a fraction of an
@@ -72,7 +105,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
   router.post('/feature-ghost', async (req, res) => {
     const body = (req.body ?? {}) as GhostBody;
 
-    if (body.feature !== 'extrude') {
+    if (typeof body.feature !== 'string' || !FEATURES.includes(body.feature)) {
       res.status(400).json({ success: false, reason: 'Unsupported ghost feature' });
       return;
     }
@@ -81,13 +114,18 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       return;
     }
     if (!isValueExprOrNull(body.distance) || !isValueExprOrNull(body.distance2)
-      || !isValueExprOrNull(body.draft) || !isThin(body.thin)) {
+      || !isValueExprOrNull(body.draft) || !isValueExprOrNull(body.angle) || !isThin(body.thin)) {
       res.status(400).json({ success: false, reason: 'Invalid dimension' });
       return;
     }
     const profile = body.profile;
     if (typeof profile?.filePath !== 'string' || typeof profile?.line !== 'number') {
       res.status(400).json({ success: false, reason: 'Invalid profile reference' });
+      return;
+    }
+    const axis = body.feature === 'revolve' ? parseAxis(body.axis) : null;
+    if (body.feature === 'revolve' && !axis) {
+      res.status(400).json({ success: false, reason: 'Invalid axis reference' });
       return;
     }
 
@@ -112,6 +150,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const distance = resolve(body.distance);
     const distance2 = resolve(body.distance2);
     const draft = resolve(body.draft);
+    const angle = resolve(body.angle);
     const thin = Array.isArray(body.thin)
       ? body.thin.map(v => resolve(v)) as [number] | [number, number]
       : null;
@@ -122,17 +161,28 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       return;
     }
 
-    const request: FeatureGhostRequest = {
-      feature: 'extrude',
-      op: body.op as FeatureGhostRequest['op'],
-      distance,
-      distance2,
-      symmetric: body.symmetric === true,
-      draft,
-      drill: body.drill !== false,
-      thin,
-      profile: { filePath: profile.filePath, line: profile.line },
-    };
+    const op = body.op as FeatureGhostRequest['op'];
+    const profileRef = { filePath: profile.filePath, line: profile.line };
+    let request: FeatureGhostRequest;
+    if (body.feature === 'revolve') {
+      if (angle === null) {
+        res.status(400).json({ success: false, reason: 'Invalid sweep angle' });
+        return;
+      }
+      request = { feature: 'revolve', op, angle, thin, profile: profileRef, axis: axis! };
+    } else {
+      request = {
+        feature: 'extrude',
+        op,
+        distance,
+        distance2,
+        symmetric: body.symmetric === true,
+        draft,
+        drill: body.drill !== false,
+        thin,
+        profile: profileRef,
+      };
+    }
 
     const result = await fluidCadServer.featureGhost(request);
     if (!result.solids) {

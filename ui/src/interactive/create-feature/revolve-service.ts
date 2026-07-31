@@ -1,6 +1,7 @@
 import {
-  applyRevolve, applyRevolveEdit, fetchFeatureSources, FeatureEditTarget, ParsedFeatureStatement,
-  RevolveApplyOptions, RevolveAxisRef, RevolveEditOptions, SourceSlotRef,
+  applyRevolve, applyRevolveEdit, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
+  GhostAxisRef, GhostSolid, ParsedFeatureStatement, RevolveApplyOptions, RevolveAxisRef,
+  RevolveEditOptions, SourceSlotRef,
 } from '../../api';
 import { toggleEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
@@ -9,6 +10,7 @@ import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import { RevolvePanel } from './revolve-panel';
 import { FeatureButton } from './feature-button';
+import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
@@ -57,6 +59,8 @@ export class RevolveFeatureService {
   private editSceneStale = false;
   private runner: ApplyRunner<RevolveApplyOptions | Parameters<typeof applyRevolveEdit>[1]>;
   private relabeler: OptionRelabeler<{ profiles: SketchProfileOption[]; axes: AxisOption[] }>;
+  /** The translucent body the current values would sweep. */
+  private ghost: FeatureGhostOverlay;
 
   constructor(
     container: HTMLElement,
@@ -85,6 +89,7 @@ export class RevolveFeatureService {
       }
     };
     this.sketchUI = new SketchUISuspender(viewer, hooks);
+    this.ghost = new FeatureGhostOverlay(viewer);
 
     this.panel = new RevolvePanel(container);
     this.panel.onApply = () => void this.runner.apply();
@@ -111,6 +116,18 @@ export class RevolveFeatureService {
         : applyRevolve({ ...(request as RevolveApplyOptions), ...extras }),
       onApplied: () => this.exit(this.editTarget ? { editEnd: 'apply' } : { resume: 'lazy' }),
       failMessage: () => this.editTarget ? 'Could not apply the edit.' : 'Could not apply the revolve.',
+      // The statement preview's geometric twin: the body the values describe,
+      // drawn translucent in the viewport. Same debounce, same abort scope.
+      ghost: {
+        fetch: (_request, signal) => this.fetchGhost(signal),
+        apply: (solids) => {
+          if (solids) {
+            this.ghost.set(solids, this.ghostKind());
+          } else {
+            this.ghost.clear();
+          }
+        },
+      },
     });
     this.relabeler = new OptionRelabeler({
       sign: ({ profiles, axes }) => `${optionsSignature(profiles)}#${axisOptionsSignature(axes)}`,
@@ -179,12 +196,16 @@ export class RevolveFeatureService {
       return;
     }
     if (state === 'waiting') {
+      // Mid-flight to the boundary — whatever the ghost was drawn against is
+      // already gone from the view.
+      this.ghost.clear();
       if (!isRollback) {
         this.editSceneStale = true;
       }
       return;
     }
     // At the boundary: rebuild options from the pre-statement scene.
+    this.ghost.clear();
     this.sceneObjects = sceneObjects;
     this.profiles = collectSketchProfiles(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
@@ -223,6 +244,9 @@ export class RevolveFeatureService {
     if (!this.armed) {
       return;
     }
+    // The geometry under the ghost just changed — drop it now and let the
+    // debounce redraw it. Correctness over the flicker.
+    this.ghost.clear();
     if (!this.available) {
       this.exit({ resume: 'lazy' });
       return;
@@ -303,6 +327,10 @@ export class RevolveFeatureService {
       ? { profile: result.profile, axis: result.axis }
       : { profile: { kind: 'opaque' }, axis: { kind: 'opaque' } };
     this.refreshHighlight();
+    // The ghost's keep slots read `sourceSlots`, which resolves after
+    // `enterEdit` already scheduled its preview — re-kick so the ghost
+    // appears now that the statement's own profile and axis are known.
+    this.runner.schedulePreview();
   }
 
   enter(): void {
@@ -350,6 +378,9 @@ export class RevolveFeatureService {
     this.axisEdgeEntity = null;
     this.syncButton();
     this.runner.cancelPreview();
+    // The overlay is a compiledMesh sibling, so no render tears it down —
+    // every way out of the dialog (apply, cancel, scene-driven) lands here.
+    this.ghost.clear();
     this.viewer.clearHighlight();
     this.viewer.pickFilter = 'all';
     this.viewer.pickSketchWires = false;
@@ -445,6 +476,92 @@ export class RevolveFeatureService {
     this.panel.setMessage(null);
     this.refreshHighlight();
     this.runner.schedulePreview();
+  }
+
+  /** Green while the revolution adds material, red while it cuts. */
+  private ghostKind(): GhostKind {
+    const values = this.panel.values();
+    return !('error' in values) && values.op === 'remove' ? 'remove' : 'add';
+  }
+
+  /**
+   * The live geometry for the current form state. Runs off the values the
+   * statement preview just validated, so all that is left is to resolve the
+   * two slots — and that is where the create and edit dialogs converge: both
+   * hand the server explicit refs, so the endpoint never has to know which
+   * mode asked. A slot the ghost can't address (a keep chip over an
+   * expression, an armed edge slot with nothing picked yet) means no ghost.
+   */
+  private async fetchGhost(signal: AbortSignal): Promise<GhostSolid[] | null> {
+    const values = this.panel.values();
+    if ('error' in values) {
+      return null;
+    }
+    const profile = this.ghostProfile();
+    const axis = this.ghostAxis();
+    if (!profile || !axis) {
+      return null;
+    }
+    return fetchFeatureGhost({
+      feature: 'revolve',
+      op: values.op,
+      angle: values.angle,
+      thin: values.thin,
+      profile,
+      axis,
+    }, signal);
+  }
+
+  /** The sketch the ghost revolves, or null while there is nothing to sweep. */
+  private ghostProfile(): { filePath: string; line: number } | null {
+    if (this.editTarget) {
+      const selection = this.panel.profileSelection();
+      if (selection?.kind === 'sketch') {
+        return selection.option.hasGeometry
+          ? { filePath: selection.option.filePath, line: selection.option.line }
+          : null;
+      }
+      // The keep chip: the statement's own profile, once `loadEditSources`
+      // has resolved it. Null while that is still in flight (the load
+      // re-kicks the preview) or when the argument is an expression the
+      // sources query couldn't address.
+      return this.sourceSlots?.profile.kind === 'sketch'
+        ? { filePath: this.sourceSlots.profile.filePath, line: this.sourceSlots.profile.line }
+        : null;
+    }
+    const option = this.panel.selectedProfile();
+    // An empty sketch blocks Apply but not the statement preview — and it has
+    // no region to sweep, so it has no ghost either.
+    if (!option || !option.hasGeometry) {
+      return null;
+    }
+    return { filePath: option.filePath, line: option.line };
+  }
+
+  /** The axis the ghost sweeps around, in the form the kernel resolves. */
+  private ghostAxis(): GhostAxisRef | null {
+    const selection = this.panel.axisSelection();
+    if (!selection) {
+      return null;
+    }
+    if (selection.kind === 'standard') {
+      return { kind: 'standard', axis: selection.axis };
+    }
+    if (selection.kind === 'axis') {
+      return { kind: 'axis', filePath: selection.option.filePath, line: selection.option.line };
+    }
+    if (selection.kind === 'edge') {
+      const entity = this.axisEdgeEntity;
+      return entity?.sub.type === 'edge'
+        ? { kind: 'edge', shapeId: entity.shapeId, index: entity.sub.index }
+        : null;
+    }
+    // Keep: the statement's own axis, which resolves to an `axis()` call site
+    // or to nothing the ghost can address (a standard literal reads as the
+    // standard selection above, never as keep).
+    return this.sourceSlots?.axis.kind === 'sketch'
+      ? { kind: 'axis', filePath: this.sourceSlots.axis.filePath, line: this.sourceSlots.axis.line }
+      : null;
   }
 
   /** The axis slot's request field, or the message blocking it. */

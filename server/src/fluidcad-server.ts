@@ -129,7 +129,9 @@ export type SceneRenderedData = {
  * the file's source is. The kernel builds the bodies the statement would
  * produce and meshes them; nothing is written back to the model.
  */
-export type FeatureGhostRequest = {
+export type FeatureGhostRequest = ExtrudeGhostRequest | RevolveGhostRequest;
+
+export type ExtrudeGhostRequest = {
   feature: 'extrude';
   op: 'add' | 'remove' | 'new';
   /** Extrusion distance; null is a through-all cut (`remove` only). */
@@ -142,6 +144,28 @@ export type FeatureGhostRequest = {
   /** The producing statement of the profile to extrude. */
   profile: { filePath: string; line: number };
 };
+
+export type RevolveGhostRequest = {
+  feature: 'revolve';
+  op: 'add' | 'remove' | 'new';
+  /** Sweep angle in degrees. */
+  angle: number;
+  thin: [number] | [number, number] | null;
+  /** The producing statement of the profile to revolve. */
+  profile: { filePath: string; line: number };
+  axis: GhostAxisRef;
+};
+
+/**
+ * The revolve dialog's axis slot on the wire: a world axis from the X/Y/Z
+ * quick buttons, an `axis()` statement by call site, or an edge picked in the
+ * viewport. "Keep the current axis" never travels — the client resolves it to
+ * the edited statement's own `axis()` call site first.
+ */
+export type GhostAxisRef =
+  | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
+  | { kind: 'axis'; filePath: string; line: number }
+  | { kind: 'edge'; shapeId: string; index: number };
 
 /** One ghost body's meshes, in the same wire format a rendered solid uses. */
 export type GhostSolid = { meshes: any[] };

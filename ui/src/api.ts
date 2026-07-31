@@ -291,7 +291,9 @@ export async function getTextPreview(
  * the create dialog and the edit dialog alike: the client resolves "keep the
  * current profile" to the statement's own sketch before asking.
  */
-export type FeatureGhostRequest = {
+export type FeatureGhostRequest = ExtrudeGhostRequest | RevolveGhostRequest;
+
+export type ExtrudeGhostRequest = {
   feature: 'extrude';
   op: 'add' | 'remove' | 'new';
   /** Extrusion distance; null is a through-all cut (`remove` only). */
@@ -303,6 +305,28 @@ export type FeatureGhostRequest = {
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: { filePath: string; line: number };
 };
+
+export type RevolveGhostRequest = {
+  feature: 'revolve';
+  op: 'add' | 'remove' | 'new';
+  /** Sweep angle in degrees. */
+  angle: ValueExpr;
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+  profile: { filePath: string; line: number };
+  axis: GhostAxisRef;
+};
+
+/**
+ * The revolve axis slot on the ghost wire — the apply request's
+ * {@link RevolveAxisRef} flattened to what the kernel can resolve without
+ * reading code: a world axis, an `axis()` statement's call site, or the
+ * picked edge's `{shapeId, index}`. The keep chip resolves to the `axis` form
+ * before it ships, so "keep" itself never travels.
+ */
+export type GhostAxisRef =
+  | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
+  | { kind: 'axis'; filePath: string; line: number }
+  | { kind: 'edge'; shapeId: string; index: number };
 
 /** One ghost body, in the mesh wire format the scene's solids already use. */
 export type GhostSolid = { meshes: SceneObjectMesh[] };

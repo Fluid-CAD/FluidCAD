@@ -1,16 +1,21 @@
 import { Edge } from "../common/edge.js";
+import { Face } from "../common/face.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
+import { Wire } from "../common/wire.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { buildExtrudeGhostSolids } from "../features/extrude-ghost.js";
+import { buildLoftGhostSolids, LoftGhostProfile } from "../features/loft-ghost.js";
 import { buildRevolveGhostSolids } from "../features/revolve-ghost.js";
 import { Extrudable, BoundingBox } from "../helpers/types.js";
 import { Axis, StandardAxis, toAxis } from "../math/axis.js";
 import { Plane } from "../math/plane.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Explorer } from "../oc/explorer.js";
+import type { LoftEndCondition } from "../oc/loft-ops.js";
 import type { MeshConfig } from "../oc/mesh.js";
 import { ShapeOps } from "../oc/shape-ops.js";
+import { WireOps } from "../oc/wire-ops.js";
 import { MeshBuilder } from "./mesh-builder.js";
 import { Scene, SceneObjectMesh } from "./scene.js";
 
@@ -19,7 +24,7 @@ import { Scene, SceneObjectMesh } from "./scene.js";
  * (expression resolution is the server's job — the kernel never parses code).
  * Discriminated on `feature` so later features add a branch, not an endpoint.
  */
-export type FeatureGhostRequest = ExtrudeGhostRequest | RevolveGhostRequest;
+export type FeatureGhostRequest = ExtrudeGhostRequest | RevolveGhostRequest | LoftGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -57,6 +62,30 @@ export type GhostAxisRef =
   | { kind: 'axis'; filePath: string; line: number }
   | { kind: 'edge'; shapeId: string; index: number };
 
+export type LoftGhostRequest = {
+  feature: 'loft';
+  op: 'add' | 'remove' | 'new';
+  thin: [number] | [number, number] | null;
+  /** The sections to skin through, in the loft's argument order. */
+  profiles: GhostSectionRef[];
+  /** Side rails, by producing statement — a sketch or a helix. */
+  guides: { filePath: string; line: number }[];
+  startCondition: GhostLoftCondition | null;
+  endCondition: GhostLoftCondition | null;
+};
+
+/**
+ * One loft section on the wire: a sketch by call site, or faces picked in the
+ * viewport. A chip holds a single pick, but an edit dialog's kept argument
+ * resolves to whatever faces its `select()` named — hence the list.
+ */
+export type GhostSectionRef =
+  | { kind: 'sketch'; filePath: string; line: number }
+  | { kind: 'faces'; entities: { shapeId: string; index: number }[] };
+
+/** A takeoff condition as the dialog states it (`.startCondition(type, mag)`). */
+export type GhostLoftCondition = { type: 'normal' | 'tangent'; magnitude: number };
+
 /** One ghost body, in the same mesh wire format a rendered solid uses. */
 export type GhostSolid = { meshes: SceneObjectMesh[] };
 
@@ -85,41 +114,11 @@ export function buildFeatureGhost(
   request: FeatureGhostRequest,
   meshConfig: MeshConfig,
 ): FeatureGhostResult {
-  const profile = findProfile(scene, request.profile);
-  if (!profile) {
-    return { ok: false, reason: 'That sketch is not in the rendered scene.' };
-  }
-  const plane = profile.getPlane();
-  if (!plane) {
-    return { ok: false, reason: 'The profile has no plane.' };
-  }
-
-  const geometries = profileEdges(profile);
-  const source = { getGeometries: () => geometries, getPlane: () => plane };
-
-  let built: { solids: Shape[]; scratch: Shape[] };
-  if (request.feature === 'revolve') {
-    const axis = resolveGhostAxis(scene, request.axis);
-    if (!axis) {
-      return { ok: false, reason: 'That axis is not in the rendered scene.' };
-    }
-    built = buildRevolveGhostSolids(source, {
-      op: request.op,
-      angle: request.angle,
-      thin: request.thin,
-      axis,
-    });
-  } else {
-    built = buildExtrudeGhostSolids(source, {
-      op: request.op,
-      distance: request.distance,
-      distance2: request.distance2,
-      symmetric: request.symmetric,
-      draft: request.draft,
-      drill: request.drill,
-      thin: request.thin,
-      throughAllLength: throughAllGhostLength(scene, geometries, plane),
-    });
+  const built = request.feature === 'loft'
+    ? buildLoftGhost(scene, request)
+    : buildProfileGhost(scene, request);
+  if ('reason' in built) {
+    return { ok: false, reason: built.reason };
   }
 
   try {
@@ -142,6 +141,177 @@ export function buildFeatureGhost(
   }
 }
 
+/** The bodies to mesh, or why the request names something the scene lost. */
+type GhostBuild = { solids: Shape[]; scratch: Shape[] } | { reason: string };
+
+/** The single-profile features: one sketch in, its swept body out. */
+function buildProfileGhost(
+  scene: Scene,
+  request: ExtrudeGhostRequest | RevolveGhostRequest,
+): GhostBuild {
+  const profile = findProfile(scene, request.profile);
+  if (!profile) {
+    return { reason: 'That sketch is not in the rendered scene.' };
+  }
+  const plane = profile.getPlane();
+  if (!plane) {
+    return { reason: 'The profile has no plane.' };
+  }
+
+  const geometries = profileEdges(profile);
+  const source = { getGeometries: () => geometries, getPlane: () => plane };
+
+  if (request.feature === 'revolve') {
+    const axis = resolveGhostAxis(scene, request.axis);
+    if (!axis) {
+      return { reason: 'That axis is not in the rendered scene.' };
+    }
+    return buildRevolveGhostSolids(source, {
+      op: request.op,
+      angle: request.angle,
+      thin: request.thin,
+      axis,
+    });
+  }
+  return buildExtrudeGhostSolids(source, {
+    op: request.op,
+    distance: request.distance,
+    distance2: request.distance2,
+    symmetric: request.symmetric,
+    draft: request.draft,
+    drill: request.drill,
+    thin: request.thin,
+    throughAllLength: throughAllGhostLength(scene, geometries, plane),
+  });
+}
+
+/**
+ * The loft branch: resolve every section and rail the dialog's chips name,
+ * then skin through them. Unlike the single-profile features, resolution
+ * itself builds shapes — face wrappers off the picked solids, wires off the
+ * guides — so the scratch is opened here and handed on to the caller, or
+ * freed on the spot when the answer is a refusal.
+ */
+function buildLoftGhost(scene: Scene, request: LoftGhostRequest): GhostBuild {
+  const scratch: Shape[] = [];
+  let solids: Shape[] | null = null;
+  try {
+    const profiles = resolveSections(scene, request.profiles, scratch);
+    if (!profiles) {
+      return { reason: 'That profile is not in the rendered scene.' };
+    }
+    const guides = resolveGuideWires(scene, request.guides, scratch);
+    if (!guides) {
+      return { reason: 'That guide is not in the rendered scene.' };
+    }
+    const built = buildLoftGhostSolids(profiles, {
+      op: request.op,
+      thin: request.thin,
+      guides,
+      startCondition: toEndCondition(request.startCondition),
+      endCondition: toEndCondition(request.endCondition),
+    });
+    scratch.push(...built.scratch);
+    solids = built.solids;
+    return { solids, scratch };
+  } finally {
+    // Set only on the one path that hands the scratch on; a refusal or a
+    // throw leaves it null and frees everything resolved so far.
+    if (!solids) {
+      for (const shape of scratch) {
+        shape.dispose();
+      }
+    }
+  }
+}
+
+/** The loft's sections, in argument order — null if any is no longer there. */
+function resolveSections(
+  scene: Scene,
+  refs: GhostSectionRef[],
+  scratch: Shape[],
+): LoftGhostProfile[] | null {
+  const profiles: LoftGhostProfile[] = [];
+  for (const ref of refs) {
+    if (ref.kind === 'sketch') {
+      const profile = findProfile(scene, ref);
+      const plane = profile?.getPlane();
+      if (!profile || !plane) {
+        return null;
+      }
+      profiles.push({ kind: 'sketch', geometries: profileEdges(profile), plane });
+      continue;
+    }
+    const faces: Face[] = [];
+    for (const entity of ref.entities) {
+      const face = resolvePickedFace(scene, entity, scratch);
+      if (!face) {
+        return null;
+      }
+      faces.push(face);
+    }
+    if (faces.length === 0) {
+      return null;
+    }
+    profiles.push({ kind: 'faces', faces });
+  }
+  return profiles;
+}
+
+/**
+ * The face a viewport pick names, as a fresh wrapper over the scene solid's
+ * geometry. Every face of that solid is wrapped to reach the indexed one — the
+ * mesh-order universe picks address — so all of them join the scratch; the
+ * solid itself is untouched.
+ */
+function resolvePickedFace(
+  scene: Scene,
+  ref: { shapeId: string; index: number },
+  scratch: Shape[],
+): Face | null {
+  const shape = findShapeById(scene, ref.shapeId);
+  if (!shape) {
+    return null;
+  }
+  const faces = Explorer.findFacesWrapped(shape);
+  scratch.push(...faces);
+  const face = faces[ref.index];
+  return face instanceof Face ? face : null;
+}
+
+/**
+ * The rails, as the wires `loft.guides()` would build from each statement's
+ * edges (loft.ts:229 → `wiresFromSceneObjectEdges`). One guide argument can
+ * carry several separate curves, and each connected chain counts as its own
+ * rail — the kernel refuses more than two, and so does the ghost builder.
+ */
+function resolveGuideWires(
+  scene: Scene,
+  refs: { filePath: string; line: number }[],
+  scratch: Shape[],
+): Wire[] | null {
+  const wires: Wire[] = [];
+  for (const ref of refs) {
+    const source = findWireSource(scene, ref);
+    if (!source) {
+      return null;
+    }
+    const edges = wireSourceEdges(source);
+    if (edges.length === 0) {
+      return null;
+    }
+    const connected = WireOps.connectEdgesToWires(edges);
+    scratch.push(...connected);
+    wires.push(...connected);
+  }
+  return wires;
+}
+
+/** The dialog's condition wording, in the kernel's. */
+function toEndCondition(condition: GhostLoftCondition | null): LoftEndCondition | null {
+  return condition ? { kind: condition.type, magnitude: condition.magnitude } : null;
+}
+
 /**
  * The sketch a `{filePath, line}` ref names. Source locations on scene
  * objects can still carry the live-render buffer's `virtual:` prefix, so both
@@ -153,23 +323,8 @@ function findProfile(
   scene: Scene,
   ref: { filePath: string; line: number },
 ): Extrudable | null {
-  const target = normalizeSourcePath(ref.filePath);
-  const seen = new Set<SceneObject>();
-  const stack: SceneObject[] = [...scene.getSceneObjects()];
   let fallback: Extrudable | null = null;
-
-  while (stack.length > 0) {
-    const obj = stack.pop()!;
-    if (seen.has(obj)) {
-      continue;
-    }
-    seen.add(obj);
-    stack.push(...obj.getChildren());
-
-    const loc = obj.getSourceLocation();
-    if (!loc || loc.line !== ref.line || normalizeSourcePath(loc.filePath) !== target) {
-      continue;
-    }
+  for (const obj of objectsAt(scene, ref)) {
     if (!obj.isExtrudable()) {
       continue;
     }
@@ -182,6 +337,49 @@ function findProfile(
     fallback = fallback ?? extrudable;
   }
   return fallback;
+}
+
+/**
+ * The wire statement a loft guide names: a sketch or a helix, the two things
+ * `loft.guides()` accepts (feature-sources.ts:178).
+ */
+function findWireSource(scene: Scene, ref: { filePath: string; line: number }): SceneObject | null {
+  return objectsAt(scene, ref)
+    .find(obj => obj.getType() === 'sketch' || obj.getType() === 'helix') ?? null;
+}
+
+/**
+ * Every object in the scene: the top-level list plus containers' children. A
+ * sketch nested in a `part()` is only reachable through its parent in some
+ * scenes, so nothing here may read the flat list alone.
+ */
+function allObjects(scene: Scene): SceneObject[] {
+  const seen = new Set<SceneObject>();
+  const stack: SceneObject[] = [...scene.getSceneObjects()];
+  const objects: SceneObject[] = [];
+  while (stack.length > 0) {
+    const obj = stack.pop()!;
+    if (seen.has(obj)) {
+      continue;
+    }
+    seen.add(obj);
+    objects.push(obj);
+    stack.push(...obj.getChildren());
+  }
+  return objects;
+}
+
+/**
+ * Every object whose statement sits at a `{filePath, line}` ref. Source
+ * locations on scene objects can still carry the live-render buffer's
+ * `virtual:` prefix, so both sides are normalized before comparing.
+ */
+function objectsAt(scene: Scene, ref: { filePath: string; line: number }): SceneObject[] {
+  const target = normalizeSourcePath(ref.filePath);
+  return allObjects(scene).filter(obj => {
+    const loc = obj.getSourceLocation();
+    return !!loc && loc.line === ref.line && normalizeSourcePath(loc.filePath) === target;
+  });
 }
 
 /**
@@ -228,22 +426,12 @@ function findByLocation(
   ref: { filePath: string; line: number },
   accept: (obj: SceneObject) => boolean,
 ): SceneObject | null {
-  const target = normalizeSourcePath(ref.filePath);
-  for (const obj of scene.getAllSceneObjects()) {
-    const loc = obj.getSourceLocation();
-    if (!loc || loc.line !== ref.line || normalizeSourcePath(loc.filePath) !== target) {
-      continue;
-    }
-    if (accept(obj)) {
-      return obj;
-    }
-  }
-  return null;
+  return objectsAt(scene, ref).find(accept) ?? null;
 }
 
 /** The scene shape a viewport pick's `shapeId` names. */
 function findShapeById(scene: Scene, shapeId: string): Shape | null {
-  for (const obj of scene.getAllSceneObjects()) {
+  for (const obj of allObjects(scene)) {
     for (const shape of obj.getAddedShapes()) {
       if (shape.id === shapeId) {
         return shape;
@@ -265,11 +453,26 @@ function findShapeById(scene: Scene, shapeId: string): Shape | null {
  */
 function profileEdges(profile: Extrudable): Edge[] {
   const edges = profile.getGeometries();
-  if (edges.length > 0) {
-    return edges;
-  }
-  const unconsumed = profile.getShapes(undefined, 'edge', new Set<SceneObject>());
-  return [...new Set(unconsumed)].filter((s): s is Edge => s instanceof Edge);
+  return edges.length > 0 ? edges : unconsumedEdges(profile);
+}
+
+/**
+ * A guide statement's edges — the same blind spot as {@link profileEdges}, for
+ * the same reason: the loft being edited has consumed its own rails, and a
+ * ghost built without them would show a surface the apply never produces.
+ */
+function wireSourceEdges(source: SceneObject): Edge[] {
+  const edges = onlyEdges(source.getShapes(undefined, 'edge'));
+  return edges.length > 0 ? edges : unconsumedEdges(source);
+}
+
+/** The object's edges read as if no consumer had removed anything. */
+function unconsumedEdges(source: SceneObject): Edge[] {
+  return onlyEdges(source.getShapes(undefined, 'edge', new Set<SceneObject>()));
+}
+
+function onlyEdges(shapes: Shape[]): Edge[] {
+  return [...new Set(shapes)].filter((s): s is Edge => s instanceof Edge);
 }
 
 /** Paths travel with a `virtual:live-render:` prefix mid-edit; ids don't. */

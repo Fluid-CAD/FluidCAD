@@ -129,7 +129,7 @@ export type SceneRenderedData = {
  * the file's source is. The kernel builds the bodies the statement would
  * produce and meshes them; nothing is written back to the model.
  */
-export type FeatureGhostRequest = ExtrudeGhostRequest | RevolveGhostRequest;
+export type FeatureGhostRequest = ExtrudeGhostRequest | RevolveGhostRequest | LoftGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -166,6 +166,30 @@ export type GhostAxisRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; filePath: string; line: number }
   | { kind: 'edge'; shapeId: string; index: number };
+
+export type LoftGhostRequest = {
+  feature: 'loft';
+  op: 'add' | 'remove' | 'new';
+  thin: [number] | [number, number] | null;
+  /** The sections to skin through, in the loft's argument order. */
+  profiles: GhostSectionRef[];
+  /** Side rails, by producing statement — a sketch or a helix. */
+  guides: { filePath: string; line: number }[];
+  startCondition: GhostLoftCondition | null;
+  endCondition: GhostLoftCondition | null;
+};
+
+/**
+ * One loft section on the wire: a sketch by call site, or faces picked in the
+ * viewport. A chip holds a single pick, but an edit dialog's kept argument
+ * resolves to whatever faces its `select()` named — hence the list.
+ */
+export type GhostSectionRef =
+  | { kind: 'sketch'; filePath: string; line: number }
+  | { kind: 'faces'; entities: { shapeId: string; index: number }[] };
+
+/** A takeoff condition as the dialog states it (`.startCondition(type, mag)`). */
+export type GhostLoftCondition = { type: 'normal' | 'tangent'; magnitude: number };
 
 /** One ghost body's meshes, in the same wire format a rendered solid uses. */
 export type GhostSolid = { meshes: any[] };

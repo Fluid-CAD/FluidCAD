@@ -3,14 +3,18 @@ import { setupOC, render } from "./setup.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
 import axis from "../core/axis.js";
+import loft from "../core/loft.js";
+import plane from "../core/plane.js";
 import revolve from "../core/revolve.js";
-import { rect } from "../core/2d/index.js";
+import { bezier, circle, rect } from "../core/2d/index.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { SceneObject } from "../common/scene-object.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Explorer } from "../oc/explorer.js";
+import { ShapeOps } from "../oc/shape-ops.js";
 import {
-  buildFeatureGhost, ExtrudeGhostRequest, FeatureGhostResult, RevolveGhostRequest,
+  buildFeatureGhost, ExtrudeGhostRequest, FeatureGhostResult, GhostSectionRef, LoftGhostRequest,
+  RevolveGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
 import { Scene } from "../rendering/scene.js";
@@ -53,10 +57,32 @@ function revolveGhost(scene: Scene, line: number, overrides: Partial<RevolveGhos
 }
 
 /** A sketch addressable by source location, the way the parser records one. */
-function locatedSketch(line: number, draw: () => void, plane: 'xy' | 'xz' | 'yz' = 'xy'): Sketch {
-  const s = sketch(plane, draw) as Sketch;
+function locatedSketch(line: number, draw: () => void, on: 'xy' | 'xz' | 'yz' = 'xy'): Sketch {
+  const s = sketch(on, draw) as Sketch;
   s.setSourceLocation({ filePath: FILE, line, column: 0 });
   return s;
+}
+
+/** The same, on an offset parallel plane — the second section of a loft. */
+function locatedSketchAt(line: number, offset: number, draw: () => void): Sketch {
+  const s = sketch(plane("xy", { offset }), draw) as Sketch;
+  s.setSourceLocation({ filePath: FILE, line, column: 0 });
+  return s;
+}
+
+/** The extent of a ghost body's face mesh, straight off the returned vertices. */
+function bounds(result: FeatureGhostResult, solid = 0) {
+  if (!result.ok) {
+    throw new Error(`ghost refused: ${'reason' in result ? result.reason : ''}`);
+  }
+  const faces = result.solids[solid].meshes.find(m => m.label === 'solid-faces')!;
+  const along = (offset: number) => faces.vertices.filter((_, i) => i % 3 === offset);
+  const [xs, ys, zs] = [along(0), along(1), along(2)];
+  return {
+    minX: Math.min(...xs), maxX: Math.max(...xs),
+    minY: Math.min(...ys), maxY: Math.max(...ys),
+    minZ: Math.min(...zs), maxZ: Math.max(...zs),
+  };
 }
 
 describe("feature ghost", () => {
@@ -157,20 +183,6 @@ describe("feature ghost — revolve", () => {
     const a = axis(standard) as unknown as SceneObject;
     a.setSourceLocation({ filePath: FILE, line, column: 0 });
     return a;
-  }
-
-  function bounds(result: FeatureGhostResult, solid = 0) {
-    if (!result.ok) {
-      throw new Error(`ghost refused: ${'reason' in result ? result.reason : ''}`);
-    }
-    const faces = result.solids[solid].meshes.find(m => m.label === 'solid-faces')!;
-    const along = (offset: number) => faces.vertices.filter((_, i) => i % 3 === offset);
-    const [xs, ys, zs] = [along(0), along(1), along(2)];
-    return {
-      minX: Math.min(...xs), maxX: Math.max(...xs),
-      minY: Math.min(...ys), maxY: Math.max(...ys),
-      minZ: Math.min(...zs), maxZ: Math.max(...zs),
-    };
   }
 
   it("sweeps the profile all the way around a world axis", () => {
@@ -304,5 +316,186 @@ describe("feature ghost — revolve", () => {
       }
     }
     throw new Error('no vertical edge in the scene');
+  }
+});
+
+/**
+ * The loft branch, where the chips are a list: sections resolve from sketch
+ * call sites and from viewport face picks, rails from their own statements,
+ * and each of them has an edit-mode twin the loft being edited has already
+ * consumed.
+ */
+describe("feature ghost — loft", () => {
+  setupOC();
+
+  const LOFT_BASE: Omit<LoftGhostRequest, 'profiles'> = {
+    feature: 'loft',
+    op: 'add',
+    thin: null,
+    guides: [],
+    startCondition: null,
+    endCondition: null,
+  };
+
+  function loftGhost(
+    scene: Scene,
+    profiles: GhostSectionRef[],
+    overrides: Partial<LoftGhostRequest> = {},
+  ): FeatureGhostResult {
+    return buildFeatureGhost(
+      scene,
+      { ...LOFT_BASE, ...overrides, profiles },
+      DEFAULT_MESH_CONFIG,
+    );
+  }
+
+  function sketchRef(line: number): GhostSectionRef {
+    return { kind: 'sketch', filePath: FILE, line };
+  }
+
+  /** Two identical 100 × 50 rects, at z = 0 (line 5) and z = 40 (line 9). */
+  function rectStack(): [Sketch, Sketch] {
+    return [
+      locatedSketch(5, () => { rect(100, 50); }),
+      locatedSketchAt(9, 40, () => { rect(100, 50); }),
+    ];
+  }
+
+  /** Two circles (diameter 80), at z = 0 (line 5) and z = 60 (line 9). */
+  function circleStack(): [Sketch, Sketch] {
+    return [
+      locatedSketch(5, () => { circle(80); }),
+      locatedSketchAt(9, 60, () => { circle(80); }),
+    ];
+  }
+
+  it("skins between the sections its chips name", () => {
+    rectStack();
+    const scene = render();
+
+    const result = loftGhost(scene, [sketchRef(5), sketchRef(9)]);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.solids).toHaveLength(1);
+    const labels = result.solids[0].meshes.map(m => m.label);
+    expect(labels).toContain('solid-faces');
+    expect(labels).toContain('solid-edges');
+    const box = bounds(result);
+    expect(box.minZ).toBeCloseTo(0, 3);
+    expect(box.maxZ).toBeCloseTo(40, 3);
+  });
+
+  /**
+   * The edit dialog's kept-chip path: the loft being edited has already
+   * consumed both of its sections, whose shapes are recorded as removed.
+   * Reading them back is what makes an edit-mode ghost possible at all.
+   */
+  it("still skins sections the edited statement already consumed", () => {
+    const [bottom, top] = rectStack();
+    loft(bottom as never, top as never);
+    const scene = render();
+
+    const box = bounds(loftGhost(scene, [sketchRef(5), sketchRef(9)]));
+
+    expect(box.minZ).toBeCloseTo(0, 3);
+    expect(box.maxZ).toBeCloseTo(40, 3);
+  });
+
+  /**
+   * The profile slot's face mode, which the apply writes as `select(face(…))`:
+   * the ghost has to turn a `{shapeId, index}` viewport pick into the same
+   * section the build would. The box below tops out at z = 20, so a loft from
+   * its top face to the sketch at z = 40 spans exactly the gap between them.
+   */
+  it("turns a picked face into a section", () => {
+    locatedSketch(2, () => { rect(100, 50); });
+    extrude(20);
+    locatedSketchAt(9, 40, () => { rect(100, 50); });
+    const scene = render();
+    const picked = topFace(scene);
+
+    const box = bounds(loftGhost(scene, [
+      { kind: 'faces', entities: [picked] },
+      sketchRef(9),
+    ]));
+
+    expect(box.minZ).toBeCloseTo(20, 3);
+    expect(box.maxZ).toBeCloseTo(40, 3);
+  });
+
+  it("follows a rail named by call site", () => {
+    circleStack();
+    locatedSketch(7, () => { bezier([40, 0], [65, 30], [40, 60]); }, 'xz');
+    const scene = render();
+
+    const plain = bounds(loftGhost(scene, [sketchRef(5), sketchRef(9)]));
+    const railed = bounds(loftGhost(scene, [sketchRef(5), sketchRef(9)], {
+      guides: [{ filePath: FILE, line: 7 }],
+    }));
+
+    expect(plain.maxX).toBeCloseTo(40, 0);
+    // The sections ride out to the rail's bulge, past the straight side.
+    expect(railed.maxX).toBeGreaterThan(46);
+  });
+
+  /** The rails are consumed by the edited loft too — same read-back. */
+  it("still follows a rail the edited statement already consumed", () => {
+    const [bottom, top] = circleStack();
+    const bowed = locatedSketch(7, () => { bezier([40, 0], [65, 30], [40, 60]); }, 'xz');
+    loft(bottom as never, top as never).guides(bowed as never);
+    const scene = render();
+
+    const railed = bounds(loftGhost(scene, [sketchRef(5), sketchRef(9)], {
+      guides: [{ filePath: FILE, line: 7 }],
+    }));
+
+    expect(railed.maxX).toBeGreaterThan(46);
+  });
+
+  it("refuses a section the scene doesn't hold", () => {
+    rectStack();
+    const scene = render();
+
+    expect(loftGhost(scene, [sketchRef(5), sketchRef(99)]).ok).toBe(false);
+  });
+
+  it("refuses a rail the scene doesn't hold", () => {
+    rectStack();
+    const scene = render();
+
+    const result = loftGhost(scene, [sketchRef(5), sketchRef(9)], {
+      guides: [{ filePath: FILE, line: 99 }],
+    });
+
+    expect(result.ok).toBe(false);
+  });
+
+  /** The scene box's top face, as a viewport pick names it. */
+  function topFace(scene: Scene): { shapeId: string; index: number } {
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getAddedShapes()) {
+        if (!shape.isSolid()) {
+          continue;
+        }
+        const top = ShapeOps.getBoundingBox(shape).maxZ;
+        const faces = Explorer.findFacesWrapped(shape);
+        try {
+          for (let index = 0; index < faces.length; index++) {
+            const box = ShapeOps.getBoundingBox(faces[index]);
+            if (Math.abs(box.minZ - top) < 1e-6 && Math.abs(box.maxZ - top) < 1e-6) {
+              return { shapeId: shape.id, index };
+            }
+          }
+        } finally {
+          for (const face of faces) {
+            face.dispose();
+          }
+        }
+      }
+    }
+    throw new Error('no top face in the scene');
   }
 });

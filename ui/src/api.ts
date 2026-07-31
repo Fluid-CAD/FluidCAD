@@ -291,7 +291,7 @@ export async function getTextPreview(
  * the create dialog and the edit dialog alike: the client resolves "keep the
  * current profile" to the statement's own sketch before asking.
  */
-export type FeatureGhostRequest = ExtrudeGhostRequest | RevolveGhostRequest;
+export type FeatureGhostRequest = ExtrudeGhostRequest | RevolveGhostRequest | LoftGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -327,6 +327,29 @@ export type GhostAxisRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; filePath: string; line: number }
   | { kind: 'edge'; shapeId: string; index: number };
+
+/**
+ * The loft dialog's chips on the ghost wire. Both lists are already resolved:
+ * a kept (verbatim) chip travels as the sketch or the faces its argument
+ * currently names, so "keep" itself never reaches the server — the same
+ * create/edit unification the other ghosts use for their single profile.
+ */
+export type LoftGhostRequest = {
+  feature: 'loft';
+  op: 'add' | 'remove' | 'new';
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+  /** The sections to skin through, in chip (argument) order. */
+  profiles: GhostSectionRef[];
+  /** Side rails, by producing statement — a sketch or a helix. */
+  guides: { filePath: string; line: number }[];
+  startCondition: LoftConditionRef | null;
+  endCondition: LoftConditionRef | null;
+};
+
+/** One loft section: a sketch by call site, or faces picked in the viewport. */
+export type GhostSectionRef =
+  | { kind: 'sketch'; filePath: string; line: number }
+  | { kind: 'faces'; entities: { shapeId: string; index: number }[] };
 
 /** One ghost body, in the mesh wire format the scene's solids already use. */
 export type GhostSolid = { meshes: SceneObjectMesh[] };

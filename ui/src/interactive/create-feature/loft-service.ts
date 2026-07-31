@@ -1,7 +1,7 @@
 import {
-  applyLoft, applyLoftEdit, fetchFeatureSources, FeatureEditTarget, LoftApplyOptions,
-  LoftEditGuideRef, LoftEditProfileRef, LoftProfileRef, ParsedFeatureStatement, SketchSourceRef,
-  SourceSlotRef,
+  applyLoft, applyLoftEdit, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
+  GhostSectionRef, GhostSolid, LoftApplyOptions, LoftEditGuideRef, LoftEditProfileRef,
+  LoftProfileRef, ParsedFeatureStatement, SketchSourceRef, SourceSlotRef,
 } from '../../api';
 import { sameEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
@@ -10,6 +10,7 @@ import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import { LoftPanel } from './loft-panel';
 import { FeatureButton } from './feature-button';
+import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
@@ -75,6 +76,8 @@ export class LoftFeatureService {
   private guides: LoftGuideItem[] = [];
   private runner: ApplyRunner<LoftApplyOptions | LoftEditRequest>;
   private relabeler: OptionRelabeler<SketchProfileOption[]>;
+  /** The translucent body the current chips and values would skin. */
+  private ghost: FeatureGhostOverlay;
 
   constructor(
     container: HTMLElement,
@@ -103,6 +106,7 @@ export class LoftFeatureService {
       }
     };
     this.sketchUI = new SketchUISuspender(viewer, hooks);
+    this.ghost = new FeatureGhostOverlay(viewer);
 
     this.panel = new LoftPanel(container);
     this.panel.onApply = () => void this.applyThroughRunner();
@@ -127,6 +131,18 @@ export class LoftFeatureService {
       // A scene-driven preview (update() reruns it without a user action)
       // must clear a refusal that no longer applies.
       onPreviewSuccess: () => this.panel.setMessage(null),
+      // The statement preview's geometric twin: the surface the chips describe,
+      // drawn translucent in the viewport. Same debounce, same abort scope.
+      ghost: {
+        fetch: (_request, signal) => this.fetchGhost(signal),
+        apply: (solids) => {
+          if (solids) {
+            this.ghost.set(solids, this.ghostKind());
+          } else {
+            this.ghost.clear();
+          }
+        },
+      },
     });
     this.relabeler = new OptionRelabeler({
       sign: optionsSignature,
@@ -206,12 +222,16 @@ export class LoftFeatureService {
       return;
     }
     if (state === 'waiting') {
+      // Mid-flight to the boundary — whatever the ghost was drawn against is
+      // already gone from the view.
+      this.ghost.clear();
       if (!isRollback) {
         this.editSceneStale = true;
       }
       return;
     }
     // At the boundary: rebuild options from the pre-statement scene.
+    this.ghost.clear();
     this.sceneObjects = sceneObjects;
     this.profiles = collectWireSources(sceneObjects);
     if (this.editSceneStale) {
@@ -270,6 +290,9 @@ export class LoftFeatureService {
     if (!this.armed) {
       return;
     }
+    // The geometry under the ghost just changed — drop it now and let the
+    // debounce redraw it. Correctness over the flicker.
+    this.ghost.clear();
     if (!this.available) {
       this.exit({ resume: 'lazy' });
       return;
@@ -384,6 +407,10 @@ export class LoftFeatureService {
       this.sourceSlots = { profiles: [], guides: [] };
     }
     this.refreshProfilesUI();
+    // The ghost's kept chips read `sourceSlots`, which resolves after
+    // `enterEdit` already scheduled its preview — re-kick so the ghost appears
+    // now that the statement's own profiles and guides are known.
+    this.runner.schedulePreview();
   }
 
   enter(): void {
@@ -432,6 +459,9 @@ export class LoftFeatureService {
     this.editSceneStale = false;
     this.syncButton();
     this.runner.cancelPreview();
+    // The overlay is a compiledMesh sibling, so no render tears it down —
+    // every way out of the dialog (apply, cancel, scene-driven) lands here.
+    this.ghost.clear();
     this.items = [];
     this.guides = [];
     this.viewer.clearHighlight();
@@ -601,6 +631,118 @@ export class LoftFeatureService {
     this.items = items;
     this.refreshProfilesUI();
     this.runner.schedulePreview();
+  }
+
+  /** Green while the loft adds material, red while it cuts. */
+  private ghostKind(): GhostKind {
+    const values = this.panel.values();
+    return !('error' in values) && values.op === 'remove' ? 'remove' : 'add';
+  }
+
+  /**
+   * The live geometry for the current chips. Runs off the values the statement
+   * preview just validated, so all that is left is to resolve the two lists —
+   * and that is where the create and edit dialogs converge: both hand the
+   * server explicit refs, so the endpoint never has to know which mode asked.
+   * A chip the ghost can't address (a kept argument over an inline sketch, a
+   * face pick whose sources haven't loaded) means no ghost at all — a loft
+   * skinned through a subset of its sections would be a different surface,
+   * not a partial one.
+   */
+  private async fetchGhost(signal: AbortSignal): Promise<GhostSolid[] | null> {
+    const values = this.panel.values();
+    if ('error' in values) {
+      return null;
+    }
+    const profiles = this.ghostSections();
+    const guides = this.ghostGuides();
+    if (!profiles || !guides || profiles.length < 2) {
+      return null;
+    }
+    return fetchFeatureGhost({
+      feature: 'loft',
+      op: values.op,
+      thin: values.thin,
+      profiles,
+      guides,
+      startCondition: values.startCondition,
+      endCondition: values.endCondition,
+    }, signal);
+  }
+
+  /** The sections to skin through, in chip order, or null if one can't travel. */
+  private ghostSections(): GhostSectionRef[] | null {
+    const sections: GhostSectionRef[] = [];
+    for (const item of this.items) {
+      if (item.kind === 'sketch') {
+        // An empty sketch blocks Apply but not the statement preview — and it
+        // has no region to skin, so it has no ghost either. A helix is a rail
+        // and never a section (the panel refuses it too).
+        if (item.option.feature !== 'sketch' || !item.option.hasGeometry) {
+          return null;
+        }
+        sections.push({ kind: 'sketch', filePath: item.option.filePath, line: item.option.line });
+      } else if (item.kind === 'face') {
+        if (item.entity.sub.type !== 'face') {
+          return null;
+        }
+        sections.push({
+          kind: 'faces',
+          entities: [{ shapeId: item.entity.shapeId, index: item.entity.sub.index }],
+        });
+      } else {
+        const kept = this.keptSection(item.sourceIndex);
+        if (!kept) {
+          return null;
+        }
+        sections.push(kept);
+      }
+    }
+    return sections;
+  }
+
+  /**
+   * A kept profile argument, as the sketch or the faces it currently names.
+   * Null while `loadEditSources` is still in flight (the load re-kicks the
+   * preview) or when the argument is one the sources query couldn't address.
+   */
+  private keptSection(sourceIndex: number): GhostSectionRef | null {
+    const slot = this.sourceSlots?.profiles[sourceIndex];
+    if (slot?.kind === 'sketch') {
+      return { kind: 'sketch', filePath: slot.filePath, line: slot.line };
+    }
+    if (slot?.kind !== 'entities' || slot.entities.length === 0) {
+      return null;
+    }
+    // A section is a closed region: edges in the selection mean the argument
+    // is something else entirely, and the ghost would misread it.
+    if (slot.entities.some(entity => entity.sub.type !== 'face')) {
+      return null;
+    }
+    return {
+      kind: 'faces',
+      entities: slot.entities.map(entity => ({ shapeId: entity.shapeId, index: entity.sub.index })),
+    };
+  }
+
+  /** The rails, by producing statement, or null if one can't travel. */
+  private ghostGuides(): { filePath: string; line: number }[] | null {
+    const guides: { filePath: string; line: number }[] = [];
+    for (const guide of this.guides) {
+      if (guide.kind === 'sketch') {
+        if (!guide.option.hasGeometry) {
+          return null;
+        }
+        guides.push({ filePath: guide.option.filePath, line: guide.option.line });
+        continue;
+      }
+      const slot = this.sourceSlots?.guides[guide.sourceIndex];
+      if (slot?.kind !== 'sketch') {
+        return null;
+      }
+      guides.push({ filePath: slot.filePath, line: slot.line });
+    }
+    return guides;
   }
 
   /** The request for the current form state, or the message blocking it. */

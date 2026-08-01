@@ -1415,7 +1415,32 @@ describe('apply-feature route validation', () => {
     expect(relayed[0].spec).toMatchObject({
       feature: 'plane',
       plane: { type: 'edge', position: 0.5, bases: [{ kind: 'wire', producer: 0 }] },
-      producers: [{ line: 3, featureType: 'wire', nameHint: 'h', bind: true }],
+      producers: [{ line: 3, featureType: 'wire', nameHint: 'e', bind: true }],
+      parts: [],
+    });
+  });
+
+  it('binds a single-curve sketch as an edge plane base without synthesis', async () => {
+    currentFileName = '/ws/m.fluid.js';
+    currentCode = [
+      `import { sketch, bezier } from 'fluidcad/core'`,
+      ``,
+      `const p = sketch('xy', () => { bezier([0, 0], [38.78, 52.5], [127.59, 51.17], [128.31, 88.4]) })`,
+      ``,
+    ].join('\n');
+    const { status, body } = await post({
+      feature: 'plane', type: 'edge', position: 0.5,
+      bases: [{ kind: 'wire', filePath: '/ws/m.fluid.js', line: 3, column: 10 }],
+    });
+    expect(status).toBe(200);
+    // The sketch draws one curve, so it addresses the edge directly — no
+    // selector synthesis stands between the pick and the statement.
+    expect(body.preview).toBe('plane(p, 0.5)');
+    expect(synthesizeCalls).toEqual([]);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'plane',
+      plane: { type: 'edge', position: 0.5, bases: [{ kind: 'wire', producer: 0 }] },
+      producers: [{ line: 3, featureType: 'wire', nameHint: 'e', bind: true }],
       parts: [],
     });
   });

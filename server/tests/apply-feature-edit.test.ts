@@ -5191,6 +5191,24 @@ describe('parseFeatureStatement — plane', () => {
     });
   });
 
+  it('reads a sketch variable as an edge base', async () => {
+    const code = [
+      `import { sketch, bezier, plane } from 'fluidcad/core'`,
+      ``,
+      `const p = sketch('xy', () => { bezier([0, 0], [38.78, 52.5], [127.59, 51.17], [128.31, 88.4]) })`,
+      `plane(p, 0.5)`,
+    ].join('\n');
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'plane', type: 'edge',
+        bases: [{ text: 'p', kind: 'edge', ref: { line: 3, column: 10 } }],
+        position: 0.5, offset: null,
+      },
+    });
+  });
+
   it('reads a face selector base as an offset plane', async () => {
     const code = `${planeEditBase}\nplane(e.endFaces(), 5)\n`;
     const result = await parseFeatureStatement(code, 7);

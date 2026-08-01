@@ -4,9 +4,10 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import plane from "../../core/plane.js";
 import select from "../../core/select.js";
-import { rect } from "../../core/2d/index.js";
+import { bezier, rect } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
+import { SceneObject } from "../../common/scene-object.js";
 import { face } from "../../filters/index.js";
 import { Point } from "../../math/point.js";
 
@@ -310,6 +311,42 @@ describe("plane", () => {
       // Face path: the bare number is an offset along the normal (40 + 10).
       expect(pl.origin.z).toBeCloseTo(50);
       expect(Math.abs(pl.normal.z)).toBeCloseTo(1);
+    });
+
+    it("should take a single-curve sketch as the edge source", () => {
+      // A sketch drawing one curve resolves to a single edge, so the whole
+      // sketch reads as the edge — what the Plane dialog writes when a bare
+      // sketch curve is picked in the viewport.
+      const s = sketch("xy", () => {
+        bezier([0, 0], [38.78, 52.5], [127.59, 51.17], [128.31, 88.4]);
+      });
+
+      const p = plane(s, 0.5) as PlaneObjectBase;
+
+      render();
+
+      const pl = p.getPlane();
+      // The plane sits on the curve at its midpoint, normal to the tangent —
+      // which, for a curve drawn on XY, lies in that plane.
+      expect(pl.origin.z).toBeCloseTo(0);
+      expect(pl.normal.z).toBeCloseTo(0);
+      expect(Math.hypot(pl.normal.x, pl.normal.y, pl.normal.z)).toBeCloseTo(1);
+      // Between the curve's endpoints rather than at either one.
+      expect(pl.origin.distanceTo(new Point(0, 0, 0))).toBeGreaterThan(1);
+      expect(pl.origin.distanceTo(new Point(128.31, 88.4, 0))).toBeGreaterThan(1);
+    });
+
+    it("should leave a sketch consumable after deriving a plane from it", () => {
+      // The edge path only *references* its source — the sketch stays
+      // available to the feature that consumes it.
+      const s = sketch("xy", () => {
+        bezier([0, 0], [38.78, 52.5], [127.59, 51.17], [128.31, 88.4]);
+      }) as SceneObject;
+      plane(s, 0.5);
+
+      render();
+
+      expect(s.getShapes({ excludeGuide: false })).toHaveLength(1);
     });
   });
 

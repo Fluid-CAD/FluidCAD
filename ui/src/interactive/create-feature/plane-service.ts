@@ -18,15 +18,18 @@ import {
   resolvePlaneRow,
 } from './plane-bases';
 import {
-  collectWireSources, keepChip, labelWithSketchNames, optionsSignature, resolveWireByShapeId,
-  SketchProfileOption, sketchWireShapeIds, sourceChip,
+  collectWireSources, isSingleEdgeWire, keepChip, labelWithSketchNames, optionsSignature,
+  resolveWireByShapeId, resolveWireRow, SketchProfileOption, sketchWireShapeIds, sourceChip,
 } from './sketch-profiles';
 
 /** One base in the dialog's list — the chip order is the argument order. */
 type PlaneBaseItem =
   | { kind: 'standard'; plane: StandardPlaneId }
   | { kind: 'plane'; option: PlaneOption }
-  /** A helix statement as the edge-type base (its wire is the edge). */
+  /**
+   * A single-curve sketch or a helix as the edge-type base — the statement
+   * draws one edge, so the plane can be built from the source itself.
+   */
   | { kind: 'wire'; option: SketchProfileOption }
   | { kind: 'pick'; entity: SelectedEntity }
   /**
@@ -68,7 +71,7 @@ export class PlaneFeatureService {
   private button: FeatureButton;
   private armed = false;
   private planes: PlaneOption[] = [];
-  /** The helixes the edge type can reference as its base wire. */
+  /** The single-curve sketches and helixes the edge type can use as its base. */
   private wires: SketchProfileOption[] = [];
   private sceneObjects: SceneObjectRender[] = [];
   private bases: PlaneBaseItem[] = [];
@@ -256,7 +259,10 @@ export class PlaneFeatureService {
     this.sceneObjects = sceneObjects;
     this.planes = collectPlaneOptions(sceneObjects);
     const wireSources = collectWireSources(sceneObjects);
-    this.wires = wireSources.filter(o => o.feature === 'helix');
+    // A from-edge plane addresses the whole statement, so only sources that
+    // draw exactly one edge qualify — every helix, and the sketches holding a
+    // single curve.
+    this.wires = wireSources.filter(o => isSingleEdgeWire(o, sceneObjects));
     this.sceneSketchActive = wireSources[0]?.kind === 'active';
   }
 
@@ -374,7 +380,7 @@ export class PlaneFeatureService {
     if (seed.length === 1 && edges.length === 1) {
       this.panel.setType('edge');
       // A helix edge seeds as the named helix source, like a live pick.
-      this.bases = [this.wireBaseForEdge(edges[0]) ?? { kind: 'pick', entity: edges[0] }];
+      this.bases = [this.wireBaseFor(edges[0].shapeId) ?? { kind: 'pick', entity: edges[0] }];
       return;
     }
     if (seed.length === 1 && faces.length === 1) {
@@ -410,6 +416,7 @@ export class PlaneFeatureService {
     this.viewer.clearHighlight();
     this.viewer.hideStandardPlanes();
     this.viewer.pickFilter = 'all';
+    this.viewer.pickSketchWires = false;
     this.panel.hide();
     this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
   }
@@ -428,7 +435,7 @@ export class PlaneFeatureService {
     const wanted = this.panel.planeType === 'edge' ? 'edge' : 'face';
     if (sub.type !== wanted) {
       this.panel.setMessage(wanted === 'edge'
-        ? 'A from-edge plane needs an edge — pick an edge.'
+        ? 'A from-edge plane needs an edge — pick an edge or a sketch curve.'
         : 'This plane type takes faces — switch to "From edge" to use an edge.');
       return;
     }
@@ -442,29 +449,65 @@ export class PlaneFeatureService {
     }
     // A helix's wire renders as a regular edge — clicking it selects the
     // helix as the named base (`plane(spring, …)`), not a raw edge pick.
-    const wire = sub.type === 'edge' ? this.wireBaseForEdge(entity) : null;
+    const wire = this.wireBaseFor(shapeId);
     if (wire) {
-      const picked = this.bases.findIndex(b => baseKey(b) === baseKey(wire));
-      if (picked >= 0) {
-        this.bases.splice(picked, 1);
-        this.refresh();
-        this.runner.schedulePreview();
-        return;
-      }
-      this.addBase(wire);
+      this.toggleBase(wire);
       return;
     }
     this.addBase({ kind: 'pick', entity });
   }
 
-  /** The picked edge's owning helix as a wire base, when it is offered. */
-  private wireBaseForEdge(entity: SelectedEntity): PlaneBaseItem & { kind: 'wire' } | null {
-    const owner = resolveWireByShapeId(entity.shapeId, this.sceneObjects);
-    if (owner?.type !== 'helix' || !owner.sourceLocation) {
+  /**
+   * A sketch's drawn geometry was clicked — the sketch-wire channel the edge
+   * type opens (see {@link syncViewport}). The pick names the sketch, not one
+   * of its edges, so it only makes a base where the sketch draws a single
+   * curve: the case `plane(<sketch>, …)` resolves to an edge. Returns whether
+   * the dialog consumed the click.
+   */
+  handleSketchPick(shapeId: string): boolean {
+    if (!this.armed) {
+      return false;
+    }
+    const source = resolveWireByShapeId(shapeId, this.sceneObjects);
+    if (!source?.sourceLocation) {
+      return false;
+    }
+    if (this.panel.planeType !== 'edge') {
+      this.panel.setMessage('A sketch curve is an edge source — switch to "From edge" to use it.');
+      return true;
+    }
+    const option = this.wireOptionForLocation(source.sourceLocation);
+    if (!option) {
+      this.panel.setMessage(source.type === 'helix'
+        ? 'That helix was already consumed — only helixes still rendered in the scene can be used.'
+        : 'That sketch draws more than one curve — a from-edge plane needs a sketch holding a single curve.');
+      return true;
+    }
+    this.panel.setMessage(null);
+    this.toggleBase({ kind: 'wire', option });
+    return true;
+  }
+
+  /** The picked shape's owning sketch or helix as a wire base, when offered. */
+  private wireBaseFor(shapeId: string): PlaneBaseItem & { kind: 'wire' } | null {
+    const owner = resolveWireByShapeId(shapeId, this.sceneObjects);
+    if (!owner?.sourceLocation) {
       return null;
     }
     const option = this.wireOptionForLocation(owner.sourceLocation);
     return option ? { kind: 'wire', option } : null;
+  }
+
+  /** Add a base, or drop it when that same base is already chosen. */
+  private toggleBase(item: PlaneBaseItem): void {
+    const picked = this.bases.findIndex(b => baseKey(b) === baseKey(item));
+    if (picked >= 0) {
+      this.bases.splice(picked, 1);
+      this.refresh();
+      this.runner.schedulePreview();
+      return;
+    }
+    this.addBase(item);
   }
 
   /** A shown origin plane was clicked — it joins the base list. */
@@ -485,15 +528,20 @@ export class PlaneFeatureService {
     if (!this.armed) {
       return false;
     }
-    // A helix row is an edge source — it lands in the edge type's base slot.
-    if (obj.type === 'helix' && obj.sourceLocation) {
+    // A helix or single-curve sketch row is an edge source — it lands in the
+    // edge type's base slot.
+    const wireRow = resolveWireRow(obj, this.sceneObjects);
+    if (wireRow?.sourceLocation && (obj.type === 'helix' || this.panel.planeType === 'edge')) {
+      const helix = wireRow.type === 'helix';
       if (this.panel.planeType !== 'edge') {
         this.panel.setMessage('A helix is an edge source — switch to "From edge" to use it.');
         return true;
       }
-      const option = this.wireOptionForLocation(obj.sourceLocation);
+      const option = this.wireOptionForLocation(wireRow.sourceLocation);
       if (!option) {
-        this.panel.setMessage('That helix was already consumed — only helixes still rendered in the scene can be used.');
+        this.panel.setMessage(helix
+          ? 'That helix was already consumed — only helixes still rendered in the scene can be used.'
+          : 'That sketch is consumed or draws more than one curve — a from-edge plane needs a sketch holding a single curve.');
         return true;
       }
       this.panel.setMessage(null);
@@ -656,7 +704,9 @@ export class PlaneFeatureService {
    * Align the viewport with the type: the origin planes show as pick targets
    * while armed (re-shown on renders to re-size to the scene) — except for
    * the edge type, whose only base is a picked edge — and the pick filter
-   * narrows scene picks to faces (offset/mid) or edges (edge type).
+   * narrows scene picks to faces (offset/mid) or edges (edge type). The edge
+   * type also opens the sketch-wire channel, so a bare sketch curve — which
+   * renders as a wire, outside the solid-edge bucket — can be picked.
    */
   private syncViewport(): void {
     if (!this.armed) {
@@ -664,6 +714,7 @@ export class PlaneFeatureService {
     }
     const edgeType = this.panel.planeType === 'edge';
     this.viewer.pickFilter = edgeType ? 'edge' : 'face';
+    this.viewer.pickSketchWires = edgeType;
     if (edgeType) {
       this.viewer.hideStandardPlanes();
     } else {
@@ -686,7 +737,7 @@ export class PlaneFeatureService {
     if (this.bases.length >= this.panel.capacity) {
       this.panel.setHint(null);
     } else if (type === 'edge') {
-      this.panel.setHint('Pick an edge or a helix');
+      this.panel.setHint('Pick an edge, a sketch curve or a helix');
     } else {
       this.panel.setHint(this.bases.length === 0 && type === 'mid'
         ? 'Pick two faces or planes'

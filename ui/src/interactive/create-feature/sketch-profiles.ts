@@ -1,6 +1,6 @@
 import { fetchSketchNames, gotoSource } from '../../api';
 import { isTopLevel } from '../../helpers/scene-utils';
-import { SceneObjectRender } from '../../types';
+import { SceneObjectPart, SceneObjectRender } from '../../types';
 import { PickSlotChip } from '../pick-slot';
 
 /** A sketch or helix a create-feature dialog can consume (profile or path). */
@@ -223,41 +223,53 @@ export function resolveWireByShapeId(
 }
 
 /**
- * Shape ids of the wires a sketch renders — its direct children's non-meta,
- * non-guide shapes, mirroring what SketchMesh draws as wire lines. These are
- * the highlight targets for a sketch selected in a create dialog. Addressed
- * by source location like the options, so it re-resolves after every render.
+ * The wire parts a source renders — a helix's own non-meta, non-guide shapes,
+ * or a sketch's direct children's, mirroring what SketchMesh draws as wire
+ * lines. Addressed by source location like the options, so it re-resolves
+ * after every render.
  */
-export function sketchWireShapeIds(
+function wireShapeParts(
   option: { filePath: string; line: number },
   sceneObjects: SceneObjectRender[],
-): string[] {
+): SceneObjectPart[] {
   const source = sceneObjects.find(o => (o.type === 'sketch' || o.type === 'helix')
     && o.sourceLocation?.filePath === option.filePath && o.sourceLocation?.line === option.line);
   if (!source) {
     return [];
   }
-  const ids: string[] = [];
+  const drawn = (parts: SceneObjectPart[] | undefined): SceneObjectPart[] =>
+    (parts ?? []).filter(s => !s.isMetaShape && !s.isGuide && s.shapeId);
   // A helix carries its wire on its own object — there are no children.
   if (source.type === 'helix') {
-    for (const shape of source.sceneShapes ?? []) {
-      if (!shape.isMetaShape && !shape.isGuide && shape.shapeId) {
-        ids.push(shape.shapeId);
-      }
-    }
-    return ids;
+    return drawn(source.sceneShapes);
   }
-  for (const obj of sceneObjects) {
-    if (obj.parentId !== source.id) {
-      continue;
-    }
-    for (const shape of obj.sceneShapes ?? []) {
-      if (!shape.isMetaShape && !shape.isGuide && shape.shapeId) {
-        ids.push(shape.shapeId);
-      }
-    }
-  }
-  return ids;
+  return sceneObjects.flatMap(obj => obj.parentId === source.id ? drawn(obj.sceneShapes) : []);
+}
+
+/**
+ * Shape ids of the wires a sketch renders. These are the highlight targets
+ * for a sketch selected in a create dialog.
+ */
+export function sketchWireShapeIds(
+  option: { filePath: string; line: number },
+  sceneObjects: SceneObjectRender[],
+): string[] {
+  return wireShapeParts(option, sceneObjects).map(s => s.shapeId!);
+}
+
+/**
+ * The source's whole rendered geometry is one edge — what a slot taking a
+ * bare edge (a from-edge plane's base) can consume. A helix always qualifies;
+ * a sketch only while it draws a single curve, since the expression addresses
+ * the sketch as a whole and a multi-segment one resolves to a wire, not an
+ * edge.
+ */
+export function isSingleEdgeWire(
+  option: { filePath: string; line: number },
+  sceneObjects: SceneObjectRender[],
+): boolean {
+  const parts = wireShapeParts(option, sceneObjects);
+  return parts.length === 1 && parts[0].shapeType === 'edge';
 }
 
 function toOption(

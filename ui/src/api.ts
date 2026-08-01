@@ -1330,7 +1330,10 @@ export type PlaneBaseRef =
   | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
   | { kind: 'pick'; entity: ApplyFeatureEntity }
   | ({ kind: 'plane' } & SketchSourceRef)
-  /** A helix statement as the edge-plane base (its wire is the edge). */
+  /**
+   * A single-curve sketch or a helix as the edge-plane base — the statement
+   * draws one edge, so the plane builds from the source itself.
+   */
   | ({ kind: 'wire' } & SketchSourceRef);
 
 export type PlaneApplyOptions = {

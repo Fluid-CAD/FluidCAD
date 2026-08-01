@@ -793,7 +793,7 @@ function validatePlaneValues(body: any): PlaneValues | { error: string } {
 /**
  * One base of a plane: a standard origin plane, a picked face/edge, an
  * existing plane feature addressed by its source location, or — for the edge
- * form — a helix whose wire is the edge.
+ * form — a single-curve sketch or a helix, whose wire is the edge.
  */
 function validatePlaneBase(raw: any, type: PlaneValues['type']): PlaneBaseInput | { error: string } {
   if (raw?.kind === 'standard') {
@@ -818,11 +818,11 @@ function validatePlaneBase(raw: any, type: PlaneValues['type']): PlaneBaseInput 
   }
   if (raw?.kind === 'wire') {
     if (type !== 'edge') {
-      return { error: 'a helix base is only valid for an edge plane' };
+      return { error: 'a sketch or helix base is only valid for an edge plane' };
     }
     const loc = validateSketchLoc(raw);
     if (!loc) {
-      return { error: 'a helix base must carry the helix {filePath, line}' };
+      return { error: 'a wire base must carry its statement {filePath, line}' };
     }
     return { kind: 'wire', loc };
   }
@@ -883,12 +883,12 @@ function validatePlaneBaseList<T extends PlaneEditBaseInput>(
     result.push(base);
   }
   const source = result[0];
-  // The edge form's base is an edge source — a picked edge or a helix. A kept
-  // base is checked against the parsed statement by the transform, the only
-  // place its expression is known.
+  // The edge form's base is an edge source — a picked edge, or a sketch/helix
+  // statement drawing one curve. A kept base is checked against the parsed
+  // statement by the transform, the only place its expression is known.
   if (type === 'edge' && source.kind !== 'wire' && source.kind !== 'verbatim'
     && (source.kind !== 'pick' || source.pick.sub.type !== 'edge')) {
-    return { error: 'an edge plane takes a single picked edge or a helix as its base' };
+    return { error: 'an edge plane takes a single picked edge, sketch curve or helix as its base' };
   }
   return result;
 }
@@ -3078,7 +3078,7 @@ export function createApplyFeatureRouter(
                 producer: mergeProducer({
                   line: input.loc.line, column: input.loc.column,
                   featureType: input.kind === 'plane' ? 'plane' : 'wire',
-                  nameHint: input.kind === 'plane' ? 'p' : 'h',
+                  nameHint: input.kind === 'plane' ? 'p' : 'e',
                   bind: true,
                 }),
               });
@@ -3970,7 +3970,7 @@ export function createApplyFeatureRouter(
                 kind: 'wire',
                 producer: mergeProducer({
                   line: base.loc.line, column: base.loc.column,
-                  featureType: 'wire', nameHint: 'h', bind: true,
+                  featureType: 'wire', nameHint: 'e', bind: true,
                 }),
               });
             continue;

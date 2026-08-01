@@ -879,7 +879,10 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
         || revolveService.handleSketchPick(shapeId)
         || sweepService.handleSketchPick(shapeId)
         || wrapService.handleSketchPick(shapeId)
-        || loftService.handleSketchPick(shapeId);
+        || loftService.handleSketchPick(shapeId)
+        // The plane dialog's From-edge type takes a single-curve sketch as
+        // the edge its plane is normal to.
+        || planeService.handleSketchPick(shapeId);
       if (consumed) {
         return;
       }

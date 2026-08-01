@@ -4670,13 +4670,14 @@ const PLANE_OPTION_MEMBERS = ['offset', 'rotateX', 'rotateY', 'rotateZ'] as cons
 /**
  * Which form a plane base's text reads as (see {@link ParsedPlaneBase}). A
  * `plane(…)` call and an origin-plane literal are plane-likes; an edge filter
- * or accessor is an edge source, as is an identifier bound to a `helix(…)`;
- * every other identifier reads as a plane variable, and anything left is a
- * face selector. A misread costs one dropdown change to correct.
+ * or accessor is an edge source, as is an identifier bound to a `helix(…)` or
+ * a `sketch(…)` (both draw wires, never a face to take a plane from); every
+ * other identifier reads as a plane variable, and anything left is a face
+ * selector. A misread costs one dropdown change to correct.
  */
 function classifyPlaneBase(node: TSNode, boundCallee: string | null): ParsedPlaneBase['kind'] {
   if (node.type === 'identifier') {
-    return boundCallee === 'helix' ? 'edge' : 'plane';
+    return boundCallee === 'helix' || boundCallee === 'sketch' ? 'edge' : 'plane';
   }
   const text = node.text.trim();
   if (standardPlaneLiteral(node) !== null || /^plane\s*\(/.test(text)) {

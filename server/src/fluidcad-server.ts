@@ -132,6 +132,7 @@ export type SceneRenderedData = {
 export type FeatureGhostRequest =
   | ExtrudeGhostRequest
   | RevolveGhostRequest
+  | SweepGhostRequest
   | LoftGhostRequest
   | FilletGhostRequest
   | HelixGhostRequest;
@@ -171,6 +172,25 @@ export type GhostAxisRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; filePath: string; line: number }
   | { kind: 'edge'; shapeId: string; index: number };
+
+export type SweepGhostRequest = {
+  feature: 'sweep';
+  op: 'add' | 'remove' | 'new';
+  thin: [number] | [number, number] | null;
+  /** The producing statement of the profile to sweep. */
+  profile: { filePath: string; line: number };
+  path: GhostPathRef;
+};
+
+/**
+ * The sweep dialog's path slot on the wire: a wire statement by call site — a
+ * sketch or a helix — or the edges picked in the viewport, which the apply
+ * writes as a selector. As with the revolve's axis, "keep the current path"
+ * never travels: the client resolves it to one of the two first.
+ */
+export type GhostPathRef =
+  | { kind: 'wire'; filePath: string; line: number }
+  | { kind: 'edges'; entities: { shapeId: string; index: number }[] };
 
 export type LoftGhostRequest = {
   feature: 'loft';

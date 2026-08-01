@@ -294,6 +294,7 @@ export async function getTextPreview(
 export type FeatureGhostRequest =
   | ExtrudeGhostRequest
   | RevolveGhostRequest
+  | SweepGhostRequest
   | LoftGhostRequest
   | FilletGhostRequest
   | HelixGhostRequest;
@@ -332,6 +333,25 @@ export type GhostAxisRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; filePath: string; line: number }
   | { kind: 'edge'; shapeId: string; index: number };
+
+export type SweepGhostRequest = {
+  feature: 'sweep';
+  op: 'add' | 'remove' | 'new';
+  thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+  profile: { filePath: string; line: number };
+  path: GhostPathRef;
+};
+
+/**
+ * The sweep dialog's path slot on the ghost wire — the apply request's own
+ * path flattened to what the kernel can resolve without reading code: the
+ * call site of the wire statement the slot names (a sketch or a helix), or the
+ * `{shapeId, index}` of each picked edge. The keep chip resolves to one of the
+ * two before it ships, so "keep" itself never travels.
+ */
+export type GhostPathRef =
+  | { kind: 'wire'; filePath: string; line: number }
+  | { kind: 'edges'; entities: { shapeId: string; index: number }[] };
 
 /**
  * The loft dialog's chips on the ghost wire. Both lists are already resolved:

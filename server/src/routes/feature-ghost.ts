@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { extractNumericParams, resolveParamValues } from '../apply-feature-edit.ts';
 import type {
   FeatureGhostRequest, FluidCadServer, GhostAxisRef, GhostEntityRef, GhostHelixSourceRef,
-  GhostSectionRef,
+  GhostPathRef, GhostSectionRef,
 } from '../fluidcad-server.ts';
 
 /** A dialog numeric slot on the wire: a number, or verbatim expression text. */
@@ -26,6 +26,7 @@ type GhostBody = {
   edges?: unknown;
   axis?: { kind?: unknown; axis?: unknown; filePath?: unknown; line?: unknown; shapeId?: unknown; index?: unknown };
   profile?: { filePath?: unknown; line?: unknown };
+  path?: unknown;
   profiles?: unknown;
   guides?: unknown;
   startCondition?: unknown;
@@ -40,13 +41,13 @@ type GhostBody = {
   endOffset?: unknown;
 };
 
-const FEATURES = ['extrude', 'revolve', 'loft', 'fillet', 'chamfer', 'helix'];
+const FEATURES = ['extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix'];
 
 /** The features that modify edges of an existing solid rather than sweep a profile. */
 const BAND_FEATURES = ['fillet', 'chamfer'];
 
 /** The features that sweep one profile — the only ones carrying a profile ref. */
-const PROFILE_FEATURES = ['extrude', 'revolve'];
+const PROFILE_FEATURES = ['extrude', 'revolve', 'sweep'];
 
 const OPS = ['add', 'remove', 'new'];
 
@@ -128,6 +129,36 @@ function parseHelixSource(value: unknown): GhostHelixSourceRef | null {
       : null;
   }
   return null;
+}
+
+/**
+ * The sweep's path slot: a wire statement by call site (a sketch or a helix),
+ * or the picked edges the apply writes as a selector. The client resolves its
+ * kept chip to one of the two before asking, so an unrecognized entry — or an
+ * empty pick list, which names no spine at all — is a malformed request.
+ */
+function parsePath(value: unknown): GhostPathRef | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const path = value as { kind?: unknown; filePath?: unknown; line?: unknown; entities?: unknown };
+  if (path.kind === 'wire') {
+    return typeof path.filePath === 'string' && typeof path.line === 'number'
+      ? { kind: 'wire', filePath: path.filePath, line: path.line }
+      : null;
+  }
+  if (path.kind !== 'edges' || !Array.isArray(path.entities) || path.entities.length === 0) {
+    return null;
+  }
+  const entities: { shapeId: string; index: number }[] = [];
+  for (const raw of path.entities) {
+    const entity = raw as { shapeId?: unknown; index?: unknown };
+    if (!entity || typeof entity.shapeId !== 'string' || typeof entity.index !== 'number') {
+      return null;
+    }
+    entities.push({ shapeId: entity.shapeId, index: entity.index });
+  }
+  return { kind: 'edges', entities };
 }
 
 /**
@@ -303,6 +334,11 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       res.status(400).json({ success: false, reason: 'Invalid axis reference' });
       return;
     }
+    const path = body.feature === 'sweep' ? parsePath(body.path) : null;
+    if (body.feature === 'sweep' && !path) {
+      res.status(400).json({ success: false, reason: 'Invalid path reference' });
+      return;
+    }
     const sections = isLoft ? parseSections(body.profiles) : [];
     const guides = isLoft ? parseSourceRefs(body.guides) : [];
     if (!sections || !guides) {
@@ -394,6 +430,14 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         guides,
         startCondition: startRaw ? { type: startRaw.type, magnitude: startMagnitude! } : null,
         endCondition: endRaw ? { type: endRaw.type, magnitude: endMagnitude! } : null,
+      };
+    } else if (body.feature === 'sweep') {
+      request = {
+        feature: 'sweep',
+        op: body.op as 'add' | 'remove' | 'new',
+        thin,
+        profile: profileRef!,
+        path: path!,
       };
     } else if (body.feature === 'revolve') {
       if (angle === null) {

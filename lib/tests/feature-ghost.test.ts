@@ -6,15 +6,17 @@ import axis from "../core/axis.js";
 import loft from "../core/loft.js";
 import plane from "../core/plane.js";
 import revolve from "../core/revolve.js";
-import { bezier, circle, rect } from "../core/2d/index.js";
+import sweep from "../core/sweep.js";
+import helix from "../core/helix.js";
+import { bezier, circle, move, rect, vLine } from "../core/2d/index.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { SceneObject } from "../common/scene-object.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import {
-  buildFeatureGhost, ExtrudeGhostRequest, FeatureGhostResult, GhostSectionRef, LoftGhostRequest,
-  RevolveGhostRequest,
+  buildFeatureGhost, ExtrudeGhostRequest, FeatureGhostResult, GhostPathRef, GhostSectionRef,
+  LoftGhostRequest, RevolveGhostRequest, SweepGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
 import { Scene } from "../rendering/scene.js";
@@ -497,5 +499,184 @@ describe("feature ghost — loft", () => {
       }
     }
     throw new Error('no top face in the scene');
+  }
+});
+
+/**
+ * The sweep branch: one profile, plus a spine the path slot names — a wire
+ * statement by call site, or edges picked in the viewport. The fixtures keep
+ * the profile a circle of diameter 10 (`circle()` takes a diameter) at the
+ * origin on xy, so a tube swept up the z axis reads straight off the mesh:
+ * ±5 across, as long as the spine.
+ */
+describe("feature ghost — sweep", () => {
+  setupOC();
+
+  const SWEEP_BASE: Omit<SweepGhostRequest, 'profile' | 'path'> = {
+    feature: 'sweep',
+    op: 'add',
+    thin: null,
+  };
+
+  function sweepGhost(
+    scene: Scene,
+    line: number,
+    path: GhostPathRef,
+    overrides: Partial<SweepGhostRequest> = {},
+  ): FeatureGhostResult {
+    return buildFeatureGhost(
+      scene,
+      { ...SWEEP_BASE, ...overrides, profile: { filePath: FILE, line }, path },
+      DEFAULT_MESH_CONFIG,
+    );
+  }
+
+  function wireRef(line: number): GhostPathRef {
+    return { kind: 'wire', filePath: FILE, line };
+  }
+
+  /** The profile at line 5, and a 50 mm spine straight up z at line 3. */
+  function tube(): [Sketch, Sketch] {
+    return [
+      locatedSketch(5, () => { circle(10); }),
+      locatedSketch(3, () => { vLine(50); }, 'xz'),
+    ];
+  }
+
+  it("sweeps the profile along a path named by call site", () => {
+    tube();
+    const scene = render();
+
+    const result = sweepGhost(scene, 5, wireRef(3));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.solids).toHaveLength(1);
+    const labels = result.solids[0].meshes.map(m => m.label);
+    expect(labels).toContain('solid-faces');
+    expect(labels).toContain('solid-edges');
+    const box = bounds(result);
+    expect(box.minZ).toBeCloseTo(0, 1);
+    expect(box.maxZ).toBeCloseTo(50, 1);
+    expect(box.maxX).toBeCloseTo(5, 0);
+    expect(box.minX).toBeCloseTo(-5, 0);
+  });
+
+  /**
+   * The edit dialog's keep-path chip: the sweep being edited has consumed both
+   * its profile and its spine, whose shapes are recorded as removed. Reading
+   * them back is what makes an edit-mode ghost possible at all — and since the
+   * ghost reaches the spine its own way (through the scene object's edges,
+   * not `Sweep.getSpineWire`'s reader), the body it stands in for is only
+   * worth drawing if it matches the one the statement actually built.
+   */
+  it("still runs along a path the edited statement already consumed", () => {
+    const [profile, path] = tube();
+    const applied = sweep(path as never, profile as never) as unknown as SceneObject;
+    const scene = render();
+
+    const box = bounds(sweepGhost(scene, 5, wireRef(3)));
+
+    const real = ShapeOps.getBoundingBox(applied.getShapes()[0]);
+    expect(box.minZ).toBeCloseTo(real.minZ, 0);
+    expect(box.maxZ).toBeCloseTo(real.maxZ, 0);
+    expect(box.minX).toBeCloseTo(real.minX, 0);
+    expect(box.maxX).toBeCloseTo(real.maxX, 0);
+  });
+
+  /**
+   * The path slot's other named source, and the sweep's own reason for
+   * existing: a helix. Two turns of a radius-20 coil at 10 mm pitch carry the
+   * profile twice round the z axis and 20 mm up it.
+   */
+  it("runs along a helix named by call site", () => {
+    const coil = helix('z').radius(20).pitch(10).turns(2) as unknown as SceneObject;
+    coil.setSourceLocation({ filePath: FILE, line: 3, column: 0 });
+    locatedSketch(5, () => { move([20, 0]); circle(6); }, 'xz');
+    const scene = render();
+
+    const box = bounds(sweepGhost(scene, 5, wireRef(3)));
+
+    // The coil's own 20 mm rise, plus the tube's 3 mm half-width at each end.
+    expect(box.maxZ - box.minZ).toBeGreaterThan(20);
+    expect(box.maxZ - box.minZ).toBeLessThan(27);
+    expect(box.maxX).toBeCloseTo(23, 0);
+    expect(box.minX).toBeCloseTo(-23, 0);
+  });
+
+  /**
+   * The path slot's edge mode, which the apply writes as `select(edge(…))`:
+   * the ghost has to turn `{shapeId, index}` viewport picks into the same
+   * spine the build would. The box below stands z 0…20, so its vertical edges
+   * carry the profile a fifth of the way the line-3 sketch would.
+   */
+  it("runs along the edges picked in the viewport", () => {
+    locatedSketch(2, () => { rect([-30, -30], 20, 20); });
+    extrude(20);
+    tube();
+    const scene = render();
+    const picked = verticalEdge(scene);
+
+    const box = bounds(sweepGhost(scene, 5, { kind: 'edges', entities: [picked] }));
+
+    expect(box.maxZ - box.minZ).toBeCloseTo(20, 1);
+  });
+
+  it("refuses a picked edge the scene doesn't hold", () => {
+    tube();
+    const scene = render();
+
+    const result = sweepGhost(scene, 5, {
+      kind: 'edges',
+      entities: [{ shapeId: 'gone', index: 0 }],
+    });
+
+    expect(result.ok).toBe(false);
+  });
+
+  it("refuses a path the scene doesn't hold", () => {
+    tube();
+    const scene = render();
+
+    expect(sweepGhost(scene, 5, wireRef(99)).ok).toBe(false);
+  });
+
+  it("sweeps a thin profile as its offset shell", () => {
+    tube();
+    const scene = render();
+
+    const solid = bounds(sweepGhost(scene, 5, wireRef(3)));
+    const result = sweepGhost(scene, 5, wireRef(3), { thin: [2] });
+
+    expect(result.ok).toBe(true);
+    // The thin wall grows outward off the profile — a hollow tube, run along
+    // the same spine to the same height.
+    const thin = bounds(result);
+    expect(thin.maxX).toBeCloseTo(solid.maxX + 2, 0);
+    expect(thin.maxZ).toBeCloseTo(solid.maxZ, 1);
+  });
+
+  /** A vertical (z-running) edge of the scene's box, as a viewport pick names it. */
+  function verticalEdge(scene: Scene): { shapeId: string; index: number } {
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getAddedShapes()) {
+        if (!shape.isSolid()) {
+          continue;
+        }
+        const edges = Explorer.findEdgesWrapped(shape);
+        for (let index = 0; index < edges.length; index++) {
+          try {
+            if (Math.abs(EdgeOps.edgeToAxis(edges[index]).direction.z) > 0.99) {
+              return { shapeId: shape.id, index };
+            }
+          } catch {
+            // Not a straight edge — keep looking.
+          }
+        }
+      }
+    }
+    throw new Error('no vertical edge in the scene');
   }
 });

@@ -1,6 +1,7 @@
 import {
-  applySweep, applySweepEdit, fetchFeatureSources, expandBucket,
-  FeatureEditTarget, ParsedFeatureStatement, SelectionGroupKind, SourceSlotRef, SweepApplyOptions,
+  applySweep, applySweepEdit, fetchFeatureGhost, fetchFeatureSources, expandBucket,
+  ApplyFeatureEntity, FeatureEditTarget, GhostPathRef, GhostSolid, ParsedFeatureStatement,
+  SelectionGroupKind, SourceSlotRef, SweepApplyOptions,
 } from '../../api';
 import { mergeUniqueEntities } from '../../helpers/entities';
 import { EditSession, EditSessionInfo } from '../edit-session';
@@ -11,6 +12,7 @@ import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
 import { SweepPanel } from './sweep-panel';
 import { FeatureButton } from './feature-button';
+import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
@@ -63,6 +65,8 @@ export class SweepFeatureService {
   private selectionMenu: SelectionContextMenu;
   private runner: ApplyRunner<SweepApplyOptions | SweepEditRequest>;
   private relabeler: OptionRelabeler<SketchProfileOption[]>;
+  /** The translucent body the current profile would sweep along the path. */
+  private ghost: FeatureGhostOverlay;
 
   constructor(
     container: HTMLElement,
@@ -91,6 +95,7 @@ export class SweepFeatureService {
       }
     };
     this.sketchUI = new SketchUISuspender(viewer, hooks);
+    this.ghost = new FeatureGhostOverlay(viewer);
 
     this.panel = new SweepPanel(container);
     this.panel.onApply = () => void this.runner.apply();
@@ -136,6 +141,19 @@ export class SweepFeatureService {
         : applySweep({ ...(request as SweepApplyOptions), ...extras }),
       onApplied: () => this.exit(this.editTarget ? { editEnd: 'apply' } : { resume: 'lazy' }),
       failMessage: () => this.editTarget ? 'Could not apply the edit.' : 'Could not apply the sweep.',
+      // The statement preview's geometric twin: the body the profile would
+      // sweep along the path, drawn translucent in the viewport. Same
+      // debounce, same abort scope.
+      ghost: {
+        fetch: (_request, signal) => this.fetchGhost(signal),
+        apply: (solids) => {
+          if (solids) {
+            this.ghost.set(solids, this.ghostKind());
+          } else {
+            this.ghost.clear();
+          }
+        },
+      },
     });
     this.relabeler = new OptionRelabeler({
       sign: optionsSignature,
@@ -197,12 +215,16 @@ export class SweepFeatureService {
       return;
     }
     if (state === 'waiting') {
+      // Mid-flight to the boundary — whatever the ghost was drawn against is
+      // already gone from the view.
+      this.ghost.clear();
       if (!isRollback) {
         this.editSceneStale = true;
       }
       return;
     }
     // At the boundary: rebuild options from the pre-statement scene.
+    this.ghost.clear();
     this.sceneObjects = sceneObjects;
     this.profiles = collectWireSources(sceneObjects);
     this.hideContextMenu();
@@ -244,6 +266,9 @@ export class SweepFeatureService {
       this.exit({ resume: 'lazy' });
       return;
     }
+    // The geometry under the ghost just changed — drop it now and let the
+    // debounce redraw it. Correctness over the flicker.
+    this.ghost.clear();
     // A render can put a sketch back in front (live editing) — the armed
     // dialog keeps the free 3D view.
     if (this.sceneSketchActive) {
@@ -330,6 +355,10 @@ export class SweepFeatureService {
       ? { profile: result.profile, path: result.path }
       : { profile: { kind: 'opaque' }, path: { kind: 'opaque' } };
     this.refreshHighlight();
+    // The ghost's keep slots read `sourceSlots`, which resolves after
+    // `enterEdit` already scheduled its preview — re-kick so the ghost appears
+    // now that the statement's own profile and path are known.
+    this.runner.schedulePreview();
   }
 
   enter(): void {
@@ -378,6 +407,9 @@ export class SweepFeatureService {
     this.editSceneStale = false;
     this.syncButton();
     this.runner.cancelPreview();
+    // The overlay is a compiledMesh sibling, so no render tears it down —
+    // every way out of the dialog (apply, cancel, scene-driven) lands here.
+    this.ghost.clear();
     this.picks.clear();
     this.pathChipRows = [];
     this.viewer.clearHighlight();
@@ -565,6 +597,97 @@ export class SweepFeatureService {
     this.panel.setMessage(null);
     this.refreshHighlight();
     this.runner.schedulePreview();
+  }
+
+  /** Green while the sweep adds material, red while it cuts. */
+  private ghostKind(): GhostKind {
+    const values = this.panel.values();
+    return !('error' in values) && values.op === 'remove' ? 'remove' : 'add';
+  }
+
+  /**
+   * The live geometry for the current form state. Runs off the values the
+   * statement preview just validated, so all that is left is to resolve the
+   * two slots — and that is where the create and edit dialogs converge: both
+   * hand the server explicit refs, so the endpoint never has to know which
+   * mode asked. A slot the ghost can't address (a keep chip over an
+   * expression, a path slot with nothing picked yet) means no ghost.
+   */
+  private async fetchGhost(signal: AbortSignal): Promise<GhostSolid[] | null> {
+    const values = this.panel.values();
+    if ('error' in values) {
+      return null;
+    }
+    const profile = this.ghostProfile();
+    const path = this.ghostPath();
+    if (!profile || !path) {
+      return null;
+    }
+    return fetchFeatureGhost({
+      feature: 'sweep',
+      op: values.op,
+      thin: values.thin,
+      profile,
+      path,
+    }, signal);
+  }
+
+  /** The sketch the ghost sweeps, or null while there is nothing to sweep. */
+  private ghostProfile(): { filePath: string; line: number } | null {
+    const selection = this.panel.profileSelection();
+    if (selection?.kind === 'sketch') {
+      // An empty sketch blocks Apply but not the statement preview — and it
+      // has no region to sweep, so it has no ghost either.
+      return selection.option.hasGeometry
+        ? { filePath: selection.option.filePath, line: selection.option.line }
+        : null;
+    }
+    // The keep chip: the statement's own profile, once `loadEditSources` has
+    // resolved it. Null while that is still in flight (the load re-kicks the
+    // preview) or when the argument is an expression the sources query
+    // couldn't address.
+    return this.sourceSlots?.profile.kind === 'sketch'
+      ? { filePath: this.sourceSlots.profile.filePath, line: this.sourceSlots.profile.line }
+      : null;
+  }
+
+  /** The spine the ghost runs along, in the form the kernel resolves. */
+  private ghostPath(): GhostPathRef | null {
+    const selection = this.panel.pathSelection();
+    if (!selection) {
+      return null;
+    }
+    if (selection.kind === 'sketch') {
+      return selection.option.hasGeometry
+        ? { kind: 'wire', filePath: selection.option.filePath, line: selection.option.line }
+        : null;
+    }
+    if (selection.kind === 'edges') {
+      return this.ghostEdges(this.picks.entities);
+    }
+    // Keep: the statement's own path — a wire statement by call site, or the
+    // edges its selector currently names.
+    const slot = this.sourceSlots?.path;
+    if (slot?.kind === 'sketch') {
+      return { kind: 'wire', filePath: slot.filePath, line: slot.line };
+    }
+    return slot?.kind === 'entities' ? this.ghostEdges(slot.entities) : null;
+  }
+
+  /**
+   * A pick set as the spine it names. All of it or none: a path is one
+   * connected chain, so a selection carrying anything that isn't an edge is a
+   * statement the ghost can't stand in for — and a subset of the picks would
+   * be a different spine, not a partial one.
+   */
+  private ghostEdges(entities: ApplyFeatureEntity[]): GhostPathRef | null {
+    if (entities.length === 0 || entities.some(entity => entity.sub.type !== 'edge')) {
+      return null;
+    }
+    return {
+      kind: 'edges',
+      entities: entities.map(entity => ({ shapeId: entity.shapeId, index: entity.sub.index })),
+    };
   }
 
   /** The request for the current form state, or the message blocking it. */

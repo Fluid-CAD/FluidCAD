@@ -13,6 +13,7 @@ import {
 } from "../features/helix-geometry.js";
 import { buildLoftGhostSolids, LoftGhostProfile } from "../features/loft-ghost.js";
 import { buildRevolveGhostSolids } from "../features/revolve-ghost.js";
+import { buildSweepGhostSolids } from "../features/sweep-ghost.js";
 import { Extrudable, BoundingBox } from "../helpers/types.js";
 import { Axis, StandardAxis, toAxis } from "../math/axis.js";
 import { Plane } from "../math/plane.js";
@@ -34,6 +35,7 @@ import { Scene, SceneObjectMesh } from "./scene.js";
 export type FeatureGhostRequest =
   | ExtrudeGhostRequest
   | RevolveGhostRequest
+  | SweepGhostRequest
   | LoftGhostRequest
   | FilletGhostRequest
   | HelixGhostRequest;
@@ -73,6 +75,26 @@ export type GhostAxisRef =
   | { kind: 'standard'; axis: StandardAxis }
   | { kind: 'axis'; filePath: string; line: number }
   | { kind: 'edge'; shapeId: string; index: number };
+
+export type SweepGhostRequest = {
+  feature: 'sweep';
+  op: 'add' | 'remove' | 'new';
+  thin: [number] | [number, number] | null;
+  /** The producing statement of the profile to sweep. */
+  profile: { filePath: string; line: number };
+  path: GhostPathRef;
+};
+
+/**
+ * The sweep dialog's path slot on the wire: a wire statement by call site — a
+ * sketch or a helix, the two things the slot accepts as a named source — or
+ * the edges picked in the viewport, which the apply writes as a selector. As
+ * with the revolve's axis, "keep the current path" never reaches here; the
+ * client resolves it to one of the two first.
+ */
+export type GhostPathRef =
+  | { kind: 'wire'; filePath: string; line: number }
+  | { kind: 'edges'; entities: { shapeId: string; index: number }[] };
 
 export type LoftGhostRequest = {
   feature: 'loft';
@@ -194,6 +216,9 @@ export function buildFeatureGhost(
   // is keyed on TWO literals, which a negative test can't rule out.
   if (request.feature === 'extrude' || request.feature === 'revolve') {
     return meshGhostBodies(buildProfileGhost(scene, request), meshConfig);
+  }
+  if (request.feature === 'sweep') {
+    return meshGhostBodies(buildSweepGhost(scene, request), meshConfig);
   }
   if (request.feature === 'loft') {
     return meshGhostBodies(buildLoftGhost(scene, request), meshConfig);
@@ -399,6 +424,83 @@ function buildProfileGhost(
     thin: request.thin,
     throughAllLength: throughAllGhostLength(scene, geometries, plane),
   });
+}
+
+/**
+ * The sweep branch: one profile, plus a spine the path slot names. Resolving
+ * that spine builds shapes — the wire itself, and edge wrappers off the picked
+ * solids — so, as with the loft, the scratch is opened here and handed on to
+ * the caller, or freed on the spot when the answer is a refusal.
+ */
+function buildSweepGhost(scene: Scene, request: SweepGhostRequest): GhostBuild {
+  const profile = findProfile(scene, request.profile);
+  if (!profile) {
+    return { reason: 'That sketch is not in the rendered scene.' };
+  }
+  const plane = profile.getPlane();
+  if (!plane) {
+    return { reason: 'The profile has no plane.' };
+  }
+
+  const scratch: Shape[] = [];
+  let solids: Shape[] | null = null;
+  try {
+    const path = resolveGhostPath(scene, request.path, scratch);
+    if (!path) {
+      return { reason: 'That path is not in the rendered scene.' };
+    }
+    const geometries = profileEdges(profile);
+    const built = buildSweepGhostSolids(
+      { getGeometries: () => geometries, getPlane: () => plane },
+      { op: request.op, thin: request.thin, path },
+    );
+    scratch.push(...built.scratch);
+    solids = built.solids;
+    return { solids, scratch };
+  } finally {
+    // Set only on the one path that hands the scratch on; a refusal or a
+    // throw leaves it null and frees everything resolved so far.
+    if (!solids) {
+      for (const shape of scratch) {
+        shape.dispose();
+      }
+    }
+  }
+}
+
+/**
+ * The spine a ghost sweep runs along, as `Sweep.getSpineWire` would build it
+ * (sweep.ts:224 → `wireFromSceneObjectEdges`): every edge the slot names,
+ * joined into one wire. A named source reads back the edges the edited sweep
+ * has already consumed, for the same reason {@link profileEdges} does; picked
+ * edges are wrapped fresh off the shapes they were picked on. Null means the
+ * scene no longer holds what the slot names — and a throw out of the wire
+ * maker means the picks don't join up, which mid-composition is ordinary: the
+ * apply would refuse it too, so the dialog just shows no ghost.
+ */
+function resolveGhostPath(scene: Scene, ref: GhostPathRef, scratch: Shape[]): Wire | null {
+  const edges: Edge[] = [];
+  if (ref.kind === 'wire') {
+    const source = findWireSource(scene, ref);
+    if (!source) {
+      return null;
+    }
+    edges.push(...wireSourceEdges(source));
+  } else {
+    for (const entity of ref.entities) {
+      const edge = resolvePickedEdge(scene, entity, scratch);
+      if (!edge) {
+        return null;
+      }
+      edges.push(edge);
+    }
+  }
+  if (edges.length === 0) {
+    return null;
+  }
+  const wire = WireOps.makeWireFromEdges(edges);
+  scratch.push(wire);
+  return wire;
 }
 
 /**
@@ -667,8 +769,9 @@ function findProfile(
 }
 
 /**
- * The wire statement a loft guide names: a sketch or a helix, the two things
- * `loft.guides()` accepts (feature-sources.ts:178).
+ * The wire statement a loft guide or a sweep path names: a sketch or a helix,
+ * the two things `loft.guides()` accepts (feature-sources.ts:178) and the two
+ * the sweep dialog's path slot offers.
  */
 function findWireSource(scene: Scene, ref: { filePath: string; line: number }): SceneObject | null {
   return objectsAt(scene, ref)
@@ -784,9 +887,10 @@ function profileEdges(profile: Extrudable): Edge[] {
 }
 
 /**
- * A guide statement's edges — the same blind spot as {@link profileEdges}, for
- * the same reason: the loft being edited has consumed its own rails, and a
- * ghost built without them would show a surface the apply never produces.
+ * A guide or path statement's edges — the same blind spot as
+ * {@link profileEdges}, for the same reason: the loft being edited has
+ * consumed its own rails, the sweep its own spine, and a ghost built without
+ * them would show a surface the apply never produces.
  */
 function wireSourceEdges(source: SceneObject): Edge[] {
   const edges = onlyEdges(source.getShapes(undefined, 'edge'));

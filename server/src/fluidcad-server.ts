@@ -136,7 +136,8 @@ export type FeatureGhostRequest =
   | LoftGhostRequest
   | FilletGhostRequest
   | HelixGhostRequest
-  | RepeatGhostRequest;
+  | RepeatGhostRequest
+  | PlaneGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -321,11 +322,47 @@ export type GhostPlaneRef =
   | { kind: 'face'; shapeId: string; index: number };
 
 /**
+ * The construction plane. Like the helix it neither adds nor removes material
+ * — the ghost is the quad `plane()` would render, in the plane's own yellow —
+ * and its bases arrive resolved, in argument order: one for the offset and edge
+ * forms, two for a mid plane.
+ */
+export type PlaneGhostRequest = {
+  feature: 'plane';
+  type: 'offset' | 'mid' | 'edge';
+  bases: GhostPlaneBaseRef[];
+  /** Offset along the base normal; null when the field is empty. */
+  offset: number | null;
+  rotateX: number | null;
+  rotateY: number | null;
+  rotateZ: number | null;
+  /** Edge form: the normalized 0–1 position along the curve. */
+  position: number | null;
+};
+
+/**
+ * The plane dialog's base slot on the wire: the mirror plane's three forms
+ * ({@link GhostPlaneRef}), plus the edge form's own two — an edge picked in the
+ * viewport, and a statement drawing a single curve (a helix, or a sketch
+ * holding one). "Keep the current base" never travels.
+ */
+export type GhostPlaneBaseRef =
+  | GhostPlaneRef
+  | { kind: 'wire'; filePath: string; line: number }
+  | { kind: 'edge'; shapeId: string; index: number };
+
+/**
  * One ghost body's meshes, in the same wire format a rendered solid uses.
  * `kind` overrides the overlay's per-dialog color for this body alone — a
- * fillet takes material away at one edge and puts it back at the next.
+ * fillet takes material away at one edge and puts it back at the next; `plane`
+ * carries a construction plane's own frame, which the overlay draws its normal
+ * arrow from.
  */
-export type GhostSolid = { meshes: any[]; kind?: 'add' | 'remove' };
+export type GhostSolid = {
+  meshes: any[];
+  kind?: 'add' | 'remove';
+  plane?: { normal: { x: number; y: number; z: number }; center: { x: number; y: number; z: number } };
+};
 
 /**
  * A ghost outcome plus the status the route should answer with. `solids`

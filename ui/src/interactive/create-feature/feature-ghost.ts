@@ -2,22 +2,31 @@ import { Group, Object3D } from 'three';
 import { GhostSolid } from '../../api';
 import { EdgeMesh } from '../../meshes/shape-meshes/edge-mesh';
 import { SolidMesh } from '../../meshes/shape-meshes/solid-mesh';
+import { buildPlaneVisual, PLANE_OPACITY } from '../../meshes/containers/plane-mesh';
 import { themeColors } from '../../scene/theme-colors';
 import { Viewer } from '../../viewer';
 
 /**
  * What the ghost is showing. Green for the body an apply would add, red for
- * the tool a cut would sweep — and `wire` for a feature that is a curve rather
- * than a body (a helix), which puts no material anywhere and so wears the blue
- * a standalone wire renders in once applied.
+ * the tool a cut would sweep — and two kinds for the features that put no
+ * material anywhere at all: `wire` for one that is a curve (a helix), which
+ * wears the blue a standalone wire renders in once applied, and `plane` for a
+ * construction plane, which wears the plane's own yellow.
  */
-export type GhostKind = 'add' | 'remove' | 'wire';
+export type GhostKind = 'add' | 'remove' | 'wire' | 'plane';
 
 const FACE_OPACITY = 0.45;
 const EDGE_OPACITY = 0.9;
 
 /** A ghost curve is the whole feature, so it draws at the applied wire's weight. */
 const WIRE_LINE_WIDTH = 2;
+
+/**
+ * A ghost plane draws a shade stronger than the settled one. The face is the
+ * whole feature and the dialog is steering it live, so it has to register on
+ * every keystroke — a plane at its resting translucency reads as scenery.
+ */
+const GHOST_PLANE_OPACITY = PLANE_OPACITY * 1.8;
 
 /**
  * The live geometry a feature dialog would produce, drawn translucent over
@@ -56,6 +65,18 @@ export class FeatureGhostOverlay {
     this.clear();
     solids.forEach((solid, index) => {
       const bodyKind = solid.kind ?? kind;
+      if (bodyKind === 'plane') {
+        // A construction plane draws as the scene draws one — same quad, same
+        // outline, same normal arrow. `plane` carries the frame that arrow
+        // stands on; without it there is nothing to orient and nothing to draw.
+        if (solid.plane && solid.meshes[0]) {
+          const group = new Group();
+          buildPlaneVisual(group, solid.meshes[0], solid.plane.normal, solid.plane.center,
+            { opacity: GHOST_PLANE_OPACITY });
+          this.group.add(group);
+        }
+        return;
+      }
       this.group.add(bodyKind === 'wire'
         // A curve has no faces to split off: its meshes go straight to the
         // line renderer, which draws whatever it is handed.

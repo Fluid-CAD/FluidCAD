@@ -37,6 +37,19 @@ function boundaryFor(scene: Scene, type: string, line: number): SelectionBoundar
   return { index, type, line, column: 0 };
 }
 
+/**
+ * Boundary addressing the plane statement at `line`. Planes need their own
+ * lookup: every `sketch('xy', …)` puts an unlocated plane object in the scene
+ * too, and all three plane forms report the same type, so the line is what
+ * tells the statement apart.
+ */
+function planeBoundary(scene: Scene, line: number): SelectionBoundary {
+  const index = scene.getAllSceneObjects()
+    .findIndex(o => o.getType() === "plane" && o.getSourceLocation()?.line === line);
+  expect(index).toBeGreaterThanOrEqual(0);
+  return { index, type: "plane", line, column: 0 };
+}
+
 describe("feature sources (edit-dialog seeding)", () => {
   setupOC();
 
@@ -447,6 +460,61 @@ describe("feature sources (edit-dialog seeding)", () => {
         kind: "entities",
         entities: faceRefsWhere(box, m => Math.abs(m.z - 10) < 1e-6),
       });
+    }
+  });
+
+  it("resolves a plane's picked-face base onto the pre-plane solid", () => {
+    sketch("xy", () => {
+      rect(40, 40);
+    });
+    const e = extrude(10) as Extrude;
+    setLocation(e, 4);
+    const p = plane(e.endFaces() as never, 8);
+    setLocation(p as never, 6);
+
+    const scene = render();
+    const box = solidOf(scene, "extrude");
+    const result = resolveFeatureSources(scene, planeBoundary(scene, 6));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "plane") {
+      expect(result.bases).toEqual([{
+        kind: "entities",
+        entities: faceRefsWhere(box, m => Math.abs(m.z - 10) < 1e-6),
+      }]);
+    }
+  });
+
+  it("resolves a mid plane's two bases in argument order", () => {
+    const first = plane("xy", 10);
+    setLocation(first as never, 2);
+    const second = plane("xy", 40);
+    setLocation(second as never, 3);
+    const mid = plane(first as never, second as never);
+    setLocation(mid as never, 4);
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, planeBoundary(scene, 4));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "plane") {
+      expect(result.bases).toEqual([
+        { kind: "sketch", filePath: "/ws/model.fluid.js", line: 2, column: 0 },
+        { kind: "sketch", filePath: "/ws/model.fluid.js", line: 3, column: 0 },
+      ]);
+    }
+  });
+
+  it("marks an origin-plane literal's base opaque", () => {
+    const p = plane("xz", 12);
+    setLocation(p as never, 3);
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, planeBoundary(scene, 3));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "plane") {
+      expect(result.bases).toEqual([{ kind: "opaque" }]);
     }
   });
 

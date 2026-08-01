@@ -3,7 +3,7 @@ import { extractNumericParams, resolveParamValues } from '../apply-feature-edit.
 import { getJavaScriptParser, type TSNode, type TSTree } from '../code-editor.ts';
 import type {
   FeatureGhostRequest, FluidCadServer, GhostAxisRef, GhostEntityRef, GhostHelixSourceRef,
-  GhostPathRef, GhostPlaneRef, GhostRepeatDirection, GhostSectionRef,
+  GhostPathRef, GhostPlaneBaseRef, GhostPlaneRef, GhostRepeatDirection, GhostSectionRef,
 } from '../fluidcad-server.ts';
 import { MAX_REPEAT_TARGETS } from './apply-feature.ts';
 
@@ -23,6 +23,7 @@ type GhostBody = {
   drill?: unknown;
   thin?: unknown;
   angle?: unknown;
+  offset?: unknown;
   value?: unknown;
   isAngle?: unknown;
   edges?: unknown;
@@ -49,9 +50,15 @@ type GhostBody = {
   centered?: unknown;
   count?: unknown;
   sweep?: unknown;
+  type?: unknown;
+  bases?: unknown;
+  rotateX?: unknown;
+  rotateY?: unknown;
+  rotateZ?: unknown;
+  position?: unknown;
 };
 
-const FEATURES = ['extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat'];
+const FEATURES = ['extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'plane'];
 
 /** The features that modify edges of an existing solid rather than sweep a profile. */
 const BAND_FEATURES = ['fillet', 'chamfer'];
@@ -68,6 +75,9 @@ const STANDARD_PLANES = ['xy', 'xz', 'yz'];
 const CONDITION_TYPES = ['normal', 'tangent'];
 
 const REPEAT_KINDS = ['linear', 'circular', 'mirror', 'rotate'];
+
+/** The plane dialog's three forms; the base count follows from the type. */
+const PLANE_TYPES = ['offset', 'mid', 'edge'];
 
 /** The circular dialog's two angle forms: the whole sweep, or one step of it. */
 const SWEEP_MODES = ['angle', 'offset'];
@@ -293,6 +303,55 @@ function parsePlane(value: unknown): GhostPlaneRef | null {
       : null;
   }
   return null;
+}
+
+/**
+ * One base of the plane dialog: the mirror plane's three forms, plus the edge
+ * form's own two — a picked edge, and a statement drawing a single curve. As
+ * with every other slot on this wire, a keep chip the client couldn't address
+ * is a bad request rather than a silent fall back to an origin plane.
+ */
+function parsePlaneBase(value: unknown): GhostPlaneBaseRef | null {
+  const base = value as { kind?: unknown; filePath?: unknown; line?: unknown; shapeId?: unknown; index?: unknown };
+  if (base?.kind === 'wire') {
+    return typeof base.filePath === 'string' && typeof base.line === 'number'
+      ? { kind: 'wire', filePath: base.filePath, line: base.line }
+      : null;
+  }
+  if (base?.kind === 'edge') {
+    return typeof base.shapeId === 'string' && typeof base.index === 'number'
+      ? { kind: 'edge', shapeId: base.shapeId, index: base.index }
+      : null;
+  }
+  return parsePlane(value);
+}
+
+/**
+ * The dialog's base list, checked against the form it belongs to: one base for
+ * an offset or edge plane, two for a mid plane — the same counts
+ * `validatePlaneBaseList` enforces on the apply path. The edge form takes only
+ * an edge source; the other two only a plane one, so a request can't ghost a
+ * plane the apply would refuse to write.
+ */
+function parsePlaneBases(value: unknown, type: 'offset' | 'mid' | 'edge'): GhostPlaneBaseRef[] | string {
+  if (!Array.isArray(value) || value.length !== (type === 'mid' ? 2 : 1)) {
+    return type === 'mid' ? 'A mid plane takes two bases' : `An ${type} plane takes one base`;
+  }
+  const bases: GhostPlaneBaseRef[] = [];
+  for (const raw of value) {
+    const base = parsePlaneBase(raw);
+    if (!base) {
+      return 'Invalid plane base';
+    }
+    const isEdgeSource = base.kind === 'wire' || base.kind === 'edge';
+    if (isEdgeSource !== (type === 'edge')) {
+      return type === 'edge'
+        ? 'An edge plane takes an edge, a sketch curve or a helix'
+        : 'That plane type takes a face or a plane';
+    }
+    bases.push(base);
+  }
+  return bases;
 }
 
 /** The repeat's axis slots — one per linear direction, or one on its own. */
@@ -571,7 +630,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const isBand = BAND_FEATURES.includes(body.feature);
     const isHelix = body.feature === 'helix';
     const isRepeat = body.feature === 'repeat';
-    if (!isBand && !isHelix && !isRepeat && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
+    const isPlane = body.feature === 'plane';
+    if (!isBand && !isHelix && !isRepeat && !isPlane
+      && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
     }
@@ -582,7 +643,10 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       || !isValueExprOrNull(body.radius) || !isValueExprOrNull(body.endRadius)
       || !isValueExprOrNull(body.pitch) || !isValueExprOrNull(body.turns)
       || !isValueExprOrNull(body.height) || !isValueExprOrNull(body.startOffset)
-      || !isValueExprOrNull(body.endOffset)) {
+      || !isValueExprOrNull(body.endOffset)
+      || !isValueExprOrNull(body.offset) || !isValueExprOrNull(body.rotateX)
+      || !isValueExprOrNull(body.rotateY) || !isValueExprOrNull(body.rotateZ)
+      || !isValueExprOrNull(body.position)) {
       res.status(400).json({ success: false, reason: 'Invalid dimension' });
       return;
     }
@@ -634,6 +698,21 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       }
       repeat = parsed;
     }
+    let planeType: 'offset' | 'mid' | 'edge' | null = null;
+    let planeBases: GhostPlaneBaseRef[] = [];
+    if (isPlane) {
+      if (typeof body.type !== 'string' || !PLANE_TYPES.includes(body.type)) {
+        res.status(400).json({ success: false, reason: 'Invalid plane type' });
+        return;
+      }
+      planeType = body.type as 'offset' | 'mid' | 'edge';
+      const parsed = parsePlaneBases(body.bases, planeType);
+      if (typeof parsed === 'string') {
+        res.status(400).json({ success: false, reason: parsed });
+        return;
+      }
+      planeBases = parsed;
+    }
     const startRaw = parseCondition(body.startCondition);
     const endRaw = parseCondition(body.endCondition);
     if (startRaw === 'invalid' || endRaw === 'invalid') {
@@ -678,6 +757,11 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const startOffset = resolve(body.startOffset);
     const endOffset = resolve(body.endOffset);
     const count = resolve(body.count);
+    const offset = resolve(body.offset);
+    const rotateX = resolve(body.rotateX);
+    const rotateY = resolve(body.rotateY);
+    const rotateZ = resolve(body.rotateZ);
+    const position = resolve(body.position);
     const sweepValue = repeat?.sweep ? resolve(repeat.sweep.value) : null;
     const directions = (repeat?.directions ?? []).map(direction => ({
       count: resolve(direction.count),
@@ -716,6 +800,17 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         height,
         startOffset,
         endOffset,
+      };
+    } else if (isPlane) {
+      request = {
+        feature: 'plane',
+        type: planeType!,
+        bases: planeBases,
+        offset,
+        rotateX,
+        rotateY,
+        rotateZ,
+        position,
       };
     } else if (isRepeat) {
       request = {

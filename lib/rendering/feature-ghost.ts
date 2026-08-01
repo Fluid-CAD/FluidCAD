@@ -12,6 +12,7 @@ import {
   HelixSourceKind, resolveHelixEdgeSource, resolveHelixFaceSource,
 } from "../features/helix-geometry.js";
 import { buildLoftGhostSolids, LoftGhostProfile } from "../features/loft-ghost.js";
+import { buildPlaneGhostQuad, PlaneGhostBase, PlaneGhostSource } from "../features/plane-ghost.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import {
   buildCircularGhostMatrices, buildLinearGhostMatrices, buildMirrorGhostMatrices,
@@ -23,6 +24,7 @@ import { Extrudable, BoundingBox } from "../helpers/types.js";
 import { Axis, StandardAxis, toAxis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { Plane, toPlane } from "../math/plane.js";
+import { Point } from "../math/point.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Explorer } from "../oc/explorer.js";
@@ -48,7 +50,8 @@ export type FeatureGhostRequest =
   | LoftGhostRequest
   | FilletGhostRequest
   | HelixGhostRequest
-  | RepeatGhostRequest;
+  | RepeatGhostRequest
+  | PlaneGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -243,13 +246,62 @@ export type GhostPlaneRef =
   | { kind: 'face'; shapeId: string; index: number };
 
 /**
+ * The construction plane, and the second feature (after the helix) whose ghost
+ * is the feature itself rather than material: a plane adds nothing and removes
+ * nothing, so what comes back is the quad `plane()` would render, drawn in the
+ * same yellow the settled plane wears.
+ *
+ * The bases arrive resolved, in argument order — one for the offset and edge
+ * forms, two for a mid plane — and the numbers already evaluated, as everywhere
+ * else on this wire.
+ */
+export type PlaneGhostRequest = {
+  feature: 'plane';
+  type: 'offset' | 'mid' | 'edge';
+  bases: GhostPlaneBaseRef[];
+  /** Offset along the base normal; null when the field is empty. */
+  offset: number | null;
+  rotateX: number | null;
+  rotateY: number | null;
+  rotateZ: number | null;
+  /** Edge form: the normalized 0–1 position along the curve. */
+  position: number | null;
+};
+
+/**
+ * What the plane dialog's base slot holds, on the wire. The first three are
+ * the mirror plane's family ({@link GhostPlaneRef}) — an origin plane, a
+ * `plane()` statement, a picked planar face. The last two are the edge form's
+ * own: a picked edge, and a statement drawing a single curve (a helix, or a
+ * sketch holding one curve), which `plane(<statement>, position)` resolves to
+ * that curve. As everywhere else, a keep chip resolves to one of these
+ * client-side, so "keep" never travels.
+ */
+export type GhostPlaneBaseRef =
+  | GhostPlaneRef
+  | { kind: 'wire'; filePath: string; line: number }
+  | { kind: 'edge'; shapeId: string; index: number };
+
+/**
  * One ghost body, in the same mesh wire format a rendered solid uses. `kind`
  * overrides the overlay's per-dialog color for this body alone — a fillet's
  * picks can take material away at one edge and put it back at the next, so the
  * two have to be told apart within a single answer. The swept features leave it
  * unset and the whole ghost takes the dialog's own add/remove color.
  */
-export type GhostSolid = { meshes: SceneObjectMesh[]; kind?: 'add' | 'remove' };
+export type GhostSolid = {
+  meshes: SceneObjectMesh[];
+  kind?: 'add' | 'remove';
+  /**
+   * A construction plane's own frame: its normal, and the point its quad is
+   * centered on. Only the plane ghost carries it — the overlay draws the
+   * normal arrow from these, the way a rendered `plane()` draws its own.
+   */
+  plane?: { normal: Vector3Wire; center: Vector3Wire };
+};
+
+/** A point or direction on the wire, in the shape the scene already sends. */
+type Vector3Wire = { x: number; y: number; z: number };
 
 export type FeatureGhostResult =
   | { ok: true; solids: GhostSolid[] }
@@ -310,6 +362,9 @@ export function buildFeatureGhost(
   }
   if (request.feature === 'repeat') {
     return buildRepeatGhost(scene, request, meshConfig);
+  }
+  if (request.feature === 'plane') {
+    return buildPlaneGhost(scene, request, meshConfig);
   }
   return buildBandGhost(scene, request, meshConfig);
 }
@@ -465,6 +520,170 @@ function resolvePickedEdgeGroups(
     }
   }
   return resolved;
+}
+
+/**
+ * The plane branch: the one ghost that is neither a body nor a curve but a
+ * *frame* — the quad `plane()` renders, at the place the dialog's bases and
+ * numbers put it. Nothing is added and nothing is taken away, so it carries no
+ * add/remove color; it wears the plane's own yellow instead, and rides back
+ * with its normal so the overlay can draw the same arrow a settled plane does.
+ *
+ * The slots resolve here — the kernel's half of the dialog's base list — and
+ * the geometry comes from `buildPlaneGhostQuad`, which mirrors the three plane
+ * features. A base the scene no longer holds refuses outright: half a mid
+ * plane is not a plane.
+ */
+function buildPlaneGhost(
+  scene: Scene,
+  request: PlaneGhostRequest,
+  meshConfig: MeshConfig,
+): FeatureGhostResult {
+  // Only a face or edge pick opens shapes here; the named sources are read off
+  // scene objects and the numbers are plain numbers.
+  const scratch: Shape[] = [];
+  try {
+    const source = resolvePlaneGhostSource(scene, request, scratch);
+    if ('reason' in source) {
+      return { ok: false, reason: source.reason };
+    }
+    const quad = buildPlaneGhostQuad(source, {
+      offset: request.offset ?? 0,
+      rotateX: request.rotateX ?? 0,
+      rotateY: request.rotateY ?? 0,
+      rotateZ: request.rotateZ ?? 0,
+    });
+    try {
+      const meshes = new MeshBuilder(meshConfig).build(quad.face);
+      if (!meshes) {
+        return { ok: true, solids: [] };
+      }
+      return {
+        ok: true,
+        solids: [{
+          meshes,
+          plane: { normal: toVector3Wire(quad.normal), center: toVector3Wire(quad.center) },
+        }],
+      };
+    } finally {
+      quad.face.dispose();
+    }
+  } finally {
+    for (const shape of scratch) {
+      shape.dispose();
+    }
+  }
+}
+
+/**
+ * The dialog's base list as the form it belongs to: one plane for an offset,
+ * two for a mid, one curve for the edge form. The counts are the route's to
+ * enforce; they are re-checked here because a form built from the wrong number
+ * of bases is a different plane, not a partial one.
+ */
+function resolvePlaneGhostSource(
+  scene: Scene,
+  request: PlaneGhostRequest,
+  scratch: Shape[],
+): PlaneGhostSource | { reason: string } {
+  if (request.type === 'edge') {
+    const edge = request.bases.length === 1
+      ? resolvePlaneGhostEdge(scene, request.bases[0], scratch)
+      : null;
+    return edge
+      ? { form: 'edge', edge, position: request.position ?? 0 }
+      : { reason: 'That edge is not in the rendered scene.' };
+  }
+  const bases: PlaneGhostBase[] = [];
+  for (const ref of request.bases) {
+    const base = resolvePlaneGhostBase(scene, ref, scratch);
+    if (!base) {
+      return { reason: 'That base is not in the rendered scene.' };
+    }
+    bases.push(base);
+  }
+  if (request.type === 'mid') {
+    return bases.length === 2
+      ? { form: 'mid', bases: [bases[0], bases[1]] }
+      : { reason: 'A mid plane takes two bases.' };
+  }
+  return bases.length === 1
+    ? { form: 'offset', base: bases[0] }
+    : { reason: 'An offset plane takes one base.' };
+}
+
+/**
+ * One base of the offset and mid forms, read the way `plane()` reads it at
+ * build time: an origin plane is a constant, a `plane()` statement gives up
+ * its stored plane and the point its quad sits on (a statement the edited
+ * plane has consumed included — consumption removes the quad, not the state),
+ * and a picked face gives up its own plane, centered on the face rather than
+ * on the plane's origin (plane-from-object.ts:61-64). Null means the scene no
+ * longer holds what the slot names — or the face is curved, and defines no
+ * plane at all.
+ */
+function resolvePlaneGhostBase(
+  scene: Scene,
+  ref: GhostPlaneBaseRef,
+  scratch: Shape[],
+): PlaneGhostBase | null {
+  if (ref.kind === 'standard') {
+    return { plane: toPlane(ref.plane) };
+  }
+  if (ref.kind === 'plane') {
+    const obj = findByLocation(scene, ref, o => o instanceof PlaneObjectBase) as PlaneObjectBase | null;
+    const plane = obj?.getPlane();
+    return plane ? { plane, center: obj!.getPlaneCenter() } : null;
+  }
+  if (ref.kind !== 'face') {
+    // A curve source belongs to the edge form alone.
+    return null;
+  }
+  const face = resolvePickedFace(scene, ref, scratch);
+  if (!face || !FaceQuery.isPlanarFace(face)) {
+    return null;
+  }
+  try {
+    const box = ShapeOps.getBoundingBox(face);
+    return { plane: face.getPlane(), center: new Point(box.centerX, box.centerY, box.centerZ) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The edge form's base: an edge picked in the viewport, or the single curve a
+ * statement draws (a helix, or a sketch holding one). A pick is wrapped fresh
+ * out of the solid it was made on and goes back with the scratch; a
+ * statement's edge belongs to the scene and is only borrowed. Either way the
+ * source has to be exactly one curve — `plane()` refuses anything else
+ * (plane-from-object.ts:39).
+ */
+function resolvePlaneGhostEdge(
+  scene: Scene,
+  ref: GhostPlaneBaseRef,
+  scratch: Shape[],
+): Edge | null {
+  if (ref.kind === 'wire') {
+    const source = findWireSource(scene, ref);
+    const edges = source ? wireSourceEdges(source) : [];
+    return edges.length === 1 ? edges[0] : null;
+  }
+  if (ref.kind !== 'edge') {
+    return null;
+  }
+  const shape = findShapeById(scene, ref.shapeId);
+  if (!shape) {
+    return null;
+  }
+  const edges = Explorer.findEdgesWrapped(shape);
+  scratch.push(...edges);
+  return edges[ref.index] ?? null;
+}
+
+/** A point or direction, flattened to what the wire carries. */
+function toVector3Wire(value: { x: number; y: number; z: number }): Vector3Wire {
+  return { x: value.x, y: value.y, z: value.z };
 }
 
 /**

@@ -238,14 +238,20 @@ export class PlaneFromObject extends PlaneObjectBase {
 /**
  * Evaluates the point and unit (forward) tangent on `edge` at a normalized
  * position `t` (`0` = start, `1` = end), measured by arc length.
+ *
+ * Shared with the plane ghost, which samples the same frame per keystroke —
+ * hence the wire built to carry the sampler is freed here rather than left to
+ * the caller. It is a temporary over `edge`'s own handle, so `edge` itself is
+ * untouched.
  */
-function sampleEdgeFrame(edge: Edge, t: number): PathFrame {
+export function sampleEdgeFrame(edge: Edge, t: number): PathFrame {
   const wire = WireOps.makeWireFromEdges([edge]);
   const sampler = new PathSampler(wire);
   try {
     return sampler.evalAt(t * sampler.length);
   } finally {
     sampler.dispose();
+    wire.dispose();
   }
 }
 

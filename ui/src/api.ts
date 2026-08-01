@@ -1,5 +1,5 @@
 import type { VariableInfo } from './ui/expression-input';
-import type { SceneObjectMesh, SourceLocation } from './types';
+import type { SceneObjectMesh, SourceLocation, Vec3Data } from './types';
 
 export type { SourceLocation };
 
@@ -298,7 +298,8 @@ export type FeatureGhostRequest =
   | LoftGhostRequest
   | FilletGhostRequest
   | HelixGhostRequest
-  | RepeatGhostRequest;
+  | RepeatGhostRequest
+  | PlaneGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -493,12 +494,56 @@ export type GhostPlaneRef =
   | { kind: 'face'; shapeId: string; index: number };
 
 /**
+ * The plane dialog on the ghost wire, and the second feature (after the helix)
+ * that puts no material anywhere: a construction plane adds nothing and removes
+ * nothing, so what comes back is the quad `plane()` renders — drawn in the same
+ * yellow the settled plane wears, normal arrow and all.
+ *
+ * The bases arrive resolved and in argument order, one for the offset and edge
+ * forms and two for a mid plane; as everywhere else on this wire, a keep chip
+ * resolves to its statement or its pick before it ships.
+ */
+export type PlaneGhostRequest = {
+  feature: 'plane';
+  type: 'offset' | 'mid' | 'edge';
+  bases: GhostPlaneBaseRef[];
+  /** Offset along the base normal; null when the field is empty. */
+  offset: ValueExpr | null;
+  rotateX: ValueExpr | null;
+  rotateY: ValueExpr | null;
+  rotateZ: ValueExpr | null;
+  /** Edge form: the normalized 0–1 position along the curve. */
+  position: ValueExpr | null;
+};
+
+/**
+ * The plane dialog's base slot on the wire. The first three are the mirror
+ * plane's family ({@link GhostPlaneRef}) — an origin plane, a `plane()`
+ * statement's call site, a picked face's `{shapeId, index}`. The last two are
+ * the edge form's own: a picked edge, and a statement drawing a single curve (a
+ * helix, or a sketch holding one curve).
+ */
+export type GhostPlaneBaseRef =
+  | GhostPlaneRef
+  | { kind: 'wire'; filePath: string; line: number }
+  | { kind: 'edge'; shapeId: string; index: number };
+
+/**
  * One ghost body, in the mesh wire format the scene's solids already use.
  * `kind` overrides the overlay's per-dialog color for this body alone: a
  * fillet's picks can take material away at one edge and put it back at the
  * next, so one answer carries both. The swept features leave it unset.
  */
-export type GhostSolid = { meshes: SceneObjectMesh[]; kind?: 'add' | 'remove' };
+export type GhostSolid = {
+  meshes: SceneObjectMesh[];
+  kind?: 'add' | 'remove';
+  /**
+   * A construction plane's own frame — its normal, and the point its quad is
+   * centered on. Only the plane ghost carries it; the overlay draws the normal
+   * arrow from these, exactly as a rendered `plane()` draws its own.
+   */
+  plane?: { normal: Vec3Data; center: Vec3Data };
+};
 
 /**
  * The bodies the dialog's current values would produce, meshed server-side.
@@ -1652,6 +1697,13 @@ export type FeatureSourcesResult =
    * statement, and the dialog reads it straight off the argument text.
    */
   | { ok: true; feature: 'repeat'; targets: SourceSlotRef[]; axes: SourceSlotRef[]; plane?: SourceSlotRef }
+  /**
+   * A construction plane, by its bases in argument order — one for the offset
+   * and edge forms, two for a mid plane. An origin-plane literal is `opaque`:
+   * it names no statement and holds no pick, and the dialog reads it straight
+   * off the argument text.
+   */
+  | { ok: true; feature: 'plane'; bases: SourceSlotRef[] }
   | { ok: false; reason: string };
 
 /** Current sources of the statement at `before`, for edit-dialog seeding. */

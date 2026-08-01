@@ -1,6 +1,7 @@
 import {
-  applyPlane, applyPlaneEdit, FeatureEditTarget, ParsedFeatureStatement, ParsedPlaneBase,
-  PlaneApplyOptions, PlaneBaseRef, PlaneEditBaseRef, PlaneEditOptions, SketchSourceRef,
+  applyPlane, applyPlaneEdit, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
+  GhostPlaneBaseRef, GhostSolid, ParsedFeatureStatement, ParsedPlaneBase, PlaneApplyOptions,
+  PlaneBaseRef, PlaneEditBaseRef, PlaneEditOptions, SketchSourceRef, SourceSlotRef,
 } from '../../api';
 import { sameEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
@@ -10,6 +11,7 @@ import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import { PlanePanel, PlaneValues } from './plane-panel';
 import { FeatureButton } from './feature-button';
+import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
@@ -84,6 +86,14 @@ export class PlaneFeatureService {
   private runner: ApplyRunner<PlaneApplyOptions | PlaneEditOptions>;
   private relabeler: OptionRelabeler<PlaneOption[]>;
   private wireRelabeler: OptionRelabeler<SketchProfileOption[]>;
+  /** The translucent quad the current values would put in the scene. */
+  private ghost: FeatureGhostOverlay;
+  /**
+   * Edit mode: what the edited statement's own bases currently name, by
+   * argument index — how a kept chip written as a selector (`plane(select(face
+   * (…)), 10)`) still gets a ghost. Null until the boundary resolves it.
+   */
+  private sourceBases: SourceSlotRef[] | null = null;
 
   constructor(
     container: HTMLElement,
@@ -119,6 +129,7 @@ export class PlaneFeatureService {
     // always offered (the sketch slot votes the group visible in any scene).
     this.navbar.setGroupVisible('create', true, 'plane');
     this.sketchUI = new SketchUISuspender(viewer, hooks);
+    this.ghost = new FeatureGhostOverlay(viewer);
 
     this.panel = new PlanePanel(container);
     this.panel.onApply = () => void this.runner.apply();
@@ -144,6 +155,18 @@ export class PlaneFeatureService {
         : applyPlane({ ...(request as PlaneApplyOptions), ...extras }),
       onApplied: () => this.exit(this.editTarget ? { editEnd: 'apply' } : { resume: 'lazy' }),
       failMessage: () => this.editTarget ? 'Could not apply the edit.' : 'Could not apply the plane.',
+      // The statement preview's geometric twin: the quad the values describe,
+      // drawn in the viewport. Same debounce, same abort scope.
+      ghost: {
+        fetch: (_request, signal) => this.fetchGhost(signal),
+        apply: (solids) => {
+          if (solids) {
+            this.ghost.set(solids, 'plane');
+          } else {
+            this.ghost.clear();
+          }
+        },
+      },
     });
     this.relabeler = new OptionRelabeler({
       sign: planeOptionsSignature,
@@ -225,13 +248,19 @@ export class PlaneFeatureService {
       return;
     }
     if (state === 'waiting') {
+      // Mid-flight to the boundary — whatever the ghost was drawn against is
+      // already gone from the view.
+      this.ghost.clear();
       return;
     }
+    this.ghost.clear();
     this.collectOptions(sceneObjects);
     this.remapBases();
+    if (!this.sourceBases) {
+      void this.loadEditSources();
+    }
     void this.relabeler.refresh(this.planes);
     void this.wireRelabeler.refresh(this.wires);
-    this.syncViewport();
     this.refresh();
     this.runner.schedulePreview();
   }
@@ -241,6 +270,9 @@ export class PlaneFeatureService {
     if (!this.armed) {
       return;
     }
+    // The geometry under the ghost just changed — drop it now and let the
+    // debounce redraw it. Correctness over the flicker.
+    this.ghost.clear();
     // A render can put a sketch back in front (live editing) — the armed
     // dialog keeps the free 3D view.
     if (this.sceneSketchActive) {
@@ -249,7 +281,6 @@ export class PlaneFeatureService {
     this.remapBases();
     void this.relabeler.refresh(this.planes);
     void this.wireRelabeler.refresh(this.wires);
-    this.syncViewport();
     this.refresh();
     this.runner.schedulePreview();
   }
@@ -334,12 +365,13 @@ export class PlaneFeatureService {
         reads: base.kind,
         loc: base.ref ? { filePath: target.filePath, ...base.ref } : undefined,
       });
+    this.sourceBases = null;
     this.syncButton();
     this.sketchUI.suspend();
     this.session.begin({ ...info, target });
+    void this.loadEditSources();
     void this.refreshScopeVariables();
     this.panel.showEdit(parsed);
-    this.syncViewport();
     this.refresh();
     this.runner.schedulePreview();
   }
@@ -364,7 +396,6 @@ export class PlaneFeatureService {
     this.panel.show();
     this.seedFromSelection(seed);
     void this.relabeler.refresh(this.planes);
-    this.syncViewport();
     this.refresh();
     this.runner.schedulePreview();
   }
@@ -410,8 +441,12 @@ export class PlaneFeatureService {
     }
     this.armed = false;
     this.editTarget = null;
+    this.sourceBases = null;
     this.syncButton();
     this.runner.cancelPreview();
+    // The overlay is a compiledMesh sibling, so no render tears it down —
+    // every way out of the dialog (apply, cancel, scene-driven) lands here.
+    this.ghost.clear();
     this.bases = [];
     this.viewer.clearHighlight();
     this.viewer.hideStandardPlanes();
@@ -608,7 +643,6 @@ export class PlaneFeatureService {
           && (b.kind !== 'keep' || b.reads !== 'edge'))
         .slice(0, this.panel.capacity);
     }
-    this.syncViewport();
     this.refresh();
     this.runner.schedulePreview();
   }
@@ -642,6 +676,112 @@ export class PlaneFeatureService {
       };
     }
     return values;
+  }
+
+  /**
+   * The live geometry for the current form state — the quad the statement
+   * would put in the scene, drawn where it would land. It runs off the values
+   * the statement preview just validated, so all that is left is to address the
+   * bases, and that is where the create and edit dialogs converge: both hand
+   * the server explicit refs, so the endpoint never has to know which mode
+   * asked.
+   *
+   * A base the ghost can't address means no ghost. In practice that is one
+   * case: an edit dialog over a base written as a selector (`plane(select(face
+   * (…)), 10)`), whose kept chip names an expression rather than a statement —
+   * every other chip is a pick, a statement, or an origin plane, all of which
+   * the kernel resolves.
+   */
+  private async fetchGhost(signal: AbortSignal): Promise<GhostSolid[] | null> {
+    const values = this.formValues();
+    if ('error' in values) {
+      return null;
+    }
+    const bases: GhostPlaneBaseRef[] = [];
+    for (const base of this.bases) {
+      const ref = this.ghostBaseRef(base);
+      if (!ref) {
+        return null;
+      }
+      bases.push(ref);
+    }
+    return fetchFeatureGhost({
+      feature: 'plane',
+      type: values.type,
+      bases,
+      offset: values.offset,
+      rotateX: values.rotateX,
+      rotateY: values.rotateY,
+      rotateZ: values.rotateZ,
+      position: values.position,
+    }, signal);
+  }
+
+  /** One chosen base in the form the kernel resolves, or null when unaddressable. */
+  private ghostBaseRef(base: PlaneBaseItem): GhostPlaneBaseRef | null {
+    if (base.kind === 'standard') {
+      return { kind: 'standard', plane: base.plane };
+    }
+    if (base.kind === 'plane') {
+      return { kind: 'plane', filePath: base.option.filePath, line: base.option.line };
+    }
+    if (base.kind === 'wire') {
+      return { kind: 'wire', filePath: base.option.filePath, line: base.option.line };
+    }
+    if (base.kind === 'pick') {
+      const { shapeId, sub } = base.entity;
+      return sub.type === 'face' || sub.type === 'edge'
+        ? { kind: sub.type, shapeId, index: sub.index }
+        : null;
+    }
+    return this.keepBaseRef(base);
+  }
+
+  /**
+   * A kept base's ref: what the statement's own argument currently names, read
+   * off the resolved sources. A keep whose expression is a plain identifier was
+   * already remapped to its plane or wire chip at the boundary, so the case
+   * that lands here is the selector one — `plane(select(face(…)), 10)` — whose
+   * face the sources query maps onto the rolled-back solids. Null while that
+   * query is still in flight (its completion re-kicks the preview) or when the
+   * argument is an expression it couldn't address.
+   */
+  private keepBaseRef(base: PlaneBaseItem & { kind: 'keep' }): GhostPlaneBaseRef | null {
+    const slot = this.sourceBases?.[base.sourceIndex];
+    if (!slot) {
+      return null;
+    }
+    if (slot.kind === 'sketch') {
+      // A statement base: an edge-form keep stands on a wire, any other on a
+      // plane — the same reading that decides which types can keep it.
+      return { kind: base.reads === 'edge' ? 'wire' : 'plane', filePath: slot.filePath, line: slot.line };
+    }
+    if (slot.kind !== 'entities' || slot.entities.length !== 1) {
+      // A plane base is one face or one edge; anything else is an expression
+      // the ghost has no single frame for.
+      return null;
+    }
+    const { shapeId, sub } = slot.entities[0];
+    return { kind: sub.type, shapeId, index: sub.index };
+  }
+
+  /**
+   * Resolve what the edited statement's bases currently name, for the ghost's
+   * kept chips. A response landing after the dialog closed or moved to another
+   * boundary is dropped; a successful one re-kicks the preview, since
+   * `enterEdit` scheduled its own before this was known.
+   */
+  private async loadEditSources(): Promise<void> {
+    const boundary = this.session.boundary;
+    if (!boundary) {
+      return;
+    }
+    const result = await fetchFeatureSources(boundary);
+    if (!this.editTarget || this.session.boundary?.index !== boundary.index) {
+      return;
+    }
+    this.sourceBases = result.ok && result.feature === 'plane' ? result.bases : [];
+    this.runner.schedulePreview();
   }
 
   /** One chosen base as its request ref (never a keep — see the edit path). */
@@ -701,12 +841,14 @@ export class PlaneFeatureService {
   // -------------------------------------------------------------------------
 
   /**
-   * Align the viewport with the type: the origin planes show as pick targets
-   * while armed (re-shown on renders to re-size to the scene) — except for
-   * the edge type, whose only base is a picked edge — and the pick filter
-   * narrows scene picks to faces (offset/mid) or edges (edge type). The edge
-   * type also opens the sketch-wire channel, so a bare sketch curve — which
-   * renders as a wire, outside the solid-edge bucket — can be picked.
+   * Align the viewport with the type and the base list: the origin planes show
+   * as pick targets while armed (re-shown on every pass to re-size to the
+   * scene) and the pick filter narrows scene picks to faces (offset/mid) or
+   * edges (edge type). The edge type also opens the sketch-wire channel, so a
+   * bare sketch curve — which renders as a wire, outside the solid-edge bucket
+   * — can be picked.
+   *
+   * Called from {@link refresh}, so the quads always follow the chips.
    */
   private syncViewport(): void {
     if (!this.armed) {
@@ -715,18 +857,39 @@ export class PlaneFeatureService {
     const edgeType = this.panel.planeType === 'edge';
     this.viewer.pickFilter = edgeType ? 'edge' : 'face';
     this.viewer.pickSketchWires = edgeType;
-    if (edgeType) {
+    // The edge type's only base is a curve, so its quads never help.
+    if (edgeType || this.standardBaseFills()) {
       this.viewer.hideStandardPlanes();
     } else {
       this.viewer.showStandardPlanes(this.onStandardPlanePick);
     }
   }
 
-  /** Repaint the chips, the hint box, and the picked-entity highlights. */
+  /**
+   * An origin plane is chosen and the base list is full. The quads are pick
+   * targets and nothing else — once no further pick can land on one, they only
+   * sit across the ghost they were picked for, in the exact place the user is
+   * trying to look. Removing the chip (✕) empties the slot and brings them
+   * back, which is the only way to swap one origin plane for another.
+   *
+   * Waiting for the list to be *full* is what keeps a mid plane between two
+   * origin planes possible: hiding on the first pick would take the second
+   * base's own target off the screen.
+   */
+  private standardBaseFills(): boolean {
+    return this.bases.length >= this.panel.capacity
+      && this.bases.some(base => base.kind === 'standard');
+  }
+
+  /**
+   * Repaint the chips, the hint box, the picked-entity highlights, and the
+   * viewport's pick channels — everything that follows from the base list.
+   */
   private refresh(): void {
     if (!this.armed) {
       return;
     }
+    this.syncViewport();
     this.panel.setBases(this.bases.map(base =>
       base.kind === 'plane' || base.kind === 'wire'
         ? sourceChip(base.option)

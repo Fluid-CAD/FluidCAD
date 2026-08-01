@@ -15,6 +15,7 @@ import { Helix } from "../features/helix.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { MirrorFeature } from "../features/mirror-feature.js";
 import { PlaneFromObject } from "../features/plane-from-object.js";
+import { PlaneMiddleRenderable } from "../features/plane-mid.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { RepeatAxisSource } from "../features/repeat-base.js";
 import { RepeatCircular } from "../features/repeat-circular.js";
@@ -61,7 +62,13 @@ export type FeatureSources =
    * mirror plane. A world-axis or origin-plane literal is `opaque`: it names no
    * statement, and the dialog reads it straight off the argument text.
    */
-  | { feature: 'repeat'; targets: SourceSlot[]; axes: SourceSlot[]; plane?: SourceSlot };
+  | { feature: 'repeat'; targets: SourceSlot[]; axes: SourceSlot[]; plane?: SourceSlot }
+  /**
+   * A construction plane, by its bases in argument order — one for the offset
+   * and edge forms, two for a mid plane. An origin-plane literal names nothing
+   * and stays opaque; the dialog reads it straight off the argument text.
+   */
+  | { feature: 'plane'; bases: SourceSlot[] };
 
 export type FeatureSourcesResult =
   | ({ ok: true } & FeatureSources)
@@ -180,6 +187,22 @@ export function resolveFeatureSources(
         plane: resolver.planeSlot(feature.plane),
       };
     }
+    // The plane family, each form holding its own bases. All three extend
+    // PlaneObjectBase, so the two that carry sources come first and the bare
+    // literal (`plane('xy', 10)`) falls through to a base it can't re-target.
+    if (feature instanceof PlaneMiddleRenderable) {
+      return {
+        ok: true,
+        feature: 'plane',
+        bases: [resolver.planeBaseSlot(feature.p1), resolver.planeBaseSlot(feature.p2)],
+      };
+    }
+    if (feature instanceof PlaneFromObject) {
+      return { ok: true, feature: 'plane', bases: [resolver.planeBaseSlot(feature.sourceObject)] };
+    }
+    if (feature instanceof PlaneObjectBase) {
+      return { ok: true, feature: 'plane', bases: [OPAQUE] };
+    }
     if (feature instanceof ExtrudeBase) {
       const kind = feature.getType() === 'cut' ? 'cut' as const : 'extrude' as const;
       if (feature instanceof ExtrudeToFace) {
@@ -267,6 +290,20 @@ class SourceResolver {
       return this.entitiesSlot([obj.sourceObject]);
     }
     return OPAQUE;
+  }
+
+  /**
+   * One base of a plane statement — what the plane dialog re-picks in that
+   * slot. A base that is itself a statement (another plane, or the sketch or
+   * helix an edge plane stands on) resolves by call site; anything else is a
+   * selector, and resolves to the face or edge it named as viewport entities
+   * on the pre-statement solids.
+   */
+  planeBaseSlot(obj: SceneObject): SourceSlot {
+    if (obj instanceof PlaneObjectBase || obj instanceof Sketch || obj instanceof Helix) {
+      return this.callSiteSlot(obj);
+    }
+    return this.entitiesSlot([obj]);
   }
 
   /** Statements by call site — a repeat's targets are features, not sketches. */
